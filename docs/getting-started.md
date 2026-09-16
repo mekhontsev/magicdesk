@@ -31,6 +31,12 @@ Shizuku may need restarting, depending on its startup method. Missing shell
 access does not prevent ordinary UI or independently authorized Termux
 sessions from opening.
 
+The control panel shows a full-width status, followed by clickable **Access**
+and **Termux** summaries. Access reports the connected service as shell, root
+or none, with an explicit authorization action. Termux reports **Not installed**,
+**Setup required** or **Ready**; its dialog explains permissions and external
+command configuration. Ready is a prerequisite check, not a trial command launch.
+
 ## Open Tools
 
 Open **Apps** in the control panel, then choose an application or **Terminal
@@ -46,12 +52,37 @@ Termux, external app commands enabled in its configuration, and MagicDesk's
 Termux `RUN_COMMAND` permission. Termux and Android-shell sessions use different
 UIDs and filesystem access.
 
-Closing a terminal window detaches it. **Terminal sessions** can reopen the
-same retained session; **End session** terminates it. Retention lasts only
+Closing an ordinary terminal window detaches it. **Terminal sessions** can reopen
+the same retained session; **End session** terminates it. Retention lasts only
 while the MagicDesk process and transport survive. Optional tmux sessions
-inside Termux provide a separate lifetime for longer-running programs.
+inside Termux provide a separate lifetime for longer-running programs. Closing
+a managed tmux window releases only its client PTY; opening the session again
+attaches a new client without restarting its programs.
 
 See [Workstation tools](workstation-tools.md).
+
+## Open Linux Applications
+
+Enable external commands in Termux's `~/.termux/termux.properties` with
+`allow-external-apps=true`, reload its settings, and grant MagicDesk the requested
+Termux `RUN_COMMAND` permission. Install the X11 repository, keyboard data and
+an application in Termux, for example:
+
+```sh
+pkg install x11-repo
+pkg install xkeyboard-config gimp
+```
+
+Open Start and search for GIMP. MagicDesk discovers installed Termux `.desktop`
+launchers when Start opens. The X server is embedded; no separate Termux:X11 APK
+is required. Choose the display and window mode with Start's normal controls.
+Ordinary phone X11 windows do not require Desktop or shell access, although the
+control panel's display/App launcher section requires the privileged service.
+
+The **X11** tool manages retained sessions and can open a whole Linux desktop
+or individual clients from that session. A proot/chroot environment must supply
+its own programs and shared socket/authentication paths. See [Embedded X11](x11.md)
+for setup, launchers, clipboard/drag-and-drop and container examples.
 
 ## Choose Or Create A Display
 
@@ -153,26 +184,30 @@ notification center and popups are wanted.
 
 ## Close, Exit And Recovery
 
-**Close desktop** closes the selected workspace, releases its selected input and
-other session-owned changes. Surviving managed applications become independent
-fullscreen tasks on the same display. Only loss of that display returns them
-to phone fullscreen. It records the workspace for a later session, restoring
+**Close desktop** closes the selected workspace, releases input if it still owns
+the selection, and restores its other session-owned changes. Surviving managed
+applications become independent fullscreen tasks on the same display. Only loss
+of that display returns them to phone fullscreen. It records the workspace for a later session, restoring
 only tasks that are still alive. It keeps independent tools, retained terminals
 and owned displays available. Other Desktops keep running; only closing the last
 one returns HOME to its previous role state.
 
 **Exit MagicDesk** also clears that live workspace record, closes built-in
-windows, ends retained terminal sessions and stops the runtime. Neither action
-deletes Desktop files.
+windows, ends retained terminal and X11 sessions, removes owned displays and
+stops the app process after cleanup. Neither action deletes Desktop files.
+Reopening applies pending integration-package and privilege settings; Close
+Desktop does not restart the app or apply those startup choices.
 
 Unexpected display loss runs the same session cleanup. After process loss,
 startup recovery relinquishes stale MagicDesk HOME ownership before waiting
-for Shizuku. MagicDesk is not offered as an inactive HOME choice. When there
-was no explicit HOME holder at session start, Android may show its launcher
-chooser again; MagicDesk does not choose a replacement on the user's behalf.
+for the privileged service. MagicDesk is not offered as an inactive HOME choice.
+When there was no explicit HOME holder at session start, Android may show its
+launcher chooser again; MagicDesk does not choose a replacement on the user's behalf.
 
 The persistent notification opens Phone Control Panel. Its separate touchpad
-action opens the phone input surface for an active external session.
+action opens the phone input surface when external input control is available.
+While a retained terminal exists, a **Terminal** action resumes the most recently
+focused terminal even without Desktop, rather than creating another shell.
 
 ## Scale And Output
 

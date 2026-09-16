@@ -54,7 +54,14 @@ Run these without Desktop; managed Desktop self-tests cannot prove isolation:
 - [ ] Verify Files operations, transfers and URI grants, including private drag
   boundaries on API 34 versus same-application cross-window drag on API 35+.
 - [ ] Verify retained shell/Termux detach/reattach, explicit End session,
-  transport failure and process replacement. Test with and without tmux.
+  transport failure and process replacement. Closing a managed tmux window must
+  release only its client; an ordinary shell remains retained.
+- [ ] On actual API 34, validate embedded X11 startup, individual/whole-desktop
+  views, input, live DPI and shutdown with no Desktop or privileged service.
+- [ ] Exercise X11 clipboard and copy drag-and-drop with Android and same-/cross-X
+  sessions: text, HTML, PNG, files, large INCR transfers, denied URI grants,
+  cancellation and owner loss. Include container paths accessible and inaccessible
+  to the selected Termux server; never resolve a failure by escalating identity.
 - [ ] Create a virtual display, launch/capture fullscreen tools there and remove
   it without Desktop; verify viewer/display/session lifetimes separately.
 - [ ] Verify APK update, exact installer receipt and reconnect on API 34/35/36,
@@ -82,7 +89,14 @@ Run these without Desktop; managed Desktop self-tests cannot prove isolation:
 - [ ] Verify file/folder move and Ctrl-drag copy between Files and Desktop.
 - [ ] Verify per-app density release on cross-display return and Close.
 - [ ] Verify proportional files, shortcuts and widgets across differently sized
-  displays, and multiple owned displays with only one managed Desktop.
+  displays. Exercise simultaneous phone/external/virtual workspaces, independent
+  widget hosts and closing only one workspace.
+- [ ] Exercise portable workspace parking, output reconnect, Viewer source
+  switching and input handoff. Distinguish source removal from output loss;
+  clients must remain on the same logical display while its Viewer is absent.
+- [ ] Verify direct and portable startup on public untrusted outputs, ordinary
+  mirror viewers and optional protected sources without making root a prerequisite
+  for the ordinary path.
 - [ ] Verify microphone synchronization, video-only cleanup and standard-provider
   recording without optional vendor internal audio.
 

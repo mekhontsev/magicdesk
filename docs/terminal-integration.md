@@ -113,8 +113,8 @@ terminal clipboard protocols remain exact; no-selection Copy reads the transcrip
 
 ## Sessions
 
-Phone Control Panel and both console toolbars use one **Terminal sessions** picker.
-The control panel has one terminal entry point; all session types are created in the picker.
+Phone Control Panel's **Apps** launcher and both console toolbars use one
+**Terminal sessions** picker. All session types are created in that picker.
 It combines retained MagicDesk PTYs with tmux sessions discovered in the selected
 Termux package. A tmux session and its MagicDesk client appear once; live tmux
 client PIDs identify the current session even after switching inside tmux.

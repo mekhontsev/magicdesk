@@ -93,8 +93,8 @@ tokens. Optional vendor methods are separately detected and allowlisted.
 
 ## Content And Launch Authorization
 
-Files operates on paths accessible to the connected shell UID. Other Android
-apps receive bounded content-URI grants for selected files, never the shell
+Files operates on paths accessible to the connected privileged service identity.
+Other Android apps receive bounded content-URI grants for selected files, never the shell
 Binder or unrestricted filesystem authority. Directory clipboard operations
 stay internal. URI grants, app identity and shell placement authority are
 checked independently.
@@ -108,12 +108,20 @@ Retained shell and Termux terminals preserve their selected backend. A failed
 Termux request is not retried as a shell command. Closing a window detaches its
 view; explicit session termination or runtime exit releases the PTY. Package
 replacement and process death do not preserve those terminals.
+Managed tmux windows instead release their client PTY when closed; tmux owns
+the server session and its programs.
+
+X11 clipboard and copy drag-and-drop use MIME offers and bounded content streams.
+Android recipients receive read-only URI grants, not privileged filesystem
+authority. X11 file opens/imports use the retained server's Termux UID. The host
+does not translate container-private paths or retry denied access as root.
+Clipboard observation is scoped to a focused X11 host, not a global history.
 
 ## Input And HOME Ownership
 
-Physical keyboards and mice remain Android devices. A session journals and
-changes input-location associations for its selected display. Composite devices
-sharing a location share one route; hot-plug callbacks reconcile them without
+Physical keyboards and mice remain Android devices. Explicit input control journals
+and changes input-location associations for its selected display, with or without
+Desktop. Composite devices sharing a location share one route; hot-plug callbacks reconcile them without
 reading or forwarding the physical event streams.
 
 `DesktopShortcutService` is a key-only Accessibility filter. It consumes
@@ -129,13 +137,15 @@ acceleration, hover, dragging and right click. The external editor connects
 directly to the user's normal phone IME through Android's display IME policy.
 MagicDesk does not capture or relay its text.
 
-Close releases routing, shortcut enablement and the phone pointer before any
-owned display removal. Binder death and durable ownership records cover
+Close releases routing, shortcut enablement and the phone pointer only if that
+workspace still owns input. Owned display removal also releases input targeting
+that display. Binder death and durable ownership records cover
 interrupted cleanup; unknown inventory is not treated as an empty device list.
 
-Managed Desktop temporarily holds HOME. Close restores the previous role state
-before tearing down its remaining task surfaces. Disabling HOME components is
-a later cleanup phase, so Android cannot remove a live host during task parking.
+Managed Desktop temporarily holds HOME across all active workspaces. Closing the
+last workspace restores the previous role state before tearing down its remaining
+task surfaces. Disabling HOME components is a later cleanup phase, so Android
+cannot remove a live host during task release.
 Inactive MagicDesk HOME components are disabled. Startup recovery relinquishes
 stale HOME ownership before either privilege backend starts.
 

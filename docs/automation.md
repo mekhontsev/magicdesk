@@ -403,7 +403,9 @@ has a residency `id`, `displayId`, `outputDisplayId`, `active`, `starting`,
 available during preparation before host registration. The residency ID survives
 host recreation, not Close. A `target` contains `workspaceDisplayId` and an
 `output` object with `displayId`, `kind`, `profileKey`, and `activationSource`.
-The current presenter requires a direct workspace/output binding.
+The workspace target retains a direct binding to its Android display. A portable
+workspace uses a separate Viewer presentation edge to another output; that edge
+appears in `presentations`, not as a mutation of the workspace target.
 Output kinds are `built_in`, `wired`, `wireless`, and `simulated`; the `phone`
 launch/self-test target still means the system default display.
 `get_state.homeLease` reports shared phase, closing display and membership;
@@ -537,12 +539,15 @@ Viewer launch and attachment errors remain authoritative.
   the same display ID (including `-1`); `pointer_ready` separately verifies the
   phone mouse transport. No HOME or Desktop is acquired. Desktop shortcuts are
   enabled only when the selected display hosts its prepared workspace.
-- `move_task(taskId, displayId)` transfers an existing current-profile app task.
-  Ordinary destinations use fullscreen, Desktop destinations use its existing
-  freeform path. Same-display requests only focus the task. Task identity and
-  its source are revalidated; launch acceptance must be followed by task/UI
-  observation. This action never claims input. Built-ins retain `open_builtin`
-  and terminal-session commands, using the same destination policy.
+- `move_task(taskId, displayId, placement, mode, uniqueId)` reuses an existing
+  current-profile app task. `placement=auto` follows Desktop availability;
+  `desktop` requires a workspace and `display` selects independent fullscreen.
+  `mode=auto|windowed|fullscreen` controls managed placement; ordinary placement
+  is fullscreen. Same-display requests can change ownership or mode, not just
+  focus. Optional `uniqueId` checks the destination identity. The task and its
+  source are revalidated; launch acceptance must be followed by task/UI
+  observation. This action never claims input. Built-ins also retain `open_builtin`
+  and terminal-session entry points using the same destination policy.
 
 `list_displays.presentations` reports each viewer's binding UUID, Android `taskId`
 (-1 before Activity registration), exact source/output
@@ -831,12 +836,15 @@ require `input_tests`. These grants are independent for local and network
 clients. UI strings and entered text are not logged or added to diagnostics.
 Content revoked during a wait is not returned to the client.
 
-Example sequence after locating the intended editor:
+Example sequence after locating the intended editor (three separate tool calls,
+shown as an array):
 
 ```json
-{"tool":"ui.inspect","arguments":{"displayId":0,"maxNodes":200}}
-{"tool":"ui.perform","arguments":{"elementId":"<returned handle>","action":"set_text","text":"First line\nSecond line"}}
-{"tool":"ui.wait","arguments":{"displayId":0,"selector":{"resourceId":"example.app:id/editor","text":"First line\nSecond line"},"timeoutMillis":5000}}
+[
+  {"tool":"ui.inspect","arguments":{"displayId":0,"maxNodes":200}},
+  {"tool":"ui.perform","arguments":{"elementId":"<returned handle>","action":"set_text","text":"First line\nSecond line"}},
+  {"tool":"ui.wait","arguments":{"displayId":0,"selector":{"resourceId":"example.app:id/editor","text":"First line\nSecond line"},"timeoutMillis":5000}}
+]
 ```
 
 Selectors are exact conjunctions, not regexes or first-match heuristics. To wait

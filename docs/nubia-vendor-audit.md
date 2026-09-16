@@ -1,14 +1,15 @@
 # Nubia Vendor Interface Audit
 
 This is an inventory of the mechanisms used by MagicDesk, checked against
-the current source on 2026-09-10. It covers shared compatibility
+the current source. It covers shared compatibility
 policies, active vendor integrations, their owners, and known limitations.
 Test runs and their results belong in compatibility reports, not this inventory.
 
 Android 15 / API 35 is the managed-Desktop baseline; the APK and independent
 services have an Android 14 / API 34 floor. Shared Android mechanisms include
-hidden framework APIs used through the authorized Shizuku shell UserService
-(UID 2000); they are not necessarily public application SDK APIs. Linux
+hidden framework APIs used through the shared privileged service, with UID 2000
+as the baseline. Shizuku and direct root are startup transports, not separate
+vendor implementations. These are not necessarily public application SDK APIs. Linux
 uinput is also the shared phone-pointer transport. Conversely, a method in an `android.*`
 class, a Settings key, or an ordinary Intent can still have vendor-defined
 semantics.
@@ -52,7 +53,7 @@ by the shared Android baseline; the extension supplies defaults only for the
 other six. Partial extension selection adds only the defaults associated
 with its detected components.
 
-The HOME lease captures the policy for each session. A settings edit applies
+The workspace captures the policy for each session. A settings edit applies
 to the next session, not to live window operations. Diagnostics
 distinguishes the active selection from the next-session selection and reports
 actual input-routing and shortcut-filter readiness separately.
@@ -119,8 +120,10 @@ When selected, `ShellExternalTaskMigrationGuard` intercepts matching
 Intent flags, and transfers the existing task to phone fullscreen. Its
 observation path normalizes all observed display-0 freeform tasks during a
 wired/wireless session, not just tasks cached from the desktop. It is disabled
-for phone and simulated sessions. This broad policy is distinct from the
-exact-task transfer already performed by `DisplayAppLauncher`. Notification
+for phone and simulated sessions. Shared workspace membership also protects an
+active phone Desktop, and elects one external observer for ordinary phone-task
+normalization when several external workspaces coexist. This policy is distinct
+from the exact-task transfer already performed by `DisplayAppLauncher`. Notification
 `PendingIntent` launches are not necessarily MAIN/LAUNCHER requests and cannot
 be assumed to pass through this interceptor.
 
@@ -132,7 +135,7 @@ compatibility operations, not just cleanup of MagicDesk-owned surfaces.
 
 `ShellPhoneOverviewRouter` resolves Android's `config_recentsComponentName`
 and cancels that exact launch only while the app-side callback confirms an
-active HOME lease. During an external session, the routed HOME selects Recent
+active HOME lease. Without a phone Desktop, the routed HOME selects Recent
 in phone Start; during phone desktop it presents the desktop workspace.
 Other navigation requests are left alone. Release of HOME ends routing before
 task teardown completes.
@@ -302,9 +305,11 @@ do not change power or UID protection.
 The helper's heartbeat/watchdog owns restoration if MagicDesk, Shizuku, or
 the session ends. It is active screen-off ownership, not idle desktop polling.
 An unexpected helper failure does not automatically start another screen-off
-request. Normal Close hands back HOME, restores the phone screen, then releases
-input and tears down tasks/display. A restoration error is reported without
-aborting remaining cleanup, including when the physical monitor stays connected.
+request. The last workspace Close hands back HOME. Cleanup restores any owned
+phone-screen guard, releases input only for its owning workspace and tears down
+that workspace's tasks/host; Close alone does not remove the display. A restoration
+error is reported without aborting remaining cleanup, including when the physical
+monitor stays connected.
 
 The vendor-specific part is `cfreezer`,
 `com.zte.performance.cfreezer.ICpuFreezerManager`, and

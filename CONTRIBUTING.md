@@ -102,7 +102,8 @@ fail; compiler, model and Lint execution errors do. This does not replace the
 normal production-baseline Lint run or older-device testing. See
 [runtime API levels](docs/runtime-api-levels.md) for scope and interpretation.
 
-On Linux or Termux, also run the native PTY and virtual-pointer protocol fixtures:
+On Linux or Termux, also run the native PTY, virtual-pointer, process-signal and
+X11 icon/density fixtures:
 
 ```sh
 sh scripts/verify-native.sh

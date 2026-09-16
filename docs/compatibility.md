@@ -214,6 +214,13 @@ in-APK catalog recognition must not use its reused stock fingerprint alone.
 - Full work-profile/Private Space support and additional built-in screens on
   dual-screen devices are not implemented/verified by the current identity
   and display infrastructure.
+- Embedded X11 needs the selected Termux endpoint and XKB data, not a separate
+  Termux:X11 APK. Graphics acceleration is capability-based; unsupported Vulkan
+  imports retain CPU fallback. X cursor images and popups outside an individual
+  host's bounds remain limited; see [X11 graphics and limits](x11.md#graphics-and-limits).
+- X11 clipboard and copy drag-and-drop require compatible formats at both ends.
+  Container-private paths are not automatically translated into Termux paths,
+  and denied file access is not retried through shell/root.
 
 Native system shadows are expected. Self-test fixture-color comparisons account
 for their dimming; a literal source RGB match is not required on the composed

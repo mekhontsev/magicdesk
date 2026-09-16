@@ -259,12 +259,19 @@ on one desktop. Both graphical applications are supplied by Termux.*
    needed for applications that provide one.
 
 Choose the destination display and window mode using the same Start controls
-as Android apps. Mouse, keyboard, text clipboard, app titles and icons are
+as Android apps. Mouse, keyboard, clipboard, app titles and icons are
 integrated. Windows show the application content without an extra MagicDesk
 toolbar. Launching again returns to the existing window; **New window** requests
 another session, subject to the application's own instance/profile rules.
 Recent remembers Android and X11 launch recipes without accumulating duplicate
 entries, and can relaunch an X11 command after its previous session ends.
+
+Copy text, HTML, PNG images and files between Android and X11 applications.
+Drag-and-drop supports copying between compatible Android/X11 windows and
+between separate X11 sessions. The receiving application must support the
+offered format; container-private file paths need shared storage or bindings.
+See [clipboard and drag-and-drop](docs/x11.md#clipboard-and-drag-and-drop) for
+the supported formats and limits.
 
 X11 scale follows the host display's density. Adjust an app's **Interface scale**
 from **50% to 200%** in its Start context menu, or adjust a session in the X11
@@ -494,8 +501,8 @@ and the [API-level contract](docs/runtime-api-levels.md).
 2. For privileged features, start Shizuku and authorize MagicDesk, or select
    **Root (su)** in **Settings > Integrations**, reopen MagicDesk and approve the
    root request. Termux is optional and has its own permission setup.
-3. Use **Apps** for Files and other applications, or **Terminal sessions** to
-   create an Android-shell, Termux or tmux terminal without starting Desktop.
+3. Use **Apps** for Files and other applications. Its **Terminal sessions** entry
+   creates or opens Android-shell, Termux and tmux terminals without Desktop.
 4. For Desktop, open **Settings > Device setup**, complete the required changes,
    and reboot only when setup requests it. Restart Shizuku afterward as needed.
 5. Find the phone, a connected display, or one created through **Create display**

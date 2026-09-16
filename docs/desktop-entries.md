@@ -248,9 +248,11 @@ desktop window placement matters.
 - `windowed`: request a freeform window.
 - `fullscreen`: request a true fullscreen task.
 
-Unknown or missing values use `auto`. Window modes apply when the entry also
-identifies an Android package that MagicDesk can prepare as a desktop task.
-They do not alter a generic background shell process.
+Unknown or missing values use `auto`. Window modes apply to an Android target
+or to the Android host created for an X11 recipe. They require managed Desktop
+placement for windowed mode; independent placement remains fullscreen.
+They do not alter a generic background shell process. Start's explicit mode
+selection can override the recipe's default for that launch.
 
 An entry with both `X-MagicDesk-Package` and executable `Exec`, but without
 `X-MagicDesk-Intent` or `X-MagicDesk-Default=true`, is a composite launch.

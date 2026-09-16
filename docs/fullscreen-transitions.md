@@ -119,7 +119,9 @@ even when both TaskInfo and application frames already report phone fullscreen
 bounds. The native transition owns that surface lifecycle. Fullscreen return
 uses `FrameworkWindowCommitBarrier` before a following phone launcher Intent;
 it does not submit an additional focus transaction or manually reposition a
-surface. This path is shared by phone Start, task return, and session parking.
+surface. This path is shared by phone Start, task return and session teardown.
+Portable workspace parking only detaches its output Viewer; it does not use
+this task-transfer path.
 
 When an application initiates immersive mode itself, the long-lived shell task
 observer retains its freeform bounds and does not recreate the Activity. The

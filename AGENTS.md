@@ -33,6 +33,13 @@ An explicitly managed tmux window releases only its client PTY; tmux owns the
 server session and programs. MCP is an authorized adapter to these services, not their owner.
 Keep profile-scoped application identities and storage boundaries intact.
 
+Embedded X11 is also a shared service: the selected Termux environment supplies
+programs, while the fork owns the X server/protocol and rendering. Android hosts
+borrow outputs; whole-desktop viewer closure retains the session, whereas an
+individual-client host requests that client's closure. Keep clipboard, drag URI
+grants and Android placement in the host, not the native renderer. Read
+`docs/x11.md` and the fork's `docs/embedding.md` before changing this boundary.
+
 Do not retain obsolete internal APIs, persisted-data formats or MCP protocols
 solely for backward compatibility unless explicitly requested. Remove replaced
 paths instead of adding migration layers; this does not relax the supported

@@ -50,7 +50,9 @@ behavior, static verification and remaining device coverage.
 
 The control panel uses `DisplayTableView`: one row per Android display with its
 identity, Desktop status, independent applications and Viewer links. The display list
-follows the compact status/access row without an extra section heading.
+follows a full-width status and a shared row of clickable Access and Termux
+summaries, without an extra section heading. `IntegrationStatusDialogs` separates
+read-only prerequisite summaries from explicit authorization/setup actions.
 **Create display** belongs to the lower general-action grid and uses the table's
 current selection for creation defaults. **Exit MagicDesk** asks for confirmation
 before invoking the existing exit controller. Desktop Start's Tools page exposes
@@ -502,6 +504,8 @@ component.
 | Phone desktop wallpaper policy | `ShellPhoneDesktopWallpaperPolicy` | Keeps the MagicDesk HOME surface visible below standard freeform tasks |
 | Fullscreen topology | `ShellFullscreenTaskArea` | Owns per-task fullscreen planes on every desktop target |
 | Hidden API stubs | `hidden-api-stubs/` | Compile-time signatures only; never packaged |
+| Terminal emulator | `terminal-emulator/` | Local byte-stream parser, screen buffers and terminal graphics |
+| Embedded X11 | `vendor/magicdesk-x11/embedded` | Server, protocol, Binder lifetime and multi-output renderer |
 | Mouse helper | `native/magicdesk_uinput_bridge.c` | Binder-owned relative phone pointer |
 | Kernel Fixes add-on | `io.github.mekhontsev.magicdesk.kernel` | Independent, manually launched, firmware-specific root fixes |
 
@@ -530,7 +534,8 @@ runtime integration and are not distributed through the same release path.
   incoming Android URI drops. It has no vendor dependency.
 - `CommandConsoleActivity` presents a retained `ConsoleTerminalSession` on the
   phone, an ordinary secondary display, or Desktop. Closing its window detaches
-  the presentation. Ending the session explicitly closes its PTY and emulator.
+  an ordinary presentation; a managed tmux window releases only its client PTY.
+  Ending the session explicitly closes its PTY and emulator.
   Sessions remain isolated from each other and have at most one attached window.
 - `SettingsActivity`, `SettingsView`, and `MagicDeskSettings` own persistent
   user-selected desktop behavior. They are separate from the transient System
@@ -577,9 +582,9 @@ runtime integration and are not distributed through the same release path.
   `RuntimeDisplayInputCoordinator` composes
   input-device routing, the phone pointer and shortcut filter, desktop text routing,
   and software-keyboard policy. `RuntimeDesktopTaskCoordinator` owns the
-  process-level `DesktopTaskController`, initializes Desktop observation for
-  the managed session, and binds display-scoped task reconciliation to
-  the active session snapshot. It implements the narrow `DesktopTaskRuntime`
+  display-scoped `DesktopTaskController` instances, initializes observation for
+  admitted workspaces, and binds each reconciliation to that workspace's
+  residency snapshot. It implements the narrow `DesktopTaskRuntime`
   contract exposed through `MagicDeskRuntime`; callers do not locate a
   process-global active task controller. The optional non-reference-counted partial
   wake lock is held only while both its setting and a MagicDesk desktop
@@ -1600,6 +1605,8 @@ application discovery. `DesktopEntrySource` separates its authority from shell
 file access: Termux launches resolve an exact freshly queried catalog path.
 `X11ApplicationLaunch` turns its executor into a normal Android launch request;
 the native window model owns X relationships, never Android task topology.
+Clipboard and copy drag-and-drop reuse the shared Android content boundary;
+the fork owns selection/XDND negotiation, while the host owns focus and URI grants.
 The session manager is separate from content-only client/desktop viewers.
 Individual outputs retain Android Surface geometry; root outputs leave Linux
 window placement to its window manager. Window titles and bounded EWMH icons
@@ -2958,7 +2965,10 @@ surface-specific command logic.
 
 `DesktopExecRunner` owns the execution-backend boundary. Android shell is the
 default backend;
-`X-MagicDesk-ExecBackend=termux` selects Termux explicitly. Unknown backend
+`X-MagicDesk-ExecBackend=termux` selects Termux explicitly. The `x11` backend
+is prepared by `X11ApplicationLaunch` as an Android host request before generic
+command delegation; it never starts a headless command through the shell runner.
+`Terminal=true` with `x11` instead selects a Termux PTY. Unknown backend
 names invalidate the entry instead of silently running a command in the wrong
 environment. `Terminal=true` opens the built-in Console with either a
 UserService-backed Android shell PTY or a Termux-hosted PTY. PTY transport is an
@@ -2977,8 +2987,9 @@ of Android UI classes; `DesktopDragLaunchArguments` is the drag-and-drop
 adapter used by Desktop and Files. Each argument validates its 8192-character
 path/URI limit at construction, including the escaped file URI; selection and
 automation readers check the 128-item limit before materializing arguments.
-Commands without field codes retain raw shell syntax, while expanded values
-are tokenized and shell-quoted. Expansion writes directly into the bounded
+Shell/Termux commands without field codes retain raw shell syntax, while expanded
+values are tokenized and shell-quoted. X11 recipes always use desktop-entry
+argument parsing, requiring explicit `sh -c` for shell syntax. Expansion writes directly into the bounded
 4096-character command, checking inserted fields and quoting overhead as it
 goes instead of building a potentially much larger intermediate argument list.
 `Path` is
@@ -3314,8 +3325,8 @@ shared directory. MagicDesk atomically installs a versioned native relay from
 the APK through `RUN_COMMAND_STDIN`; a random per-window token authenticates
 the relay's loopback connection before any terminal bytes are accepted.
 MagicDesk does not mirror or mutate the Termux application's own PTY registry.
-When tmux is installed, its independent session registry is queried only by an
-explicit session picker or automation request.
+When tmux is installed, its independent session registry is queried on demand by
+session pickers, Task Manager and automation, not by resource-sampling timers.
 Bounded Termux commands use its documented `RUN_COMMAND_PENDING_INTENT`
 result channel. The result receiver is explicit, non-exported, one-shot, and
 bounded by a timeout; long-running PTY commands do not wait for process exit.
@@ -3449,6 +3460,8 @@ phone-fullscreen recovery; failure to query a display is not evidence of removal
 The in-memory workspace record is restored only on its own still-live display;
 records from a removed display can be restored to a new workspace. Restoration
 matches task ID, Android user and package, so it never recreates a closed task.
+This retained task-layout record is distinct from portable workspace parking:
+parking leaves a virtual Desktop active and changes only its output presentation.
 The same record is captured from the latest observed task snapshot when
 a display disappears or a desktop host is replaced before an explicit close can
 query it. An explicit **Exit MagicDesk** clears this record and closes built-in
@@ -4002,19 +4015,24 @@ tests cannot prove firmware behavior.
 
 ## Build And Release Boundaries
 
-The Gradle project has three modules:
+The Gradle project has six modules:
 
 - `app`: main MagicDesk APK;
 - `hidden-api-stubs`: compile-only framework signatures;
-- `kernel-fixes`: independent optional APK.
+- `kernel-fixes`: independent optional APK;
+- `terminal-emulator`: locally maintained terminal parser and screen model;
+- `x11-runtime`: the fork's embedded Android library;
+- `x11-stubs`: the fork's compile-only Android signatures.
 
-Every main-app build compiles three native helpers from source: the virtual mouse,
-PTY transport and one-shot privileged service launcher. CI verifies that the main APK contains them
-and no `.ko`, and that the Kernel Fixes APK contains exactly the reviewed module
-and no main-app native helper.
+Every main-app build compiles four native helpers from source: the virtual mouse,
+PTY transport, one-shot privileged service launcher and identity-checked process
+signal helper. The X11 module also builds its server/renderer library. CI verifies
+that the main APK contains the required helpers and no `.ko`, and that the Kernel
+Fixes APK contains exactly the reviewed module and no main-app native helper.
 
-Native artifacts currently cover ARM64 only, and the host NDK helper target
-still uses API 35. The APK's API 34 manifest floor does not establish that native
+The main-app helpers currently cover ARM64 only, and their host NDK target
+still uses API 35. The X11 library additionally builds x86_64 with the NDK; that
+does not supply the missing helper ABI. The APK's API 34 floor does not establish native
 compatibility. Remaining ABI/API validation is documented in
 [Runtime API levels](runtime-api-levels.md).
 
@@ -4031,7 +4049,8 @@ separate groups while preserving an independent UNIX session. Virtual-pointer
 fixtures replace only device I/O to exercise motion, buttons, scrolling,
 protocol validation and write errors.
 They use bounded subprocess lifetimes and a temporary directory, without
-physical input access. Linux CI runs them in addition to Gradle verification.
+physical input access. The same script checks process incarnation signaling and
+X11 icon/density wire formats. Linux CI runs it in addition to Gradle verification.
 
 The kernel module itself is not compiled in normal Android CI. Rebuilding it
 requires the exact upstream kernel source, config, symbol versions, and guarded
@@ -4044,6 +4063,11 @@ release variants without signing secrets. Both routes run
 
 For a `v*` tag, the release workflow loads signing credentials through
 `gradle/release-signing.gradle`, signs only the main MagicDesk APK, verifies its
-certificate and package boundary, emits a SHA-256 file, and publishes that APK
-as the tagged release. The firmware-specific Kernel Fixes APK is not a tagged
+certificate and package boundary, emits checksums, and publishes the APK with its
+corresponding source archive as the tagged release. Source packaging runs before
+native compilation and includes recursively pinned submodules and their build
+patches; see [Licensing](licensing.md). Development APKs also carry matching source.
+Publish fork commits before a main-repository revision that references them, so
+recursive CI checkout and source reproduction can resolve the pinned revision.
+The firmware-specific Kernel Fixes APK is not a tagged
 release artifact. Local debug builds never require release secrets.

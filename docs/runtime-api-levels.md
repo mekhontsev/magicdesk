@@ -14,7 +14,7 @@ device validation on that release is still pending.
 | Script dialogs and notifications | API 34; MCP content grant or inherited CLI channel. Background dialog placement requires the shared privileged launcher; notifications require Android notification permission/channel access. No Desktop or Termux prerequisite. |
 | Files, shell commands and transfers | API 34 plus authorized privileged service for shell-backed operations. |
 | Termux sessions and viewers | API 34 plus installed Termux, external-command configuration and `RUN_COMMAND` permission. The PTY and its window have separate lifetimes. |
-| Embedded X11 | API 34 plus the selected Termux endpoint, `RUN_COMMAND` permission and XKB data. Server runs under the Termux UID; renderer loads only on explicit session startup. No installed Termux:X11 APK, Desktop, HOME or privileged service prerequisite for an ordinary phone window. |
+| Embedded X11 | API 34 plus the selected Termux endpoint, `RUN_COMMAND` permission and XKB data. Server runs under the Termux UID; renderer loads only on explicit session startup. Clipboard and copy drag-and-drop use ordinary Android content grants. No installed Termux:X11 APK, Desktop, HOME or privileged service prerequisite for an ordinary phone window. |
 | APK replacement | API 34 plus authorized privileged service and the update grant. Android's PackageInstaller and its shell callback own replacement; the update worker survives replacement and reconnect is observed by update ID. |
 | Display resources and ordinary tool placement | API 34 plus authorized privileged service and working framework capabilities. Creating a display or placing a fullscreen tool there does not acquire HOME or initialize WMShell Desktop. |
 | Display Viewer | API 34 plus authorized privileged service. Owned virtual sources use VirtualDisplay/SurfaceView; existing screens use the framework mirrorDisplay capability and READ_FRAME_BUFFER permission. Shared privileged input adapter. No Desktop, vendor token lookup or root requirement. Virtual-first managed Desktop still requires API 35. |
@@ -104,7 +104,8 @@ hidden Binder ABI compatibility, reflective members, dependency/native behavior,
 SELinux grants or firmware policy.
 
 The remaining API 34 device matrix is: cold app/MCP startup, privileged-service reconnect,
-file operations and transfers, retained shell/Termux sessions, CLI commands with
+file operations and transfers, retained shell/Termux and embedded X11 sessions,
+X11 input/clipboard/drag-and-drop, CLI commands with
 MCP disabled, private/shared
 drag boundaries, APK replacement with reconnect, virtual-display creation,
 fullscreen tool launch/capture/removal, ordinary task transfer, independent

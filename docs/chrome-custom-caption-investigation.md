@@ -171,17 +171,9 @@ pass, while the production-routed custom-caption click consistently failed.
 This confirmed the product defect without depending on Chrome coordinates or
 package behavior.
 
-During the same work, the debug smoke script was found to use `am instrument`
-against the application package. Android replaced the running MagicDesk
-process, which also killed MCP and looked like a self-test crash. That unrelated
-test-harness defect was fixed and retained in commit `a2d5461`: the smoke test
-now uses the debug self-test Activity, and ordinary self-test clicks use the
-production pointer route.
-
 The custom-caption fixture and transfer router were removed because no
-supported production route could satisfy their assertion. The final simulated
-self-test completed with 112 PASS results, no failures, one expected warning,
-and a live MagicDesk/MCP process.
+supported production route could satisfy their assertion. These experiments do
+not establish a passing custom-caption path in the current self-test suite.
 
 ## Rejected Runtime Changes
 

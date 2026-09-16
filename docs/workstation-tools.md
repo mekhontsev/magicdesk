@@ -1,6 +1,7 @@
 # Workstation Tools
 
-Files, Console and Termux sessions are shared tools, not Desktop-owned services.
+Files, Console, Termux and embedded X11 sessions are shared tools, not
+Desktop-owned services.
 The APK baseline is Android 14; managed Desktop requires Android 15. Tools open
 as ordinary fullscreen Activities on the phone or selected display outside a
 session, and as managed windows on its active display. Service requirements and
@@ -24,9 +25,12 @@ An optional custom wallpaper is stored beside that file. The hidden
 state, diagnostics, recent applications, and Android widget bindings remain
 outside the Desktop directory.
 
-Desktop files, widgets, pins, shortcuts, and recent applications are global
-across displays. Positions are proportional to the active work area, while
-output mode and DPI remain per-monitor settings.
+Desktop files, pins, shortcuts and managed application history are shared
+across displays. Each logical workspace has its own Android widget host and
+bindings; closing another workspace does not stop its widget updates. File
+layout is shared, while widget placements refer to their own IDs. Display
+configuration and DPI belong to each display's profile, independently of which
+output currently shows it.
 
 Application identities and saved app state include an Android profile serial.
 This is a foundation for future profile support, not a work-profile or Private
@@ -107,6 +111,7 @@ MagicDesk supports a bounded freedesktop-compatible `.desktop` subset for:
 - Android applications and published shortcuts;
 - Android shell commands;
 - Termux commands;
+- embedded X11 applications and whole Linux desktops;
 - composite Android viewer and external-process launches.
 
 Entries can select a working directory, launch mode, execution backend, MIME
@@ -133,9 +138,12 @@ launch precedence, validation, and examples.
 
 Every retained Console session owns an independent process attached to a real
 pseudo-terminal. A window is its optional presentation, not its lifetime owner.
-Closing a window detaches it; **Terminal sessions** can reattach the same PTY.
+Closing an ordinary window detaches it; **Terminal sessions** can reattach the
+same PTY.
 **End session**, shell exit, transport failure or runtime exit terminates it.
 Sessions survive Close Desktop but not MagicDesk process death or APK replacement.
+Managed tmux connections have a different close contract: only the client PTY
+ends, while tmux retains its session and programs.
 The built-in backend runs `/system/bin/sh` with the authorized
 shell identity; the optional Termux backend runs the user's configured Termux
 shell and installed tools. Both provide:
@@ -149,6 +157,11 @@ shell and installed tools. Both provide:
 - `Tab`, `Ctrl+C`, and other normal terminal keys;
 - current-directory tracking and a direct action to open that directory in
   Files.
+
+The shared renderer also supports Nerd Font glyphs, clickable links, shell-marked
+command history, static Sixel/Kitty images and fractional local-history scrolling.
+See [Terminal integration](terminal-integration.md) for protocols, touch selection,
+image export and the limits of smooth scrolling inside terminal applications.
 
 Swipe with one finger or use the mouse wheel to scroll. In the ordinary shell,
 this reads scrollback; in a mouse-aware application such as tmux, it sends wheel
@@ -206,13 +219,15 @@ current-directory tracking, task lifecycle, and MCP `terminal.*` operations as
 the Android-shell Console. Multiple sessions own independent shells; closing a
 window detaches only its presentation.
 
-When the optional `tmux` package is installed inside Termux, the tmux toolbar
-button performs one bounded session query. It can attach an existing session
-or create a named persistent session in a new Termux-backed Console. Ending
-that Console session disconnects its tmux client without ending the tmux server
-session; merely closing its window keeps the client attached to the retained PTY. No tmux
-command or session query runs in the background. Ordinary Termux app sessions
-are not PTY streams exposed by the command API and are not shown in this list.
+When the optional `tmux` package is installed inside Termux, **Terminal sessions**
+combines retained terminals and tmux sessions in one list, without duplicating
+a session for its attached MagicDesk client. The same picker appears in the
+control panel's Apps launcher and console toolbars. Closing or detaching a managed
+tmux window disconnects only its client; reopening attaches to the retained session.
+Explicit termination of a tmux session affects all its windows and clients and
+asks for confirmation. Discovery is on demand, not an idle background query.
+Ordinary Termux app tabs are not PTY streams exposed by the command API and are
+not shown in this list.
 
 For Termux-backed windows, Open tasks identifies the current PTY foreground
 program, such as `mc` or `nvim`, and uses a sanitized OSC terminal title as
@@ -223,8 +238,8 @@ MagicDesk installs its small versioned PTY relay atomically inside Termux's
 private home through the documented `RUN_COMMAND` stdin channel. The relay
 connects back only over an authenticated loopback socket. MagicDesk neither
 copies Termux executables into the APK nor reads the Termux application's PTY
-registry. The separate optional tmux picker reads tmux's own session list only
-when explicitly opened.
+registry. Session pickers, Task Manager and automation query tmux's own registry
+on demand.
 Directories under Termux's private home cannot be opened in Files when the
 authorized Android shell identity cannot read them.
 
@@ -232,6 +247,22 @@ A `.desktop` entry can run a command through Termux or combine it with an
 Android application launch. The entry owns its command; MagicDesk does not
 replace it with a package-specific startup or reconnect script. See
 [Desktop Entry files](desktop-entries.md).
+
+## Linux Applications And Desktops
+
+MagicDesk embeds its X11 server and renderer; installing the standalone
+Termux:X11 APK is unnecessary. Installed Termux graphical applications with
+launchable `.desktop` entries appear in Start. They can open as independent
+fullscreen applications or managed Desktop windows with native Android captions.
+The X11 session manager can also launch a command, open a whole Linux desktop,
+or present individual windows from a retained session.
+
+Focused X11 windows exchange text, HTML, PNG images and files with Android's
+clipboard. Copy drag-and-drop works between compatible Android and X11 windows,
+including different X11 sessions. File access remains under the selected
+Termux UID; container-private paths need explicit shared storage or bindings.
+Desktop is not a prerequisite. See [Embedded X11](x11.md) for setup, DPI,
+session lifetime, container examples and transfer limits.
 
 ## Task Manager And Desktop Controls
 
@@ -244,18 +275,28 @@ search. Application context menus expose supported Android shortcuts, launch
 modes, new-window requests, Android application information, pinning, and
 `.desktop` shortcut creation.
 
-During an external session, phone HOME embeds the same Start content in its
-own independent view. It searches phone applications, lists actual phone recent
-tasks, and launches them in ordinary phone fullscreen without applying Desktop
-window or DPI profiles. Desktop Start continues to use its own history.
+While another display has Desktop but the phone does not, phone HOME embeds
+the same Start content and defaults to ordinary phone fullscreen launches.
+Its Recent page uses Android's phone tasks; managed application history is
+shared across workspaces and includes Android and X11 launch recipes.
+Every Start surface offers the same destination, managed/independent placement
+and new-window controls. Independent tasks stay outside Desktop's Alt+Tab and
+taskbar, and can be selected from the control panel's display row actions.
 
 Task Manager provides:
 
-- running application tasks;
-- live CPU and memory indicators;
-- exact-task focus and close;
-- explicit package force-stop;
+- Android tasks, retained terminals, tmux and X11 sessions in Applications;
+- process trees with name, CPU, RSS memory and PID sorting, plus a Termux filter
+  that also includes processes started outside MagicDesk;
+- exact-task focus/close and explicit session termination through their owners;
+- explicit package force-stop and identity-checked process TERM/KILL;
 - a lifecycle-bound application log viewer filtered by Android UID.
+
+Application rows can be sorted by name, CPU and memory too. CPU uses 100 percent
+per core for a process/session; RSS can include shared memory. Unknown samples
+are not reported as zero. X11 session figures cover the server, while its client
+processes remain visible in Processes. Resource sampling stops when the tool
+is no longer visible; Task Manager does not require Desktop.
 
 The desktop also integrates:
 
@@ -279,17 +320,23 @@ Applications remain native Android tasks. MagicDesk can launch them windowed
 or fullscreen, snap them, restore remembered freeform bounds, switch exact
 tasks with `Alt+Tab`, and preserve live layouts across desktop sessions.
 
-On every platform, the input session associates physical device locations with
-the selected Desktop display. Android delivers the original events, including
-repeat, modifiers, layouts, hover and right click. A key-only Accessibility
-filter handles Desktop shortcuts; Close releases both its ownership and the
-device associations.
+On every platform, input control associates physical device locations with a
+selected display, independently of Desktop. Android delivers the original events,
+including repeat, modifiers, layouts, hover and right click. Desktop selects
+input after preparation; closing a workspace releases it only if that workspace
+still owns the selection. A key-only Accessibility filter handles shortcuts
+when the selected display has a prepared Desktop. **Release input** restores
+the prior Android routing rather than forcing display 0.
 
 The phone touchpad uses one virtual relative mouse, with Android acceleration.
 The user's normal phone IME connects directly to the external editor through
 Android's display IME policy. MagicDesk does not select another IME or relay
 editor text. Layout cycling uses Android's physical-layout mappings and enabled
 IME subtypes; shortcut filtering does not depend on a particular keyboard app.
+**Show keyboard on app display** in Settings or the taskbar context menu requests
+the keyboard on the editor's display instead of the phone. Support depends on
+Android and the selected IME. Clicking bare Desktop requests keyboard dismissal
+without making the Desktop host focusable.
 
 ## Settings
 
@@ -306,9 +353,16 @@ The Settings window controls persistent MagicDesk behavior, including:
   setting.
 
 Settings has section dividers and a persistent section-navigation menu.
-Phone Control Panel groups Desktop launch/session controls before independent
-tools, with Settings in its header. Unavailable session actions stay in place
-and are disabled.
+Phone Control Panel keeps Settings in its header, followed by status, integration
+summaries, the display table and its selected-display actions. Shared Wireless,
+Create display and input/power controls follow; Exit requires confirmation.
+**Apps** in the selected-display actions opens the common launcher for independent
+tools too. The display section is hidden without shell access; unavailable actions
+otherwise retain their slots and are disabled.
+Status occupies one full-width row. The underlined **Access** and **Termux**
+controls share the next row and open short setup/status dialogs. Access reports
+the connected service identity; Termux shows Not installed, Setup required or
+Ready, with details in its dialog. Termux readiness is independent of shell access.
 
 The taskbar sliders icon opens **Quick controls**, a content-sized panel above
 the taskbar with audio, interface scale, pointer speed, and available hardware
