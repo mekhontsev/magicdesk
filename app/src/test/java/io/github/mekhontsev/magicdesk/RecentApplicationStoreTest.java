@@ -26,6 +26,17 @@ public final class RecentApplicationStoreTest {
         return new RecentApplicationStore.Entry(app, path, app.hasExecLaunch() ? "com.termux" : "", 100);
     }
 
+    @Test public void sourcePathsUseAndroidNamespaceOnEveryHost() {
+        var app = x11("GIMP", "gimp %k");
+        String source = "/data/data/com.termux/files/home/app with spaces.desktop";
+        assertEquals(source, entry(app, source).sourcePath());
+        assertEquals("", entry(app, "").sourcePath());
+        for (String invalid : new String[]{"relative.desktop", "C:/apps/gimp.desktop",
+                "C:\\apps\\gimp.desktop", "\\\\server\\app.desktop", "/bad\0.desktop"}) {
+            assertThrows(IllegalArgumentException.class, () -> entry(app, invalid));
+        }
+    }
+
     @Test public void mixedHistorySurvivesRestartWithoutAnIndexOrRuntimeIds() throws Exception {
         var app = entry(android(new AppProfile(0, 5), "example.app"), "");
         var gimp = entry(x11("GIMP", "gimp %U"), "/termux/gimp.desktop");

@@ -50,10 +50,11 @@ public final class X11LaunchSpecTest {
     }
 
     @Test public void graphicalCommandsDrainOutputAndPreserveFailureStatus() throws Exception {
-        Process process = new ProcessBuilder("bash", "-c", X11LaunchSpec.boundedOutput(
+        String shell = System.getenv().getOrDefault("MAGICDESK_TEST_BASH", "bash");
+        Process process = new ProcessBuilder(shell, "-c", X11LaunchSpec.boundedOutput(
                 "printf '%20000s' x; printf 'final error' >&2; exit 17")).start();
         byte[] output = process.getErrorStream().readAllBytes();
-        assertEquals(17, process.waitFor());
+        assertEquals(new String(output, StandardCharsets.UTF_8), 17, process.waitFor());
         assertEquals(16384, output.length);
         assertTrue(new String(output, StandardCharsets.UTF_8).endsWith("final error"));
         assertEquals(0, process.getInputStream().readAllBytes().length);

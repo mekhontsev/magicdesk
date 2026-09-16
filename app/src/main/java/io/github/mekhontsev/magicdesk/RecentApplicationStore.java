@@ -17,9 +17,10 @@ final class RecentApplicationStore {
     static final int LIMIT = 24;
     record Entry(DesktopApplicationShortcut shortcut, String sourcePath, String termuxPackage, long lastUsed) {
         Entry {
+            // Launch recipes contain Android paths, independent of the build host's filesystem.
             if (shortcut == null || sourcePath == null || termuxPackage == null || lastUsed <= 0 || lastUsed == Long.MAX_VALUE
                     || sourcePath.indexOf('\0') >= 0
-                    || !sourcePath.isEmpty() && !Path.of(sourcePath).isAbsolute()
+                    || !sourcePath.isEmpty() && !sourcePath.startsWith("/")
                     || !termuxPackage.isEmpty() && !PackageNameValidator.isSafe(termuxPackage)
                     || shortcut.launchTarget != null && shortcut.application == null
                     || shortcut.hasExecLaunch() && shortcut.execBackend != DesktopExecBackend.SHELL

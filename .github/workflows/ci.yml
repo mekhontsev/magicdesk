@@ -266,6 +266,8 @@ jobs:
         run: |
           cygpath -w /ucrt64/bin >> "$GITHUB_PATH"
           cygpath -w /usr/bin >> "$GITHUB_PATH"
+          # Do not resolve the Windows WSL bash launcher in JVM shell tests.
+          printf 'MAGICDESK_TEST_BASH=%s\n' "$(cygpath -w /usr/bin/bash.exe)" >> "$GITHUB_ENV"
 
       - name: Verify Windows build
         shell: pwsh
