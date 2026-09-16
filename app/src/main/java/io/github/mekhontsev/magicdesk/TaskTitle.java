@@ -8,6 +8,8 @@ final class TaskTitle {
 
     static String resolve(final Context context, final AppItem app,
             final TaskRepository.TaskEntry task) {
+        final BuiltInWindowRegistry.Presentation presentation = BuiltInWindowRegistry.presentation(task);
+        if (presentation != null) return presentation.title();
         final BuiltInDesktopAppCatalog.Entry builtIn = BuiltInDesktopAppCatalog.find(task);
         final String fallback = builtIn != null ? context.getString(builtIn.fallbackLabelResId)
                 : app != null ? app.label : task.packageName;

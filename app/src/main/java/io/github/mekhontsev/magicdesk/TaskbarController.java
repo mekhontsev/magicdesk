@@ -401,7 +401,7 @@ final class TaskbarController {
                 continue;
             }
             for (final TaskRepository.TaskEntry task : packageTasks) {
-                items.add(new TaskbarOverflowController.Entry(app, task));
+                items.add(new TaskbarOverflowController.Entry(BuiltInWindowRegistry.present(mActivity, app, task), task));
                 renderedTaskIds.add(Integer.valueOf(task.taskId));
             }
         }

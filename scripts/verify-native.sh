@@ -42,6 +42,9 @@ for fixture in magicdesk_pty_working_directory_test magicdesk_pty_lifecycle_test
         "$project_dir/native/tests/$fixture.c" -o "$work/$fixture"
 done
 
+"$compiler" -std=c17 -O2 -Wall -Wextra -UNDEBUG \
+    "$project_dir/vendor/magicdesk-x11/examples/window-icon-test.c" -o "$work/x11_window_icon_test"
+
 # Fixtures use only their own PTYs/processes; keep their files under this owner.
 TMPDIR=$work
 export TMPDIR
@@ -54,4 +57,5 @@ for mode in pressure fragmented metadata hup signal oversized jobs jobs-signal; 
 done
 timeout --kill-after=2s 15s ./magicdesk_virtual_mouse_test
 timeout --kill-after=2s 15s ./magicdesk_virtual_mouse_setup_test
-printf 'Native host fixtures verified (13 runs).\n'
+timeout --kill-after=2s 15s ./x11_window_icon_test
+printf 'Native host fixtures verified (14 runs).\n'

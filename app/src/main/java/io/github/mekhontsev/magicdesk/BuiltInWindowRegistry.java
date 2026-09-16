@@ -1,6 +1,9 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
+import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.drawable.BitmapDrawable;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -10,6 +13,10 @@ import java.util.List;
 
 /** Live built-in windows for local UI services and full MagicDesk exit. */
 final class BuiltInWindowRegistry {
+    record Presentation(String title, Bitmap icon) { }
+    interface PresentationSource {
+        Presentation taskPresentation();
+    }
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final List<WeakReference<Activity>> WINDOWS =
             new ArrayList<>();
@@ -31,6 +38,28 @@ final class BuiltInWindowRegistry {
         synchronized (WINDOWS) {
             removeLocked(activity);
         }
+    }
+
+    static Presentation presentation(final TaskRepository.TaskEntry task) {
+        if (task == null) return null;
+        synchronized (WINDOWS) {
+            for (final WeakReference<Activity> reference : WINDOWS) {
+                final Activity activity = reference.get();
+                if (activity != null && !activity.isDestroyed() && !activity.isFinishing()
+                        && activity.getTaskId() == task.taskId && activity.getPackageName().equals(task.packageName)
+                        && AppProfile.current(activity).owns(task.userId)
+                        && activity instanceof PresentationSource source) return source.taskPresentation();
+            }
+        }
+        return null;
+    }
+
+    static AppItem present(final Context context, final AppItem app, final TaskRepository.TaskEntry task) {
+        final Presentation presentation = presentation(task);
+        if (app == null || presentation == null) return app;
+        return new AppItem(app.profile, presentation.title(), app.packageName, app.canFloat,
+                app.fullscreenReason, presentation.icon() == null ? app.icon
+                        : new BitmapDrawable(context.getResources(), presentation.icon()), app.launchTarget);
     }
 
     static boolean needsSeparateTask(final AppLaunchTarget target, final int displayId) {

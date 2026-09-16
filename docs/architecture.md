@@ -1540,6 +1540,13 @@ this shared tool. Android placement still goes through `ToolApplications`.
 The read-only Termux `.desktop` catalog feeds the shared Start content.
 `X11ApplicationLaunch` turns its executor into a normal Android launch request;
 the native window model owns X relationships, never Android task topology.
+The session manager is separate from content-only client/desktop viewers.
+Individual outputs retain Android Surface geometry; root outputs leave Linux
+window placement to its window manager. Window titles and bounded EWMH icons
+flow through the existing X catalog into Android task descriptions and
+`BuiltInWindowRegistry.PresentationSource`. Taskbar/overview/picker presentation
+can vary per window without changing its profile-scoped Android launch identity
+or introducing a second task observer.
 See [Embedded X11](x11.md) for lifecycle, build and current integration scope.
 
 ## Privileged Service Runtime

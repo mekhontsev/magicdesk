@@ -1578,13 +1578,14 @@ public abstract class DesktopShellActivity extends Activity
         }
         final BuiltInDesktopAppCatalog.Entry builtIn =
                 BuiltInDesktopAppCatalog.find(task);
-        return builtIn != null
+        final AppItem app = builtIn != null
                 ? mLauncherApps.findOrLoad(
                         apps,
                         appProfile().application(task),
                         builtIn.launchTarget,
                         isUniversalFreeformEnabled())
                 : findOrLoadApp(apps, appProfile().application(task));
+        return BuiltInWindowRegistry.present(this, app, task);
     }
 
     AppItem findOrLoadApp(

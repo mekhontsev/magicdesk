@@ -122,8 +122,9 @@ public final class HostScriptsTest {
                 "magicdesk_pty_lifecycle_test:jobs-signal"));
         expected.add("magicdesk_virtual_mouse_test:cwd");
         expected.add("magicdesk_virtual_mouse_setup_test:cwd");
+        expected.add("x11_window_icon_test:cwd");
         assertEquals(expected, Files.readAllLines(fixture.log));
-        assertTrue(result.output.contains("verified (13 runs)"));
+        assertTrue(result.output.contains("verified (14 runs)"));
         assertEmptyDirectory(fixture.output);
     }
 
@@ -140,7 +141,7 @@ public final class HostScriptsTest {
         final var testResult = nativeVerifier(testFailure, "fragmented", false);
         assertEquals(testResult.output, 9, testResult.exitCode);
         assertEquals(5, Files.readAllLines(testFailure.log).size());
-        assertTrue(!testResult.output.contains("verified (13 runs)"));
+        assertTrue(!testResult.output.contains("verified (14 runs)"));
         assertEmptyDirectory(testFailure.output);
 
         final var inputFailure = nativeVerifierFixture();
@@ -148,6 +149,12 @@ public final class HostScriptsTest {
         assertEquals(inputResult.output, 9, inputResult.exitCode);
         assertEquals(12, Files.readAllLines(inputFailure.log).size());
         assertEmptyDirectory(inputFailure.output);
+
+        final var iconFailure = nativeVerifierFixture();
+        final var iconResult = nativeVerifier(iconFailure, "x11_window_icon_test", false);
+        assertEquals(iconResult.output, 9, iconResult.exitCode);
+        assertEquals(14, Files.readAllLines(iconFailure.log).size());
+        assertEmptyDirectory(iconFailure.output);
     }
 
     private NativeVerifierFixture nativeVerifierFixture() throws Exception {

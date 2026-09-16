@@ -567,6 +567,13 @@ final class DesktopUiGateway {
         }
     }
 
+    void refreshTaskPresentations() {
+        for (final DesktopSessionSnapshot workspace : sessionSnapshots()) {
+            final DesktopShellActivity activity = usableDesktop(workspace.activeWorkspaceDisplayId(), false);
+            if (activity != null) postToHost(activity, () -> activity.renderTaskbarPins(activity.getLauncherApps()));
+        }
+    }
+
     boolean refreshDesktopInputFocus(
             final int displayId,
             final int focusedTaskId) {

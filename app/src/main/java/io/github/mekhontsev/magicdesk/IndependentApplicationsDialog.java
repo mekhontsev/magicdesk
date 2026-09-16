@@ -81,7 +81,8 @@ final class IndependentApplicationsDialog {
             final AppItem app = reference == null ? null : repository.findOrLoad(
                     known, application, reference.launchTarget(), true);
             if (app != null && !known.contains(app)) known.add(app);
-            entries.add(new Entry(task, app, TaskTitle.resolve(activity, app, task), TaskTitle.detail(activity, task)));
+            entries.add(new Entry(task, BuiltInWindowRegistry.present(activity, app, task),
+                    TaskTitle.resolve(activity, app, task), TaskTitle.detail(activity, task)));
         }
         return entries;
     }

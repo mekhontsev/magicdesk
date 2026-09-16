@@ -228,6 +228,10 @@ public final class DesktopRuntimeBridge {
         UI.refreshDesktopControls();
     }
 
+    static void refreshTaskPresentations() {
+        UI.refreshTaskPresentations();
+    }
+
     static boolean refreshDesktopInputFocus(
             final int displayId,
             final int focusedTaskId) {
