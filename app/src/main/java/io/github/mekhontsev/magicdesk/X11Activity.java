@@ -260,7 +260,6 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
             window = 0;
             application = false;
             select(items.get(which));
-            openWindow(0);
         }).setPositiveButton(R.string.x11_new_session, (dialog, which) -> newSession())
                 .setNegativeButton(android.R.string.cancel, null).show();
     }
