@@ -37,13 +37,29 @@ final class DisplayProfiles {
         return snapshot(reference, profile, fallback);
     }
 
+    static CreationDefaults desktopCreationDefaults(DesktopDisplayInfo reference, int maximumDpi) {
+        return desktopSnapshot(reference, DisplayProfileStore.load(key(reference), reference.densityDpi), maximumDpi);
+    }
+
+    static CreationDefaults desktopSnapshot(DesktopDisplayInfo reference, DisplayProfileStore.Profile profile,
+            int maximumDpi) {
+        return snapshot(reference, profile, DisplayDensityPolicy.recommendedExternalDpi(
+                reference.width, reference.height, maximumDpi));
+    }
+
     static CreationDefaults snapshot(DesktopDisplayInfo reference, DisplayProfileStore.Profile profile,
             VirtualDisplaySpec fallback) {
         if (reference == null) {
             return new CreationDefaults(fallback.width, fallback.height, fallback.densityDpi, "");
         }
-        return new CreationDefaults(reference.width, reference.height,
-                profile.dpiExplicit ? profile.dpi : reference.densityDpi, origin(profile));
+        return snapshot(reference, profile, reference.densityDpi);
+    }
+
+    private static CreationDefaults snapshot(DesktopDisplayInfo reference, DisplayProfileStore.Profile profile,
+            int defaultDpi) {
+        // System (zero) is a preference, not a valid virtual-display density.
+        final int dpi = profile.dpiExplicit ? profile.dpi > 0 ? profile.dpi : reference.densityDpi : defaultDpi;
+        return new CreationDefaults(reference.width, reference.height, dpi, origin(profile));
     }
 
     static DisplayProfileStore.Profile createdProfile(DesktopDisplayInfo display, VirtualDisplaySpec spec) {

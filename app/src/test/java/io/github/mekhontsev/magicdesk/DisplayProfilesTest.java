@@ -95,6 +95,48 @@ public final class DisplayProfilesTest {
         assertEquals(profile.key, profile.originProfileKey);
     }
 
+    @Test public void portableDesktopUsesTheSameResolutionPolicyAsDirectDesktop() {
+        for (final int[] dimensions : new int[][]{{1280, 720, 108}, {1920, 1080, 160}, {3840, 2160, 320}}) {
+            final DesktopDisplayInfo output = new DesktopDisplayInfo(5, "cast", "Cast", "virtual",
+                    dimensions[0], dimensions[1], 320, false, false, false, false);
+            final DisplayProfileStore.Profile profile = new DisplayProfileStore.Profile(DisplayProfiles.key(output));
+            profile.dpi = 320;
+            final DisplayProfiles.CreationDefaults defaults = DisplayProfiles.desktopSnapshot(output, profile, 420);
+            assertEquals(dimensions[0], defaults.width);
+            assertEquals(dimensions[1], defaults.height);
+            assertEquals(dimensions[2], defaults.densityDpi);
+            assertEquals(profile.key, defaults.originProfileKey);
+            assertEquals(320, DisplayProfiles.snapshot(output, profile, FALLBACK).densityDpi);
+            assertFalse(profile.dpiExplicit);
+            assertEquals(320, profile.dpi);
+        }
+    }
+
+    @Test public void portableDesktopPreservesExplicitScaleAndFlattenedOrigin() {
+        final DesktopDisplayInfo output = display(5, "child", "virtual", 320);
+        final DisplayProfileStore.Profile profile = new DisplayProfileStore.Profile(DisplayProfiles.key(output));
+        profile.originProfileKey = "display:wireless:tv";
+        profile.dpiExplicit = true;
+        profile.dpi = 213;
+        final DisplayProfiles.CreationDefaults defaults = DisplayProfiles.desktopSnapshot(output, profile, 160);
+        assertEquals(213, defaults.densityDpi);
+        assertEquals(profile.originProfileKey, defaults.originProfileKey);
+        final DisplayProfileStore.Profile child = DisplayProfiles.createdProfile(display(6, "next", "virtual", 213),
+                defaults.spec(defaults.width, defaults.height, defaults.densityDpi, false));
+        assertTrue(child.dpiExplicit);
+        assertEquals(213, child.dpi);
+        assertEquals(profile.originProfileKey, child.originProfileKey);
+    }
+
+    @Test public void explicitSystemScaleResolvesToLiveDensityForBothCreationPaths() {
+        final DesktopDisplayInfo output = display(5, "cast", "virtual", 320);
+        final DisplayProfileStore.Profile profile = new DisplayProfileStore.Profile(DisplayProfiles.key(output));
+        profile.dpiExplicit = true;
+        profile.dpi = 0;
+        assertEquals(320, DisplayProfiles.desktopSnapshot(output, profile, 420).densityDpi);
+        assertEquals(320, DisplayProfiles.snapshot(output, profile, FALLBACK).densityDpi);
+    }
+
     @Test public void referenceSnapshotDoesNotValidateVirtualLimitsBeforeTheUserCanEditThem() {
         final DesktopDisplayInfo tiny = new DesktopDisplayInfo(1, "tiny", "Tiny", "virtual",
                 240, 240, 70, false, false, false, false);

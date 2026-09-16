@@ -85,9 +85,13 @@ retaining its live identity and ownership checks. Successful activation dismisse
 the picker; closing refreshes its task snapshot without closing the picker or
 adding a task observer. Empty and failed results remain explicit.
 
-`DisplayProfiles` owns shared profile identity and creation snapshots. The panel,
-portable launcher and automation inherit a reference display's current logical
-resolution and explicitly saved DPI (otherwise its live density). Each created
+`DisplayProfiles` owns shared profile identity and creation snapshots. Ordinary
+creation through the panel or automation inherits a reference display's current
+logical resolution and explicitly saved DPI (otherwise its live density).
+New portable Desktop sources instead default to the same resolution-based
+`DisplayDensityPolicy` recommendation as direct external Desktop startup.
+An explicitly saved DPI takes precedence; an explicit System preference resolves
+to the reference's live density in both creation paths. Each created
 display has its own profile, including its creation size and DPI, and a flattened
 `originProfileKey`: the reference's origin or its own profile key. A creation with
 no reference becomes its own origin. A descendant needs neither its parent nor
@@ -2152,7 +2156,9 @@ ascending display ID. Infrastructure is excluded; unavailable membership is an
 error, not zero. One shared task snapshot serves the selection, with no new observer
 or polling. Existing source DPI, origin and tasks are unchanged; ordinary mirror
 windows do not reserve the source. With no candidate, it creates a source using
-the output's current resolution and configured density.
+the output's current resolution and explicit DPI preference, or the shared Desktop
+density recommendation when no preference was saved. Advertised Cast density is
+not an implicit Desktop preference. Reusing a source never recalculates its DPI.
 The launcher runs normal Desktop startup or shows the existing workspace, then
 attaches the output. Concurrent repeats for the same exact output join that launch;
 another portable launch is rejected until completion. The presentation owner

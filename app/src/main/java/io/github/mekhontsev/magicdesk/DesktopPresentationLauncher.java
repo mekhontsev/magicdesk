@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.DisplayMetrics;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,8 +44,8 @@ final class DesktopPresentationLauncher {
                     request.main.post(() -> launch(context, request));
                     return;
                 }
-                final DisplayProfiles.CreationDefaults defaults = DisplayProfiles.creationDefaults(reference,
-                        new VirtualDisplaySpec(1920, 1080, 160));
+                final DisplayProfiles.CreationDefaults defaults = DisplayProfiles.desktopCreationDefaults(reference,
+                        DisplayMetrics.DENSITY_DEVICE_STABLE);
                 request.source = selectSource(reference, DesktopDisplayCatalog.read(), defaults.originProfileKey);
                 if (request.source != null) {
                     request.main.post(() -> launch(context, request));

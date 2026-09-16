@@ -3,6 +3,16 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 public final class DesktopPresentationLauncherTest {
+    @Test public void newSourceUsesDesktopDefaultsRatherThanOutputDensity() throws Exception {
+        verify("""
+                output.densityDpi = 320;
+                start(); complete(true);
+                check(DisplayOperations.created == 1 && DesktopOperations.source.densityDpi == 108,
+                        "creation ignored desktop density defaults");
+                check(output.densityDpi == 320, "creation changed output density");
+                """);
+    }
+
     @Test public void failuresRetainSourceAndSuccessWaitsForDesktop() throws Exception {
         verify("""
                 start();
@@ -106,6 +116,7 @@ public final class DesktopPresentationLauncherTest {
                 static class Context { Context getApplicationContext() { return this; } }
                 static class Handler { Handler(Object looper) {} void post(Runnable r) { r.run(); } }
                 static class Looper { static Object getMainLooper() { return null; } }
+                static class DisplayMetrics { static final int DENSITY_DEVICE_STABLE = 420; }
                 static class TaskCommandQueue { static void execute(Runnable r) { r.run(); } }
                 static class RuntimeCapabilities {
                     static boolean supported = true;
@@ -148,7 +159,10 @@ public final class DesktopPresentationLauncherTest {
                 static class DesktopManagedTaskPolicy {
                     static boolean isManagedApplicationTask(Task task) { return task.managed; }
                 }
-                static class VirtualDisplaySpec { VirtualDisplaySpec(int w, int h, int dpi) {} }
+                static class VirtualDisplaySpec {
+                    final int densityDpi;
+                    VirtualDisplaySpec(int w, int h, int dpi) { densityDpi = dpi; }
+                }
                 static class DisplayProfileStore {
                     static Map<String, String> origins = new HashMap<>();
                     static String load(String key, int dpi) { return origins.getOrDefault(key, key); }
@@ -156,11 +170,12 @@ public final class DesktopPresentationLauncherTest {
                 static class DisplayProfiles {
                     static String key(DesktopDisplayInfo d) { return d.uniqueId; }
                     static String origin(String value) { return value; }
-                    static CreationDefaults creationDefaults(DesktopDisplayInfo ref, VirtualDisplaySpec fallback) {
+                    static CreationDefaults desktopCreationDefaults(DesktopDisplayInfo ref, int maximumDpi) {
+                        check(maximumDpi == 420, "desktop density cap was not forwarded");
                         return new CreationDefaults();
                     }
                     static class CreationDefaults {
-                        int width = 1280, height = 720, densityDpi = 160;
+                        int width = 1280, height = 720, densityDpi = 108;
                         String originProfileKey = "origin:3";
                         VirtualDisplaySpec spec(int w, int h, int dpi, boolean protectedContent) {
                             check(!protectedContent, "creation enabled protection implicitly");
@@ -172,7 +187,7 @@ public final class DesktopPresentationLauncherTest {
                     static int created; static String failure;
                     static void createDisplay(VirtualDisplaySpec spec, boolean preview, DesktopPresentationLauncher.Callback c) {
                         check(!preview, "created overlay preview");
-                        created++; c.onComplete(source(2, 160), failure);
+                        created++; c.onComplete(source(2, spec.densityDpi), failure);
                     }
                 }
                 static class DisplayPresentations {

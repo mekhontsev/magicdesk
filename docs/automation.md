@@ -440,7 +440,10 @@ accept a privileged Viewer launch but cannot host organizer-created task areas.
 outputs and requires `displayId`. It keeps the existing output Viewer, otherwise selects
 an unassigned owned virtual source of the same resolution with the fewest managed
 applications (ties: matching origin, then lowest ID), or creates one. Existing
-DPI/origin are preserved. Portable completion returns the logical source as `id`
+DPI/origin are preserved. A new source uses the output's explicit saved DPI, or
+the same resolution-based density recommendation as direct external Desktop
+(1920x1080 defaults to 160 DPI); explicit System uses the output's live density.
+Portable completion returns the logical source as `id`
 and the requested output as `outputDisplayId`, plus `portable=true`. Desktop
 startup and visible Viewer attachment complete before success; a wait timeout
 does not cancel either. Inspect `workspaces` and `presentations` after uncertainty.
