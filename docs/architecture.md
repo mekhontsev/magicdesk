@@ -1549,6 +1549,15 @@ can vary per window without changing its profile-scoped Android launch identity
 or introducing a second task observer.
 See [Embedded X11](x11.md) for lifecycle, build and current integration scope.
 
+`X11Density` selects one density owner among a session's Android hosts. Activity
+configuration and focus callbacks update it; there is no display/task polling.
+The Android 160-DPI baseline maps to X11's 96-DPI baseline, with a separately
+stored Linux application scale. `X11PresentationPreferences` uses profile-private
+storage keyed by Termux package and desktop-entry path, without Desktop's
+shell-backed state prerequisite. The fork owns XSettings serialization, selection
+lifetime and RandR publication on the X server thread. Whole Linux desktops keep
+their own toolkit settings manager; Android focus/topology is unchanged.
+
 ## Privileged Service Runtime
 
 `IntegrationPackage` captures the configured Shizuku manager and Termux package

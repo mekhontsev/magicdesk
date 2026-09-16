@@ -44,6 +44,8 @@ done
 
 "$compiler" -std=c17 -O2 -Wall -Wextra -UNDEBUG \
     "$project_dir/vendor/magicdesk-x11/examples/window-icon-test.c" -o "$work/x11_window_icon_test"
+"$compiler" -std=c17 -O2 -Wall -Wextra -UNDEBUG \
+    "$project_dir/vendor/magicdesk-x11/examples/density-settings-test.c" -o "$work/x11_density_settings_test"
 
 # Fixtures use only their own PTYs/processes; keep their files under this owner.
 TMPDIR=$work
@@ -58,4 +60,5 @@ done
 timeout --kill-after=2s 15s ./magicdesk_virtual_mouse_test
 timeout --kill-after=2s 15s ./magicdesk_virtual_mouse_setup_test
 timeout --kill-after=2s 15s ./x11_window_icon_test
-printf 'Native host fixtures verified (14 runs).\n'
+timeout --kill-after=2s 15s ./x11_density_settings_test
+printf 'Native host fixtures verified (15 runs).\n'

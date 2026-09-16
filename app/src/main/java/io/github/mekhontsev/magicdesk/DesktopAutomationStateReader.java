@@ -123,6 +123,7 @@ final class DesktopAutomationStateReader {
                     .put("title", window.title()).put("mapped", window.mapped()));
             result.put(new JSONObject().put("id", session.id()).put("name", session.name)
                     .put("display", session.display()).put("state", session.state().name())
+                    .put("dpi", session.dpi()).put("scalePercent", session.scalePercent())
                     .put("error", session.error()).put("application", session.application).put("windows", windows));
         }
         return result;

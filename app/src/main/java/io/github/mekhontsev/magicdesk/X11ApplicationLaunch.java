@@ -13,7 +13,7 @@ final class X11ApplicationLaunch {
                 request.exec.command, true, request.exec.workingDirectory));
         Context context = host.activity();
         Intent intent = X11Activity.createApplicationIntent(context, request.name,
-                request.exec.command, request.exec.workingDirectory);
+                request.exec.command, request.exec.workingDirectory).putExtra(X11Activity.DESKTOP_FILE, request.desktopFilePath);
         AppLaunchTarget target = AppLaunchTarget.explicit(context.getPackageName(), X11Activity.class.getName(), "");
         return new DesktopLaunchRequest(request.name, request.icon,
                 AndroidLaunchSpec.intent(target, intent.toUri(Intent.URI_INTENT_SCHEME)), null, null,

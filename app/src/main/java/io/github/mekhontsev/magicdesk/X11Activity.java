@@ -20,6 +20,7 @@ import java.util.List;
 public final class X11Activity extends Activity implements X11Sessions.Listener, BuiltInWindowRegistry.PresentationSource {
     static final String SESSION = "x11_session";
     static final String WINDOW = "x11_window";
+    static final String DESKTOP_FILE = "x11_desktop_file";
     private static final String APPLICATION = "x11_application";
     private static final String COMMAND = "x11_command";
     private static final String NAME = "x11_name";
@@ -30,7 +31,7 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
     private DesktopUiFactory ui;
     private Button sessions;
     private TextView status;
-    private ImageButton open, windows, execute, stop;
+    private ImageButton open, windows, execute, scale, stop;
     private long window;
     private boolean seenWindow;
     private boolean application;
@@ -76,7 +77,8 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
                     return;
                 }
                 select(X11Sessions.startApplication(this, getIntent().getStringExtra(NAME),
-                        getIntent().getStringExtra(COMMAND), getIntent().getStringExtra(DIRECTORY)));
+                        getIntent().getStringExtra(COMMAND), getIntent().getStringExtra(DIRECTORY),
+                        getIntent().getStringExtra(DESKTOP_FILE)));
             } catch (RuntimeException error) { showError(error); }
             return;
         }
@@ -95,6 +97,8 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
         open = addAction(toolbar, R.drawable.ic_show_desktop, R.string.x11_open_session, () -> openWindow(0));
         windows = addAction(toolbar, R.drawable.ic_file_new_window, R.string.x11_windows, this::chooseWindow);
         execute = addAction(toolbar, R.drawable.ic_play, R.string.x11_run_command, this::command);
+        scale = addAction(toolbar, R.drawable.ic_quick_controls, R.string.app_presentation_scale,
+                () -> { if (session != null) X11ScaleDialog.show(this, session); });
         stop = addAction(toolbar, R.drawable.ic_close, R.string.x11_stop_session, () -> {
             X11Sessions.Session selected = session;
             if (selected != null) new AlertDialog.Builder(this).setTitle(R.string.x11_stop_session)
@@ -112,12 +116,15 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
     }
 
     private void select(X11Sessions.Session next) {
-        if (session != null) session.unlisten(this);
+        if (session != null) { session.unlisten(this); session.releaseDensity(this); }
         surface.release();
         output = null;
         session = next;
         seenWindow = false;
-        if (session != null) session.listen(this);
+        if (session != null) {
+            session.listen(this);
+            updateDensity();
+        }
         onChanged();
     }
 
@@ -151,6 +158,7 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
             open.setEnabled(ready);
             windows.setEnabled(ready);
             execute.setEnabled(ready);
+            scale.setEnabled(ready);
             stop.setEnabled(session != null && !session.stopped());
         }
         status.setText(session == null ? getString(R.string.x11_no_session)
@@ -180,8 +188,19 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
 
     @Override public void onWindowFocusChanged(boolean focused) {
         super.onWindowFocusChanged(focused);
+        updateDensity();
         if (focused && surface != null) onChanged();
         else updateClipboard();
+    }
+
+    @Override public void onConfigurationChanged(android.content.res.Configuration configuration) {
+        super.onConfigurationChanged(configuration);
+        updateDensity();
+    }
+
+    private void updateDensity() {
+        if (!manager && session != null) session.hostDensity(this,
+                getResources().getConfiguration().densityDpi, hasWindowFocus());
     }
 
     private void updateClipboard() {
@@ -313,7 +332,7 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
         releaseClipboard();
         if (isFinishing() && application && window == 0 && session != null) session.close();
         if (isFinishing() && window != 0 && session != null) session.closeWindow(window);
-        if (session != null) session.unlisten(this);
+        if (session != null) { session.unlisten(this); session.releaseDensity(this); }
         if (surface != null) surface.release();
         BuiltInWindowRegistry.unregister(this);
         super.onDestroy();

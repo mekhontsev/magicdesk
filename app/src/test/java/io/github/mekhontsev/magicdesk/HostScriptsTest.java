@@ -123,8 +123,9 @@ public final class HostScriptsTest {
         expected.add("magicdesk_virtual_mouse_test:cwd");
         expected.add("magicdesk_virtual_mouse_setup_test:cwd");
         expected.add("x11_window_icon_test:cwd");
+        expected.add("x11_density_settings_test:cwd");
         assertEquals(expected, Files.readAllLines(fixture.log));
-        assertTrue(result.output.contains("verified (14 runs)"));
+        assertTrue(result.output.contains("verified (15 runs)"));
         assertEmptyDirectory(fixture.output);
     }
 
@@ -141,7 +142,7 @@ public final class HostScriptsTest {
         final var testResult = nativeVerifier(testFailure, "fragmented", false);
         assertEquals(testResult.output, 9, testResult.exitCode);
         assertEquals(5, Files.readAllLines(testFailure.log).size());
-        assertTrue(!testResult.output.contains("verified (14 runs)"));
+        assertTrue(!testResult.output.contains("verified (15 runs)"));
         assertEmptyDirectory(testFailure.output);
 
         final var inputFailure = nativeVerifierFixture();
@@ -155,6 +156,12 @@ public final class HostScriptsTest {
         assertEquals(iconResult.output, 9, iconResult.exitCode);
         assertEquals(14, Files.readAllLines(iconFailure.log).size());
         assertEmptyDirectory(iconFailure.output);
+
+        final var densityFailure = nativeVerifierFixture();
+        final var densityResult = nativeVerifier(densityFailure, "x11_density_settings_test", false);
+        assertEquals(densityResult.output, 9, densityResult.exitCode);
+        assertEquals(15, Files.readAllLines(densityFailure.log).size());
+        assertEmptyDirectory(densityFailure.output);
     }
 
     private NativeVerifierFixture nativeVerifierFixture() throws Exception {

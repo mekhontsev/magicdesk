@@ -733,6 +733,16 @@ final class StartMenuContent {
                     result.label);
         }
 
+        if (result.desktopApplication != null && result.desktopApplication.desktopFile == null
+                && result.desktopApplication.shortcut.execBackend == DesktopExecBackend.X11
+                && !result.desktopApplication.shortcut.terminal) {
+            row.setOnLongClickListener(anchor -> {
+                X11ScaleDialog.show(mActivity, result.label, result.desktopApplication.desktopFilePath);
+                return true;
+            });
+            row.setOnContextClickListener(View::performLongClick);
+        }
+
         final ImageView icon = new ImageView(mActivity);
         bindIcon(icon, result);
         row.addView(icon, new LinearLayout.LayoutParams(dp(38), dp(38)));

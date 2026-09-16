@@ -35,21 +35,22 @@ final class X11Sessions {
     }
 
     static Session start(Context context, String name, String command) {
-        return start(context, name, command, "", false);
+        return start(context, name, command, "", false, "");
     }
 
-    static Session startApplication(Context context, String name, String command, String directory) {
+    static Session startApplication(Context context, String name, String command, String directory, String desktopFile) {
         if (command == null || command.isBlank()) throw new IllegalArgumentException("Missing X11 command");
-        return start(context, name, command, DesktopExecWorkingDirectory.normalize(directory), true);
+        return start(context, name, command, DesktopExecWorkingDirectory.normalize(directory), true, desktopFile);
     }
 
-    private static Session start(Context context, String name, String command, String directory, boolean application) {
+    private static Session start(Context context, String name, String command, String directory, boolean application, String desktopFile) {
         Context app = context.getApplicationContext();
         TermuxIntegration.Endpoint endpoint = TermuxIntegration.inspect(app);
         endpoint.requireAvailable();
         if (name == null || name.isBlank() || name.length() > 128)
             throw new IllegalArgumentException("X11 session name must contain 1 to 128 characters");
-        Session session = new Session(app, endpoint, name.trim(), command == null ? "" : command, directory, application);
+        Session session = new Session(app, endpoint, name.trim(), command == null ? "" : command, directory, application,
+                context.getResources().getConfiguration().densityDpi, desktopFile);
         synchronized (SESSIONS) { SESSIONS.put(session.id(), session); }
         try {
             MagicDeskRuntime.startTools(app, false);
@@ -103,6 +104,9 @@ final class X11Sessions {
         final String name;
         final TermuxIntegration.Endpoint endpoint;
         final boolean application;
+        final String presentationKey;
+        private final X11Density density;
+        private volatile int scalePercent;
         private final Context context;
         private final X11LaunchSpec launch;
         private final String startupCommand;
@@ -125,15 +129,39 @@ final class X11Sessions {
         private final java.util.Set<Long> presentedWindows = new java.util.HashSet<>();
 
         Session(Context context, TermuxIntegration.Endpoint endpoint, String name, String command,
-                String directory, boolean application) {
+                String directory, boolean application, int densityDpi, String desktopFile) {
             this.context = context;
             this.endpoint = endpoint;
             this.name = name;
             this.application = application;
+            presentationKey = X11PresentationPreferences.key(endpoint.packageName, desktopFile);
+            scalePercent = X11PresentationPreferences.load(context, presentationKey);
+            density = new X11Density(densityDpi);
             startupCommand = command;
             startupDirectory = directory;
             launch = new X11LaunchSpec(context.getApplicationInfo().sourceDir,
-                    context.getApplicationInfo().nativeLibraryDir, context.getPackageName(), endpoint.homeDirectory);
+                    context.getApplicationInfo().nativeLibraryDir, context.getPackageName(), endpoint.homeDirectory,
+                    density.resolve(scalePercent), application);
+        }
+
+        int scalePercent() { return scalePercent; }
+        synchronized int dpi() { return density.resolve(scalePercent); }
+        synchronized void hostDensity(Object host, int dpi, boolean focused) {
+            density.update(host, dpi, focused);
+            publishDensity();
+        }
+        synchronized void releaseDensity(Object host) {
+            density.release(host);
+            publishDensity();
+        }
+        synchronized void setScale(int scale) {
+            if (!AppPresentationProfile.isValidScale(scale)) throw new IllegalArgumentException("Invalid X11 scale");
+            scalePercent = scale;
+            publishDensity();
+            changed();
+        }
+        private void publishDensity() {
+            if (renderer != null && state == State.READY) renderer.setDpi(density.resolve(scalePercent));
         }
 
         String id() { return launch.id; }
@@ -236,6 +264,7 @@ final class X11Sessions {
                     renderer = pending;
                     pending = null;
                     state = State.READY;
+                    publishDensity();
                     MAIN.removeCallbacks(timeout);
                 }
                 changed();
