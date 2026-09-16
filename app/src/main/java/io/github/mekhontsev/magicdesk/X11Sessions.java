@@ -35,22 +35,28 @@ final class X11Sessions {
     }
 
     static Session start(Context context, String name, String command) {
-        return start(context, name, command, "", false, "");
+        String script = command == null || command.isBlank() ? "true" : command;
+        String exec = "sh -c " + ShellCommandLine.quote(script).replace("%", "%%");
+        var shortcut = new DesktopApplicationShortcut(name, "", exec, null, "", DesktopLaunchMode.AUTO,
+                false, DesktopExecBackend.X11, false).withX11Desktop(true);
+        return start(context, name, command, "", false, "", RecentApplications.describe(context, shortcut, ""));
     }
 
-    static Session startApplication(Context context, String name, String command, String directory, String desktopFile) {
+    static Session startCommand(Context context, String name, String command, String directory, String desktopFile,
+            boolean application, RecentApplicationStore.Entry recipe) {
         if (command == null || command.isBlank()) throw new IllegalArgumentException("Missing X11 command");
-        return start(context, name, command, DesktopExecWorkingDirectory.normalize(directory), true, desktopFile);
+        return start(context, name, command, DesktopExecWorkingDirectory.normalize(directory), application, desktopFile, recipe);
     }
 
-    private static Session start(Context context, String name, String command, String directory, boolean application, String desktopFile) {
+    private static Session start(Context context, String name, String command, String directory, boolean application, String desktopFile,
+            RecentApplicationStore.Entry recipe) {
         Context app = context.getApplicationContext();
         TermuxIntegration.Endpoint endpoint = TermuxIntegration.inspect(app);
         endpoint.requireAvailable();
         if (name == null || name.isBlank() || name.length() > 128)
             throw new IllegalArgumentException("X11 session name must contain 1 to 128 characters");
         Session session = new Session(app, endpoint, name.trim(), command == null ? "" : command, directory, application,
-                context.getResources().getConfiguration().densityDpi, desktopFile);
+                context.getResources().getConfiguration().densityDpi, desktopFile, recipe);
         synchronized (SESSIONS) { SESSIONS.put(session.id(), session); }
         try {
             MagicDeskRuntime.startTools(app, false);
@@ -67,6 +73,11 @@ final class X11Sessions {
     }
 
     static Session find(String id) { synchronized (SESSIONS) { return SESSIONS.get(id); } }
+    static Session findRecipe(String key) {
+        Session selected = null;
+        for (Session session : list()) if (!session.stopped() && session.recipe != null && session.recipe.key().equals(key)) selected = session;
+        return selected;
+    }
     static List<Session> list() { synchronized (SESSIONS) { return new ArrayList<>(SESSIONS.values()); } }
     static int count() { synchronized (SESSIONS) { return SESSIONS.size(); } }
     static void closeAll() { for (Session session : list()) session.close(); }
@@ -105,6 +116,8 @@ final class X11Sessions {
         final TermuxIntegration.Endpoint endpoint;
         final boolean application;
         final String presentationKey;
+        final RecentApplicationStore.Entry recipe;
+        private final java.util.LinkedHashSet<Integer> hosts = new java.util.LinkedHashSet<>();
         private final X11Density density;
         private volatile int scalePercent;
         private final Context context;
@@ -129,11 +142,12 @@ final class X11Sessions {
         private final java.util.Set<Long> presentedWindows = new java.util.HashSet<>();
 
         Session(Context context, TermuxIntegration.Endpoint endpoint, String name, String command,
-                String directory, boolean application, int densityDpi, String desktopFile) {
+                String directory, boolean application, int densityDpi, String desktopFile, RecentApplicationStore.Entry recipe) {
             this.context = context;
             this.endpoint = endpoint;
             this.name = name;
             this.application = application;
+            this.recipe = recipe;
             presentationKey = X11PresentationPreferences.key(endpoint.packageName, desktopFile);
             scalePercent = X11PresentationPreferences.load(context, presentationKey);
             density = new X11Density(densityDpi);
@@ -145,6 +159,16 @@ final class X11Sessions {
         }
 
         int scalePercent() { return scalePercent; }
+        synchronized void host(int taskId, boolean focused) {
+            if (focused) hosts.remove(taskId);
+            hosts.add(taskId);
+        }
+        synchronized void releaseHost(int taskId) { hosts.remove(taskId); }
+        synchronized int hostTaskId() { int id = -1; for (int task : hosts) id = task; return id; }
+        void recordUse() {
+            if (recipe != null && state == State.READY && (!application || hadWindows))
+                RecentApplications.record(context, recipe.usedAt(System.currentTimeMillis()));
+        }
         synchronized int dpi() { return density.resolve(scalePercent); }
         synchronized void hostDensity(Object host, int dpi, boolean focused) {
             density.update(host, dpi, focused);
@@ -252,7 +276,9 @@ final class X11Sessions {
                         windows = snapshot;
                         presentedWindows.retainAll(snapshot.stream().map(X11Session.Window::id).toList());
                         if (!snapshot.isEmpty()) {
+                            boolean first = !hadWindows;
                             hadWindows = true;
+                            if (first) recordUse();
                             MAIN.removeCallbacks(windowTimeout);
                         } else if (application && hadWindows) { close(); return; }
                         changed();
@@ -268,6 +294,7 @@ final class X11Sessions {
                     MAIN.removeCallbacks(timeout);
                 }
                 changed();
+                if (!application) recordUse();
                 if (!startupCommand.isBlank()) {
                     if (application) MAIN.postDelayed(windowTimeout, START_TIMEOUT_MILLIS);
                     executeStartup();

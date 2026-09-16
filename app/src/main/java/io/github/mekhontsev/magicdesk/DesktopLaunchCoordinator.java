@@ -51,6 +51,7 @@ final class DesktopLaunchCoordinator {
             if (source.application != null) {
                 source.application.requireProfile(AppProfile.current(mContext.activity()));
             }
+            if (X11ApplicationLaunch.reuse(mContext, source, completion)) return true;
             request = X11ApplicationLaunch.prepare(mContext, source.prepareExec());
         } catch (IllegalArgumentException error) {
             mContext.onFailure(source, error);
@@ -96,7 +97,10 @@ final class DesktopLaunchCoordinator {
                 || prepared.androidShortcut != null) {
             try {
                 if (!mContext.launchAndroid(
-                        prepared, execute, completion)) {
+                        prepared, execute, result -> {
+                            if (result.succeeded() && source.exec == null) RecentApplications.record(mContext.activity(), source);
+                            complete(completion, result);
+                        })) {
                     DesktopExecSessionTracker.failed(sessionId);
                     mContext.onUnavailable(prepared);
                     complete(completion, DesktopActivityLaunchResult.failed(
@@ -142,6 +146,7 @@ final class DesktopLaunchCoordinator {
                 mContext.launchConsole(request);
                 DesktopExecSessionTracker.delegated(sessionId);
                 mContext.onStarted(request);
+                RecentApplications.record(mContext.activity(), request);
                 return;
             }
             final WeakReference<DesktopLaunchContext> context =
@@ -205,6 +210,7 @@ final class DesktopLaunchCoordinator {
                 DesktopExecSessionTracker.delegated(sessionId);
             }
             mContext.onStarted(request);
+            RecentApplications.record(mContext.activity(), request);
         }
     }
 }

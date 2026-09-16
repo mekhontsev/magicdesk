@@ -11,6 +11,7 @@ final class DesktopLaunchRequest {
     final DesktopLaunchPresentation presentation;
     final DesktopLaunchArguments arguments;
     final String desktopFilePath;
+    final DesktopApplicationShortcut sourceShortcut;
 
     DesktopLaunchRequest(
             final String name,
@@ -22,7 +23,7 @@ final class DesktopLaunchRequest {
             final DesktopLaunchArguments arguments,
             final String desktopFilePath) {
         this(name, icon, androidLaunch, androidShortcut, exec, presentation,
-                arguments, desktopFilePath, null);
+                arguments, desktopFilePath, null, null);
     }
 
     private DesktopLaunchRequest(
@@ -32,7 +33,8 @@ final class DesktopLaunchRequest {
             final DesktopExecSpec exec,
             final DesktopLaunchPresentation presentation,
             final DesktopLaunchArguments arguments,
-            final String desktopFilePath, final AppIdentity application) {
+            final String desktopFilePath, final AppIdentity application,
+            final DesktopApplicationShortcut sourceShortcut) {
         if (name == null || name.trim().isEmpty()) {
             throw new IllegalArgumentException("missing launch request name");
         }
@@ -45,6 +47,7 @@ final class DesktopLaunchRequest {
         }
         this.name = name.trim();
         this.application = application;
+        this.sourceShortcut = sourceShortcut;
         this.icon = icon == null ? "" : icon;
         this.androidLaunch = androidLaunch;
         this.androidShortcut = androidShortcut;
@@ -108,7 +111,7 @@ final class DesktopLaunchRequest {
                 DesktopLaunchPresentation.forMode(shortcut.launchMode),
                 arguments,
                 desktopFilePath,
-                shortcut.application);
+                shortcut.application, shortcut);
     }
 
     DesktopLaunchRequest withExec(final DesktopExecSpec value) {
@@ -121,7 +124,7 @@ final class DesktopLaunchRequest {
                 presentation,
                 arguments,
                 desktopFilePath,
-                application);
+                application, sourceShortcut);
     }
 
     DesktopLaunchRequest prepareExec() {
@@ -136,6 +139,6 @@ final class DesktopLaunchRequest {
 
     DesktopLaunchRequest withPresentation(final DesktopLaunchPresentation value) {
         return new DesktopLaunchRequest(name, icon, androidLaunch, androidShortcut, exec,
-                value, arguments, desktopFilePath, application);
+                value, arguments, desktopFilePath, application, sourceShortcut);
     }
 }

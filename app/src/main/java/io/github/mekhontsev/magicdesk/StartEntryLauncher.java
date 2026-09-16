@@ -13,6 +13,7 @@ final class StartEntryLauncher {
             DesktopLaunchPresentation presentation, BooleanSupplier alive,
             Runnable started, Consumer<Throwable> failed) {
         try {
+            if (entry.recent != null) RecentApplications.requireEnvironment(activity, entry.recent);
             if (entry.task != null) {
                 ApplicationTaskPlacement.place(entry.task, placement(destination), destination.uniqueId(),
                         presentation.withInstancePolicy(DesktopTaskInstancePolicy.REUSE_EXISTING),
@@ -21,7 +22,7 @@ final class StartEntryLauncher {
                             if (result.success) { started.run(); }
                             else { failed.accept(new IllegalStateException(result.message)); }
                         }));
-            } else if (entry.app != null) {
+            } else if (entry.app != null && entry.recent == null) {
                 DisplayAppLauncher.launch(activity, entry.app, placement(destination), destination.uniqueId(),
                         presentation, alive, started, failed);
             } else if (entry.kind == StartMenuEntry.Kind.TERMINALS) {

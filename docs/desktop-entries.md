@@ -132,6 +132,33 @@ field codes; shell constructs require explicit `sh -c`. `Terminal=true`
 selects the Termux Console path instead of starting an X server. See
 [Embedded X11](x11.md) for retention, multiple windows and container commands.
 
+For a complete Linux desktop, add `X-MagicDesk-X11Mode=desktop`. The default is
+`application`, which presents individual client windows. Desktop mode presents
+the whole X screen and retains the server after its Android window closes.
+Use an explicit `Exec` script to enter an already configured proot/chroot
+distribution, exposing the supplied X socket and authorization to the guest;
+MagicDesk does not infer container startup commands.
+
+## Recent Launches
+
+The managed Start's Recent section shares one private `files/recent/` directory
+for Android applications, commands and X11 desktops. Entries use this same
+Desktop Entry format, plus `X-MagicDesk-LastUsed` (Unix milliseconds),
+`X-MagicDesk-Source` (the original entry path for field expansion), and
+`X-MagicDesk-TermuxPackage` when a Termux execution environment is required.
+This is separate from the user's desktop folder. Android entries retain their
+profile identity, not an unqualified package name.
+
+The latest 24 distinct recipes are kept, one file per semantic launch identity.
+Repeated use updates that file and ordering; renamed/copied launchers do not
+create duplicates unless they change the effective command. Runtime task IDs,
+X session IDs, display selection and New window requests are not history keys.
+Search also includes remembered recipes absent from the installed catalogs.
+Ordinary HOME Recent and the independent Start's Running list remain based on
+live Android tasks, not this persisted history.
+
+## Execution Status
+
 Unknown backend names invalidate the entry instead of executing the command in
 an unintended environment.
 

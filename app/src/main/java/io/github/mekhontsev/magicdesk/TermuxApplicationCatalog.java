@@ -32,7 +32,7 @@ final class TermuxApplicationCatalog {
                 + " [ -d \"$directory\" ] || continue\n"
                 + " while IFS= read -r -d '' file; do\n"
                 + "  size=$(wc -c < \"$file\"); [ \"$size\" -le 65536 ] || continue\n"
-                + "  entry=$(LC_ALL=C awk '/^\\[/{section=($0==\"[Desktop Entry]\");next} section && /^(Type|Name|Icon|Exec|Path|Terminal|Hidden|NoDisplay|MimeType)=/{print}' \"$file\")\n"
+                + "  entry=$(LC_ALL=C awk '/^\\[/{section=($0==\"[Desktop Entry]\");next} section && /^(Type|Name|Icon|Exec|Path|Terminal|Hidden|NoDisplay|MimeType|X-MagicDesk-X11Mode)=/{print}' \"$file\")\n"
                 + "  size=${#entry}; count=$((count+1)); total=$((total+size)); [ \"$count\" -le 256 ] && [ \"$total\" -le 65536 ] || exit 1\n"
                 + "  printf '%s' \"$file\" | base64 -w 0; printf '\\t'; printf '[Desktop Entry]\\n%s\\n' \"$entry\" | base64 -w 0; printf '\\n'\n"
                 + " done < <(find \"$directory\" -type f -name '*.desktop' -print0)\n"

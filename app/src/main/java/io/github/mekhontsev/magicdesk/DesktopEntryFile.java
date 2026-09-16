@@ -98,7 +98,7 @@ final class DesktopEntryFile {
                 || "true".equalsIgnoreCase(values.get("Hidden"))
                 || "true".equalsIgnoreCase(values.get("NoDisplay"))) return null;
         // Installed Linux entries are commands, never Android launch descriptors.
-        values.keySet().removeIf(key -> key.startsWith("X-MagicDesk-"));
+        values.keySet().removeIf(key -> key.startsWith("X-MagicDesk-") && !key.equals("X-MagicDesk-X11Mode"));
         values.put("X-MagicDesk-ExecBackend", "x11");
         return parseApplication(values);
     }
@@ -167,7 +167,26 @@ final class DesktopEntryFile {
         if (shortcut.defaultLaunch) {
             append(encoded, "X-MagicDesk-Default", "true");
         }
+        if (shortcut.x11Desktop) append(encoded, "X-MagicDesk-X11Mode", "desktop");
         return checkedEncoding(encoded.toString());
+    }
+
+    static String encodeRecent(final RecentApplicationStore.Entry entry) {
+        final StringBuilder encoded = new StringBuilder(encodeApplication(entry.shortcut()));
+        append(encoded, "X-MagicDesk-LastUsed", Long.toString(entry.lastUsed()));
+        append(encoded, "X-MagicDesk-Source", entry.sourcePath());
+        append(encoded, "X-MagicDesk-TermuxPackage", entry.termuxPackage());
+        return checkedEncoding(encoded.toString());
+    }
+
+    static RecentApplicationStore.Entry parseRecent(final String encoded) {
+        final Map<String, String> values = parseValues(encoded);
+        if (values == null || !"Application".equals(values.get("Type"))) return null;
+        try {
+            return new RecentApplicationStore.Entry(parseApplication(values),
+                    value(values, "X-MagicDesk-Source"), value(values, "X-MagicDesk-TermuxPackage"),
+                    Long.parseLong(value(values, "X-MagicDesk-LastUsed")));
+        } catch (IllegalArgumentException error) { return null; }
     }
 
     static String applicationExec(final String intentUri) {
@@ -290,7 +309,7 @@ final class DesktopEntryFile {
         final String exec = value(values, "Exec");
         if (intentUri.isEmpty()
                 && appShortcutId.isEmpty()
-                && exec.isEmpty()) {
+                && exec.isEmpty() && !"true".equalsIgnoreCase(value(values, "X-MagicDesk-Default"))) {
             return null;
         }
         AppLaunchTarget target = null;
@@ -298,6 +317,8 @@ final class DesktopEntryFile {
         final String activity = value(values, "X-MagicDesk-Activity");
         final String action = value(values, "X-MagicDesk-Action");
         try {
+            final String x11Mode = value(values, "X-MagicDesk-X11Mode");
+            if (!x11Mode.isEmpty() && !x11Mode.equals("application") && !x11Mode.equals("desktop")) return null;
             if (!packageName.isEmpty()) {
                 target = activity.isEmpty()
                         ? AppLaunchTarget.packageDefault(packageName)
@@ -324,7 +345,7 @@ final class DesktopEntryFile {
                             values.containsKey("X-MagicDesk-AppIdentity")
                                     ? AppIdentity.fromPersistentKey(value(
                                             values, "X-MagicDesk-AppIdentity"))
-                                    : null);
+                                    : null).withX11Desktop(x11Mode.equals("desktop"));
         } catch (IllegalArgumentException error) {
             return null;
         }

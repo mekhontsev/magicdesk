@@ -17,6 +17,10 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
         return mActivity;
     }
 
+    @Override public ToolLaunchTarget destination() {
+        return ToolLaunchTarget.resolve("desktop", mActivity.getCurrentDisplayId(), DesktopRuntimeBridge.workspaceDisplayIds());
+    }
+
     @Override
     public void hideTransientUi() {
         mActivity.hideAllPanels();

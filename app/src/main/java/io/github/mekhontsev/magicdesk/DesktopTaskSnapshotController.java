@@ -14,6 +14,7 @@ final class DesktopTaskSnapshotController {
             false,
             "not loaded");
     private int mRefreshGeneration;
+    private int mRecentTaskId = -1;
 
     DesktopTaskSnapshotController(final DesktopShellActivity activity) {
         mActivity = activity;
@@ -67,10 +68,10 @@ final class DesktopTaskSnapshotController {
                         mActivity.isTaskbarVisible()));
         mSnapshot = desktopSnapshot;
         if (activeTask != null
-                && isTaskbarTask(activeTask)) {
-            DesktopPreferences.recordRecentApp(
-                    mActivity, mActivity.appProfile().reference(activeTask));
+                && isTaskbarTask(activeTask) && activeTask.taskId != mRecentTaskId) {
+            RecentApplications.recordTask(mActivity, activeTask, mActivity.getLauncherApps());
         }
+        mRecentTaskId = activeTask == null ? -1 : activeTask.taskId;
         mActivity.renderTaskbarPins(mActivity.getLauncherApps());
         mActivity.setTaskbarVisible(taskbarVisible);
         mActivity.setTaskbarAvailable(taskbarAvailable);

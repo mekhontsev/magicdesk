@@ -21,7 +21,8 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
     static final String SESSION = "x11_session";
     static final String WINDOW = "x11_window";
     static final String DESKTOP_FILE = "x11_desktop_file";
-    private static final String APPLICATION = "x11_application";
+    static final String APPLICATION = "x11_application";
+    static final String RECIPE = "x11_recipe";
     private static final String COMMAND = "x11_command";
     private static final String NAME = "x11_name";
     private static final String DIRECTORY = "x11_directory";
@@ -69,16 +70,20 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
         setContentView(root);
         window = state == null ? getIntent().getLongExtra(WINDOW, 0) : state.getLong(WINDOW);
         String id = state == null ? getIntent().getStringExtra(SESSION) : state.getString(SESSION);
-        application = state == null ? getIntent().hasExtra(COMMAND) : state.getBoolean(APPLICATION);
-        if (application && state == null && id == null) {
+        final var recipe = getIntent().hasExtra(RECIPE) ? DesktopEntryFile.parseRecent(getIntent().getStringExtra(RECIPE)) : null;
+        application = state == null ? getIntent().getBooleanExtra(APPLICATION,
+                getIntent().hasExtra(COMMAND) && (recipe == null || !recipe.shortcut().x11Desktop)) : state.getBoolean(APPLICATION);
+        if (getIntent().hasExtra(COMMAND) && state == null && id == null) {
             try {
                 if (!TermuxIntegration.ensureRunCommandPermission(this)) {
                     status.setText(R.string.x11_permission_required);
                     return;
                 }
-                select(X11Sessions.startApplication(this, getIntent().getStringExtra(NAME),
+                if (getIntent().hasExtra(RECIPE) && recipe == null) throw new IllegalArgumentException("Invalid X11 launch recipe");
+                if (recipe != null) RecentApplications.requireEnvironment(this, recipe);
+                select(X11Sessions.startCommand(this, getIntent().getStringExtra(NAME),
                         getIntent().getStringExtra(COMMAND), getIntent().getStringExtra(DIRECTORY),
-                        getIntent().getStringExtra(DESKTOP_FILE)));
+                        getIntent().getStringExtra(DESKTOP_FILE), application, recipe));
             } catch (RuntimeException error) { showError(error); }
             return;
         }
@@ -116,13 +121,14 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
     }
 
     private void select(X11Sessions.Session next) {
-        if (session != null) { session.unlisten(this); session.releaseDensity(this); }
+        if (session != null) { session.unlisten(this); session.releaseDensity(this); session.releaseHost(getTaskId()); }
         surface.release();
         output = null;
         session = next;
         seenWindow = false;
         if (session != null) {
             session.listen(this);
+            if (!manager) session.host(getTaskId(), hasWindowFocus());
             updateDensity();
         }
         onChanged();
@@ -189,6 +195,10 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
     @Override public void onWindowFocusChanged(boolean focused) {
         super.onWindowFocusChanged(focused);
         updateDensity();
+        if (!manager && session != null) {
+            session.host(getTaskId(), focused);
+            if (focused) session.recordUse();
+        }
         if (focused && surface != null) onChanged();
         else updateClipboard();
     }
@@ -332,7 +342,7 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
         releaseClipboard();
         if (isFinishing() && application && window == 0 && session != null) session.close();
         if (isFinishing() && window != 0 && session != null) session.closeWindow(window);
-        if (session != null) { session.unlisten(this); session.releaseDensity(this); }
+        if (session != null) { session.unlisten(this); session.releaseDensity(this); session.releaseHost(getTaskId()); }
         if (surface != null) surface.release();
         BuiltInWindowRegistry.unregister(this);
         super.onDestroy();

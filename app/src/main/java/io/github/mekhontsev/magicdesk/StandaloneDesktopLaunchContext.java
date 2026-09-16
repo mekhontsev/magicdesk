@@ -21,6 +21,12 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
         return mActivity;
     }
 
+    @Override public ToolLaunchTarget destination() {
+        return ToolLaunchTarget.resolve("display", mDisplayId, DesktopRuntimeBridge.workspaceDisplayIds());
+    }
+
+    @Override public String destinationUniqueId() { return mUniqueId; }
+
     private int displayId() {
         return mDisplayId;
     }

@@ -44,6 +44,7 @@ final class DisplayAppLauncher {
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
                     OrdinaryActivityLaunch.launch(activity, intent,
                             AndroidLaunchSpec.Delivery.SHELL_INTENT, target.displayId);
+                    RecentApplications.recordApp(activity, app);
                 }
                 activity.runOnUiThread(() -> { if (canLaunch.getAsBoolean()) { onStarted.run(); } });
             } catch (java.io.IOException | RuntimeException error) {

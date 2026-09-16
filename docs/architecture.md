@@ -1031,16 +1031,24 @@ still enumerates only the current profile. Profile discovery/availability,
 badged icons, work-profile quiet mode, Private Space policy, cross-profile URI
 grants and launch permissions are not implemented. Before widening the catalog,
 profile resolution and permission-aware launching must be extended together.
-The catalog, taskbar pins, recent history and window state exchange typed
+The catalog, taskbar pins and window state exchange typed
 `AppReference` values; DPI and application actions exchange `AppIdentity`.
 Persistence alone serializes them as stable keys. Unbound or malformed stored
 keys are skipped, never assigned to the current profile. There is no
 package-only compatibility lookup.
 
-`DesktopStateStore` stores pins, geometry and DPI; recent history keeps its
-asynchronous SharedPreferences write path with a structured array of typed
-references. No additional observer, timer or synchronous focus-time disk write
-is introduced. Bounds callbacks carry `FrameworkTaskSnapshot`, so shell
+`DesktopStateStore` stores pins, geometry and DPI. `RecentApplicationStore`
+stores a bounded, profile-private launch history in `files/recent/*.desktop`.
+Android entries carry `AppIdentity`; command entries bind the selected Termux
+package when applicable. Each file contains its launch recipe and last-use
+timestamp, with no separate index or persisted task/session IDs. Semantic keys
+merge repeated default Android launches and equivalent command recipes;
+presentation, labels and file copies do not create duplicate history items.
+One IO queue atomically replaces records and prunes the oldest beyond 24.
+`RecentApplications` records successful launches and observed focus changes;
+X11 publishes the original recipe when its session becomes usable. No additional
+observer, timer or synchronous focus-time disk write is introduced.
+Bounds callbacks carry `FrameworkTaskSnapshot`, so shell
 observation does not need application-storage keys or profile serial lookup.
 Unknown and unsupported task users cannot overwrite current-profile geometry
 or receive its DPI. Application details, shortcuts and force-stop resolve the

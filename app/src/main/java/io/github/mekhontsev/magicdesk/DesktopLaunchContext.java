@@ -6,6 +6,10 @@ import android.app.Activity;
 interface DesktopLaunchContext {
     Activity activity();
 
+    ToolLaunchTarget destination();
+
+    default String destinationUniqueId() { return null; }
+
     void hideTransientUi();
 
     boolean launchAndroid(

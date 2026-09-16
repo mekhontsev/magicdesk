@@ -29,15 +29,9 @@ public final class AppProfileStorageTest {
         DesktopStateStore.useStorageForTests(null);
     }
 
-    @Test public void pinsHistoryBoundsAndDensityKeepProfilesSeparate() throws Exception {
+    @Test public void pinsBoundsAndDensityKeepProfilesSeparate() throws Exception {
         DesktopPreferences.saveTaskbarApps(List.of(PERSONAL_APP, WORK_APP, PERSONAL_APP));
         assertEquals(List.of(PERSONAL_APP, WORK_APP), DesktopPreferences.taskbarApps());
-
-        final List<AppReference> recent = DesktopPreferences.updateRecentApps(
-                List.of(PERSONAL_APP, WORK_APP), WORK_APP, 24);
-        assertEquals(List.of(WORK_APP, PERSONAL_APP), recent);
-        assertEquals(recent, DesktopPreferences.decodeRecentApps(
-                DesktopPreferences.encodeRecentApps(recent)));
 
         assertTrue(AppWindowStateStore.rememberWindowed(PERSONAL_APP,
                 new RelativeWindowBounds(0, 0, 5000, 10000)));
@@ -87,7 +81,6 @@ public final class AppProfileStorageTest {
         assertTrue(state.taskbarApps.isEmpty());
         assertTrue(state.appWindows.isEmpty());
         assertTrue(state.appPresentations.isEmpty());
-        assertTrue(DesktopPreferences.decodeRecentApps("[\"example.app\"]").isEmpty());
     }
 
     @Test public void catalogSelectionCannotDiscardProfileOrBuiltInIdentity() {
@@ -132,4 +125,3 @@ public final class AppProfileStorageTest {
                 AppItem.FULLSCREEN_REASON_NONE, null, target);
     }
 }
-

@@ -4,6 +4,20 @@ import org.junit.Test;
 
 public final class DesktopTaskSnapshotRefreshCoherenceTest {
     @Test
+    public void repeatedSnapshotsDoNotRewriteHistory() throws Exception {
+        verify("""
+                f.refresh(); f.refresh(); f.refresh();
+                check(RecentApplications.records == 1, "unchanged focus rewrote history on every snapshot");
+                var previous = MagicDeskRuntime.observed;
+                MagicDeskRuntime.observed = new TaskRepository.Snapshot(List.of(), true, "");
+                f.refresh();
+                MagicDeskRuntime.observed = previous;
+                f.refresh();
+                check(RecentApplications.records == 2, "returning to a task did not update history");
+                """);
+    }
+
+    @Test
     public void activeRefreshCannotPublishUnobservedHandoffFullscreen() throws Exception {
         verify("""
                 f.refresh();
@@ -145,14 +159,14 @@ public final class DesktopTaskSnapshotRefreshCoherenceTest {
                 }
                 static class DesktopTaskController { static boolean isDesktopHostTask(TaskRepository.TaskEntry task) { return false; } }
                 static class DesktopInfrastructureTasks { static boolean isTask(TaskRepository.TaskEntry task) { return false; } }
-                static class DesktopPreferences { static void recordRecentApp(Activity activity, AppReference key) {} }
+                static class RecentApplications { static int records; static void recordTask(Activity activity, TaskRepository.TaskEntry task, Object apps) { records++; } }
                 record AppReference(String key) {}
                 static class AppProfile { AppReference reference(Object task) { return new AppReference("0|fixture"); } }
                 static boolean isTaskbarTask(TaskRepository.TaskEntry task) { return true; }
                 final Activity mActivity = new Activity();
                 final DesktopTaskbarDialogHold mSystemDialogHold = new DesktopTaskbarDialogHold();
                 TaskRepository.Snapshot mSnapshot = new TaskRepository.Snapshot(Collections.emptyList(), false, "not loaded");
-                int mRefreshGeneration;
+                int mRefreshGeneration, mRecentTaskId = -1;
                 public static void verify() { Fixture f = new Fixture();
                 """ + scenario + "}\n" + RuntimeSourceFixture.methods("DesktopTaskSnapshotController",
                 "refresh", "applyRefreshSnapshot", "release", "sync", "selectDesktopTaskSnapshot",

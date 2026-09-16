@@ -223,17 +223,19 @@ final class FullscreenStartController implements StartMenuContent.Host {
     }
 
     @Override public List<AppItem> apps() { return mApps; }
-    @Override public List<AppReference> recentApps() {
-        final DesktopHomeRoleLease.State lease = activeLease();
-        return lease == null ? Collections.emptyList()
-                : HomeRecentApps.select(mRecentTasks, mApps, lease.previousHome.packageName, mDisplayId);
-    }
     @Override public int recentSectionLabel() {
         return mHome ? R.string.section_recent : R.string.display_running_apps;
     }
-    @Override public List<StartMenuEntry> entries(int section) {
-        if (!mHome && section == StartMenuContent.MENU_RECENT) {
-            final List<StartMenuEntry> entries = new java.util.ArrayList<>();
+    @Override public List<StartMenuEntry> recentEntries() {
+        final List<StartMenuEntry> entries = new java.util.ArrayList<>();
+        if (mHome) {
+            final DesktopHomeRoleLease.State lease = activeLease();
+            if (lease != null) for (final AppReference reference : HomeRecentApps.select(
+                    mRecentTasks, mApps, lease.previousHome.packageName, mDisplayId)) {
+                final AppItem app = LauncherAppRepository.find(mApps, reference);
+                if (app != null) entries.add(StartMenuEntry.app(app));
+            }
+        } else {
             final LauncherAppRepository repository = new LauncherAppRepository(mActivity);
             for (final TaskRepository.TaskEntry task : mRecentTasks) {
                 if (!TaskRepository.isTransferable(task)) { continue; }
@@ -246,8 +248,10 @@ final class FullscreenStartController implements StartMenuContent.Host {
                                     task.displayId, task.taskId)));
                 }
             }
-            return entries;
         }
+        return entries;
+    }
+    @Override public List<StartMenuEntry> entries(int section) {
         final List<StartMenuEntry> entries = new java.util.ArrayList<>(StartMenuContent.Host.super.entries(section));
         if (section == StartMenuContent.MENU_APPS) {
             entries.add(0, StartMenuEntry.terminals(mActivity.getString(R.string.terminal_sessions)));

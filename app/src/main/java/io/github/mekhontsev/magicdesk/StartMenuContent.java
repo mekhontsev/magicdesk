@@ -28,26 +28,20 @@ final class StartMenuContent {
         default List<DesktopApplicationRepository.Entry> desktopApplications() {
             return java.util.Collections.emptyList();
         }
-        List<AppReference> recentApps();
+        List<StartMenuEntry> recentEntries();
         default String recentAppsError() { return ""; }
         default int recentSectionLabel() { return R.string.section_recent; }
         default List<StartMenuEntry> entries(int section) {
+            if (section == MENU_RECENT) return recentEntries();
             final List<StartMenuEntry> result = new ArrayList<>();
-            if (section == MENU_RECENT) {
-                for (final AppReference reference : recentApps()) {
-                    final AppItem app = LauncherAppRepository.find(apps(), reference);
-                    if (app != null) { result.add(StartMenuEntry.app(app)); }
+            for (final AppItem app : apps()) { result.add(StartMenuEntry.app(app)); }
+            for (final DesktopApplicationRepository.Entry entry : desktopApplications()) {
+                if (entry.shortcut.hasExecLaunch()) {
+                    result.add(StartMenuEntry.desktopApplication(entry));
                 }
-            } else {
-                for (final AppItem app : apps()) { result.add(StartMenuEntry.app(app)); }
-                for (final DesktopApplicationRepository.Entry entry : desktopApplications()) {
-                    if (entry.shortcut.hasExecLaunch()) {
-                        result.add(StartMenuEntry.desktopApplication(entry));
-                    }
-                }
-                result.sort(Comparator.comparing((StartMenuEntry entry) -> entry.label,
-                        String.CASE_INSENSITIVE_ORDER).thenComparing(StartMenuEntry::stableKey));
             }
+            result.sort(Comparator.comparing((StartMenuEntry entry) -> entry.label,
+                    String.CASE_INSENSITIVE_ORDER).thenComparing(StartMenuEntry::stableKey));
             return result;
         }
         default void onSectionShown(int section) { }
@@ -314,6 +308,11 @@ final class StartMenuContent {
                 mSearchQuery, entries(mMode, true));
         if (!mPrepared) {
             mPrepared = true;
+            RecentApplications.refresh(mActivity, () -> {
+                if (mReleased || !mPrepared) return;
+                mSearchController.update(mSearchQuery, entries(mMode, true));
+                render();
+            });
             TermuxApplicationCatalog.refresh(mActivity, error -> {
                 if (mReleased || !mPrepared) return;
                 mSearchController.update(mSearchQuery, entries(mMode, true));
@@ -331,6 +330,15 @@ final class StartMenuContent {
             for (DesktopApplicationRepository.Entry application : TermuxApplicationCatalog.entries()) {
                 StartMenuEntry entry = StartMenuEntry.desktopApplication(application);
                 if (keys.add(entry.stableKey())) result.add(entry);
+            }
+            if (search) for (var recent : RecentApplications.entries()) {
+                boolean inCatalog = !recent.sourcePath().isEmpty() && result.stream().anyMatch(entry ->
+                        entry.desktopApplication != null && entry.desktopApplication.desktopFilePath.equals(recent.sourcePath()));
+                boolean androidApp = recent.shortcut().defaultLaunch && result.stream().anyMatch(entry ->
+                        entry.app != null && entry.app.reference != null && entry.app.reference.equals(
+                                AppReference.forTarget(recent.shortcut().application, recent.shortcut().launchTarget)));
+                StartMenuEntry entry = StartMenuEntry.recent(recent, mHost.apps());
+                if (!inCatalog && !androidApp && keys.add(entry.stableKey())) result.add(entry);
             }
             result.sort(Comparator.comparing((StartMenuEntry entry) -> entry.label, String.CASE_INSENSITIVE_ORDER)
                     .thenComparing(StartMenuEntry::stableKey));
@@ -516,12 +524,7 @@ final class StartMenuContent {
         tile.setClickable(true);
         tile.setFocusable(true);
         tile.setOnClickListener(view -> mHost.open(application));
-        if (app != null) {
-            mHost.appContext(tile, app);
-        } else if (desktopApplication != null && desktopApplication.desktopFile != null) {
-            mHost.fileContext(
-                    tile, desktopApplication.desktopFile);
-        }
+        bindContextMenu(tile, application);
         mHost.automation().register(
                 tile,
                 "start.app."
@@ -702,7 +705,6 @@ final class StartMenuContent {
         row.setFocusable(true);
         row.setOnClickListener(view -> openSearchResult(result));
         if (result.app != null) {
-            mHost.appContext(row, result.app);
             mHost.automation().register(
                     row,
                     "start.search.app."
@@ -714,8 +716,6 @@ final class StartMenuContent {
                     -1);
         } else if (result.desktopApplication != null
                 && result.desktopApplication.desktopFile != null) {
-            mHost.fileContext(
-                    row, result.desktopApplication.desktopFile);
             mHost.automation().register(
                     row,
                     "start.search.command."
@@ -733,15 +733,7 @@ final class StartMenuContent {
                     result.label);
         }
 
-        if (result.desktopApplication != null && result.desktopApplication.desktopFile == null
-                && result.desktopApplication.shortcut.execBackend == DesktopExecBackend.X11
-                && !result.desktopApplication.shortcut.terminal) {
-            row.setOnLongClickListener(anchor -> {
-                X11ScaleDialog.show(mActivity, result.label, result.desktopApplication.desktopFilePath);
-                return true;
-            });
-            row.setOnContextClickListener(View::performLongClick);
-        }
+        bindContextMenu(row, result);
 
         final ImageView icon = new ImageView(mActivity);
         bindIcon(icon, result);
@@ -804,6 +796,21 @@ final class StartMenuContent {
             icon.setImageDrawable(DesktopApplicationIconResolver.resolve(
                     mActivity, entry.desktopApplication.shortcut));
         } else { icon.setImageResource(searchIcon(entry)); }
+    }
+
+    private void bindContextMenu(View view, StartMenuEntry entry) {
+        if (entry.app != null) mHost.appContext(view, entry.app);
+        else if (entry.desktopApplication != null) {
+            var application = entry.desktopApplication;
+            if (application.desktopFile != null) mHost.fileContext(view, application.desktopFile);
+            else if (application.shortcut.execBackend == DesktopExecBackend.X11 && !application.shortcut.terminal) {
+                view.setOnLongClickListener(anchor -> {
+                    X11ScaleDialog.show(mActivity, entry.label, application.desktopFilePath);
+                    return true;
+                });
+                view.setOnContextClickListener(View::performLongClick);
+            }
+        }
     }
 
     private static String modeName(final int mode) {

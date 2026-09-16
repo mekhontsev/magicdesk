@@ -14,11 +14,19 @@ final class StartMenuEntry {
     final TaskRepository.TaskEntry task;
     final Action action;
     final ShellFileInfo file;
+    final RecentApplicationStore.Entry recent;
 
     private StartMenuEntry(Kind kind, String label, String detail, AppItem app,
             DesktopApplicationRepository.Entry desktopApplication,
             BuiltInDesktopAppCatalog.Entry builtIn, TaskRepository.TaskEntry task,
             Action action, ShellFileInfo file) {
+        this(kind, label, detail, app, desktopApplication, builtIn, task, action, file, null);
+    }
+
+    private StartMenuEntry(Kind kind, String label, String detail, AppItem app,
+            DesktopApplicationRepository.Entry desktopApplication,
+            BuiltInDesktopAppCatalog.Entry builtIn, TaskRepository.TaskEntry task,
+            Action action, ShellFileInfo file, RecentApplicationStore.Entry recent) {
         this.kind = kind;
         this.label = label;
         this.detail = detail;
@@ -28,6 +36,18 @@ final class StartMenuEntry {
         this.task = task;
         this.action = action;
         this.file = file;
+        this.recent = recent;
+    }
+
+    static StartMenuEntry recent(RecentApplicationStore.Entry recent, java.util.List<AppItem> apps) {
+        final var shortcut = recent.shortcut();
+        final AppItem app = shortcut.defaultLaunch ? LauncherAppRepository.find(apps,
+                AppReference.forTarget(shortcut.application, shortcut.launchTarget)) : null;
+        final String detail = shortcut.launchTarget != null ? shortcut.launchTarget.packageName
+                : shortcut.execBackend == DesktopExecBackend.X11 ? "Termux" : shortcut.execBackend.wireName;
+        return new StartMenuEntry(Kind.DESKTOP_APPLICATION, shortcut.name, detail, app,
+                new DesktopApplicationRepository.Entry(shortcut, recent.sourcePath(), null),
+                null, null, null, null, recent);
     }
 
     static StartMenuEntry app(AppItem app) {
@@ -68,6 +88,7 @@ final class StartMenuEntry {
     }
 
     String stableKey() {
+        if (recent != null) return "recent|" + recent.key();
         if (task != null) { return "task|" + task.userId + "|" + task.taskId; }
         if (app != null) { return "app|" + app.identity.persistentKey() + "|" + app.launchTarget.stableKey(); }
         if (desktopApplication != null) { return "command|" + desktopApplication.desktopFilePath; }
