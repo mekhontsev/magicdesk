@@ -67,6 +67,19 @@ public final class QuickControlsPresentationTest {
     }
 
     @Test
+    public void desktopToolsCloseOnlyTheirDesktopAndLeaveGlobalExitToControlPanel() throws Exception {
+        final String tools = RuntimeSourceFixture.methods("DesktopControlsController", "populateTools");
+        assertTrue(tools.contains("mActivity.closeDesktop()"));
+        assertTrue(tools.contains("mActivity.openControlPanel()"));
+        assertFalse(tools.contains("R.string.action_exit"));
+        assertFalse(source("DesktopShellActivity").contains("exitMagicDesk"));
+        assertFalse(source("DesktopShellActivity").contains("mSessionController.exit()"));
+        final String controlPanel = source("PhoneControlPanelController");
+        assertTrue(controlPanel.contains("R.string.confirm_exit_magicdesk"));
+        assertTrue(controlPanel.contains("mActions.exitMagicDesk()"));
+    }
+
+    @Test
     public void phonePanelKeepsActionsInPlaceAndUsesExistingHandlers() throws Exception {
         final String render = RuntimeSourceFixture.methods("PhoneControlPanelController", "render");
         assertFalse(render.contains("setVisibility"));

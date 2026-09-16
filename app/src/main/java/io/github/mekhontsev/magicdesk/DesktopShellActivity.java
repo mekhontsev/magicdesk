@@ -2215,10 +2215,6 @@ public abstract class DesktopShellActivity extends Activity
         }
     }
 
-    void exitMagicDesk() {
-        mSessionController.exit();
-    }
-
     void closeDesktop() {
         mSessionController.closeDesktop();
     }

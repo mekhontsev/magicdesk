@@ -53,7 +53,9 @@ identity, Desktop status, independent applications and Viewer links. The display
 follows the compact status/access row without an extra section heading.
 **Create display** belongs to the lower general-action grid and uses the table's
 current selection for creation defaults. **Exit MagicDesk** asks for confirmation
-before invoking the existing exit controller. Radio selection
+before invoking the existing exit controller. Desktop Start's Tools page exposes
+only **Close desktop** for its own workspace; global exit belongs to the control
+panel. Radio selection
 is local to this view and survives catalog refresh by display unique ID. Newly
 connected or created displays are selected when they appear in the catalog;
 status or resolution changes preserve manual selection. Initial selection prefers

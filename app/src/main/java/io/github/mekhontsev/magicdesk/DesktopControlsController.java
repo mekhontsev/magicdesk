@@ -231,12 +231,6 @@ final class DesktopControlsController {
                 mActivity.showCaptureControls());
         addActionButton(actionGrid, capture);
 
-        final Button exit = mUi.actionButton(
-                R.string.action_exit,
-                DesktopUiFactory.COLOR_RED);
-        exit.setOnClickListener(view -> mActivity.exitMagicDesk());
-        addActionButton(actionGrid, exit);
-
         final LinearLayout.LayoutParams actionGridParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
