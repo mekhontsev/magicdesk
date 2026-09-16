@@ -34,4 +34,12 @@ public final class RuntimeCapabilitiesTest {
         assertEquals("termux_run_command", new RuntimeCapabilities(35, true, true, false, true)
                 .missing(RuntimeCapabilities.Service.TERMUX));
     }
+
+    @Test public void missingTermuxDoesNotGateIndependentServicesOrDesktop() {
+        final var caps = new RuntimeCapabilities(35, true, false, false, true);
+        for (final var service : RuntimeCapabilities.Service.values()) {
+            assertEquals(service.name(), service == RuntimeCapabilities.Service.TERMUX ? "termux" : "",
+                    caps.missing(service));
+        }
+    }
 }

@@ -1579,7 +1579,10 @@ names once at application startup. Settings can save new names or reset to the
 original packages. These bootstrap preferences live in app-private storage and
 are readable before the privileged service connects, independently of shell-backed Desktop state.
 Changes take effect in the next process, without reconciling active services or
-terminals. UI, automation and command providers share this selection. Diagnostics
+terminals. **Exit MagicDesk** always ends the process after normal Desktop and
+shared-service cleanup; reopening applies all saved startup settings. It does
+not depend on which setting changed. UI, automation and command providers share
+this selection. Diagnostics
 exposes both active and configured values. There is no catalog of forks or
 automatic fallback to a different installed application.
 

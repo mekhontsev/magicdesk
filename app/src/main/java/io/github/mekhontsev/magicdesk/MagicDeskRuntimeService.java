@@ -370,7 +370,13 @@ public final class MagicDeskRuntimeService extends Service
 
     @Override
     public void prepareForStop(final Runnable completion) {
-        releaseDesktopTaskSession(completion);
+        releaseDesktopTaskSession(() -> mHandler.post(() -> {
+            try {
+                closeRuntime();
+            } finally {
+                if (completion != null) { completion.run(); }
+            }
+        }));
     }
 
     @Override
@@ -578,6 +584,12 @@ public final class MagicDeskRuntimeService extends Service
 
     @Override
     public void onDestroy() {
+        closeRuntime();
+        super.onDestroy();
+    }
+
+    private void closeRuntime() {
+        if (mDestroyed) { return; }
         mDestroyed = true;
         MagicDeskRuntime.detach(this);
         ShellAccess.removeStateListener(mShellStateListener);
@@ -599,7 +611,6 @@ public final class MagicDeskRuntimeService extends Service
         if (mHandler != null) {
             mHandler.removeCallbacksAndMessages(null);
         }
-        super.onDestroy();
     }
 
     private void destroyDesktopRuntime() {

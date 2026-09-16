@@ -274,11 +274,9 @@ final class MagicDeskSessionController {
                 Log.w(TAG, "final activity finish failed", finishError);
             }
         }
-        // Android retains a cached process after Activity.finish(). Startup-only
-        // identity settings need a fresh process, after all privileged cleanup.
-        if (ShellPrivilegePolicy.restartRequired(mActivity)) {
-            android.os.Process.killProcess(android.os.Process.myPid());
-        }
+        // Exit is a full shutdown, not Activity.finish() with a cached runtime.
+        // All service cleanup has completed before reaching this finalizer.
+        android.os.Process.killProcess(android.os.Process.myPid());
     }
 
     private void cleanupPhoneTasksBeforeExit(
