@@ -2801,10 +2801,22 @@ Desktop Start uses remembered desktop launch history. Phone HOME
 requests a typed task snapshot only when resumed or when Recent is selected;
 stopped instances discard pending results. An unavailable snapshot is an error,
 not a fabricated empty history. The phone uses only application search, without
-constructing the desktop file-search worker. The application catalog reuses
-`LauncherAppRepository`; phone loading is asynchronous and invalidated by
-`LauncherApps.Callback`, not by a timer. Grid capacity follows each panel's
-measured viewport, including keyboard resizing.
+constructing the desktop file-search worker. `ApplicationCatalog` is shared by
+all Start windows in the application process/profile. Android discovery uses
+`LauncherAppRepository` on a worker, invalidated by `LauncherApps.Callback` and
+resource-configuration changes, not a timer. Termux discovery uses the selected
+RUN_COMMAND endpoint through `TermuxApplicationSource`, refreshed when Start
+opens or automation requests its catalog. Both sources use
+`ApplicationCatalogSource`: independent loading/error state, immutable last-good
+results, joined in-flight requests and generation-checked completion. Android
+apps never wait for Termux; cold Start shows a loading state until Android
+discovery completes, rather than briefly showing only cached Termux entries.
+Reopened Start immediately uses cached results. Endpoint identity/availability
+changes clear Termux entries and invalidate old callbacks; transient read errors
+retain the last successful list. The catalog merges application identities and
+sorts entries, while each Start retains its own navigation and subscribes only
+while presented. Grid capacity follows each panel's measured viewport, including
+keyboard resizing.
 
 Every Start has a compact launch-display selector alongside search. **Current**
 means the display hosting that instance, not the selected input display. Choosing

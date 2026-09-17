@@ -439,6 +439,7 @@
     <string name="status_ready">Apps: %1$d | Display: %2$d</string>
     <string name="status_no_apps">No launcher apps found</string>
     <string name="recent_apps_empty">Recently used apps appear here</string>
+    <string name="apps_loading">Loading applications&#8230;</string>
     <string name="status_launching_window">Opening window: %1$s</string>
     <string name="status_launching_fullscreen">Opening full screen: %1$s</string>
     <string name="status_launch_failed">Launch failed: %1$s</string>

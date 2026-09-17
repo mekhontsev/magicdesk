@@ -18,12 +18,12 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 
 /** Shared Start contents. Each host owns a separate instance and launch destination. */
 final class StartMenuContent {
     interface Host {
+        ApplicationCatalog.Snapshot catalog();
         List<AppItem> apps();
         default List<DesktopApplicationRepository.Entry> desktopApplications() {
             return java.util.Collections.emptyList();
@@ -33,16 +33,7 @@ final class StartMenuContent {
         default int recentSectionLabel() { return R.string.section_recent; }
         default List<StartMenuEntry> entries(int section) {
             if (section == MENU_RECENT) return recentEntries();
-            final List<StartMenuEntry> result = new ArrayList<>();
-            for (final AppItem app : apps()) { result.add(StartMenuEntry.app(app)); }
-            for (final DesktopApplicationRepository.Entry entry : desktopApplications()) {
-                if (entry.shortcut.hasExecLaunch()) {
-                    result.add(StartMenuEntry.desktopApplication(entry));
-                }
-            }
-            result.sort(Comparator.comparing((StartMenuEntry entry) -> entry.label,
-                    String.CASE_INSENSITIVE_ORDER).thenComparing(StartMenuEntry::stableKey));
-            return result;
+            return catalog().applications(apps(), desktopApplications());
         }
         default void onSectionShown(int section) { }
         default List<StartMenuEntry> searchEntries(int section) { return entries(MENU_APPS); }
@@ -67,6 +58,9 @@ final class StartMenuContent {
     private final StartMenuScope mScope;
     private final DesktopUiFactory mUi;
     private final StartSearchController mSearchController;
+    private final ApplicationCatalog mCatalog;
+    private final Runnable mCatalogListener = this::catalogChanged;
+    private ApplicationCatalog.Snapshot mObservedCatalog;
 
     private LinearLayout mPanel;
     private LinearLayout mContent;
@@ -92,6 +86,7 @@ final class StartMenuContent {
         mScope = scope;
         mMode = scope == StartMenuScope.APPLICATIONS ? MENU_APPS : MENU_RECENT;
         mActivity = activity;
+        mCatalog = ApplicationCatalog.get(activity);
         mUi = ui;
         mSearchController = new StartSearchController(
                 activity, scope,
@@ -308,12 +303,10 @@ final class StartMenuContent {
                 mSearchQuery, entries(mMode, true));
         if (!mPrepared) {
             mPrepared = true;
+            mCatalog.subscribe(mCatalogListener);
+            mCatalog.refresh();
+            mObservedCatalog = mCatalog.snapshot();
             RecentApplications.refresh(mActivity, () -> {
-                if (mReleased || !mPrepared) return;
-                mSearchController.update(mSearchQuery, entries(mMode, true));
-                render();
-            });
-            TermuxApplicationCatalog.refresh(mActivity, error -> {
                 if (mReleased || !mPrepared) return;
                 mSearchController.update(mSearchQuery, entries(mMode, true));
                 render();
@@ -323,11 +316,13 @@ final class StartMenuContent {
     }
 
     private List<StartMenuEntry> entries(int section, boolean search) {
+        if ((search || section == MENU_APPS) && !mCatalog.snapshot().android().ready()) return List.of();
         List<StartMenuEntry> result = new ArrayList<>(search ? mHost.searchEntries(section) : mHost.entries(section));
         if (search || section == MENU_APPS) {
             java.util.Set<String> keys = new java.util.HashSet<>();
             for (StartMenuEntry entry : result) keys.add(entry.stableKey());
-            for (DesktopApplicationRepository.Entry application : TermuxApplicationCatalog.entries()) {
+            // Running-task search still includes installed command applications.
+            if (search) for (var application : mCatalog.snapshot().termux().entries()) {
                 StartMenuEntry entry = StartMenuEntry.desktopApplication(application);
                 if (keys.add(entry.stableKey())) result.add(entry);
             }
@@ -340,14 +335,28 @@ final class StartMenuContent {
                 StartMenuEntry entry = StartMenuEntry.recent(recent, mHost.apps());
                 if (!inCatalog && !androidApp && keys.add(entry.stableKey())) result.add(entry);
             }
-            result.sort(Comparator.comparing((StartMenuEntry entry) -> entry.label, String.CASE_INSENSITIVE_ORDER)
-                    .thenComparing(StartMenuEntry::stableKey));
+            return ApplicationCatalog.sortedUnique(result);
         }
         return result;
     }
 
+    private void catalogChanged() {
+        if (mReleased || !mPrepared) return;
+        final var next = mCatalog.snapshot();
+        final var previous = mObservedCatalog;
+        mObservedCatalog = next;
+        if (previous != null && previous.android().entries() == next.android().entries()
+                && previous.android().ready() == next.android().ready()
+                && previous.termux().entries() == next.termux().entries()
+                && (next.android().ready() || (previous.android().loading() == next.android().loading()
+                        && previous.android().error().equals(next.android().error())))) return;
+        mSearchController.update(mSearchQuery, entries(mMode, true));
+        renderBody();
+    }
+
     void pause() {
         mPrepared = false;
+        mCatalog.unsubscribe(mCatalogListener);
         mLaunchControls.dismiss();
         mSearch.setShowSoftInputOnFocus(false);
         mSearchController.pause();
@@ -356,6 +365,7 @@ final class StartMenuContent {
     void release() {
         mReleased = true;
         mPrepared = false;
+        mCatalog.unsubscribe(mCatalogListener);
         mLaunchControls.dismiss();
         mSearchController.close();
     }
@@ -376,6 +386,19 @@ final class StartMenuContent {
             return;
         }
         mBody.removeAllViews();
+
+        final var android = mCatalog.snapshot().android();
+        if ((mMode == MENU_APPS || !mSearchQuery.trim().isEmpty()) && !android.ready()) {
+            final TextView status = new TextView(mActivity);
+            status.setText(android.error().isEmpty()
+                    ? mActivity.getString(R.string.apps_loading) : android.error());
+            status.setTextColor(DesktopUiFactory.COLOR_MUTED);
+            status.setTextSize(14);
+            status.setGravity(Gravity.CENTER);
+            mBody.addView(status, new LinearLayout.LayoutParams(-1, 0, 1));
+            mHost.automation().register(status, "start.catalog", "status", status.getText().toString());
+            return;
+        }
 
         if (!mSearchQuery.trim().isEmpty()) {
             renderSearchResults();

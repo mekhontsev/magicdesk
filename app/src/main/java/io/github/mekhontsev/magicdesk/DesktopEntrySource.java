@@ -17,7 +17,7 @@ enum DesktopEntrySource {
     }
 
     List<DesktopApplicationRepository.Entry> load(Context context) throws IOException {
-        return this == TERMUX ? TermuxApplicationCatalog.load(context) : DesktopApplicationRepository.load();
+        return this == TERMUX ? ApplicationCatalog.loadTermux(context) : DesktopApplicationRepository.load();
     }
 
     DesktopEntry read(Context context, String path) throws IOException {

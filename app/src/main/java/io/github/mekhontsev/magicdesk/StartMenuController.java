@@ -104,6 +104,7 @@ final class StartMenuController implements StartMenuContent.Host {
     }
 
     @Override public List<AppItem> apps() { return mActivity.getLauncherApps(); }
+    @Override public ApplicationCatalog.Snapshot catalog() { return ApplicationCatalog.get(mActivity).snapshot(); }
     @Override public List<DesktopApplicationRepository.Entry> desktopApplications() {
         return mActivity.getDesktopApplications();
     }

@@ -93,6 +93,8 @@ public abstract class DesktopShellActivity extends Activity
     private DesktopControlsController mDesktopControls;
     private MagicDeskSessionController mSessionController;
     private LauncherAppRepository mLauncherApps;
+    private ApplicationCatalog mApplicationCatalog;
+    private final Runnable mApplicationsChanged = this::onApplicationsChanged;
     private DesktopInputController mInputController;
     private DesktopSystemActionsController mSystemActions;
     private DesktopLaunchCoordinator mLaunchCoordinator;
@@ -390,6 +392,7 @@ public abstract class DesktopShellActivity extends Activity
 
     @Override
     protected void onDestroy() {
+        if (mApplicationCatalog != null) mApplicationCatalog.unsubscribe(mApplicationsChanged);
         if (mHomeStart != null) {
             mHomeStart.destroy();
             super.onDestroy();
@@ -616,6 +619,7 @@ public abstract class DesktopShellActivity extends Activity
         if (mDesktopWorkspaceController != null) {
             mDesktopWorkspaceController.start();
         }
+        if (mApplicationCatalog != null) mApplicationCatalog.ensureAndroid();
     }
 
     @Override
@@ -1426,8 +1430,24 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void renderApps() {
-        final List<AppItem> apps =
-                mLauncherApps.load(isUniversalFreeformEnabled());
+        if (mApplicationCatalog == null) {
+            mApplicationCatalog = ApplicationCatalog.get(this);
+            mApplicationCatalog.subscribe(mApplicationsChanged);
+        }
+        mApplicationCatalog.ensureAndroid();
+        renderCatalogApps();
+    }
+
+    private void onApplicationsChanged() {
+        if (!isActivityUnavailable() && mApplicationCatalog.snapshot().android().ready()
+                && mLastApps != mApplicationCatalog.androidApps(isUniversalFreeformEnabled())) {
+            renderCatalogApps();
+        }
+    }
+
+    private void renderCatalogApps() {
+        if (!mApplicationCatalog.snapshot().android().ready()) return;
+        final List<AppItem> apps = mApplicationCatalog.androidApps(isUniversalFreeformEnabled());
         mLastApps = apps;
 
         if (apps.isEmpty()) {

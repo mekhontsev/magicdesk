@@ -2,10 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
 import android.content.Intent;
-import android.content.pm.LauncherApps;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.UserHandle;
 import android.graphics.Color;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -18,8 +14,6 @@ import android.window.OnBackInvokedDispatcher;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /** Fullscreen Start, hosted either by HOME or by the independent Apps Activity. */
 final class FullscreenStartController implements StartMenuContent.Host {
@@ -34,28 +28,12 @@ final class FullscreenStartController implements StartMenuContent.Host {
     private boolean mLaunching;
     private StartMenuContent mStart;
     private final DesktopAutomationUiRegistry mAutomation = new DesktopAutomationUiRegistry();
-    private List<AppItem> mApps = Collections.emptyList();
+    private final ApplicationCatalog mCatalog;
     private List<TaskRepository.TaskEntry> mRecentTasks = Collections.emptyList();
     private String mRecentError = "";
     private boolean mRecentLoading;
     private int mRecentGeneration;
-    private LauncherApps mLauncherApps;
     private boolean mStarted;
-    private boolean mAppsDirty = true;
-    private boolean mAppsLoading;
-    private final ExecutorService mAppLoader = Executors.newSingleThreadExecutor(
-            runnable -> new Thread(runnable, "MagicDeskStartApps"));
-    private final LauncherApps.Callback mPackageCallback = new LauncherApps.Callback() {
-        @Override public void onPackageAdded(String name, UserHandle user) { invalidateApps(); }
-        @Override public void onPackageRemoved(String name, UserHandle user) { invalidateApps(); }
-        @Override public void onPackageChanged(String name, UserHandle user) { invalidateApps(); }
-        @Override public void onPackagesAvailable(String[] names, UserHandle user, boolean replacing) {
-            invalidateApps();
-        }
-        @Override public void onPackagesUnavailable(String[] names, UserHandle user, boolean replacing) {
-            invalidateApps();
-        }
-    };
     private final OnBackInvokedCallback mBackCallback = this::back;
 
     private void back() {
@@ -69,6 +47,7 @@ final class FullscreenStartController implements StartMenuContent.Host {
 
     FullscreenStartController(final Activity activity, final boolean home) {
         mActivity = activity;
+        mCatalog = ApplicationCatalog.get(activity);
         mHome = home;
         mDisplayId = activity.getDisplay().getDisplayId();
         if (home) { activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER); }
@@ -79,10 +58,6 @@ final class FullscreenStartController implements StartMenuContent.Host {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         showHome();
         if (home) { applyHomeIntent(true); }
-        mLauncherApps = activity.getSystemService(LauncherApps.class);
-        if (mLauncherApps != null) {
-            mLauncherApps.registerCallback(mPackageCallback, new Handler(Looper.getMainLooper()));
-        }
         MagicDeskRuntime.startTools(activity, false);
     }
 
@@ -106,7 +81,6 @@ final class FullscreenStartController implements StartMenuContent.Host {
     void start() {
         mStarted = true;
         DesktopRuntimeBridge.registerUiWindow(mActivity.getWindow(), mAutomation);
-        loadApps();
     }
 
     void stop() {
@@ -125,9 +99,7 @@ final class FullscreenStartController implements StartMenuContent.Host {
 
     void destroy() {
         DesktopRuntimeBridge.unregisterUiWindow(mActivity.getWindow());
-        if (mLauncherApps != null) { mLauncherApps.unregisterCallback(mPackageCallback); }
         mStart.release();
-        mAppLoader.shutdownNow();
         mActivity.getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(mBackCallback);
     }
 
@@ -183,48 +155,8 @@ final class FullscreenStartController implements StartMenuContent.Host {
         return params;
     }
 
-    private void invalidateApps() {
-        mAppsDirty = true;
-        loadApps();
-    }
-
-    private void loadApps() {
-        if (!mStarted || !mAppsDirty || mAppsLoading || mActivity.isFinishing()) {
-            return;
-        }
-        mAppsDirty = false;
-        mAppsLoading = true;
-        // Catalog work runs only on first display or package changes, never on a timer.
-        mAppLoader.execute(() -> {
-            final List<AppItem> apps;
-            try {
-                apps = new LauncherAppRepository(mActivity).load(false);
-            } catch (RuntimeException error) {
-                mActivity.runOnUiThread(() -> {
-                    mAppsLoading = false;
-                    mAppsDirty = true;
-                    if (!mActivity.isDestroyed() && !mActivity.isFinishing()) {
-                        CompatibilityDiagnostics.record("PHONE-APPS-001",
-                                "Could not load phone applications", "", error);
-                    }
-                });
-                return;
-            }
-            mActivity.runOnUiThread(() -> {
-                mAppsLoading = false;
-                if (mActivity.isDestroyed() || mActivity.isFinishing()) {
-                    return;
-                }
-                mApps = apps;
-                if (mStarted) {
-                    mStart.prepare(true);
-                }
-                loadApps();
-            });
-        });
-    }
-
-    @Override public List<AppItem> apps() { return mApps; }
+    @Override public ApplicationCatalog.Snapshot catalog() { return mCatalog.snapshot(); }
+    @Override public List<AppItem> apps() { return mCatalog.androidApps(false); }
     @Override public int recentSectionLabel() {
         return mHome || !ShellAccess.isReady() ? R.string.section_recent : R.string.display_running_apps;
     }
@@ -236,15 +168,15 @@ final class FullscreenStartController implements StartMenuContent.Host {
         if (mHome) {
             final DesktopHomeRoleLease.State lease = activeLease();
             if (lease != null) for (final AppReference reference : HomeRecentApps.select(
-                    mRecentTasks, mApps, lease.previousHome.packageName, mDisplayId)) {
-                final AppItem app = LauncherAppRepository.find(mApps, reference);
+                    mRecentTasks, apps(), lease.previousHome.packageName, mDisplayId)) {
+                final AppItem app = LauncherAppRepository.find(apps(), reference);
                 if (app != null) entries.add(StartMenuEntry.app(app));
             }
         } else {
             final LauncherAppRepository repository = new LauncherAppRepository(mActivity);
             for (final TaskRepository.TaskEntry task : mRecentTasks) {
                 if (!TaskRepository.isTransferable(task)) { continue; }
-                final AppItem app = LauncherAppRepository.find(mApps,
+                final AppItem app = LauncherAppRepository.find(apps(),
                         AppReference.forTask(repository.profile().application(task), task));
                 if (app != null) {
                     entries.add(StartMenuEntry.task(app, task, TaskTitle.resolve(mActivity, app, task),
