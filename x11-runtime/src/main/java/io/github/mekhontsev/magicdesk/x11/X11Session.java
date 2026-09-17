@@ -108,21 +108,19 @@ public final class X11Session implements AutoCloseable {
     /** ICCCM WM_DELETE_WINDOW, or client termination when that protocol is unsupported. */
     public void closeWindow(long windowId) {
         if (windowId <= 0 || windowId > 0xffffffffL) throw new IllegalArgumentException("Invalid X11 window ID");
-        dispatch(() -> {
+        post(() -> {
             if (connected) nativeCommand(nativeHandle, 0, (int)windowId, 8, 0, 0, 0, false);
-            return null;
-        }, true);
+        });
     }
 
     /** Logical density of this X screen. Toolkits receive normal XSettings/RandR events. */
     public void setDpi(int value) {
         if (value < 24 || value > 1536) throw new IllegalArgumentException("Invalid X11 DPI");
-        dispatch(() -> {
-            if (dpi == value) return null;
+        post(() -> {
+            if (dpi == value) return;
             dpi = value;
             if (connected) nativeCommand(nativeHandle, 0, 0, 9, dpi, 0, 0, false);
-            return null;
-        }, true);
+        });
     }
 
     private void onNativeWindow(int id, byte[] title, int[] pixels, boolean removed, boolean mapped) {
@@ -286,6 +284,14 @@ public final class X11Session implements AutoCloseable {
 
     private <T> T call(Callable<T> action) {
         return dispatch(action, false);
+    }
+
+    // Commands have no resource-release acknowledgement. Keep UI/focus callbacks
+    // independent of server progress; Surface changes still use dispatch below.
+    private void post(Runnable action) {
+        synchronized (submissions) {
+            if (shutdown == null && !closed) handler.post(action);
+        }
     }
 
     private <T> T dispatch(Callable<T> action, boolean optional) {

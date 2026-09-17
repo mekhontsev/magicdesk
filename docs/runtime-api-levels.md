@@ -86,7 +86,7 @@ The APK, native helpers and embedded X11 library currently target only
 Both helper compiler paths in `gradle/native-helpers.gradle` derive their Android
 target from the APK's minimum SDK (currently API 34), not the Desktop minimum.
 The embedded X11 NDK build also uses its module's API 34 minimum; the Termux X11
-build uses the installed toolchain. Compilation does not establish API 34 native
+build explicitly targets API 34 with the installed toolchain. Compilation does not establish API 34 native
 compatibility by itself: that release's shell/Termux/pointer workflows still need
 device execution coverage.
 
