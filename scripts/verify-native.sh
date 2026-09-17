@@ -29,6 +29,7 @@ if ! command -v timeout >/dev/null 2>&1; then
 fi
 
 project_dir=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+sh "$project_dir/vendor/magicdesk-x11/scripts/verify-native.sh"
 temp_dir=$(CDPATH= cd -- "${TMPDIR:-/tmp}" && pwd)
 work=$(mktemp -d "$temp_dir/magicdesk-native.XXXXXX")
 trap 'rm -rf -- "$work"' 0

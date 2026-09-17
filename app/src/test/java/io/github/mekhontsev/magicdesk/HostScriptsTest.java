@@ -165,9 +165,22 @@ public final class HostScriptsTest {
         assertEmptyDirectory(densityFailure.output);
     }
 
+    @Test
+    public void nativeVerifierPropagatesX11Failures() throws Exception {
+        assumeTrue("Linux".equals(System.getProperty("os.name")));
+        final var fixture = nativeVerifierFixture();
+        Files.writeString(fixture.project.resolve("vendor/magicdesk-x11/scripts/verify-native.sh"), "exit 23\n");
+        final var result = nativeVerifier(fixture, "", false);
+        assertEquals(result.output, 23, result.exitCode);
+        assertTrue(!Files.exists(fixture.log));
+        assertEmptyDirectory(fixture.output);
+    }
+
     private NativeVerifierFixture nativeVerifierFixture() throws Exception {
         final Path project = temporary.newFolder().toPath().resolve("project with spaces");
         Files.createDirectories(project.resolve("scripts"));
+        Files.createDirectories(project.resolve("vendor/magicdesk-x11/scripts"));
+        Files.writeString(project.resolve("vendor/magicdesk-x11/scripts/verify-native.sh"), "exit 0\n");
         Files.copy(Path.of("..", "scripts", "verify-native.sh"),
                 project.resolve("scripts/verify-native.sh"));
         final Path compiler = project.resolve("fake cc");
