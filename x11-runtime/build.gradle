@@ -19,9 +19,8 @@ android {
     ndkVersion '27.3.13750724'
     defaultConfig {
         minSdk 34
-        if (termux) ndk { abiFilters 'arm64-v8a' }
-        else {
-            ndk { abiFilters 'arm64-v8a', 'x86_64' }
+        ndk { abiFilters 'arm64-v8a' }
+        if (!termux) {
             externalNativeBuild { cmake { targets 'Xlorie' } }
         }
         consumerProguardFiles 'consumer-rules.pro'

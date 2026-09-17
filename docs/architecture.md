@@ -4048,10 +4048,10 @@ signal helper. The X11 module also builds its server/renderer library. CI verifi
 that the main APK contains the required helpers and no `.ko`, and that the Kernel
 Fixes APK contains exactly the reviewed module and no main-app native helper.
 
-The main-app helpers currently cover ARM64 only, and their host NDK target
-still uses API 35. The X11 library additionally builds x86_64 with the NDK; that
-does not supply the missing helper ABI. The APK's API 34 floor does not establish native
-compatibility. Remaining ABI/API validation is documented in
+The APK, main-app helpers and X11 library currently cover ARM64 only. Linux
+and Windows CI both target Android ARM64; package checks reject other native ABIs.
+The helpers' host NDK target still uses API 35. The APK's API 34 floor does not
+establish native compatibility. Remaining ABI/API validation is documented in
 [Runtime API levels](runtime-api-levels.md).
 
 Host regression support under `app/src/testSupport/java` uses the JDK compiler

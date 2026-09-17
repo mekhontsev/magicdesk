@@ -74,9 +74,8 @@ separate from these feature requirements.
 
 ### Native Build Boundary
 
-The native helpers are currently packaged only for `arm64-v8a`.
-The embedded X11 library additionally builds `x86_64` with the NDK, but this
-does not supply the missing helper ABI for the rest of the application.
+The APK, native helpers and embedded X11 library currently target only
+`arm64-v8a`. CI checks the packaged APK for unsupported native ABIs.
 The desktop-host NDK path in `gradle/native-helpers.gradle` still compiles with
 `--target=aarch64-linux-android35`; the Termux path uses its installed compiler.
 Neither establishes API 34 native compatibility merely because the manifest's

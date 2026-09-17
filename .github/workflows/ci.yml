@@ -67,6 +67,9 @@ jobs:
           test -x "$ANDROID_SDK_ROOT/build-tools/37.0.0/aapt2"
           test -x "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android35-clang"
 
+      - name: Verify APK boundary fixtures
+        run: python3 -m unittest discover -s scripts/tests -p test_verify_apks.py
+
       - name: X11 native host tools
         run: sudo apt-get install -y bison ninja-build patch
 

@@ -51,6 +51,7 @@ android {
         applicationId = 'io.github.mekhontsev.magicdesk'
         minSdk = 34
         targetSdk = 37
+        ndk { abiFilters 'arm64-v8a' }
         versionCode = baseVersionCode
         buildConfigField 'String', 'SOURCE_ID', '"' + sourceId + '"'
         versionName = versionSuffix == null || versionSuffix.isBlank()

@@ -17,6 +17,14 @@ fi
 
 core_contents=$(unzip -Z1 "$core_apk")
 
+unsupported_abis=$(printf '%s\n' "$core_contents" \
+    | awk -F/ '$1 == "lib" && NF == 3 && $2 != "arm64-v8a" {print $2}' \
+    | sort -u)
+if [ -n "$unsupported_abis" ]; then
+    printf 'Core APK contains unsupported native ABIs: %s\n' "$unsupported_abis" >&2
+    exit 1
+fi
+
 for helper in uinput_bridge pty_bridge service_launcher; do
     printf '%s\n' "$core_contents" \
         | grep -Fxq "lib/arm64-v8a/libmagicdesk_$helper.so" \
