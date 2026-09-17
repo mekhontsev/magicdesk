@@ -488,7 +488,17 @@ route.
 
 `PRESENT_WORKSPACE` is the non-toggle return-to-desktop operation. It keeps all
 live managed freeform tasks above HOME while demoting every managed fullscreen
-plane below HOME. The operation is scoped to the active desktop display and
+plane below HOME. Like `PRESENT_DESKTOP`, it conceals those plane surfaces in
+the same command, so a native layer reassignment cannot leave a fullscreen
+application visibly covering HOME after input focus has already returned.
+Both explicit presentation commands wait at the existing framework transition
+barrier before concealing planes; an in-flight application OPEN finish must not
+reveal them afterward. This is a bounded framework wait, not a fixed delay or a
+second hierarchy submission.
+Ordinary task activation reveals the retained planes through their existing
+owner. Phone Overview navigation uses this existing-workspace command instead
+of launching another HOME Activity across organizer task areas.
+The operation is scoped to the active desktop display and
 does not change task mode, bounds, parent, or tasks on any other display.
 
 An orientation change can make Android report the saved freeform mode and

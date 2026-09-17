@@ -152,12 +152,15 @@ final class ShellDesktopWorkspaceCoordinator {
                         new int[]{targetTaskId});
             }
         }
-        if (command.presentsDesktop()
-                && !mFullscreenTaskArea.concealForShowDesktop(
-                        command.displayId)) {
+        if (command.concealsFullscreenPlanes()) {
+            // A HOME gesture can race an application's OPEN transition. Its
+            // finish transaction must not reveal planes after presentation.
+            FrameworkWindowCommitBarrier.awaitSystemTransitions();
+            if (!mFullscreenTaskArea.concealForShowDesktop(command.displayId)) {
                 throw new IllegalStateException(
-                    "fullscreen planes could not be concealed");
+                        "fullscreen planes could not be concealed");
             }
+        }
     }
 
     private static String usefulMessage(final Throwable error) {

@@ -15,6 +15,9 @@ public final class OwnedFocusFailureTest {
                     static int getTaskWindowingMode(Object task) { return 1; }
                 }
                 static int ownedSubmissions, rawSubmissions, samples;
+                static class FrameworkWindowCommitBarrier {
+                    static void awaitSystemTransitions() { throw new AssertionError("barrier after failed submission"); }
+                }
                 static class TaskWindowingCommand {
                     static void focusTasks(Object service, int display, int[] tasks) { rawSubmissions++; throw new IllegalStateException("raw fallback"); }
                     static void focusTasksWithSurfaceCommit(Object service, int display, int[] tasks) { focusTasks(service, display, tasks); }
@@ -35,7 +38,7 @@ public final class OwnedFocusFailureTest {
                 static class DesktopWorkspaceCommand {
                     int displayId = 4, targetTaskId = 42; int[] backToFrontTaskIds = {42};
                     void validate() {} String operationName() { return "activate"; }
-                    boolean requiresInputFocusCommit() { return true; } boolean presentsDesktop() { return false; }
+                    boolean requiresInputFocusCommit() { return true; } boolean concealsFullscreenPlanes() { return false; }
                 }
                 static class ShellDesktopFocusController {
                     static class CommitBarrier {}

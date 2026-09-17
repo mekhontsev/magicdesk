@@ -108,8 +108,10 @@ public final class DesktopWorkspaceCommand implements Parcelable {
         }
     }
 
-    boolean presentsDesktop() {
-        return operation == PRESENT_DESKTOP;
+    boolean concealsFullscreenPlanes() {
+        // Both presentation plans put HOME above every fullscreen plane,
+        // including a workspace that retains freeform applications above HOME.
+        return operation == PRESENT_DESKTOP || operation == PRESENT_WORKSPACE;
     }
 
     boolean requiresInputFocusCommit() {

@@ -21,7 +21,7 @@ public final class DesktopWorkspaceCommandTest {
         assertArrayEquals(
                 new int[]{10, 20, 30}, command.backToFrontTaskIds);
         assertEquals("demote", command.operationName());
-        assertFalse(command.presentsDesktop());
+        assertFalse(command.concealsFullscreenPlanes());
     }
 
     @Test
@@ -32,7 +32,7 @@ public final class DesktopWorkspaceCommandTest {
                 12,
                 new int[]{12});
 
-        assertTrue(command.presentsDesktop());
+        assertTrue(command.concealsFullscreenPlanes());
         assertEquals("present-desktop", command.operationName());
     }
 
@@ -58,7 +58,18 @@ public final class DesktopWorkspaceCommandTest {
                 DesktopWorkspaceCommand.PRESENT_WORKSPACE);
 
         assertEquals("present-workspace", command.operationName());
-        assertFalse(command.presentsDesktop());
+        assertTrue(command.concealsFullscreenPlanes());
+    }
+
+    @Test
+    public void selectionAndRestoreNeverConcealFullscreenPlanes() {
+        for (final int operation : new int[]{
+                DesktopWorkspaceCommand.ACTIVATE,
+                DesktopWorkspaceCommand.DEMOTE,
+                DesktopWorkspaceCommand.RESTORE_WORKSPACE,
+                DesktopWorkspaceCommand.RESTORE_SESSION}) {
+            assertFalse(command(operation).concealsFullscreenPlanes());
+        }
     }
 
     @Test(expected = IllegalArgumentException.class)

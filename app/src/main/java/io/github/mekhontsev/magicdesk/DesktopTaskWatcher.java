@@ -1334,16 +1334,33 @@ final class DesktopTaskWatcher {
             if (!mOwner.mListener.isActive(mGeneration)
                     || lease == null
                     || lease.phase != DesktopHomeRoleLease.Phase.ACTIVE) {
-                throw new RemoteException(
+                throw new IllegalStateException(
                         "desktop HOME activity launcher is not active");
             }
             try {
+                final DesktopDisplayTarget phoneTarget =
+                        lease.targetForDisplay(Display.DEFAULT_DISPLAY);
+                if (phoneTarget != null) {
+                    // HOME already exists. A fresh Activity launch can enter
+                    // Android's root-task lookup across a fullscreen task area.
+                    final DesktopSessionSnapshot phone =
+                            DesktopRuntimeBridge.getSessionSnapshot(Display.DEFAULT_DISPLAY);
+                    if (!DesktopSessionController.presentExistingSession(
+                            phoneTarget, phone.policy(), result -> {
+                                if (!result.success) {
+                                    mOwner.onObserverError(mGeneration,
+                                            "phone Overview presentation failed: " + result.message);
+                                }
+                            })) {
+                        throw new IllegalStateException("phone desktop is not ready");
+                    }
+                    return;
+                }
                 final Context context =
                         MagicDeskApplication.applicationContext();
                 final ActivityOptions options = ActivityOptions.makeBasic();
                 options.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
-                // Let Android resolve the active primary HOME surface. A phone
-                // desktop owns a different HOME from an external session.
+                // Without a phone workspace, primary HOME hosts ordinary Start.
                 context.startActivity(
                         new Intent(Intent.ACTION_MAIN)
                                 .addCategory(Intent.CATEGORY_HOME)
@@ -1353,11 +1370,9 @@ final class DesktopTaskWatcher {
                                 .putExtra(PhoneHomeActivity.EXTRA_SHOW_RECENT, true),
                         options.toBundle());
             } catch (RuntimeException error) {
-                final RemoteException remote = new RemoteException(
-                        "HOME launch from Recents failed: "
-                                + ShellAccess.usefulMessage(error));
-                remote.initCause(error);
-                throw remote;
+                throw new IllegalStateException(
+                        "HOME presentation from Recents failed: "
+                                + ShellAccess.usefulMessage(error), error);
             }
         }
 

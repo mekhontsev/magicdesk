@@ -2871,10 +2871,15 @@ the concrete primary HOME component on display 0 before restoring its report;
 a secondary launcher from the same package is not an equivalent result. If the
 display-removal suite already completed production display-loss recovery, the
 expected phone destination is Control Panel instead.
-The routed request launches an ordinary, package-scoped HOME Intent on display
-0. During an external session it selects Recent within the existing phone
-Start; during a phone-desktop session Android selects the desktop HOME and its
-normal workspace presentation. There is no separate phone Overview Activity.
+With an active phone workspace, the routed request submits `PRESENT_WORKSPACE`
+through the existing session/controller gateway, without launching another HOME
+Activity or raising a Viewer on another output. Android's Activity-start path can
+fail in `TaskDisplayArea.getRootTaskAbove` when a fullscreen plane is a sibling
+of the HOME root; navigation to the already registered workspace needs no launch.
+Without a phone workspace, an ordinary, package-scoped HOME Intent on display 0
+selects Recent within phone Start. There is no separate phone Overview Activity.
+An unavailable phone host rejects presentation rather than falling back to a new
+HOME launch; asynchronous command failures are recorded by the task observer.
 Managed tasks remain available through the desktop taskbar, task overview and
 Alt+Tab. With `RECENTS_TO_HOME` disabled, the system retains its native gesture.
 This common compatibility preference uses the platform provider's recommended

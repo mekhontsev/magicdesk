@@ -166,7 +166,7 @@ final class DesktopSessionController {
         return true;
     }
 
-    /** Internal startup/recovery must not raise another display's Viewer. */
+    /** Local HOME navigation and startup/recovery must not raise another display's Viewer. */
     static boolean presentExistingSession(
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy,
