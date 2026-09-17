@@ -11,7 +11,7 @@ final class DesktopDisplayCatalog {
         for (int i = 0; i < displays.length; i++) {
             final DesktopDisplayInfo d = displays[i];
             if (SimulatedDesktopDisplayController.owns(d)) {
-                displays[i] = new DesktopDisplayInfo(d.id, d.uniqueId, d.name, d.source,
+                displays[i] = new DesktopDisplayInfo(d.id, d.uniqueId, d.systemName, d.name, d.source,
                         d.width, d.height, d.densityDpi, d.canHostDesktop, d.requiresPortableDesktop, true, d.secure);
             }
         }
@@ -50,7 +50,7 @@ final class DesktopDisplayCatalog {
                 .put("profile", new org.json.JSONObject().put("densityDpi", profile.dpiExplicit ? profile.dpi : org.json.JSONObject.NULL)
                         .put("width", profile.width > 0 ? profile.width : org.json.JSONObject.NULL)
                         .put("height", profile.height > 0 ? profile.height : org.json.JSONObject.NULL))
-                .put("name", display.name).put("source", display.source)
+                .put("name", display.name).put("systemName", display.systemName).put("source", display.source)
                 .put("width", display.width).put("height", display.height)
                 .put("densityDpi", display.densityDpi).put("canHostDesktop", display.canHostDesktop)
                 .put("requiresPortableDesktop", display.requiresPortableDesktop)

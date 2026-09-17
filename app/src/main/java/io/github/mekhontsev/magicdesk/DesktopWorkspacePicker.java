@@ -21,7 +21,7 @@ final class DesktopWorkspacePicker {
         final DisplayManager manager = activity.getSystemService(DisplayManager.class);
         final String[] labels = targets.stream().map(target -> {
             final Display display = manager == null ? null : manager.getDisplay(target.workspaceDisplayId);
-            return (display == null ? target.output.kind.name() : display.getName())
+            return (display == null ? target.output.kind.name() : DisplayNames.name(display))
                     + " (" + target.workspaceDisplayId + ")";
         }).toArray(String[]::new);
         new AlertDialog.Builder(activity).setTitle(R.string.action_close_desktop)

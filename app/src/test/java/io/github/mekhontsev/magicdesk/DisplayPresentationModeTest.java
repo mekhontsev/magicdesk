@@ -7,7 +7,7 @@ public final class DisplayPresentationModeTest {
     @Test public void onlyOwnedVirtualSourcesTransferTheirRenderTarget() {
         for (String type : new String[]{"phone", "internal", "wired", "wireless", "overlay", "virtual"}) {
             for (boolean owned : new boolean[]{false, true}) {
-                DesktopDisplayInfo source = new DesktopDisplayInfo(7, "id", "display", type,
+                DesktopDisplayInfo source = new DesktopDisplayInfo(7, "id", "display", "display", type,
                         100, 200, 160, false, false, owned, false);
                 assertEquals(owned && type.equals("virtual") ? DisplayPresentationMode.DIRECT
                         : DisplayPresentationMode.MIRROR, DisplayPresentationMode.forSource(source));

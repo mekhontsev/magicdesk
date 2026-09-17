@@ -594,7 +594,8 @@ public final class CompatibilityDiagnostics {
             display.getRealMetrics(metrics);
             final Display.Mode mode = display.getMode();
             report.append("- id=").append(display.getDisplayId())
-                    .append(" name=").append(cleanSingleLine(display.getName(), 120))
+                    .append(" name=").append(cleanSingleLine(DisplayNames.name(display), 120))
+                    .append(" systemName=").append(cleanSingleLine(display.getName(), 120))
                     .append(" flags=0x").append(Integer.toHexString(display.getFlags()))
                     .append(" state=").append(display.getState())
                     .append(" size=").append(metrics.widthPixels)

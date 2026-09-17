@@ -16,13 +16,13 @@ public final class DesktopDisplayIdentityTest {
     }
 
     private static DesktopDisplayInfo display(final int id, final String source, final boolean owned) {
-        return new DesktopDisplayInfo(id, "id:" + id, source, source, 1280, 720, 160, false, false, owned, false);
+        return new DesktopDisplayInfo(id, "id:" + id, source, source, source, 1280, 720, 160, false, false, owned, false);
     }
 
     @Test public void protectedSourcePolicyIsDistinctFromOutputSecurityAndDesktopEligibility() {
-        final DesktopDisplayInfo protectedSource = new DesktopDisplayInfo(7, "source", "Source", "virtual",
+        final DesktopDisplayInfo protectedSource = new DesktopDisplayInfo(7, "source", "Source", "Source", "virtual",
                 1280, 720, 160, true, false, true, true);
-        final DesktopDisplayInfo secureOutput = new DesktopDisplayInfo(8, "output", "Output", "wireless",
+        final DesktopDisplayInfo secureOutput = new DesktopDisplayInfo(8, "output", "Output", "Output", "wireless",
                 1280, 720, 160, false, true, false, true);
         assertTrue(protectedSource.protectedContent());
         assertFalse(secureOutput.protectedContent());
@@ -31,7 +31,7 @@ public final class DesktopDisplayIdentityTest {
                 () -> protectedSource.requirePresentationOutput(display(9, "wired", false)));
         display(10, "virtual", true).requirePresentationOutput(display(11, "wireless", false));
         secureOutput.requirePresentationOutput(display(11, "wireless", false));
-        assertFalse(new DesktopDisplayInfo(12, "foreign", "Foreign", "virtual",
+        assertFalse(new DesktopDisplayInfo(12, "foreign", "Foreign", "Foreign", "virtual",
                 1280, 720, 160, true, false, false, true).protectedContent());
     }
 

@@ -7,6 +7,7 @@ import android.os.Parcelable;
 public final class DesktopDisplayInfo implements Parcelable {
     public final int id;
     public final String uniqueId;
+    public final String systemName;
     public final String name;
     public final String source;
     public final int width;
@@ -17,12 +18,13 @@ public final class DesktopDisplayInfo implements Parcelable {
     public final boolean owned;
     public final boolean secure;
 
-    DesktopDisplayInfo(final int id, final String uniqueId, final String name,
+    DesktopDisplayInfo(final int id, final String uniqueId, final String systemName, final String name,
             final String source, final int width, final int height, final int densityDpi,
             final boolean canHostDesktop, final boolean requiresPortableDesktop,
             final boolean owned, final boolean secure) {
         this.id = id;
         this.uniqueId = uniqueId;
+        this.systemName = systemName;
         this.name = name;
         this.source = source;
         this.width = width;
@@ -90,7 +92,7 @@ public final class DesktopDisplayInfo implements Parcelable {
     }
 
     private DesktopDisplayInfo(final Parcel in) {
-        this(in.readInt(), in.readString(), in.readString(), in.readString(),
+        this(in.readInt(), in.readString(), in.readString(), in.readString(), in.readString(),
                 in.readInt(), in.readInt(), in.readInt(),
                 in.readInt() != 0, in.readInt() != 0, in.readInt() != 0, in.readInt() != 0);
     }
@@ -98,6 +100,7 @@ public final class DesktopDisplayInfo implements Parcelable {
     @Override public void writeToParcel(final Parcel out, final int flags) {
         out.writeInt(id);
         out.writeString(uniqueId);
+        out.writeString(systemName);
         out.writeString(name);
         out.writeString(source);
         out.writeInt(width);

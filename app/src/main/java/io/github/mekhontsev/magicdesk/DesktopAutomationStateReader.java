@@ -513,7 +513,8 @@ final class DesktopAutomationStateReader {
                 .getDesktopWorkAreaBounds(display.getDisplayId());
         return new JSONObject()
                 .put("id", display.getDisplayId())
-                .put("name", display.getName())
+                .put("name", DisplayNames.name(display))
+                .put("systemName", display.getName())
                 .put("state", display.getState())
                 .put("flags", String.format(Locale.ROOT,
                         "0x%x", display.getFlags()))

@@ -14,7 +14,7 @@ final class DisplayProfiles {
             case "virtual", "overlay" -> DesktopDisplayOutput.Kind.SIMULATED;
             default -> null;
         };
-        return key(kind, display.uniqueId, display.name, display.width, display.height);
+        return key(kind, display.uniqueId, display.systemName, display.width, display.height);
     }
 
     static String key(DesktopDisplayOutput.Kind kind, String uniqueId, String name, int width, int height) {

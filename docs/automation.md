@@ -432,6 +432,10 @@ ineligible for Desktop until verified. These are live display identities, not
 desktop-session records. A wireless connection may already be listed before
 MagicDesk starts on it.
 
+`name` is the user-facing label, preferring Android's product name for external
+devices when available. `systemName` retains the unmodified Android display
+name. Product labels do not affect display identity or saved profile keys.
+
 `profileKey` identifies each display's own settings; `originProfileKey` identifies
 the transitive creation origin and does not follow Viewer attachment. `profile`
 contains explicit saved `densityDpi` and virtual creation `width`/`height`, with

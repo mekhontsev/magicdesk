@@ -2021,6 +2021,13 @@ exists only for compilation; it is not packaged in the APK.
 
 ## Display And Session Model
 
+`DisplayNames` resolves presentation labels from Android's public
+`DeviceProductInfo`, falling back to `Display.getName()` when the product name
+is absent or blank. The shared
+catalog, UI, automation and diagnostics use this policy; `systemName` remains
+separate so product metadata never changes display identity or profile keys,
+including the name-based fallback when no unique ID is available.
+
 A `SessionProfile` stores only a display selection policy. Runtime display IDs
 are never persisted as constants.
 

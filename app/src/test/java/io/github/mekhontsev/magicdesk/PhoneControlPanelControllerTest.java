@@ -232,7 +232,7 @@ public final class PhoneControlPanelControllerTest {
         assertSame(phone, DisplayTableView.selectedDisplay(catalog, phone.uniqueId, 0));
         assertSame(wired, DisplayTableView.selectedDisplay(catalog, wired.uniqueId, 0));
         assertSame(virtual, DisplayTableView.selectedDisplay(catalog, virtual.uniqueId, 0));
-        final var refreshed = new DesktopDisplayInfo(8, virtual.uniqueId, "Renamed", "virtual",
+        final var refreshed = new DesktopDisplayInfo(8, virtual.uniqueId, "Renamed", "Renamed", "virtual",
                 2560, 1440, 160, true, false, true, false);
         assertSame(refreshed, DisplayTableView.selectedDisplay(
                 new DesktopDisplayInfo[] {wired, refreshed, phone}, virtual.uniqueId, 0));
@@ -242,7 +242,7 @@ public final class PhoneControlPanelControllerTest {
     public void removedSelectionResolvesAFreshLiveDisplayInsteadOfRetainingTheOldRecord() {
         final var phone = display(0, "phone", true, false);
         final var original = display(8, "virtual", true, true);
-        final var replacement = new DesktopDisplayInfo(8, "replacement:8", "Display", "virtual",
+        final var replacement = new DesktopDisplayInfo(8, "replacement:8", "Display", "Display", "virtual",
                 1920, 1080, 160, true, false, true, false);
         assertSame(replacement, DisplayTableView.selectedDisplay(
                 new DesktopDisplayInfo[] {replacement, phone}, original.uniqueId, 0));
@@ -282,7 +282,7 @@ public final class PhoneControlPanelControllerTest {
         final var phone = display(0, "phone", true, false);
         final var wired = display(4, "wired", true, false);
         final DesktopDisplayInfo[] previous = {wired, phone};
-        final var changed = new DesktopDisplayInfo(4, wired.uniqueId, "Renamed", "wired",
+        final var changed = new DesktopDisplayInfo(4, wired.uniqueId, "Renamed", "Renamed", "wired",
                 2560, 1440, 240, false, false, false, true);
         assertNull(DisplayTableView.newlyAvailableDisplay(previous, new DesktopDisplayInfo[] {phone, changed}));
         assertNull(DisplayTableView.newlyAvailableDisplay(previous, new DesktopDisplayInfo[] {phone}));
@@ -293,11 +293,11 @@ public final class PhoneControlPanelControllerTest {
     public void reconnectAndReplacementAreNewArrivalsNotStaleIdentityReuse() {
         final var phone = display(0, "phone", true, false);
         final var original = display(4, "wired", true, false);
-        final var reconnected = new DesktopDisplayInfo(5, original.uniqueId, "Display", "wired",
+        final var reconnected = new DesktopDisplayInfo(5, original.uniqueId, "Display", "Display", "wired",
                 1920, 1080, 160, true, false, false, false);
         assertSame(reconnected, DisplayTableView.newlyAvailableDisplay(new DesktopDisplayInfo[] {phone, original},
                 new DesktopDisplayInfo[] {reconnected, phone}));
-        final var replacement = new DesktopDisplayInfo(4, "replacement:4", "Display", "wired",
+        final var replacement = new DesktopDisplayInfo(4, "replacement:4", "Display", "Display", "wired",
                 1920, 1080, 160, true, false, false, false);
         assertSame(replacement, DisplayTableView.newlyAvailableDisplay(new DesktopDisplayInfo[] {phone, original},
                 new DesktopDisplayInfo[] {replacement, phone}));
@@ -562,12 +562,12 @@ public final class PhoneControlPanelControllerTest {
     public void creationResolutionSnapshotsTheSelectedDisplay() {
         final VirtualDisplaySpec previous = new VirtualDisplaySpec(1920, 1080, 200);
         for (final String source : new String[] {"wired", "wireless", "phone", "internal", "virtual"}) {
-            final DesktopDisplayInfo selected = new DesktopDisplayInfo(7, "display:7", "Display", source,
+            final DesktopDisplayInfo selected = new DesktopDisplayInfo(7, "display:7", "Display", "Display", source,
                     2560, 1080, 320, true, false, false, false);
             assertArrayEquals(new int[] {2560, 1080},
                     creationResolution(selected, previous));
         }
-        final DesktopDisplayInfo portrait = new DesktopDisplayInfo(0, "display:0", "Phone", "phone",
+        final DesktopDisplayInfo portrait = new DesktopDisplayInfo(0, "display:0", "Phone", "Phone", "phone",
                 1216, 2688, 520, true, false, false, true);
         assertArrayEquals(new int[] {1216, 2688}, creationResolution(portrait, previous));
         assertEquals(1920, previous.width);
@@ -578,7 +578,7 @@ public final class PhoneControlPanelControllerTest {
     public void creationResolutionFallsBackOnlyWhenNoDisplayIsSelected() {
         final VirtualDisplaySpec previous = new VirtualDisplaySpec(1280, 720, 160);
         assertArrayEquals(new int[] {1280, 720}, creationResolution(null, previous));
-        final DesktopDisplayInfo small = new DesktopDisplayInfo(7, "display:7", "Display", "virtual",
+        final DesktopDisplayInfo small = new DesktopDisplayInfo(7, "display:7", "Display", "Display", "virtual",
                 240, 240, 160, false, false, false, false);
         assertArrayEquals(new int[] {240, 240}, creationResolution(small, previous));
     }
@@ -701,7 +701,7 @@ public final class PhoneControlPanelControllerTest {
     }
 
     @Test public void startIsAvailableForPortableOutputsButStillRequiresDesktopSdk() {
-        final var cast = new DesktopDisplayInfo(7, "cast", "Cast", "virtual",
+        final var cast = new DesktopDisplayInfo(7, "cast", "Cast", "Cast", "virtual",
                 1920, 1080, 160, false, true, false, false);
         assertTrue(DisplayTableView.canStart(cast, true, false, 35));
         assertFalse(DisplayTableView.canStart(cast, true, false, 34));
@@ -711,7 +711,7 @@ public final class PhoneControlPanelControllerTest {
 
     static DesktopDisplayInfo display(final int id, final String source,
             final boolean supported, final boolean owned) {
-        return new DesktopDisplayInfo(id, "display:" + id, "Display", source,
+        return new DesktopDisplayInfo(id, "display:" + id, "Display", "Display", source,
                 1920, 1080, 160, supported, false, owned, false);
     }
 

@@ -100,7 +100,7 @@ public final class DisplayProfileController {
         final Display display = getProfileDisplay();
         return display == null
                 ? mContext.getString(R.string.profile_default)
-                : display.getName();
+                : DisplayNames.name(display);
     }
 
     int getRecommendedDpi() {

@@ -200,7 +200,7 @@ final class FrameworkVirtualDisplayApi {
         final boolean publicDisplay = (display.getFlags() & Display.FLAG_PRIVATE) == 0;
         final boolean trusted = (display.getFlags() & mTrusted) != 0;
         final boolean supported = DesktopDisplayInfo.supportsDesktop(id, source, publicDisplay, trusted);
-        return new DesktopDisplayInfo(id, (String) mUniqueId.invoke(display), display.getName(),
+        return new DesktopDisplayInfo(id, (String) mUniqueId.invoke(display), display.getName(), DisplayNames.name(display),
                 source, metrics.widthPixels, metrics.heightPixels, metrics.densityDpi,
                 supported, DesktopDisplayInfo.requiresPortableDesktop(id, source, publicDisplay, trusted),
                 owned, (display.getFlags() & Display.FLAG_SECURE) != 0);

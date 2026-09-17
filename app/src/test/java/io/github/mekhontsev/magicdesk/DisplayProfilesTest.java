@@ -18,6 +18,22 @@ public final class DisplayProfilesTest {
                 DisplayProfiles.key(display(28, "monitor", "wired", 240)));
     }
 
+    @Test public void productLabelDoesNotChangeStableOrFallbackProfileIdentity() {
+        for (String uniqueId : new String[] {"monitor", "", null}) {
+            final DesktopDisplayInfo original = new DesktopDisplayInfo(42, uniqueId, "HDMI Screen", "HDMI Screen",
+                    "wired", 1920, 1200, 213, true, false, false, true);
+            final DesktopDisplayInfo named = new DesktopDisplayInfo(42, uniqueId, "HDMI Screen", "VITURE Beast",
+                    "wired", 1920, 1200, 213, true, false, false, true);
+            assertEquals(DisplayProfiles.key(original), DisplayProfiles.key(named));
+            assertEquals(DisplayProfiles.key(DesktopDisplayOutput.Kind.WIRED, uniqueId,
+                    "HDMI Screen", 1920, 1200), DisplayProfiles.key(named));
+            assertEquals(original.uniqueId, named.uniqueId);
+            assertEquals(original.id, named.id);
+            assertEquals("VITURE Beast", named.name);
+            assertEquals("HDMI Screen", named.systemName);
+        }
+    }
+
     @Test public void inheritanceFlattensOriginButSnapshotsTheImmediateReferencesSettings() {
         final DesktopDisplayInfo monitor = display(1, "monitor", "wired", 160);
         final DisplayProfileStore.Profile root = new DisplayProfileStore.Profile(DisplayProfiles.key(monitor));
@@ -97,7 +113,7 @@ public final class DisplayProfilesTest {
 
     @Test public void portableDesktopUsesTheSameResolutionPolicyAsDirectDesktop() {
         for (final int[] dimensions : new int[][]{{1280, 720, 108}, {1920, 1080, 160}, {3840, 2160, 320}}) {
-            final DesktopDisplayInfo output = new DesktopDisplayInfo(5, "cast", "Cast", "virtual",
+            final DesktopDisplayInfo output = new DesktopDisplayInfo(5, "cast", "Cast", "Cast", "virtual",
                     dimensions[0], dimensions[1], 320, false, false, false, false);
             final DisplayProfileStore.Profile profile = new DisplayProfileStore.Profile(DisplayProfiles.key(output));
             profile.dpi = 320;
@@ -138,7 +154,7 @@ public final class DisplayProfilesTest {
     }
 
     @Test public void referenceSnapshotDoesNotValidateVirtualLimitsBeforeTheUserCanEditThem() {
-        final DesktopDisplayInfo tiny = new DesktopDisplayInfo(1, "tiny", "Tiny", "virtual",
+        final DesktopDisplayInfo tiny = new DesktopDisplayInfo(1, "tiny", "Tiny", "Tiny", "virtual",
                 240, 240, 70, false, false, false, false);
         final DisplayProfiles.CreationDefaults defaults = DisplayProfiles.snapshot(tiny,
                 new DisplayProfileStore.Profile(DisplayProfiles.key(tiny)), FALLBACK);
@@ -155,7 +171,7 @@ public final class DisplayProfilesTest {
     }
 
     private static DesktopDisplayInfo display(int id, String uniqueId, String source, int dpi) {
-        return new DesktopDisplayInfo(id, uniqueId, "Display", source, 2560, 1440, dpi, false, false,
+        return new DesktopDisplayInfo(id, uniqueId, "Display", "Display", source, 2560, 1440, dpi, false, false,
                 "virtual".equals(source), false);
     }
 }
