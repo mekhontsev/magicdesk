@@ -3,6 +3,7 @@ def termuxCompiler = termuxPrefix == null
         ? null : file("${termuxPrefix}/bin/clang")
 def nativeOutputRoot = layout.buildDirectory
         .dir('generated/magicdeskNative').get().asFile
+def nativeTarget = "aarch64-linux-android${android.defaultConfig.minSdk}"
 
 android.sourceSets.main.jniLibs.srcDir nativeOutputRoot
 
@@ -36,7 +37,7 @@ def findNdkHomes = {
 def resolveNativeCompilerCommand = {
     if (termuxCompiler?.isFile()
             && termuxPrefix.startsWith('/data/data/com.termux/')) {
-        return [termuxCompiler.absolutePath]
+        return [termuxCompiler.absolutePath, "--target=${nativeTarget}".toString()]
     }
 
     def osName = System.getProperty('os.name').toLowerCase(Locale.ROOT)
@@ -63,7 +64,7 @@ def resolveNativeCompilerCommand = {
                 : new File(toolchain, "bin/${compilerName}")
         if (compiler?.isFile()) {
             return [compiler.absolutePath,
-                    '--target=aarch64-linux-android35']
+                    "--target=${nativeTarget}".toString()]
         }
     }
 
@@ -78,6 +79,7 @@ def registerNativeHelper = { String taskName, String sourceName,
     def output = new File(nativeOutputRoot, "arm64-v8a/${outputName}")
     tasks.register(taskName, Exec) {
         inputs.file(source)
+        inputs.property('nativeTarget', nativeTarget)
         outputs.file(output)
         doFirst {
             output.parentFile.mkdirs()

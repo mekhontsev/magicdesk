@@ -36,12 +36,20 @@ and **Termux** summaries. Access reports the connected service as shell, root
 or none, with an explicit authorization action. Termux reports **Not installed**,
 **Setup required** or **Ready**; its dialog explains permissions and external
 command configuration. Ready is a prerequisite check, not a trial command launch.
+The clickable **Desktop** summary also checks windowing setup and any pending
+Android restart. Its dialog explains the requirements and opens setup only when
+requested. It does not require an already started session, and an app restart
+does not undo completed device setup. A missing privileged service or Desktop
+setup does not invalidate a ready Termux integration.
 
 ## Open Tools
 
 Open **Apps** in the control panel, then choose an application or **Terminal
 sessions**. The selector beside Start search defaults to **Current**, the screen
 containing Start. Select another display there to launch on it.
+Without shell/root access, Apps remains available with the **Current** phone
+destination and saved **Recent** entries. Global running tasks and display
+selection become available when the privileged service is ready.
 
 Outside Desktop these are ordinary fullscreen Activities. If the destination
 already has a MagicDesk Desktop session, the tools use its managed window path.
@@ -76,8 +84,9 @@ pkg install xkeyboard-config gimp
 Open Start and search for GIMP. MagicDesk discovers installed Termux `.desktop`
 launchers when Start opens. The X server is embedded; no separate Termux:X11 APK
 is required. Choose the display and window mode with Start's normal controls.
-Ordinary phone X11 windows do not require Desktop or shell access, although the
-control panel's display/App launcher section requires the privileged service.
+Ordinary phone X11 windows, including launching from Start and reopening from
+Recent, do not require Desktop or shell access. Display management and placement
+on another display require the privileged service.
 
 The **X11** tool manages retained sessions and can open a whole Linux desktop
 or individual clients from that session. A proot/chroot environment must supply

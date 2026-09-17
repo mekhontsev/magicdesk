@@ -63,32 +63,29 @@ final class TerminalSessions {
         TaskCommandQueue.execute(() -> {
             try {
                 target.requireCurrent(DesktopRuntimeBridge.workspaceDisplayIds());
+                if (!target.desktop) OrdinaryActivityLaunch.requirePresentation(presentation);
+                InteractiveActivityLaunch.requireDestination(context, target.displayId, uniqueId);
                 final String id = CommandConsoleActivity.terminalId(intent);
                 final var session = id == null ? null : ConsoleTerminalRegistry.status(id);
                 if (session != null && session.taskId >= 0) {
-                    if (!ShellAccess.isReady() && !target.desktop
-                            && !DesktopRuntimeBridge.hasWorkspaces() && session.displayId == target.displayId) {
-                        final android.app.ActivityManager manager = context.getSystemService(android.app.ActivityManager.class);
-                        if (manager != null) {
-                            for (final var appTask : manager.getAppTasks()) {
-                                if (appTask.getTaskInfo().taskId == session.taskId) {
-                                    appTask.moveToFront();
-                                    callback.onComplete(null);
-                                    return;
-                                }
-                            }
-                        }
+                    final var local = target.desktop ? InteractiveActivityLaunch.OwnTaskResult.NEEDS_PLACEMENT
+                            : InteractiveActivityLaunch.showOwnTask(context, session.taskId, target.displayId);
+                    if (local == InteractiveActivityLaunch.OwnTaskResult.SHOWN) {
+                        callback.onComplete(null);
+                        return;
                     }
-                    final var snapshot = TaskRepository.loadAllNow();
-                    if (!snapshot.available) { throw new IOException(snapshot.error); }
-                    for (final var task : snapshot.tasks) {
-                        if (task.taskId == session.taskId
-                                && BuildConfig.APPLICATION_ID.equals(task.packageName)
-                                && AppProfile.current(context).owns(task.userId)) {
-                            ApplicationTaskPlacement.place(task, target, uniqueId,
-                                    presentation.withInstancePolicy(DesktopTaskInstancePolicy.REUSE_EXISTING),
-                                    result -> callback.onComplete(result.success ? null : new IOException(result.message)));
-                            return;
+                    if (local == InteractiveActivityLaunch.OwnTaskResult.NEEDS_PLACEMENT) {
+                        final var snapshot = TaskRepository.loadAllNow();
+                        if (!snapshot.available) { throw new IOException(snapshot.error); }
+                        for (final var task : snapshot.tasks) {
+                            if (task.taskId == session.taskId
+                                    && BuildConfig.APPLICATION_ID.equals(task.packageName)
+                                    && AppProfile.current(context).owns(task.userId)) {
+                                ApplicationTaskPlacement.place(task, target, uniqueId,
+                                        presentation.withInstancePolicy(DesktopTaskInstancePolicy.REUSE_EXISTING),
+                                        result -> callback.onComplete(result.success ? null : new IOException(result.message)));
+                                return;
+                            }
                         }
                     }
                 }

@@ -170,6 +170,7 @@ public final class DeviceSetupActivity extends Activity {
                     }
                     DeviceSetupManager.activateRuntime(this, audit);
                     mAudit = audit;
+                    DesktopSetupStatus.refresh(this);
                     if (!mManual && audit.canEnterMagicDesk()) {
                         mBusy = false;
                         startMagicDesk();
@@ -466,6 +467,7 @@ public final class DeviceSetupActivity extends Activity {
                         DeviceSetupManager.revokeRuntimeAuthorization(this);
                     }
                     renderAudit(audit);
+                    DesktopSetupStatus.refresh(this);
                 });
             } catch (IOException | RuntimeException e) {
                 Log.w(TAG, "setup operation failed", e);

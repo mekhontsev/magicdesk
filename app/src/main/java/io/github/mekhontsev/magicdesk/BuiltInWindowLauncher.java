@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
-import android.app.ActivityOptions;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Handler;
@@ -47,9 +46,7 @@ final class BuiltInWindowLauncher {
                 // Check again on the command queue: a session or display may have
                 // changed between a UI selection and execution.
                 placement.requireCurrent(DesktopRuntimeBridge.workspaceDisplayIds());
-                if (displayId != 0 || uniqueId != null) {
-                    DesktopDisplayCatalog.require(displayId, uniqueId);
-                }
+                InteractiveActivityLaunch.requireDestination(context, displayId, uniqueId);
                 if (!placement.desktop) {
                     if (presentation != null) { OrdinaryActivityLaunch.requirePresentation(presentation); }
                     final BuiltInDesktopAppCatalog.Entry entry =
@@ -63,22 +60,17 @@ final class BuiltInWindowLauncher {
                         // another display, especially one owned by Desktop.
                         intent.addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
                     }
-                    if (context instanceof Activity sourceActivity && displayId == 0
-                            && presentation == null
-                            && !DesktopRuntimeBridge.hasWorkspace(displayId)
-                            && sourceActivity.getDisplay() != null
-                            && sourceActivity.getDisplay().getDisplayId() == 0) {
+                    if (InteractiveActivityLaunch.canLaunchLocally(context, displayId)) {
                         // Ordinary phone tasks inherit Android's normal fullscreen
                         // workspace. Forced placement on another display is shell-owned.
-                        final ActivityOptions options = ActivityOptions.makeBasic();
-                        options.setLaunchDisplayId(displayId);
                         new Handler(Looper.getMainLooper()).post(() -> {
                             final Activity activity = (Activity) context;
                             if (activity.isFinishing() || activity.isDestroyed()) { return; }
                             try {
-                                context.startActivity(intent, options.toBundle());
+                                InteractiveActivityLaunch.launch(context, intent,
+                                        AndroidLaunchSpec.Delivery.SHELL_INTENT, displayId);
                                 complete(context, callback, null);
-                            } catch (RuntimeException error) {
+                            } catch (IOException | RuntimeException error) {
                                 complete(context, callback, error);
                             }
                         });

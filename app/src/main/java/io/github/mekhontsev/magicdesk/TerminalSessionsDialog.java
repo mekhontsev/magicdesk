@@ -71,6 +71,14 @@ final class TerminalSessionsDialog {
         render();
         status.setText(R.string.console_tmux_loading);
         status.setVisibility(View.VISIBLE);
+        if (!TermuxIntegration.isAvailable(activity)) {
+            loading = false;
+            tmux = null;
+            render();
+            status.setText(R.string.terminal_no_sessions);
+            status.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
+            return;
+        }
         TmuxSessionProvider.list(activity, (snapshot, error) -> activity.runOnUiThread(() -> {
             loading = false;
             if (!alive()) return;
@@ -118,14 +126,25 @@ final class TerminalSessionsDialog {
     }
 
     private void create() {
+        final RuntimeCapabilities capabilities = RuntimeCapabilities.current(activity);
+        final java.util.ArrayList<Integer> choices = new java.util.ArrayList<>();
+        if (capabilities.missing(RuntimeCapabilities.Service.SHELL).isEmpty()) choices.add(R.string.console_title);
+        if (capabilities.missing(RuntimeCapabilities.Service.TERMUX).isEmpty()) {
+            choices.add(R.string.console_termux_title);
+            choices.add(R.string.console_tmux_new_session);
+        }
+        if (choices.isEmpty()) {
+            result(new IllegalStateException(activity.getString(R.string.capability_terminal_required)));
+            return;
+        }
         new AlertDialog.Builder(activity).setTitle(R.string.terminal_new)
-                .setItems(new String[]{activity.getString(R.string.console_title),
-                        activity.getString(R.string.console_termux_title), activity.getString(R.string.console_tmux_new_session)},
-                        (which, choice) -> {
-                            if (choice == 2) editName(activity.getString(R.string.console_tmux_new_session), "", name -> {
+                .setItems(choices.stream().map(activity::getString).toArray(String[]::new),
+                        (which, index) -> {
+                            final int choice = choices.get(index);
+                            if (choice == R.string.console_tmux_new_session) editName(activity.getString(R.string.console_tmux_new_session), "", name -> {
                                 TmuxSessionProvider.normalizeName(name); prepareTmux(null, name);
                             });
-                            else openIntent(choice == 0 ? CommandConsoleActivity.createIntent(activity)
+                            else openIntent(choice == R.string.console_title ? CommandConsoleActivity.createIntent(activity)
                                     : CommandConsoleActivity.createTermuxIntent(activity));
                         }).show();
     }

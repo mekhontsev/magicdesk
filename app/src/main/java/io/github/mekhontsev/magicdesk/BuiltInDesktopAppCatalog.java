@@ -251,6 +251,15 @@ final class BuiltInDesktopAppCatalog {
         return entry == null || entry.multipleWindows;
     }
 
+    static RuntimeCapabilities.Service requiredService(final AppLaunchTarget target) {
+        final Entry entry = find(target);
+        // These tools operate on shared privileged storage, tasks or displays.
+        // Terminal/X11 hosts can also present an already retained session.
+        return entry == FILES || entry == APP_PRESENTATION_SETTINGS || entry == TASK_MANAGER
+                || entry == LOG_VIEWER || entry == DISPLAY_VIEWER
+                ? RuntimeCapabilities.Service.SHELL : RuntimeCapabilities.Service.BUILTIN_UI;
+    }
+
     static boolean isPinnable(final AppLaunchTarget target) {
         final Entry entry = find(target);
         return entry == null || entry.pinnable;

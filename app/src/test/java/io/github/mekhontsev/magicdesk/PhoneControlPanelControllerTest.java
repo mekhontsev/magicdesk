@@ -62,7 +62,7 @@ public final class PhoneControlPanelControllerTest {
     }
 
     @Test
-    public void appsExistsOnlyInTheDisplayToolbarWithItsSharedPrerequisites() throws Exception {
+    public void appsHasOneEntryPointWithOrWithoutThePrivilegedDisplayToolbar() throws Exception {
         final String status = RuntimeSourceFixture.methods("PhoneControlPanelController", "addStatus");
         assertTrue(status.contains("parent.addView(mStatus, fullWidthWrapParams(0))"));
         assertTrue(status.contains("integrations.setOrientation(LinearLayout.HORIZONTAL)"));
@@ -70,6 +70,10 @@ public final class PhoneControlPanelControllerTest {
         assertTrue(status.contains("integrations.addView(mTermux, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1))"));
         assertFalse(status.contains("R.string.section_apps"));
         assertFalse(status.contains("openApplications"));
+        final String actions = RuntimeSourceFixture.methods("PhoneControlPanelController", "addDesktopActions");
+        assertTrue(actions.contains("mActions.openApplications(null)"));
+        final String render = RuntimeSourceFixture.methods("PhoneControlPanelController", "render");
+        assertTrue(render.contains("mLocalApps.setVisibility(state.shellReady ? View.GONE : View.VISIBLE)"));
         final String commands = RuntimeSourceFixture.methods("DisplayTableView", "renderCommands");
         assertTrue(commands.contains("final boolean enabled = display != null && shellReady && !busy;"));
         assertTrue(commands.contains("R.drawable.ic_sections, R.string.section_apps, enabled,"));
@@ -98,10 +102,13 @@ public final class PhoneControlPanelControllerTest {
         final String status = RuntimeSourceFixture.methods("PhoneControlPanelController", "addStatus");
         assertTrue(status.contains("mActions.showAccessInfo()"));
         assertTrue(status.contains("mActions.showTermuxInfo()"));
+        assertTrue(status.contains("mActions.showDesktopInfo()"));
         assertFalse(status.contains("requestAccess()"));
         final String render = RuntimeSourceFixture.methods("PhoneControlPanelController", "render");
         assertFalse(render.contains("mRuntime.setEnabled"));
         assertFalse(render.contains("mTermux.setEnabled"));
+        assertFalse(render.contains("mDesktop.setEnabled"));
+        assertTrue(render.contains("IntegrationStatusDialogs.desktopStatus(state.capabilities)"));
         assertTrue(render.contains("IntegrationStatusDialogs.termuxStatus(state.termux)"));
         final String button = RuntimeSourceFixture.methods("PhoneControlPanelController", "integrationButton");
         assertTrue(button.contains("setSingleLine(false)"));

@@ -311,6 +311,16 @@ new display's identity when retrying an old operation.
 The MCP catalog exposes unqualified tool names such as `get_state`; clients
 add the configured server name, so documentation uses `magicdesk.get_state`.
 
+`get_state.services` reports independent prerequisites, including `terminal`
+(shell or authorized Termux), `x11` (authorized Termux) and `desktop`
+(API 35+, shell/root access, configured windowing and no pending Android restart).
+Desktop readiness uses the shared read-only setup observation, not process-local
+startup authorization. Its missing reasons distinguish `desktop_setup_checking`,
+`desktop_setup_unknown`, `desktop_setup` and `device_restart`. These are not
+client grants or successful windowing probes; the normal start path still checks setup.
+Local interactive launch without shell does not imply that background
+MCP placement or global task observation is available.
+
 Normal read tools include:
 
 - `magicdesk.get_state`: workspaces, shared HOME lease, shell, platform, runtime, MagicDesk-owned UI,

@@ -6,6 +6,90 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public final class OrdinaryActivityLaunchTest {
+    @Test public void interactivePhoneLaunchAndOwnTaskReuseNeedNoPrivilegedService() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class Intent {}
+                static class Context {
+                    ActivityManager manager = new ActivityManager();
+                    <T> T getSystemService(Class<T> type) { return type.cast(manager); }
+                    int starts;
+                    void startActivity(Intent intent, Object options) { starts++; }
+                }
+                static class Activity extends Context {
+                    boolean finishing, destroyed; Display display = new Display();
+                    boolean isFinishing() { return finishing; }
+                    boolean isDestroyed() { return destroyed; }
+                    Display getDisplay() { return display; }
+                }
+                static class Display { int id; int getDisplayId() { return id; } }
+                static class ActivityOptions {
+                    static ActivityOptions makeBasic() { return new ActivityOptions(); }
+                    void setLaunchDisplayId(int display) { check(display == 0, "nonlocal display"); }
+                    Object toBundle() { return this; }
+                }
+                static class ActivityManager {
+                    List<AppTask> tasks = new ArrayList<>();
+                    List<AppTask> getAppTasks() { return tasks; }
+                    static class RecentTaskInfo { int taskId = 42, displayId; }
+                    static class AppTask {
+                        RecentTaskInfo info = new RecentTaskInfo(); int moves;
+                        RecentTaskInfo getTaskInfo() { return info; }
+                        void moveToFront() { moves++; }
+                    }
+                }
+                static class BuiltInWindowRegistry {
+                    static int display;
+                    static boolean isTaskOnDisplay(int task, int target) { return display == target; }
+                }
+                static class DesktopRuntimeBridge {
+                    static boolean active; static boolean hasWorkspaces() { return active; }
+                }
+                static class DesktopDisplayCatalog {
+                    static int queries;
+                    static void require(int display, String unique) throws IOException {
+                        queries++; throw new IOException("shell unavailable");
+                    }
+                }
+                static class AndroidLaunchSpec { enum Delivery { SHELL_INTENT, APP_PENDING_INTENT } }
+                static int privilegedLaunches;
+                static class OrdinaryActivityLaunch {
+                    static void launch(Context c, Intent i, AndroidLaunchSpec.Delivery d, int display) {
+                        privilegedLaunches++;
+                    }
+                }
+                """ + RuntimeSourceFixture.nestedClass("InteractiveActivityLaunch", "OwnTaskResult")
+                + RuntimeSourceFixture.methods("InteractiveActivityLaunch", "canLaunchLocally",
+                        "requireDestination", "launch", "showOwnTask") + """
+                public static void verify() throws Exception {
+                    Activity activity = new Activity(); Intent intent = new Intent();
+                    requireDestination(activity, 0, null);
+                    for (var delivery : AndroidLaunchSpec.Delivery.values()) launch(activity, intent, delivery, 0);
+                    check(activity.starts == 2 && privilegedLaunches == 0 && DesktopDisplayCatalog.queries == 0,
+                            "phone tools touched privileged service");
+                    check(showOwnTask(activity, 42, 0) == OwnTaskResult.MISSING, "missing window not distinguished");
+                    var task = new ActivityManager.AppTask(); activity.manager.tasks.add(task);
+                    check(showOwnTask(activity, 42, 0) == OwnTaskResult.SHOWN && task.moves == 1, "own task not reused");
+                    for (int display : new int[] {-1, 3}) {
+                        BuiltInWindowRegistry.display = display;
+                        check(showOwnTask(activity, 42, 0) == OwnTaskResult.NEEDS_PLACEMENT && task.moves == 1,
+                                "unknown or external task raised on wrong display");
+                    }
+                    for (String unique : new String[] {"phone", "stale"}) {
+                        try { requireDestination(activity, 0, unique); throw new AssertionError("pin ignored"); }
+                        catch (IOException expected) { }
+                    }
+                    check(!canLaunchLocally(new Context(), 0), "background got foreground privilege");
+                    activity.finishing = true; check(!canLaunchLocally(activity, 0), "dead host allowed");
+                    activity.finishing = false; activity.display.id = 3;
+                    check(!canLaunchLocally(activity, 0) && !canLaunchLocally(activity, 3), "external bypass");
+                    activity.display.id = 0; DesktopRuntimeBridge.active = true;
+                    check(!canLaunchLocally(activity, 0), "desktop topology bypass");
+                    launch(activity, intent, AndroidLaunchSpec.Delivery.SHELL_INTENT, 0);
+                    check(privilegedLaunches == 1, "desktop boundary bypass");
+                }
+                """);
+    }
+
     @Test public void ordinaryPresentationDoesNotRequireDesktop() {
         for (final var mode : new DesktopLaunchMode[] {DesktopLaunchMode.AUTO, DesktopLaunchMode.FULLSCREEN}) {
             for (final var instance : DesktopTaskInstancePolicy.values()) {

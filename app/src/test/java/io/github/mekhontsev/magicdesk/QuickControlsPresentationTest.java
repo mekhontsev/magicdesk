@@ -82,7 +82,9 @@ public final class QuickControlsPresentationTest {
     @Test
     public void phonePanelKeepsActionsInPlaceAndUsesExistingHandlers() throws Exception {
         final String render = RuntimeSourceFixture.methods("PhoneControlPanelController", "render");
-        assertFalse(render.contains("setVisibility"));
+        assertTrue(render.contains("mLocalApps.setVisibility(state.shellReady ? View.GONE : View.VISIBLE)"));
+        assertFalse(render.contains("mCreateDisplay.setVisibility"));
+        assertFalse(render.contains("mConnectWirelessDisplay.setVisibility"));
         assertFalse(render.contains("removeView"));
         assertTrue(render.contains("mDisplayTable.render(state.displays, state.desktopDisplays"));
         final String create = RuntimeSourceFixture.methods("PhoneControlPanelController", "createView");

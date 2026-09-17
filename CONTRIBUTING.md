@@ -45,9 +45,9 @@ sdk.dir=/absolute/path/to/android-sdk
 Termux builds use `$PREFIX/bin/clang` and do not require the desktop NDK
 toolchain.
 
-The current native helpers are ARM64-only. The host NDK target still uses API
-35 and must be aligned/validated for API 34 before claiming native support at
-the APK floor. Windows build smoke is not emulator coverage; an x86_64 emulator
+The current native helpers are ARM64-only. Both helper compiler paths target the
+APK's minimum SDK, API 34; actual device validation at that floor remains pending.
+Windows build smoke is not emulator coverage; an x86_64 emulator
 matrix needs matching helper binaries. See the API-level document for the
 remaining validation contract.
 

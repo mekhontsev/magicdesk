@@ -14,10 +14,11 @@ client use the same services you use interactively. Desktop is one way to work
 with these tools, not a requirement for using them.
 
 The APK requires **Android 14+**. Managed **Desktop requires Android 15+**.
-Use [Shizuku](https://github.com/RikkaApps/Shizuku) on an unrooted device, or
+For privileged features, use [Shizuku](https://github.com/RikkaApps/Shizuku) on an unrooted device, or
 **direct root without Shizuku** on a rooted one. Both start the same privileged
 service. Root is optional, and root users can limit that service to Android's
-shell UID 2000.
+shell UID 2000. **Termux terminals and X11 applications also work as ordinary
+phone windows without Shizuku, root or a Desktop session.**
 
 [Latest release](https://github.com/mekhontsev/magicdesk/releases/latest) |
 [Development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk) |
@@ -497,6 +498,12 @@ and the [API-level contract](docs/runtime-api-levels.md).
 | Managed Desktop | Android 15+, an authorized privileged service, Desktop setup, working framework windowing |
 | Wired/wireless output | Hardware and firmware that expose a usable Android secondary display |
 
+The integrations are independent: **Termux only** provides terminals, tmux and
+X11 on the phone; **shell/root only** provides Files, Android-shell terminals,
+device automation and display control. Enable both to combine them. Managed
+Desktop adds window management on Android 15+; it is not a prerequisite for
+the independent tools. Android 14 device coverage remains pending.
+
 1. Install MagicDesk and open Phone Control Panel.
 2. For privileged features, start Shizuku and authorize MagicDesk, or select
    **Root (su)** in **Settings > Integrations**, reopen MagicDesk and approve the
@@ -513,6 +520,9 @@ selected display, without requiring Desktop. Every Start offers **Current** or
 an explicit display, an app-default, Desktop window, Desktop fullscreen or
 independent launch, and an optional new-window request. Independent applications
 stay outside Desktop's taskbar and Alt+Tab; the control panel lists them per display.
+Without privileged access, **Apps** remains available for local launches and
+saved **Recent** entries. The display table, cross-display placement and live
+Android task management require shell/root access.
 **Control input**
 selects where phone-attached mice and keyboards operate independently.
 

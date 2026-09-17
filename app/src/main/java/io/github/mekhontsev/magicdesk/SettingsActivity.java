@@ -426,7 +426,7 @@ public final class SettingsActivity extends Activity
     private void render() {
         if (mView != null) {
             mView.render(
-                    MagicDeskSettings.load(),
+                    ShellAccess.isReady() ? MagicDeskSettings.load() : null,
                     MagicDeskMcpPreferences.load(this),
                     MagicDeskMcpRuntime.snapshot());
             renderSystemDesktopMode();

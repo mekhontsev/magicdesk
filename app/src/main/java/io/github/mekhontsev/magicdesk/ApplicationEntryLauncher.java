@@ -15,7 +15,7 @@ final class ApplicationEntryLauncher {
         TaskCommandQueue.execute(() -> {
             try {
                 target.requireCurrent(DesktopRuntimeBridge.workspaceDisplayIds());
-                DesktopDisplayCatalog.require(target.displayId, uniqueId);
+                InteractiveActivityLaunch.requireDestination(context, target.displayId, uniqueId);
                 if (!alive.getAsBoolean()) return;
                 if (target.desktop) {
                     boolean accepted = DesktopRuntimeBridge.launchAutomationRequest(request, target.displayId);

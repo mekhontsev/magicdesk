@@ -15,6 +15,7 @@ final class X11ApplicationLaunch {
         if (session == null) return false;
         host.hideTransientUi();
         final var destination = host.destination();
+        if (!destination.desktop) OrdinaryActivityLaunch.requirePresentation(request.presentation);
         final String uniqueId = host.destinationUniqueId();
         final DesktopActivityLaunchResult.Completion done = result -> {
             if (result.succeeded()) RecentApplications.record(host.context(), recipe);
@@ -25,6 +26,18 @@ final class X11ApplicationLaunch {
         if (taskId >= 0) {
             TaskCommandQueue.execute(() -> {
                 try {
+                    destination.requireCurrent(DesktopRuntimeBridge.workspaceDisplayIds());
+                    InteractiveActivityLaunch.requireDestination(host.context(), destination.displayId, uniqueId);
+                    final var local = destination.desktop ? InteractiveActivityLaunch.OwnTaskResult.NEEDS_PLACEMENT
+                            : InteractiveActivityLaunch.showOwnTask(host.context(), taskId, destination.displayId);
+                    if (local == InteractiveActivityLaunch.OwnTaskResult.SHOWN) {
+                        host.onMain(() -> done.onComplete(DesktopActivityLaunchResult.observedTask(taskId, destination.displayId, true)));
+                        return;
+                    }
+                    if (local == InteractiveActivityLaunch.OwnTaskResult.MISSING) {
+                        host.onMain(() -> reopen(host, request, session, done));
+                        return;
+                    }
                     final var snapshot = TaskRepository.loadAllNow();
                     if (!snapshot.available) throw new java.io.IOException(snapshot.error);
                     final var task = snapshot.tasks.stream().filter(item -> item.taskId == taskId
@@ -40,15 +53,20 @@ final class X11ApplicationLaunch {
                 }
             });
         } else {
-            Intent intent = X11Activity.createIntent(host.context()).putExtra(X11Activity.SESSION, session.id())
-                    .putExtra(X11Activity.APPLICATION, session.application);
-            AppLaunchTarget target = AppLaunchTarget.explicit(host.context().getPackageName(), X11Activity.class.getName(), "");
-            final var reopen = new DesktopLaunchRequest(request.name, request.icon,
-                    AndroidLaunchSpec.intent(target, intent.toUri(Intent.URI_INTENT_SCHEME)), null, null,
-                    request.presentation.withInstancePolicy(DesktopTaskInstancePolicy.CREATE_NEW), request.arguments, request.desktopFilePath);
-            if (!host.launchAndroid(reopen, null, done)) done.onComplete(DesktopActivityLaunchResult.failed("X11 window is unavailable"));
+            reopen(host, request, session, done);
         }
         return true;
+    }
+
+    private static void reopen(DesktopLaunchContext host, DesktopLaunchRequest request,
+            X11Sessions.Session session, DesktopActivityLaunchResult.Completion done) {
+        Intent intent = X11Activity.createIntent(host.context()).putExtra(X11Activity.SESSION, session.id())
+                .putExtra(X11Activity.APPLICATION, session.application);
+        AppLaunchTarget target = AppLaunchTarget.explicit(host.context().getPackageName(), X11Activity.class.getName(), "");
+        final var reopen = new DesktopLaunchRequest(request.name, request.icon,
+                AndroidLaunchSpec.intent(target, intent.toUri(Intent.URI_INTENT_SCHEME)), null, null,
+                request.presentation.withInstancePolicy(DesktopTaskInstancePolicy.CREATE_NEW), request.arguments, request.desktopFilePath);
+        if (!host.launchAndroid(reopen, null, done)) done.onComplete(DesktopActivityLaunchResult.failed("X11 window is unavailable"));
     }
 
     static DesktopLaunchRequest prepare(DesktopLaunchContext host, DesktopLaunchRequest request) {

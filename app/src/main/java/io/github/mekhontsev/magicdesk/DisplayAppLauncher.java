@@ -29,7 +29,9 @@ final class DisplayAppLauncher {
         TaskCommandQueue.execute(() -> {
             try {
                 app.identity.requireProfile(AppProfile.current(activity));
-                DesktopDisplayCatalog.require(target.displayId, uniqueId);
+                RuntimeCapabilities.current(activity).require(activity,
+                        BuiltInDesktopAppCatalog.requiredService(app.launchTarget));
+                InteractiveActivityLaunch.requireDestination(activity, target.displayId, uniqueId);
                 target.requireCurrent(DesktopRuntimeBridge.workspaceDisplayIds());
                 if (!canLaunch.getAsBoolean()) { return; }
                 if (target.desktop) {
@@ -42,7 +44,7 @@ final class DisplayAppLauncher {
                     if (source == null) { throw new IllegalStateException("launcher activity is unavailable"); }
                     final Intent intent = presentation.instancePolicy.applyTo(source);
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
-                    OrdinaryActivityLaunch.launch(activity, intent,
+                    InteractiveActivityLaunch.launch(activity, intent,
                             AndroidLaunchSpec.Delivery.SHELL_INTENT, target.displayId);
                     RecentApplications.recordApp(activity, app);
                 }

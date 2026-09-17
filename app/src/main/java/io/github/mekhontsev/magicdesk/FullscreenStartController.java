@@ -29,6 +29,7 @@ final class FullscreenStartController implements StartMenuContent.Host {
 
     private FrameLayout mRoot;
     private ImageButton mCloseDesktop;
+    private ImageButton mTouchpad;
     private boolean mClosing;
     private boolean mLaunching;
     private StartMenuContent mStart;
@@ -82,7 +83,7 @@ final class FullscreenStartController implements StartMenuContent.Host {
         if (mLauncherApps != null) {
             mLauncherApps.registerCallback(mPackageCallback, new Handler(Looper.getMainLooper()));
         }
-        MagicDeskRuntime.start(activity);
+        MagicDeskRuntime.startTools(activity, false);
     }
 
     static boolean canHost(final Activity activity) {
@@ -150,7 +151,7 @@ final class FullscreenStartController implements StartMenuContent.Host {
         addAction(actions, ui, R.drawable.ic_settings,
                 R.string.action_open_control_panel, "phone.controls",
                 () -> PhoneControlPanelLauncher.open(mActivity));
-        addAction(actions, ui, R.drawable.ic_touchpad,
+        mTouchpad = addAction(actions, ui, R.drawable.ic_touchpad,
                 R.string.action_open_touchpad, "phone.touchpad",
                 DesktopOperations::openTouchpad);
         mCloseDesktop = ui.menuIconButton(R.drawable.ic_close, R.string.action_close_desktop);
@@ -166,12 +167,13 @@ final class FullscreenStartController implements StartMenuContent.Host {
         refreshCloseAction();
     }
 
-    private void addAction(final LinearLayout parent, final DesktopUiFactory ui,
+    private ImageButton addAction(final LinearLayout parent, final DesktopUiFactory ui,
             final int icon, final int label, final String id, final Runnable action) {
         final ImageButton button = ui.menuIconButton(icon, label);
         button.setOnClickListener(view -> action.run());
         parent.addView(button, actionParams());
         mAutomation.register(button, id, "button", mActivity.getString(label));
+        return button;
     }
 
     private LinearLayout.LayoutParams actionParams() {
@@ -224,9 +226,12 @@ final class FullscreenStartController implements StartMenuContent.Host {
 
     @Override public List<AppItem> apps() { return mApps; }
     @Override public int recentSectionLabel() {
-        return mHome ? R.string.section_recent : R.string.display_running_apps;
+        return mHome || !ShellAccess.isReady() ? R.string.section_recent : R.string.display_running_apps;
     }
     @Override public List<StartMenuEntry> recentEntries() {
+        if (!ShellAccess.isReady()) {
+            return RecentApplications.entries().stream().map(entry -> StartMenuEntry.recent(entry, apps())).toList();
+        }
         final List<StartMenuEntry> entries = new java.util.ArrayList<>();
         if (mHome) {
             final DesktopHomeRoleLease.State lease = activeLease();
@@ -347,6 +352,13 @@ final class FullscreenStartController implements StartMenuContent.Host {
     }
 
     private void loadRecents() {
+        if (!ShellAccess.isReady()) {
+            ++mRecentGeneration;
+            mRecentLoading = false;
+            mRecentTasks = Collections.emptyList();
+            mRecentError = "";
+            return;
+        }
         final DesktopHomeRoleLease.State lease = activeLease();
         if (!mStarted || mRecentLoading || (mHome && (lease == null || !hasActiveHomeLease()))) {
             return;
@@ -409,6 +421,10 @@ final class FullscreenStartController implements StartMenuContent.Host {
     }
 
     private void refreshCloseAction() {
+        if (mTouchpad != null) {
+            mTouchpad.setEnabled(ShellAccess.isReady() && MagicDeskRuntime.inputDisplayId() > 0
+                    && MagicDeskRuntime.isPointerTransportReady());
+        }
         if (mCloseDesktop == null || mClosing) {
             return;
         }

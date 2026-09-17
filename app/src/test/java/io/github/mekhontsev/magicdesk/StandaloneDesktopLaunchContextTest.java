@@ -45,8 +45,13 @@ public final class StandaloneDesktopLaunchContextTest {
                     static void sendActivityOnDisplay(Object token, int d) { throw new AssertionError("not a shortcut"); }
                 }
                 static class OrdinaryActivityLaunch {
-                    static int calls, display; static Delivery delivery;
                     static void requirePresentation(Presentation p) { }
+                }
+                static class InteractiveActivityLaunch {
+                    static int calls, display; static Delivery delivery;
+                    static void requireDestination(Context a, int id, String unique) throws IOException {
+                        DesktopDisplayCatalog.require(id, unique);
+                    }
                     static void launch(Context a, Intent i, Delivery d, int id) {
                         calls++; display = id; delivery = d;
                     }
@@ -68,14 +73,14 @@ public final class StandaloneDesktopLaunchContextTest {
                             context.mDisplayId = display; context.mUniqueId = "display:" + display;
                             var request = new DesktopLaunchRequest(); request.androidLaunch = new AndroidLaunchSpec();
                             request.androidLaunch.delivery = delivery;
-                            int before = OrdinaryActivityLaunch.calls;
+                            int before = InteractiveActivityLaunch.calls;
                             check(context.launchAndroid(request, null, null), "entry not accepted");
-                            check(OrdinaryActivityLaunch.calls == before + 1 && OrdinaryActivityLaunch.display == display
-                                    && OrdinaryActivityLaunch.delivery == delivery && context.completions == 1
+                            check(InteractiveActivityLaunch.calls == before + 1 && InteractiveActivityLaunch.display == display
+                                    && InteractiveActivityLaunch.delivery == delivery && context.completions == 1
                                     && context.failure == null, "entry bypassed placement or lost caller identity");
                             context.mUniqueId = "stale";
                             context.launchAndroid(request, null, null);
-                            check(OrdinaryActivityLaunch.calls == before + 1 && context.failure != null,
+                            check(InteractiveActivityLaunch.calls == before + 1 && context.failure != null,
                                     "stale destination dispatched an entry");
                         }
                     }

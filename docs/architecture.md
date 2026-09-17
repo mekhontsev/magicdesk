@@ -26,6 +26,13 @@ behavior, static verification and remaining device coverage.
   tools do not acquire HOME or require Desktop provisioning. Background launches
   and cross-display launches use the shell service; ordinary phone Activity
   launches use public Activity options and their own identity.
+  `InteractiveActivityLaunch` owns that UI choice: an unpinned launch from a
+  live phone Activity with no Desktop workspaces uses ordinary Android APIs.
+  Pinned, external and background destinations retain privileged validation;
+  launches alongside an active Desktop retain its ownership handoff. A rejected
+  local launch never retries under a more privileged identity. Terminals and X11
+  share the same own-task reactivation through `ActivityManager.getAppTasks()`;
+  a missing own task is distinct from one that needs privileged placement.
   The Android integration gateway uses the same placement selection for
   third-party Activities, content, shortcuts and notification actions.
 - `DisplayOperations` creates and lists display resources without starting
@@ -50,7 +57,7 @@ behavior, static verification and remaining device coverage.
 
 The control panel uses `DisplayTableView`: one row per Android display with its
 identity, Desktop status, independent applications and Viewer links. The display list
-follows a full-width status and a shared row of clickable Access and Termux
+follows a full-width status and a shared row of clickable Access, Termux and Desktop
 summaries, without an extra section heading. `IntegrationStatusDialogs` separates
 read-only prerequisite summaries from explicit authorization/setup actions.
 **Create display** belongs to the lower general-action grid and uses the table's
@@ -72,8 +79,17 @@ Rows retain their View identity for each live display ID/unique-ID pair, and the
 toolbar is created once. Status refreshes update existing controls without
 detaching them, preserving in-progress touch and accessibility interactions.
 The entire display section requires a ready privileged service. Apps appears
-only in its toolbar and opens Start with the selected display. Access setup and
-Settings remain available while the service is unavailable.
+in its toolbar with the selected display, or as a single local-launch action
+while the display section is unavailable. Fullscreen Start starts only the tools
+runtime, never Desktop; without shell it offers saved Recent entries instead of
+querying Android's task catalog. Desktop readiness combines API 35+, privileged
+access and the read-only `DesktopSetupStatus` observation of device setup and
+pending reboot. It does not use process-local runtime authorization. Checks run
+on access events, panel resume and explicit refresh/setup actions, not periodically;
+the panel and MCP consume the same cached result. Opening the status dialog does
+not configure settings, authorize Desktop, acquire HOME or start a session.
+Settings leaves independent preferences editable while
+unavailable privileged settings remain disabled, without reading their shell store.
 Selecting a row does not claim input or change a session. Commands capture the
 selected identity; creation uses its resolution as a default. Creation and output
 configuration have separate dialogs. A Viewer remains an application; it does not

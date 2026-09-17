@@ -8,6 +8,10 @@ import android.os.Bundle;
 public final class StartActivity extends Activity {
     private FullscreenStartController mStart;
 
+    static void open(Activity activity) {
+        activity.startActivity(new Intent(activity, StartActivity.class));
+    }
+
     static void open(Activity activity, DesktopDisplayInfo display) {
         activity.startActivity(new Intent(activity, StartActivity.class)
                 .putExtra("start.display_id", display.id)

@@ -32,6 +32,9 @@ public final class MagicDeskApplicationStartupTest {
                     static void forceShell() { calls.add("identity-policy"); }
                 }
                 static class ShellAccess { static void initialize() { calls.add("service"); } }
+                static class DesktopSetupStatus {
+                    static void initialize(Context c) { calls.add("setup-status"); }
+                }
                 static class CompatibilityDiagnostics {
                     static void initialize(Context c) { calls.add("diagnostics"); }
                 }
@@ -57,7 +60,7 @@ public final class MagicDeskApplicationStartupTest {
                 }
                 public static void verify() {
                     List<String> primary = List.of("application", "uri-recovery", "home-recovery",
-                            "integrations", "backend", "identity-policy", "service", "diagnostics", "event");
+                            "integrations", "backend", "identity-policy", "service", "setup-status", "diagnostics", "event");
                     start("magicdesk", primary);
                     for (String name : new String[] {"magicdesk:selftest",
                             "magicdesk:task_area_backstop", "magicdesk:another", "", null}) {

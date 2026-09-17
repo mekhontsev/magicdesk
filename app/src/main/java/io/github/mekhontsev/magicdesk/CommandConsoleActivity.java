@@ -189,7 +189,7 @@ public final class CommandConsoleActivity extends Activity
             finish();
             return;
         }
-        MagicDeskRuntime.startTools(this);
+        MagicDeskRuntime.startTools(this, mBackend == DesktopExecBackend.SHELL);
         if (getIntent().hasExtra(EXTRA_TMUX_SESSION)) {
             if (mBackend != DesktopExecBackend.TERMUX) throw new IllegalArgumentException("tmux requires Termux");
             ConsoleTerminalRegistry.bindTmux(sessionId, getIntent().getStringExtra(EXTRA_TMUX_SESSION),

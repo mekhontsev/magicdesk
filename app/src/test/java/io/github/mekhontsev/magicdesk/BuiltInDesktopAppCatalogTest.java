@@ -14,6 +14,16 @@ import java.util.HashSet;
 import java.util.Set;
 
 public final class BuiltInDesktopAppCatalogTest {
+    @Test public void toolHostsDoNotInheritDesktopOrShellPrerequisites() {
+        assertEquals(RuntimeCapabilities.Service.SHELL,
+                BuiltInDesktopAppCatalog.requiredService(BuiltInDesktopAppCatalog.filesTarget()));
+        for (var target : new AppLaunchTarget[] {BuiltInDesktopAppCatalog.settingsTarget(),
+                BuiltInDesktopAppCatalog.diagnosticsTarget(), BuiltInDesktopAppCatalog.consoleTarget(),
+                BuiltInDesktopAppCatalog.findComponent(X11ManagerActivity.class.getName()).launchTarget,
+                BuiltInDesktopAppCatalog.findComponent(X11Activity.class.getName()).launchTarget}) {
+            assertEquals(RuntimeCapabilities.Service.BUILTIN_UI, BuiltInDesktopAppCatalog.requiredService(target));
+        }
+    }
     @Test public void viewerIsAnOrdinaryLaunchableMultiWindowTool() {
         final var viewer = BuiltInDesktopAppCatalog.findComponent(DisplayViewerActivity.class.getName());
         assertNotNull(viewer);

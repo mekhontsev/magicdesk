@@ -47,7 +47,7 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
             try {
                 if (isUnavailable()) { return; }
                 ToolLaunchTarget.resolve("display", mDisplayId, DesktopRuntimeBridge.workspaceDisplayIds());
-                DesktopDisplayCatalog.require(mDisplayId, mUniqueId);
+                InteractiveActivityLaunch.requireDestination(mContext, mDisplayId, mUniqueId);
                 if (request.androidShortcut != null) {
                     AndroidIntegrationGateway.requireShortcutPresentation(request.presentation);
                     final AndroidShortcutSpec shortcut = request.androidShortcut;
@@ -59,7 +59,7 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
                     if (source == null) { throw new IllegalStateException("Activity is unavailable"); }
                     final Intent intent = request.presentation.instancePolicy.applyTo(source);
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    OrdinaryActivityLaunch.launch(mContext, intent, request.androidLaunch.delivery, mDisplayId);
+                    InteractiveActivityLaunch.launch(mContext, intent, request.androidLaunch.delivery, mDisplayId);
                 }
                 onMain(() -> launched(onPrepared, completion));
             } catch (java.io.IOException | RuntimeException error) {

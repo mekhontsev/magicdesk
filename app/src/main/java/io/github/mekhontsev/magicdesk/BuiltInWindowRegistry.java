@@ -78,6 +78,18 @@ final class BuiltInWindowRegistry {
         return otherDisplay;
     }
 
+    static boolean isTaskOnDisplay(final int taskId, final int displayId) {
+        synchronized (WINDOWS) {
+            for (final WeakReference<Activity> reference : WINDOWS) {
+                final Activity activity = reference.get();
+                if (activity != null && !activity.isDestroyed() && !activity.isFinishing()
+                        && activity.getTaskId() == taskId && activity.getDisplay() != null
+                        && activity.getDisplay().getDisplayId() == displayId) return true;
+            }
+        }
+        return false;
+    }
+
 
     static void finishAll(final Runnable completion) {
         final Runnable finish = () -> {

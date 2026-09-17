@@ -28,6 +28,18 @@ public final class ToolRuntimeIsolationTest {
         assertFalse(framework.contains("= FrameworkWindowingCompat.current()"));
     }
 
+    @Test public void independentStartAndTermuxConsoleDoNotStartDesktopOrRequestShell() throws Exception {
+        final String start = source("FullscreenStartController");
+        assertFalse(start.contains("MagicDeskRuntime.start(activity)"));
+        assertTrue(start.contains("MagicDeskRuntime.startTools(activity, false)"));
+        assertTrue(source("CommandConsoleActivity").contains(
+                "MagicDeskRuntime.startTools(this, mBackend == DesktopExecBackend.SHELL)"));
+        assertTrue(RuntimeSourceFixture.methods("SettingsActivity", "render").contains(
+                "ShellAccess.isReady() ? MagicDeskSettings.load() : null"));
+        final String recents = RuntimeSourceFixture.methods("FullscreenStartController", "loadRecents");
+        assertTrue(recents.indexOf("if (!ShellAccess.isReady())") < recents.indexOf("TaskCommandQueue"));
+    }
+
     @Test public void terminalViewDestructionDoesNotCloseSession() throws Exception {
         final String activity = source("CommandConsoleActivity");
         final String destroy = activity.substring(activity.indexOf("protected void onDestroy()"),

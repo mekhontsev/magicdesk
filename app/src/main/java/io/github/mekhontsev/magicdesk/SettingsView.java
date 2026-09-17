@@ -83,6 +83,8 @@ final class SettingsView {
     private Switch mOpenFilesWithSingleClick;
     private Switch mSystemDesktopMode;
     private TextView mSystemDesktopModeStatus;
+    private TextView mDesktopSettingsStatus;
+    private boolean mDesktopSettingsAvailable;
     private View mResetCompatibilityDefaults;
     private Switch mMcpEnabled;
     private TextView mMcpStatus;
@@ -116,6 +118,8 @@ final class SettingsView {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
         addSection(content, R.string.settings_section_desktop);
+        mDesktopSettingsStatus = mUi.sectionTitle(R.string.capability_access_required);
+        content.addView(mDesktopSettingsStatus);
         mTaskbarAutoHide = addSwitch(
                 content, R.string.settings_taskbar_auto_hide);
         mTaskbarAutoHide.setOnCheckedChangeListener((button, checked) -> {
@@ -317,7 +321,7 @@ final class SettingsView {
             final MagicDeskSettings.Values settings,
             final MagicDeskMcpPreferences.Values mcp,
             final MagicDeskMcpRuntime.Snapshot runtime) {
-        if (settings == null || mTaskbarAutoHide == null
+        if (mTaskbarAutoHide == null
                 || mKeepDesktopAwake == null
                 || mDisableAdaptiveBrightness == null
                 || mOpenTouchpadAutomatically == null
@@ -339,20 +343,29 @@ final class SettingsView {
             mIntegrationPackages.get(integration).setText(saved.equals(integration.selected()) ? saved
                     : mActivity.getString(R.string.settings_integration_restart_pending, saved));
         }
-        mTaskbarAutoHide.setChecked(settings.taskbarAutoHide);
-        mOpenFilesWithSingleClick.setChecked(
-                settings.openFilesWithSingleClick);
-        mKeyboardOnAppDisplay.setChecked(settings.keyboardOnAppDisplay);
-        mOpenTouchpadAutomatically.setChecked(
-                settings.openTouchpadAutomatically);
-        final DesktopCompatibilityPolicy compatibility = settings.compatibilityPolicy(
-                PlatformDrivers.current().features());
-        for (final DesktopCompatibilityPolicy.Option option : mCompatibility.keySet()) {
-            mCompatibility.get(option).setChecked(compatibility.enabled(option));
+        mDesktopSettingsAvailable = settings != null
+                && RuntimeCapabilities.supportsDesktop(android.os.Build.VERSION.SDK_INT);
+        mDesktopSettingsStatus.setVisibility(mDesktopSettingsAvailable ? View.GONE : View.VISIBLE);
+        mDesktopSettingsStatus.setText(RuntimeCapabilities.supportsDesktop(android.os.Build.VERSION.SDK_INT)
+                ? R.string.capability_access_required : R.string.capability_android_15_required);
+        for (final Switch control : new Switch[] {mTaskbarAutoHide, mKeyboardOnAppDisplay,
+                mOpenTouchpadAutomatically, mKeepDesktopAwake, mDisableAdaptiveBrightness}) {
+            control.setEnabled(mDesktopSettingsAvailable);
         }
-        mKeepDesktopAwake.setChecked(settings.keepDesktopAwake);
-        mDisableAdaptiveBrightness.setChecked(
-                settings.disableAdaptiveBrightnessOnExternalDesktop);
+        mOpenFilesWithSingleClick.setEnabled(settings != null);
+        if (settings != null) {
+            mTaskbarAutoHide.setChecked(settings.taskbarAutoHide);
+            mOpenFilesWithSingleClick.setChecked(settings.openFilesWithSingleClick);
+            mKeyboardOnAppDisplay.setChecked(settings.keyboardOnAppDisplay);
+            mOpenTouchpadAutomatically.setChecked(settings.openTouchpadAutomatically);
+            final DesktopCompatibilityPolicy compatibility = settings.compatibilityPolicy(
+                    PlatformDrivers.current().features());
+            for (final DesktopCompatibilityPolicy.Option option : mCompatibility.keySet()) {
+                mCompatibility.get(option).setChecked(compatibility.enabled(option));
+            }
+            mKeepDesktopAwake.setChecked(settings.keepDesktopAwake);
+            mDisableAdaptiveBrightness.setChecked(settings.disableAdaptiveBrightnessOnExternalDesktop);
+        }
         mMcpEnabled.setChecked(mcp.enabled);
         mMcpNetworkEnabled.setChecked(mcp.enabled && mcp.networkEnabled);
         mMcpNetworkEnabled.setEnabled(mcp.enabled);
@@ -380,13 +393,13 @@ final class SettingsView {
         if (enabled != null) {
             mSystemDesktopMode.setChecked(enabled);
         }
-        final boolean editable = enabled != null && canChange && !busy;
+        final boolean editable = mDesktopSettingsAvailable && enabled != null && canChange && !busy;
         mSystemDesktopMode.setEnabled(editable);
         mSystemDesktopMode.setAlpha(editable ? 1f : 0.5f);
         mResetCompatibilityDefaults.setEnabled(editable);
         mResetCompatibilityDefaults.setAlpha(editable ? 1f : 0.5f);
         for (final Switch control : mCompatibility.values()) {
-            control.setEnabled(!busy);
+            control.setEnabled(mDesktopSettingsAvailable && !busy);
         }
         mSystemDesktopModeStatus.setText(statusResId);
         mRendering = false;

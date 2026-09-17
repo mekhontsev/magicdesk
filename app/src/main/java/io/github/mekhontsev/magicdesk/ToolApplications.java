@@ -38,6 +38,8 @@ final class ToolApplications {
         final BuiltInDesktopAppCatalog.Entry entry =
                 BuiltInDesktopAppCatalog.findComponent(component.getClassName());
         if (entry == null) { throw new IllegalArgumentException("unknown built-in application"); }
+        RuntimeCapabilities.current(context).require(context,
+                BuiltInDesktopAppCatalog.requiredService(entry.launchTarget));
         BuiltInWindowLauncher.launch(context, intent, entry.launchTarget, target, uniqueId, presentation, callback);
     }
 

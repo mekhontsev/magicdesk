@@ -36,6 +36,8 @@ final class PhoneControlPanelController {
 
         void showTermuxInfo();
 
+        void showDesktopInfo();
+
         void releaseInput();
 
         void exitMagicDesk();
@@ -56,6 +58,7 @@ final class PhoneControlPanelController {
         final String status;
         final String runtime;
         final TermuxIntegration.Endpoint termux;
+        final RuntimeCapabilities capabilities;
 
         State(
                 final DesktopDisplayInfo[] displays,
@@ -71,7 +74,8 @@ final class PhoneControlPanelController {
                 final boolean wirelessConnectionUiAvailable,
                 final String status,
                 final String runtime,
-                final TermuxIntegration.Endpoint termux) {
+                final TermuxIntegration.Endpoint termux,
+                final RuntimeCapabilities capabilities) {
             this.displays = displays;
             this.tasks = tasks;
             this.desktopDisplays = java.util.Set.copyOf(desktopDisplays);
@@ -88,6 +92,7 @@ final class PhoneControlPanelController {
             this.status = status;
             this.runtime = runtime;
             this.termux = termux;
+            this.capabilities = capabilities;
         }
     }
 
@@ -98,8 +103,10 @@ final class PhoneControlPanelController {
     private final Actions mActions;
 
     private TextView mStatus;
+    private Button mLocalApps;
     private Button mRuntime;
     private Button mTermux;
+    private Button mDesktop;
     private Button mConnectWirelessDisplay;
     private Button mCreateDisplay;
     private DisplayTableView mDisplayTable;
@@ -156,6 +163,9 @@ final class PhoneControlPanelController {
                 R.string.control_runtime_status, state.runtime));
         mTermux.setText(mActivity.getString(R.string.control_termux_status,
                 mActivity.getString(IntegrationStatusDialogs.termuxStatus(state.termux))));
+        mDesktop.setText(mActivity.getString(R.string.control_desktop_status,
+                mActivity.getString(IntegrationStatusDialogs.desktopStatus(state.capabilities))));
+        mLocalApps.setVisibility(state.shellReady ? View.GONE : View.VISIBLE);
         mDisplayTable.render(state.displays, state.desktopDisplays, state.shellReady,
                 state.sessionOperationInProgress || state.displayOperation,
                 state.externalOutputControlAvailable, state.tasks);
@@ -234,8 +244,11 @@ final class PhoneControlPanelController {
         mRuntime.setOnClickListener(view -> mActions.showAccessInfo());
         mTermux = integrationButton(R.string.console_shell_termux);
         mTermux.setOnClickListener(view -> mActions.showTermuxInfo());
+        mDesktop = integrationButton(R.string.control_desktop_title);
+        mDesktop.setOnClickListener(view -> mActions.showDesktopInfo());
         integrations.addView(mRuntime, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         integrations.addView(mTermux, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        integrations.addView(mDesktop, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         parent.addView(integrations, fullWidthWrapParams(dp(4)));
     }
 
@@ -245,7 +258,7 @@ final class PhoneControlPanelController {
         button.setTextColor(COLOR_CYAN);
         button.setPaintFlags(button.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
         button.setSingleLine(false);
-        button.setMaxLines(2);
+        button.setMaxLines(3);
         button.setEllipsize(null);
         button.setMinHeight(dp(48));
         button.setPadding(dp(8), dp(6), dp(8), dp(6));
@@ -253,6 +266,9 @@ final class PhoneControlPanelController {
     }
 
     private void addDesktopActions(final LinearLayout parent) {
+        mLocalApps = mUi.controlAction(R.string.section_apps, R.drawable.ic_sections, COLOR_TEXT);
+        mLocalApps.setOnClickListener(view -> mActions.openApplications(null));
+        parent.addView(mLocalApps, fullWidthActionParams());
         mDisplayTable = new DisplayTableView(mActivity, mUi, mActions, parent);
         final GridLayout sessionActions = actionGrid();
 

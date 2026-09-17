@@ -22,6 +22,7 @@ public final class MagicDeskApplication extends Application {
         ShellBackend.active();
         ShellPrivilegePolicy.forceShell();
         ShellAccess.initialize();
+        DesktopSetupStatus.initialize(this);
         CompatibilityDiagnostics.initialize(this);
         DesktopAutomationEventJournal.record(
                 "process",

@@ -44,6 +44,13 @@ an unsupported test from a locked phone. MCP and UI test entry points reject
 before session/display preparation. Device readiness and client grants remain
 separate from these feature requirements.
 
+Termux-only operation does not need the privileged display catalog: the panel's
+local Apps action, Start discovery/search, saved Recent entries, terminal picker
+and X11 launches use ordinary phone Activities. Reopening a live own terminal or
+X11 task uses Android's own-task API. Explicit display identity validation,
+cross-display placement and global task queries still require the privileged
+service. No fallback discards a requested destination or elevates a failed launch.
+
 ## Release-Specific Behavior
 
 - `FrameworkInputRoutingApi` uses Android 14's unique-ID association methods;
@@ -76,11 +83,12 @@ separate from these feature requirements.
 
 The APK, native helpers and embedded X11 library currently target only
 `arm64-v8a`. CI checks the packaged APK for unsupported native ABIs.
-The desktop-host NDK path in `gradle/native-helpers.gradle` still compiles with
-`--target=aarch64-linux-android35`; the Termux path uses its installed compiler.
-Neither establishes API 34 native compatibility merely because the manifest's
-minimum is 34. Aligning and validating the helpers against API 34 is required
-before claiming that release's shell/Termux/pointer workflows are supported.
+Both helper compiler paths in `gradle/native-helpers.gradle` derive their Android
+target from the APK's minimum SDK (currently API 34), not the Desktop minimum.
+The embedded X11 NDK build also uses its module's API 34 minimum; the Termux X11
+build uses the installed toolchain. Compilation does not establish API 34 native
+compatibility by itself: that release's shell/Termux/pointer workflows still need
+device execution coverage.
 
 The current APK is not an x86_64 emulator build. Linux and Windows build smoke
 checks do not run an Android emulator or provide another ABI. An Android Studio

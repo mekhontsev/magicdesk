@@ -7,7 +7,7 @@ import org.json.JSONObject;
 final class RuntimeCapabilities {
     static final int DESKTOP_MIN_SDK = 35;
 
-    enum Service { AUTOMATION, BUILTIN_UI, SHELL, TERMUX, VIRTUAL_DISPLAY, DESKTOP }
+    enum Service { AUTOMATION, BUILTIN_UI, SHELL, TERMUX, TERMINAL, X11, VIRTUAL_DISPLAY, DESKTOP }
 
     static boolean supportsDesktop(final int sdk) {
         return sdk >= DESKTOP_MIN_SDK;
@@ -23,32 +23,59 @@ final class RuntimeCapabilities {
     private final boolean mShell;
     private final boolean mTermuxInstalled;
     private final boolean mTermuxAuthorized;
-    private final boolean mDesktopPrepared;
+    private final DesktopSetupStatus.State mDesktopSetup;
 
     RuntimeCapabilities(final int sdk, final boolean shell, final boolean termuxInstalled,
-            final boolean termuxAuthorized, final boolean desktopPrepared) {
+            final boolean termuxAuthorized, final DesktopSetupStatus.State desktopSetup) {
         mSdk = sdk;
         mShell = shell;
         mTermuxInstalled = termuxInstalled;
         mTermuxAuthorized = termuxAuthorized;
-        mDesktopPrepared = desktopPrepared;
+        mDesktopSetup = desktopSetup;
     }
 
     static RuntimeCapabilities current(final android.content.Context context) {
         final TermuxIntegration.Endpoint termux = TermuxIntegration.inspect(context);
         return new RuntimeCapabilities(android.os.Build.VERSION.SDK_INT, ShellAccess.isReady(),
-                termux.installed, termux.available(),
-                DeviceSetupManager.isRuntimeAuthorized());
+                termux.installed, termux.available(), DesktopSetupStatus.current().state());
     }
 
     String missing(final Service service) {
         return switch (service) {
             case AUTOMATION, BUILTIN_UI -> "";
             case SHELL, VIRTUAL_DISPLAY -> mShell ? "" : "privileged_service";
-            case TERMUX -> !mTermuxInstalled ? "termux" : !mTermuxAuthorized ? "termux_run_command" : "";
+            case TERMUX, X11 -> !mTermuxInstalled ? "termux" : !mTermuxAuthorized ? "termux_run_command" : "";
+            case TERMINAL -> mShell || mTermuxInstalled && mTermuxAuthorized ? "" : "terminal_backend";
             case DESKTOP -> !supportsDesktop(mSdk) ? "android_15"
-                    : !mShell ? "privileged_service" : !mDesktopPrepared ? "desktop_setup" : "";
+                    : !mShell ? "privileged_service" : switch (mDesktopSetup) {
+                        case READY -> "";
+                        case CHECKING -> "desktop_setup_checking";
+                        case UNKNOWN -> "desktop_setup_unknown";
+                        case SETUP_REQUIRED -> "desktop_setup";
+                        case RESTART_REQUIRED -> "device_restart";
+                    };
         };
+    }
+
+    int unavailableMessage(Service service) {
+        return switch (missing(service)) {
+            case "" -> 0;
+            case "android_15" -> R.string.capability_android_15_required;
+            case "privileged_service" -> R.string.capability_access_required;
+            case "termux" -> R.string.capability_termux_required;
+            case "termux_run_command" -> R.string.capability_termux_permission_required;
+            case "terminal_backend" -> R.string.capability_terminal_required;
+            case "desktop_setup_checking" -> R.string.setup_status_checking;
+            case "desktop_setup_unknown" -> R.string.control_desktop_unknown;
+            case "desktop_setup" -> R.string.control_desktop_setup_required;
+            case "device_restart" -> R.string.setup_status_reboot_required;
+            default -> throw new IllegalStateException("Unknown service prerequisite");
+        };
+    }
+
+    void require(android.content.Context context, Service service) {
+        final int message = unavailableMessage(service);
+        if (message != 0) throw new IllegalStateException(context.getString(message));
     }
 
     JSONObject toJson() throws JSONException {

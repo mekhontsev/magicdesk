@@ -41,6 +41,9 @@ public final class ControlActivity extends Activity
     private DesktopDisplayInfo[] mDisplays = new DesktopDisplayInfo[0];
     private TaskRepository.Snapshot mTasks = new TaskRepository.Snapshot(java.util.List.of(), false, "not observed");
     private boolean mDisplayOperation;
+    private final Runnable mSetupStatusListener = () -> runOnUiThread(() -> {
+        if (!isActivityUnavailable()) refresh();
+    });
     private int mCatalogGeneration;
     private final ShellAccess.StateListener mAccessListener = state -> runOnUiThread(() -> {
         if (!isActivityUnavailable() && mPanel != null) {
@@ -66,6 +69,7 @@ public final class ControlActivity extends Activity
         mSessionProfile = SessionProfile.fromLaunchIntent(this, getIntent());
         initializeControlPanel();
         ShellAccess.addStateListener(mAccessListener);
+        DesktopSetupStatus.addListener(mSetupStatusListener);
     }
 
     @Override
@@ -182,6 +186,7 @@ public final class ControlActivity extends Activity
     @Override
     protected void onResume() {
         super.onResume();
+        DesktopSetupStatus.refresh(this);
         DesktopAutomationEventJournal.record(
                 "ui", "control_panel_shown", true, "phone");
         // Returning from a cancelled picker already leaves the panel visible.
@@ -206,6 +211,7 @@ public final class ControlActivity extends Activity
     @Override
     protected void onDestroy() {
         ShellAccess.removeStateListener(mAccessListener);
+        DesktopSetupStatus.removeListener(mSetupStatusListener);
         synchronized (ControlActivity.class) {
             if (sActive.get() == this) {
                 sActive.clear();
@@ -457,7 +463,8 @@ public final class ControlActivity extends Activity
     }
 
     @Override public void openApplications(final DesktopDisplayInfo display) {
-        StartActivity.open(this, display);
+        if (display == null) StartActivity.open(this);
+        else StartActivity.open(this, display);
     }
 
     @Override public void openIndependentApplications(final DesktopDisplayInfo display) {
@@ -511,6 +518,12 @@ public final class ControlActivity extends Activity
         IntegrationStatusDialogs.showTermux(this, this::openSettings);
     }
 
+    @Override
+    public void showDesktopInfo() {
+        IntegrationStatusDialogs.showDesktop(this,
+                !mDisplayOperation && !mSessionController.isOperationInProgress(), this::showAccessInfo);
+    }
+
     private void requestAccess() {
         if (mDisplayOperation || mSessionController.isOperationInProgress()) { return; }
         if (ShellPrivilegePolicy.restartRequired(this)) {
@@ -550,8 +563,9 @@ public final class ControlActivity extends Activity
                 mProjection.supportsOutputConfiguration(),
                 mWirelessConnectionUiAvailable,
                 ShellPrivilegePolicy.restartRequired(this) ? getString(R.string.access_restart_required)
-                        : !ShellAccess.isReady() ? ShellAccess.currentSnapshot().error : mStatus,
-                ShellAccess.currentSnapshot().accessLabel(), TermuxIntegration.inspect(this)));
+                        : mStatus,
+                ShellAccess.currentSnapshot().accessLabel(), TermuxIntegration.inspect(this),
+                RuntimeCapabilities.current(this)));
     }
 
     private void registerDisplayListener() {

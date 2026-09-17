@@ -62,6 +62,15 @@ final class StartDisplaySelector {
 
     private void show() {
         dismiss();
+        if (!ShellAccess.isReady()) {
+            final PopupMenu menu = new PopupMenu(mActivity, mButton, Gravity.END);
+            mMenu = menu;
+            menu.getMenu().add(R.string.start_current_display).setCheckable(true).setChecked(mSelected == null)
+                    .setOnMenuItemClickListener(item -> { select(null); return true; });
+            menu.getMenu().add(R.string.capability_access_required).setEnabled(false);
+            menu.show();
+            return;
+        }
         final int generation = mGeneration;
         TaskCommandQueue.execute(() -> {
             try {
