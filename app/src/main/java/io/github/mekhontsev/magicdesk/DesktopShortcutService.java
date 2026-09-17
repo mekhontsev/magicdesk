@@ -138,6 +138,9 @@ public final class DesktopShortcutService extends AccessibilityService
             mRoutedKeyboards = Set.of();
             return;
         }
+        // InputManagerGlobal publishes generation changes only for materialized
+        // devices. Re-read after each callback so later route commits notify us.
+        for (final int id : InputDevice.getDeviceIds()) InputDevice.getDevice(id);
         // Device-generation callbacks also arrive after InputReader commits an
         // association. An unconfirmed device remains Android's, not our shortcut source.
         DesktopOperations.executeSerialized(() -> {

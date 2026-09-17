@@ -234,7 +234,12 @@ retryable. Unknown or incomplete input inventory is an error, not an empty list.
 Existing input-device callbacks reconcile hot-plugged locations. There is no
 periodic input inventory query. While input is explicitly acquired, a key-only
 Accessibility service receives confirmed routed keyboard IDs, observed through
-device-generation callbacks. Outside a prepared Desktop it handles display
+device-generation callbacks. It materializes the app's input-device inventory
+after each callback so Android continues publishing generation changes. The
+privileged routing adapter reads devices directly from InputManager's Binder:
+the app callback can precede invalidation of the privileged process's separate
+device cache. Shortcut eligibility must not retain that stale association.
+This adds no polling or per-key Binder query. Outside a prepared Desktop it handles display
 switching only; Android retains application shortcuts, including Alt+Tab and
 Meta. With Desktop it also consumes MagicDesk combinations through the same
 `DesktopOperations` and task-controller gateways as the UI. Ordinary key

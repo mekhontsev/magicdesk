@@ -14,6 +14,8 @@ final class FrameworkInputRoutingApi implements InputRoutingLease.Api {
     private final Method mRemoveUniqueId;
     private final Method mAddPort;
     private final Method mRemovePort;
+    private final Method mGetInputDeviceIds;
+    private final Method mGetInputDevice;
     private final Object mDisplayManager;
     private final Method mGetDisplayInfo;
 
@@ -32,6 +34,8 @@ final class FrameworkInputRoutingApi implements InputRoutingLease.Api {
                 : "removeUniqueIdAssociation", String.class);
         mAddPort = input.getMethod("addPortAssociation", String.class, int.class);
         mRemovePort = input.getMethod("removePortAssociation", String.class);
+        mGetInputDeviceIds = input.getMethod("getInputDeviceIds");
+        mGetInputDevice = input.getMethod("getInputDevice", int.class);
         final Class<?> displays = Class.forName("android.hardware.display.DisplayManagerGlobal");
         mDisplayManager = displays.getMethod("getInstance").invoke(null);
         mGetDisplayInfo = displays.getMethod("getDisplayInfo", int.class);
@@ -56,8 +60,10 @@ final class FrameworkInputRoutingApi implements InputRoutingLease.Api {
         // here under shell identity, never from the accessibility key callback.
         final Method associatedDisplay = InputDevice.class.getMethod("getAssociatedDisplayId");
         final java.util.ArrayList<Integer> ids = new java.util.ArrayList<>();
-        for (final int id : InputDevice.getDeviceIds()) {
-            final InputDevice device = InputDevice.getDevice(id);
+        // The app's device callback can precede this process's cache invalidation.
+        // Read the committed Binder inventory, not InputManagerGlobal's local cache.
+        for (final int id : (int[]) mGetInputDeviceIds.invoke(mInputManager)) {
+            final InputDevice device = (InputDevice) mGetInputDevice.invoke(mInputManager, id);
             if (device != null && !device.isVirtual() && device.isExternal()
                     && device.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC
                     && ((Integer) associatedDisplay.invoke(device)) == displayId) {
