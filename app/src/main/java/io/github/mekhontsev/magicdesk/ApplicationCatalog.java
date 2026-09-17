@@ -24,10 +24,11 @@ final class ApplicationCatalog {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final ExecutorService IO = Executors.newSingleThreadExecutor(r ->
             new Thread(r, "MagicDeskApplications"));
-    private static ApplicationCatalog instance;
+    private static volatile ApplicationCatalog instance;
 
     record Snapshot(ApplicationCatalogSource.Snapshot<AppItem> android,
-            ApplicationCatalogSource.Snapshot<DesktopApplicationRepository.Entry> termux) {
+            ApplicationCatalogSource.Snapshot<DesktopApplicationRepository.Entry> termux,
+            java.util.Map<String, android.graphics.Bitmap> termuxIcons) {
         List<StartMenuEntry> applications(List<AppItem> apps,
                 List<DesktopApplicationRepository.Entry> desktop) {
             final List<StartMenuEntry> entries = new ArrayList<>();
@@ -43,6 +44,7 @@ final class ApplicationCatalog {
     private final List<Runnable> listeners = new ArrayList<>();
     private final ApplicationCatalogSource<AppItem> android;
     private final ApplicationCatalogSource<DesktopApplicationRepository.Entry> termux;
+    private final ApplicationIconCache<android.graphics.Bitmap> icons;
     private TermuxIntegration.Endpoint endpoint;
     private String termuxOwner = "";
     private String lastTermuxError = "";
@@ -61,6 +63,9 @@ final class ApplicationCatalog {
         configuration = new Configuration(context.getResources().getConfiguration());
         android = new ApplicationCatalogSource<>(this::loadAndroid, this::changed);
         termux = new ApplicationCatalogSource<>(this::loadTermuxSource, this::termuxChanged);
+        icons = new ApplicationIconCache<>(TermuxIconCommand.BATCH_SIZE,
+                (keys, complete) -> TermuxApplicationIcons.load(context, endpoint, IO, keys, complete),
+                this::changed);
         final LauncherApps launcher = context.getSystemService(LauncherApps.class);
         if (launcher != null) launcher.registerCallback(new LauncherApps.Callback() {
             @Override public void onPackageAdded(String name, UserHandle user) { packagesChanged(); }
@@ -83,7 +88,11 @@ final class ApplicationCatalog {
         });
     }
 
-    Snapshot snapshot() { return new Snapshot(android.snapshot(), termux.snapshot()); }
+    Snapshot snapshot() { return new Snapshot(android.snapshot(), termux.snapshot(), icons.snapshot()); }
+
+    static android.graphics.Bitmap cachedTermuxIcon(String name) {
+        return instance == null ? null : instance.icons.snapshot().get(name);
+    }
 
     List<AppItem> androidApps(boolean freeform) {
         final List<AppItem> apps = android.snapshot().entries();
@@ -125,6 +134,7 @@ final class ApplicationCatalog {
                 : IntegrationPackage.TERMUX.selected() + "|unavailable";
         if (!identity.equals(termuxOwner)) {
             termuxOwner = identity;
+            icons.reset();
             termux.reset(endpoint.available() ? "" : "Termux RUN_COMMAND is unavailable");
         }
         return endpoint.available();
@@ -154,6 +164,11 @@ final class ApplicationCatalog {
                 return;
             }
             complete.complete(entries, error);
+            if (error.isEmpty()) {
+                final var names = new java.util.LinkedHashSet<String>();
+                for (var entry : entries) if (TermuxIconCommand.valid(entry.shortcut.icon)) names.add(entry.shortcut.icon);
+                icons.update(names);
+            }
         });
     }
 

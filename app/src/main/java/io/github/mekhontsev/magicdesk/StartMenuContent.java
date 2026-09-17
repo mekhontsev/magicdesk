@@ -365,7 +365,10 @@ final class StartMenuContent {
                 && previous.android().ready() == next.android().ready()
                 && previous.termux().entries() == next.termux().entries()
                 && (next.android().ready() || (previous.android().loading() == next.android().loading()
-                        && previous.android().error().equals(next.android().error())))) return;
+                        && previous.android().error().equals(next.android().error())))) {
+            if (previous.termuxIcons() != next.termuxIcons()) refreshIcons(mBody);
+            return;
+        }
         mSearchController.update(mSearchQuery, entries(mMode, true));
         renderBody();
     }
@@ -829,12 +832,20 @@ final class StartMenuContent {
     }
 
     private void bindIcon(final ImageView icon, final StartMenuEntry entry) {
+        icon.setTag(entry);
         if (entry.app != null) { icon.setImageDrawable(entry.app.icon); }
         else if (entry.builtIn != null) { icon.setImageResource(searchIcon(entry)); }
         else if (entry.desktopApplication != null) {
             icon.setImageDrawable(DesktopApplicationIconResolver.resolve(
                     mActivity, entry.desktopApplication.shortcut));
         } else { icon.setImageResource(searchIcon(entry)); }
+    }
+
+    private void refreshIcons(View view) {
+        if (view instanceof ImageView icon && icon.getTag() instanceof StartMenuEntry entry) {
+            if (entry.desktopApplication != null) bindIcon(icon, entry);
+        } else if (view instanceof android.view.ViewGroup group)
+            for (int i = 0; i < group.getChildCount(); i++) refreshIcons(group.getChildAt(i));
     }
 
     private void bindContextMenu(View view, StartMenuEntry entry) {

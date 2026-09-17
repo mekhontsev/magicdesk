@@ -2867,6 +2867,16 @@ sorts entries, while each Start retains its own navigation and subscribes only
 while presented. Grid capacity follows each panel's measured viewport, including
 keyboard resizing.
 
+The same catalog owns optional Termux artwork through `ApplicationIconCache`.
+It deduplicates names, caches misses, evicts removed names and invalidates
+in-flight results on endpoint changes. `TermuxIconCommand` performs bounded PNG
+lookups through RUN_COMMAND in four-icon batches; `TermuxApplicationIcons`
+decodes and downsamples on the existing catalog worker. Renderers only read
+immutable bitmap snapshots. Start updates visible artwork in place instead of
+rebuilding its grid. No filesystem scan, X server, privilege acquisition or
+per-icon command runs during binding or scrolling. See [X11 applications](x11.md#applications)
+for the deliberately limited bitmap lookup and process-lifetime cache policy.
+
 Every Start has a compact launch-display selector alongside search. **Current**
 means the display hosting that instance, not the selected input display. Choosing
 a destination preserves query and navigation, does not dismiss Start, and changes

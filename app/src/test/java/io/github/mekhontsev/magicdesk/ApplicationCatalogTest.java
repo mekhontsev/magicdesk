@@ -61,6 +61,21 @@ public final class ApplicationCatalogTest {
         assertTrue(termux.contains("!owner.equals(termuxOwner)"));
     }
 
+    @Test public void iconsAreOptionalCachedAndBoundWithoutRebuildingStart() throws Exception {
+        final String lookup = RuntimeSourceFixture.methods("DesktopApplicationIconResolver", "resolve");
+        assertTrue(lookup.contains("ApplicationCatalog.cachedTermuxIcon"));
+        assertFalse(lookup.contains("runBackgroundShellCommand"));
+        assertFalse(lookup.contains("decodeByteArray"));
+        final String refresh = RuntimeSourceFixture.methods("StartMenuContent", "refreshIcons");
+        assertTrue(refresh.contains("bindIcon"));
+        assertFalse(refresh.contains("renderBody"));
+        assertTrue(RuntimeSourceFixture.methods("ApplicationCatalog", "inspectTermux").contains("icons.reset()"));
+        final String icons = source("TermuxApplicationIcons");
+        assertTrue(icons.contains("decoder.execute"));
+        assertFalse(icons.contains("ShellAccess"));
+        assertFalse(icons.contains("DesktopRuntimeBridge"));
+    }
+
     private static String source(String name) throws Exception {
         return Files.readString(Path.of(RuntimeSourceFixture.MAIN + name + ".java"));
     }
