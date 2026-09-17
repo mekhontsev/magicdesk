@@ -15,13 +15,15 @@ final class StartDisplaySelector {
 
     private final Activity mActivity;
     private final Button mButton;
+    private final Runnable mChanged;
     private Target mSelected;
     private String mSelectedLabel;
     private PopupMenu mMenu;
     private int mGeneration;
 
-    StartDisplaySelector(Activity activity, DesktopUiFactory ui) {
+    StartDisplaySelector(Activity activity, DesktopUiFactory ui, Runnable changed) {
         mActivity = activity;
+        mChanged = changed;
         if (activity instanceof StartActivity && activity.getIntent().hasExtra("start.display_id")) {
             final int id = activity.getIntent().getIntExtra("start.display_id", -1);
             if (id >= 0) {
@@ -108,6 +110,7 @@ final class StartDisplaySelector {
         mSelected = display == null ? null : new Target(display.id, display.uniqueId);
         mSelectedLabel = display == null ? null : displayLabel(display);
         updateLabel();
+        mChanged.run();
     }
 
     private void updateLabel() {

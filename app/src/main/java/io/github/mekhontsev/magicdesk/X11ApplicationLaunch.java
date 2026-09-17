@@ -18,7 +18,7 @@ final class X11ApplicationLaunch {
         if (!destination.desktop) OrdinaryActivityLaunch.requirePresentation(request.presentation);
         final String uniqueId = host.destinationUniqueId();
         final DesktopActivityLaunchResult.Completion done = result -> {
-            if (result.succeeded()) RecentApplications.record(host.context(), recipe);
+            if (result.succeeded()) session.recordUse(RecentLaunchScope.of(destination));
             else host.onFailure(request, new IllegalStateException(result.error));
             if (completion != null) completion.onComplete(result);
         };
@@ -77,7 +77,8 @@ final class X11ApplicationLaunch {
                 request.exec.command, true, request.exec.workingDirectory));
         Context context = host.context();
         Intent intent = X11Activity.createApplicationIntent(context, request.name,
-                request.exec.command, request.exec.workingDirectory).putExtra(X11Activity.DESKTOP_FILE, request.desktopFilePath);
+                request.exec.command, request.exec.workingDirectory).putExtra(X11Activity.DESKTOP_FILE, request.desktopFilePath)
+                .putExtra(X11Activity.RECENT_SCOPE, RecentLaunchScope.of(host.destination()).name());
         if (request.sourceShortcut != null) intent.putExtra(X11Activity.RECIPE,
                 DesktopEntryFile.encodeRecent(RecentApplications.describe(context, request.sourceShortcut, request.desktopFilePath)));
         AppLaunchTarget target = AppLaunchTarget.explicit(context.getPackageName(), X11Activity.class.getName(), "");

@@ -668,6 +668,7 @@ final class AppTaskController {
                         | Intent.FLAG_ACTIVITY_SINGLE_TOP);
             }
             mActivity.startActivity(routedIntent, options.toBundle());
+            RecentApplications.recordBuiltIn(mActivity, launchIntent, launchTarget, RecentLaunchScope.DESKTOP);
             return;
         }
 
@@ -683,7 +684,8 @@ final class AppTaskController {
                 multipleWindows
                         ? DesktopTaskInstancePolicy.CREATE_NEW
                         : DesktopTaskInstancePolicy.REUSE_EXISTING,
-                null);
+                (launchedDisplay, taskId, reused) -> RecentApplications.recordBuiltIn(
+                        mActivity, launchIntent, launchTarget, RecentLaunchScope.DESKTOP));
     }
 
     private void launchFloating(

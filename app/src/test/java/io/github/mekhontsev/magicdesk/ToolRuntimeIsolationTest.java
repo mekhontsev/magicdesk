@@ -36,7 +36,7 @@ public final class ToolRuntimeIsolationTest {
                 "MagicDeskRuntime.startTools(this, mBackend == DesktopExecBackend.SHELL)"));
         assertTrue(RuntimeSourceFixture.methods("SettingsActivity", "render").contains(
                 "ShellAccess.isReady() ? MagicDeskSettings.load() : null"));
-        final String recents = RuntimeSourceFixture.methods("FullscreenStartController", "loadRecents");
+        final String recents = RuntimeSourceFixture.methods("FullscreenStartController", "loadRunning");
         assertTrue(recents.indexOf("if (!ShellAccess.isReady())") < recents.indexOf("TaskCommandQueue"));
     }
 

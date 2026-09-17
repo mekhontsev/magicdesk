@@ -47,13 +47,15 @@ final class DesktopLaunchCoordinator {
             return false;
         }
         final DesktopLaunchRequest request;
+        final RecentLaunchScope recentScope;
         try {
+            recentScope = RecentLaunchScope.of(mContext.destination());
             if (source.application != null) {
                 source.application.requireProfile(AppProfile.current(mContext.context()));
             }
             if (X11ApplicationLaunch.reuse(mContext, source, completion)) return true;
             request = X11ApplicationLaunch.prepare(mContext, source.prepareExec());
-        } catch (IllegalArgumentException error) {
+        } catch (RuntimeException error) {
             mContext.onFailure(source, error);
             complete(completion, DesktopActivityLaunchResult.failed(error));
             return true;
@@ -92,13 +94,14 @@ final class DesktopLaunchCoordinator {
                 ? "" : DesktopExecSessionTracker.begin(prepared);
         final Runnable execute = prepared.exec == null
                 ? null : () -> mContext.onMain(
-                        () -> execute(prepared, sessionId));
+                        () -> execute(prepared, sessionId, recentScope));
         if (prepared.androidLaunch != null
                 || prepared.androidShortcut != null) {
             try {
                 if (!mContext.launchAndroid(
                         prepared, execute, result -> {
-                            if (result.succeeded() && source.exec == null) RecentApplications.record(mContext.context(), source);
+                            if (result.succeeded() && source.exec == null)
+                                RecentApplications.record(mContext.context(), source, recentScope);
                             complete(completion, result);
                         })) {
                     DesktopExecSessionTracker.failed(sessionId);
@@ -136,7 +139,8 @@ final class DesktopLaunchCoordinator {
 
     private void execute(
             final DesktopLaunchRequest request,
-            final String sessionId) {
+            final String sessionId,
+            final RecentLaunchScope recentScope) {
         if (request.exec == null || mContext.isUnavailable()) {
             DesktopExecSessionTracker.failed(sessionId);
             return;
@@ -146,7 +150,7 @@ final class DesktopLaunchCoordinator {
                 mContext.launchConsole(request);
                 DesktopExecSessionTracker.delegated(sessionId);
                 mContext.onStarted(request);
-                RecentApplications.record(mContext.context(), request);
+                RecentApplications.record(mContext.context(), request, recentScope);
                 return;
             }
             final WeakReference<DesktopLaunchContext> context =
@@ -187,7 +191,7 @@ final class DesktopLaunchCoordinator {
                                     }
                                 }
                             });
-            handleStartResult(request, sessionId, result);
+            handleStartResult(request, sessionId, result, recentScope);
         } catch (RuntimeException error) {
             DesktopExecSessionTracker.failed(sessionId);
             mContext.onFailure(request, error);
@@ -197,7 +201,8 @@ final class DesktopLaunchCoordinator {
     private void handleStartResult(
             final DesktopLaunchRequest request,
             final String sessionId,
-            final DesktopExecRunner.StartResult result) {
+            final DesktopExecRunner.StartResult result,
+            final RecentLaunchScope recentScope) {
         if (result == DesktopExecRunner.StartResult.UNAVAILABLE) {
             DesktopExecSessionTracker.failed(sessionId);
             mContext.onUnavailable(request);
@@ -210,7 +215,7 @@ final class DesktopLaunchCoordinator {
                 DesktopExecSessionTracker.delegated(sessionId);
             }
             mContext.onStarted(request);
-            RecentApplications.record(mContext.context(), request);
+            RecentApplications.record(mContext.context(), request, recentScope);
         }
     }
 }

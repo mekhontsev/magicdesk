@@ -18,6 +18,7 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
     static final String DESKTOP_FILE = "x11_desktop_file";
     static final String APPLICATION = "x11_application";
     static final String RECIPE = "x11_recipe";
+    static final String RECENT_SCOPE = "x11_recent_scope";
     private static final String COMMAND = "x11_command";
     private static final String NAME = "x11_name";
     private static final String DIRECTORY = "x11_directory";
@@ -70,6 +71,8 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
                 select(X11Sessions.startCommand(this, getIntent().getStringExtra(NAME),
                         getIntent().getStringExtra(COMMAND), getIntent().getStringExtra(DIRECTORY),
                         getIntent().getStringExtra(DESKTOP_FILE), application, recipe));
+                if (getIntent().hasExtra(RECENT_SCOPE))
+                    session.recordUse(RecentLaunchScope.valueOf(getIntent().getStringExtra(RECENT_SCOPE)));
             } catch (RuntimeException error) { showError(error); }
             return;
         }
@@ -147,7 +150,6 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
         updateDensity();
         if (session != null) {
             session.host(getTaskId(), focused);
-            if (focused) session.recordUse();
         }
         if (focused && surface != null) onChanged();
         else updateExchangeFocus();

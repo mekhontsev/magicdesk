@@ -4,6 +4,46 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public final class StartDestinationTest {
+    @Test public void recentScopeChangesWithDestinationAndModeWithoutDependingOnHostOrAccess() throws Exception {
+        RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", """
+                enum DesktopLaunchMode { AUTO, WINDOWED, FULLSCREEN }
+                static class R { static class string {
+                    static final int start_mode_default = 1, start_mode_windowed = 2,
+                            start_mode_fullscreen = 3, start_mode_independent = 4;
+                } }
+                record Target(int displayId) { }
+                static class DisplaySelector { int display; Target target() { return new Target(display); } }
+                static class Button { int text; void setText(int value) { text = value; } }
+                static class DesktopRuntimeBridge {
+                    static Set<Integer> desktops = Set.of(4, 7);
+                    static Set<Integer> workspaceDisplayIds() { return desktops; }
+                    static boolean hasWorkspace(int display) { return desktops.contains(display); }
+                }
+                DisplaySelector mDisplay = new DisplaySelector();
+                Button mModeButton = new Button();
+                Mode mMode = Mode.DEFAULT;
+                public static void verify() {
+                    Fixture f = new Fixture();
+                    check(f.recentScope() == RecentLaunchScope.INDEPENDENT, "remote Desktop hijacked phone history");
+                    f.mDisplay.display = 4;
+                    check(f.recentScope() == RecentLaunchScope.DESKTOP, "selected Desktop history missing");
+                    f.mMode = Mode.INDEPENDENT;
+                    check(f.recentScope() == RecentLaunchScope.INDEPENDENT, "independent launch used managed history");
+                    f.mMode = Mode.WINDOWED;
+                    check(f.recentScope() == RecentLaunchScope.DESKTOP, "managed window history missing");
+                    f.mDisplay.display = 7;
+                    check(f.recentScope() == RecentLaunchScope.DESKTOP, "Desktop histories are not global");
+                    DesktopRuntimeBridge.desktops = Set.of();
+                    check(f.recentScope() == RecentLaunchScope.INDEPENDENT, "workspace loss broke read-only history");
+                    f.refresh();
+                    check(f.mMode == Mode.DEFAULT && f.mModeButton.text == R.string.start_mode_default,
+                            "unavailable managed mode was not reset visibly");
+                }
+                """ + RuntimeSourceFixture.nestedClass("StartLaunchControls", "Mode")
+                        + RuntimeSourceFixture.methods("StartLaunchControls", "recentScope", "refresh"),
+                "ToolLaunchTarget", "RecentLaunchScope");
+    }
+
     @Test public void modesSeparatePlacementFromWindowingAndRequireDesktopOnlyWhenManaged() throws Exception {
         RuntimeSourceFixture.verify("""
                 enum DesktopLaunchMode { AUTO, WINDOWED, FULLSCREEN }
@@ -117,6 +157,8 @@ public final class StartDestinationTest {
                 String mSelectedLabel;
                 static String displayLabel(DesktopDisplayInfo d) { return Integer.toString(d.id); }
                 int labelUpdates;
+                int selectionChanges;
+                Runnable mChanged = () -> selectionChanges++;
                 void updateLabel() { labelUpdates++; }
                 public static void verify() {
                     Fixture phone = new Fixture();
@@ -131,6 +173,7 @@ public final class StartDestinationTest {
                     phone.select(new DesktopDisplayInfo(8, "virtual:replacement"));
                     check(queued.uniqueId().equals("virtual:first"), "pending launch retargeted");
                     phone.select(null);
+                    check(phone.selectionChanges == 3, "destination changes did not refresh history");
                     phone.mActivity.display.id = 3;
                     check(phone.target().displayId() == 3, "Current is cached instead of following host");
                 }

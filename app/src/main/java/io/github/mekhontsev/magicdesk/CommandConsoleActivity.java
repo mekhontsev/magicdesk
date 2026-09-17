@@ -131,6 +131,20 @@ public final class CommandConsoleActivity extends Activity
 
     static String terminalId(Intent intent) { return intent.getStringExtra(EXTRA_TERMINAL_ID); }
 
+    static boolean isTermux(Intent intent) { return backend(intent) == DesktopExecBackend.TERMUX; }
+
+    static DesktopApplicationShortcut recentLaunch(Context context, Intent source) {
+        // Command entries keep their original recipe in the launch coordinator.
+        // A tmux attachment instead remembers the terminal, never a transient server session ID.
+        final String command = source.getStringExtra(EXTRA_AUTO_RUN_COMMAND);
+        if (command != null && !command.isBlank() && !source.hasExtra(EXTRA_TMUX_SESSION)) return null;
+        final boolean termux = isTermux(source);
+        return new DesktopApplicationShortcut(context.getString(termux
+                ? R.string.console_termux_title : R.string.console_title), "", "", launchTarget(),
+                termux ? createTermuxIntent(context).toUri(Intent.URI_INTENT_SCHEME) : "",
+                DesktopLaunchMode.AUTO, !termux, DesktopExecBackend.SHELL, false);
+    }
+
     static Intent createTmuxIntent(Context context, TmuxSessionProvider.Session session) {
         return withTerminalId(createPreparedCommandIntent(context,
                 TmuxSessionProvider.sessionCommand(session, TmuxSessionProvider.attachCommand(session.id)),

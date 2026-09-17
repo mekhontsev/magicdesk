@@ -180,6 +180,8 @@ final class StartSearchController implements AutoCloseable {
             if (entry.app != null) { targets.add(entry.app.launchTarget); }
             if (entry.desktopApplication != null) {
                 mDesktopApplicationPaths.add(entry.desktopApplication.desktopFilePath);
+                if (entry.desktopApplication.shortcut.defaultLaunch)
+                    targets.add(entry.desktopApplication.shortcut.launchTarget);
             }
         }
         if (mScope == StartMenuScope.APPLICATIONS) {

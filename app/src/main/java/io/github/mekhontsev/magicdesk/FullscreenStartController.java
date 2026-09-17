@@ -29,10 +29,10 @@ final class FullscreenStartController implements StartMenuContent.Host {
     private StartMenuContent mStart;
     private final DesktopAutomationUiRegistry mAutomation = new DesktopAutomationUiRegistry();
     private final ApplicationCatalog mCatalog;
-    private List<TaskRepository.TaskEntry> mRecentTasks = Collections.emptyList();
-    private String mRecentError = "";
-    private boolean mRecentLoading;
-    private int mRecentGeneration;
+    private List<TaskRepository.TaskEntry> mRunningTasks = Collections.emptyList();
+    private String mRunningError = "";
+    private boolean mRunningLoading;
+    private int mRunningGeneration;
     private boolean mStarted;
     private final OnBackInvokedCallback mBackCallback = this::back;
 
@@ -85,8 +85,8 @@ final class FullscreenStartController implements StartMenuContent.Host {
 
     void stop() {
         mStarted = false;
-        ++mRecentGeneration;
-        mRecentLoading = false;
+        ++mRunningGeneration;
+        mRunningLoading = false;
         DesktopRuntimeBridge.unregisterUiWindow(mActivity.getWindow());
         mStart.pause();
     }
@@ -94,7 +94,7 @@ final class FullscreenStartController implements StartMenuContent.Host {
     void resume() {
         refreshCloseAction();
         mStart.prepare(true);
-        loadRecents();
+        loadRunning();
     }
 
     void destroy() {
@@ -157,24 +157,20 @@ final class FullscreenStartController implements StartMenuContent.Host {
 
     @Override public ApplicationCatalog.Snapshot catalog() { return mCatalog.snapshot(); }
     @Override public List<AppItem> apps() { return mCatalog.androidApps(false); }
-    @Override public int recentSectionLabel() {
-        return mHome || !ShellAccess.isReady() ? R.string.section_recent : R.string.display_running_apps;
-    }
-    @Override public List<StartMenuEntry> recentEntries() {
-        if (!ShellAccess.isReady()) {
-            return RecentApplications.entries().stream().map(entry -> StartMenuEntry.recent(entry, apps())).toList();
-        }
+    @Override public boolean hasRunningSection() { return true; }
+    @Override public List<StartMenuEntry> runningEntries() {
+        if (!ShellAccess.isReady()) return List.of();
         final List<StartMenuEntry> entries = new java.util.ArrayList<>();
         if (mHome) {
             final DesktopHomeRoleLease.State lease = activeLease();
             if (lease != null) for (final AppReference reference : HomeRecentApps.select(
-                    mRecentTasks, apps(), lease.previousHome.packageName, mDisplayId)) {
+                    mRunningTasks, apps(), lease.previousHome.packageName, mDisplayId)) {
                 final AppItem app = LauncherAppRepository.find(apps(), reference);
                 if (app != null) entries.add(StartMenuEntry.app(app));
             }
         } else {
             final LauncherAppRepository repository = new LauncherAppRepository(mActivity);
-            for (final TaskRepository.TaskEntry task : mRecentTasks) {
+            for (final TaskRepository.TaskEntry task : mRunningTasks) {
                 if (!TaskRepository.isTransferable(task)) { continue; }
                 final AppItem app = LauncherAppRepository.find(apps(),
                         AppReference.forTask(repository.profile().application(task), task));
@@ -195,13 +191,10 @@ final class FullscreenStartController implements StartMenuContent.Host {
         }
         return entries;
     }
-    @Override public List<StartMenuEntry> searchEntries(int section) {
-        return entries(!mHome ? section : StartMenuContent.MENU_APPS);
-    }
-    @Override public String recentAppsError() { return mRecentError; }
+    @Override public String runningAppsError() { return mRunningError; }
     @Override public void onSectionShown(final int section) {
-        if (section == StartMenuContent.MENU_RECENT) {
-            loadRecents();
+        if (section == StartMenuContent.MENU_RUNNING) {
+            loadRunning();
         }
     }
     @Override public DesktopAutomationUiRegistry automation() { return mAutomation; }
@@ -279,40 +272,40 @@ final class FullscreenStartController implements StartMenuContent.Host {
         }
         if (showRecent) {
             intent.removeExtra(PhoneHomeActivity.EXTRA_SHOW_RECENT);
-            mStart.showSection(StartMenuContent.MENU_RECENT);
+            mStart.showSection(StartMenuContent.MENU_RUNNING);
         }
     }
 
-    private void loadRecents() {
+    private void loadRunning() {
         if (!ShellAccess.isReady()) {
-            ++mRecentGeneration;
-            mRecentLoading = false;
-            mRecentTasks = Collections.emptyList();
-            mRecentError = "";
+            ++mRunningGeneration;
+            mRunningLoading = false;
+            mRunningTasks = Collections.emptyList();
+            mRunningError = mActivity.getString(R.string.capability_access_required);
             return;
         }
         final DesktopHomeRoleLease.State lease = activeLease();
-        if (!mStarted || mRecentLoading || (mHome && (lease == null || !hasActiveHomeLease()))) {
+        if (!mStarted || mRunningLoading || (mHome && (lease == null || !hasActiveHomeLease()))) {
             return;
         }
-        final int generation = ++mRecentGeneration;
-        mRecentLoading = true;
-        // One snapshot per HOME resume or explicit Recent selection also sees
+        final int generation = ++mRunningGeneration;
+        mRunningLoading = true;
+        // One snapshot per HOME resume or explicit Running selection also sees
         // phone applications opened from notifications and other launchers.
         TaskCommandQueue.execute(() -> {
             final TaskRepository.Snapshot snapshot = mHome
                     ? TaskRepository.loadNow(mDisplayId) : TaskRepository.loadAllNow();
             mActivity.runOnUiThread(() -> {
-                    if (generation != mRecentGeneration || !mStarted
+                    if (generation != mRunningGeneration || !mStarted
                             || mActivity.isFinishing() || mActivity.isDestroyed()) {
                         return;
                     }
-                    mRecentLoading = false;
+                    mRunningLoading = false;
                     if (mHome && !hasActiveHomeLease()) {
                         return;
                     }
-                    mRecentTasks = snapshot.available ? snapshot.tasks : Collections.emptyList();
-                    mRecentError = snapshot.available ? ""
+                    mRunningTasks = snapshot.available ? snapshot.tasks : Collections.emptyList();
+                    mRunningError = snapshot.available ? ""
                             : mActivity.getString(R.string.phone_recent_unavailable, snapshot.error);
                     mStart.prepare(true);
                 });

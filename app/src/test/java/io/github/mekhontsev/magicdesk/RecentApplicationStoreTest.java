@@ -102,6 +102,35 @@ public final class RecentApplicationStoreTest {
         try (var files = Files.list(directory())) { assertEquals(RecentApplicationStore.LIMIT, files.count()); }
     }
 
+    @Test public void scopesHaveIndependentOrderAndLimitsButTheSameRecipeIdentity() throws Exception {
+        var desktopPath = directory().resolve(RecentLaunchScope.DESKTOP.directory);
+        var independentPath = directory().resolve(RecentLaunchScope.INDEPENDENT.directory);
+        var desktop = new RecentApplicationStore(desktopPath);
+        var independent = new RecentApplicationStore(independentPath);
+        var gimp = entry(x11("GIMP", "gimp"), "");
+        var firefox = entry(x11("Firefox", "firefox"), "");
+        desktop.record(gimp); desktop.record(firefox);
+        independent.record(firefox); independent.record(gimp);
+        assertEquals(List.of(firefox.key(), gimp.key()), desktop.read().stream().map(RecentApplicationStore.Entry::key).toList());
+        assertEquals(List.of(gimp.key(), firefox.key()), independent.read().stream().map(RecentApplicationStore.Entry::key).toList());
+        for (int i = 0; i < 30; i++) independent.record(gimp);
+        assertEquals(2, independent.read().size());
+        for (int i = 0; i < RecentApplicationStore.LIMIT + 2; i++) desktop.record(entry(x11("App", "app-" + i), ""));
+        assertEquals(RecentApplicationStore.LIMIT, new RecentApplicationStore(desktopPath).read().size());
+        assertEquals(List.of(gimp.key(), firefox.key()), new RecentApplicationStore(independentPath).read()
+                .stream().map(RecentApplicationStore.Entry::key).toList());
+    }
+
+    @Test public void historyScopeFollowsTheResolvedDestinationNotAnotherRunningDesktop() {
+        var desktops = java.util.Set.of(4, 7);
+        assertEquals(RecentLaunchScope.INDEPENDENT, RecentLaunchScope.of(ToolLaunchTarget.resolve("auto", 0, desktops)));
+        assertEquals(RecentLaunchScope.DESKTOP, RecentLaunchScope.of(ToolLaunchTarget.resolve("auto", 4, desktops)));
+        assertEquals(RecentLaunchScope.DESKTOP, RecentLaunchScope.of(ToolLaunchTarget.resolve("desktop", 7, desktops)));
+        assertEquals(RecentLaunchScope.INDEPENDENT, RecentLaunchScope.of(ToolLaunchTarget.resolve("display", 4, desktops)));
+        assertEquals(RecentLaunchScope.INDEPENDENT, RecentLaunchScope.of(ToolLaunchTarget.resolve("auto", 4, java.util.Set.of())));
+        assertEquals(RecentLaunchScope.INDEPENDENT, RecentLaunchScope.of(ToolLaunchTarget.resolve("phone", 0, java.util.Set.of(0))));
+    }
+
     @Test public void corruptedOrUnboundEntriesCannotHideGoodHistory() throws Exception {
         var valid = entry(x11("GIMP", "gimp"), "");
         store().record(valid);

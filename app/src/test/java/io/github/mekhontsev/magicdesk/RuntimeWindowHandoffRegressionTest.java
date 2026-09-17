@@ -27,12 +27,14 @@ public final class RuntimeWindowHandoffRegressionTest {
                     });
                     activity.drainUi();
                     check(callbacks==0, "built-in launch completed before readiness acknowledgement");
+                    check(RecentApplications.scopes.isEmpty(), "history recorded before readiness");
                     check(Arrays.equals(WindowedAppLauncher.preserved,new int[]{41}), "preserved tasks changed");
                     check(WindowedAppLauncher.ready.complete(new TaskRepository.ActionResult(true,"ready")),
                             "acknowledgement already completed");
                     check(callbacks==0, "completion bypassed UI dispatch");
                     activity.drainUi();
                     check(callbacks==1, "acknowledged launch did not complete once");
+                    check(RecentApplications.scopes.equals(List.of(RecentLaunchScope.DESKTOP)), "wrong managed history");
                 }
                 """);
     }
@@ -49,6 +51,7 @@ public final class RuntimeWindowHandoffRegressionTest {
                     check(errors.size()==1 && errors.get(0) instanceof IOException,
                             "rejected readiness did not return IOException");
                     check("focus rejected".equals(errors.get(0).getMessage()), "readiness diagnostic lost");
+                    check(RecentApplications.scopes.isEmpty(), "rejected launch entered history");
                 }
                 """);
     }
@@ -77,6 +80,8 @@ public final class RuntimeWindowHandoffRegressionTest {
                     });
                     activity.drainUi();
                     check(callbacks==2, "fallback failure did not complete");
+                    check(RecentApplications.scopes.equals(List.of(RecentLaunchScope.INDEPENDENT)),
+                            "ordinary history depends on shell or recorded a failure");
                 }
                 """);
     }
@@ -118,6 +123,8 @@ public final class RuntimeWindowHandoffRegressionTest {
                     WindowedAppLauncher.ready.complete(new TaskRepository.ActionResult(true,"ready"));
                     activity.drainUi();
                     check(callbacks==1, "destroyed activity received late completion");
+                    check(RecentApplications.scopes.equals(List.of(RecentLaunchScope.DESKTOP)),
+                            "successful launch lost history when caller closed");
                 }
                 """);
     }
@@ -127,12 +134,16 @@ public final class RuntimeWindowHandoffRegressionTest {
     }
 
     private static void verifyLaunch(final String members) throws Exception {
-        RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", members, "ToolLaunchTarget");
+        RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", members, "ToolLaunchTarget", "RecentLaunchScope");
     }
 
     private static String launchFixture() throws Exception {
         return """
                 static int callbacks;
+                static class RecentApplications {
+                    static final List<RecentLaunchScope> scopes = new ArrayList<>();
+                    static void recordBuiltIn(Context c, Intent i, AppLaunchTarget t, RecentLaunchScope scope) { scopes.add(scope); }
+                }
                 interface Callback { void onComplete(Throwable error); }
                 static final List<Runnable> UI=new ArrayList<>();
                 static class Looper { static Looper getMainLooper() { return new Looper(); } }

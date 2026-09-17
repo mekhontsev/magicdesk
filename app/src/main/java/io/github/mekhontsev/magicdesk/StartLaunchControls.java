@@ -28,15 +28,17 @@ final class StartLaunchControls {
     private final LinearLayout mView;
     private final StartDisplaySelector mDisplay;
     private final CheckBox mNew;
+    private final Button mModeButton;
     private Mode mMode = Mode.DEFAULT;
     private PopupMenu mMenu;
 
-    StartLaunchControls(Activity activity, DesktopUiFactory ui, DesktopAutomationUiRegistry automation) {
-        mDisplay = new StartDisplaySelector(activity, ui);
+    StartLaunchControls(Activity activity, DesktopUiFactory ui, DesktopAutomationUiRegistry automation, Runnable changed) {
+        mDisplay = new StartDisplaySelector(activity, ui, () -> { refresh(); changed.run(); });
         mView = new LinearLayout(activity);
         mView.setGravity(android.view.Gravity.CENTER_VERTICAL);
         mView.addView(mDisplay.view(), new LinearLayout.LayoutParams(0, ui.dp(52), 1));
         final Button mode = ui.actionButton(mMode.label, DesktopUiFactory.COLOR_PANEL_ALT);
+        mModeButton = mode;
         mode.setTextSize(12);
         mode.setMinWidth(0);
         mode.setMinimumWidth(0);
@@ -52,6 +54,7 @@ final class StartLaunchControls {
                         .setEnabled(candidate.available(desktop)).setOnMenuItemClickListener(item -> {
                             mMode = candidate;
                             mode.setText(candidate.label);
+                            changed.run();
                             return true;
                         });
             }
@@ -72,6 +75,17 @@ final class StartLaunchControls {
     }
 
     LinearLayout view() { return mView; }
+    void refresh() {
+        if (!mMode.available(DesktopRuntimeBridge.hasWorkspace(mDisplay.target().displayId()))) {
+            mMode = Mode.DEFAULT;
+            mModeButton.setText(mMode.label);
+        }
+    }
+    RecentLaunchScope recentScope() {
+        // A disappearing workspace must not make a read-only history query fail.
+        return RecentLaunchScope.of(ToolLaunchTarget.resolve(mMode == Mode.INDEPENDENT ? "display" : "auto",
+                mDisplay.target().displayId(), DesktopRuntimeBridge.workspaceDisplayIds()));
+    }
     StartDisplaySelector.Target target() {
         final var target = mDisplay.target();
         return new StartDisplaySelector.Target(target.displayId(), target.uniqueId(), mMode.placement);

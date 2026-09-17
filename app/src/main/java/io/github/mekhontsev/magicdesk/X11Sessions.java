@@ -119,6 +119,7 @@ final class X11Sessions {
         final boolean application;
         final String presentationKey;
         final RecentApplicationStore.Entry recipe;
+        private RecentLaunchScope recentScope;
         private final java.util.LinkedHashSet<Integer> hosts = new java.util.LinkedHashSet<>();
         private final X11Density density;
         private volatile int scalePercent;
@@ -168,9 +169,13 @@ final class X11Sessions {
         synchronized void releaseHost(int taskId) { hosts.remove(taskId); }
         synchronized int hostTaskId() { int id = -1; for (int task : hosts) id = task; return id; }
         synchronized List<Integer> hostTaskIds() { return List.copyOf(hosts); }
-        void recordUse() {
-            if (recipe != null && state == State.READY && (!application || hadWindows))
-                RecentApplications.record(context, recipe.usedAt(System.currentTimeMillis()));
+        synchronized void recordUse(RecentLaunchScope scope) {
+            recentScope = scope;
+            recordUse();
+        }
+        private synchronized void recordUse() {
+            if (recipe != null && recentScope != null && state == State.READY && (!application || hadWindows))
+                RecentApplications.record(context, recipe.usedAt(System.currentTimeMillis()), recentScope);
         }
         synchronized int dpi() { return density.resolve(scalePercent); }
         synchronized void hostDensity(Object host, int dpi, boolean focused) {

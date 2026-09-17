@@ -141,21 +141,30 @@ MagicDesk does not infer container startup commands.
 
 ## Recent Launches
 
-The managed Start's Recent section shares one private `files/recent/` directory
-for Android applications, commands and X11 desktops. Entries use this same
+Every Start has one context-sensitive Recent section. Two private directories,
+`files/recent/desktop/` and `files/recent/independent/`, hold global histories for
+managed and ordinary launches, respectively. The selected destination and launch
+mode determine which is shown: Auto uses Desktop history only if that destination
+has a Desktop; Independent always uses ordinary history. The host window, shell
+availability and a Desktop running on another display do not select the history.
+Android applications, built-in tools, commands and X11 desktops use this same
 Desktop Entry format, plus `X-MagicDesk-LastUsed` (Unix milliseconds),
 `X-MagicDesk-Source` (the original entry path for field expansion), and
 `X-MagicDesk-TermuxPackage` when a Termux execution environment is required.
 This is separate from the user's desktop folder. Android entries retain their
 profile identity, not an unqualified package name.
 
-The latest 24 distinct recipes are kept, one file per semantic launch identity.
+Each history keeps the latest 24 distinct recipes, one file per semantic launch identity.
 Repeated use updates that file and ordering; renamed/copied launchers do not
 create duplicates unless they change the effective command. Runtime task IDs,
 X session IDs, display selection and New window requests are not history keys.
-Search also includes remembered recipes absent from the installed catalogs.
-Ordinary HOME Recent and the independent Start's Running list remain based on
-live Android tasks, not this persisted history.
+Search also includes remembered recipes from the selected history absent from
+the installed catalogs. Built-in tools retain reusable launches; Shell Console
+and Termux Console are distinct. Session attachments do not retain transient
+terminal IDs, and X11 hosts remember the actual command/application, not a generic
+viewer. One-shot prompts and shell infrastructure are excluded.
+Fullscreen Start's separate Running section remains based on live Android tasks,
+not persisted history, and reports unavailable access explicitly.
 
 ## Execution Status
 

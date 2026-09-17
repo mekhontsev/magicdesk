@@ -98,6 +98,7 @@
     <string name="section_quick_controls">Quick controls</string>
     <string name="section_capture">Capture</string>
     <string name="section_recent">Recent</string>
+    <string name="section_running">Running</string>
     <string name="action_refresh">Refresh</string>
     <string name="action_start">Start</string>
     <string name="action_close">Close</string>

@@ -41,6 +41,10 @@ final class BuiltInWindowLauncher {
         final Intent intent = presentation == null ? new Intent(source)
                 : presentation.instancePolicy.applyTo(source);
         final int displayId = placement.displayId;
+        final Callback launched = error -> {
+            if (error == null) RecentApplications.recordBuiltIn(context, intent, target, RecentLaunchScope.of(placement));
+            complete(context, callback, error);
+        };
         TaskCommandQueue.execute(() -> {
             try {
                 // Check again on the command queue: a session or display may have
@@ -69,15 +73,15 @@ final class BuiltInWindowLauncher {
                             try {
                                 InteractiveActivityLaunch.launch(context, intent,
                                         AndroidLaunchSpec.Delivery.SHELL_INTENT, displayId);
-                                complete(context, callback, null);
+                                launched.onComplete(null);
                             } catch (IOException | RuntimeException error) {
-                                complete(context, callback, error);
+                                launched.onComplete(error);
                             }
                         });
                     } else {
                         OrdinaryActivityLaunch.launch(context, intent,
                                 AndroidLaunchSpec.Delivery.SHELL_INTENT, displayId);
-                        complete(context, callback, null);
+                        launched.onComplete(null);
                     }
                     return;
                 }
@@ -86,7 +90,7 @@ final class BuiltInWindowLauncher {
                             AndroidLaunchSpec.intent(target, intent.toUri(Intent.URI_INTENT_SCHEME)),
                             null, null, presentation, DesktopLaunchArguments.empty(), "");
                     DesktopRuntimeBridge.launchAutomationRequest(request, displayId,
-                            result -> complete(context, callback,
+                            result -> launched.onComplete(
                                     result.hasObservedTask() ? null : new IOException(result.error)));
                     return;
                 }
@@ -113,10 +117,10 @@ final class BuiltInWindowLauncher {
                                         presentation.instancePolicy,
                                         () -> DesktopRuntimeBridge.syncTaskbarWithSnapshot(displayId,
                                                 TaskRepository.loadNow(displayId)));
-                launch.whenReady(result -> complete(context, callback,
+                launch.whenReady(result -> launched.onComplete(
                         result.success ? null : new IOException(result.message)));
             } catch (IOException | RuntimeException error) {
-                complete(context, callback, error);
+                launched.onComplete(error);
             }
         });
     }

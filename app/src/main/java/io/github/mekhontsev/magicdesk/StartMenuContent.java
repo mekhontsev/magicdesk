@@ -29,11 +29,11 @@ final class StartMenuContent {
         default List<DesktopApplicationRepository.Entry> desktopApplications() {
             return java.util.Collections.emptyList();
         }
-        List<StartMenuEntry> recentEntries();
-        default String recentAppsError() { return ""; }
-        default int recentSectionLabel() { return R.string.section_recent; }
+        default boolean hasRunningSection() { return false; }
+        default List<StartMenuEntry> runningEntries() { return List.of(); }
+        default String runningAppsError() { return ""; }
         default List<StartMenuEntry> entries(int section) {
-            if (section == MENU_RECENT) return recentEntries();
+            if (section == MENU_RUNNING) return runningEntries();
             return catalog().applications(apps(), desktopApplications());
         }
         default void onSectionShown(int section) { }
@@ -53,6 +53,7 @@ final class StartMenuContent {
     static final int MENU_APPS = 1;
     static final int MENU_TOOLS = 2;
     static final int MENU_CAPTURE = 3;
+    static final int MENU_RUNNING = 4;
 
     private final Activity mActivity;
     private final Host mHost;
@@ -200,7 +201,7 @@ final class StartMenuContent {
         mSearchRow = new LinearLayout(mActivity);
         mSearchRow.setGravity(Gravity.CENTER_VERTICAL);
         mSearchRow.addView(mSearch, new LinearLayout.LayoutParams(0, dp(48), 1));
-        mLaunchControls = new StartLaunchControls(mActivity, mUi, mHost.automation());
+        mLaunchControls = new StartLaunchControls(mActivity, mUi, mHost.automation(), this::destinationChanged);
         mContent.setOrientation(LinearLayout.VERTICAL);
         final LinearLayout.LayoutParams contentParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
@@ -222,7 +223,7 @@ final class StartMenuContent {
         final LinearLayout tabs = new LinearLayout(mActivity);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
         tabs.setGravity(Gravity.CENTER_VERTICAL);
-        tabs.addView(createTab(mHost.recentSectionLabel(), MENU_RECENT),
+        tabs.addView(createTab(R.string.section_recent, MENU_RECENT),
                 new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         final LinearLayout.LayoutParams appsTabParams =
@@ -231,6 +232,10 @@ final class StartMenuContent {
         appsTabParams.setMargins(dp(5), 0, dp(5), 0);
         tabs.addView(createTab(R.string.section_apps, MENU_APPS),
                 appsTabParams);
+        if (mHost.hasRunningSection()) {
+            tabs.addView(createTab(R.string.section_running, MENU_RUNNING),
+                    new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        }
         if (mScope == StartMenuScope.DESKTOP) {
             tabs.addView(createTab(R.string.section_tools, MENU_TOOLS),
                     new LinearLayout.LayoutParams(
@@ -299,6 +304,7 @@ final class StartMenuContent {
 
     void prepare(final boolean focusable) {
         mFocusable = focusable;
+        mLaunchControls.refresh();
         mSearch.setShowSoftInputOnFocus(false);
         mSearchController.update(
                 mSearchQuery, entries(mMode, true));
@@ -317,17 +323,19 @@ final class StartMenuContent {
     }
 
     private List<StartMenuEntry> entries(int section, boolean search) {
+        if (section == MENU_RUNNING) return mHost.runningEntries();
+        if (!search && section == MENU_RECENT) return RecentApplications.entries(mLaunchControls.recentScope())
+                .stream().map(entry -> StartMenuEntry.recent(entry, mHost.apps())).toList();
         if ((search || section == MENU_APPS) && !mCatalog.snapshot().android().ready()) return List.of();
         List<StartMenuEntry> result = new ArrayList<>(search ? mHost.searchEntries(section) : mHost.entries(section));
         if (search || section == MENU_APPS) {
             java.util.Set<String> keys = new java.util.HashSet<>();
             for (StartMenuEntry entry : result) keys.add(entry.stableKey());
-            // Running-task search still includes installed command applications.
             if (search) for (var application : mCatalog.snapshot().termux().entries()) {
                 StartMenuEntry entry = StartMenuEntry.desktopApplication(application);
                 if (keys.add(entry.stableKey())) result.add(entry);
             }
-            if (search) for (var recent : RecentApplications.entries()) {
+            if (search) for (var recent : RecentApplications.entries(mLaunchControls.recentScope())) {
                 boolean inCatalog = !recent.sourcePath().isEmpty() && result.stream().anyMatch(entry ->
                         entry.desktopApplication != null && entry.desktopApplication.desktopFilePath.equals(recent.sourcePath()));
                 boolean androidApp = recent.shortcut().defaultLaunch && result.stream().anyMatch(entry ->
@@ -339,6 +347,13 @@ final class StartMenuContent {
             return ApplicationCatalog.sortedUnique(result);
         }
         return result;
+    }
+
+    private void destinationChanged() {
+        mPage = 0;
+        mSearchSelection = 0;
+        mSearchController.update(mSearchQuery, entries(mMode, true));
+        renderBody();
     }
 
     private void catalogChanged() {
@@ -407,7 +422,8 @@ final class StartMenuContent {
         }
 
         final List<StartMenuEntry> menuApps = entries(mMode, false);
-        final String recentError = mMode == MENU_RECENT ? mHost.recentAppsError() : "";
+        final String recentError = mMode == MENU_RECENT ? RecentApplications.error(mLaunchControls.recentScope())
+                : mMode == MENU_RUNNING ? mHost.runningAppsError() : "";
         if (menuApps.isEmpty() || !recentError.isEmpty()) {
             final TextView empty = new TextView(mActivity);
             empty.setText(recentError.isEmpty() ? mActivity.getString(mMode == MENU_RECENT
@@ -814,6 +830,7 @@ final class StartMenuContent {
 
     private void bindIcon(final ImageView icon, final StartMenuEntry entry) {
         if (entry.app != null) { icon.setImageDrawable(entry.app.icon); }
+        else if (entry.builtIn != null) { icon.setImageResource(searchIcon(entry)); }
         else if (entry.desktopApplication != null) {
             icon.setImageDrawable(DesktopApplicationIconResolver.resolve(
                     mActivity, entry.desktopApplication.shortcut));
@@ -837,6 +854,8 @@ final class StartMenuContent {
 
     private static String modeName(final int mode) {
         switch (mode) {
+            case MENU_RUNNING:
+                return "running";
             case MENU_RECENT:
                 return "recent";
             case MENU_APPS:

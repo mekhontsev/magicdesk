@@ -1062,13 +1062,14 @@ keys are skipped, never assigned to the current profile. There is no
 package-only compatibility lookup.
 
 `DesktopStateStore` stores pins, geometry and DPI. `RecentApplicationStore`
-stores a bounded, profile-private launch history in `files/recent/*.desktop`.
+stores bounded, profile-private launch histories in `files/recent/desktop/*.desktop`
+and `files/recent/independent/*.desktop`.
 Android entries carry `AppIdentity`; command entries bind the selected Termux
 package when applicable. Each file contains its launch recipe and last-use
 timestamp, with no separate index or persisted task/session IDs. Semantic keys
 merge repeated default Android launches and equivalent command recipes;
 presentation, labels and file copies do not create duplicate history items.
-One IO queue atomically replaces records and prunes the oldest beyond 24.
+One IO queue atomically replaces records and prunes each history beyond 24.
 `RecentApplications` records successful launches and observed focus changes;
 X11 publishes the original recipe when its session becomes usable. No additional
 observer, timer or synchronous focus-time disk write is introduced.
@@ -2792,13 +2793,23 @@ desktop `StartMenuController` popup. `StartActivity` opens the fullscreen versio
 from Control Panel without acquiring HOME or requiring Desktop.
 `PhoneHomeActivity` and an unassigned secondary HOME use that ordinary
 launcher controller without creating Desktop. Each Start owns its view, query,
-page, selection and focus; multiple Starts can be visible at once. Ordinary HOME Recent is
-derived from its local tasks through `HomeRecentApps`, not from
-desktop history or only the applications launched by Start. It includes
+page, selection and focus; multiple Starts can be visible at once. Recent is
+owned by `StartMenuContent`, not its host: `RecentLaunchScope` selects global
+Desktop or Independent history from the resolved launch destination and mode.
+`RecentApplications` serializes IO and caches both scopes; `RecentApplicationStore`
+stores bounded, deduplicated Desktop Entry recipes in separate private directories.
+Built-in recording occurs at successful launch completion, independently of the
+caller's UI lifetime. `BuiltInRecentLaunch` strips ephemeral task/session/display
+identities; terminal backend remains meaningful, and X11 records its original
+recipe with the explicit launch scope after readiness. Live managed-task focus
+can update Desktop history without assigning independent tasks to that history.
+Shell availability never changes the meaning of Recent.
+
+Fullscreen Start also has a separate Running tab. Ordinary HOME Running is
+derived from its local tasks through `HomeRecentApps`. It includes
 launchable phone applications opened from notifications, filters HOME and
 shell surfaces, and deduplicates application identities in snapshot order.
-Desktop Start uses remembered desktop launch history. Phone HOME
-requests a typed task snapshot only when resumed or when Recent is selected;
+Phone HOME requests a typed task snapshot only when resumed or when Running is selected;
 stopped instances discard pending results. An unavailable snapshot is an error,
 not a fabricated empty history. The phone uses only application search, without
 constructing the desktop file-search worker. `ApplicationCatalog` is shared by
@@ -2824,7 +2835,9 @@ a destination preserves query and navigation, does not dismiss Start, and change
 neither HOME nor input ownership. The display catalog is read when the selector
 is opened; there is no new periodic observer. Explicit choices retain the live
 display identity and are revalidated at launch, so a disconnected destination
-cannot silently redirect an application to another screen. Start's application
+cannot silently redirect an application to another screen. Changing the target
+or launch mode refreshes Recent and search without clearing the query; a managed
+mode resets to Auto when the selected destination has no Desktop. Start's application
 context-menu launches use the same captured destination. Fullscreen remains the
 existing window presentation, not a separate task-ownership mode.
 
