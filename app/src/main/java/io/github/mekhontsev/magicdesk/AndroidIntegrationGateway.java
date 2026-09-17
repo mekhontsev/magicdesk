@@ -957,7 +957,7 @@ final class AndroidIntegrationGateway {
         if (!placement.desktop) {
             try {
                 OrdinaryActivityLaunch.launch(mContext,
-                        request.presentation.instancePolicy.applyTo(launchedIntent),
+                        request.presentation.instancePolicy.applyTo(mContext.getPackageManager(), launchedIntent),
                         delivery, displayId);
             } catch (IOException | RuntimeException error) {
                 AndroidActivityRelayStore.discard(relayId);
@@ -981,7 +981,7 @@ final class AndroidIntegrationGateway {
                 AndroidLaunchSpec.intent(
                         taskTarget,
                         request.presentation.instancePolicy.applyTo(
-                                launchedIntent),
+                                mContext.getPackageManager(), launchedIntent),
                         delivery),
                 null,
                 null,

@@ -167,14 +167,9 @@ final class ShellTaskActivityModeGuard implements
             return true;
         }
         final ComponentName component = intent.getComponent();
-        if (mInitialLaunchIdentity != null
-                && (mInitialLaunchIdentity.matches(component)
-                        || (component == null
-                                && mInitialLaunchIdentity.matchesPackage(
-                                        PackageNameValidator.isSafe(
-                                                intent.getPackage())
-                                                ? intent.getPackage()
-                                                : packageName)))) {
+        if (ShellActivityLaunchScope.isActive(intent, packageName)
+                || (mInitialLaunchIdentity != null
+                        && mInitialLaunchIdentity.matchesStart(intent, packageName))) {
             return true;
         }
         if ((intent.getFlags() & NEW_TASK_FLAGS) != 0) {

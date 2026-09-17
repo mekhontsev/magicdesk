@@ -57,7 +57,7 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
                 } else {
                     final Intent source = request.androidLaunch.resolve(mContext.getPackageManager());
                     if (source == null) { throw new IllegalStateException("Activity is unavailable"); }
-                    final Intent intent = request.presentation.instancePolicy.applyTo(source);
+                    final Intent intent = request.presentation.instancePolicy.applyTo(mContext.getPackageManager(), source);
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     InteractiveActivityLaunch.launch(mContext, intent, request.androidLaunch.delivery, mDisplayId);
                 }

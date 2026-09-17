@@ -707,7 +707,7 @@ final class AppTaskController {
             final DesktopTaskInstancePolicy instancePolicy = multipleWindows
                     ? DesktopTaskInstancePolicy.CREATE_NEW
                     : DesktopTaskInstancePolicy.REUSE_EXISTING;
-            final Intent routedIntent = instancePolicy.applyTo(launchIntent)
+            final Intent routedIntent = instancePolicy.applyTo(mActivity.getPackageManager(), launchIntent)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             if (!multipleWindows) {
                 routedIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -1371,7 +1371,7 @@ final class AppTaskController {
         if (unresolvedIntent == null) {
             throw new IOException("no launcher activity");
         }
-        final Intent launchIntent = instancePolicy.applyTo(unresolvedIntent);
+        final Intent launchIntent = instancePolicy.applyTo(mActivity.getPackageManager(), unresolvedIntent);
         launchIntent.addFlags(instancePolicy
                 == DesktopTaskInstancePolicy.CREATE_NEW
                         ? Intent.FLAG_ACTIVITY_NEW_TASK

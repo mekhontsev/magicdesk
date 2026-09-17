@@ -26,7 +26,7 @@ final class ShellExternalTaskMigrationGuard implements
     private static final String MAGICDESK_PACKAGE =
             "io.github.mekhontsev.magicdesk";
     private static final int WINDOWING_MODE_FREEFORM = 5;
-    private static final int MAGICDESK_LAUNCH_FLAGS =
+    private static final int NON_PHONE_LAUNCH_FLAGS =
             Intent.FLAG_ACTIVITY_CLEAR_TOP
                     | Intent.FLAG_ACTIVITY_SINGLE_TOP
                     | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
@@ -254,10 +254,11 @@ final class ShellExternalTaskMigrationGuard implements
         // Nubia invokes IActivityController with the original launcher intent;
         // NEW_TASK and RESET_TASK_IF_NEEDED are added only after this callback.
         if (!mEnabled || mMembership.hasPhoneDesktop() || intent == null
+                || ShellActivityLaunchScope.isActive(intent, packageName)
                 || !Intent.ACTION_MAIN.equals(intent.getAction())
                 || intent.getCategories() == null
                 || !intent.getCategories().contains(Intent.CATEGORY_LAUNCHER)
-                || (intent.getFlags() & MAGICDESK_LAUNCH_FLAGS) != 0) {
+                || (intent.getFlags() & NON_PHONE_LAUNCH_FLAGS) != 0) {
             return null;
         }
         final ComponentName requestedComponent = intent.getComponent();

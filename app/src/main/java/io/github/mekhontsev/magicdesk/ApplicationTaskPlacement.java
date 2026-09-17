@@ -145,6 +145,24 @@ final class ApplicationTaskPlacement {
         return otherDisplay;
     }
 
+    static void rejectExistingInstance(final LaunchActivityIdentity identity) {
+        // A restricted Activity may reuse an existing task despite new-task
+        // flags. Do not silently turn an unverified new-instance request into reuse.
+        if (!ShellAccess.isReady()) {
+            throw new IllegalStateException("Shell access is required to verify a new instance of this app. "
+                    + "Open it without requesting a new window.");
+        }
+        final TaskRepository.Snapshot snapshot = TaskRepository.loadAllNow();
+        if (!snapshot.available) {
+            throw new IllegalStateException("Could not check existing application tasks: " + snapshot.error);
+        }
+        if (selectExisting(identity, snapshot, -1) != null) {
+            throw new IllegalArgumentException(
+                    "This app is already open and does not support another window. "
+                            + "Open it without requesting a new window.");
+        }
+    }
+
     static void prepareIndependentLaunch(final Context context, final Intent intent,
             final int displayId) throws IOException {
         if (intent.getComponent() == null || (intent.getFlags() & Intent.FLAG_ACTIVITY_MULTIPLE_TASK) != 0) {

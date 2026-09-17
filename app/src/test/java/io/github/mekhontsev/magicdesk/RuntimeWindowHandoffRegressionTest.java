@@ -148,7 +148,10 @@ public final class RuntimeWindowHandoffRegressionTest {
                 static final List<Runnable> UI=new ArrayList<>();
                 static class Looper { static Looper getMainLooper() { return new Looper(); } }
                 static class Handler { Handler(Looper l) {} void post(Runnable r) { UI.add(r); } }
-                static class Context { void startActivity(Intent intent,Object options) {} }
+                static class Context {
+                    Object getPackageManager() { return null; }
+                    void startActivity(Intent intent,Object options) {}
+                }
                 static class Activity extends Context {
                     int started,startedDisplay,startedFlags;
                     boolean finishing,destroyed; RuntimeException startFailure;
@@ -179,7 +182,7 @@ public final class RuntimeWindowHandoffRegressionTest {
                 }
                 static class AppLaunchTarget { String packageName = "magicdesk"; }
                 enum DesktopLaunchMode { AUTO, WINDOWED, FULLSCREEN }
-                static class DesktopTaskInstancePolicy { Intent applyTo(Intent i) { return new Intent(i); } }
+                static class DesktopTaskInstancePolicy { Intent applyTo(Object pm, Intent i) { return new Intent(i); } }
                 static class DesktopLaunchPresentation {
                     DesktopLaunchMode mode = DesktopLaunchMode.AUTO;
                     Object bounds;

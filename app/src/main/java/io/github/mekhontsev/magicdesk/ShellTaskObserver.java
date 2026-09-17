@@ -1072,8 +1072,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     "display is not configured: " + displayId);
         }
         try {
-            TaskDisplayAreaLaunchCommand.launchTaskAction(
-                    mService, displayId, taskId, intent);
+            mTaskLauncher.launchTaskAction(displayId, taskId, intent);
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
                     "cannot launch task action: " + usefulMessage(error),

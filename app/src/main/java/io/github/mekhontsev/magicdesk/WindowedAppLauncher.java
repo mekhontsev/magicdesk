@@ -102,7 +102,8 @@ final class WindowedAppLauncher {
             final int preferredTaskId,
             final ExistingTaskLauncher existingTaskLauncher,
             final TaskReadyCallback taskReadyCallback) throws IOException {
-        final Intent preparedIntent = instancePolicy.applyTo(launchIntent);
+        final Intent preparedIntent = instancePolicy.applyTo(
+                MagicDeskApplication.applicationContext().getPackageManager(), launchIntent);
         final ComponentName component = preparedIntent.getComponent();
         if (component == null) {
             throw new IOException("launcher activity is not explicit");

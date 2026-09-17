@@ -1061,8 +1061,12 @@ observer, polling loop, or guessed delay is started for ordinary launches.
 Activity presentation has four independent inputs: `mode`, relative `bounds`,
 `instance`, and optional `preferredTaskId`. Bounds use a `0..10000` scale
 within the desktop work area and require `mode=windowed`. `instance` is exactly
-`reuse` or `new`; document-task flags are not accepted as a substitute. A
-preferred task id addresses one existing managed task and therefore requires
+`reuse` or `new`; document-task flags are not accepted as a substitute.
+Known manifest restrictions (`singleTask`, `singleInstance`, or
+`documentLaunchMode=never`) reject `new` before dispatch when a matching task
+already exists in the same user profile on any display; use `reuse` instead.
+The first instance is allowed.
+A preferred task id addresses one existing managed task and therefore requires
 `instance=reuse` plus its explicit current mode. A missing or mismatched task
 fails instead of creating another window. `bounds` cannot accompany an exact
 task id because delivery does not move or resize that task.

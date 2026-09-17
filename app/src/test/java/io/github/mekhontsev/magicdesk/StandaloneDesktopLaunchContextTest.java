@@ -17,7 +17,7 @@ public final class StandaloneDesktopLaunchContextTest {
                     Delivery delivery;
                     Intent resolve(Object pm) { return new Intent(); }
                 }
-                static class InstancePolicy { Intent applyTo(Intent intent) { return intent; } }
+                static class InstancePolicy { Intent applyTo(Object pm, Intent intent) { return intent; } }
                 static class Presentation { InstancePolicy instancePolicy = new InstancePolicy(); }
                 static class DesktopLaunchRequest {
                     AndroidLaunchSpec androidLaunch;

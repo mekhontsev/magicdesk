@@ -38,8 +38,14 @@ final class BuiltInWindowLauncher {
     static void launch(final Context context, final Intent source,
             final AppLaunchTarget target, final ToolLaunchTarget placement,
             final String uniqueId, final DesktopLaunchPresentation presentation, final Callback callback) {
-        final Intent intent = presentation == null ? new Intent(source)
-                : presentation.instancePolicy.applyTo(source);
+        final Intent intent;
+        try {
+            intent = presentation == null ? new Intent(source)
+                    : presentation.instancePolicy.applyTo(context.getPackageManager(), source);
+        } catch (RuntimeException error) {
+            complete(context, callback, error);
+            return;
+        }
         final int displayId = placement.displayId;
         final Callback launched = error -> {
             if (error == null) RecentApplications.recordBuiltIn(context, intent, target, RecentLaunchScope.of(placement));

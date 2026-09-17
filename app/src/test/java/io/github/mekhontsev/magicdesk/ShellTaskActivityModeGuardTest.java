@@ -156,6 +156,19 @@ public final class ShellTaskActivityModeGuardTest {
                 """);
     }
 
+    @Test
+    public void explicitLaunchFromAnotherWorkspaceDoesNotArmHandoffRepair() throws Exception {
+        verify("""
+                identify(1);
+                observe(1, MAIN, ORIGINAL, 5, false);
+                try (var scope = ShellActivityLaunchScope.begin(new LaunchActivityIdentity(CHILD))) {
+                    start(CHILD, 0);
+                }
+                observe(1, CHILD, SHIFTED, 5, false);
+                check(resizes == 0 && modeChanges == 0, "explicit launch armed another workspace guard");
+                """);
+    }
+
     private static void verify(final String scenario) throws Exception {
         final String source = Files.readString(Path.of(RuntimeSourceFixture.MAIN
                 + "ShellTaskActivityModeGuard.java"));
@@ -189,7 +202,10 @@ public final class ShellTaskActivityModeGuardTest {
                 }
                 public static void verify() {
                     guard.configure(0, true);
-                """ + scenario + "}\n" + guard + """
+                """ + scenario + "}\n" + guard
+                + RuntimeSourceFixture.nestedClass("ShellActivityLaunchScope", "ShellActivityLaunchScope")
+                        .replace("final class ShellActivityLaunchScope", "static final class ShellActivityLaunchScope")
+                + """
                 static final class Rect {
                     int left, top, right, bottom;
                     Rect() {}
@@ -247,6 +263,9 @@ public final class ShellTaskActivityModeGuardTest {
                     static boolean isComponent(ComponentName name) { return false; }
                 }
                 static final class LaunchActivityIdentity {
+                    final ComponentName component;
+                    LaunchActivityIdentity(ComponentName component) { this.component = component; }
+                    boolean matchesStart(Intent intent, String pkg) { return component.equals(intent.getComponent()); }
                     boolean matches(ComponentName name) { return false; }
                     boolean matchesPackage(ComponentName name) { return false; }
                     boolean matchesPackage(String name) { return false; }

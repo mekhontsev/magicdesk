@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.ComponentName;
+import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 
@@ -92,6 +93,16 @@ final class LaunchActivityIdentity {
 
     ComponentName requestedComponent() {
         return mRequestedComponent;
+    }
+
+    boolean matchesStart(final Intent intent, final String packageName) {
+        if (intent == null) {
+            return false;
+        }
+        final ComponentName component = intent.getComponent();
+        return component != null ? matches(component)
+                : matchesPackage(PackageNameValidator.isSafe(intent.getPackage())
+                        ? intent.getPackage() : packageName);
     }
 
     boolean matches(final ComponentName observedComponent) {

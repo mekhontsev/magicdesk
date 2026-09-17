@@ -104,6 +104,19 @@ final class ShellTaskLauncher {
                         taskIdSource));
     }
 
+    synchronized void launchTaskAction(
+            final int displayId,
+            final int taskId,
+            final Intent sourceIntent) throws ReflectiveOperationException {
+        final Intent intent = TaskDisplayAreaLaunchCommand.createExactAppIntent(sourceIntent);
+        final LaunchActivityIdentity identity = LaunchActivityIdentity.resolve(
+                FrameworkUserApi.userId(android.os.Process.myUserHandle()),
+                mPackageManager, intent.getComponent());
+        try (ShellActivityLaunchScope ignored = ShellActivityLaunchScope.begin(identity)) {
+            TaskDisplayAreaLaunchCommand.launchTaskAction(mService, displayId, taskId, intent);
+        }
+    }
+
     synchronized int launchFullscreen(
             final int displayId,
             final Intent intent) throws ReflectiveOperationException {
@@ -345,16 +358,18 @@ final class ShellTaskLauncher {
                     "pending Activity task is unavailable or belongs"
                             + " to another app");
         }
-        if (creatorAuthorized) {
-            TaskDisplayAreaLaunchCommand
-                    .launchCreatorAuthorizedPendingIntentTaskAction(
-                            displayId, taskId, pendingIntent);
-        } else {
-            TaskDisplayAreaLaunchCommand.launchPendingIntentTaskAction(
-                    displayId,
-                    taskId,
-                    pendingIntent,
-                    mActivityLauncher);
+        try (ShellActivityLaunchScope ignored = ShellActivityLaunchScope.begin(identity)) {
+            if (creatorAuthorized) {
+                TaskDisplayAreaLaunchCommand
+                        .launchCreatorAuthorizedPendingIntentTaskAction(
+                                displayId, taskId, pendingIntent);
+            } else {
+                TaskDisplayAreaLaunchCommand.launchPendingIntentTaskAction(
+                        displayId,
+                        taskId,
+                        pendingIntent,
+                        mActivityLauncher);
+            }
         }
     }
 
@@ -434,7 +449,10 @@ final class ShellTaskLauncher {
                 identity, displayId, bounds, windowingMode);
         int launchedTaskId = -1;
         try {
-            final int taskId = starter.start(pending);
+            final int taskId;
+            try (ShellActivityLaunchScope ignored = ShellActivityLaunchScope.begin(identity)) {
+                taskId = starter.start(pending);
+            }
             launchedTaskId = taskId;
             pending.complete(taskId, observedComponent(displayId, taskId));
             if (stagedReveal) {

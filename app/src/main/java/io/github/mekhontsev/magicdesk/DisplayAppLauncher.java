@@ -42,7 +42,7 @@ final class DisplayAppLauncher {
                     OrdinaryActivityLaunch.requirePresentation(presentation);
                     final Intent source = app.launchTarget.resolve(activity.getPackageManager());
                     if (source == null) { throw new IllegalStateException("launcher activity is unavailable"); }
-                    final Intent intent = presentation.instancePolicy.applyTo(source);
+                    final Intent intent = presentation.instancePolicy.applyTo(activity.getPackageManager(), source);
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
                     InteractiveActivityLaunch.launch(activity, intent,
                             AndroidLaunchSpec.Delivery.SHELL_INTENT, target.displayId);

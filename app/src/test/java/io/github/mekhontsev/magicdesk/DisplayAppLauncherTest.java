@@ -40,6 +40,13 @@ public final class DisplayAppLauncherTest {
                 Collections.emptyList(), true, ""), 0));
     }
 
+    @Test
+    public void instanceLookupNeverBorrowsTaskFromAnotherProfile() {
+        final var identity = LaunchActivityIdentity.packageScoped(10, "com.example.app", null);
+        assertNull(ApplicationTaskPlacement.selectExisting(identity, new TaskRepository.Snapshot(
+                Collections.singletonList(task(1, 3, "com.example.app", false)), true, ""), -1));
+    }
+
     private static TaskRepository.TaskEntry task(
             final int id, final int displayId, final String packageName, final boolean home) {
         return new TaskRepository.TaskEntry(id, id, displayId, packageName,

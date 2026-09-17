@@ -3435,10 +3435,27 @@ Ordinary file opening uses the selected file handler and does not take the
 Run script path.
 
 Normal application launch continues to reuse an existing task. The explicit
-**New window** action instead requests `NEW_DOCUMENT | MULTIPLE_TASK` and then
-tracks the exact returned task ID. Files supports this contract directly;
-third-party activity launch modes remain authoritative and may reject the
-request.
+**New window** action first validates the resolved Activity manifest, then
+requests `NEW_DOCUMENT | MULTIPLE_TASK` and tracks the exact returned task ID.
+For `singleTask`, `singleInstance`, and `documentLaunchMode=never`, a ready
+privileged service supplies one current task snapshot across displays. The
+first instance is allowed; an existing matching Activity in the same user
+profile rejects another-instance request before dispatch, without moving its
+task. Unavailable task observation fails explicitly instead of assuming no
+instance exists. This preparation is shared by managed and independent
+launches; reuse remains available. Without shell access, a restricted Activity's
+explicit new-instance request fails rather than silently reusing a task.
+Ordinary local reuse and Activities supporting multiple windows do not acquire
+a privileged-service prerequisite. Files supports multiple windows directly.
+
+During a managed Activity dispatch, `ShellTaskLauncher` owns a bounded
+`ShellActivityLaunchScope` carrying its resolved launch identity. All workspace
+phone-migration and Activity-handoff guards consult that shared provenance,
+including on Binder callback threads; caller Intent flags are not reliable
+evidence of an explicit MagicDesk launch. The scope ends on success or failure,
+without a timer, and does not bypass unrelated Activity admission policies.
+It recognizes the requested component and its alias target, not every Activity
+in the package (except explicitly package-scoped selection surfaces).
 
 ## External Desktop Activation
 
