@@ -51,9 +51,18 @@ public final class HardwareKeyboardLayoutCommand {
 
     static Result execute(final String mode)
             throws ReflectiveOperationException {
+        return executeSelection(mode, null);
+    }
+
+    static Result executeSelection(final String mode, final String targetDescriptor)
+            throws ReflectiveOperationException {
         if (!"next".equals(mode)
-                && !"sync".equals(mode)) {
+                && !"sync".equals(mode) && !"select".equals(mode)) {
             throw new IllegalArgumentException("unsupported mode: " + mode);
+        }
+        final boolean selecting = "select".equals(mode);
+        if (selecting && (targetDescriptor == null || targetDescriptor.isEmpty())) {
+            throw new IllegalArgumentException("layout descriptor is required");
         }
         final List<InputDevice> physicalKeyboards =
                 getExternalAlphabeticKeyboards();
@@ -69,7 +78,7 @@ public final class HardwareKeyboardLayoutCommand {
                 "getKeyboardLayout", String.class);
         final boolean advance = "next".equals(mode);
         ImeState imeState = getImeState();
-        int remainingSwitches = advance
+        int remainingSwitches = advance || selecting
                 ? Math.max(1, imeState.layoutMappings.size())
                 : 0;
         List<LayoutInfo> layouts;
@@ -85,6 +94,9 @@ public final class HardwareKeyboardLayoutCommand {
             }
             // Stable ordering is only for labels, never a fallback selection.
             layouts.sort(Comparator.comparing(layout -> layout.descriptor));
+            if (selecting && layouts.stream().noneMatch(layout -> layout.descriptor.equals(targetDescriptor))) {
+                throw new IllegalArgumentException("hardware keyboard layout is no longer configured");
+            }
             selectedIndex = findSubtypeIndex(
                     layouts, imeState.currentSubtype);
             if (selectedIndex < 0) {
@@ -92,10 +104,12 @@ public final class HardwareKeyboardLayoutCommand {
                         "current input method subtype has no hardware keyboard layout");
             }
             final String descriptor = layouts.get(selectedIndex).descriptor;
-            if (remainingSwitches == 0
-                    || (initialDescriptor != null
-                            && !initialDescriptor.equals(descriptor))) {
+            if (selecting ? targetDescriptor.equals(descriptor)
+                    : remainingSwitches == 0 || (initialDescriptor != null && !initialDescriptor.equals(descriptor))) {
                 break;
+            }
+            if (remainingSwitches == 0) {
+                throw new IllegalStateException("Android did not select the requested keyboard layout");
             }
             // Compare with Android's state before this command, not the last
             // taskbar label. Different IMEs may expose the same layout.
@@ -117,6 +131,21 @@ public final class HardwareKeyboardLayoutCommand {
                 physicalKeyboards.size(),
                 layouts.size(),
                 imeState.imeId);
+    }
+
+    static HardwareKeyboardLayouts snapshot() throws ReflectiveOperationException {
+        final List<InputDevice> keyboards = getExternalAlphabeticKeyboards();
+        if (keyboards.isEmpty()) return new HardwareKeyboardLayouts(0, List.of());
+        final Object manager = getInputManagerService();
+        final Class<?> api = Class.forName("android.hardware.input.IInputManager");
+        final Class<?> layoutClass = Class.forName("android.hardware.input.KeyboardLayout");
+        final ImeState ime = getImeState();
+        final List<LayoutInfo> layouts = resolveConfiguredLayouts(manager, api,
+                api.getMethod("getKeyboardLayout", String.class), layoutClass, keyboards.get(0), ime);
+        layouts.sort(Comparator.comparing(layout -> layout.descriptor));
+        return new HardwareKeyboardLayouts(keyboards.size(), layouts.stream().map(layout ->
+                new HardwareKeyboardLayouts.Choice(layout.descriptor, layout.label,
+                        layout.subtype.equals(ime.currentSubtype))).toList());
     }
 
     private static void switchInputMethodSubtype()

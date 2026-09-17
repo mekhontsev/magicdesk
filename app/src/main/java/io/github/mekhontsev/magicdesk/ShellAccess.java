@@ -422,8 +422,13 @@ public final class ShellAccess {
 
     static String updateHardwareKeyboardLayout(final String mode)
             throws IOException {
+        return updateHardwareKeyboardLayout(mode, null);
+    }
+
+    static String updateHardwareKeyboardLayout(final String mode, final String descriptor)
+            throws IOException {
         try {
-            return requireService().updateHardwareKeyboardLayout(mode);
+            return requireService().updateHardwareKeyboardLayout(mode, descriptor);
         } catch (RemoteException error) {
             handleServiceFailure(error);
             throw new IOException(
@@ -436,6 +441,17 @@ public final class ShellAccess {
                     "Shell keyboard layout update failed: "
                             + usefulMessage(error),
                     error);
+        }
+    }
+
+    static HardwareKeyboardLayouts getHardwareKeyboardLayouts() throws IOException {
+        try {
+            return HardwareKeyboardLayouts.fromJson(requireService().getHardwareKeyboardLayouts());
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw new IOException("Cannot read hardware keyboard layouts", error);
+        } catch (org.json.JSONException | RuntimeException error) {
+            throw new IOException("Cannot read hardware keyboard layouts: " + usefulMessage(error), error);
         }
     }
 

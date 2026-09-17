@@ -62,6 +62,7 @@ final class AppTaskController {
     private final DesktopShellActivity mActivity;
     private List<TaskRepository.TaskEntry> mInteractionVisibleTasks =
             Collections.emptyList();
+    private TaskRepository.TaskEntry mInteractionActiveTask;
 
     AppTaskController(final DesktopShellActivity activity) {
         mActivity = activity;
@@ -69,12 +70,57 @@ final class AppTaskController {
 
     void clearInteractionStack() {
         mInteractionVisibleTasks = Collections.emptyList();
+        mInteractionActiveTask = null;
     }
 
     void captureInteractionStackForPanel() {
         if (!mActivity.hasVisiblePanel()) {
             mInteractionVisibleTasks = captureVisibleFreeformTasks();
+            mInteractionActiveTask = null;
+            final TaskRepository.Snapshot snapshot = mActivity.getTaskSnapshot();
+            if (snapshot != null && snapshot.available) {
+                for (final TaskRepository.TaskEntry task : snapshot.tasks) {
+                    if (task.active && task.visible
+                            && DesktopManagedTaskPolicy.isControllableApplicationTask(task)) {
+                        mInteractionActiveTask = task;
+                        break;
+                    }
+                }
+            }
         }
+    }
+
+    TaskRepository.TaskEntry interactionActiveTask() {
+        return mInteractionActiveTask;
+    }
+
+    void arrangeTask(final TaskRepository.TaskEntry task, final int arrangement) {
+        clearInteractionStack();
+        if (task == null || task.displayId != mActivity.getCurrentDisplayId()
+                || !MagicDeskRuntime.arrangeTask(task.displayId, task.taskId, arrangement)) {
+            mActivity.setStatus(mActivity.getString(R.string.status_switch_failed,
+                    "Desktop window is unavailable"));
+        }
+    }
+
+    void backToTask(final TaskRepository.TaskEntry task) {
+        clearInteractionStack();
+        if (task == null || task.displayId != mActivity.getCurrentDisplayId()) return;
+        MagicDeskRuntime.focusDesktopTask(task.displayId, task.taskId, result -> {
+            if (!result.success) {
+                reportBackResult(result);
+                return;
+            }
+            // Back is delivered only after the normal gateway confirms the captured task's focus.
+            TaskRepository.sendBackToDisplay(task.displayId, this::reportBackResult);
+        });
+    }
+
+    private void reportBackResult(final TaskRepository.ActionResult result) {
+        if (!result.success) mActivity.runOnUiThread(() -> {
+            if (!mActivity.isActivityUnavailable()) mActivity.setStatus(mActivity.getString(
+                    R.string.status_switch_failed, result.message));
+        });
     }
 
     void launchDefault(final AppItem app) {

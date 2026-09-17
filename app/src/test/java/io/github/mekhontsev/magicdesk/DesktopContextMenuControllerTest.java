@@ -126,4 +126,25 @@ public final class DesktopContextMenuControllerTest {
         assertTrue("method boundaries exist", first >= 0 && last > first);
         return source.substring(first, last);
     }
+
+    @Test public void arrangementsUseCapturedTasksAndTheProductionWindowGateway() throws Exception {
+        final String source = read("DesktopContextMenuController.java");
+        final String window = between(source, "private void showWindowMenu(", "private void launchApp(");
+        for (final String name : new String[] {"RESTORE", "SNAP_LEFT", "SNAP_RIGHT", "SNAP_TOP_LEFT",
+                "SNAP_TOP_RIGHT", "SNAP_BOTTOM_LEFT", "SNAP_BOTTOM_RIGHT"}) {
+            assertTrue(window.contains("DesktopTaskController.SHORTCUT_" + name));
+        }
+        assertTrue(window.contains("mActivity.arrangeTask(state.task, arrangement)"));
+        assertTrue(window.contains("button.setTooltipText("));
+        assertFalse(window.contains("manageActiveWindow"));
+        final String arrange = RuntimeSourceFixture.methods("AppTaskController", "arrangeTask");
+        assertTrue(arrange.contains("MagicDeskRuntime.arrangeTask(task.displayId, task.taskId, arrangement)"));
+    }
+
+    @Test public void taskbarBackRetainsThePreMenuTask() throws Exception {
+        final String taskbar = RuntimeSourceFixture.methods("DesktopContextMenuController", "populateTaskbarMenu");
+        assertTrue(taskbar.indexOf("interactionActiveTask()") < taskbar.indexOf("prepareMenuTitle("));
+        assertTrue(taskbar.contains("mActivity.backToTask(activeTask)"));
+        assertTrue(taskbar.contains("DisplaySwitchController.show(mActivity)"));
+    }
 }

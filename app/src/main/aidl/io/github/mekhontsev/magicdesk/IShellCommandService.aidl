@@ -42,7 +42,7 @@ interface IShellCommandService {
 
     void writeStream(long requestId, String line) = 6;
 
-    String updateHardwareKeyboardLayout(String mode) = 7;
+    String updateHardwareKeyboardLayout(String mode, String descriptor) = 7;
 
     ParcelFileDescriptor openHeartbeatStream(
         String command, long requestId, IBinder ownerToken) = 9;
@@ -477,4 +477,5 @@ interface IShellCommandService {
         String outputUniqueId, boolean direct, IBinder displayOwner, IBinder viewerOwner) = 138;
     boolean canCreateProtectedDisplay() = 141;
     void releaseDesktopTasks(int displayId, in int[] taskIds) = 142;
+    String getHardwareKeyboardLayouts() = 143;
 }

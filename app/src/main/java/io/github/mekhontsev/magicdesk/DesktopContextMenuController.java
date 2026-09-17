@@ -10,6 +10,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageButton;
+import android.widget.GridLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -239,8 +240,14 @@ final class DesktopContextMenuController {
     }
 
     private void populateTaskbarMenu(final float x, final float y) {
+        mActivity.captureInteractionStackForPanel();
+        final TaskRepository.TaskEntry activeTask = mActivity.interactionActiveTask();
         mRetainOwnerPanel = false;
         prepareMenuTitle(mActivity.getString(R.string.context_taskbar));
+        addAction(R.string.action_back_to_application, DesktopUiFactory.COLOR_PANEL_ALT,
+                activeTask != null, view -> mActivity.backToTask(activeTask));
+        addAction(R.string.display_switch_menu, DesktopUiFactory.COLOR_PANEL_ALT,
+                ShellAccess.isReady(), view -> DisplaySwitchController.show(mActivity));
         addAction(
                 R.string.action_show_desktop,
                 DesktopUiFactory.COLOR_CYAN,
@@ -816,6 +823,11 @@ final class DesktopContextMenuController {
 
         final boolean windowControl = ShellAccess.isReady()
                 && (state.destination == null || DesktopRuntimeBridge.hasWorkspace(state.destination.displayId()));
+        if (state.task != null && windowControl) {
+            addAction(R.string.action_restore_window, DesktopUiFactory.COLOR_PANEL_ALT,
+                    true, view -> mActivity.arrangeTask(state.task, DesktopTaskController.SHORTCUT_RESTORE));
+            addSubmenuAction(R.string.action_arrange_window, view -> showArrangeMenu(state));
+        }
         if (state.app.canFloat && windowControl) {
             addAction(
                     R.string.action_open_floating,
@@ -856,6 +868,47 @@ final class DesktopContextMenuController {
                             state.app, state.task));
         }
         positionAndShow(state.x, state.y);
+    }
+
+    private void showArrangeMenu(final AppMenuState state) {
+        prepareSubmenuTitle(mActivity.getString(R.string.action_arrange_window),
+                view -> showWindowMenu(state));
+        final GridLayout grid = new GridLayout(mActivity);
+        grid.setColumnCount(2);
+        addArrangement(grid, state, DesktopTaskController.SHORTCUT_SNAP_LEFT,
+                R.drawable.ic_snap_left, R.string.arrange_left);
+        addArrangement(grid, state, DesktopTaskController.SHORTCUT_SNAP_RIGHT,
+                R.drawable.ic_snap_right, R.string.arrange_right);
+        addArrangement(grid, state, DesktopTaskController.SHORTCUT_SNAP_TOP_LEFT,
+                R.drawable.ic_snap_top_left, R.string.arrange_top_left);
+        addArrangement(grid, state, DesktopTaskController.SHORTCUT_SNAP_TOP_RIGHT,
+                R.drawable.ic_snap_top_right, R.string.arrange_top_right);
+        addArrangement(grid, state, DesktopTaskController.SHORTCUT_SNAP_BOTTOM_LEFT,
+                R.drawable.ic_snap_bottom_left, R.string.arrange_bottom_left);
+        addArrangement(grid, state, DesktopTaskController.SHORTCUT_SNAP_BOTTOM_RIGHT,
+                R.drawable.ic_snap_bottom_right, R.string.arrange_bottom_right);
+        mPanel.addView(grid, new LinearLayout.LayoutParams(-1, -2));
+        positionAndShow(state.x, state.y);
+    }
+
+    private void addArrangement(final GridLayout grid, final AppMenuState state,
+            final int arrangement, final int icon, final int label) {
+        final ImageButton button = mUi.menuIconButton(icon, label);
+        button.setTooltipText(mActivity.getString(label));
+        button.setOnClickListener(view -> {
+            mActivity.hideAllPanels();
+            mActivity.arrangeTask(state.task, arrangement);
+        });
+        final GridLayout.LayoutParams params = new GridLayout.LayoutParams();
+        params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
+        params.width = 0;
+        params.height = dp(56);
+        params.setMargins(dp(2), dp(2), dp(2), dp(2));
+        grid.addView(button, params);
+        mMenuNavigator.prefer(button);
+        mActivity.registerAutomationUiElement(button,
+                "context.arrange." + mActivity.getResources().getResourceEntryName(label),
+                "button", mActivity.getString(label));
     }
 
     private void launchApp(AppMenuState state, DesktopLaunchPresentation presentation) {

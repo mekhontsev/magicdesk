@@ -9,7 +9,7 @@ import android.widget.Toast;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Keyboard selection and MRU are separate from the committed presentation/input operation. */
+/** Pointer/keyboard selection and MRU are separate from the committed image/input operation. */
 final class DisplaySwitchController implements DisplayManager.DisplayListener {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final DisplaySwitchHistory HISTORY = new DisplaySwitchHistory();
@@ -26,6 +26,7 @@ final class DisplaySwitchController implements DisplayManager.DisplayListener {
     private int selected;
     private boolean commitPending;
     private boolean loaded;
+    private DesktopShellActivity pointerHost;
 
     private DisplaySwitchController(int outputId, Activity fallback) {
         this.outputId = outputId;
@@ -38,8 +39,20 @@ final class DisplaySwitchController implements DisplayManager.DisplayListener {
 
     static void advanceForInput(boolean reverse) {
         final int input = MagicDeskRuntime.inputDisplayId();
-        final var viewer = DisplayPresentations.forSource(input);
-        advance(viewer != null && viewer.visible ? viewer.output.id : input, null, reverse);
+        advance(outputForSource(input), null, reverse);
+    }
+
+    static void show(DesktopShellActivity host) {
+        if (switching) return;
+        cancel();
+        active = new DisplaySwitchController(outputForSource(host.getCurrentDisplayId()), null);
+        active.pointerHost = host;
+        active.load();
+    }
+
+    private static int outputForSource(int displayId) {
+        final var viewer = DisplayPresentations.forSource(displayId);
+        return viewer != null && viewer.visible ? viewer.output.id : displayId;
     }
 
     static void advance(int outputId, Activity fallback, boolean reverse) {
@@ -100,7 +113,12 @@ final class DisplaySwitchController implements DisplayManager.DisplayListener {
                         ? context().getString(R.string.display_switch_apps, count)
                         : context().getString(R.string.display_tasks_unknown)));
             }
-            panel = new DisplaySwitchPanel(output.id, fallback, labels);
+            if (pointerHost != null && pointerHost.isActivityUnavailable()) { cancel(); return; }
+            panel = new DisplaySwitchPanel(output.id, fallback, labels, pointerHost, index -> {
+                if (active != this || !loaded) return;
+                selected = index;
+                commit();
+            }, () -> { if (active == this) cancel(); });
             panel.select(selected);
         } catch (RuntimeException error) { failed(error); }
     }

@@ -231,6 +231,15 @@ final class DesktopControlsController {
                 mActivity.showCaptureControls());
         addActionButton(actionGrid, capture);
 
+        final Button shortcuts = mUi.actionButton(R.string.shortcuts_title, DesktopUiFactory.COLOR_CYAN);
+        shortcuts.setOnClickListener(view -> {
+            mActivity.hideAllPanels();
+            mActivity.toggleShortcutHelp();
+        });
+        addActionButton(actionGrid, shortcuts);
+        mActivity.registerAutomationUiElement(shortcuts, "tools.shortcuts", "button",
+                mActivity.getString(R.string.shortcuts_title));
+
         final LinearLayout.LayoutParams actionGridParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
@@ -248,6 +257,16 @@ final class DesktopControlsController {
         addDpiControls(parent);
         mPointerSpeed.populate(parent, spacing);
         mPlatformControls.populate(parent, spacing);
+        final Button lock = mUi.controlAction(R.string.action_lock_device,
+                R.drawable.ic_lock, DesktopUiFactory.COLOR_PANEL_ALT);
+        lock.setEnabled(ShellAccess.isReady());
+        lock.setOnClickListener(view -> {
+            mActivity.hideAllPanels();
+            DesktopOperations.lockDevice();
+        });
+        parent.addView(lock, new LinearLayout.LayoutParams(-1, mUi.menuItemHeight()));
+        mActivity.registerAutomationUiElement(lock, "quick_controls.lock", "button",
+                mActivity.getString(R.string.action_lock_device));
     }
 
     void populateCapture(

@@ -999,6 +999,13 @@ runtime integration and are not distributed through the same release path.
   controller and observation owners; the UI adds no monitoring loop.
 - `DesktopInputController` handles shell UI input and delegates global physical
   shortcuts to the key-only Accessibility service.
+- Pointer menus invoke the same semantic operations as shortcuts. Window
+  arrangements retain the menu's exact task and call `MagicDeskRuntime.arrangeTask`;
+  they never synthesize arrow keys or choose a newly active task. Taskbar Back
+  captures the application before opening the panel and waits for the normal
+  task focus gateway before sending Android Back to that display. Quick controls
+  exposes device lock, and Start Tools exposes shortcut help. Pointer-opened
+  context menus remain non-focusable and excluded from IME targeting.
 - `DesktopRuntimeBridge` is the weak-reference, main-thread boundary through
   which services reach the active desktop. Host registration and display
   target changes are serialized into one immutable `DesktopSessionSnapshot`;
@@ -2226,6 +2233,13 @@ Names include IDs, Desktop state and a one-shot application count; unavailable
 task observation remains unknown. Exact-identity, per-output MRU makes a quick
 chord return to the previous screen. The output's **This display** entry closes
 its output Viewer instead of creating a self-mirror.
+
+Taskbar **Switch display...** shares the same controller,
+MRU and commit operation with the keyboard picker. Its clickable selector uses
+the existing Desktop panel host without keyboard focus or IME targeting; it
+needs no additional Accessibility overlay. Dismissal releases its display
+listener and never commits the highlighted choice. The keyboard-only picker
+retains its non-touchable overlay/Viewer popup.
 
 `DisplaySwitchOperation` explicitly acquires input after the fullscreen
 presentation is ready. Its binding transaction does not separately redirect
@@ -3755,6 +3769,14 @@ live selection, skipping duplicate layouts exposed by different IMEs within a
 bounded enumeration. An unresolved current subtype is an error, not a reason to
 select a saved descriptor or the first language in the list. This adds no
 periodic input query.
+
+The taskbar keyboard menu reads a `HardwareKeyboardLayouts` snapshot through the
+same privileged adapter without applying overrides or changing the IME. It shows
+configured hardware layouts separately from enabled on-screen keyboards. An
+explicit descriptor selection revalidates live choices and uses the same bounded
+Android subtype cycle as Ctrl+Space; it never reports a different layout as the
+requested one. Menu loading is generation-scoped and cannot reopen a dismissed
+panel. No new service, root request or periodic enumeration is involved.
 
 The phone touchpad emits relative movement and native buttons through its
 session-owned virtual mouse. Its input location is independently associated

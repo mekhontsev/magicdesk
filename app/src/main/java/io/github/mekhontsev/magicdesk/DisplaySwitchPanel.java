@@ -11,6 +11,7 @@ import android.widget.LinearLayout;
 import android.widget.PopupWindow;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.ImageButton;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -21,11 +22,15 @@ final class DisplaySwitchPanel implements AutoCloseable {
     private final WindowManager windows;
     private final PopupWindow popup;
     private final View content;
+    private final DesktopPanelWindowController panels;
+    private final DesktopUiFactory ui;
 
-    DisplaySwitchPanel(int outputId, Activity fallback, List<String> labels) {
-        final Context overlay = DesktopShortcutService.switcherContext(outputId);
-        final Context context = overlay != null ? overlay : fallback;
+    DisplaySwitchPanel(int outputId, Activity fallback, List<String> labels,
+            DesktopShellActivity pointerHost, java.util.function.IntConsumer choose, Runnable cancel) {
+        final Context overlay = pointerHost == null ? DesktopShortcutService.switcherContext(outputId) : null;
+        final Context context = pointerHost != null ? pointerHost : overlay != null ? overlay : fallback;
         if (context == null) throw new IllegalStateException("Display switcher host is unavailable");
+        ui = new DesktopUiFactory(context);
         final float density = context.getResources().getDisplayMetrics().density;
         final int padding = Math.round(12 * density);
         final LinearLayout list = new LinearLayout(context);
@@ -36,12 +41,34 @@ final class DisplaySwitchPanel implements AutoCloseable {
         background.setCornerRadius(8 * density);
         background.setStroke(Math.max(1, Math.round(density)), DesktopUiFactory.COLOR_MUTED);
         list.setBackground(background);
+        if (pointerHost != null) {
+            final LinearLayout header = new LinearLayout(context);
+            header.setGravity(Gravity.CENTER_VERTICAL);
+            final TextView title = new TextView(context);
+            title.setText(R.string.display_switch);
+            title.setTextColor(DesktopUiFactory.COLOR_TEXT);
+            title.setTextSize(16);
+            header.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+            final ImageButton close = ui.menuIconButton(
+                    R.drawable.ic_close, R.string.action_close);
+            close.setOnClickListener(view -> cancel.run());
+            header.addView(close, new LinearLayout.LayoutParams(Math.round(48 * density), Math.round(48 * density)));
+            pointerHost.registerAutomationUiElement(close, "display_switch.close", "button",
+                    context.getString(R.string.action_close));
+            list.addView(header);
+        }
         for (String label : labels) {
             final TextView row = new TextView(context);
             row.setText(label);
             row.setTextSize(14);
             row.setTextColor(DesktopUiFactory.COLOR_TEXT);
             row.setPadding(padding, padding, padding, padding);
+            if (pointerHost != null) {
+                final int index = rows.size();
+                row.setOnClickListener(view -> choose.accept(index));
+                pointerHost.registerAutomationUiElement(row, "display_switch.choice." + index,
+                        "button", label);
+            }
             list.addView(row, new LinearLayout.LayoutParams(-1, -2));
             rows.add(row);
         }
@@ -52,7 +79,26 @@ final class DisplaySwitchPanel implements AutoCloseable {
         final int width = Math.min(Math.round(440 * density), metrics.widthPixels - padding * 2);
         final int height = Math.min(Math.round((labels.size() * 72 + 24) * density),
                 Math.round(metrics.heightPixels * 0.7f));
-        if (overlay != null) {
+        if (pointerHost != null) {
+            windows = null;
+            popup = null;
+            panels = pointerHost.panels();
+            final int panelWidth = Math.min(width, Math.max(1, pointerHost.getDesktopAreaWidth() - padding * 2));
+            final int panelHeight = Math.min(height + Math.round(48 * density), Math.max(1,
+                    pointerHost.getDesktopAreaHeight() - pointerHost.getTaskbarHeight() - padding * 2));
+            content.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+                @Override public void onViewAttachedToWindow(View view) { }
+                @Override public void onViewDetachedFromWindow(View view) { cancel.run(); }
+            });
+            if (panels == null || !panels.show(content,
+                    pointerHost.getDesktopAreaLeft() + (pointerHost.getDesktopAreaWidth() - panelWidth) / 2,
+                    pointerHost.getDesktopAreaTop() + Math.max(padding,
+                            (pointerHost.getDesktopAreaHeight() - pointerHost.getTaskbarHeight() - panelHeight) / 2),
+                    panelWidth, panelHeight, false, false, "MagicDesk display switcher")) {
+                throw new IllegalStateException("Display switcher panel is unavailable");
+            }
+        } else if (overlay != null) {
+            panels = null;
             windows = context.getSystemService(WindowManager.class);
             popup = null;
             final WindowManager.LayoutParams params = new WindowManager.LayoutParams(width, height,
@@ -63,6 +109,7 @@ final class DisplaySwitchPanel implements AutoCloseable {
             params.setTitle("MagicDesk display switcher");
             windows.addView(content, params);
         } else {
+            panels = null;
             windows = null;
             popup = new PopupWindow(content, width, height, false);
             popup.setTouchable(false);
@@ -73,7 +120,11 @@ final class DisplaySwitchPanel implements AutoCloseable {
 
     void select(int index) {
         for (int i = 0; i < rows.size(); i++) {
-            rows.get(i).setBackgroundColor(i == index ? DesktopUiFactory.COLOR_CYAN : android.graphics.Color.TRANSPARENT);
+            if (panels == null) rows.get(i).setBackgroundColor(
+                    i == index ? DesktopUiFactory.COLOR_CYAN : android.graphics.Color.TRANSPARENT);
+            else rows.get(i).setBackground(ui.interactiveRounded(i == index
+                    ? DesktopUiFactory.COLOR_CYAN : DesktopUiFactory.COLOR_PANEL, ui.dp(4), DesktopUiFactory.COLOR_CYAN));
+            rows.get(i).setSelected(i == index);
             rows.get(i).setTextColor(i == index ? DesktopUiFactory.COLOR_BACKGROUND : DesktopUiFactory.COLOR_TEXT);
         }
         final TextView row = rows.get(index);
@@ -82,7 +133,8 @@ final class DisplaySwitchPanel implements AutoCloseable {
     }
 
     @Override public void close() {
-        if (popup != null) popup.dismiss();
+        if (panels != null) panels.hide(content);
+        else if (popup != null) popup.dismiss();
         else if (content.isAttachedToWindow()) {
             try { windows.removeViewImmediate(content); }
             catch (IllegalArgumentException removedWithDisplay) { /* Android already removed its display token. */ }

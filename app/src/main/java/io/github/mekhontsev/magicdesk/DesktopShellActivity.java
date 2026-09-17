@@ -1714,6 +1714,18 @@ public abstract class DesktopShellActivity extends Activity
         mAppTasks.captureInteractionStackForPanel();
     }
 
+    TaskRepository.TaskEntry interactionActiveTask() {
+        return mAppTasks.interactionActiveTask();
+    }
+
+    void arrangeTask(final TaskRepository.TaskEntry task, final int arrangement) {
+        mAppTasks.arrangeTask(task, arrangement);
+    }
+
+    void backToTask(final TaskRepository.TaskEntry task) {
+        mAppTasks.backToTask(task);
+    }
+
     void renderTaskbarPins(final List<AppItem> apps) {
         mTaskbarController.renderPins(apps);
     }

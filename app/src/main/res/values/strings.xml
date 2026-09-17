@@ -109,6 +109,7 @@
     <string name="display_viewer_no_sources">No other displays connected</string>
     <string name="display_previous">Previous display</string>
     <string name="display_switch">Switch display and input</string>
+    <string name="display_switch_menu">Switch display&#8230;</string>
     <string name="display_switch_this">This display: %1$s [%2$d]</string>
     <string name="display_switch_apps">Apps: %1$d</string>
     <string name="display_switch_failed">Could not switch displays: %1$s</string>
@@ -133,6 +134,16 @@
     <string name="action_app_info">App info</string>
     <string name="action_app_actions">App actions</string>
     <string name="action_window">Window</string>
+    <string name="action_restore_window">Restore window</string>
+    <string name="action_arrange_window">Arrange</string>
+    <string name="arrange_left">Left half</string>
+    <string name="arrange_right">Right half</string>
+    <string name="arrange_top_left">Top left quarter</string>
+    <string name="arrange_top_right">Top right quarter</string>
+    <string name="arrange_bottom_left">Bottom left quarter</string>
+    <string name="arrange_bottom_right">Bottom right quarter</string>
+    <string name="action_back_to_application">Back in application</string>
+    <string name="action_lock_device">Lock device</string>
     <string name="action_show_desktop">Show desktop</string>
     <string name="context_taskbar">Taskbar</string>
     <string name="action_open_tasks">Open tasks</string>
@@ -422,7 +433,10 @@
     <string name="state_ready">ready</string>
     <string name="state_unavailable">unavailable</string>
     <string name="tooltip_phone_screen">Phone screen</string>
-    <string name="keyboard_layout_description">Keyboard layout %1$s; activate to switch</string>
+    <string name="keyboard_layout_description">Keyboard: %1$s</string>
+    <string name="keyboard_hardware_layouts">Hardware keyboard layouts</string>
+    <string name="keyboard_input_methods">On-screen keyboards</string>
+    <string name="keyboard_loading">Loading keyboards&#8230;</string>
     <string name="battery_compact">%1$d%%</string>
     <string name="battery_compact_unknown" formatted="false">--%</string>
     <string name="battery_status_description">Battery %1$d%%, %2$s</string>

@@ -396,10 +396,10 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     }
 
     @Override
-    public String updateHardwareKeyboardLayout(final String mode) {
+    public String updateHardwareKeyboardLayout(final String mode, final String descriptor) {
         try {
             final HardwareKeyboardLayoutCommand.Result result =
-                    HardwareKeyboardLayoutCommand.execute(mode);
+                    HardwareKeyboardLayoutCommand.executeSelection(mode, descriptor);
             if (result.isAvailable()) {
                 persistHardwareKeyboardLayout(result);
             }
@@ -411,6 +411,15 @@ public final class ShellCommandService extends IShellCommandService.Stub {
                     "cannot update hardware keyboard layout: "
                             + usefulMessage(error),
                     error);
+        }
+    }
+
+    @Override
+    public String getHardwareKeyboardLayouts() {
+        try {
+            return HardwareKeyboardLayoutCommand.snapshot().toJson();
+        } catch (ReflectiveOperationException | org.json.JSONException | RuntimeException error) {
+            throw new IllegalStateException("Cannot read hardware keyboard layouts: " + usefulMessage(error), error);
         }
     }
 

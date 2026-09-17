@@ -37,6 +37,26 @@ final class HardwareKeyboardLayoutController {
         });
     }
 
+    static void load(final java.util.function.BiConsumer<HardwareKeyboardLayouts, Throwable> completion) {
+        DesktopOperations.executeSerialized(() -> {
+            try { completion.accept(ShellAccess.getHardwareKeyboardLayouts(), null); }
+            catch (IOException | RuntimeException error) { completion.accept(null, error); }
+        });
+    }
+
+    static void select(final String descriptor, final java.util.function.Consumer<Throwable> completion) {
+        DesktopOperations.executeSerialized(() -> {
+            Throwable failure = null;
+            try {
+                final String result = ShellAccess.updateHardwareKeyboardLayout("select", descriptor);
+                if (!descriptor.equals(parseOutputValue(result, "descriptor"))) {
+                    throw new IOException("Hardware keyboard selection is no longer available");
+                }
+            } catch (IOException | RuntimeException error) { failure = error; }
+            completion.accept(failure);
+        });
+    }
+
     static void refresh() {
         refresh(null);
     }

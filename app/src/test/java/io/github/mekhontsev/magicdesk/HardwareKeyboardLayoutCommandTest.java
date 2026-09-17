@@ -95,15 +95,69 @@ public final class HardwareKeyboardLayoutCommandTest {
                 """);
     }
 
+    @Test public void explicitSelectionUsesTheSameAndroidCycleAndOnlyAppliesTheTarget() throws Exception {
+        verify("""
+                current = 1;
+                Result result = executeSelection("select", "en");
+                check(result.code.equals("EN") && switches == 2, "did not reach the requested layout");
+                check(applied.equals(List.of("en", "en")), "applied an intermediate layout");
+                """);
+    }
+
+    @Test public void selectingCurrentLayoutDoesNotCycleTheIme() throws Exception {
+        verify("""
+                Result result = executeSelection("select", "en");
+                check(result.code.equals("EN") && switches == 0, "current layout was switched away");
+                """);
+    }
+
+    @Test public void staleMenuSelectionDoesNotChangeInput() throws Exception {
+        verify("""
+                try { executeSelection("select", "removed"); throw new AssertionError("stale choice accepted"); }
+                catch (IllegalArgumentException expected) { }
+                check(switches == 0 && applied.isEmpty(), "stale choice changed Android input");
+                """);
+    }
+
+    @Test public void failedExplicitSelectionIsBoundedAndDoesNotReportSuccess() throws Exception {
+        verify("""
+                stalledSwitch = true;
+                try { executeSelection("select", "ru"); throw new AssertionError("unapplied choice succeeded"); }
+                catch (IllegalStateException expected) { }
+                check(switches == states.size() && applied.isEmpty(), "failed selection not bounded");
+                """);
+    }
+
+    @Test public void openingChoicesOnlyReadsAndroidState() throws Exception {
+        verify("""
+                current = 1;
+                var value = snapshot();
+                check(value.physicalDevices() == 2 && value.choices().size() == 2, "incorrect choices");
+                check(value.choices().get(1).selected(), "current Russian layout not selected");
+                check(switches == 0 && applied.isEmpty(), "opening menu changed Android input");
+                """);
+    }
+
+    @Test public void missingKeyboardProducesAnEmptyReadOnlyCatalog() throws Exception {
+        verify("""
+                keyboards.clear();
+                check(snapshot().choices().isEmpty(), "phantom keyboard choices");
+                check(imeReads == 0 && switches == 0 && applied.isEmpty(), "query without keyboard changed state");
+                """);
+    }
+
     private static void verify(final String scenario) throws Exception {
         final String methods = RuntimeSourceFixture.methods(
-                "HardwareKeyboardLayoutCommand", "execute", "findSubtypeIndex")
+                "HardwareKeyboardLayoutCommand", "execute", "executeSelection", "snapshot", "findSubtypeIndex")
                 .replace("\"android.hardware.input.IInputManager\"",
                         "\"io.github.mekhontsev.magicdesk.Fixture$InputApi\"")
                 .replace("\"android.hardware.input.KeyboardLayout\"",
                         "\"io.github.mekhontsev.magicdesk.Fixture$LayoutInfo\"");
         RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", """
                 static class InputDevice {}
+                record HardwareKeyboardLayouts(int physicalDevices, List<Choice> choices) {
+                    record Choice(String descriptor, String label, boolean selected) {}
+                }
                 static class InputMethodSubtype {
                     final String descriptor;
                     InputMethodSubtype(String value) { descriptor = value; }

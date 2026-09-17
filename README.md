@@ -567,6 +567,13 @@ Shared compatibility policies can be selected in Settings on every vendor.
 
 ## Keyboard Shortcuts
 
+These actions also have pointer controls. Right-click an application's taskbar
+icon for **Window > Arrange** (halves and quarters) or **Restore window**.
+Right-click empty taskbar space for **Back in application** or **Switch display...**,
+which switches the picture and input together. **Quick controls** includes
+**Lock device**; **Start > Tools** includes **Keyboard shortcuts**. The keyboard
+indicator offers hardware layouts separately from on-screen keyboards.
+
 | Shortcut | Action during Desktop |
 | --- | --- |
 | `Win+D` | Show bare desktop or restore its previous window layout |
