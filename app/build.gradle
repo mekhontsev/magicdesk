@@ -16,8 +16,7 @@ def sourceFiles = rootProject.fileTree('.') {
     include 'app/src/main/**', 'hidden-api-stubs/src/main/**', 'gradle/**', 'native/**'
     include 'terminal-emulator/src/main/**', 'terminal-emulator/*.gradle'
     include '*.gradle', 'app/*.gradle', 'gradle.properties'
-    include 'vendor/magicdesk-x11/embedded/src/main/**', 'vendor/magicdesk-x11/embedded/*.gradle'
-    include 'vendor/magicdesk-x11/lorie/src/main/java/**', 'vendor/magicdesk-x11/lorie/src/main/aidl/**'
+    include 'x11-runtime/src/main/**', 'x11-runtime/*.gradle', 'x11-runtime/consumer-rules.pro'
     include 'vendor/magicdesk-x11/lorie/src/main/cpp/lorie/**', 'vendor/magicdesk-x11/lorie/src/main/cpp/recipes/**'
     include 'vendor/magicdesk-x11/lorie/src/main/cpp/patches/**', 'vendor/magicdesk-x11/lorie/src/main/cpp/CMakeLists.txt'
 }.files.sort { rootProject.relativePath(it) }

@@ -7,9 +7,9 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.RemoteException;
-import com.termux.x11.ICmdEntryInterface;
-import com.termux.x11.X11Session;
-import com.termux.x11.X11DataExchange;
+import io.github.mekhontsev.magicdesk.x11.IX11Server;
+import io.github.mekhontsev.magicdesk.x11.X11Session;
+import io.github.mekhontsev.magicdesk.x11.X11DataExchange;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -97,7 +97,7 @@ final class X11Sessions {
             if ("attach".equals(method)) {
                 if (session.server != null) throw new SecurityException("X11 server is already attached");
                 binder.linkToDeath(session.death, 0);
-                session.server = ICmdEntryInterface.Stub.asInterface(binder);
+                session.server = IX11Server.Stub.asInterface(binder);
                 session.server.retain(session.lifetime);
                 return;
             }
@@ -132,7 +132,7 @@ final class X11Sessions {
         private final List<Listener> listeners = new CopyOnWriteArrayList<>();
         private final Runnable timeout = this::readinessExpired;
         private final IBinder.DeathRecipient death = () -> fail(new IllegalStateException("X11 server exited"));
-        private ICmdEntryInterface server;
+        private IX11Server server;
         private boolean connecting;
         private TermuxCommandResultReceiver.Registration startupResult;
         private volatile X11Session renderer;
@@ -156,7 +156,7 @@ final class X11Sessions {
             startupCommand = command;
             startupDirectory = directory;
             launch = new X11LaunchSpec(context.getApplicationInfo().sourceDir,
-                    context.getApplicationInfo().nativeLibraryDir, context.getPackageName(), endpoint.homeDirectory,
+                    context.getApplicationInfo().nativeLibraryDir, context.getPackageName(), endpoint.packageName, endpoint.homeDirectory,
                     density.resolve(scalePercent), application);
         }
 
@@ -217,7 +217,7 @@ final class X11Sessions {
             if (state != State.READY || current == null) throw new IllegalStateException("X11 session is not ready");
             return current.dataExchange();
         }
-        synchronized ICmdEntryInterface contentFiles() {
+        synchronized IX11Server contentFiles() {
             if (state != State.READY || server == null) throw new IllegalStateException("X11 session is not ready");
             return server;
         }
@@ -269,7 +269,7 @@ final class X11Sessions {
         private void connect() {
             X11Session pending = null;
             try {
-                ICmdEntryInterface process;
+                IX11Server process;
                 synchronized (this) { if (stopped()) return; process = server; }
                 pending = new X11Session(MAIN::post, new X11Session.Listener() {
                     @Override public void onFrame(X11Session.Output output, int width, int height, boolean available) {
@@ -298,7 +298,7 @@ final class X11Sessions {
                         changed();
                     }
                 });
-                pending.connect(process.getXConnection());
+                pending.connect(process.openConnection());
                 synchronized (this) {
                     if (stopped()) return;
                     renderer = pending;
@@ -330,7 +330,7 @@ final class X11Sessions {
         private void fail(Throwable failure) { finish(State.FAILED, ShellAccess.usefulMessage(failure)); }
 
         private void finish(State terminal, String message) {
-            ICmdEntryInterface process;
+            IX11Server process;
             X11Session connection;
             synchronized (this) {
                 if (stopped()) return;

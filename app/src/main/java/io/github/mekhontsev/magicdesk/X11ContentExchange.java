@@ -2,8 +2,8 @@ package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
 import android.os.ParcelFileDescriptor;
-import com.termux.x11.X11DataExchange;
-import com.termux.x11.X11Session;
+import io.github.mekhontsev.magicdesk.x11.X11DataExchange;
+import io.github.mekhontsev.magicdesk.x11.X11Session;
 import java.io.IOException;
 import java.util.List;
 

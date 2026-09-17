@@ -109,7 +109,7 @@
 
         <receiver android:name=".X11SessionReceiver" android:exported="true">
             <intent-filter>
-                <action android:name="com.termux.x11.CmdEntryPoint.ACTION_START" />
+                <action android:name="io.github.mekhontsev.magicdesk.x11.SERVER_READY" />
             </intent-filter>
         </receiver>
 

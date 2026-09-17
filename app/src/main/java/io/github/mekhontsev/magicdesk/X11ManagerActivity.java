@@ -11,7 +11,7 @@ import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import com.termux.x11.X11Session;
+import io.github.mekhontsev.magicdesk.x11.X11Session;
 import java.util.List;
 
 /** Session controls only: selecting or closing this manager never acquires an output. */

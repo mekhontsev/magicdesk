@@ -10,12 +10,8 @@ import android.os.RemoteException;
 public final class X11SessionReceiver extends BroadcastReceiver {
     @Override public void onReceive(Context context, Intent intent) {
         try {
-            Bundle binder = intent.getBundleExtra(null);
-            if (binder == null) return;
-            Bundle extras = new Bundle();
-            extras.putString("session", intent.getStringExtra("session"));
-            extras.putString("display", intent.getStringExtra("display"));
-            extras.putBinder("server", binder.getBinder(null));
+            Bundle extras = intent.getExtras();
+            if (extras == null) return;
             X11Sessions.handoff(intent.getStringExtra("phase"), intent.getStringExtra("token"),
                     extras, getSentFromUid());
         } catch (RemoteException | RuntimeException error) {

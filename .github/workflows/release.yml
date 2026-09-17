@@ -67,6 +67,8 @@ jobs:
             :app:testDebugUnitTest \
             :terminal-emulator:testDebugUnitTest \
             :terminal-emulator:lintRelease \
+            :x11-runtime:testDebugUnitTest \
+            :x11-runtime:lintRelease \
             :app:lintRelease \
             :app:assembleRelease
 

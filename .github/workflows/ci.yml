@@ -138,6 +138,8 @@ jobs:
             :app:testDebugUnitTest \
             :terminal-emulator:testDebugUnitTest \
             :terminal-emulator:lintRelease \
+            :x11-runtime:testDebugUnitTest \
+            :x11-runtime:lintRelease \
             :app:lintRelease \
             :kernel-fixes:lintRelease \
             :app:assembleRelease \
@@ -150,10 +152,15 @@ jobs:
             :app:testDebugUnitTest \
             :terminal-emulator:testDebugUnitTest \
             :terminal-emulator:lintRelease \
+            :x11-runtime:testDebugUnitTest \
+            :x11-runtime:lintRelease \
             :app:lintRelease \
             :kernel-fixes:lintRelease \
             :app:assembleRelease \
             :kernel-fixes:assembleRelease
+
+      - name: Verify independent X11 host
+        run: ./gradlew --no-daemon -p x11-runtime/example :app:assembleDebug :app:lintDebug
 
       - name: Verify signed APK and package boundaries
         if: github.event_name == 'push'
@@ -272,6 +279,10 @@ jobs:
       - name: Verify Windows build
         shell: pwsh
         run: .\gradlew.bat --no-daemon verifyDevelopment
+
+      - name: Verify independent X11 host
+        shell: pwsh
+        run: .\gradlew.bat --no-daemon -p x11-runtime/example :app:assembleDebug :app:lintDebug
 
       - name: Upload Windows test reports
         if: always()

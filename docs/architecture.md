@@ -1606,7 +1606,11 @@ file access: Termux launches resolve an exact freshly queried catalog path.
 `X11ApplicationLaunch` turns its executor into a normal Android launch request;
 the native window model owns X relationships, never Android task topology.
 Clipboard and copy drag-and-drop reuse the shared Android content boundary;
-the fork owns selection/XDND negotiation, while the host owns focus and URI grants.
+the fork owns native selection/XDND negotiation, while MagicDesk owns the Java
+transactions, focus and URI grants. The local `x11-runtime` module owns Java,
+Binder bootstrap, executor context and JNI. The native fork exposes `embedded.h`
+with opaque connections, borrowed native windows, owned descriptors and callbacks;
+it has no Java classes, Android application, Gradle modules or JNI dependency.
 `X11ManagerActivity` only selects and controls sessions; `X11Activity` hosts
 content-only client/desktop viewers. The manager never acquires an output,
 clipboard ownership or density ownership. `HostedSurfaceView` owns Android
@@ -4024,14 +4028,14 @@ tests cannot prove firmware behavior.
 
 ## Build And Release Boundaries
 
-The Gradle project has six modules:
+The Gradle project has five modules:
 
 - `app`: main MagicDesk APK;
 - `hidden-api-stubs`: compile-only framework signatures;
 - `kernel-fixes`: independent optional APK;
 - `terminal-emulator`: locally maintained terminal parser and screen model;
-- `x11-runtime`: the fork's embedded Android library;
-- `x11-stubs`: the fork's compile-only Android signatures.
+- `x11-runtime`: MagicDesk's Android X11 runtime and JNI adapter, linking the
+  fork's native engine. No upstream Java or compile-only X11 stubs are used.
 
 Every main-app build compiles four native helpers from source: the virtual mouse,
 PTY transport, one-shot privileged service launcher and identity-checked process

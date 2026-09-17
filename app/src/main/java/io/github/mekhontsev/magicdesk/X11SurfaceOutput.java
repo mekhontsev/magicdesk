@@ -1,7 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.view.Surface;
-import com.termux.x11.X11Session;
+import io.github.mekhontsev.magicdesk.x11.X11Session;
 
 final class X11SurfaceOutput implements HostedSurfaceOutput {
     private final X11Session.Output output;

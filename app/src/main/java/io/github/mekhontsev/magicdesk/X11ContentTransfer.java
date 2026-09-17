@@ -5,7 +5,7 @@ import android.net.Uri;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.provider.OpenableColumns;
-import com.termux.x11.X11DataExchange;
+import io.github.mekhontsev.magicdesk.x11.X11DataExchange;
 
 import java.io.File;
 import java.io.IOException;

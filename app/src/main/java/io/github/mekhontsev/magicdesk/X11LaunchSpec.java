@@ -16,7 +16,7 @@ final class X11LaunchSpec {
     final String serverCommand;
     final String stdin;
 
-    X11LaunchSpec(String apk, String nativeLibraryDirectory, String hostPackage, String termuxHome,
+    X11LaunchSpec(String apk, String nativeLibraryDirectory, String hostPackage, String executorPackage, String termuxHome,
             int dpi, boolean application) {
         if (dpi < 24 || dpi > 1536) throw new IllegalArgumentException("Invalid X11 DPI");
         byte[] secret = new byte[32], cookie = new byte[16];
@@ -36,13 +36,13 @@ final class X11LaunchSpec {
                 + "env -u LD_PRELOAD -u LD_LIBRARY_PATH CLASSPATH=" + q(apk)
                 + " MAGICDESK_X11_LIBRARY=" + q(nativeLibraryDirectory + "/libXlorie.so")
                 + " MAGICDESK_X11_PACKAGE=" + q(hostPackage)
-                + " MAGICDESK_X11_OWNER_REQUIRED=1"
+                + " MAGICDESK_X11_EXECUTOR=" + q(executorPackage)
                 + " MAGICDESK_X11_CONTENT_DIR=\"$runtime/content\""
                 + " MAGICDESK_X11_XSETTINGS=" + (application ? "1" : "0")
                 + " MAGICDESK_X11_SESSION=" + q(id) + " MAGICDESK_X11_TOKEN=" + q(token)
                 + " TMPDIR=\"${PREFIX:?}/tmp\" XKB_CONFIG_ROOT=\"$PREFIX/share/X11/xkb\""
                 + " /system/bin/app_process -Xnoimage-dex2oat / --nice-name=" + q(id)
-                + " com.termux.x11.CmdEntryPoint -displayfd 1 -dpi " + dpi + " -noreset -nolisten tcp -auth \"$auth\"\n");
+                + " io.github.mekhontsev.magicdesk.x11.X11Server -displayfd 1 -dpi " + dpi + " -noreset -nolisten tcp -auth \"$auth\"\n");
     }
 
     String clientCommand(String display, String command) {

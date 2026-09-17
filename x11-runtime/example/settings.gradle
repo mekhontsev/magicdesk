@@ -1,0 +1,14 @@
+pluginManagement {
+    repositories { google(); mavenCentral(); gradlePluginPortal() }
+    plugins {
+        id 'com.android.application' version '9.3.2'
+        id 'com.android.library' version '9.3.2'
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories { google(); mavenCentral() }
+}
+rootProject.name = 'MagicDeskX11Example'
+include ':app', ':x11-runtime'
+project(':x11-runtime').projectDir = file('..')

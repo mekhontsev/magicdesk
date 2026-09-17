@@ -1,0 +1,63 @@
+plugins { id 'com.android.library' }
+
+def fork = file('../vendor/magicdesk-x11')
+def termux = System.getenv('PREFIX')?.startsWith('/data/data/') && file("${System.getenv('PREFIX')}/bin/clang").isFile()
+def nativeDirectory = layout.buildDirectory.dir('native').get().asFile
+def jniDirectory = layout.buildDirectory.dir('jniLibs').get().asFile
+def licenseAssets = layout.buildDirectory.dir('licenseAssets').get().asFile
+def collectLicenses = tasks.register('collectLicenses', Sync) {
+    from(fork) { include 'LICENSE' }
+    from(new File(fork, 'lorie/src/main/cpp')) { include '**/COPYING*', '**/LICENSE*' }
+    into new File(licenseAssets, 'licenses/magicdesk-x11')
+}
+
+dependencies { testImplementation 'junit:junit:4.13.2' }
+
+android {
+    namespace 'io.github.mekhontsev.magicdesk.x11'
+    compileSdk 37
+    ndkVersion '27.3.13750724'
+    defaultConfig {
+        minSdk 34
+        if (termux) ndk { abiFilters 'arm64-v8a' }
+        else {
+            ndk { abiFilters 'arm64-v8a', 'x86_64' }
+            externalNativeBuild { cmake { targets 'Xlorie' } }
+        }
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+    buildFeatures { aidl true }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    sourceSets.main.assets.srcDir licenseAssets
+    if (termux) sourceSets.main.jniLibs.srcDir jniDirectory
+    else externalNativeBuild { cmake { path 'src/main/cpp/CMakeLists.txt' } }
+}
+tasks.named('preBuild').configure { dependsOn collectLicenses }
+
+if (termux) {
+    def configureNative = tasks.register('configureNative', Exec) {
+        inputs.files fileTree(new File(fork, 'lorie/src/main/cpp')) { include '**/*.cmake', 'CMakeLists.txt' }
+        inputs.file 'src/main/cpp/CMakeLists.txt'
+        outputs.file new File(nativeDirectory, 'build.ninja')
+        commandLine 'cmake', '-S', file('src/main/cpp'), '-B', nativeDirectory,
+                '-G', 'Ninja', '-DCMAKE_C_COMPILER=clang', '-DCMAKE_CXX_COMPILER=clang++',
+                '-DCMAKE_ANDROID_ARCH_ABI=arm64-v8a', '-DCMAKE_POSITION_INDEPENDENT_CODE=ON',
+                '-DCMAKE_C_FLAGS=-DANDROID -ffunction-sections -fdata-sections',
+                '-DCMAKE_CXX_FLAGS=-DANDROID -ffunction-sections -fdata-sections',
+                '-DLORIE_ANDROID_LIBDIR=/system/lib64',
+                '-DCMAKE_SHARED_LINKER_FLAGS=-fno-termux-rpath -Wl,-z,max-page-size=16384 -Wl,--gc-sections'
+    }
+    def buildNative = tasks.register('buildNative', Exec) {
+        dependsOn configureNative
+        commandLine 'cmake', '--build', nativeDirectory, '--target', 'Xlorie', '-j', '4'
+    }
+    def packageNative = tasks.register('packageNative', Sync) {
+        dependsOn buildNative
+        from new File(nativeDirectory, 'libXlorie.so')
+        into new File(jniDirectory, 'arm64-v8a')
+    }
+    tasks.named('preBuild').configure { dependsOn packageNative }
+}

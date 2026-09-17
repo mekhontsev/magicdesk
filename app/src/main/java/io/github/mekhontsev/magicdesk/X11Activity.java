@@ -9,7 +9,7 @@ import android.os.Bundle;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import com.termux.x11.X11Session;
+import io.github.mekhontsev.magicdesk.x11.X11Session;
 
 /** An ordinary Android window onto a retained X server or one selected X client window. */
 public final class X11Activity extends Activity implements X11Sessions.Listener, BuiltInWindowRegistry.PresentationSource {

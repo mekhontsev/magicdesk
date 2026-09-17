@@ -11,6 +11,7 @@ tasks.register('verifyDevelopment') {
             ':app:assembleDebug',
             ':terminal-emulator:testDebugUnitTest',
             ':terminal-emulator:lintDebug',
+            ':x11-runtime:testDebugUnitTest',
             ':x11-runtime:lintDebug',
             ':kernel-fixes:testDebugUnitTest',
             ':kernel-fixes:lintDebug',

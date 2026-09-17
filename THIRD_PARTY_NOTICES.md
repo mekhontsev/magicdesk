@@ -24,10 +24,11 @@ selection, and rendering; it does not package Termux's native `libtermux.so`.
 
 ## Embedded Termux:X11
 
-MagicDesk embeds the server, renderer and Binder entry point from its
+MagicDesk embeds the native server and renderer from its
 [MagicDesk X11 fork](https://github.com/mekhontsev/magicdesk-x11), pinned by
 the `vendor/magicdesk-x11` submodule. It does not require the standalone
-Termux:X11 Android application.
+Termux:X11 Android application. Java, Binder and JNI integration is owned by
+MagicDesk's local `x11-runtime` module.
 
 - Upstream: https://github.com/termux/termux-x11
 - License: GNU GPL version 3; see
