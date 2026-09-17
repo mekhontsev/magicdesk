@@ -900,6 +900,18 @@ final class DesktopAutomationController {
             case "right":
                 shortcut = DesktopTaskController.SHORTCUT_SNAP_RIGHT;
                 break;
+            case "top_left":
+                shortcut = DesktopTaskController.SHORTCUT_SNAP_TOP_LEFT;
+                break;
+            case "top_right":
+                shortcut = DesktopTaskController.SHORTCUT_SNAP_TOP_RIGHT;
+                break;
+            case "bottom_left":
+                shortcut = DesktopTaskController.SHORTCUT_SNAP_BOTTOM_LEFT;
+                break;
+            case "bottom_right":
+                shortcut = DesktopTaskController.SHORTCUT_SNAP_BOTTOM_RIGHT;
+                break;
             case "maximize":
                 shortcut = DesktopTaskController.SHORTCUT_FULLSCREEN;
                 break;
@@ -908,7 +920,8 @@ final class DesktopAutomationController {
                 break;
             default:
                 throw new IllegalArgumentException(
-                        "arrangement must be left, right, maximize, or restore");
+                        "arrangement must be left, right, top_left, top_right, "
+                                + "bottom_left, bottom_right, maximize, or restore");
         }
         if (!MagicDeskRuntime.arrangeTask(task.displayId, taskId, shortcut)) {
             return DesktopAutomationResult.failure(

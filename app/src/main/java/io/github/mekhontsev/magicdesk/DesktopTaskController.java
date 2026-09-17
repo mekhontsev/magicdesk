@@ -41,6 +41,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             DesktopWindowTransitionController.SHORTCUT_SNAP_LEFT;
     static final int SHORTCUT_SNAP_RIGHT =
             DesktopWindowTransitionController.SHORTCUT_SNAP_RIGHT;
+    static final int SHORTCUT_SNAP_TOP_LEFT =
+            DesktopWindowTransitionController.SHORTCUT_SNAP_TOP_LEFT;
+    static final int SHORTCUT_SNAP_TOP_RIGHT =
+            DesktopWindowTransitionController.SHORTCUT_SNAP_TOP_RIGHT;
+    static final int SHORTCUT_SNAP_BOTTOM_LEFT =
+            DesktopWindowTransitionController.SHORTCUT_SNAP_BOTTOM_LEFT;
+    static final int SHORTCUT_SNAP_BOTTOM_RIGHT =
+            DesktopWindowTransitionController.SHORTCUT_SNAP_BOTTOM_RIGHT;
     static final int SHORTCUT_CLOSE =
             DesktopWindowTransitionController.SHORTCUT_CLOSE;
     private final Context mApplicationContext;

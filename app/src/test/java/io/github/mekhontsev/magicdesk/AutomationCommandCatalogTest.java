@@ -543,6 +543,13 @@ public final class AutomationCommandCatalogTest {
                 .getJSONObject("properties").has("bounds"));
         assertEquals(2, managed.getJSONObject("inputSchema")
                 .getJSONArray("required").length());
+        final JSONArray arrangements = managed.getJSONObject("inputSchema")
+                .getJSONObject("properties").getJSONObject("arrangement")
+                .getJSONArray("enum");
+        for (final String arrangement : new String[]{"left", "right", "top_left",
+                "top_right", "bottom_left", "bottom_right", "maximize", "restore"}) {
+            assertTrue(contains(arrangements, arrangement));
+        }
     }
 
     @Test

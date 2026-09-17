@@ -14,6 +14,24 @@ public final class NativeWindowBoundsControllerTest {
     private static final Rect PHONE_WORK_AREA = rect(0, 125, 1216, 2454);
 
     @Test
+    public void halfAndQuarterSnapsPartitionTheUsableWorkArea() {
+        final Rect area = rect(13, 125, 1216, 2454);
+        assertBounds(NativeWindowBoundsController.snappedBounds(area, true, -1),
+                13, 125, 614, 1289);
+        assertBounds(NativeWindowBoundsController.snappedBounds(area, true, 0),
+                13, 125, 614, 2454);
+        assertBounds(NativeWindowBoundsController.snappedBounds(area, true, 1),
+                13, 1289, 614, 2454);
+        assertBounds(NativeWindowBoundsController.snappedBounds(area, false, -1),
+                614, 125, 1216, 1289);
+        assertBounds(NativeWindowBoundsController.snappedBounds(area, false, 0),
+                614, 125, 1216, 2454);
+        assertBounds(NativeWindowBoundsController.snappedBounds(area, false, 1),
+                614, 1289, 1216, 2454);
+        assertBounds(area, 13, 125, 1216, 2454);
+    }
+
+    @Test
     public void nativeLeftSnapUsesTaskbarWorkArea() {
         assertBounds(
                 NativeWindowBoundsController.correctNativeCaptionSnapBounds(

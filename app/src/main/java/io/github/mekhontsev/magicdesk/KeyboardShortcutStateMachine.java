@@ -24,6 +24,10 @@ final class KeyboardShortcutStateMachine {
         RESTORE,
         SNAP_LEFT,
         SNAP_RIGHT,
+        SNAP_TOP_LEFT,
+        SNAP_TOP_RIGHT,
+        SNAP_BOTTOM_LEFT,
+        SNAP_BOTTOM_RIGHT,
         SHOW_DESKTOP,
         DISPLAY_FORWARD,
         DISPLAY_REVERSE,
@@ -47,6 +51,8 @@ final class KeyboardShortcutStateMachine {
     private final Set<Integer> mConsumed = new HashSet<>();
     private boolean mAltTabActive;
     private boolean mDisplayActive;
+    private Action mSnapSide = Action.NONE;
+    private int mSnapRow;
 
     Result accept(final int key, final boolean down, final int repeats,
             final boolean ctrl, final boolean alt, final boolean shift, final boolean meta,
@@ -62,6 +68,7 @@ final class KeyboardShortcutStateMachine {
     private Result acceptInternal(final int key, final boolean down, final int repeats,
             final boolean ctrl, final boolean alt, final boolean shift, final boolean meta,
             final boolean desktop) {
+        if (!meta || !desktop || ctrl || alt || shift) clearSnapSequence();
         if (!down) {
             final boolean consumed = mConsumed.remove(key);
             if ((key == KeyEvent.KEYCODE_ALT_LEFT || key == KeyEvent.KEYCODE_ALT_RIGHT)
@@ -99,7 +106,7 @@ final class KeyboardShortcutStateMachine {
         if (repeats != 0) {
             return new Result(false, Action.NONE);
         }
-        final Action action = action(key, ctrl, alt, shift, meta);
+        final Action action = snapSequence(action(key, ctrl, alt, shift, meta));
         if (action == Action.ALT_TAB_FORWARD || action == Action.ALT_TAB_REVERSE) {
             mAltTabActive = true;
         }
@@ -111,11 +118,37 @@ final class KeyboardShortcutStateMachine {
         return new Result(consumed, action);
     }
 
+    private Action snapSequence(final Action action) {
+        if (action == Action.SNAP_LEFT || action == Action.SNAP_RIGHT) {
+            mSnapSide = action;
+            mSnapRow = 0;
+            return action;
+        }
+        if (mSnapSide != Action.NONE
+                && (action == Action.FULLSCREEN || action == Action.RESTORE)) {
+            mSnapRow = Math.max(-1, Math.min(1,
+                    mSnapRow + (action == Action.FULLSCREEN ? -1 : 1)));
+            if (mSnapRow == 0) return mSnapSide;
+            if (mSnapRow < 0) return mSnapSide == Action.SNAP_LEFT
+                    ? Action.SNAP_TOP_LEFT : Action.SNAP_TOP_RIGHT;
+            return mSnapSide == Action.SNAP_LEFT
+                    ? Action.SNAP_BOTTOM_LEFT : Action.SNAP_BOTTOM_RIGHT;
+        }
+        clearSnapSequence();
+        return action;
+    }
+
+    private void clearSnapSequence() {
+        mSnapSide = Action.NONE;
+        mSnapRow = 0;
+    }
+
     boolean reset() {
         final boolean cancel = mAltTabActive || mDisplayActive;
         mAltTabActive = false;
         mDisplayActive = false;
         mConsumed.clear();
+        clearSnapSequence();
         return cancel;
     }
 

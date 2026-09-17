@@ -10,6 +10,8 @@ final class ShortcutCatalog {
                 R.string.shortcut_snap_left_action),
         new Entry(R.string.shortcut_snap_right,
                 R.string.shortcut_snap_right_action),
+        new Entry(R.string.shortcut_snap_corner,
+                R.string.shortcut_snap_corner_action),
         new Entry(R.string.shortcut_close,
                 R.string.shortcut_close_action),
         new Entry(R.string.shortcut_back,

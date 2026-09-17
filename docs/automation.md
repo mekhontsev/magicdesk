@@ -656,6 +656,12 @@ exists for compatibility investigation: it changes Android's task mode
 directly and can therefore reproduce firmware behavior that managed
 fullscreen planes are designed to isolate.
 
+The same `arrange_task` command accepts `left`, `right`, `top_left`, `top_right`,
+`bottom_left`, and `bottom_right` for half- and quarter-window arrangements.
+These use the Desktop work area, excluding the taskbar and system insets;
+Android still enforces application minimum sizes. `restore` returns to the
+pre-snap window geometry. MCP and the generated CLI share these arrangements.
+
 Commands with input, content, or shell permissions include:
 
 - `magicdesk.force_stop_app`

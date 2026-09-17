@@ -3624,6 +3624,13 @@ not submit a corrective transaction. Win+Down restores fullscreen first, then
 the saved freeform geometry for an arranged window, and demotes an ordinary
 window with no remaining restore history.
 
+Explicit half- and quarter-window arrangements retain both the pre-snap geometry
+and their requested rectangle in task runtime state. Observing that rectangle
+does not erase restore history; a subsequent ordinary move or resize still
+becomes authoritative. A rapid snap sequence during fullscreen exit keeps only
+its latest target, applying it after the existing transition completes. It does
+not create another fullscreen owner, timer, or observation source.
+
 The native transition probe reads WMShell help instead of branching on the
 Android version. It selects Android 15's `desktopmode moveToDesktop` or Android
 16's `desktopmode moveTaskToDesk` command when present, and otherwise uses the
@@ -3731,6 +3738,13 @@ acceleration, hover, dragging and secondary-button semantics.
 keyboard has its own `KeyboardShortcutStateMachine`. Consumed key-down/up
 pairs remain balanced across modifier release and repeated keys. Unplugging a
 keyboard cancels its pending Alt+Tab selection.
+
+Holding Win after Left/Right selects a snap sequence: Up/Down steps between
+the top quarter, side half, and bottom quarter, stopping at either end.
+Releasing Win, another shortcut, conflicting modifiers, or resetting the input
+target ends the sequence. Standalone Win+Up/Down retain fullscreen/restore
+semantics. The sequence is local to each keyboard; all resulting arrangements
+use `DesktopTaskController`, also shared by MCP and CLI `arrange_task`.
 
 `Ctrl+Space` uses `HardwareKeyboardLayoutController` to select the next
 configured Android layout for connected physical keyboards and update the

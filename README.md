@@ -573,6 +573,7 @@ Shared compatibility policies can be selected in Settings on every vendor.
 | `Win+Up` | Move the active task to true fullscreen |
 | `Win+Down` | Restore fullscreen/maximized task; press again to minimize |
 | `Win+Left` / `Win+Right` | Snap to either half |
+| Hold `Win` after Left/Right, then `Up` / `Down` | Move between top corner, half and bottom corner |
 | `Alt+Tab` / `Alt+Shift+Tab` | Switch exact tasks |
 | `Ctrl+Alt+Tab` | Switch the displayed screen and its input together |
 | `Alt+F4` | Close active task |

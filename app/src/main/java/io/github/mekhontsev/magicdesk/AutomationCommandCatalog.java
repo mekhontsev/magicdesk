@@ -321,6 +321,8 @@ final class AutomationCommandCatalog {
                                         .put("arrangement", enumProperty(
                                                 "Target arrangement.",
                                                 "left", "right",
+                                                "top_left", "top_right",
+                                                "bottom_left", "bottom_right",
                                                 "maximize", "restore")),
                                 "taskId", "arrangement")))
                 .put(readTool(

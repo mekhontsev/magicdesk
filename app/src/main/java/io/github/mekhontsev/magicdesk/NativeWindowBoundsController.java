@@ -54,20 +54,18 @@ final class NativeWindowBoundsController {
                 getNativeCaptionSnapArea(), getTaskbarMaximizedBounds());
     }
 
-    Rect getSnappedBounds(final boolean left) {
-        final Rect workArea = getTaskbarMaximizedBounds();
-        final int middle = workArea.left + workArea.width() / 2;
-        return left
-                ? new Rect(
-                        workArea.left,
-                        workArea.top,
-                        middle,
-                        workArea.bottom)
-                : new Rect(
-                        middle,
-                        workArea.top,
-                        workArea.right,
-                        workArea.bottom);
+    Rect getSnappedBounds(final boolean left, final int row) {
+        return snappedBounds(getTaskbarMaximizedBounds(), left, row);
+    }
+
+    static Rect snappedBounds(final Rect workArea, final boolean left, final int row) {
+        if (row < -1 || row > 1) throw new IllegalArgumentException("invalid snap row");
+        final int middleX = workArea.left + (workArea.right - workArea.left) / 2;
+        final int middleY = workArea.top + (workArea.bottom - workArea.top) / 2;
+        return rect(left ? workArea.left : middleX,
+                row > 0 ? middleY : workArea.top,
+                left ? middleX : workArea.right,
+                row < 0 ? middleY : workArea.bottom);
     }
 
     boolean isNativeCaptionSnapOutsideWorkArea(final Rect bounds) {
@@ -129,9 +127,11 @@ final class NativeWindowBoundsController {
             final TaskRepository.ActionCallback callback) {
         final int taskId = task.taskId;
         final DesktopTaskRuntimeState state = mTaskStates.state(taskId);
+        final Rect previousArrangement = state.arrangedWindowBounds();
         final DesktopTaskRuntimeState.BoundsTransition transition =
                 state.beginBoundsTransition(
                         targetBounds, preservesRestoreBounds);
+        if (preservesRestoreBounds) state.setArrangedWindowBounds(targetBounds);
         TaskRepository.resizeTaskBounds(
                 task,
                 targetBounds,
@@ -149,6 +149,7 @@ final class NativeWindowBoundsController {
                     // or the user may have already moved beyond.
                     state.clearBoundsTransition(transition);
                     if (!result.success) {
+                        state.setArrangedWindowBounds(previousArrangement);
                         Log.w(TAG,
                                 "native bounds transition failed task="
                                         + taskId
@@ -239,6 +240,8 @@ final class NativeWindowBoundsController {
             final Rect bounds,
             final Rect nativeSnapArea,
             final Rect workArea) {
+        // Explicit arrangements need not occupy the entire work-area height.
+        if (bounds.equals(state.arrangedWindowBounds())) return;
         if (occupiesHeight(bounds, nativeSnapArea)
                 || occupiesHeight(bounds, workArea)) {
             rememberRestoreBounds(state, bounds, nativeSnapArea, workArea);

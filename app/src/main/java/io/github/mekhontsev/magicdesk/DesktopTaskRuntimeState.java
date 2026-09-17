@@ -32,6 +32,8 @@ final class DesktopTaskRuntimeState {
     private Rect mLastWindowBounds;
     private BoundsTransition mBoundsTransition;
     private Rect mWindowRestoreBounds;
+    private Rect mArrangedWindowBounds;
+    private Rect mPendingSnapBounds;
     private Rect mFullscreenRestoreBounds;
     private Boolean mImmersiveRequested;
     private boolean mImmersiveRequestForeground;
@@ -99,6 +101,23 @@ final class DesktopTaskRuntimeState {
 
     synchronized void clearWindowRestoreBounds() {
         mWindowRestoreBounds = null;
+        mArrangedWindowBounds = null;
+    }
+
+    synchronized Rect arrangedWindowBounds() {
+        return copy(mArrangedWindowBounds);
+    }
+
+    synchronized void setArrangedWindowBounds(final Rect bounds) {
+        mArrangedWindowBounds = copy(bounds);
+    }
+
+    synchronized Rect pendingSnapBounds() {
+        return copy(mPendingSnapBounds);
+    }
+
+    synchronized void setPendingSnapBounds(final Rect bounds) {
+        mPendingSnapBounds = copy(bounds);
     }
 
     synchronized Rect fullscreenRestoreBounds() {

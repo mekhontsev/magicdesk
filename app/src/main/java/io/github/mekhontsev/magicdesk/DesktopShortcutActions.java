@@ -56,6 +56,22 @@ final class DesktopShortcutActions {
                 DesktopOperations.manageActiveWindow(
                         DesktopTaskController.SHORTCUT_SNAP_RIGHT);
                 break;
+            case SNAP_TOP_LEFT:
+                DesktopOperations.manageActiveWindow(
+                        DesktopTaskController.SHORTCUT_SNAP_TOP_LEFT);
+                break;
+            case SNAP_TOP_RIGHT:
+                DesktopOperations.manageActiveWindow(
+                        DesktopTaskController.SHORTCUT_SNAP_TOP_RIGHT);
+                break;
+            case SNAP_BOTTOM_LEFT:
+                DesktopOperations.manageActiveWindow(
+                        DesktopTaskController.SHORTCUT_SNAP_BOTTOM_LEFT);
+                break;
+            case SNAP_BOTTOM_RIGHT:
+                DesktopOperations.manageActiveWindow(
+                        DesktopTaskController.SHORTCUT_SNAP_BOTTOM_RIGHT);
+                break;
             case SHOW_DESKTOP:
                 DesktopOperations.toggleDesktopWorkspace();
                 break;

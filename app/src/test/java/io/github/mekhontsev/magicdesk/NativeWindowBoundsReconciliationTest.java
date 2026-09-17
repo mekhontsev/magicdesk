@@ -4,6 +4,108 @@ import org.junit.Test;
 
 public final class NativeWindowBoundsReconciliationTest {
     @Test
+    public void cornerHalfCornerPreservesOriginalBoundsUntilRestoreOrManualMove() throws Exception {
+        verify("""
+                f.sample(ordinary);
+                Dispatch d = new Dispatch(f);
+                for (int row : new int[]{0, -1, 0, 1}) {
+                    d.snap(f.task, true, row);
+                    Rect target = f.getSnappedBounds(true, row);
+                    f.sample(target);
+                    f.complete(true);
+                    f.sample(target);
+                    check(f.state().windowRestoreBounds().equals(ordinary), "snap chain lost original bounds");
+                    check(f.state().lastWindowBounds().equals(ordinary), "snap became ordinary geometry");
+                }
+                d.applyRestoreShortcut(f.task);
+                check(f.requests.get(4).equals(ordinary), "restore did not use pre-snap geometry");
+                f.complete(true);
+                f.sample(ordinary);
+                check(f.state().arrangedWindowBounds() == null, "restore left stale arrangement");
+                d.snap(f.task, false, -1);
+                f.complete(true);
+                f.sample(f.getSnappedBounds(false, -1));
+                Rect moved = new Rect(600, 85, 1500, 560);
+                f.sample(moved);
+                check(f.state().windowRestoreBounds() == null, "quarter snap pinned manual move");
+                check(f.state().arrangedWindowBounds() == null, "manual move retained arrangement");
+                check(f.requests.size() == 6, "manual move generated a correction");
+                """);
+    }
+
+    @Test
+    public void rapidFullscreenSnapSequenceUsesOneExitAndLatestRectangle() throws Exception {
+        verify("""
+                f.sample(ordinary);
+                f.task.fullscreen = true;
+                f.state().setFullscreenRestoreBounds(ordinary);
+                Dispatch d = new Dispatch(f);
+                d.snap(f.task, true, 0);
+                d.snap(f.task, true, -1);
+                // Android may publish freeform before its exit callback completes.
+                f.task.fullscreen = false;
+                d.snap(f.task, true, 0);
+                d.snap(f.task, true, 1);
+                check(d.exits.size() == 1, "snap chain submitted multiple fullscreen exits");
+                check(f.requests.isEmpty(), "resize raced fullscreen exit");
+                d.exitCallbacks.remove().onComplete(new TaskRepository.ActionResult(true, "ok"));
+                Rect target = f.getSnappedBounds(true, 1);
+                check(f.requests.size() == 1 && f.requests.get(0).equals(target), "latest corner was lost");
+                check(f.state().pendingSnapBounds() == null, "pending snap survived completion");
+                check(!f.state().isFullscreenTransition(), "fullscreen exit remained pending");
+                f.complete(true);
+                f.sample(target);
+                check(f.state().windowRestoreBounds().equals(ordinary), "fullscreen snap lost restore bounds");
+                d.applyRestoreShortcut(f.task);
+                check(f.requests.get(1).equals(ordinary), "fullscreen snap did not restore original window");
+                """);
+    }
+
+    @Test
+    public void failedOrRemovedFullscreenSnapCannotResizeAnotherTask() throws Exception {
+        verify("""
+                f.sample(ordinary);
+                f.task.fullscreen = true;
+                f.state().setFullscreenRestoreBounds(ordinary);
+                Dispatch d = new Dispatch(f);
+                d.snap(f.task, false, 0);
+                d.snap(f.task, false, -1);
+                d.exitCallbacks.remove().onComplete(new TaskRepository.ActionResult(false, "failed"));
+                check(f.requests.isEmpty(), "failed exit submitted a resize");
+                check(f.state().pendingSnapBounds() == null, "failed exit left pending snap");
+                check(!f.state().isFullscreenTransition(), "failed exit blocks retry");
+                check(f.state().fullscreenRestoreBounds().equals(ordinary), "failure erased fullscreen restore");
+                d.snap(f.task, false, 1);
+                check(d.exits.size() == 2, "retry was ignored");
+                f.mTaskStates.states.clear();
+                DesktopTaskRuntimeState replacement = f.state();
+                d.exitCallbacks.remove().onComplete(new TaskRepository.ActionResult(true, "late"));
+                check(f.requests.isEmpty(), "removed task resized replacement");
+                check(replacement.windowRestoreBounds() == null, "removed task wrote replacement history");
+                """);
+    }
+
+    @Test
+    public void newestResizeSurvivesOlderCompletionAndFailureRestoresPreviousArrangement() throws Exception {
+        verify("""
+                f.sample(ordinary);
+                Dispatch d = new Dispatch(f);
+                d.snap(f.task, false, 0);
+                d.snap(f.task, false, -1);
+                f.complete(true);
+                Rect corner = f.getSnappedBounds(false, -1);
+                check(f.state().boundsTransition().targetBounds().equals(corner), "old callback cleared newer resize");
+                f.complete(true);
+                f.sample(corner);
+                d.snap(f.task, false, 0);
+                f.complete(false);
+                f.sample(corner);
+                check(f.state().arrangedWindowBounds().equals(corner), "failure forgot prior corner");
+                check(f.state().windowRestoreBounds().equals(ordinary), "failure lost restore history");
+                """);
+    }
+
+    @Test
     public void nativeMaximizeKeepsOrdinaryBoundsAndRestoreUsesThem() throws Exception {
         verify("""
                 f.sample(ordinary);
@@ -142,7 +244,10 @@ public final class NativeWindowBoundsReconciliationTest {
                     public boolean equals(Object o) { return o instanceof Rect r && left==r.left && top==r.top && right==r.right && bottom==r.bottom; }
                 }
                 static class DesktopTaskRuntimeState {
-                    Rect mLastWindowBounds, mWindowRestoreBounds;
+                    Rect mLastWindowBounds, mWindowRestoreBounds, mArrangedWindowBounds;
+                    Rect mPendingSnapBounds, mFullscreenRestoreBounds;
+                    enum FullscreenTransition { NONE, ENTERING, RESTORING }
+                    FullscreenTransition mFullscreenTransition = FullscreenTransition.NONE;
                     BoundsTransition mBoundsTransition;
                     static class BoundsTransition {
                         final Rect target;
@@ -150,13 +255,17 @@ public final class NativeWindowBoundsReconciliationTest {
                         BoundsTransition(Rect target, boolean preserve) { this.target=copy(target); preservesRestoreBounds=preserve; }
                         Rect targetBounds() { return copy(target); }
                     }
-                    boolean isFullscreenTransition() { return false; }
-                    Rect fullscreenRestoreBounds() { return null; }
                     void setManualImmersiveOverride(boolean value) {}
+                    void setAppRequestedFullscreen(boolean value) {}
                 """ + RuntimeSourceFixture.methods("DesktopTaskRuntimeState",
                 "lastWindowBounds", "setLastWindowBounds", "windowRestoreBounds",
                 "setWindowRestoreBounds", "clearWindowRestoreBounds", "beginBoundsTransition",
                 "boundsTransition", "isBoundsTransition", "clearBoundsTransition",
+                "arrangedWindowBounds", "setArrangedWindowBounds",
+                "pendingSnapBounds", "setPendingSnapBounds",
+                "fullscreenRestoreBounds", "setFullscreenRestoreBounds", "clearFullscreenRestoreBounds",
+                "beginFullscreenRestoreTransition", "beginFullscreenTransition",
+                "isFullscreenTransition", "finishFullscreenTransition",
                 "clearNativeBoundsState", "copy") + """
                 }
                 static class States {
@@ -171,15 +280,18 @@ public final class NativeWindowBoundsReconciliationTest {
                     int displayId() { return 66; }
                     void scheduleRefresh() {}
                     void demoteTask(int id) { demotions++; }
+                    void focusTask(int id) {}
                 }
                 static class TaskRepository {
                     static Fixture owner;
                     static class TaskEntry {
                         int taskId=50350, displayId=66;
                         boolean visible=true;
+                        boolean fullscreen;
                         Rect bounds;
                         boolean isBoundedFreeform() { return true; }
-                        boolean isFullscreen() { return false; }
+                        boolean isFullscreen() { return fullscreen; }
+                        boolean isFreeform() { return !fullscreen; }
                         boolean hasCrossPackageTopActivity() { return false; }
                     }
                     record ActionResult(boolean success, String message) {}
@@ -191,7 +303,15 @@ public final class NativeWindowBoundsReconciliationTest {
                 }
                 static class DesktopManagedTaskPolicy { static boolean isControllableApplicationTask(Object task) { return true; } }
                 static class Handler { void post(Runnable runnable) { runnable.run(); } }
-                static class Log { static void w(String tag, String message) {} }
+                static class Log { static void w(String tag, String message, Object... error) {} }
+                static class FloatingWindowController {
+                    static Rect getDefaultWindowBounds(int display) throws IOException { return new Rect(50,50,900,800); }
+                }
+                record DesktopWindowTransitionRequest(Rect bounds) {
+                    static DesktopWindowTransitionRequest restoreFreeform(int display, int task, Rect bounds, int density, String reason) {
+                        return new DesktopWindowTransitionRequest(bounds);
+                    }
+                }
                 static final String TAG = "fixture";
                 final States mTaskStates = new States();
                 final RuntimeState mRuntimeState = new RuntimeState();
@@ -211,10 +331,19 @@ public final class NativeWindowBoundsReconciliationTest {
                     final States mTaskStates;
                     final RuntimeState mRuntimeState;
                     final Fixture mNativeWindowBounds;
+                    final Handler mHandler = new Handler();
+                    final List<DesktopWindowTransitionRequest> exits = new ArrayList<>();
+                    final Queue<TaskRepository.ActionCallback> exitCallbacks = new ArrayDeque<>();
                     Dispatch(Fixture f) { mTaskStates=f.mTaskStates; mRuntimeState=f.mRuntimeState; mNativeWindowBounds=f; }
                     void restoreFullscreenTask(TaskRepository.TaskEntry task, boolean requested) { throw new AssertionError("unexpected fullscreen restore"); }
+                    int densityFor(TaskRepository.TaskEntry task) { return 0; }
+                    void rememberWindowed(TaskRepository.TaskEntry task, Rect bounds, Rect work) {}
+                    void submitRequired(DesktopWindowTransitionRequest request, TaskRepository.ActionCallback callback) {
+                        exits.add(request); exitCallbacks.add(callback);
+                    }
                 """ + RuntimeSourceFixture.methods("DesktopWindowTransitionController",
-                "applyRestoreShortcut", "classifyRestoreShortcut", "setWindowBounds") + """
+                "applyRestoreShortcut", "classifyRestoreShortcut", "setWindowBounds",
+                "snap", "snapFullscreenTask") + """
                 }
                 public static void verify() {
                     Fixture f = new Fixture();
@@ -224,6 +353,7 @@ public final class NativeWindowBoundsReconciliationTest {
                     Rect work = f.workArea;
                 """ + scenario + "}\n" + RuntimeSourceFixture.methods(
                 "NativeWindowBoundsController", "reconcile", "observeBounds",
+                "getSnappedBounds", "snappedBounds",
                 "rememberRestoreBounds", "occupiesHeight", "getDefaultWindowBounds",
                 "correctNativeCaptionSnapBounds", "sameBounds", "rect", "requestBounds", "complete"));
     }

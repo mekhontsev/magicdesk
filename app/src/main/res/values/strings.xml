@@ -638,6 +638,8 @@
     <string name="shortcut_snap_left_action">Snap window left</string>
     <string name="shortcut_snap_right">Win + Right</string>
     <string name="shortcut_snap_right_action">Snap window right</string>
+    <string name="shortcut_snap_corner">Win + Left/Right, then Up/Down</string>
+    <string name="shortcut_snap_corner_action">Hold Win: top corner / half / bottom corner</string>
     <string name="shortcut_close">Alt + F4</string>
     <string name="shortcut_close_action">Close active window</string>
     <string name="shortcut_back">Win + Backspace</string>

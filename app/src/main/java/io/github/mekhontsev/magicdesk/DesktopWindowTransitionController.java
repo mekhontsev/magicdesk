@@ -36,6 +36,10 @@ final class DesktopWindowTransitionController {
     static final int SHORTCUT_SNAP_LEFT = 3;
     static final int SHORTCUT_SNAP_RIGHT = 4;
     static final int SHORTCUT_CLOSE = 5;
+    static final int SHORTCUT_SNAP_TOP_LEFT = 6;
+    static final int SHORTCUT_SNAP_TOP_RIGHT = 7;
+    static final int SHORTCUT_SNAP_BOTTOM_LEFT = 8;
+    static final int SHORTCUT_SNAP_BOTTOM_RIGHT = 9;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final long STARTUP_IMMERSIVE_SETTLE_MILLIS = 1_000L;
@@ -124,7 +128,11 @@ final class DesktopWindowTransitionController {
         return shortcut == SHORTCUT_CLOSE
                 || shortcut == SHORTCUT_RESTORE
                 || shortcut == SHORTCUT_SNAP_LEFT
-                || shortcut == SHORTCUT_SNAP_RIGHT;
+                || shortcut == SHORTCUT_SNAP_RIGHT
+                || shortcut == SHORTCUT_SNAP_TOP_LEFT
+                || shortcut == SHORTCUT_SNAP_TOP_RIGHT
+                || shortcut == SHORTCUT_SNAP_BOTTOM_LEFT
+                || shortcut == SHORTCUT_SNAP_BOTTOM_RIGHT;
     }
 
     static RestoreShortcutAction classifyRestoreShortcut(
@@ -149,10 +157,22 @@ final class DesktopWindowTransitionController {
                 applyRestoreShortcut(task);
                 break;
             case SHORTCUT_SNAP_LEFT:
-                snap(task, true);
+                snap(task, true, 0);
                 break;
             case SHORTCUT_SNAP_RIGHT:
-                snap(task, false);
+                snap(task, false, 0);
+                break;
+            case SHORTCUT_SNAP_TOP_LEFT:
+                snap(task, true, -1);
+                break;
+            case SHORTCUT_SNAP_TOP_RIGHT:
+                snap(task, false, -1);
+                break;
+            case SHORTCUT_SNAP_BOTTOM_LEFT:
+                snap(task, true, 1);
+                break;
+            case SHORTCUT_SNAP_BOTTOM_RIGHT:
+                snap(task, false, 1);
                 break;
             case SHORTCUT_CLOSE:
                 close(task);
@@ -366,14 +386,22 @@ final class DesktopWindowTransitionController {
 
     private void snap(
             final TaskRepository.TaskEntry task,
-            final boolean left) {
+            final boolean left,
+            final int row) {
+        final Rect targetBounds = mNativeWindowBounds.getSnappedBounds(left, row);
+        final DesktopTaskRuntimeState state = mTaskStates.state(task.taskId);
+        if (state.pendingSnapBounds() != null) {
+            // The fullscreen exit owns its transaction; apply the latest snap
+            // rectangle after that same task has returned to freeform.
+            state.setPendingSnapBounds(targetBounds);
+            return;
+        }
         if (!task.isFreeform()) {
-            snapFullscreenTask(task, left);
+            snapFullscreenTask(task, targetBounds);
             return;
         }
         mNativeWindowBounds.rememberRestoreBounds(task);
-        mNativeWindowBounds.requestBounds(
-                task, mNativeWindowBounds.getSnappedBounds(left), true);
+        mNativeWindowBounds.requestBounds(task, targetBounds, true);
     }
 
     void setWindowBounds(
@@ -385,7 +413,7 @@ final class DesktopWindowTransitionController {
 
     private void snapFullscreenTask(
             final TaskRepository.TaskEntry task,
-            final boolean left) {
+            final Rect targetBounds) {
         final int taskId = task.taskId;
         final DesktopTaskRuntimeState state = mTaskStates.state(taskId);
         if (!state.beginFullscreenRestoreTransition()) {
@@ -407,8 +435,7 @@ final class DesktopWindowTransitionController {
             }
         }
         state.setManualImmersiveOverride(true);
-        final Rect targetBounds =
-                mNativeWindowBounds.getSnappedBounds(left);
+        state.setPendingSnapBounds(targetBounds);
         final Rect workAreaBounds =
                 mNativeWindowBounds.getTaskbarMaximizedBounds();
         final TaskRepository.ActionCallback callback =
@@ -416,6 +443,8 @@ final class DesktopWindowTransitionController {
                     if (!mTaskStates.isCurrent(taskId, state)) {
                         return;
                     }
+                    final Rect latestBounds = state.pendingSnapBounds();
+                    state.setPendingSnapBounds(null);
                     state.finishFullscreenTransition();
                     if (!result.success) {
                         Log.w(TAG,
@@ -427,9 +456,13 @@ final class DesktopWindowTransitionController {
                     if (state.windowRestoreBounds() == null) {
                         state.setWindowRestoreBounds(restoreBounds);
                     }
+                    state.setArrangedWindowBounds(targetBounds);
                     state.clearFullscreenRestoreBounds();
                     state.setAppRequestedFullscreen(false);
                     rememberWindowed(task, targetBounds, workAreaBounds);
+                    if (latestBounds != null && !latestBounds.equals(targetBounds)) {
+                        mNativeWindowBounds.requestBounds(task, latestBounds, true);
+                    }
                     mRuntimeState.focusTask(taskId);
                     mRuntimeState.scheduleRefresh();
                 });
