@@ -77,6 +77,7 @@ public final class WindowCompletionRegressionTest {
                     void setFullscreenRestoreBounds(Rect bounds) {}
                     void clearFullscreenRestoreBounds() {}
                     void setAppRequestedFullscreen(boolean value) {}
+                    void setManualImmersiveOverride(boolean value) {}
                 }
                 static class States {
                     final Map<Integer, DesktopTaskRuntimeState> states = new HashMap<>();
@@ -119,6 +120,8 @@ public final class WindowCompletionRegressionTest {
                 final DisplayState mDisplayTaskState = new DisplayState();
                 final Handler mHandler = new Handler();
                 final Map<DesktopTaskRuntimeState, TaskRepository.ActionCallback> mFullscreenCompletions = new LinkedHashMap<>();
+                final Map<Integer, Long> mHostedImmersiveVersions = new LinkedHashMap<>();
+                static class BuiltInWindowRegistry { static void rejectImmersive(int task, long version) {} }
                 static final String TAG = "test";
                 TaskRepository.ActionCallback submitted;
                 void rememberWindowed(TaskRepository.TaskEntry task, Rect bounds, Rect workArea) {}

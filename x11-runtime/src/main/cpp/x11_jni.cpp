@@ -33,7 +33,8 @@ const LorieCallbacks callbacks = {
         auto* c = (Connection*)ptr;
         c->env->CallVoidMethod(c->owner, c->disconnected);
     },
-    .window = [](void* ptr, uint32_t id, const char* name, const uint32_t* pixels, bool removed, bool mapped) {
+    .window = [](void* ptr, uint32_t id, const char* name, const uint32_t* pixels, bool removed, bool mapped,
+            bool managed, uint32_t serial, bool requested, bool actual) {
         auto* c = (Connection*)ptr;
         JNIEnv* env = c->env;
         if (env->ExceptionCheck()) return;
@@ -47,7 +48,8 @@ const LorieCallbacks callbacks = {
         jbyteArray title = env->NewByteArray(size);
         if (title) {
             env->SetByteArrayRegion(title, 0, size, (const jbyte*)name);
-            env->CallVoidMethod(c->owner, c->window, (jint)id, title, icon, (jboolean)removed, (jboolean)mapped);
+            env->CallVoidMethod(c->owner, c->window, (jint)id, title, icon, (jboolean)removed, (jboolean)mapped,
+                    (jboolean)managed, (jint)serial, (jboolean)requested, (jboolean)actual);
             env->DeleteLocalRef(title);
         }
         if (icon) env->DeleteLocalRef(icon);
@@ -92,7 +94,7 @@ extern "C" JNIEXPORT jlong JNICALL JNI(X11Session_nativeCreate)(JNIEnv* env, job
     jclass cls = env->GetObjectClass(owner);
     c->frame = env->GetMethodID(cls, "onNativeFrame", "(IIIII)V");
     c->disconnected = env->GetMethodID(cls, "onNativeDisconnected", "()V");
-    c->window = env->GetMethodID(cls, "onNativeWindow", "(I[B[IZZ)V");
+    c->window = env->GetMethodID(cls, "onNativeWindow", "(I[B[IZZZIZZ)V");
     c->windows = env->GetMethodID(cls, "onNativeWindowsCommitted", "()V");
     c->data = env->GetMethodID(cls, "onNativeData", "(IIIIIIIILjava/lang/String;I)V");
     env->DeleteLocalRef(cls);

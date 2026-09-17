@@ -370,7 +370,9 @@ capture operation and returns exact ARGB and component values.
 
 `get_state.x11[]` exposes retained X session identities, names, allocated
 `display`, lifecycle `state`, `error`, application ownership and the current
-window catalog (`id`, `title`, `mapped`). These are X11 identities, not Android
+window catalog (`id`, `title`, `mapped`, `hostManaged`, and `fullscreen` with
+`serial`, `requested`, `actual`). Requested fullscreen is not proof of a completed
+Android transition. These are X11 identities, not Android
 display/task IDs. Tokens, Xauthority cookies and startup commands are omitted.
 Each session also reports its resolved X11 `dpi` and relative `scalePercent`.
 `runtime.x11Sessions` is the live session count. The X11 built-in uses ordinary

@@ -25,6 +25,7 @@ public final class X11LaunchSpecTest {
         X11LaunchSpec spec = new X11LaunchSpec("/path with 'quote/app.apk", "/lib", "org.example.host", "com.example.termux", "/termux/home", 192, true);
         assertTrue(spec.serverCommand.contains("-displayfd 1 -dpi 192 -noreset -nolisten tcp"));
         assertTrue(spec.serverCommand.contains("MAGICDESK_X11_XSETTINGS=1"));
+        assertTrue(spec.serverCommand.contains("MAGICDESK_X11_HOST_WM=1"));
         assertTrue(spec.serverCommand.contains("CLASSPATH=" + ShellCommandLine.quote("/path with 'quote/app.apk")));
         assertTrue(spec.serverCommand.contains("MAGICDESK_X11_EXECUTOR='com.example.termux'"));
         assertTrue(spec.serverCommand.contains("MAGICDESK_X11_LIBRARY='/lib/libXlorie.so'"));
@@ -42,6 +43,7 @@ public final class X11LaunchSpecTest {
         X11LaunchSpec a = new X11LaunchSpec("/app.apk", "/lib", "org.example.host", "com.example.termux", "/one/home", 96, false);
         X11LaunchSpec b = new X11LaunchSpec("/app.apk", "/lib", "org.example.host", "com.example.termux", "/two/home", 96, true);
         assertTrue(a.serverCommand.contains("MAGICDESK_X11_XSETTINGS=0"));
+        assertTrue(a.serverCommand.contains("MAGICDESK_X11_HOST_WM=0"));
         String command = "cd ~/work && firefox --new-instance";
         assertNotEquals(a.id, b.id);
         assertNotEquals(a.token, b.token);

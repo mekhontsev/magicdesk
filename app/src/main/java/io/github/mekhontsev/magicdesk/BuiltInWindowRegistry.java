@@ -17,6 +17,11 @@ final class BuiltInWindowRegistry {
     interface PresentationSource {
         Presentation taskPresentation();
     }
+    record ImmersiveRequest(long version, boolean requested, boolean foreground) { }
+    interface ImmersiveSource {
+        ImmersiveRequest immersiveRequest();
+        void onImmersiveRejected();
+    }
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final List<WeakReference<Activity>> WINDOWS =
             new ArrayList<>();
@@ -52,6 +57,35 @@ final class BuiltInWindowRegistry {
             }
         }
         return null;
+    }
+
+    static ImmersiveRequest immersiveRequest(int taskId) {
+        synchronized (WINDOWS) {
+            for (WeakReference<Activity> reference : WINDOWS) {
+                Activity activity = reference.get();
+                if (activity != null && !activity.isDestroyed() && !activity.isFinishing()
+                        && activity.getTaskId() == taskId && activity instanceof ImmersiveSource source)
+                    return source.immersiveRequest();
+            }
+        }
+        return null;
+    }
+
+    static void rejectImmersive(int taskId, long version) {
+        MAIN.post(() -> {
+            ImmersiveSource recipient = null;
+            synchronized (WINDOWS) {
+                for (WeakReference<Activity> reference : WINDOWS) {
+                    Activity activity = reference.get();
+                    if (activity != null && !activity.isDestroyed() && !activity.isFinishing()
+                            && activity.getTaskId() == taskId && activity instanceof ImmersiveSource source) {
+                        ImmersiveRequest request = source.immersiveRequest();
+                        if (request != null && request.version() == version) recipient = source;
+                    }
+                }
+            }
+            if (recipient != null) recipient.onImmersiveRejected();
+        });
     }
 
     static AppItem present(final Context context, final AppItem app, final TaskRepository.TaskEntry task) {

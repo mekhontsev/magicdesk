@@ -26,7 +26,8 @@ public final class X11Session implements AutoCloseable {
         default void onDragEvent(int operation, int output, boolean accepted) { }
     }
 
-    public record Window(long id, String title, boolean mapped, Bitmap icon) { }
+    public record Window(long id, String title, boolean mapped, Bitmap icon,
+            boolean hostManaged, int fullscreenSerial, boolean fullscreenRequested, boolean fullscreenActual) { }
 
     private static final int BIND = 0, RESIZE = 1, POINTER = 2, KEY = 3, RELEASE = 4, FOCUS = 5;
     private final HandlerThread thread = new HandlerThread("X11Session");
@@ -123,7 +124,16 @@ public final class X11Session implements AutoCloseable {
         });
     }
 
-    private void onNativeWindow(int id, byte[] title, int[] pixels, boolean removed, boolean mapped) {
+    /** Reports a completed host transition. The server ignores replies to superseded requests. */
+    public void confirmFullscreen(long windowId, int serial, boolean fullscreen) {
+        if (windowId <= 0 || windowId > 0xffffffffL) throw new IllegalArgumentException("Invalid X11 window ID");
+        post(() -> {
+            if (connected) nativeCommand(nativeHandle, 0, (int)windowId, 10, serial, 0, 0, fullscreen);
+        });
+    }
+
+    private void onNativeWindow(int id, byte[] title, int[] pixels, boolean removed, boolean mapped,
+            boolean hostManaged, int fullscreenSerial, boolean fullscreenRequested, boolean fullscreenActual) {
         if (removed) windows.remove(id);
         else {
             Bitmap icon = pixels == null ? null : Bitmap.createBitmap(pixels, 64, 64, Bitmap.Config.ARGB_8888);
@@ -133,7 +143,8 @@ public final class X11Session implements AutoCloseable {
                 icon = previous.icon();
             }
             windows.put(id, new Window(Integer.toUnsignedLong(id),
-                    new String(title, java.nio.charset.StandardCharsets.UTF_8), mapped, icon));
+                    new String(title, java.nio.charset.StandardCharsets.UTF_8), mapped, icon,
+                    hostManaged, fullscreenSerial, fullscreenRequested, fullscreenActual));
         }
         windowsChanged = true;
     }

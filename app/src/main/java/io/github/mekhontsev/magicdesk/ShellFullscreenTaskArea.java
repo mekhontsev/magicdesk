@@ -95,6 +95,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             final int displayId,
             final int taskId,
             final Rect restoreBounds,
+            final boolean refreshCaption,
             final int densityDpi) {
         if (displayId != mDisplayId || restoreBounds == null
                 || restoreBounds.isEmpty()) {
@@ -104,7 +105,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                 service,
                 displayId,
                 taskId,
-                false,
+                refreshCaption,
                 densityDpi,
                 mOwnership);
         if (entered) {

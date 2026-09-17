@@ -143,6 +143,7 @@ final class X11Sessions {
         private volatile List<X11Session.Window> windows = List.of();
         private Listener clipboardOwner;
         private final java.util.Set<Long> presentedWindows = new java.util.HashSet<>();
+        private final java.util.Map<Long, Object> fullscreenOwners = new java.util.HashMap<>();
 
         Session(Context context, TermuxIntegration.Endpoint endpoint, String name, String command,
                 String directory, boolean application, int densityDpi, String desktopFile, RecentApplicationStore.Entry recipe) {
@@ -206,6 +207,17 @@ final class X11Sessions {
         List<X11Session.Window> windows() { return windows; }
         boolean claimWindow(long id) { return presentedWindows.add(id); }
         void releaseWindowClaim(long id) { presentedWindows.remove(id); }
+        boolean claimFullscreen(long id, Object host) {
+            return fullscreenOwners.computeIfAbsent(id, key -> host) == host;
+        }
+        void releaseFullscreen(Object host) {
+            if (fullscreenOwners.values().removeIf(value -> value == host)) changed();
+        }
+        void confirmFullscreen(long id, Object host, int serial, boolean fullscreen) {
+            X11Session current = renderer;
+            if (fullscreenOwners.get(id) == host && current != null && state == State.READY)
+                current.confirmFullscreen(id, serial, fullscreen);
+        }
         void claimClipboard(Listener owner) {
             clipboardOwner = owner;
             X11Session current = renderer;
@@ -294,6 +306,7 @@ final class X11Sessions {
                         if (stopped()) return;
                         windows = snapshot;
                         presentedWindows.retainAll(snapshot.stream().map(X11Session.Window::id).toList());
+                        fullscreenOwners.keySet().retainAll(snapshot.stream().map(X11Session.Window::id).toList());
                         if (!snapshot.isEmpty()) {
                             boolean first = !hadWindows;
                             hadWindows = true;

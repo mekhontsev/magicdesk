@@ -1656,6 +1656,12 @@ flow through the existing X catalog into Android task descriptions and
 `BuiltInWindowRegistry.PresentationSource`. Taskbar/overview/picker presentation
 can vary per window without changing its profile-scoped Android launch identity
 or introducing a second task observer.
+Dedicated application sessions also forward EWMH fullscreen requests and
+versioned host acknowledgements. `HostedFullscreen` owns ordinary Android
+immersive presentation, and `BuiltInWindowRegistry.ImmersiveSource` supplies
+explicit local intent to the existing Desktop reconciler independently of
+firmware insets-observation support. Only Desktop-owned tasks participate in
+that reconciliation; no host opens a Desktop or directly manipulates task areas.
 See [Embedded X11](x11.md) for lifecycle, build and current integration scope.
 
 `X11Density` selects one density owner among a session's Android hosts. Activity

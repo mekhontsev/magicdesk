@@ -54,6 +54,7 @@ final class DesktopWindowTransitionController {
     private final DesktopWindowTransitionGateway mGateway;
     private final Map<DesktopTaskRuntimeState, TaskRepository.ActionCallback>
             mFullscreenCompletions = new LinkedHashMap<>();
+    private final Map<Integer, Long> mHostedImmersiveVersions = new LinkedHashMap<>();
 
     DesktopWindowTransitionController(
             final AppProfile profile,
@@ -323,6 +324,7 @@ final class DesktopWindowTransitionController {
     }
 
     void forgetTaskState(final int taskId) {
+        mHostedImmersiveVersions.remove(taskId);
         final DesktopTaskRuntimeState state = mTaskStates.find(taskId);
         final boolean transitionPending = state != null
                 && state.isFullscreenTransition();
@@ -336,6 +338,7 @@ final class DesktopWindowTransitionController {
     }
 
     void cancelPendingTransitions(final String reason) {
+        mHostedImmersiveVersions.clear();
         final Map<DesktopTaskRuntimeState, TaskRepository.ActionCallback> pending =
                 new LinkedHashMap<>(mFullscreenCompletions);
         mFullscreenCompletions.clear();
@@ -362,9 +365,36 @@ final class DesktopWindowTransitionController {
             final List<TaskRepository.TaskEntry> allTasks,
             final List<TaskRepository.TaskEntry> visibleFreeformTasks,
             final boolean focusHandoffPending) {
+        reconcileHostedImmersiveRequests(allTasks);
         reconcileSubmittedAppFullscreenTransitions(allTasks);
         reconcileImmersiveRequests(
                 allTasks, visibleFreeformTasks, focusHandoffPending);
+    }
+
+    private void reconcileHostedImmersiveRequests(List<TaskRepository.TaskEntry> tasks) {
+        Set<Integer> live = new HashSet<>();
+        for (TaskRepository.TaskEntry task : tasks) {
+            BuiltInWindowRegistry.ImmersiveRequest request = BuiltInWindowRegistry.immersiveRequest(task.taskId);
+            if (request == null) continue;
+            live.add(task.taskId);
+            DesktopTaskRuntimeState state = mTaskStates.state(task.taskId);
+            Long previous = mHostedImmersiveVersions.put(task.taskId, request.version());
+            if (previous == null || previous != request.version()) {
+                state.setManualImmersiveOverride(false);
+                DesktopWindowTransitionProvenance.noteApplicationRequest(task.taskId, request.requested());
+            }
+            // Local application intent is authoritative even on API 35 firmware
+            // without TaskInfo requested-insets publication. No extra task poll.
+            state.updateImmersiveObservation(request.requested(), request.foreground());
+        }
+        for (Integer taskId : mHostedImmersiveVersions.keySet()) {
+            if (live.contains(taskId)) continue;
+            DesktopTaskRuntimeState state = mTaskStates.find(taskId);
+            // An explicit local provider's disappearance withdraws its intent;
+            // it is not a synthesized negative framework observation.
+            if (state != null) state.updateImmersiveObservation(false, true);
+        }
+        mHostedImmersiveVersions.keySet().retainAll(live);
     }
 
     private void close(final TaskRepository.TaskEntry task) {
@@ -521,6 +551,7 @@ final class DesktopWindowTransitionController {
         }
         final int displayId = mRuntimeState.displayId();
         state.setFullscreenRestoreBounds(task.bounds);
+        final Long hostedVersion = mHostedImmersiveVersions.get(taskId);
         if (!appRequested) {
             rememberWindowed(
                     task,
@@ -554,6 +585,10 @@ final class DesktopWindowTransitionController {
                         state.clearFullscreenRestoreBounds();
                         if (appRequested) {
                             state.setAppRequestedFullscreen(false);
+                            if (hostedVersion != null) {
+                                state.setManualImmersiveOverride(true);
+                                BuiltInWindowRegistry.rejectImmersive(taskId, hostedVersion);
+                            }
                         }
                         Log.w(TAG,
                                 "fullscreen shortcut failed task="

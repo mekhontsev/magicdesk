@@ -658,6 +658,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 displayId,
                 taskId,
                 restoreBounds,
+                refreshFullscreenCaption(),
                 densityDpi);
         reportDesktopTaskOwnership();
         return entered;

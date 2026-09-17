@@ -12,7 +12,8 @@ import android.widget.TextView;
 import io.github.mekhontsev.magicdesk.x11.X11Session;
 
 /** An ordinary Android window onto a retained X server or one selected X client window. */
-public final class X11Activity extends Activity implements X11Sessions.Listener, BuiltInWindowRegistry.PresentationSource {
+public final class X11Activity extends Activity implements X11Sessions.Listener,
+        BuiltInWindowRegistry.PresentationSource, BuiltInWindowRegistry.ImmersiveSource {
     static final String SESSION = "x11_session";
     static final String WINDOW = "x11_window";
     static final String DESKTOP_FILE = "x11_desktop_file";
@@ -31,6 +32,9 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
     private boolean application;
     private volatile BuiltInWindowRegistry.Presentation presentation;
     private HostedContentExchange exchange;
+    private volatile HostedFullscreen fullscreen;
+    private int fullscreenSerial;
+    private boolean hasFullscreenSerial;
 
     static Intent createIntent(Context context) { return new Intent(context, X11Activity.class); }
 
@@ -80,6 +84,7 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
     }
 
     private void select(X11Sessions.Session next) {
+        releaseFullscreen();
         releaseExchange();
         if (session != null) { session.unlisten(this); session.releaseDensity(this); session.releaseHost(getTaskId()); }
         surface.release();
@@ -132,6 +137,38 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
             } catch (RuntimeException error) { status.setText(ShellAccess.usefulMessage(error)); status.setVisibility(View.VISIBLE); }
         } else if (!ready && output != null) { releaseExchange(); surface.release(); output = null; }
         updateExchangeFocus();
+        updateFullscreen();
+    }
+
+    private void updateFullscreen() {
+        X11Session.Window info = session == null || window == 0 ? null
+                : session.windows().stream().filter(item -> item.id() == window).findFirst().orElse(null);
+        if (output == null || info == null || !info.hostManaged() || !session.claimFullscreen(window, this)) {
+            releaseFullscreen();
+            return;
+        }
+        if (fullscreen == null) fullscreen = new HostedFullscreen(this, surface,
+                actual -> session.confirmFullscreen(window, this, fullscreenSerial, actual));
+        if (!hasFullscreenSerial || fullscreenSerial != info.fullscreenSerial()) {
+            hasFullscreenSerial = true;
+            fullscreenSerial = info.fullscreenSerial();
+            fullscreen.request(info.fullscreenRequested());
+        } else fullscreen.changed();
+    }
+
+    @Override public BuiltInWindowRegistry.ImmersiveRequest immersiveRequest() {
+        return fullscreen == null ? null : fullscreen.snapshot();
+    }
+
+    @Override public void onImmersiveRejected() {
+        if (fullscreen != null) fullscreen.reject();
+    }
+
+    private void releaseFullscreen() {
+        if (fullscreen != null) fullscreen.close();
+        fullscreen = null;
+        hasFullscreenSerial = false;
+        if (session != null) session.releaseFullscreen(this);
     }
 
     @Override public BuiltInWindowRegistry.Presentation taskPresentation() { return presentation; }
@@ -153,11 +190,18 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
         }
         if (focused && surface != null) onChanged();
         else updateExchangeFocus();
+        if (fullscreen != null) fullscreen.changed();
     }
 
     @Override public void onConfigurationChanged(android.content.res.Configuration configuration) {
         super.onConfigurationChanged(configuration);
         updateDensity();
+        if (fullscreen != null) fullscreen.changed();
+    }
+
+    @Override public void onMultiWindowModeChanged(boolean multiWindow, android.content.res.Configuration configuration) {
+        super.onMultiWindowModeChanged(multiWindow, configuration);
+        if (fullscreen != null) fullscreen.changed();
     }
 
     private void updateDensity() {
@@ -202,6 +246,7 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
     }
 
     @Override public void onDestroy() {
+        releaseFullscreen();
         releaseExchange();
         if (isFinishing() && application && window == 0 && session != null) session.close();
         if (isFinishing() && window != 0 && session != null) session.closeWindow(window);

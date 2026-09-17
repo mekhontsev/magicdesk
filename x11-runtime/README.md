@@ -38,6 +38,8 @@ with the host APK as CLASSPATH. The explicit environment contains:
 - `MAGICDESK_X11_LIBRARY`: extracted native library path;
 - `MAGICDESK_X11_CONTENT_DIR`: private imported-file directory;
 - `MAGICDESK_X11_XSETTINGS`: whether this application session owns XSettings;
+- `MAGICDESK_X11_HOST_WM`: enables the native EWMH fullscreen bridge for
+  individually hosted applications; disabled for full Linux desktops;
 - `TMPDIR` and `XKB_CONFIG_ROOT`: paths in the selected execution environment.
 
 `X11ProcessContext` owns the API-34+ app_process Context setup. It does not load

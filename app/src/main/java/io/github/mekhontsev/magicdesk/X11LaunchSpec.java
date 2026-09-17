@@ -39,6 +39,7 @@ final class X11LaunchSpec {
                 + " MAGICDESK_X11_EXECUTOR=" + q(executorPackage)
                 + " MAGICDESK_X11_CONTENT_DIR=\"$runtime/content\""
                 + " MAGICDESK_X11_XSETTINGS=" + (application ? "1" : "0")
+                + " MAGICDESK_X11_HOST_WM=" + (application ? "1" : "0")
                 + " MAGICDESK_X11_SESSION=" + q(id) + " MAGICDESK_X11_TOKEN=" + q(token)
                 + " TMPDIR=\"${PREFIX:?}/tmp\" XKB_CONFIG_ROOT=\"$PREFIX/share/X11/xkb\""
                 + " /system/bin/app_process -Xnoimage-dex2oat / --nice-name=" + q(id)

@@ -125,9 +125,11 @@ this task-transfer path.
 
 When an application initiates immersive mode itself, the long-lived shell task
 observer retains its freeform bounds and does not recreate the Activity. The
-application's own insets request updates its client window; retrying or
-rebuilding the Activity can discard transient state such as the browser's HTML
-Fullscreen API session.
+same active-session caption-refresh policy applies to this path: an application's
+request to hide system bars does not guarantee that its client discards a stale
+caption source. Capture and refresh that source through the existing plane-entry
+operation, without retrying or rebuilding the Activity, which can discard
+transient state such as the browser's HTML Fullscreen API session.
 
 Each fullscreen task enters its own
 organizer-created ordering plane and retains that task/plane relationship for

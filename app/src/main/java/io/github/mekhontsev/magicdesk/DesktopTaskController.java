@@ -235,7 +235,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                             final boolean requesting,
                             final boolean initialSample,
                             final boolean foreground) {
-                        if (mRunning) {
+                        if (mRunning && BuiltInWindowRegistry.immersiveRequest(taskId) == null) {
                             if (!requesting
                                     && !initialSample
                                     && foreground
