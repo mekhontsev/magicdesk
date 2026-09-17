@@ -2135,6 +2135,12 @@ these options to `DisplayPresentations.openViewer`; launch, binding readiness
 and cleanup stay with the existing shared services. A supplied source completes
 only after its Surface attaches, while an interactive selector retains ordinary
 launch acceptance. No timeout cancels an accepted launch.
+The shared `FrameworkActivityLaunchApi` supplies explicit empty launch bounds
+with fullscreen mode for ordinary Activity, PendingIntent and existing-task
+launches. Omitting bounds lets Android's launch-parameter modifier restore a
+persisted freeform mode on a freeform-default display, overriding the requested
+fullscreen mode. This is launch configuration, not a post-launch Viewer repair
+or a change to Desktop task-area ownership.
 The presentation snapshot includes the Viewer's Android task ID, populated by
 its Activity, so automation closes it with the standard `close_task` operation.
 Activity teardown releases the binding; there is no separate MCP attach/detach

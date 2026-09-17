@@ -4,6 +4,7 @@ import android.app.ActivityOptions;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.IBinder;
 
@@ -19,6 +20,9 @@ final class FrameworkActivityLaunchApi {
         if (fullscreen) {
             ActivityOptions.class.getMethod("setLaunchWindowingMode", Integer.TYPE)
                     .invoke(options, 1);
+            // Null bounds let TaskLaunchParamsModifier restore a saved freeform mode
+            // on a freeform-default display, even over an explicit fullscreen request.
+            options.setLaunchBounds(new Rect());
         }
         return options;
     }
