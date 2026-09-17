@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.graphics.drawable.StateListDrawable;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
@@ -434,7 +435,7 @@ final class StartMenuContent {
         final int start = mPage * pageSize;
         final int end = Math.min(menuApps.size(), start + pageSize);
         for (int index = start; index < end; index++) {
-            grid.addView(createAppTile(menuApps.get(index), false),
+            grid.addView(createAppTile(menuApps.get(index)),
                     createTileParams());
         }
         final LinearLayout.LayoutParams gridParams =
@@ -526,24 +527,26 @@ final class StartMenuContent {
                 || mode == MENU_CAPTURE;
     }
 
-    private View createAppTile(
-            final StartMenuEntry application,
-            final boolean selected) {
+    private StateListDrawable entryBackground(final int radius) {
+        final StateListDrawable background = new StateListDrawable();
+        for (final int state : new int[] {android.R.attr.state_selected, android.R.attr.state_focused}) {
+            background.addState(new int[] {state}, mUi.rounded(
+                    DesktopUiFactory.COLOR_PANEL_ALT, dp(radius), DesktopUiFactory.COLOR_AMBER));
+        }
+        background.addState(new int[] {android.R.attr.state_pressed}, mUi.rounded(
+                DesktopUiFactory.COLOR_PANEL_FOCUS, dp(radius), DesktopUiFactory.COLOR_PANEL_FOCUS));
+        background.addState(new int[0], mUi.rounded(
+                DesktopUiFactory.COLOR_PANEL_ALT, dp(radius), DesktopUiFactory.COLOR_PANEL_ALT));
+        return background;
+    }
+
+    private View createAppTile(final StartMenuEntry application) {
         final AppItem app = application.app;
-        final DesktopApplicationRepository.Entry desktopApplication =
-                application.desktopApplication;
         final LinearLayout tile = new LinearLayout(mActivity);
         tile.setOrientation(LinearLayout.VERTICAL);
         tile.setGravity(Gravity.CENTER);
         tile.setPadding(dp(6), dp(5), dp(6), dp(5));
-        tile.setBackground(mUi.rounded(
-                DesktopUiFactory.COLOR_PANEL_ALT,
-                dp(12),
-                selected
-                        ? DesktopUiFactory.COLOR_AMBER
-                        : (app == null || app.canFloat
-                                ? DesktopUiFactory.COLOR_CYAN
-                                : DesktopUiFactory.COLOR_PANEL_ALT)));
+        tile.setBackground(entryBackground(12));
         tile.setClickable(true);
         tile.setFocusable(true);
         tile.setOnClickListener(view -> mHost.open(application));
@@ -718,12 +721,8 @@ final class StartMenuContent {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(8), dp(5), dp(8), dp(5));
-        row.setBackground(mUi.rounded(
-                DesktopUiFactory.COLOR_PANEL_ALT,
-                dp(7),
-                selected
-                        ? DesktopUiFactory.COLOR_AMBER
-                        : DesktopUiFactory.COLOR_PANEL_ALT));
+        row.setBackground(entryBackground(7));
+        row.setSelected(selected);
         row.setClickable(true);
         row.setFocusable(true);
         row.setOnClickListener(view -> openSearchResult(result));

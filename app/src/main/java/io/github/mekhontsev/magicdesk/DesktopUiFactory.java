@@ -25,7 +25,7 @@ public final class DesktopUiFactory {
     public static final int COLOR_CYAN = 0xFF22D3EE;
     static final int COLOR_RED = 0xFFF43F5E;
     static final int COLOR_AMBER = 0xFFF59E0B;
-    private static final int COLOR_PANEL_FOCUS = 0xFF26344A;
+    static final int COLOR_PANEL_FOCUS = 0xFF26344A;
     private static final int MENU_ITEM_HEIGHT_DP = 48;
     private static final int MENU_MAX_WIDTH_DP = 360;
 
