@@ -291,6 +291,34 @@ shared `DisplayWindowingSession` lifecycle, not to a firmware focus policy.
 Focus repair is enabled by default in the Android baseline on every platform;
 an explicit user disable remains effective for subsequent sessions.
 
+## Native Caption Maximize
+
+WMShell's native maximize/restore toggle compares task bounds with its own
+display stable bounds. MagicDesk's taskbar-aware bounds correction does not
+update that native notion of maximization. On RM11 Android 16 HDMI, a native
+double-click expands a 1920x1016 freeform task to 1920x1080, then our correction
+returns it to 1920x1016. The next double-click maximizes again instead of
+restoring. This is a work-area disagreement, not a fullscreen-plane or focus
+failure. Do not infer a restore request from an otherwise ordinary bounds event.
+
+A 2026-09-17 experiment inside the actual MagicDesk APK successfully published
+a visible global 64px bottom `navigationBars` source through `providedInsets`
+on a transparent child of the desktop chrome. The privileged service used UID
+2000 and the app's registered `IWindowSession`; no global session replacement,
+input interception, or task reparenting was needed. A standalone `app_process`
+cannot create its own window session on the tested Android 16 build because
+WindowManager requires an ActivityManager-registered process.
+
+Publishing the inset alone did **not** fix the toggle. Both the inspected
+firmware and AOSP's [DisplayLayout](https://github.com/aosp-mirror/platform_frameworks_base/blob/android15-release/libs/WindowManager/Shell/src/com/android/wm/shell/common/DisplayLayout.java)
+only include navigation-bar insets when `hasNavigationBar` is true. That check
+uses display flags and the global force-desktop setting for external displays,
+not simply the presence of an inset provider. The tested HDMI display did not
+pass it. The experimental publisher was removed; enabling global system
+Desktop or changing application geometry is not an established fix. A future
+solution must reconcile native and MagicDesk work areas, including ordinary
+resize, taskbar visibility, and fullscreen, without guessing caption intent.
+
 ## Submission Constraints
 
 - Do not reparent fullscreen peers into a shared area during selection.
