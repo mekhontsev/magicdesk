@@ -349,7 +349,7 @@ public final class PhoneControlPanelControllerTest {
                     static class string { static int display_show_another = 1, display_stop_showing = 2, display_start_portable = 3; }
                 }
                 static class DesktopDisplayInfo { int id; DesktopDisplayInfo(int value) { id = value; } }
-                static class RuntimeCapabilities { static boolean supportsDesktop(int sdk) { return sdk >= 35; } }
+                static class RuntimeCapabilities { static boolean allowsDesktop(int sdk) { return sdk >= 35; } }
                 enum DisplayPresentationMode {
                     DIRECT, MIRROR;
                     static DisplayPresentationMode forSource(DesktopDisplayInfo d) { return d.id == 72 ? DIRECT : MIRROR; }
@@ -685,28 +685,28 @@ public final class PhoneControlPanelControllerTest {
     public void displaySelectionDoesNotDependOnOtherWorkspaces() {
         final DesktopDisplayInfo phone = display(0, "phone", true, false);
         final DesktopDisplayInfo external = display(5, "virtual", true, true);
-        assertTrue(DisplayTableView.canStart(phone, true, false, 35));
-        assertTrue(DisplayTableView.canStart(phone, true, false, 35));
-        assertTrue(DisplayTableView.canStart(phone, true, false, 35));
-        assertTrue(DisplayTableView.canStart(external, true, false, 35));
-        assertTrue(DisplayTableView.canStart(external, true, false, 35));
-        assertTrue(DisplayTableView.canStart(external, true, false, 35));
-        assertFalse(DisplayTableView.canStart(external, false, false, 35));
-        assertFalse(DisplayTableView.canStart(external, true, true, 35));
-        assertFalse(DisplayTableView.canStart(null, true, false, 35));
+        assertTrue(DisplayTableView.canStart(phone, true, false, RuntimeCapabilities.supportsDesktop(35)));
+        assertTrue(DisplayTableView.canStart(phone, true, false, RuntimeCapabilities.supportsDesktop(35)));
+        assertTrue(DisplayTableView.canStart(phone, true, false, RuntimeCapabilities.supportsDesktop(35)));
+        assertTrue(DisplayTableView.canStart(external, true, false, RuntimeCapabilities.supportsDesktop(35)));
+        assertTrue(DisplayTableView.canStart(external, true, false, RuntimeCapabilities.supportsDesktop(35)));
+        assertTrue(DisplayTableView.canStart(external, true, false, RuntimeCapabilities.supportsDesktop(35)));
+        assertFalse(DisplayTableView.canStart(external, false, false, RuntimeCapabilities.supportsDesktop(35)));
+        assertFalse(DisplayTableView.canStart(external, true, true, RuntimeCapabilities.supportsDesktop(35)));
+        assertFalse(DisplayTableView.canStart(null, true, false, RuntimeCapabilities.supportsDesktop(35)));
         assertFalse(DisplayTableView.canStart(
-                display(6, "internal", false, false), true, false, 35));
-        assertFalse(DisplayTableView.canStart(phone, true, false, 34));
-        assertFalse(DisplayTableView.canStart(external, true, false, 34));
+                display(6, "internal", false, false), true, false, RuntimeCapabilities.supportsDesktop(35)));
+        assertFalse(DisplayTableView.canStart(phone, true, false, RuntimeCapabilities.supportsDesktop(34)));
+        assertFalse(DisplayTableView.canStart(external, true, false, RuntimeCapabilities.supportsDesktop(34)));
     }
 
     @Test public void startIsAvailableForPortableOutputsButStillRequiresDesktopSdk() {
         final var cast = new DesktopDisplayInfo(7, "cast", "Cast", "Cast", "virtual",
                 1920, 1080, 160, false, true, false, false);
-        assertTrue(DisplayTableView.canStart(cast, true, false, 35));
-        assertFalse(DisplayTableView.canStart(cast, true, false, 34));
-        assertFalse(DisplayTableView.canStart(cast, false, false, 35));
-        assertFalse(DisplayTableView.canStart(cast, true, true, 35));
+        assertTrue(DisplayTableView.canStart(cast, true, false, RuntimeCapabilities.supportsDesktop(35)));
+        assertFalse(DisplayTableView.canStart(cast, true, false, RuntimeCapabilities.supportsDesktop(34)));
+        assertFalse(DisplayTableView.canStart(cast, false, false, RuntimeCapabilities.supportsDesktop(35)));
+        assertFalse(DisplayTableView.canStart(cast, true, true, RuntimeCapabilities.supportsDesktop(35)));
     }
 
     static DesktopDisplayInfo display(final int id, final String source,

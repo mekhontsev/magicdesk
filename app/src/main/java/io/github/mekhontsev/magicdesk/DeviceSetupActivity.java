@@ -52,6 +52,13 @@ public final class DeviceSetupActivity extends Activity {
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (!RuntimeCapabilities.allowsDesktop(android.os.Build.VERSION.SDK_INT)) {
+            android.widget.Toast.makeText(this, RuntimeCapabilities.supportsDesktop(android.os.Build.VERSION.SDK_INT)
+                    ? R.string.limit_desktop_disabled : R.string.capability_android_15_required,
+                    android.widget.Toast.LENGTH_LONG).show();
+            finish();
+            return;
+        }
         mSessionProfile = SessionProfile.fromLaunchIntent(this, getIntent());
         mManual = getIntent().getBooleanExtra(EXTRA_MANUAL, false);
         mSetupView = new DeviceSetupView(this);

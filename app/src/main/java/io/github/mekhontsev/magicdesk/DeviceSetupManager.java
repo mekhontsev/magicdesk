@@ -128,6 +128,7 @@ public final class DeviceSetupManager {
     static Audit configure(
             final Context context,
             final SessionProfile sessionProfile) throws IOException {
+        RuntimeCapabilities.requireDesktop();
         final Audit before = audit(context, sessionProfile);
         if (!before.shellReady) {
             throw new IOException(

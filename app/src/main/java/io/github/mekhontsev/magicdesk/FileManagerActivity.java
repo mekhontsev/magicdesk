@@ -225,7 +225,7 @@ public final class FileManagerActivity extends Activity
                     }
                 });
         setContentView(mView.root());
-        mView.setTerminalVisible(TermuxIntegration.isInstalled(this));
+mView.setTerminalVisible(RuntimeLimits.active().termux() && TermuxIntegration.isInstalled(this));
         if (savedInstanceState != null
                 && savedInstanceState.containsKey(STATE_CURRENT_PATH)) {
             mCurrentPath = savedInstanceState.getString(

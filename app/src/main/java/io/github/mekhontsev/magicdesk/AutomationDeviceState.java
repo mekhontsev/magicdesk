@@ -17,13 +17,15 @@ final class AutomationDeviceState {
     final Boolean deviceLocked;
     final Boolean keyguardLocked;
     final int sdk;
+    private final RuntimeLimits.Values mLimits;
 
     AutomationDeviceState(final Boolean interactive, final Boolean deviceLocked,
-            final Boolean keyguardLocked, final int sdk) {
+            final Boolean keyguardLocked, final int sdk, final RuntimeLimits.Values limits) {
         this.interactive = interactive;
         this.deviceLocked = deviceLocked;
         this.keyguardLocked = keyguardLocked;
         this.sdk = sdk;
+        mLimits = limits;
     }
 
     static AutomationDeviceState capture(final Context context) {
@@ -33,7 +35,7 @@ final class AutomationDeviceState {
                 : context.getSystemService(KeyguardManager.class);
         return new AutomationDeviceState(power == null ? null : power.isInteractive(),
                 keyguard == null ? null : keyguard.isDeviceLocked(),
-                keyguard == null ? null : keyguard.isKeyguardLocked(), Build.VERSION.SDK_INT);
+                keyguard == null ? null : keyguard.isKeyguardLocked(), Build.VERSION.SDK_INT, RuntimeLimits.active());
     }
 
     String phoneUiUnavailableReason() {
@@ -48,8 +50,8 @@ final class AutomationDeviceState {
     }
 
     String selfTestUnavailableReason() {
-        return RuntimeCapabilities.supportsDesktop(sdk) ? phoneUiUnavailableReason()
-                : "Desktop self-tests require Android 15 or newer";
+        if (!RuntimeCapabilities.supportsDesktop(sdk)) return "Desktop self-tests require Android 15 or newer";
+        return mLimits.desktopAllowed() ? phoneUiUnavailableReason() : "Desktop is disabled in Limits";
     }
 
     JSONObject toJson(final boolean shellReady) throws JSONException {
@@ -61,7 +63,8 @@ final class AutomationDeviceState {
         if (interactive == null || deviceLocked == null || keyguardLocked == null) {
             actions.put("check_device_state");
         }
-        if (!shellReady) actions.put("check_privileged_service");
+        if (!mLimits.desktopAllowed()) actions.put("check_limits");
+        else if (!shellReady) actions.put("check_privileged_service");
         return new JSONObject().put("interactive", nullable(interactive))
                 .put("deviceLocked", nullable(deviceLocked))
                 .put("keyguardLocked", nullable(keyguardLocked))

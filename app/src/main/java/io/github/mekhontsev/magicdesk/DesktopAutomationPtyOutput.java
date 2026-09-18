@@ -26,7 +26,7 @@ final class DesktopAutomationPtyOutput {
             destination = TerminalOutputTarget.resolve(tmux ? null : id, tmux ? id : null);
             if (destination.requiresTermux()) {
                 final var endpoint = TermuxIntegration.inspect(context);
-                if (!endpoint.available()) return DesktopAutomationResult.failure(endpoint.permissionRequired
+                if (!endpoint.available()) return DesktopAutomationResult.failure(endpoint.canRequestPermission()
                                 ? DesktopAutomationErrorCode.PERMISSION_REQUIRED : DesktopAutomationErrorCode.HOST_UNAVAILABLE,
                         endpoint.packageName + ": " + endpoint.error, false);
             }

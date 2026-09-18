@@ -17,6 +17,13 @@ final class RuntimeCapabilities {
         if (!supportsDesktop(android.os.Build.VERSION.SDK_INT)) {
             throw new UnsupportedOperationException("Desktop requires Android 15 or newer");
         }
+        if (!RuntimeLimits.active().desktopAllowed()) {
+            throw new IllegalStateException("Desktop is disabled in Limits");
+        }
+    }
+
+    static boolean allowsDesktop(int sdk) {
+        return supportsDesktop(sdk) && RuntimeLimits.active().desktopAllowed();
     }
 
     private final int mSdk;
@@ -24,29 +31,33 @@ final class RuntimeCapabilities {
     private final boolean mTermuxInstalled;
     private final boolean mTermuxAuthorized;
     private final DesktopSetupStatus.State mDesktopSetup;
+    private final RuntimeLimits.Values mLimits;
 
     RuntimeCapabilities(final int sdk, final boolean shell, final boolean termuxInstalled,
-            final boolean termuxAuthorized, final DesktopSetupStatus.State desktopSetup) {
+            final boolean termuxAuthorized, final DesktopSetupStatus.State desktopSetup, final RuntimeLimits.Values limits) {
         mSdk = sdk;
         mShell = shell;
         mTermuxInstalled = termuxInstalled;
         mTermuxAuthorized = termuxAuthorized;
         mDesktopSetup = desktopSetup;
+        mLimits = limits;
     }
 
     static RuntimeCapabilities current(final android.content.Context context) {
         final TermuxIntegration.Endpoint termux = TermuxIntegration.inspect(context);
         return new RuntimeCapabilities(android.os.Build.VERSION.SDK_INT, ShellAccess.isReady(),
-                termux.installed, termux.available(), DesktopSetupStatus.current().state());
+                termux.installed, termux.available(), DesktopSetupStatus.current().state(), RuntimeLimits.active());
     }
 
     String missing(final Service service) {
         return switch (service) {
             case AUTOMATION, BUILTIN_UI -> "";
-            case SHELL, VIRTUAL_DISPLAY -> mShell ? "" : "privileged_service";
-            case TERMUX, X11 -> !mTermuxInstalled ? "termux" : !mTermuxAuthorized ? "termux_run_command" : "";
-            case TERMINAL -> mShell || mTermuxInstalled && mTermuxAuthorized ? "" : "terminal_backend";
+            case SHELL, VIRTUAL_DISPLAY -> !mLimits.privilegedAllowed() ? "privileged_disabled" : mShell ? "" : "privileged_service";
+            case TERMUX, X11 -> !mLimits.termux() ? "termux_disabled" : !mTermuxInstalled ? "termux" : !mTermuxAuthorized ? "termux_run_command" : "";
+            case TERMINAL -> mLimits.privilegedAllowed() && mShell
+                    || mLimits.termux() && mTermuxInstalled && mTermuxAuthorized ? "" : "terminal_backend";
             case DESKTOP -> !supportsDesktop(mSdk) ? "android_15"
+                    : !mLimits.desktop() ? "desktop_disabled" : !mLimits.privilegedAllowed() ? "privileged_disabled"
                     : !mShell ? "privileged_service" : switch (mDesktopSetup) {
                         case READY -> "";
                         case CHECKING -> "desktop_setup_checking";
@@ -62,6 +73,9 @@ final class RuntimeCapabilities {
             case "" -> 0;
             case "android_15" -> R.string.capability_android_15_required;
             case "privileged_service" -> R.string.capability_access_required;
+            case "privileged_disabled" -> R.string.limit_privileged_disabled;
+            case "termux_disabled" -> R.string.limit_termux_disabled;
+            case "desktop_disabled" -> R.string.limit_desktop_disabled;
             case "termux" -> R.string.capability_termux_required;
             case "termux_run_command" -> R.string.capability_termux_permission_required;
             case "terminal_backend" -> R.string.capability_terminal_required;

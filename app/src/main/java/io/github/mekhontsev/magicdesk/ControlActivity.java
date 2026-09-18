@@ -247,13 +247,14 @@ public final class ControlActivity extends Activity
 
     @Override
     public void startDesktop(final DesktopDisplayInfo display) {
-        if (!RuntimeCapabilities.supportsDesktop(android.os.Build.VERSION.SDK_INT)) { return; }
+        if (!RuntimeCapabilities.allowsDesktop(android.os.Build.VERSION.SDK_INT)) { return; }
         if (!DeviceSetupManager.isRuntimeAuthorized()) {
             runStartupAudit(() -> startDesktop(display));
             return;
         }
         if (!DisplayTableView.canStart(display, ShellAccess.isReady(),
-                mDisplayOperation || DesktopOperations.isSessionTransitionInProgress(), android.os.Build.VERSION.SDK_INT)) {
+                mDisplayOperation || DesktopOperations.isSessionTransitionInProgress(),
+                RuntimeCapabilities.allowsDesktop(android.os.Build.VERSION.SDK_INT))) {
             return;
         }
         if (display.requiresPortableDesktop) { startPortableDesktop(display); return; }
@@ -283,6 +284,7 @@ public final class ControlActivity extends Activity
     }
 
     @Override public void startPortableDesktop(final DesktopDisplayInfo output) {
+        if (!RuntimeCapabilities.allowsDesktop(android.os.Build.VERSION.SDK_INT)) { return; }
         if (!DeviceSetupManager.isRuntimeAuthorized()) { runStartupAudit(() -> startPortableDesktop(output)); return; }
         if (mDisplayOperation || DesktopOperations.isSessionTransitionInProgress()) return;
         mDisplayOperation = true;
@@ -526,7 +528,7 @@ public final class ControlActivity extends Activity
 
     private void requestAccess() {
         if (mDisplayOperation || mSessionController.isOperationInProgress()) { return; }
-        if (ShellPrivilegePolicy.restartRequired(this)) {
+        if (RuntimeLimits.restartRequired(this)) {
             new android.app.AlertDialog.Builder(this)
                     .setMessage(R.string.access_restart_required)
                     .setNegativeButton(android.R.string.cancel, null)
@@ -562,7 +564,7 @@ public final class ControlActivity extends Activity
                 ShellAccess.isReady() && mPhoneUi.isAvailable(),
                 mProjection.supportsOutputConfiguration(),
                 mWirelessConnectionUiAvailable,
-                ShellPrivilegePolicy.restartRequired(this) ? getString(R.string.access_restart_required)
+                RuntimeLimits.restartRequired(this) ? getString(R.string.access_restart_required)
                         : mStatus,
                 ShellAccess.currentSnapshot().accessLabel(), TermuxIntegration.inspect(this),
                 RuntimeCapabilities.current(this)));

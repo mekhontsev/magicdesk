@@ -60,12 +60,12 @@ final class ShizukuServiceLauncher implements ShellServiceLauncher {
     }
 
     @Override public long bindTimeoutMillis() {
-        return ShellPrivilegePolicy.forceShell() && Shizuku.getUid() == 0
+        return RuntimeLimits.active().access() == RuntimeLimits.Access.SHELL && Shizuku.getUid() == 0
                 ? restrictedLauncher().bindTimeoutMillis() : ShellServiceLauncher.super.bindTimeoutMillis();
     }
 
     @Override public Binding bind(Service service, String tag, ServiceConnection connection) {
-        if (ShellPrivilegePolicy.forceShell() && Shizuku.getUid() == 0) {
+        if (RuntimeLimits.active().access() == RuntimeLimits.Access.SHELL && Shizuku.getUid() == 0) {
             return restrictedLauncher().bind(service, tag, connection);
         }
         final Context context = MagicDeskApplication.applicationContext();

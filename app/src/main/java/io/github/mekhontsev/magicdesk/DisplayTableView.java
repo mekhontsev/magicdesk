@@ -196,7 +196,7 @@ final class DisplayTableView {
         final boolean enabled = display != null && shellReady && !busy;
         updateButton(mStart, active ? R.drawable.ic_eye : R.drawable.ic_play,
                 active ? R.string.display_show : R.string.display_start,
-                canStart(display, shellReady, busy, android.os.Build.VERSION.SDK_INT),
+                canStart(display, shellReady, busy, RuntimeCapabilities.allowsDesktop(android.os.Build.VERSION.SDK_INT)),
                 () -> mActions.startDesktop(display));
         updateButton(mClose, R.drawable.ic_close, R.string.action_close_desktop,
                 enabled && active, () -> mActions.closeDesktop(display));
@@ -226,7 +226,7 @@ final class DisplayTableView {
         updateButton(mStopShowing, R.drawable.ic_close, R.string.display_stop_showing,
                 enabled && session != null, () -> DisplayPresentations.detach(session));
         updateButton(mPortable, R.drawable.ic_file_new_window, R.string.display_start_portable,
-                enabled && RuntimeCapabilities.supportsDesktop(sdk)
+                enabled && RuntimeCapabilities.allowsDesktop(sdk)
                         && DisplayPresentationMode.forSource(display) != DisplayPresentationMode.DIRECT,
                 () -> mActions.startPortableDesktop(display));
     }
@@ -301,8 +301,8 @@ final class DisplayTableView {
                 && (selection.systemDefaultAvailable || !selection.availableModes.isEmpty());
     }
 
-    static boolean canStart(DesktopDisplayInfo display, boolean shellReady, boolean busy, int sdk) {
-        return RuntimeCapabilities.supportsDesktop(sdk) && shellReady && !busy
+    static boolean canStart(DesktopDisplayInfo display, boolean shellReady, boolean busy, boolean desktopAllowed) {
+        return desktopAllowed && shellReady && !busy
                 && display != null && (display.canHostDesktop || display.requiresPortableDesktop);
     }
 

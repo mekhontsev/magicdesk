@@ -9,33 +9,28 @@ import java.nio.file.Path;
 import org.junit.Test;
 
 public final class ShellStartupPolicyTest {
-    @Test public void policyLimitsEitherRootTransportWithoutElevatingShell() throws Exception {
-        RuntimeSourceFixture.verify("""
-                static boolean forced;
-                static boolean forceShell() { return forced; }
-                static class ShellAccess {
-                    static boolean isSupportedServiceUid(int uid) { return uid == 0 || uid == 2000; }
-                }
-                """ + RuntimeSourceFixture.methods("ShellPrivilegePolicy", "targetUid", "verifyServiceUid") + """
-                public static void verify() {
-                    check(targetUid(0) == 0 && targetUid(2000) == 2000, "identity changed without opt-in");
-                    verifyServiceUid(0);
-                    verifyServiceUid(2000);
-                    forced = true;
-                    check(targetUid(0) == 2000 && targetUid(2000) == 2000, "shell restriction not applied");
-                    verifyServiceUid(2000);
-                    try { verifyServiceUid(0); throw new AssertionError("root accepted under shell policy"); }
-                    catch (SecurityException expected) { }
-                    for (boolean force : new boolean[]{true, false}) {
-                        forced = force;
-                        check(targetUid(10001) == 10001, "unknown UID elevated");
-                        for (int uid : new int[]{-1, 1000, 10001}) {
-                            try { verifyServiceUid(uid); throw new AssertionError("unsupported UID accepted"); }
-                            catch (SecurityException expected) { }
-                        }
-                    }
-                }
-                """);
+    @Test public void policyLimitsEitherRootTransportWithoutElevatingShell() {
+        final var root = new RuntimeLimits.Values(RuntimeLimits.Access.ROOT, true, true);
+        final var shell = RuntimeLimits.DEFAULT;
+        final var app = new RuntimeLimits.Values(RuntimeLimits.Access.APP_ONLY, true, true);
+        assertEquals(0, root.targetUid(0));
+        assertEquals(2000, root.targetUid(2000));
+        assertEquals(2000, shell.targetUid(0));
+        assertEquals(2000, shell.targetUid(2000));
+        root.verifyServiceUid(0);
+        root.verifyServiceUid(2000);
+        shell.verifyServiceUid(2000);
+        org.junit.Assert.assertThrows(SecurityException.class, () -> shell.verifyServiceUid(0));
+        for (int uid : new int[]{0, 2000}) {
+            org.junit.Assert.assertThrows(SecurityException.class, () -> app.targetUid(uid));
+            org.junit.Assert.assertThrows(SecurityException.class, () -> app.verifyServiceUid(uid));
+        }
+        for (var policy : new RuntimeLimits.Values[]{root, shell, app}) {
+            for (int uid : new int[]{-1, 1000, 10001}) {
+                org.junit.Assert.assertThrows(SecurityException.class, () -> policy.targetUid(uid));
+                org.junit.Assert.assertThrows(SecurityException.class, () -> policy.verifyServiceUid(uid));
+            }
+        }
     }
 
     @Test public void bootstrapMustReportOnePositivePid() throws Exception {

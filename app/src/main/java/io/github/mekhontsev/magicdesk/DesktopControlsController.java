@@ -185,7 +185,7 @@ final class DesktopControlsController {
                 mActivity.openConsole());
         addActionButton(actionGrid, console);
 
-        if (TermuxIntegration.isInstalled(mActivity)) {
+if (RuntimeLimits.active().termux() && TermuxIntegration.isInstalled(mActivity)) {
             final Button termuxConsole = mUi.actionButton(
                     R.string.console_termux_title,
                     DesktopUiFactory.COLOR_CYAN);

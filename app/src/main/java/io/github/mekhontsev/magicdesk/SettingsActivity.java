@@ -308,8 +308,27 @@ public final class SettingsActivity extends Activity
     }
 
     @Override
-    public void setForceShell(boolean enabled) {
-        saveStartupSetting(ShellPrivilegePolicy.save(this, enabled));
+    public void configureMaximumAccess() {
+        final RuntimeLimits.Access[] levels = RuntimeLimits.Access.values();
+        final String[] labels = java.util.Arrays.stream(levels).map(value -> getString(value.label)).toArray(String[]::new);
+        new AlertDialog.Builder(this).setTitle(R.string.settings_maximum_access)
+                .setSingleChoiceItems(labels, RuntimeLimits.configured(this).access().ordinal(), (dialog, which) -> {
+                    final var current = RuntimeLimits.configured(this);
+                    saveStartupSetting(RuntimeLimits.save(this, new RuntimeLimits.Values(levels[which], current.termux(), current.desktop())));
+                    dialog.dismiss();
+                }).setNegativeButton(android.R.string.cancel, null).show();
+    }
+
+    @Override
+    public void setTermuxEnabled(boolean enabled) {
+        final var current = RuntimeLimits.configured(this);
+        saveStartupSetting(RuntimeLimits.save(this, new RuntimeLimits.Values(current.access(), enabled, current.desktop())));
+    }
+
+    @Override
+    public void setDesktopEnabled(boolean enabled) {
+        final var current = RuntimeLimits.configured(this);
+        saveStartupSetting(RuntimeLimits.save(this, new RuntimeLimits.Values(current.access(), current.termux(), enabled)));
     }
 
     private void saveStartupSetting(boolean saved) {

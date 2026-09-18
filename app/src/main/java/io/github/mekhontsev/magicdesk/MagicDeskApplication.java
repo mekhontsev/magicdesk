@@ -20,7 +20,7 @@ public final class MagicDeskApplication extends Application {
         DesktopHomeStartupGuard.relinquishStaleHome(this);
         IntegrationPackage.active();
         ShellBackend.active();
-        ShellPrivilegePolicy.forceShell();
+        RuntimeLimits.active();
         ShellAccess.initialize();
         DesktopSetupStatus.initialize(this);
         CompatibilityDiagnostics.initialize(this);

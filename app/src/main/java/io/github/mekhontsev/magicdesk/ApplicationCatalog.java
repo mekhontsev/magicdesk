@@ -135,7 +135,7 @@ final class ApplicationCatalog {
         if (!identity.equals(termuxOwner)) {
             termuxOwner = identity;
             icons.reset();
-            termux.reset(endpoint.available() ? "" : "Termux RUN_COMMAND is unavailable");
+            termux.reset(endpoint.error);
         }
         return endpoint.available();
     }

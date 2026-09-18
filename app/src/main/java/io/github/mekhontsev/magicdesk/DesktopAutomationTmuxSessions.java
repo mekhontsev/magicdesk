@@ -28,7 +28,7 @@ final class DesktopAutomationTmuxSessions {
         }
         if (!endpoint.available()) {
             return DesktopAutomationResult.failure(
-                    endpoint.permissionRequired ? DesktopAutomationErrorCode.PERMISSION_REQUIRED
+                    endpoint.canRequestPermission() ? DesktopAutomationErrorCode.PERMISSION_REQUIRED
                             : DesktopAutomationErrorCode.HOST_UNAVAILABLE,
                     endpoint.packageName + ": " + endpoint.error,
                     false);
@@ -56,7 +56,7 @@ final class DesktopAutomationTmuxSessions {
             final var endpoint = TermuxIntegration.inspect(mContext);
             if (!endpoint.available()) {
                 return DesktopAutomationResult.failure(
-                        endpoint.permissionRequired ? DesktopAutomationErrorCode.PERMISSION_REQUIRED
+                        endpoint.canRequestPermission() ? DesktopAutomationErrorCode.PERMISSION_REQUIRED
                                 : DesktopAutomationErrorCode.HOST_UNAVAILABLE,
                         endpoint.packageName + ": " + endpoint.error,
                         false);

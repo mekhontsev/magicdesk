@@ -4,6 +4,36 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public final class RuntimeCapabilitiesTest {
+    @Test public void limitsRestrictServicesWithoutInventingCapabilities() {
+        for (int sdk : new int[]{34, 35, 36}) {
+            for (var access : RuntimeLimits.Access.values()) {
+                for (boolean termux : new boolean[]{false, true}) {
+                    for (boolean desktop : new boolean[]{false, true}) {
+                        final var limits = new RuntimeLimits.Values(access, termux, desktop);
+                        final var caps = new RuntimeCapabilities(sdk, true, true, true,
+                                DesktopSetupStatus.State.READY, limits);
+                        final boolean privileged = access != RuntimeLimits.Access.APP_ONLY;
+                        assertEquals("", caps.missing(RuntimeCapabilities.Service.AUTOMATION));
+                        assertEquals("", caps.missing(RuntimeCapabilities.Service.BUILTIN_UI));
+                        assertEquals(privileged ? "" : "privileged_disabled", caps.missing(RuntimeCapabilities.Service.SHELL));
+                        assertEquals(privileged ? "" : "privileged_disabled", caps.missing(RuntimeCapabilities.Service.VIRTUAL_DISPLAY));
+                        assertEquals(termux ? "" : "termux_disabled", caps.missing(RuntimeCapabilities.Service.TERMUX));
+                        assertEquals(termux ? "" : "termux_disabled", caps.missing(RuntimeCapabilities.Service.X11));
+                        assertEquals(privileged || termux ? "" : "terminal_backend", caps.missing(RuntimeCapabilities.Service.TERMINAL));
+                        assertEquals(sdk < 35 ? "android_15" : !desktop ? "desktop_disabled"
+                                : !privileged ? "privileged_disabled" : "", caps.missing(RuntimeCapabilities.Service.DESKTOP));
+                        final var absent = new RuntimeCapabilities(sdk, false, false, false,
+                                DesktopSetupStatus.State.READY, limits);
+                        assertFalse(absent.missing(RuntimeCapabilities.Service.SHELL).isEmpty());
+                        assertFalse(absent.missing(RuntimeCapabilities.Service.TERMUX).isEmpty());
+                        assertFalse(absent.missing(RuntimeCapabilities.Service.TERMINAL).isEmpty());
+                        assertFalse(absent.missing(RuntimeCapabilities.Service.DESKTOP).isEmpty());
+                    }
+                }
+            }
+        }
+    }
+
     @Test public void desktopFrameworkFloorDoesNotDependOnProvisioning() {
         assertFalse(RuntimeCapabilities.supportsDesktop(34));
         assertTrue(RuntimeCapabilities.supportsDesktop(35));
@@ -11,7 +41,7 @@ public final class RuntimeCapabilitiesTest {
     }
 
     @Test public void servicesAreAvailableBeforeDesktopStartup() {
-        final var caps = new RuntimeCapabilities(35, true, true, true, DesktopSetupStatus.State.READY);
+        final var caps = new RuntimeCapabilities(35, true, true, true, DesktopSetupStatus.State.READY, RuntimeLimits.DEFAULT);
         for (final var service : RuntimeCapabilities.Service.values()) {
             assertEquals(service.name(), "", caps.missing(service));
             assertEquals(service.name(), 0, caps.unavailableMessage(service));
@@ -19,7 +49,7 @@ public final class RuntimeCapabilitiesTest {
     }
 
     @Test public void shellFailureDoesNotGateTermuxOrUi() {
-        final var caps = new RuntimeCapabilities(35, false, true, true, DesktopSetupStatus.State.READY);
+        final var caps = new RuntimeCapabilities(35, false, true, true, DesktopSetupStatus.State.READY, RuntimeLimits.DEFAULT);
         assertEquals("", caps.missing(RuntimeCapabilities.Service.TERMUX));
         assertEquals("", caps.missing(RuntimeCapabilities.Service.BUILTIN_UI));
         assertEquals("", caps.missing(RuntimeCapabilities.Service.AUTOMATION));
@@ -27,16 +57,16 @@ public final class RuntimeCapabilitiesTest {
     }
 
     @Test public void requirementsAreNotClientPermissions() {
-        assertEquals("android_15", new RuntimeCapabilities(34, true, true, true, DesktopSetupStatus.State.READY)
+        assertEquals("android_15", new RuntimeCapabilities(34, true, true, true, DesktopSetupStatus.State.READY, RuntimeLimits.DEFAULT)
                 .missing(RuntimeCapabilities.Service.DESKTOP));
-        assertEquals("termux", new RuntimeCapabilities(35, true, false, false, DesktopSetupStatus.State.READY)
+        assertEquals("termux", new RuntimeCapabilities(35, true, false, false, DesktopSetupStatus.State.READY, RuntimeLimits.DEFAULT)
                 .missing(RuntimeCapabilities.Service.TERMUX));
-        assertEquals("termux_run_command", new RuntimeCapabilities(35, true, true, false, DesktopSetupStatus.State.READY)
+        assertEquals("termux_run_command", new RuntimeCapabilities(35, true, true, false, DesktopSetupStatus.State.READY, RuntimeLimits.DEFAULT)
                 .missing(RuntimeCapabilities.Service.TERMUX));
     }
 
     @Test public void missingTermuxDoesNotGateIndependentServicesOrDesktop() {
-        final var caps = new RuntimeCapabilities(35, true, false, false, DesktopSetupStatus.State.READY);
+        final var caps = new RuntimeCapabilities(35, true, false, false, DesktopSetupStatus.State.READY, RuntimeLimits.DEFAULT);
         for (final var service : RuntimeCapabilities.Service.values()) {
             assertEquals(service.name(), service == RuntimeCapabilities.Service.TERMUX
                             || service == RuntimeCapabilities.Service.X11 ? "termux" : "",
@@ -49,7 +79,7 @@ public final class RuntimeCapabilitiesTest {
             for (boolean shell : new boolean[] {false, true}) {
                 for (boolean installed : new boolean[] {false, true}) {
                     for (boolean authorized : new boolean[] {false, true}) {
-                        final var caps = new RuntimeCapabilities(sdk, shell, installed, authorized, DesktopSetupStatus.State.READY);
+                        final var caps = new RuntimeCapabilities(sdk, shell, installed, authorized, DesktopSetupStatus.State.READY, RuntimeLimits.DEFAULT);
                         assertEquals("", caps.missing(RuntimeCapabilities.Service.AUTOMATION));
                         assertEquals("", caps.missing(RuntimeCapabilities.Service.BUILTIN_UI));
                         assertEquals(shell ? "" : "privileged_service", caps.missing(RuntimeCapabilities.Service.SHELL));
@@ -68,7 +98,7 @@ public final class RuntimeCapabilitiesTest {
 
     @Test public void desktopSetupStatesDoNotGateOtherServices() {
         for (final var setup : DesktopSetupStatus.State.values()) {
-            final var caps = new RuntimeCapabilities(35, true, true, true, setup);
+            final var caps = new RuntimeCapabilities(35, true, true, true, setup, RuntimeLimits.DEFAULT);
             final String expected = switch (setup) {
                 case READY -> "";
                 case CHECKING -> "desktop_setup_checking";
@@ -80,9 +110,9 @@ public final class RuntimeCapabilitiesTest {
                 assertEquals(service.name(), service == RuntimeCapabilities.Service.DESKTOP ? expected : "",
                         caps.missing(service));
             }
-            assertEquals("android_15", new RuntimeCapabilities(34, true, true, true, setup)
+            assertEquals("android_15", new RuntimeCapabilities(34, true, true, true, setup, RuntimeLimits.DEFAULT)
                     .missing(RuntimeCapabilities.Service.DESKTOP));
-            assertEquals("privileged_service", new RuntimeCapabilities(35, false, true, true, setup)
+            assertEquals("privileged_service", new RuntimeCapabilities(35, false, true, true, setup, RuntimeLimits.DEFAULT)
                     .missing(RuntimeCapabilities.Service.DESKTOP));
         }
     }

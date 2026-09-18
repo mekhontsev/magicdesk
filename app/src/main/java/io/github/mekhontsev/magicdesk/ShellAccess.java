@@ -1425,7 +1425,7 @@ public final class ShellAccess {
     }
 
     static void requestPermission() {
-        if (ShellPrivilegePolicy.restartRequired(MagicDeskApplication.applicationContext())) {
+        if (RuntimeLimits.restartRequired(MagicDeskApplication.applicationContext())) {
             throw new IllegalStateException(MagicDeskApplication.applicationContext()
                     .getString(R.string.access_restart_required));
         }

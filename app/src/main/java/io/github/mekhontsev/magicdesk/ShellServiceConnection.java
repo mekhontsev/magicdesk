@@ -27,7 +27,7 @@ final class ShellServiceConnection {
         if (!BuildConfig.SOURCE_ID.equals(service.sourceId())) {
             throw new SecurityException("command service APK build does not match");
         }
-        ShellPrivilegePolicy.verifyServiceUid(service.uid());
+        RuntimeLimits.active().verifyServiceUid(service.uid());
         int desktopToggle = -1;
         String settingError = "";
         try {

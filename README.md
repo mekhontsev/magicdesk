@@ -312,11 +312,13 @@ Files, Console, displays, input and automation use the same implementation.
 With root access, Files and Android-shell terminals can reach paths and perform
 operations allowed to that identity; Termux sessions still run as Termux.
 
-The independent **Limit service to shell UID 2000** setting works with direct
-root and root-backed Shizuku. It reduces the working service's privileges at
-startup, keeping the same baseline used on unrooted phones. It does not revoke
-the application's root-manager grant. Backend and identity changes apply after
-Exit and reopen, never halfway through a session. See
+**Settings > Limits (next app start)** sets **Maximum access** to **Root**, **Shell**
+(default, UID 2000) or **App only**. Root allows the selected launcher's identity
+but never elevates a shell launcher; Shell also restricts root-backed Shizuku and
+direct root. App only never requests privileged access, while authorized Termux
+terminals and X11 remain usable. Independent switches can disable **Termux
+integration** or **Managed Desktop** without changing installed apps or permissions.
+Limits and backend changes apply after Exit and reopen, never halfway through a session. See
 [Privilege boundaries](docs/privilege-modes.md).
 
 ## MagicDesk On A Computer With scrcpy
@@ -602,9 +604,9 @@ Authorization through Shizuku or root applies to privileged operations, not
 every UI action. Files and Android-shell terminals use the connected service's
 identity; Termux uses its own.
 Root users can select **Root (su)** in **Settings > Integrations** instead of
-running Shizuku. The independent **Limit service to shell UID 2000** option
-also applies to root-backed Shizuku. Both settings take effect on the next app
-start. This limits the working service, not the app's root-manager grant.
+running Shizuku. **Limits > Maximum access > Shell** also restricts root-backed
+Shizuku; **App only** disables privileged startup entirely. Settings take effect
+on the next app start. This limits the working service, not the app's root-manager grant.
 MagicDesk does not patch SystemUI or load a kernel module.
 
 MCP is disabled by default and requires a bearer token. Each listener has

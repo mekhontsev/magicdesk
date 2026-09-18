@@ -26,6 +26,13 @@ device validation on that release is still pending.
 
 ## Boundary Enforcement
 
+`RuntimeLimits` freezes the user's access ceiling and Termux/Desktop switches at
+process startup. These can narrow, never increase, the capabilities below.
+App-only startup does not bind or authorize Shizuku/root. Disabling Desktop also
+prevents promotion on privileged-service reconnection and rejects direct service
+Intents while retaining requested independent services. Termux-only tools remain
+available on API 34 with App-only access when Termux integration is enabled.
+
 `RuntimeCapabilities` owns the Desktop SDK floor. Session launch checks it before
 display-profile preparation, and runtime launch checks before starting the
 service. The shared command executor rejects Desktop requests before resolving or creating a target.

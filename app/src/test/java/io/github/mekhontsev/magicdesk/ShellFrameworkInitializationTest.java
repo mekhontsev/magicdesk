@@ -142,8 +142,9 @@ public final class ShellFrameworkInitializationTest {
                         return 1;
                     }
                 }
-                static class ShellPrivilegePolicy {
-                    static void verifyServiceUid(int uid) {
+                static class RuntimeLimits {
+                    static RuntimeLimits active() { return new RuntimeLimits(); }
+                    void verifyServiceUid(int uid) {
                         if ((uid != 0 && uid != 2000) || (forceShell && uid != 2000))
                             throw new SecurityException("unexpected UID");
                     }

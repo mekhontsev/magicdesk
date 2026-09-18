@@ -71,13 +71,14 @@ final class TermuxIntegration {
     }
 
     static Endpoint inspect(final Context context) {
+        final boolean enabled = RuntimeLimits.active().termux();
         final String selected = IntegrationPackage.TERMUX.selected();
         final PackageManager packages = context.getPackageManager();
         final android.content.pm.ApplicationInfo app;
         try {
             app = packages.getApplicationInfo(selected, PackageManager.ApplicationInfoFlags.of(0));
         } catch (PackageManager.NameNotFoundException error) {
-            return new Endpoint(selected, false, null, "", -1, false,
+            return new Endpoint(selected, enabled, false, null, "", -1, false,
                     "Selected Termux package is not installed");
         }
         final String home = app.dataDir + "/files/home";
@@ -85,7 +86,7 @@ final class TermuxIntegration {
                 new Intent(ACTION_RUN_COMMAND).setPackage(selected),
                 PackageManager.ResolveInfoFlags.of(0));
         if (matches.size() != 1) {
-            return new Endpoint(selected, true, null, home, app.uid, false,
+            return new Endpoint(selected, enabled, true, null, home, app.uid, false,
                     "Expected one compatible RUN_COMMAND service, found " + matches.size());
         }
         final ServiceInfo service = matches.get(0).serviceInfo;
@@ -94,7 +95,7 @@ final class TermuxIntegration {
         final boolean permissionRequired = compatibilityError.isEmpty()
                 && RUN_COMMAND_PERMISSION.equals(service.permission)
                 && context.checkSelfPermission(RUN_COMMAND_PERMISSION) != PackageManager.PERMISSION_GRANTED;
-        return new Endpoint(selected, true, new ComponentName(selected, service.name), home, app.uid,
+        return new Endpoint(selected, enabled, true, new ComponentName(selected, service.name), home, app.uid,
                 permissionRequired, permissionRequired
                         ? "Termux RUN_COMMAND permission is not granted" : compatibilityError);
     }
@@ -111,25 +112,30 @@ final class TermuxIntegration {
     /** One resolved recipient; in-flight commands never reread the user's selection. */
     static final class Endpoint {
         final String packageName;
+        final boolean enabled;
         final boolean installed;
         final ComponentName service;
         final String homeDirectory;
         final String error;
+        final String capabilityError;
         final int uid;
         final boolean permissionRequired;
 
-        Endpoint(final String packageName, final boolean installed, final ComponentName service,
+        Endpoint(final String packageName, final boolean enabled, final boolean installed, final ComponentName service,
                 final String homeDirectory, final int uid, final boolean permissionRequired, final String error) {
             this.packageName = packageName;
+            this.enabled = enabled;
             this.installed = installed;
             this.service = service;
             this.homeDirectory = homeDirectory;
-            this.error = error;
+            this.capabilityError = error;
+            this.error = enabled ? error : "Termux integration is disabled in Limits";
             this.uid = uid;
             this.permissionRequired = permissionRequired;
         }
 
         boolean available() { return error.isEmpty(); }
+        boolean canRequestPermission() { return enabled && permissionRequired; }
 
         void requireAvailable() {
             if (!available()) { throw new IllegalStateException(packageName + ": " + error); }
@@ -137,6 +143,7 @@ final class TermuxIntegration {
 
         JSONObject toJson() throws JSONException {
             return new JSONObject().put("package", packageName).put("installed", installed)
+                    .put("enabled", enabled).put("capabilityError", capabilityError)
                     .put("available", available()).put("homeDirectory", homeDirectory)
                     .put("uid", uid).put("permissionRequired", permissionRequired)
                     .put("service", service == null ? JSONObject.NULL : service.flattenToString())
@@ -162,7 +169,7 @@ final class TermuxIntegration {
     static boolean ensureRunCommandPermission(final Activity activity) {
         final Endpoint endpoint = inspect(activity);
         if (endpoint.available()) { return true; }
-        if (!endpoint.permissionRequired) {
+        if (!endpoint.canRequestPermission()) {
             android.widget.Toast.makeText(activity, endpoint.packageName + ": " + endpoint.error,
                     android.widget.Toast.LENGTH_LONG).show();
             return false;

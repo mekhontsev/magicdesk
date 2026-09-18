@@ -522,7 +522,7 @@ public final class MagicDeskRuntimeService extends Service
         // A direct service Intent must not crash independent services on an OS
         // that cannot host Desktop. Public Desktop entry points reject earlier.
         if (MagicDeskRuntime.isAutomationStart(intent)
-                || !RuntimeCapabilities.supportsDesktop(android.os.Build.VERSION.SDK_INT)) {
+                || !RuntimeCapabilities.allowsDesktop(android.os.Build.VERSION.SDK_INT)) {
             if (!MagicDeskMcpPreferences.isEnabled(this) && !mInitialized && !mToolsRequested) {
                 stopSelf();
                 return START_NOT_STICKY;
@@ -689,7 +689,7 @@ public final class MagicDeskRuntimeService extends Service
         }
         if (!mInitialized) {
             if (ShellAccess.isReady()
-                    && RuntimeCapabilities.supportsDesktop(android.os.Build.VERSION.SDK_INT)
+                    && RuntimeCapabilities.allowsDesktop(android.os.Build.VERSION.SDK_INT)
                     && DesktopHomeRoleLease.snapshot() != null) {
                 initialize();
             }

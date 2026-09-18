@@ -480,11 +480,11 @@ public final class CommandConsoleActivity extends Activity
         }
         if (mBackend == DesktopExecBackend.TERMUX) {
             final TermuxIntegration.Endpoint endpoint = TermuxIntegration.inspect(this);
-            if (!endpoint.available() && !endpoint.permissionRequired) {
+            if (!endpoint.available() && !endpoint.canRequestPermission()) {
                 failTerminal(endpoint.packageName + ": " + endpoint.error);
                 return;
             }
-            if (endpoint.permissionRequired) {
+            if (endpoint.canRequestPermission()) {
                 mTerminalStatus = getString(
                         R.string.console_termux_permission_required);
                 updateShellStatus();

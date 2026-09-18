@@ -26,7 +26,7 @@ public final class DesktopSetupStatusTest {
                     Thread(Runnable run, String name) { this.run = run; }
                     void start() { workers.add(run); }
                 }
-                static class RuntimeCapabilities { static boolean supportsDesktop(int value) { return value >= 35; } }
+                static class RuntimeCapabilities { static boolean allowsDesktop(int value) { return value >= 35; } }
                 static class ShellAccess {
                     static boolean ready;
                     static java.util.function.Consumer<Access> listener;

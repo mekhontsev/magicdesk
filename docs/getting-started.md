@@ -22,8 +22,10 @@ For shell-backed operations:
 
 Alternatively, on a rooted phone, choose **Settings > Integrations > Privileged
 service > Root (su)** and restart MagicDesk. Approve its request in the root
-manager. **Limit service to shell UID 2000** is a separate next-start setting
-for either direct root or root-backed Shizuku. No root is required for the
+manager. **Settings > Limits > Maximum access** defaults to **Shell** (UID 2000)
+for either direct root or root-backed Shizuku. Choose **Root** to permit UID 0,
+or **App only** to disable privileged startup. These changes apply after full
+Exit and reopen; Termux and Desktop have independent Limits switches. No root is required for the
 normal Shizuku path. See [Privilege boundaries](privilege-modes.md).
 
 MagicDesk does not start Shizuku itself or require root. After a reboot,

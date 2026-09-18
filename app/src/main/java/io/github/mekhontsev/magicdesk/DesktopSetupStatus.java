@@ -21,7 +21,7 @@ final class DesktopSetupStatus {
     private DesktopSetupStatus() { }
 
     static void initialize(Context context) {
-        if (!RuntimeCapabilities.supportsDesktop(android.os.Build.VERSION.SDK_INT)) return;
+        if (!RuntimeCapabilities.allowsDesktop(android.os.Build.VERSION.SDK_INT)) return;
         synchronized (DesktopSetupStatus.class) {
             if (sInitialized) return;
             sInitialized = true;
@@ -47,7 +47,7 @@ final class DesktopSetupStatus {
     static void removeListener(Runnable listener) { LISTENERS.remove(listener); }
 
     static void refresh(Context context) {
-        if (!RuntimeCapabilities.supportsDesktop(android.os.Build.VERSION.SDK_INT) || !ShellAccess.isReady()) return;
+        if (!RuntimeCapabilities.allowsDesktop(android.os.Build.VERSION.SDK_INT) || !ShellAccess.isReady()) return;
         final Context app = context.getApplicationContext();
         final long generation;
         synchronized (DesktopSetupStatus.class) {

@@ -69,7 +69,7 @@ final class AppUpdateWorkerConnection implements ServiceConnection {
                 if (!BuildConfig.SOURCE_ID.equals(worker.sourceId())) {
                     throw new SecurityException("update worker APK build does not match");
                 }
-                ShellPrivilegePolicy.verifyServiceUid(worker.uid());
+                RuntimeLimits.active().verifyServiceUid(worker.uid());
                 mWorker = worker;
             } catch (android.os.RemoteException | RuntimeException error) {
                 mDisconnected = true;

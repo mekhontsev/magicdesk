@@ -11,6 +11,7 @@ final class IntegrationStatusDialogs {
     private IntegrationStatusDialogs() { }
 
     static int termuxStatus(TermuxIntegration.Endpoint endpoint) {
+        if (!endpoint.enabled) return R.string.control_status_disabled;
         if (!endpoint.installed) return R.string.control_termux_not_installed;
         return endpoint.available() ? R.string.control_status_ready : R.string.control_termux_setup_required;
     }
@@ -21,6 +22,7 @@ final class IntegrationStatusDialogs {
             case "desktop_setup_checking" -> R.string.control_desktop_checking;
             case "desktop_setup" -> R.string.control_desktop_setup;
             case "device_restart" -> R.string.control_desktop_restart;
+            case "desktop_disabled", "privileged_disabled" -> R.string.control_status_disabled;
             default -> R.string.control_desktop_unavailable;
         };
     }
@@ -56,7 +58,7 @@ final class IntegrationStatusDialogs {
             final var setup = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
             final boolean needsAccess = "privileged_service".equals(missing);
             setup.setText(needsAccess ? R.string.control_access_title : R.string.control_desktop_setup);
-            setup.setEnabled(canConfigure && RuntimeCapabilities.supportsDesktop(android.os.Build.VERSION.SDK_INT));
+            setup.setEnabled(canConfigure && RuntimeCapabilities.allowsDesktop(android.os.Build.VERSION.SDK_INT));
             setup.setOnClickListener(view -> {
                 dialog.dismiss();
                 if (needsAccess) access.run();
@@ -72,20 +74,20 @@ final class IntegrationStatusDialogs {
 
     static void showAccess(Activity activity, boolean canRequest, Runnable request, Runnable settings) {
         final var access = ShellAccess.currentSnapshot();
-        final boolean pending = ShellPrivilegePolicy.restartRequired(activity);
+        final boolean pending = RuntimeLimits.restartRequired(activity);
         final StringBuilder message = new StringBuilder(activity.getString(
                 R.string.control_runtime_status, access.accessLabel()));
         message.append('\n').append(activity.getString(R.string.control_access_backend, access.backend.label));
         if (access.isReady()) message.append('\n').append(activity.getString(R.string.control_access_uid, access.uid));
-        message.append('\n').append(activity.getString(ShellPrivilegePolicy.forceShell()
-                ? R.string.control_access_limited : R.string.control_access_unlimited));
+        message.append('\n').append(activity.getString(R.string.control_access_limit,
+                activity.getString(RuntimeLimits.active().access().label)));
         if (!access.backend.usesRoot()) appendPackage(activity, message, IntegrationPackage.SHIZUKU);
         if (!access.error.isEmpty()) message.append("\n\n").append(access.error);
         if (pending) message.append("\n\n").append(activity.getString(R.string.access_restart_required));
         final var dialog = new AlertDialog.Builder(activity).setTitle(R.string.control_access_title)
                 .setMessage(message).setNegativeButton(R.string.action_close, null)
                 .setNeutralButton(R.string.control_integration_settings, (d, which) -> settings.run());
-        if (canRequest && (pending || !access.isReady())) dialog.setPositiveButton(
+        if (canRequest && (pending || RuntimeLimits.active().privilegedAllowed() && !access.isReady())) dialog.setPositiveButton(
                 pending ? R.string.action_exit : R.string.control_access_setup, (d, which) -> request.run());
         dialog.show();
     }
@@ -95,11 +97,11 @@ final class IntegrationStatusDialogs {
         final StringBuilder message = new StringBuilder(activity.getString(termuxStatus(endpoint)));
         appendPackage(activity, message, IntegrationPackage.TERMUX);
         if (!endpoint.error.isEmpty()) message.append("\n\n").append(endpoint.error);
-        if (endpoint.installed) message.append("\n\n").append(activity.getString(endpoint.available()
+        if (endpoint.enabled && endpoint.installed) message.append("\n\n").append(activity.getString(endpoint.available()
                 ? R.string.control_termux_ready_details : R.string.control_termux_external_commands));
         final var dialog = new AlertDialog.Builder(activity).setTitle(R.string.console_shell_termux)
                 .setMessage(message).setNegativeButton(R.string.action_close, null);
-        if (endpoint.permissionRequired) {
+        if (endpoint.canRequestPermission()) {
             dialog.setPositiveButton(R.string.control_grant_permission,
                     (d, which) -> TermuxIntegration.ensureRunCommandPermission(activity));
             dialog.setNeutralButton(R.string.control_app_permissions,

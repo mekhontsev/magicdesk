@@ -83,6 +83,11 @@ public final class RuntimeLayerSdkTest {
                     catch (UnsupportedOperationException expected) {}
                     check(context.starts == 0, "started service before version rejection");
                     Build.VERSION.SDK_INT = 35;
+                    RuntimeLimits.desktop = false;
+                    try { start(context); throw new AssertionError("disabled Desktop accepted"); }
+                    catch (IllegalStateException expected) {}
+                    check(context.starts == 0, "disabled Desktop started a service");
+                    RuntimeLimits.desktop = true;
                     start(context);
                     check(context.starts == 1, "Android 15 Desktop no longer starts");
                 }
@@ -153,6 +158,10 @@ public final class RuntimeLayerSdkTest {
                     MagicDeskMcpPreferences.enabled = false;
                     automation.onStartCommand(new Intent("automation"), 0, 2);
                     check(automation.stopped, "disabled automation stayed alive");
+                    RuntimeLimits.desktop = false;
+                    service.onStartCommand(new Intent("desktop"), 0, 4);
+                    check(!service.mInitialized && !service.stopped, "disabled Desktop broke tools");
+                    RuntimeLimits.desktop = true;
                     service.onStartCommand(new Intent("desktop"), 0, 4);
                     check(service.mInitialized, "supported Desktop did not initialize");
                     Input input = service.mDisplayInput;
@@ -168,9 +177,14 @@ public final class RuntimeLayerSdkTest {
     private static String capabilities() throws Exception {
         return """
                 static class Build { static class VERSION { static int SDK_INT = 34; } }
+                static class RuntimeLimits {
+                    static boolean desktop = true;
+                    static RuntimeLimits active() { return new RuntimeLimits(); }
+                    boolean desktopAllowed() { return desktop; }
+                }
                 static class RuntimeCapabilities {
                     static final int DESKTOP_MIN_SDK = 35;
-                """ + RuntimeSourceFixture.methods("RuntimeCapabilities", "supportsDesktop", "requireDesktop")
+                """ + RuntimeSourceFixture.methods("RuntimeCapabilities", "supportsDesktop", "requireDesktop", "allowsDesktop")
                         .replace("android.os.Build", "Build") + "}\n";
     }
 }

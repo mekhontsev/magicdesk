@@ -55,7 +55,9 @@ final class SettingsView {
 
         void configureShellBackend();
 
-        void setForceShell(boolean enabled);
+        void configureMaximumAccess();
+        void setTermuxEnabled(boolean enabled);
+        void setDesktopEnabled(boolean enabled);
 
         void configureConsoleFontSize();
 
@@ -95,7 +97,11 @@ final class SettingsView {
             new java.util.EnumMap<>(IntegrationPackage.class);
     private TextView mConsoleFontSize;
     private TextView mShellBackend;
-    private Switch mForceShell;
+    private TextView mMaximumAccess;
+    private TextView mLimitsStatus;
+    private Switch mTermuxEnabled;
+    private Switch mDesktopEnabled;
+    private View mShellBackendAction;
     private final java.util.Map<Integer, View> mSections = new java.util.LinkedHashMap<>();
     private ScrollView mScroll;
 
@@ -256,16 +262,29 @@ final class SettingsView {
         addAction(content, R.drawable.ic_file_refresh,
                 R.string.settings_mcp_network_token, mActions::regenerateMcpNetworkToken);
 
+        addSection(content, R.string.settings_section_limits);
+        mMaximumAccess = new TextView(mActivity);
+        mMaximumAccess.setTextColor(DesktopUiFactory.COLOR_MUTED);
+        mMaximumAccess.setTextSize(12);
+        addAction(content, R.drawable.ic_lock, R.string.settings_maximum_access,
+                mActions::configureMaximumAccess, mMaximumAccess);
+        mTermuxEnabled = addSwitch(content, R.string.settings_termux_enabled);
+        mTermuxEnabled.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) mActions.setTermuxEnabled(checked);
+        });
+        mDesktopEnabled = addSwitch(content, R.string.settings_desktop_enabled);
+        mDesktopEnabled.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) mActions.setDesktopEnabled(checked);
+        });
+        mLimitsStatus = mUi.sectionTitle(R.string.access_restart_required);
+        content.addView(mLimitsStatus);
+
         addSection(content, R.string.settings_section_integrations);
         mShellBackend = new TextView(mActivity);
         mShellBackend.setTextColor(DesktopUiFactory.COLOR_MUTED);
         mShellBackend.setTextSize(12);
-        addAction(content, R.drawable.ic_settings, R.string.settings_shell_backend,
+        mShellBackendAction = addAction(content, R.drawable.ic_settings, R.string.settings_shell_backend,
                 mActions::configureShellBackend, mShellBackend);
-        mForceShell = addSwitch(content, R.string.settings_force_shell);
-        mForceShell.setOnCheckedChangeListener((button, checked) -> {
-            if (!mRendering) mActions.setForceShell(checked);
-        });
         for (final IntegrationPackage integration : IntegrationPackage.values()) {
             final TextView value = new TextView(mActivity);
             value.setTextColor(DesktopUiFactory.COLOR_MUTED);
@@ -333,7 +352,13 @@ final class SettingsView {
         }
         mRendering = true;
         final ShellBackend configuredBackend = ShellBackend.configured(mActivity);
-        mForceShell.setChecked(ShellPrivilegePolicy.configured(mActivity));
+        final RuntimeLimits.Values limits = RuntimeLimits.configured(mActivity);
+        mMaximumAccess.setText(limits.access().label);
+        mTermuxEnabled.setChecked(limits.termux());
+        mDesktopEnabled.setChecked(limits.desktop());
+        mLimitsStatus.setVisibility(RuntimeLimits.restartRequired(mActivity) ? View.VISIBLE : View.GONE);
+        mShellBackendAction.setEnabled(limits.privilegedAllowed());
+        mShellBackendAction.setAlpha(limits.privilegedAllowed() ? 1f : 0.5f);
         mShellBackend.setText(configuredBackend == ShellBackend.active() ? configuredBackend.label
                 : mActivity.getString(R.string.settings_integration_restart_pending, configuredBackend.label));
         mConsoleFontSize.setText(mActivity.getString(R.string.console_font_size_value,
@@ -344,10 +369,11 @@ final class SettingsView {
                     : mActivity.getString(R.string.settings_integration_restart_pending, saved));
         }
         mDesktopSettingsAvailable = settings != null
-                && RuntimeCapabilities.supportsDesktop(android.os.Build.VERSION.SDK_INT);
+                && RuntimeCapabilities.allowsDesktop(android.os.Build.VERSION.SDK_INT);
         mDesktopSettingsStatus.setVisibility(mDesktopSettingsAvailable ? View.GONE : View.VISIBLE);
-        mDesktopSettingsStatus.setText(RuntimeCapabilities.supportsDesktop(android.os.Build.VERSION.SDK_INT)
-                ? R.string.capability_access_required : R.string.capability_android_15_required);
+        mDesktopSettingsStatus.setText(!RuntimeCapabilities.supportsDesktop(android.os.Build.VERSION.SDK_INT)
+                ? R.string.capability_android_15_required : !RuntimeLimits.active().desktopAllowed()
+                ? R.string.limit_desktop_disabled : R.string.capability_access_required);
         for (final Switch control : new Switch[] {mTaskbarAutoHide, mKeyboardOnAppDisplay,
                 mOpenTouchpadAutomatically, mKeepDesktopAwake, mDisableAdaptiveBrightness}) {
             control.setEnabled(mDesktopSettingsAvailable);

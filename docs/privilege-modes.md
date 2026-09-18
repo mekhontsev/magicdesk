@@ -29,19 +29,33 @@ or **Root (su)**. Shizuku uses its official authorization and UserService API;
 direct root asks the installed root manager to start the same service. There
 is no libsu dependency, automatic backend fallback, or root requirement.
 
-The separate **Limit service to shell UID 2000** switch applies to either
-backend. With it disabled, the service retains the selected launcher's UID
-(2000 or 0). With it enabled, an initial UID 0 is reduced before the working
-Java process starts. A Shizuku server already running under UID 2000 needs no
-additional bootstrap. Both settings are app-private and captured at process
-startup; changing them never changes a live service's identity. They do not
-change the UID of Shizuku itself.
+**Settings > Limits (next app start) > Maximum access** applies to either backend:
+
+- **Root** permits the launcher's UID 0 or 2000, without elevating a shell launcher.
+- **Shell** (default) reduces an initial UID 0 to 2000 before the working Java
+  process starts. A Shizuku server already running as UID 2000 needs no extra bootstrap.
+- **App only** does not construct, initialize or request either privilege transport.
+  Ordinary app services remain available; Termux terminals and X11 use their own authorization.
+
+Independent **Termux integration** and **Managed Desktop** switches default to on.
+Disabling Termux blocks RUN_COMMAND execution, PTY startup and X11 startup, not
+the installed Termux app itself. Disabling Desktop blocks setup, workspace startup
+and self-tests without blocking independent display resources or input control.
+Desktop still requires privileged access, API 35 and completed device setup.
+
+`RuntimeLimits` stores app-private settings and freezes them at process startup.
+Changing a limit does not interrupt current work: full Exit cleans up with the
+active policy before reopening applies the new one. It does not change Shizuku's
+UID, revoke Android permissions, or undo persistent Desktop setup. Limits govern
+MagicDesk service entry points, not arbitrary programs launched by an authorized
+shell or Termux client. `RuntimeCapabilities` intersects them with actual capabilities;
+MCP grants remain a separate boundary. Diagnostics publish active and configured limits.
 
 The control panel exposes the same authorization request independently of
 Desktop setup. **Access: shell / root / none** describes the connected service's
 effective UID, not the selected launcher or its installation status. It updates
 on service events. Tapping **Access** shows the startup method, effective UID
-and active UID-limit policy; requesting access is an explicit dialog action.
+and active access ceiling; requesting access is an explicit dialog action.
 A pending startup-policy change asks the user to Exit and
 reopen MagicDesk. Full Exit performs normal cleanup first, suppresses rebinding,
 and always ends the app process. Reopening captures all saved startup settings,

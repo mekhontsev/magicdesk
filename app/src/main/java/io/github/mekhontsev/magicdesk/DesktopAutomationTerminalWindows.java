@@ -27,7 +27,7 @@ final class DesktopAutomationTerminalWindows {
             } else {
                 final var endpoint = TermuxIntegration.inspect(MagicDeskApplication.applicationContext());
                 if (!endpoint.available()) {
-                    return DesktopAutomationResult.failure(endpoint.permissionRequired
+                    return DesktopAutomationResult.failure(endpoint.canRequestPermission()
                                     ? DesktopAutomationErrorCode.PERMISSION_REQUIRED
                                     : DesktopAutomationErrorCode.HOST_UNAVAILABLE,
                             endpoint.packageName + ": " + endpoint.error, false);

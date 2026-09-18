@@ -28,8 +28,8 @@ public final class MagicDeskApplicationStartupTest {
                     static void active() { calls.add("integrations"); }
                 }
                 static class ShellBackend { static void active() { calls.add("backend"); } }
-                static class ShellPrivilegePolicy {
-                    static void forceShell() { calls.add("identity-policy"); }
+                static class RuntimeLimits {
+                    static void active() { calls.add("identity-policy"); }
                 }
                 static class ShellAccess { static void initialize() { calls.add("service"); } }
                 static class DesktopSetupStatus {

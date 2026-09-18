@@ -827,7 +827,14 @@ death. At most 32 retained sessions may exist.
 
 `get_state.services` describes automation, built-in UI, shell, Termux, virtual
 display and Desktop prerequisites independently of client permissions. These
-are not device probes. The APK minimum is Android 14; managed Desktop and its
+include startup limits (`privileged_disabled`, `termux_disabled`, `desktop_disabled`),
+not only missing permissions or installation. `get_state.limits` contains `active`
+and `configured` values (`maximumAccess`: `root`, `shell`, `app_only`; `termux` and
+`desktop` booleans) plus `restartRequired`. Limits apply after full Exit and reopen;
+the full command catalog remains discoverable. `shell.enabled` reports whether
+the privilege transport is allowed; its manager `installed` is unknown (`null`)
+when disabled. Termux retains actual installation/permission facts beside `enabled`
+and the effective error. These are not device probes. The APK minimum is Android 14; managed Desktop and its
 self-tests require Android 15+. On Android 14, `readiness.selfTestReady` is false
 with `selfTestUnavailableReason`, even when the phone is awake and unlocked.
 This does not block independent automation, shell, Files or terminal operations.

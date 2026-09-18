@@ -1730,7 +1730,12 @@ endpoint. A compatible authorized server can be ready without that manager
 installed. The normal API/UserService and UID checks remain authoritative.
 
 `ShellBackend` selects the process-start transport, independently from the
-`ShellPrivilegePolicy` setting that limits either transport to UID 2000.
+`RuntimeLimits` access ceiling (Root, Shell or App only). Limits also independently
+disable Termux integration or managed Desktop, without hiding MCP commands or
+promoting independent services. Active values are immutable for the process;
+configured values take effect after full Exit and reopen. Capability reporting
+retains the distinction between policy denial and missing installation/permission.
+`DisabledShellServiceLauncher` does not construct a transport in App-only mode.
 `ShellServiceLauncher` owns process creation, permission UI and Binder delivery.
 `ShizukuServiceLauncher` is the only production caller of the Shizuku API.
 `ShellProcessLauncher` starts the same `ShellCommandService` through `su`, or

@@ -55,7 +55,18 @@
     <string name="start_current_display">Current</string>
     <string name="start_launch_display">Launch on: %1$s</string>
     <string name="settings_shell_backend">Privileged service (next app start)</string>
-    <string name="settings_force_shell">Limit service to shell UID 2000 (next app start)</string>
+    <string name="settings_section_limits">Limits (next app start)</string>
+    <string name="settings_maximum_access">Maximum access</string>
+    <string name="limit_access_root">Root</string>
+    <string name="limit_access_shell">Shell</string>
+    <string name="limit_access_app">App only</string>
+    <string name="settings_termux_enabled">Termux integration</string>
+    <string name="settings_desktop_enabled">Managed Desktop</string>
+    <string name="limit_privileged_disabled">Privileged access is disabled in Limits</string>
+    <string name="limit_termux_disabled">Termux integration is disabled in Limits</string>
+    <string name="limit_desktop_disabled">Desktop is disabled in Limits</string>
+    <string name="control_status_disabled">Disabled</string>
+    <string name="control_access_limit">Maximum access: %1$s</string>
     <string name="setup_action_allow_root">Connect through root</string>
     <string name="settings_shizuku_package">Shizuku manager package</string>
     <string name="settings_termux_package">Termux package</string>
@@ -592,8 +603,6 @@
     <string name="control_desktop_ready_details">Device setup is complete. No Desktop session needs to be running.</string>
     <string name="control_access_backend">Startup method: %1$s</string>
     <string name="control_access_uid">Service UID: %1$d</string>
-    <string name="control_access_limited">Limit to shell UID 2000: enabled</string>
-    <string name="control_access_unlimited">Limit to shell UID 2000: disabled</string>
     <string name="control_access_setup">Set up access</string>
     <string name="control_termux_status">Termux: %1$s</string>
     <string name="control_termux_not_installed">Not installed</string>
@@ -606,7 +615,7 @@
     <string name="control_app_permissions">App permissions</string>
     <string name="control_app_settings">App settings</string>
     <string name="control_open_termux">Open Termux</string>
-    <string name="access_restart_required">Exit MagicDesk and reopen it to apply privileged-service settings.</string>
+    <string name="access_restart_required">Exit MagicDesk and reopen it to apply startup settings.</string>
     <string name="control_external_display_status">Output: %1$s</string>
     <string name="search_apps_hint">Search apps, files and actions</string>
     <string name="search_phone_apps_hint">Search apps</string>

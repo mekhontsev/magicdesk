@@ -1363,6 +1363,7 @@ final class AutomationCommandCatalog {
                         .put("session", openObjectProperty("Desktop session."))
                         .put("inputControl", openObjectProperty("Independent input target: requestedDisplayId, readyDisplayId, transitioning and error."))
                         .put("services", openObjectProperty("Service prerequisites, independent of MCP grants."))
+                        .put("limits", openObjectProperty("Active and configured startup limits: maximumAccess (root/shell/app_only), termux, desktop; restartRequired."))
                         .put("ui", openObjectProperty("Desktop UI state."))
                         .put("runtime", openObjectProperty("Runtime state."));
                 break;

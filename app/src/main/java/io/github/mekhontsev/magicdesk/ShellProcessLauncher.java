@@ -28,7 +28,7 @@ final class ShellProcessLauncher implements ShellServiceLauncher {
 
     ShellProcessLauncher(ShellBackend backend) {
         mBackend = backend;
-        mUid = ShellPrivilegePolicy.targetUid(0);
+        mUid = RuntimeLimits.active().targetUid(0);
         mSnapshot = ShellAccess.Snapshot.unavailable(backend, true, "Privileged process has not connected");
     }
 

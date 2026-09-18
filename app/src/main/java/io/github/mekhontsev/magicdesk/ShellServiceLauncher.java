@@ -36,7 +36,8 @@ interface ShellServiceLauncher {
     static ShellServiceLauncher current() { return Active.INSTANCE; }
 
     final class Active {
-        static final ShellServiceLauncher INSTANCE = ShellBackend.active().usesRoot()
+        static final ShellServiceLauncher INSTANCE = !RuntimeLimits.active().privilegedAllowed()
+                ? new DisabledShellServiceLauncher() : ShellBackend.active().usesRoot()
                 ? new ShellProcessLauncher(ShellBackend.active()) : new ShizukuServiceLauncher();
         private Active() { }
     }

@@ -209,7 +209,7 @@ final class DesktopContextMenuController {
                 DesktopUiFactory.COLOR_PANEL_ALT,
                 true,
                 view -> mActivity.openConsole());
-        if (TermuxIntegration.isInstalled(mActivity)) {
+if (RuntimeLimits.active().termux() && TermuxIntegration.isInstalled(mActivity)) {
             addAction(
                     R.string.console_termux_title,
                     DesktopUiFactory.COLOR_PANEL_ALT,
