@@ -98,7 +98,16 @@ public final class AutomationCommandCatalogTest {
             assertTrue(properties.has("windowId"));
             assertTrue(properties.has("rootElementId"));
             assertTrue(properties.has("selector"));
-            assertTrue(schema.getJSONArray("required").toString().contains("displayId"));
+            assertTrue(properties.has("taskId"));
+            assertTrue(properties.has("displayId"));
+            assertFalse(schema.optJSONArray("required") != null && schema.getJSONArray("required").toString().contains("displayId"));
+            assertEquals(2, schema.getJSONArray("oneOf").length());
+            assertEquals("[\"displayId\"]", schema.getJSONArray("oneOf").getJSONObject(0).getJSONArray("required").toString());
+            assertEquals("[\"taskId\"]", schema.getJSONArray("oneOf").getJSONObject(1).getJSONArray("required").toString());
+            final var result = dataProperties(tools, name);
+            assertTrue(result.has("taskId"));
+            assertTrue(result.has("targetAvailable"));
+            assertTrue(result.has("unavailableReason"));
         }
         final var read = tool(tools, "ui.read_text");
         assertTrue(read.getJSONObject("annotations").getBoolean("readOnlyHint"));

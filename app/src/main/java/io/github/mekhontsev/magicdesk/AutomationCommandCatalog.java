@@ -611,8 +611,9 @@ final class AutomationCommandCatalog {
             selector.put(key, booleanProperty("Expected " + key + " state."));
         }
         tools.put(readTool("ui.inspect", "Inspect Android UI",
-                "Read fresh Android accessibility windows/nodes, optionally scoped to windowId or rootElementId. Optional selector searches up to 4096 nodes and returns only exact matches. Previews are bounded; use ui.read_text for full text. complete describes stable traversal, not rendering; stable=false means events changed during capture or cache invalidation failed. Password text is redacted. Handles expire after 60 seconds or four newer snapshots. Prefer MagicDesk semantic controls for its own UI.",
-                objectSchema(androidUiScopeProperties().put("selector", objectSchema(selector).put("minProperties", 1)), "displayId")))
+                "Read fresh Android accessibility windows/nodes on exactly one displayId or taskId, without activating it. A task includes only windows with confirmed Android task ownership. Optionally narrow to windowId or rootElementId. An inaccessible target remains incomplete, never another app. Selectors search up to 4096 nodes. Previews are bounded; use ui.read_text for full text. complete describes stable traversal, not rendering. Password text is redacted. Handles expire after 60 seconds or four newer snapshots. Prefer MagicDesk semantic controls for its own UI.",
+                objectSchema(androidUiScopeProperties().put("selector", objectSchema(selector).put("minProperties", 1)))
+                        .put("oneOf", new JSONArray().put(requiredOnly("displayId")).put(requiredOnly("taskId")))))
                 .put(readTool("ui.read_text", "Read Android UI text",
                         "Read text or description from one retained snapshot element without preview truncation. Pages use UTF-16 offsets in that same immutable revision; nextOffset=null ends it. No live refresh: inspect/wait again for current text. Password values and lengths stay redacted. Handles have the same expiry as ui.inspect.",
                         objectSchema(new JSONObject().put("elementId", stringProperty("Handle from ui.inspect/ui.wait."))
@@ -620,7 +621,7 @@ final class AutomationCommandCatalog {
                                 .put("offset", integerProperty("UTF-16 offset, default 0."))
                                 .put("limit", integerProperty("Page length 1-32768 UTF-16 units, default 32768. Unicode-safe boundaries; limit=1 may return a two-unit character.")), "elementId")))
                 .put(actionTool("ui.perform", "Act on Android UI element",
-                        "Perform an advertised accessibility action on an elementId from ui.inspect/ui.wait. Rejects expired or changed identities, with no coordinate fallback. set_text preserves Unicode and line breaks. accepted is not proof of visual completion; verify using ui.wait.",
+                        "Perform an advertised accessibility action on an elementId from ui.inspect/ui.wait. Refreshes window ownership and node identity; rejects moved/reassigned windows and expired handles, with no coordinate fallback. set_text preserves Unicode and line breaks. accepted is not proof of visual completion; verify using ui.wait.",
                         objectSchema(new JSONObject().put("elementId", stringProperty("Short-lived opaque node handle."))
                                 .put("action", enumProperty("Use an action from the node's actions list.", "click", "long_click", "focus", "clear_focus",
                                         "set_text", "select_text", "scroll_forward", "scroll_backward", "scroll_up", "scroll_down",
@@ -629,11 +630,12 @@ final class AutomationCommandCatalog {
                                 .put("start", integerProperty("Selection start for select_text."))
                                 .put("end", integerProperty("Selection end for select_text.")), "elementId", "action")))
                 .put(readTool("ui.wait", "Wait for Android UI",
-                        "Wait on accessibility events for exact full-text/state matches in a display, window or subtree. Searches up to 4096 nodes per observation. Returns matched/timedOut, not a claimed action result. Unstable observations never satisfy a wait; incomplete or redacted observations never prove absence. No periodic UI polling.",
+                        "Wait on accessibility events for exact full-text/state matches in exactly one displayId or taskId, optionally a window or subtree. Fresh task observations follow its current display without activation. Searches up to 4096 nodes per observation. Returns matched/timedOut, not a claimed action result. Missing/inaccessible targets, incomplete or redacted observations never prove absence. No periodic UI polling.",
                         objectSchema(androidUiScopeProperties()
                                 .put("selector", objectSchema(selector).put("minProperties", 1))
                                 .put("condition", enumProperty("Default present.", "present", "absent"))
-                                .put("timeoutMillis", integerProperty("0-60000 ms, default 5000.")), "displayId", "selector")))
+                                .put("timeoutMillis", integerProperty("0-60000 ms, default 5000.")), "selector")
+                                .put("oneOf", new JSONArray().put(requiredOnly("displayId")).put(requiredOnly("taskId")))))
                 .put(actionTool("ui.release", "Release Android UI connection",
                         "Release UI node handles and Android UiAutomation, cancelling outstanding UI waits. Also released after 60 idle seconds or client process death. Does not disable existing accessibility services.", emptySchema()))
                 .put(actionTool("input.gesture", "Inject touch gesture",
@@ -660,9 +662,10 @@ final class AutomationCommandCatalog {
     }
 
     private static JSONObject androidUiScopeProperties() throws JSONException {
-        return new JSONObject().put("displayId", integerProperty("Exact Android display id, including 0. No Desktop required."))
+        return new JSONObject().put("displayId", integerProperty("Exact Android display id, including 0. Mutually exclusive with taskId; one is required. No Desktop required."))
+                .put("taskId", integerProperty("Exact Android task id. Mutually exclusive with displayId. Only accessibility windows owned by this task; no focus or display changes."))
                 .put("windowId", integerProperty("Optional Android accessibility window id from ui.inspect. Excludes rootElementId."))
-                .put("rootElementId", stringProperty("Optional retained handle: refresh and inspect only its subtree. Excludes windowId; must belong to displayId."))
+                .put("rootElementId", stringProperty("Optional retained handle: refresh and inspect only its subtree. Excludes windowId; must belong to the selected display/task. Reinspect after window movement."))
                 .put("maxNodes", integerProperty("Maximum returned nodes/matches, 1-256, default 200. Traversal is separately bounded to 4096 nodes, depth 40, 3 seconds."));
     }
 
@@ -1325,7 +1328,11 @@ final class AutomationCommandCatalog {
                                 .put("actionId", stringProperty("Selected notification action ID."))));
                 break;
             case "ui.inspect":
-                properties.put("snapshotId", stringProperty("Short-lived snapshot identity."))
+                properties.put("displayId", nullableIntegerProperty("Observed display; null when a task has no accessible windows or its location is ambiguous."))
+                        .put("taskId", nullableIntegerProperty("Requested task id, or null for display scope."))
+                        .put("targetAvailable", booleanProperty("At least one window matches the requested scope; its tree may still be unavailable."))
+                        .put("unavailableReason", stringProperty("Scope availability/ownership limitation, empty when confirmed."))
+                        .put("snapshotId", stringProperty("Short-lived snapshot identity."))
                         .put("complete", booleanProperty("Stable, accessible, complete traversal; separate from text preview truncation."))
                         .put("stable", booleanProperty("Cache invalidated and no accessibility event observed during capture; not a rendering guarantee."))
                         .put("textTruncated", booleanProperty("Preview text was shortened; use ui.read_text."))
@@ -1333,7 +1340,11 @@ final class AutomationCommandCatalog {
                         .put("windows", arrayProperty("Accessibility windows.", openObjectProperty("Window.")));
                 break;
             case "ui.wait":
-                properties.put("matched", booleanProperty("The requested condition was observed."))
+                properties.put("displayId", nullableIntegerProperty("Observed display; null when a task has no accessible windows or its location is ambiguous."))
+                        .put("taskId", nullableIntegerProperty("Requested task id, or null for display scope."))
+                        .put("targetAvailable", booleanProperty("At least one window matches the requested scope; its tree may still be unavailable."))
+                        .put("unavailableReason", stringProperty("Scope availability/ownership limitation, empty when confirmed."))
+                        .put("matched", booleanProperty("The requested condition was observed."))
                         .put("timedOut", booleanProperty("Wait ended without observing the condition."))
                         .put("complete", booleanProperty("Completeness of the final observation."))
                         .put("stable", booleanProperty("Final observation had no concurrent accessibility events and its cache was cleared."))

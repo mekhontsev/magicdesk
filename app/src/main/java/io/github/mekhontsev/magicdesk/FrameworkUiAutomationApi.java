@@ -4,11 +4,30 @@ import android.app.UiAutomation;
 import android.content.Context;
 import android.os.Looper;
 import android.view.InputEvent;
+import android.view.accessibility.AccessibilityWindowInfo;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 
 /** Shell-only entry to Android's automation connection; public APIs own the UI work. */
 final class FrameworkUiAutomationApi {
     private FrameworkUiAutomationApi() { }
+
+    /** Null means unavailable evidence; Android's negative task id means a non-task window. */
+    static Integer windowTaskId(AccessibilityWindowInfo window) {
+        final Method method = WindowTaskApi.GET_TASK_ID;
+        if (method == null) return null;
+        try { return (Integer) method.invoke(window); }
+        catch (ReflectiveOperationException | RuntimeException error) { return null; }
+    }
+
+    private static final class WindowTaskApi {
+        static final Method GET_TASK_ID = find();
+
+        private static Method find() {
+            try { return AccessibilityWindowInfo.class.getMethod("getTaskId"); }
+            catch (ReflectiveOperationException | RuntimeException error) { return null; }
+        }
+    }
 
     static UiAutomation connect(final Context context) {
         UiAutomation automation = null;

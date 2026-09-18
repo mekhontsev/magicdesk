@@ -682,15 +682,22 @@ runtime integration and are not distributed through the same release path.
 - `AndroidUiAutomation` provides independent Android UI automation on API 34+.
   `ShellUiAutomationHandle` owns a Binder lifetime token; `ShellUiAutomation`
   connects one `UiAutomation` lazily under shell identity. The focused
-  `FrameworkUiAutomationApi` owns hidden construction, connection and injection
-  signatures. Existing accessibility services are not suppressed; the shortcut
+  `FrameworkUiAutomationApi` owns hidden construction, connection, window-to-task
+  identity and injection signatures. Existing accessibility services are not suppressed; the shortcut
   service still requests no window content. Another automation owner is an
   explicit conflict, never displaced. Idle expiry, explicit release, backend
   closure and Binder death release the connection and its bounded node cache.
   Four snapshots of at most 256 nodes retain 60-second handles. Identity evidence
   is immutable; recycled list rows cannot silently become another action target.
   Actions refresh separate node copies, preserving snapshot text revisions.
-  `AndroidUiScope` narrows observations to a display, window or node subtree.
+  `AndroidUiScope` selects exactly one display or task and can narrow it to a window
+  or node subtree. `AndroidUiWindows` owns one cache-invalidated accessibility
+  inventory per observation/action. Task selection uses confirmed Android task
+  ids and discovers the current display without a task observer, foregrounding
+  or package heuristics. Missing target windows and unknown/ambiguous ownership
+  remain incomplete, including for absence waits. The same inventory validates
+  captured display/window/task identities before actions and subtree refreshes;
+  moved windows require fresh handles. Retained text reads stay immutable.
   Exact selectors search up to 4096 candidates before projecting bounded text
   previews; `AndroidUiText` pages full retained text independently of traversal.
   Password values and lengths remain redacted. Public API 34 cache invalidation

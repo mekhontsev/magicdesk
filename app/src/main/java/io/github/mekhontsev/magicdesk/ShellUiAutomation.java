@@ -144,7 +144,7 @@ final class ShellUiAutomation implements AutoCloseable {
                         final String elementId = args.getString("elementId");
                         final AndroidUiSnapshot snapshot = snapshotFor(elementId);
                         return operation.equals("ui.read_text") ? snapshot.readText(elementId, args)
-                                : snapshot.perform(elementId, args);
+                                : snapshot.perform(mAutomation, elementId, args);
                     }
                     case "input.gesture": return AndroidAutomationInput.gesture(mAutomation, args);
                     case "input.key_chord": return AndroidAutomationInput.keyChord(mAutomation, args);
@@ -207,14 +207,16 @@ final class ShellUiAutomation implements AutoCloseable {
         private AndroidUiSnapshot capture(final AndroidUiScope scope) throws JSONException {
             final long start;
             synchronized (mEvents) { start = mGeneration; }
-            final android.view.accessibility.AccessibilityNodeInfo subtree = scope.rootElementId() == null
-                    ? null : snapshotFor(scope.rootElementId()).refreshedNode(scope.rootElementId(), scope.displayId());
-            try {
-                final AndroidUiSnapshot snapshot = AndroidUiSnapshot.capture(mAutomation, scope, subtree);
-                synchronized (mEvents) { snapshot.observedBetween(start, mGeneration); }
-                return snapshot;
-            } finally {
-                if (subtree != null) subtree.recycle();
+            try (final var inventory = AndroidUiWindows.read(mAutomation)) {
+                final android.view.accessibility.AccessibilityNodeInfo subtree = scope.rootElementId() == null
+                        ? null : snapshotFor(scope.rootElementId()).refreshedNode(scope.rootElementId(), inventory, scope);
+                try {
+                    final AndroidUiSnapshot snapshot = AndroidUiSnapshot.capture(inventory, scope, subtree);
+                    synchronized (mEvents) { snapshot.observedBetween(start, mGeneration); }
+                    return snapshot;
+                } finally {
+                    if (subtree != null) subtree.recycle();
+                }
             }
         }
 

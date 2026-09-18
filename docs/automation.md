@@ -902,12 +902,13 @@ These tools do not expose ordinary Termux application tabs.
 
 These commands work without Desktop on Android 14+. UI access and injected
 input require a ready privileged service, not a root device or a new accessibility service.
-Every UI observation and gesture specifies an Android `displayId`, including 0.
+UI inspection and waits require exactly one of Android `displayId` (including 0)
+or `taskId`. Gestures and key chords still require an explicit `displayId`.
 Prefer the existing semantic MagicDesk controls for Start, taskbar and menus.
 
 | Tool | Contract |
 | --- | --- |
-| `ui.inspect` | Read accessibility windows/nodes, optionally scoped to a window or subtree and filtered by an exact selector. |
+| `ui.inspect` | Read accessibility windows/nodes of a display or task, optionally narrowed to a window or subtree and filtered by an exact selector. |
 | `ui.read_text` | Read full text/description in bounded pages from a retained node's snapshot. |
 | `ui.perform` | Click, long-click, focus, set/select text, scroll or reveal a node using an advertised action. |
 | `ui.wait` | Wait for exact selector presence/absence, including expected text and state flags. |
@@ -947,9 +948,31 @@ values that could match the selector; it never proves absence. Canvas-only apps,
 protected surfaces and missing accessibility events remain platform limitations.
 Use screenshots or explicit gestures when semantic elements are unavailable.
 
+Task scope uses Android's accessibility window-to-task identity, not package,
+focus, title or rectangle matching. It includes dialogs and menus when Android
+assigns them to that task, and excludes other instances of the same application.
+System keyboards and separate system dialogs remain accessible through display
+scope. Inspection never activates, raises or moves a task. Each fresh task
+observation resolves its current display from the same window inventory; no new
+task observer or polling is involved. For example:
+
+```json
+{"tool":"ui.inspect","arguments":{"taskId":123,"selector":{"text":"Cancel"}}}
+```
+
+Responses identify the requested `taskId` (null for display scope), observed
+`displayId` (null when task location is unavailable/ambiguous), `targetAvailable`
+and `unavailableReason`. Each returned window and node carries its display/task
+identity; non-task or unknown task ownership is null. Missing windows, unknown
+ownership, or a task observed across conflicting displays cannot prove absence.
+No match falls back to another application. Task-addressed inspection relies on
+the hidden AOSP `AccessibilityWindowInfo.getTaskId` accessor already present in
+Android 14; if mapping is unavailable, ordinary display inspection remains usable.
+An X11 host task still exposes only its Android accessibility tree, not Linux widgets.
+
 Both inspect and wait accept `windowId` or `rootElementId` (mutually exclusive)
-within their explicit `displayId`. A subtree handle is refreshed and identity
-checked, never treated as a coordinate. `selector` in inspect returns matching
+within the selected display or task. A subtree handle is refreshed and its window
+ownership and node identity checked, never treated as a coordinate. `selector` in inspect returns matching
 nodes only; wait uses the same traversal. A filter can therefore find a node
 beyond the first 256 unrelated nodes. Search is bounded to 4096 visited/queued
 nodes, depth 40 and a three-second traversal budget; `maxNodes` limits returned
@@ -968,8 +991,13 @@ split surrogate pairs; a limit of one may return a two-unit character. Password
 values and lengths remain null. Pages belong to the same retained revision,
 even if an action changes the live field. Inspect/wait again for current text.
 
-Handles expire after 60 seconds and only four snapshots are retained. A changed/stale element
-fails explicitly, never falling back to its old coordinates. `accepted=true`
+Handles expire after 60 seconds and only four snapshots are retained. Before
+actions or subtree inspection, a fresh window inventory must confirm the captured
+window/display/task ownership. Moving or reassigning a window invalidates old
+handles even when the Android window id stays the same. Inspect again by `taskId`
+to obtain current handles. A changed/stale element fails explicitly, never
+falling back to its old coordinates. Immutable `ui.read_text` pages remain readings
+of the retained snapshot, not live actions. `accepted=true`
 means Android accepted the action, not that navigation or rendering finished.
 Inspect/wait again to verify. Unicode and line breaks go directly through
 Android's text action, not the clipboard or shell `input text` encoding.

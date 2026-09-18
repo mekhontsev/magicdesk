@@ -42,7 +42,11 @@ public final class AndroidUiTraversalTest {
                     boolean couldMatchRedacted(JSONObject node) { return false; }
                 }
                 record AndroidUiScope(int maxNodes, AndroidUiSelector selector) {}
-                record Handle(AccessibilityNodeInfo node,String identity) {}
+                static class AndroidUiWindows {
+                    record Identity(int displayId,int windowId,Integer taskId) {}
+                    record Window(AccessibilityWindowInfo info,Identity identity) {}
+                }
+                record Handle(AccessibilityNodeInfo node,String identity,AndroidUiWindows.Identity owner) {}
                 record Pending(AccessibilityNodeInfo node,String parent,int depth) {}
                 final String id="snapshot";
                 final long createdAt=0;
@@ -67,11 +71,12 @@ public final class AndroidUiTraversalTest {
                 static Fixture capture(AccessibilityNodeInfo root,int max,String selector) throws Exception {
                     var f=new Fixture();
                     f.mScope=new AndroidUiScope(max,selector==null?null:new AndroidUiSelector(selector));
-                    f.captureWindow(new AccessibilityWindowInfo(root),null);
+                    f.captureWindow(new AndroidUiWindows.Window(new AccessibilityWindowInfo(root),
+                            new AndroidUiWindows.Identity(0,1,42)),null);
                     return f;
                 }
                 """ + RuntimeSourceFixture.methods("AndroidUiSnapshot", "captureWindow", "exhausted", "scanLimit",
-                        "preview", "stable", "complete", "observedBetween") + """
+                        "preview", "stable", "complete", "observedBetween", "taskIdValue") + """
                 public static void verify() throws Exception {
                     var root=rows(320); var f=capture(root,1,"row 319");
                     check(f.nodes.length()==1 && f.mVisited==321,"find beyond wire node limit");
