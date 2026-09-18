@@ -14,7 +14,9 @@ namespace {
 struct Connection {
     JNIEnv* env;
     jobject owner;
-    jmethodID frame, disconnected, window, windows, data;
+    jmethodID frame, disconnected, window, windowRemoved, windows, data;
+    jclass managementClass;
+    jmethodID managementConstructor;
     LorieConnection* native;
 };
 
@@ -33,23 +35,32 @@ const LorieCallbacks callbacks = {
         auto* c = (Connection*)ptr;
         c->env->CallVoidMethod(c->owner, c->disconnected);
     },
-    .window = [](void* ptr, uint32_t id, const char* name, const uint32_t* pixels, bool removed, bool mapped,
-            bool managed, uint32_t serial, bool requested, bool actual) {
+    .window = [](void* ptr, uint32_t id, const LorieWindowInfo* info) {
         auto* c = (Connection*)ptr;
         JNIEnv* env = c->env;
         if (env->ExceptionCheck()) return;
+        if (!info) {
+            env->CallVoidMethod(c->owner, c->windowRemoved, (jint)id);
+            return;
+        }
         jintArray icon = nullptr;
-        if (pixels) {
+        if (info->icon) {
             icon = env->NewIntArray(64 * 64);
             if (!icon) return;
-            env->SetIntArrayRegion(icon, 0, 64 * 64, (const jint*)pixels);
+            env->SetIntArrayRegion(icon, 0, 64 * 64, (const jint*)info->icon);
         }
-        jsize size = (jsize)strlen(name);
+        jsize size = (jsize)strlen(info->title);
         jbyteArray title = env->NewByteArray(size);
         if (title) {
-            env->SetByteArrayRegion(title, 0, size, (const jbyte*)name);
-            env->CallVoidMethod(c->owner, c->window, (jint)id, title, icon, (jboolean)removed, (jboolean)mapped,
-                    (jboolean)managed, (jint)serial, (jboolean)requested, (jboolean)actual);
+            env->SetByteArrayRegion(title, 0, size, (const jbyte*)info->title);
+            const auto& state = info->management;
+            jobject management = env->NewObject(c->managementClass, c->managementConstructor,
+                    (jboolean)state.managed, (jint)state.request.serial,
+                    (jboolean)state.request.fullscreen, (jboolean)state.actual.fullscreen);
+            if (management) {
+                env->CallVoidMethod(c->owner, c->window, (jint)id, title, icon, (jboolean)info->mapped, management);
+                env->DeleteLocalRef(management);
+            }
             env->DeleteLocalRef(title);
         }
         if (icon) env->DeleteLocalRef(icon);
@@ -94,13 +105,23 @@ extern "C" JNIEXPORT jlong JNICALL JNI(X11Session_nativeCreate)(JNIEnv* env, job
     jclass cls = env->GetObjectClass(owner);
     c->frame = env->GetMethodID(cls, "onNativeFrame", "(IIIII)V");
     c->disconnected = env->GetMethodID(cls, "onNativeDisconnected", "()V");
-    c->window = env->GetMethodID(cls, "onNativeWindow", "(I[B[IZZZIZZ)V");
+    c->window = env->GetMethodID(cls, "onNativeWindow", "(I[B[IZLio/github/mekhontsev/magicdesk/x11/X11WindowManagement;)V");
+    c->windowRemoved = env->GetMethodID(cls, "onNativeWindowRemoved", "(I)V");
     c->windows = env->GetMethodID(cls, "onNativeWindowsCommitted", "()V");
     c->data = env->GetMethodID(cls, "onNativeData", "(IIIIIIIILjava/lang/String;I)V");
     env->DeleteLocalRef(cls);
+    if (!env->ExceptionCheck()) {
+        jclass management = env->FindClass("io/github/mekhontsev/magicdesk/x11/X11WindowManagement");
+        if (management) {
+            c->managementClass = (jclass)env->NewGlobalRef(management);
+            c->managementConstructor = env->GetMethodID(management, "<init>", "(ZIZZ)V");
+            env->DeleteLocalRef(management);
+        }
+    }
     if (!env->ExceptionCheck() && c->owner) c->native = lorieConnectionCreate(&callbacks, c);
     if (c->native) return (jlong)c;
     if (c->owner) env->DeleteGlobalRef(c->owner);
+    if (c->managementClass) env->DeleteGlobalRef(c->managementClass);
     free(c);
     return 0;
 }
@@ -118,12 +139,52 @@ extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeSurface)(JNIEnv* env, jcl
     if (!ok) throwState(env, "Cannot configure X11 output surface");
 }
 
-extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeCommand)(JNIEnv*, jclass, jlong ptr,
-        jint output, jint window, jint operation, jint x, jint y, jint detail, jboolean down) {
-    if (operation == LORIE_OUTPUT_KEY && detail == 0 && x >= 0 &&
-            (size_t)x < sizeof(android_to_linux_keycode) / sizeof(android_to_linux_keycode[0]))
-        detail = android_to_linux_keycode[x] ? android_to_linux_keycode[x] + 8 : 0;
-    lorieConnectionCommand(((Connection*)ptr)->native, output, window, operation, x, y, detail, down);
+extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeBind)(JNIEnv*, jclass, jlong ptr, jint output, jint window) {
+    lorieOutputBind(((Connection*)ptr)->native, output, window);
+}
+
+extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeResize)(JNIEnv*, jclass, jlong ptr,
+        jint output, jint window, jint width, jint height) {
+    lorieOutputResize(((Connection*)ptr)->native, output, window, width, height);
+}
+
+extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativePointer)(JNIEnv*, jclass, jlong ptr,
+        jint output, jint window, jfloat x, jfloat y, jint button, jboolean down) {
+    lorieOutputPointer(((Connection*)ptr)->native, output, window, x, y, button, down);
+}
+
+extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeKey)(JNIEnv*, jclass, jlong ptr,
+        jint output, jint window, jint androidKey, jint scanCode, jboolean down) {
+    int xKeyCode = scanCode > 0 ? scanCode + 8 : 0;
+    if (!xKeyCode && androidKey >= 0 &&
+            (size_t)androidKey < sizeof(android_to_linux_keycode) / sizeof(android_to_linux_keycode[0]))
+        xKeyCode = android_to_linux_keycode[androidKey] ? android_to_linux_keycode[androidKey] + 8 : 0;
+    lorieOutputKey(((Connection*)ptr)->native, output, window, xKeyCode, down);
+}
+
+extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeFocus)(JNIEnv*, jclass, jlong ptr, jint output, jint window) {
+    lorieOutputFocus(((Connection*)ptr)->native, output, window);
+}
+
+extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeRelease)(JNIEnv*, jclass, jlong ptr, jint output, jint window) {
+    lorieOutputRelease(((Connection*)ptr)->native, output, window);
+}
+
+extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeObserveWindows)(JNIEnv*, jclass, jlong ptr) {
+    lorieObserveWindows(((Connection*)ptr)->native);
+}
+
+extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeCloseWindow)(JNIEnv*, jclass, jlong ptr, jint window) {
+    lorieCloseWindow(((Connection*)ptr)->native, window);
+}
+
+extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeDpi)(JNIEnv*, jclass, jlong ptr, jint dpi) {
+    lorieSetScreenDpi(((Connection*)ptr)->native, dpi);
+}
+
+extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeConfirmWindowState)(JNIEnv*, jclass, jlong ptr,
+        jint window, jint requestSerial, jboolean fullscreen) {
+    lorieConfirmWindowState(((Connection*)ptr)->native, window, requestSerial, {.fullscreen = fullscreen != 0});
 }
 
 extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeText)(JNIEnv* env, jclass, jlong ptr,
@@ -135,7 +196,7 @@ extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeText)(JNIEnv* env, jclass
         uint32_t point = chars[i];
         if (point >= 0xd800 && point <= 0xdbff && i + 1 < length && chars[i + 1] >= 0xdc00 && chars[i + 1] <= 0xdfff)
             point = 0x10000 + ((point - 0xd800) << 10) + (chars[++i] - 0xdc00);
-        lorieConnectionCommand(((Connection*)ptr)->native, output, window, LORIE_OUTPUT_TEXT, point, 0, 0, false);
+        lorieOutputText(((Connection*)ptr)->native, output, window, point);
     }
     env->ReleaseStringChars(text, chars);
 }
@@ -153,6 +214,7 @@ extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeDestroy)(JNIEnv* env, jcl
     auto* c = (Connection*)ptr;
     lorieConnectionDestroy(c->native);
     env->DeleteGlobalRef(c->owner);
+    env->DeleteGlobalRef(c->managementClass);
     free(c);
 }
 

@@ -36,4 +36,16 @@ public final class X11RuntimeBoundaryTest {
             }
         }
     }
+
+    @Test public void commandPackingAndBorrowedResourcesHaveOneOwner() throws Exception {
+        String session = Files.readString(Path.of("../x11-runtime/src/main/java/io/github/mekhontsev/magicdesk/x11/X11Session.java"));
+        assertFalse(session.contains("nativeCommand("));
+        assertFalse(session.contains("* 10000"));
+        String api = Files.readString(Path.of("../vendor/magicdesk-x11/lorie/src/main/cpp/lorie/embedded.h"));
+        assertFalse(api.contains("lorieConnectionCommand("));
+        assertFalse(api.contains("LORIE_OUTPUT_"));
+        String activity = Files.readString(Path.of(RuntimeSourceFixture.MAIN + "X11Activity.java"));
+        for (String forbidden : new String[]{"openOutput(", "claimFullscreen(", "releaseDensity(", "new HostedContentExchange(", "new HostedFullscreen("})
+            assertFalse(forbidden, activity.contains(forbidden));
+    }
 }

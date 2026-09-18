@@ -16,6 +16,7 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     private static final HostedSurfaceOutput.Button[] POINTER_BUTTONS = HostedSurfaceOutput.Button.values();
     private HostedSurfaceOutput output;
     private int frameWidth, frameHeight, buttons;
+    private HostedViewport viewport = HostedViewport.EMPTY;
     private boolean touching;
     private boolean contentDrag;
     private Runnable beforeInteraction;
@@ -36,13 +37,23 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
             output.setSurface(getHolder().getSurface(), getWidth(), getHeight());
     }
 
-    void frame(int width, int height) { frameWidth = width; frameHeight = height; }
+    void frame(int width, int height) {
+        frameWidth = width;
+        frameHeight = height;
+        viewport = HostedViewport.fit(getWidth(), getHeight(), width, height);
+    }
+
+    @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
+        super.onSizeChanged(width, height, oldWidth, oldHeight);
+        viewport = HostedViewport.fit(width, height, frameWidth, frameHeight);
+    }
 
     void release() {
         releaseInput();
         if (output != null) output.close();
         output = null;
         frameWidth = frameHeight = 0;
+        viewport = HostedViewport.EMPTY;
     }
 
     private void releaseInput() {
@@ -70,7 +81,7 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     }
 
     private boolean pointer(MotionEvent event) {
-        if (output == null || frameWidth < 1 || frameHeight < 1 || getWidth() < 1 || getHeight() < 1) return false;
+        if (output == null || !viewport.available()) return false;
         android.graphics.PointF point = contentPoint(event.getX(), event.getY());
         lastX = point.x;
         lastY = point.y;
@@ -79,11 +90,7 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     }
 
     android.graphics.PointF contentPoint(float x, float y) {
-        if (frameWidth < 1 || frameHeight < 1 || getWidth() < 1 || getHeight() < 1) return new android.graphics.PointF();
-        float scale = Math.min(getWidth() / (float) frameWidth, getHeight() / (float) frameHeight);
-        float width = frameWidth * scale, height = frameHeight * scale;
-        return new android.graphics.PointF((x - (getWidth() - width) / 2) / width,
-                (y - (getHeight() - height) / 2) / height);
+        return new android.graphics.PointF(viewport.contentX(x), viewport.contentY(y));
     }
 
     boolean canStartContentDrag() { return output != null && !contentDrag && (touching || (buttons & MotionEvent.BUTTON_PRIMARY) != 0); }

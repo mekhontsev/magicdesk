@@ -213,10 +213,12 @@ final class X11Sessions {
         void releaseFullscreen(Object host) {
             if (fullscreenOwners.values().removeIf(value -> value == host)) changed();
         }
-        void confirmFullscreen(long id, Object host, int serial, boolean fullscreen) {
+        void confirmFullscreen(long id, Object host,
+                io.github.mekhontsev.magicdesk.x11.X11WindowManagement.Request request,
+                io.github.mekhontsev.magicdesk.x11.X11WindowManagement.State actual) {
             X11Session current = renderer;
             if (fullscreenOwners.get(id) == host && current != null && state == State.READY)
-                current.confirmFullscreen(id, serial, fullscreen);
+                current.confirmWindowState(id, request, actual);
         }
         void claimClipboard(Listener owner) {
             clipboardOwner = owner;

@@ -1641,10 +1641,16 @@ Binder bootstrap, executor context and JNI. The native fork exposes `embedded.h`
 with opaque connections, borrowed native windows, owned descriptors and callbacks;
 it has no Java classes, Android application, Gradle modules or JNI dependency.
 `X11ManagerActivity` only selects and controls sessions; `X11Activity` hosts
-content-only client/desktop viewers. The manager never acquires an output,
+content-only client/desktop viewers. `X11HostBinding` scopes the viewer's borrowed
+output, content exchange, subscriptions, density and fullscreen responder;
+closing/recreating that binding does not own the retained server. Density,
+clipboard, size and fullscreen keep their independent ownership policies.
+The manager never acquires an output,
 clipboard ownership or density ownership. `HostedSurfaceView` owns Android
 Surface/input/IME lifecycle through `HostedSurfaceOutput`; `X11SurfaceOutput`
-owns X11 input encoding. `HostedContentExchange` owns Android clipboard focus,
+owns X11 input encoding. `HostedViewport` owns the aspect-fit coordinate transform
+without imposing a guest protocol's clipping or coordinate quantization.
+`HostedContentExchange` owns Android clipboard focus,
 drag gesture lifetime and URI grants through `HostedContentBackend`;
 `X11ContentExchange` owns protocol targets, output IDs and selection/XDND
 transactions. These host contracts do not impose X11's session-global density
@@ -1657,7 +1663,12 @@ flow through the existing X catalog into Android task descriptions and
 can vary per window without changing its profile-scoped Android launch identity
 or introducing a second task observer.
 Dedicated application sessions also forward EWMH fullscreen requests and
-versioned host acknowledgements. `HostedFullscreen` owns ordinary Android
+versioned host acknowledgements. `X11WindowManagement` separates client requests
+from confirmed state and window catalog metadata. Java and the native embedding
+API expose named commands; overloaded numeric fields exist only in the private
+native wire format. The existing connection queue remains the single writer,
+with no new per-frame callbacks or per-input native heap allocations.
+`HostedFullscreen` owns ordinary Android
 immersive presentation, and `BuiltInWindowRegistry.ImmersiveSource` supplies
 explicit local intent to the existing Desktop reconciler independently of
 firmware insets-observation support. Only Desktop-owned tasks participate in

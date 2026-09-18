@@ -1,5 +1,6 @@
 -keep class io.github.mekhontsev.magicdesk.x11.X11Server { *; }
 -keep class io.github.mekhontsev.magicdesk.x11.IX11Server** { *; }
 -keep class io.github.mekhontsev.magicdesk.x11.X11Session { *; }
+-keep class io.github.mekhontsev.magicdesk.x11.X11WindowManagement { *; }
 -keep class io.github.mekhontsev.magicdesk.x11.X11DataExchange { *; }
 -keepclasseswithmembernames class * { native <methods>; }

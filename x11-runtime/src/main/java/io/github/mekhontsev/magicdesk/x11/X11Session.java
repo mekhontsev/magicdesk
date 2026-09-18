@@ -26,10 +26,8 @@ public final class X11Session implements AutoCloseable {
         default void onDragEvent(int operation, int output, boolean accepted) { }
     }
 
-    public record Window(long id, String title, boolean mapped, Bitmap icon,
-            boolean hostManaged, int fullscreenSerial, boolean fullscreenRequested, boolean fullscreenActual) { }
+    public record Window(long id, String title, boolean mapped, Bitmap icon, X11WindowManagement management) { }
 
-    private static final int BIND = 0, RESIZE = 1, POINTER = 2, KEY = 3, RELEASE = 4, FOCUS = 5;
     private final HandlerThread thread = new HandlerThread("X11Session");
     private final Handler handler;
     private final Executor callbacks;
@@ -91,13 +89,13 @@ public final class X11Session implements AutoCloseable {
                 }
                 connected = true;
                 nativeData(nativeHandle, X11DataExchange.ENABLE, 0, 0, 0, 0, 0, 0, 0, "", -1);
-                if (dpi != 0) nativeCommand(nativeHandle, 0, 0, 9, dpi, 0, 0, false);
+                if (dpi != 0) nativeDpi(nativeHandle, dpi);
                 windows.clear();
-                nativeCommand(nativeHandle, 0, 0, 7, 0, 0, 0, false);
+                nativeObserveWindows(nativeHandle);
                 for (Output output : outputs.values()) {
                     output.frameAvailable = -1;
-                    output.send(BIND, 0, 0, 0, false);
-                    if (output.width > 0) output.send(RESIZE, output.width, output.height, 0, false);
+                    nativeBind(nativeHandle, output.id, output.window);
+                    if (output.width > 0) nativeResize(nativeHandle, output.id, output.window, output.width, output.height);
                 }
                 return null;
             });
@@ -110,7 +108,7 @@ public final class X11Session implements AutoCloseable {
     public void closeWindow(long windowId) {
         if (windowId <= 0 || windowId > 0xffffffffL) throw new IllegalArgumentException("Invalid X11 window ID");
         post(() -> {
-            if (connected) nativeCommand(nativeHandle, 0, (int)windowId, 8, 0, 0, 0, false);
+            if (connected) nativeCloseWindow(nativeHandle, (int)windowId);
         });
     }
 
@@ -120,32 +118,34 @@ public final class X11Session implements AutoCloseable {
         post(() -> {
             if (dpi == value) return;
             dpi = value;
-            if (connected) nativeCommand(nativeHandle, 0, 0, 9, dpi, 0, 0, false);
+            if (connected) nativeDpi(nativeHandle, dpi);
         });
     }
 
     /** Reports a completed host transition. The server ignores replies to superseded requests. */
-    public void confirmFullscreen(long windowId, int serial, boolean fullscreen) {
+    public void confirmWindowState(long windowId, X11WindowManagement.Request request, X11WindowManagement.State actual) {
         if (windowId <= 0 || windowId > 0xffffffffL) throw new IllegalArgumentException("Invalid X11 window ID");
+        java.util.Objects.requireNonNull(request);
+        java.util.Objects.requireNonNull(actual);
         post(() -> {
-            if (connected) nativeCommand(nativeHandle, 0, (int)windowId, 10, serial, 0, 0, fullscreen);
+            if (connected) nativeConfirmWindowState(nativeHandle, (int)windowId, request.serial(), actual.fullscreen());
         });
     }
 
-    private void onNativeWindow(int id, byte[] title, int[] pixels, boolean removed, boolean mapped,
-            boolean hostManaged, int fullscreenSerial, boolean fullscreenRequested, boolean fullscreenActual) {
-        if (removed) windows.remove(id);
-        else {
-            Bitmap icon = pixels == null ? null : Bitmap.createBitmap(pixels, 64, 64, Bitmap.Config.ARGB_8888);
-            Window previous = windows.get(id);
-            if (icon != null && previous != null && previous.icon() != null && icon.sameAs(previous.icon())) {
-                icon.recycle();
-                icon = previous.icon();
-            }
-            windows.put(id, new Window(Integer.toUnsignedLong(id),
-                    new String(title, java.nio.charset.StandardCharsets.UTF_8), mapped, icon,
-                    hostManaged, fullscreenSerial, fullscreenRequested, fullscreenActual));
+    private void onNativeWindow(int id, byte[] title, int[] pixels, boolean mapped, X11WindowManagement management) {
+        Bitmap icon = pixels == null ? null : Bitmap.createBitmap(pixels, 64, 64, Bitmap.Config.ARGB_8888);
+        Window previous = windows.get(id);
+        if (icon != null && previous != null && previous.icon() != null && icon.sameAs(previous.icon())) {
+            icon.recycle();
+            icon = previous.icon();
         }
+        windows.put(id, new Window(Integer.toUnsignedLong(id),
+                new String(title, java.nio.charset.StandardCharsets.UTF_8), mapped, icon, management));
+        windowsChanged = true;
+    }
+
+    private void onNativeWindowRemoved(int id) {
+        windows.remove(id);
         windowsChanged = true;
     }
 
@@ -172,7 +172,7 @@ public final class X11Session implements AutoCloseable {
             Output output = new Output(++nextOutputId, (int)windowId);
             nativeSurface(nativeHandle, output.id, null, false);
             outputs.put(output.id, output);
-            output.send(BIND, 0, 0, 0, false);
+            if (connected) nativeBind(nativeHandle, output.id, output.window);
             return output;
         });
     }
@@ -196,7 +196,7 @@ public final class X11Session implements AutoCloseable {
                 if (surface != null) {
                     this.width = width;
                     this.height = height;
-                    send(RESIZE, width, height, 0, false);
+                    if (connected) nativeResize(nativeHandle, id, window, width, height);
                 }
                 nativeSurface(nativeHandle, id, surface, false);
                 return null;
@@ -207,36 +207,29 @@ public final class X11Session implements AutoCloseable {
         public void pointer(float x, float y, int button, boolean down) {
             if (!Float.isFinite(x) || !Float.isFinite(y) || button < 0 || button > 7)
                 throw new IllegalArgumentException("Invalid pointer event");
-            input(POINTER, Math.round(Math.max(0, Math.min(1, x)) * 10000),
-                    Math.round(Math.max(0, Math.min(1, y)) * 10000), button, down);
+            if (released || closed) return;
+            handler.post(() -> { if (acceptsInput()) nativePointer(nativeHandle, id, window, x, y, button, down); });
         }
 
         public void key(int androidKeyCode, int scanCode, boolean down) {
             if (androidKeyCode < 0 || scanCode < 0 || scanCode > 247)
                 throw new IllegalArgumentException("Invalid keyboard event");
-            input(KEY, androidKeyCode, 0, scanCode > 0 ? scanCode + 8 : 0, down);
+            if (released || closed) return;
+            handler.post(() -> { if (acceptsInput()) nativeKey(nativeHandle, id, window, androidKeyCode, scanCode, down); });
         }
 
-        public void focus() { input(FOCUS, 0, 0, 0, false); }
+        public void focus() {
+            if (released || closed) return;
+            handler.post(() -> { if (acceptsInput()) nativeFocus(nativeHandle, id, window); });
+        }
 
         public void text(String text) {
             java.util.Objects.requireNonNull(text);
             if (released || closed) return;
-            handler.post(() -> {
-                if (!released && !closed && connected) {
-                    nativeText(nativeHandle, id, window, text);
-                }
-            });
+            handler.post(() -> { if (acceptsInput()) nativeText(nativeHandle, id, window, text); });
         }
 
-        private void input(int operation, int x, int y, int detail, boolean down) {
-            if (released || closed) return;
-            handler.post(() -> { if (!released && !closed) send(operation, x, y, detail, down); });
-        }
-
-        private void send(int operation, int x, int y, int detail, boolean down) {
-            if (connected) nativeCommand(nativeHandle, id, window, operation, x, y, detail, down);
-        }
+        private boolean acceptsInput() { return !released && !closed && connected; }
 
         /** Releases only this presentation, never the X client or server process. */
         @Override public void close() {
@@ -244,7 +237,7 @@ public final class X11Session implements AutoCloseable {
             dispatch(() -> {
                 if (!released) {
                     released = true;
-                    send(RELEASE, 0, 0, 0, false);
+                    if (connected) nativeRelease(nativeHandle, id, window);
                     nativeSurface(nativeHandle, id, null, true);
                     outputs.remove(id);
                 }
@@ -345,7 +338,16 @@ public final class X11Session implements AutoCloseable {
     private native long nativeCreate();
     private static native boolean nativeConnect(long handle, int fd);
     private static native void nativeSurface(long handle, int output, Surface surface, boolean release);
-    private static native void nativeCommand(long handle, int output, int window, int operation, int x, int y, int detail, boolean down);
+    private static native void nativeBind(long handle, int output, int window);
+    private static native void nativeResize(long handle, int output, int window, int width, int height);
+    private static native void nativePointer(long handle, int output, int window, float x, float y, int button, boolean down);
+    private static native void nativeKey(long handle, int output, int window, int androidKeyCode, int scanCode, boolean down);
+    private static native void nativeFocus(long handle, int output, int window);
+    private static native void nativeRelease(long handle, int output, int window);
+    private static native void nativeObserveWindows(long handle);
+    private static native void nativeCloseWindow(long handle, int window);
+    private static native void nativeDpi(long handle, int dpi);
+    private static native void nativeConfirmWindowState(long handle, int window, int requestSerial, boolean fullscreen);
     private static native void nativeText(long handle, int output, int window, String text);
     private static native void nativeData(long handle, int operation, int channel, int serial, int offer,
             int output, int window, int x, int y, String type, int descriptor);

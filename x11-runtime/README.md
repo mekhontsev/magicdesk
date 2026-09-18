@@ -58,6 +58,20 @@ starting Xorg; stop during startup waits for ddxReady and requests normal Xorg
 shutdown. Owner death uses the same shutdown path. File-copy cancellation does
 not block it. Xauthority and `-nolisten tcp` remain the host launcher's policy.
 
+## Commands And Window State
+
+The Java/JNI boundary exposes semantic output, input, density and window-state
+commands. The native embedding API does not expose its command opcode or packed
+coordinate/serial fields; encoding lives beside the connection transport. The
+same HandlerThread and native FIFO serialize all operations, including reconnect
+replay and output release. Surface replacement retains its renderer acknowledgement.
+
+Window catalog metadata carries a separate `X11WindowManagement` snapshot:
+management authority, a versioned client request, and confirmed host state.
+JNI caches the snapshot constructor per connection; it does not allocate native
+command objects or introduce per-frame Java callbacks. Removed windows have a
+separate callback, and complete catalogs still publish only at the commit marker.
+
 ## Verification
 
 From the MagicDesk repository root:
