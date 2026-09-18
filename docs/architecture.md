@@ -86,8 +86,7 @@ a non-built-in display in list order, otherwise the panel's host display. The
 first catalog is a baseline, not an arrival event. A shared two-column
 action grid addresses the selected display: Start/Show, Close, Apps, independent
 applications, input control, output settings, removal and presentation actions.
-All actions are direct buttons, with no presentation overflow menu. Its labeled
-icon buttons use the same `DesktopUiFactory.controlAction` styling
+Its labeled icon buttons use the same `DesktopUiFactory.controlAction` styling
 as the session controls below, with equal-width columns and stable action slots.
 Rows retain their View identity for each live display ID/unique-ID pair, and the
 toolbar is created once. Status refreshes update existing controls without
@@ -544,7 +543,8 @@ component.
 | Fullscreen topology | `ShellFullscreenTaskArea` | Owns per-task fullscreen planes on every desktop target |
 | Hidden API stubs | `hidden-api-stubs/` | Compile-time signatures only; never packaged |
 | Terminal emulator | `terminal-emulator/` | Local byte-stream parser, screen buffers and terminal graphics |
-| Embedded X11 | `vendor/magicdesk-x11/embedded` | Server, protocol, Binder lifetime and multi-output renderer |
+| X11 Android runtime | `x11-runtime/` | Server entry point, Binder connection, JNI and Android renderer adapters |
+| X11 native engine | `vendor/magicdesk-x11/lorie/src/main/cpp/` | X server, protocol and multi-output renderer |
 | Mouse helper | `native/magicdesk_uinput_bridge.c` | Binder-owned relative phone pointer |
 | Kernel Fixes add-on | `io.github.mekhontsev.magicdesk.kernel` | Independent, manually launched, firmware-specific root fixes |
 
@@ -577,9 +577,9 @@ runtime integration and are not distributed through the same release path.
   Ending the session explicitly closes its PTY and emulator.
   Sessions remain isolated from each other and have at most one attached window.
 - `SettingsActivity`, `SettingsView`, and `MagicDeskSettings` own persistent
-  user-selected desktop behavior. They are separate from the transient System
-  panel, which remains a quick control surface for the active session. Settings
-  also provides the stable entry points for device setup, diagnostics, and
+  user-selected desktop behavior. They are separate from the transient Quick
+  controls panel for the active session. Settings also provides the stable
+  entry points for device setup, diagnostics, and
   About, keeping the phone control surface focused on session actions. The
   activity is exported only behind `MANAGE_ACTIVITY_TASKS`, allowing the shell
   launch backend to create its desktop task without exposing it to regular
@@ -1321,8 +1321,8 @@ focused adapters rather than one broad compatibility utility.
   code does not reflect optional signatures itself.
 - `HiddenTaskApi` owns raw ActivityTaskManager task members and service access.
   `FrameworkTaskSnapshotSource` converts them into the parcelable
-  `FrameworkTaskSnapshot` returned through typed AIDL. Application policy and
-  recovery code no longer parse `cmd activity stack list` in production.
+  `FrameworkTaskSnapshot` returned through typed AIDL to application policy and
+  recovery code.
   Running-task queries omit application Intent extras at the framework boundary;
   component, data URI, categories, and flags remain available for task identity.
   Unused launch payloads must not consume the shared Binder buffer on every
@@ -1673,7 +1673,7 @@ owned shell commands reuse `ShellCommandSession`/`ShellCommandExecutor`, also
 used by MCP consoles, rather than starting untracked background processes.
 `OperationResources` handles completion-before-registration and cancellation;
 completed resources are removed, and dependents close before their server.
-Android placement still goes through `ToolApplications`.
+Android placement goes through `ToolApplications`.
 The read-only Termux `.desktop` catalog feeds shared Start content and MCP/CLI
 application discovery. `DesktopEntrySource` separates its authority from shell
 file access: Termux launches resolve an exact freshly queried catalog path.
@@ -1686,7 +1686,7 @@ Binder bootstrap, executor context and JNI. The native fork exposes `embedded.h`
 with opaque connections, borrowed native windows, owned descriptors and callbacks;
 it has no Java classes, Android application, Gradle modules or JNI dependency.
 `X11ManagerActivity` only selects and controls sessions; `X11Activity` hosts
-content-only client/desktop viewers. `X11HostBinding` scopes the viewer's borrowed
+client/desktop viewers. `X11HostBinding` scopes the viewer's borrowed
 output, content exchange, subscriptions, density and fullscreen responder;
 closing/recreating that binding does not own the retained server. Density,
 clipboard, size and fullscreen keep their independent ownership policies.
@@ -1725,8 +1725,8 @@ Dedicated application sessions also forward EWMH fullscreen requests and
 versioned host acknowledgements. `X11WindowManagement` separates client requests
 from confirmed state and window catalog metadata. Java and the native embedding
 API expose named commands; overloaded numeric fields exist only in the private
-native wire format. The existing connection queue remains the single writer,
-with no new per-frame callbacks or per-input native heap allocations.
+native wire format. Command arguments use native stack values, and the connection
+queue remains the single writer. Callbacks publish metadata changes, not frames.
 `HostedFullscreen` owns ordinary Android
 immersive presentation, and `BuiltInWindowRegistry.ImmersiveSource` supplies
 explicit local intent to the existing Desktop reconciler independently of
@@ -1738,8 +1738,9 @@ See [Embedded X11](x11.md) for lifecycle, build and current integration scope.
 configuration and focus callbacks update it; there is no display/task polling.
 The Android 160-DPI baseline maps to X11's 96-DPI baseline, with a separately
 stored Linux application scale. `X11PresentationPreferences` uses profile-private
-storage keyed by Termux package and desktop-entry path, without Desktop's
-shell-backed state prerequisite. The fork owns XSettings serialization, selection
+storage keyed by executor identity and desktop-entry path (Termux package or
+captured Shell service UID), without Desktop's state-store prerequisite.
+The fork owns XSettings serialization, selection
 lifetime and RandR publication on the X server thread. Whole Linux desktops keep
 their own toolkit settings manager; Android focus/topology is unchanged.
 
@@ -2963,8 +2964,8 @@ RUN_COMMAND endpoint through `TermuxApplicationSource`, refreshed when Start
 opens or automation requests its catalog. Both sources use
 `ApplicationCatalogSource`: independent loading/error state, immutable last-good
 results, joined in-flight requests and generation-checked completion. Android
-apps never wait for Termux; cold Start shows a loading state until Android
-discovery completes, rather than briefly showing only cached Termux entries.
+apps load independently of Termux. Cold Start shows a loading state until Android
+discovery completes.
 Reopened Start immediately uses cached results. Endpoint identity/availability
 changes clear Termux entries and invalidate old callbacks; transient read errors
 retain the last successful list. The catalog merges application identities and
@@ -3162,8 +3163,7 @@ or the application context; neither automation nor background launch requires
 a foreground Files or Start window. `ApplicationEntryLauncher` shares captured
 destination validation, presentation defaults and dispatch between Start and
 automation. Neither context reimplements
-request resolution or backend selection. The coordinator deliberately leaves
-the established WMShell transition controllers unchanged.
+request resolution, backend selection or WMShell transition policy.
 
 `DesktopApplicationRepository` is the single catalog adapter for executable
 entries. Start consumes the already loaded Desktop files, while Open With can
@@ -3205,9 +3205,7 @@ is prepared by `X11ApplicationLaunch` as an Android host request before generic
 command delegation. Terminal recipes omit X11 options. Unknown backend
 names invalidate the entry instead of silently running a command in the wrong
 environment. `Terminal=true` opens the built-in Console with either a
-UserService-backed Android shell PTY or a Termux-hosted PTY. PTY transport is an
-implementation detail of the backend and therefore requires no additional
-Desktop Entry format or migration.
+UserService-backed Android shell PTY or a Termux-hosted PTY.
 
 An explicit composite request with both an Android target and `Exec` first
 prepares the normal Android task, then runs its companion command. The
@@ -3984,8 +3982,8 @@ that exemption does not extend to other desktop applications and ends when
 Close returns HOME, before restoring phone power. See
 `docs/nubia-vendor-audit.md` for the firmware evidence and verification scope.
 The phone-power guard acquires shared background-work protection before turning
-the phone display off, and releases it after restoration. Its helper no longer
-queries tasks or owns freezer sessions. The common owner includes MagicDesk and
+the phone display off, and releases it after restoration. `ShellBackgroundWork`
+owns task observation and freezer sessions for MagicDesk and
 application UIDs, so HOME release does not remove host protection prematurely.
 Overlapping automation work retains its own claims. No persistent freezer whitelist
 is installed. The optional Nubia phone-UI and background-work components are
@@ -4303,8 +4301,8 @@ Fixes APK contains exactly the reviewed module and no main-app native helper.
 
 The APK, main-app helpers and X11 library currently cover ARM64 only. Linux
 and Windows CI both target Android ARM64; package checks reject other native ABIs.
-The helpers' host NDK target still uses API 35. The APK's API 34 floor does not
-establish native compatibility. Remaining ABI/API validation is documented in
+Both helper compiler paths target the APK's API 34 minimum, as does embedded X11.
+Compilation does not establish native compatibility. Device coverage is documented in
 [Runtime API levels](runtime-api-levels.md).
 
 Host regression support under `app/src/testSupport/java` uses the JDK compiler

@@ -1,109 +1,41 @@
 # MagicDesk X11 Runtime
 
-This is MagicDesk's Java and JNI implementation, not an upstream Android module.
-It supports API 34+ and links `vendor/magicdesk-x11` as a native engine. It does
-not depend on Desktop, HOME, Shizuku, root, upstream Java, Android signature stubs
-or the standalone Termux:X11 APK. The selected Termux endpoint runs the server
-and applications; MagicDesk's app UID renders their outputs.
+MagicDesk's Android library for embedded X11, supporting API 34+. It owns Java,
+Binder and JNI integration and builds `libXlorie.so` from the pinned native engine
+in [vendor/magicdesk-x11](../vendor/magicdesk-x11).
 
-## Ownership
+## Scope
 
-`X11Session` serializes commands, output Surface lifetime and connection teardown
-on one HandlerThread. Each connection has one Present consumer regardless of
-output count. Callbacks are forwarded to the host's Executor; frame callbacks
-describe availability/size, not every animation frame. Output closure releases
-only that Surface. MagicDesk's application coordinator decides client/server
-retention. Reconnect replaces the socket, not the server or applications.
+The module owns the X server entry point, authenticated Binder connection,
+renderer outputs, protocol input and content-transfer adapters. The application
+owns command execution, session retention, Android placement, clipboard focus
+and URI grants. Neither Desktop nor HOME is a module prerequisite.
 
-`X11DataExchange` owns Java transfer requests and cancellation. Native X11 owns
-selection/XDND negotiation. `X11FileExchange` runs in the executor process,
-never under MagicDesk's shell/root service. Android clipboard focus, providers,
-URI grants and drag gestures remain in the main app's hosted-content adapters.
+The server runs under the selected Termux UID or MagicDesk's app UID; client
+commands can use a separate authorized executor. Rendering always uses the
+host app UID. The native [embedding contract](../vendor/magicdesk-x11/docs/embedding.md)
+is independent of Java classes and Android application policy.
 
-`x11_jni.cpp` is the only JVM/native conversion layer. It converts Java strings,
-callbacks, descriptors, Android keycodes and Surfaces to the fork's `embedded.h`
-contract. Native window references are borrowed at the API boundary; the engine
-retains its own reference until release is acknowledged. The native engine knows
-no Java class or package. The APK contains one combined `libXlorie.so`; the fork
-is compiled from source, not downloaded as a separately versioned binary.
-
-## Server Startup
-
-The main app registers its receiver before launching `X11Server` via app_process,
-with the host APK as CLASSPATH. The explicit environment contains:
-
-- `MAGICDESK_X11_EXECUTOR`: selected Termux package, verified against process UID;
-- `MAGICDESK_X11_PACKAGE`: exact receiving host package;
-- `MAGICDESK_X11_SESSION` and `MAGICDESK_X11_TOKEN`: pending-session identity and nonce;
-- `MAGICDESK_X11_LIBRARY`: extracted native library path;
-- `MAGICDESK_X11_CONTENT_DIR`: private imported-file directory;
-- `MAGICDESK_X11_XSETTINGS`: whether this application session owns XSettings;
-- `MAGICDESK_X11_HOST_WM`: enables the native EWMH fullscreen bridge for
-  individually hosted applications; disabled for full Linux desktops;
-- `TMPDIR` and `XKB_CONFIG_ROOT`: paths in the selected execution environment.
-
-`X11ProcessContext` owns the API-34+ app_process Context setup. It does not load
-the executor's Application or MagicDeskApplication. There is no alternate launcher
-or fallback to another package/privilege identity.
-
-`X11Server.ACTION` broadcasts carry named `server`, `session`, `token`, `phase`
-and `display` extras. Android's attributed broadcast supplies the sender UID.
-The host validates that UID, pending nonce and session before retaining the server
-with its owner Binder. The server verifies the host UID on every Binder entry.
-Only retention starts Xorg. `ddxReady` reports allocation/socket/input readiness;
-only then may the host obtain its renderer connection and launch X clients.
-
-Both ends have a 60-second admission deadline. Stop before start exits without
-starting Xorg; stop during startup waits for ddxReady and requests normal Xorg
-shutdown. Owner death uses the same shutdown path. File-copy cancellation does
-not block it. Xauthority and `-nolisten tcp` remain the host launcher's policy.
-
-## Commands And Window State
-
-The Java/JNI boundary exposes semantic output, input, density and window-state
-commands. The native embedding API does not expose its command opcode or packed
-coordinate/serial fields; encoding lives beside the connection transport. The
-same HandlerThread and native FIFO serialize all operations, including reconnect
-replay and output release. Surface replacement retains its renderer acknowledgement.
-
-Window catalog metadata carries a separate `X11WindowManagement` snapshot:
-management authority, a versioned client request, and confirmed host state.
-JNI caches the snapshot constructor per connection; it does not allocate native
-command objects or introduce per-frame Java callbacks. Removed windows have a
-separate callback, and complete catalogs still publish only at the commit marker.
-
-`inspectWindow(XID, limit)` returns a future for a read-only
-`X11WindowInspection`, independently of catalog publication and output ownership.
-The connection admits at most four pending requests, correlates each node and
-completion marker by serial, and validates the target/count/limit. A five-second
-protocol deadline bounds abandoned replies; reconnect, disconnect, close and
-cancellation release pending requests. Late replies cannot populate a newer
-request. Native callbacks allocate Java records only on explicit inspection,
-not during rendering or ordinary input. Android host/task geometry stays in the
-application layer, outside this native/runtime contract.
+See [Embedded X11](../docs/x11.md) for lifecycle, startup protocol, host boundaries,
+limits and verification. The [example](example) is a test-only Gradle application
+for output and server lifecycle checks; it is not part of the MagicDesk APK.
 
 ## Verification
 
-From the MagicDesk repository root:
+From the repository root:
 
 ```sh
-./gradlew :app:assembleDebug :x11-runtime:testDebugUnitTest :x11-runtime:lintDebug
+./gradlew :x11-runtime:testDebugUnitTest :x11-runtime:lintDebug :app:assembleDebug
 ./gradlew -p x11-runtime/example :app:assembleDebug :app:lintDebug
 sh scripts/verify-native.sh
 ```
 
-The example is a test-only Android host for two outputs/servers. Start it with
-a fresh `token` (at least 24 characters) and `leftSession`/`rightSession` extras;
-matching values share a server. Optional `leftWindow`/`rightWindow` select XIDs,
-otherwise the root screen. Start corresponding X11Server processes with the same
-identities, example host package and selected executor package. The example uses
-uncompressed APK libraries; its native library path is
-`<installed-base.apk>!/lib/<abi>/libXlorie.so`. Never reuse live
-production tokens. Re-deliver SINGLE_TOP with `token`, `session` and
-`command=reconnect`, `recreate` or `stop`. Example destruction closes its servers;
-production Activity destruction does not own retained sessions.
+Build checks do not replace device testing; Android 14 device coverage remains
+pending. See the [verification procedure](../docs/x11.md#verification).
 
-Verify independent startup, GIMP and whole-desktop output, concurrent sessions,
-input/IME, clipboard and file drag, reconnect/output recreation under GPU load,
-normal shutdown and owner-death socket cleanup. Build/Lint do not substitute for
-Android 14 device coverage, which remains pending.
+## Licensing
+
+The module is part of MagicDesk. The native engine and its dependencies retain
+their own notices, collected into the APK by this module's build. See
+[Third-party notices](../THIRD_PARTY_NOTICES.md) and
+[Licensing and source availability](../docs/licensing.md).

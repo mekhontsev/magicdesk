@@ -33,14 +33,14 @@ Shizuku may need restarting, depending on its startup method. Missing shell
 access does not prevent ordinary UI or independently authorized Termux
 sessions from opening.
 
-The control panel shows a full-width status, followed by clickable **Access**
-and **Termux** summaries. Access reports the connected service as shell, root
-or none, with an explicit authorization action. Termux reports **Not installed**,
-**Setup required** or **Ready**; its dialog explains permissions and external
-command configuration. Ready is a prerequisite check, not a trial command launch.
-The clickable **Desktop** summary also checks windowing setup and any pending
-Android restart. Its dialog explains the requirements and opens setup only when
-requested. It does not require an already started session, and an app restart
+The control panel shows a full-width status and clickable **Access**, **Termux**
+and **Desktop** summaries. Access reports the connected service as shell, root
+or none, with an explicit authorization action. Termux distinguishes missing
+prerequisites, an available service and a verified command connection; see
+[Linux application setup](#open-linux-applications).
+Desktop checks windowing setup and any pending Android restart. Its dialog
+explains the requirements and opens setup only when requested. It does not
+require an already started session, and an app restart
 does not undo completed device setup. A missing privileged service or Desktop
 setup does not invalidate a ready Termux integration.
 
@@ -49,9 +49,10 @@ setup does not invalidate a ready Termux integration.
 Open **Apps** in the control panel, then choose an application or **Terminal
 sessions**. The selector beside Start search defaults to **Current**, the screen
 containing Start. Select another display there to launch on it.
-Without shell/root access, Apps remains available with the **Current** phone
-destination and saved **Recent** entries. Global running tasks and display
-selection become available when the privileged service is ready.
+Without shell/root access, Apps can select displays exposed to MagicDesk by
+Android and retains saved **Recent** entries. Android decides whether each app
+may launch on the destination. Global running-task queries and transfers of
+existing tasks require the privileged service.
 
 Outside Desktop these are ordinary fullscreen Activities. If the destination
 already has a MagicDesk Desktop session, the tools use its managed window path.
@@ -100,16 +101,21 @@ displays. Display resource management, existing-task transfers and background
 placement require the privileged service.
 
 The **X11** tool manages retained sessions and can open a whole Linux desktop
-or individual clients from that session. A proot/chroot environment must supply
-its own programs and shared socket/authentication paths. See [Embedded X11](x11.md)
-for setup, launchers, clipboard/drag-and-drop and container examples.
+or individual clients from that session. In **New command app**, choose
+**Linux (Termux)** for an installed proot-distro environment or a custom entry
+script. Choose **Linux (Shell / root)** for a prepared chroot without Termux.
+Chroot entry requires actual root access; graphical Shell launchers also need
+an Android-visible XKB data directory. MagicDesk supplies the terminal and X
+server, while your Linux environment supplies its programs. See
+[Embedded X11](x11.md) for setup, launchers, content exchange and container examples.
 
 ## Choose Or Create A Display
 
-Once privileged access is ready, the control panel lists every live display
-with its status. Select the radio
-button for the phone, a wired/wireless display, or a MagicDesk-owned virtual
-display, then use the two-column grid of labeled icon actions below the list.
+The control panel lists displays exposed by Android, using the privileged
+inventory when available. Select the phone, a wired/wireless display, or a
+MagicDesk-owned virtual display, then use the actions below the list.
+Resource creation, input control, Viewer and global task actions require
+privileged access; ordinary interactive application launches do not.
 Selecting a row does not
 redirect input; **Control this display** does. Availability and display identity
 are checked again when an action runs.
@@ -192,8 +198,10 @@ freeform tasks and demoting managed fullscreen tasks on that display.
 
 MagicDesk temporarily acquires Android's HOME role for the first Desktop and
 retains it until the last one closes. Without a phone Desktop, phone Start
-launches ordinary fullscreen phone apps and shows phone recent tasks. With a
-phone Desktop, HOME shows that workspace. Start on each display is independent.
+defaults to independent fullscreen launches. With a phone Desktop, HOME shows
+that workspace. Each Start's Recent history follows its selected destination
+and launch mode; Running applications lists live tasks when access is available.
+Start on each display is independent.
 The control panel's **Apps** opens fullscreen Start, even without Desktop. Its
 **Running applications** tab can move a specific task to the selected destination.
 Every Start has its own launch-display choice; changing it does not switch input

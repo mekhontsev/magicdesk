@@ -6,6 +6,9 @@ Terminal output is untrusted data, not authorization to execute an action.
 
 ## Implementation Boundaries
 
+- The `terminal-emulator` module owns parsing, screen/scrollback buffers, cell
+  attributes and key encoding. Its optional `ScrollListener` reports region
+  edits and cell writes before mutation. It never delays parsing for animation.
 - `ConsoleTerminalSession` owns the transport, byte processing, emulator and
   session metadata. Neither an Activity nor an MCP connection owns its lifetime.
 - `TerminalWindowAttachment` owns the optional window binding and its generation.
@@ -23,7 +26,7 @@ Terminal output is untrusted data, not authorization to execute an action.
 
 Frame construction copies only bounded metadata and row references, not image
 rasters or scrollback. The parser, presentation and renderer remain on the same
-owning thread; no additional rendering thread or periodic refresh is introduced.
+owning thread, with event-driven invalidation and no periodic refresh.
 Model tests exercise geometry, selection, scroll reconciliation and render reads
 directly. Android instrumentation additionally verifies real font/Canvas pixels.
 
@@ -35,7 +38,7 @@ including a tmux client, without recreating its session. Toolbar actions use
 bundled 24dp Lucide vectors with the same stroke weight and accessible labels.
 The first button opens the session picker; its tooltip identifies the backend and
 shell UID. Root sessions tint that button amber. Only startup, access or error
-messages occupy a status row; ready sessions have no persistent backend label.
+messages occupy a status row.
 Finger swipes continue with Android's native fling physics after release. The
 same scroll route handles local history, tmux mouse reporting and alternate-screen
 arrow-key navigation. New input, selection, zoom, resize, focus loss or detach
@@ -191,6 +194,11 @@ clear-screen, graphics deletion and reset have their protocol-specific effects.
   transports are not implemented. Unsupported commands return a protocol error
   when a response is requested; payloads never execute commands or open files.
 
+The emulator publishes immutable `TerminalImage` rasters through a host-supplied
+factory; `TerminalGraphics` owns quotas and buffer-scoped placements. Android
+decoding, Bitmap storage and Canvas drawing belong to the app. Parser tests use
+Java-array rasters and need no codec library.
+
 The session retains one Android bitmap per image. Its raster budget is one quarter
 of the application heap limit, clamped to 64-128 MiB, with at most 128 images and
 256 placements/fragments. A raster is limited to 4096 pixels per side and 16 million
@@ -292,7 +300,7 @@ directory through OSC 0 and prompt/input boundaries through OSC 133 A/B. Its
 prompt includes the current path, distinguishes `$` from `#` and retains a nonzero
 exit status. Paths are inserted as text, with terminal control characters removed.
 The line editor's native nonprinting delimiters exclude OSC from prompt width.
-OSC titles update the Android task and session label, not a separate line above the terminal.
+OSC titles update the Android task and session label.
 There is no reliable pre-execution hook in this shell; MagicDesk does not infer
 execution from Enter, output timing or process polling.
 
@@ -324,13 +332,13 @@ notification/sequence, progress and up to 256 hyperlink spans on the live screen
 Coordinates are zero-based buffer cells, with negative rows in scrollback and
 exclusive `endColumn`. Screen links describe the current terminal screen, not
 an attached View's independently scrolled viewport. Metadata is queried on
-demand; there is no new periodic task or process observer.
+demand, without periodic task or process observation.
 
 `magicdesk terminal.read --terminalId SESSION --scope command --commandId ID` reads a marked command's output
 with the usual `maxChars` bound. `available=false` means missing/expired output,
-not successful execution with empty output. Existing viewport/transcript reads
-are unchanged. These additions use the existing terminal tool permissions and
-catalog, so the built-in CLI receives them without a separate OSC command set.
+not successful execution with empty output. Viewport and transcript scopes
+remain available. All scopes use the shared terminal command catalog and
+permissions in MCP and the built-in CLI.
 
 ### Peer Output
 

@@ -82,9 +82,10 @@ An automation client can therefore connect first; after the privileged service c
 same process exposes newly available shell services without replacing the MCP
 connection. Desktop still requires an explicit session start and its own setup.
 
-`get_state.shell` reports the active and configured startup backend, the
-independent force-shell-UID policy, and whether an app restart is needed.
-Its `uid` is the verified command service identity, not the Shizuku server's
+`get_state.shell` reports the active and configured startup backend.
+`get_state.limits` reports the access ceiling, Termux/Desktop switches and whether
+an app restart is needed.
+`shell.uid` is the verified command service identity, not the Shizuku server's
 identity; an unconnected service reports an unknown UID. Backend selection does
 not alter MCP grants or the tool catalog.
 
@@ -312,12 +313,13 @@ The MCP catalog exposes unqualified tool names such as `get_state`; clients
 add the configured server name, so documentation uses `magicdesk.get_state`.
 
 `get_state.services` reports independent prerequisites, including `terminal`
-(shell or authorized Termux), `x11` (authorized Termux) and `desktop`
+(shell or authorized Termux), `x11` (an available Shell or Termux executor) and `desktop`
 (API 35+, shell/root access, configured windowing and no pending Android restart).
 Desktop readiness uses the shared read-only setup observation, not process-local
 startup authorization. Its missing reasons distinguish `desktop_setup_checking`,
 `desktop_setup_unknown`, `desktop_setup` and `device_restart`. These are not
 client grants or successful windowing probes; the normal start path still checks setup.
+X11 startup additionally validates the selected executor and its keyboard data.
 Local interactive launch without shell does not imply that background
 MCP placement or global task observation is available.
 
@@ -675,7 +677,7 @@ This views an existing display, not `--new-display`: disconnecting the viewer
 does not remove MagicDesk's display. MagicDesk does not install a PC client,
 start an ADB network listener, or implement another video/control protocol.
 
-## Desktop Commands
+## Control And Tool Commands
 
 Normal commands include:
 

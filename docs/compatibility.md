@@ -221,14 +221,17 @@ in-APK catalog recognition must not use its reused stock fingerprint alone.
 - Full work-profile/Private Space support and additional built-in screens on
   dual-screen devices are not implemented/verified by the current identity
   and display infrastructure.
-- Embedded X11 needs the selected Termux endpoint and XKB data, not a separate
-  Termux:X11 APK. Graphics acceleration is capability-based; unsupported Vulkan
+- Embedded X11 needs an authorized Termux or Shell executor and XKB data.
+  Shell-hosted chroot entry needs actual UID 0; the X server itself uses the app
+  UID. The standalone Termux:X11 APK is not required. Graphics acceleration is
+  capability-based; unsupported Vulkan
   imports retain CPU fallback. X cursor images are not yet presented; oversized
   dialogs are aspect-fitted with their parent rather than drawn outside Android
   host bounds. See [X11 graphics and limits](x11.md#graphics-and-limits).
 - X11 clipboard and copy drag-and-drop require compatible formats at both ends.
-  Container-private paths are not automatically translated into Termux paths,
-  and denied file access is not retried through shell/root.
+  Termux clients need server-accessible paths; Shell-hosted guests use the
+  explicit per-session shared directory. Other container-private paths are not
+  translated, and denied file access is not retried through root.
 
 Native system shadows are expected. Self-test fixture-color comparisons account
 for their dimming; a literal source RGB match is not required on the composed
@@ -268,8 +271,8 @@ The report includes:
 
 - MagicDesk version and Android build fingerprint;
 - manufacturer, model, API level, security patch, and supported ABIs;
-- selected privilege backend, active/configured UID restriction, actual service UID, and required
-  desktop-windowing values;
+- selected privilege backend, active/configured runtime limits, actual service
+  UID, and required desktop-windowing values;
 - for active shell access, a non-destructive UserService capability
   probe covering its actual UID, SELinux domain, relevant Binder permissions,
   raw-input read/write access, `/dev/uinput` open access, and task APIs;

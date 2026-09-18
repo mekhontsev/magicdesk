@@ -105,8 +105,9 @@ environment.
 MagicDesk acquires Android's HOME role when the first Desktop starts and returns
 the previous role state after the last one closes. A phone without its own
 Desktop has an ordinary Start surface: it launches phone apps in fullscreen and
-lists phone recent tasks. Each Desktop Start remains independent and can be
-open at the same time. Every Start has a display selector beside search:
+shows independent launch history by default. Recent follows the selected
+destination and launch mode; Running lists live tasks. Start windows on different
+displays can be open at the same time. Every Start has a display selector beside search:
 **Current** launches on its own screen; another selection sends apps there.
 The same Start is available through **Apps** even with no Desktop running.
 Choose app-default placement, a Desktop window, Desktop fullscreen, or an
@@ -236,7 +237,7 @@ process trees and a Termux filter. Sort by name, CPU or memory, find a busy
 process, return to its window or end a session explicitly. Available process
 details and actions depend on the connected service's permissions.
 
-## Linux Applications Through Termux
+## Linux Applications
 
 **Run Linux graphical applications beside Android apps, not just inside one
 large Linux desktop window.** MagicDesk embeds its own Termux:X11 fork and
@@ -261,8 +262,7 @@ on one desktop. Both graphical applications are supplied by Termux.*
 
 Choose the destination display and window mode using the same Start controls
 as Android apps. Mouse, keyboard, clipboard, app titles and icons are
-integrated. Windows show the application content without an extra MagicDesk
-toolbar. Launching again returns to the existing window; **New window** requests
+integrated. Launching again returns to the existing window; **New window** requests
 another session, subject to the application's own instance/profile rules.
 Recent remembers Android and X11 launch recipes without accumulating duplicate
 entries, and can relaunch an X11 command after its previous session ends.

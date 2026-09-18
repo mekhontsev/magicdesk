@@ -118,12 +118,16 @@ Entries can select a working directory, launch mode, execution backend, MIME
 types, and standard file arguments such as `%f`, `%F`, `%u`, and `%U`.
 Dropping files onto a compatible executable entry supplies those arguments.
 
-**New terminal app** is available from the Desktop and Files background menus
+**New command app** is available from the Desktop and Files background menus
 and from the Console toolbar. The Console variant preserves that terminal's
 backend and current working directory. Executable files and shell scripts also
-offer **Add as terminal app** in the shared file context menu. MagicDesk writes
-the result as a normal `Type=Application` file under the Desktop directory;
-there is no parallel application database.
+offer **Add as terminal app** in the shared file context menu. Ordinary command
+entries are `Type=Application` files under the Desktop directory.
+
+Linux recipes can use Termux/proot-distro or a custom entry script through
+Termux or Shell. Termux Linux recipes are saved in its user applications
+directory; Shell recipes use Desktop. See
+[Desktop Entry files](desktop-entries.md#command-entries) for requirements.
 
 Command applications from the Desktop directory appear in Start and Start
 search. A file-argument field enables drag-and-drop. Combining it with a
@@ -259,8 +263,10 @@ or present individual windows from a retained session.
 
 Focused X11 windows exchange text, HTML, PNG images and files with Android's
 clipboard. Copy drag-and-drop works between compatible Android and X11 windows,
-including different X11 sessions. File access remains under the selected
-Termux UID; container-private paths need explicit shared storage or bindings.
+including different X11 sessions. Termux-hosted file exchange uses its UID.
+Shell-hosted servers run under MagicDesk's app UID and exchange files only
+through their explicit shared content directory. Prepared chroots can use
+Shell/root launchers without Termux; the existing service must have UID 0.
 Desktop is not a prerequisite. See [Embedded X11](x11.md) for setup, DPI,
 session lifetime, container examples and transfer limits.
 
@@ -277,8 +283,9 @@ modes, new-window requests, Android application information, pinning, and
 
 While another display has Desktop but the phone does not, phone HOME embeds
 the same Start content and defaults to ordinary phone fullscreen launches.
-Its Recent page uses Android's phone tasks; managed application history is
-shared across workspaces and includes Android and X11 launch recipes.
+Recent selects the global managed or independent launch history according to
+the destination and launch mode. Both include Android apps, built-in tools and
+command/X11 recipes. Running applications is a separate live-task view.
 Every Start surface offers the same destination, managed/independent placement
 and new-window controls. Independent tasks stay outside Desktop's Alt+Tab and
 taskbar, and can be selected from the control panel's display row actions.
@@ -360,8 +367,9 @@ Create display and input/power controls follow; Exit requires confirmation.
 tools too. The display section uses public inventory without shell access;
 interactive launches use Android's app-specific display permission checks.
 Privileged actions retain their slots and are disabled until access is ready.
-Status occupies one full-width row. The underlined **Access** and **Termux**
-controls share the next row and open short setup/status dialogs. Access reports
+Status occupies one full-width row. The underlined **Access**, **Termux** and
+**Desktop** controls open setup/status dialogs. Desktop checks API level, access,
+device setup and pending reboot without starting a session. Access reports
 the connected service identity; Termux distinguishes missing prerequisites from
 Available, Checking, Ready and Check failed, with details in its dialog. Available
 confirms the service and Android permission, not command execution. A one-shot

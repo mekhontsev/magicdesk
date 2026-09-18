@@ -206,6 +206,13 @@ license notices. See [licensing and source availability](docs/licensing.md).
 
 ## Repository Hygiene
 
+Documentation describes the current contract, prerequisites and limitations.
+Keep module READMEs focused on purpose, ownership, verification and source/license
+information; link to the relevant guide for details. Put release differences in
+release notes, not feature descriptions. Preserve dated investigation evidence
+and the reasons for safety constraints, while removing incidental development
+history and duplicated explanations from current guides.
+
 Do not commit IDE metadata, `local.properties`, generated build output,
 keystores, device captures, or diagnostic reports containing local device
 information. Before submitting a change, check `git status` and run the

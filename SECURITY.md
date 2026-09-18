@@ -21,8 +21,9 @@ Include what you have available:
 - Relevant logs or a Diagnostics excerpt with private information removed.
 
 For privilege or automation issues, include the selected startup backend,
-actual service UID and force-shell setting, relevant MCP listener permissions, and whether access is local
-or over a network. Never include live bearer tokens, passwords, signing keys
+actual service UID and **Limits > Maximum access** setting, relevant MCP
+listener permissions, and whether access is local or over a network. Never
+include live bearer tokens, passwords, signing keys
 or unrelated personal files. Test only on devices and accounts you own or
 have permission to use.
 
@@ -41,8 +42,8 @@ An older build should not prevent you from reporting a suspected vulnerability.
 ## Privilege Boundaries
 
 MagicDesk can perform privileged operations through Shizuku or optional direct
-root. The independent UID 2000 restriction does not revoke the application's
-root-manager authorization. Authorized MCP
+root. The Maximum access ceiling limits the working service; it does not revoke
+the application's root-manager authorization. Authorized MCP
 shell and input access deliberately allow broad device control; network MCP
 requires a trusted network or protected tunnel. These permissions are not a
 sandbox. See [the README security section](README.md#security) and

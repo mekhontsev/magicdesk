@@ -27,7 +27,7 @@ See [Compatibility](compatibility.md) for profile confidence and limitations.
 - JVM tests cover state models, parsers, resource ownership, task/display policy,
   shell quoting, files, content, profile identities and platform isolation.
 - Lint and assembly validate the APK's API 34 minimum and module boundaries.
-  Native helpers still need API 34 alignment/validation; see
+  Native artifacts target API 34 but still need device validation; see
   [Runtime API levels](runtime-api-levels.md).
 - Linux and Windows CI build artifacts. Linux also runs native protocol/PTY
   fixtures. These jobs do not run Android emulators.
@@ -61,7 +61,12 @@ Run these without Desktop; managed Desktop self-tests cannot prove isolation:
 - [ ] Exercise X11 clipboard and copy drag-and-drop with Android and same-/cross-X
   sessions: text, HTML, PNG, files, large INCR transfers, denied URI grants,
   cancellation and owner loss. Include container paths accessible and inaccessible
-  to the selected Termux server; never resolve a failure by escalating identity.
+  to the selected server. Shell-hosted chroot file exchange must stay inside its
+  explicit shared directory; never resolve a failure by escalating identity.
+- [ ] Exercise Shell/root chroot terminals and X11 with Termux disabled, including
+  guest users, shared-file limits, concurrent sessions, Stop and process loss.
+  Basic Alpine workflows were exercised on RM11/API 36; other firmware and
+  Android 14 remain unverified.
 - [ ] Create a virtual display, launch/capture fullscreen tools there and remove
   it without Desktop; verify viewer/display/session lifetimes separately.
 - [ ] Verify APK update, exact installer receipt and reconnect on API 34/35/36,
@@ -102,8 +107,8 @@ Run these without Desktop; managed Desktop self-tests cannot prove isolation:
 
 ## Additional Hardware And Release Coverage
 
-- [ ] Align native helpers to the API 34 floor and provide matching ABIs before
-  an Android Studio x86_64 API 34/35/36 emulator matrix.
+- [ ] Validate the API-34-targeted native helpers on an actual Android 14 device.
+  Any future x86_64 emulator matrix requires matching native artifacts first.
 - [ ] Test supported stock Pixel, Samsung and Xiaomi Android 15+ firmware;
   shared architecture is not a substitute for this coverage.
 - [ ] Complete more Android 15 physical-output/capture scenarios and onboarding

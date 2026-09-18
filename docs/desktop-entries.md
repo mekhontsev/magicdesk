@@ -22,9 +22,9 @@ The built-in **New command app** editor creates this same format from the
 Desktop or Files background menu and from the Console toolbar. Creating an app
 from Console preselects that Console's Android-shell or Termux backend and its
 current directory. An executable file or shell script can prefill the editor
-through **Add as terminal app**. Created entries are stored under
-`/storage/emulated/0/Desktop`, appear in Start, and remain ordinary editable
-Desktop Entry files.
+through **Add as terminal app**. Ordinary command entries are stored under
+`/storage/emulated/0/Desktop` and appear in Start. Linux launchers use the save
+locations described below; all remain editable Desktop Entry files.
 
 Select **Linux (Termux)** to create a guest launcher. **PRoot (proot-distro)**
 lists installed environments only when selected, through the configured Termux
@@ -45,9 +45,10 @@ shell/root service or Desktop. A custom chroot script may separately require
 root authorization for its own setup and entry. Shell Linux entries are saved
 as ordinary Desktop files, without Termux. Graphical Shell entries additionally
 specify an Android-visible XKB data directory from the prepared environment.
-Start refreshes after saving; Recent uses the existing launch recipe and Termux
-package identity. Identical saves do not create duplicates, and a different
-entry with the same name is not overwritten. These launchers use ordinary
+Start refreshes after saving; Recent retains the launch recipe and its selected
+executor, including the package identity for Termux. Identical saves do not
+create duplicates, and a different entry with the same name is not overwritten.
+These launchers use ordinary
 `Exec`, `Terminal`, and the existing `X-MagicDesk-X11Mode` presentation hint;
 there is no separate distribution registry or executor.
 
@@ -96,9 +97,9 @@ prepared-rootfs example with launch-scoped mounts. MagicDesk never acquires root
 on an individual recipe's behalf. Shell-hosted file exchange uses only the
 session's shared `/tmp/magicdesk-x11/content` directory inside the guest.
 
-Existing fixed-purpose scripts can still be used directly as ordinary Termux
-or X11 command entries. They need the option/argv contract above only to use
-the Linux editor's shared user, directory and command fields.
+Fixed-purpose scripts can be used directly as ordinary Shell or Termux command
+entries, with optional X11 presentation. They need the option/argv contract only
+to use the Linux editor's shared user, directory and command fields.
 
 `Exec` is limited to 4096 characters and cannot contain a NUL character. `%%`
 represents a literal percent sign. MagicDesk expands these standard field
@@ -138,17 +139,19 @@ the chooser's **Always** action remains limited to Android activities because
 it writes Android's real preferred-handler record rather than a MagicDesk-only
 association.
 
-Commands without field codes keep their raw shell syntax, including pipes,
-redirections, and command separators. A literal percent in such a Desktop
-Entry must still be written as `%%` according to the Desktop Entry format.
+Non-graphical commands without field codes use raw shell syntax by default,
+including pipes, redirections and command separators. `X-MagicDesk-ExecSyntax=argv`
+selects literal arguments; X11 presentation always uses that argument mode.
+A literal percent must be written as `%%` in either mode.
 
 `Terminal` selects how the command is presented:
 
 - `Terminal=true` opens a command window for the selected backend. The shell
   and Termux backends both use MagicDesk Console with their respective PTY
   transports.
-- Missing or false `Terminal` runs the command in the background and reports
-  startup or failure through the desktop status UI.
+- Missing or false `Terminal` starts X11 presentation when configured, otherwise
+  runs the command in the background. Launch completion or failure is reported
+  through the calling UI or automation result.
 
 The default backend is the Android shell identity authorized for MagicDesk:
 

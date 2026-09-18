@@ -329,8 +329,8 @@ The 2026-09-08 inspection of NX809J build `20260204.221845`
 found selected-HOME exemptions in `CpuFreezerManagerServiceV2`.
 `CpuFreezerUtils.getLauncherPackageName` and `AppInfoUtils.isCurrentLauncher`
 resolve MAIN/HOME; the cached identity refreshes on preferred-activity changes
-and screen-off. MagicDesk no longer relies on this exemption for its own package:
-a secure-lock experiment without HOME froze the MCP host, whereas explicitly
+and screen-off. MagicDesk uses scoped working-state claims independently of
+HOME. In a secure-lock experiment, the MCP host froze without HOME, whereas explicitly
 retained transient working state allowed sustained access to an always-unlocked
 virtual display under UID 2000. Keyguard exemption alone does not prevent freezing.
 HOME does not protect other desktop application UIDs. The ordinary screen-state
