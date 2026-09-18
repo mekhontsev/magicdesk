@@ -1658,6 +1658,13 @@ content-only client/desktop viewers. `X11HostBinding` scopes the viewer's borrow
 output, content exchange, subscriptions, density and fullscreen responder;
 closing/recreating that binding does not own the retained server. Density,
 clipboard, size and fullscreen keep their independent ownership policies.
+Read-only window-family inspection uses the native model's existing membership
+policy. `X11Session` correlates bounded replies on its connection thread and
+cancels pending reads on reconnect, disconnect or close. `X11Sessions` adds
+UI-thread host geometry through existing bindings; `AutomationX11` serializes
+that result with the content grant. Neither inspection nor host association
+acquires an output, queries privileged tasks or changes focus. The native
+snapshot, Android host observation and screenshot are separate observations.
 The manager never acquires an output,
 clipboard ownership or density ownership. `HostedSurfaceView` owns Android
 Surface/input/IME lifecycle through `HostedSurfaceOutput`; `X11SurfaceOutput`

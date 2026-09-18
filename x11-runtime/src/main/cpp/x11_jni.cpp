@@ -17,6 +17,8 @@ struct Connection {
     jmethodID frame, disconnected, window, windowRemoved, windows, data;
     jclass managementClass;
     jmethodID managementConstructor;
+    jclass inspectionNodeClass;
+    jmethodID inspectionNodeConstructor, inspectionNode, inspectionDone;
     LorieConnection* native;
 };
 
@@ -78,6 +80,30 @@ const LorieCallbacks callbacks = {
         c->env->CallVoidMethod(c->owner, c->data, operation, channel, (jint)serial, (jint)offer,
                 (jint)output, (jint)window, x, y, mime, descriptor);
         c->env->DeleteLocalRef(mime);
+    },
+    .inspectionNode = [](void* ptr, uint32_t serial, const LorieInspectionNode* node) {
+        auto* c = (Connection*)ptr;
+        JNIEnv* env = c->env;
+        if (env->ExceptionCheck()) return;
+        jsize length = (jsize)strnlen(node->title, sizeof(node->title));
+        jbyteArray title = env->NewByteArray(length);
+        if (!title) return;
+        env->SetByteArrayRegion(title, 0, length, (const jbyte*)node->title);
+        jobject value = env->NewObject(c->inspectionNodeClass, c->inspectionNodeConstructor,
+                (jint)node->id, (jint)node->parent, (jint)node->transientFor, (jint)node->leader,
+                title, node->x, node->y, node->width, node->height, (jint)node->flags, (jint)node->type);
+        if (value) {
+            env->CallVoidMethod(c->owner, c->inspectionNode, (jint)serial, value);
+            env->DeleteLocalRef(value);
+        }
+        env->DeleteLocalRef(title);
+    },
+    .inspectionDone = [](void* ptr, uint32_t serial, const LorieInspectionResult* result) {
+        auto* c = (Connection*)ptr;
+        if (c->env->ExceptionCheck()) return;
+        c->env->CallVoidMethod(c->owner, c->inspectionDone, (jint)serial, (jint)result->window,
+                (jint)result->focus, (jint)result->focusKind, result->screenWidth, result->screenHeight,
+                (jint)result->count, (jboolean)result->found, (jboolean)result->truncated);
     }
 };
 
@@ -109,6 +135,8 @@ extern "C" JNIEXPORT jlong JNICALL JNI(X11Session_nativeCreate)(JNIEnv* env, job
     c->windowRemoved = env->GetMethodID(cls, "onNativeWindowRemoved", "(I)V");
     c->windows = env->GetMethodID(cls, "onNativeWindowsCommitted", "()V");
     c->data = env->GetMethodID(cls, "onNativeData", "(IIIIIIIILjava/lang/String;I)V");
+    c->inspectionNode = env->GetMethodID(cls, "onNativeInspectionNode", "(ILio/github/mekhontsev/magicdesk/x11/X11WindowInspection$Node;)V");
+    c->inspectionDone = env->GetMethodID(cls, "onNativeInspectionDone", "(IIIIIIIZZ)V");
     env->DeleteLocalRef(cls);
     if (!env->ExceptionCheck()) {
         jclass management = env->FindClass("io/github/mekhontsev/magicdesk/x11/X11WindowManagement");
@@ -118,10 +146,19 @@ extern "C" JNIEXPORT jlong JNICALL JNI(X11Session_nativeCreate)(JNIEnv* env, job
             env->DeleteLocalRef(management);
         }
     }
+    if (!env->ExceptionCheck()) {
+        jclass node = env->FindClass("io/github/mekhontsev/magicdesk/x11/X11WindowInspection$Node");
+        if (node) {
+            c->inspectionNodeClass = (jclass)env->NewGlobalRef(node);
+            c->inspectionNodeConstructor = env->GetMethodID(node, "<init>", "(IIII[BIIIIII)V");
+            env->DeleteLocalRef(node);
+        }
+    }
     if (!env->ExceptionCheck() && c->owner) c->native = lorieConnectionCreate(&callbacks, c);
     if (c->native) return (jlong)c;
     if (c->owner) env->DeleteGlobalRef(c->owner);
     if (c->managementClass) env->DeleteGlobalRef(c->managementClass);
+    if (c->inspectionNodeClass) env->DeleteGlobalRef(c->inspectionNodeClass);
     free(c);
     return 0;
 }
@@ -174,6 +211,11 @@ extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeObserveWindows)(JNIEnv*, 
     lorieObserveWindows(((Connection*)ptr)->native);
 }
 
+extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeInspectWindow)(JNIEnv*, jclass, jlong ptr,
+        jint serial, jint window, jint limit) {
+    lorieInspectWindow(((Connection*)ptr)->native, serial, window, (uint16_t)limit);
+}
+
 extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeCloseWindow)(JNIEnv*, jclass, jlong ptr, jint window) {
     lorieCloseWindow(((Connection*)ptr)->native, window);
 }
@@ -215,6 +257,7 @@ extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeDestroy)(JNIEnv* env, jcl
     lorieConnectionDestroy(c->native);
     env->DeleteGlobalRef(c->owner);
     env->DeleteGlobalRef(c->managementClass);
+    env->DeleteGlobalRef(c->inspectionNodeClass);
     free(c);
 }
 

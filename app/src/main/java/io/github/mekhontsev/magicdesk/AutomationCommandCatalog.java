@@ -16,6 +16,12 @@ final class AutomationCommandCatalog {
                         "Get desktop state",
                         "Read current MagicDesk runtime and desktop session state.",
                         emptySchema()))
+                .put(readTool("x11.inspect_window", "Inspect X11 window family",
+                        "Read one live X11 window family, including transient dialogs, popups and real children. Uses sessionId and X windowId from get_state.x11, not Android ids. No focus, layout, output creation or Desktop requirement. This is X window structure, not a widget/accessibility tree. Bounds use X root pixels; mapped/realized do not imply unobscured pixels. Hosts describe separate Android observations and aspect-fit content bounds; inspection and screenshot are not atomic. Missing XID returns found=false. Traversal is bounded and reports truncation.",
+                        objectSchema(new JSONObject().put("sessionId", stringProperty("Exact live X11 session id."))
+                                .put("windowId", integerProperty("Selected main X window id, 1 through 4294967295."))
+                                .put("limit", integerProperty("Maximum returned family windows, 1 through 256; default 256.")),
+                                "sessionId", "windowId")))
                 .put(readTool(
                         "get_pointer_state",
                         "Get pointer state",
@@ -1291,6 +1297,17 @@ final class AutomationCommandCatalog {
             throws JSONException {
         final JSONObject properties = new JSONObject();
         switch (toolName) {
+            case "x11.inspect_window":
+                properties.put("sessionId", stringProperty("Exact X11 session id."))
+                        .put("windowId", integerProperty("Selected X window id."))
+                        .put("found", booleanProperty("Selected window existed in the native observation."))
+                        .put("truncated", booleanProperty("Window count or traversal budget was exceeded."))
+                        .put("coordinateSpace", enumProperty("Native bounds coordinates.", "x11_root"))
+                        .put("screenBounds", openObjectProperty("X screen rectangle."))
+                        .put("focus", openObjectProperty("X keyboard focus: kind (window, none, pointer_root, unknown) and windowId."))
+                        .put("windows", arrayProperty("Family windows: actual parentId, transientFor, clientLeader, title, type, bounds and flags.", openObjectProperty("X window, not a semantic widget.")))
+                        .put("hosts", arrayProperty("Matching individual and whole-screen hosts: taskId, displayId, windowId, focused, contentWidth/Height and contentBoundsOnDisplay. No host activation.", openObjectProperty("Android host observation, collected after native inspection.")));
+                break;
             case "dialog.show":
             case "notification.post":
             case "interaction.result":

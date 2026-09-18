@@ -13,6 +13,8 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.CompletableFuture;
+import java.util.ArrayList;
 
 /** One server connection and Present queue, independently retained from its output windows. */
 public final class X11Session implements AutoCloseable {
@@ -46,6 +48,10 @@ public final class X11Session implements AutoCloseable {
     private final X11DataExchange dataExchange;
     private boolean windowsChanged;
     private int dpi;
+    private int nextInspection;
+    private final Map<Integer, Inspection> inspections = new LinkedHashMap<>();
+    private record Inspection(long window, int limit, ArrayList<X11WindowInspection.Node> nodes,
+            CompletableFuture<X11WindowInspection> result, Runnable timeout) { }
 
     public X11Session(Executor callbacks, Listener listener) {
         this.callbacks = java.util.Objects.requireNonNull(callbacks);
@@ -86,6 +92,7 @@ public final class X11Session implements AutoCloseable {
         java.util.Objects.requireNonNull(descriptor);
         try (descriptor) {
             call(() -> {
+                cancelInspections();
                 if (!nativeConnect(nativeHandle, descriptor.detachFd())) {
                     connected = false;
                     throw new IllegalStateException("Cannot connect X11 server");
@@ -161,6 +168,64 @@ public final class X11Session implements AutoCloseable {
     }
 
     public X11DataExchange dataExchange() { return dataExchange; }
+
+    public CompletableFuture<X11WindowInspection> inspectWindow(long windowId, int limit) {
+        if (windowId <= 0 || windowId > 0xffffffffL || limit < 1 || limit > 256)
+            throw new IllegalArgumentException("Invalid X11 inspection target or limit");
+        return call(() -> {
+            if (!connected) throw new IllegalStateException("X11 server is disconnected");
+            if (inspections.size() >= 4) throw new IllegalStateException("Too many pending X11 inspections");
+            if (nextInspection == Integer.MAX_VALUE) throw new IllegalStateException("Inspection identifiers exhausted");
+            int serial = ++nextInspection;
+            CompletableFuture<X11WindowInspection> result = new CompletableFuture<>();
+            Runnable timeout = () -> {
+                Inspection pending = inspections.remove(serial);
+                if (pending != null) pending.result.completeExceptionally(
+                        new IllegalStateException("X11 inspection response deadline expired"));
+            };
+            inspections.put(serial, new Inspection(windowId, limit, new ArrayList<>(), result, timeout));
+            handler.postDelayed(timeout, 5000); // Bounds one protocol reply, not a polling interval.
+            result.whenComplete((value, error) -> handler.post(() -> {
+                Inspection pending = inspections.remove(serial);
+                if (pending != null) handler.removeCallbacks(pending.timeout);
+            }));
+            nativeInspectWindow(nativeHandle, serial, (int)windowId, limit);
+            return result;
+        });
+    }
+
+    private void onNativeInspectionNode(int serial, X11WindowInspection.Node node) {
+        Inspection pending = inspections.get(serial);
+        if (pending == null) return;
+        if (pending.nodes.size() >= pending.limit) {
+            inspections.remove(serial);
+            handler.removeCallbacks(pending.timeout);
+            pending.result.completeExceptionally(new IllegalStateException("X11 inspection exceeds requested limit"));
+        } else pending.nodes.add(node);
+    }
+
+    private void onNativeInspectionDone(int serial, int window, int focus, int focusKind,
+            int width, int height, int count, boolean found, boolean truncated) {
+        Inspection pending = inspections.remove(serial);
+        if (pending == null) return;
+        handler.removeCallbacks(pending.timeout);
+        if (pending.window != Integer.toUnsignedLong(window) || count != pending.nodes.size()) {
+            pending.result.completeExceptionally(new IllegalStateException("Invalid X11 inspection response"));
+            return;
+        }
+        String kind = switch (focusKind) { case 0 -> "none"; case 1 -> "pointer_root"; case 2 -> "window"; default -> "unknown"; };
+        pending.result.complete(new X11WindowInspection(pending.window, found, truncated,
+                new X11WindowInspection.Focus(kind, Integer.toUnsignedLong(focus)),
+                new X11WindowInspection.Bounds(0, 0, width, height), pending.nodes));
+    }
+
+    private void cancelInspections() {
+        for (Inspection pending : inspections.values()) {
+            handler.removeCallbacks(pending.timeout);
+            pending.result.completeExceptionally(new IllegalStateException("X11 connection closed"));
+        }
+        inspections.clear();
+    }
 
     private void onNativeData(int operation, int channel, int serial, int offer, int output, int window,
             int x, int y, String type, int descriptor) {
@@ -264,6 +329,7 @@ public final class X11Session implements AutoCloseable {
 
     private void onNativeDisconnected() {
         connected = false;
+        cancelInspections();
         dataExchange.disconnected();
         callbacks.execute(() -> { if (!closed) listener.onDisconnected(); });
     }
@@ -275,6 +341,7 @@ public final class X11Session implements AutoCloseable {
             if (closed) return;
             if (shutdown == null) {
                 shutdown = new FutureTask<>(() -> {
+                    cancelInspections();
                     for (Output output : outputs.values()) output.released = true;
                     outputs.clear();
                     nativeDestroy(nativeHandle);
@@ -349,6 +416,7 @@ public final class X11Session implements AutoCloseable {
     private static native void nativeFocus(long handle, int output, int window);
     private static native void nativeRelease(long handle, int output, int window);
     private static native void nativeObserveWindows(long handle);
+    private static native void nativeInspectWindow(long handle, int serial, int window, int limit);
     private static native void nativeCloseWindow(long handle, int window);
     private static native void nativeDpi(long handle, int dpi);
     private static native void nativeConfirmWindowState(long handle, int window, int requestSerial, boolean fullscreen);

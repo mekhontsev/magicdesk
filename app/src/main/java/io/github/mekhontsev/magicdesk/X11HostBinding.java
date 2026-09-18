@@ -112,6 +112,12 @@ final class X11HostBinding implements X11Sessions.Listener {
 
     @Override public void onChanged() { if (!closed) changed.run(); }
 
+    @Override public X11Sessions.Host inspectHost() {
+        if (closed || output == null || activity.isDestroyed() || activity.isFinishing()) return null;
+        return new X11Sessions.Host(activity.getTaskId(), activity.getDisplay() == null ? -1 : activity.getDisplay().getDisplayId(),
+                window, activity.hasWindowFocus(), surface.geometry());
+    }
+
     @Override public void onFrame(X11Session.Output source, int width, int height, boolean available) {
         if (!closed && source == output) surface.frame(available ? width : 0, available ? height : 0);
     }

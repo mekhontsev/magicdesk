@@ -72,6 +72,16 @@ JNI caches the snapshot constructor per connection; it does not allocate native
 command objects or introduce per-frame Java callbacks. Removed windows have a
 separate callback, and complete catalogs still publish only at the commit marker.
 
+`inspectWindow(XID, limit)` returns a future for a read-only
+`X11WindowInspection`, independently of catalog publication and output ownership.
+The connection admits at most four pending requests, correlates each node and
+completion marker by serial, and validates the target/count/limit. A five-second
+protocol deadline bounds abandoned replies; reconnect, disconnect, close and
+cancellation release pending requests. Late replies cannot populate a newer
+request. Native callbacks allocate Java records only on explicit inspection,
+not during rendering or ordinary input. Android host/task geometry stays in the
+application layer, outside this native/runtime contract.
+
 ## Verification
 
 From the MagicDesk repository root:

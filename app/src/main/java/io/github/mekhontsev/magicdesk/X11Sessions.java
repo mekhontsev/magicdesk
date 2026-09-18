@@ -29,8 +29,11 @@ final class X11Sessions {
     private static final long START_TIMEOUT_MILLIS = 60_000;
 
     enum State { STARTING, READY, CLOSED, FAILED }
+    record Host(int taskId, int displayId, long windowId, boolean focused, HostedSurfaceView.Geometry geometry) { }
+    record Inspection(io.github.mekhontsev.magicdesk.x11.X11WindowInspection family, List<Host> hosts) { }
     interface Listener {
         void onChanged();
+        default Host inspectHost() { return null; }
         default void onFrame(X11Session.Output output, int width, int height, boolean available) { }
         default void onDataOffer(X11DataExchange.Offer offer) { }
         default void onDragEvent(int operation, int output, boolean accepted) { }
@@ -207,6 +210,32 @@ final class X11Sessions {
         void listen(Listener listener) { listeners.add(listener); }
         void unlisten(Listener listener) { listeners.remove(listener); }
         List<X11Session.Window> windows() { return windows; }
+        java.util.concurrent.CompletableFuture<Inspection> inspectWindow(long window, int limit) {
+            X11Session current = renderer;
+            if (current == null || state != State.READY) throw new IllegalStateException("X11 session is not ready");
+            var request = current.inspectWindow(window, limit);
+            var result = new java.util.concurrent.CompletableFuture<Inspection>();
+            request.whenComplete((family, failure) -> {
+                if (failure != null) { result.completeExceptionally(failure); return; }
+                MAIN.post(() -> {
+                    if (result.isDone()) return;
+                    if (renderer != current || state != State.READY) {
+                        result.completeExceptionally(new IllegalStateException("X11 session changed during inspection"));
+                        return;
+                    }
+                    try {
+                        List<Host> hosts = new ArrayList<>();
+                        for (Listener listener : listeners) {
+                            Host host = listener.inspectHost();
+                            if (host != null && (host.windowId() == window || host.windowId() == 0)) hosts.add(host);
+                        }
+                        result.complete(new Inspection(family, List.copyOf(hosts)));
+                    } catch (RuntimeException error) { result.completeExceptionally(error); }
+                });
+            });
+            result.whenComplete((value, error) -> { if (result.isCancelled()) request.cancel(false); });
+            return result;
+        }
         boolean claimWindow(long id) { return presentedWindows.add(id); }
         void releaseWindowClaim(long id) { presentedWindows.remove(id); }
         boolean claimFullscreen(long id, Object host) {

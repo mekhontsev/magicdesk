@@ -43,6 +43,16 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         viewport = HostedViewport.fit(getWidth(), getHeight(), width, height);
     }
 
+    record Geometry(int contentWidth, int contentHeight, float left, float top, float right, float bottom) { }
+
+    /** On-demand UI-thread observation; coordinates are on the containing Android display. */
+    Geometry geometry() {
+        int[] location = new int[2];
+        getLocationOnScreen(location);
+        float left = location[0] + viewport.left(), top = location[1] + viewport.top();
+        return new Geometry(frameWidth, frameHeight, left, top, left + viewport.width(), top + viewport.height());
+    }
+
     @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
         super.onSizeChanged(width, height, oldWidth, oldHeight);
         viewport = HostedViewport.fit(width, height, frameWidth, frameHeight);

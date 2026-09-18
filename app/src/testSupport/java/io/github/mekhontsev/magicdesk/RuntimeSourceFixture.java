@@ -32,6 +32,11 @@ final class RuntimeSourceFixture {
     private RuntimeSourceFixture() {
     }
 
+    private static Path sourcePath(String file) {
+        Path path = Path.of(file);
+        return path.isAbsolute() ? path : Path.of(MAIN + file + ".java");
+    }
+
     static String methods(final String file, final String... names) throws IOException {
         return methods(file, false, names);
     }
@@ -44,7 +49,7 @@ final class RuntimeSourceFixture {
         final JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         final List<String> requested = Arrays.asList(names);
         final StringBuilder methods = new StringBuilder();
-        final Path path = Path.of(MAIN + file + ".java");
+        final Path path = sourcePath(file);
         final String source = Files.readString(path);
         try (StandardJavaFileManager files = compiler.getStandardFileManager(
                 null, null, StandardCharsets.UTF_8)) {
@@ -154,7 +159,7 @@ final class RuntimeSourceFixture {
                     "-d", directory.toString(),
                     source.toString()));
             for (final String file : additionalSources) {
-                arguments.add(MAIN + file + ".java");
+                arguments.add(sourcePath(file).toString());
             }
             final ByteArrayOutputStream diagnostics = new ByteArrayOutputStream();
             if (compiler.run(null, diagnostics, diagnostics,

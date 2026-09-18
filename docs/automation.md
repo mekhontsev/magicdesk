@@ -380,6 +380,36 @@ Each session also reports its resolved X11 `dpi` and relative `scalePercent`.
 `runtime.x11Sessions` is the live session count. The X11 built-in uses ordinary
 tool placement and remains available without Desktop.
 
+`x11.inspect_window` reads one live window family by `sessionId` and X11
+`windowId` from that catalog. It requires `content`, not Desktop or shell access.
+`limit` is 1..256 (default 256). The selected window comes first, followed by
+related dialogs, popups and real children, including unmapped/InputOnly windows.
+Each entry exposes `parentId`, `transientFor`, `clientLeader`, title, type, bounds,
+mapping flags and exact keyboard focus. `parentId` is actual X ancestry, not
+the dialog's transient relationship. This is not a toolkit accessibility tree:
+buttons and text fields need not have separate X windows.
+
+Bounds use X-root pixels, not Android pixels. `mapped` and `realized` do not
+prove that a window is unobscured. The separate `focus` record retains an exact
+XID even outside the returned family, or reports `none`, `pointer_root` or
+`unknown`. Missing windows return `found=false`; bounded traversal reports
+`truncated=true`, never a silently complete tree. XIDs can be reused after a
+window is destroyed, so do not retain them as persistent identities.
+
+`hosts` identifies currently bound Android `taskId`/`displayId`, the selected XID
+(zero for a whole-screen view), frame dimensions and aspect-fit
+`contentBoundsOnDisplay`. Individual-view source pixels start at the selected
+main window's X-root origin; whole-screen source pixels start at zero. These
+host observations follow the native snapshot, and a later task screenshot is
+another observation, not an atomic capture. Display bounds are not task-local
+crop coordinates. Inspection never focuses, moves, resizes, acquires an output
+or subscribes to polling. Connection closure and protocol reply deadlines fail
+pending reads; repeating a read has no window side effects.
+
+```json
+{"sessionId":"session-from-get-state", "windowId":2097153, "limit":128}
+```
+
 `get_state.windows` distinguishes Android's focused application record from
 the actual focused input window on each display. This matters when a crash,
 ANR, permission, or other system-owned window is above an application whose

@@ -19,7 +19,11 @@ public final class X11HostBindingTest {
                 int getTaskId() { return task; }
                 boolean hasWindowFocus() { return focused; }
                 Resources getResources() { return resources; }
+                boolean isDestroyed() { return false; }
+                boolean isFinishing() { return false; }
+                Display getDisplay() { return new Display(); }
             }
+            static class Display { int getDisplayId() { return 7; } }
             record X11WindowManagement(boolean managed, Request request, State actual) {
                 record Request(int serial, boolean fullscreen) { }
                 record State(boolean fullscreen) { }
@@ -32,8 +36,10 @@ public final class X11HostBindingTest {
                 }
             }
             static class X11Sessions {
+                record Host(int taskId, int displayId, long windowId, boolean focused, HostedSurfaceView.Geometry geometry) { }
                 interface Listener {
                     void onChanged();
+                    default Host inspectHost() { return null; }
                     default void onFrame(X11Session.Output output, int width, int height, boolean available) { }
                 }
                 static class Session {
@@ -70,6 +76,8 @@ public final class X11HostBindingTest {
             }
             record X11SurfaceOutput(X11Session.Output output) { }
             static class HostedSurfaceView {
+                record Geometry(int width, int height) { }
+                Geometry geometry() { return new Geometry(width, height); }
                 X11SurfaceOutput output;
                 boolean failBind;
                 int width, height;
@@ -117,6 +125,10 @@ public final class X11HostBindingTest {
                 check(surface.width == 0, "foreign frame ignored");
                 host.onFrame(output, 12, 34, true);
                 check(surface.width == 12 && surface.height == 34, "own frame accepted");
+                var observed = host.inspectHost();
+                check(observed.taskId() == 10 && observed.displayId() == 7 && observed.windowId() == 31,
+                        "inspection identifies the exact host, not another session window");
+                check(observed.geometry().width() == 12 && session.opens == 1, "inspection borrows geometry without acquiring output");
                 host.onFrame(output, 12, 34, false);
                 check(surface.width == 0 && surface.height == 0, "unavailable frame clears geometry");
 
@@ -124,6 +136,7 @@ public final class X11HostBindingTest {
                 other.refresh(31, true);
                 check(other.immersiveRequest() == null && HostedFullscreen.created.size() == 1, "only one fullscreen responder per window");
                 events.clear(); host.close(false);
+                check(host.inspectHost() == null, "closed host is not inspectable");
                 check(events.equals(List.of("fullscreen", "owner", "exchange", "unlisten", "density", "host", "output")), "recreation release order: " + events);
                 check(output.closed && fullscreen.closed && session.clientCloses == 0 && session.serverCloses == 0, "recreation retains client and server");
                 check(!session.densities.contains(host) && session.densities.contains(other), "other host retains density registration");
