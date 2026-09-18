@@ -5,7 +5,7 @@ import android.content.Intent;
 
 /** Built-in application entry points shared by phone UI and automation. */
 final class ToolApplications {
-    record SiblingPlacement(ToolLaunchTarget target, String uniqueId) { }
+    record WindowPlacement(ToolLaunchTarget target, String uniqueId, DesktopLaunchPresentation presentation) { }
     private ToolApplications() { }
 
     static Intent intent(final Context context, final String name) {
@@ -51,7 +51,7 @@ final class ToolApplications {
         final int taskId = source.getTaskId();
         TaskCommandQueue.execute(() -> {
             try {
-                final var placement = siblingPlacement(display, taskId);
+                final var placement = windowPlacement(display, taskId);
                 open(source, intent, placement.target(), placement.uniqueId(), callback);
             } catch (java.io.IOException | RuntimeException error) {
                 source.runOnUiThread(() -> { if (!source.isDestroyed() && !source.isFinishing()) callback.onComplete(error); });
@@ -60,8 +60,10 @@ final class ToolApplications {
     }
 
     /** One-shot ownership capture on the command queue; never infers ownership from the display alone. */
-    static SiblingPlacement siblingPlacement(int display, int taskId) throws java.io.IOException {
+    static WindowPlacement windowPlacement(int display, int taskId) throws java.io.IOException {
         boolean managed = false;
+        DesktopLaunchMode mode = DesktopLaunchMode.FULLSCREEN;
+        RelativeWindowBounds bounds = null;
         if (DesktopRuntimeBridge.hasWorkspace(display)) {
             final var snapshot = TaskRepository.loadNow(display);
             if (!snapshot.available) throw new java.io.IOException(snapshot.error);
@@ -70,8 +72,28 @@ final class ToolApplications {
             final String ownership = ApplicationTaskPlacement.ownership(task, snapshot);
             if ("unknown".equals(ownership)) throw new java.io.IOException("Source window ownership is unavailable");
             managed = "desktop".equals(ownership);
+            if (managed && task.isFreeform()) {
+                mode = DesktopLaunchMode.WINDOWED;
+                bounds = RelativeWindowBounds.from(task.bounds, FloatingWindowController.getWorkAreaBounds(display));
+            }
         }
-        return new SiblingPlacement(ToolLaunchTarget.resolve(managed ? "desktop" : "display", display,
-                DesktopRuntimeBridge.workspaceDisplayIds()), DesktopDisplayCatalog.require(display, null).uniqueId);
+        return new WindowPlacement(ToolLaunchTarget.resolve(managed ? "desktop" : "display", display,
+                DesktopRuntimeBridge.workspaceDisplayIds()), DesktopDisplayCatalog.require(display, null).uniqueId,
+                new DesktopLaunchPresentation(mode, bounds, DesktopTaskInstancePolicy.CREATE_NEW, -1));
+    }
+
+    /** Pure position changes need not deliver Activity.onConfigurationChanged. Read the final local bounds. */
+    static DesktopLaunchPresentation replacementPresentation(android.app.Activity activity, WindowPlacement placement) {
+        if (activity.getDisplay() == null || activity.getDisplay().getDisplayId() != placement.target().displayId) {
+            throw new IllegalStateException("Window moved away from its verified destination");
+        }
+        final var previous = placement.presentation();
+        if (previous.mode != DesktopLaunchMode.WINDOWED) return previous;
+        final var bounds = activity.getWindowManager().getCurrentWindowMetrics().getBounds();
+        final var workArea = DesktopRuntimeBridge.getDesktopWorkAreaBounds(placement.target().displayId);
+        final var relative = RelativeWindowBounds.from(bounds, workArea);
+        if (relative == null) throw new IllegalStateException("Final window geometry is unavailable");
+        return new DesktopLaunchPresentation(DesktopLaunchMode.WINDOWED, relative,
+                DesktopTaskInstancePolicy.CREATE_NEW, -1);
     }
 }

@@ -62,8 +62,7 @@ final class X11ApplicationLaunch {
     private static void reopen(DesktopLaunchContext host, DesktopLaunchRequest request,
             X11Sessions.Application application, DesktopActivityLaunchResult.Completion done) {
         var session = application.session();
-        Intent intent = X11Activity.createIntent(host.context()).putExtra(X11Activity.SESSION, session.id())
-                .putExtra(X11Activity.WINDOW, application.window())
+        Intent intent = X11Activity.windowIntent(host.context(), session, application.window())
                 .putExtra(X11Activity.APPLICATION, session.application);
         AppLaunchTarget target = AppLaunchTarget.explicit(host.context().getPackageName(), X11Activity.class.getName(), "");
         final var reopen = new DesktopLaunchRequest(request.name, request.icon,
@@ -83,13 +82,21 @@ final class X11ApplicationLaunch {
                 .putExtra(X11Activity.KEYBOARD_DIRECTORY, request.exec.x11.keyboardDirectory())
                 .putExtra(X11Activity.APPLICATION, !request.exec.x11.desktop())
                 .putExtra(X11Activity.RECENT_SCOPE, RecentLaunchScope.of(host.destination()).name());
-        if (request.sourceShortcut != null) intent.putExtra(X11Activity.RECIPE,
-                DesktopEntryFile.encodeRecent(RecentApplications.describe(context, request.sourceShortcut, request.desktopFilePath)));
+        if (request.sourceShortcut != null) {
+            var recipe = RecentApplications.describe(context, request.sourceShortcut, request.desktopFilePath);
+            intent.putExtra(X11Activity.RECIPE, DesktopEntryFile.encodeRecent(recipe));
+            BuiltInWindowIdentity.bind(intent, reference(context, recipe));
+        }
         AppLaunchTarget target = AppLaunchTarget.explicit(context.getPackageName(), X11Activity.class.getName(), "");
         return new DesktopLaunchRequest(request.name, request.icon,
                 AndroidLaunchSpec.intent(target, intent.toUri(Intent.URI_INTENT_SCHEME)), null, null,
                 request.presentation.withInstancePolicy(DesktopTaskInstancePolicy.CREATE_NEW),
                 request.arguments, request.desktopFilePath);
+    }
+
+    static AppReference reference(Context context, RecentApplicationStore.Entry recipe) {
+        return recipe == null ? null : AppReference.hosted(AppProfile.current(context).reference(
+                AppLaunchTarget.explicit(context.getPackageName(), X11Activity.class.getName(), "")), recipe.key());
     }
 
     private X11ApplicationLaunch() { }

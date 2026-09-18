@@ -162,6 +162,12 @@ Input selection is independent of every launch and transfer.
 Shared task closure also checks live ownership: independent tasks close through
 Android without preparing Desktop focus. Managed tasks retain their topology
 owner; unknown or rejected ownership never falls back to an ordinary close.
+Before Android removal, registered built-in `CloseHandler`s receive the request
+on the UI thread, without holding the registry lock. X11 hosts retain their
+task/output for client confirmation; actual client disappearance finishes the
+Activity and uses the existing task-removal observer. Task-scoped force stop
+uses that same handler before considering Android package termination. Explicit
+package-scoped force stop retains its Android semantics and rejects MagicDesk.
 
 ## Design Principles
 
@@ -1068,7 +1074,9 @@ Application identity has four explicit levels:
   an entry point (package, component, action); it is not a complete app identity.
 - `AppReference` combines `AppIdentity` with an optional built-in tool entry.
   Files, Settings, and Console retain separate identities despite sharing one
-  APK. Ordinary Android applications remain grouped by profile and package.
+  APK. A hosted application additionally carries its semantic launch-recipe key,
+  so Calc and Writer do not share geometry merely because both use `X11Activity`.
+  Ordinary Android applications remain grouped by profile and package.
 - `LaunchActivityIdentity` binds an entry point or a package-scoped system
   surface to an explicit user id before task lookup. Direct launches bind at
   the current-user ingress; shortcut and PendingIntent launches retain the
@@ -1114,6 +1122,12 @@ X11 publishes the original recipe when its session becomes usable. No additional
 observer, timer or synchronous focus-time disk write is introduced.
 Bounds callbacks carry `FrameworkTaskSnapshot`, so shell
 observation does not need application-storage keys or profile serial lookup.
+`BuiltInWindowIdentity` carries the hosted reference through launch Intents,
+validated against the destination tool and Android profile. The live host publishes
+the same reference through `BuiltInWindowRegistry.ApplicationSource`; existing
+typed task callbacks resolve it for the common `AppWindowStateStore`. Recipe-less
+X11 windows have no durable geometry key, rather than overwriting another program.
+Live task/window identifiers and document titles are never persistent identities.
 Unknown and unsupported task users cannot overwrite current-profile geometry
 or receive its DPI. Application details, shortcuts and force-stop resolve the
 explicit profile before dispatch; force-stop uses its resolved user id.
@@ -1719,8 +1733,9 @@ leases without closing the client or server. Root outputs leave Linux
 window placement to its window manager. Window titles and bounded EWMH icons
 flow through the existing X catalog into Android task descriptions and
 `BuiltInWindowRegistry.PresentationSource`. Taskbar/overview/picker presentation
-can vary per window without changing its profile-scoped Android launch identity
-or introducing a second task observer.
+can vary per window. The Android component/profile still identifies the host;
+the associated launch recipe distinguishes hosted window state without a second
+store or task observer.
 Dedicated application sessions also forward EWMH fullscreen requests and
 versioned host acknowledgements. `X11WindowManagement` separates client requests
 from confirmed state and window catalog metadata. Java and the native embedding

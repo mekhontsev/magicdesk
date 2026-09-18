@@ -72,6 +72,7 @@ final class MagicDeskSessionController {
         mHost.showSessionStatus(
                 mActivity.getString(R.string.status_exiting));
         MagicDeskRuntime.clearParkedDesktopTasks();
+        X11Sessions.prepareForExit();
         BuiltInWindowRegistry.finishAll(this::startExit);
     }
 

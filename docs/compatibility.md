@@ -212,6 +212,11 @@ in-APK catalog recognition must not use its reused stock fingerprint alone.
 - Native caption controls vary by firmware. Production does not infer their
   meaning from coordinates. The native caption snap self-test scenario is
   currently supplied only by the Nubia diagnostics provider.
+- WMShell's native close control can remove an X11 Android host directly, without
+  a cancellable Activity callback. MagicDesk reopens a surviving client on its
+  verified destination, so a save dialog remains accessible; the Android task ID
+  changes and the window may briefly disappear. MagicDesk Close/Alt+F4/MCP requests
+  retain the original host; see [X11 applications](x11.md#applications).
 - Custom-caption mouse handling depends on WMShell preserving the application's
   display-specific gesture-exclusion regions. MagicDesk does not replace
   native captions or replay intercepted clicks.

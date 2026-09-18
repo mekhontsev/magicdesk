@@ -227,8 +227,8 @@ extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeInspectWindow)(JNIEnv*, j
     lorieInspectWindow(((Connection*)ptr)->native, serial, window, (uint16_t)limit);
 }
 
-extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeCloseWindow)(JNIEnv*, jclass, jlong ptr, jint window) {
-    lorieCloseWindow(((Connection*)ptr)->native, window);
+extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeCloseWindow)(JNIEnv*, jclass, jlong ptr, jint window, jboolean force) {
+    lorieCloseWindow(((Connection*)ptr)->native, window, force);
 }
 
 extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeDpi)(JNIEnv*, jclass, jlong ptr, jint dpi) {

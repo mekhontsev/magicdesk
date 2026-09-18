@@ -5,6 +5,12 @@ import static org.junit.Assert.assertArrayEquals;
 import org.junit.Test;
 
 public final class RelativeWindowBoundsTest {
+    @Test public void movedX11WindowRetainsItsLastPosition() {
+        final RelativeWindowBounds relative = RelativeWindowBounds.from(
+                594, 171, 1554, 841, 0, 0, 1920, 1016);
+        assertArrayEquals(new int[] {594, 171, 1554, 841}, relative.resolve(0, 0, 1920, 1016));
+    }
+
     @Test
     public void roundTripPreservesBoundsOnSameWorkArea() {
         final RelativeWindowBounds relative =

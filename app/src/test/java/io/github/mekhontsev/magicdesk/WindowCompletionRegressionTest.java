@@ -106,7 +106,7 @@ public final class WindowCompletionRegressionTest {
                     static boolean remembersWindowState(Object task) { return false; }
                 }
                 record AppReference(String key) {}
-                static class AppProfile { AppReference reference(Object task) { return new AppReference("0|example.app"); } }
+                static class AppProfile { AppReference windowReference(Object task) { return new AppReference("0|example.app"); } }
                 final AppProfile mAppProfile = new AppProfile();
                 static class AppWindowState { enum Mode { FULLSCREEN } }
                 static class AppWindowStateStore { static void rememberMode(AppReference key, AppWindowState.Mode mode) {} }

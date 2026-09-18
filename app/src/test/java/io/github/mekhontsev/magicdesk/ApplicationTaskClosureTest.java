@@ -69,6 +69,15 @@ public final class ApplicationTaskClosureTest {
         RuntimeSourceFixture.verify("""
                 static boolean managed, unknown, stale, transitioning;
                 static int ordinaryCloses, managedCloses;
+                static class BuiltInWindowRegistry {
+                    static boolean hosted;
+                    static int requests;
+                    static boolean requestClose(TaskRepository.TaskEntry task, boolean force, TaskRepository.ActionCallback callback) {
+                        check(!force, "ordinary close must not force");
+                        if (!hosted) return false;
+                        requests++; callback.onComplete(new TaskRepository.ActionResult(true, "close requested")); return true;
+                    }
+                }
                 static class TaskRepository {
                     static class TaskEntry { int displayId = 7; }
                     record ActionResult(boolean success, String message) { }
@@ -118,6 +127,16 @@ public final class ApplicationTaskClosureTest {
                     check(managedCloses == 1 && ordinaryCloses == 2, "rejected ownership fell back to raw closure");
                     check(results.size() == 9 && results.subList(0, 3).stream().allMatch(r -> r.success)
                             && results.subList(3, 9).stream().noneMatch(r -> r.success), "wrong close receipts");
+                    BuiltInWindowRegistry.hosted = true;
+                    managed = true; unknown = true;
+                    closeTask(task, results::add);
+                    check(BuiltInWindowRegistry.requests == 1 && results.get(9).success,
+                            "hosted close remains a request even without a Desktop owner");
+                    check(managedCloses == 1 && ordinaryCloses == 2,
+                            "hosted request removed the Android task or prepared focus");
+                    stale = true; closeTask(task, results::add);
+                    check(BuiltInWindowRegistry.requests == 1 && !results.get(10).success,
+                            "stale identity reached a host");
                 }
                 """ + RuntimeSourceFixture.methods("MagicDeskRuntime", "closeTask"));
     }

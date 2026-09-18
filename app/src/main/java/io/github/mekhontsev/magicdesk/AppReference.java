@@ -2,16 +2,35 @@ package io.github.mekhontsev.magicdesk;
 
 import java.util.Objects;
 
-/** Profile-scoped application entry, with distinct identities for built-in tools. */
+/** Profile-scoped application entry, including a hosted application's stable launch recipe. */
 final class AppReference {
     final AppIdentity application;
     final BuiltInDesktopAppCatalog.Entry builtIn;
+    final String hostedRecipe;
 
     private AppReference(
             final AppIdentity application,
             final BuiltInDesktopAppCatalog.Entry builtIn) {
+        this(application, builtIn, "");
+    }
+
+    private AppReference(AppIdentity application, BuiltInDesktopAppCatalog.Entry builtIn, String hostedRecipe) {
         this.application = Objects.requireNonNull(application);
         this.builtIn = builtIn;
+        this.hostedRecipe = hostedRecipe;
+    }
+
+    static AppReference hosted(AppReference host, String recipeKey) {
+        if (host == null || !BuiltInDesktopAppCatalog.hostsApplications(host.launchTarget())
+                || recipeKey == null || !recipeKey.matches("[0-9a-f]{64}")) {
+            throw new IllegalArgumentException("invalid hosted application identity");
+        }
+        return new AppReference(host.application, host.builtIn, recipeKey);
+    }
+
+    AppReference windowStateKey() {
+        return hostedRecipe.isEmpty() && builtIn != null
+                && BuiltInDesktopAppCatalog.hostsApplications(builtIn.launchTarget) ? null : this;
     }
 
     static AppReference forTarget(final AppIdentity application, final AppLaunchTarget target) {
@@ -41,12 +60,19 @@ final class AppReference {
 
     String persistentKey() {
         return application.persistentKey() + (builtIn == null ? ""
-                : "|" + builtIn.launchTarget.activityClassName);
+                : "|" + builtIn.launchTarget.activityClassName)
+                + (hostedRecipe.isEmpty() ? "" : "|recipe|" + hostedRecipe);
     }
 
     static AppReference fromPersistentKey(final String key) {
         if (key == null) {
             throw new IllegalArgumentException("application reference is required");
+        }
+        final int recipe = key.indexOf("|recipe|");
+        if (recipe >= 0) {
+            final AppReference reference = hosted(fromPersistentKey(key.substring(0, recipe)), key.substring(recipe + 8));
+            if (!reference.persistentKey().equals(key)) throw new IllegalArgumentException("invalid application reference");
+            return reference;
         }
         final int component = key.indexOf('|', key.indexOf('|') + 1);
         final AppIdentity app = AppIdentity.fromPersistentKey(
@@ -69,12 +95,13 @@ final class AppReference {
     public boolean equals(final Object other) {
         return other instanceof AppReference
                 && application.equals(((AppReference) other).application)
-                && builtIn == ((AppReference) other).builtIn;
+                && builtIn == ((AppReference) other).builtIn
+                && hostedRecipe.equals(((AppReference) other).hostedRecipe);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(application, builtIn);
+        return Objects.hash(application, builtIn, hostedRecipe);
     }
 
     @Override

@@ -13,7 +13,8 @@ import io.github.mekhontsev.magicdesk.x11.X11Session;
 
 /** An ordinary Android window onto a retained X server or one selected X client window. */
 public final class X11Activity extends Activity implements
-        BuiltInWindowRegistry.PresentationSource, BuiltInWindowRegistry.ImmersiveSource {
+        BuiltInWindowRegistry.PresentationSource, BuiltInWindowRegistry.ImmersiveSource,
+        BuiltInWindowRegistry.CloseHandler, BuiltInWindowRegistry.ApplicationSource {
     static final String SESSION = "x11_session";
     static final String WINDOW = "x11_window";
     static final String DESKTOP_FILE = "x11_desktop_file";
@@ -34,8 +35,15 @@ public final class X11Activity extends Activity implements
     private boolean application;
     private boolean provisional = true;
     private volatile BuiltInWindowRegistry.Presentation presentation;
+    private RecentApplicationStore.Entry identityRecipe;
+    private volatile AppReference windowApplication;
 
     static Intent createIntent(Context context) { return new Intent(context, X11Activity.class); }
+
+    static Intent windowIntent(Context context, X11Sessions.Session session, long window) {
+        return BuiltInWindowIdentity.bind(createIntent(context).putExtra(SESSION, session.id()).putExtra(WINDOW, window),
+                X11ApplicationLaunch.reference(context, session.windowRecipe(window)));
+    }
 
     static Intent createApplicationIntent(Context context, String name, String command, String directory) {
         return createIntent(context).putExtra(NAME, name).putExtra(COMMAND, command).putExtra(DIRECTORY, directory)
@@ -59,9 +67,11 @@ public final class X11Activity extends Activity implements
         root.addView(surface, new LinearLayout.LayoutParams(-1, 0, 1));
         setContentView(root);
         window = state == null ? getIntent().getLongExtra(WINDOW, 0) : state.getLong(WINDOW);
-        if (state != null) provisional = state.getBoolean("x11_provisional", true);
+        provisional = state == null ? window == 0 : state.getBoolean("x11_provisional", window == 0);
         String id = state == null ? getIntent().getStringExtra(SESSION) : state.getString(SESSION);
         final var recipe = getIntent().hasExtra(RECIPE) ? DesktopEntryFile.parseRecent(getIntent().getStringExtra(RECIPE)) : null;
+        identityRecipe = recipe;
+        windowApplication = X11ApplicationLaunch.reference(this, recipe);
         application = state == null ? getIntent().getBooleanExtra(APPLICATION,
                 getIntent().hasExtra(COMMAND) && (recipe == null || recipe.shortcut().x11 == null
                         || !recipe.shortcut().x11.desktop())) : state.getBoolean(APPLICATION);
@@ -100,7 +110,7 @@ public final class X11Activity extends Activity implements
     }
 
     private void onChanged() {
-        if (isDestroyed()) return;
+        if (isDestroyed() || isFinishing()) return;
         if (session != null && session.redirect() != null) {
             var redirect = session.redirect();
             window = redirect.window();
@@ -108,6 +118,7 @@ public final class X11Activity extends Activity implements
             select(redirect.session());
             return;
         }
+        if (session != null && session.presentation.isClosed()) { finish(); return; }
         boolean ready = session != null && session.state() == X11Sessions.State.READY;
         if (application && ready) {
             long selected = X11WindowSelection.select(window, provisional, session.windows());
@@ -121,17 +132,25 @@ public final class X11Activity extends Activity implements
         if (ready && window != 0) {
             session.claimWindow(window);
         }
+        var currentRecipe = session == null ? null : session.windowRecipe(window);
+        if (currentRecipe != identityRecipe) {
+            identityRecipe = currentRecipe;
+            windowApplication = X11ApplicationLaunch.reference(this, currentRecipe);
+            DesktopRuntimeBridge.refreshTaskPresentations();
+        }
         if (application && session != null && session.state() == X11Sessions.State.CLOSED) { finish(); return; }
         if (window == 0 && session != null) {
             present(session.name, null);
         }
-        if (window != 0 && session != null) {
+        if (window != 0) {
+            if (session == null || session.state() == X11Sessions.State.CLOSED
+                    || session.state() == X11Sessions.State.FAILED) { finish(); return; }
             X11Session.Window info = session.windows().stream().filter(item -> item.id() == window).findFirst().orElse(null);
             if (info != null) {
                 seenWindow = true;
                 String title = info.title().isBlank() ? session.name : info.title();
                 present(title, info.icon());
-            } else if (seenWindow) { finish(); return; }
+            } else if (seenWindow || ready) { finish(); return; }
         }
         status.setText(session == null ? getString(R.string.x11_no_session)
                 : !session.error().isEmpty() ? session.error()
@@ -154,6 +173,7 @@ public final class X11Activity extends Activity implements
     }
 
     @Override public BuiltInWindowRegistry.Presentation taskPresentation() { return presentation; }
+    @Override public AppReference windowApplication() { return windowApplication; }
 
     private void present(String title, Bitmap icon) {
         if (presentation != null && presentation.title().equals(title) && presentation.icon() == icon) return;
@@ -186,7 +206,7 @@ public final class X11Activity extends Activity implements
 
     static void openWindow(Activity source, X11Sessions.Session selected, long id) {
         selected.claimWindow(id);
-        ToolApplications.openSibling(source, createIntent(source).putExtra(SESSION, selected.id()).putExtra(WINDOW, id),
+        ToolApplications.openSibling(source, windowIntent(source, selected, id),
                 error -> {
                     if (error != null) {
                         new AlertDialog.Builder(source).setMessage(ShellAccess.usefulMessage(error))
@@ -198,6 +218,17 @@ public final class X11Activity extends Activity implements
     private void showError(Throwable error) {
         new AlertDialog.Builder(this).setMessage(ShellAccess.usefulMessage(error))
                 .setPositiveButton(android.R.string.ok, null).show();
+    }
+
+    @Override public void requestClose(boolean force) {
+        if (binding != null && binding.requestClose(force)) return;
+        finishAndRemoveTask();
+    }
+
+    @Override public BuiltInWindowRegistry.ForceCloseAction forceCloseAction() {
+        return new BuiltInWindowRegistry.ForceCloseAction(
+                window == 0 ? R.string.x11_stop_session_action : R.string.action_force_stop,
+                getString(window == 0 ? R.string.x11_force_stop_session : R.string.x11_force_stop_client));
     }
 
     @Override protected void onSaveInstanceState(Bundle state) {

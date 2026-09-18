@@ -48,7 +48,7 @@ final class DesktopTaskConfigurationReport {
             final FrameworkTaskSnapshot task,
             final int activeDesktopDisplayId) {
         final AppReference stateKey = AppProfile.current(
-                MagicDeskApplication.applicationContext()).reference(task);
+                MagicDeskApplication.applicationContext()).windowReference(task);
         final AppWindowState saved = AppWindowStateStore.load(stateKey);
         final AppPresentationProfile presentation =
                 AppPresentationProfileStore.load(stateKey == null ? null : stateKey.application);

@@ -597,6 +597,12 @@ Viewer launch and attachment errors remain authoritative.
   peer and remains `ready=false`. Task IDs, display IDs,
   window bounds and density do not change.
 - `close_task(taskId)` closes the Viewer window through normal task controls.
+  For an X11 client host it instead requests `WM_DELETE_WINDOW` and leaves the
+  host present for save/cancel confirmation. Only observed `task_absent` means
+  that window has closed; acceptance is not a promise that a client will agree.
+  Direct system-caption removal may replace an X11 host with a new Android task
+  while its client remains alive. Track its `sessionId`/X window ID and inspect
+  the current hosts instead of treating the old Android task's absence as client exit.
   Its Activity lifecycle releases the presentation, retaining both displays,
   applications and any Desktop. Direct sources return to their own sink;
   a mirror releases only its copied scene. Output-mode cleanup cancels pending
@@ -607,6 +613,12 @@ Viewer launch and attachment errors remain authoritative.
   `task_absent` and disappearance of its presentation before reusing its source.
   An already absent task retains `close_task`'s task-not-found result; callers
   can treat observed absence as their completed close condition.
+- `force_stop_app` takes exactly one of `appIdentity` or `taskId`. An Android
+  identity remains package-wide. A task selects its hosted X11 client when
+  present, otherwise its Android package. X11 disconnect is equivalent to a
+  client kill, not a save request: all windows sharing the connection can vanish.
+  A whole-X11-desktop host selects the entire session. Other clients/sessions
+  are not stopped. This action retains the `input_tests` permission.
 - `control_display(displayId)` explicitly routes phone-attached physical mice
   and keyboards and enables the phone touchpad for an external display. Use
   `-1` to release input and restore prior routing. Completion confirms routing,

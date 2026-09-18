@@ -43,6 +43,14 @@ public final class X11HostBindingTest {
                     default void onFrame(X11Session.Output output, int width, int height, boolean available) { }
                 }
                 static class Session {
+                    final Presentation presentation = new Presentation();
+                    class Presentation {
+                        int recoveries;
+                        void hostRemoved(Activity activity, long window, boolean requested) {
+                            check(!hosts.contains(activity.getTaskId()), "recovery before host release");
+                            if (requested) recoveries++;
+                        }
+                    }
                     final List<Listener> listeners = new ArrayList<>();
                     final Set<Object> densities = new HashSet<>();
                     final Set<Integer> hosts = new HashSet<>();
@@ -52,6 +60,7 @@ public final class X11HostBindingTest {
                     X11WindowManagement.Request confirmed;
                     X11WindowManagement.State actual;
                     int opens, clientCloses, serverCloses, confirmations;
+                    boolean lastForce;
                     void listen(Listener value) { listeners.add(value); }
                     void unlisten(Listener value) { listeners.remove(value); events.add("unlisten"); }
                     void host(int task, long window, boolean focused) { hosts.add(task); }
@@ -66,7 +75,7 @@ public final class X11HostBindingTest {
                         check(owners.get(id) == host, "only the owner may confirm");
                         confirmed = request; actual = state; confirmations++;
                     }
-                    void closeWindow(long id) { clientCloses++; events.add("client"); }
+                    void closeWindow(long id, boolean force) { clientCloses++; lastForce = force; events.add("client"); }
                     void close() { serverCloses++; events.add("server"); }
                     void window(int serial, boolean requested, boolean actual) {
                         windows = List.of(new X11Session.Window(31, new X11WindowManagement(true,
@@ -145,9 +154,17 @@ public final class X11HostBindingTest {
                 check(events.size() == eventCount && changes[0] == 0 && surface.width == 0, "closed binding ignores late callbacks");
                 other.refresh(31, true);
                 check(other.immersiveRequest() != null && HostedFullscreen.created.size() == 2, "remaining host acquires released fullscreen lease");
+                check(other.requestClose(false), "live client defers Android removal");
+                check(!session.output.closed && session.listeners.contains(other) && session.hosts.contains(20),
+                        "save dialog retains the output, callbacks and Android host");
+                check(session.clientCloses == 1 && !session.lastForce, "ordinary close uses graceful protocol");
+                check(other.requestClose(false) && session.clientCloses == 2, "cancel allows a later close request");
+                check(other.requestClose(true) && session.clientCloses == 3 && session.lastForce,
+                        "force bypasses client confirmation without removing the host early");
+                session.windows = List.of();
                 events.clear(); other.close(true);
-                check(events.equals(List.of("fullscreen", "owner", "exchange", "client", "unlisten", "density", "host", "output")), "client close order: " + events);
-                check(session.clientCloses == 1 && session.listeners.isEmpty() && session.densities.isEmpty() && session.hosts.isEmpty(), "individual host releases all leases");
+                check(events.equals(List.of("fullscreen", "owner", "exchange", "unlisten", "density", "host", "output")), "client close order: " + events);
+                check(session.clientCloses == 3 && session.listeners.isEmpty() && session.densities.isEmpty() && session.hosts.isEmpty(), "individual host releases all leases without duplicate close");
 
                 var desktopSession = new X11Sessions.Session();
                 var desktop = new X11HostBinding(activity, new HostedSurfaceView(), desktopSession, 0, false, () -> {});
@@ -156,6 +173,15 @@ public final class X11HostBindingTest {
                 var pending = new X11HostBinding(activity, new HostedSurfaceView(), desktopSession, 0, true, () -> {});
                 pending.close(true);
                 check(desktopSession.serverCloses == 1, "cancelled application startup stops owned session");
+
+                var forcedDesktop = new X11HostBinding(activity, new HostedSurfaceView(), desktopSession, 0, false, () -> {});
+                check(!forcedDesktop.requestClose(true) && desktopSession.serverCloses == 2, "explicit force stops whole session");
+                forcedDesktop.close(false);
+
+                var removedSession = new X11Sessions.Session(); removedSession.window(1, false, false);
+                var removed = new X11HostBinding(activity, new HostedSurfaceView(), removedSession, 31, true, () -> {});
+                removed.refresh(31, true); removedSession.windows = List.of(); removed.close(true);
+                check(removedSession.clientCloses == 0, "already destroyed client is not closed again");
 
                 var startupSession = new X11Sessions.Session();
                 var startupSurface = new HostedSurfaceView();

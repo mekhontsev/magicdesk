@@ -114,6 +114,31 @@ public final class AppProfileStorageTest {
         }
     }
 
+    @Test public void hostedApplicationsKeepRecipeAndProfileScopedGeometry() throws Exception {
+        var target = AppLaunchTarget.explicit(BuildConfig.APPLICATION_ID, X11Activity.class.getName(), "");
+        var host = PERSONAL.reference(target);
+        var calc = AppReference.hosted(host, "a".repeat(64));
+        var writer = AppReference.hosted(host, "b".repeat(64));
+        var otherProfile = AppReference.hosted(WORK.reference(target), calc.hostedRecipe);
+        assertNull(host.windowStateKey());
+        assertEquals(calc, AppReference.fromPersistentKey(calc.persistentKey()));
+        assertNotEquals(calc, writer);
+        assertNotEquals(calc, otherProfile);
+        var calcBounds = new RelativeWindowBounds(1000, 2000, 5000, 6000);
+        var writerBounds = new RelativeWindowBounds(4000, 3000, 4500, 7000);
+        assertTrue(AppWindowStateStore.rememberWindowed(calc, calcBounds));
+        assertTrue(AppWindowStateStore.rememberWindowed(writer, writerBounds));
+        assertTrue(AppWindowStateStore.rememberMode(writer, AppWindowState.Mode.FULLSCREEN));
+        var state = DesktopStateStore.decode(DesktopStateStore.encode(DesktopStateStore.read(s -> s, null)));
+        assertEquals(calcBounds, state.appWindows.get(calc).windowBounds);
+        assertEquals(AppWindowState.Mode.WINDOWED, state.appWindows.get(calc).mode);
+        assertEquals(writerBounds, state.appWindows.get(writer).windowBounds);
+        assertEquals(AppWindowState.Mode.FULLSCREEN, state.appWindows.get(writer).mode);
+        assertNull(state.appWindows.get(otherProfile));
+        assertThrows(IllegalArgumentException.class, () -> AppReference.hosted(PERSONAL_APP, calc.hostedRecipe));
+        assertThrows(IllegalArgumentException.class, () -> AppReference.fromPersistentKey(host.persistentKey() + "|recipe|unknown"));
+    }
+
     private static void assertKeyType(String field, Class<?> expected) throws Exception {
         final ParameterizedType type = (ParameterizedType)
                 DesktopStateStore.State.class.getDeclaredField(field).getGenericType();

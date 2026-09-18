@@ -304,7 +304,7 @@ final class AppTaskController {
     }
 
     void launchIntent(
-            final AppItem app,
+            AppItem app,
             final String name,
             final Intent intent,
             final AppLaunchTarget taskTarget,
@@ -319,6 +319,7 @@ final class AppTaskController {
                     "resolved Activity target is unavailable"));
             return;
         }
+        app = app.withReference(BuiltInWindowIdentity.resolve(mActivity, intent, app.reference));
         final DesktopLaunchPresentation policy = presentation == null
                 ? DesktopLaunchPresentation.automatic() : presentation;
         final DesktopLaunchMode resolvedMode = policy.mode;
@@ -699,7 +700,8 @@ final class AppTaskController {
         final AppWindowState saved =
                 BuiltInDesktopAppCatalog.remembersWindowState(launchTarget)
                         ? AppWindowStateStore.load(
-                                mActivity.appProfile().reference(launchTarget))
+                                BuiltInWindowIdentity.resolve(mActivity, launchIntent,
+                                        mActivity.appProfile().reference(launchTarget)))
                         : null;
         if (!canControlWindowing()) {
             final ActivityOptions options = ActivityOptions.makeBasic();
@@ -1621,7 +1623,7 @@ final class AppTaskController {
             if (bounds != null) {
                 AppWindowStateStore.rememberWindowBounds(
                         Collections.singletonMap(
-                                mActivity.appProfile().reference(task),
+                                mActivity.appProfile().windowReference(task),
                                 bounds));
             }
         } catch (IOException ignored) {
@@ -1696,7 +1698,7 @@ final class AppTaskController {
     private static AppReference windowStateKey(final AppItem app) {
         return app == null
                 ? null
-                : app.reference;
+                : app.reference == null ? null : app.reference.windowStateKey();
     }
 
     private static boolean remembersWindowState(final AppItem app) {
@@ -1728,25 +1730,25 @@ final class AppTaskController {
         MagicDeskRuntime.closeTask(task, callback);
     }
 
-    void forceStop(final AppItem app) {
+    void forceStop(final AppItem app, final TaskRepository.TaskEntry task) {
         mActivity.hideAllPanels();
         mActivity.setStatus(mActivity.getString(
                 R.string.status_force_stopping, app.label));
-        MagicDeskRuntime.forceStopApplication(
-                app.identity,
-                result -> mActivity.runOnUiThread(() -> {
-                    if (mActivity.isActivityUnavailable()) {
-                        return;
-                    }
-                    mActivity.setStatus(mActivity.getString(
-                            result.success
-                                    ? R.string.status_app_force_stopped
-                                    : R.string.status_force_stop_failed,
-                            result.success
-                                    ? app.label
-                                    : result.message));
-                    mActivity.refreshTaskSnapshot();
-                }));
+        final TaskRepository.ActionCallback callback = result -> mActivity.runOnUiThread(() -> {
+            if (mActivity.isActivityUnavailable()) {
+                return;
+            }
+            mActivity.setStatus(mActivity.getString(
+                    result.success
+                            ? R.string.status_app_force_stopped
+                            : R.string.status_force_stop_failed,
+                    result.success
+                            ? app.label
+                            : result.message));
+            mActivity.refreshTaskSnapshot();
+        });
+        if (task != null) MagicDeskRuntime.forceStopTaskApplication(task, callback);
+        else MagicDeskRuntime.forceStopApplication(app.identity, callback);
     }
 
     void restoreLastVisibleWindows() {

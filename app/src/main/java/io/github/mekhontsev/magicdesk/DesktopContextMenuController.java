@@ -757,11 +757,13 @@ if (RuntimeLimits.active().termux() && TermuxIntegration.isInstalled(mActivity))
                 DesktopUiFactory.COLOR_AMBER,
                 state.task != null,
                 view -> mActivity.closeTask(state.app, state.task));
+        final var forceClose = BuiltInWindowRegistry.forceCloseAction(state.task);
         addAction(
-                R.string.action_force_stop,
+                forceClose == null ? R.string.action_force_stop : forceClose.label(),
                 DesktopUiFactory.COLOR_RED,
-                ShellAccess.isReady(),
-                view -> mActivity.confirmForceStop(state.app));
+                forceClose != null
+                        || (ShellAccess.isReady() && !BuildConfig.APPLICATION_ID.equals(state.app.packageName)),
+                view -> mActivity.confirmForceStop(state.app, state.task));
         positionAndShow(state.x, state.y);
     }
 

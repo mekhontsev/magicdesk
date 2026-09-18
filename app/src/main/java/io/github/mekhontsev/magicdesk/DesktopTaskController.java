@@ -315,7 +315,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                             final FrameworkTaskSnapshot task) {
                         final int displayId = task.displayId;
                         final Rect bounds = task.bounds;
-                        final AppReference stateKey = mAppProfile.reference(task);
+                        final AppReference stateKey = mAppProfile.windowReference(task);
                         if (!mRunning || displayId != mDisplayId) {
                             return;
                         }

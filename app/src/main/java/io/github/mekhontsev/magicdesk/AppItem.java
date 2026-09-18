@@ -26,6 +26,12 @@ final class AppItem {
             final String fullscreenReason,
             final Drawable icon,
             final AppLaunchTarget launchTarget) {
+        this(profile, label, packageName, canFloat, fullscreenReason, icon, launchTarget,
+                profile == null ? null : profile.reference(launchTarget));
+    }
+
+    private AppItem(AppProfile profile, String label, String packageName, boolean canFloat,
+            String fullscreenReason, Drawable icon, AppLaunchTarget launchTarget, AppReference reference) {
         if (profile == null || launchTarget == null
                 || !packageName.equals(launchTarget.packageName)) {
             throw new IllegalArgumentException("launch target package mismatch");
@@ -33,12 +39,22 @@ final class AppItem {
         this.label = label;
         this.profile = profile;
         this.identity = profile.application(packageName);
-        this.reference = profile.reference(launchTarget);
+        this.reference = reference;
         this.packageName = packageName;
         this.canFloat = canFloat;
         this.fullscreenReason = fullscreenReason;
         this.icon = icon;
         this.launchTarget = launchTarget;
+    }
+
+    AppItem withReference(AppReference value) {
+        if (java.util.Objects.equals(reference, value)) return this;
+        AppReference host = profile.reference(launchTarget);
+        if (value != null && (!identity.equals(value.application)
+                || host == null || value.builtIn != host.builtIn)) {
+            throw new IllegalArgumentException("application entry mismatch");
+        }
+        return new AppItem(profile, label, packageName, canFloat, fullscreenReason, icon, launchTarget, value);
     }
 
     boolean matchesTask(final TaskRepository.TaskEntry task) {

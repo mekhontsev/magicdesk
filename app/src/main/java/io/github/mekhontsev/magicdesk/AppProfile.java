@@ -77,6 +77,14 @@ final class AppProfile {
                 : builtIn.launchTarget);
     }
 
+    AppReference windowReference(TaskRepository.TaskEntry task) {
+        return task == null ? null : BuiltInWindowRegistry.resolveWindowApplication(task.taskId, task.userId, reference(task));
+    }
+
+    AppReference windowReference(FrameworkTaskSnapshot task) {
+        return task == null ? null : BuiltInWindowRegistry.resolveWindowApplication(task.taskId, task.userId, reference(task));
+    }
+
     static AppProfile requireCurrent(final Context context, final AppIdentity application) {
         final AppProfile profile = current(context);
         application.requireProfile(profile);

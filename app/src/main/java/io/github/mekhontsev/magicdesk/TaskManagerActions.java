@@ -11,6 +11,7 @@ import java.util.function.Consumer;
 
 /** UI actions use each resource owner's existing lifecycle, never package-wide substitutes. */
 final class TaskManagerActions {
+    private enum WindowAction { OPEN, CLOSE, FORCE_STOP }
     private final Activity activity;
     private final Runnable refresh;
     private final Consumer<TaskManagerApplications.Entry> processes;
@@ -19,7 +20,7 @@ final class TaskManagerActions {
     }
 
     void open(TaskManagerApplications.Entry entry) {
-        if (!entry.windows().isEmpty()) { chooseWindow(entry, false); return; }
+        if (!entry.windows().isEmpty()) { chooseWindow(entry, WindowAction.OPEN); return; }
         try {
             final var target = ToolLaunchTarget.resolve("auto", activity.getDisplay().getDisplayId(),
                     DesktopRuntimeBridge.workspaceDisplayIds());
@@ -39,7 +40,7 @@ final class TaskManagerActions {
             } else if (entry.target() instanceof TaskManagerApplications.X11 x11) {
                 if (X11Sessions.find(x11.session().id()) != x11.session() || x11.session().stopped())
                     throw new IOException("X11 session has ended");
-                final Intent intent = X11Activity.createIntent(activity).putExtra(X11Activity.SESSION, x11.session().id())
+                final Intent intent = X11Activity.windowIntent(activity, x11.session(), 0)
                         .putExtra(X11Activity.APPLICATION, x11.session().application);
                 ToolApplications.open(activity, intent, target, null,
                         DesktopLaunchPresentation.automatic().withInstancePolicy(DesktopTaskInstancePolicy.CREATE_NEW), this::result);
@@ -50,7 +51,9 @@ final class TaskManagerActions {
     void menu(View anchor, TaskManagerApplications.Entry entry) {
         final PopupMenu menu = new PopupMenu(activity, anchor);
         add(menu, R.string.task_manager_focus, () -> open(entry));
-        if (!entry.windows().isEmpty()) add(menu, R.string.task_manager_close, () -> chooseWindow(entry, true));
+        if (!entry.windows().isEmpty()) add(menu, R.string.task_manager_close, () -> chooseWindow(entry, WindowAction.CLOSE));
+        if (entry.target() instanceof TaskManagerApplications.X11 && !entry.windows().isEmpty())
+            add(menu, R.string.task_manager_force_stop, () -> chooseWindow(entry, WindowAction.FORCE_STOP));
         if (!entry.processes().isEmpty()) add(menu, R.string.task_manager_processes, () -> processes.accept(entry));
         if (entry.target() instanceof TaskManagerApplications.AndroidApp app) {
             add(menu, R.string.task_manager_logs, () -> BuiltInWindowLauncher.launch(activity,
@@ -85,17 +88,28 @@ final class TaskManagerActions {
         } catch (RuntimeException error) { result(error); }
     }
 
-    private void chooseWindow(TaskManagerApplications.Entry entry, boolean close) {
-        if (entry.windows().size() == 1) { window(entry.windows().get(0), close); return; }
+    private void chooseWindow(TaskManagerApplications.Entry entry, WindowAction action) {
+        if (entry.windows().size() == 1) { window(entry.windows().get(0), action); return; }
         final String[] names = entry.windows().stream().map(t -> TaskTitle.resolve(activity, null, t)
                 + " [" + t.displayId + "] #" + t.taskId).toArray(String[]::new);
-        new AlertDialog.Builder(activity).setTitle(close ? R.string.task_manager_close : R.string.task_manager_focus)
-                .setItems(names, (d, i) -> window(entry.windows().get(i), close))
+        new AlertDialog.Builder(activity).setTitle(switch (action) {
+                    case OPEN -> R.string.task_manager_focus;
+                    case CLOSE -> R.string.task_manager_close;
+                    case FORCE_STOP -> R.string.task_manager_force_stop;
+                })
+                .setItems(names, (d, i) -> window(entry.windows().get(i), action))
                 .setNegativeButton(android.R.string.cancel, null).show();
     }
 
-    private void window(TaskRepository.TaskEntry task, boolean close) {
-        if (close) { MagicDeskRuntime.closeTask(task, this::taskResult); return; }
+    private void window(TaskRepository.TaskEntry task, WindowAction action) {
+        if (action == WindowAction.CLOSE) { MagicDeskRuntime.closeTask(task, this::taskResult); return; }
+        if (action == WindowAction.FORCE_STOP) {
+            final var hosted = BuiltInWindowRegistry.forceCloseAction(task);
+            if (hosted == null) { result(new IOException("Hosted window has closed")); return; }
+            confirm(hosted.label(), hosted.warning(),
+                    () -> MagicDeskRuntime.forceStopTaskApplication(task, this::taskResult));
+            return;
+        }
         TaskCommandQueue.execute(() -> {
             try {
                 final var live = ApplicationTaskPlacement.requireLive(task);

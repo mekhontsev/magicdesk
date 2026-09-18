@@ -17,10 +17,18 @@ final class BuiltInWindowRegistry {
     interface PresentationSource {
         Presentation taskPresentation();
     }
+    interface ApplicationSource {
+        AppReference windowApplication();
+    }
     record ImmersiveRequest(long version, boolean requested, boolean foreground) { }
     interface ImmersiveSource {
         ImmersiveRequest immersiveRequest();
         void onImmersiveRejected();
+    }
+    record ForceCloseAction(int label, String warning) { }
+    interface CloseHandler {
+        void requestClose(boolean force);
+        ForceCloseAction forceCloseAction();
     }
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final List<WeakReference<Activity>> WINDOWS =
@@ -59,6 +67,24 @@ final class BuiltInWindowRegistry {
         return null;
     }
 
+    static AppReference resolveWindowApplication(int taskId, int userId, AppReference fallback) {
+        if (fallback == null) return null;
+        if (fallback.builtIn == null) return fallback.windowStateKey();
+        synchronized (WINDOWS) {
+            for (WeakReference<Activity> reference : WINDOWS) {
+                Activity activity = reference.get();
+                if (activity != null && !activity.isDestroyed() && activity.getTaskId() == taskId
+                        && activity.getPackageName().equals(fallback.application.packageName)
+                        && AppProfile.current(activity).owns(userId) && activity instanceof ApplicationSource source) {
+                    AppReference result = source.windowApplication();
+                    return result != null && result.application.equals(fallback.application)
+                            && result.builtIn == fallback.builtIn ? result.windowStateKey() : null;
+                }
+            }
+        }
+        return fallback.windowStateKey();
+    }
+
     static ImmersiveRequest immersiveRequest(int taskId) {
         synchronized (WINDOWS) {
             for (WeakReference<Activity> reference : WINDOWS) {
@@ -90,10 +116,12 @@ final class BuiltInWindowRegistry {
 
     static AppItem present(final Context context, final AppItem app, final TaskRepository.TaskEntry task) {
         final Presentation presentation = presentation(task);
-        if (app == null || presentation == null) return app;
+        if (app == null) return null;
+        AppReference identity = task == null ? app.reference : resolveWindowApplication(task.taskId, task.userId, app.reference);
+        if (presentation == null) return app.withReference(identity);
         return new AppItem(app.profile, presentation.title(), app.packageName, app.canFloat,
                 app.fullscreenReason, presentation.icon() == null ? app.icon
-                        : new BitmapDrawable(context.getResources(), presentation.icon()), app.launchTarget);
+                        : new BitmapDrawable(context.getResources(), presentation.icon()), app.launchTarget).withReference(identity);
     }
 
     static boolean needsSeparateTask(final AppLaunchTarget target, final int displayId) {
@@ -122,6 +150,42 @@ final class BuiltInWindowRegistry {
             }
         }
         return false;
+    }
+
+    private static Activity closeHost(TaskRepository.TaskEntry task) {
+        if (task == null) return null;
+        synchronized (WINDOWS) {
+            for (WeakReference<Activity> reference : WINDOWS) {
+                Activity activity = reference.get();
+                if (activity != null && !activity.isDestroyed() && !activity.isFinishing()
+                        && activity.getTaskId() == task.taskId && activity.getPackageName().equals(task.packageName)
+                        && AppProfile.current(activity).owns(task.userId) && activity instanceof CloseHandler)
+                    return activity;
+            }
+        }
+        return null;
+    }
+
+    static ForceCloseAction forceCloseAction(TaskRepository.TaskEntry task) {
+        Activity host = closeHost(task);
+        return host == null ? null : ((CloseHandler) host).forceCloseAction();
+    }
+
+    static boolean requestClose(TaskRepository.TaskEntry task, boolean force, TaskRepository.ActionCallback callback) {
+        Activity host = closeHost(task);
+        if (host == null) return false;
+        MAIN.post(() -> {
+            TaskRepository.ActionResult result;
+            try {
+                if (closeHost(task) != host) throw new IllegalStateException("Window has closed");
+                ((CloseHandler) host).requestClose(force);
+                result = new TaskRepository.ActionResult(true, "close requested");
+            } catch (RuntimeException error) {
+                result = new TaskRepository.ActionResult(false, ShellAccess.usefulMessage(error));
+            }
+            if (callback != null) callback.onComplete(result);
+        });
+        return true;
     }
 
 

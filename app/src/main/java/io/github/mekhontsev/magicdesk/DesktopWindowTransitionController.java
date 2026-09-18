@@ -403,9 +403,8 @@ final class DesktopWindowTransitionController {
                     + task.taskId + " mode=" + task.windowingMode);
             return;
         }
-        // Closing a task is an Android task-lifecycle operation. The runtime
-        // only intercepts it when a managed fullscreen parent needs an
-        // explicit focus handoff; ordinary freeform tasks use ATMS directly.
+        // Hosted clients may defer closure for a save dialog. The shared close
+        // gateway consults them before starting Android removal or focus handoff.
         MagicDeskRuntime.closeTask(task, result -> mHandler.post(() -> {
             if (!result.success) {
                 Log.w(TAG, "native close failed task=" + task.taskId
@@ -610,7 +609,7 @@ final class DesktopWindowTransitionController {
                     finishWorkspaceTransition(displayId, true);
                     if (BuiltInDesktopAppCatalog.remembersWindowState(task)) {
                         AppWindowStateStore.rememberMode(
-                                mAppProfile.reference(task),
+                                mAppProfile.windowReference(task),
                                 AppWindowState.Mode.FULLSCREEN);
                     }
                     completeFullscreen(state, pendingCompletion,
@@ -962,7 +961,7 @@ final class DesktopWindowTransitionController {
                 bounds, workAreaBounds);
         if (relative != null) {
             AppWindowStateStore.rememberWindowed(
-                    mAppProfile.reference(task), relative);
+                    mAppProfile.windowReference(task), relative);
         }
     }
 

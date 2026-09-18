@@ -62,11 +62,19 @@ final class WindowedAppLauncher {
                 displayId,
                 preservedTaskIds,
                 true,
-                BuiltInDesktopAppCatalog.defaultWindowBounds(launchTarget),
+                builtInWindowBounds(launchIntent, launchTarget),
                 BuiltInDesktopAppCatalog.supportsMultipleWindows(launchTarget)
                         ? DesktopTaskInstancePolicy.CREATE_NEW
                         : DesktopTaskInstancePolicy.REUSE_EXISTING,
                 taskReadyCallback);
+    }
+
+    static RelativeWindowBounds builtInWindowBounds(Intent intent, AppLaunchTarget target) {
+        var context = MagicDeskApplication.applicationContext();
+        var reference = BuiltInWindowIdentity.resolve(context, intent, AppProfile.current(context).reference(target));
+        var saved = AppWindowStateStore.load(reference);
+        return saved != null && saved.windowBounds != null ? saved.windowBounds
+                : BuiltInDesktopAppCatalog.defaultWindowBounds(target);
     }
 
     static LaunchResult launch(

@@ -119,7 +119,7 @@ final class BuiltInWindowLauncher {
                                         TaskRepository.loadNow(displayId)))
                                 : WindowedAppLauncher.launch(intent, target, displayId,
                                         taskIds(visibleTasks), true,
-                                        presentation.bounds == null ? BuiltInDesktopAppCatalog.defaultWindowBounds(target)
+                                        presentation.bounds == null ? WindowedAppLauncher.builtInWindowBounds(intent, target)
                                                 : presentation.bounds,
                                         presentation.instancePolicy,
                                         () -> DesktopRuntimeBridge.syncTaskbarWithSnapshot(displayId,

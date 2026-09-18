@@ -123,16 +123,32 @@ final class X11HostBinding implements X11Sessions.Listener {
         if (!closed && source == output) surface.frame(available ? width : 0, available ? height : 0);
     }
 
+    boolean requestClose(boolean force) {
+        if (closed) return false;
+        if (window != 0 && session.windows().stream().anyMatch(item -> item.id() == window)) {
+            session.closeWindow(window, force);
+            return true;
+        }
+        if (force || (application && window == 0)) session.close();
+        return false;
+    }
+
     void close(boolean finishing) {
         if (closed) return;
+        boolean clientCloseRequested = false;
+        // Direct Android removal cannot be vetoed; the session can replace a
+        // removed client host while its close confirmation is still pending.
+        if (finishing) {
+            try { clientCloseRequested = requestClose(false); }
+            catch (IllegalStateException ignored) { /* Disconnected session has no live close channel. */ }
+        }
         closed = true;
         releaseFullscreen();
         releaseExchange();
-        if (finishing && application && window == 0) session.close();
-        if (finishing && window != 0) session.closeWindow(window);
         session.unlisten(this);
         session.releaseDensity(this);
         session.releaseHost(activity.getTaskId());
         releaseOutput();
+        session.presentation.hostRemoved(activity, window, clientCloseRequested);
     }
 }

@@ -210,7 +210,7 @@ final class DesktopAutomationController {
                     result = closeTask(requiredInt(args, "taskId"));
                     break;
                 case FORCE_STOP_APP:
-                    result = forceStopApp(AutomationJsonArguments.requiredApplication(mContext, args));
+                    result = forceStopApp(args);
                     break;
                 case SET_WINDOW_MODE:
                     result = setRawWindowMode(args);
@@ -818,11 +818,18 @@ final class DesktopAutomationController {
                 MagicDeskRuntime.closeTask(task, callback));
     }
 
-    private DesktopAutomationResult forceStopApp(final AppIdentity application)
-            throws InterruptedException {
-        if (application == null) {
-            throw new IllegalArgumentException("invalid package");
+    private DesktopAutomationResult forceStopApp(final JSONObject args)
+            throws InterruptedException, JSONException {
+        if (args.has("taskId") == args.has("appIdentity")) {
+            throw new IllegalArgumentException("Specify exactly one of taskId or appIdentity");
         }
+        if (args.has("taskId")) {
+            final int taskId = requiredInt(args, "taskId");
+            final TaskRepository.TaskEntry task = findTask(taskId);
+            if (task == null) return taskNotFound(taskId);
+            return awaitTaskAction(callback -> MagicDeskRuntime.forceStopTaskApplication(task, callback));
+        }
+        final AppIdentity application = AutomationJsonArguments.requiredApplication(mContext, args);
         return awaitTaskAction(callback ->
                 MagicDeskRuntime.forceStopApplication(application, callback));
     }

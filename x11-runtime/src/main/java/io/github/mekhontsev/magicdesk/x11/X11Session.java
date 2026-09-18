@@ -118,11 +118,11 @@ public final class X11Session implements AutoCloseable {
         }
     }
 
-    /** ICCCM WM_DELETE_WINDOW, or client termination when that protocol is unsupported. */
-    public void closeWindow(long windowId) {
+    /** WM_DELETE_WINDOW; force (or an unsupported protocol) disconnects the owning X client. */
+    public void closeWindow(long windowId, boolean force) {
         if (windowId <= 0 || windowId > 0xffffffffL) throw new IllegalArgumentException("Invalid X11 window ID");
         post(() -> {
-            if (connected) nativeCloseWindow(nativeHandle, (int)windowId);
+            if (connected) nativeCloseWindow(nativeHandle, (int)windowId, force);
         });
     }
 
@@ -424,7 +424,7 @@ public final class X11Session implements AutoCloseable {
     private static native void nativeRelease(long handle, int output, int window);
     private static native void nativeObserveWindows(long handle);
     private static native void nativeInspectWindow(long handle, int serial, int window, int limit);
-    private static native void nativeCloseWindow(long handle, int window);
+    private static native void nativeCloseWindow(long handle, int window, boolean force);
     private static native void nativeDpi(long handle, int dpi);
     private static native void nativeConfirmWindowState(long handle, int window, int requestSerial, boolean fullscreen);
     private static native void nativeText(long handle, int output, int window, String text);

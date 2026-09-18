@@ -380,7 +380,7 @@ final class DesktopStateStore {
             final String key = keys.next();
             final AppReference stateKey;
             try {
-                stateKey = AppReference.fromPersistentKey(key);
+                stateKey = AppReference.fromPersistentKey(key).windowStateKey();
             } catch (IllegalArgumentException ignored) {
                 continue;
             }

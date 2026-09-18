@@ -30,6 +30,7 @@
     <string name="x11_open_session">Open X11 desktop</string>
     <string name="x11_new_session">New X11 session</string>
     <string name="x11_stop_session">Stop X11 session?</string>
+    <string name="x11_stop_session_action">Stop X11 session</string>
     <string name="x11_run_command">Run command</string>
     <string name="x11_no_session">No X11 session selected</string>
     <string name="x11_session_name">Session name</string>
@@ -550,7 +551,7 @@
     <string name="status_desktop_file_failed">No application can open %1$s</string>
     <string name="status_switching_to">Switching to %1$s&#8230;</string>
     <string name="status_closing_window">Closing %1$s&#8230;</string>
-    <string name="status_window_closed">%1$s window closed</string>
+    <string name="status_window_closed">Close requested for %1$s</string>
     <string name="status_close_window_failed">Close failed: %1$s</string>
     <string name="status_force_stopping">Force stopping %1$s&#8230;</string>
     <string name="status_app_force_stopped">%1$s stopped</string>
@@ -691,6 +692,8 @@
     <string name="desktop_drag_label">Desktop shortcut</string>
     <string name="profile_default">Default display</string>
     <string name="force_stop_title">Force stop application?</string>
+    <string name="x11_force_stop_client">Disconnect this X11 client without saving? All windows sharing its connection will close. Other X11 clients and sessions are not stopped.</string>
+    <string name="x11_force_stop_session">Stop this X11 session and all of its applications without saving?</string>
     <string name="force_stop_message">All %1$s windows and background services will stop.</string>
     <string name="shortcuts_title">Keyboard shortcuts</string>
     <string name="shortcut_maximize">Win + Up</string>

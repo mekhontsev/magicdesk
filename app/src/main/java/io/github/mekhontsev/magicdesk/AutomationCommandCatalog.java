@@ -206,7 +206,7 @@ final class AutomationCommandCatalog {
                 .put(destructiveTool(
                         "close_task",
                         "Close task",
-                        "Close a managed application task without force-stopping its package.",
+                        "Request closure of an application task without force-stopping its package. Hosted X11 clients receive WM_DELETE_WINDOW and keep their Android window for save/cancel confirmation. Acceptance does not mean task removal; observe task_absent separately.",
                         taskIdSchema()))
                 .put(actionTool(
                         "set_window_mode",
@@ -453,11 +453,12 @@ final class AutomationCommandCatalog {
             tools.put(destructiveTool(
                         "force_stop_app",
                         "Force stop application",
-                        "Force-stop an Android package.",
+                        "Force-stop an Android package by appIdentity or the application owning taskId. A hosted X11 task disconnects its guest client, including all windows sharing that client; a whole-X11-desktop task stops its session. No save confirmation. Exactly one selector is required.",
                         objectSchema(new JSONObject().put(
                                 "appIdentity", stringProperty(
-                                        "Profile-scoped identity returned by list_apps.")),
-                                "appIdentity")))
+                                        "Profile-scoped Android identity returned by list_apps."))
+                                .put("taskId", integerProperty("Task whose Android application or hosted client should be stopped.")))
+                                .put("oneOf", new JSONArray().put(requiredOnly("appIdentity")).put(requiredOnly("taskId")))))
                 .put(actionTool(
                         "send_broadcast",
                         "Send Android broadcast",

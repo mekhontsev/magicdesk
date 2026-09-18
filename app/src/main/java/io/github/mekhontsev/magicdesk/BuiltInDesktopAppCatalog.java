@@ -157,6 +157,8 @@ final class BuiltInDesktopAppCatalog {
     private BuiltInDesktopAppCatalog() {
     }
 
+    static boolean hostsApplications(AppLaunchTarget target) { return find(target) == X11_WINDOW; }
+
     static AppLaunchTarget filesTarget() {
         return FILES.launchTarget;
     }

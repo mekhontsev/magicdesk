@@ -668,6 +668,7 @@ public final class MagicDeskRuntime {
                     throw new IOException("task unavailable or desktop transition in progress");
                 }
                 final TaskRepository.TaskEntry live = ApplicationTaskPlacement.requireLive(task);
+                if (BuiltInWindowRegistry.requestClose(live, false, callback)) return;
                 if (!ApplicationTaskPlacement.isManaged(live)) {
                     final TaskRepository.ActionResult result = TaskRepository.closeTaskNow(live);
                     if (callback != null) callback.onComplete(result);
@@ -695,6 +696,19 @@ public final class MagicDeskRuntime {
             final TaskRepository.ActionCallback callback) {
         // Force-stop is application-wide; each workspace observes the removals.
         TaskRepository.forceStop(application, callback);
+    }
+
+    static void forceStopTaskApplication(final TaskRepository.TaskEntry task,
+            final TaskRepository.ActionCallback callback) {
+        TaskCommandQueue.execute(() -> {
+            try {
+                final TaskRepository.TaskEntry live = ApplicationTaskPlacement.requireLive(task);
+                if (BuiltInWindowRegistry.requestClose(live, true, callback)) return;
+                forceStopApplication(AppProfile.current(MagicDeskApplication.applicationContext()).application(live), callback);
+            } catch (IOException | RuntimeException error) {
+                if (callback != null) callback.onComplete(new TaskRepository.ActionResult(false, ShellAccess.usefulMessage(error)));
+            }
+        });
     }
 
     static List<TaskRepository.TaskEntry> getLastVisibleFreeformTasks(

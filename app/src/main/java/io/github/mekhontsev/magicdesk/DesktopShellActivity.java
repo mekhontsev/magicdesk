@@ -1402,13 +1402,14 @@ public abstract class DesktopShellActivity extends Activity
         mStartMenuController.showSection(mode, focusable);
     }
 
-    void confirmForceStop(final AppItem app) {
+    void confirmForceStop(final AppItem app, final TaskRepository.TaskEntry task) {
+        final var hosted = BuiltInWindowRegistry.forceCloseAction(task);
         showDesktopDialog(host -> new AlertDialog.Builder(host)
-                .setTitle(R.string.force_stop_title)
-                .setMessage(getString(R.string.force_stop_message, app.label))
+                .setTitle(hosted == null ? R.string.force_stop_title : hosted.label())
+                .setMessage(hosted == null ? getString(R.string.force_stop_message, app.label) : hosted.warning())
                 .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.action_force_stop,
-                        (confirmedDialog, which) -> forceStopApp(app))
+                .setPositiveButton(hosted == null ? R.string.action_force_stop : hosted.label(),
+                        (confirmedDialog, which) -> mAppTasks.forceStop(app, task))
                 .create());
     }
 
@@ -1688,10 +1689,6 @@ public abstract class DesktopShellActivity extends Activity
 
     void closeTask(final AppItem app, final TaskRepository.TaskEntry task) {
         mAppTasks.closeTask(app, task);
-    }
-
-    private void forceStopApp(final AppItem app) {
-        mAppTasks.forceStop(app);
     }
 
     void toggleDesktopWorkspace() {

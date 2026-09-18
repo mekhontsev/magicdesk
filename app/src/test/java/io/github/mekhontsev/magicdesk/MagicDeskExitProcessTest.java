@@ -3,6 +3,34 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 public final class MagicDeskExitProcessTest {
+    @Test public void exitDisablesX11PresentationBeforeRemovingAnyHost() throws Exception {
+        RuntimeSourceFixture.verify("""
+            static final List<String> events = new ArrayList<>();
+            static class Host { void showSessionStatus(String status) { } }
+            static class Activity { String getString(int id) { return "exit"; } }
+            static class R { static class string { static int status_exiting; } }
+            static class Log { static void i(String tag, String text) { } }
+            static class MagicDeskRuntime { static void clearParkedDesktopTasks() { } }
+            static class X11Sessions { static void prepareForExit() { events.add("stop-presentation"); } }
+            static class BuiltInWindowRegistry {
+                static void finishAll(Runnable next) { events.add("finish-windows"); next.run(); }
+            }
+            static class Controller {
+                boolean mOperationInProgress;
+                final Host mHost = new Host();
+                final Activity mActivity = new Activity();
+                final String TAG = "test";
+                void startExit() { events.add("cleanup"); }
+            """ + RuntimeSourceFixture.methods("MagicDeskSessionController", "exit") + """
+            }
+            public static void verify() {
+                var controller = new Controller();
+                controller.exit(); controller.exit();
+                check(events.equals(List.of("stop-presentation", "finish-windows", "cleanup")), "exit ordering: " + events);
+            }
+            """);
+    }
+
     @Test public void stopCompletesOnlyAfterSharedResourcesCloseOnce() throws Exception {
         RuntimeSourceFixture.verify("""
                 static final List<String> events = new ArrayList<>();

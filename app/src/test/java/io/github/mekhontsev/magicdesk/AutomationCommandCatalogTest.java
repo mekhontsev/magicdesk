@@ -388,12 +388,16 @@ public final class AutomationCommandCatalogTest {
     public void applicationActionsRequireProfileIdentity() throws Exception {
         final JSONArray tools = AutomationCommandCatalog.create();
         for (final String name : new String[]{"launch_app", "get_app_presentation",
-                "set_app_presentation", "reset_app_presentation", "force_stop_app",
+                "set_app_presentation", "reset_app_presentation",
                 "list_app_actions", "invoke_app_action"}) {
             final JSONObject input = tool(tools, name).getJSONObject("inputSchema");
             assertTrue(name, contains(input.getJSONArray("required"), "appIdentity"));
             assertFalse(name, input.getJSONObject("properties").has("package"));
         }
+        final JSONObject stop = tool(tools, "force_stop_app").getJSONObject("inputSchema");
+        assertTrue(stop.getJSONObject("properties").has("taskId"));
+        assertTrue(stop.getJSONObject("properties").has("appIdentity"));
+        assertEquals(2, stop.getJSONArray("oneOf").length());
     }
 
     @Test

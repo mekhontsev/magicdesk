@@ -37,4 +37,12 @@ public final class X11WindowSelectionTest {
         var hidden = new X11Session.Window(1, "", false, null, X11Session.WindowRole.APPLICATION, null, "", "");
         assertEquals(1, X11WindowSelection.select(1, false, List.of(hidden)));
     }
+
+    @Test public void selectedWriterDoesNotBecomeTheFirstCalcInTheSharedSession() {
+        var calc = window(1, X11Session.WindowRole.APPLICATION);
+        var writer = window(2, X11Session.WindowRole.APPLICATION);
+        assertEquals(2, X11WindowSelection.select(2, true, List.of(calc, writer)));
+        assertEquals(2, X11WindowSelection.select(2, false, List.of(calc, writer)));
+        assertEquals(-1, X11WindowSelection.select(2, false, List.of(calc)));
+    }
 }

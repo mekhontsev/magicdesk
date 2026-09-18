@@ -258,6 +258,7 @@ public final class RuntimeWindowHandoffRegressionTest {
                     static boolean hasWorkspace(int id) { return MagicDeskRuntime.active == id; }
                     static void syncTaskbarWithSnapshot(int displayId,Object snapshot) {} }
                 static class WindowedAppLauncher {
+                    static Object builtInWindowBounds(Intent intent, AppLaunchTarget target) { return null; }
                     interface TaskReadyCallback { void onTaskReady(); }
                     static int calls; static int[] preserved; static IOException failure;
                     static CompletableFuture<TaskRepository.ActionResult> ready=new CompletableFuture<>();

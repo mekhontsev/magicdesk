@@ -116,6 +116,7 @@ final class X11Sessions {
     static List<Session> list() { synchronized (SESSIONS) { return new ArrayList<>(SESSIONS.values()); } }
     static int count() { synchronized (SESSIONS) { return SESSIONS.size(); } }
     static void closeAll() { for (Session session : list()) session.close(); }
+    static void prepareForExit() { for (Session session : list()) session.presentation.close(); }
 
     static void handoff(String method, String token, Bundle extras, int uid) throws RemoteException {
         if (extras == null || token == null) throw new SecurityException("Missing X11 owner handshake");
@@ -213,6 +214,10 @@ final class X11Sessions {
             if (result != null) return result;
             return recipe != null && recipe.key().equals(key) && (!application || !hadApplicationWindow)
                     ? new Application(this, 0) : null;
+        }
+
+        synchronized RecentApplicationStore.Entry windowRecipe(long window) {
+            return window == 0 ? recipe : windowRecipes.get(window);
         }
 
         Application redirect() { return redirect; }
@@ -366,9 +371,10 @@ final class X11Sessions {
             if (state != State.READY || server == null) throw new IllegalStateException("X11 session is not ready");
             return server;
         }
-        void closeWindow(long id) {
+        void closeWindow(long id, boolean force) {
             X11Session current = renderer;
-            if (state == State.READY && current != null) current.closeWindow(id);
+            if (state != State.READY || current == null) throw new IllegalStateException("X11 session is not ready");
+            current.closeWindow(id, force);
         }
 
         X11Session.Output openOutput(long xid) {
