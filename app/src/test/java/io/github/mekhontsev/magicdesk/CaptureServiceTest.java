@@ -6,7 +6,7 @@ import java.io.IOException;
 
 import org.junit.Test;
 
-public final class DisplayCaptureServiceTest {
+public final class CaptureServiceTest {
     @Test public void captureMetricsBelongToTargetNotLastApplicationActivity() throws Exception {
         RuntimeSourceFixture.verify("""
                 static class Point { int x, y; }
@@ -41,7 +41,7 @@ public final class DisplayCaptureServiceTest {
                     try { fixture.resolve(9); throw new AssertionError("absent display accepted"); }
                     catch (IOException expected) { }
                 }
-                """ + RuntimeSourceFixture.methods("DisplayCaptureService", "resolve"));
+                """ + RuntimeSourceFixture.methods("CaptureService", "resolve"));
     }
 
     @Test public void nativeCropIsUnscaledAndPipeClosesBeforeGeometryCheck() throws Exception {
@@ -59,7 +59,9 @@ public final class DisplayCaptureServiceTest {
                         if (!equals(current)) throw new IOException("changed");
                     }
                 }
-                record Image(Frame display, DisplayCaptureRequest.Region region, byte[] png) { }
+                record Image(CaptureRequest request, int sourceWidth, int sourceHeight, int rotation,
+                        CaptureRequest.Region region, byte[] png, Object task) { }
+                Image captureTask(CaptureRequest request) { throw new AssertionError("display selected task"); }
                 Frame resolve(int id) {
                     resolutions++;
                     return new Frame(id, 800, 600, geometryChanged && resolutions > 1 ? 2 : 0);
@@ -84,19 +86,19 @@ public final class DisplayCaptureServiceTest {
                 }
                 public static void verify() throws Exception {
                     var fixture = new Fixture();
-                    var region = new DisplayCaptureRequest.Region(51, 72, 201, 310);
-                    var request = new DisplayCaptureRequest(3, region);
+                    var region = new CaptureRequest.Region(51, 72, 201, 310);
+                    var request = new CaptureRequest(CaptureRequest.Target.DISPLAY, 3, region);
                     var image = fixture.capture(request);
                     check(image.region().equals(region), "returned source coordinates");
                     check(lastCrop.equals(new Rect(51, 72, 201, 310)), "native crop, not full display");
                     check(lastWidth == 150 && lastHeight == 238, "no rescaling");
                     check(captures == 1 && resolutions == 2 && closed, "single capture and closed pipe");
                     reset();
-                    fixture.capture(new DisplayCaptureRequest(3, null));
+                    fixture.capture(new CaptureRequest(CaptureRequest.Target.DISPLAY, 3, null));
                     check(lastCrop.equals(new Rect(0, 0, 800, 600)), "full capture");
                     reset();
                     try {
-                        fixture.capture(new DisplayCaptureRequest(3, new DisplayCaptureRequest.Region(0, 0, 801, 600)));
+                        fixture.capture(new CaptureRequest(CaptureRequest.Target.DISPLAY, 3, new CaptureRequest.Region(0, 0, 801, 600)));
                         throw new AssertionError("outside bounds accepted");
                     } catch (IllegalArgumentException expected) {
                         check(captures == 0, "validate before shell work");
@@ -108,17 +110,17 @@ public final class DisplayCaptureServiceTest {
                     try { fixture.capture(request); throw new AssertionError("empty capture accepted"); }
                     catch (IOException expected) { check(closed, "close pipe on read failure"); }
                 }
-                """ + RuntimeSourceFixture.methods("DisplayCaptureService", "capture", "readBounded"),
-                "DisplayCaptureRequest", "DisplayCaptureSource");
+                """ + RuntimeSourceFixture.methods("CaptureService", "capture", "readBounded"),
+                "CaptureRequest", "DisplayCaptureSource");
     }
 
     @Test public void geometryIncludesRotationEvenWithoutDimensionChanges() throws Exception {
-        final var frame = new DisplayCaptureService.Frame(3, 800, 600, 0);
-        frame.requireSameGeometry(new DisplayCaptureService.Frame(3, 800, 600, 0));
-        for (final var changed : new DisplayCaptureService.Frame[] {
-                new DisplayCaptureService.Frame(3, 800, 600, 2),
-                new DisplayCaptureService.Frame(3, 600, 800, 1),
-                new DisplayCaptureService.Frame(3, 900, 600, 0)}) {
+        final var frame = new CaptureService.Frame(3, 800, 600, 0);
+        frame.requireSameGeometry(new CaptureService.Frame(3, 800, 600, 0));
+        for (final var changed : new CaptureService.Frame[] {
+                new CaptureService.Frame(3, 800, 600, 2),
+                new CaptureService.Frame(3, 600, 800, 1),
+                new CaptureService.Frame(3, 900, 600, 0)}) {
             assertThrows(IOException.class, () -> frame.requireSameGeometry(changed));
         }
         frame.requirePixel(0, 0);
@@ -148,6 +150,6 @@ public final class DisplayCaptureServiceTest {
                         check(expected.getMessage().equals("capture failed"), "pipe error propagated");
                     }
                 }
-                """ + RuntimeSourceFixture.methods("DisplayCaptureService", "readBounded"));
+                """ + RuntimeSourceFixture.methods("CaptureService", "readBounded"));
     }
 }

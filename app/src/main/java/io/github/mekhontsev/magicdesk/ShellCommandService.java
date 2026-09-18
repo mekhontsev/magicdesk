@@ -308,42 +308,29 @@ public final class ShellCommandService extends IShellCommandService.Stub {
                 || outputWidth > 8192 || outputHeight > 8192) {
             throw new IllegalArgumentException("invalid display capture size");
         }
-        final ParcelFileDescriptor[] pipe;
         try {
-            pipe = ParcelFileDescriptor.createReliablePipe();
+            return CapturePngPipe.open(() -> DisplayPixelProbe.captureBitmap(
+                    source, crop, outputWidth, outputHeight));
         } catch (IOException error) {
             throw new IllegalStateException(
                     "cannot create display capture pipe", error);
         }
-        final Thread writer = new Thread(() -> {
-            Bitmap bitmap = null;
-            final OutputStream output =
-                    new ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]);
-            try {
-                bitmap = DisplayPixelProbe.captureBitmap(
-                        source, crop, outputWidth, outputHeight);
-                if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
-                    throw new IOException("PNG encoding failed");
-                }
-            } catch (IOException | RuntimeException error) {
-                Log.w(TAG, "display capture failed", error);
-                try {
-                    pipe[1].closeWithError(usefulMessage(error));
-                } catch (IOException ignored) {
-                }
-            } finally {
-                try {
-                    output.close();
-                } catch (IOException ignored) {
-                }
-                if (bitmap != null) {
-                    bitmap.recycle();
-                }
-            }
-        }, "MagicDeskDisplayCapture");
-        writer.setDaemon(true);
-        writer.start();
-        return pipe[0];
+    }
+
+    @Override
+    public TaskCapture openTaskCapture(final int taskId, final Rect region) {
+        FrameworkTaskCaptureApi.Frame frame = null;
+        try {
+            frame = FrameworkRuntime.current().taskCapture().capture(taskId, region);
+            final Bitmap bitmap = frame.bitmap();
+            return new TaskCapture(frame.info(), CapturePngPipe.open(() -> bitmap));
+        } catch (IllegalArgumentException error) {
+            if (frame != null) frame.bitmap().recycle();
+            throw error;
+        } catch (ReflectiveOperationException | IOException | RuntimeException error) {
+            if (frame != null) frame.bitmap().recycle();
+            throw new IllegalStateException("task capture failed: " + usefulMessage(error), error);
+        }
     }
 
     @Override

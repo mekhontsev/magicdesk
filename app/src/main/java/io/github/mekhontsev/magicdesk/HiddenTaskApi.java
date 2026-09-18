@@ -65,6 +65,18 @@ final class HiddenTaskApi {
         return getTasks(service, Display.INVALID_DISPLAY);
     }
 
+    static Object takeTaskSnapshot(final int taskId) throws ReflectiveOperationException {
+        final Object service = getService();
+        // Fresh pixels only. Never read or update the Recent-task snapshot cache.
+        try {
+            return service.getClass().getMethod("takeTaskSnapshot", Integer.TYPE, Boolean.TYPE)
+                    .invoke(service, taskId, false);
+        } catch (java.lang.reflect.InvocationTargetException error) {
+            if (error.getCause() instanceof RuntimeException cause) throw cause;
+            throw error;
+        }
+    }
+
     static List<?> getRootTaskInfos(
             final Object service,
             final int displayId) throws ReflectiveOperationException {

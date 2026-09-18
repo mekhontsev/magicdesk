@@ -275,16 +275,19 @@ final class AutomationCommandCatalog {
                 .put(readTool(
                         "capture_screenshot",
                         "Capture screenshot",
-                        "Capture a display or a pixel region as an in-memory PNG, independently of Desktop. region uses display coordinates (left/top inclusive, right/bottom exclusive) and must fit entirely inside the display. No scaling or implicit clipping. The image includes whatever is visibly composed there; it does not isolate an occluded window or element. Returns sourceBounds and original display dimensions for coordinate mapping.",
+                        "Capture a display or one task as an in-memory PNG, independently of Desktop. taskId and displayId are mutually exclusive. taskId requests fresh task-surface pixels, never a display crop or a cached Recent thumbnail; hidden/unavailable tasks may fail. No focus or placement changes. region is optional, in source-image pixels (left/top inclusive, right/bottom exclusive), with no clipping or rescaling by MagicDesk. Android may scale task captures: sourceWidth/sourceHeight describe that image, taskWidth/taskHeight its logical size. Display capture includes visible composition; secure content remains protected.",
                         objectSchema(new JSONObject().put(
                                 "displayId", integerProperty(
-                                        "Display id; defaults to active Desktop or display 0."))
+                                        "Display id; excludes taskId. With neither selector, defaults to active Desktop or display 0."))
+                                .put("taskId", integerProperty("Capture only this task's surface, not its display. Excludes displayId."))
                                 .put("region", objectSchema(new JSONObject()
-                                        .put("left", integerProperty("Inclusive left display pixel."))
-                                        .put("top", integerProperty("Inclusive top display pixel."))
-                                        .put("right", integerProperty("Exclusive right display pixel."))
-                                        .put("bottom", integerProperty("Exclusive bottom display pixel.")),
-                                        "left", "top", "right", "bottom")))))
+                                        .put("left", integerProperty("Inclusive left source-image pixel."))
+                                        .put("top", integerProperty("Inclusive top source-image pixel."))
+                                        .put("right", integerProperty("Exclusive right source-image pixel."))
+                                        .put("bottom", integerProperty("Exclusive bottom source-image pixel.")),
+                                        "left", "top", "right", "bottom")))
+                                .put("not", new JSONObject().put("required", new JSONArray()
+                                        .put("displayId").put("taskId")))))
                 .put(readTool(
                         "wait_for_state",
                         "Wait for state",
@@ -1503,14 +1506,21 @@ final class AutomationCommandCatalog {
                 break;
             case "capture_screenshot":
                 properties.put("displayId", integerProperty("Display id."))
+                        .put("taskId", integerProperty("Task id, only for task captures."))
+                        .put("sourceType", enumProperty("Captured source.", "display", "task"))
+                        .put("sourceWidth", integerProperty("Full source-image width before region crop."))
+                        .put("sourceHeight", integerProperty("Full source-image height before region crop."))
+                        .put("taskWidth", integerProperty("Original task width; Android may scale the captured image."))
+                        .put("taskHeight", integerProperty("Original task height; Android may scale the captured image."))
+                        .put("topActivity", stringProperty("Top Activity recorded in the task capture."))
                         .put("width", integerProperty("Image width."))
                         .put("height", integerProperty("Image height."))
                         .put("displayWidth", integerProperty("Full display width in pixels."))
                         .put("displayHeight", integerProperty("Full display height in pixels."))
                         .put("rotation", integerProperty("Android Surface rotation: 0, 1, 2 or 3."))
                         .put("sourceBounds", objectSchema(new JSONObject()
-                                .put("left", integerProperty("Image origin x on the display."))
-                                .put("top", integerProperty("Image origin y on the display."))
+                                .put("left", integerProperty("Image origin x within the source image."))
+                                .put("top", integerProperty("Image origin y within the source image."))
                                 .put("right", integerProperty("Exclusive right edge."))
                                 .put("bottom", integerProperty("Exclusive bottom edge.")), "left", "top", "right", "bottom"))
                         .put("mimeType", stringProperty("Image MIME type."))

@@ -136,6 +136,16 @@ public final class FrameworkWindowingIsolationTest {
                 "getMethod(\"setWindowingMode\", Integer.TYPE, Integer.TYPE)");
     }
 
+    @Test public void freshTaskCaptureHasOneOwnerAndNoRecentCacheFallback() throws IOException {
+        assertNoSourceTokensOutside("Task capture reflection outside task API", List.of(TASK_API_SOURCE),
+                "\"takeTaskSnapshot\"");
+        final String capture = Files.readString(MAIN_JAVA.resolve(
+                "io/github/mekhontsev/magicdesk/FrameworkTaskCaptureApi.java"));
+        assertTrue(capture.contains("HiddenTaskApi.takeTaskSnapshot(taskId)"));
+        assertTrue(!capture.contains("getTaskSnapshot") && !capture.contains("captureDisplay")
+                && !capture.contains("startActivity") && !capture.contains("moveTask"));
+    }
+
     @Test
     public void sleepsStayInExplicitTimingBoundaries() throws IOException {
         assertNoSourceTokensOutside(

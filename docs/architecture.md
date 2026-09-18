@@ -938,8 +938,8 @@ runtime integration and are not distributed through the same release path.
   path. Terminal input therefore reaches the real PTY directly instead of
   synthesizing pointer coordinates. Closing the MCP server does not terminate
   headless or user-owned terminal sessions.
-- `DisplayCaptureRequest` describes a display and an optional immutable pixel
-  rectangle. `DisplayCaptureService` resolves geometry, validates selection,
+- `CaptureRequest` describes an explicit display or task and an optional immutable pixel
+  rectangle. `CaptureService` resolves geometry, validates selection,
   and asks the existing shell capture backend for one cropped PNG pipe or one
   bounded pixel batch. It is independent of MCP, accessibility and Desktop;
   selection and publication belong to its callers. It rejects observed display
@@ -950,8 +950,10 @@ runtime integration and are not distributed through the same release path.
   omitted-display default (sole Desktop, otherwise display 0 when none exists).
   Multiple workspaces require an explicit display; an explicit selection never
   evaluates that default. Image bytes
-  are never staged in a filesystem cache. Window or element bounds compose
-  with the same rectangle request, without additional MCP selection modes.
+  are never staged in a filesystem cache. Task selection never resolves the
+  default display or changes focus. Its frame metadata and reliable PNG pipe
+  arrive in one typed `TaskCapture` reply; only that frame supplies dimensions
+  and rotation. Display/element rectangles remain visible-composition captures.
 - `MagicDeskAppFunctionService` is the Android 16 system-agent adapter. Android
   protects it with `BIND_APP_FUNCTION_SERVICE`; resource gating disables the
   component below Android 16. It exposes only a small non-shell subset and
@@ -1411,6 +1413,17 @@ classified as `DISPLAY_CAPTURE`. The adapter rounds frame scales upward only
 when float precision would truncate an output pixel, and verifies the returned
 bitmap dimensions before exposing it to callers. Capture is on demand only. The shell service
 uses a reliable pipe so MCP receives capture errors instead of an empty image.
+
+`FrameworkTaskCaptureApi` decodes fresh task frames from
+`HiddenTaskApi.takeTaskSnapshot(taskId, false)`, present since the API 34 floor.
+It does not query or populate the Recent snapshot cache, initialize an organizer,
+or fall back to display pixels. Android may refuse hidden tasks; the error stays
+local to the capture. It validates real-image buffers, bounds allocations, and
+releases HardwareBuffers and intermediate Bitmaps on success and failure.
+`CapturePngPipe` owns PNG encoding and bitmap release for both capture paths.
+Task-image dimensions may differ from logical task dimensions due to Android's
+snapshot scale; both are exposed, and optional regions use source-image pixels.
+The blocking framework request is classified as `TASK_CAPTURE`.
 
 `MAGICDESK_FRAMEWORK_OVERRIDE=android15` is a debug-only semantic profile. It
 can be combined with the independent `MAGICDESK_PLATFORM_OVERRIDE=android`

@@ -12,16 +12,17 @@ import java.io.IOException;
 import java.io.InputStream;
 
 /** On-demand capture. Callers own selection and publication, not a second capture backend. */
-final class DisplayCaptureService {
+final class CaptureService {
     private static final int MAX_CAPTURE_BYTES = 32 * 1024 * 1024;
     private final Context mContext;
 
-    DisplayCaptureService(final Context context) { mContext = context.getApplicationContext(); }
+    CaptureService(final Context context) { mContext = context.getApplicationContext(); }
 
-    Image capture(final DisplayCaptureRequest request) throws IOException {
+    Image capture(final CaptureRequest request) throws IOException {
         if (request == null) throw new IllegalArgumentException("capture request is required");
-        final Frame display = resolve(request.displayId());
-        final DisplayCaptureRequest.Region region = request.regionFor(display.width(), display.height());
+        if (request.target() == CaptureRequest.Target.TASK) return captureTask(request);
+        final Frame display = resolve(request.id());
+        final CaptureRequest.Region region = request.regionFor(display.width(), display.height());
         if (region.width() > 8192 || region.height() > 8192) {
             throw new IllegalArgumentException("capture dimensions exceed 8192 pixels");
         }
@@ -34,7 +35,20 @@ final class DisplayCaptureService {
         }
         // Reject an observed geometry change instead of returning stale coordinate metadata.
         display.requireSameGeometry(resolve(display.displayId()));
-        return new Image(display, region, png);
+        return new Image(request, display.width(), display.height(), display.rotation(), region, png, null);
+    }
+
+    private Image captureTask(final CaptureRequest request) throws IOException {
+        final CaptureRequest.Region region = request.region();
+        final Rect crop = region == null ? null
+                : new Rect(region.left(), region.top(), region.right(), region.bottom());
+        try (TaskCapture capture = ShellAccess.openTaskCapture(request.id(), crop);
+             InputStream input = new ParcelFileDescriptor.AutoCloseInputStream(capture.png)) {
+            final TaskCapture.Info info = capture.info;
+            if (info.taskId() != request.id()) throw new IOException("task capture identity mismatch");
+            return new Image(request, info.width(), info.height(), info.rotation(),
+                    request.regionFor(info.width(), info.height()), readBounded(input), info);
+        }
     }
 
     Samples samplePixels(final int displayId, final int[] x, final int[] y) throws IOException {
@@ -67,10 +81,10 @@ final class DisplayCaptureService {
         final byte[] buffer = new byte[32 * 1024];
         int read;
         while ((read = input.read(buffer)) >= 0) {
-            if (read > MAX_CAPTURE_BYTES - output.size()) throw new IOException("display capture is too large");
+            if (read > MAX_CAPTURE_BYTES - output.size()) throw new IOException("capture is too large");
             output.write(buffer, 0, read);
         }
-        if (output.size() == 0) throw new IOException("display capture returned no image");
+        if (output.size() == 0) throw new IOException("capture returned no image");
         return output.toByteArray();
     }
 
@@ -88,6 +102,7 @@ final class DisplayCaptureService {
         }
     }
 
-    record Image(Frame display, DisplayCaptureRequest.Region region, byte[] png) { }
+    record Image(CaptureRequest request, int sourceWidth, int sourceHeight, int rotation,
+            CaptureRequest.Region region, byte[] png, TaskCapture.Info task) { }
     record Samples(Frame display, int[] colors) { }
 }

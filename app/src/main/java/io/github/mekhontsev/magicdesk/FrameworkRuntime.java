@@ -9,6 +9,7 @@ final class FrameworkRuntime {
     private FrameworkVirtualDisplayApi mVirtualDisplayApi;
     private FrameworkDisplayMirrorApi mDisplayMirrorApi;
     private final FrameworkDisplayCaptureApi mDisplayCaptureApi = new FrameworkDisplayCaptureApi();
+    private final FrameworkTaskCaptureApi mTaskCaptureApi = new FrameworkTaskCaptureApi();
 
     private FrameworkRuntime() {
     }
@@ -28,6 +29,8 @@ final class FrameworkRuntime {
     FrameworkDisplayCaptureApi displayCapture() {
         return mDisplayCaptureApi;
     }
+
+    FrameworkTaskCaptureApi taskCapture() { return mTaskCaptureApi; }
 
     synchronized FrameworkDisplayWindowingApi displayWindowing()
             throws ReflectiveOperationException {

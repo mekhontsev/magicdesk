@@ -8,6 +8,7 @@ import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ShortcutInfo;
+import android.graphics.Rect;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.UserHandle;
@@ -26,6 +27,7 @@ import io.github.mekhontsev.magicdesk.ShellFileInfo;
 import io.github.mekhontsev.magicdesk.ShellFilePage;
 import io.github.mekhontsev.magicdesk.SystemMonitorSnapshot;
 import io.github.mekhontsev.magicdesk.TaskWindowSnapshot;
+import io.github.mekhontsev.magicdesk.TaskCapture;
 
 interface IShellCommandService {
     void destroy() = 16777114;
@@ -478,4 +480,5 @@ interface IShellCommandService {
     boolean canCreateProtectedDisplay() = 141;
     void releaseDesktopTasks(int displayId, in int[] taskIds) = 142;
     String getHardwareKeyboardLayouts() = 143;
+    TaskCapture openTaskCapture(int taskId, in Rect region) = 144;
 }

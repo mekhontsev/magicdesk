@@ -805,18 +805,34 @@ This does not block independent automation, shell, Files or terminal operations.
 display id selects that display; omission selects Desktop when active, otherwise
 display 0. Existing MCP authorization applies to both paths.
 
-`capture_screenshot` accepts an optional `region` in display pixels at the
-current rotation: `{"left":100,"top":200,"right":500,"bottom":600}`.
+`capture_screenshot` accepts mutually exclusive `displayId` and `taskId`.
+`{"taskId":123}` captures only that task's surface, without activating it or
+changing any display. It requests a fresh Android task snapshot, never a cached
+Recent thumbnail or a rectangle from the screen. A task hidden by another app
+may return `CAPTURE_UNAVAILABLE`; it will not return that other app's pixels.
+Task capture is available through the shared privileged service on Android 14+,
+with the same `content` grant and no Desktop requirement. Secure content stays
+protected. Supplying both selectors returns `INVALID_ARGUMENT`.
+
+`capture_screenshot` accepts an optional `region` in source-image pixels at the
+captured rotation: `{"left":100,"top":200,"right":500,"bottom":600}`.
 Left/top are inclusive, right/bottom exclusive. Omit `region` for the full
-display. The rectangle must be nonempty and entirely inside the display;
+source. The rectangle must be nonempty and entirely inside the source image;
 invalid regions return `INVALID_ARGUMENT`, never silent clipping or scaling.
 Output is an in-memory PNG at the region's exact pixel dimensions, with
-`sourceBounds`, `displayWidth`, `displayHeight` and Android
-`rotation` (0, 1, 2, 3). Image pixel `(x,y)` corresponds to display pixel
+`sourceType`, `sourceBounds`, `sourceWidth`, `sourceHeight` and Android
+`rotation` (0, 1, 2, 3). Image pixel `(x,y)` corresponds to source-image pixel
 `(x + sourceBounds.left, y + sourceBounds.top)`.
+Display captures also include `displayId`, `displayWidth` and `displayHeight`.
+Task captures include `taskId`, `topActivity` and logical
+`taskWidth`/`taskHeight`. Android may
+downscale task snapshots; MagicDesk does not upscale them. To map source-image
+coordinates to task-local coordinates, multiply x by `taskWidth/sourceWidth`
+and y by `taskHeight/sourceHeight`. This metadata is not a current screen
+placement assertion: a task can move after capture.
 
-For a window or UI element, read its bounds with `ui.inspect` and pass the
-rectangle to this same command. It captures visible composition, not hidden
+For a UI element or visible display region, read its bounds with `ui.inspect`
+and pass the rectangle with `displayId`. This captures visible composition, not hidden
 window contents; secure surfaces remain protected. UI inspection and capture
 are separate observations: a window can move between them. An observed display
 geometry change during capture returns retryable `CAPTURE_UNAVAILABLE` instead

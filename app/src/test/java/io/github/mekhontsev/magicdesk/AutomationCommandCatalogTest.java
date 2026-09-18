@@ -59,13 +59,16 @@ public final class AutomationCommandCatalogTest {
         }
     }
 
-    @Test public void captureUsesOneOptionalRectangleWithoutSelectorModes() throws Exception {
+    @Test public void captureUsesExclusiveSourcesAndOneOptionalRectangle() throws Exception {
         final var tools = AutomationCommandCatalog.create();
         final var capture = tool(tools, "capture_screenshot");
         final var input = capture.getJSONObject("inputSchema");
         final var properties = input.getJSONObject("properties");
-        assertEquals(2, properties.length());
+        assertEquals(3, properties.length());
         assertTrue(properties.has("displayId"));
+        assertTrue(properties.has("taskId"));
+        assertTrue(contains(input.getJSONObject("not").getJSONArray("required"), "taskId"));
+        assertTrue(contains(input.getJSONObject("not").getJSONArray("required"), "displayId"));
         assertTrue(properties.has("region"));
         assertTrue(!input.has("required") || input.getJSONArray("required").length() == 0);
         final var region = properties.getJSONObject("region");
@@ -82,6 +85,9 @@ public final class AutomationCommandCatalogTest {
         assertTrue(output.has("displayWidth"));
         assertTrue(output.has("displayHeight"));
         assertTrue(output.has("rotation"));
+        assertTrue(output.has("taskId"));
+        assertTrue(output.has("taskWidth"));
+        assertTrue(output.has("sourceWidth"));
     }
 
     @Test public void uiScopeAndFullTextAreDiscoverableWithoutDesktop() throws Exception {

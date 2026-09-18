@@ -393,6 +393,21 @@ public final class ShellAccess {
         }
     }
 
+    static TaskCapture openTaskCapture(final int taskId, final Rect crop) throws IOException {
+        try {
+            final TaskCapture capture = requireService().openTaskCapture(taskId, crop);
+            if (capture == null) throw new IOException("shell service returned no task capture");
+            return capture;
+        } catch (IllegalArgumentException error) {
+            throw error;
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw new IOException("task capture failed: " + usefulMessage(error), error);
+        } catch (RuntimeException error) {
+            throw new IOException(usefulMessage(error), error);
+        }
+    }
+
     static int[] captureDisplayPixels(
             final DisplayCaptureSource source,
             final int[] xCoordinates,

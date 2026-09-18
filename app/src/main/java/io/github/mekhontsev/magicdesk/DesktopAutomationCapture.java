@@ -14,30 +14,20 @@ import java.io.IOException;
 import java.util.Locale;
 import java.util.function.IntSupplier;
 
-/** MCP adaptation of shared display capture; selection stays in display coordinates. */
+/** MCP adaptation of shared capture; source selection never changes focus or placement. */
 final class DesktopAutomationCapture {
-    private final DisplayCaptureService mCapture;
+    private final CaptureService mCapture;
 
     DesktopAutomationCapture(final Context context) {
-        mCapture = new DisplayCaptureService(context);
+        mCapture = new CaptureService(context);
     }
 
     DesktopAutomationResult screenshot(final JSONObject args) {
         try {
-            final DisplayCaptureService.Image image = mCapture.capture(
+            final CaptureService.Image image = mCapture.capture(
                     request(args, DesktopAutomationCapture::defaultDisplayId));
-            final DisplayCaptureRequest.Region region = image.region();
-            final JSONObject data = metadata(image.display())
-                    .put("width", region.width())
-                    .put("height", region.height())
-                    .put("displayWidth", image.display().width())
-                    .put("displayHeight", image.display().height())
-                    .put("sourceBounds", new JSONObject()
-                            .put("left", region.left()).put("top", region.top())
-                            .put("right", region.right()).put("bottom", region.bottom()))
-                    .put("mimeType", "image/png");
             return DesktopAutomationResult.success(
-                    "display screenshot captured", data,
+                    "screenshot captured", imageMetadata(image),
                     new DesktopAutomationImage("image/png",
                             Base64.encodeToString(image.png(), Base64.NO_WRAP)));
         } catch (IllegalArgumentException | JSONException error) {
@@ -64,7 +54,7 @@ final class DesktopAutomationCapture {
                 x[i] = requiredInt(point, "x");
                 y[i] = requiredInt(point, "y");
             }
-            final DisplayCaptureService.Samples result = mCapture.samplePixels(
+            final CaptureService.Samples result = mCapture.samplePixels(
                     displayId(args, DesktopAutomationCapture::defaultDisplayId), x, y);
             final JSONArray samples = new JSONArray();
             for (int i = 0; i < result.colors().length; i++) {
@@ -94,18 +84,46 @@ final class DesktopAutomationCapture {
         }
     }
 
-    static DisplayCaptureRequest request(final JSONObject args, final IntSupplier defaultDisplayId)
+    static CaptureRequest request(final JSONObject args, final IntSupplier defaultDisplayId)
             throws JSONException {
-        final DisplayCaptureRequest.Region region;
+        if (args.has("taskId") && args.has("displayId")) {
+            throw new IllegalArgumentException("taskId and displayId are mutually exclusive");
+        }
+        final CaptureRequest.Region region;
         if (args.has("region")) {
             final JSONObject value = args.getJSONObject("region");
-            region = new DisplayCaptureRequest.Region(
+            region = new CaptureRequest.Region(
                     requiredInt(value, "left"), requiredInt(value, "top"),
                     requiredInt(value, "right"), requiredInt(value, "bottom"));
         } else {
             region = null;
         }
-        return new DisplayCaptureRequest(displayId(args, defaultDisplayId), region);
+        return args.has("taskId")
+                ? new CaptureRequest(CaptureRequest.Target.TASK, requiredInt(args, "taskId"), region)
+                : new CaptureRequest(CaptureRequest.Target.DISPLAY, displayId(args, defaultDisplayId), region);
+    }
+
+    static JSONObject imageMetadata(final CaptureService.Image image) throws JSONException {
+        final CaptureRequest.Region region = image.region();
+        final boolean task = image.request().target() == CaptureRequest.Target.TASK;
+        final JSONObject data = new JSONObject()
+                .put("sourceType", task ? "task" : "display")
+                .put(task ? "taskId" : "displayId", image.request().id())
+                .put("captureSource", (task ? "t:" : "l:") + image.request().id())
+                .put("width", region.width()).put("height", region.height())
+                .put("sourceWidth", image.sourceWidth()).put("sourceHeight", image.sourceHeight())
+                .put("rotation", image.rotation())
+                .put("sourceBounds", new JSONObject().put("left", region.left()).put("top", region.top())
+                        .put("right", region.right()).put("bottom", region.bottom()))
+                .put("mimeType", "image/png");
+        if (task) {
+            final TaskCapture.Info info = image.task();
+            data.put("taskWidth", info.taskWidth()).put("taskHeight", info.taskHeight())
+                    .put("topActivity", info.topActivity());
+        } else {
+            data.put("displayWidth", image.sourceWidth()).put("displayHeight", image.sourceHeight());
+        }
+        return data;
     }
 
     private static int displayId(final JSONObject args, final IntSupplier defaultDisplayId)
@@ -118,7 +136,7 @@ final class DesktopAutomationCapture {
                 ? DesktopRuntimeBridge.requireSingleDesktopDisplay() : Display.DEFAULT_DISPLAY;
     }
 
-    private static JSONObject metadata(final DisplayCaptureService.Frame display)
+    private static JSONObject metadata(final CaptureService.Frame display)
             throws JSONException {
         return new JSONObject()
                 .put("displayId", display.displayId())
