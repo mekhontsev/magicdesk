@@ -4,24 +4,24 @@ import java.io.IOException;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
-final class PersistentAutomationShellSession {
+final class ShellCommandSession {
     private final CommandExecutor mExecutor;
     private final String mMarker;
     private final AtomicLong mResetGeneration = new AtomicLong();
     private volatile String mWorkingDirectory;
     private volatile boolean mDirectoryChangePending = true;
 
-    PersistentAutomationShellSession(String directory) {
+    ShellCommandSession(String directory) {
         this(directory, null, UUID.randomUUID().toString().replace("-", ""));
     }
 
-    PersistentAutomationShellSession(String directory, CommandExecutor executor, String token) {
+    ShellCommandSession(String directory, CommandExecutor executor, String token) {
         if (token == null || !token.matches("[a-zA-Z0-9]+")) {
             throw new IllegalArgumentException("invalid console session token");
         }
         mWorkingDirectory = requireDirectory(directory);
         mMarker = "__MAGICDESK_CWD_" + token + "__";
-        mExecutor = executor == null ? new PersistentAutomationCommandExecutor(mMarker) : executor;
+        mExecutor = executor == null ? new ShellCommandExecutor(mMarker) : executor;
     }
 
     String workingDirectory() { return mWorkingDirectory; }

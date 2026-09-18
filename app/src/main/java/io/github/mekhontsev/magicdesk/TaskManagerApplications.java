@@ -58,11 +58,11 @@ final class TaskManagerApplications {
             final var windows = visible.stream().filter(t -> ids.contains(t.taskId)).toList();
             for (var window : windows) claimed.add(window.taskId);
             // Only the server has a published process identity; client totals remain separate processes.
-            final var server = processes.matching(p -> p.uid == session.endpoint.uid && p.name.equals(session.id()));
+            final var server = processes.matching(p -> p.uid == session.execution.serverUid && p.name.equals(session.id()));
             result.add(new Entry(session.id(), session.name,
                     "X11 " + session.display() + " | " + session.state().name().toLowerCase(java.util.Locale.ROOT)
                             + " | " + context.getString(R.string.task_manager_server_resources),
-                    session.endpoint.packageName, new X11(session), windows, server));
+                    session.execution.serverPackage, new X11(session), windows, server));
         }
         for (var task : visible) {
             if (claimed.contains(task.taskId)) continue;

@@ -127,21 +127,41 @@ public final class X11ManagerActivity extends Activity implements X11Sessions.Li
     }
 
     private void newSession() {
-        if (!TermuxIntegration.ensureRunCommandPermission(this)) return;
         LinearLayout fields = new LinearLayout(this);
         fields.setOrientation(LinearLayout.VERTICAL);
         fields.setPadding(ui.dp(16), 0, ui.dp(16), 0);
         EditText name = field(fields, R.string.x11_session_name);
         EditText command = field(fields, R.string.x11_command_optional);
-        new AlertDialog.Builder(this).setTitle(R.string.x11_new_session).setView(fields)
+        android.widget.Spinner backend = new android.widget.Spinner(this);
+        var options = new android.widget.ArrayAdapter<>(this, android.R.layout.simple_spinner_item,
+                new String[]{"Termux", "Shell / root"});
+        options.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        backend.setAdapter(options);
+        backend.setSelection(TermuxIntegration.isAvailable(this) ? 0 : 1);
+        fields.addView(backend);
+        EditText keyboard = field(fields, R.string.x11_keyboard_directory);
+        keyboard.setVisibility(backend.getSelectedItemPosition() == 0 ? android.view.View.GONE : android.view.View.VISIBLE);
+        backend.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> parent, android.view.View view, int position, long id) {
+                keyboard.setVisibility(position == 0 ? android.view.View.GONE : android.view.View.VISIBLE);
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
+        });
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle(R.string.x11_new_session).setView(fields)
                 .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.x11_start, (dialog, which) -> {
+                .setPositiveButton(R.string.x11_start, null).create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button -> {
                     try {
+                        var executor = backend.getSelectedItemPosition() == 0 ? DesktopExecBackend.TERMUX : DesktopExecBackend.SHELL;
+                        if (DesktopExecRunner.prepareBackend(this, executor) != DesktopExecRunner.StartResult.STARTED) return;
                         select(X11Sessions.start(this, name.getText().toString().isBlank()
-                                ? "X11" : name.getText().toString(), command.getText().toString()));
+                                ? "X11" : name.getText().toString(), command.getText().toString(), executor,
+                                keyboard.getText().toString()));
                         openWindow(0);
+                        dialog.dismiss();
                     } catch (RuntimeException error) { showError(error); }
-                }).show();
+                }));
+        dialog.show();
     }
 
     private void command() {

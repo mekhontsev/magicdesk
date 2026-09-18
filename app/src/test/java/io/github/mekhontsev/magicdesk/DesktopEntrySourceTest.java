@@ -26,7 +26,7 @@ public class DesktopEntrySourceTest {
                 "[Desktop Entry]\nType=Application\nName=GIMP\nExec=gimp %U\n");
         var request = DesktopLaunchRequest.from(shortcut, DesktopLaunchArguments.files(
                 List.of("/data/user/10/termux/files/home/a b.png")), "/prefix/share/applications/gimp.desktop").prepareExec();
-        assertEquals(DesktopExecBackend.X11, request.exec.backend);
+        assertEquals(DesktopExecBackend.TERMUX, request.exec.backend);
         assertEquals("'gimp' 'file:///data/user/10/termux/files/home/a%20b.png'", request.exec.command);
     }
 }

@@ -155,8 +155,10 @@ final class DesktopCommandApplicationDialog {
             private String guestDirectory = "";
 
             @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                boolean isLinux = position == 3;
+                boolean isLinux = position >= 3;
+                linux.setBackend(position == 4 ? DesktopExecBackend.SHELL : DesktopExecBackend.TERMUX);
                 linux.setActive(isLinux);
+                linux.setGraphical(presentation.getSelectedItemPosition() != 0);
                 presentationFields.setVisibility(isLinux ? View.VISIBLE : View.GONE);
                 fileFields.setVisibility(isLinux ? View.GONE : View.VISIBLE);
                 directoryLabel.setText(isLinux ? R.string.command_app_guest_directory
@@ -172,6 +174,13 @@ final class DesktopCommandApplicationDialog {
                     }
                 }
                 wasLinux = isLinux;
+            }
+            @Override public void onNothingSelected(AdapterView<?> parent) { }
+        });
+
+        presentation.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                linux.setGraphical(position != 0);
             }
             @Override public void onNothingSelected(AdapterView<?> parent) { }
         });
@@ -194,7 +203,7 @@ final class DesktopCommandApplicationDialog {
                                 R.string.desktop_entry_name_required));
                         return;
                     }
-                    final boolean isLinux = backend.getSelectedItemPosition() == 3;
+                    final boolean isLinux = backend.getSelectedItemPosition() >= 3;
                     if (command.getText().toString().trim().isEmpty()
                             && !(isLinux && presentation.getSelectedItemPosition() == 0)) {
                         command.setError(activity.getString(
@@ -226,7 +235,7 @@ final class DesktopCommandApplicationDialog {
                                 : new DesktopCommandApplicationDraft(
                                     name.getText().toString(),
                                     command.getText().toString(),
-                                    DesktopExecBackend.values()[backend.getSelectedItemPosition()],
+                                    backend.getSelectedItemPosition() == 0 ? DesktopExecBackend.SHELL : DesktopExecBackend.TERMUX,
                                     workingDirectory,
                                     DesktopCommandApplicationDraft.FileArguments
                                             .values()[arguments
@@ -238,7 +247,7 @@ final class DesktopCommandApplicationDialog {
                     }
                     dialog.getButton(AlertDialog.BUTTON_POSITIVE)
                             .setEnabled(false);
-                    if (isLinux) {
+                    if (isLinux && linux.endpoint() != null) {
                         try {
                             TermuxDesktopEntries.create(activity.getApplicationContext(), linux.endpoint(),
                                     shortcut, (result, failure) -> completed(activity, shortcut, listener, dialog, true,
@@ -247,7 +256,11 @@ final class DesktopCommandApplicationDialog {
                         } catch (RuntimeException error) {
                             completed(activity, shortcut, listener, dialog, true, error);
                         }
-                    } else create(activity, shortcut, listener, dialog);
+                    } else create(activity, backend.getSelectedItemPosition() == 2
+                            ? new DesktopApplicationShortcut(shortcut.name, shortcut.icon, shortcut.exec, null, "",
+                                    shortcut.launchMode, false, shortcut.execBackend, false, shortcut.workingDirectory,
+                                    shortcut.mimeTypes).withX11(new X11LaunchOptions(false, "")) : shortcut,
+                            listener, dialog);
                 }));
         return dialog;
     }

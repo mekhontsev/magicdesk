@@ -39,28 +39,28 @@ final class X11Sessions {
         default void onDragEvent(int operation, int output, boolean accepted) { }
     }
 
-    static Session start(Context context, String name, String command) {
+    static Session start(Context context, String name, String command, DesktopExecBackend backend, String keyboardDirectory) {
         String script = command == null || command.isBlank() ? "true" : command;
         String exec = "sh -c " + ShellCommandLine.quote(script).replace("%", "%%");
         var shortcut = new DesktopApplicationShortcut(name, "", exec, null, "", DesktopLaunchMode.AUTO,
-                false, DesktopExecBackend.X11, false).withX11Desktop(true);
-        return start(context, name, command, "", false, "", RecentApplications.describe(context, shortcut, ""));
+                false, backend, false).withX11(new X11LaunchOptions(true, keyboardDirectory));
+        return start(context, name, command, "", false, "", RecentApplications.describe(context, shortcut, ""), backend, keyboardDirectory);
     }
 
     static Session startCommand(Context context, String name, String command, String directory, String desktopFile,
-            boolean application, RecentApplicationStore.Entry recipe) {
+            boolean application, RecentApplicationStore.Entry recipe, DesktopExecBackend backend, String keyboardDirectory) {
         if (command == null || command.isBlank()) throw new IllegalArgumentException("Missing X11 command");
-        return start(context, name, command, DesktopExecWorkingDirectory.normalize(directory), application, desktopFile, recipe);
+        return start(context, name, command, DesktopExecWorkingDirectory.normalize(directory), application, desktopFile, recipe,
+                backend, keyboardDirectory);
     }
 
     private static Session start(Context context, String name, String command, String directory, boolean application, String desktopFile,
-            RecentApplicationStore.Entry recipe) {
+            RecentApplicationStore.Entry recipe, DesktopExecBackend backend, String keyboardDirectory) {
         Context app = context.getApplicationContext();
-        TermuxIntegration.Endpoint endpoint = TermuxIntegration.inspect(app);
-        endpoint.requireAvailable();
+        X11Execution execution = new X11Execution(app, backend, keyboardDirectory);
         if (name == null || name.isBlank() || name.length() > 128)
             throw new IllegalArgumentException("X11 session name must contain 1 to 128 characters");
-        Session session = new Session(app, endpoint, name.trim(), command == null ? "" : command, directory, application,
+        Session session = new Session(app, execution, name.trim(), command == null ? "" : command, directory, application,
                 context.getResources().getConfiguration().densityDpi, desktopFile, recipe);
         synchronized (SESSIONS) { SESSIONS.put(session.id(), session); }
         try {
@@ -68,10 +68,14 @@ final class X11Sessions {
             MAIN.postDelayed(session.timeout, START_TIMEOUT_MILLIS);
             WORK.execute(() -> {
                 if (session.stopped()) return;
+                var resource = session.resources.reserve();
                 try {
-                    TermuxIntegration.runBackgroundShellCommand(app, endpoint, session.launch.serverCommand,
-                            name, endpoint.homeDirectory, session.launch.stdin);
-                } catch (RuntimeException error) { session.fail(error); }
+                    resource.attach(execution.startServer(session.launch, (code, output, error) -> {
+                        resource.close();
+                        if (!session.stopped()) session.fail(error != null ? error
+                                : new IllegalStateException("X11 server exited (" + code + "): " + output));
+                    }));
+                } catch (java.io.IOException | RuntimeException error) { resource.close(); session.fail(error); }
             });
         } catch (RuntimeException error) { session.fail(error); }
         return session;
@@ -94,7 +98,7 @@ final class X11Sessions {
     static void handoff(String method, String token, Bundle extras, int uid) throws RemoteException {
         if (extras == null || token == null) throw new SecurityException("Missing X11 owner handshake");
         Session session = find(extras.getString("session"));
-        if (session == null || uid != session.endpoint.uid || !MessageDigest.isEqual(
+        if (session == null || uid != session.execution.serverUid || !MessageDigest.isEqual(
                 token.getBytes(StandardCharsets.UTF_8), session.launch.token.getBytes(StandardCharsets.UTF_8)))
             throw new SecurityException("X11 startup is no longer owned");
         IBinder binder = extras.getBinder("server");
@@ -122,7 +126,7 @@ final class X11Sessions {
 
     static final class Session {
         final String name;
-        final TermuxIntegration.Endpoint endpoint;
+        final X11Execution execution;
         final boolean application;
         final String presentationKey;
         private RecentApplicationStore.Entry recipe;
@@ -144,7 +148,7 @@ final class X11Sessions {
         private final IBinder.DeathRecipient death = () -> fail(new IllegalStateException("X11 server exited"));
         private IX11Server server;
         private boolean connecting;
-        private TermuxCommandResultReceiver.Registration startupResult;
+        private final OperationResources resources = new OperationResources();
         private volatile X11Session renderer;
         private volatile State state = State.STARTING;
         private volatile String error = "";
@@ -154,21 +158,19 @@ final class X11Sessions {
         private final java.util.Set<Long> presentedWindows = new java.util.HashSet<>();
         private final java.util.Map<Long, Object> fullscreenOwners = new java.util.HashMap<>();
 
-        Session(Context context, TermuxIntegration.Endpoint endpoint, String name, String command,
+        Session(Context context, X11Execution execution, String name, String command,
                 String directory, boolean application, int densityDpi, String desktopFile, RecentApplicationStore.Entry recipe) {
             this.context = context;
-            this.endpoint = endpoint;
+            this.execution = execution;
             this.name = name;
             this.application = application;
             this.recipe = recipe;
-            presentationKey = X11PresentationPreferences.key(endpoint.packageName, desktopFile);
+            presentationKey = X11PresentationPreferences.key(execution.commands.scope, desktopFile);
             scalePercent = X11PresentationPreferences.load(context, presentationKey);
             density = new X11Density(densityDpi);
             startupCommand = command;
             startupDirectory = directory;
-            launch = new X11LaunchSpec(context.getApplicationInfo().sourceDir,
-                    context.getApplicationInfo().nativeLibraryDir, context.getPackageName(), endpoint.packageName, endpoint.homeDirectory,
-                    density.resolve(scalePercent), application);
+            launch = execution.spec(density.resolve(scalePercent), application);
         }
 
         int scalePercent() { return scalePercent; }
@@ -305,10 +307,17 @@ final class X11Sessions {
             String script = launch.clientCommand(display, command);
             WORK.execute(() -> {
                 if (state != State.READY) return;
+                var resource = resources.reserve();
                 try {
-                    TermuxIntegration.runBackgroundShellCommand(context, endpoint, script,
-                            name, directory.isEmpty() ? endpoint.homeDirectory : directory, null);
+                    resource.attach(execution.commands.start(script, directory, name, null, (code, output, failure) -> {
+                        resource.close();
+                        if (!stopped() && (failure != null || code != 0)) {
+                            error = failure == null ? output : ShellAccess.usefulMessage(failure);
+                            changed();
+                        }
+                    }));
                 } catch (RuntimeException failure) {
+                    resource.close();
                     error = ShellAccess.usefulMessage(failure);
                     changed();
                 }
@@ -316,24 +325,23 @@ final class X11Sessions {
         }
 
         private void executeStartup() {
-            synchronized (this) {
-                if (state != State.READY) return;
-                startupResult = TermuxIntegration.runBackgroundShellCommandForResult(context, endpoint,
-                        launch.clientCommand(display, startupCommand), name,
-                        startupDirectory.isEmpty() ? endpoint.homeDirectory : startupDirectory, 0,
-                        (result, failure) -> {
+            if (state != State.READY) return;
+            var resource = resources.reserve();
+            try {
+                resource.attach(execution.commands.start(launch.clientCommand(display, startupCommand), startupDirectory, name, null,
+                        (code, output, failure) -> {
+                            resource.close();
                             if (stopped()) return;
                             if (failure != null) fail(failure);
-                            else if (result == null || !result.success()) fail(new IllegalStateException(
-                                    result == null ? "X11 command returned no result" : result.usefulMessage()));
+                            else if (code != 0) fail(new IllegalStateException("X11 command exited (" + code + "): " + output));
                             else MAIN.post(() -> {
                                 if (stopped()) return;
                                 startupFinished = true;
                                 DesktopAutomationEventJournal.record("x11", "command_finished", true, "session=" + id() + " exit=0");
                                 if (application && hadWindows && windows.isEmpty() && !stopped()) close();
                             });
-                        });
-            }
+                        }));
+            } catch (RuntimeException failure) { resource.close(); throw failure; }
         }
 
         private void connect() {
@@ -422,18 +430,17 @@ final class X11Sessions {
                 windows = List.of();
                 MAIN.removeCallbacks(timeout);
                 MAIN.removeCallbacks(windowTimeout);
-                TermuxCommandResultReceiver.cancel(startupResult);
-                startupResult = null;
             }
             synchronized (SESSIONS) { SESSIONS.remove(id(), this); }
             DesktopAutomationEventJournal.record("x11", "session_finished", terminal != State.FAILED,
                     "session=" + id() + " state=" + terminal + " detail=" + message);
             // Revoke admission first: a delayed RUN_COMMAND request must fail before creating X sockets.
-            if (process != null) {
-                try { process.stop(); } catch (RemoteException ignored) { }
-                process.asBinder().unlinkToDeath(death, 0);
-            }
-            if (connection != null) WORK.execute(connection::close);
+            if (process != null) process.asBinder().unlinkToDeath(death, 0);
+            WORK.execute(() -> {
+                resources.close();
+                if (process != null) try { process.stop(); } catch (RemoteException ignored) { }
+                if (connection != null) connection.close();
+            });
             changed();
             MagicDeskRuntime.refreshSettings();
         }

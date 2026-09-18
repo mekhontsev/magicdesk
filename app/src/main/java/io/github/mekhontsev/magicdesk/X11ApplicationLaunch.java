@@ -7,7 +7,7 @@ import android.content.Intent;
 final class X11ApplicationLaunch {
     static boolean reuse(DesktopLaunchContext host, DesktopLaunchRequest request,
             DesktopActivityLaunchResult.Completion completion) {
-        if (request.exec == null || request.exec.backend != DesktopExecBackend.X11 || request.exec.terminal
+        if (request.exec == null || request.exec.x11 == null || request.exec.terminal
                 || request.sourceShortcut == null || !request.arguments.isEmpty()
                 || request.presentation.instancePolicy == DesktopTaskInstancePolicy.CREATE_NEW) return false;
         final var recipe = RecentApplications.describe(host.context(), request.sourceShortcut, request.desktopFilePath);
@@ -70,14 +70,15 @@ final class X11ApplicationLaunch {
     }
 
     static DesktopLaunchRequest prepare(DesktopLaunchContext host, DesktopLaunchRequest request) {
-        if (request.exec == null || request.exec.backend != DesktopExecBackend.X11) return request;
+        if (request.exec == null || request.exec.x11 == null) return request;
         if (request.androidLaunch != null || request.androidShortcut != null)
             throw new IllegalArgumentException("X11 commands cannot also launch an Android application");
-        if (request.exec.terminal) return request.withExec(new DesktopExecSpec(DesktopExecBackend.TERMUX,
-                request.exec.command, true, request.exec.workingDirectory));
         Context context = host.context();
         Intent intent = X11Activity.createApplicationIntent(context, request.name,
                 request.exec.command, request.exec.workingDirectory).putExtra(X11Activity.DESKTOP_FILE, request.desktopFilePath)
+                .putExtra(X11Activity.BACKEND, request.exec.backend.wireName)
+                .putExtra(X11Activity.KEYBOARD_DIRECTORY, request.exec.x11.keyboardDirectory())
+                .putExtra(X11Activity.APPLICATION, !request.exec.x11.desktop())
                 .putExtra(X11Activity.RECENT_SCOPE, RecentLaunchScope.of(host.destination()).name());
         if (request.sourceShortcut != null) intent.putExtra(X11Activity.RECIPE,
                 DesktopEntryFile.encodeRecent(RecentApplications.describe(context, request.sourceShortcut, request.desktopFilePath)));

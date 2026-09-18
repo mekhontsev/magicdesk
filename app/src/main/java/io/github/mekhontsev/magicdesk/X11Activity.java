@@ -20,6 +20,8 @@ public final class X11Activity extends Activity implements
     static final String APPLICATION = "x11_application";
     static final String RECIPE = "x11_recipe";
     static final String RECENT_SCOPE = "x11_recent_scope";
+    static final String BACKEND = "x11_backend";
+    static final String KEYBOARD_DIRECTORY = "x11_keyboard_directory";
     private static final String COMMAND = "x11_command";
     private static final String NAME = "x11_name";
     private static final String DIRECTORY = "x11_directory";
@@ -61,18 +63,22 @@ public final class X11Activity extends Activity implements
         String id = state == null ? getIntent().getStringExtra(SESSION) : state.getString(SESSION);
         final var recipe = getIntent().hasExtra(RECIPE) ? DesktopEntryFile.parseRecent(getIntent().getStringExtra(RECIPE)) : null;
         application = state == null ? getIntent().getBooleanExtra(APPLICATION,
-                getIntent().hasExtra(COMMAND) && (recipe == null || !recipe.shortcut().x11Desktop)) : state.getBoolean(APPLICATION);
+                getIntent().hasExtra(COMMAND) && (recipe == null || recipe.shortcut().x11 == null
+                        || !recipe.shortcut().x11.desktop())) : state.getBoolean(APPLICATION);
         if (getIntent().hasExtra(COMMAND) && state == null && id == null) {
             try {
-                if (!TermuxIntegration.ensureRunCommandPermission(this)) {
-                    status.setText(R.string.x11_permission_required);
+                DesktopExecBackend backend = DesktopExecBackend.parse(getIntent().getStringExtra(BACKEND));
+                if (DesktopExecRunner.prepareBackend(this, backend) != DesktopExecRunner.StartResult.STARTED) {
+                    status.setText(backend == DesktopExecBackend.TERMUX ? R.string.x11_permission_required
+                            : R.string.capability_access_required);
                     return;
                 }
                 if (getIntent().hasExtra(RECIPE) && recipe == null) throw new IllegalArgumentException("Invalid X11 launch recipe");
                 if (recipe != null) RecentApplications.requireEnvironment(this, recipe);
                 select(X11Sessions.startCommand(this, getIntent().getStringExtra(NAME),
                         getIntent().getStringExtra(COMMAND), getIntent().getStringExtra(DIRECTORY),
-                        getIntent().getStringExtra(DESKTOP_FILE), application, recipe));
+                        getIntent().getStringExtra(DESKTOP_FILE), application, recipe, backend,
+                        getIntent().getStringExtra(KEYBOARD_DIRECTORY)));
                 if (getIntent().hasExtra(RECENT_SCOPE))
                     session.recordUse(RecentLaunchScope.valueOf(getIntent().getStringExtra(RECENT_SCOPE)));
             } catch (RuntimeException error) { showError(error); }

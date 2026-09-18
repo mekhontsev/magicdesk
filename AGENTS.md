@@ -33,8 +33,10 @@ An explicitly managed tmux window releases only its client PTY; tmux owns the
 server session and programs. MCP is an authorized adapter to these services, not their owner.
 Keep profile-scoped application identities and storage boundaries intact.
 
-Embedded X11 is also a shared service: the selected Termux environment supplies
-programs, while the fork owns only the native X server/protocol and rendering.
+Embedded X11 is also a shared service: an explicitly selected Termux or shell
+executor supplies programs, while the fork owns only the native X server/protocol and rendering.
+Shell-hosted X servers run as MagicDesk's app UID; a prepared chroot is entered
+by the already-authorized command service, never by elevating the renderer.
 MagicDesk's `x11-runtime` owns all Java, Binder and JNI adapters; do not import
 upstream Java, AIDL, Android stubs or Gradle modules. The native `embedded.h`
 contract must not know Java classes, packages, authorization or Activity policy.

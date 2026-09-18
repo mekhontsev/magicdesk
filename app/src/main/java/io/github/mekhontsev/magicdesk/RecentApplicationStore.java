@@ -35,7 +35,7 @@ final class RecentApplicationStore {
                 if (reference != null) return digest("android", reference.persistentKey());
             }
             String command = "";
-            if (shortcut.hasExecLaunch()) command = shortcut.execBackend == DesktopExecBackend.X11
+            if (shortcut.hasExecLaunch()) command = shortcut.literalExec
                     ? DesktopExecTemplate.expandArguments(shortcut.exec, DesktopLaunchArguments.empty(), shortcut.name, shortcut.icon, sourcePath)
                     : DesktopExecTemplate.expand(shortcut.exec, DesktopLaunchArguments.empty(), shortcut.name, shortcut.icon, sourcePath);
             // Presentation and file location are not application identity. Field codes such as %k
@@ -44,7 +44,8 @@ final class RecentApplicationStore {
                     shortcut.launchTarget == null ? "" : shortcut.launchTarget.stableKey(),
                     shortcut.intentUri, shortcut.appShortcutId, Boolean.toString(shortcut.defaultLaunch),
                     shortcut.execBackend.wireName, command, Boolean.toString(shortcut.terminal),
-                    shortcut.workingDirectory, Boolean.toString(shortcut.x11Desktop));
+                    shortcut.workingDirectory, shortcut.x11 == null ? "" : shortcut.x11.desktop() ? "desktop" : "application",
+                    shortcut.x11 == null ? "" : shortcut.x11.keyboardDirectory());
         }
 
         Entry usedAt(long time) { return new Entry(shortcut, sourcePath, termuxPackage, time); }

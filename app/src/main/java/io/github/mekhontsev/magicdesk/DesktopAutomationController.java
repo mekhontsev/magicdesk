@@ -737,7 +737,8 @@ final class DesktopAutomationController {
         for (var entry : entries.stream().limit(limit).toList()) {
             values.put(new JSONObject().put("name", entry.shortcut.name).put("source", source.wireName)
                     .put("desktopPath", entry.desktopFilePath).put("backend", entry.shortcut.execBackend.wireName)
-                    .put("terminal", entry.shortcut.terminal).put("x11Desktop", entry.shortcut.x11Desktop));
+                    .put("terminal", entry.shortcut.terminal).put("x11", entry.shortcut.x11 != null)
+                    .put("x11Desktop", entry.shortcut.x11 != null && entry.shortcut.x11.desktop()));
         }
         return DesktopAutomationResult.success("desktop application catalog", new JSONObject()
                 .put("entries", values).put("source", source.wireName).put("total", entries.size())

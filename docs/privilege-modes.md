@@ -11,7 +11,7 @@ boundaries. A missing Desktop capability does not disable an independent tool.
 | Ordinary UI and Android content integration | MagicDesk app UID and its Android permissions |
 | Privileged files, shell, display, task and input operations | One authorized command service, normally shell UID 2000; started through Shizuku or optional `su` |
 | Termux commands and PTYs | Termux UID, with its external-command configuration and MagicDesk's `RUN_COMMAND` grant |
-| Embedded X11 servers and clients | Selected Termux UID; per-session Xauthority and Binder lifetime. MagicDesk renders with its own app UID. No root or Shizuku prerequisite for the server. |
+| Embedded X11 servers and clients | Termux route: selected Termux UID. Shell route: server under MagicDesk's app UID, commands under the captured authorized service UID. Per-session Xauthority and Binder lifetime; renderer always uses the app UID. No per-command elevation or fallback. |
 | MCP request | Listener token and grants, followed by the operation's service and Android permission checks |
 | Built-in CLI | Private channel inherited by a MagicDesk-launched shell; the same service prerequisites and operation implementation as MCP |
 | Optional Kernel Fixes APK | Separate application with an explicit root workflow; never a main-APK dependency |
@@ -45,7 +45,7 @@ is no libsu dependency, automatic backend fallback, or root requirement.
   Ordinary app services remain available; Termux terminals and X11 use their own authorization.
 
 Independent **Termux integration** and **Managed Desktop** switches default to on.
-Disabling Termux blocks RUN_COMMAND execution, PTY startup and X11 startup, not
+Disabling Termux blocks its RUN_COMMAND execution, PTYs and X11 executor, not shell-backed sessions or
 the installed Termux app itself. Disabling Desktop blocks setup, workspace startup
 and self-tests without blocking independent display resources or input control.
 Desktop still requires privileged access, API 35 and completed device setup.
@@ -134,8 +134,10 @@ the server session and its programs.
 
 X11 clipboard and copy drag-and-drop use MIME offers and bounded content streams.
 Android recipients receive read-only URI grants, not privileged filesystem
-authority. X11 file opens/imports use the retained server's Termux UID. The host
-does not translate container-private paths or retry denied access as root.
+authority. Termux X11 file opens/imports use the retained server's Termux UID.
+Shell-hosted servers use their app UID and only the session's shared content
+directory, exposed by a user-owned chroot script at `/tmp/magicdesk-x11/content`.
+Arbitrary guest-private paths are not translated or retried as root.
 Clipboard observation is scoped to a focused X11 host, not a global history.
 
 ## Input And HOME Ownership

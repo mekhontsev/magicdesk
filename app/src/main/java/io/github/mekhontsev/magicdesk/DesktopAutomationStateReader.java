@@ -127,6 +127,8 @@ final class DesktopAutomationStateReader {
                             .put("requested", window.management().request().fullscreen()).put("actual", window.management().actual().fullscreen())));
             result.put(new JSONObject().put("id", session.id()).put("name", session.name)
                     .put("display", session.display()).put("state", session.state().name())
+                    .put("executor", session.execution.commands.backend.wireName)
+                    .put("executorUid", session.execution.commands.uid).put("serverUid", session.execution.serverUid)
                     .put("dpi", session.dpi()).put("scalePercent", session.scalePercent())
                     .put("error", session.error()).put("application", session.application).put("windows", windows));
         }

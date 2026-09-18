@@ -19,7 +19,7 @@ public final class RuntimeCapabilitiesTest {
                         assertEquals(privileged ? "" : "privileged_disabled", caps.missing(RuntimeCapabilities.Service.SHELL));
                         assertEquals(privileged ? "" : "privileged_disabled", caps.missing(RuntimeCapabilities.Service.VIRTUAL_DISPLAY));
                         assertEquals(termux ? "" : "termux_disabled", caps.missing(RuntimeCapabilities.Service.TERMUX));
-                        assertEquals(termux ? "" : "termux_disabled", caps.missing(RuntimeCapabilities.Service.X11));
+                        assertEquals(privileged || termux ? "" : "x11_executor", caps.missing(RuntimeCapabilities.Service.X11));
                         assertEquals(privileged || termux ? "" : "terminal_backend", caps.missing(RuntimeCapabilities.Service.TERMINAL));
                         assertEquals(sdk < 35 ? "android_15" : !desktop ? "desktop_disabled"
                                 : !privileged ? "privileged_disabled" : "", caps.missing(RuntimeCapabilities.Service.DESKTOP));
@@ -70,8 +70,7 @@ public final class RuntimeCapabilitiesTest {
     @Test public void missingTermuxDoesNotGateIndependentServicesOrDesktop() {
         final var caps = new RuntimeCapabilities(35, true, false, false, DesktopSetupStatus.State.READY, RuntimeLimits.DEFAULT);
         for (final var service : RuntimeCapabilities.Service.values()) {
-            assertEquals(service.name(), service == RuntimeCapabilities.Service.TERMUX
-                            || service == RuntimeCapabilities.Service.X11 ? "termux" : "",
+            assertEquals(service.name(), service == RuntimeCapabilities.Service.TERMUX ? "termux" : "",
                     caps.missing(service));
         }
     }
@@ -88,7 +87,7 @@ public final class RuntimeCapabilitiesTest {
                         assertEquals(shell ? "" : "privileged_service", caps.missing(RuntimeCapabilities.Service.VIRTUAL_DISPLAY));
                         assertEquals(shell || installed && authorized ? "" : "terminal_backend",
                                 caps.missing(RuntimeCapabilities.Service.TERMINAL));
-                        assertEquals(!installed ? "termux" : !authorized ? "termux_run_command" : "",
+                        assertEquals(shell || installed && authorized ? "" : "x11_executor",
                                 caps.missing(RuntimeCapabilities.Service.X11));
                         assertEquals(sdk < 35 ? "android_15" : !shell ? "privileged_service" : "",
                                 caps.missing(RuntimeCapabilities.Service.DESKTOP));

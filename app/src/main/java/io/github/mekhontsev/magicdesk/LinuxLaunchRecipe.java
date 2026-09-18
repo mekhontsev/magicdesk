@@ -8,13 +8,18 @@ final class LinuxLaunchRecipe {
     enum Presentation { TERMINAL, APPLICATION, DESKTOP }
     enum Kind { PROOT, SCRIPT }
 
-    record Environment(Kind kind, String target) {
+    record Environment(Kind kind, String target, DesktopExecBackend backend, String keyboardDirectory) {
+        Environment(Kind kind, String target) { this(kind, target, DesktopExecBackend.TERMUX, ""); }
         Environment {
             if (kind == null) throw new IllegalArgumentException("Select a Linux launch method");
             target = target == null ? "" : target.trim();
             if (kind == Kind.PROOT) requireName(target);
             else if (!target.startsWith("/") || target.indexOf('\0') >= 0 || target.length() > 4096)
-                throw new IllegalArgumentException("Enter the absolute path of a Termux launcher script");
+                throw new IllegalArgumentException("Enter the absolute path of a launcher script");
+            if (backend == null) throw new IllegalArgumentException("Select an executor");
+            if (kind == Kind.PROOT && backend != DesktopExecBackend.TERMUX)
+                throw new IllegalArgumentException("proot-distro requires Termux");
+            keyboardDirectory = DesktopExecWorkingDirectory.normalize(keyboardDirectory);
         }
     }
 
@@ -63,12 +68,14 @@ final class LinuxLaunchRecipe {
             }
             host.append(" -- /bin/sh -lc ").append(q(guest));
         }
-        // X11 entries always parse Exec as argv, including Terminal=true recipes.
+        if (graphical && environment.backend() == DesktopExecBackend.SHELL && environment.keyboardDirectory().isEmpty())
+            throw new IllegalArgumentException("Enter the XKB data directory in the prepared Linux environment");
         String exec = DesktopExecTemplate.encodeArguments(List.of("sh", "-c", host.toString()));
         DesktopExecTemplate.expandArguments(exec, DesktopLaunchArguments.empty(), name, "", "");
         return new DesktopApplicationShortcut(name, graphical ? "computer" : "utilities-terminal",
-                exec, null, "", DesktopLaunchMode.AUTO, false, DesktopExecBackend.X11,
-                !graphical).withX11Desktop(presentation == Presentation.DESKTOP);
+                exec, null, "", DesktopLaunchMode.AUTO, false, environment.backend(),
+                !graphical).withLiteralExec(true).withX11(graphical
+                        ? new X11LaunchOptions(presentation == Presentation.DESKTOP, environment.keyboardDirectory()) : null);
     }
 
     private static void requireName(String name) {

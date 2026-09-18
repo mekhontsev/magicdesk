@@ -6,11 +6,11 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-public final class PersistentAutomationShellSessionTest {
+public final class ShellCommandSessionTest {
     @Test public void directoryEnvironmentAndBinarySinkShareOneExecutor() throws Exception {
         final List<String> requests = new ArrayList<>();
         final var sink = new java.io.ByteArrayOutputStream();
-        final var session = new PersistentAutomationShellSession("/tmp", (command, stdout) -> {
+        final var session = new ShellCommandSession("/tmp", (command, stdout) -> {
             requests.add(command);
             if (stdout != null) stdout.write(new byte[]{0, (byte) 255}, 0, 2);
             return result("/sdcard", 7);
@@ -30,7 +30,7 @@ public final class PersistentAutomationShellSessionTest {
 
     @Test public void quotedDirectorySpellingIsRetained() throws Exception {
         final String directory = "/tmp/link/../Dmitry's files";
-        final var session = new PersistentAutomationShellSession(directory, (command, stdout) -> {
+        final var session = new ShellCommandSession(directory, (command, stdout) -> {
             assertTrue(command.contains("cd -- " + ShellCommandLine.quote(directory)));
             return result(directory, 0);
         }, "test");
@@ -40,7 +40,7 @@ public final class PersistentAutomationShellSessionTest {
     @Test public void failedOrCancelledShellReappliesLastConfirmedDirectory() throws Exception {
         final int[] execution = {0};
         final boolean[] cancelled = {false};
-        final var executor = new PersistentAutomationShellSession.CommandExecutor() {
+        final var executor = new ShellCommandSession.CommandExecutor() {
             @Override public ShellCommandOutput.Result execute(String command, ShellCommandOutput.Sink sink)
                     throws IOException {
                 if (execution[0]++ == 1) throw new IOException("closed");
@@ -49,7 +49,7 @@ public final class PersistentAutomationShellSessionTest {
             }
             @Override public void cancelCurrent() { cancelled[0] = true; }
         };
-        final var session = new PersistentAutomationShellSession("/tmp", executor, "test");
+        final var session = new ShellCommandSession("/tmp", executor, "test");
         session.execute("cd /sdcard");
         assertThrows(IOException.class, () -> session.execute("failed"));
         session.execute("pwd");
@@ -61,10 +61,10 @@ public final class PersistentAutomationShellSessionTest {
     @Test public void invalidDirectoriesAndCommandsNeverReachExecutor() {
         for (String directory : new String[]{null, "", "relative", "/tmp\0other",
                 "/tmp\nother", "/tmp\rother", "/" + "x".repeat(4096)}) {
-            assertThrows(IllegalArgumentException.class, () -> new PersistentAutomationShellSession(
+            assertThrows(IllegalArgumentException.class, () -> new ShellCommandSession(
                     directory, (c, s) -> { throw new AssertionError(); }, "test"));
         }
-        final var session = new PersistentAutomationShellSession("/tmp",
+        final var session = new ShellCommandSession("/tmp",
                 (c, s) -> { throw new AssertionError(); }, "test");
         for (String command : new String[]{null, "", " ", "echo\0bad"}) {
             assertThrows(IllegalArgumentException.class, () -> session.execute(command));
@@ -74,7 +74,7 @@ public final class PersistentAutomationShellSessionTest {
     @Test public void cancellationDoesNotWaitForCommandMonitor() throws Exception {
         final var started = new java.util.concurrent.CountDownLatch(1);
         final var cancelled = new java.util.concurrent.CountDownLatch(1);
-        final var executor = new PersistentAutomationShellSession.CommandExecutor() {
+        final var executor = new ShellCommandSession.CommandExecutor() {
             @Override public ShellCommandOutput.Result execute(String c, ShellCommandOutput.Sink s) throws IOException {
                 started.countDown();
                 try { assertTrue(cancelled.await(2, java.util.concurrent.TimeUnit.SECONDS)); }
@@ -83,7 +83,7 @@ public final class PersistentAutomationShellSessionTest {
             }
             @Override public void close() { cancelled.countDown(); }
         };
-        final var session = new PersistentAutomationShellSession("/tmp", executor, "test");
+        final var session = new ShellCommandSession("/tmp", executor, "test");
         final var worker = java.util.concurrent.Executors.newSingleThreadExecutor();
         try {
             final var job = worker.submit(() -> session.execute("running"));

@@ -63,7 +63,7 @@ final class DesktopCommandApplicationDraft {
                 DesktopLaunchMode.AUTO,
                 false,
                 backend,
-                backend != DesktopExecBackend.X11,
+                true,
                 workingDirectory,
                 acceptedTypes);
     }

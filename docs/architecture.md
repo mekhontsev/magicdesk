@@ -941,7 +941,7 @@ runtime integration and are not distributed through the same release path.
 - Direct file reads, file writes and shell execution have separate permissions.
   `DesktopAutomationFileTools` delegates to the same typed `ShellFileSystem`
   service as built-in Files. `DesktopAutomationConsoleSessions` owns a bounded
-  set of lifecycle-scoped `PersistentAutomationShellSession` instances and
+  set of lifecycle-scoped `ShellCommandSession` instances and
   closes them with the shared command runtime. These non-PTY shells retain
   their environment and directory. The native pipe relay owns each UNIX session
   and frames stdout/stderr separately. `ShellCommandOutput` consumes a boundary
@@ -1658,19 +1658,26 @@ root requirement, new daemon, or automatic privilege escalation is introduced.
 
 ## Embedded X11
 
-`X11Sessions` retains independently owned Termux-hosted X servers and lazy
+`X11Sessions` retains independently owned X servers and lazy
 native renderers. Ordinary `X11Activity` windows borrow outputs. A whole-session
 viewer retains its server when closed; an individual-client host requests X11
 window closure, and an application-owned server ends after its last window.
-Admission requires the captured Termux UID
+Admission requires the captured server UID
 and a session nonce before Xorg starts. The server's owner Binder ties its
 lifetime to the MagicDesk process, while Xauthority isolates X clients.
-No Desktop coordinator, HOME lease or privileged service is initialized by
-this shared tool. Android placement still goes through `ToolApplications`.
+No Desktop coordinator or HOME lease is initialized by this shared tool.
+`X11Execution` owns server bootstrap: Termux uses RUN_COMMAND, while Shell uses
+an app-UID process and explicitly staged XKB data. `CommandExecution` captures
+the selected client executor once; it never changes identity on failure. Its
+owned shell commands reuse `ShellCommandSession`/`ShellCommandExecutor`, also
+used by MCP consoles, rather than starting untracked background processes.
+`OperationResources` handles completion-before-registration and cancellation;
+completed resources are removed, and dependents close before their server.
+Android placement still goes through `ToolApplications`.
 The read-only Termux `.desktop` catalog feeds shared Start content and MCP/CLI
 application discovery. `DesktopEntrySource` separates its authority from shell
 file access: Termux launches resolve an exact freshly queried catalog path.
-`X11ApplicationLaunch` turns its executor into a normal Android launch request;
+`X11ApplicationLaunch` turns graphical presentation into a normal Android launch request;
 the native window model owns X relationships, never Android task topology.
 Clipboard and copy drag-and-drop reuse the shared Android content boundary;
 the fork owns native selection/XDND negotiation, while MagicDesk owns the Java
@@ -3173,6 +3180,9 @@ entry script. Only PRoot selection makes a dialog-scoped `proot-distro list --qu
 request through the captured Termux endpoint. `LinuxLaunchRecipe` shares user,
 working-directory and terminal/application/desktop presentation across both
 adapters and builds a normal `.desktop` command, not a runtime/container registry.
+Entry scripts can also use the existing shell executor without Termux. Graphical
+shell recipes specify an explicit host-visible XKB directory; terminal recipes
+do not require it. The same `.desktop` and Recent models carry that choice.
 Custom entry scripts own guest setup, mounts and any explicit authorization;
 MagicDesk neither acquires root for them nor persists passwords. `TermuxDesktopEntries`
 publishes the complete file without replacing a different existing entry in
@@ -3189,10 +3199,10 @@ that launch recipe without stopping their clients or server.
 
 `DesktopExecRunner` owns the execution-backend boundary. Android shell is the
 default backend;
-`X-MagicDesk-ExecBackend=termux` selects Termux explicitly. The `x11` backend
+`X-MagicDesk-ExecBackend=termux` selects Termux explicitly. `X11LaunchOptions`
+is orthogonal presentation plus keyboard data, not a third executor. It
 is prepared by `X11ApplicationLaunch` as an Android host request before generic
-command delegation; it never starts a headless command through the shell runner.
-`Terminal=true` with `x11` instead selects a Termux PTY. Unknown backend
+command delegation. Terminal recipes omit X11 options. Unknown backend
 names invalidate the entry instead of silently running a command in the wrong
 environment. `Terminal=true` opens the built-in Console with either a
 UserService-backed Android shell PTY or a Termux-hosted PTY. PTY transport is an
@@ -3212,7 +3222,8 @@ adapter used by Desktop and Files. Each argument validates its 8192-character
 path/URI limit at construction, including the escaped file URI; selection and
 automation readers check the 128-item limit before materializing arguments.
 Shell/Termux commands without field codes retain raw shell syntax, while expanded
-values are tokenized and shell-quoted. X11 recipes always use desktop-entry
+values are tokenized and shell-quoted. `X-MagicDesk-ExecSyntax=argv` explicitly
+retains literal argument parsing for non-graphical Linux recipes. X11 recipes always use desktop-entry
 argument parsing, requiring explicit `sh -c` for shell syntax. Expansion writes directly into the bounded
 4096-character command, checking inserted fields and quoting overhead as it
 goes instead of building a potentially much larger intermediate argument list.

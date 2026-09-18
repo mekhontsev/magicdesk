@@ -20,6 +20,10 @@ final class FileTreeDeletion {
     private FileTreeDeletion() {
     }
 
+    static void deleteIfExists(final Path target) throws IOException {
+        if (Files.exists(target, NO_FOLLOW)) delete(target, null);
+    }
+
     static void delete(final Path target, final Cancellation cancellation)
             throws IOException {
         check(cancellation);

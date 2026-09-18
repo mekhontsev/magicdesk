@@ -100,7 +100,7 @@ final class DesktopLaunchRequest {
                     shortcut.execBackend,
                     shortcut.exec,
                     shortcut.terminal,
-                    shortcut.workingDirectory);
+                    shortcut.workingDirectory, shortcut.x11, shortcut.literalExec);
         }
         return new DesktopLaunchRequest(
                 shortcut.name,
@@ -131,7 +131,7 @@ final class DesktopLaunchRequest {
         if (exec == null) {
             return this;
         }
-        String command = exec.backend == DesktopExecBackend.X11
+        String command = exec.literal
                 ? DesktopExecTemplate.expandArguments(exec.command, arguments, name, icon, desktopFilePath)
                 : DesktopExecTemplate.expand(exec.command, arguments, name, icon, desktopFilePath);
         return withExec(exec.withCommand(command));

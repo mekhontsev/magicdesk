@@ -5,7 +5,7 @@ import org.junit.Test;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 
-public final class PersistentAutomationCommandExecutorTest {
+public final class ShellCommandExecutorTest {
     private static final String MARKER = "__MAGICDESK_TEST__";
 
     @Test public void binaryStdoutAndDelayedStderrAreSeparate() throws Exception {

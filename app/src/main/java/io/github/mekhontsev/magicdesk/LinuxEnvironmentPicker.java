@@ -16,12 +16,15 @@ final class LinuxEnvironmentPicker extends LinearLayout {
     private final LinearLayout prootFields;
     private final LinearLayout scriptFields;
     private final EditText script;
+    private final EditText keyboard;
+    private final LinearLayout keyboardFields;
     private final Spinner choices;
     private final TextView status;
     private TermuxIntegration.Endpoint endpoint;
     private TermuxCommandResultReceiver.Registration request;
     private int generation;
     private boolean active;
+    private DesktopExecBackend backend = DesktopExecBackend.TERMUX;
 
     LinuxEnvironmentPicker(Context context) {
         super(context);
@@ -60,6 +63,16 @@ final class LinuxEnvironmentPicker extends LinearLayout {
         scriptFields.addView(script, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
         scriptFields.setVisibility(View.GONE);
         addView(scriptFields);
+        keyboardFields = new LinearLayout(context);
+        keyboardFields.setOrientation(VERTICAL);
+        TextView keyboardTitle = new TextView(context);
+        keyboardTitle.setText(R.string.x11_keyboard_directory);
+        keyboardFields.addView(keyboardTitle);
+        keyboard = new EditText(context);
+        keyboard.setSingleLine(true);
+        keyboardFields.addView(keyboard, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+        keyboardFields.setVisibility(View.GONE);
+        addView(keyboardFields);
         method.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 if (active) load();
@@ -75,12 +88,24 @@ final class LinuxEnvironmentPicker extends LinearLayout {
         if (value) load(); else cancel();
     }
 
+    void setBackend(DesktopExecBackend value) {
+        if (backend == value) return;
+        backend = value;
+        if (value == DesktopExecBackend.SHELL) method.setSelection(1);
+        method.setEnabled(value == DesktopExecBackend.TERMUX);
+        if (active) load();
+    }
+
+    void setGraphical(boolean graphical) {
+        keyboardFields.setVisibility(graphical && backend == DesktopExecBackend.SHELL ? View.VISIBLE : View.GONE);
+    }
+
     private void load() {
         cancel();
         boolean proot = method.getSelectedItemPosition() == 0;
         prootFields.setVisibility(proot ? View.VISIBLE : View.GONE);
         scriptFields.setVisibility(proot ? View.GONE : View.VISIBLE);
-        endpoint = TermuxIntegration.inspect(getContext());
+        endpoint = backend == DesktopExecBackend.TERMUX ? TermuxIntegration.inspect(getContext()) : null;
         if (!proot) return;
         final int expected = generation;
         choices.setAdapter(null);
@@ -110,7 +135,8 @@ final class LinuxEnvironmentPicker extends LinearLayout {
 
     LinuxLaunchRecipe.Environment selected() {
         if (method.getSelectedItemPosition() == 1)
-            return new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.SCRIPT, script.getText().toString());
+            return new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.SCRIPT, script.getText().toString(),
+                    backend, keyboard.getText().toString());
         Object selected = choices.getSelectedItem();
         if (selected == null) throw new IllegalArgumentException(
                 getContext().getString(R.string.command_app_proot_select));

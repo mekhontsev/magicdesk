@@ -377,6 +377,11 @@ display/task IDs. `role` is `application`, `splash`, or `unclassified` from X
 properties; unclassified startup content is not assumed to be a permanent main
 window. Tokens, Xauthority cookies and startup commands are omitted.
 Each session also reports its resolved X11 `dpi` and relative `scalePercent`.
+`executor`, `executorUid` and `serverUid` distinguish command identity from
+the server: Shell/root sessions run their X server as the ordinary app UID.
+Launch a Shell Linux `.desktop` recipe with `launch_desktop_entry`, or pass an
+entry script as `terminal.open`'s shell command for a terminal-only chroot.
+Neither route requires Desktop or a separate container-management MCP API.
 `runtime.x11Sessions` is the live session count. The X11 built-in uses ordinary
 tool placement and remains available without Desktop.
 

@@ -44,7 +44,7 @@ final class StartMenuEntry {
         final AppItem app = shortcut.defaultLaunch ? LauncherAppRepository.find(apps,
                 AppReference.forTarget(shortcut.application, shortcut.launchTarget)) : null;
         final String detail = shortcut.launchTarget != null ? shortcut.launchTarget.packageName
-                : shortcut.execBackend == DesktopExecBackend.X11 ? "Termux" : shortcut.execBackend.wireName;
+                : shortcut.execBackend.wireName;
         final var builtIn = shortcut.launchTarget != null && BuildConfig.APPLICATION_ID.equals(shortcut.launchTarget.packageName)
                 ? BuiltInDesktopAppCatalog.findComponent(shortcut.launchTarget.activityClassName) : null;
         return new StartMenuEntry(Kind.DESKTOP_APPLICATION, shortcut.name, detail, app,
@@ -59,7 +59,7 @@ final class StartMenuEntry {
 
     static StartMenuEntry desktopApplication(DesktopApplicationRepository.Entry entry) {
         return new StartMenuEntry(Kind.DESKTOP_APPLICATION, entry.shortcut.name,
-                entry.shortcut.execBackend == DesktopExecBackend.X11 ? "Termux" :
+                entry.shortcut.execBackend == DesktopExecBackend.TERMUX ? "Termux" :
                         entry.shortcut.execBackend.wireName + ": " + entry.shortcut.exec,
                 null, entry, null, null, null, null);
     }

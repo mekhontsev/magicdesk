@@ -293,6 +293,11 @@ Leave the terminal command empty for a Linux login shell in MagicDesk Console.
 MagicDesk supplies the X server and windows; Termux and your container setup
 supply the programs. It does not install or configure a Linux distribution for you.
 
+With authorized **Root** access, **Linux (Shell / root)** launchers can use a
+prepared chroot without Termux at all: the same Console, individual X11 windows
+or whole Linux desktop. Provide an entry script and, for graphics, the guest's
+XKB data path. See [chroot setup](docs/x11.md#chroot-without-termux).
+
 Closing a whole-session viewer keeps its Linux session running; **Stop X11
 session** ends it. Closing an individual app window requests the app's normal
 close action, including any save confirmation. **Close Desktop** ends neither
@@ -501,14 +506,15 @@ and the [API-level contract](docs/runtime-api-levels.md).
 | Display inventory and interactive app launches | Ordinary app access; Android must allow the selected app on that display |
 | Files, Android shell, privileged capture and device actions | An authorized privileged service and the operation's actual capabilities |
 | Termux terminals | Termux, external commands enabled, MagicDesk's `RUN_COMMAND` permission |
-| Linux graphical applications and desktops | The same Termux integration, `xkeyboard-config`, and installed X11 applications or a configured Linux environment; no standalone Termux:X11 APK |
+| Linux graphical applications and desktops | Termux integration with `xkeyboard-config`, or authorized root with a prepared chroot/entry script and XKB data; no standalone Termux:X11 APK |
 | Owned virtual displays | An authorized privileged service and working framework display APIs |
 | Managed Desktop | Android 15+, an authorized privileged service, Desktop setup, working framework windowing |
 | Wired/wireless output | Hardware and firmware that expose a usable Android secondary display |
 
 The integrations are independent: **Termux only** provides terminals, tmux and
 X11 on the phone or an Android-allowed secondary display; **shell/root only** provides Files, Android-shell terminals,
-device automation and display control. Enable both to combine them. Managed
+device automation and display control; **root** can additionally enter prepared
+chroots in Console or X11 without Termux. Enable both integrations to combine them. Managed
 Desktop adds window management on Android 15+; it is not a prerequisite for
 the independent tools. Android 14 device coverage remains pending.
 

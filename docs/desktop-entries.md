@@ -29,7 +29,8 @@ Desktop Entry files.
 Select **Linux (Termux)** to create a guest launcher. **PRoot (proot-distro)**
 lists installed environments only when selected, through the configured Termux
 application's `RUN_COMMAND` service. **Custom script (chroot or other)** instead
-accepts the absolute path of an executable entry script in Termux. Both offer
+accepts the absolute path of an executable entry script. **Linux (Shell / root)**
+uses the same script contract through the authorized command service. All offer
 **Terminal** (an empty command opens the guest login shell), **X11 application**,
 or **Linux desktop**. Enter a command already installed in that environment.
 The optional working directory is inside Linux, not Android or Termux.
@@ -37,11 +38,13 @@ The optional working directory is inside Linux, not Android or Termux.
 leave it empty for the launcher's default (`root` inside PRoot, not Android root). No
 account is created and no password is stored in the launcher.
 
-Linux entries are saved in the selected Termux environment's
+Termux Linux entries are saved in the selected Termux environment's
 `${XDG_DATA_HOME:-$HOME/.local/share}/applications/magicdesk-NAME.desktop`,
 so the editor and shared launch services need Termux integration, not MagicDesk's
 shell/root service or Desktop. A custom chroot script may separately require
-root authorization for its own setup and entry.
+root authorization for its own setup and entry. Shell Linux entries are saved
+as ordinary Desktop files, without Termux. Graphical Shell entries additionally
+specify an Android-visible XKB data directory from the prepared environment.
 Start refreshes after saving; Recent uses the existing launch recipe and Termux
 package identity. Identical saves do not create duplicates, and a different
 entry with the same name is not overwritten. These launchers use ordinary
@@ -64,7 +67,8 @@ associations for these recipes. MagicDesk does not install distributions or scan
 ### Custom Linux Entry Scripts
 
 The script is an entry adapter for an already prepared environment, not a
-container installer. It runs as the selected Termux UID and receives:
+container installer. It runs as the selected Termux UID or the already-authorized
+shell service UID and receives:
 
 ```text
 /absolute/entry-script [--user NAME] [--work-dir /guest/path] [-- PROGRAM ARG...]
@@ -78,7 +82,7 @@ command; graphical launches additionally own a D-Bus session and a temporary
 guest runtime directory, just as with PRoot.
 
 For X11, the script inherits the dynamically allocated `DISPLAY` and private
-`XAUTHORITY`. It must expose the X socket and authorization file to the guest,
+`XAUTHORITY`, `MAGICDESK_X11_RUNTIME` and `MAGICDESK_X11_TMPDIR`. It must expose the X socket and authorization file to the guest,
 adjusting guest paths if necessary, and preserve those values across any
 explicit privilege change. Do not use a fixed display number or disable X
 authentication. The script owns mounting, root authorization and matching
@@ -86,6 +90,11 @@ cleanup; retain the launched process lifetime rather than detaching it.
 MagicDesk does not implicitly switch its privileged backend, mount a rootfs,
 or store passwords. Interactive authentication can use terminal mode; graphical
 entry scripts must arrange authorization without a terminal prompt.
+
+See [`chroot-entry.sh`](../scripts/examples/chroot-entry.sh) for a root-only
+prepared-rootfs example with launch-scoped mounts. MagicDesk never acquires root
+on an individual recipe's behalf. Shell-hosted file exchange uses only the
+session's shared `/tmp/magicdesk-x11/content` directory inside the guest.
 
 Existing fixed-purpose scripts can still be used directly as ordinary Termux
 or X11 command entries. They need the option/argv contract above only to use
@@ -178,7 +187,7 @@ as a retained terminal session. Closing its window detaches the view; explicit
 session termination closes the PTY. Desktop Entry command tracking does not own
 that lifetime.
 
-The embedded graphical executor uses `X-MagicDesk-ExecBackend=x11`:
+X11 presentation is independent of the selected `shell` or `termux` executor:
 
 ```ini
 [Desktop Entry]
@@ -186,18 +195,21 @@ Type=Application
 Name=Firefox (Termux)
 Exec=firefox %u
 Terminal=false
-X-MagicDesk-ExecBackend=x11
+X-MagicDesk-ExecBackend=termux
+X-MagicDesk-X11Mode=application
 ```
 
 It starts an authenticated, independently owned X server and presents client
 windows through the ordinary Android launcher. Start also discovers installed
 Termux `.desktop` entries automatically. The standalone Termux:X11 APK is not
-required. This executor follows desktop-entry argument expansion even without
-field codes; shell constructs require explicit `sh -c`. `Terminal=true`
-selects the Termux Console path instead of starting an X server. See
+required. Graphical recipes follow desktop-entry argument expansion even without
+field codes; shell constructs require explicit `sh -c`. Non-graphical entries
+may also select literal argv with `X-MagicDesk-ExecSyntax=argv`. `Terminal=true`
+omits the X11 mode and selects the executor's Console path. Shell X11 recipes
+also set `X-MagicDesk-X11KeyboardDirectory=/host/path/to/X11/xkb`. See
 [Embedded X11](x11.md) for retention, multiple windows and container commands.
 
-For a complete Linux desktop, add `X-MagicDesk-X11Mode=desktop`. The default is
+For a complete Linux desktop, use `X-MagicDesk-X11Mode=desktop` instead of
 `application`, which presents individual client windows. Desktop mode presents
 the whole X screen and retains the server after its Android window closes.
 The PRoot editor generates this recipe for installed `proot-distro` environments.

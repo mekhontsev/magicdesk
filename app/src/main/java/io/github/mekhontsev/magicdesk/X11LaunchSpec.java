@@ -8,15 +8,21 @@ import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.UUID;
 
-/** Termux launch environment and private Xauthority, independent of Android window placement. */
+/** Private X server environment; execution and Android placement have separate owners. */
 final class X11LaunchSpec {
     final String id = "x11-" + UUID.randomUUID();
     final String token;
     final String authorityFile;
     final String serverCommand;
     final String stdin;
+    final String directory;
+    final String temporaryDirectory;
+    final String keyboardDirectory;
+    final java.util.Map<String, String> environment;
+    final java.util.List<String> arguments;
 
-    X11LaunchSpec(String apk, String nativeLibraryDirectory, String hostPackage, String executorPackage, String termuxHome,
+    X11LaunchSpec(String apk, String nativeLibraryDirectory, String hostPackage, String executorPackage,
+            String runtimeParent, String temporaryDirectory, String keyboardDirectory, boolean sharedFiles,
             int dpi, boolean application) {
         if (dpi < 24 || dpi > 1536) throw new IllegalArgumentException("Invalid X11 DPI");
         byte[] secret = new byte[32], cookie = new byte[16];
@@ -24,26 +30,38 @@ final class X11LaunchSpec {
         random.nextBytes(secret);
         random.nextBytes(cookie);
         token = Base64.getUrlEncoder().withoutPadding().encodeToString(secret);
-        String directory = termuxHome + "/.cache/magicdesk/x11/" + id;
+        directory = runtimeParent + "/" + id;
+        this.temporaryDirectory = temporaryDirectory.isEmpty() ? directory : temporaryDirectory;
+        this.keyboardDirectory = keyboardDirectory;
         authorityFile = directory + "/Xauthority";
         stdin = Base64.getEncoder().encodeToString(authority(cookie)) + "\n";
-        serverCommand = boundedOutput("set -eu\numask 077\n"
-                + "mkdir -p " + q(termuxHome + "/.cache/magicdesk/x11") + "\n"
+        java.util.Map<String, String> env = new java.util.LinkedHashMap<>();
+        env.put("CLASSPATH", apk);
+        env.put("MAGICDESK_X11_LIBRARY", nativeLibraryDirectory + "/libXlorie.so");
+        env.put("MAGICDESK_X11_PACKAGE", hostPackage);
+        env.put("MAGICDESK_X11_EXECUTOR", executorPackage);
+        env.put("MAGICDESK_X11_CONTENT_DIR", directory + "/content");
+        env.put("MAGICDESK_X11_SHARED_FILES", sharedFiles ? "1" : "0");
+        env.put("MAGICDESK_X11_XSETTINGS", application ? "1" : "0");
+        env.put("MAGICDESK_X11_HOST_WM", application ? "1" : "0");
+        env.put("MAGICDESK_X11_SESSION", id);
+        env.put("MAGICDESK_X11_TOKEN", token);
+        env.put("TMPDIR", this.temporaryDirectory);
+        env.put("XKB_CONFIG_ROOT", keyboardDirectory);
+        environment = java.util.Collections.unmodifiableMap(env);
+        arguments = java.util.List.of("/system/bin/app_process", "-Xnoimage-dex2oat", "/", "--nice-name=" + id,
+                "io.github.mekhontsev.magicdesk.x11.X11Server", "-displayfd", "1", "-dpi", Integer.toString(dpi),
+                "-noreset", "-nolisten", "tcp", "-auth", authorityFile);
+        StringBuilder invocation = new StringBuilder("env -u LD_PRELOAD -u LD_LIBRARY_PATH");
+        environment.forEach((key, value) -> invocation.append(' ').append(key).append('=').append(q(value)));
+        arguments.forEach(value -> invocation.append(' ').append(q(value)));
+        serverCommand = "set -eu\numask 077\n"
+                + "mkdir -p " + q(runtimeParent) + "\n"
                 + "mkdir " + q(directory) + "\n"
                 + "trap 'rm -rf -- \"$runtime/content\"; rm -f -- \"$auth\"; rmdir -- \"$runtime\"' EXIT\n"
                 + "runtime=" + q(directory) + "\nauth=" + q(authorityFile) + "\n"
                 + "base64 -d > \"$auth\"\n"
-                + "env -u LD_PRELOAD -u LD_LIBRARY_PATH CLASSPATH=" + q(apk)
-                + " MAGICDESK_X11_LIBRARY=" + q(nativeLibraryDirectory + "/libXlorie.so")
-                + " MAGICDESK_X11_PACKAGE=" + q(hostPackage)
-                + " MAGICDESK_X11_EXECUTOR=" + q(executorPackage)
-                + " MAGICDESK_X11_CONTENT_DIR=\"$runtime/content\""
-                + " MAGICDESK_X11_XSETTINGS=" + (application ? "1" : "0")
-                + " MAGICDESK_X11_HOST_WM=" + (application ? "1" : "0")
-                + " MAGICDESK_X11_SESSION=" + q(id) + " MAGICDESK_X11_TOKEN=" + q(token)
-                + " TMPDIR=\"${PREFIX:?}/tmp\" XKB_CONFIG_ROOT=\"$PREFIX/share/X11/xkb\""
-                + " /system/bin/app_process -Xnoimage-dex2oat / --nice-name=" + q(id)
-                + " io.github.mekhontsev.magicdesk.x11.X11Server -displayfd 1 -dpi " + dpi + " -noreset -nolisten tcp -auth \"$auth\"\n");
+                + invocation + "\n";
     }
 
     String clientCommand(String display, String command) {
@@ -51,13 +69,9 @@ final class X11LaunchSpec {
             throw new IllegalArgumentException("Invalid X11 display number");
         if (command == null || command.isBlank()) throw new IllegalArgumentException("X11 command is empty");
         return "export DISPLAY=" + q(":" + display) + " XAUTHORITY=" + q(authorityFile)
-                + "\n" + boundedOutput(command);
-    }
-
-    // Termux accumulates RUN_COMMAND output until exit, even without a result callback.
-    // tail drains continuously without retaining the full stream or closing the application's pipe early.
-    static String boundedOutput(String command) {
-        return "set -o pipefail\n{\n" + command + "\n} 2>&1 | tail -c 16384 >&2\n";
+                + " MAGICDESK_X11_RUNTIME=" + q(directory)
+                + " MAGICDESK_X11_TMPDIR=" + q(temporaryDirectory)
+                + "\n" + command;
     }
 
     static byte[] authority(byte[] cookie) {

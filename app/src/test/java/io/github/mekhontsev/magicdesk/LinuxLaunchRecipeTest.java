@@ -23,7 +23,7 @@ public final class LinuxLaunchRecipeTest {
     @Test public void terminalWithoutCommandEntersLoginShellWithoutX11() throws Exception {
         var shortcut = recipe("", "", LinuxLaunchRecipe.Presentation.TERMINAL);
         assertTrue(shortcut.terminal);
-        assertFalse(shortcut.x11Desktop);
+        assertNull(shortcut.x11);
         assertEquals(List.of("login", "--isolated", "ubuntu"), arguments(shortcut));
         assertFalse(shortcut.exec.contains("DISPLAY"));
     }
@@ -40,7 +40,7 @@ public final class LinuxLaunchRecipeTest {
         for (var mode : List.of(LinuxLaunchRecipe.Presentation.APPLICATION, LinuxLaunchRecipe.Presentation.DESKTOP)) {
             var shortcut = recipe("xfce4-session", "", mode);
             assertFalse(shortcut.terminal);
-            assertEquals(mode == LinuxLaunchRecipe.Presentation.DESKTOP, shortcut.x11Desktop);
+            assertEquals(mode == LinuxLaunchRecipe.Presentation.DESKTOP, shortcut.x11 != null && shortcut.x11.desktop());
             var args = arguments(shortcut);
             assertEquals(List.of("login", "--isolated", "--shared-tmp", "--bind",
                     "/private/auth ' file:/tmp/magicdesk.Xauthority", "--env", "DISPLAY=:37", "--env",
@@ -53,7 +53,7 @@ public final class LinuxLaunchRecipeTest {
             var parsed = DesktopEntryFile.parseTermuxApplication(DesktopEntryFile.encodeApplication(shortcut));
             assertNotNull(parsed);
             assertEquals(shortcut.exec, parsed.exec);
-            assertEquals(shortcut.x11Desktop, parsed.x11Desktop);
+            assertEquals(shortcut.x11.desktop(), parsed.x11.desktop());
         }
     }
 
@@ -92,7 +92,7 @@ public final class LinuxLaunchRecipeTest {
             assertFalse(shortcut.exec.contains("proot-distro"));
             assertFalse(shortcut.exec.contains("su -c"));
             assertEquals(mode == LinuxLaunchRecipe.Presentation.TERMINAL, shortcut.terminal);
-            assertEquals(mode == LinuxLaunchRecipe.Presentation.DESKTOP, shortcut.x11Desktop);
+            assertEquals(mode == LinuxLaunchRecipe.Presentation.DESKTOP, shortcut.x11 != null && shortcut.x11.desktop());
             if (!shortcut.terminal) assertTrue(args.get(args.size() - 1).contains("dbus-run-session"));
             assertEquals(shortcut.exec, DesktopEntryFile.parseTermuxApplication(DesktopEntryFile.encodeApplication(shortcut)).exec);
         }
@@ -112,6 +112,34 @@ public final class LinuxLaunchRecipeTest {
     private List<String> arguments(DesktopApplicationShortcut shortcut) throws Exception {
         Path bin = Files.createTempDirectory(temporary.getRoot().toPath(), "bin");
         return arguments(shortcut, bin.resolve("proot-distro"));
+    }
+
+    @Test public void preparedLinuxHasTheSameRecipeWithEitherExecutor() throws Exception {
+        Path launcher = temporary.getRoot().toPath().resolve("enter-linux");
+        for (var backend : DesktopExecBackend.values()) {
+            var environment = new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.SCRIPT,
+                    launcher.toString(), backend, "/linux/usr/share/X11/xkb");
+            for (var mode : LinuxLaunchRecipe.Presentation.values()) {
+                var app = LinuxLaunchRecipe.build("Alpine", environment, "id", "/home/test", "test", mode);
+                assertEquals(backend, app.execBackend);
+                var parsed = (DesktopApplicationShortcut) DesktopEntryFile.parse(DesktopEntryFile.encodeApplication(app));
+                assertNotNull(parsed);
+                assertEquals(backend, parsed.execBackend);
+                assertEquals(app.x11, parsed.x11);
+                assertEquals(arguments(app, launcher), arguments(parsed, launcher));
+                var recent = new RecentApplicationStore.Entry(app, "", backend == DesktopExecBackend.TERMUX ? "com.termux" : "", 1);
+                assertEquals(recent.key(), DesktopEntryFile.parseRecent(DesktopEntryFile.encodeRecent(recent)).key());
+            }
+        }
+    }
+
+    @Test public void rootTerminalDoesNotRequireKeyboardDataButX11Does() {
+        var environment = new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.SCRIPT, "/enter-linux", DesktopExecBackend.SHELL, "");
+        assertNull(LinuxLaunchRecipe.build("Linux", environment, "", "", "", LinuxLaunchRecipe.Presentation.TERMINAL).x11);
+        assertThrows(IllegalArgumentException.class, () -> LinuxLaunchRecipe.build("Linux", environment, "xterm", "", "",
+                LinuxLaunchRecipe.Presentation.APPLICATION));
+        assertThrows(IllegalArgumentException.class, () -> new LinuxLaunchRecipe.Environment(
+                LinuxLaunchRecipe.Kind.PROOT, "ubuntu", DesktopExecBackend.SHELL, ""));
     }
 
     private List<String> arguments(DesktopApplicationShortcut shortcut, Path launcher) throws Exception {

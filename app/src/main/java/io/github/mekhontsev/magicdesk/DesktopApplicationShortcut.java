@@ -12,7 +12,8 @@ final class DesktopApplicationShortcut extends DesktopEntry {
     final boolean terminal;
     final String workingDirectory;
     final DesktopMimeTypes mimeTypes;
-    final boolean x11Desktop;
+    final X11LaunchOptions x11;
+    final boolean literalExec;
 
     DesktopApplicationShortcut(
             final String name,
@@ -105,7 +106,7 @@ final class DesktopApplicationShortcut extends DesktopEntry {
             final String appShortcutId) {
         this(name, icon, exec, launchTarget, intentUri, launchMode,
                 defaultLaunch, execBackend, terminal, workingDirectory,
-                mimeTypes, appShortcutId, null, false);
+                mimeTypes, appShortcutId, null, null, false);
     }
 
     private DesktopApplicationShortcut(
@@ -114,14 +115,16 @@ final class DesktopApplicationShortcut extends DesktopEntry {
             final DesktopLaunchMode launchMode, final boolean defaultLaunch,
             final DesktopExecBackend execBackend, final boolean terminal,
             final String workingDirectory, final DesktopMimeTypes mimeTypes,
-            final String appShortcutId, final AppIdentity application, final boolean x11Desktop) {
+            final String appShortcutId, final AppIdentity application, final X11LaunchOptions x11,
+            final boolean literalExec) {
         super(name, icon, exec);
         if (application != null && (launchTarget == null
                 || !application.packageName.equals(launchTarget.packageName))) {
             throw new IllegalArgumentException("shortcut application mismatch");
         }
         this.application = application;
-        this.x11Desktop = x11Desktop;
+        this.x11 = x11;
+        this.literalExec = x11 != null || literalExec;
         final String normalizedShortcutId = appShortcutId == null
                 ? "" : appShortcutId.trim();
         if ((intentUri == null || intentUri.isEmpty())
@@ -154,8 +157,8 @@ final class DesktopApplicationShortcut extends DesktopEntry {
         if (hasExecLaunch()) {
             DesktopExecCommand.normalize(this.exec);
         }
-        if (x11Desktop && (!hasExecLaunch() || this.execBackend != DesktopExecBackend.X11 || terminal))
-            throw new IllegalArgumentException("X11 desktop presentation requires a graphical X11 command");
+        if (x11 != null && (!hasExecLaunch() || terminal))
+            throw new IllegalArgumentException("X11 presentation requires a graphical command");
     }
 
     boolean hasIntentLaunch() {
@@ -170,13 +173,19 @@ final class DesktopApplicationShortcut extends DesktopEntry {
     DesktopApplicationShortcut withApplication(final AppIdentity identity) {
         return new DesktopApplicationShortcut(name, icon, exec, launchTarget,
                 intentUri, launchMode, defaultLaunch, execBackend, terminal,
-                workingDirectory, mimeTypes, appShortcutId, identity, x11Desktop);
+                workingDirectory, mimeTypes, appShortcutId, identity, x11, literalExec);
     }
 
-    DesktopApplicationShortcut withX11Desktop(boolean value) {
+    DesktopApplicationShortcut withX11(X11LaunchOptions value) {
         return new DesktopApplicationShortcut(name, icon, exec, launchTarget,
                 intentUri, launchMode, defaultLaunch, execBackend, terminal,
-                workingDirectory, mimeTypes, appShortcutId, application, value);
+                workingDirectory, mimeTypes, appShortcutId, application, value, value != null || literalExec);
+    }
+
+    DesktopApplicationShortcut withLiteralExec(boolean value) {
+        return new DesktopApplicationShortcut(name, icon, exec, launchTarget,
+                intentUri, launchMode, defaultLaunch, execBackend, terminal,
+                workingDirectory, mimeTypes, appShortcutId, application, x11, value);
     }
 
     boolean hasAppShortcutLaunch() {

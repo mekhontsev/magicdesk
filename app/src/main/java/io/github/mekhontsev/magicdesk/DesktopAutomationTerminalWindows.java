@@ -21,7 +21,7 @@ final class DesktopAutomationTerminalWindows {
             final JSONObject args = arguments == null
                     ? new JSONObject() : arguments;
             final DesktopExecBackend backend = DesktopExecBackend.parse(
-                    args.optString("backend", "shell")).requireConsole();
+                    args.optString("backend", "shell"));
             if (backend == DesktopExecBackend.SHELL) {
                 requireShell();
             } else {

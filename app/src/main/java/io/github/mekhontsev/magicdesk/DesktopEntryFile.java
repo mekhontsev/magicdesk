@@ -109,7 +109,10 @@ final class DesktopEntryFile {
                 || "true".equalsIgnoreCase(values.get("NoDisplay"))) return null;
         // Installed Linux entries are commands, never Android launch descriptors.
         values.keySet().removeIf(key -> key.startsWith("X-MagicDesk-") && !key.equals("X-MagicDesk-X11Mode"));
-        values.put("X-MagicDesk-ExecBackend", "x11");
+        values.put("X-MagicDesk-ExecBackend", "termux");
+        values.put("X-MagicDesk-ExecSyntax", "argv");
+        if ("true".equalsIgnoreCase(values.get("Terminal"))) values.remove("X-MagicDesk-X11Mode");
+        else values.putIfAbsent("X-MagicDesk-X11Mode", "application");
         return parseApplication(values);
     }
 
@@ -177,7 +180,11 @@ final class DesktopEntryFile {
         if (shortcut.defaultLaunch) {
             append(encoded, "X-MagicDesk-Default", "true");
         }
-        if (shortcut.x11Desktop) append(encoded, "X-MagicDesk-X11Mode", "desktop");
+        if (shortcut.literalExec) append(encoded, "X-MagicDesk-ExecSyntax", "argv");
+        if (shortcut.x11 != null) {
+            append(encoded, "X-MagicDesk-X11Mode", shortcut.x11.desktop() ? "desktop" : "application");
+            append(encoded, "X-MagicDesk-X11KeyboardDirectory", shortcut.x11.keyboardDirectory());
+        }
         return checkedEncoding(encoded.toString());
     }
 
@@ -329,6 +336,8 @@ final class DesktopEntryFile {
         try {
             final String x11Mode = value(values, "X-MagicDesk-X11Mode");
             if (!x11Mode.isEmpty() && !x11Mode.equals("application") && !x11Mode.equals("desktop")) return null;
+            final String syntax = value(values, "X-MagicDesk-ExecSyntax");
+            if (!syntax.isEmpty() && !syntax.equals("argv")) return null;
             if (!packageName.isEmpty()) {
                 target = activity.isEmpty()
                         ? AppLaunchTarget.packageDefault(packageName)
@@ -355,7 +364,9 @@ final class DesktopEntryFile {
                             values.containsKey("X-MagicDesk-AppIdentity")
                                     ? AppIdentity.fromPersistentKey(value(
                                             values, "X-MagicDesk-AppIdentity"))
-                                    : null).withX11Desktop(x11Mode.equals("desktop"));
+                                    : null).withX11(x11Mode.isEmpty() ? null : new X11LaunchOptions(
+                                            x11Mode.equals("desktop"), value(values, "X-MagicDesk-X11KeyboardDirectory")))
+                                    .withLiteralExec(!x11Mode.isEmpty() || syntax.equals("argv"));
         } catch (IllegalArgumentException error) {
             return null;
         }

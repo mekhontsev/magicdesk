@@ -20,6 +20,8 @@ final class X11FileExchange {
     private volatile boolean closed;
     private File directory;
     private long used;
+    private final X11SharedFiles shared = "1".equals(System.getenv("MAGICDESK_X11_SHARED_FILES"))
+            ? new X11SharedFiles(System.getenv("MAGICDESK_X11_CONTENT_DIR")) : null;
 
     ParcelFileDescriptor open(String value) throws IOException {
         if (closed) throw new IOException("X11 file exchange closed");
@@ -31,9 +33,13 @@ final class X11FileExchange {
             throw new IOException("Only local files can be exported");
         String path = uri.getPath();
         if (path == null || !path.startsWith("/") || path.indexOf('\0') >= 0) throw new IOException("Invalid file path");
+        if (shared != null) path = shared.hostPath(path);
         FileDescriptor descriptor = null;
         try {
             descriptor = Os.open(path, OsConstants.O_RDONLY | OsConstants.O_CLOEXEC | OsConstants.O_NONBLOCK, 0);
+            if (shared != null) try (var copy = ParcelFileDescriptor.dup(descriptor)) {
+                shared.requireInside(Os.readlink("/proc/self/fd/" + copy.getFd()));
+            }
             var stat = Os.fstat(descriptor);
             if (!OsConstants.S_ISREG(stat.st_mode) || stat.st_size < 0 || stat.st_size > MAX_BYTES)
                 throw new IOException("Only regular files up to 128 MiB can be exported");
@@ -56,10 +62,12 @@ final class X11FileExchange {
                 String path = System.getenv("MAGICDESK_X11_CONTENT_DIR");
                 if (path == null) throw new IOException("Missing X11 content directory");
                 directory = new File(path);
-                Files.createDirectory(directory.toPath());
+                Files.createDirectories(directory.toPath());
+                if (shared != null) chmod(directory, 01777);
             }
             File container = new File(directory, UUID.randomUUID().toString());
             Files.createDirectory(container.toPath());
+            if (shared != null) chmod(container, 0755);
             File target = new File(container, name);
             File pending = Files.createTempFile(directory.toPath(), "transfer-", ".partial").toFile();
             boolean complete = false;
@@ -77,10 +85,11 @@ final class X11FileExchange {
                     if (copied != size) throw new IOException("Incomplete file transfer");
                 }
                 Files.move(pending.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE);
+                if (shared != null) chmod(target, 0644);
                 fileCount++;
                 used += size;
                 complete = true;
-                return target.toURI().toASCIIString();
+                return shared == null ? target.toURI().toASCIIString() : shared.guestUri(target.toString());
             } finally {
                 if (!complete) { Files.deleteIfExists(pending.toPath()); Files.deleteIfExists(container.toPath()); }
             }
@@ -90,4 +99,9 @@ final class X11FileExchange {
     // The launcher owns this private directory and removes it after process exit.
     // Cancellation must not block server shutdown behind an in-flight Binder copy.
     void close() { closed = true; }
+
+    private static void chmod(File file, int mode) throws IOException {
+        try { Os.chmod(file.toString(), mode); }
+        catch (ErrnoException error) { throw new IOException("Cannot prepare the shared content directory", error); }
+    }
 }

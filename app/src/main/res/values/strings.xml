@@ -189,7 +189,8 @@
     <string name="command_app_proot_select">Select an installed PRoot environment</string>
     <string name="command_app_linux_command_hint">Empty for a terminal login shell</string>
     <string name="command_app_linux_method">Linux launcher</string>
-    <string name="command_app_linux_script">Launcher script (absolute Termux path)</string>
+    <string name="command_app_linux_script">Launcher script (absolute path)</string>
+    <string name="x11_keyboard_directory">XKB data directory (host path)</string>
     <string-array name="command_app_linux_methods">
         <item>PRoot (proot-distro)</item>
         <item>Custom script (chroot or other)</item>
@@ -215,6 +216,7 @@
         <item>Termux</item>
         <item>Termux X11</item>
         <item>Linux (Termux)</item>
+        <item>Linux (Shell / root)</item>
     </string-array>
     <string-array name="command_app_file_arguments_values">
         <item>None</item>

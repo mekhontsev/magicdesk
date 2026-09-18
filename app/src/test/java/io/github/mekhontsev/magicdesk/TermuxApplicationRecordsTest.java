@@ -27,7 +27,7 @@ public class TermuxApplicationRecordsTest {
         var result = TermuxApplicationRecords.parse(record("/prefix/share/applications/browser.desktop",
                 application("Browser", "firefox %u") + "X-MagicDesk-Package=example.application\nX-MagicDesk-ExecBackend=shell\n") + "END\n");
         var shortcut = result.get(0).shortcut;
-        assertEquals(DesktopExecBackend.X11, shortcut.execBackend);
+        assertEquals(DesktopExecBackend.TERMUX, shortcut.execBackend);
         assertNull(shortcut.launchTarget);
         assertEquals("'firefox'", DesktopLaunchRequest.from(shortcut).prepareExec().exec.command);
     }
@@ -35,7 +35,7 @@ public class TermuxApplicationRecordsTest {
     @Test public void literalArgumentsAreNotShellCodeEvenWithoutFieldCodes() {
         var shortcut = DesktopEntryFile.parseTermuxApplication(application("Test", "program \"$HOME\" \"a;b\" \"\""));
         assertEquals("'program' '$HOME' 'a;b' ''", DesktopLaunchRequest.from(shortcut).prepareExec().exec.command);
-        assertEquals(DesktopExecBackend.X11, ((DesktopApplicationShortcut) DesktopEntryFile.parse(
+        assertEquals(DesktopExecBackend.TERMUX, ((DesktopApplicationShortcut) DesktopEntryFile.parse(
                 DesktopEntryFile.encodeApplication(shortcut))).execBackend);
     }
 
@@ -46,9 +46,9 @@ public class TermuxApplicationRecordsTest {
                 record("relative/applications/a.desktop", application("A", "a")) + "END\n"));
     }
 
-    @Test public void x11BackendCannotBecomeAnOrdinaryPty() {
-        assertThrows(IllegalArgumentException.class, () -> DesktopExecBackend.X11.requireConsole());
-        assertEquals(DesktopExecBackend.TERMUX, DesktopExecBackend.TERMUX.requireConsole());
+    @Test public void presentationIsIndependentFromTheExecutor() {
+        assertEquals(2, DesktopExecBackend.values().length);
+        assertThrows(IllegalArgumentException.class, () -> DesktopExecBackend.parse("x11"));
     }
 
     @Test public void terminalEntryUsesExistingTermuxConsoleWithoutAnXServer() {

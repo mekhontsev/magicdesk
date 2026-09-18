@@ -4,8 +4,8 @@ import java.io.File;
 import java.io.IOException;
 
 /** Owns one cancellable non-PTY shell, preserving its environment between commands. */
-final class PersistentAutomationCommandExecutor
-        implements PersistentAutomationShellSession.CommandExecutor {
+final class ShellCommandExecutor
+        implements ShellCommandSession.CommandExecutor {
     private final Object mStateLock = new Object();
     private final String mMarker;
     private ShellStreamHandle mStream;
@@ -13,7 +13,7 @@ final class PersistentAutomationCommandExecutor
     private boolean mCommandActive;
     private boolean mCancelNextCommand;
 
-    PersistentAutomationCommandExecutor(String marker) { mMarker = marker; }
+    ShellCommandExecutor(String marker) { mMarker = marker; }
 
     @Override public ShellCommandOutput.Result execute(String command, ShellCommandOutput.Sink stdout)
             throws IOException {
