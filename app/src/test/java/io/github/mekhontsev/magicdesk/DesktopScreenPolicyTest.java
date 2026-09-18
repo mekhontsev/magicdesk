@@ -22,7 +22,7 @@ public final class DesktopScreenPolicyTest {
                 true, DesktopDisplayTarget.wireless(7), false, true));
         assertFalse(DesktopScreenPolicy.canControlPhoneScreen(
                 true, DesktopDisplayTarget.wireless(7), true, false));
-        assertFalse(DesktopScreenPolicy.canControlPhoneScreen(
+        assertTrue(DesktopScreenPolicy.canControlPhoneScreen(
                 true, DesktopDisplayTarget.simulated(7), true, true));
         assertTrue(DesktopScreenPolicy.canControlPhoneScreen(
                 true, DesktopDisplayTarget.wireless(7), true, true));

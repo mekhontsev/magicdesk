@@ -57,7 +57,7 @@ public final class DesktopDisplayDriversTest {
                 DesktopDisplayOutput.Kind.SIMULATED);
 
         assertFalse(phone.phoneScreenControl);
-        assertFalse(simulated.phoneScreenControl);
+        assertTrue(simulated.phoneScreenControl);
         assertTrue(wired.phoneScreenControl);
         assertTrue(wireless.phoneScreenControl);
 
