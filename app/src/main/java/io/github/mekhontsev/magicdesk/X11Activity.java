@@ -30,6 +30,7 @@ public final class X11Activity extends Activity implements
     private long window;
     private boolean seenWindow;
     private boolean application;
+    private boolean provisional = true;
     private volatile BuiltInWindowRegistry.Presentation presentation;
 
     static Intent createIntent(Context context) { return new Intent(context, X11Activity.class); }
@@ -56,6 +57,7 @@ public final class X11Activity extends Activity implements
         root.addView(surface, new LinearLayout.LayoutParams(-1, 0, 1));
         setContentView(root);
         window = state == null ? getIntent().getLongExtra(WINDOW, 0) : state.getLong(WINDOW);
+        if (state != null) provisional = state.getBoolean("x11_provisional", true);
         String id = state == null ? getIntent().getStringExtra(SESSION) : state.getString(SESSION);
         final var recipe = getIntent().hasExtra(RECIPE) ? DesktopEntryFile.parseRecent(getIntent().getStringExtra(RECIPE)) : null;
         application = state == null ? getIntent().getBooleanExtra(APPLICATION,
@@ -91,15 +93,21 @@ public final class X11Activity extends Activity implements
     private void onChanged() {
         if (isDestroyed()) return;
         boolean ready = session != null && session.state() == X11Sessions.State.READY;
-        if (application && ready && window == 0) {
-            window = session.windows().stream().filter(X11Session.Window::mapped)
-                    .mapToLong(X11Session.Window::id).findFirst().orElse(0);
+        if (application && ready) {
+            long selected = X11WindowSelection.select(window, provisional, session.windows());
+            if (selected < 0) { finish(); return; }
+            if (selected != window) {
+                session.releaseWindowClaim(window);
+                window = selected;
+                seenWindow = false;
+            }
+            for (var item : session.windows()) if (item.id() == window) provisional = item.provisional();
         }
         if (ready && window != 0) {
             session.claimWindow(window);
         }
         if (ready && session.application && hasWindowFocus()) for (X11Session.Window item : session.windows()) {
-            if (item.mapped() && session.claimWindow(item.id())) openWindow(this, session, item.id());
+            if (item.mapped() && !item.provisional() && session.claimWindow(item.id())) openWindow(this, session, item.id());
         }
         if (application && session != null && session.state() == X11Sessions.State.CLOSED) { finish(); return; }
         if (window == 0 && session != null) {
@@ -183,6 +191,7 @@ public final class X11Activity extends Activity implements
         if (session != null) state.putString(SESSION, session.id());
         state.putLong(WINDOW, window);
         state.putBoolean(APPLICATION, application);
+        state.putBoolean("x11_provisional", provisional);
     }
 
     @Override public void onDestroy() {

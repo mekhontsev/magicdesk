@@ -122,6 +122,7 @@ final class DesktopAutomationStateReader {
             for (var window : session.windows()) windows.put(new JSONObject().put("id", window.id())
                     .put("title", window.title()).put("mapped", window.mapped())
                     .put("hostManaged", window.management().managed())
+                    .put("role", window.role().name().toLowerCase(java.util.Locale.ROOT))
                     .put("fullscreen", new JSONObject().put("serial", Integer.toUnsignedLong(window.management().request().serial()))
                             .put("requested", window.management().request().fullscreen()).put("actual", window.management().actual().fullscreen())));
             result.put(new JSONObject().put("id", session.id()).put("name", session.name)

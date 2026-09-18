@@ -144,6 +144,18 @@ public final class X11HostBindingTest {
                 pending.close(true);
                 check(desktopSession.serverCloses == 1, "cancelled application startup stops owned session");
 
+                var startupSession = new X11Sessions.Session();
+                var startupSurface = new HostedSurfaceView();
+                var startup = new X11HostBinding(activity, startupSurface, startupSession, 11, true, () -> {});
+                startup.refresh(11, true);
+                var splashOutput = startupSession.output;
+                startup.refresh(31, true);
+                check(splashOutput.closed && startupSession.opens == 2, "handoff replaces borrowed output");
+                check(startupSession.clientCloses == 0 && startupSession.serverCloses == 0, "handoff does not close clients or server");
+                startup.onFrame(splashOutput, 100, 100, true);
+                check(startupSurface.width == 0, "late splash frames cannot update the new output");
+                startup.close(false);
+
                 var failedSurface = new HostedSurfaceView(); failedSurface.failBind = true;
                 var failing = new X11HostBinding(activity, failedSurface, desktopSession, 0, false, () -> {});
                 try { failing.refresh(0, true); throw new AssertionError("expected failed bind"); }

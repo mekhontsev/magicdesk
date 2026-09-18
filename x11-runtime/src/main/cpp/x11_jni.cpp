@@ -58,7 +58,7 @@ const LorieCallbacks callbacks = {
                     (jboolean)state.managed, (jint)state.request.serial,
                     (jboolean)state.request.fullscreen, (jboolean)state.actual.fullscreen);
             if (management) {
-                env->CallVoidMethod(c->owner, c->window, (jint)id, title, icon, (jboolean)info->mapped, management);
+                env->CallVoidMethod(c->owner, c->window, (jint)id, title, icon, (jboolean)info->mapped, (jint)info->role, management);
                 env->DeleteLocalRef(management);
             }
             env->DeleteLocalRef(title);
@@ -105,7 +105,7 @@ extern "C" JNIEXPORT jlong JNICALL JNI(X11Session_nativeCreate)(JNIEnv* env, job
     jclass cls = env->GetObjectClass(owner);
     c->frame = env->GetMethodID(cls, "onNativeFrame", "(IIIII)V");
     c->disconnected = env->GetMethodID(cls, "onNativeDisconnected", "()V");
-    c->window = env->GetMethodID(cls, "onNativeWindow", "(I[B[IZLio/github/mekhontsev/magicdesk/x11/X11WindowManagement;)V");
+    c->window = env->GetMethodID(cls, "onNativeWindow", "(I[B[IZILio/github/mekhontsev/magicdesk/x11/X11WindowManagement;)V");
     c->windowRemoved = env->GetMethodID(cls, "onNativeWindowRemoved", "(I)V");
     c->windows = env->GetMethodID(cls, "onNativeWindowsCommitted", "()V");
     c->data = env->GetMethodID(cls, "onNativeData", "(IIIIIIIILjava/lang/String;I)V");

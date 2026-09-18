@@ -26,7 +26,10 @@ public final class X11Session implements AutoCloseable {
         default void onDragEvent(int operation, int output, boolean accepted) { }
     }
 
-    public record Window(long id, String title, boolean mapped, Bitmap icon, X11WindowManagement management) { }
+    public enum WindowRole { APPLICATION, SPLASH, UNCLASSIFIED }
+    public record Window(long id, String title, boolean mapped, Bitmap icon, WindowRole role, X11WindowManagement management) {
+        public boolean provisional() { return role != WindowRole.APPLICATION; }
+    }
 
     private final HandlerThread thread = new HandlerThread("X11Session");
     private final Handler handler;
@@ -132,7 +135,7 @@ public final class X11Session implements AutoCloseable {
         });
     }
 
-    private void onNativeWindow(int id, byte[] title, int[] pixels, boolean mapped, X11WindowManagement management) {
+    private void onNativeWindow(int id, byte[] title, int[] pixels, boolean mapped, int role, X11WindowManagement management) {
         Bitmap icon = pixels == null ? null : Bitmap.createBitmap(pixels, 64, 64, Bitmap.Config.ARGB_8888);
         Window previous = windows.get(id);
         if (icon != null && previous != null && previous.icon() != null && icon.sameAs(previous.icon())) {
@@ -140,7 +143,8 @@ public final class X11Session implements AutoCloseable {
             icon = previous.icon();
         }
         windows.put(id, new Window(Integer.toUnsignedLong(id),
-                new String(title, java.nio.charset.StandardCharsets.UTF_8), mapped, icon, management));
+                new String(title, java.nio.charset.StandardCharsets.UTF_8), mapped, icon,
+                switch (role) { case 0 -> WindowRole.APPLICATION; case 1 -> WindowRole.SPLASH; default -> WindowRole.UNCLASSIFIED; }, management));
         windowsChanged = true;
     }
 

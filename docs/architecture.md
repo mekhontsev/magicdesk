@@ -1656,7 +1656,14 @@ drag gesture lifetime and URI grants through `HostedContentBackend`;
 transactions. These host contracts do not impose X11's session-global density
 or root-window model on other renderers. Session bootstrap and rendering remain
 X11-specific; no second protocol or generalized session engine is introduced.
-Individual outputs retain Android Surface geometry; root outputs leave Linux
+Individual outputs constrain Android Surface geometry by the client's X11
+minimum/maximum size hints; fixed-size content is aspect-fitted, not stretched
+by changing its X window. The native window model owns hint decoding, with no
+application-specific or Java-side geometry policy. Transients are constrained
+where they fit; larger dialogs extend a single aspect-fitted family canvas shared
+by rendering and input. Startup roles from the X catalog allow a splash-to-main
+handoff within the same Android host, releasing the old output's input/content
+leases without closing the client or server. Root outputs leave Linux
 window placement to its window manager. Window titles and bounded EWMH icons
 flow through the existing X catalog into Android task descriptions and
 `BuiltInWindowRegistry.PresentationSource`. Taskbar/overview/picker presentation

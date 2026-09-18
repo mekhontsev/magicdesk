@@ -33,6 +33,10 @@ final class X11HostBinding implements X11Sessions.Listener {
 
     void refresh(long window, boolean present) {
         if (closed) return;
+        if (this.window != window) {
+            releaseFullscreen();
+            releaseOutput();
+        }
         this.window = window;
         if (present && output == null) {
             try {

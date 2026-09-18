@@ -128,6 +128,8 @@ final class X11Sessions {
         private final String startupCommand;
         private final String startupDirectory;
         private boolean hadWindows;
+        private boolean hadApplicationWindow;
+        private boolean startupFinished;
         private final Runnable windowTimeout = this::windowReadinessExpired;
         private final IBinder lifetime = new Binder();
         private final List<Listener> listeners = new CopyOnWriteArrayList<>();
@@ -281,6 +283,12 @@ final class X11Sessions {
                             if (failure != null) fail(failure);
                             else if (result == null || !result.success()) fail(new IllegalStateException(
                                     result == null ? "X11 command returned no result" : result.usefulMessage()));
+                            else MAIN.post(() -> {
+                                if (stopped()) return;
+                                startupFinished = true;
+                                DesktopAutomationEventJournal.record("x11", "command_finished", true, "session=" + id() + " exit=0");
+                                if (application && hadWindows && windows.isEmpty() && !stopped()) close();
+                            });
                         });
             }
         }
@@ -306,15 +314,22 @@ final class X11Sessions {
                     }
                     @Override public void onWindowsChanged(List<X11Session.Window> snapshot) {
                         if (stopped()) return;
+                        DesktopAutomationEventJournal.record("x11", "windows_changed", true,
+                                "session=" + id() + " windows=" + snapshot.stream()
+                                        .map(item -> item.id() + ":" + item.role() + ":" + item.mapped()).toList());
                         windows = snapshot;
                         presentedWindows.retainAll(snapshot.stream().map(X11Session.Window::id).toList());
                         fullscreenOwners.keySet().retainAll(snapshot.stream().map(X11Session.Window::id).toList());
                         if (!snapshot.isEmpty()) {
                             boolean first = !hadWindows;
                             hadWindows = true;
+                            hadApplicationWindow |= snapshot.stream().anyMatch(item -> !item.provisional());
                             if (first) recordUse();
-                            MAIN.removeCallbacks(windowTimeout);
-                        } else if (application && hadWindows) { close(); return; }
+                            if (hadApplicationWindow) MAIN.removeCallbacks(windowTimeout);
+                        } else if (application && hadWindows && (hadApplicationWindow || startupFinished)) {
+                            DesktopAutomationEventJournal.record("x11", "application_windows_gone", true, "session=" + id());
+                            close(); return;
+                        }
                         changed();
                     }
                 });
@@ -342,8 +357,10 @@ final class X11Sessions {
         }
 
         private void windowReadinessExpired() {
-            if (application && !hadWindows && !stopped())
-                fail(new IllegalStateException("X11 application did not create a window"));
+            if (application && windows.isEmpty() && !stopped())
+                fail(new IllegalStateException(startupFinished
+                        ? "The command finished without a window on this X server. It may have reused an application already running on another server."
+                        : "X11 application did not create a window"));
         }
 
         void close() { finish(State.CLOSED, ""); }
@@ -366,6 +383,8 @@ final class X11Sessions {
                 startupResult = null;
             }
             synchronized (SESSIONS) { SESSIONS.remove(id(), this); }
+            DesktopAutomationEventJournal.record("x11", "session_finished", terminal != State.FAILED,
+                    "session=" + id() + " state=" + terminal + " detail=" + message);
             // Revoke admission first: a delayed RUN_COMMAND request must fail before creating X sockets.
             if (process != null) {
                 try { process.stop(); } catch (RemoteException ignored) { }
