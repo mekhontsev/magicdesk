@@ -14,9 +14,10 @@ device validation on that release is still pending.
 | Script dialogs and notifications | API 34; MCP content grant or inherited CLI channel. Background dialog placement requires the shared privileged launcher; notifications require Android notification permission/channel access. No Desktop or Termux prerequisite. |
 | Files, shell commands and transfers | API 34 plus authorized privileged service for shell-backed operations. |
 | Termux sessions and viewers | API 34 plus installed Termux, external-command configuration and `RUN_COMMAND` permission. The PTY and its window have separate lifetimes. |
-| Embedded X11 | API 34 plus the selected Termux endpoint, `RUN_COMMAND` permission and XKB data. Server runs under the Termux UID; renderer loads only on explicit session startup. Clipboard and copy drag-and-drop use ordinary Android content grants. No installed Termux:X11 APK, Desktop, HOME or privileged service prerequisite for an ordinary phone window. |
+| Embedded X11 | API 34 plus the selected Termux endpoint, `RUN_COMMAND` permission and XKB data. Server runs under the Termux UID; renderer loads only on explicit session startup. Clipboard and copy drag-and-drop use ordinary Android content grants. No installed Termux:X11 APK, Desktop, HOME or privileged service prerequisite for interactive windows on Android-allowed displays. |
 | APK replacement | API 34 plus authorized privileged service and the update grant. Android's PackageInstaller and its shell callback own replacement; the update worker survives replacement and reconnect is observed by update ID. |
-| Display resources and ordinary tool placement | API 34 plus authorized privileged service and working framework capabilities. Creating a display or placing a fullscreen tool there does not acquire HOME or initialize WMShell Desktop. |
+| Display discovery and interactive tool placement | API 34. Without shell, public DisplayManager inventory and Activity launch options serve accessible displays. Android checks each Intent/destination and secondary-Activity support. No Desktop or HOME prerequisite. |
+| Display resource creation and privileged placement | API 34 plus authorized privileged service and working framework capabilities. Trusted virtual displays, background launches, forced fullscreen placement and task transfers retain this boundary. They do not acquire HOME or initialize WMShell Desktop. |
 | Display Viewer | API 34 plus authorized privileged service. Owned virtual sources use VirtualDisplay/SurfaceView; existing screens use the framework mirrorDisplay capability and READ_FRAME_BUFFER permission. Shared privileged input adapter. No Desktop, vendor token lookup or root requirement. Virtual-first managed Desktop still requires API 35. |
 | Display/task screenshots | API 34 plus authorized privileged service and READ_FRAME_BUFFER. Task capture uses a fresh `takeTaskSnapshot(taskId, false)` request, not Recent cache; hidden tasks may be unavailable. No Desktop, activation or root requirement. API 34 device validation remains pending. |
 | Protected virtual display (optional) | Same API-34 display boundary, plus CAPTURE_SECURE_VIDEO_OUTPUT in the current service, protected graphics buffers and a secure Viewer output. No automatic elevation or new prerequisite for ordinary displays. Per-release/device protected playback still needs verification. |
@@ -52,12 +53,18 @@ an unsupported test from a locked phone. MCP and UI test entry points reject
 before session/display preparation. Device readiness and client grants remain
 separate from these feature requirements.
 
-Termux-only operation does not need the privileged display catalog: the panel's
-local Apps action, Start discovery/search, saved Recent entries, terminal picker
-and X11 launches use ordinary phone Activities. Reopening a live own terminal or
-X11 task uses Android's own-task API. Explicit display identity validation,
-cross-display placement and global task queries still require the privileged
-service. No fallback discards a requested destination or elevates a failed launch.
+Termux-only operation does not need the privileged display catalog. The panel
+and Start can select any display exposed to the app. Interactive launches without
+shell use ordinary Activity options, including for terminal and X11 windows;
+Android can reject destinations such as untrusted outputs. Reopening a live own
+terminal or X11 task on its current display uses Android's own-task API.
+App-only display addresses are connection-scoped and expire on disconnect or
+process restart; public APIs do not expose stable physical identities or transport
+types. Unknown metadata and unavailable persistent profiles stay explicit.
+Global task queries, moving an existing task, creating our trusted displays,
+Viewer capture/input and background automation launches still require the
+privileged service. No fallback discards a requested destination or elevates a
+failed launch. Privileged placement alongside Desktop retains its ownership checks.
 
 ## Release-Specific Behavior
 
@@ -109,6 +116,12 @@ Lint against the actual API 34 minimum. `RuntimeLayerSdkTest` verifies early
 Desktop rejection and independent service retention; file-drag, control-panel
 and automation-readiness tests exercise the API 34/35 boundary. These fixtures
 do not emulate an Android 14 device or its class loader.
+
+App-only display discovery and interactive Termux/X11 launches were checked on
+RM11 / API 36 with a system overlay display: new windows and same-display reuse
+worked with privileged startup disabled, no Desktop, no HOME lease and no input
+routing acquisition. Display removal/recreation invalidated the connection address;
+background MCP placement remained unavailable. This is not API 34 device coverage.
 
 `scripts/audit-android-api.py` can inspect an explicitly requested SDK through
 an isolated copy of Lint's Gradle model and merged manifest. Source sets,

@@ -16,25 +16,40 @@ final class InteractiveActivityLaunch {
 
     static boolean canLaunchLocally(Context context, int displayId) {
         return context instanceof Activity activity && !activity.isFinishing() && !activity.isDestroyed()
-                && displayId == 0 && activity.getDisplay() != null
-                && activity.getDisplay().getDisplayId() == displayId
-                && !DesktopRuntimeBridge.hasWorkspaces();
+                && displayId >= 0 && activity.getDisplay() != null
+                && !DesktopRuntimeBridge.hasWorkspaces()
+                && (!ShellAccess.isReady() || displayId == 0 && activity.getDisplay().getDisplayId() == 0);
     }
 
     static void requireDestination(Context context, int displayId, String uniqueId) throws IOException {
-        // An unpinned local Activity launch needs no privileged display catalog.
-        if (uniqueId == null && canLaunchLocally(context, displayId)) return;
+        // Preserve the phone-only path even if the display catalog is unavailable.
+        if (uniqueId == null && displayId == 0 && context instanceof Activity activity
+                && activity.getDisplay() != null && activity.getDisplay().getDisplayId() == 0
+                && canLaunchLocally(context, displayId)) return;
         DesktopDisplayCatalog.require(displayId, uniqueId);
     }
 
     static void launch(Context context, Intent intent,
             AndroidLaunchSpec.Delivery delivery, int displayId) throws IOException {
         if (canLaunchLocally(context, displayId)) {
+            requirePublicLaunch(context, intent, displayId);
             final ActivityOptions options = ActivityOptions.makeBasic();
             options.setLaunchDisplayId(displayId);
             context.startActivity(intent, options.toBundle());
         } else {
             OrdinaryActivityLaunch.launch(context, intent, delivery, displayId);
+        }
+    }
+
+    private static void requirePublicLaunch(Context context, Intent intent, int displayId) throws IOException {
+        if (displayId != 0) DesktopDisplayCatalog.require(displayId, null);
+        if (displayId != 0 && !context.getPackageManager().hasSystemFeature(
+                android.content.pm.PackageManager.FEATURE_ACTIVITIES_ON_SECONDARY_DISPLAYS)) {
+            throw new IOException("Android does not support Activity launches on secondary displays");
+        }
+        final ActivityManager manager = context.getSystemService(ActivityManager.class);
+        if (manager == null || !manager.isActivityStartAllowedOnDisplay(context, displayId, intent)) {
+            throw new IOException("Android does not allow this application on display " + displayId);
         }
     }
 

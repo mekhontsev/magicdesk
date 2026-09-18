@@ -324,6 +324,11 @@ public final class ControlActivity extends Activity
                 mReturnToPanelAfterWirelessConnection = false;
                 PhoneControlPanelLauncher.open(this);
             }
+            if (!ShellAccess.isReady()) {
+                mTasks = new TaskRepository.Snapshot(java.util.List.of(), false, getString(R.string.capability_access_required));
+                refresh();
+                return;
+            }
             TaskCommandQueue.execute(() -> {
                 final TaskRepository.Snapshot tasks = TaskRepository.loadAllNow();
                 runOnUiThread(() -> {

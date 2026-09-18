@@ -15,6 +15,7 @@ public final class RuntimeCapabilitiesTest {
                         final boolean privileged = access != RuntimeLimits.Access.APP_ONLY;
                         assertEquals("", caps.missing(RuntimeCapabilities.Service.AUTOMATION));
                         assertEquals("", caps.missing(RuntimeCapabilities.Service.BUILTIN_UI));
+                        assertEquals("", caps.missing(RuntimeCapabilities.Service.DISPLAYS));
                         assertEquals(privileged ? "" : "privileged_disabled", caps.missing(RuntimeCapabilities.Service.SHELL));
                         assertEquals(privileged ? "" : "privileged_disabled", caps.missing(RuntimeCapabilities.Service.VIRTUAL_DISPLAY));
                         assertEquals(termux ? "" : "termux_disabled", caps.missing(RuntimeCapabilities.Service.TERMUX));
@@ -53,6 +54,7 @@ public final class RuntimeCapabilitiesTest {
         assertEquals("", caps.missing(RuntimeCapabilities.Service.TERMUX));
         assertEquals("", caps.missing(RuntimeCapabilities.Service.BUILTIN_UI));
         assertEquals("", caps.missing(RuntimeCapabilities.Service.AUTOMATION));
+        assertEquals("", caps.missing(RuntimeCapabilities.Service.DISPLAYS));
         assertEquals("privileged_service", caps.missing(RuntimeCapabilities.Service.SHELL));
     }
 

@@ -24,11 +24,12 @@ behavior, static verification and remaining device coverage.
 - `ToolApplications` and `ToolLaunchTarget` select ordinary fullscreen Activity
   placement or the existing managed Desktop launch path. Phone control-panel
   tools do not acquire HOME or require Desktop provisioning. Background launches
-  and cross-display launches use the shell service; ordinary phone Activity
-  launches use public Activity options and their own identity.
-  `InteractiveActivityLaunch` owns that UI choice: an unpinned launch from a
-  live phone Activity with no Desktop workspaces uses ordinary Android APIs.
-  Pinned, external and background destinations retain privileged validation;
+  and privileged cross-display placement use the shell service; ordinary phone
+  launches and interactive app-only external launches use public Activity options.
+  `InteractiveActivityLaunch` owns that UI choice. Without shell, a live Activity
+  can request any accessible display, subject to Android's Intent-specific
+  launch check and secondary-Activity feature. Pinned destinations retain identity
+  validation through the shared catalog, including the app-only inventory;
   launches alongside an active Desktop retain its ownership handoff. A rejected
   local launch never retries under a more privileged identity. Terminals and X11
   share the same own-task reactivation through `ActivityManager.getAppTasks()`;
@@ -78,9 +79,10 @@ as the session controls below, with equal-width columns and stable action slots.
 Rows retain their View identity for each live display ID/unique-ID pair, and the
 toolbar is created once. Status refreshes update existing controls without
 detaching them, preserving in-progress touch and accessibility interactions.
-The entire display section requires a ready privileged service. Apps appears
-in its toolbar with the selected display, or as a single local-launch action
-while the display section is unavailable. Fullscreen Start starts only the tools
+The display section remains available without shell. Its Apps action uses the
+selected display while Desktop, system input, Viewer, resource creation and
+global task controls retain their own privilege requirements. A single local Apps
+action remains available if inventory is unavailable. Fullscreen Start starts only the tools
 runtime, never Desktop; without shell it offers saved Recent entries instead of
 querying Android's task catalog. Desktop readiness combines API 35+, privileged
 access and the read-only `DesktopSetupStatus` observation of device setup and
@@ -2069,6 +2071,16 @@ through `app_process` with the main APK on the class path. `hidden-api-stubs`
 exists only for compilation; it is not packaged in the APK.
 
 ## Display And Session Model
+
+`DesktopDisplayCatalog` chooses the privileged inventory when connected and
+`ApplicationDisplayCatalog` otherwise, without starting a privilege transport.
+The latter uses public DisplayManager APIs only. It retains connection-scoped
+addresses invalidated by display removal and process exit; they are not persisted
+as monitor profiles. Public inventory does not infer transport type, trust,
+resource ownership or Desktop support. MCP reports the identity scope and uses
+null for unavailable profile/built-in metadata. Start does not hide a usable
+destination merely because its connection type is unknown. Rejected privileged
+catalog reads do not silently fall back to a less complete inventory.
 
 `DisplayNames` resolves presentation labels from Android's public
 `DeviceProductInfo`, falling back to `Display.getName()` when the product name

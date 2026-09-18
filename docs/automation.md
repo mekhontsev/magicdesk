@@ -470,6 +470,16 @@ MagicDesk starts on it.
 devices when available. `systemName` retains the unmodified Android display
 name. Product labels do not affect display identity or saved profile keys.
 
+Without privileged access, `list_displays` still supplies the public inventory
+and exact selection addresses. `identityScope=connection` means the `uniqueId`
+expires on disconnect or MagicDesk process restart, rather than identifying a
+physical monitor. Transport can be `unknown`; `builtIn`, `profileKey`,
+`originProfileKey` and `profile` are null when unavailable. Privileged inventory
+uses `identityScope=system`. UI-driven ordinary launches can use public Activity
+options without shell; background MCP launches still require the privileged
+launcher. Discovery does not authorize input injection, capture, trusted display
+creation or task transfer.
+
 `profileKey` identifies each display's own settings; `originProfileKey` identifies
 the transitive creation origin and does not follow Viewer attachment. `profile`
 contains explicit saved `densityDpi` and virtual creation `width`/`height`, with

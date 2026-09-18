@@ -7,6 +7,7 @@ final class DesktopDisplayCatalog {
     private DesktopDisplayCatalog() { }
 
     static DesktopDisplayInfo[] read() throws IOException {
+        if (!ShellAccess.isReady()) return ApplicationDisplayCatalog.read();
         final DesktopDisplayInfo[] displays = ShellAccess.listDesktopDisplays();
         for (int i = 0; i < displays.length; i++) {
             final DesktopDisplayInfo d = displays[i];
@@ -43,11 +44,15 @@ final class DesktopDisplayCatalog {
     }
 
     static org.json.JSONObject json(final DesktopDisplayInfo display) throws org.json.JSONException {
-        final String profileKey = DisplayProfiles.key(display);
-        final DisplayProfileStore.Profile profile = DisplayProfileStore.load(profileKey, display.densityDpi);
+        final boolean connectionIdentity = display.uniqueId.startsWith("app-display:");
+        final String profileKey = connectionIdentity ? null : DisplayProfiles.key(display);
+        final DisplayProfileStore.Profile profile = profileKey == null || !ShellAccess.isReady() ? null
+                : DisplayProfileStore.load(profileKey, display.densityDpi);
         return new org.json.JSONObject().put("id", display.id).put("uniqueId", display.uniqueId)
-                .put("profileKey", profileKey).put("originProfileKey", DisplayProfiles.origin(profile))
-                .put("profile", new org.json.JSONObject().put("densityDpi", profile.dpiExplicit ? profile.dpi : org.json.JSONObject.NULL)
+                .put("identityScope", connectionIdentity ? "connection" : "system")
+                .put("profileKey", profileKey == null ? org.json.JSONObject.NULL : profileKey)
+                .put("originProfileKey", profile == null ? org.json.JSONObject.NULL : DisplayProfiles.origin(profile))
+                .put("profile", profile == null ? org.json.JSONObject.NULL : new org.json.JSONObject().put("densityDpi", profile.dpiExplicit ? profile.dpi : org.json.JSONObject.NULL)
                         .put("width", profile.width > 0 ? profile.width : org.json.JSONObject.NULL)
                         .put("height", profile.height > 0 ? profile.height : org.json.JSONObject.NULL))
                 .put("name", display.name).put("systemName", display.systemName).put("source", display.source)
@@ -56,7 +61,8 @@ final class DesktopDisplayCatalog {
                 .put("requiresPortableDesktop", display.requiresPortableDesktop)
                 .put("owned", display.owned).put("canRemove", display.canRemove())
                 .put("secure", display.secure).put("protectedContent", display.protectedContent())
-                .put("defaultDisplay", display.isDefaultDisplay()).put("builtIn", display.isBuiltIn())
+                .put("defaultDisplay", display.isDefaultDisplay())
+                .put("builtIn", "unknown".equals(display.source) ? org.json.JSONObject.NULL : display.isBuiltIn())
                 .put("scrcpyCommand", scrcpyCommand(display));
     }
 

@@ -357,8 +357,9 @@ Phone Control Panel keeps Settings in its header, followed by status, integratio
 summaries, the display table and its selected-display actions. Shared Wireless,
 Create display and input/power controls follow; Exit requires confirmation.
 **Apps** in the selected-display actions opens the common launcher for independent
-tools too. The display section is hidden without shell access; unavailable actions
-otherwise retain their slots and are disabled.
+tools too. The display section uses public inventory without shell access;
+interactive launches use Android's app-specific display permission checks.
+Privileged actions retain their slots and are disabled until access is ready.
 Status occupies one full-width row. The underlined **Access** and **Termux**
 controls share the next row and open short setup/status dialogs. Access reports
 the connected service identity; Termux shows Not installed, Setup required or

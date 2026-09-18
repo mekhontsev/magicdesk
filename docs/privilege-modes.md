@@ -22,6 +22,13 @@ service. Files and shell-backed operations require it. Termux's terminal transpo
 separate authorization. Creating a virtual display requires shell access, not
 HOME or WMShell Desktop.
 
+Display enumeration and interactive Activity launches on Android-accessible
+secondary displays also work with App-only access. They use the caller's app UID
+and ordinary display-launch checks, not an automatically elevated retry. Stable
+monitor profiles, trusted virtual resources, global task placement and system
+input routing remain privileged operations. Linux input delivered inside our X11
+host is distinct from Android-wide input injection.
+
 ## Shell Service
 
 **Settings > Integrations > Privileged service** selects Shizuku (the default)

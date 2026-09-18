@@ -91,8 +91,7 @@ final class DisplayTableView {
         mShellReady = shellReady;
         mBusy = busy;
         mOutputAvailable = outputAvailable;
-        mRoot.setVisibility(shellReady ? View.VISIBLE : View.GONE);
-        if (!shellReady) { return; }
+        mRoot.setVisibility(displays.length > 0 ? View.VISIBLE : View.GONE);
         final DesktopDisplayInfo[] next = orderedDisplays(displays);
         final DesktopDisplayInfo added = newlyAvailableDisplay(mDisplays, next);
         mDisplays = next;
@@ -117,7 +116,7 @@ final class DisplayTableView {
     }
 
     private void selectDisplay(int checkedId) {
-        if (mRendering || !mShellReady) { return; }
+        if (mRendering) { return; }
         final View row = mRows.findViewById(checkedId);
         if (row == null) { return; }
         mSelectedDisplay = (DesktopDisplayInfo) row.getTag();
@@ -177,10 +176,12 @@ final class DisplayTableView {
             label.append('\n').append(mActivity.getString(R.string.display_presented_on,
                     source.output.name, source.output.id));
         }
-        final var independent = ApplicationTaskPlacement.independentSnapshot(tasks, display.id, active);
-        label.append('\n').append(independent.available
-                ? mActivity.getString(R.string.display_independent_count, independent.tasks.size())
-                : mActivity.getString(R.string.display_tasks_unknown));
+        if (mShellReady) {
+            final var independent = ApplicationTaskPlacement.independentSnapshot(tasks, display.id, active);
+            label.append('\n').append(independent.available
+                    ? mActivity.getString(R.string.display_independent_count, independent.tasks.size())
+                    : mActivity.getString(R.string.display_tasks_unknown));
+        }
         if (MagicDeskRuntime.inputDisplayId() == display.id) {
             label.append("  |  ").append(mActivity.getString(R.string.display_input_active));
         }
@@ -200,7 +201,7 @@ final class DisplayTableView {
                 () -> mActions.startDesktop(display));
         updateButton(mClose, R.drawable.ic_close, R.string.action_close_desktop,
                 enabled && active, () -> mActions.closeDesktop(display));
-        updateButton(mApps, R.drawable.ic_sections, R.string.section_apps, enabled,
+        updateButton(mApps, R.drawable.ic_sections, R.string.section_apps, display != null && !busy,
                 () -> mActions.openApplications(display));
         updateButton(mIndependent, R.drawable.ic_history, R.string.display_independent_apps, enabled,
                 () -> mActions.openIndependentApplications(display));

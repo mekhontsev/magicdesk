@@ -17,8 +17,8 @@ The APK requires **Android 14+**. Managed **Desktop requires Android 15+**.
 For privileged features, use [Shizuku](https://github.com/RikkaApps/Shizuku) on an unrooted device, or
 **direct root without Shizuku** on a rooted one. Both start the same privileged
 service. Root is optional, and root users can limit that service to Android's
-shell UID 2000. **Termux terminals and X11 applications also work as ordinary
-phone windows without Shizuku, root or a Desktop session.**
+shell UID 2000. **Termux terminals and X11 applications also work without Shizuku,
+root or a Desktop session**, on the phone or an Android-allowed secondary display.
 
 [Latest release](https://github.com/mekhontsev/magicdesk/releases/latest) |
 [Development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk) |
@@ -493,6 +493,7 @@ and the [API-level contract](docs/runtime-api-levels.md).
 | Use | Requirements beyond installing the APK |
 | --- | --- |
 | Control panel, Settings, MCP observation | Ordinary app access; explicitly enable MCP for clients |
+| Display inventory and interactive app launches | Ordinary app access; Android must allow the selected app on that display |
 | Files, Android shell, privileged capture and device actions | An authorized privileged service and the operation's actual capabilities |
 | Termux terminals | Termux, external commands enabled, MagicDesk's `RUN_COMMAND` permission |
 | Linux graphical applications and desktops | The same Termux integration, `xkeyboard-config`, and installed X11 applications or a configured Linux environment; no standalone Termux:X11 APK |
@@ -501,7 +502,7 @@ and the [API-level contract](docs/runtime-api-levels.md).
 | Wired/wireless output | Hardware and firmware that expose a usable Android secondary display |
 
 The integrations are independent: **Termux only** provides terminals, tmux and
-X11 on the phone; **shell/root only** provides Files, Android-shell terminals,
+X11 on the phone or an Android-allowed secondary display; **shell/root only** provides Files, Android-shell terminals,
 device automation and display control. Enable both to combine them. Managed
 Desktop adds window management on Android 15+; it is not a prerequisite for
 the independent tools. Android 14 device coverage remains pending.
@@ -522,9 +523,10 @@ selected display, without requiring Desktop. Every Start offers **Current** or
 an explicit display, an app-default, Desktop window, Desktop fullscreen or
 independent launch, and an optional new-window request. Independent applications
 stay outside Desktop's taskbar and Alt+Tab; the control panel lists them per display.
-Without privileged access, **Apps** remains available for local launches and
-saved **Recent** entries. The display table, cross-display placement and live
-Android task management require shell/root access.
+Without privileged access, the display table and **Apps** remain available for
+interactive launches and saved **Recent** entries. Android decides which apps
+may open on each display. Moving existing tasks between displays, live Android
+task management and background MCP placement still require shell/root access.
 **Control input**
 selects where phone-attached mice and keyboards operate independently.
 

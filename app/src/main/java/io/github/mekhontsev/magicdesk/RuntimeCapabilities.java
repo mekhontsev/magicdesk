@@ -7,7 +7,7 @@ import org.json.JSONObject;
 final class RuntimeCapabilities {
     static final int DESKTOP_MIN_SDK = 35;
 
-    enum Service { AUTOMATION, BUILTIN_UI, SHELL, TERMUX, TERMINAL, X11, VIRTUAL_DISPLAY, DESKTOP }
+    enum Service { AUTOMATION, BUILTIN_UI, DISPLAYS, SHELL, TERMUX, TERMINAL, X11, VIRTUAL_DISPLAY, DESKTOP }
 
     static boolean supportsDesktop(final int sdk) {
         return sdk >= DESKTOP_MIN_SDK;
@@ -51,7 +51,7 @@ final class RuntimeCapabilities {
 
     String missing(final Service service) {
         return switch (service) {
-            case AUTOMATION, BUILTIN_UI -> "";
+            case AUTOMATION, BUILTIN_UI, DISPLAYS -> "";
             case SHELL, VIRTUAL_DISPLAY -> !mLimits.privilegedAllowed() ? "privileged_disabled" : mShell ? "" : "privileged_service";
             case TERMUX, X11 -> !mLimits.termux() ? "termux_disabled" : !mTermuxInstalled ? "termux" : !mTermuxAuthorized ? "termux_run_command" : "";
             case TERMINAL -> mLimits.privilegedAllowed() && mShell

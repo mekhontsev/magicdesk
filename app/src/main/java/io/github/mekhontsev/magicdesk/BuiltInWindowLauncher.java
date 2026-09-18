@@ -71,12 +71,13 @@ final class BuiltInWindowLauncher {
                         intent.addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
                     }
                     if (InteractiveActivityLaunch.canLaunchLocally(context, displayId)) {
-                        // Ordinary phone tasks inherit Android's normal fullscreen
-                        // workspace. Forced placement on another display is shell-owned.
+                        // Android checks the actual Intent and display under the app UID.
+                        // A rejected public launch never retries with shell authority.
                         new Handler(Looper.getMainLooper()).post(() -> {
                             final Activity activity = (Activity) context;
                             if (activity.isFinishing() || activity.isDestroyed()) { return; }
                             try {
+                                InteractiveActivityLaunch.requireDestination(context, displayId, uniqueId);
                                 InteractiveActivityLaunch.launch(context, intent,
                                         AndroidLaunchSpec.Delivery.SHELL_INTENT, displayId);
                                 launched.onComplete(null);

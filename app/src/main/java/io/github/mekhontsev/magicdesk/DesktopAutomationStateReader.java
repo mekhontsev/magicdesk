@@ -195,9 +195,9 @@ final class DesktopAutomationStateReader {
         Boolean protectedPermission = null;
         String protectedPermissionError = null;
         DesktopDisplayInfo[] catalog = new DesktopDisplayInfo[0];
+        try { catalog = DesktopDisplayCatalog.read(); }
+        catch (java.io.IOException | RuntimeException error) { catalogError = error.getMessage(); }
         if (ShellAccess.isReady()) {
-            try { catalog = DesktopDisplayCatalog.read(); }
-            catch (java.io.IOException error) { catalogError = error.getMessage(); }
             try { protectedPermission = ShellAccess.canCreateProtectedDisplay(); }
             catch (java.io.IOException error) { protectedPermissionError = error.getMessage(); }
         }

@@ -6,14 +6,25 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public final class OrdinaryActivityLaunchTest {
-    @Test public void interactivePhoneLaunchAndOwnTaskReuseNeedNoPrivilegedService() throws Exception {
+    @Test public void interactiveDisplayLaunchAndOwnTaskReuseNeedNoPrivilegedService() throws Exception {
         RuntimeSourceFixture.verify("""
                 static class Intent {}
                 static class Context {
                     ActivityManager manager = new ActivityManager();
                     <T> T getSystemService(Class<T> type) { return type.cast(manager); }
                     int starts;
-                    void startActivity(Intent intent, Object options) { starts++; }
+                    int destination; boolean denied;
+                    PackageManager packages = new PackageManager();
+                    PackageManager getPackageManager() { return packages; }
+                    void startActivity(Intent intent, Object options) {
+                        if (denied) throw new SecurityException("launch denied");
+                        starts++; destination = ((ActivityOptions) options).display;
+                    }
+                }
+                static class PackageManager {
+                    static final String FEATURE_ACTIVITIES_ON_SECONDARY_DISPLAYS = "secondary";
+                    boolean secondary = true;
+                    boolean hasSystemFeature(String feature) { return secondary; }
                 }
                 static class Activity extends Context {
                     boolean finishing, destroyed; Display display = new Display();
@@ -23,11 +34,14 @@ public final class OrdinaryActivityLaunchTest {
                 }
                 static class Display { int id; int getDisplayId() { return id; } }
                 static class ActivityOptions {
+                    int display;
                     static ActivityOptions makeBasic() { return new ActivityOptions(); }
-                    void setLaunchDisplayId(int display) { check(display == 0, "nonlocal display"); }
+                    void setLaunchDisplayId(int display) { this.display = display; }
                     Object toBundle() { return this; }
                 }
                 static class ActivityManager {
+                    static boolean allowed = true;
+                    boolean isActivityStartAllowedOnDisplay(Context c, int d, Intent i) { return allowed; }
                     List<AppTask> tasks = new ArrayList<>();
                     List<AppTask> getAppTasks() { return tasks; }
                     static class RecentTaskInfo { int taskId = 42, displayId; }
@@ -47,9 +61,12 @@ public final class OrdinaryActivityLaunchTest {
                 static class DesktopDisplayCatalog {
                     static int queries;
                     static void require(int display, String unique) throws IOException {
-                        queries++; throw new IOException("shell unavailable");
+                        queries++;
+                        if (display != 0 && display != 3 || unique != null && !unique.equals("display:" + display))
+                            throw new IOException("stale display");
                     }
                 }
+                static class ShellAccess { static boolean ready; static boolean isReady() { return ready; } }
                 static class AndroidLaunchSpec { enum Delivery { SHELL_INTENT, APP_PENDING_INTENT } }
                 static int privilegedLaunches;
                 static class OrdinaryActivityLaunch {
@@ -59,7 +76,8 @@ public final class OrdinaryActivityLaunchTest {
                 }
                 """ + RuntimeSourceFixture.nestedClass("InteractiveActivityLaunch", "OwnTaskResult")
                 + RuntimeSourceFixture.methods("InteractiveActivityLaunch", "canLaunchLocally",
-                        "requireDestination", "launch", "showOwnTask") + """
+                        "requireDestination", "requirePublicLaunch", "launch", "showOwnTask")
+                        .replace("android.content.pm.PackageManager", "PackageManager") + """
                 public static void verify() throws Exception {
                     Activity activity = new Activity(); Intent intent = new Intent();
                     requireDestination(activity, 0, null);
@@ -74,6 +92,8 @@ public final class OrdinaryActivityLaunchTest {
                         check(showOwnTask(activity, 42, 0) == OwnTaskResult.NEEDS_PLACEMENT && task.moves == 1,
                                 "unknown or external task raised on wrong display");
                     }
+                    requireDestination(activity, 0, "display:0");
+                    requireDestination(activity, 3, "display:3");
                     for (String unique : new String[] {"phone", "stale"}) {
                         try { requireDestination(activity, 0, unique); throw new AssertionError("pin ignored"); }
                         catch (IOException expected) { }
@@ -81,7 +101,25 @@ public final class OrdinaryActivityLaunchTest {
                     check(!canLaunchLocally(new Context(), 0), "background got foreground privilege");
                     activity.finishing = true; check(!canLaunchLocally(activity, 0), "dead host allowed");
                     activity.finishing = false; activity.display.id = 3;
-                    check(!canLaunchLocally(activity, 0) && !canLaunchLocally(activity, 3), "external bypass");
+                    check(canLaunchLocally(activity, 0) && canLaunchLocally(activity, 3), "external host blocked");
+                    BuiltInWindowRegistry.display = 3;
+                    check(showOwnTask(activity, 42, 3) == OwnTaskResult.SHOWN && task.moves == 2,
+                            "own external window required global task access");
+                    launch(activity, intent, AndroidLaunchSpec.Delivery.SHELL_INTENT, 3);
+                    check(activity.destination == 3 && activity.starts == 3 && privilegedLaunches == 0,
+                            "external launch lost target or escalated");
+                    activity.packages.secondary = false;
+                    try { launch(activity, intent, AndroidLaunchSpec.Delivery.SHELL_INTENT, 3);
+                        throw new AssertionError("unsupported display launch ignored"); } catch (IOException expected) { }
+                    activity.packages.secondary = true; ActivityManager.allowed = false;
+                    try { launch(activity, intent, AndroidLaunchSpec.Delivery.SHELL_INTENT, 3);
+                        throw new AssertionError("Android denial ignored"); } catch (IOException expected) { }
+                    ActivityManager.allowed = true; activity.denied = true;
+                    try { launch(activity, intent, AndroidLaunchSpec.Delivery.SHELL_INTENT, 3);
+                        throw new AssertionError("late denial ignored"); } catch (SecurityException expected) { }
+                    check(privilegedLaunches == 0 && activity.starts == 3, "denied launch retried");
+                    activity.denied = false; ShellAccess.ready = true;
+                    check(!canLaunchLocally(activity, 3), "privileged external placement changed");
                     activity.display.id = 0; DesktopRuntimeBridge.active = true;
                     check(!canLaunchLocally(activity, 0), "desktop topology bypass");
                     launch(activity, intent, AndroidLaunchSpec.Delivery.SHELL_INTENT, 0);

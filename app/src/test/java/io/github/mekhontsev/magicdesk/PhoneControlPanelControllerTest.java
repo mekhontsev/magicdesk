@@ -62,7 +62,7 @@ public final class PhoneControlPanelControllerTest {
     }
 
     @Test
-    public void appsHasOneEntryPointWithOrWithoutThePrivilegedDisplayToolbar() throws Exception {
+    public void appsHasOneEntryPointWithOrWithoutDisplayInventory() throws Exception {
         final String status = RuntimeSourceFixture.methods("PhoneControlPanelController", "addStatus");
         assertTrue(status.contains("parent.addView(mStatus, fullWidthWrapParams(0))"));
         assertTrue(status.contains("integrations.setOrientation(LinearLayout.HORIZONTAL)"));
@@ -73,15 +73,15 @@ public final class PhoneControlPanelControllerTest {
         final String actions = RuntimeSourceFixture.methods("PhoneControlPanelController", "addDesktopActions");
         assertTrue(actions.contains("mActions.openApplications(null)"));
         final String render = RuntimeSourceFixture.methods("PhoneControlPanelController", "render");
-        assertTrue(render.contains("mLocalApps.setVisibility(state.shellReady ? View.GONE : View.VISIBLE)"));
+        assertTrue(render.contains("mLocalApps.setVisibility(state.displays.length > 0 ? View.GONE : View.VISIBLE)"));
         final String commands = RuntimeSourceFixture.methods("DisplayTableView", "renderCommands");
         assertTrue(commands.contains("final boolean enabled = display != null && shellReady && !busy;"));
-        assertTrue(commands.contains("R.drawable.ic_sections, R.string.section_apps, enabled,"));
+        assertTrue(commands.contains("R.drawable.ic_sections, R.string.section_apps, display != null && !busy,"));
         assertTrue(commands.contains("mActions.openApplications(display)"));
     }
 
     @Test
-    public void displaySectionRequiresShellButAccessAndSettingsRemainOutsideIt() throws Exception {
+    public void displayDiscoveryDoesNotRequireShellButPrivilegedActionsStillDo() throws Exception {
         final String source = java.nio.file.Files.readString(java.nio.file.Path.of(
                 "src/main/java/io/github/mekhontsev/magicdesk/DisplayTableView.java"));
         assertTrue(source.contains("mRoot.setVisibility(View.GONE)"));
@@ -89,8 +89,13 @@ public final class PhoneControlPanelControllerTest {
         assertTrue(source.contains("mRoot.addView(mRows,"));
         assertTrue(source.contains("mRoot.addView(mCommands,"));
         final String render = RuntimeSourceFixture.methods("DisplayTableView", "render");
-        assertTrue(render.contains("mRoot.setVisibility(shellReady ? View.VISIBLE : View.GONE)"));
-        assertTrue(render.indexOf("if (!shellReady) { return; }") < render.indexOf("orderedDisplays(displays)"));
+        assertTrue(render.contains("mRoot.setVisibility(displays.length > 0 ? View.VISIBLE : View.GONE)"));
+        assertFalse(render.contains("if (!shellReady) { return; }"));
+        final String commands = RuntimeSourceFixture.methods("DisplayTableView", "renderCommands");
+        assertTrue(commands.contains("final boolean enabled = display != null && shellReady && !busy;"));
+        assertTrue(commands.contains("R.string.display_independent_apps, enabled,"));
+        assertTrue(commands.contains("R.string.display_control, enabled && !input,"));
+        assertTrue(commands.contains("enabled && display.canRemove()"));
         assertTrue(RuntimeSourceFixture.methods("PhoneControlPanelController", "createHeader")
                 .contains("mActions.openSettings()"));
         assertTrue(RuntimeSourceFixture.methods("PhoneControlPanelController", "addStatus")
@@ -418,7 +423,8 @@ public final class PhoneControlPanelControllerTest {
         assertFalse(commands.contains("mActions.removeDisplay(mSelectedDisplay)"));
         assertFalse(commands.contains("scrcpy"));
         final String select = RuntimeSourceFixture.methods("DisplayTableView", "selectDisplay");
-        assertTrue(select.contains("if (mRendering || !mShellReady)"));
+        assertTrue(select.contains("if (mRendering)"));
+        assertFalse(select.contains("!mShellReady"));
         assertTrue(select.contains("renderCommands(mSelectedDisplay, mDesktops, mShellReady, mBusy, mOutputAvailable)"));
         assertFalse(select.contains("mActions."));
     }
@@ -552,7 +558,11 @@ public final class PhoneControlPanelControllerTest {
                     check(f.mRows.getChildCount() == 0 && f.mRows.checkedId == View.NO_ID
                             && f.mSelectedDisplay == null && f.commandDisplay == null, "empty catalog kept selection");
                     f.render(new DesktopDisplayInfo[]{phone}, Set.of(), false, false, false, null);
-                    check(f.mRoot.visibility == View.GONE && f.mRows.getChildCount() == 0, "no-shell table rendered");
+                    check(f.mRoot.visibility == View.VISIBLE && f.mRows.getChildCount() == 1,
+                            "public display inventory hidden without shell");
+                    f.render(new DesktopDisplayInfo[]{phone, replacement}, Set.of(), false, false, false, null);
+                    f.mRows.check(f.mRows.getChildAt(1).id);
+                    check(f.mSelectedDisplay == phone && f.commandDisplay == phone, "app-only row cannot be selected");
                 }
                 """ + RuntimeSourceFixture.methods("DisplayTableView", "render", "reconcileRows", "selectDisplay",
                         "sameDisplay", "orderedDisplays", "newlyAvailableDisplay", "selectedDisplay"));
