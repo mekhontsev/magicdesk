@@ -194,8 +194,10 @@ public final class X11DataExchange implements AutoCloseable {
     static List<String> validateTypes(List<String> values) {
         if (values == null || values.size() > 64) throw new IllegalArgumentException("Too many X11 formats");
         for (String value : values) {
+            // X target names can contain quoted MIME parameters with spaces.
+            // Reject framing/control bytes, not printable characters inside an opaque atom name.
             if (value == null || value.isEmpty() || value.length() >= 128 ||
-                    !value.chars().allMatch(c -> c > 32 && c < 127)) throw new IllegalArgumentException("Invalid X11 format");
+                    !value.chars().allMatch(c -> c >= 32 && c < 127)) throw new IllegalArgumentException("Invalid X11 format");
         }
         return values.stream().distinct().toList();
     }

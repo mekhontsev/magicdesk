@@ -10,6 +10,57 @@ public final class HostedContentBoundaryTest {
         return Files.readString(Path.of(RuntimeSourceFixture.MAIN + name + ".java"));
     }
 
+    @Test public void repeatedDropCoordinatesDoNotRestartNegotiation() throws Exception {
+        RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk",
+                RuntimeSourceFixture.methods("HostedContentExchange", "enter", "point") + """
+            static class android {
+                static class graphics {
+                    static class PointF {
+                        final float x, y;
+                        PointF(float x, float y) { this.x=x; this.y=y; }
+                    }
+                }
+            }
+            record DragEvent(float x, float y) {
+                float getX() { return x; }
+                float getY() { return y; }
+            }
+            static class Target {
+                int entries, moves;
+                float x, y;
+                void enter() { entries++; }
+                void move(float x, float y) { moves++; this.x=x; this.y=y; }
+            }
+            static class Incoming {
+                final Target target = new Target();
+                boolean entered;
+                float lastX = Float.NaN, lastY = Float.NaN;
+            }
+            static class Surface {
+                android.graphics.PointF contentPoint(float x, float y) {
+                    return new android.graphics.PointF(x / 100, y / 100);
+                }
+            }
+            final Surface surface = new Surface();
+            final Incoming incoming = new Incoming();
+            public static void verify() {
+                var fixture = new Fixture();
+                var value = fixture.incoming;
+                fixture.enter(value);
+                fixture.point(new DragEvent(20, 30));
+                fixture.point(new DragEvent(20, 30));
+                check(value.target.moves == 1, "identical drop must reuse negotiated position");
+                fixture.point(new DragEvent(25, 30));
+                check(value.target.moves == 2 && value.target.x == .25f,
+                        "changed release position must still be delivered");
+                fixture.enter(value);
+                fixture.point(new DragEvent(25, 30));
+                check(value.target.moves == 3 && value.target.entries == 2,
+                        "reentry must negotiate even at the same position");
+            }
+            """);
+    }
+
     @Test public void androidHostsDoNotDependOnX11() throws Exception {
         for (String name : new String[]{"HostedViewport", "HostedSurfaceView", "HostedSurfaceOutput", "HostedContentExchange", "HostedContentBackend"}) {
             String source = source(name);

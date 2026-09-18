@@ -68,6 +68,7 @@ final class HostedContentExchange implements AutoCloseable, View.OnDragListener,
         DragAndDropPermissions permissions;
         final HostedContentBackend.Drop target;
         boolean entered, dropped, finished;
+        float lastX = Float.NaN, lastY = Float.NaN;
         Incoming(DragEvent event) {
             var extras = event.getClipDescription() == null ? null : event.getClipDescription().getExtras();
             local = activeDrag != null && extras != null && activeDrag.id.equals(extras.getString(DRAG_ID))
@@ -245,10 +246,15 @@ final class HostedContentExchange implements AutoCloseable, View.OnDragListener,
     private void enter(Incoming value) {
         value.target.enter();
         value.entered = true;
+        value.lastX = value.lastY = Float.NaN;
     }
 
     private void point(DragEvent event) {
         android.graphics.PointF point = surface.contentPoint(event.getX(), event.getY());
+        // DROP commonly repeats the last LOCATION; do not renegotiate it.
+        if (incoming.lastX == point.x && incoming.lastY == point.y) return;
+        incoming.lastX = point.x;
+        incoming.lastY = point.y;
         incoming.target.move(point.x, point.y);
     }
 
