@@ -12,6 +12,37 @@ public final class AutomationAwakeLeaseTest {
                     JSONObject put(String k, Object v) { values.put(k,v); return this; }
                     boolean has(String k) { return values.containsKey(k); }
                     String optString(String k) { return (String) values.get(k); }
+                    JSONObject() { }
+                    JSONObject(String state) { put("held", Boolean.valueOf(state)); }
+                    boolean getBoolean(String k) { return (Boolean) values.get(k); }
+                }
+                static class android {
+                    static class os {
+                        interface IBinder { }
+                        static class Binder implements IBinder { }
+                        static class RemoteException extends Exception { }
+                    }
+                    static class util { static class Log { static void w(String t, String m, Throwable e) { } } }
+                }
+                interface IBackgroundWorkLease {
+                    void renew(long duration) throws android.os.RemoteException;
+                    String state() throws android.os.RemoteException;
+                    void close() throws android.os.RemoteException;
+                }
+                static class Work implements IBackgroundWorkLease {
+                    boolean held = true;
+                    long duration;
+                    public void renew(long ms) { duration = ms; }
+                    public String state() { return Boolean.toString(held); }
+                    public void close() { held = false; }
+                }
+                static class ShellAccess {
+                    static Work last;
+                    static IBackgroundWorkLease acquireBackgroundWork(int display, long duration,
+                            boolean awake, android.os.IBinder owner) {
+                        check(display == 7 && awake, "wrong work target");
+                        last = new Work(); last.duration = duration; return last;
+                    }
                 }
                 static class Context {
                     PowerManager power = new PowerManager();
@@ -48,6 +79,9 @@ public final class AutomationAwakeLeaseTest {
                 PowerManager.WakeLock mLock;
                 String mId;
                 long mExpiresAt;
+                IBackgroundWorkLease mWork;
+                int mDisplayId;
+                final android.os.IBinder mOwner = new android.os.Binder();
                 static void rejects(Runnable r) {
                     try { r.run(); throw new AssertionError("expected rejection"); }
                     catch (IllegalArgumentException expected) { }
@@ -74,6 +108,26 @@ public final class AutomationAwakeLeaseTest {
                     AutomationDeviceState.reason = "locked";
                     try { f.acquire(new JSONObject()); throw new AssertionError("locked phone accepted"); }
                     catch(IllegalStateException expected) { }
+                    f.acquire(new JSONObject().put("displayId",7).put("durationMillis",1000));
+                    check(f.mLock == null && f.mWork != null, "virtual work touched phone power");
+                    String background = f.mId;
+                    f.acquire(new JSONObject().put("leaseId",background).put("durationMillis",2000));
+                    check(ShellAccess.last.duration == 2000 && f.mDisplayId == 7, "renewal lost display");
+                    try { f.acquire(new JSONObject().put("leaseId",background).put("displayId",0));
+                        throw new AssertionError("retargeted active lease"); }
+                    catch(IllegalArgumentException expected) { }
+                    try { f.release(first); throw new AssertionError("stale release accepted"); }
+                    catch(IllegalArgumentException expected) { }
+                    check(ShellAccess.last.held, "stale release closed work");
+                    ShellAccess.last.held = false;
+                    check(Boolean.FALSE.equals(f.state().values.get("held")), "service expiry not observed");
+                    try { f.acquire(new JSONObject().put("leaseId",background));
+                        throw new AssertionError("expired lease renewed"); }
+                    catch(IllegalArgumentException expected) { }
+                    f.acquire(new JSONObject().put("displayId",7));
+                    check(!background.equals(f.mId), "new work reused expired id");
+                    f.close();
+                    check(!ShellAccess.last.held, "close leaked background work");
                 }
                 """ + RuntimeSourceFixture.methods("AutomationAwakeLease", "acquire", "release", "state", "close"));
     }

@@ -25,6 +25,8 @@ public interface PlatformDriver {
 
     PlatformPhoneUiDriver phoneUi();
 
+    default PlatformBackgroundWork backgroundWork() { return PlatformBackgroundWork.NONE; }
+
     PlatformDiagnostics diagnostics();
 
     PlatformAudioCaptureDriver audioCapture();

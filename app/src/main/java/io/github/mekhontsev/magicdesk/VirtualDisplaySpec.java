@@ -9,6 +9,7 @@ final class VirtualDisplaySpec {
     final int height;
     final int densityDpi;
     final boolean protectedContent;
+    final boolean alwaysUnlocked;
     final String originProfileKey;
 
     VirtualDisplaySpec(final int width, final int height, final int densityDpi) {
@@ -17,11 +18,11 @@ final class VirtualDisplaySpec {
 
     VirtualDisplaySpec(final int width, final int height, final int densityDpi,
             final boolean protectedContent) {
-        this(width, height, densityDpi, protectedContent, "");
+        this(width, height, densityDpi, protectedContent, false, "");
     }
 
     private VirtualDisplaySpec(final int width, final int height, final int densityDpi,
-            final boolean protectedContent, final String originProfileKey) {
+            final boolean protectedContent, final boolean alwaysUnlocked, final String originProfileKey) {
         if (width < 320 || height < 320 || width > 8192 || height > 8192
                 || (long) width * height > 33_554_432L
                 || densityDpi < 80 || densityDpi > 640) {
@@ -31,15 +32,23 @@ final class VirtualDisplaySpec {
         this.height = height;
         this.densityDpi = densityDpi;
         this.protectedContent = protectedContent;
+        this.alwaysUnlocked = alwaysUnlocked;
         this.originProfileKey = originProfileKey;
     }
 
     VirtualDisplaySpec withOrigin(final String profileKey) {
-        return new VirtualDisplaySpec(width, height, densityDpi, protectedContent,
+        return new VirtualDisplaySpec(width, height, densityDpi, protectedContent, alwaysUnlocked,
                 java.util.Objects.requireNonNull(profileKey));
     }
 
+    VirtualDisplaySpec withAlwaysUnlocked(final boolean enabled) {
+        return new VirtualDisplaySpec(width, height, densityDpi, protectedContent, enabled, originProfileKey);
+    }
+
     void requireOverlayCompatible() {
+        if (alwaysUnlocked) {
+            throw new IllegalArgumentException("always-unlocked requires an owned virtual display, not overlay preview");
+        }
         if (protectedContent) {
             throw new IllegalArgumentException("protected content requires an owned virtual display, not overlay preview");
         }

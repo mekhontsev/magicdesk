@@ -17,11 +17,20 @@ public final class DesktopDisplayInfo implements Parcelable {
     public final boolean requiresPortableDesktop;
     public final boolean owned;
     public final boolean secure;
+    public final boolean alwaysUnlocked;
 
     DesktopDisplayInfo(final int id, final String uniqueId, final String systemName, final String name,
             final String source, final int width, final int height, final int densityDpi,
             final boolean canHostDesktop, final boolean requiresPortableDesktop,
             final boolean owned, final boolean secure) {
+        this(id, uniqueId, systemName, name, source, width, height, densityDpi,
+                canHostDesktop, requiresPortableDesktop, owned, secure, false);
+    }
+
+    DesktopDisplayInfo(final int id, final String uniqueId, final String systemName, final String name,
+            final String source, final int width, final int height, final int densityDpi,
+            final boolean canHostDesktop, final boolean requiresPortableDesktop,
+            final boolean owned, final boolean secure, final boolean alwaysUnlocked) {
         this.id = id;
         this.uniqueId = uniqueId;
         this.systemName = systemName;
@@ -34,6 +43,7 @@ public final class DesktopDisplayInfo implements Parcelable {
         this.requiresPortableDesktop = requiresPortableDesktop;
         this.owned = owned;
         this.secure = secure;
+        this.alwaysUnlocked = alwaysUnlocked;
     }
 
     /** An output capability is not a protection policy for ordinary mirrored screens. */
@@ -94,7 +104,8 @@ public final class DesktopDisplayInfo implements Parcelable {
     private DesktopDisplayInfo(final Parcel in) {
         this(in.readInt(), in.readString(), in.readString(), in.readString(), in.readString(),
                 in.readInt(), in.readInt(), in.readInt(),
-                in.readInt() != 0, in.readInt() != 0, in.readInt() != 0, in.readInt() != 0);
+                in.readInt() != 0, in.readInt() != 0, in.readInt() != 0, in.readInt() != 0,
+                in.readInt() != 0);
     }
 
     @Override public void writeToParcel(final Parcel out, final int flags) {
@@ -110,6 +121,7 @@ public final class DesktopDisplayInfo implements Parcelable {
         out.writeInt(requiresPortableDesktop ? 1 : 0);
         out.writeInt(owned ? 1 : 0);
         out.writeInt(secure ? 1 : 0);
+        out.writeInt(alwaysUnlocked ? 1 : 0);
     }
 
     @Override public int describeContents() { return 0; }

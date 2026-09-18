@@ -7,6 +7,16 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public final class VirtualDisplaySpecTest {
+    @Test public void unlockedPolicyIsExplicitIndependentAndRejectsOverlay() {
+        final VirtualDisplaySpec ordinary = new VirtualDisplaySpec(1280, 720, 160);
+        assertFalse(ordinary.alwaysUnlocked);
+        final VirtualDisplaySpec unlocked = ordinary.withAlwaysUnlocked(true).withOrigin("source");
+        assertTrue(unlocked.alwaysUnlocked);
+        assertFalse(unlocked.protectedContent);
+        assertEquals("source", unlocked.originProfileKey);
+        assertThrows(IllegalArgumentException.class, unlocked::requireOverlayCompatible);
+        assertFalse(unlocked.withAlwaysUnlocked(false).alwaysUnlocked);
+    }
     @Test public void protectedContentIsExplicitAndCannotUseOverlayPreview() {
         assertFalse(new VirtualDisplaySpec(1280, 720, 160).protectedContent);
         final VirtualDisplaySpec protectedSpec = new VirtualDisplaySpec(1280, 720, 160, true);

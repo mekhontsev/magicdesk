@@ -6,6 +6,7 @@ import io.github.mekhontsev.magicdesk.DesktopUiFactory;
 import io.github.mekhontsev.magicdesk.DesktopCompatibilityPolicy;
 import io.github.mekhontsev.magicdesk.DesktopCompatibilityPolicy.Option;
 import io.github.mekhontsev.magicdesk.PlatformAudioCaptureDriver;
+import io.github.mekhontsev.magicdesk.PlatformBackgroundWork;
 import io.github.mekhontsev.magicdesk.PlatformComponent;
 import io.github.mekhontsev.magicdesk.PlatformDevice;
 import io.github.mekhontsev.magicdesk.PlatformDiagnostics;
@@ -130,6 +131,22 @@ public final class NubiaPlatformDriver implements PlatformExtension {
     @Override
     public PlatformPhoneUiDriver phoneUi() {
         return PHONE_UI;
+    }
+
+    @Override public PlatformBackgroundWork backgroundWork() {
+        return new PlatformBackgroundWork() {
+            @Override public Session begin(int uid) throws ReflectiveOperationException {
+                final NubiaCpuFreezerWorkingState.Session session = NubiaCpuFreezerWorkingState.begin(uid);
+                return new Session() {
+                    @Override public void refresh() throws ReflectiveOperationException { session.refresh(); }
+                    @Override public void close() {
+                        if (!session.close()) android.util.Log.w("MagicDeskWork", "Could not clear working state for " + uid);
+                    }
+                };
+            }
+            // Firmware expires these transient hints unless refreshed; not task polling.
+            @Override public long refreshIntervalMillis() { return 1000; }
+        };
     }
 
     @Override

@@ -22,6 +22,53 @@ import java.util.Set;
 final class FrameworkTaskObservationSource implements Closeable {
     private static final String TAG = "MagicDeskTasks";
 
+    /** Event-only task ownership for shared work; does not start Desktop's sampler. */
+    static Closeable observeApplicationUids(int displayId, android.os.Handler handler,
+            java.util.function.Consumer<Set<Integer>> consumer,
+            java.util.function.Consumer<Exception> failure) throws ReflectiveOperationException {
+        return ApplicationUids.observe(displayId, handler, consumer, failure);
+    }
+
+    private static final class ApplicationUids {
+        static Closeable observe(int displayId, android.os.Handler handler,
+                java.util.function.Consumer<Set<Integer>> consumer,
+                java.util.function.Consumer<Exception> failure) throws ReflectiveOperationException {
+            final Object service = HiddenTaskApi.getService();
+            final java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean();
+            final Runnable sample = () -> {
+                if (closed.get()) return;
+                try { consumer.accept(FrameworkTaskSnapshotSource.readApplicationUids(service, displayId)); }
+                catch (ReflectiveOperationException | RuntimeException error) { failure.accept(error); }
+            };
+            final android.app.TaskStackListener listener = new android.app.TaskStackListener() {
+                private void changed() {
+                    if (closed.get()) return;
+                    handler.removeCallbacks(sample);
+                    handler.post(sample);
+                }
+                @Override public void onTaskStackChanged() { changed(); }
+                @Override public void onTaskCreated(int taskId, android.content.ComponentName component) { changed(); }
+                @Override public void onTaskRemoved(int taskId) { changed(); }
+                @Override public void onTaskDisplayChanged(int taskId, int newDisplayId) { changed(); }
+            };
+            HiddenTaskApi.registerTaskStackListener(service, listener);
+            try { consumer.accept(FrameworkTaskSnapshotSource.readApplicationUids(service, displayId)); }
+            catch (ReflectiveOperationException | RuntimeException error) {
+                closed.set(true);
+                handler.removeCallbacks(sample);
+                try { HiddenTaskApi.unregisterTaskStackListener(service, listener); }
+                catch (ReflectiveOperationException | RuntimeException cleanup) { error.addSuppressed(cleanup); }
+                throw error;
+            }
+            return () -> {
+                if (!closed.compareAndSet(false, true)) return;
+                handler.removeCallbacks(sample);
+                try { HiddenTaskApi.unregisterTaskStackListener(service, listener); }
+                catch (ReflectiveOperationException error) { throw new IOException(error); }
+            };
+        }
+    }
+
     interface Listener {
         void onTasksSampled(
                 int displayId,

@@ -133,7 +133,10 @@ no reference becomes its own origin. A descendant needs neither its parent nor
 the originating monitor to remain connected. Profile updates write only to the
 display's own key; they do not propagate to ancestors or other descendants.
 Viewer attachment, detachment and output switching never alter profile origin.
-Physical output timing and protected-content policy are not inherited. A missing
+Physical output timing and protected-content policy are not inherited.
+Profiles never enable `alwaysUnlocked`: this keyguard policy is an explicit,
+default-off creation option, verified against the returned Android display flag.
+It is independent of protected content, power and application liveness. A missing
 profile-save receipt after creation reports the retained display identity; callers
 must not mistake that partial result for either no allocation or a ready portable
 workspace. Shared creation does not initialize Desktop or acquire HOME/input.
@@ -1467,7 +1470,7 @@ isolated behind these boundaries.
   creates the Standard Android baseline, then may layer one detected
   `PlatformExtension` over it. `PlatformComponent` makes each override
   explicit: an extension can own projection without replacing windowing,
-  pointer, input, phone UI, audio, diagnostics, controls, launch
+  pointer, input, phone UI, background work, audio, diagnostics, controls, launch
   targets, or runtime behavior. `ComposedPlatformDriver` uses that declaration
   as the source of truth and rejects a declared component with no
   implementation. `PlatformSelection` records the provider and detection
@@ -1798,9 +1801,29 @@ Binder token:
 The UserService links every long-lived helper to its APK owner token. Input
 helpers block on real descriptor activity; Binder death, EOF, or explicit close
 initiates bounded graceful cleanup before process termination. They do not use
-periodic keepalives. `PhoneDisplayGuard` is the deliberate exception: its
-one-second heartbeat refreshes RedMagic's transient `cfreezer` state and
-provides fail-open display restoration if ownership is lost.
+periodic keepalives. `PhoneDisplayGuard` retains its one-second heartbeat only
+for fail-open display restoration if ownership is lost. Application working-state
+renewal belongs to the shared background-work owner described below.
+
+`ShellBackgroundWork` owns explicit `IBackgroundWorkLease` lifetimes independently
+of HOME, Desktop and virtual-display allocation. Automation leases have a service-
+enforced deadline; the phone-power guard uses a Binder-owned lifetime. A CPU wake
+lock retains scheduled cleanup, and an optional borrowed virtual-display power
+reference shares the existing presentation power owner without attaching a Viewer.
+Closing the lease, its display or its Binder owner releases all resources. A
+parked display alone owns no work lease. `AutomationAwakeLease` adapts the same
+bounded service to `device.keep_awake(displayId=...)`; ordinary phone mode keeps
+its public-API, no-shell path.
+
+`BackgroundWorkProtection` combines overlapping claims into one transient session
+per UID. It includes MagicDesk explicitly, without assuming HOME exemption, and
+retains observed application UIDs for the work interval. `FrameworkTaskObservationSource`
+provides event-only application ownership subscriptions with an initial typed UID
+snapshot; this path does not initialize Desktop's sampler or window organizer.
+There is no periodic task query. `PlatformBackgroundWork` supplies optional firmware
+hints; the Android baseline adds none. Nubia's focused component renews its transient
+working state once per second through `RuntimeDelays.WORKING_STATE_REFRESH`, only
+while claims exist. Deadline callbacks are lifetime timers, not readiness waits.
 
 Every retained Console session owns a lifecycle-bound `TerminalTransport`, one
 native PTY relay, and one interactive shell. `ShellPtyHandle` hosts
@@ -3930,16 +3953,13 @@ screen-off policy. The inspected firmware exempts the selected HOME package;
 that exemption does not extend to other desktop applications and ends when
 Close returns HOME, before restoring phone power. See
 `docs/nubia-vendor-audit.md` for the firmware evidence and verification scope.
-The same heartbeat refreshes the vendor's transient
-`noteCpuFreezerUidWorking` state for other application UIDs owning live tasks
-on the desktop display. It excludes MagicDesk's UID, including its entries in
-task snapshots, and relies on the firmware's HOME exemption for the host.
-There is no separate working-state request for MagicDesk during Close.
-The helper retains the accumulated desktop-app UID set for the screen-off
-interval, then clears it during restore. No persistent
-freezer whitelist is installed. The optional Nubia phone-UI component is
-detected from this service and method; diagnostics inspect the same API without
-changing any UID's working state.
+The phone-power guard acquires shared background-work protection before turning
+the phone display off, and releases it after restoration. Its helper no longer
+queries tasks or owns freezer sessions. The common owner includes MagicDesk and
+application UIDs, so HOME release does not remove host protection prematurely.
+Overlapping automation work retains its own claims. No persistent freezer whitelist
+is installed. The optional Nubia phone-UI and background-work components are
+detected from the existing service/method; diagnostics remain read-only.
 
 `MagicDeskTouchpadActivity` is the common phone-side input panel for external
 desktops. It remains an ordinary display-0 Activity and can be opened from the

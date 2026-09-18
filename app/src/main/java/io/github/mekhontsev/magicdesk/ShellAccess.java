@@ -1250,7 +1250,8 @@ public final class ShellAccess {
     static DesktopDisplayInfo createVirtualDisplay(final VirtualDisplaySpec spec) throws IOException {
         try {
             return requireService().createVirtualDisplay(
-                    spec.width, spec.height, spec.densityDpi, spec.protectedContent, VIRTUAL_DISPLAY_OWNER);
+                    spec.width, spec.height, spec.densityDpi, spec.protectedContent,
+                    spec.alwaysUnlocked, VIRTUAL_DISPLAY_OWNER);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
             throw new IOException("virtual display creation failed: " + usefulMessage(error), error);
@@ -1262,6 +1263,26 @@ public final class ShellAccess {
         catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
             throw new IOException("protected display permission check failed: " + usefulMessage(error), error);
+        }
+    }
+
+    static boolean canCreateAlwaysUnlockedDisplay() throws IOException {
+        try { return requireService().canCreateAlwaysUnlockedDisplay(); }
+        catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("unlocked display permission check failed: " + usefulMessage(error), error);
+        }
+    }
+
+    public static IBackgroundWorkLease acquireBackgroundWork(final int displayId,
+            final long durationMillis, final boolean keepDisplayAwake, final IBinder owner) throws IOException {
+        final DesktopDisplayInfo display = DesktopDisplayCatalog.require(displayId, null);
+        try {
+            return requireService().acquireBackgroundWork(displayId, display.uniqueId,
+                    android.os.Process.myUid(), durationMillis, keepDisplayAwake, VIRTUAL_DISPLAY_OWNER, owner);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("background work unavailable: " + usefulMessage(error), error);
         }
     }
 

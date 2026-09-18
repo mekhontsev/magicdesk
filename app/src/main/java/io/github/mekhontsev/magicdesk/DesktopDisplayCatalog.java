@@ -61,6 +61,7 @@ final class DesktopDisplayCatalog {
                 .put("requiresPortableDesktop", display.requiresPortableDesktop)
                 .put("owned", display.owned).put("canRemove", display.canRemove())
                 .put("secure", display.secure).put("protectedContent", display.protectedContent())
+                .put("alwaysUnlocked", display.alwaysUnlocked)
                 .put("defaultDisplay", display.isDefaultDisplay())
                 .put("builtIn", "unknown".equals(display.source) ? org.json.JSONObject.NULL : display.isBuiltIn())
                 .put("scrcpyCommand", scrcpyCommand(display));

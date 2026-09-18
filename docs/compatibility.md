@@ -182,6 +182,13 @@ in-APK catalog recognition must not use its reused stock fingerprint alone.
 
 ## Known Limitations
 
+- **Background UI while securely locked** is opt-in for owned virtual displays.
+  The `alwaysUnlocked` flag does not keep a display powered or prevent firmware
+  process freezing. Bounded `device.keep_awake(displayId=...)` work handles power
+  and scoped protection without HOME. Verified on RM11/API 36 with UID 2000;
+  other firmware and API 34 device coverage remain pending. On that device,
+  display screenshots work while locked, but fresh task captures are rejected.
+
 - **Protected content** on owned virtual displays requires secure-output
   permission in the current privileged service (normally root), a protected
   graphics path and a secure presentation output. Ordinary displays do not

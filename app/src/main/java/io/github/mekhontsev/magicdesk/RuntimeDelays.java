@@ -13,10 +13,17 @@ public final class RuntimeDelays {
         SUPERVISOR_BACKOFF,
         VENDOR_COMMAND_SETTLE,
         WATCHDOG_TICK,
-        STREAM_HEARTBEAT
+        STREAM_HEARTBEAT,
+        WORKING_STATE_REFRESH
     }
 
     private RuntimeDelays() {
+    }
+
+    public static void schedule(android.os.Handler handler, Runnable action, Reason reason, long delayMillis) {
+        validate(reason, delayMillis);
+        record(reason);
+        handler.postDelayed(action, delayMillis);
     }
 
     public static void pause(final Reason reason, final long delayMillis) {

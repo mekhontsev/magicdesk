@@ -242,13 +242,14 @@ system defaults, not arbitrary earlier installation values.
 ## Optional Phone Power And Hardware
 
 Phone-screen power control uses discovered Android display commands.
-The optional Nubia provider additionally protects other desktop app UIDs through
-its transient `cfreezer` heartbeat while the phone screen is off. MagicDesk's
-own UID is excluded and relies on its HOME status on that inspected firmware.
-This is not a general Android HOME guarantee for every power manager.
+The optional Nubia background-work provider protects MagicDesk and the selected
+display's application UIDs through transient `cfreezer` working-state hints.
+The phone-power guard and bounded automation work share this scoped owner;
+neither relies on HOME exemption. UID 2000 remains sufficient on tested firmware.
 
-The helper restores power and releases its owned protection on normal cleanup
-or owner loss. Hardware settings and caption-privacy overrides have their own
+The helper restores power on normal cleanup or owner loss; its shared work claim
+is released after restoration. Idle parked displays retain no work claim. Hardware
+settings and caption-privacy overrides have their own
 capability checks and restoration owners. Details belong in the
 [Nubia vendor audit](nubia-vendor-audit.md), not in shared input policy.
 

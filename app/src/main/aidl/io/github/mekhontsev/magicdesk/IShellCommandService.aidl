@@ -444,7 +444,7 @@ interface IShellCommandService {
     DesktopDisplayInfo[] listDesktopDisplays() = 121;
 
     DesktopDisplayInfo createVirtualDisplay(int width, int height, int densityDpi,
-        boolean protectedContent, IBinder ownerToken) = 122;
+        boolean protectedContent, boolean alwaysUnlocked, IBinder ownerToken) = 122;
 
     void removeVirtualDisplay(int displayId, String uniqueId, IBinder ownerToken) = 123;
 
@@ -481,4 +481,8 @@ interface IShellCommandService {
     void releaseDesktopTasks(int displayId, in int[] taskIds) = 142;
     String getHardwareKeyboardLayouts() = 143;
     TaskCapture openTaskCapture(int taskId, in Rect region) = 144;
+    boolean canCreateAlwaysUnlockedDisplay() = 145;
+    io.github.mekhontsev.magicdesk.IBackgroundWorkLease acquireBackgroundWork(
+        int displayId, String uniqueId, int appUid, long durationMillis,
+        boolean keepDisplayAwake, IBinder displayOwner, IBinder owner) = 146;
 }

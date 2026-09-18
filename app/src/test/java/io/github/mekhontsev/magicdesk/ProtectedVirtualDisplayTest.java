@@ -7,19 +7,23 @@ public final class ProtectedVirtualDisplayTest {
     @Test public void permissionAndProtectedSinkFormOneCreationContract() throws Exception {
         RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", """
                 static final String SECURE_OUTPUT_PERMISSION = "secure-output";
+                static final String UNLOCKED_DISPLAY_PERMISSION = "unlocked-display";
                 static class Context {
                     boolean allowed;
+                    boolean unlockedAllowed;
                     DisplayManager getSystemService(Class<?> type) { return manager; }
                 }
                 static final DisplayManager manager = new DisplayManager();
                 static class DisplayManager {
                     static final int VIRTUAL_DISPLAY_FLAG_SECURE = 4;
                     boolean dropSecure;
+                    boolean dropUnlocked;
                     int creations;
                     VirtualDisplay last;
                     VirtualDisplay createVirtualDisplay(String name, int w, int h, int dpi, Object surface, int flags) {
                         creations++;
-                        return last = new VirtualDisplay(dropSecure ? flags & ~4 : flags);
+                        return last = new VirtualDisplay((dropSecure ? flags & ~4 : flags)
+                                & (dropUnlocked ? ~8 : -1));
                     }
                 }
                 static class Display {
@@ -58,6 +62,9 @@ public final class ProtectedVirtualDisplayTest {
                     OwnedDisplay(Context c, VirtualDisplay d, ImageReader s) { display = d; sink = s; }
                 }
                 static boolean canCreateProtectedDisplay(Context c) { return c.allowed; }
+                static boolean canCreateAlwaysUnlockedDisplay(Context c) { return c.unlockedAllowed; }
+                static int displayConstant(String n) { return 8; }
+                static int virtualFlag(String n) { return 8; }
                 static int creationFlags() { return 1; }
                 public static void verify() throws Exception {
                     Fixture api = new Fixture(); Context context = new Context();
@@ -77,6 +84,18 @@ public final class ProtectedVirtualDisplayTest {
                     try { api.create(context, secure); throw new AssertionError("silent protection downgrade"); }
                     catch (IllegalStateException expected) { }
                     check(manager.last.released && ImageReader.last.closed, "rejected display resources leaked");
+                    VirtualDisplaySpec unlocked = new VirtualDisplaySpec(800, 600, 160).withAlwaysUnlocked(true);
+                    int previous = manager.creations;
+                    try { api.create(context, unlocked); throw new AssertionError("unlock permission ignored"); }
+                    catch(SecurityException expected) { }
+                    check(manager.creations == previous, "unlocked display allocated before permission check");
+                    context.unlockedAllowed = true;
+                    OwnedDisplay background = api.create(context, unlocked);
+                    check(background.display.display.flags == 9, "unlock flag lost or conflated with secure");
+                    manager.dropUnlocked = true;
+                    try { api.create(context, unlocked); throw new AssertionError("silent keyguard policy downgrade"); }
+                    catch(IllegalStateException expected) { }
+                    check(manager.last.released && ImageReader.last.closed, "unlocked failure leaked resources");
                 }
                 """ + RuntimeSourceFixture.methods("FrameworkVirtualDisplayApi", "create"), "VirtualDisplaySpec");
     }

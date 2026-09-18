@@ -126,6 +126,7 @@ final class AutomationCommandCatalog {
                                 .put("width", integerProperty("Width override in pixels; inherits the reference, otherwise 1920."))
                                 .put("height", integerProperty("Height override in pixels; inherits the reference, otherwise 1080."))
                                 .put("protectedContent", booleanProperty("Protected virtual source; default false. Requires secure-output permission in the current service and a secure Viewer output. Not available for overlay preview."))
+                                .put("alwaysUnlocked", booleanProperty("Keep this virtual display outside the phone keyguard; default false, explicit opt-in only. Apps remain accessible through authorized automation/viewers while the phone is locked. Requires current-service permission; excludes overlay. Does not hold power or prevent process freezing; use device.keep_awake with displayId for bounded background work."))
                                 .put("densityDpi", integerProperty("Density override; inherits the reference's saved DPI or current density, otherwise 160.")))))
                 .put(actionTool("select_display_viewer", "Select viewer source",
                         "Change a viewer's source without moving applications. Output attachments exchange sources with another output attachment when needed; ordinary mirror windows never change other bindings or physical input. Waits for visible attachments; hidden viewers attach when shown. Omit sourceDisplayId for the previous source. OUTCOME_UNKNOWN does not cancel switching; re-list presentations before retrying a previous-source command.",
@@ -652,9 +653,10 @@ final class AutomationCommandCatalog {
                         objectSchema(new JSONObject().put("displayId", display)
                                 .put("keys", arrayProperty("Modifiers first, then the key; KEYCODE_ prefix is optional.", stringProperty("Android key name."))),
                                 "displayId", "keys")))
-                .put(actionTool("device.keep_awake", "Keep phone awake temporarily",
-                        "Keep an already awake, unlocked phone's display on for 1 second to 30 minutes. No Desktop or privileged service required. Does not change screen timeout or bypass the lock screen. Returns a leaseId; pass it to renew an active lease. Expires automatically and is released when the runtime stops.",
-                        objectSchema(new JSONObject().put("durationMillis", integerProperty("1000-1800000 ms, default 300000."))
+                .put(actionTool("device.keep_awake", "Keep display awake temporarily",
+                        "Keep a display active for 1 second to 30 minutes. Omitted/zero displayId retains an already awake, unlocked phone without privileged access. A nonzero displayId requires an owned virtual display and shell access; holds only that display's power and scoped application background protection. Does not unlock the phone or change keyguard policy. Returns a leaseId; renew the exact lease. Automatically releases on expiry, display removal or runtime exit.",
+                        objectSchema(new JSONObject().put("displayId", integerProperty("Phone (0/default), or an owned virtual display for background work."))
+                                .put("durationMillis", integerProperty("1000-1800000 ms, default 300000."))
                                 .put("leaseId", stringProperty("Required only to renew the currently held lease.")))))
                 .put(actionTool("device.release_awake", "Release awake lease",
                         "Release the exact awake lease; a stale leaseId cannot release a newer lease.",
@@ -1362,8 +1364,12 @@ final class AutomationCommandCatalog {
                 break;
             case "device.keep_awake":
                 properties.put("held", booleanProperty("The wake lock is currently held."))
-                        .put("leaseId", stringProperty("Token for renewal or release."))
-                        .put("remainingMillis", integerProperty("Remaining lease lifetime."));
+                        .put("displayId", integerProperty("Display held awake."))
+                        .put("leaseId", nullableStringProperty("Token for renewal or release, null after expiry."))
+                        .put("remainingMillis", integerProperty("Remaining lease lifetime."))
+                        .put("protectedUids", arrayProperty("Application UIDs claimed by virtual-display work.",
+                                integerProperty("Android application UID.")))
+                        .put("error", stringProperty("Background-protection failure, empty when healthy."));
                 break;
             case "get_state":
                 properties.put("generatedAtMillis", integerProperty("Timestamp."))
@@ -1412,7 +1418,10 @@ final class AutomationCommandCatalog {
                         .put("presentations", viewerPresentationsProperty())
                         .put("canCreateProtectedDisplay", booleanProperty("Current privileged service has secure-output permission; null if unavailable or unknown.")
                                 .put("type", new JSONArray().put("boolean").put("null")))
-                        .put("protectedDisplayPermissionError", nullableStringProperty("Protected-display permission query error, if any."));
+                        .put("protectedDisplayPermissionError", nullableStringProperty("Protected-display permission query error, if any."))
+                        .put("canCreateAlwaysUnlockedDisplay", booleanProperty("Current-service keyguard-exempt display permission; null if unavailable.")
+                                .put("type", new JSONArray().put("boolean").put("null")))
+                        .put("alwaysUnlockedPermissionError", nullableStringProperty("Always-unlocked permission query error, if any."));
                 break;
             case "open_builtin":
                 properties.put("accepted", booleanProperty("Launch completed; with an explicit Viewer source, its Surface attached."))

@@ -72,11 +72,24 @@ final class DisplayCreationDialog {
         protection.setText(R.string.display_protected_content);
         protection.setEnabled(false);
         content.addView(protection);
+        final CheckBox unlocked = new CheckBox(mActivity);
+        unlocked.setText(R.string.display_always_unlocked);
+        unlocked.setEnabled(false);
+        content.addView(unlocked);
+        final TextView warning = new TextView(mActivity);
+        warning.setText(R.string.display_always_unlocked_warning);
+        warning.setVisibility(View.GONE);
+        content.addView(warning);
+        unlocked.setOnCheckedChangeListener((button, checked) ->
+                warning.setVisibility(checked ? View.VISIBLE : View.GONE));
+        final boolean[] unlockedAllowed = {false};
         final boolean[] protectionAllowed = {false};
         kind.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(AdapterView<?> p, View v, int position, long id) {
                 protection.setEnabled(position == 0 && protectionAllowed[0]);
                 if (position != 0) protection.setChecked(false);
+                unlocked.setEnabled(position == 0 && unlockedAllowed[0]);
+                if (position != 0) unlocked.setChecked(false);
             }
             @Override public void onNothingSelected(AdapterView<?> p) { }
         });
@@ -109,7 +122,7 @@ final class DisplayCreationDialog {
                         final VirtualDisplaySpec spec = defaults.spec(
                                 Integer.parseInt(width.getText().toString()),
                                 Integer.parseInt(height.getText().toString()), densityForScale(percent, defaults.densityDpi),
-                                protection.isChecked());
+                                protection.isChecked()).withAlwaysUnlocked(unlocked.isChecked());
                         final boolean preview = kind.getSelectedItemPosition() == 1;
                         if (preview) { spec.requireOverlayCompatible(); }
                         mActions.createDisplay(spec, preview);
@@ -121,14 +134,21 @@ final class DisplayCreationDialog {
         dialog.show();
         TaskCommandQueue.execute(() -> {
             boolean allowed = false;
+            boolean allowUnlocked = false;
             String error = null;
-            try { allowed = ShellAccess.canCreateProtectedDisplay(); }
+            try {
+                allowed = ShellAccess.canCreateProtectedDisplay();
+                allowUnlocked = ShellAccess.canCreateAlwaysUnlockedDisplay();
+            }
             catch (java.io.IOException failure) { error = ShellAccess.usefulMessage(failure); }
             final boolean permission = allowed;
+            final boolean unlockedPermission = allowUnlocked;
             final String failure = error;
             mActivity.runOnUiThread(() -> {
                 if (!dialog.isShowing() || mActivity.isDestroyed()) return;
                 protectionAllowed[0] = permission;
+                unlockedAllowed[0] = unlockedPermission;
+                unlocked.setEnabled(unlockedPermission && kind.getSelectedItemPosition() == 0);
                 protection.setEnabled(permission && kind.getSelectedItemPosition() == 0);
                 protection.setTooltipText(failure != null ? failure : permission ? null
                         : mActivity.getString(R.string.display_protected_content_unavailable));

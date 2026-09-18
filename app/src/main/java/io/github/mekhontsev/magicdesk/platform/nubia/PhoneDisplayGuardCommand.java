@@ -3,17 +3,11 @@ package io.github.mekhontsev.magicdesk.platform.nubia;
 import io.github.mekhontsev.magicdesk.BoundedProcessRunner;
 import io.github.mekhontsev.magicdesk.DisplayPowerCommands;
 import io.github.mekhontsev.magicdesk.RuntimeDelays;
-import io.github.mekhontsev.magicdesk.ShellTaskUidReader;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -23,7 +17,6 @@ public final class PhoneDisplayGuardCommand {
     static final String READY = "MAGICDESK_PHONE_DISPLAY_READY";
     static final String RESTORED = "MAGICDESK_PHONE_DISPLAY_RESTORED";
     static final String ERROR = "MAGICDESK_PHONE_DISPLAY_ERROR";
-    static final String PROTECTED_UIDS = "MAGICDESK_PHONE_DISPLAY_UIDS";
     static final String HEARTBEAT = "ping";
     static final String RESTORE = "restore";
 
@@ -35,33 +28,18 @@ public final class PhoneDisplayGuardCommand {
     private final AtomicBoolean mDisplayOverrideActive =
             new AtomicBoolean();
     private final AtomicLong mLastHeartbeat = new AtomicLong();
-    private final int mAppUid;
     private final String mRestoreOperation;
-    private final int mDesktopDisplayId;
-    private final Map<Integer, NubiaCpuFreezerWorkingState.Session>
-            mFreezerSessions = new LinkedHashMap<>();
-    private Set<Integer> mReportedUids;
-    private final Set<Integer> mProtectionFailures = new LinkedHashSet<>();
-    private String mLastTaskReadFailure;
     private volatile boolean mFinished;
 
-    private PhoneDisplayGuardCommand(
-            final int appUid,
-            final String restoreOperation,
-            final int desktopDisplayId) {
-        mAppUid = appUid;
+    private PhoneDisplayGuardCommand(final String restoreOperation) {
         mRestoreOperation = restoreOperation;
-        mDesktopDisplayId = desktopDisplayId;
     }
 
     public static void main(final String[] arguments) {
         final PhoneDisplayGuardCommand guard;
         try {
             validateArguments(arguments);
-            guard = new PhoneDisplayGuardCommand(
-                    parseAppUid(arguments[0]),
-                    parseRestoreOperation(arguments[1]),
-                    parseDesktopDisplayId(arguments[2]));
+            guard = new PhoneDisplayGuardCommand(parseRestoreOperation(arguments[0]));
         } catch (IllegalArgumentException error) {
             System.out.println(ERROR + " " + usefulMessage(error));
             return;
@@ -88,7 +66,6 @@ public final class PhoneDisplayGuardCommand {
     }
 
     private void run() throws IOException {
-        refreshFreezerState();
         // Claim ownership before the command so every later exit path resets
         // even if the process dies immediately after DisplayManager accepts it.
         mDisplayOverrideActive.set(true);
@@ -105,7 +82,6 @@ public final class PhoneDisplayGuardCommand {
             String line;
             while ((line = reader.readLine()) != null) {
                 if (HEARTBEAT.equals(line)) {
-                    refreshFreezerState();
                     mLastHeartbeat.set(
                             android.os.SystemClock.elapsedRealtime());
                 } else if (RESTORE.equals(line)) {
@@ -158,134 +134,13 @@ public final class PhoneDisplayGuardCommand {
                 return false;
             }
         }
-        boolean released = true;
-        synchronized (mFreezerSessions) {
-            for (final NubiaCpuFreezerWorkingState.Session session
-                    : mFreezerSessions.values()) {
-                released &= session.close();
-            }
-            mFreezerSessions.clear();
-        }
-        if (!released) {
-            System.err.println(ERROR + " cfreezer-working-state-release-failed");
-        }
-        return released;
-    }
-
-    private void refreshFreezerState() {
-        Set<Integer> liveUids = Collections.emptySet();
-        try {
-            liveUids = ShellTaskUidReader.read(mDesktopDisplayId);
-            mLastTaskReadFailure = null;
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            // Retain protection for previously observed apps on a failed snapshot.
-            final String failure = usefulMessage(error);
-            if (!failure.equals(mLastTaskReadFailure)) {
-                mLastTaskReadFailure = failure;
-                System.err.println(
-                        "MagicDesk phone display: could not read desktop UIDs: "
-                                + failure);
-            }
-        }
-
-        synchronized (mFreezerSessions) {
-            final Set<Integer> desiredUids = protectedDesktopUids(
-                    mAppUid, liveUids, mFreezerSessions.keySet());
-            for (final Integer uid : desiredUids) {
-                final NubiaCpuFreezerWorkingState.Session existing =
-                        mFreezerSessions.get(uid);
-                if (existing != null) {
-                    try {
-                        existing.refresh();
-                    } catch (ReflectiveOperationException | RuntimeException error) {
-                        existing.close();
-                        mFreezerSessions.remove(uid);
-                        mProtectionFailures.add(uid);
-                    }
-                    continue;
-                }
-                try {
-                    mFreezerSessions.put(
-                            uid, NubiaCpuFreezerWorkingState.begin(uid.intValue()));
-                    mProtectionFailures.remove(uid);
-                } catch (ReflectiveOperationException | RuntimeException error) {
-                    if (mProtectionFailures.add(uid)) {
-                        System.err.println(
-                                "MagicDesk phone display: could not protect UID "
-                                        + uid + ": " + usefulMessage(error));
-                    }
-                }
-            }
-
-            // Keep the union for the whole screen-off interval. Releasing a
-            // briefly absent task can freeze shared input state mid-session.
-            final Set<Integer> protectedUids =
-                    new LinkedHashSet<>(mFreezerSessions.keySet());
-            if (!protectedUids.equals(mReportedUids)) {
-                mReportedUids = protectedUids;
-                System.out.println(PROTECTED_UIDS + " "
-                        + (protectedUids.isEmpty() ? "none" : joinUids(protectedUids)));
-                System.out.flush();
-            }
-        }
-    }
-
-    static Set<Integer> protectedDesktopUids(
-            final int appUid,
-            final Set<Integer> liveUids,
-            final Set<Integer> retainedUids) {
-        final Set<Integer> uids = new LinkedHashSet<>(liveUids);
-        uids.addAll(retainedUids);
-        // The selected HOME is already exempt from cfreezer. Our desktop
-        // windows also appear in task snapshots, so exclude their shared UID.
-        uids.remove(Integer.valueOf(appUid));
-        return uids;
-    }
-
-    private static String joinUids(final Set<Integer> uids) {
-        final StringBuilder output = new StringBuilder();
-        for (final Integer uid : uids) {
-            if (output.length() > 0) {
-                output.append(',');
-            }
-            output.append(uid.intValue());
-        }
-        return output.toString();
+        return true;
     }
 
     private static void validateArguments(final String[] arguments) {
-        if (arguments == null || arguments.length != 3) {
-            throw new IllegalArgumentException(
-                    "expected application UID, restore operation, and desktop display");
+        if (arguments == null || arguments.length != 1) {
+            throw new IllegalArgumentException("expected display restore operation");
         }
-    }
-
-    private static int parseDesktopDisplayId(final String argument) {
-        final int displayId;
-        try {
-            displayId = Integer.parseInt(argument);
-        } catch (NumberFormatException error) {
-            throw new IllegalArgumentException(
-                    "invalid desktop display ID", error);
-        }
-        if (displayId <= 0) {
-            throw new IllegalArgumentException(
-                    "invalid desktop display ID " + displayId);
-        }
-        return displayId;
-    }
-
-    private static int parseAppUid(final String argument) {
-        final int uid;
-        try {
-            uid = Integer.parseInt(argument);
-        } catch (NumberFormatException error) {
-            throw new IllegalArgumentException("invalid application UID", error);
-        }
-        if (uid < 10_000) {
-            throw new IllegalArgumentException("invalid application UID " + uid);
-        }
-        return uid;
     }
 
     private static String parseRestoreOperation(final String operation) {

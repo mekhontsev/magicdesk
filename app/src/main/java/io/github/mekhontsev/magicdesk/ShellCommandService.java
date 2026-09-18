@@ -47,6 +47,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     private final ShellFileSystem mFileSystem;
     private final ShellVirtualDisplays mVirtualDisplays;
     private final ShellUiAutomation mUiAutomation;
+    private final ShellBackgroundWork mBackgroundWork;
     private final Object mInputRoutingLock = new Object();
     private DisplayInputRoutingSession mInputRoutingSession;
     private IBinder mInputRoutingOwner;
@@ -66,6 +67,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         mFileSystem = new ShellFileSystem();
         mVirtualDisplays = new ShellVirtualDisplays(context);
         mUiAutomation = new ShellUiAutomation(context);
+        mBackgroundWork = new ShellBackgroundWork(context, mVirtualDisplays, platform.backgroundWork());
         Log.i(TAG, "command service started uid=" + Os.getuid());
     }
 
@@ -102,8 +104,22 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     }
 
     @Override public DesktopDisplayInfo createVirtualDisplay(final int width,
-            final int height, final int densityDpi, final boolean protectedContent, final IBinder ownerToken) {
-        return mVirtualDisplays.create(new VirtualDisplaySpec(width, height, densityDpi, protectedContent), ownerToken);
+            final int height, final int densityDpi, final boolean protectedContent,
+            final boolean alwaysUnlocked, final IBinder ownerToken) {
+        return mVirtualDisplays.create(new VirtualDisplaySpec(width, height, densityDpi, protectedContent)
+                .withAlwaysUnlocked(alwaysUnlocked), ownerToken);
+    }
+
+    @Override public boolean canCreateAlwaysUnlockedDisplay() {
+        return FrameworkVirtualDisplayApi.canCreateAlwaysUnlockedDisplay(mContext);
+    }
+
+    @Override public IBackgroundWorkLease acquireBackgroundWork(int displayId, String uniqueId,
+            int appUid, long durationMillis, boolean keepDisplayAwake, IBinder displayOwner, IBinder owner) {
+        final long identity = Binder.clearCallingIdentity();
+        try { return mBackgroundWork.acquire(displayId, uniqueId, appUid, durationMillis,
+                keepDisplayAwake, displayOwner, owner); }
+        finally { Binder.restoreCallingIdentity(identity); }
     }
 
     @Override public boolean canCreateProtectedDisplay() {
@@ -1521,6 +1537,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
 
     @Override
     public void destroy() {
+        mBackgroundWork.close();
         mUiAutomation.close();
         mVirtualDisplays.close();
         Log.i(TAG, "command service stopped");

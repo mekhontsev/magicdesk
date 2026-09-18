@@ -17,6 +17,19 @@ final class ShellVirtualDisplays implements AutoCloseable {
 
     ShellVirtualDisplays(final Context context) { mContext = context; }
 
+    synchronized AutoCloseable keepAwake(int displayId, String uniqueId, IBinder owner) {
+        final Entry entry = mDisplays.get(displayId);
+        if (entry == null || !entry.owner.equals(owner)) {
+            throw new IllegalArgumentException("display is not owned by this client");
+        }
+        boolean valid = false;
+        for (DesktopDisplayInfo info : list()) {
+            if (info.id == displayId && info.uniqueId.equals(uniqueId)) valid = true;
+        }
+        if (!valid) throw new IllegalArgumentException("display identity changed");
+        return entry.display.keepAwake();
+    }
+
     synchronized DesktopDisplayInfo create(final VirtualDisplaySpec spec, final IBinder owner) {
         if (owner == null) {
             throw new IllegalArgumentException("virtual display owner is required");

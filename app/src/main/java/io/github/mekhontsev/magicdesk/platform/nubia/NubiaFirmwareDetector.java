@@ -135,6 +135,8 @@ public final class NubiaFirmwareDetector {
                     "Nubia IInputManager pointer API detected");
         }
         if (NubiaCpuFreezerWorkingState.isAvailable()) {
+            detected.put(PlatformComponent.BACKGROUND_WORK,
+                    "CPU-freezer working-state API detected");
             detected.put(
                     PlatformComponent.PHONE_UI,
                     "CPU-freezer working-state API detected");

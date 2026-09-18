@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk.platform.nubia;
 import io.github.mekhontsev.magicdesk.AppProcessCommand;
 import io.github.mekhontsev.magicdesk.CompatibilityDiagnostics;
 import io.github.mekhontsev.magicdesk.DisplayPowerCommands;
+import io.github.mekhontsev.magicdesk.IBackgroundWorkLease;
 import io.github.mekhontsev.magicdesk.MagicDeskRuntime;
 import io.github.mekhontsev.magicdesk.ShellAccess;
 import io.github.mekhontsev.magicdesk.ShellStreamHandle;
@@ -114,12 +115,12 @@ final class PhoneDisplayGuard {
     }
 
     static String protectedUidSummary() {
+        final Session session;
         synchronized (LOCK) {
-            if (sSession == null) {
-                return "inactive, last=" + sLastProtectedUidSummary;
-            }
-            return sSession.mProtectedUidSummary;
+            session = sSession;
         }
+        return session == null ? "inactive, last=" + sLastProtectedUidSummary
+                : session.protectionSummary();
     }
 
     private static void onReady(final Session session) {
@@ -233,6 +234,7 @@ final class PhoneDisplayGuard {
         private volatile String mFailure = "guard exited before ready";
         private volatile String mProtectedUidSummary = "pending";
         private volatile ShellStreamHandle mStream;
+        private volatile IBackgroundWorkLease mWork;
 
         Session(
                 final int generation,
@@ -298,18 +300,31 @@ final class PhoneDisplayGuard {
             closeQuietly(mStream);
         }
 
+        String protectionSummary() {
+            final IBackgroundWorkLease work = mWork;
+            if (work != null) {
+                try {
+                    mProtectedUidSummary = work.state();
+                    sLastProtectedUidSummary = mProtectedUidSummary;
+                } catch (android.os.RemoteException | RuntimeException error) {
+                    return "unavailable: " + usefulMessage(error);
+                }
+            }
+            return mProtectedUidSummary;
+        }
+
         @Override
         public void run() {
             ShellStreamHandle stream = null;
             BufferedReader reader = null;
             boolean expected = false;
             try {
+                mWork = ShellAccess.acquireBackgroundWork(mDesktopDisplayId, 0, false, new android.os.Binder());
+                protectionSummary();
                 stream = ShellAccess.openHeartbeatStream(
                         AppProcessCommand.exec(
                                 GUARD_COMMAND,
-                                Integer.toString(android.os.Process.myUid())
-                                        + " " + mRestoreOperation
-                                        + " " + mDesktopDisplayId));
+                                mRestoreOperation));
                 mStream = stream;
                 if (mRestoreRequested) {
                     requestRestore();
@@ -331,14 +346,6 @@ final class PhoneDisplayGuard {
                     } else if (line.startsWith(
                             PhoneDisplayGuardCommand.ERROR)) {
                         mFailure = line;
-                    } else if (line.startsWith(
-                            PhoneDisplayGuardCommand.PROTECTED_UIDS + " ")) {
-                        mProtectedUidSummary = line.substring(
-                                PhoneDisplayGuardCommand.PROTECTED_UIDS.length())
-                                .trim();
-                        sLastProtectedUidSummary = mProtectedUidSummary;
-                        Log.i(TAG, "protected desktop UIDs="
-                                + mProtectedUidSummary);
                     } else if (!line.isEmpty()) {
                         Log.d(TAG, line);
                     }
@@ -348,7 +355,7 @@ final class PhoneDisplayGuard {
                         && "guard exited before ready".equals(mFailure)) {
                     mFailure = "guard stream ended unexpectedly";
                 }
-            } catch (IOException error) {
+            } catch (IOException | RuntimeException error) {
                 mFailure = usefulMessage(error);
                 expected = mRestoreRequested;
             } finally {
@@ -358,6 +365,14 @@ final class PhoneDisplayGuard {
                 closeQuietly(stream);
                 mStream = null;
                 onStopped(this, expected, mFailure);
+                if (mWork != null) {
+                    protectionSummary();
+                    try { mWork.close(); }
+                    catch (android.os.RemoteException | RuntimeException error) {
+                        Log.w(TAG, "Could not release background work", error);
+                    }
+                    mWork = null;
+                }
                 mStopped.countDown();
             }
         }

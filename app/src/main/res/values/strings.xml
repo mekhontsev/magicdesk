@@ -1,4 +1,6 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="display_always_unlocked">Available while phone is locked</string>
+    <string name="display_always_unlocked_warning">Apps on this display remain accessible through authorized automation and viewers while the phone is locked.</string>
     <string name="task_manager_applications">Applications</string>
     <string name="task_manager_processes">Processes</string>
     <string name="task_manager_user_processes">App processes</string>

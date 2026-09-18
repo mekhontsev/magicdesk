@@ -125,6 +125,11 @@ final class ComposedPlatformDriver implements PlatformDriver {
                 mExtension.diagnostics(), mBaseline.diagnostics());
     }
 
+    @Override public PlatformBackgroundWork backgroundWork() {
+        return component(PlatformComponent.BACKGROUND_WORK,
+                mExtension.backgroundWork(), mBaseline.backgroundWork());
+    }
+
     @Override
     public PlatformAudioCaptureDriver audioCapture() {
         return component(

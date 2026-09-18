@@ -20,6 +20,18 @@ final class FrameworkTaskSnapshotSource {
     private FrameworkTaskSnapshotSource() {
     }
 
+    static Set<Integer> readApplicationUids(Object service, int displayId) throws ReflectiveOperationException {
+        final Set<Integer> uids = new java.util.LinkedHashSet<>();
+        for (Object task : HiddenTaskApi.getTasks(service, displayId)) {
+            final int uid = HiddenTaskApi.getTaskEffectiveUid(task);
+            if (uid >= 10000) uids.add(uid);
+            final Object info = readField(task, "topActivityInfo");
+            if (info instanceof ActivityInfo activity && activity.applicationInfo != null
+                    && activity.applicationInfo.uid >= 10000) uids.add(activity.applicationInfo.uid);
+        }
+        return Collections.unmodifiableSet(uids);
+    }
+
     static Sample read(
             final Object service,
             final int displayId,

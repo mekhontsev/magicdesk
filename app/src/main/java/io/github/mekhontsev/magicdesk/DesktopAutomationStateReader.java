@@ -194,12 +194,16 @@ final class DesktopAutomationStateReader {
         String catalogError = null;
         Boolean protectedPermission = null;
         String protectedPermissionError = null;
+        Boolean unlockedPermission = null;
+        String unlockedPermissionError = null;
         DesktopDisplayInfo[] catalog = new DesktopDisplayInfo[0];
         try { catalog = DesktopDisplayCatalog.read(); }
         catch (java.io.IOException | RuntimeException error) { catalogError = error.getMessage(); }
         if (ShellAccess.isReady()) {
             try { protectedPermission = ShellAccess.canCreateProtectedDisplay(); }
             catch (java.io.IOException error) { protectedPermissionError = error.getMessage(); }
+            try { unlockedPermission = ShellAccess.canCreateAlwaysUnlockedDisplay(); }
+            catch (java.io.IOException error) { unlockedPermissionError = error.getMessage(); }
         }
         if (manager != null) {
             for (final Display display : manager.getDisplays()) {
@@ -222,6 +226,8 @@ final class DesktopAutomationStateReader {
                 .put("presentations", DisplayPresentations.snapshot())
                 .put("canCreateProtectedDisplay", protectedPermission == null ? JSONObject.NULL : protectedPermission)
                 .put("protectedDisplayPermissionError", protectedPermissionError == null ? JSONObject.NULL : protectedPermissionError)
+                .put("canCreateAlwaysUnlockedDisplay", unlockedPermission == null ? JSONObject.NULL : unlockedPermission)
+                .put("alwaysUnlockedPermissionError", unlockedPermissionError == null ? JSONObject.NULL : unlockedPermissionError)
                 .put("catalogError", catalogError == null ? JSONObject.NULL : catalogError);
     }
 

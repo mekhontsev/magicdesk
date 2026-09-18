@@ -92,6 +92,11 @@ failed launch. Privileged placement alongside Desktop retains its ownership chec
   hidden touch, trusted and own-display-group flags. A display's
   public API availability does not guarantee those privileges or firmware
   behavior. Failures stay local to that operation, not the entire tool runtime.
+  Its opt-in `ALWAYS_UNLOCKED` policy and own-display-group requirement already
+  exist in AOSP API 34, whose Shell package declares `ADD_ALWAYS_UNLOCKED_DISPLAY`.
+  Creation checks the actual service identity and returned flag. This has been
+  exercised on RM11/API 36 under UID 2000, not on an API 34 device; OEM process
+  liveness and display power remain separate capabilities.
 
 ## Verification
 

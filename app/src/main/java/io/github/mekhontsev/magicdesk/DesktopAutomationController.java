@@ -469,7 +469,8 @@ final class DesktopAutomationController {
         final VirtualDisplaySpec spec = defaults.spec(args.has("width") ? requiredInt(args, "width") : defaults.width,
                 args.has("height") ? requiredInt(args, "height") : defaults.height,
                 args.has("densityDpi") ? requiredInt(args, "densityDpi") : defaults.densityDpi,
-                args.has("protectedContent") && args.getBoolean("protectedContent"));
+                args.has("protectedContent") && args.getBoolean("protectedContent"))
+                .withAlwaysUnlocked(args.has("alwaysUnlocked") && args.getBoolean("alwaysUnlocked"));
         final String type = optionalString(args, "type", "virtual");
         if (!type.equals("virtual") && !type.equals("overlay")) {
             throw new IllegalArgumentException("type must be virtual or overlay");

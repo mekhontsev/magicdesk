@@ -38,6 +38,8 @@ public interface PlatformExtension {
         return null;
     }
 
+    default PlatformBackgroundWork backgroundWork() { return null; }
+
     default PlatformDiagnostics diagnostics() {
         return null;
     }

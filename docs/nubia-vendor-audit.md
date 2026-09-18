@@ -171,7 +171,7 @@ remain mandatory even for app-accessible methods.
 | `edid_modes` / `hpd` | Shell, only when accessible | `NubiaHdmiModeController`: advertised physical HDMI timing selection. |
 | `IInputManager.getMousePosition` | Shell | `NubiaDesktopPointerDriver`: read-only global cursor observation; display identity is unknown. |
 | `SurfaceControl.setSFOption(1100/1102, ...)` | App-UID helper | `NubiaCaptionVisibilityManager`: lifecycle-owned external privacy/caption visibility. |
-| `cfreezer.noteCpuFreezerUidWorking` | Shell | `PhoneDisplayGuardCommand`: transient screen-off protection for other desktop applications. |
+| `cfreezer.noteCpuFreezerUidWorking` | Shell | `PlatformBackgroundWork`: scoped host/application protection for the phone-power guard and background display work. |
 | Stock fan/pump Settings keys | Shell writes and readback | `RedmagicHardwareController`: stock cooling policy and restoration. |
 | `charge_separation_switch` | Settings observation and shell writes | `ChargeSeparationController`: stock bypass-charging control. |
 | `MediaRecorder` source `80` | Capability probe and shared recording path | `NubiaAudioCaptureDriver`: optional internal audio capture. |
@@ -315,12 +315,13 @@ The vendor-specific part is `cfreezer`,
 `com.zte.performance.cfreezer.ICpuFreezerManager`, and
 `noteCpuFreezerUidWorking(uid, working, "service")`.
 `NubiaCpuFreezerWorkingState` uses its transient working-state protocol from
-shell UID 2000. During screen-off, the existing heartbeat protects the union
-of desktop application UIDs observed in task snapshots. A temporarily absent
-task does not lose protection. MagicDesk's own UID is excluded, including when
-its windows appear in those snapshots. Release restores phone power and clears
-the accumulated protection; the firmware expires unrefreshed working state
-if explicit cleanup cannot run.
+shell UID 2000. The shared `ShellBackgroundWork` owner protects MagicDesk and the
+union of application UIDs observed on the selected display. Task changes update
+that union through an event-only framework observer; a temporarily absent task
+does not lose protection. Overlapping leases share one working-state session per
+UID. The phone-power guard releases its claim after restoring power; independent
+automation work has its own bounded deadline and does not require Desktop/HOME.
+The firmware expires unrefreshed working state if explicit cleanup cannot run.
 
 The 2026-09-08 inspection of NX809J build `20260204.221845`
 (`/system/framework/services.jar` SHA-256
@@ -328,7 +329,10 @@ The 2026-09-08 inspection of NX809J build `20260204.221845`
 found selected-HOME exemptions in `CpuFreezerManagerServiceV2`.
 `CpuFreezerUtils.getLauncherPackageName` and `AppInfoUtils.isCurrentLauncher`
 resolve MAIN/HOME; the cached identity refreshes on preferred-activity changes
-and screen-off. MagicDesk relies on this exemption for its own package.
+and screen-off. MagicDesk no longer relies on this exemption for its own package:
+a secure-lock experiment without HOME froze the MCP host, whereas explicitly
+retained transient working state allowed sustained access to an always-unlocked
+virtual display under UID 2000. Keyguard exemption alone does not prevent freezing.
 HOME does not protect other desktop application UIDs. The ordinary screen-state
 check uses display 0; top/float-window exemptions in `CommonScreenChecker`
 depend on the screen-on branch. External visibility alone therefore does not

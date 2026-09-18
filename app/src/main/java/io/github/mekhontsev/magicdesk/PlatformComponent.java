@@ -6,6 +6,7 @@ public enum PlatformComponent {
     POINTER("pointer"),
     PROJECTION("projection"),
     PHONE_UI("phoneUi"),
+    BACKGROUND_WORK("backgroundWork"),
     DIAGNOSTICS("diagnostics"),
     AUDIO_CAPTURE("audioCapture"),
     EXTERNAL_INPUT("externalInput"),

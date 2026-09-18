@@ -486,11 +486,14 @@ contains explicit saved `densityDpi` and virtual creation `width`/`height`, with
 null for unspecified values. The top-level dimensions/density remain live Android
 state. A child profile can be changed without writing to the originating profile.
 
-Display metadata also reports `secure` (Android's output capability) and
+Display metadata also reports `alwaysUnlocked` (Android's actual keyguard-exempt
+flag), `secure` (Android's output capability) and
 `protectedContent` (the protection policy of a MagicDesk-owned virtual source).
 `list_displays.canCreateProtectedDisplay` reports the current privileged service's
 secure-output permission: true/false, or null when unavailable/unknown.
 `protectedDisplayPermissionError` contains any permission-query failure.
+`canCreateAlwaysUnlockedDisplay` and `alwaysUnlockedPermissionError` report the
+independent keyguard-exempt creation permission using the same unknown/error contract.
 
 `canHostDesktop=false` rejects only direct managed Desktop startup, not ordinary
 tool placement or Viewer output. In particular, untrusted public displays may
@@ -511,7 +514,7 @@ Input and subsequent Desktop commands address the source, not the output. The
 explicit creation/start/`open_builtin(builtin="display_viewer")` workflow remains available.
 Viewer launch and attachment errors remain authoritative.
 
-- `create_display(width, height, densityDpi, type, protectedContent, sourceDisplayId, sourceUniqueId)` creates a `virtual`
+- `create_display(width, height, densityDpi, type, protectedContent, alwaysUnlocked, sourceDisplayId, sourceUniqueId)` creates a `virtual`
   (headless, default) or `overlay` (phone preview) display without starting HOME.
   All parameters are optional. Without a reference the defaults are 1920x1080
   at 160 DPI. `sourceDisplayId` supplies a creation reference, including display
@@ -533,6 +536,13 @@ Viewer launch and attachment errors remain authoritative.
   and creates a secure source with a protected detached sink. Creation fails
   explicitly if unavailable; it never elevates the service or falls back to
   an ordinary source. The UI exposes the same option as **Protected content**.
+  `alwaysUnlocked` is a separate, default-off option for owned virtual displays.
+  **Available while phone is locked** exposes the same policy in the creation UI.
+  It requires `ADD_ALWAYS_UNLOCKED_DISPLAY` in the current service and its own
+  display group. Android's returned flag is verified; rejection never silently
+  falls back or elevates identity. The option is not inherited from display
+  profiles or remembered as a creation default. It does not keep the display
+  powered or protect application processes from firmware freezing by itself.
 - `start_desktop(displayId, uniqueId)` starts on exactly the selected display.
   The optional uniqueId prevents stale selection after hotplug. Do not combine
   this form with the target convenience selector. Wait for `desktop_active`;
@@ -915,7 +925,7 @@ Prefer the existing semantic MagicDesk controls for Start, taskbar and menus.
 | `ui.release` | Release the Android automation connection and cancel its pending UI waits. |
 | `input.gesture` | Explicit-display touch tap, long press, swipe or drag through bounded point lists. |
 | `input.key_chord` | Press ordered Android key names, release them in reverse order, including on failure. |
-| `device.keep_awake` | Acquire or renew a bounded screen-awake lease; no privileged service or Desktop needed. |
+| `device.keep_awake` | Acquire or renew bounded display work. Phone mode needs no shell; owned virtual-display mode requires shell, not Desktop. |
 | `device.release_awake` | Release the exact lease token. |
 
 `ui.inspect`, `ui.wait` and `ui.read_text` require the `content` permission. They can read text
@@ -1013,11 +1023,26 @@ distinct key names, such as `["CTRL_LEFT", "A"]`. Neither changes the physical
 mouse position. `click_pointer` also accepts `x` and `y` together for an atomic
 primary/secondary mouse click without a preceding hover command.
 
-An awake lease lasts 1000-1800000 ms (default five minutes). Acquire only after
-the user wakes and unlocks the device. Renew with the returned `leaseId`, and
-release it when finished. `get_state.automationAwake` reports the current token
-and remaining lifetime. The system screen-timeout setting is never modified;
-the lock expires automatically and is released when the MCP runtime stops.
+An awake lease lasts 1000-1800000 ms (default five minutes). With omitted or zero
+`displayId`, acquire only after the user wakes and unlocks the phone. A nonzero
+`displayId` instead holds one owned virtual display awake and requests scoped
+background-work protection for MagicDesk and the applications on that display.
+Acquire before locking the phone on firmware that freezes the MCP host. Renew
+with the returned `leaseId`; the destination cannot change during a lease.
+Release when finished. `get_state.automationAwake` reports the destination,
+remaining lifetime, protected UIDs and any background-protection failure.
+The service also releases on deadline, owner death or display removal, without
+depending on another MCP request or on the app's UI thread. An idle parked
+display does not retain this work. The phone's timeout and keyguard are untouched.
+
+For example, create a virtual display with `alwaysUnlocked=true`, acquire
+`device.keep_awake(displayId=ID, durationMillis=300000)`, launch an independent
+application there, and use the usual UI/input/capture commands. Release the
+exact lease afterwards. This does not grant first-unlock credential storage or
+authentication-bound keys. Apps on this opted-in display can remain exposed to
+authorized automation and Viewers while the phone is locked. On the tested RM11,
+display capture works under secure lock but fresh task capture is rejected by
+Android; a failed task capture never silently falls back to display capture.
 
 The debug-only `DebugUiAutomationActivity` supplies a harmless editor, long-text
 action, password, mutable button identity and 320-row list for verification through

@@ -19,6 +19,13 @@ import java.lang.reflect.Method;
 /** Shared display primitives used by the privileged display resource owner. */
 final class FrameworkVirtualDisplayApi {
     private static final String SECURE_OUTPUT_PERMISSION = "android.permission.CAPTURE_SECURE_VIDEO_OUTPUT";
+    private static final String UNLOCKED_DISPLAY_PERMISSION = "android.permission.ADD_ALWAYS_UNLOCKED_DISPLAY";
+
+    static boolean canCreateAlwaysUnlockedDisplay(final Context context) {
+        return context.checkPermission(UNLOCKED_DISPLAY_PERMISSION,
+                android.os.Process.myPid(), android.os.Process.myUid())
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+    }
 
     static boolean canCreateProtectedDisplay(final Context context) {
         return context.checkPermission(SECURE_OUTPUT_PERMISSION,
@@ -53,8 +60,14 @@ final class FrameworkVirtualDisplayApi {
             throw new SecurityException("Protected content requires " + SECURE_OUTPUT_PERMISSION
                     + " in the current privileged service");
         }
+        if (spec.alwaysUnlocked && !canCreateAlwaysUnlockedDisplay(context)) {
+            throw new SecurityException("Always-unlocked displays require " + UNLOCKED_DISPLAY_PERMISSION
+                    + " in the current privileged service");
+        }
+        final int unlockedFlag = spec.alwaysUnlocked ? displayConstant("FLAG_ALWAYS_UNLOCKED") : 0;
         final int flags = creationFlags() | (spec.protectedContent
-                ? DisplayManager.VIRTUAL_DISPLAY_FLAG_SECURE : 0);
+                ? DisplayManager.VIRTUAL_DISPLAY_FLAG_SECURE : 0)
+                | (spec.alwaysUnlocked ? virtualFlag("VIRTUAL_DISPLAY_FLAG_ALWAYS_UNLOCKED") : 0);
         // A secure source must never return to a CPU-readable consumer on Detach.
         final ImageReader output = spec.protectedContent
                 ? ImageReader.newInstance(spec.width, spec.height, ImageFormat.PRIVATE, 2,
@@ -71,6 +84,9 @@ final class FrameworkVirtualDisplayApi {
             if (display == null) { throw new IllegalStateException("Android did not create the virtual display"); }
             if (spec.protectedContent && (display.getDisplay().getFlags() & Display.FLAG_SECURE) == 0) {
                 throw new IllegalStateException("Android did not create a secure virtual display");
+            }
+            if (spec.alwaysUnlocked && (display.getDisplay().getFlags() & unlockedFlag) == 0) {
+                throw new IllegalStateException("Android did not create an always-unlocked display");
             }
             return new OwnedDisplay(context, display, output);
         } catch (RuntimeException error) {
@@ -97,6 +113,16 @@ final class FrameworkVirtualDisplayApi {
         }
 
         Display getDisplay() { return mDisplay.getDisplay(); }
+
+        synchronized AutoCloseable keepAwake() {
+            acquirePresentation();
+            return new AutoCloseable() {
+                private boolean closed;
+                @Override public synchronized void close() {
+                    if (!closed) { closed = true; releasePresentation(); }
+                }
+            };
+        }
 
         synchronized void present(final android.view.Surface surface) {
             if (mReleased) { throw new IllegalStateException("virtual display was removed"); }
@@ -157,7 +183,7 @@ final class FrameworkVirtualDisplayApi {
                     mPresentationWakeLock = (PowerManager.WakeLock) PowerManager.class.getMethod(
                             "newWakeLock", int.class, String.class, int.class).invoke(power,
                             PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                            "MagicDesk:DisplayViewer", mDisplay.getDisplay().getDisplayId());
+                            "MagicDesk:DisplayActivity", mDisplay.getDisplay().getDisplayId());
                     mPresentationWakeLock.setReferenceCounted(false);
                 } catch (ReflectiveOperationException error) {
                     throw new IllegalStateException("could not acquire source display power", error);
@@ -203,7 +229,8 @@ final class FrameworkVirtualDisplayApi {
         return new DesktopDisplayInfo(id, (String) mUniqueId.invoke(display), display.getName(), DisplayNames.name(display),
                 source, metrics.widthPixels, metrics.heightPixels, metrics.densityDpi,
                 supported, DesktopDisplayInfo.requiresPortableDesktop(id, source, publicDisplay, trusted),
-                owned, (display.getFlags() & Display.FLAG_SECURE) != 0);
+                owned, (display.getFlags() & Display.FLAG_SECURE) != 0,
+                (display.getFlags() & displayConstant("FLAG_ALWAYS_UNLOCKED")) != 0);
     }
 
     private static int displayConstant(final String name) throws ReflectiveOperationException {
