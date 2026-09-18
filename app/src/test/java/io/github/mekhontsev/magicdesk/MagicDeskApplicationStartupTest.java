@@ -31,6 +31,9 @@ public final class MagicDeskApplicationStartupTest {
                 static class RuntimeLimits {
                     static void active() { calls.add("identity-policy"); }
                 }
+                static class TermuxConnectionStatus {
+                    static void initialize(Application app) { calls.add("termux-ui-observer"); }
+                }
                 static class ShellAccess { static void initialize() { calls.add("service"); } }
                 static class DesktopSetupStatus {
                     static void initialize(Context c) { calls.add("setup-status"); }
@@ -60,7 +63,8 @@ public final class MagicDeskApplicationStartupTest {
                 }
                 public static void verify() {
                     List<String> primary = List.of("application", "uri-recovery", "home-recovery",
-                            "integrations", "backend", "identity-policy", "service", "setup-status", "diagnostics", "event");
+                            "integrations", "backend", "identity-policy", "termux-ui-observer",
+                            "service", "setup-status", "diagnostics", "event");
                     start("magicdesk", primary);
                     for (String name : new String[] {"magicdesk:selftest",
                             "magicdesk:task_area_backstop", "magicdesk:another", "", null}) {

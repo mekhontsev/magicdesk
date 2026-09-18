@@ -61,6 +61,19 @@ identity, Desktop status, independent applications and Viewer links. The display
 follows a full-width status and a shared row of clickable Access, Termux and Desktop
 summaries, without an extra section heading. `IntegrationStatusDialogs` separates
 read-only prerequisite summaries from explicit authorization/setup actions.
+Termux's `Available` summary describes the installed service and Android permission,
+not verified command execution. `TermuxConnectionStatus` starts one asynchronous,
+bounded command/result check after the first resumed UI, once prerequisites are
+available. Service-only MCP startup does not trigger it. `Checking` becomes `Ready`
+after an acknowledged command; a timeout returns to `Available`, not an inferred
+permission denial. An explicit failure retains its details. The check uses
+`TermuxCommandResultReceiver` and a clean shell without CLI preparation, a PTY or
+opening Termux's UI. It may start Termux's foreground service and notification.
+Results are process-local and endpoint-scoped; a changed endpoint or prerequisite
+invalidates the old result. Panel refreshes and subsequent Activity resumes do not
+retry completed checks. `TermuxSetupDialog` offers a user-run setup command and
+manual retry through the same status owner. Closing the dialog only unsubscribes;
+the shared check retains its bounded lifetime. No probe result gates tools.
 **Create display** belongs to the lower general-action grid and uses the table's
 current selection for creation defaults. **Exit MagicDesk** asks for confirmation
 before invoking the existing exit controller. Desktop Start's Tools page exposes

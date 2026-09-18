@@ -70,6 +70,7 @@ public final class ControlActivity extends Activity
         initializeControlPanel();
         ShellAccess.addStateListener(mAccessListener);
         DesktopSetupStatus.addListener(mSetupStatusListener);
+        TermuxConnectionStatus.get().addListener(mSetupStatusListener);
     }
 
     @Override
@@ -212,6 +213,7 @@ public final class ControlActivity extends Activity
     protected void onDestroy() {
         ShellAccess.removeStateListener(mAccessListener);
         DesktopSetupStatus.removeListener(mSetupStatusListener);
+        TermuxConnectionStatus.get().removeListener(mSetupStatusListener);
         synchronized (ControlActivity.class) {
             if (sActive.get() == this) {
                 sActive.clear();

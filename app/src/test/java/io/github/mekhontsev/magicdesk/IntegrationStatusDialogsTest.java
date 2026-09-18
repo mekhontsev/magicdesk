@@ -31,9 +31,24 @@ public class IntegrationStatusDialogsTest {
                 IntegrationStatusDialogs.termuxStatus(endpoint(true, false, "Service is not exported")));
     }
 
-    @Test public void availableCommandEndpointIsReady() {
-        assertEquals(R.string.control_status_ready,
+    @Test public void availableCommandEndpointDoesNotClaimVerifiedExecution() {
+        assertEquals(R.string.control_termux_available,
                 IntegrationStatusDialogs.termuxStatus(endpoint(true, false, "")));
+    }
+
+    @Test public void commandObservationRefinesButDoesNotReplacePrerequisites() {
+        final var ready = endpoint(true, false, "");
+        assertEquals(R.string.control_termux_status_checking,
+                IntegrationStatusDialogs.termuxStatus(ready, TermuxConnectionStatus.State.CHECKING));
+        assertEquals(R.string.control_status_ready,
+                IntegrationStatusDialogs.termuxStatus(ready, TermuxConnectionStatus.State.READY));
+        assertEquals(R.string.control_termux_status_failed,
+                IntegrationStatusDialogs.termuxStatus(ready, TermuxConnectionStatus.State.FAILED));
+        assertEquals(R.string.control_termux_available,
+                IntegrationStatusDialogs.termuxStatus(ready, TermuxConnectionStatus.State.TIMED_OUT));
+        assertEquals(R.string.control_termux_setup_required,
+                IntegrationStatusDialogs.termuxStatus(endpoint(true, true, "Permission is not granted"),
+                        TermuxConnectionStatus.State.READY));
     }
 
     @Test public void desktopSummaryExplainsSetupAndRestartSeparately() {

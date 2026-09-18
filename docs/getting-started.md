@@ -75,7 +75,15 @@ See [Workstation tools](workstation-tools.md).
 
 Enable external commands in Termux's `~/.termux/termux.properties` with
 `allow-external-apps=true`, reload its settings, and grant MagicDesk the requested
-Termux `RUN_COMMAND` permission. Install the X11 repository, keyboard data and
+Termux `RUN_COMMAND` permission. Tap **Termux** in Phone Control Panel for
+**Grant permission**, **Copy setup command**, **Open Termux** and **Check connection**.
+Paste and run the copied command in Termux; it preserves other settings and can
+be run again. MagicDesk checks the connection once when its UI opens with these
+prerequisites available. **Ready** confirms command execution and a returned result;
+**Available** means execution has not been verified (including a reply timeout).
+The check can start Termux's background service, but does not open its window or
+create a terminal session. Use **Check connection** to retry after changing settings.
+Install the X11 repository, keyboard data and
 an application in Termux, for example:
 
 ```sh
@@ -86,9 +94,10 @@ pkg install xkeyboard-config gimp
 Open Start and search for GIMP. MagicDesk discovers installed Termux `.desktop`
 launchers when Start opens. The X server is embedded; no separate Termux:X11 APK
 is required. Choose the display and window mode with Start's normal controls.
-Ordinary phone X11 windows, including launching from Start and reopening from
-Recent, do not require Desktop or shell access. Display management and placement
-on another display require the privileged service.
+Interactive X11 launches and reopening an existing window on its current display
+do not require Desktop or shell access, including Android-allowed secondary
+displays. Display resource management, existing-task transfers and background
+placement require the privileged service.
 
 The **X11** tool manages retained sessions and can open a whole Linux desktop
 or individual clients from that session. A proot/chroot environment must supply

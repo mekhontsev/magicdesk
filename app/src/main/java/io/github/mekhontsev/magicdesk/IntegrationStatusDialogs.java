@@ -11,9 +11,19 @@ final class IntegrationStatusDialogs {
     private IntegrationStatusDialogs() { }
 
     static int termuxStatus(TermuxIntegration.Endpoint endpoint) {
+        return termuxStatus(endpoint, TermuxConnectionStatus.get().current(endpoint).state());
+    }
+
+    static int termuxStatus(TermuxIntegration.Endpoint endpoint, TermuxConnectionStatus.State state) {
         if (!endpoint.enabled) return R.string.control_status_disabled;
         if (!endpoint.installed) return R.string.control_termux_not_installed;
-        return endpoint.available() ? R.string.control_status_ready : R.string.control_termux_setup_required;
+        if (!endpoint.available()) return R.string.control_termux_setup_required;
+        return switch (state) {
+            case CHECKING -> R.string.control_termux_status_checking;
+            case READY -> R.string.control_status_ready;
+            case FAILED -> R.string.control_termux_status_failed;
+            case UNCHECKED, TIMED_OUT -> R.string.control_termux_available;
+        };
     }
 
     static int desktopStatus(RuntimeCapabilities capabilities) {
@@ -93,38 +103,17 @@ final class IntegrationStatusDialogs {
     }
 
     static void showTermux(Activity activity, Runnable settings) {
-        final var endpoint = TermuxIntegration.inspect(activity);
-        final StringBuilder message = new StringBuilder(activity.getString(termuxStatus(endpoint)));
-        appendPackage(activity, message, IntegrationPackage.TERMUX);
-        if (!endpoint.error.isEmpty()) message.append("\n\n").append(endpoint.error);
-        if (endpoint.enabled && endpoint.installed) message.append("\n\n").append(activity.getString(endpoint.available()
-                ? R.string.control_termux_ready_details : R.string.control_termux_external_commands));
-        final var dialog = new AlertDialog.Builder(activity).setTitle(R.string.console_shell_termux)
-                .setMessage(message).setNegativeButton(R.string.action_close, null);
-        if (endpoint.canRequestPermission()) {
-            dialog.setPositiveButton(R.string.control_grant_permission,
-                    (d, which) -> TermuxIntegration.ensureRunCommandPermission(activity));
-            dialog.setNeutralButton(R.string.control_app_permissions,
-                    (d, which) -> openAppSettings(activity, activity.getPackageName()));
-        } else {
-            dialog.setNeutralButton(R.string.control_integration_settings, (d, which) -> settings.run());
-            final Intent launch = activity.getPackageManager().getLaunchIntentForPackage(endpoint.packageName);
-            if (launch != null) dialog.setPositiveButton(R.string.control_open_termux,
-                    (d, which) -> activity.startActivity(launch));
-            else if (endpoint.installed) dialog.setPositiveButton(R.string.control_app_settings,
-                    (d, which) -> openAppSettings(activity, endpoint.packageName));
-        }
-        dialog.show();
+        TermuxSetupDialog.show(activity, settings);
     }
 
-    private static void appendPackage(Activity activity, StringBuilder message, IntegrationPackage integration) {
+    static void appendPackage(Activity activity, StringBuilder message, IntegrationPackage integration) {
         message.append('\n').append(activity.getString(R.string.control_integration_package, integration.selected()));
         final String configured = integration.configured(activity);
         if (!configured.equals(integration.selected())) message.append('\n').append(activity.getString(
                 R.string.settings_integration_restart_pending, configured));
     }
 
-    private static void openAppSettings(Activity activity, String packageName) {
+    static void openAppSettings(Activity activity, String packageName) {
         activity.startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                 Uri.fromParts("package", packageName, null)));
     }

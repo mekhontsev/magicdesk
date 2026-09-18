@@ -362,8 +362,16 @@ interactive launches use Android's app-specific display permission checks.
 Privileged actions retain their slots and are disabled until access is ready.
 Status occupies one full-width row. The underlined **Access** and **Termux**
 controls share the next row and open short setup/status dialogs. Access reports
-the connected service identity; Termux shows Not installed, Setup required or
-Ready, with details in its dialog. Termux readiness is independent of shell access.
+the connected service identity; Termux distinguishes missing prerequisites from
+Available, Checking, Ready and Check failed, with details in its dialog. Available
+confirms the service and Android permission, not command execution. A one-shot
+asynchronous check runs on the first resumed MagicDesk UI with prerequisites met;
+Ready confirms the command/result connection for this process. A timeout leaves
+Available. This can start Termux's service, but never opens its window or a PTY.
+There is no automatic retry on panel refresh or after a failed check. The dialog can request permission, copy a
+repeatable external-command setup command, open the selected Termux package and
+explicitly retry the same check. Closing the dialog does not discard its result.
+Termux availability is independent of shell access.
 
 The taskbar sliders icon opens **Quick controls**, a content-sized panel above
 the taskbar with audio, interface scale, pointer speed, and available hardware

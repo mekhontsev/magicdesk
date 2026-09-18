@@ -210,14 +210,31 @@ final class TermuxIntegration {
             final Context context, final Endpoint endpoint, final String command,
             final String label, final String workingDirectory, final long timeoutMillis,
             final String stdin, final ResultCallback callback) {
+        return runForResult(context, commandIntent(endpoint, command, label, workingDirectory)
+                .putExtra(EXTRA_STDIN, stdin), timeoutMillis, callback);
+    }
+
+    static TermuxCommandResultReceiver.Registration checkConnection(
+            Context context, Endpoint endpoint, ResultCallback callback) {
+        // Probe the transport without loading user startup files or installing CLI helpers.
+        return runForResult(context, shellIntent(endpoint,
+                new String[]{"--noprofile", "--norc", "-c", "printf magicdesk-termux-ok"},
+                "MagicDesk connection check", null), 10_000, callback);
+    }
+
+    static boolean connectionVerified(CommandResult result) {
+        // Termux's line-based app-shell reader can append a final newline.
+        return result != null && result.success() && "magicdesk-termux-ok".equals(result.stdout.trim());
+    }
+
+    private static TermuxCommandResultReceiver.Registration runForResult(
+            Context context, Intent intent, long timeoutMillis, ResultCallback callback) {
         final TermuxCommandResultReceiver.Registration registration =
                 TermuxCommandResultReceiver.register(
                         context, timeoutMillis, callback);
         try {
-            context.startForegroundService(commandIntent(endpoint,
-                    command, label, workingDirectory)
+            context.startForegroundService(intent
                     .putExtra(EXTRA_BACKGROUND, true)
-                    .putExtra(EXTRA_STDIN, stdin)
                     .putExtra(
                             EXTRA_RESULT_PENDING_INTENT,
                             registration.pendingIntent));
@@ -272,6 +289,12 @@ final class TermuxIntegration {
             final String command,
             final String label,
             final String workingDirectory) {
+        return shellIntent(endpoint, new String[]{"-lc",
+                AutomationCommandRuntime.get(MagicDeskApplication.applicationContext())
+                        .prepareTermux(endpoint) + command}, label, workingDirectory);
+    }
+
+    private static Intent shellIntent(Endpoint endpoint, String[] arguments, String label, String workingDirectory) {
         endpoint.requireAvailable();
         final String directory = workingDirectory == null
                 || workingDirectory.isEmpty()
@@ -282,9 +305,7 @@ final class TermuxIntegration {
                 .putExtra(
                         EXTRA_COMMAND_PATH,
                         "$PREFIX/bin/bash")
-                .putExtra(EXTRA_ARGUMENTS, new String[]{"-lc",
-                        AutomationCommandRuntime.get(MagicDeskApplication.applicationContext())
-                                .prepareTermux(endpoint) + command})
+                .putExtra(EXTRA_ARGUMENTS, arguments)
                 .putExtra(
                         EXTRA_WORKDIR,
                         directory)
