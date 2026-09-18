@@ -69,6 +69,7 @@ final class X11WindowPresentation {
         try {
             if (host == null || host.placement == null) throw new IllegalStateException("X11 host placement is unavailable");
             replacement = ToolApplications.replacementPresentation(activity, host.placement);
+            SystemBarInsets.preserveCaption(activity, replacementIntent);
         } catch (RuntimeException error) {
             recovering.remove(window);
             session.presentationFailed(error);

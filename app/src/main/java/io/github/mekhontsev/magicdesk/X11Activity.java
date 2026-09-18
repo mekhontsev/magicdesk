@@ -58,7 +58,7 @@ public final class X11Activity extends Activity implements
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(DesktopUiFactory.COLOR_BACKGROUND);
-        SystemBarInsets.addToPadding(root, true);
+        SystemBarInsets.addToPadding(root, true, this);
         status = new TextView(this);
         status.setTextColor(DesktopUiFactory.COLOR_MUTED);
         status.setPadding(ui.dp(12), ui.dp(6), ui.dp(12), ui.dp(6));
