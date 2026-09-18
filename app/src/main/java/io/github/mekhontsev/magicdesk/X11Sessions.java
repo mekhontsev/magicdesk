@@ -26,11 +26,13 @@ final class X11Sessions {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final ExecutorService WORK = Executors.newSingleThreadExecutor(r -> new Thread(r, "X11Lifecycle"));
     private static final Map<String, Session> SESSIONS = new LinkedHashMap<>();
+    private static final X11LaunchTracker LAUNCHES = new X11LaunchTracker();
     private static final long START_TIMEOUT_MILLIS = 60_000;
 
     enum State { STARTING, READY, CLOSED, FAILED }
     record Host(int taskId, int displayId, long windowId, boolean focused, HostedSurfaceView.Geometry geometry) { }
     record Inspection(io.github.mekhontsev.magicdesk.x11.X11WindowInspection family, List<Host> hosts) { }
+    record Application(Session session, long window) { }
     interface Listener {
         void onChanged();
         default Host inspectHost() { return null; }
@@ -82,10 +84,30 @@ final class X11Sessions {
     }
 
     static Session find(String id) { synchronized (SESSIONS) { return SESSIONS.get(id); } }
-    static Session findRecipe(String key) {
-        Session selected = null;
-        for (Session session : list()) if (!session.stopped() && session.matchesRecipe(key)) selected = session;
+    static Application findRecipe(String key) {
+        Application selected = null;
+        for (Session session : list()) if (!session.stopped()) {
+            Application match = session.findApplication(key);
+            if (match != null) selected = match;
+        }
         return selected;
+    }
+
+    private static void reconcileLaunches() {
+        for (var match : LAUNCHES.takeMatches()) {
+            Session origin = find(match.launch()), target = find(match.window().session());
+            if (origin == null || target == null || origin.stopped() || target.stopped()) continue;
+            long window = match.window().id();
+            target.presentation.claim(window);
+            synchronized (target) {
+                if (origin.recipe != null) target.windowRecipes.put(window, origin.recipe);
+            }
+            if (origin.recentScope != null) target.recordUse(window, origin.recentScope);
+            origin.redirect = new Application(target, window);
+            DesktopAutomationEventJournal.record("x11", "launch_forwarded", true,
+                    "session=" + origin.id() + " target=" + target.id() + " window=" + window);
+            origin.close();
+        }
     }
 
     static void forgetLaunchSource(String termuxPackage, String path) {
@@ -130,8 +152,10 @@ final class X11Sessions {
         final boolean application;
         final String presentationKey;
         private RecentApplicationStore.Entry recipe;
+        private final Map<Long, RecentApplicationStore.Entry> windowRecipes = new LinkedHashMap<>();
+        private volatile Application redirect;
         private RecentLaunchScope recentScope;
-        private final java.util.LinkedHashSet<Integer> hosts = new java.util.LinkedHashSet<>();
+        private final Map<Integer, Long> hosts = new LinkedHashMap<>();
         private final X11Density density;
         private volatile int scalePercent;
         private final Context context;
@@ -155,7 +179,7 @@ final class X11Sessions {
         private volatile String display = "";
         private volatile List<X11Session.Window> windows = List.of();
         private Listener clipboardOwner;
-        private final java.util.Set<Long> presentedWindows = new java.util.HashSet<>();
+        final X11WindowPresentation presentation;
         private final java.util.Map<Long, Object> fullscreenOwners = new java.util.HashMap<>();
 
         Session(Context context, X11Execution execution, String name, String command,
@@ -165,6 +189,7 @@ final class X11Sessions {
             this.name = name;
             this.application = application;
             this.recipe = recipe;
+            presentation = new X11WindowPresentation(context, this);
             presentationKey = X11PresentationPreferences.key(execution.commands.scope, desktopFile);
             scalePercent = X11PresentationPreferences.load(context, presentationKey);
             density = new X11Density(densityDpi);
@@ -174,21 +199,60 @@ final class X11Sessions {
         }
 
         int scalePercent() { return scalePercent; }
-        synchronized void host(int taskId, boolean focused) {
+        synchronized void host(int taskId, long window, boolean focused) {
             if (focused) hosts.remove(taskId);
-            hosts.add(taskId);
+            hosts.put(taskId, window);
         }
         synchronized void releaseHost(int taskId) { hosts.remove(taskId); }
-        synchronized int hostTaskId() { int id = -1; for (int task : hosts) id = task; return id; }
-        synchronized List<Integer> hostTaskIds() { return List.copyOf(hosts); }
-        private synchronized boolean matchesRecipe(String key) {
-            return recipe != null && recipe.key().equals(key);
+        synchronized int hostTaskId() { int id = -1; for (int task : hosts.keySet()) id = task; return id; }
+        synchronized List<Integer> hostTaskIds() { return List.copyOf(hosts.keySet()); }
+        private synchronized Application findApplication(String key) {
+            Application result = null;
+            for (var entry : windowRecipes.entrySet()) if (entry.getValue().key().equals(key))
+                result = new Application(this, entry.getKey());
+            if (result != null) return result;
+            return recipe != null && recipe.key().equals(key) && (!application || !hadApplicationWindow)
+                    ? new Application(this, 0) : null;
+        }
+
+        Application redirect() { return redirect; }
+
+        private synchronized void associateRecipes(List<X11Session.Window> snapshot) {
+            windowRecipes.keySet().retainAll(snapshot.stream().map(X11Session.Window::id).toList());
+            if (recipe == null) return;
+            String expected = recipe.shortcut().x11 == null ? "" : recipe.shortcut().x11.startupClass();
+            boolean initial = !hadApplicationWindow;
+            for (var item : snapshot) if (!item.provisional()) {
+                if (initial || item.matchesClass(expected)) windowRecipes.putIfAbsent(item.id(), recipe);
+                initial = false;
+            }
+        }
+        synchronized int hostTaskId(long window) {
+            if (window == 0) return hostTaskId();
+            int task = -1;
+            for (var host : hosts.entrySet()) if (host.getValue() == window) task = host.getKey();
+            return task;
+        }
+
+        synchronized boolean recordTaskUse(int taskId, RecentLaunchScope scope) {
+            Long window = hosts.get(taskId);
+            if (window == null) return false;
+            recordUse(window, scope);
+            return true;
         }
 
         private synchronized void forgetRecipe(String termuxPackage, String path) {
             // A live client survives shortcut deletion, but must not restore its deleted launch history.
             if (recipe != null && recipe.termuxPackage().equals(termuxPackage) && recipe.sourcePath().equals(path))
                 recipe = null;
+            windowRecipes.values().removeIf(entry -> entry.termuxPackage().equals(termuxPackage) && entry.sourcePath().equals(path));
+        }
+
+        synchronized void recordUse(long window, RecentLaunchScope scope) {
+            if (state != State.READY) return;
+            RecentApplicationStore.Entry entry = windowRecipes.get(window);
+            if (entry == null) { recordUse(scope); return; }
+            RecentApplications.record(context, entry.usedAt(System.currentTimeMillis()), scope);
         }
 
         synchronized void recordUse(RecentLaunchScope scope) {
@@ -252,8 +316,23 @@ final class X11Sessions {
             result.whenComplete((value, error) -> { if (result.isCancelled()) request.cancel(false); });
             return result;
         }
-        boolean claimWindow(long id) { return presentedWindows.add(id); }
-        void releaseWindowClaim(long id) { presentedWindows.remove(id); }
+        void claimWindow(long id) { presentation.claim(id); LAUNCHES.presented(id(), id); }
+        void presentationChanged() { changed(); }
+        void presentationFailed(Throwable failure) {
+            DesktopAutomationEventJournal.record("x11", "window_presentation_failed", false,
+                    "session=" + id() + " detail=" + ShellAccess.usefulMessage(failure));
+            error = ShellAccess.usefulMessage(failure);
+            changed();
+        }
+        private String launchScope() {
+            return execution.commands.scope + ":" + execution.commands.uid + ":" + execution.serverUid;
+        }
+
+        private void presentWindows() {
+            if (!application || state != State.READY) return;
+            for (var item : windows) if (item.mapped() && !item.provisional() && !LAUNCHES.reserved(id(), item.id()))
+                if (presentation.present(item.id())) LAUNCHES.presented(id(), item.id());
+        }
         boolean claimFullscreen(long id, Object host) {
             return fullscreenOwners.computeIfAbsent(id, key -> host) == host;
         }
@@ -337,6 +416,9 @@ final class X11Sessions {
                             else MAIN.post(() -> {
                                 if (stopped()) return;
                                 startupFinished = true;
+                                LAUNCHES.completed(id());
+                                reconcileLaunches();
+                                for (Session session : list()) session.changed();
                                 DesktopAutomationEventJournal.record("x11", "command_finished", true, "session=" + id() + " exit=0");
                                 if (application && hadWindows && windows.isEmpty() && !stopped()) close();
                             });
@@ -367,9 +449,12 @@ final class X11Sessions {
                         if (stopped()) return;
                         DesktopAutomationEventJournal.record("x11", "windows_changed", true,
                                 "session=" + id() + " windows=" + snapshot.stream()
-                                        .map(item -> item.id() + ":" + item.role() + ":" + item.mapped()).toList());
+                                        .map(item -> item.id() + ":" + item.role() + ":" + item.mapped() + ":" + item.className()).toList());
                         windows = snapshot;
-                        presentedWindows.retainAll(snapshot.stream().map(X11Session.Window::id).toList());
+                        var live = snapshot.stream().map(X11Session.Window::id).collect(java.util.stream.Collectors.toSet());
+                        presentation.retain(live);
+                        associateRecipes(snapshot);
+                        if (application) LAUNCHES.update(id(), launchScope(), snapshot);
                         fullscreenOwners.keySet().retainAll(snapshot.stream().map(X11Session.Window::id).toList());
                         if (!snapshot.isEmpty()) {
                             boolean first = !hadWindows;
@@ -381,6 +466,7 @@ final class X11Sessions {
                             DesktopAutomationEventJournal.record("x11", "application_windows_gone", true, "session=" + id());
                             close(); return;
                         }
+                        reconcileLaunches();
                         changed();
                     }
                 });
@@ -395,10 +481,17 @@ final class X11Sessions {
                 }
                 changed();
                 if (!application) recordUse();
-                if (!startupCommand.isBlank()) {
-                    if (application) MAIN.postDelayed(windowTimeout, START_TIMEOUT_MILLIS);
-                    executeStartup();
-                }
+                if (!startupCommand.isBlank()) MAIN.post(() -> {
+                    if (stopped()) return;
+                    if (application) {
+                        String expected = recipe == null || recipe.shortcut().x11 == null ? "" : recipe.shortcut().x11.startupClass();
+                        LAUNCHES.begin(id(), launchScope(), expected);
+                        DesktopAutomationEventJournal.record("x11", "launch_tracking", true,
+                                "session=" + id() + " scope=" + launchScope() + " class=" + expected);
+                        MAIN.postDelayed(windowTimeout, START_TIMEOUT_MILLIS);
+                    }
+                    WORK.execute(() -> { try { executeStartup(); } catch (RuntimeException failure) { fail(failure); } });
+                });
             } catch (RemoteException | RuntimeException failure) { fail(failure); }
             finally { if (pending != null) pending.close(); }
         }
@@ -432,6 +525,11 @@ final class X11Sessions {
                 MAIN.removeCallbacks(windowTimeout);
             }
             synchronized (SESSIONS) { SESSIONS.remove(id(), this); }
+            MAIN.post(() -> {
+                LAUNCHES.remove(id());
+                presentation.close();
+                for (Session session : list()) session.changed();
+            });
             DesktopAutomationEventJournal.record("x11", "session_finished", terminal != State.FAILED,
                     "session=" + id() + " state=" + terminal + " detail=" + message);
             // Revoke admission first: a delayed RUN_COMMAND request must fail before creating X sockets.
@@ -446,7 +544,10 @@ final class X11Sessions {
         }
 
         private void changed() {
-            MAIN.post(() -> { for (Listener listener : listeners) listener.onChanged(); });
+            MAIN.post(() -> {
+                for (Listener listener : listeners) listener.onChanged();
+                presentWindows();
+            });
         }
     }
 

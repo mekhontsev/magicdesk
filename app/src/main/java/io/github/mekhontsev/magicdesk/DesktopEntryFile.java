@@ -182,6 +182,7 @@ final class DesktopEntryFile {
         }
         if (shortcut.literalExec) append(encoded, "X-MagicDesk-ExecSyntax", "argv");
         if (shortcut.x11 != null) {
+            append(encoded, "StartupWMClass", shortcut.x11.startupClass());
             append(encoded, "X-MagicDesk-X11Mode", shortcut.x11.desktop() ? "desktop" : "application");
             append(encoded, "X-MagicDesk-X11KeyboardDirectory", shortcut.x11.keyboardDirectory());
         }
@@ -365,7 +366,8 @@ final class DesktopEntryFile {
                                     ? AppIdentity.fromPersistentKey(value(
                                             values, "X-MagicDesk-AppIdentity"))
                                     : null).withX11(x11Mode.isEmpty() ? null : new X11LaunchOptions(
-                                            x11Mode.equals("desktop"), value(values, "X-MagicDesk-X11KeyboardDirectory")))
+                                            x11Mode.equals("desktop"), value(values, "X-MagicDesk-X11KeyboardDirectory"),
+                                            value(values, "StartupWMClass")))
                                     .withLiteralExec(!x11Mode.isEmpty() || syntax.equals("argv"));
         } catch (IllegalArgumentException error) {
             return null;

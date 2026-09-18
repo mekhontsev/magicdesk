@@ -11,18 +11,19 @@ final class X11ApplicationLaunch {
                 || request.sourceShortcut == null || !request.arguments.isEmpty()
                 || request.presentation.instancePolicy == DesktopTaskInstancePolicy.CREATE_NEW) return false;
         final var recipe = RecentApplications.describe(host.context(), request.sourceShortcut, request.desktopFilePath);
-        final var session = X11Sessions.findRecipe(recipe.key());
-        if (session == null) return false;
+        final var application = X11Sessions.findRecipe(recipe.key());
+        if (application == null) return false;
+        final var session = application.session();
         host.hideTransientUi();
         final var destination = host.destination();
         if (!destination.desktop) OrdinaryActivityLaunch.requirePresentation(request.presentation);
         final String uniqueId = host.destinationUniqueId();
         final DesktopActivityLaunchResult.Completion done = result -> {
-            if (result.succeeded()) session.recordUse(RecentLaunchScope.of(destination));
+            if (result.succeeded()) session.recordUse(application.window(), RecentLaunchScope.of(destination));
             else host.onFailure(request, new IllegalStateException(result.error));
             if (completion != null) completion.onComplete(result);
         };
-        final int taskId = session.hostTaskId();
+        final int taskId = session.hostTaskId(application.window());
         if (taskId >= 0) {
             TaskCommandQueue.execute(() -> {
                 try {
@@ -35,7 +36,7 @@ final class X11ApplicationLaunch {
                         return;
                     }
                     if (local == InteractiveActivityLaunch.OwnTaskResult.MISSING) {
-                        host.onMain(() -> reopen(host, request, session, done));
+                        host.onMain(() -> reopen(host, request, application, done));
                         return;
                     }
                     final var snapshot = TaskRepository.loadAllNow();
@@ -53,14 +54,16 @@ final class X11ApplicationLaunch {
                 }
             });
         } else {
-            reopen(host, request, session, done);
+            reopen(host, request, application, done);
         }
         return true;
     }
 
     private static void reopen(DesktopLaunchContext host, DesktopLaunchRequest request,
-            X11Sessions.Session session, DesktopActivityLaunchResult.Completion done) {
+            X11Sessions.Application application, DesktopActivityLaunchResult.Completion done) {
+        var session = application.session();
         Intent intent = X11Activity.createIntent(host.context()).putExtra(X11Activity.SESSION, session.id())
+                .putExtra(X11Activity.WINDOW, application.window())
                 .putExtra(X11Activity.APPLICATION, session.application);
         AppLaunchTarget target = AppLaunchTarget.explicit(host.context().getPackageName(), X11Activity.class.getName(), "");
         final var reopen = new DesktopLaunchRequest(request.name, request.icon,

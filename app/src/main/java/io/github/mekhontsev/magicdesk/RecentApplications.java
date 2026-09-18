@@ -92,10 +92,7 @@ final class RecentApplications {
     static void recordTask(Context context, TaskRepository.TaskEntry task, List<AppItem> apps) {
         // X11 hosts publish their original recipe, not the generic X11 manager component.
         if (task.packageName.equals(context.getPackageName())) {
-            for (var session : X11Sessions.list()) if (session.hostTaskIds().contains(task.taskId)) {
-                session.recordUse(RecentLaunchScope.DESKTOP);
-                return;
-            }
+            for (var session : X11Sessions.list()) if (session.recordTaskUse(task.taskId, RecentLaunchScope.DESKTOP)) return;
             // Built-in launches retain their own semantic recipe, not a generic Activity.
             return;
         }
@@ -113,7 +110,7 @@ final class RecentApplications {
             RecentLaunchScope scope) {
         if (target.activityClassName.equals(X11Activity.class.getName())) {
             var session = X11Sessions.find(intent.getStringExtra(X11Activity.SESSION));
-            if (session != null) session.recordUse(scope);
+            if (session != null) session.recordUse(intent.getLongExtra(X11Activity.WINDOW, 0), scope);
             return;
         }
         var shortcut = BuiltInRecentLaunch.describe(context, intent, target);

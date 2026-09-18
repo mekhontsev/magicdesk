@@ -92,18 +92,27 @@ public final class X11Activity extends Activity implements
         binding = null;
         session = next;
         seenWindow = false;
-        if (session != null) binding = new X11HostBinding(this, surface, session, window, application, this::onChanged);
+        if (session != null) {
+            session.presentation.host(this);
+            binding = new X11HostBinding(this, surface, session, window, application, this::onChanged);
+        }
         onChanged();
     }
 
     private void onChanged() {
         if (isDestroyed()) return;
+        if (session != null && session.redirect() != null) {
+            var redirect = session.redirect();
+            window = redirect.window();
+            provisional = false;
+            select(redirect.session());
+            return;
+        }
         boolean ready = session != null && session.state() == X11Sessions.State.READY;
         if (application && ready) {
             long selected = X11WindowSelection.select(window, provisional, session.windows());
             if (selected < 0) { finish(); return; }
             if (selected != window) {
-                session.releaseWindowClaim(window);
                 window = selected;
                 seenWindow = false;
             }
@@ -111,9 +120,6 @@ public final class X11Activity extends Activity implements
         }
         if (ready && window != 0) {
             session.claimWindow(window);
-        }
-        if (ready && session.application && hasWindowFocus()) for (X11Session.Window item : session.windows()) {
-            if (item.mapped() && !item.provisional() && session.claimWindow(item.id())) openWindow(this, session, item.id());
         }
         if (application && session != null && session.state() == X11Sessions.State.CLOSED) { finish(); return; }
         if (window == 0 && session != null) {
@@ -161,6 +167,7 @@ public final class X11Activity extends Activity implements
     @Override public void onWindowFocusChanged(boolean focused) {
         super.onWindowFocusChanged(focused);
         if (binding != null) binding.focusChanged(focused);
+        if (focused && session != null) session.presentation.host(this);
         if (focused && surface != null) onChanged();
         else if (binding != null) binding.updateExchangeFocus();
         if (binding != null) binding.presentationChanged();
@@ -169,6 +176,7 @@ public final class X11Activity extends Activity implements
     @Override public void onConfigurationChanged(android.content.res.Configuration configuration) {
         super.onConfigurationChanged(configuration);
         if (binding != null) { binding.updateDensity(); binding.presentationChanged(); }
+        if (session != null) session.presentation.host(this);
     }
 
     @Override public void onMultiWindowModeChanged(boolean multiWindow, android.content.res.Configuration configuration) {
@@ -177,10 +185,10 @@ public final class X11Activity extends Activity implements
     }
 
     static void openWindow(Activity source, X11Sessions.Session selected, long id) {
+        selected.claimWindow(id);
         ToolApplications.openSibling(source, createIntent(source).putExtra(SESSION, selected.id()).putExtra(WINDOW, id),
                 error -> {
                     if (error != null) {
-                        selected.releaseWindowClaim(id);
                         new AlertDialog.Builder(source).setMessage(ShellAccess.usefulMessage(error))
                                 .setPositiveButton(android.R.string.ok, null).show();
                     }

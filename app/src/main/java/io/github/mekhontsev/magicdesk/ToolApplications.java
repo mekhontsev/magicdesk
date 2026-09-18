@@ -5,6 +5,7 @@ import android.content.Intent;
 
 /** Built-in application entry points shared by phone UI and automation. */
 final class ToolApplications {
+    record SiblingPlacement(ToolLaunchTarget target, String uniqueId) { }
     private ToolApplications() { }
 
     static Intent intent(final Context context, final String name) {
@@ -50,21 +51,27 @@ final class ToolApplications {
         final int taskId = source.getTaskId();
         TaskCommandQueue.execute(() -> {
             try {
-                boolean managed = false;
-                if (DesktopRuntimeBridge.hasWorkspace(display)) {
-                    final var snapshot = TaskRepository.loadNow(display);
-                    if (!snapshot.available) { throw new java.io.IOException(snapshot.error); }
-                    final var task = snapshot.tasks.stream().filter(item -> item.taskId == taskId)
-                            .findFirst().orElseThrow(() -> new java.io.IOException("Source window has closed or moved"));
-                    final String ownership = ApplicationTaskPlacement.ownership(task, snapshot);
-                    if ("unknown".equals(ownership)) { throw new java.io.IOException("Source window ownership is unavailable"); }
-                    managed = "desktop".equals(ownership);
-                }
-                open(source, intent, ToolLaunchTarget.resolve(managed ? "desktop" : "display", display,
-                        DesktopRuntimeBridge.workspaceDisplayIds()), null, callback);
+                final var placement = siblingPlacement(display, taskId);
+                open(source, intent, placement.target(), placement.uniqueId(), callback);
             } catch (java.io.IOException | RuntimeException error) {
                 source.runOnUiThread(() -> { if (!source.isDestroyed() && !source.isFinishing()) callback.onComplete(error); });
             }
         });
+    }
+
+    /** One-shot ownership capture on the command queue; never infers ownership from the display alone. */
+    static SiblingPlacement siblingPlacement(int display, int taskId) throws java.io.IOException {
+        boolean managed = false;
+        if (DesktopRuntimeBridge.hasWorkspace(display)) {
+            final var snapshot = TaskRepository.loadNow(display);
+            if (!snapshot.available) throw new java.io.IOException(snapshot.error);
+            final var task = snapshot.tasks.stream().filter(item -> item.taskId == taskId)
+                    .findFirst().orElseThrow(() -> new java.io.IOException("Source window has closed or moved"));
+            final String ownership = ApplicationTaskPlacement.ownership(task, snapshot);
+            if ("unknown".equals(ownership)) throw new java.io.IOException("Source window ownership is unavailable");
+            managed = "desktop".equals(ownership);
+        }
+        return new SiblingPlacement(ToolLaunchTarget.resolve(managed ? "desktop" : "display", display,
+                DesktopRuntimeBridge.workspaceDisplayIds()), DesktopDisplayCatalog.require(display, null).uniqueId);
     }
 }

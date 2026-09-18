@@ -16,6 +16,16 @@ import java.util.function.Function;
 import org.junit.Test;
 
 public final class DesktopEntryFileTest {
+    @Test public void standardStartupClassSurvivesX11RoundTrip() {
+        var source = new DesktopApplicationShortcut("Calc", "", "libreoffice --calc", null, "",
+                DesktopLaunchMode.AUTO, false, DesktopExecBackend.TERMUX, false)
+                .withX11(new X11LaunchOptions(false, "", "libreoffice-calc"));
+        String encoded = DesktopEntryFile.encodeApplication(source);
+        assertTrue(encoded.contains("StartupWMClass=libreoffice-calc\n"));
+        var parsed = (DesktopApplicationShortcut) DesktopEntryFile.parse(encoded);
+        assertEquals(source.x11, parsed.x11);
+    }
+
     @Test
     public void androidProfileSurvivesDesktopEntryAndLaunchPreparation() {
         final AppIdentity identity = new AppIdentity(19, "example.application");

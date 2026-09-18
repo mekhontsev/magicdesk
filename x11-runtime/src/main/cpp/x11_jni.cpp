@@ -51,21 +51,32 @@ const LorieCallbacks callbacks = {
             if (!icon) return;
             env->SetIntArrayRegion(icon, 0, 64 * 64, (const jint*)info->icon);
         }
-        jsize size = (jsize)strlen(info->title);
-        jbyteArray title = env->NewByteArray(size);
-        if (title) {
-            env->SetByteArrayRegion(title, 0, size, (const jbyte*)info->title);
+        auto bytes = [env](const char* value) -> jbyteArray {
+            if (env->ExceptionCheck()) return nullptr;
+            jsize size = (jsize)strlen(value);
+            jbyteArray result = env->NewByteArray(size);
+            if (result) env->SetByteArrayRegion(result, 0, size, (const jbyte*)value);
+            return result;
+        };
+        jbyteArray title = bytes(info->title);
+        jbyteArray instance = bytes(info->instance);
+        jbyteArray className = bytes(info->className);
+        if (title && instance && className && !env->ExceptionCheck()) {
             const auto& state = info->management;
             jobject management = env->NewObject(c->managementClass, c->managementConstructor,
                     (jboolean)state.managed, (jint)state.request.serial,
                     (jboolean)state.request.fullscreen, (jboolean)state.actual.fullscreen);
             if (management) {
-                env->CallVoidMethod(c->owner, c->window, (jint)id, title, icon, (jboolean)info->mapped, (jint)info->role, management);
+                env->CallVoidMethod(c->owner, c->window, (jint)id, title, icon, (jboolean)info->mapped, (jint)info->role, management, instance, className);
+            }
+            if (management) {
                 env->DeleteLocalRef(management);
             }
-            env->DeleteLocalRef(title);
         }
+        if (title) env->DeleteLocalRef(title);
         if (icon) env->DeleteLocalRef(icon);
+        if (instance) env->DeleteLocalRef(instance);
+        if (className) env->DeleteLocalRef(className);
     },
     .windowsCommitted = [](void* ptr) {
         auto* c = (Connection*)ptr;
@@ -131,7 +142,7 @@ extern "C" JNIEXPORT jlong JNICALL JNI(X11Session_nativeCreate)(JNIEnv* env, job
     jclass cls = env->GetObjectClass(owner);
     c->frame = env->GetMethodID(cls, "onNativeFrame", "(IIIII)V");
     c->disconnected = env->GetMethodID(cls, "onNativeDisconnected", "()V");
-    c->window = env->GetMethodID(cls, "onNativeWindow", "(I[B[IZILio/github/mekhontsev/magicdesk/x11/X11WindowManagement;)V");
+    c->window = env->GetMethodID(cls, "onNativeWindow", "(I[B[IZILio/github/mekhontsev/magicdesk/x11/X11WindowManagement;[B[B)V");
     c->windowRemoved = env->GetMethodID(cls, "onNativeWindowRemoved", "(I)V");
     c->windows = env->GetMethodID(cls, "onNativeWindowsCommitted", "()V");
     c->data = env->GetMethodID(cls, "onNativeData", "(IIIIIIIILjava/lang/String;I)V");

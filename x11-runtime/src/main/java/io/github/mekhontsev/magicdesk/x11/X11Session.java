@@ -29,8 +29,12 @@ public final class X11Session implements AutoCloseable {
     }
 
     public enum WindowRole { APPLICATION, SPLASH, UNCLASSIFIED }
-    public record Window(long id, String title, boolean mapped, Bitmap icon, WindowRole role, X11WindowManagement management) {
+    public record Window(long id, String title, boolean mapped, Bitmap icon, WindowRole role, X11WindowManagement management,
+            String instance, String className) {
         public boolean provisional() { return role != WindowRole.APPLICATION; }
+        public boolean matchesClass(String expected) {
+            return !expected.isEmpty() && (expected.equals(instance) || expected.equals(className));
+        }
     }
 
     private final HandlerThread thread = new HandlerThread("X11Session");
@@ -142,7 +146,8 @@ public final class X11Session implements AutoCloseable {
         });
     }
 
-    private void onNativeWindow(int id, byte[] title, int[] pixels, boolean mapped, int role, X11WindowManagement management) {
+    private void onNativeWindow(int id, byte[] title, int[] pixels, boolean mapped, int role, X11WindowManagement management,
+            byte[] instance, byte[] className) {
         Bitmap icon = pixels == null ? null : Bitmap.createBitmap(pixels, 64, 64, Bitmap.Config.ARGB_8888);
         Window previous = windows.get(id);
         if (icon != null && previous != null && previous.icon() != null && icon.sameAs(previous.icon())) {
@@ -151,7 +156,9 @@ public final class X11Session implements AutoCloseable {
         }
         windows.put(id, new Window(Integer.toUnsignedLong(id),
                 new String(title, java.nio.charset.StandardCharsets.UTF_8), mapped, icon,
-                switch (role) { case 0 -> WindowRole.APPLICATION; case 1 -> WindowRole.SPLASH; default -> WindowRole.UNCLASSIFIED; }, management));
+                switch (role) { case 0 -> WindowRole.APPLICATION; case 1 -> WindowRole.SPLASH; default -> WindowRole.UNCLASSIFIED; }, management,
+                new String(instance, java.nio.charset.StandardCharsets.ISO_8859_1),
+                new String(className, java.nio.charset.StandardCharsets.ISO_8859_1)));
         windowsChanged = true;
     }
 

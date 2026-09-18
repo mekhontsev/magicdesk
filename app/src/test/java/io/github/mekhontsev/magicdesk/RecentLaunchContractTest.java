@@ -50,13 +50,17 @@ public final class RecentLaunchContractTest {
         RuntimeSourceFixture.verify("""
                 enum State { STARTING, READY }
                 enum RecentLaunchScope { DESKTOP, INDEPENDENT }
-                static class Recipe { Recipe usedAt(long time) { return this; } }
+                static class RecentApplicationStore {
+                    record Entry(String name) { Entry usedAt(long time) { return this; } }
+                }
                 static class RecentApplications {
                     static List<RecentLaunchScope> scopes = new ArrayList<>();
-                    static void record(Object c, Recipe r, RecentLaunchScope scope) { scopes.add(scope); }
+                    static RecentApplicationStore.Entry last;
+                    static void record(Object c, RecentApplicationStore.Entry r, RecentLaunchScope scope) { scopes.add(scope); last = r; }
                 }
                 Object context;
-                Recipe recipe = new Recipe();
+                RecentApplicationStore.Entry recipe = new RecentApplicationStore.Entry("writer");
+                Map<Long, RecentApplicationStore.Entry> windowRecipes = new HashMap<>();
                 RecentLaunchScope recentScope;
                 State state = State.STARTING;
                 boolean application = true, hadWindows;
@@ -74,6 +78,12 @@ public final class RecentLaunchContractTest {
                     check(RecentApplications.scopes.size() == 2, "unpresented manager session invented a scope");
                     f.recordUse(RecentLaunchScope.INDEPENDENT);
                     check(RecentApplications.scopes.size() == 3, "whole-desktop launch missing");
+                    f.windowRecipes.put(42L, new RecentApplicationStore.Entry("calc"));
+                    f.recordUse(42, RecentLaunchScope.INDEPENDENT);
+                    check(RecentApplications.last.name().equals("calc"), "forwarded launch recorded original session's application");
+                    f.state = State.STARTING;
+                    f.recordUse(42, RecentLaunchScope.INDEPENDENT);
+                    check(RecentApplications.scopes.size() == 4, "unready alias entered history");
                 }
                 """ + RuntimeSourceFixture.methods("X11Sessions", "recordUse"));
     }

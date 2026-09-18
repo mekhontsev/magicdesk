@@ -7,7 +7,7 @@ import static org.junit.Assert.*;
 
 public final class X11WindowSelectionTest {
     private static X11Session.Window window(long id, X11Session.WindowRole role) {
-        return new X11Session.Window(id, "", true, null, role, null);
+        return new X11Session.Window(id, "", true, null, role, null, "", "");
     }
 
     @Test public void splashHandsOffWithoutAnIntermediateHost() {
@@ -34,7 +34,7 @@ public final class X11WindowSelectionTest {
     }
 
     @Test public void knownUnmappedWindowRetainsItsHost() {
-        var hidden = new X11Session.Window(1, "", false, null, X11Session.WindowRole.APPLICATION, null);
+        var hidden = new X11Session.Window(1, "", false, null, X11Session.WindowRole.APPLICATION, null, "", "");
         assertEquals(1, X11WindowSelection.select(1, false, List.of(hidden)));
     }
 }

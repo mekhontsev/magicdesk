@@ -27,7 +27,7 @@ final class X11HostBinding implements X11Sessions.Listener {
         this.application = application;
         this.changed = changed;
         session.listen(this);
-        session.host(activity.getTaskId(), activity.hasWindowFocus());
+        session.host(activity.getTaskId(), window, activity.hasWindowFocus());
         updateDensity();
     }
 
@@ -38,6 +38,7 @@ final class X11HostBinding implements X11Sessions.Listener {
             releaseOutput();
         }
         this.window = window;
+        session.host(activity.getTaskId(), window, activity.hasWindowFocus());
         if (present && output == null) {
             try {
                 output = session.openOutput(window);
@@ -91,7 +92,7 @@ final class X11HostBinding implements X11Sessions.Listener {
     void focusChanged(boolean focused) {
         if (closed) return;
         updateDensity();
-        session.host(activity.getTaskId(), focused);
+        session.host(activity.getTaskId(), window, focused);
     }
 
     void presentationChanged() { if (!closed && fullscreen != null) fullscreen.changed(); }

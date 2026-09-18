@@ -120,6 +120,7 @@ final class DesktopAutomationStateReader {
         for (X11Sessions.Session session : X11Sessions.list()) {
             JSONArray windows = new JSONArray();
             for (var window : session.windows()) windows.put(new JSONObject().put("id", window.id())
+                    .put("instance", window.instance()).put("className", window.className())
                     .put("title", window.title()).put("mapped", window.mapped())
                     .put("hostManaged", window.management().managed())
                     .put("role", window.role().name().toLowerCase(java.util.Locale.ROOT))

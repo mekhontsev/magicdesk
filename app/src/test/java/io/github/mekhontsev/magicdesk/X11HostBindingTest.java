@@ -54,7 +54,7 @@ public final class X11HostBindingTest {
                     int opens, clientCloses, serverCloses, confirmations;
                     void listen(Listener value) { listeners.add(value); }
                     void unlisten(Listener value) { listeners.remove(value); events.add("unlisten"); }
-                    void host(int task, boolean focused) { hosts.add(task); }
+                    void host(int task, long window, boolean focused) { hosts.add(task); }
                     void releaseHost(int task) { hosts.remove(task); events.add("host"); }
                     void hostDensity(Object host, int dpi, boolean focused) { densities.add(host); }
                     void releaseDensity(Object host) { densities.remove(host); events.add("density"); }

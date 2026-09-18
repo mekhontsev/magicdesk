@@ -37,6 +37,17 @@ public final class TermuxApplicationCommandTest {
         assertEquals(3, entries.stream().filter(entry -> entry.shortcut.name.equals("Writer")).count());
     }
 
+    @Test public void keepsStandardStartupClassThroughCatalogAndRecentEncoding() throws Exception {
+        Path file = write(applications.resolve("office.desktop"), "Calc");
+        Files.writeString(file, Files.readString(file) + "StartupWMClass=libreoffice-calc\n");
+        var entry = load().get(0);
+        assertEquals("libreoffice-calc", entry.shortcut.x11.startupClass());
+        var recent = new RecentApplicationStore.Entry(entry.shortcut, entry.desktopFilePath, "com.termux", 1);
+        var restored = DesktopEntryFile.parseRecent(DesktopEntryFile.encodeRecent(recent));
+        assertNotNull(restored);
+        assertEquals("libreoffice-calc", restored.shortcut().x11.startupClass());
+    }
+
     @Test public void skipsBrokenLinksLinkCyclesAndLinkedSubdirectories() throws Exception {
         write(applications.resolve("nested/good.desktop"), "Good");
         Path external = Files.createDirectory(prefix.resolve("elsewhere"));
