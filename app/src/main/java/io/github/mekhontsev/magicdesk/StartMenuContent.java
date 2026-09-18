@@ -853,9 +853,25 @@ final class StartMenuContent {
         else if (entry.desktopApplication != null) {
             var application = entry.desktopApplication;
             if (application.desktopFile != null) mHost.fileContext(view, application.desktopFile);
-            else if (application.shortcut.execBackend == DesktopExecBackend.X11 && !application.shortcut.terminal) {
+            else if (application.shortcut.execBackend == DesktopExecBackend.X11) {
                 view.setOnLongClickListener(anchor -> {
-                    X11ScaleDialog.show(mActivity, entry.label, application.desktopFilePath);
+                    final boolean userShortcut = (entry.recent == null
+                            || entry.recent.termuxPackage().equals(IntegrationPackage.TERMUX.selected()))
+                            && mCatalog.snapshot().termux().entries().stream().anyMatch(current -> current.userShortcut
+                                    && current.desktopFilePath.equals(application.desktopFilePath));
+                    if (!userShortcut && application.shortcut.terminal) return false;
+                    final android.widget.PopupMenu menu = new android.widget.PopupMenu(mActivity, anchor);
+                    if (!application.shortcut.terminal) menu.getMenu().add(R.string.app_presentation_scale)
+                            .setOnMenuItemClickListener(item -> {
+                                X11ScaleDialog.show(mActivity, entry.label, application.desktopFilePath);
+                                return true;
+                            });
+                    if (userShortcut) menu.getMenu().add(R.string.action_delete_shortcut)
+                            .setOnMenuItemClickListener(item -> {
+                                TermuxShortcutDialog.confirmDelete(mActivity, entry);
+                                return true;
+                            });
+                    menu.show();
                     return true;
                 });
                 view.setOnContextClickListener(View::performLongClick);

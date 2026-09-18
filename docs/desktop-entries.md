@@ -18,13 +18,78 @@ Exec=ps -A
 Terminal=true
 ```
 
-The built-in **New terminal app** editor creates this same format from the
+The built-in **New command app** editor creates this same format from the
 Desktop or Files background menu and from the Console toolbar. Creating an app
 from Console preselects that Console's Android-shell or Termux backend and its
 current directory. An executable file or shell script can prefill the editor
 through **Add as terminal app**. Created entries are stored under
 `/storage/emulated/0/Desktop`, appear in Start, and remain ordinary editable
 Desktop Entry files.
+
+Select **Linux (Termux)** to create a guest launcher. **PRoot (proot-distro)**
+lists installed environments only when selected, through the configured Termux
+application's `RUN_COMMAND` service. **Custom script (chroot or other)** instead
+accepts the absolute path of an executable entry script in Termux. Both offer
+**Terminal** (an empty command opens the guest login shell), **X11 application**,
+or **Linux desktop**. Enter a command already installed in that environment.
+The optional working directory is inside Linux, not Android or Termux.
+**Linux user** optionally selects an existing guest account through `--user`;
+leave it empty for the launcher's default (`root` inside PRoot, not Android root). No
+account is created and no password is stored in the launcher.
+
+Linux entries are saved in the selected Termux environment's
+`${XDG_DATA_HOME:-$HOME/.local/share}/applications/magicdesk-NAME.desktop`,
+so the editor and shared launch services need Termux integration, not MagicDesk's
+shell/root service or Desktop. A custom chroot script may separately require
+root authorization for its own setup and entry.
+Start refreshes after saving; Recent uses the existing launch recipe and Termux
+package identity. Identical saves do not create duplicates, and a different
+entry with the same name is not overwritten. These launchers use ordinary
+`Exec`, `Terminal`, and the existing `X-MagicDesk-X11Mode` presentation hint;
+there is no separate distribution registry or executor.
+
+Long-press or right-click a user-created Termux shortcut in Start and select
+**Delete shortcut**. Confirmation removes the `.desktop` file and its entries
+in both Recent histories, not the installed program, distribution or running
+sessions. Package-installed Termux launchers do not offer this action.
+
+For PRoot, the installed `proot-distro` must support `list --quiet` and `login --isolated`.
+Graphical launches need `dbus-run-session` in the guest. The PRoot adapter passes
+its allocated `DISPLAY`, binds the session's private Xauthority and shares the
+X11 socket via `--shared-tmp`. Each graphical launch gets its own D-Bus session
+and temporary `XDG_RUNTIME_DIR`. This is not a security sandbox. Arbitrary
+Android file arguments are not mapped into the guest; the editor hides file
+associations for these recipes. MagicDesk does not install distributions or scan guest apps.
+
+### Custom Linux Entry Scripts
+
+The script is an entry adapter for an already prepared environment, not a
+container installer. It runs as the selected Termux UID and receives:
+
+```text
+/absolute/entry-script [--user NAME] [--work-dir /guest/path] [-- PROGRAM ARG...]
+```
+
+Options are omitted when their fields are empty. A terminal with no command
+omits `-- PROGRAM ARG...`; the script should enter the guest's login shell.
+Otherwise, run the supplied argv inside the guest without reparsing or joining
+it as shell text. MagicDesk supplies `/bin/sh -lc` and the requested guest
+command; graphical launches additionally own a D-Bus session and a temporary
+guest runtime directory, just as with PRoot.
+
+For X11, the script inherits the dynamically allocated `DISPLAY` and private
+`XAUTHORITY`. It must expose the X socket and authorization file to the guest,
+adjusting guest paths if necessary, and preserve those values across any
+explicit privilege change. Do not use a fixed display number or disable X
+authentication. The script owns mounting, root authorization and matching
+cleanup; retain the launched process lifetime rather than detaching it.
+MagicDesk does not implicitly switch its privileged backend, mount a rootfs,
+or store passwords. Interactive authentication can use terminal mode; graphical
+entry scripts must arrange authorization without a terminal prompt.
+
+Existing fixed-purpose scripts can still be used directly as ordinary Termux
+or X11 command entries. They need the option/argv contract above only to use
+the Linux editor's shared user, directory and command fields.
 
 `Exec` is limited to 4096 characters and cannot contain a NUL character. `%%`
 represents a literal percent sign. MagicDesk expands these standard field
@@ -135,9 +200,10 @@ selects the Termux Console path instead of starting an X server. See
 For a complete Linux desktop, add `X-MagicDesk-X11Mode=desktop`. The default is
 `application`, which presents individual client windows. Desktop mode presents
 the whole X screen and retains the server after its Android window closes.
-Use an explicit `Exec` script to enter an already configured proot/chroot
-distribution, exposing the supplied X socket and authorization to the guest;
-MagicDesk does not infer container startup commands.
+The PRoot editor generates this recipe for installed `proot-distro` environments.
+For custom proot/chroot setups, use an explicit `Exec` script exposing the
+supplied X socket and authorization to the guest. MagicDesk does not infer
+which guest application or desktop command to start.
 
 ## Recent Launches
 

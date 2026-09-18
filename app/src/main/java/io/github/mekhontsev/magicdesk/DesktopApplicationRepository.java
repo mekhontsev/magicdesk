@@ -92,14 +92,21 @@ final class DesktopApplicationRepository {
         final DesktopApplicationShortcut shortcut;
         final String desktopFilePath;
         final DesktopFile desktopFile;
+        final boolean userShortcut;
 
         Entry(
                 final DesktopApplicationShortcut shortcut,
                 final String desktopFilePath,
                 final DesktopFile desktopFile) {
+            this(shortcut, desktopFilePath, desktopFile, false);
+        }
+
+        Entry(DesktopApplicationShortcut shortcut, String desktopFilePath,
+                DesktopFile desktopFile, boolean userShortcut) {
             this.shortcut = shortcut;
             this.desktopFilePath = desktopFilePath;
             this.desktopFile = desktopFile;
+            this.userShortcut = userShortcut;
         }
     }
 }

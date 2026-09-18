@@ -89,6 +89,16 @@ final class RecentApplicationStore {
         return List.copyOf(current.subList(0, Math.min(LIMIT, current.size())));
     }
 
+    List<Entry> removeSource(String termuxPackage, String sourcePath) throws IOException {
+        if (termuxPackage == null || termuxPackage.isEmpty() || sourcePath == null || sourcePath.isEmpty())
+            throw new IllegalArgumentException("A bound launcher source is required");
+        for (Entry entry : read()) {
+            if (entry.termuxPackage().equals(termuxPackage) && entry.sourcePath().equals(sourcePath))
+                Files.deleteIfExists(directory.resolve(entry.key() + ".desktop"));
+        }
+        return read();
+    }
+
     private static String digest(String... values) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");

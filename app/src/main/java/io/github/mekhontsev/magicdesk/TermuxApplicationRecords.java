@@ -26,8 +26,8 @@ final class TermuxApplicationRecords {
                 throw new IllegalArgumentException("Invalid application path");
             String id = path.substring(directory + "/applications/".length()).replace('/', '-');
             if (!ids.add(id)) continue;
-            DesktopApplicationShortcut shortcut = DesktopEntryFile.parseTermuxApplication(decode(fields[1]));
-            if (shortcut != null) result.add(new DesktopApplicationRepository.Entry(shortcut, path, null));
+            var entry = DesktopEntryFile.parseTermuxCatalogEntry(decode(fields[1]), path);
+            if (entry != null) result.add(entry);
         }
         result.sort(Comparator.comparing(entry -> entry.shortcut.name, String.CASE_INSENSITIVE_ORDER));
         return List.copyOf(result);

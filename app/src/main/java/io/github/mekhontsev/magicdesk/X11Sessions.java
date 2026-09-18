@@ -80,8 +80,12 @@ final class X11Sessions {
     static Session find(String id) { synchronized (SESSIONS) { return SESSIONS.get(id); } }
     static Session findRecipe(String key) {
         Session selected = null;
-        for (Session session : list()) if (!session.stopped() && session.recipe != null && session.recipe.key().equals(key)) selected = session;
+        for (Session session : list()) if (!session.stopped() && session.matchesRecipe(key)) selected = session;
         return selected;
+    }
+
+    static void forgetLaunchSource(String termuxPackage, String path) {
+        for (Session session : list()) session.forgetRecipe(termuxPackage, path);
     }
     static List<Session> list() { synchronized (SESSIONS) { return new ArrayList<>(SESSIONS.values()); } }
     static int count() { synchronized (SESSIONS) { return SESSIONS.size(); } }
@@ -121,7 +125,7 @@ final class X11Sessions {
         final TermuxIntegration.Endpoint endpoint;
         final boolean application;
         final String presentationKey;
-        final RecentApplicationStore.Entry recipe;
+        private RecentApplicationStore.Entry recipe;
         private RecentLaunchScope recentScope;
         private final java.util.LinkedHashSet<Integer> hosts = new java.util.LinkedHashSet<>();
         private final X11Density density;
@@ -175,6 +179,16 @@ final class X11Sessions {
         synchronized void releaseHost(int taskId) { hosts.remove(taskId); }
         synchronized int hostTaskId() { int id = -1; for (int task : hosts) id = task; return id; }
         synchronized List<Integer> hostTaskIds() { return List.copyOf(hosts); }
+        private synchronized boolean matchesRecipe(String key) {
+            return recipe != null && recipe.key().equals(key);
+        }
+
+        private synchronized void forgetRecipe(String termuxPackage, String path) {
+            // A live client survives shortcut deletion, but must not restore its deleted launch history.
+            if (recipe != null && recipe.termuxPackage().equals(termuxPackage) && recipe.sourcePath().equals(path))
+                recipe = null;
+        }
+
         synchronized void recordUse(RecentLaunchScope scope) {
             recentScope = scope;
             recordUse();

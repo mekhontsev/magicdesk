@@ -1348,7 +1348,7 @@ public abstract class DesktopShellActivity extends Activity
                 DesktopCommandApplicationDialog.InitialValues.empty(
                         ShellDesktopDirectory.ABSOLUTE_PATH,
                         DesktopExecBackend.SHELL),
-                created -> refreshDesktopFolder(true)));
+                () -> refreshDesktopFolder(true)));
     }
 
     void createCommandApplication(final DesktopFile file) {
@@ -1364,7 +1364,7 @@ public abstract class DesktopShellActivity extends Activity
                         file.mimeType,
                         absolutePath,
                         false),
-                created -> refreshDesktopFolder(true)));
+                () -> refreshDesktopFolder(true)));
     }
 
     void renameDesktopFile(final DesktopFile file) {

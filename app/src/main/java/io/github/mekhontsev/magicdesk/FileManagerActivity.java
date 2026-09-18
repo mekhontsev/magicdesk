@@ -689,7 +689,7 @@ mView.setTerminalVisible(RuntimeLimits.active().termux() && TermuxIntegration.is
                                         .empty(
                                                 mCurrentPath,
                                                 DesktopExecBackend.SHELL),
-                                created -> refreshContents());
+                                () -> refreshContents());
                     }
 
                     @Override
@@ -1299,7 +1299,7 @@ mView.setTerminalVisible(RuntimeLimits.active().termux() && TermuxIntegration.is
         DesktopCommandApplicationDialog.show(
                 this,
                 DesktopCommandApplicationDialog.InitialValues.fromFile(file),
-                created -> refreshContents());
+                () -> refreshContents());
     }
 
     private void loadDirectory(

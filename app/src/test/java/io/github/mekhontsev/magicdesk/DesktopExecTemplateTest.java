@@ -11,6 +11,13 @@ import java.util.List;
 import org.junit.Test;
 
 public final class DesktopExecTemplateTest {
+    @Test public void literalArgvRoundTripsSpecialCharactersWithoutFieldExpansion() {
+        List<String> args = List.of("sh", "-c", "printf '%s' \"$HOME\"; echo `id` \\ %f", "");
+        assertEquals(args.stream().map(ShellCommandLine::quote).collect(java.util.stream.Collectors.joining(" ")),
+                DesktopExecTemplate.expandArguments(DesktopExecTemplate.encodeArguments(args),
+                        DesktopLaunchArguments.empty(), "ignored", "", ""));
+    }
+
     @Test
     public void expandedCommandAcceptsExactLimitIncludingArgumentQuotes() {
         final String prefix = "'tool' ";

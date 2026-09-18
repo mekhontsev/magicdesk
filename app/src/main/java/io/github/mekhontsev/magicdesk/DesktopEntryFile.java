@@ -93,7 +93,17 @@ final class DesktopEntryFile {
     }
 
     static DesktopApplicationShortcut parseTermuxApplication(String encoded) {
-        Map<String, String> values = parseValues(encoded);
+        return parseTermuxApplicationValues(parseValues(encoded));
+    }
+
+    static DesktopApplicationRepository.Entry parseTermuxCatalogEntry(String encoded, String path) {
+        final Map<String, String> values = parseValues(encoded);
+        final boolean userShortcut = values != null && "true".equals(values.get("X-MagicDesk-UserShortcut"));
+        final DesktopApplicationShortcut shortcut = parseTermuxApplicationValues(values);
+        return shortcut == null ? null : new DesktopApplicationRepository.Entry(shortcut, path, null, userShortcut);
+    }
+
+    private static DesktopApplicationShortcut parseTermuxApplicationValues(Map<String, String> values) {
         if (values == null || !"Application".equals(values.get("Type"))
                 || "true".equalsIgnoreCase(values.get("Hidden"))
                 || "true".equalsIgnoreCase(values.get("NoDisplay"))) return null;

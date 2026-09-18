@@ -96,6 +96,27 @@ public final class RecentApplicationStoreTest {
         assertNotEquals(entry(named, "").key(), entry(x11("Two", "wrapper %c"), "").key());
     }
 
+    @Test public void removingSourceClearsAllRecipesButPreservesOtherEnvironmentsAndFiles() throws Exception {
+        var original = entry(x11("Ubuntu", "first-command"), "/user/magicdesk-ubuntu.desktop");
+        var changed = entry(x11("Ubuntu", "second-command"), original.sourcePath());
+        var otherEnvironment = new RecentApplicationStore.Entry(original.shortcut(), original.sourcePath(), "other.termux", 100);
+        var otherFile = entry(x11("Other", "other-command"), "/user/magicdesk-other.desktop");
+        for (RecentLaunchScope scope : RecentLaunchScope.values()) {
+            var history = new RecentApplicationStore(directory().resolve(scope.directory));
+            history.record(original); history.record(changed); history.record(otherEnvironment); history.record(otherFile);
+            assertEquals(List.of(otherFile.key(), otherEnvironment.key()),
+                    history.removeSource("com.termux", original.sourcePath()).stream().map(RecentApplicationStore.Entry::key).toList());
+            assertEquals(2, history.removeSource("com.termux", original.sourcePath()).size());
+        }
+    }
+
+    @Test public void removingAbsentSourceDoesNotCreateStorageAndRequiresEnvironmentAndPath() throws Exception {
+        assertTrue(store().removeSource("com.termux", "/user/magicdesk-absent.desktop").isEmpty());
+        assertFalse(Files.exists(directory()));
+        assertThrows(IllegalArgumentException.class, () -> store().removeSource("", "/user/a.desktop"));
+        assertThrows(IllegalArgumentException.class, () -> store().removeSource("com.termux", ""));
+    }
+
     @Test public void historyPrunesOldFilesAndRecreationCannotGrowIt() throws Exception {
         for (int i = 0; i < RecentApplicationStore.LIMIT + 10; i++) store().record(entry(x11("App", "app-" + i), ""));
         assertEquals(RecentApplicationStore.LIMIT, store().read().size());

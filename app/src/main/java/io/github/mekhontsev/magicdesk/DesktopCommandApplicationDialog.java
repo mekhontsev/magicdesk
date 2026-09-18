@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.graphics.Typeface;
 import android.text.InputType;
+import android.view.View;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -16,10 +18,10 @@ import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Creates terminal Application desktop entries from a shared editor. */
+/** Creates command Application desktop entries from a shared editor. */
 final class DesktopCommandApplicationDialog {
     interface Listener {
-        void onCreated(DesktopFileInfo file);
+        void onCreated();
     }
 
     static final class InitialValues {
@@ -106,31 +108,73 @@ final class DesktopCommandApplicationDialog {
 
         final EditText name = field(
                 activity, form, R.string.command_app_name, initial.name);
+
+        label(activity, form, R.string.command_app_backend);
+        final Spinner backend = spinner(activity, R.array.command_app_backends,
+                initial.backend.ordinal());
+        form.addView(backend, matchWrap());
+        final LinuxEnvironmentPicker linux = new LinuxEnvironmentPicker(activity);
+        linux.setVisibility(View.GONE);
+        form.addView(linux, matchWrap());
+        final LinearLayout presentationFields = new LinearLayout(activity);
+        presentationFields.setOrientation(LinearLayout.VERTICAL);
+        presentationFields.setVisibility(View.GONE);
+        label(activity, presentationFields, R.string.command_app_presentation);
+        final Spinner presentation = spinner(activity, R.array.command_app_presentations, 0);
+        presentationFields.addView(presentation, matchWrap());
+        final EditText linuxUser = field(activity, presentationFields, R.string.command_app_linux_user, "");
+        linuxUser.setHint(R.string.command_app_linux_user_hint);
+        linuxUser.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        form.addView(presentationFields, matchWrap());
+
         final EditText command = field(
                 activity, form, R.string.command_app_command, initial.command);
         command.setInputType(InputType.TYPE_CLASS_TEXT
                 | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         command.setTypeface(Typeface.MONOSPACE);
-        final EditText directory = field(
-                activity,
-                form,
-                R.string.command_app_working_directory,
-                initial.workingDirectory);
+        final TextView directoryLabel = label(activity, form, R.string.command_app_working_directory);
+        final EditText directory = new EditText(activity);
+        directory.setSingleLine(true);
+        directory.setText(initial.workingDirectory);
+        form.addView(directory, matchWrap());
         directory.setTypeface(Typeface.MONOSPACE);
 
-        label(activity, form, R.string.command_app_backend);
-        final Spinner backend = spinner(
-                activity,
-                R.array.command_app_backends,
-                initial.backend.ordinal());
-        form.addView(backend, matchWrap());
-
-        label(activity, form, R.string.command_app_file_arguments);
+        final LinearLayout fileFields = new LinearLayout(activity);
+        fileFields.setOrientation(LinearLayout.VERTICAL);
+        label(activity, fileFields, R.string.command_app_file_arguments);
         final Spinner arguments = spinner(
                 activity, R.array.command_app_file_arguments_values, 0);
-        form.addView(arguments, matchWrap());
+        fileFields.addView(arguments, matchWrap());
         final EditText mimeTypes = field(
-                activity, form, R.string.command_app_mime_types, "");
+                activity, fileFields, R.string.command_app_mime_types, "");
+        form.addView(fileFields, matchWrap());
+
+        backend.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            private boolean wasLinux;
+            private String hostDirectory = initial.workingDirectory;
+            private String guestDirectory = "";
+
+            @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                boolean isLinux = position == 3;
+                linux.setActive(isLinux);
+                presentationFields.setVisibility(isLinux ? View.VISIBLE : View.GONE);
+                fileFields.setVisibility(isLinux ? View.GONE : View.VISIBLE);
+                directoryLabel.setText(isLinux ? R.string.command_app_guest_directory
+                        : R.string.command_app_working_directory);
+                command.setHint(isLinux ? activity.getString(R.string.command_app_linux_command_hint) : null);
+                if (isLinux != wasLinux) {
+                    if (isLinux) {
+                        hostDirectory = directory.getText().toString();
+                        directory.setText(guestDirectory);
+                    } else {
+                        guestDirectory = directory.getText().toString();
+                        directory.setText(hostDirectory);
+                    }
+                }
+                wasLinux = isLinux;
+            }
+            @Override public void onNothingSelected(AdapterView<?> parent) { }
+        });
 
         final ScrollView scroll = new ScrollView(activity);
         scroll.setFillViewport(false);
@@ -150,7 +194,9 @@ final class DesktopCommandApplicationDialog {
                                 R.string.desktop_entry_name_required));
                         return;
                     }
-                    if (command.getText().toString().trim().isEmpty()) {
+                    final boolean isLinux = backend.getSelectedItemPosition() == 3;
+                    if (command.getText().toString().trim().isEmpty()
+                            && !(isLinux && presentation.getSelectedItemPosition() == 0)) {
                         command.setError(activity.getString(
                                 R.string.command_app_command_required));
                         return;
@@ -164,15 +210,20 @@ final class DesktopCommandApplicationDialog {
                         return;
                     }
                     try {
+                        if (isLinux) linux.selected();
                         DesktopMimeTypes.parse(
-                                mimeTypes.getText().toString().trim());
+                                isLinux ? "" : mimeTypes.getText().toString().trim());
                     } catch (IllegalArgumentException error) {
-                        mimeTypes.setError(activity.getString(
-                                R.string.command_app_mime_invalid));
+                        command.setError(error.getMessage());
                         return;
                     }
-                    final DesktopCommandApplicationDraft draft =
-                            new DesktopCommandApplicationDraft(
+                    final DesktopApplicationShortcut shortcut;
+                    try {
+                        shortcut = isLinux ? LinuxLaunchRecipe.build(name.getText().toString(),
+                                linux.selected(), command.getText().toString(), workingDirectory,
+                                linuxUser.getText().toString(),
+                                LinuxLaunchRecipe.Presentation.values()[presentation.getSelectedItemPosition()])
+                                : new DesktopCommandApplicationDraft(
                                     name.getText().toString(),
                                     command.getText().toString(),
                                     DesktopExecBackend.values()[backend.getSelectedItemPosition()],
@@ -180,17 +231,23 @@ final class DesktopCommandApplicationDialog {
                                     DesktopCommandApplicationDraft.FileArguments
                                             .values()[arguments
                                                     .getSelectedItemPosition()],
-                                    mimeTypes.getText().toString());
-                    final DesktopApplicationShortcut shortcut;
-                    try {
-                        shortcut = draft.build();
+                                    mimeTypes.getText().toString()).build();
                     } catch (IllegalArgumentException error) {
-                        mimeTypes.setError(error.getMessage());
+                        command.setError(error.getMessage());
                         return;
                     }
                     dialog.getButton(AlertDialog.BUTTON_POSITIVE)
                             .setEnabled(false);
-                    create(activity, shortcut, listener, dialog);
+                    if (isLinux) {
+                        try {
+                            TermuxDesktopEntries.create(activity.getApplicationContext(), linux.endpoint(),
+                                    shortcut, (result, failure) -> completed(activity, shortcut, listener, dialog, true,
+                                            failure != null ? failure : result != null && result.success() ? null
+                                                    : new IOException(result == null ? "No Termux result" : result.usefulMessage())));
+                        } catch (RuntimeException error) {
+                            completed(activity, shortcut, listener, dialog, true, error);
+                        }
+                    } else create(activity, shortcut, listener, dialog);
                 }));
         return dialog;
     }
@@ -201,42 +258,31 @@ final class DesktopCommandApplicationDialog {
             final Listener listener,
             final AlertDialog dialog) {
         CREATOR.execute(() -> {
-            DesktopFileInfo created = null;
             Throwable failure = null;
             try {
-                created = DesktopEntryFile.createApplication(shortcut);
+                DesktopEntryFile.createApplication(shortcut);
             } catch (IOException | RuntimeException error) {
                 failure = error;
             }
-            final DesktopFileInfo result = created;
             final Throwable error = failure;
-            activity.runOnUiThread(() -> {
-                if (activity.isFinishing() || activity.isDestroyed()) {
-                    return;
-                }
-                if (error != null) {
-                    dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-                            .setEnabled(true);
-                    Toast.makeText(
-                            activity,
-                            activity.getString(
-                                    R.string.command_app_create_failed,
-                                    ShellAccess.usefulMessage(error)),
-                            Toast.LENGTH_LONG).show();
-                    return;
-                }
-                dialog.dismiss();
-                Toast.makeText(
-                        activity,
-                        activity.getString(
-                                R.string.command_app_created,
-                                shortcut.name),
-                        Toast.LENGTH_SHORT).show();
-                if (listener != null) {
-                    listener.onCreated(result);
-                }
-            });
+            activity.runOnUiThread(() -> completed(activity, shortcut, listener, dialog, false, error));
         });
+    }
+
+    private static void completed(Activity activity, DesktopApplicationShortcut shortcut,
+            Listener listener, AlertDialog dialog, boolean termux, Throwable error) {
+        if (error == null && termux) ApplicationCatalog.get(activity).termuxApplicationsChanged();
+        if (activity.isFinishing() || activity.isDestroyed() || !dialog.isShowing()) return;
+        if (error != null) {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
+            Toast.makeText(activity, activity.getString(R.string.command_app_create_failed,
+                    ShellAccess.usefulMessage(error)), Toast.LENGTH_LONG).show();
+            return;
+        }
+        dialog.dismiss();
+        Toast.makeText(activity, activity.getString(termux ? R.string.command_app_termux_created
+                : R.string.command_app_created, shortcut.name), Toast.LENGTH_SHORT).show();
+        if (listener != null) listener.onCreated();
     }
 
     private static EditText field(
@@ -252,7 +298,7 @@ final class DesktopCommandApplicationDialog {
         return field;
     }
 
-    private static void label(
+    private static TextView label(
             final Activity activity,
             final LinearLayout form,
             final int resource) {
@@ -262,6 +308,7 @@ final class DesktopCommandApplicationDialog {
         final LinearLayout.LayoutParams params = matchWrap();
         params.setMargins(0, dp(activity, 10), 0, 0);
         form.addView(label, params);
+        return label;
     }
 
     private static Spinner spinner(

@@ -285,6 +285,11 @@ Use the **X11** tool to create and manage multiple retained sessions, run a
 window manager or launch a configured proot/chroot Linux desktop. Open the whole
 desktop in one window, or choose individual clients through **X11 windows**.
 A custom `.desktop` launcher can bring that environment into Start as well.
+In **New command app**, choose **Linux (Termux)** and an installed `proot-distro`
+environment or a custom entry script for prepared chroot/other environments.
+Create a terminal, X11 application or Linux-desktop launcher, optionally choosing
+the Linux user and working directory. User shortcuts can be deleted from Start.
+Leave the terminal command empty for a Linux login shell in MagicDesk Console.
 MagicDesk supplies the X server and windows; Termux and your container setup
 supply the programs. It does not install or configure a Linux distribution for you.
 

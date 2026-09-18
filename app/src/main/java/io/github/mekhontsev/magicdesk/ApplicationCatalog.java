@@ -118,6 +118,11 @@ final class ApplicationCatalog {
 
     void ensureAndroid() { android.ensureLoaded(); }
 
+    void termuxApplicationsChanged() {
+        termux.invalidate();
+        refresh();
+    }
+
     private void packagesChanged() {
         android.invalidate();
         final boolean available = inspectTermux();

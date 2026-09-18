@@ -172,9 +172,9 @@
     <string name="action_new_file">New file&#8230;</string>
     <string name="action_new_folder">New folder&#8230;</string>
     <string name="action_create">Create</string>
-    <string name="action_new_terminal_application">New terminal app&#8230;</string>
+    <string name="action_new_terminal_application">New command app&#8230;</string>
     <string name="action_add_as_terminal_application">Add as terminal app&#8230;</string>
-    <string name="command_app_title">Terminal application</string>
+    <string name="command_app_title">Command application</string>
     <string name="command_app_name">Name</string>
     <string name="command_app_command">Command and parameters</string>
     <string name="command_app_working_directory">Working directory</string>
@@ -182,7 +182,31 @@
     <string name="command_app_file_arguments">Accepted file arguments</string>
     <string name="command_app_mime_types">MIME types (semicolon separated)</string>
     <string name="command_app_created">%1$s added to Desktop and Start</string>
+    <string name="command_app_termux_created">%1$s added to Termux applications and Start</string>
+    <string name="command_app_proot_environment">Installed PRoot environment</string>
+    <string name="command_app_proot_loading">Loading PRoot environments&#8230;</string>
+    <string name="command_app_proot_empty">No installed proot-distro environments</string>
+    <string name="command_app_proot_select">Select an installed PRoot environment</string>
+    <string name="command_app_linux_command_hint">Empty for a terminal login shell</string>
+    <string name="command_app_linux_method">Linux launcher</string>
+    <string name="command_app_linux_script">Launcher script (absolute Termux path)</string>
+    <string-array name="command_app_linux_methods">
+        <item>PRoot (proot-distro)</item>
+        <item>Custom script (chroot or other)</item>
+    </string-array>
+    <string name="command_app_guest_directory">Working directory inside Linux</string>
+    <string name="command_app_linux_user">Linux user (optional)</string>
+    <string name="command_app_linux_user_hint">Launcher default</string>
+    <string name="command_app_presentation">Open as</string>
+    <string-array name="command_app_presentations">
+        <item>Terminal</item>
+        <item>X11 application</item>
+        <item>Linux desktop</item>
+    </string-array>
     <string name="command_app_create_failed">Cannot create application: %1$s</string>
+    <string name="action_delete_shortcut">Delete shortcut</string>
+    <string name="delete_termux_shortcut_confirmation">Delete "%1$s" and its Recent entries? The installed application, Linux environment and running sessions will not be removed.</string>
+    <string name="delete_shortcut_failed">Cannot finish deleting shortcut: %1$s</string>
     <string name="command_app_command_required">Enter a command</string>
     <string name="command_app_directory_invalid">Enter an absolute directory</string>
     <string name="command_app_mime_invalid">Enter valid MIME types separated by semicolons</string>
@@ -190,6 +214,7 @@
         <item>Android shell</item>
         <item>Termux</item>
         <item>Termux X11</item>
+        <item>Linux (Termux)</item>
     </string-array>
     <string-array name="command_app_file_arguments_values">
         <item>None</item>

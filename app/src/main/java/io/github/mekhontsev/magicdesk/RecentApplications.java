@@ -62,6 +62,20 @@ final class RecentApplications {
         });
     }
 
+    static void removeSource(Context context, String termuxPackage, String sourcePath,
+            java.util.function.Consumer<Throwable> complete) {
+        Context app = context.getApplicationContext();
+        IO.execute(() -> {
+            Throwable error = null;
+            for (var scope : RecentLaunchScope.values()) {
+                try { publish(scope, store(app, scope).removeSource(termuxPackage, sourcePath), ""); }
+                catch (java.io.IOException | RuntimeException failure) { failed(scope, failure); error = failure; }
+            }
+            final Throwable result = error;
+            MAIN.post(() -> complete.accept(result));
+        });
+    }
+
     static void record(Context context, DesktopLaunchRequest request, RecentLaunchScope scope) {
         if (request.sourceShortcut != null) record(context, request.sourceShortcut, request.desktopFilePath, scope);
     }

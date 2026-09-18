@@ -72,6 +72,19 @@ public final class TermuxApplicationCommandTest {
         assertEquals("Good", entries.get(0).shortcut.name);
     }
 
+    @Test public void onlyOurDirectUserEntriesOfferDeletionAndFileMetadataCannotGrantIt() throws Exception {
+        Path user = Files.createDirectories(home.resolve(".local/share/applications"));
+        write(user.resolve("magicdesk-user.desktop"), "User");
+        Path ordinary = write(user.resolve("ordinary.desktop"), "Ordinary");
+        Path installed = write(applications.resolve("magicdesk-installed.desktop"), "Installed");
+        for (Path file : List.of(ordinary, installed))
+            Files.writeString(file, Files.readString(file) + "X-MagicDesk-UserShortcut=true\n");
+        Files.createSymbolicLink(user.resolve("magicdesk-link.desktop"), installed);
+        var entries = load();
+        assertEquals(4, entries.size());
+        for (var entry : entries) assertEquals(entry.shortcut.name.equals("User"), entry.userShortcut);
+    }
+
     private List<DesktopApplicationRepository.Entry> load() throws Exception {
         String shell = System.getenv("PREFIX") == null ? "/bin/bash" : System.getenv("PREFIX") + "/bin/bash";
         var builder = new ProcessBuilder(shell, "-c", TermuxApplicationCommand.create()).directory(root.toFile());

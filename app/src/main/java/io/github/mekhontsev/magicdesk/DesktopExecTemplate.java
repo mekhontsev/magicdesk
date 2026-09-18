@@ -8,6 +8,19 @@ final class DesktopExecTemplate {
     private DesktopExecTemplate() {
     }
 
+    /** Literal argv, with Desktop Entry quoting and field-code escaping, not shell syntax. */
+    static String encodeArguments(List<String> arguments) {
+        StringBuilder result = new StringBuilder();
+        for (String argument : arguments) {
+            if (result.length() != 0) result.append(' ');
+            result.append('"').append(argument.replace("\\", "\\\\")
+                    .replace("\"", "\\\"").replace("$", "\\$")
+                    .replace("`", "\\`").replace("%", "%%")).append('"');
+            DesktopExecCommand.normalize(result.toString());
+        }
+        return DesktopExecCommand.normalize(result.toString());
+    }
+
     static String expand(
             final String command,
             final DesktopLaunchArguments arguments,
