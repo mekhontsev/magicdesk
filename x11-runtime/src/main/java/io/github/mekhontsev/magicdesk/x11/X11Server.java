@@ -9,6 +9,8 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
+import io.github.mekhontsev.magicdesk.hosted.HostedProcessContext;
+import io.github.mekhontsev.magicdesk.hosted.HostedServerLifecycle;
 
 /** Isolated app_process under the selected executor UID, never the host's privileged service. */
 public final class X11Server extends IX11Server.Stub {
@@ -19,7 +21,7 @@ public final class X11Server extends IX11Server.Stub {
     private final String hostPackage, session, token;
     private final int hostUid;
     private final String[] arguments;
-    private final X11ServerLifecycle lifecycle;
+    private final HostedServerLifecycle lifecycle;
     private IBinder owner;
     private final IBinder.DeathRecipient ownerDied = this::requestStop;
     private final Runnable deadline = this::expireAdmission;
@@ -29,9 +31,9 @@ public final class X11Server extends IX11Server.Stub {
         hostPackage = required("MAGICDESK_X11_PACKAGE");
         session = required("MAGICDESK_X11_SESSION");
         token = required("MAGICDESK_X11_TOKEN");
-        context = X11ProcessContext.create(required("MAGICDESK_X11_EXECUTOR"));
+        context = HostedProcessContext.create(required("MAGICDESK_X11_EXECUTOR"));
         hostUid = context.getPackageManager().getPackageUid(hostPackage, 0);
-        lifecycle = new X11ServerLifecycle(hostUid);
+        lifecycle = new HostedServerLifecycle(hostUid);
         System.load(required("MAGICDESK_X11_LIBRARY"));
     }
 
@@ -76,9 +78,9 @@ public final class X11Server extends IX11Server.Stub {
     private void requestStop() {
         files.close();
         handler.post(() -> {
-            X11ServerLifecycle.Stop action = lifecycle.stop();
-            if (action == X11ServerLifecycle.Stop.EXIT) System.exit(0);
-            if (action == X11ServerLifecycle.Stop.NATIVE) nativeStop();
+            HostedServerLifecycle.Stop action = lifecycle.stop();
+            if (action == HostedServerLifecycle.Stop.EXIT) System.exit(0);
+            if (action == HostedServerLifecycle.Stop.NATIVE) nativeStop();
         });
     }
 

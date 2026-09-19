@@ -1,0 +1,557 @@
+#include "wayland_server.h"
+#include <stdlib.h>
+#include <math.h>
+#include <linux/input-event-codes.h>
+#include <time.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <wayland-server-core.h>
+#include <wlr/backend/headless.h>
+#include <wlr/interfaces/wlr_keyboard.h>
+#include <wlr/render/allocator.h>
+#include <wlr/render/pixman.h>
+#include <wlr/types/wlr_buffer.h>
+#include <wlr/types/wlr_compositor.h>
+#include <wlr/types/wlr_scene.h>
+#include <wlr/types/wlr_subcompositor.h>
+#include <wlr/types/wlr_xdg_shell.h>
+
+struct MdwToplevel {
+    struct wl_list link;
+    MdwServer *server;
+    uint64_t id;
+    struct wlr_xdg_toplevel *xdg;
+    struct wlr_scene *scene;
+    struct wl_listener map, unmap, commit, destroy, title, app_id, parent;
+    struct wl_listener fullscreen, maximize;
+};
+
+struct MdwPopup {
+    struct wlr_xdg_popup *xdg;
+    struct wl_listener commit, destroy;
+};
+
+struct MdwOutput {
+    struct wl_list link;
+    MdwServer *server;
+    struct MdwToplevel *window;
+    struct wlr_output *output;
+    struct wlr_scene_output *scene_output;
+    struct wl_listener frame, commit;
+    bool presenting;
+    bool keys[KEY_MAX + 1];
+    bool buttons[3];
+};
+
+struct MdwServer {
+    struct wl_display *display;
+    struct wlr_backend *backend;
+    struct wlr_renderer *renderer;
+    struct wlr_allocator *allocator;
+    struct wlr_xdg_shell *shell;
+    struct wlr_seat *seat;
+    struct wlr_keyboard keyboard;
+    bool keyboard_initialized;
+    struct wl_listener modifiers;
+    MdwOutput *input_owner;
+    struct wl_listener new_toplevel, new_popup;
+    struct wl_list windows, outputs;
+    uint64_t next_id;
+    MdwEvents events;
+    const char *socket;
+};
+
+static void listen_signal(struct wl_signal *signal, struct wl_listener *listener,
+        void (*notify)(struct wl_listener *, void *)) {
+    listener->notify = notify;
+    wl_signal_add(signal, listener);
+}
+
+static void report_error(MdwServer *server, const char *message) {
+    if (server->events.error) server->events.error(server->events.context, message);
+}
+
+static struct MdwToplevel *find_window(MdwServer *server, uint64_t id) {
+    struct MdwToplevel *window;
+    wl_list_for_each(window, &server->windows, link) {
+        if (window->id == id) return window;
+    }
+    return NULL;
+}
+
+static void publish(struct MdwToplevel *window) {
+    MdwServer *server = window->server;
+    if (!server->events.window) return;
+    uint64_t parent = 0;
+    struct MdwToplevel *candidate;
+    wl_list_for_each(candidate, &server->windows, link) {
+        if (candidate->xdg == window->xdg->parent) parent = candidate->id;
+    }
+    struct wlr_box geometry;
+    wlr_xdg_surface_get_geometry(window->xdg->base, &geometry);
+    MdwWindow info = {
+        .id = window->id, .parent = parent,
+        .title = window->xdg->title ? window->xdg->title : "",
+        .app_id = window->xdg->app_id ? window->xdg->app_id : "",
+        .mapped = window->xdg->base->surface->mapped,
+        .width = geometry.width, .height = geometry.height,
+    };
+    server->events.window(server->events.context, window->id, &info);
+}
+
+static void output_commit(struct wl_listener *listener, void *data) {
+    MdwOutput *output = wl_container_of(listener, output, commit);
+    const struct wlr_output_event_commit *event = data;
+    if (!output->presenting || !(event->state->committed & WLR_OUTPUT_STATE_BUFFER) ||
+            !event->state->buffer || !output->server->events.frame) return;
+    struct wlr_buffer *buffer = event->state->buffer;
+    void *pixels;
+    uint32_t format;
+    size_t stride;
+    if (!wlr_buffer_begin_data_ptr_access(buffer, WLR_BUFFER_DATA_PTR_ACCESS_READ,
+            &pixels, &format, &stride)) {
+        report_error(output->server, "software frame is not CPU-readable");
+        return;
+    }
+    MdwFrame frame = { .pixels = pixels, .format = format, .stride = stride,
+        .width = buffer->width, .height = buffer->height };
+    output->server->events.frame(output->server->events.context, output, &frame);
+    wlr_buffer_end_data_ptr_access(buffer);
+}
+
+static void output_frame(struct wl_listener *listener, void *data) {
+    (void)data;
+    MdwOutput *output = wl_container_of(listener, output, frame);
+    if (!output->window || !output->window->xdg->base->surface->mapped) return;
+    output->presenting = true;
+    bool committed = wlr_scene_output_commit(output->scene_output, NULL);
+    output->presenting = false;
+    if (!committed) {
+        report_error(output->server, "software scene commit failed");
+        return;
+    }
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    wlr_scene_output_send_frame_done(output->scene_output, &now);
+}
+
+static void release_output(MdwOutput *output) {
+    mdw_output_focus(output, false);
+    if (!output->output) return;
+    wl_list_remove(&output->frame.link);
+    wl_list_remove(&output->commit.link);
+    if (output->scene_output) wlr_scene_output_destroy(output->scene_output);
+    wlr_output_destroy(output->output);
+    output->output = NULL;
+    output->scene_output = NULL;
+}
+
+static void window_map(struct wl_listener *listener, void *data) {
+    (void)data;
+    struct MdwToplevel *window = wl_container_of(listener, window, map);
+    publish(window);
+}
+
+static void window_unmap(struct wl_listener *listener, void *data) {
+    (void)data;
+    struct MdwToplevel *window = wl_container_of(listener, window, unmap);
+    MdwOutput *output;
+    wl_list_for_each(output, &window->server->outputs, link) {
+        if (output->window != window) continue;
+        mdw_output_focus(output, false);
+        if (window->server->events.frame)
+            window->server->events.frame(window->server->events.context, output, NULL);
+    }
+    publish(window);
+}
+
+static void window_commit(struct wl_listener *listener, void *data) {
+    (void)data;
+    struct MdwToplevel *window = wl_container_of(listener, window, commit);
+    if (window->xdg->base->initial_commit) {
+        wlr_xdg_toplevel_set_wm_capabilities(window->xdg, 0);
+        wlr_xdg_toplevel_set_size(window->xdg, 640, 480);
+    }
+    publish(window);
+}
+
+static void window_title(struct wl_listener *listener, void *data) {
+    (void)data;
+    struct MdwToplevel *window = wl_container_of(listener, window, title);
+    publish(window);
+}
+
+static void window_app_id(struct wl_listener *listener, void *data) {
+    (void)data;
+    struct MdwToplevel *window = wl_container_of(listener, window, app_id);
+    publish(window);
+}
+
+static void window_parent(struct wl_listener *listener, void *data) {
+    (void)data;
+    struct MdwToplevel *window = wl_container_of(listener, window, parent);
+    publish(window);
+}
+
+static void window_fullscreen(struct wl_listener *listener, void *data) {
+    (void)data;
+    struct MdwToplevel *window = wl_container_of(listener, window, fullscreen);
+    wlr_xdg_surface_schedule_configure(window->xdg->base);
+}
+
+static void window_maximize(struct wl_listener *listener, void *data) {
+    (void)data;
+    struct MdwToplevel *window = wl_container_of(listener, window, maximize);
+    wlr_xdg_surface_schedule_configure(window->xdg->base);
+}
+
+static void window_destroy(struct wl_listener *listener, void *data) {
+    (void)data;
+    struct MdwToplevel *window = wl_container_of(listener, window, destroy);
+    MdwServer *server = window->server;
+    MdwOutput *output;
+    wl_list_for_each(output, &server->outputs, link) {
+        if (output->window != window) continue;
+        release_output(output);
+        output->window = NULL;
+    }
+    wl_list_remove(&window->link);
+    wl_list_remove(&window->map.link);
+    wl_list_remove(&window->unmap.link);
+    wl_list_remove(&window->commit.link);
+    wl_list_remove(&window->destroy.link);
+    wl_list_remove(&window->title.link);
+    wl_list_remove(&window->app_id.link);
+    wl_list_remove(&window->parent.link);
+    wl_list_remove(&window->fullscreen.link);
+    wl_list_remove(&window->maximize.link);
+    wlr_scene_node_destroy(&window->scene->tree.node);
+    if (server->events.window) server->events.window(server->events.context, window->id, NULL);
+    free(window);
+}
+
+static void new_toplevel(struct wl_listener *listener, void *data) {
+    MdwServer *server = wl_container_of(listener, server, new_toplevel);
+    struct wlr_xdg_toplevel *xdg = data;
+    struct MdwToplevel *window = calloc(1, sizeof(*window));
+    if (!window) { wl_client_post_no_memory(wl_resource_get_client(xdg->resource)); return; }
+    window->server = server;
+    window->xdg = xdg;
+    window->id = ++server->next_id;
+    window->scene = wlr_scene_create();
+    if (!window->scene) { free(window); wl_client_post_no_memory(wl_resource_get_client(xdg->resource)); return; }
+    window->scene->direct_scanout = false;
+    struct wlr_scene_tree *tree = wlr_scene_xdg_surface_create(&window->scene->tree, xdg->base);
+    if (!tree) {
+        wlr_scene_node_destroy(&window->scene->tree.node);
+        free(window);
+        wl_client_post_no_memory(wl_resource_get_client(xdg->resource));
+        return;
+    }
+    xdg->base->data = tree;
+    wl_list_insert(&server->windows, &window->link);
+    listen_signal(&xdg->base->surface->events.map, &window->map, window_map);
+    listen_signal(&xdg->base->surface->events.unmap, &window->unmap, window_unmap);
+    listen_signal(&xdg->base->surface->events.commit, &window->commit, window_commit);
+    listen_signal(&xdg->events.destroy, &window->destroy, window_destroy);
+    listen_signal(&xdg->events.set_title, &window->title, window_title);
+    listen_signal(&xdg->events.set_app_id, &window->app_id, window_app_id);
+    listen_signal(&xdg->events.set_parent, &window->parent, window_parent);
+    listen_signal(&xdg->events.request_fullscreen, &window->fullscreen, window_fullscreen);
+    listen_signal(&xdg->events.request_maximize, &window->maximize, window_maximize);
+    publish(window);
+}
+
+static void popup_commit(struct wl_listener *listener, void *data) {
+    (void)data;
+    struct MdwPopup *popup = wl_container_of(listener, popup, commit);
+    if (popup->xdg->base->initial_commit) wlr_xdg_surface_schedule_configure(popup->xdg->base);
+}
+
+static void popup_destroy(struct wl_listener *listener, void *data) {
+    (void)data;
+    struct MdwPopup *popup = wl_container_of(listener, popup, destroy);
+    wl_list_remove(&popup->commit.link);
+    wl_list_remove(&popup->destroy.link);
+    free(popup);
+}
+
+static void new_popup(struct wl_listener *listener, void *data) {
+    (void)listener;
+    struct wlr_xdg_popup *xdg = data;
+    struct wlr_xdg_surface *parent = wlr_xdg_surface_try_from_wlr_surface(xdg->parent);
+    if (!parent || !parent->data) { wlr_xdg_popup_destroy(xdg); return; }
+    struct MdwPopup *popup = calloc(1, sizeof(*popup));
+    if (!popup) { wl_client_post_no_memory(wl_resource_get_client(xdg->resource)); return; }
+    xdg->base->data = wlr_scene_xdg_surface_create(parent->data, xdg->base);
+    if (!xdg->base->data) {
+        free(popup);
+        wl_client_post_no_memory(wl_resource_get_client(xdg->resource));
+        return;
+    }
+    popup->xdg = xdg;
+    listen_signal(&xdg->base->surface->events.commit, &popup->commit, popup_commit);
+    listen_signal(&xdg->events.destroy, &popup->destroy, popup_destroy);
+}
+
+static void keyboard_modifiers(struct wl_listener *listener, void *data) {
+    (void)data;
+    MdwServer *server = wl_container_of(listener, server, modifiers);
+    wlr_seat_keyboard_notify_modifiers(server->seat, &server->keyboard.modifiers);
+}
+
+static const struct wlr_keyboard_impl keyboard_impl = {.name = "magicdesk-host"};
+
+MdwServer *mdw_server_create(void) {
+    MdwServer *server = calloc(1, sizeof(*server));
+    if (!server) return NULL;
+    wl_list_init(&server->windows);
+    wl_list_init(&server->outputs);
+    server->display = wl_display_create();
+    if (!server->display) goto fail;
+    server->backend = wlr_headless_backend_create(wl_display_get_event_loop(server->display));
+    if (!server->backend) goto fail;
+    server->renderer = wlr_pixman_renderer_create();
+    if (!server->renderer || !wlr_renderer_init_wl_display(server->renderer, server->display)) goto fail;
+    server->allocator = wlr_allocator_autocreate(server->backend, server->renderer);
+    if (!server->allocator) goto fail;
+    if (!wlr_compositor_create(server->display, 6, server->renderer) ||
+            !wlr_subcompositor_create(server->display)) goto fail;
+    server->seat = wlr_seat_create(server->display, "magicdesk");
+    if (!server->seat) goto fail;
+    wlr_keyboard_init(&server->keyboard, &keyboard_impl, "magicdesk-host");
+    server->keyboard_initialized = true;
+    listen_signal(&server->keyboard.events.modifiers, &server->modifiers, keyboard_modifiers);
+    struct xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    if (!context) goto fail;
+    struct xkb_keymap *keymap = xkb_keymap_new_from_names(context, NULL, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    xkb_context_unref(context);
+    if (!keymap) goto fail;
+    bool keymap_ready = wlr_keyboard_set_keymap(&server->keyboard, keymap);
+    xkb_keymap_unref(keymap);
+    if (!keymap_ready) goto fail;
+    wlr_keyboard_set_repeat_info(&server->keyboard, 25, 600);
+    wlr_seat_set_keyboard(server->seat, &server->keyboard);
+    wlr_seat_set_capabilities(server->seat, WL_SEAT_CAPABILITY_KEYBOARD | WL_SEAT_CAPABILITY_POINTER);
+    server->shell = wlr_xdg_shell_create(server->display, 6);
+    if (!server->shell) goto fail;
+    listen_signal(&server->shell->events.new_toplevel, &server->new_toplevel, new_toplevel);
+    listen_signal(&server->shell->events.new_popup, &server->new_popup, new_popup);
+    server->socket = wl_display_add_socket_auto(server->display);
+    if (!server->socket || !wlr_backend_start(server->backend)) goto fail;
+    return server;
+fail:
+    mdw_server_destroy(server);
+    return NULL;
+}
+
+const char *mdw_server_socket(const MdwServer *server) {
+    return server->socket;
+}
+
+int mdw_server_fd(MdwServer *server) {
+    return wl_event_loop_get_fd(wl_display_get_event_loop(server->display));
+}
+
+int mdw_server_connect(MdwServer *server) {
+    int descriptors[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, descriptors) < 0) return -1;
+    if (!wl_client_create(server->display, descriptors[0])) {
+        close(descriptors[0]);
+        close(descriptors[1]);
+        return -1;
+    }
+    return descriptors[1];
+}
+
+bool mdw_output_refresh(MdwOutput *output) {
+    if (!output || !output->output || !output->scene_output) return false;
+    wlr_damage_ring_add_whole(&output->scene_output->damage_ring);
+    wlr_output_schedule_frame(output->output);
+    return true;
+}
+
+void mdw_server_set_events(MdwServer *server, const MdwEvents *events) {
+    server->events = events ? *events : (MdwEvents){0};
+}
+
+MdwOutput *mdw_output_create(MdwServer *server, uint64_t id, int width, int height) {
+    struct MdwToplevel *window = find_window(server, id);
+    if (!window || width < 1 || height < 1 || width > 4096 || height > 4096) return NULL;
+    MdwOutput *output = calloc(1, sizeof(*output));
+    if (!output) return NULL;
+    output->server = server;
+    output->window = window;
+    output->output = wlr_headless_add_output(server->backend, width, height);
+    if (!output->output) { free(output); return NULL; }
+    if (!wlr_output_init_render(output->output, server->allocator, server->renderer)) {
+        wlr_output_destroy(output->output);
+        free(output);
+        return NULL;
+    }
+    output->scene_output = wlr_scene_output_create(window->scene, output->output);
+    if (!output->scene_output) { wlr_output_destroy(output->output); free(output); return NULL; }
+    wl_list_insert(&server->outputs, &output->link);
+    listen_signal(&output->output->events.frame, &output->frame, output_frame);
+    listen_signal(&output->output->events.commit, &output->commit, output_commit);
+    if (!mdw_output_resize(output, width, height)) { mdw_output_destroy(output); return NULL; }
+    return output;
+}
+
+bool mdw_output_resize(MdwOutput *output, int width, int height) {
+    if (!output || !output->window || !output->output ||
+            width < 1 || height < 1 || width > 4096 || height > 4096) return false;
+    struct wlr_output_state state;
+    wlr_output_state_init(&state);
+    wlr_output_state_set_enabled(&state, true);
+    wlr_output_state_set_custom_mode(&state, width, height, 60000);
+    bool committed = wlr_output_commit_state(output->output, &state);
+    wlr_output_state_finish(&state);
+    if (committed) {
+        wlr_xdg_toplevel_set_size(output->window->xdg, width, height);
+        wlr_output_schedule_frame(output->output);
+    }
+    return committed;
+}
+
+static uint32_t time_msec(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (uint32_t)((uint64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000);
+}
+
+static bool owns_input(MdwOutput *output) {
+    return output && output->window && output->window->xdg->base->surface->mapped &&
+        output->server->input_owner == output;
+}
+
+static void key_event(MdwOutput *output, uint32_t code, bool down) {
+    MdwServer *server = output->server;
+    struct wlr_keyboard_key_event event = {
+        .time_msec = time_msec(), .keycode = code, .update_state = true,
+        .state = down ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED,
+    };
+    wlr_seat_keyboard_notify_key(server->seat, event.time_msec, code, event.state);
+    wlr_keyboard_notify_key(&server->keyboard, &event);
+    output->keys[code] = down;
+}
+
+static const uint32_t button_codes[] = {BTN_LEFT, BTN_MIDDLE, BTN_RIGHT};
+
+bool mdw_output_focus(MdwOutput *output, bool focused) {
+    if (!output) return false;
+    MdwServer *server = output->server;
+    if (!focused) {
+        if (server->input_owner != output) return true;
+        for (uint32_t code = 0; code <= KEY_MAX; ++code) {
+            if (output->keys[code]) key_event(output, code, false);
+        }
+        for (int button = 0; button < 3; ++button) {
+            if (output->buttons[button]) {
+                wlr_seat_pointer_notify_button(server->seat, time_msec(), button_codes[button],
+                    WL_POINTER_BUTTON_STATE_RELEASED);
+                output->buttons[button] = false;
+            }
+        }
+        wlr_seat_pointer_notify_frame(server->seat);
+        wlr_seat_pointer_notify_clear_focus(server->seat);
+        wlr_seat_keyboard_notify_clear_focus(server->seat);
+        if (output->window && output->window->xdg->base->surface->mapped)
+            wlr_xdg_toplevel_set_activated(output->window->xdg, false);
+        server->input_owner = NULL;
+        return true;
+    }
+    if (!output->window || !output->window->xdg->base->surface->mapped) return false;
+    if (server->input_owner == output) return true;
+    if (server->input_owner) mdw_output_focus(server->input_owner, false);
+    server->input_owner = output;
+    wlr_xdg_toplevel_set_activated(output->window->xdg, true);
+    wlr_seat_keyboard_notify_enter(server->seat, output->window->xdg->base->surface,
+        server->keyboard.keycodes, server->keyboard.num_keycodes, &server->keyboard.modifiers);
+    return true;
+}
+
+bool mdw_output_pointer(MdwOutput *output, double x, double y) {
+    if (!owns_input(output) || !isfinite(x) || !isfinite(y)) return false;
+    struct wlr_xdg_surface *xdg = output->window->xdg->base;
+    struct wlr_box geometry;
+    wlr_xdg_surface_get_geometry(xdg, &geometry);
+    double local_x, local_y;
+    struct wlr_surface *surface = wlr_xdg_surface_surface_at(xdg,
+        geometry.x + x * geometry.width, geometry.y + y * geometry.height, &local_x, &local_y);
+    if (surface) {
+        wlr_seat_pointer_notify_enter(output->server->seat, surface, local_x, local_y);
+        wlr_seat_pointer_notify_motion(output->server->seat, time_msec(), local_x, local_y);
+    } else wlr_seat_pointer_notify_clear_focus(output->server->seat);
+    wlr_seat_pointer_notify_frame(output->server->seat);
+    return surface != NULL;
+}
+
+bool mdw_output_button(MdwOutput *output, MdwButton button, bool down) {
+    if (!owns_input(output) || button < MDW_PRIMARY || button > MDW_SECONDARY) return false;
+    if (output->buttons[button] == down) return true;
+    wlr_seat_pointer_notify_button(output->server->seat, time_msec(), button_codes[button],
+        down ? WL_POINTER_BUTTON_STATE_PRESSED : WL_POINTER_BUTTON_STATE_RELEASED);
+    wlr_seat_pointer_notify_frame(output->server->seat);
+    output->buttons[button] = down;
+    return true;
+}
+
+bool mdw_output_scroll(MdwOutput *output, double horizontal, double vertical) {
+    if (!owns_input(output) || !isfinite(horizontal) || !isfinite(vertical) ||
+            fabs(horizontal) > 10000 || fabs(vertical) > 10000) return false;
+    if (horizontal != 0) wlr_seat_pointer_notify_axis(output->server->seat, time_msec(),
+        WL_POINTER_AXIS_HORIZONTAL_SCROLL, horizontal, 0, WL_POINTER_AXIS_SOURCE_CONTINUOUS,
+        WL_POINTER_AXIS_RELATIVE_DIRECTION_IDENTICAL);
+    if (vertical != 0) wlr_seat_pointer_notify_axis(output->server->seat, time_msec(),
+        WL_POINTER_AXIS_VERTICAL_SCROLL, vertical, 0, WL_POINTER_AXIS_SOURCE_CONTINUOUS,
+        WL_POINTER_AXIS_RELATIVE_DIRECTION_IDENTICAL);
+    wlr_seat_pointer_notify_frame(output->server->seat);
+    return true;
+}
+
+bool mdw_output_key(MdwOutput *output, uint32_t code, bool down) {
+    if (!owns_input(output) || code == 0 || code > KEY_MAX) return false;
+    if (output->keys[code] != down) key_event(output, code, down);
+    return true;
+}
+
+void mdw_output_destroy(MdwOutput *output) {
+    if (!output) return;
+    release_output(output);
+    wl_list_remove(&output->link);
+    free(output);
+}
+
+bool mdw_window_close(MdwServer *server, uint64_t id) {
+    struct MdwToplevel *window = find_window(server, id);
+    if (!window) return false;
+    wlr_xdg_toplevel_send_close(window->xdg);
+    return true;
+}
+
+int mdw_server_dispatch(MdwServer *server, int timeout_ms) {
+    int result = wl_event_loop_dispatch(wl_display_get_event_loop(server->display), timeout_ms);
+    wl_display_flush_clients(server->display);
+    return result;
+}
+
+void mdw_server_destroy(MdwServer *server) {
+    if (!server) return;
+    MdwOutput *output, *next;
+    wl_list_for_each_safe(output, next, &server->outputs, link) mdw_output_destroy(output);
+    if (server->display) wl_display_destroy_clients(server->display);
+    if (server->shell) {
+        wl_list_remove(&server->new_toplevel.link);
+        wl_list_remove(&server->new_popup.link);
+    }
+    if (server->keyboard_initialized) {
+        wl_list_remove(&server->modifiers.link);
+        wlr_keyboard_finish(&server->keyboard);
+    }
+    if (server->backend) wlr_backend_destroy(server->backend);
+    if (server->display) wl_display_destroy(server->display);
+    if (server->allocator) wlr_allocator_destroy(server->allocator);
+    if (server->renderer) wlr_renderer_destroy(server->renderer);
+    free(server);
+}

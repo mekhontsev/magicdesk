@@ -17,6 +17,8 @@ def sourceFiles = rootProject.fileTree('.') {
     include 'terminal-emulator/src/main/**', 'terminal-emulator/*.gradle'
     include '*.gradle', 'app/*.gradle', 'gradle.properties'
     include 'x11-runtime/src/main/**', 'x11-runtime/*.gradle', 'x11-runtime/consumer-rules.pro'
+    include 'hosted-runtime/src/main/**', 'hosted-runtime/*.gradle'
+    include 'wayland-runtime/src/main/**', 'wayland-runtime/native-deps/**', 'wayland-runtime/*.gradle', 'wayland-runtime/consumer-rules.pro'
     include 'vendor/magicdesk-x11/lorie/src/main/cpp/lorie/**', 'vendor/magicdesk-x11/lorie/src/main/cpp/recipes/**'
     include 'vendor/magicdesk-x11/lorie/src/main/cpp/patches/**', 'vendor/magicdesk-x11/lorie/src/main/cpp/CMakeLists.txt'
 }.files.sort { rootProject.relativePath(it) }
@@ -139,6 +141,8 @@ dependencies {
     }
     implementation project(':terminal-emulator')
     implementation project(':x11-runtime')
+    implementation project(':wayland-runtime')
+    debugImplementation project(':hosted-runtime')
     compileOnly project(':hidden-api-stubs')
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20240303'

@@ -1,0 +1,2 @@
+-keep class io.github.mekhontsev.magicdesk.wayland.WaylandServer { *; }
+-keepclasseswithmembernames class io.github.mekhontsev.magicdesk.wayland.WaylandSession { native <methods>; }

@@ -1,0 +1,4 @@
+Name: Wayland Scanner
+Description: Build-machine Wayland protocol generator
+Version: @MDW_SCANNER_VERSION@
+wayland_scanner=@MDW_WAYLAND_SCANNER@

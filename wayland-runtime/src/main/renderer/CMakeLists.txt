@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.22)
+project(MagicDeskWaylandHost LANGUAGES C)
+add_library(magicdesk_wayland_host SHARED renderer.c)
+if(JNI_INCLUDE_DIR)
+    target_include_directories(magicdesk_wayland_host PRIVATE ${JNI_INCLUDE_DIR} ${JNI_INCLUDE_DIR}/linux)
+endif()
+target_compile_options(magicdesk_wayland_host PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(magicdesk_wayland_host PRIVATE android)
