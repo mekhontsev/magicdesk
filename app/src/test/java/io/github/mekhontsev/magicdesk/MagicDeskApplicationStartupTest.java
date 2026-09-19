@@ -41,6 +41,9 @@ public final class MagicDeskApplicationStartupTest {
                 static class CompatibilityDiagnostics {
                     static void initialize(Context c) { calls.add("diagnostics"); }
                 }
+                static class PlatformDesktopRecovery {
+                    static void initialize() { calls.add("platform-recovery"); }
+                }
                 static class DesktopAutomationEventJournal {
                     static void record(String type, String operation, boolean ok, String detail) {
                         check(type.equals("process") && operation.equals("started")
@@ -64,7 +67,7 @@ public final class MagicDeskApplicationStartupTest {
                 public static void verify() {
                     List<String> primary = List.of("application", "uri-recovery", "home-recovery",
                             "integrations", "backend", "identity-policy", "termux-ui-observer",
-                            "service", "setup-status", "diagnostics", "event");
+                            "service", "setup-status", "diagnostics", "platform-recovery", "event");
                     start("magicdesk", primary);
                     for (String name : new String[] {"magicdesk:selftest",
                             "magicdesk:task_area_backstop", "magicdesk:another", "", null}) {

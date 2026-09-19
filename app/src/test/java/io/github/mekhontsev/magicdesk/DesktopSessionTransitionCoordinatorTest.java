@@ -25,6 +25,7 @@ public final class DesktopSessionTransitionCoordinatorTest {
                 static class Log { static void i(String tag, String message) {} }
                 static class ShellAccess { static String usefulMessage(Throwable error) { return error.getMessage(); } }
                 static class CompatibilityDiagnostics { static void record(Object... args) {} }
+                boolean synchronizeProjectionState() { return true; }
                 void finishOperation(DesktopTransitionGate.Operation op) { mGate.finish(op); }
                 public static void verify() {
                     Fixture f = new Fixture();

@@ -36,6 +36,8 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
     public void appendCompatibilityReport(
             final StringBuilder report,
             final Context context) {
+        report.append("Nubia projection protection: ")
+                .append(NubiaProjectionDriver.DESKTOP_STATE.diagnosticSummary()).append('\n');
         report.append("RedMagic charge separation: package=")
                 .append(ChargeSeparationController.isSupported(context))
                 .append(", enabled=")

@@ -244,15 +244,18 @@ final class DesktopSessionTransitionCoordinator {
         });
     }
 
-    void updateCaptionTransport(final java.util.List<DesktopDisplayTarget> targets) {
-        mOperations.execute(() -> {
-            final java.util.Set<PlatformProjectionDriver.Transport> transports = targets.stream()
+    void updateProjectionState() {
+        mOperations.execute(this::synchronizeProjectionState);
+    }
+
+    private boolean synchronizeProjectionState() {
+        final java.util.Set<PlatformProjectionDriver.Transport> transports =
+                DesktopRuntimeBridge.workspaceTargets().stream()
                     .filter(target -> target.output.displayId > Display.DEFAULT_DISPLAY)
                     .map(target -> transportFor(target.output.kind))
                     .filter(value -> value != PlatformProjectionDriver.Transport.NONE)
                     .collect(java.util.stream.Collectors.toSet());
-            mProjection.setCaptionTransports(transports);
-        });
+        return mProjection.setDesktopTransports(transports);
     }
 
     private void beginDesktopClose(
@@ -342,6 +345,12 @@ final class DesktopSessionTransitionCoordinator {
         } catch (RuntimeException error) {
             success = false;
             recordCloseFailure("Desktop close failed", error);
+        }
+        try {
+            success &= synchronizeProjectionState();
+        } catch (RuntimeException error) {
+            success = false;
+            recordCloseFailure("Could not restore projection state", error);
         }
         if (plan.needsPhoneRecovery() && !DesktopRuntimeBridge.isLocalDesktopActiveOrStarting()) {
             // Close owns recovery through its terminal result. If the display
@@ -474,6 +483,7 @@ final class DesktopSessionTransitionCoordinator {
             final TaskRepository.ActionResult result;
             try {
                 final DesktopSessionController.ShowResult shown = action.get();
+                synchronizeProjectionState();
                 result = new TaskRepository.ActionResult(shown.ready,
                         shown.ready ? "Desktop opened" : shown.error);
             } catch (RuntimeException error) {

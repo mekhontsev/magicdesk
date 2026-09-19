@@ -194,9 +194,8 @@ public final class DesktopOperations {
         TRANSITIONS.restorePhoneAfterExternalDesktop();
     }
 
-    static void updateExternalTaskCaptionTarget(
-            final java.util.List<DesktopDisplayTarget> targets) {
-        TRANSITIONS.updateCaptionTransport(targets);
+    static void updateProjectionState() {
+        TRANSITIONS.updateProjectionState();
     }
 
     static void advanceAltTab(final boolean reverse) {

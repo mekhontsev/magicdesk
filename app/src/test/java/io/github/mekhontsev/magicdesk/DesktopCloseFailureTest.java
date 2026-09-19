@@ -131,10 +131,13 @@ public final class DesktopCloseFailureTest {
                 static boolean closeDesktopSessionAndWait(int display) {
                     active = -1; step("close"); return true;
                 }
+                boolean synchronizeProjectionState() {
+                    step("projection"); return !failure.equals("projection-result");
+                }
                 public static void verify() {
                     for (String fail : List.of("none", "home", "phone", "phone-result",
                             "screen-unowned", "protection", "park", "close",
-                            "recover", "display-mode", "display-mode-io",
+                            "recover", "projection", "projection-result", "display-mode", "display-mode-io",
                             "surfaces", "present", "panel", "remove", "removed-display", "recovery-result")) {
                         failure = fail; active = 7; completions = 0; events.clear();
                         selectedRecovery = expectedRecovery = true;
@@ -161,6 +164,12 @@ public final class DesktopCloseFailureTest {
                         check(events.indexOf("input") < events.indexOf("park"), "input survived into parking");
                         check(events.indexOf("close") < events.indexOf("surfaces"),
                                 "HOME surfaces disabled before host close: " + events);
+                        check(events.indexOf("close") < events.indexOf("projection")
+                                        && events.indexOf("projection") < events.indexOf("finished"),
+                                "projection restore skipped or not acknowledged: " + events);
+                        if (fail.startsWith("projection")) {
+                            check(!succeeded[0], "lost projection restoration failure");
+                        }
                         check(events.indexOf("close") < events.indexOf("display-mode")
                                 && events.indexOf("display-mode") < events.indexOf("surfaces"),
                                 "display default restored outside teardown boundary: " + events);

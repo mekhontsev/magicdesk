@@ -3736,6 +3736,26 @@ records lifecycle ownership, and restores that transport's latest preference
 on session exit, transport change, or next-start recovery. Simulated displays
 do not acquire this vendor state.
 
+Nubia's separate password privacy shield is a focusable Presentation. With the
+firmware privacy option enabled it can repeatedly steal browser/IME focus and
+flash on an external desktop. The Nubia projection driver exposes **Prevent
+Nubia privacy shield flicker** in **Compatibility (next session)**, default on;
+other platform drivers expose no such option. At the first direct wired or
+wireless workspace, the driver freezes that preference until the last external
+workspace closes. After reading caption preferences it temporarily disables the
+Nubia projection package using the existing authorized shell service. This also
+disables that package's connection UI while protection is active. Android-owned
+HDMI and Miracast outputs remain connected on the verified firmware; other
+vendor casting protocols are not covered by that verification.
+
+The package's exact prior enabled/default state is journaled before mutation.
+An already-disabled package is not enabled on release, and later external state
+changes are not overwritten. Close restores the package before restoring caption
+privacy, before acknowledging completion. No saved firmware privacy preference
+is modified. Shared startup recovers an interrupted lease when access becomes
+ready without initializing Desktop; an application crash can therefore leave
+the package disabled until MagicDesk next starts with privileged access.
+
 ### Teardown
 
 **Close desktop** first captures live managed application tasks. If the display

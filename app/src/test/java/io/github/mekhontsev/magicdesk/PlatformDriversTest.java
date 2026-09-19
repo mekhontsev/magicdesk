@@ -67,9 +67,9 @@ public final class PlatformDriversTest {
         assertFalse(driver.projection().supportsOutputConfiguration());
         assertFalse(driver.projection().hasWirelessConnectionUi(null));
         assertFalse(driver.projection().openWirelessConnectionUi(null));
-        assertTrue(driver.projection().setCaptionTransports(java.util.Set.of(
+        assertTrue(driver.projection().setDesktopTransports(java.util.Set.of(
                 PlatformProjectionDriver.Transport.WIRED, PlatformProjectionDriver.Transport.WIRELESS)));
-        assertTrue(driver.projection().setCaptionTransports(java.util.Set.of()));
+        assertTrue(driver.projection().setDesktopTransports(java.util.Set.of()));
         assertFalse(driver.phoneUi().isAvailable());
         assertTrue(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
         assertFalse(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.CAPTION_REFRESH));

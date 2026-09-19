@@ -182,6 +182,14 @@ in-APK catalog recognition must not use its reused stock fingerprint alone.
 
 ## Known Limitations
 
+- Nubia's optional projection protection is on by default for direct HDMI and
+  Miracast Desktop. It temporarily disables the vendor casting package to prevent
+  its password shield from repeatedly stealing focus. The vendor connection UI
+  is unavailable during protection; Close Desktop restores it. Saved privacy
+  preferences are unchanged. The toggle is under **Compatibility (next session)**
+  only on Nubia. After a process crash, restoration requires reopening MagicDesk
+  with privileged access. Other vendor casting protocols are not verified.
+
 - **Background UI while securely locked** is opt-in for owned virtual displays.
   The `alwaysUnlocked` flag does not keep a display powered or prevent firmware
   process freezing. Bounded `device.keep_awake(displayId=...)` work handles power

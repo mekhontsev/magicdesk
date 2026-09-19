@@ -27,8 +27,6 @@ public final class MagicDeskRuntimeService extends Service
     private static final int OPEN_TERMINAL_REQUEST_CODE = 3;
     private final PlatformDriver mPlatform = PlatformDrivers.current();
     private final PlatformPhoneUiDriver mPhoneUi = mPlatform.phoneUi();
-    private final PlatformProjectionDriver mProjection =
-            mPlatform.projection();
 
     private Handler mHandler;
     private RuntimeDesktopSessionCoordinator mDesktopSession;
@@ -487,11 +485,7 @@ public final class MagicDeskRuntimeService extends Service
         mDesktopSession.start();
         mDisplayInput.reconcileSoftwareKeyboardPolicy();
         registerConfigurationReceiver();
-        if (ShellAccess.isReady()) {
-            updatePlatformCaptionTarget();
-        } else {
-            mProjection.setCaptionTransports(java.util.Set.of());
-        }
+        DesktopOperations.updateProjectionState();
         mDisplayInput.reconcileRuntime();
         updateDesktopTasks();
         mPlatform.startRuntime(this);
@@ -699,11 +693,11 @@ public final class MagicDeskRuntimeService extends Service
         mDisplayInput.reconcileRuntime();
         updateDesktopTasks();
         if (ShellAccess.isReady()) {
-            updatePlatformCaptionTarget();
+            DesktopOperations.updateProjectionState();
             mPlatform.startRuntime(this);
             mDesktopSession.onShellReady();
         } else {
-            mProjection.setCaptionTransports(java.util.Set.of());
+            DesktopOperations.updateProjectionState();
             mPlatform.stopRuntime();
         }
         updateNotification();
@@ -723,7 +717,7 @@ public final class MagicDeskRuntimeService extends Service
                 + " workspaces=" + DesktopRuntimeBridge.workspaceDisplayIds());
         updateNotification();
         if (ShellAccess.isReady()) {
-            updatePlatformCaptionTarget();
+            DesktopOperations.updateProjectionState();
         }
     }
 
@@ -763,11 +757,6 @@ public final class MagicDeskRuntimeService extends Service
         }
         mAdaptiveBrightness.reconcile(
                 mDisableAdaptiveBrightness,
-                DesktopRuntimeBridge.workspaceTargets());
-    }
-
-    private void updatePlatformCaptionTarget() {
-        DesktopOperations.updateExternalTaskCaptionTarget(
                 DesktopRuntimeBridge.workspaceTargets());
     }
 

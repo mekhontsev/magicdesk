@@ -27,6 +27,7 @@ final class SettingsView {
         void setKeyboardOnAppDisplay(boolean enabled);
 
         void setCompatibilityOption(DesktopCompatibilityPolicy.Option option, boolean enabled);
+        void setProjectionDesktopOption(boolean enabled);
 
         void resetCompatibilityDefaults();
 
@@ -84,6 +85,9 @@ final class SettingsView {
             new java.util.EnumMap<>(DesktopCompatibilityPolicy.Option.class);
     private Switch mOpenFilesWithSingleClick;
     private Switch mSystemDesktopMode;
+    private Switch mProjectionDesktopOption;
+    private final PlatformProjectionDriver.DesktopOption mProjectionOption =
+            PlatformDrivers.current().projection().desktopOption();
     private TextView mSystemDesktopModeStatus;
     private TextView mDesktopSettingsStatus;
     private boolean mDesktopSettingsAvailable;
@@ -198,6 +202,19 @@ final class SettingsView {
                     mActions.setCompatibilityOption(option, checked);
                 }
             });
+        }
+
+        if (mProjectionOption != null) {
+            mProjectionDesktopOption = addSwitch(content, mProjectionOption.titleResource());
+            mProjectionDesktopOption.setOnCheckedChangeListener((button, checked) -> {
+                if (!mRendering) mActions.setProjectionDesktopOption(checked);
+            });
+            final TextView description = new TextView(mActivity);
+            description.setText(mProjectionOption.summaryResource());
+            description.setTextColor(DesktopUiFactory.COLOR_MUTED);
+            description.setTextSize(12);
+            description.setPadding(dp(8), 0, dp(8), dp(7));
+            content.addView(description);
         }
 
         addSection(content, R.string.settings_section_android);
@@ -379,6 +396,10 @@ final class SettingsView {
             control.setEnabled(mDesktopSettingsAvailable);
         }
         mOpenFilesWithSingleClick.setEnabled(settings != null);
+        if (mProjectionDesktopOption != null) {
+            mProjectionDesktopOption.setChecked(mProjectionOption.isEnabled());
+            mProjectionDesktopOption.setEnabled(mDesktopSettingsAvailable);
+        }
         if (settings != null) {
             mTaskbarAutoHide.setChecked(settings.taskbarAutoHide);
             mOpenFilesWithSingleClick.setChecked(settings.openFilesWithSingleClick);

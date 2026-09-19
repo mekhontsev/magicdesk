@@ -91,6 +91,13 @@ public final class SettingsActivity extends Activity
     }
 
     @Override
+    public void setProjectionDesktopOption(final boolean enabled) {
+        final PlatformProjectionDriver.DesktopOption option =
+                PlatformDrivers.current().projection().desktopOption();
+        saveSetting(option != null && option.setEnabled(enabled));
+    }
+
+    @Override
     public void resetCompatibilityDefaults() {
         if (mSystemDesktopModeBusy || !SystemDesktopModeSetting.canChange()) {
             return;

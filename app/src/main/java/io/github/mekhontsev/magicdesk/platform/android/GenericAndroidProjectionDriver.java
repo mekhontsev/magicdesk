@@ -60,7 +60,7 @@ final class GenericAndroidProjectionDriver
     }
 
     @Override
-    public boolean setCaptionTransports(final java.util.Set<Transport> transports) {
+    public boolean setDesktopTransports(final java.util.Set<Transport> transports) {
         if (transports == null) {
             throw new IllegalArgumentException("transports are required");
         }

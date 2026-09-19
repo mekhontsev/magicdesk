@@ -22,7 +22,12 @@ final class DesktopCompatibilitySettings {
 
     static boolean resetDefaults(final Context context) throws IOException {
         return resetDefaults(SystemDesktopModeSetting.access(context),
-                MagicDeskSettings::resetCompatibilityOptions);
+                () -> {
+                    final PlatformProjectionDriver.DesktopOption option =
+                            PlatformDrivers.current().projection().desktopOption();
+                    final boolean platformSaved = option == null || option.reset();
+                    return MagicDeskSettings.resetCompatibilityOptions() && platformSaved;
+                });
     }
 
     static boolean resetDefaults(

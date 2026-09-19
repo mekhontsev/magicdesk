@@ -10,6 +10,20 @@ import java.util.List;
 
 /** Platform projection UI, captions, and optional external output controls. */
 public interface PlatformProjectionDriver {
+    /** Optional firmware-owned setting, displayed with next-session compatibility options. */
+    interface DesktopOption {
+        int titleResource();
+        int summaryResource();
+        boolean isEnabled();
+        boolean setEnabled(boolean enabled);
+        boolean reset();
+    }
+
+    default DesktopOption desktopOption() { return null; }
+
+    /** Recovery only; must not acquire a Desktop or new projection ownership. */
+    default void recoverInterruptedDesktopState() { }
+
     enum Transport {
         NONE,
         WIRED,
@@ -120,5 +134,5 @@ public interface PlatformProjectionDriver {
             int physicalDisplayId,
             DisplayProfileStore.Profile profile) throws IOException;
 
-    boolean setCaptionTransports(java.util.Set<Transport> transports);
+    boolean setDesktopTransports(java.util.Set<Transport> transports);
 }

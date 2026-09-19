@@ -12,6 +12,11 @@ import java.util.List;
 
 /** RedMagic projection implementation backed by the stock firmware services. */
 final class NubiaProjectionDriver implements PlatformProjectionDriver {
+    static final NubiaProjectionDesktopState DESKTOP_STATE = new NubiaProjectionDesktopState();
+
+    @Override public DesktopOption desktopOption() { return DESKTOP_STATE; }
+    @Override public void recoverInterruptedDesktopState() { DESKTOP_STATE.recover(); }
+
     @Override
     public boolean hasWirelessConnectionUi(final Context context) {
         return WirelessDisplayController.isAvailable(context);
@@ -59,7 +64,7 @@ final class NubiaProjectionDriver implements PlatformProjectionDriver {
     }
 
     @Override
-    public boolean setCaptionTransports(final java.util.Set<Transport> transports) {
+    public boolean setDesktopTransports(final java.util.Set<Transport> transports) {
         final java.util.Set<NubiaCaptionVisibilityManager.Transport> targets =
                 java.util.EnumSet.noneOf(NubiaCaptionVisibilityManager.Transport.class);
         for (final Transport transport : transports) {
@@ -69,7 +74,7 @@ final class NubiaProjectionDriver implements PlatformProjectionDriver {
                 default -> { }
             }
         }
-        return NubiaCaptionVisibilityManager.setTransports(targets);
+        return DESKTOP_STATE.setTransports(targets);
     }
 
     private static ModeSelection convert(

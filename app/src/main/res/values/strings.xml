@@ -765,6 +765,8 @@
     <string name="settings_compat_phone_recovery">Reconcile retained desktop tasks on return to phone</string>
     <string name="settings_compat_stale_recents">Clean stale phone freeform entries from Recents</string>
     <string name="settings_compat_recents_home">Open phone Start instead of system Recents</string>
+    <string name="settings_nubia_projection_guard">Prevent Nubia privacy shield flicker</string>
+    <string name="settings_nubia_projection_guard_summary">Temporarily disables Nubia casting software, its privacy shield and connection UI during HDMI or Miracast Desktop. Restores it after the last external Desktop closes; saved privacy settings stay unchanged.</string>
     <string name="settings_section_automation">Automation</string>
     <string name="settings_section_android">Android system</string>
     <string name="settings_system_desktop_mode">System desktop mode on external displays</string>
