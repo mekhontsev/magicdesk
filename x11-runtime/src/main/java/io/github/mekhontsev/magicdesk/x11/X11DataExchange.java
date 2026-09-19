@@ -140,6 +140,7 @@ public final class X11DataExchange implements AutoCloseable {
 
     void receive(int operation, int channel, int serial, int offer, int output, int window,
             int x, int y, String type, ParcelFileDescriptor fd) {
+        trace("receive", operation, channel, serial, offer, output, window, x, y);
         if (closed || channel < 0 || channel > 1) { closeFd(fd); return; }
         if (operation == REPLY) {
             synchronized (this) {
@@ -174,6 +175,7 @@ public final class X11DataExchange implements AutoCloseable {
                         ? value.source.open(type) : null) {
                     if (epoch == connection) send(REPLY, channel, serial, offer, 0, 0, 0, 0, type, data);
                 } catch (IOException | RuntimeException error) {
+                    android.util.Log.w("X11Content", "Selection transfer failed", error);
                     if (epoch == connection) send(REPLY, channel, serial, offer, 0, 0, 0, 0, type, null);
                 }
             };
@@ -188,7 +190,16 @@ public final class X11DataExchange implements AutoCloseable {
 
     private void send(int operation, int channel, int serial, int offer, int output, int window,
             int x, int y, String type, ParcelFileDescriptor descriptor) {
+        trace("send", operation, channel, serial, offer, output, window, x, y);
         if (!closed) sender.send(operation, channel, serial, offer, output, window, x, y, type, descriptor);
+    }
+
+    private static void trace(String direction, int operation, int channel, int serial, int offer,
+            int output, int window, int x, int y) {
+        if (android.util.Log.isLoggable("X11Content", android.util.Log.DEBUG))
+            android.util.Log.d("X11Content", direction + " op=" + operation + " channel=" + channel
+                    + " serial=" + serial + " offer=" + offer + " output=" + output
+                    + " window=" + window + " x=" + x + " y=" + y);
     }
 
     static List<String> validateTypes(List<String> values) {

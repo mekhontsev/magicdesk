@@ -47,7 +47,8 @@ if (termux) {
                 '-DCMAKE_C_FLAGS=--target=aarch64-linux-android34 -DANDROID -ffunction-sections -fdata-sections',
                 '-DCMAKE_CXX_FLAGS=--target=aarch64-linux-android34 -DANDROID -ffunction-sections -fdata-sections',
                 '-DLORIE_ANDROID_LIBDIR=/system/lib64',
-                '-DCMAKE_SHARED_LINKER_FLAGS=-fno-termux-rpath -Wl,-z,max-page-size=16384 -Wl,--gc-sections'
+                // Termux's optional multilib stubs can predate our API 34 baseline.
+                '-DCMAKE_SHARED_LINKER_FLAGS=-L/system/lib64 -fno-termux-rpath -Wl,-z,max-page-size=16384 -Wl,--gc-sections'
     }
     def buildNative = tasks.register('buildNative', Exec) {
         dependsOn configureNative

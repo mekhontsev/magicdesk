@@ -102,10 +102,14 @@ public final class HostedContentBoundaryTest {
                 int publishes, lastOperation, lastOffer, lastOutput;
                 long lastWindow;
                 boolean lastAccepted;
+                float lastX, lastY;
+                final List<Integer> operations = new ArrayList<>();
                 Source source;
                 int publish(int channel, Source source) { this.source=source; publishes++; return 100 + publishes; }
                 void drag(int operation, int offer, int output, long window, float x, float y, boolean accepted) {
                     lastOperation=operation; lastOffer=offer; lastOutput=output; lastWindow=window; lastAccepted=accepted;
+                    operations.add(operation);
+                    if (operation == MOVE) { lastX=x; lastY=y; }
                 }
             }
             static class X11Sessions {
@@ -192,6 +196,31 @@ public final class HostedContentBoundaryTest {
                 check(otherSession.exchange.source.open("UTF8_STRING").text().equals("data"), "content read");
                 otherSession.exchange.source.open("text/plain");
                 check(reads[0] == 1, "materialize an incoming selection once");
+                foreign.close();
+                otherSession.exchange.operations.clear();
+                final boolean[] granted = {false};
+                var external = other.createDrop(List.of("text/plain"), null, () -> {
+                    check(granted[0], "Android data cannot be read before DROP");
+                    return payload;
+                }, null);
+                external.enter(); external.move(.1f, .2f); external.leave();
+                external.enter(); external.move(.5f, .6f);
+                check(otherSession.exchange.operations.isEmpty() && otherSession.exchange.publishes == 1,
+                        "external hover must not provoke premature X11 selection reads");
+                granted[0] = true;
+                external.drop();
+                check(otherSession.exchange.operations.equals(List.of(X11DataExchange.ENTER,
+                        X11DataExchange.MOVE, X11DataExchange.DROP)), "deferred negotiation order");
+                check(otherSession.exchange.lastX == .5f && otherSession.exchange.lastY == .6f,
+                        "deferred drop uses the final position after reentry");
+                check(otherSession.exchange.source.open("UTF8_STRING").text().equals("data"), "granted drop data");
+                external.close();
+                otherSession.exchange.operations.clear();
+                var cancelled = other.createDrop(List.of("text/plain"), null, () -> {
+                    throw new IOException("cancelled offer cannot be read");
+                }, null);
+                cancelled.enter(); cancelled.move(.2f, .3f); cancelled.leave(); cancelled.close();
+                check(otherSession.exchange.operations.isEmpty(), "cancelled Android hover creates no X11 drag");
                 check(other.createDrop(List.of(), null, () -> payload, null) == null, "unsupported offer rejected");
                 drag.finish(true);
                 check(session.exchange.lastOperation == X11DataExchange.FINISH && session.exchange.lastOutput == 1, "source acknowledgement");

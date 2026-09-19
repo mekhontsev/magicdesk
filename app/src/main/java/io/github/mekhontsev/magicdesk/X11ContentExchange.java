@@ -61,15 +61,19 @@ final class X11ContentExchange implements HostedContentBackend, X11Sessions.List
         List<String> targets = localContent == null ? X11ContentFormats.dragTypes(mimeTypes) : X11ContentTransfer.formats(localContent);
         if (targets.isEmpty()) return null;
         Outgoing local = localOffer instanceof Outgoing candidate && candidate.source == session ? candidate : null;
-        return new Incoming(targets, content, local);
+        return new Incoming(targets, content, local, localContent != null);
     }
 
     private final class Incoming implements Drop {
         final X11DataExchange.Source source;
         final Outgoing local;
+        final boolean preview;
+        boolean active;
+        float x, y;
         int offer;
-        Incoming(List<String> targets, Content content, Outgoing local) {
+        Incoming(List<String> targets, Content content, Outgoing local, boolean preview) {
             this.local = local;
+            this.preview = preview;
             source = new X11DataExchange.Source() {
                 private X11DataExchange.Source resolved;
                 @Override public List<String> types() { return targets; }
@@ -81,13 +85,34 @@ final class X11ContentExchange implements HostedContentBackend, X11Sessions.List
         }
         @Override public void enter() {
             incoming = this;
+            // External Android data and URI grants arrive only at DROP. Some X
+            // clients read the selection on ENTER, so defer their negotiation.
+            if (preview) begin();
+        }
+        private void begin() {
             offer = local == null ? exchange.publish(X11DataExchange.DRAG, source) : local.offer.id();
             drag(X11DataExchange.ENTER, offer, 0, 0, local != null);
+            active = true;
         }
-        @Override public void move(float x, float y) { drag(X11DataExchange.MOVE, offer, x, y, false); }
-        @Override public void leave() { drag(X11DataExchange.LEAVE, offer, 0, 0, false); }
-        @Override public void drop() { drag(X11DataExchange.DROP, offer, 0, 0, false); }
-        @Override public void close() { if (incoming == this) incoming = null; }
+        @Override public void move(float x, float y) {
+            this.x = x; this.y = y;
+            if (active) drag(X11DataExchange.MOVE, offer, x, y, false);
+        }
+        @Override public void leave() {
+            if (active) drag(X11DataExchange.LEAVE, offer, 0, 0, false);
+            active = false;
+        }
+        @Override public void drop() {
+            if (!active) {
+                begin();
+                drag(X11DataExchange.MOVE, offer, x, y, false);
+            }
+            drag(X11DataExchange.DROP, offer, 0, 0, false);
+        }
+        @Override public void close() {
+            leave();
+            if (incoming == this) incoming = null;
+        }
     }
 
     private void drag(int operation, int offer, float x, float y, boolean accepted) {
