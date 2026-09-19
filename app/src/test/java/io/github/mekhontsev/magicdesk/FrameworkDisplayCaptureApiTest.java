@@ -6,6 +6,33 @@ import static org.junit.Assert.assertThrows;
 import org.junit.Test;
 
 public final class FrameworkDisplayCaptureApiTest {
+    @Test public void captureFamilyChangesOnlyWhenNewClassExists() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class Class<T> {
+                    static boolean modern, denied; static int legacyLookups;
+                    static final Class<?> oldApi = new Class<>(), newApi = new Class<>();
+                    static Class<?> forName(String name) throws ClassNotFoundException {
+                        if (name.equals("android.window.ScreenCaptureInternal")) {
+                            if (denied) throw new SecurityException("denied");
+                            if (modern) return newApi;
+                            throw new ClassNotFoundException(name);
+                        }
+                        check(name.equals("android.window.ScreenCapture"), "capture family name");
+                        legacyLookups++; return oldApi;
+                    }
+                }
+                public static void verify() throws Exception {
+                    check(captureClass() == Class.oldApi, "old capture family");
+                    Class.modern = true;
+                    check(captureClass() == Class.newApi, "new capture family");
+                    Class.denied = true;
+                    try { captureClass(); throw new AssertionError("denied ignored"); }
+                    catch (SecurityException expected) { }
+                    check(Class.legacyLookups == 1, "no fallback on permission failure");
+                }
+                """ + RuntimeSourceFixture.methods("FrameworkDisplayCaptureApi", "captureClass"));
+    }
+
     @Test
     public void captionDownscaleDoesNotLoseLastPixel() {
         assertEquals(95, (int) (690 * (96f / 690)));

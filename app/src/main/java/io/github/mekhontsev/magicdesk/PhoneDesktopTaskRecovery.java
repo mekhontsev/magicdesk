@@ -306,29 +306,22 @@ final class PhoneDesktopTaskRecovery {
                             + unavailableRemovedTaskIds);
         }
 
-        String desktopMoveAction = null;
+        final CommandResult help = taskIds.isEmpty() ? CommandResult.success("")
+                : runRead(WMSHELL_HELP, continuation, environment);
+        if (help.cancelled) return Result.cancelled();
+        final String desktopMoveAction = help.success
+                ? FrameworkDesktopShellApi.moveAction(help.output) : null;
+        final boolean directExit = desktopMoveAction == null && help.success
+                && FrameworkDesktopShellApi.canExitDesk(help.output);
         for (final Integer taskId : taskIds) {
             final PhoneTask task = liveTasks.get(taskId);
             if (!isRecoverable(task)) {
                 return Result.failure(
                         "phone desktop task unavailable: " + taskId);
             }
-            if (!task.freeform) {
+            if (!task.freeform && !directExit) {
                 if (desktopMoveAction == null) {
-                    final CommandResult help = runRead(
-                            WMSHELL_HELP, continuation, environment);
-                    if (help.cancelled) {
-                        return Result.cancelled();
-                    }
-                    desktopMoveAction = help.success
-                            ? NativeDesktopController.selectMoveAction(
-                                    help.output)
-                            : null;
-                    if (desktopMoveAction == null) {
-                        return Result.failure(
-                                "WMShell desktop command unavailable: "
-                                        + help.output.trim());
-                    }
+                    return Result.failure("WMShell desktop command unavailable: " + help.output.trim());
                 }
                 final CommandResult enteredDesktop = runMutation(
                         CMD + " window shell desktopmode "
@@ -355,7 +348,8 @@ final class PhoneDesktopTaskRecovery {
             }
 
             final CommandResult fullscreen = runMutation(
-                    createFullscreenCommand(taskId.intValue()),
+                    directExit ? CMD + " window shell desktopmode moveTaskOutOfDesk " + taskId
+                            : createFullscreenCommand(taskId.intValue()),
                     continuation,
                     environment);
             if (fullscreen.cancelled) {

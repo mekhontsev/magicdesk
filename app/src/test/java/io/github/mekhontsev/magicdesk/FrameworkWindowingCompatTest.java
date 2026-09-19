@@ -18,6 +18,22 @@ public final class FrameworkWindowingCompatTest {
     private static final int CAPTION_TYPE = 4;
     private static final int SOURCE_ID = 0x12340002;
 
+    @Test public void finalizedPublicationRetainsFieldAndOverrideGuards() throws Exception {
+        assertFalse(FrameworkWindowingCompat.publishesClientInsetsUnconditionally(35));
+        assertFalse(FrameworkWindowingCompat.publishesClientInsetsUnconditionally(36));
+        assertTrue(FrameworkWindowingCompat.publishesClientInsetsUnconditionally(37));
+        for (String override : new String[]{"", "android15"}) {
+            final var compat = FrameworkWindowingCompat.inspect(ModernTaskInfo.class,
+                    ModernTransaction.class, Token.class, HierarchyOp.class, InsetsProvider.class,
+                    "", override);
+            assertEquals(override.isEmpty(), compat.capabilities().requestedVisibleTypesEnabled);
+        }
+        final var absent = FrameworkWindowingCompat.inspect(Object.class, ModernTransaction.class,
+                Token.class, HierarchyOp.class, InsetsProvider.class, "", "");
+        assertFalse(absent.capabilities().requestedVisibleTypesEnabled);
+        assertNull(absent.readRequestedVisibleTypes(new Object()));
+    }
+
     @Test
     public void generatedPublicationFlagWorksWithoutDesktopWrapper() {
         assertEquals("", FrameworkWindowingCompat.visibleTypesUnavailableReason(

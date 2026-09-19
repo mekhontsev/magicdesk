@@ -9,9 +9,6 @@ final class NativeDesktopController {
     private static final String WMSHELL =
             "/system/bin/cmd statusbar wmshell-passthrough";
     private static final String HELP = WMSHELL + " help";
-    private static final String DESKTOPMODE_HELP_ENTRY = "desktopmode";
-    private static final String MOVE_TASK_TO_DESK = "moveTaskToDesk";
-    private static final String MOVE_TO_DESKTOP = "moveToDesktop";
 
     private static boolean sProbed;
     private static String sMoveAction;
@@ -34,7 +31,7 @@ final class NativeDesktopController {
         }
         try {
             final String output = runCommand(HELP);
-            sMoveAction = selectMoveAction(output);
+            sMoveAction = FrameworkDesktopShellApi.moveAction(output);
             sProbed = true;
         } catch (IOException e) {
             Log.w(TAG, "WMShell desktop-mode probe failed", e);
@@ -69,19 +66,6 @@ final class NativeDesktopController {
         return isAvailable()
                 ? "wmshell-passthrough desktopmode " + moveAction()
                 : "wmshell-passthrough desktopmode unavailable";
-    }
-
-    static String selectMoveAction(final String help) {
-        if (help == null || !help.contains(DESKTOPMODE_HELP_ENTRY)) {
-            return null;
-        }
-        if (help.contains(MOVE_TASK_TO_DESK + " <taskId>")) {
-            return MOVE_TASK_TO_DESK;
-        }
-        if (help.contains(MOVE_TO_DESKTOP + " <taskId>")) {
-            return MOVE_TO_DESKTOP;
-        }
-        return null;
     }
 
     private static synchronized String moveAction() {

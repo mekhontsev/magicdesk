@@ -16,6 +16,7 @@ import java.io.IOException;
 
 public final class SettingsActivity extends Activity
         implements SettingsView.Actions {
+    private static final int LOCAL_NETWORK_PERMISSION_REQUEST = 1;
     private SettingsView mView;
     private boolean mSystemDesktopModeBusy;
     private final ShellAccess.StateListener mShellStateListener = state ->
@@ -46,6 +47,10 @@ public final class SettingsActivity extends Activity
     @Override
     protected void onResume() {
         super.onResume();
+        // Also reconcile a grant changed in Android's app settings.
+        if (MagicDeskMcpPreferences.load(this).networkEnabled) {
+            MagicDeskRuntime.refreshSettings(this::render);
+        }
         render();
     }
 
@@ -242,12 +247,38 @@ public final class SettingsActivity extends Activity
         if (!enabled) {
             saveSetting(MagicDeskMcpPreferences.setNetworkEnabled(this, false));
         } else {
-            McpNetworkSettingsDialog.show(this, true, this::saveSetting, this::render);
+            McpNetworkSettingsDialog.show(this, true, this::saveMcpNetworkSetting, this::render);
         }
     }
 
     @Override public void configureMcpNetwork() {
-        McpNetworkSettingsDialog.show(this, false, this::saveSetting, this::render);
+        McpNetworkSettingsDialog.show(this, false, this::saveMcpNetworkSetting, this::render);
+    }
+
+    private void saveMcpNetworkSetting(final boolean saved) {
+        saveSetting(saved);
+        if (saved && android.os.Build.VERSION.SDK_INT >= 37
+                && MagicDeskMcpPreferences.load(this).networkEnabled
+                && !RuntimeCapabilities.canAccessLocalNetwork(this)) {
+            requestPermissions(new String[]{android.Manifest.permission.ACCESS_LOCAL_NETWORK},
+                    LOCAL_NETWORK_PERMISSION_REQUEST);
+        }
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode != LOCAL_NETWORK_PERMISSION_REQUEST) return;
+        MagicDeskRuntime.refreshSettings(this::render);
+        if (results.length == 0 || RuntimeCapabilities.canAccessLocalNetwork(this)) return;
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.settings_mcp_network_enabled)
+                .setMessage(R.string.settings_mcp_network_permission_denied)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.control_app_settings, (dialog, which) ->
+                        startActivityOnCurrentDisplay(new Intent(
+                                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                android.net.Uri.parse("package:" + getPackageName()))))
+                .show();
     }
 
     @Override public void copyMcpNetworkConnection() {

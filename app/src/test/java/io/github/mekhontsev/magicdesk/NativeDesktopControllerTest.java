@@ -18,7 +18,7 @@ public final class NativeDesktopControllerTest {
     @Test
     public void selectsAndroid16DesktopCommandWhenAvailable() {
         assertEquals("moveTaskToDesk",
-                NativeDesktopController.selectMoveAction(
+                FrameworkDesktopShellApi.moveAction(
                         "desktopmode moveTaskToDesk <taskId>\n"
                                 + "moveToDesktop <taskId>"));
     }
@@ -26,15 +26,32 @@ public final class NativeDesktopControllerTest {
     @Test
     public void selectsAndroid15DesktopCommand() {
         assertEquals("moveToDesktop",
-                NativeDesktopController.selectMoveAction(
+                FrameworkDesktopShellApi.moveAction(
                         "desktopmode moveToDesktop <taskId>"));
     }
 
     @Test
     public void rejectsUnrelatedWmShellHelp() {
-        assertNull(NativeDesktopController.selectMoveAction(
+        assertNull(FrameworkDesktopShellApi.moveAction(
                 "pip help\nsplitscreen help"));
-        assertNull(NativeDesktopController.selectMoveAction(
+        assertNull(FrameworkDesktopShellApi.moveAction(
                 "desktopmode moveToNextDisplay <taskId>"));
+    }
+
+    @Test public void explicitDeskIsNotAOneArgumentMove() {
+        for (String task : new String[]{"<taskId>", "<taskId|0>"}) {
+            String help = "desktopmode\n  moveTaskToDesk " + task + " <deskId>\n"
+                    + "  moveTaskOutOfDesk <taskId>\n";
+            assertNull(FrameworkDesktopShellApi.moveAction(help));
+            assertTrue(FrameworkDesktopShellApi.canExitDesk(help));
+        }
+        assertFalse(FrameworkDesktopShellApi.canExitDesk("desktopmode"));
+        assertFalse(FrameworkDesktopShellApi.canExitDesk(null));
+    }
+
+    @Test public void optionalMultideskHelpStillAllowsLegacyMove() {
+        String help = "desktopmode\n moveTaskToDesk <taskId> \n"
+                + " moveTaskToDesk <taskId> <deskId>\n moveTaskOutOfDesk <taskId>\n";
+        assertEquals("moveTaskToDesk", FrameworkDesktopShellApi.moveAction(help));
     }
 }

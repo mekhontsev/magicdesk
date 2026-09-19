@@ -12,9 +12,27 @@ public final class FrameworkTaskCaptureApiTest {
                         return marker;
                     }
                 }
+                public static class Manager {
+                    public Object takeTaskSnapshot(int id, boolean cache, boolean low, boolean decors) {
+                        check(id == 42 && !cache && !low && !decors, "fresh full-resolution task content");
+                        return marker;
+                    }
+                }
+                public static class ModernService extends Service {
+                    public Manager getTaskSnapshotManager() { return new Manager(); }
+                    @Override public Object takeTaskSnapshot(int id, boolean cache) {
+                        throw new AssertionError("obsolete Binder call");
+                    }
+                }
+                public static class DeniedService extends ModernService {
+                    @Override public Manager getTaskSnapshotManager() { throw new SecurityException("denied"); }
+                }
                 static Object getService() { return new Service(); }
                 public static void verify() throws Exception {
                     check(takeTaskSnapshot(42) == marker, "task result retained");
+                    check(takeTaskSnapshot(new ModernService(), 42) == marker, "new manager used");
+                    try { takeTaskSnapshot(new DeniedService(), 42); throw new AssertionError("denied accepted"); }
+                    catch (SecurityException expected) { }
                 }
                 """ + RuntimeSourceFixture.methods("HiddenTaskApi", "takeTaskSnapshot"));
     }
@@ -54,6 +72,16 @@ public final class FrameworkTaskCaptureApiTest {
                     public int getRotation() { return 1; }
                     public ComponentName getTopActivityComponent() { return new ComponentName(); }
                 }
+                public static class ModernSnapshot extends Snapshot {
+                    @Override public HardwareBuffer getHardwareBuffer() {
+                        throw new AssertionError("deprecated null-returning getter must not be used");
+                    }
+                    public boolean isBufferValid() { return !missingBuffer; }
+                    public int getHardwareBufferWidth() { return frameWidth; }
+                    public int getHardwareBufferHeight() { return 600; }
+                    public Bitmap wrapToBitmap() { return new Bitmap(1); }
+                    public void closeBuffer() { bufferClosed = true; }
+                }
                 static class TaskCapture {
                     record Info(int taskId, int width, int height, int taskWidth, int taskHeight,
                             int rotation, String topActivity) { }
@@ -64,33 +92,40 @@ public final class FrameworkTaskCaptureApiTest {
                     real = true; frameWidth = 800;
                 }
                 public static void verify() throws Exception {
+                    for (Snapshot snapshot : new Snapshot[]{new Snapshot(), new ModernSnapshot()}) {
+                        reset();
+                        verifySnapshot(snapshot);
+                    }
+                }
+                static void verifySnapshot(Snapshot snapshot) throws Exception {
                     Fixture f = new Fixture();
-                    Frame full = f.read(new Snapshot(), 42, null);
+                    Frame full = f.read(snapshot, 42, null);
                     check(full.bitmap.kind == 2 && !softwareRecycled, "result ownership transferred");
                     check(bufferClosed && hardwareRecycled, "hardware capture released");
                     check(full.info.width() == 800 && full.info.taskWidth() == 1600, "platform scale explicit");
                     check(full.info.taskId() == 42, "frame identity");
                     reset();
-                    Frame crop = f.read(new Snapshot(), 42, new CaptureRequest.Region(1, 2, 101, 52));
+                    Frame crop = f.read(snapshot, 42, new CaptureRequest.Region(1, 2, 101, 52));
                     check(crop.bitmap.kind == 3 && softwareRecycled && hardwareRecycled && bufferClosed, "crop cleanup");
                     reset(); real = false;
-                    try { f.read(new Snapshot(), 42, null); throw new AssertionError("theme image accepted"); }
+                    try { f.read(snapshot, 42, null); throw new AssertionError("theme image accepted"); }
                     catch (IOException expected) { check(bufferClosed, "rejected snapshot buffer released"); }
                     reset(); frameWidth = 8193;
-                    try { f.read(new Snapshot(), 42, null); throw new AssertionError("oversize accepted"); }
+                    try { f.read(snapshot, 42, null); throw new AssertionError("oversize accepted"); }
                     catch (IOException expected) { check(bufferClosed, "oversize released"); }
                     reset(); failCopy = true;
-                    try { f.read(new Snapshot(), 42, null); throw new AssertionError("failed copy accepted"); }
+                    try { f.read(snapshot, 42, null); throw new AssertionError("failed copy accepted"); }
                     catch (IOException expected) { check(bufferClosed && hardwareRecycled, "copy failure cleanup"); }
                     reset();
-                    try { f.read(new Snapshot(), 42, new CaptureRequest.Region(0, 0, 801, 600));
+                    try { f.read(snapshot, 42, new CaptureRequest.Region(0, 0, 801, 600));
                         throw new AssertionError("outside region accepted"); }
                     catch (IllegalArgumentException expected) { check(bufferClosed, "region failure cleanup"); }
                     reset(); missingBuffer = true;
-                    try { f.read(new Snapshot(), 42, null); throw new AssertionError("missing buffer accepted"); }
+                    try { f.read(snapshot, 42, null); throw new AssertionError("missing buffer accepted"); }
                     catch (IOException expected) { }
                 }
-                """ + RuntimeSourceFixture.methods("FrameworkTaskCaptureApi", "read"), "CaptureRequest");
+                """ + RuntimeSourceFixture.methods("FrameworkTaskCaptureApi", "read")
+                + RuntimeSourceFixture.nestedClass("FrameworkTaskCaptureApi", "SnapshotImage"), "CaptureRequest");
     }
 
     @Test public void missingTaskFailsWithoutCapturingAnotherSource() throws Exception {

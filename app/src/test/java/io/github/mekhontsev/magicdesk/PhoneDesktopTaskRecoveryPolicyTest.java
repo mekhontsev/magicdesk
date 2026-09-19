@@ -408,6 +408,35 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
         assertTrue(result.message.contains("unavailable=[43]"));
     }
 
+    @Test public void explicitDeskRecoveryExitsWithoutInventingADeskOrEnteringFreeform() {
+        for (boolean freeform : new boolean[]{false, true}) {
+            final FakeEnvironment environment = new FakeEnvironment(true);
+            environment.explicitDesk = true;
+            environment.freeform = freeform;
+            environment.repositoryContainsTask = false;
+            environment.removedRepositoryContainsTask = true;
+            final var result = PhoneDesktopTaskRecovery.recoverRemovedDisplayForTest(
+                    95, () -> true, environment);
+            assertTrue(result.message, result.success);
+            assertTrue(environment.commands.contains(
+                    "/system/bin/cmd window shell desktopmode moveTaskOutOfDesk 42"));
+            assertFalse(environment.hasFullscreenTransition());
+            assertFalse(environment.commands.stream().anyMatch(c ->
+                    c.contains("createDesk") || c.contains("desktopmode moveTaskToDesk")));
+            assertFalse(environment.freeform);
+            assertFalse(environment.removedRepositoryContainsTask);
+        }
+    }
+
+    @Test public void explicitDeskRecoveryStillChecksRepositoryAfterSuccessfulCommand() {
+        final FakeEnvironment environment = new FakeEnvironment(true);
+        environment.explicitDesk = true;
+        environment.retainExternalRepository = true;
+        environment.removedRepositoryContainsTask = true;
+        assertFalse(PhoneDesktopTaskRecovery.recoverRemovedDisplayForTest(
+                95, () -> true, environment).success);
+    }
+
     private static final class FakeEnvironment
             implements PhoneDesktopTaskRecovery.Environment {
         final List<String> commands = new ArrayList<>();
@@ -419,6 +448,7 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
         boolean removedRepositoryContainsSecondTask;
         boolean retainExternalRepository;
         boolean reviveMissingTask = true;
+        boolean explicitDesk;
         String desktopMoveAction = "moveTaskToDesk";
         String packageName = "net.sf.golly";
         String componentName = ".MainActivity";
@@ -456,7 +486,9 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
             }
             if (command.contains("wmshell-passthrough help")) {
                 return PhoneDesktopTaskRecovery.CommandResult.success(
-                        "desktopmode " + desktopMoveAction + " <taskId>");
+                        explicitDesk ? "desktopmode\n moveTaskToDesk <taskId|0> <deskId>\n"
+                                + " moveTaskOutOfDesk <taskId>\n"
+                                : "desktopmode " + desktopMoveAction + " <taskId>");
             }
             if (command.contains("PhoneDesktopTaskRecoveryCommand")) {
                 if (!reviveMissingTask) {
@@ -469,7 +501,8 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
                         "phone-desktop-recovery revived=1");
             }
             if (command.contains(
-                    "TaskClientPreservingFullscreenTransitionCommand")) {
+                    "TaskClientPreservingFullscreenTransitionCommand")
+                    || command.contains("desktopmode moveTaskOutOfDesk ")) {
                 freeform = false;
                 repositoryContainsTask = false;
                 if (!retainExternalRepository) {

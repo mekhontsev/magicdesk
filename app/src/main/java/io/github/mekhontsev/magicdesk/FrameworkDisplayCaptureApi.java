@@ -7,7 +7,7 @@ import android.hardware.HardwareBuffer;
 
 import java.io.IOException;
 
-/** Logical-display capture through WindowManager on Android 15 and newer. */
+/** Logical-display capture through WindowManager on API 34 and newer. */
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 final class FrameworkDisplayCaptureApi {
     Bitmap capture(
@@ -15,12 +15,11 @@ final class FrameworkDisplayCaptureApi {
             final Rect crop,
             final int width,
             final int height) throws ReflectiveOperationException, IOException {
-        final Class<?> captureClass = Class.forName("android.window.ScreenCapture");
-        final Class<?> argsClass = Class.forName("android.window.ScreenCapture$CaptureArgs");
-        final Class<?> builderClass = Class.forName(
-                "android.window.ScreenCapture$CaptureArgs$Builder");
-        final Class<?> listenerClass = Class.forName(
-                "android.window.ScreenCapture$ScreenCaptureListener");
+        final Class<?> captureClass = captureClass();
+        final String captureName = captureClass.getName();
+        final Class<?> argsClass = Class.forName(captureName + "$CaptureArgs");
+        final Class<?> builderClass = Class.forName(captureName + "$CaptureArgs$Builder");
+        final Class<?> listenerClass = Class.forName(captureName + "$ScreenCaptureListener");
         final Object builder = builderClass.getConstructor().newInstance();
         builderClass.getMethod("setSourceCrop", Rect.class)
                 .invoke(builder, new Rect(crop));
@@ -36,8 +35,7 @@ final class FrameworkDisplayCaptureApi {
                 .getMethod("captureDisplay", Integer.TYPE, argsClass, listenerClass)
                 .invoke(windows, displayId, args, listener);
         EventDrivenWaits.noteFrameworkWait(EventDrivenWaits.Reason.DISPLAY_CAPTURE);
-        final Object screenshot = Class.forName(
-                "android.window.ScreenCapture$SynchronousScreenCaptureListener")
+        final Object screenshot = Class.forName(captureName + "$SynchronousScreenCaptureListener")
                 .getMethod("getBuffer").invoke(listener);
         if (screenshot == null) {
             throw new IOException("display capture returned no buffer for " + displayId);
@@ -70,6 +68,14 @@ final class FrameworkDisplayCaptureApi {
             if (hardwareBuffer != null) {
                 hardwareBuffer.close();
             }
+        }
+    }
+
+    private static Class<?> captureClass() throws ClassNotFoundException {
+        try {
+            return Class.forName("android.window.ScreenCaptureInternal");
+        } catch (ClassNotFoundException absent) {
+            return Class.forName("android.window.ScreenCapture");
         }
     }
 

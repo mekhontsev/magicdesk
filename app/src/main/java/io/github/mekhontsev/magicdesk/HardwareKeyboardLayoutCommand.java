@@ -384,9 +384,8 @@ public final class HardwareKeyboardLayoutCommand {
         addSubtypeMapping(
                 layoutMappings, seenMappings, inputMethod, currentSubtype);
         final List<InputMethodInfo> enabledInputMethods =
-                (List<InputMethodInfo>) inputMethodManagerInterface.getMethod(
-                        "getEnabledInputMethodListLegacy", int.class)
-                        .invoke(inputMethodManager, userId);
+                FrameworkInputMethodCatalogApi.enabled(
+                        inputMethodManagerInterface, inputMethodManager, userId);
         for (final InputMethodInfo enabledInputMethod : enabledInputMethods) {
             final Object enabledSubtypeResult = inputMethodManagerInterface.getMethod(
                     "getEnabledInputMethodSubtypeList",

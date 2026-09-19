@@ -60,6 +60,17 @@ address, never a wildcard. Interface changes use network callbacks, not a
 background polling loop. An unavailable interface leaves network access stopped
 and visible in settings; the loopback listener remains independent.
 
+On Android 17 / API 37+, enabling network MCP also requests
+[`ACCESS_LOCAL_NETWORK`](https://developer.android.com/privacy-and-security/local-network-permission)
+from Android. This app permission is separate from MCP command grants and the
+privileged service identity. Denial leaves the network listener stopped with an
+explicit settings error; local MCP, CLI and Termux loopback channels remain
+available. Saved network configuration is retained. Configure network access
+again to request permission, or grant it in Android app permissions and return
+to Settings. Reconciliation closes a listener whose permission is absent, and
+network authentication rechecks permission on each request. No permission
+dialog is opened during background startup, update or reconnection.
+
 The network token and permission set are separate from the local ones. Rotating
 one token does not change the other. Requests without a browser Origin header
 are accepted with the correct token; browser requests must use the exact bound

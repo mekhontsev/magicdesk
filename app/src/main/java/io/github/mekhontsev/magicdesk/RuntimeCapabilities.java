@@ -7,6 +7,12 @@ import org.json.JSONObject;
 final class RuntimeCapabilities {
     static final int DESKTOP_MIN_SDK = 35;
 
+    static boolean canAccessLocalNetwork(android.content.Context context) {
+        return android.os.Build.VERSION.SDK_INT < 37
+                || context.checkSelfPermission(android.Manifest.permission.ACCESS_LOCAL_NETWORK)
+                        == android.content.pm.PackageManager.PERMISSION_GRANTED;
+    }
+
     enum Service { AUTOMATION, BUILTIN_UI, DISPLAYS, SHELL, TERMUX, TERMINAL, X11, VIRTUAL_DISPLAY, DESKTOP }
 
     static boolean supportsDesktop(final int sdk) {

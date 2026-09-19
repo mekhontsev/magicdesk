@@ -9,7 +9,7 @@ device validation on that release is still pending.
 
 | Subsystem | Baseline and prerequisites |
 | --- | --- |
-| MCP and ordinary built-in UI | API 34; explicit client grants for automation. UI startup does not require Desktop provisioning. |
+| MCP and ordinary built-in UI | API 34; explicit client grants for automation. Network MCP additionally needs Android's local-network runtime permission on API 37+. Loopback is independent. UI startup does not require Desktop provisioning. |
 | Built-in CLI | API 34; an inherited MagicDesk shell channel. Each command retains its own prerequisites; MCP enablement and installed Termux are not required. |
 | Script dialogs and notifications | API 34; MCP content grant or inherited CLI channel. Background dialog placement requires the shared privileged launcher; notifications require Android notification permission/channel access. No Desktop or Termux prerequisite. |
 | Files, shell commands and transfers | API 34 plus authorized privileged service for shell-backed operations. |
@@ -19,7 +19,7 @@ device validation on that release is still pending.
 | Display discovery and interactive tool placement | API 34. Without shell, public DisplayManager inventory and Activity launch options serve accessible displays. Android checks each Intent/destination and secondary-Activity support. No Desktop or HOME prerequisite. |
 | Display resource creation and privileged placement | API 34 plus authorized privileged service and working framework capabilities. Trusted virtual displays, background launches, forced fullscreen placement and task transfers retain this boundary. They do not acquire HOME or initialize WMShell Desktop. |
 | Display Viewer | API 34 plus authorized privileged service. Owned virtual sources use VirtualDisplay/SurfaceView; existing screens use the framework mirrorDisplay capability and READ_FRAME_BUFFER permission. Shared privileged input adapter. No Desktop, vendor token lookup or root requirement. Virtual-first managed Desktop still requires API 35. |
-| Display/task screenshots | API 34 plus authorized privileged service and READ_FRAME_BUFFER. Task capture uses a fresh `takeTaskSnapshot(taskId, false)` request, not Recent cache; hidden tasks may be unavailable. No Desktop, activation or root requirement. API 34 device validation remains pending. |
+| Display/task screenshots | API 34 plus authorized privileged service and READ_FRAME_BUFFER. Task capture requests fresh pixels without updating the Recent cache; hidden tasks may be unavailable. Framework adapters select the release's capture and buffer-ownership contracts. No Desktop, activation or root requirement. API 34 device validation remains pending. |
 | Protected virtual display (optional) | Same API-34 display boundary, plus CAPTURE_SECURE_VIDEO_OUTPUT in the current service, protected graphics buffers and a secure Viewer output. No automatic elevation or new prerequisite for ordinary displays. Per-release/device protected playback still needs verification. |
 | Ordinary Android Activity automation | API 34 plus authorized privileged service for background/display placement. Intent authorization, content grants and Activity results are independent of Desktop. Dispatch acceptance is verified separately through UI observation. |
 | Android UI inspection and actions | API 34 plus authorized privileged service and a free UiAutomation connection. Inspect/wait select a display or task; task ownership uses the hidden AOSP AccessibilityWindowInfo accessor through the framework adapter. Missing ownership remains unknown, without disabling display inspection. No Desktop or root requirement; API 34 device validation is pending. |
@@ -99,6 +99,38 @@ failed launch. Privileged placement alongside Desktop retains its ownership chec
   liveness and display power remain separate capabilities.
 
 ## Verification
+
+### Android 17 Adaptation
+
+The API-37 adapters follow published AOSP contracts, not a device certification:
+
+- Logical-display capture selects the `ScreenCaptureInternal` argument/listener
+  family when present, otherwise the older `ScreenCapture` family.
+- Fresh task capture uses `ITaskSnapshotManager` when exposed, requesting full
+  resolution without decorations or cache updates. Modern snapshots own their
+  buffer: `wrapToBitmap`, dimension/validity accessors and `closeBuffer` replace
+  the deprecated raw getter, which can exist but return null. Failures do not
+  switch to Recent cache, another task or the foreground display.
+- Client immersive-state publication is unconditional on API 37, but still
+  requires the TaskInfo member. API 35/36 retain the feature-flag check, and the
+  debug Android-15 profile can still mask publication.
+- Enabled IME enumeration accepts the SafeList result or a direct list;
+  only an absent newer method permits the legacy method. Permission failures
+  are not retries through another API.
+- Native WMShell conversion requires an advertised one-task signature. A
+  required system desk ID is not invented; ordinary launch retains its WCT
+  path. Recovery uses the advertised `moveTaskOutOfDesk` when the one-task
+  entry command is absent, then verifies task mode and repository cleanup.
+  Existing one-task protocols retain their client-preserving fullscreen path.
+
+The source baseline is AOSP frameworks/base
+[`94b4c163b7dfe5ce3607f7bb8456f9573f7de57d`](https://android.googlesource.com/platform/frameworks/base/+/94b4c163b7dfe5ce3607f7bb8456f9573f7de57d/).
+Host contract fixtures cover both generations, failure paths and native-resource
+release. They do not establish API-37 hidden-API access, SELinux permissions,
+OEM behavior or window-transition correctness. Those require an Android 17
+device, including cold startup, permission denial/regrant, capture, keyboard
+layouts and phone/simulated/wired Desktop tests. Android 14 coverage remains
+separately pending.
 
 ### Native Build Boundary
 

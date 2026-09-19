@@ -1408,9 +1408,11 @@ On frameworks that publish `TaskInfo.requestedVisibleTypes`, the task observer
 uses it to correlate application-requested immersive state. Field presence alone
 is insufficient: some Android 15 releases expose the field but always publish
 `defaultVisible()` unless `enableFullyImmersiveInDesktop` is enabled. The
-compatibility adapter checks the framework flag once, using the desktop flag
+compatibility adapter checks the framework flag once on API 35/36, using the desktop flag
 wrapper when available to retain its override semantics. It does not change
-system feature flags. Before publishing the shell binding, the app reads the
+system feature flags. API 37 publishes these client insets unconditionally and
+no longer exposes that flag; field presence and the debug profile still gate
+observation. Before publishing the shell binding, the app reads the
 public developer setting and passes its value (or explicit read failure) to
 the shell runtime. Binding stores this snapshot without resolving windowing
 APIs; the first windowing consumer performs the one-time detection. Hidden
@@ -1450,11 +1452,17 @@ to the display layer tree, including virtual displays; the caller does not need
 a physical-display token. The framework's bounded capture-listener wait is
 classified as `DISPLAY_CAPTURE`. The adapter rounds frame scales upward only
 when float precision would truncate an output pixel, and verifies the returned
-bitmap dimensions before exposing it to callers. Capture is on demand only. The shell service
+bitmap dimensions before exposing it to callers. It resolves the capture argument
+and listener family together: `ScreenCaptureInternal` when available, otherwise
+`ScreenCapture`. Capture is on demand only. The shell service
 uses a reliable pipe so MCP receives capture errors instead of an empty image.
 
 `FrameworkTaskCaptureApi` decodes fresh task frames from
-`HiddenTaskApi.takeTaskSnapshot(taskId, false)`, present since the API 34 floor.
+`HiddenTaskApi.takeTaskSnapshot(taskId)`. That adapter selects the older two-argument
+ActivityTaskManager operation or the API-37 TaskSnapshotManager contract, always
+requesting fresh pixels without cache updates. Modern snapshots supply their own
+bitmap wrapper and buffer-release method; the retained raw-buffer getter can
+return null and is not used for that contract.
 It does not query or populate the Recent snapshot cache, initialize an organizer,
 or fall back to display pixels. Android may refuse hidden tasks; the error stays
 local to the capture. It validates real-image buffers, bounds allocations, and
@@ -3837,10 +3845,14 @@ becomes authoritative. A rapid snap sequence during fullscreen exit keeps only
 its latest target, applying it after the existing transition completes. It does
 not create another fullscreen owner, timer, or observation source.
 
-The native transition probe reads WMShell help instead of branching on the
-Android version. It selects Android 15's `desktopmode moveToDesktop` or Android
-16's `desktopmode moveTaskToDesk` command when present, and otherwise uses the
-direct `WindowContainerTransaction` path.
+`FrameworkDesktopShellApi` reads complete command signatures from WMShell help
+instead of branching on the Android version. Native conversion selects
+`desktopmode moveToDesktop` or `moveTaskToDesk` only with an advertised one-task
+signature; a required `deskId` is not guessed. Otherwise launches use the existing
+`WindowContainerTransaction` path. Phone recovery uses the advertised
+`moveTaskOutOfDesk` when the one-task entry operation is absent, preserving its
+postconditions for fullscreen mode and repository cleanup. This does not create,
+activate or remove Android desks, or alter MagicDesk's fullscreen-plane ownership.
 
 `AppWindowStateStore` keeps one stable record per `AppReference`: the last explicit
 Windowed or Fullscreen choice and, independently, the last confirmed freeform

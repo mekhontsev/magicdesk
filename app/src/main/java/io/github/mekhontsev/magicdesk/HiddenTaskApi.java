@@ -66,11 +66,24 @@ final class HiddenTaskApi {
     }
 
     static Object takeTaskSnapshot(final int taskId) throws ReflectiveOperationException {
-        final Object service = getService();
+        return takeTaskSnapshot(getService(), taskId);
+    }
+
+    static Object takeTaskSnapshot(final Object service, final int taskId)
+            throws ReflectiveOperationException {
         // Fresh pixels only. Never read or update the Recent-task snapshot cache.
         try {
-            return service.getClass().getMethod("takeTaskSnapshot", Integer.TYPE, Boolean.TYPE)
-                    .invoke(service, taskId, false);
+            final Method manager;
+            try {
+                manager = service.getClass().getMethod("getTaskSnapshotManager");
+            } catch (NoSuchMethodException absent) {
+                return service.getClass().getMethod("takeTaskSnapshot", Integer.TYPE, Boolean.TYPE)
+                        .invoke(service, taskId, false);
+            }
+            final Object snapshots = manager.invoke(service);
+            return snapshots.getClass().getMethod("takeTaskSnapshot", int.class,
+                    boolean.class, boolean.class, boolean.class)
+                    .invoke(snapshots, taskId, false, false, false);
         } catch (java.lang.reflect.InvocationTargetException error) {
             if (error.getCause() instanceof RuntimeException cause) throw cause;
             throw error;

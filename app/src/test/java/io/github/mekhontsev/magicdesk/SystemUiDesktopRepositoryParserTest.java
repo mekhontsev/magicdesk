@@ -18,6 +18,41 @@ public final class SystemUiDesktopRepositoryParserTest {
             + "    Display #0:\n"
             + "      activeTasks=[42]\n";
 
+    @Test public void android17NestedDesksRetainDisplayOwnership() {
+        assertEquals(Map.of(0, Set.of(42, 43, 44), 7, Set.of(45)),
+                SystemUiDesktopRepositoryParser.parseTaskIdsByDisplay("""
+                        DesktopUserRepositories:
+                          currentUserId=0
+                          DesktopRepository
+                            userId=0
+                            Display #0:
+                              numOfDesks=2
+                              activeDesk=3
+                              desks:
+                                Desk #3:
+                                  activeTasks=[42]
+                                  visibleTasks=[42]
+                                  freeformTasksInZOrder=[42, 43]
+                                  minimizedTasks=[43]
+                                Desk #4:
+                                  activeTasks=[44]
+                                  minimizedTasks=[44]
+                            Display #7:
+                              numOfDesks=1
+                              activeDesk=5
+                              desks:
+                                Desk #5:
+                                  activeTasks=[45]
+                                  visibleTasks=[45]
+                          DesktopRepository
+                            userId=10
+                            Display #0:
+                              desks:
+                                Desk #6:
+                                  activeTasks=[999]
+                        """));
+    }
+
     @Test
     public void followingControllerCannotContributeTaskLists() {
         assertEquals(Set.of(42), SystemUiDesktopRepositoryParser.parseTaskIds(

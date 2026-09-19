@@ -805,6 +805,8 @@
     <string name="settings_mcp_network_copy">Copy network MCP connection</string>
     <string name="settings_mcp_network_token">Replace network MCP token</string>
     <string name="settings_mcp_network_disabled">Network access disabled</string>
+    <string name="settings_mcp_network_permission_required">Android local network permission is required</string>
+    <string name="settings_mcp_network_permission_denied">Network MCP needs local network access in Android app permissions (Nearby devices). Local MCP remains available.</string>
     <string name="settings_mcp_network_unavailable">Network listener unavailable: %1$s</string>
     <string name="settings_mcp_network_invalid_port">Enter a port from 1024 to 65535</string>
     <string name="settings_mcp_network_no_interface">No private IPv4 network interface is available.</string>

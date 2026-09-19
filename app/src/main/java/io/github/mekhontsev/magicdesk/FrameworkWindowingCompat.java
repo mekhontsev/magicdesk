@@ -335,6 +335,9 @@ final class FrameworkWindowingCompat {
     }
 
     private static String visibleTypesUnavailableReason(final IntSupplier desktopToggle) {
+        // Publication became unconditional in API 37; the aconfig flag was removed.
+        // Field presence is still checked by inspect(), and the debug profile can mask it.
+        if (publishesClientInsetsUnconditionally(android.os.Build.VERSION.SDK_INT)) return "";
         try {
             return visibleTypesUnavailableReason(
                     findOptionalClass("android.window.DesktopModeFlags"),
@@ -343,6 +346,10 @@ final class FrameworkWindowingCompat {
         } catch (LinkageError | RuntimeException error) {
             return "framework client-insets publication unknown: " + usefulMessage(error);
         }
+    }
+
+    static boolean publishesClientInsetsUnconditionally(final int sdk) {
+        return sdk >= 37;
     }
 
     static String visibleTypesUnavailableReason(

@@ -66,6 +66,12 @@ final class MagicDeskMcpRuntime implements Closeable {
             mNetworkError = "";
             return;
         }
+        if (!RuntimeCapabilities.canAccessLocalNetwork(mContext)) {
+            stopNetwork();
+            unobserveNetwork();
+            mNetworkError = mContext.getString(R.string.settings_mcp_network_permission_required);
+            return;
+        }
         try {
             observeNetwork();
             final McpNetworkInterfaces.Binding binding =
@@ -77,7 +83,9 @@ final class MagicDeskMcpRuntime implements Closeable {
             final MagicDeskMcpHttpServer server = new MagicDeskMcpHttpServer(mNetworkHandler,
                     () -> {
                         final var values = MagicDeskMcpPreferences.load(mContext);
-                        return values.enabled && values.networkEnabled ? values.networkToken : "";
+                        return values.enabled && values.networkEnabled
+                                && RuntimeCapabilities.canAccessLocalNetwork(mContext)
+                                ? values.networkToken : "";
                     });
             try {
                 server.startNetwork(binding.address, mSettings.networkPort);
