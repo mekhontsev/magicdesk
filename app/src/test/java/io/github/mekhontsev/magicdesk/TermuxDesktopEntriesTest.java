@@ -14,7 +14,7 @@ public final class TermuxDesktopEntriesTest {
     private Path commands;
 
     @Test public void publishesOnceWithoutClobberingExistingLauncher() throws Exception {
-        Path home = temporary.getRoot().toPath();
+        Path home = unixHome();
         var shortcut = LinuxLaunchRecipe.build("Linux ' test",
                 new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.PROOT, "ubuntu"),
                 "", "", "", LinuxLaunchRecipe.Presentation.TERMINAL);
@@ -37,7 +37,7 @@ public final class TermuxDesktopEntriesTest {
 
     @Test public void failedMoveDoesNotReportSuccessOrLeaveTemporaryFile() throws Exception {
         useMoveCommand("exit 1\n");
-        Path home = temporary.getRoot().toPath();
+        Path home = unixHome();
         assertWrite(1, home, "failed.desktop", "[Desktop Entry]\nName=Failed\n");
         try (var files = Files.list(home.resolve(".local/share/applications"))) {
             assertEquals(0, files.count());
@@ -45,7 +45,7 @@ public final class TermuxDesktopEntriesTest {
     }
 
     @Test public void existingDirectoryIsNotAnIdenticalLauncher() throws Exception {
-        Path home = temporary.getRoot().toPath();
+        Path home = unixHome();
         Path directory = Files.createDirectories(home.resolve(".local/share/applications"));
         Path destination = Files.createDirectory(directory.resolve("magicdesk-folder.desktop"));
         assertWrite(1, home, "folder.desktop", "[Desktop Entry]\nName=Folder\n");
@@ -60,7 +60,7 @@ public final class TermuxDesktopEntriesTest {
     }
 
     @Test public void deletesOnlyDirectUserShortcutsAndAbsenceIsIdempotent() throws Exception {
-        Path home = temporary.getRoot().toPath();
+        Path home = unixHome();
         Path directory = Files.createDirectories(home.resolve(".local/share/applications"));
         Path shortcut = Files.writeString(directory.resolve("magicdesk-user.desktop"), "user");
         assertDelete(0, home, shortcut);
@@ -80,7 +80,7 @@ public final class TermuxDesktopEntriesTest {
     }
 
     @Test public void userDirectoryCannotAliasPackageInstallation() throws Exception {
-        Path home = temporary.getRoot().toPath();
+        Path home = unixHome();
         Path installed = Files.createDirectories(home.resolve("prefix/share/applications"));
         Path shortcut = Files.writeString(installed.resolve("magicdesk-installed.desktop"), "installed");
         Path data = Files.createDirectories(home.resolve(".local/share"));
@@ -104,9 +104,14 @@ public final class TermuxDesktopEntriesTest {
 
     private void useMoveCommand(String body) throws Exception {
         String interpreter = shell();
-        commands = Files.createDirectory(temporary.getRoot().toPath().resolve("commands"));
+        commands = Files.createDirectory(unixHome().resolve("commands"));
         Path move = Files.writeString(commands.resolve("mv"), "#!" + interpreter + "\n" + body);
         assertTrue(move.toFile().setExecutable(true));
+    }
+
+    private Path unixHome() {
+        assumeTrue(!System.getProperty("os.name").startsWith("Windows"));
+        return temporary.getRoot().toPath();
     }
 
     private static String shell() {

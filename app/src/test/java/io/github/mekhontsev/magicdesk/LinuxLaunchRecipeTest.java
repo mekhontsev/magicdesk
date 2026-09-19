@@ -100,7 +100,7 @@ public final class LinuxLaunchRecipeTest {
     }
 
     @Test public void customLauncherUsesTheSameUserDirectoryAndGuestCommandContract() throws Exception {
-        Path launcher = temporary.getRoot().toPath().resolve("enter ' linux%$script");
+        Path launcher = unixHome().resolve("enter ' linux%$script");
         var environment = new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.SCRIPT, launcher.toString());
         for (var mode : LinuxLaunchRecipe.Presentation.values()) {
             var shortcut = LinuxLaunchRecipe.build("Linux", environment, "printf '%s' \"$HOME\"", "/home/a ' b", "alice", mode);
@@ -119,7 +119,7 @@ public final class LinuxLaunchRecipeTest {
     }
 
     @Test public void customLoginShellDoesNotInventArgumentsOrRequireX11() throws Exception {
-        Path launcher = temporary.getRoot().toPath().resolve("enter-linux");
+        Path launcher = unixHome().resolve("enter-linux");
         var environment = new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.SCRIPT, launcher.toString());
         var shortcut = LinuxLaunchRecipe.build("Linux", environment, "", "", "", LinuxLaunchRecipe.Presentation.TERMINAL);
         assertTrue(arguments(shortcut, launcher).isEmpty());
@@ -130,12 +130,12 @@ public final class LinuxLaunchRecipeTest {
     }
 
     private List<String> arguments(DesktopApplicationShortcut shortcut) throws Exception {
-        Path bin = Files.createTempDirectory(temporary.getRoot().toPath(), "bin");
+        Path bin = Files.createTempDirectory(unixHome(), "bin");
         return arguments(shortcut, bin.resolve("proot-distro"));
     }
 
     @Test public void preparedLinuxHasTheSameRecipeWithEitherExecutor() throws Exception {
-        Path launcher = temporary.getRoot().toPath().resolve("enter-linux");
+        Path launcher = unixHome().resolve("enter-linux");
         for (var backend : DesktopExecBackend.values()) {
             var environment = new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.SCRIPT,
                     launcher.toString(), backend, "/linux/usr/share/X11/xkb");
@@ -160,6 +160,11 @@ public final class LinuxLaunchRecipeTest {
                 LinuxLaunchRecipe.Presentation.APPLICATION));
         assertThrows(IllegalArgumentException.class, () -> new LinuxLaunchRecipe.Environment(
                 LinuxLaunchRecipe.Kind.PROOT, "ubuntu", DesktopExecBackend.SHELL, ""));
+    }
+
+    private Path unixHome() {
+        assumeTrue(!System.getProperty("os.name").startsWith("Windows"));
+        return temporary.getRoot().toPath();
     }
 
     private List<String> arguments(DesktopApplicationShortcut shortcut, Path launcher) throws Exception {
