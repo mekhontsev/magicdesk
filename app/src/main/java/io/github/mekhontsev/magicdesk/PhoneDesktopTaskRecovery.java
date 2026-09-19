@@ -28,22 +28,8 @@ final class PhoneDesktopTaskRecovery {
                     MAGICDESK_PACKAGE + ".DesktopSelfTestActivity",
                     MAGICDESK_PACKAGE + ".DesktopSelfTestBrowserActivity",
                     MAGICDESK_PACKAGE + ".MagicDeskTouchpadActivity");
-    private static final String CMD = "/system/bin/cmd";
-    private static final String WMSHELL_HELP =
-            CMD + " statusbar wmshell-passthrough help";
     private static final String RECOVERY_COMMAND =
             "io.github.mekhontsev.magicdesk.PhoneDesktopTaskRecoveryCommand";
-    private static final String REPOSITORY_DUMP =
-            "/system/bin/dumpsys activity service "
-                    + "com.android.systemui/.SystemUIService"
-                    + " | /system/bin/awk 'BEGIN { found=0; done=0; base=0 } "
-                    + "{ line=$0; stripped=line; sub(/^[ ]*/, \"\", stripped); "
-                    + "indent=length(line)-length(stripped); "
-                    + "if (!found && !done "
-                    + "&& stripped == \"DesktopUserRepositories:\") "
-                    + "{ found=1; base=indent } "
-                    + "else if (found && stripped != \"\" && indent <= base) "
-                    + "{ found=0; done=1 } if (found) print line }'";
     private static final String FULLSCREEN_COMMAND =
             "io.github.mekhontsev.magicdesk."
                     + "TaskClientPreservingFullscreenTransitionCommand";
@@ -78,10 +64,6 @@ final class PhoneDesktopTaskRecovery {
     };
 
     private PhoneDesktopTaskRecovery() {
-    }
-
-    static String repositoryDumpCommand() {
-        return REPOSITORY_DUMP;
     }
 
     static void recover(final boolean required, final Callback callback) {
@@ -203,7 +185,7 @@ final class PhoneDesktopTaskRecovery {
             return Result.failure(stack.output.trim());
         }
         final CommandResult repository = runRead(
-                repositoryDumpCommand(), continuation, environment);
+                FrameworkDesktopShellApi.repositoryDumpCommand(), continuation, environment);
         if (repository.cancelled) {
             return Result.cancelled();
         }
@@ -307,12 +289,11 @@ final class PhoneDesktopTaskRecovery {
         }
 
         final CommandResult help = taskIds.isEmpty() ? CommandResult.success("")
-                : runRead(WMSHELL_HELP, continuation, environment);
+                : runRead(FrameworkDesktopShellApi.helpCommand(), continuation, environment);
         if (help.cancelled) return Result.cancelled();
-        final String desktopMoveAction = help.success
-                ? FrameworkDesktopShellApi.moveAction(help.output) : null;
-        final boolean directExit = desktopMoveAction == null && help.success
-                && FrameworkDesktopShellApi.canExitDesk(help.output);
+        final FrameworkDesktopShellApi protocol = FrameworkDesktopShellApi.fromHelp(
+                help.success ? help.output : null);
+        final boolean directExit = !protocol.canEnterDesktop() && protocol.canExitDesktop();
         for (final Integer taskId : taskIds) {
             final PhoneTask task = liveTasks.get(taskId);
             if (!isRecoverable(task)) {
@@ -320,13 +301,11 @@ final class PhoneDesktopTaskRecovery {
                         "phone desktop task unavailable: " + taskId);
             }
             if (!task.freeform && !directExit) {
-                if (desktopMoveAction == null) {
+                if (!protocol.canEnterDesktop()) {
                     return Result.failure("WMShell desktop command unavailable: " + help.output.trim());
                 }
                 final CommandResult enteredDesktop = runMutation(
-                        CMD + " window shell desktopmode "
-                                + desktopMoveAction + " "
-                                + taskId.intValue(),
+                        protocol.enterDesktopCommand(FrameworkDesktopShellApi.Transport.WINDOW, taskId),
                         continuation,
                         environment);
                 if (enteredDesktop.cancelled) {
@@ -348,7 +327,7 @@ final class PhoneDesktopTaskRecovery {
             }
 
             final CommandResult fullscreen = runMutation(
-                    directExit ? CMD + " window shell desktopmode moveTaskOutOfDesk " + taskId
+                    directExit ? protocol.exitDesktopCommand(FrameworkDesktopShellApi.Transport.WINDOW, taskId)
                             : createFullscreenCommand(taskId.intValue()),
                     continuation,
                     environment);
@@ -374,7 +353,7 @@ final class PhoneDesktopTaskRecovery {
             final TaskReadResult currentStack = readTasks(
                     continuation, environment);
             final CommandResult currentRepository = runRead(
-                    repositoryDumpCommand(), continuation, environment);
+                    FrameworkDesktopShellApi.repositoryDumpCommand(), continuation, environment);
             if (currentStack.cancelled || currentRepository.cancelled) {
                 return Result.cancelled();
             }

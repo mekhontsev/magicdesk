@@ -4,16 +4,68 @@ import java.util.regex.Pattern;
 
 /** Advertised WMShell command signatures, not Android desk ownership. */
 final class FrameworkDesktopShellApi {
-    private FrameworkDesktopShellApi() { }
+    enum Transport {
+        STATUS_BAR("/system/bin/cmd statusbar wmshell-passthrough"),
+        WINDOW("/system/bin/cmd window shell");
 
-    static String moveAction(String help) {
+        private final String command;
+        Transport(String command) { this.command = command; }
+    }
+
+    private final String mMoveAction;
+    private final boolean mCanExit;
+
+    private FrameworkDesktopShellApi(String moveAction, boolean canExit) {
+        mMoveAction = moveAction;
+        mCanExit = canExit;
+    }
+
+    static FrameworkDesktopShellApi fromHelp(String help) {
+        return new FrameworkDesktopShellApi(moveAction(help),
+                hasCommand(help, "moveTaskOutOfDesk", "<taskId>"));
+    }
+
+    static String helpCommand() { return Transport.STATUS_BAR.command + " help"; }
+
+    static String repositoryDumpCommand() {
+        return "/system/bin/dumpsys activity service "
+                + "com.android.systemui/.SystemUIService"
+                + " | /system/bin/awk 'BEGIN { found=0; done=0; base=0 } "
+                + "{ line=$0; stripped=line; sub(/^[ ]*/, \"\", stripped); "
+                + "indent=length(line)-length(stripped); "
+                + "if (!found && !done "
+                + "&& stripped == \"DesktopUserRepositories:\") "
+                + "{ found=1; base=indent } "
+                + "else if (found && stripped != \"\" && indent <= base) "
+                + "{ found=0; done=1 } if (found) print line }'";
+    }
+
+    boolean canEnterDesktop() { return mMoveAction != null; }
+    boolean canExitDesktop() { return mCanExit; }
+
+    String enterDesktopCommand(Transport transport, int taskId) {
+        if (!canEnterDesktop()) throw new IllegalStateException("WMShell desktop entry unavailable");
+        return taskCommand(transport, mMoveAction, taskId);
+    }
+
+    String exitDesktopCommand(Transport transport, int taskId) {
+        if (!canExitDesktop()) throw new IllegalStateException("WMShell desktop exit unavailable");
+        return taskCommand(transport, "moveTaskOutOfDesk", taskId);
+    }
+
+    String entryDescription() {
+        return "wmshell-passthrough desktopmode " + (canEnterDesktop() ? mMoveAction : "unavailable");
+    }
+
+    private static String taskCommand(Transport transport, String action, int taskId) {
+        if (taskId < 0) throw new IllegalArgumentException("invalid task id");
+        return transport.command + " desktopmode " + action + " " + taskId;
+    }
+
+    private static String moveAction(String help) {
         if (hasCommand(help, "moveTaskToDesk", "<taskId>")) return "moveTaskToDesk";
         if (hasCommand(help, "moveToDesktop", "<taskId>")) return "moveToDesktop";
         return null;
-    }
-
-    static boolean canExitDesk(String help) {
-        return hasCommand(help, "moveTaskOutOfDesk", "<taskId>");
     }
 
     private static boolean hasCommand(String help, String command, String arguments) {

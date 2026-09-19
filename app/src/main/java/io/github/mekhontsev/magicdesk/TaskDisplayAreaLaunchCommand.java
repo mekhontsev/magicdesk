@@ -8,10 +8,8 @@ import android.content.Intent;
 import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.IBinder;
 import android.view.Display;
 
-import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -351,21 +349,12 @@ public final class TaskDisplayAreaLaunchCommand {
         options.setLaunchDisplayId(displayId);
         options.setLaunchBounds(bounds);
         if (areaToken != null) {
-            ActivityOptions.class.getMethod(
-                    "setLaunchTaskDisplayArea",
-                    FrameworkRuntime.current().windowing().tokenClass())
-                    .invoke(options, areaToken);
+            FrameworkActivityLaunchApi.setTaskDisplayArea(options, areaToken);
         }
-        ActivityOptions.class.getMethod(
-                "setLaunchWindowingMode", Integer.TYPE)
-                .invoke(options, Integer.valueOf(WINDOWING_MODE_FREEFORM));
-        ActivityOptions.class.getMethod(
-                "setLaunchActivityType", Integer.TYPE)
-                .invoke(options, Integer.valueOf(
-                        FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD));
+        FrameworkActivityLaunchApi.setWindowingMode(options, WINDOWING_MODE_FREEFORM);
+        FrameworkActivityLaunchApi.setActivityType(options, FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD);
         if (launchBehind) {
-            ActivityOptions.class.getMethod("setAvoidMoveToFront")
-                    .invoke(options);
+            FrameworkActivityLaunchApi.avoidMoveToFront(options);
         }
         final TaskLaunchBaseline baseline = taskBaselineBeforeLaunch(
                 service, displayId);
@@ -597,22 +586,14 @@ public final class TaskDisplayAreaLaunchCommand {
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(displayId);
         if (areaToken != null) {
-            ActivityOptions.class.getMethod(
-                    "setLaunchTaskDisplayArea",
-                    FrameworkRuntime.current().windowing().tokenClass())
-                    .invoke(options, areaToken);
+            FrameworkActivityLaunchApi.setTaskDisplayArea(options, areaToken);
         }
-        ActivityOptions.class.getMethod(
-                "setLaunchWindowingMode", Integer.TYPE)
-                .invoke(options, Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
+        FrameworkActivityLaunchApi.setWindowingMode(options, WINDOWING_MODE_FULLSCREEN);
         if (activityType != FrameworkTaskSnapshot.ACTIVITY_TYPE_UNDEFINED) {
-            ActivityOptions.class.getMethod(
-                    "setLaunchActivityType", Integer.TYPE)
-                    .invoke(options, Integer.valueOf(activityType));
+            FrameworkActivityLaunchApi.setActivityType(options, activityType);
         }
         if (launchBehind) {
-            ActivityOptions.class.getMethod("setAvoidMoveToFront")
-                    .invoke(options);
+            FrameworkActivityLaunchApi.avoidMoveToFront(options);
         }
         final TaskLaunchBaseline baseline = taskBaselineBeforeLaunch(
                 service, displayId);
@@ -640,9 +621,7 @@ public final class TaskDisplayAreaLaunchCommand {
         }
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(displayId);
-        ActivityOptions.class.getMethod(
-                "setLaunchTaskId", Integer.TYPE)
-                .invoke(options, Integer.valueOf(taskId));
+        FrameworkActivityLaunchApi.setTask(options, taskId);
         sendPendingIntent(activityLauncher, pendingIntent, options);
     }
 
@@ -657,9 +636,7 @@ public final class TaskDisplayAreaLaunchCommand {
         }
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(displayId);
-        ActivityOptions.class.getMethod(
-                "setLaunchTaskId", Integer.TYPE)
-                .invoke(options, Integer.valueOf(taskId));
+        FrameworkActivityLaunchApi.setTask(options, taskId);
         sendCreatorAuthorizedPendingIntent(pendingIntent, options);
     }
 
@@ -721,9 +698,7 @@ public final class TaskDisplayAreaLaunchCommand {
         // Shortcut entry activities often redirect and finish immediately.
         // Starting them inside the prepared app task keeps that redirect from
         // becoming a short-lived desktop root task.
-        ActivityOptions.class.getMethod(
-                "setLaunchTaskId", Integer.TYPE)
-                .invoke(options, Integer.valueOf(taskId));
+        FrameworkActivityLaunchApi.setTask(options, taskId);
         launchActivity(service, intent, options);
     }
 
@@ -740,36 +715,7 @@ public final class TaskDisplayAreaLaunchCommand {
             final ActivityOptions options,
             final java.util.function.IntConsumer startResultObserver)
             throws ReflectiveOperationException {
-        final Class<?> applicationThreadClass =
-                Class.forName("android.app.IApplicationThread");
-        final Class<?> profilerInfoClass =
-                Class.forName("android.app.ProfilerInfo");
-        final Method startActivity = service.getClass().getMethod(
-                "startActivity",
-                applicationThreadClass,
-                String.class,
-                String.class,
-                Intent.class,
-                String.class,
-                IBinder.class,
-                String.class,
-                Integer.TYPE,
-                Integer.TYPE,
-                profilerInfoClass,
-                Bundle.class);
-        final int startResult = ((Integer) startActivity.invoke(
-                service,
-                null,
-                "com.android.shell",
-                null,
-                intent,
-                null,
-                null,
-                null,
-                Integer.valueOf(-1),
-                Integer.valueOf(0),
-                null,
-                options.toBundle())).intValue();
+        final int startResult = FrameworkActivityLaunchApi.startActivity(service, intent, options);
         if (startResultObserver != null) {
             startResultObserver.accept(startResult);
         }
@@ -1235,22 +1181,7 @@ public final class TaskDisplayAreaLaunchCommand {
                 WINDOWING_MODE_FULLSCREEN,
                 fullscreenBounds,
                 areaToken);
-        final Class<?> applicationThreadClass =
-                Class.forName("android.app.IApplicationThread");
-        service.getClass().getMethod(
-                "moveTaskToFront",
-                applicationThreadClass,
-                String.class,
-                Integer.TYPE,
-                Integer.TYPE,
-                Bundle.class)
-                .invoke(
-                        service,
-                        null,
-                        "com.android.shell",
-                        Integer.valueOf(taskId),
-                        Integer.valueOf(0),
-                        options.toBundle());
+        HiddenTaskApi.moveTaskToFront(service, taskId, options.toBundle());
     }
 
     private static ActivityOptions existingTaskOptions(
@@ -1264,14 +1195,9 @@ public final class TaskDisplayAreaLaunchCommand {
             options.setLaunchBounds(new Rect(bounds));
         }
         if (areaToken != null) {
-            ActivityOptions.class.getMethod(
-                    "setLaunchTaskDisplayArea",
-                    FrameworkRuntime.current().windowing().tokenClass())
-                    .invoke(options, areaToken);
+            FrameworkActivityLaunchApi.setTaskDisplayArea(options, areaToken);
         }
-        ActivityOptions.class.getMethod(
-                "setLaunchWindowingMode", Integer.TYPE)
-                .invoke(options, Integer.valueOf(windowingMode));
+        FrameworkActivityLaunchApi.setWindowingMode(options, windowingMode);
         FrameworkWindowingCompat.current().allowFlexibleLaunchSize(options);
         return options;
     }

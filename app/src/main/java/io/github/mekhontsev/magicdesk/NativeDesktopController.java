@@ -6,12 +6,9 @@ import java.io.IOException;
 
 final class NativeDesktopController {
     private static final String TAG = "MagicDeskNativeDesktop";
-    private static final String WMSHELL =
-            "/system/bin/cmd statusbar wmshell-passthrough";
-    private static final String HELP = WMSHELL + " help";
 
     private static boolean sProbed;
-    private static String sMoveAction;
+    private static FrameworkDesktopShellApi sProtocol = FrameworkDesktopShellApi.fromHelp(null);
 
     private NativeDesktopController() {
     }
@@ -27,17 +24,17 @@ final class NativeDesktopController {
 
     static synchronized boolean isAvailable() {
         if (sProbed) {
-            return sMoveAction != null;
+            return sProtocol.canEnterDesktop();
         }
         try {
-            final String output = runCommand(HELP);
-            sMoveAction = FrameworkDesktopShellApi.moveAction(output);
+            final String output = runCommand(FrameworkDesktopShellApi.helpCommand());
+            sProtocol = FrameworkDesktopShellApi.fromHelp(output);
             sProbed = true;
         } catch (IOException e) {
             Log.w(TAG, "WMShell desktop-mode probe failed", e);
-            sMoveAction = null;
+            sProtocol = FrameworkDesktopShellApi.fromHelp(null);
         }
-        return sMoveAction != null;
+        return sProtocol.canEnterDesktop();
     }
 
     static void requireAvailable() throws IOException {
@@ -52,7 +49,7 @@ final class NativeDesktopController {
         }
         requireAvailable();
         final String output = runCommand(
-                WMSHELL + " desktopmode " + moveAction() + " " + taskId)
+                protocol().enterDesktopCommand(FrameworkDesktopShellApi.Transport.STATUS_BAR, taskId))
                 .trim();
         if (output.startsWith("Error:")
                 || output.startsWith("Invalid command:")
@@ -63,13 +60,12 @@ final class NativeDesktopController {
     }
 
     static String backendDescription() {
-        return isAvailable()
-                ? "wmshell-passthrough desktopmode " + moveAction()
-                : "wmshell-passthrough desktopmode unavailable";
+        isAvailable();
+        return protocol().entryDescription();
     }
 
-    private static synchronized String moveAction() {
-        return sMoveAction;
+    private static synchronized FrameworkDesktopShellApi protocol() {
+        return sProtocol;
     }
 
     private static String runCommand(final String command) throws IOException {

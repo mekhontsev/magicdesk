@@ -428,6 +428,20 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
         }
     }
 
+    @Test public void optionalExitDoesNotReplaceExistingClientPreservingRecovery() {
+        final FakeEnvironment environment = new FakeEnvironment(true);
+        environment.advertiseExit = true;
+        environment.freeform = false;
+        environment.repositoryContainsTask = false;
+        environment.removedRepositoryContainsTask = true;
+        final var result = PhoneDesktopTaskRecovery.recoverRemovedDisplayForTest(
+                95, () -> true, environment);
+        assertTrue(result.message, result.success);
+        assertTrue(environment.hasMoveToDeskCommand());
+        assertTrue(environment.hasFullscreenTransition());
+        assertFalse(environment.commands.stream().anyMatch(c -> c.contains("desktopmode moveTaskOutOfDesk")));
+    }
+
     @Test public void explicitDeskRecoveryStillChecksRepositoryAfterSuccessfulCommand() {
         final FakeEnvironment environment = new FakeEnvironment(true);
         environment.explicitDesk = true;
@@ -449,6 +463,7 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
         boolean retainExternalRepository;
         boolean reviveMissingTask = true;
         boolean explicitDesk;
+        boolean advertiseExit;
         String desktopMoveAction = "moveTaskToDesk";
         String packageName = "net.sf.golly";
         String componentName = ".MainActivity";
@@ -488,7 +503,8 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
                 return PhoneDesktopTaskRecovery.CommandResult.success(
                         explicitDesk ? "desktopmode\n moveTaskToDesk <taskId|0> <deskId>\n"
                                 + " moveTaskOutOfDesk <taskId>\n"
-                                : "desktopmode " + desktopMoveAction + " <taskId>");
+                                : "desktopmode " + desktopMoveAction + " <taskId>"
+                                        + (advertiseExit ? "\n moveTaskOutOfDesk <taskId>\n" : ""));
             }
             if (command.contains("PhoneDesktopTaskRecoveryCommand")) {
                 if (!reviveMissingTask) {

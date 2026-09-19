@@ -1348,6 +1348,20 @@ focused adapters rather than one broad compatibility utility.
   inspect or reinterpret raw `InputWindowHandle` objects. Workspace focus
   waits on this SurfaceFlinger callback before taking its one-shot
   InputDispatcher snapshot.
+- `FrameworkInputMethodCatalogApi` owns IME Binder discovery, current/enabled
+  methods and subtypes, SafeList decoding and explicit subtype switching.
+  `FrameworkKeyboardLayoutApi` owns hidden device identifiers, layout candidates,
+  selection and verified writes. `HardwareKeyboardLayoutCommand` retains layout
+  matching, deduplication and bounded cycling policy, using typed values only.
+- `FrameworkActivityLaunchApi` owns hidden ActivityOptions setters and Activity
+  launch signatures; `HiddenTaskApi` owns existing-task start and front operations.
+  Launch policy still chooses mode, area, order and outcome handling. Ordinary
+  options do not initialize the organizer; only an explicit area option resolves
+  its token class. Optional app-side hints keep their existing failure handling.
+- `FrameworkDesktopShellApi` owns WMShell help signatures, command encoding and
+  repository dump acquisition syntax. Controllers choose the operation and
+  transport, execute through their existing queues and verify postconditions.
+  No raw command verb or framework member name crosses back into policy.
 
 Repository isolation tests enforce these ownership rules. Version-specific
 member names, WCT class lookups, raw task fields, direct input dumps, and text
@@ -3853,6 +3867,10 @@ signature; a required `deskId` is not guessed. Otherwise launches use the existi
 `moveTaskOutOfDesk` when the one-task entry operation is absent, preserving its
 postconditions for fullscreen mode and repository cleanup. This does not create,
 activate or remove Android desks, or alter MagicDesk's fullscreen-plane ownership.
+Protocol parsing is immutable and does not execute commands. Native launch keeps
+the status-bar passthrough transport; phone recovery keeps the window-shell
+transport and its cancellation boundary. A failed available operation is not
+retried through another transport or privilege identity.
 
 `AppWindowStateStore` keeps one stable record per `AppReference`: the last explicit
 Windowed or Fullscreen choice and, independently, the last confirmed freeform

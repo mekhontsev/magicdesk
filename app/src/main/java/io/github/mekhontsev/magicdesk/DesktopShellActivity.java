@@ -37,7 +37,6 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
-import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -2312,9 +2311,7 @@ public abstract class DesktopShellActivity extends Activity
             final ActivityOptions options,
             final int value) {
         try {
-            final Method method = ActivityOptions.class.getMethod(
-                    "setLaunchWindowingMode", Integer.TYPE);
-            method.invoke(options, Integer.valueOf(value));
+            FrameworkActivityLaunchApi.setWindowingMode(options, value);
         } catch (ReflectiveOperationException e) {
             Log.w(TAG, "setLaunchWindowingMode unavailable", e);
         } catch (RuntimeException e) {

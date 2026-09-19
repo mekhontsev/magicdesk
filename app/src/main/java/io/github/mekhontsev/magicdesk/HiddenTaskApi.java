@@ -20,6 +20,14 @@ final class HiddenTaskApi {
     private HiddenTaskApi() {
     }
 
+    static void moveTaskToFront(Object service, int taskId, Bundle options)
+            throws ReflectiveOperationException {
+        service.getClass().getMethod("moveTaskToFront",
+                Class.forName("android.app.IApplicationThread"), String.class,
+                int.class, int.class, Bundle.class)
+                .invoke(service, null, "com.android.shell", taskId, 0, options);
+    }
+
     static Object getService() throws ReflectiveOperationException {
         final Class<?> activityTaskManager =
                 Class.forName("android.app.ActivityTaskManager");
@@ -136,9 +144,14 @@ final class HiddenTaskApi {
     static int startActivityFromRecents(
             final Object service,
             final int taskId) throws ReflectiveOperationException {
+        return startActivityFromRecents(service, taskId, null);
+    }
+
+    static int startActivityFromRecents(Object service, int taskId, Bundle options)
+            throws ReflectiveOperationException {
         final Object result = service.getClass()
                 .getMethod("startActivityFromRecents", Integer.TYPE, Bundle.class)
-                .invoke(service, Integer.valueOf(taskId), null);
+                .invoke(service, Integer.valueOf(taskId), options);
         if (!(result instanceof Integer)) {
             throw new IllegalStateException(
                     "startActivityFromRecents returned no integer result");

@@ -1,18 +1,12 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.annotation.SuppressLint;
 import android.content.ComponentName;
-import android.os.Process;
 
 import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 
-@SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskControlCommand {
     private static final String PACKAGE_NAME =
             DesktopHostComponents.PACKAGE_NAME;
-    private static final String SHELL_PACKAGE_NAME = "com.android.shell";
-    private static final int SHELL_UID = 2000;
     private TaskControlCommand() {
     }
 
@@ -63,67 +57,6 @@ public final class TaskControlCommand {
             System.err.println("task control failed: " + usefulFailure(e));
             System.exit(1);
         }
-    }
-
-    static void moveTaskToFront(final Object service, final int taskId)
-            throws ReflectiveOperationException {
-        final Method target = findMoveTaskToFrontMethod(service.getClass());
-
-        final Class<?>[] parameterTypes = target.getParameterTypes();
-        final Object[] arguments = new Object[parameterTypes.length];
-        for (int i = 0; i < parameterTypes.length; i++) {
-            final Class<?> type = parameterTypes[i];
-            if (i == 1) {
-                arguments[i] = callingPackageForUid(Process.myUid());
-            } else if (i == 2) {
-                arguments[i] = Integer.valueOf(taskId);
-            } else if (type == Integer.TYPE) {
-                arguments[i] = Integer.valueOf(0);
-            } else if (type == Boolean.TYPE) {
-                arguments[i] = Boolean.FALSE;
-            } else {
-                arguments[i] = null;
-            }
-        }
-        target.invoke(service, arguments);
-    }
-
-    static Method findMoveTaskToFrontMethod(final Class<?> serviceClass)
-            throws NoSuchMethodException {
-        Method fourArgument = null;
-        Method fiveArgument = null;
-        for (final Method method : serviceClass.getMethods()) {
-            if (!"moveTaskToFront".equals(method.getName())) {
-                continue;
-            }
-            final Class<?>[] types = method.getParameterTypes();
-            if ((types.length != 4 && types.length != 5)
-                    || types[0].isPrimitive()
-                    || types[1] != String.class
-                    || types[2] != Integer.TYPE
-                    || types[3] != Integer.TYPE
-                    || (types.length == 5 && types[4].isPrimitive())) {
-                continue;
-            }
-            if (types.length == 5) {
-                fiveArgument = method;
-            } else {
-                fourArgument = method;
-            }
-        }
-        if (fiveArgument != null) {
-            return fiveArgument;
-        }
-        if (fourArgument != null) {
-            return fourArgument;
-        }
-        throw new NoSuchMethodException(
-                "supported moveTaskToFront signature on "
-                        + serviceClass.getName());
-    }
-
-    static String callingPackageForUid(final int uid) {
-        return uid == SHELL_UID ? SHELL_PACKAGE_NAME : PACKAGE_NAME;
     }
 
     private static Throwable usefulFailure(final Throwable error) {

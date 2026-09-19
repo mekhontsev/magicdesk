@@ -1,31 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
-import static org.junit.Assert.assertTrue;
-
-import com.android.internal.inputmethod.InputMethodSubtypeSafeList;
-
 import org.junit.Test;
 
-import java.util.Collections;
-
 public final class HardwareKeyboardLayoutCommandTest {
-    @Test
-    public void acceptsLegacySubtypeList() throws ReflectiveOperationException {
-        assertTrue(HardwareKeyboardLayoutCommand
-                .extractEnabledInputMethodSubtypes(Collections.emptyList())
-                .isEmpty());
-    }
-
-    @Test
-    public void extractsSafeSubtypeList() throws ReflectiveOperationException {
-        final InputMethodSubtypeSafeList safeList =
-                new InputMethodSubtypeSafeList(Collections.emptyList());
-
-        assertTrue(HardwareKeyboardLayoutCommand
-                .extractEnabledInputMethodSubtypes(safeList)
-                .isEmpty());
-    }
-
     @Test public void startupUsesCurrentRussianRatherThanTheFirstEnglishLayout() throws Exception {
         verify("""
                 current = 1;
@@ -148,11 +125,7 @@ public final class HardwareKeyboardLayoutCommandTest {
 
     private static void verify(final String scenario) throws Exception {
         final String methods = RuntimeSourceFixture.methods(
-                "HardwareKeyboardLayoutCommand", "execute", "executeSelection", "snapshot", "findSubtypeIndex")
-                .replace("\"android.hardware.input.IInputManager\"",
-                        "\"io.github.mekhontsev.magicdesk.Fixture$InputApi\"")
-                .replace("\"android.hardware.input.KeyboardLayout\"",
-                        "\"io.github.mekhontsev.magicdesk.Fixture$LayoutInfo\"");
+                "HardwareKeyboardLayoutCommand", "execute", "executeSelection", "snapshot", "findSubtypeIndex");
         RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", """
                 static class InputDevice {}
                 record HardwareKeyboardLayouts(int physicalDevices, List<Choice> choices) {
@@ -170,8 +143,21 @@ public final class HardwareKeyboardLayoutCommandTest {
                         imeId = id; currentSubtype = new InputMethodSubtype(descriptor);
                     }
                 }
-                public static class InputApi {
-                    public Object getKeyboardLayout(String descriptor) { return null; }
+                static class Display { static final int DEFAULT_DISPLAY = 0; }
+                static class FrameworkInputMethodCatalogApi {
+                    void switchSubtype(int displayId) {
+                        check(displayId == 0, "IME switch display changed");
+                        switches++;
+                        if (!stalledSwitch) current = (current + 1) % states.size();
+                    }
+                }
+                static class FrameworkKeyboardLayoutApi {
+                    void apply(InputDevice keyboard, int userId, String ime,
+                            InputMethodSubtype subtype, String descriptor) {
+                        check(userId == 0, "layout user changed");
+                        check(subtype == states.get(current).currentSubtype, "applied non-current subtype");
+                        applied.add(descriptor);
+                    }
                 }
                 public static class LayoutInfo implements KeyboardLayoutPolicy.Layout {
                     final String descriptor, label, inputMethod;
@@ -198,14 +184,9 @@ public final class HardwareKeyboardLayoutCommandTest {
                 static int current, switches, imeReads;
                 static boolean missingSubtype, stalledSwitch;
                 static List<InputDevice> getExternalAlphabeticKeyboards() { return keyboards; }
-                static Object getInputManagerService() { return new InputApi(); }
                 static ImeState getImeState() { imeReads++; return states.get(current); }
-                static void switchInputMethodSubtype() {
-                    switches++;
-                    if (!stalledSwitch) current = (current + 1) % states.size();
-                }
-                static List<LayoutInfo> resolveConfiguredLayouts(Object service, Class<?> api,
-                        Method method, Class<?> type, InputDevice keyboard, ImeState state) {
+                static List<LayoutInfo> resolveConfiguredLayouts(FrameworkKeyboardLayoutApi api,
+                        InputDevice keyboard, ImeState state) {
                     Map<String, LayoutInfo> layouts = new LinkedHashMap<>();
                     if (!missingSubtype) layouts.put(state.currentSubtype.descriptor, new LayoutInfo(state));
                     for (ImeState enabled : states) {
@@ -213,11 +194,6 @@ public final class HardwareKeyboardLayoutCommandTest {
                             layouts.putIfAbsent(enabled.currentSubtype.descriptor, new LayoutInfo(enabled));
                     }
                     return new ArrayList<>(layouts.values());
-                }
-                static void setKeyboardLayout(Object service, Class<?> api,
-                        InputDevice keyboard, String ime, LayoutInfo selected) {
-                    check(selected.subtype == states.get(current).currentSubtype, "applied non-current subtype");
-                    applied.add(selected.descriptor);
                 }
                 public static void verify() throws Exception {
                 """ + scenario + "}\n" + methods, "KeyboardLayoutPolicy");

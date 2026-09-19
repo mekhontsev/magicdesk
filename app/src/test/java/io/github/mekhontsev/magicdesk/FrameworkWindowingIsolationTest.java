@@ -80,6 +80,36 @@ public final class FrameworkWindowingIsolationTest {
                 "android.window.WindowContainerToken");
     }
 
+    @Test public void imeCatalogReflectionHasOneOwner() throws IOException {
+        assertNoSourceTokensOutside("IME reflection outside catalog adapter",
+                List.of("io/github/mekhontsev/magicdesk/FrameworkInputMethodCatalogApi.java"),
+                "com.android.internal.view.IInputMethodManager", "InputMethodSubtypeSafeList",
+                "\"getEnabledInputMethodList\"", "\"getEnabledInputMethodListLegacy\"");
+    }
+
+    @Test public void launchPrimitivesHaveFrameworkOwners() throws IOException {
+        assertNoSourceTokensOutside("Launch option reflection outside launch adapter",
+                List.of("io/github/mekhontsev/magicdesk/FrameworkActivityLaunchApi.java"),
+                "\"setLaunchWindowingMode\"", "\"setLaunchActivityType\"",
+                "\"setLaunchTaskDisplayArea\"", "\"setLaunchTaskId\"", "\"setAvoidMoveToFront\"");
+        assertNoSourceTokensOutside("Raw task activation outside task API", List.of(TASK_API_SOURCE),
+                "\"moveTaskToFront\"");
+    }
+
+    @Test public void desktopShellProtocolHasOneOwner() throws IOException {
+        assertNoSourceTokensOutside("WMShell protocol outside adapter",
+                List.of("io/github/mekhontsev/magicdesk/FrameworkDesktopShellApi.java"),
+                "wmshell-passthrough", "window shell desktopmode", "\"moveTaskToDesk\"",
+                "\"moveToDesktop\"", "\"moveTaskOutOfDesk\"");
+    }
+
+    @Test public void keyboardPolicyDoesNotReflectFrameworkObjects() throws IOException {
+        String command = Files.readString(MAIN_JAVA.resolve(
+                "io/github/mekhontsev/magicdesk/HardwareKeyboardLayoutCommand.java"));
+        assertTrue(!command.contains("Class.forName") && !command.contains(".getMethod(")
+                && !command.contains("java.lang.reflect") && !command.contains("ServiceManager"));
+    }
+
     @Test
     public void rawTaskMemberAccessStaysInTaskSources()
             throws IOException {

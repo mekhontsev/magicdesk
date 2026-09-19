@@ -626,7 +626,7 @@ final class DesktopSelfTestController {
             final Map<Integer, Set<Integer>> tasksByDisplay =
                     SystemUiDesktopRepositoryParser.parseTaskIdsByDisplay(
                             ShellAccess.run(
-                                    PhoneDesktopTaskRecovery
+                                    FrameworkDesktopShellApi
                                             .repositoryDumpCommand()));
             final Set<Integer> liveTaskIds = new LinkedHashSet<>();
             for (final TaskStackParser.Entry task : TaskStackParser.parse(

@@ -476,7 +476,7 @@ final class DesktopSelfTestCleanup {
         Set<Integer> retainedTasks = Collections.emptySet();
         do {
             final String repository = ShellAccess.run(
-                    PhoneDesktopTaskRecovery.repositoryDumpCommand());
+                    FrameworkDesktopShellApi.repositoryDumpCommand());
             retainedTasks = SystemUiDesktopRepositoryParser.parseTaskIds(
                     repository, displayId);
             if (retainedTasks.isEmpty()) {
@@ -498,7 +498,7 @@ final class DesktopSelfTestCleanup {
             retainedTasks = new LinkedHashSet<>(
                     SystemUiDesktopRepositoryParser.parseTaskIds(
                             ShellAccess.run(
-                                    PhoneDesktopTaskRecovery
+                                    FrameworkDesktopShellApi
                                             .repositoryDumpCommand()),
                             displayId));
             final Set<Integer> liveFreeformTasks = new LinkedHashSet<>();
@@ -530,7 +530,7 @@ final class DesktopSelfTestCleanup {
             final Set<Integer> taskIds =
                     SystemUiDesktopRepositoryParser.parseTaskIds(
                             ShellAccess.run(
-                                    PhoneDesktopTaskRecovery
+                                    FrameworkDesktopShellApi
                                             .repositoryDumpCommand()),
                             displayId);
             if (!taskIds.contains(Integer.valueOf(taskId))) {
