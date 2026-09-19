@@ -131,6 +131,15 @@ caption source. Capture and refresh that source through the existing plane-entry
 operation, without retrying or rebuilding the Activity, which can discard
 transient state such as the browser's HTML Fullscreen API session.
 
+Explicit snap and resize commands retain the user's windowed preference in the
+task's runtime state. A replacement application process does not cancel that
+preference: its first observed client sample reuses the bounded cold-start
+immersive protection, including a default non-immersive sample followed by the
+client's initial request to hide system bars. Protection is consumed once or
+expires under the existing startup policy; later application fullscreen requests
+remain effective. This is policy in the existing observer/controller path, not
+an activity-handoff repair or a new window transaction.
+
 Each fullscreen task enters its own
 organizer-created ordering plane and retains that task/plane relationship for
 its complete fullscreen residency. The plane's organizer leash retains a

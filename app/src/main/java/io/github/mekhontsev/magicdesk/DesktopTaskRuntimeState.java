@@ -224,6 +224,11 @@ final class DesktopTaskRuntimeState {
             final boolean requestingImmersive,
             final long observedUptimeMillis,
             final long settleMillis) {
+        // A task survives its client's restart. Preserve the user's windowed
+        // choice while that new client republishes its initial system-bar state.
+        if (mManualImmersiveOverride && !mAppRequestedFullscreen) {
+            mStartupWindowed = true;
+        }
         if (!mStartupWindowed) {
             return;
         }

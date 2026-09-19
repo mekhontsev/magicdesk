@@ -9,6 +9,71 @@ import org.junit.Test;
 
 public final class ImmersiveRequestStateTest {
     @Test
+    public void windowedTaskKeepsGeometryAcrossDelayedRestartImmersiveRequest() throws Exception {
+        verifyLifecycle("""
+                f.beginExplicitWindowedLaunch(42);
+                f.handleImmersiveRequest(42, true, true, true);
+                SystemClock.now = 30_000L;
+                f.noteManualFreeformTransition(42);
+                f.handleImmersiveRequest(42, false, true, true);
+                SystemClock.now += 150L;
+                f.handleImmersiveRequest(42, true, false, true);
+                check(state.hasManualImmersiveOverride(), "restart erased windowed choice");
+                check(!shouldEnterAppFullscreen(state), "startup request entered fullscreen");
+                f.handleImmersiveRequest(42, false, false, true);
+                f.handleImmersiveRequest(42, true, false, true);
+                check(!state.hasManualImmersiveOverride(), "later request kept override");
+                check(shouldEnterAppFullscreen(state), "later deliberate request was ignored");
+                """);
+    }
+
+    @Test
+    public void resizeOfAnExistingTaskDoesNotRequireAnExplicitWindowedLaunch() throws Exception {
+        verifyLifecycle("""
+                f.handleImmersiveRequest(42, false, true, true);
+                f.noteManualFreeformTransition(42);
+                for (int restart = 0; restart < 3; restart++) {
+                    SystemClock.now += 30_000L;
+                    f.handleImmersiveRequest(42, false, true, true);
+                    f.handleImmersiveRequest(42, true, false, true);
+                    check(state.hasManualImmersiveOverride(), "replacement lost override");
+                    check(!shouldEnterAppFullscreen(state), "replacement entered fullscreen");
+                }
+                """);
+    }
+
+    @Test
+    public void alreadyImmersiveReplacementDoesNotSwallowTheNextRequest() throws Exception {
+        verifyLifecycle("""
+                f.noteManualFreeformTransition(42);
+                f.handleImmersiveRequest(42, true, true, true);
+                check(state.hasManualImmersiveOverride(), "initial request lost override");
+                f.handleImmersiveRequest(42, false, false, true);
+                f.handleImmersiveRequest(42, true, false, true);
+                check(shouldEnterAppFullscreen(state), "later request swallowed");
+                """);
+    }
+
+    @Test
+    public void manualResizeWithoutClientRestartDoesNotArmStartupProtection() throws Exception {
+        verifyLifecycle("""
+                f.handleImmersiveRequest(42, false, true, true);
+                f.noteManualFreeformTransition(42);
+                f.handleImmersiveRequest(42, true, false, true);
+                check(shouldEnterAppFullscreen(state), "resize without restart blocked request");
+                """);
+    }
+
+    @Test
+    public void unprotectedClientStillEntersFullscreen() throws Exception {
+        verifyLifecycle("""
+                f.handleImmersiveRequest(42, false, true, true);
+                f.handleImmersiveRequest(42, true, false, true);
+                check(shouldEnterAppFullscreen(state), "unprotected request was ignored");
+                """);
+    }
+
+    @Test
     public void foregroundObservationOwnsAutomaticFullscreenEligibility() {
         final DesktopTaskRuntimeState state =
                 new DesktopTaskRuntimeState(42);
@@ -105,4 +170,46 @@ public final class ImmersiveRequestStateTest {
                         ActivityInfo.SCREEN_ORIENTATION_USER));
     }
 
+    private static void verifyLifecycle(final String scenario) throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class SystemClock {
+                    static long now = 1_000L;
+                    static long uptimeMillis() { return now; }
+                }
+                static class Log { static void i(String tag, String message) {} }
+                static class DesktopWindowTransitionProvenance {
+                    static void noteApplicationRequest(int task, boolean requested) {}
+                }
+                static class RuntimeState { void scheduleRefresh() {} }
+                static class DesktopTaskRuntimeState {
+                    Boolean mImmersiveRequested;
+                    boolean mImmersiveRequestForeground, mManualImmersiveOverride;
+                    boolean mAppRequestedFullscreen, mStartupWindowed;
+                    long mStartupWindowedDeadlineUptimeMillis = Long.MAX_VALUE;
+                    boolean isFullscreenTransition() { return false; }
+                """ + RuntimeSourceFixture.methods("DesktopTaskRuntimeState",
+                "updateImmersiveObservation", "clearImmersiveRequested",
+                "isImmersiveRequested", "isImmersiveRequestForeground",
+                "isAppRequestedFullscreen", "hasManualImmersiveOverride",
+                "setManualImmersiveOverride", "setStartupWindowed",
+                "observeStartupWindowedInitialSample", "consumeStartupWindowed") + """
+                }
+                static class States {
+                    final DesktopTaskRuntimeState state = new DesktopTaskRuntimeState();
+                    DesktopTaskRuntimeState state(int task) { return state; }
+                }
+                static final String TAG = "fixture";
+                static final long STARTUP_IMMERSIVE_SETTLE_MILLIS = 1_000L;
+                final States mTaskStates = new States();
+                final RuntimeState mRuntimeState = new RuntimeState();
+                public static void verify() {
+                    Fixture f = new Fixture();
+                    DesktopTaskRuntimeState state = f.mTaskStates.state(42);
+                """ + scenario + "}\n" + RuntimeSourceFixture.methods(
+                "DesktopWindowTransitionController", "handleImmersiveRequest",
+                "noteManualFreeformTransition", "beginExplicitWindowedLaunch",
+                "shouldIgnoreBackgroundImmersiveExit", "isNewImmersiveRequest",
+                "shouldReconcileInitialImmersiveSample", "shouldClearManualImmersiveOverride",
+                "shouldEnterAppFullscreen"));
+    }
 }

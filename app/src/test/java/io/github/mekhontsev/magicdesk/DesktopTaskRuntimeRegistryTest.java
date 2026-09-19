@@ -115,6 +115,32 @@ public final class DesktopTaskRuntimeRegistryTest {
         assertFalse(state.consumeStartupWindowed(1_000L));
     }
 
+    @Test
+    public void replacementClientProtectionUsesItsOwnBoundedStartupInterval() {
+        final DesktopTaskRuntimeState state = new DesktopTaskRuntimeState(42);
+        state.setManualImmersiveOverride(true);
+        state.observeStartupWindowedInitialSample(true, 1_000L, 500L);
+        assertFalse(state.consumeStartupWindowed(1_000L));
+
+        state.observeStartupWindowedInitialSample(false, 30_000L, 500L);
+        assertTrue(state.consumeStartupWindowed(30_500L));
+        assertFalse(state.consumeStartupWindowed(30_500L));
+
+        state.observeStartupWindowedInitialSample(false, 60_000L, 500L);
+        assertFalse(state.consumeStartupWindowed(60_501L));
+    }
+
+    @Test
+    public void applicationOwnedFullscreenDoesNotArmWindowedStartupProtection() {
+        final DesktopTaskRuntimeState state = new DesktopTaskRuntimeState(42);
+        state.setManualImmersiveOverride(true);
+        state.setAppRequestedFullscreen(true);
+        state.observeStartupWindowedInitialSample(false, 1_000L, 500L);
+
+        assertFalse(state.consumeStartupWindowed(1_100L));
+        assertTrue(state.isAppRequestedFullscreen());
+    }
+
     private static void assertRect(
             final int left,
             final int top,

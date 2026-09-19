@@ -10,6 +10,7 @@ public final class NativeWindowBoundsReconciliationTest {
                 Dispatch d = new Dispatch(f);
                 for (int row : new int[]{0, -1, 0, 1}) {
                     d.snap(f.task, true, row);
+                    check(f.state().manualImmersiveOverride, "snap did not retain windowed preference");
                     Rect target = f.getSnappedBounds(true, row);
                     f.sample(target);
                     f.complete(true);
@@ -18,6 +19,7 @@ public final class NativeWindowBoundsReconciliationTest {
                     check(f.state().lastWindowBounds().equals(ordinary), "snap became ordinary geometry");
                 }
                 d.applyRestoreShortcut(f.task);
+                check(f.state().manualImmersiveOverride, "restore did not retain windowed preference");
                 check(f.requests.get(4).equals(ordinary), "restore did not use pre-snap geometry");
                 f.complete(true);
                 f.sample(ordinary);
@@ -255,7 +257,8 @@ public final class NativeWindowBoundsReconciliationTest {
                         BoundsTransition(Rect target, boolean preserve) { this.target=copy(target); preservesRestoreBounds=preserve; }
                         Rect targetBounds() { return copy(target); }
                     }
-                    void setManualImmersiveOverride(boolean value) {}
+                    boolean manualImmersiveOverride;
+                    void setManualImmersiveOverride(boolean value) { manualImmersiveOverride = value; }
                     void setAppRequestedFullscreen(boolean value) {}
                 """ + RuntimeSourceFixture.methods("DesktopTaskRuntimeState",
                 "lastWindowBounds", "setLastWindowBounds", "windowRestoreBounds",
@@ -343,7 +346,7 @@ public final class NativeWindowBoundsReconciliationTest {
                     }
                 """ + RuntimeSourceFixture.methods("DesktopWindowTransitionController",
                 "applyRestoreShortcut", "classifyRestoreShortcut", "setWindowBounds",
-                "snap", "snapFullscreenTask") + """
+                "snap", "snapFullscreenTask", "noteManualFreeformTransition") + """
                 }
                 public static void verify() {
                     Fixture f = new Fixture();

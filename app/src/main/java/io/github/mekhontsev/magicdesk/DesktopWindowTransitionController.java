@@ -235,8 +235,8 @@ final class DesktopWindowTransitionController {
                         requestingImmersive, foreground);
         if (initialSample) {
             // The shell launch returns once the task exists, before a cold
-            // client publishes its initial insets state. Start the bounded
-            // startup-request window from that first client sample instead.
+            // client publishes its initial insets state. The same bounded
+            // startup protection covers a replacement client after a resize.
             state.observeStartupWindowedInitialSample(
                     requestingImmersive,
                     SystemClock.uptimeMillis(),
@@ -429,6 +429,7 @@ final class DesktopWindowTransitionController {
             snapFullscreenTask(task, targetBounds);
             return;
         }
+        noteManualFreeformTransition(task.taskId);
         mNativeWindowBounds.rememberRestoreBounds(task);
         mNativeWindowBounds.requestBounds(task, targetBounds, true);
     }
@@ -437,6 +438,7 @@ final class DesktopWindowTransitionController {
             final TaskRepository.TaskEntry task,
             final Rect targetBounds,
             final TaskRepository.ActionCallback callback) {
+        noteManualFreeformTransition(task.taskId);
         mNativeWindowBounds.requestBounds(task, targetBounds, false, callback);
     }
 
