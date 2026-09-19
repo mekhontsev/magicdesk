@@ -74,20 +74,21 @@ def resolveNativeCompilerCommand = {
 }
 
 def registerNativeHelper = { String taskName, String sourceName,
-        String outputName ->
+        String outputName, boolean staticExecutable = false ->
     def source = rootProject.file("native/${sourceName}")
     def output = new File(nativeOutputRoot, "arm64-v8a/${outputName}")
     tasks.register(taskName, Exec) {
         inputs.file(source)
         inputs.property('nativeTarget', nativeTarget)
+        inputs.property('staticExecutable', staticExecutable)
         outputs.file(output)
         doFirst {
             output.parentFile.mkdirs()
             def sources = [source.absolutePath]
             commandLine resolveNativeCompilerCommand() + [
                     '-std=c17', '-O2', '-Wall', '-Wextra', '-Werror',
-                    '-fPIE', '-pie', '-Wl,-z,noexecstack',
-                    '-o', output.absolutePath] + sources
+                    '-Wl,-z,noexecstack', '-o', output.absolutePath] +
+                    (staticExecutable ? ['-static', '-fno-pie'] : ['-fPIE', '-pie']) + sources
         }
     }
 }
@@ -111,7 +112,9 @@ def processSignalTask = registerNativeHelper(
         'buildMagicDeskProcessSignal',
         'magicdesk_process_signal.c',
         'libmagicdesk_process_signal.so')
+def guestFilesTask = registerNativeHelper(
+        'buildMagicDeskGuestFiles', 'magicdesk_guest_files.c', 'libmagicdesk_guest_files.so', true)
 
 tasks.named('preBuild').configure {
-    dependsOn uinputTask, ptyTask, serviceTask, processSignalTask
+    dependsOn uinputTask, ptyTask, serviceTask, processSignalTask, guestFilesTask
 }

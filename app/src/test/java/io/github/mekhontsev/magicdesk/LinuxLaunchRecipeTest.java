@@ -43,8 +43,10 @@ public final class LinuxLaunchRecipeTest {
             assertEquals(mode == LinuxLaunchRecipe.Presentation.DESKTOP, shortcut.x11 != null && shortcut.x11.desktop());
             var args = arguments(shortcut);
             assertEquals(List.of("login", "--isolated", "--shared-tmp", "--bind",
-                    "/private/auth ' file:/tmp/magicdesk.Xauthority", "--env", "DISPLAY=:37", "--env",
-                    "XAUTHORITY=/tmp/magicdesk.Xauthority", "ubuntu", "--", "/bin/sh", "-lc"),
+                    "/private/runtime ' dir:/tmp/magicdesk-x11", "--bind", "/apk/helper:/tmp/magicdesk-guest-files",
+                    "--env", "DISPLAY=:37", "--env", "XAUTHORITY=/tmp/magicdesk-x11/Xauthority",
+                    "--env", "MAGICDESK_GUEST_FILES_SOCKET=channel", "--env", "MAGICDESK_GUEST_FILES_TOKEN=secret",
+                    "ubuntu", "--", "/tmp/magicdesk-guest-files", "--", "/bin/sh", "-lc"),
                     args.subList(0, args.size() - 1));
             String guest = args.get(args.size() - 1);
             assertTrue(guest.contains("dbus-run-session -- /bin/sh -lc 'xfce4-session'"));
@@ -54,6 +56,7 @@ public final class LinuxLaunchRecipeTest {
             assertNotNull(parsed);
             assertEquals(shortcut.exec, parsed.exec);
             assertEquals(shortcut.x11.desktop(), parsed.x11.desktop());
+            assertEquals(shortcut.x11.fileEnvironment(), parsed.x11.fileEnvironment());
         }
     }
 
@@ -71,6 +74,21 @@ public final class LinuxLaunchRecipeTest {
         return new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.PROOT, "ubuntu");
     }
 
+    @Test public void fileEnvironmentIsSharedByGuestApplicationsButNotOtherGuestsOrUsers() {
+        var mode = LinuxLaunchRecipe.Presentation.APPLICATION;
+        var one = LinuxLaunchRecipe.build("Calc", proot(), "libreoffice --calc", "", "alice", mode);
+        var two = LinuxLaunchRecipe.build("Writer", proot(), "libreoffice --writer", "/tmp", "alice", mode);
+        var otherUser = LinuxLaunchRecipe.build("Calc", proot(), "libreoffice --calc", "", "bob", mode);
+        var otherGuest = LinuxLaunchRecipe.build("Calc", new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.PROOT, "debian"),
+                "libreoffice --calc", "", "alice", mode);
+        assertEquals(one.x11.fileEnvironment(), two.x11.fileEnvironment());
+        assertNotEquals(one.x11.fileEnvironment(), otherUser.x11.fileEnvironment());
+        assertNotEquals(one.x11.fileEnvironment(), otherGuest.x11.fileEnvironment());
+        assertNotEquals(new RecentApplicationStore.Entry(one, "", "com.termux", 1).key(),
+                new RecentApplicationStore.Entry(one.withX11(new X11LaunchOptions(false, "")), "", "com.termux", 1).key());
+    }
+
+
     @Test public void selectedGuestUserIsAnArgumentForEveryPresentation() throws Exception {
         for (var mode : LinuxLaunchRecipe.Presentation.values()) {
             var shortcut = LinuxLaunchRecipe.build("Linux", proot(), "id", "", "ubuntu", mode);
@@ -87,8 +105,10 @@ public final class LinuxLaunchRecipeTest {
         for (var mode : LinuxLaunchRecipe.Presentation.values()) {
             var shortcut = LinuxLaunchRecipe.build("Linux", environment, "printf '%s' \"$HOME\"", "/home/a ' b", "alice", mode);
             var args = arguments(shortcut, launcher);
-            assertEquals(List.of("--user", "alice", "--work-dir", "/home/a ' b", "--", "/bin/sh", "-lc"),
-                    args.subList(0, args.size() - 1));
+            var expected = new java.util.ArrayList<>(List.of("--user", "alice", "--work-dir", "/home/a ' b", "--"));
+            if (mode != LinuxLaunchRecipe.Presentation.TERMINAL) expected.addAll(List.of("/tmp/magicdesk-guest-files", "--"));
+            expected.addAll(List.of("/bin/sh", "-lc"));
+            assertEquals(expected, args.subList(0, args.size() - 1));
             assertFalse(shortcut.exec.contains("proot-distro"));
             assertFalse(shortcut.exec.contains("su -c"));
             assertEquals(mode == LinuxLaunchRecipe.Presentation.TERMINAL, shortcut.terminal);
@@ -152,6 +172,10 @@ public final class LinuxLaunchRecipeTest {
         builder.environment().put("PATH", launcher.getParent() + ":" + System.getenv("PATH"));
         builder.environment().put("DISPLAY", ":37");
         builder.environment().put("XAUTHORITY", "/private/auth ' file");
+        builder.environment().put("MAGICDESK_X11_RUNTIME", "/private/runtime ' dir");
+        builder.environment().put("MAGICDESK_GUEST_FILES_HELPER", "/apk/helper");
+        builder.environment().put("MAGICDESK_GUEST_FILES_SOCKET", "channel");
+        builder.environment().put("MAGICDESK_GUEST_FILES_TOKEN", "secret");
         var result = BoundedProcessRunner.run(builder.start(), 5000, 16384);
         assertEquals(result.output, 0, result.exitCode);
         return Arrays.asList(result.output.split("\0"));

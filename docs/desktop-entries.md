@@ -79,8 +79,9 @@ Options are omitted when their fields are empty. A terminal with no command
 omits `-- PROGRAM ARG...`; the script should enter the guest's login shell.
 Otherwise, run the supplied argv inside the guest without reparsing or joining
 it as shell text. MagicDesk supplies `/bin/sh -lc` and the requested guest
-command; graphical launches additionally own a D-Bus session and a temporary
-guest runtime directory, just as with PRoot.
+command; graphical launches wrap it in `/tmp/magicdesk-guest-files --` and
+additionally own a D-Bus session and a temporary guest runtime directory,
+just as with PRoot.
 
 For X11, the script inherits the dynamically allocated `DISPLAY` and private
 `XAUTHORITY`, `MAGICDESK_X11_RUNTIME` and `MAGICDESK_X11_TMPDIR`. It must expose the X socket and authorization file to the guest,
@@ -88,14 +89,24 @@ adjusting guest paths if necessary, and preserve those values across any
 explicit privilege change. Do not use a fixed display number or disable X
 authentication. The script owns mounting, root authorization and matching
 cleanup; retain the launched process lifetime rather than detaching it.
+Graphical Linux scripts must also bind `MAGICDESK_GUEST_FILES_HELPER` at
+`/tmp/magicdesk-guest-files`, bind `MAGICDESK_X11_RUNTIME` at
+`/tmp/magicdesk-x11`, and pass `MAGICDESK_GUEST_FILES_SOCKET` and
+`MAGICDESK_GUEST_FILES_TOKEN` to the supplied guest command. Start that command
+after selecting the guest user. The helper reads exported files with the same
+credentials as the application; imports use the session's shared content
+directory. The Linux editor emits `X-MagicDesk-X11FileEnvironment`, an explicit
+environment/user identity retained in Recent and used to isolate launch correlation.
+This is a MagicDesk desktop-entry extension, not a freedesktop standard key.
+
 MagicDesk does not implicitly switch its privileged backend, mount a rootfs,
 or store passwords. Interactive authentication can use terminal mode; graphical
 entry scripts must arrange authorization without a terminal prompt.
 
 See [`chroot-entry.sh`](../scripts/examples/chroot-entry.sh) for a root-only
 prepared-rootfs example with launch-scoped mounts. MagicDesk never acquires root
-on an individual recipe's behalf. Shell-hosted file exchange uses only the
-session's shared `/tmp/magicdesk-x11/content` directory inside the guest.
+on an individual recipe's behalf. Both PRoot and chroot use this guest file
+contract; ordinary Termux applications do not need it.
 
 Fixed-purpose scripts can be used directly as ordinary Shell or Termux command
 entries, with optional X11 presentation. They need the option/argv contract only

@@ -108,7 +108,8 @@ final class DesktopEntryFile {
                 || "true".equalsIgnoreCase(values.get("Hidden"))
                 || "true".equalsIgnoreCase(values.get("NoDisplay"))) return null;
         // Installed Linux entries are commands, never Android launch descriptors.
-        values.keySet().removeIf(key -> key.startsWith("X-MagicDesk-") && !key.equals("X-MagicDesk-X11Mode"));
+        values.keySet().removeIf(key -> key.startsWith("X-MagicDesk-")
+                && !key.equals("X-MagicDesk-X11Mode") && !key.equals("X-MagicDesk-X11FileEnvironment"));
         values.put("X-MagicDesk-ExecBackend", "termux");
         values.put("X-MagicDesk-ExecSyntax", "argv");
         if ("true".equalsIgnoreCase(values.get("Terminal"))) values.remove("X-MagicDesk-X11Mode");
@@ -185,6 +186,7 @@ final class DesktopEntryFile {
             append(encoded, "StartupWMClass", shortcut.x11.startupClass());
             append(encoded, "X-MagicDesk-X11Mode", shortcut.x11.desktop() ? "desktop" : "application");
             append(encoded, "X-MagicDesk-X11KeyboardDirectory", shortcut.x11.keyboardDirectory());
+            append(encoded, "X-MagicDesk-X11FileEnvironment", shortcut.x11.fileEnvironment());
         }
         return checkedEncoding(encoded.toString());
     }
@@ -367,7 +369,7 @@ final class DesktopEntryFile {
                                             values, "X-MagicDesk-AppIdentity"))
                                     : null).withX11(x11Mode.isEmpty() ? null : new X11LaunchOptions(
                                             x11Mode.equals("desktop"), value(values, "X-MagicDesk-X11KeyboardDirectory"),
-                                            value(values, "StartupWMClass")))
+                                            value(values, "StartupWMClass"), value(values, "X-MagicDesk-X11FileEnvironment")))
                                     .withLiteralExec(!x11Mode.isEmpty() || syntax.equals("argv"));
         } catch (IllegalArgumentException error) {
             return null;

@@ -85,7 +85,7 @@ public final class X11ManagerActivity extends Activity implements X11Sessions.Li
         sessions.setText(session == null ? getString(R.string.x11_sessions) : session.name + " " + session.display());
         open.setEnabled(ready);
         windows.setEnabled(ready);
-        execute.setEnabled(ready);
+        execute.setEnabled(ready && session.canExecuteHostCommand());
         scale.setEnabled(ready);
         stop.setEnabled(session != null && !session.stopped());
         status.setText(session == null ? getString(R.string.x11_no_session)

@@ -87,6 +87,7 @@ android {
             keepDebugSymbols += [
                     '**/libmagicdesk_uinput_bridge.so',
                     '**/libmagicdesk_pty_bridge.so',
+                    '**/libmagicdesk_guest_files.so',
                     '**/libmagicdesk_service_launcher.so'
             ]
         }

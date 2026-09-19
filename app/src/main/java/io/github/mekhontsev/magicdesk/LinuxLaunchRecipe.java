@@ -54,8 +54,11 @@ final class LinuxLaunchRecipe {
         host.append("exec ").append(proot ? "proot-distro login --isolated" : q(environment.target()));
         if (!user.isEmpty()) host.append(" --user ").append(q(user));
         if (!directory.isEmpty()) host.append(" --work-dir ").append(q(directory));
-        if (graphical && proot) host.append(" --shared-tmp --bind \"$XAUTHORITY:/tmp/magicdesk.Xauthority\""
-                + " --env \"DISPLAY=$DISPLAY\" --env XAUTHORITY=/tmp/magicdesk.Xauthority");
+        if (graphical && proot) host.append(" --shared-tmp --bind \"$MAGICDESK_X11_RUNTIME:/tmp/magicdesk-x11\""
+                + " --bind \"$MAGICDESK_GUEST_FILES_HELPER:/tmp/magicdesk-guest-files\""
+                + " --env \"DISPLAY=$DISPLAY\" --env XAUTHORITY=/tmp/magicdesk-x11/Xauthority"
+                + " --env \"MAGICDESK_GUEST_FILES_SOCKET=$MAGICDESK_GUEST_FILES_SOCKET\""
+                + " --env \"MAGICDESK_GUEST_FILES_TOKEN=$MAGICDESK_GUEST_FILES_TOKEN\"");
         if (proot) host.append(' ').append(q(environment.target()));
         if (!command.isEmpty()) {
             String guest = command;
@@ -66,7 +69,7 @@ final class LinuxLaunchRecipe {
                         + "trap 'rm -rf -- \"$XDG_RUNTIME_DIR\"' EXIT; "
                         + "dbus-run-session -- /bin/sh -lc " + q(command);
             }
-            host.append(" -- /bin/sh -lc ").append(q(guest));
+            host.append(graphical ? " -- /tmp/magicdesk-guest-files -- /bin/sh -lc " : " -- /bin/sh -lc ").append(q(guest));
         }
         if (graphical && environment.backend() == DesktopExecBackend.SHELL && environment.keyboardDirectory().isEmpty())
             throw new IllegalArgumentException("Enter the XKB data directory in the prepared Linux environment");
@@ -75,7 +78,9 @@ final class LinuxLaunchRecipe {
         return new DesktopApplicationShortcut(name, graphical ? "computer" : "utilities-terminal",
                 exec, null, "", DesktopLaunchMode.AUTO, false, environment.backend(),
                 !graphical).withLiteralExec(true).withX11(graphical
-                        ? new X11LaunchOptions(presentation == Presentation.DESKTOP, environment.keyboardDirectory()) : null);
+                        ? new X11LaunchOptions(presentation == Presentation.DESKTOP, environment.keyboardDirectory(), "",
+                                environment.kind().name() + ":" + environment.target().length() + ":"
+                                        + environment.target() + ":" + user) : null);
     }
 
     private static void requireName(String name) {

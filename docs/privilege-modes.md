@@ -134,10 +134,15 @@ the server session and its programs.
 
 X11 clipboard and copy drag-and-drop use MIME offers and bounded content streams.
 Android recipients receive read-only URI grants, not privileged filesystem
-authority. Termux X11 file opens/imports use the retained server's Termux UID.
-Shell-hosted servers use their app UID and only the session's shared content
-directory, exposed by a user-owned chroot script at `/tmp/magicdesk-x11/content`.
-Arbitrary guest-private paths are not translated or retried as root.
+authority. Native Termux clients use the retained server's Termux UID for files.
+Linux recipes declare a guest file environment: its session-scoped helper opens
+exported files inside the guest with the selected Linux user's credentials and
+passes read-only descriptors over an authenticated Unix socket. This works for
+PRoot and chroot without elevating the X11 server. Shell-hosted servers retain
+their app UID; imported files use the session's shared content directory,
+exposed by the entry script at `/tmp/magicdesk-x11/content`.
+Guest paths are never guessed as host paths or retried under another identity.
+An unavailable guest helper fails the transfer, without a host-filesystem fallback.
 Clipboard observation is scoped to a focused X11 host, not a global history.
 
 ## Input And HOME Ownership

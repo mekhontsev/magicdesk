@@ -8,8 +8,17 @@ import java.util.Base64;
 import static org.junit.Assert.*;
 
 public final class X11LaunchSpecTest {
+    @Test public void guestFileBridgeIsExplicitAndSeparateFromBinderAuthorization() {
+        var spec = new X11LaunchSpec("/app.apk", "/lib", "org.example.host", "com.termux", "/runtime", "/tmp", "/xkb",
+                false, 96, false, "proot:ubuntu:alice");
+        assertEquals("1", spec.environment.get("MAGICDESK_X11_SHARED_FILES"));
+        assertEquals(64, spec.environment.get("MAGICDESK_GUEST_FILES_TOKEN").length());
+        assertNotEquals(spec.token, spec.environment.get("MAGICDESK_GUEST_FILES_TOKEN"));
+        assertTrue(spec.clientCommand("0", "entry").contains("MAGICDESK_GUEST_FILES_HELPER='/lib/libmagicdesk_guest_files.so'"));
+        assertEquals("proot:ubuntu:alice", spec.fileEnvironment);
+    }
     @Test public void authorityIsStandardWildcardRecordWithRandomCookie() throws Exception {
-        X11LaunchSpec spec = new X11LaunchSpec("/app.apk", "/lib", "org.example.host", "com.example.termux", "/termux/home/.cache/magicdesk/x11", "/termux/tmp", "/termux/xkb", false, 96, false);
+        X11LaunchSpec spec = new X11LaunchSpec("/app.apk", "/lib", "org.example.host", "com.example.termux", "/termux/home/.cache/magicdesk/x11", "/termux/tmp", "/termux/xkb", false, 96, false, "");
         DataInputStream in = new DataInputStream(new ByteArrayInputStream(Base64.getDecoder().decode(spec.stdin.trim())));
         assertEquals(65535, in.readUnsignedShort());
         assertEquals(0, in.readUnsignedShort());
@@ -18,11 +27,11 @@ public final class X11LaunchSpecTest {
         assertEquals(16, in.readUnsignedShort());
         assertEquals(16, in.readNBytes(16).length);
         assertEquals(-1, in.read());
-        assertNotEquals(spec.stdin, new X11LaunchSpec("/app.apk", "/lib", "org.example.host", "com.example.termux", "/termux/home/.cache/magicdesk/x11", "/termux/tmp", "/termux/xkb", false, 96, false).stdin);
+        assertNotEquals(spec.stdin, new X11LaunchSpec("/app.apk", "/lib", "org.example.host", "com.example.termux", "/termux/home/.cache/magicdesk/x11", "/termux/tmp", "/termux/xkb", false, 96, false, "").stdin);
     }
 
     @Test public void serverOwnsDisplayAllocationAndDoesNotExposeTcp() {
-        X11LaunchSpec spec = new X11LaunchSpec("/path with 'quote/app.apk", "/lib", "org.example.host", "com.example.termux", "/termux/home/.cache/magicdesk/x11", "/termux/tmp", "/termux/xkb", false, 192, true);
+        X11LaunchSpec spec = new X11LaunchSpec("/path with 'quote/app.apk", "/lib", "org.example.host", "com.example.termux", "/termux/home/.cache/magicdesk/x11", "/termux/tmp", "/termux/xkb", false, 192, true, "");
         assertTrue(spec.arguments.contains("-displayfd") && spec.arguments.contains("tcp"));
         assertTrue(spec.serverCommand.contains("MAGICDESK_X11_XSETTINGS='1'"));
         assertTrue(spec.serverCommand.contains("MAGICDESK_X11_HOST_WM='1'"));
@@ -40,8 +49,8 @@ public final class X11LaunchSpecTest {
     }
 
     @Test public void clientUsesOnlyItsSessionsEnvironmentAndPreservesShellSyntax() {
-        X11LaunchSpec a = new X11LaunchSpec("/app.apk", "/lib", "org.example.host", "com.example.termux", "/one/home/x11", "/one/tmp", "/one/xkb", false, 96, false);
-        X11LaunchSpec b = new X11LaunchSpec("/app.apk", "/lib", "org.example.host", "com.example.termux", "/two/home/x11", "/two/tmp", "/two/xkb", false, 96, true);
+        X11LaunchSpec a = new X11LaunchSpec("/app.apk", "/lib", "org.example.host", "com.example.termux", "/one/home/x11", "/one/tmp", "/one/xkb", false, 96, false, "");
+        X11LaunchSpec b = new X11LaunchSpec("/app.apk", "/lib", "org.example.host", "com.example.termux", "/two/home/x11", "/two/tmp", "/two/xkb", false, 96, true, "");
         assertTrue(a.serverCommand.contains("MAGICDESK_X11_XSETTINGS='0'"));
         assertTrue(a.serverCommand.contains("MAGICDESK_X11_HOST_WM='0'"));
         String command = "cd ~/work && firefox --new-instance";
@@ -66,7 +75,7 @@ public final class X11LaunchSpecTest {
     }
 
     @Test public void rejectsInvalidDisplayAndEmptyCommands() {
-        X11LaunchSpec spec = new X11LaunchSpec("/app.apk", "/lib", "org.example.host", "com.example.termux", "/home/x11", "/tmp", "/xkb", false, 96, false);
+        X11LaunchSpec spec = new X11LaunchSpec("/app.apk", "/lib", "org.example.host", "com.example.termux", "/home/x11", "/tmp", "/xkb", false, 96, false, "");
         for (String display : new String[]{"", ":0", "0;id", "-1", "65536"})
             assertThrows(IllegalArgumentException.class, () -> spec.clientCommand(display, "true"));
         assertThrows(IllegalArgumentException.class, () -> spec.clientCommand("0", " "));

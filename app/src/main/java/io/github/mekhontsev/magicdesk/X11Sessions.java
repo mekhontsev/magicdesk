@@ -196,10 +196,13 @@ final class X11Sessions {
             density = new X11Density(densityDpi);
             startupCommand = command;
             startupDirectory = directory;
-            launch = execution.spec(density.resolve(scalePercent), application);
+            launch = execution.spec(density.resolve(scalePercent), application,
+                    recipe == null || recipe.shortcut().x11 == null ? "" : recipe.shortcut().x11.fileEnvironment());
         }
 
         int scalePercent() { return scalePercent; }
+        String fileEnvironment() { return launch.fileEnvironment; }
+        boolean canExecuteHostCommand() { return launch.fileEnvironment.isEmpty(); }
         synchronized void host(int taskId, long window, boolean focused) {
             if (focused) hosts.remove(taskId);
             hosts.put(taskId, window);
@@ -330,7 +333,8 @@ final class X11Sessions {
             changed();
         }
         private String launchScope() {
-            return execution.commands.scope + ":" + execution.commands.uid + ":" + execution.serverUid;
+            return execution.commands.scope + ":" + execution.commands.uid + ":" + execution.serverUid
+                    + ":" + launch.fileEnvironment;
         }
 
         private void presentWindows() {
@@ -384,6 +388,8 @@ final class X11Sessions {
         }
 
         void execute(String command) {
+            if (!canExecuteHostCommand()) throw new IllegalStateException(
+                    "Launch guest commands through a Linux application recipe");
             execute(command, "");
         }
 

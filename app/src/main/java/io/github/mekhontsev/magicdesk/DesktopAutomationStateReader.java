@@ -130,6 +130,7 @@ final class DesktopAutomationStateReader {
                     .put("display", session.display()).put("state", session.state().name())
                     .put("executor", session.execution.commands.backend.wireName)
                     .put("executorUid", session.execution.commands.uid).put("serverUid", session.execution.serverUid)
+                    .put("fileEnvironment", session.fileEnvironment())
                     .put("dpi", session.dpi()).put("scalePercent", session.scalePercent())
                     .put("error", session.error()).put("application", session.application).put("windows", windows));
         }

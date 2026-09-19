@@ -27,6 +27,8 @@ mount -t proc proc "$root/proc"
 mount --rbind /dev "$root/dev"
 guest_display=
 guest_auth=
+guest_file_socket=
+guest_file_token=
 if [ -n "${DISPLAY:-}" ]; then
     : "${MAGICDESK_X11_RUNTIME:?Missing X11 runtime}" "${MAGICDESK_X11_TMPDIR:?Missing X socket directory}"
     mkdir -p "$root/tmp/magicdesk-x11" "$root/tmp/.X11-unix"
@@ -34,11 +36,18 @@ if [ -n "${DISPLAY:-}" ]; then
     mount --bind "$MAGICDESK_X11_TMPDIR/.X11-unix" "$root/tmp/.X11-unix"
     guest_display=$DISPLAY
     guest_auth=/tmp/magicdesk-x11/Xauthority
+    if [ -n "${MAGICDESK_GUEST_FILES_HELPER:-}" ]; then
+        touch "$root/tmp/magicdesk-guest-files"
+        mount --bind "$MAGICDESK_GUEST_FILES_HELPER" "$root/tmp/magicdesk-guest-files"
+        guest_file_socket=$MAGICDESK_GUEST_FILES_SOCKET
+        guest_file_token=$MAGICDESK_GUEST_FILES_TOKEN
+    fi
 fi
 
 # The guest chooses its login shell and home. No passwords or host loader variables cross the boundary.
 exec /system/bin/chroot "$root" /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin \
     TERM="${TERM:-xterm-256color}" LANG=C.UTF-8 DISPLAY="$guest_display" XAUTHORITY="$guest_auth" \
+    MAGICDESK_GUEST_FILES_SOCKET="$guest_file_socket" MAGICDESK_GUEST_FILES_TOKEN="$guest_file_token" \
     /bin/sh -c '
         user=$1; work=$2; shift 2
         entry=$(awk -F: -v name="$user" '\''$1 == name { print $0; exit }'\'' /etc/passwd)

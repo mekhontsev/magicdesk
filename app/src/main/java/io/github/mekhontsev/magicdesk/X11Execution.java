@@ -27,7 +27,7 @@ final class X11Execution {
             throw new IllegalArgumentException("An XKB data directory is required for the Shell X11 executor");
     }
 
-    X11LaunchSpec spec(int dpi, boolean application) {
+    X11LaunchSpec spec(int dpi, boolean application, String fileEnvironment) {
         String prefix = commands.termux == null ? "" : new java.io.File(commands.home).getParent() + "/usr";
         String parent = commands.termux == null ? context.getCacheDir() + "/x" : commands.home + "/.cache/magicdesk/x11";
         // The local copy is prepared off the UI thread before spawning the server.
@@ -35,7 +35,7 @@ final class X11Execution {
                 : keyboardSource.isEmpty() ? prefix + "/share/X11/xkb" : keyboardSource;
         return new X11LaunchSpec(context.getApplicationInfo().sourceDir, context.getApplicationInfo().nativeLibraryDir,
                 context.getPackageName(), serverPackage, parent, commands.termux == null ? "" : prefix + "/tmp",
-                keyboard, commands.termux == null, dpi, application);
+                keyboard, commands.termux == null, dpi, application, fileEnvironment);
     }
 
     Closeable startServer(X11LaunchSpec spec, CommandExecution.Completion completion) throws IOException {

@@ -62,6 +62,19 @@ public final class TermuxApplicationCommandTest {
         assertEquals("Good", entries.get(0).shortcut.name);
     }
 
+    @Test public void keepsLinuxFileEnvironmentThroughCatalogAndRecent() throws Exception {
+        var shortcut = LinuxLaunchRecipe.build("Guest files",
+                new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.PROOT, "ubuntu"),
+                "thunar", "", "alice", LinuxLaunchRecipe.Presentation.APPLICATION);
+        Files.writeString(applications.resolve("guest.desktop"), DesktopEntryFile.encodeApplication(shortcut));
+        var entry = load().get(0);
+        assertEquals(shortcut.x11.fileEnvironment(), entry.shortcut.x11.fileEnvironment());
+        var recent = new RecentApplicationStore.Entry(entry.shortcut, entry.desktopFilePath, "com.termux", 1);
+        var restored = DesktopEntryFile.parseRecent(DesktopEntryFile.encodeRecent(recent));
+        assertNotNull(restored);
+        assertEquals(shortcut.x11.fileEnvironment(), restored.shortcut().x11.fileEnvironment());
+    }
+
     @Test public void linkedUserOverrideMasksInstalledEntryEvenWhenCatalogRootIsLinked() throws Exception {
         write(applications.resolve("office.desktop"), "Installed");
         Path userDirectory = Files.createDirectory(root.resolve("user-apps"));

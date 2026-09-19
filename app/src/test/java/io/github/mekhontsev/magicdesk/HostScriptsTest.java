@@ -47,7 +47,7 @@ public final class HostScriptsTest {
 
     @Test
     public void coreApkRequiresEveryShellHelper() throws Exception {
-        final var helpers = List.of("uinput_bridge", "pty_bridge", "service_launcher");
+        final var helpers = List.of("uinput_bridge", "pty_bridge", "service_launcher", "process_signal", "guest_files");
         for (final String omitted : helpers) {
             final Path apk = coreApk(helpers.stream()
                     .filter(helper -> !helper.equals(omitted)).toList());
@@ -71,7 +71,7 @@ public final class HostScriptsTest {
             zip.closeEntry();
         }
         final var result = run("verify-apks.sh", Map.of(),
-                coreApk(List.of("uinput_bridge", "pty_bridge", "service_launcher"))
+                coreApk(List.of("uinput_bridge", "pty_bridge", "service_launcher", "process_signal", "guest_files"))
                         .toString(), addon.toString());
         assertEquals(result.output, 1, result.exitCode);
         assertTrue(result.output.contains("must not contain a shell helper"));
@@ -123,10 +123,11 @@ public final class HostScriptsTest {
                 "magicdesk_pty_lifecycle_test:jobs-signal"));
         expected.add("magicdesk_virtual_mouse_test:cwd");
         expected.add("magicdesk_virtual_mouse_setup_test:cwd");
+        expected.add("magicdesk_guest_files_test:cwd");
         expected.add("x11_window_icon_test:cwd");
         expected.add("x11_density_settings_test:cwd");
         assertEquals(expected, Files.readAllLines(fixture.log));
-        assertTrue(result.output.contains("verified (16 runs)"));
+        assertTrue(result.output.contains("verified (17 runs)"));
         assertEmptyDirectory(fixture.output);
     }
 
@@ -143,7 +144,7 @@ public final class HostScriptsTest {
         final var testResult = nativeVerifier(testFailure, "fragmented", false);
         assertEquals(testResult.output, 9, testResult.exitCode);
         assertEquals(6, Files.readAllLines(testFailure.log).size());
-        assertTrue(!testResult.output.contains("verified (16 runs)"));
+        assertTrue(!testResult.output.contains("verified (17 runs)"));
         assertEmptyDirectory(testFailure.output);
 
         final var inputFailure = nativeVerifierFixture();
@@ -155,13 +156,13 @@ public final class HostScriptsTest {
         final var iconFailure = nativeVerifierFixture();
         final var iconResult = nativeVerifier(iconFailure, "x11_window_icon_test", false);
         assertEquals(iconResult.output, 9, iconResult.exitCode);
-        assertEquals(15, Files.readAllLines(iconFailure.log).size());
+        assertEquals(16, Files.readAllLines(iconFailure.log).size());
         assertEmptyDirectory(iconFailure.output);
 
         final var densityFailure = nativeVerifierFixture();
         final var densityResult = nativeVerifier(densityFailure, "x11_density_settings_test", false);
         assertEquals(densityResult.output, 9, densityResult.exitCode);
-        assertEquals(16, Files.readAllLines(densityFailure.log).size());
+        assertEquals(17, Files.readAllLines(densityFailure.log).size());
         assertEmptyDirectory(densityFailure.output);
     }
 

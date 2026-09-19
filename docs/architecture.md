@@ -4308,9 +4308,13 @@ The Gradle project has five modules:
 - `x11-runtime`: MagicDesk's Android X11 runtime and JNI adapter, linking the
   fork's native engine. No upstream Java or compile-only X11 stubs are used.
 
-Every main-app build compiles four native helpers from source: the virtual mouse,
+Every main-app build compiles five native helpers from source: the virtual mouse,
 PTY transport, one-shot privileged service launcher and identity-checked process
-signal helper. The X11 module also builds its server/renderer library. CI verifies
+signal helper, and the static guest-file bridge for Linux environments. The
+guest bridge runs inside the selected guest, after user selection; a session's
+authenticated Unix socket owns its lifetime. It passes read-only regular-file
+descriptors, not commands, and never asks for privilege elevation. The X11 module
+also builds its server/renderer library. CI verifies
 that the main APK contains the required helpers and no `.ko`, and that the Kernel
 Fixes APK contains exactly the reviewed module and no main-app native helper.
 
@@ -4334,7 +4338,11 @@ fixtures replace only device I/O to exercise motion, buttons, scrolling,
 protocol validation and write errors.
 They use bounded subprocess lifetimes and a temporary directory, without
 physical input access. The same script checks process incarnation signaling and
-X11 icon/density wire formats. Linux CI runs it in addition to Gradle verification.
+guest-file descriptor exchange and X11 icon/density wire formats. Linux CI runs
+it in addition to Gradle verification. `scripts/tests/test_guest_files.py` also
+tests the real helper's authorization and process lifetime; setting
+`MAGICDESK_GUEST_FILE_HELPER` to the static binary enables a prepared Ubuntu
+PRoot fixture without root.
 
 The kernel module itself is not compiled in normal Android CI. Rebuilding it
 requires the exact upstream kernel source, config, symbol versions, and guarded

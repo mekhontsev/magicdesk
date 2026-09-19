@@ -29,7 +29,9 @@ Initialize source dependencies with `git submodule update --init --recursive`.
 On Windows, the X11 host generators use MSYS2 Bison/patch and UCRT64 GCC;
 put their `usr/bin` and `ucrt64/bin` directories on `PATH`. Android native
 libraries still use the NDK, not the host compiler. Termux uses its packaged
-CMake, Ninja, Python, Bison, patch and Clang.
+CMake, Ninja, Python, Bison, patch and Clang. The guest file helper is statically
+linked so it can run inside glibc or musl environments without their libraries;
+Termux builds also need `ndk-multilib-native-static` for the NDK's libc archive.
 
 Android Studio can install the SDK and NDK components from SDK Manager. Gradle
 finds a side-by-side NDK through the configured Android SDK. An explicit

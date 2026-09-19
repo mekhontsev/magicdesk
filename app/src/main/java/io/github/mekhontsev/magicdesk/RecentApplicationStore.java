@@ -45,7 +45,8 @@ final class RecentApplicationStore {
                     shortcut.intentUri, shortcut.appShortcutId, Boolean.toString(shortcut.defaultLaunch),
                     shortcut.execBackend.wireName, command, Boolean.toString(shortcut.terminal),
                     shortcut.workingDirectory, shortcut.x11 == null ? "" : shortcut.x11.desktop() ? "desktop" : "application",
-                    shortcut.x11 == null ? "" : shortcut.x11.keyboardDirectory());
+                    shortcut.x11 == null ? "" : shortcut.x11.keyboardDirectory(),
+                    shortcut.x11 == null ? "" : shortcut.x11.fileEnvironment());
         }
 
         Entry usedAt(long time) { return new Entry(shortcut, sourcePath, termuxPackage, time); }

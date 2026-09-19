@@ -13,7 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.UUID;
 
-/** File access in the X server's execution identity, never the host's shell/root identity. */
+/** Session file exchange: server-local paths or the explicitly selected guest's read-only bridge. */
 final class X11FileExchange {
     private static final long MAX_BYTES = 128L * 1024 * 1024, MAX_STORAGE = 256L * 1024 * 1024;
     private int fileCount;
@@ -22,6 +22,12 @@ final class X11FileExchange {
     private long used;
     private final X11SharedFiles shared = "1".equals(System.getenv("MAGICDESK_X11_SHARED_FILES"))
             ? new X11SharedFiles(System.getenv("MAGICDESK_X11_CONTENT_DIR")) : null;
+    private final GuestFileBridge guest;
+
+    X11FileExchange() throws IOException {
+        String endpoint = System.getenv("MAGICDESK_GUEST_FILES_SOCKET");
+        guest = endpoint == null ? null : new GuestFileBridge(endpoint, System.getenv("MAGICDESK_GUEST_FILES_TOKEN"));
+    }
 
     ParcelFileDescriptor open(String value) throws IOException {
         if (closed) throw new IOException("X11 file exchange closed");
@@ -33,6 +39,18 @@ final class X11FileExchange {
             throw new IOException("Only local files can be exported");
         String path = uri.getPath();
         if (path == null || !path.startsWith("/") || path.indexOf('\0') >= 0) throw new IOException("Invalid file path");
+        if (guest != null) {
+            ParcelFileDescriptor file = guest.open(path);
+            try {
+                var stat = Os.fstat(file.getFileDescriptor());
+                if (!OsConstants.S_ISREG(stat.st_mode) || stat.st_size < 0 || stat.st_size > MAX_BYTES)
+                    throw new IOException("Only regular files up to 128 MiB can be exported");
+                return file;
+            } catch (ErrnoException | IOException | RuntimeException error) {
+                file.close();
+                throw new IOException("Invalid guest file", error);
+            }
+        }
         if (shared != null) path = shared.hostPath(path);
         FileDescriptor descriptor = null;
         try {
@@ -98,7 +116,7 @@ final class X11FileExchange {
 
     // The launcher owns this private directory and removes it after process exit.
     // Cancellation must not block server shutdown behind an in-flight Binder copy.
-    void close() { closed = true; }
+    void close() { closed = true; if (guest != null) guest.close(); }
 
     private static void chmod(File file, int mode) throws IOException {
         try { Os.chmod(file.toString(), mode); }
