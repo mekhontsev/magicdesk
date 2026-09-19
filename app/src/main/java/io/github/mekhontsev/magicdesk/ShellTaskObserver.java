@@ -314,6 +314,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final int displayId,
             final int taskId,
             final int sourceId) throws ReflectiveOperationException {
+        if (mClosed || displayId != mConfiguredDisplayId
+                || !mDesktopOwnership.isRememberedDesktopTask(taskId)) {
+            return;
+        }
         // The mode is already fullscreen. Only force the application client
         // to discard the caption source retained by Nubia. A removed task
         // already satisfies that end state, so the late callback is a no-op.

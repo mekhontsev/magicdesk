@@ -388,10 +388,14 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         final FrameworkWindowingApi windowing = FrameworkRuntime.current().windowing();
         final Object transaction = windowing.newTransaction();
         final List<Integer> released = new ArrayList<>();
-        // One transition releases the selected workspace, without activating
-        // every application. Front-to-back insertion retains their relative order.
-        for (final FrameworkTaskSnapshot task : FrameworkTaskSnapshotSource.readWindowState(
-                service, displayId, 200)) {
+        final List<FrameworkTaskSnapshot> tasks =
+                FrameworkTaskSnapshotSource.readWindowState(service, displayId, 200);
+        final Map<Integer, Integer> areaTasks = new LinkedHashMap<>();
+        for (final Map.Entry<Integer, TaskDisplayAreaHandle> entry : mPlanes.entrySet()) {
+            areaTasks.put(entry.getValue().featureId(), entry.getKey());
+        }
+        boolean reparented = false;
+        for (final FrameworkTaskSnapshot task : tasks) {
             if (!selected.remove(task.taskId)) { continue; }
             final Object token = HiddenTaskApi.getTaskToken(task.task);
             windowing.setWindowingMode(transaction, token, WINDOWING_MODE_FULLSCREEN);
@@ -400,13 +404,28 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             windowing.setForceTranslucent(transaction, token, false);
             windowing.setHidden(transaction, token, false);
             windowing.setFocusable(transaction, token, true);
-            if (ownsTask(task.taskId)) { windowing.reparent(transaction, token, null, false); }
-            windowing.reorder(transaction, token, false);
+            if (ownsTask(task.taskId)) {
+                windowing.reparent(transaction, token, null, true);
+                reparented = true;
+            }
             TaskCaptionInsetsCommand.addCaptionInsetOperation(transaction, token, true);
             released.add(task.taskId);
         }
         if (!selected.isEmpty()) { throw new IllegalStateException("tasks left their display: " + selected); }
         if (released.isEmpty()) { return; }
+        // Keep ordinary roots in place. Demoting them during the mode change
+        // can leave WMShell's decoration at its previous freeform geometry.
+        // Replace released planes at their existing workspace positions in the
+        // same transaction, preserving independent roots and surviving planes.
+        if (reparented) {
+            for (final int taskId : adoptionWorkspaceOrder(tasks,
+                    TaskDisplayAreaHandle.Parent.DEFAULT_TASK_CONTAINER.featureId(), areaTasks)) {
+                final TaskDisplayAreaHandle plane = mPlanes.get(taskId);
+                final Object token = plane != null && !released.contains(taskId)
+                        ? plane.token() : HiddenTaskApi.requireRootTaskToken(service, displayId, taskId);
+                windowing.reorder(transaction, token, true, false);
+            }
+        }
         ShellWindowTransitionExecutor.startForShellAdoption(displayId,
                 ShellWindowTransitionExecutor.SystemTransition.CHANGE,
                 windowing.transactionClass(), transaction, "release-desktop-tasks");

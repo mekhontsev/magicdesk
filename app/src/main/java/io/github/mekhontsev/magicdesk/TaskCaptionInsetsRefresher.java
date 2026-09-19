@@ -105,7 +105,8 @@ final class TaskCaptionInsetsRefresher {
             final int sourceId) throws ReflectiveOperationException {
         final Object task = HiddenTaskApi.findTask(
                 service, displayId, taskId);
-        if (task == null) {
+        if (task == null || HiddenTaskApi.getTaskWindowingMode(task)
+                != WINDOWING_MODE_FULLSCREEN) {
             return false;
         }
         refresh(service, HiddenTaskApi.getTaskToken(task), sourceId);

@@ -123,6 +123,21 @@ surface. This path is shared by phone Start, task return and session teardown.
 Portable workspace parking only detaches its output Viewer; it does not use
 this task-transfer path.
 
+Releasing tasks to Android on a still-live display preserves ordinary root
+positions during the fullscreen `CHANGE`. Demoting every task as part of that
+mode change can leave WMShell's decoration and surface crop at their previous
+freeform geometry, despite fullscreen task and client configuration. Released
+fullscreen planes are replaced by their tasks at the same workspace positions
+in that transaction; independent roots and surviving planes keep their order.
+Release does not capture or replace caption sources. Nubia can therefore retain
+a stale caption strip in an independent fullscreen client. Retaining a synthetic
+empty source for stopped clients caused caption/content overlap after the next
+Desktop start, so this release-time repair is deliberately absent. The existing
+in-session caption repair remains separate; delayed callbacks cannot touch a
+released task or one whose live mode is no longer fullscreen. The empty planes
+are relinquished after the commit. No application is restarted, focused in turn,
+or moved through another display.
+
 When an application initiates immersive mode itself, the long-lived shell task
 observer retains its freeform bounds and does not recreate the Activity. The
 same active-session caption-refresh policy applies to this path: an application's

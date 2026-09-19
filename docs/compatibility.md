@@ -220,6 +220,10 @@ in-APK catalog recognition must not use its reused stock fingerprint alone.
 - Native caption controls vary by firmware. Production does not infer their
   meaning from coordinates. The native caption snap self-test scenario is
   currently supplied only by the Nubia diagnostics provider.
+- On Nubia, Close Desktop can leave a stale caption strip inside applications
+  released to independent fullscreen. Release-time synthetic inset repair is
+  disabled because it caused content/caption overlap after reopening Desktop.
+  The existing caption repair for transitions within an active Desktop is separate.
 - WMShell's native close control can remove an X11 Android host directly, without
   a cancellable Activity callback. MagicDesk reopens a surviving client on its
   verified destination, so a save dialog remains accessible; the Android task ID

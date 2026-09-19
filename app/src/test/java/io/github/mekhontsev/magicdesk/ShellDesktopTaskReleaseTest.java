@@ -13,11 +13,13 @@ public final class ShellDesktopTaskReleaseTest {
                 static int submissions;
                 static class Rect { }
                 static class TaskDisplayAreaHandle {
+                    enum Parent { DEFAULT_TASK_CONTAINER; int featureId() { return 1; } }
                     int featureId() { return 20001; }
+                    Object token() { return "plane"; }
                 }
                 static class FrameworkTaskSnapshot {
-                    int taskId; Object task;
-                    FrameworkTaskSnapshot(int id) { taskId = id; task = id; }
+                    int taskId; Object task; int windowingMode;
+                    FrameworkTaskSnapshot(int id) { taskId = id; task = id; windowingMode = id == 21 ? 1 : 5; }
                 }
                 static class FrameworkTaskSnapshotSource {
                     static List<FrameworkTaskSnapshot> readWindowState(Object s, int d, int limit) {
@@ -25,7 +27,10 @@ public final class ShellDesktopTaskReleaseTest {
                                 new FrameworkTaskSnapshot(22));
                     }
                 }
-                static class HiddenTaskApi { static Object getTaskToken(Object task) { return task; } }
+                static class HiddenTaskApi {
+                    static Object getTaskToken(Object task) { return task; }
+                    static Object requireRootTaskToken(Object s, int d, int t) { return t; }
+                }
                 static class FrameworkRuntime {
                     static FrameworkRuntime current() { return new FrameworkRuntime(); }
                     FrameworkWindowingApi windowing() { return new FrameworkWindowingApi(); }
@@ -43,10 +48,10 @@ public final class ShellDesktopTaskReleaseTest {
                     void setHidden(Object tx, Object token, boolean v) { check(!v, "task hidden"); }
                     void setFocusable(Object tx, Object token, boolean v) { check(v, "focus override retained"); }
                     void reparent(Object tx, Object token, Object parent, boolean top) {
-                        check(parent == null && !top, "release activated a task"); writes.add("reparent:" + token);
+                        check(parent == null && top, "unexpected reparent"); writes.add("reparent:" + token);
                     }
-                    void reorder(Object tx, Object token, boolean top) {
-                        check(!top, "release activated a task"); writes.add("bottom:" + token);
+                    void reorder(Object tx, Object token, boolean top, boolean parents) {
+                        check(top && !parents, "release raised parents"); writes.add("order:" + token);
                     }
                 }
                 static class DesktopTaskDensity {
@@ -73,17 +78,29 @@ public final class ShellDesktopTaskReleaseTest {
                     static void waitForTaskWindowingMode(Object s, int d, int t, int mode) { events.add("mode:" + t); }
                 }
                 boolean ownsTask(int t) { return mPlanes.containsKey(t); }
+                static List<Integer> adoptionWorkspaceOrder(List<FrameworkTaskSnapshot> tasks,
+                        int area, Map<Integer, Integer> planes) {
+                    check(area == 1 && planes.get(20001) == 21, "wrong workspace mapping");
+                    return List.of(22, 99, 21);
+                }
                 void waitForTaskOutsidePlane(Object s, int d, int t, int area) { events.add("outside:" + t); }
                 void releasePlane(Object s, int t) { events.add("release:" + t); mPlanes.remove(t); }
                 public static void verify() throws Exception {
                     Fixture f = new Fixture(); f.mPlanes.put(21, new TaskDisplayAreaHandle());
                     f.releaseToAndroid(null, 7, new int[]{22, 21});
                     check(submissions == 1, "one transition per window");
-                    check(writes.stream().noneMatch(w -> w.endsWith(":99")), "independent task changed");
+                    check(writes.stream().noneMatch(w -> w.endsWith(":99") && !w.equals("order:99")),
+                            "independent task state changed");
                     check(writes.contains("reparent:21") && !writes.contains("reparent:22"), "wrong topology owner");
-                    check(writes.indexOf("bottom:21") < writes.indexOf("bottom:22"), "relative order reversed");
+                    check(writes.stream().filter(w -> w.startsWith("order:"))
+                            .toList().equals(List.of("order:22", "order:99", "order:21")),
+                            "workspace order changed: " + writes);
                     check(events.equals(List.of("submit", "commit", "mode:21", "outside:21", "release:21", "mode:22")),
-                            "plane released before observed commit: " + events);
+                            "unexpected release operation or plane released before commit: " + events);
+                    submissions = 0; events.clear(); writes.clear();
+                    f.releaseToAndroid(null, 7, new int[]{21, 22});
+                    check(submissions == 1 && writes.stream().noneMatch(w -> w.startsWith("order:")),
+                            "ordinary roots must keep their position during mode change");
                     submissions = 0; events.clear(); writes.clear();
                     try { f.releaseToAndroid(null, 7, new int[]{21, 404}); throw new AssertionError("missing task accepted"); }
                     catch (IllegalStateException expected) { check(submissions == 0, "partial selection submitted"); }
