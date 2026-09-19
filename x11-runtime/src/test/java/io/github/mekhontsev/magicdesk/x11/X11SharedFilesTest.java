@@ -1,9 +1,16 @@
 package io.github.mekhontsev.magicdesk.x11;
 
+import org.junit.Before;
 import org.junit.Test;
 import static org.junit.Assert.*;
+import static org.junit.Assume.assumeTrue;
 
 public final class X11SharedFilesTest {
+    @Before public void requiresPosixFileSystem() {
+        // Path and File use the host filesystem to interpret Android's absolute Unix paths.
+        assumeTrue(java.io.File.separatorChar == '/');
+    }
+
     @Test public void mapsOnlyTheExplicitExchangeDirectory() throws Exception {
         var paths = new X11SharedFiles("/private/session/content");
         assertEquals("/private/session/content/sub/a b.txt", paths.hostPath("/tmp/magicdesk-x11/content/sub/a b.txt"));
