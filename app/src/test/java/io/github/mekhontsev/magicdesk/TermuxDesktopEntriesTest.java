@@ -11,6 +11,7 @@ import org.junit.rules.TemporaryFolder;
 
 public final class TermuxDesktopEntriesTest {
     @Rule public final TemporaryFolder temporary = new TemporaryFolder();
+    private Path commands;
 
     @Test public void publishesOnceWithoutClobberingExistingLauncher() throws Exception {
         Path home = temporary.getRoot().toPath();
@@ -24,6 +25,31 @@ public final class TermuxDesktopEntriesTest {
         assertWrite(1, home, name, encoded + "Comment=changed\n");
         Path directory = home.resolve(".local/share/applications");
         assertEquals(encoded, Files.readString(directory.resolve("magicdesk-" + name)));
+        try (var files = Files.list(directory)) { assertEquals(1, files.count()); }
+    }
+
+    @Test public void identicalLauncherSucceedsWhenSkippedMoveReturnsFailure() throws Exception {
+        useMoveCommand("for destination do :; done\n"
+                + "[ ! -e \"$destination\" ] && [ ! -L \"$destination\" ] || exit 1\n"
+                + "PATH=" + ShellCommandLine.quote(System.getenv("PATH")) + " exec mv \"$@\"\n");
+        publishesOnceWithoutClobberingExistingLauncher();
+    }
+
+    @Test public void failedMoveDoesNotReportSuccessOrLeaveTemporaryFile() throws Exception {
+        useMoveCommand("exit 1\n");
+        Path home = temporary.getRoot().toPath();
+        assertWrite(1, home, "failed.desktop", "[Desktop Entry]\nName=Failed\n");
+        try (var files = Files.list(home.resolve(".local/share/applications"))) {
+            assertEquals(0, files.count());
+        }
+    }
+
+    @Test public void existingDirectoryIsNotAnIdenticalLauncher() throws Exception {
+        Path home = temporary.getRoot().toPath();
+        Path directory = Files.createDirectories(home.resolve(".local/share/applications"));
+        Path destination = Files.createDirectory(directory.resolve("magicdesk-folder.desktop"));
+        assertWrite(1, home, "folder.desktop", "[Desktop Entry]\nName=Folder\n");
+        assertTrue(Files.isDirectory(destination));
         try (var files = Files.list(directory)) { assertEquals(1, files.count()); }
     }
 
@@ -76,13 +102,24 @@ public final class TermuxDesktopEntriesTest {
         assertEquals(result.output, expected, result.exitCode);
     }
 
-    private ProcessBuilder command(Path home, String command) {
+    private void useMoveCommand(String body) throws Exception {
+        String interpreter = shell();
+        commands = Files.createDirectory(temporary.getRoot().toPath().resolve("commands"));
+        Path move = Files.writeString(commands.resolve("mv"), "#!" + interpreter + "\n" + body);
+        assertTrue(move.toFile().setExecutable(true));
+    }
+
+    private static String shell() {
         assumeTrue(!System.getProperty("os.name").startsWith("Windows"));
-        String shell = System.getenv("PREFIX") == null ? "/bin/sh" : System.getenv("PREFIX") + "/bin/sh";
-        var builder = new ProcessBuilder(shell, "-c", command);
+        return System.getenv("PREFIX") == null ? "/bin/sh" : System.getenv("PREFIX") + "/bin/sh";
+    }
+
+    private ProcessBuilder command(Path home, String command) {
+        var builder = new ProcessBuilder(shell(), "-c", command);
         builder.environment().put("HOME", home.toString());
         builder.environment().put("PREFIX", home.resolve("prefix").toString());
         builder.environment().remove("XDG_DATA_HOME");
+        if (commands != null) builder.environment().put("PATH", commands + ":" + System.getenv("PATH"));
         return builder;
     }
 }

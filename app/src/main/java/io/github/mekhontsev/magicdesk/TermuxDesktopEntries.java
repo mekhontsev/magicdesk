@@ -19,8 +19,11 @@ final class TermuxDesktopEntries {
                 + "mkdir -p -- \"$directory\"; destination=\"$directory/\"" + ShellCommandLine.quote("magicdesk-" + checked) + "; "
                 + "temporary=$(mktemp \"$directory/.magicdesk.XXXXXX\"); "
                 + "trap 'rm -f -- \"$temporary\"' EXIT; cat > \"$temporary\"; "
-                + "mv -nT -- \"$temporary\" \"$destination\"; "
-                + "if [ -e \"$temporary\" ] && ! cmp -s -- \"$temporary\" \"$destination\"; then "
+                // Some coreutils versions report a skipped no-clobber move as failure.
+                + "if mv -nT -- \"$temporary\" \"$destination\"; then "
+                + "[ -e \"$temporary\" ] || exit 0; "
+                + "else [ -e \"$destination\" ] || exit 1; fi; "
+                + "if ! cmp -s -- \"$temporary\" \"$destination\"; then "
                 + "printf '%s\\n' 'An application with this name already exists' >&2; exit 1; fi";
     }
     static void delete(Context context, TermuxIntegration.Endpoint endpoint, String path,
