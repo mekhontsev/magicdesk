@@ -31,6 +31,10 @@ root or a Desktop session**, on the phone or an Android-allowed secondary displa
 This documentation describes the current development code. The stable APK may
 not yet include every feature below.
 
+**[Watch the demo on YouTube (1080p60)](https://youtu.be/zAHU_0M1ShU)**:
+Android and Linux apps running locally on a REDMAGIC phone over HDMI, with
+Freeciv from Ubuntu/proot in its own Android window alongside a full XFCE desktop.
+
 ![MagicDesk with native application windows and the calendar panel](docs/images/magicdesk-desktop.png)
 
 ## One Connected Workspace
