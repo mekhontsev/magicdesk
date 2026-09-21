@@ -79,8 +79,8 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
 
     private void failed(DesktopLaunchRequest request, Throwable error,
             DesktopActivityLaunchResult.Completion completion) {
-        onFailure(request, error);
         if (completion != null) { completion.onComplete(DesktopActivityLaunchResult.failed(error)); }
+        else onFailure(request, error);
     }
 
     @Override

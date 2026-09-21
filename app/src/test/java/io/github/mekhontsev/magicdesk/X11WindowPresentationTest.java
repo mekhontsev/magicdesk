@@ -45,6 +45,8 @@ public final class X11WindowPresentationTest {
                 static int opens, restoredDisplay, restoredGeometry;
                 static long restoredWindow;
                 static boolean fail;
+                static boolean defer;
+                static BuiltInWindowLauncher.Callback pending;
                 static WindowPlacement windowPlacement(int display, int task) throws IOException {
                     return new WindowPlacement(display, "display-" + display, task);
                 }
@@ -65,7 +67,8 @@ public final class X11WindowPresentationTest {
                         BuiltInWindowLauncher.Callback done) {
                     check(identity.equals("display-" + target), "stable display identity");
                     opens++; restoredDisplay = target; restoredGeometry = geometry; restoredWindow = intent.window;
-                    done.onComplete(fail ? new IOException("unavailable") : null);
+                    if (defer) pending = done;
+                    else done.onComplete(fail ? new IOException("unavailable") : null);
                 }
             }
             static class X11Sessions {
@@ -157,6 +160,30 @@ public final class X11WindowPresentationTest {
                 presentation.hostRemoved(other, 2, true);
                 presentation.close(); Handler.drain();
                 check(ToolApplications.opens == before + 1 && !presentation.present(5), "Exit cancels all pending presentations");
+
+                var retained = new X11Sessions.Session();
+                var retainedPresentation = new X11WindowPresentation(new Context(), retained);
+                retainedPresentation.host(other); Handler.drain();
+                ToolApplications.defer = true;
+                retainedPresentation.hostRemoved(other, 2, true); Handler.drain();
+                var late = ToolApplications.pending;
+                check(late != null, "replacement launch is in flight");
+                retained.windows = List.of(new X11Sessions.Window(1));
+                retainedPresentation.retain(Set.of(1L));
+                late.onComplete(new IOException("task vanished during launch"));
+                check(retained.failures == 0 && retained.state() == X11Sessions.State.READY,
+                        "closed client cancels replacement failure without affecting its surviving sibling");
+
+                retainedPresentation.host(other); Handler.drain();
+                retainedPresentation.hostRemoved(other, 1, true); Handler.drain();
+                ToolApplications.pending.onComplete(new IOException("real launch failure"));
+                check(retained.failures == 1, "a surviving client still reports a real launch failure");
+
+                retainedPresentation.host(other); Handler.drain();
+                retainedPresentation.hostRemoved(other, 1, true); Handler.drain();
+                retainedPresentation.close();
+                ToolApplications.pending.onComplete(new IOException("session closed during launch"));
+                check(retained.failures == 1, "session closure cancels in-flight presentation errors");
             }
             """);
     }

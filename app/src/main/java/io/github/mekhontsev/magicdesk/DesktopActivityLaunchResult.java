@@ -11,6 +11,7 @@ final class DesktopActivityLaunchResult {
         INDETERMINATE_FAILURE
     }
 
+    /** A supplied completion owns result presentation, including failures. */
     interface Completion {
         void onComplete(DesktopActivityLaunchResult result);
     }

@@ -906,6 +906,10 @@ runtime integration and are not distributed through the same release path.
   exact task's typed STANDARD/display/mode topology through the existing event
   journal and one-shot repository snapshots. Resolver and chooser tasks omit
   a final component assertion because the user's selection is not yet known.
+  A supplied completion owns error presentation; lower launch layers return
+  the result without independently displaying a failure. Direct UI launches
+  report through their launch context. Session-owned tools can discard late
+  results when the resource they were presenting has already closed.
   `DesktopLaunchPresentation` is the sole transport for mode, relative bounds,
   explicit `reuse`/`new` instance policy, and an optional exact task id.
   Instance policy is not inferred from raw Intent flags. Relative bounds use

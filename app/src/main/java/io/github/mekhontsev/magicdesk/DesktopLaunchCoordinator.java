@@ -56,7 +56,7 @@ final class DesktopLaunchCoordinator {
             if (X11ApplicationLaunch.reuse(mContext, source, completion)) return true;
             request = X11ApplicationLaunch.prepare(mContext, source.prepareExec());
         } catch (RuntimeException error) {
-            mContext.onFailure(source, error);
+            if (completion == null) mContext.onFailure(source, error);
             complete(completion, DesktopActivityLaunchResult.failed(error));
             return true;
         }
@@ -68,7 +68,7 @@ final class DesktopLaunchCoordinator {
                     || (!request.exec.terminal && !capabilities.background)
                     || (!request.exec.workingDirectory.isEmpty()
                             && !capabilities.workingDirectory)) {
-                mContext.onUnavailable(request);
+                if (completion == null) mContext.onUnavailable(request);
                 complete(completion, DesktopActivityLaunchResult.failed(
                         "desktop launch backend is unavailable"));
                 return true;
@@ -77,7 +77,7 @@ final class DesktopLaunchCoordinator {
                     DesktopExecRunner.prepareBackend(
                             mContext.context(), request.exec.backend);
             if (availability == DesktopExecRunner.StartResult.UNAVAILABLE) {
-                mContext.onUnavailable(request);
+                if (completion == null) mContext.onUnavailable(request);
                 complete(completion, DesktopActivityLaunchResult.failed(
                         "desktop launch backend is unavailable"));
                 return true;
@@ -102,16 +102,16 @@ final class DesktopLaunchCoordinator {
                         prepared, execute, result -> {
                             if (result.succeeded() && source.exec == null)
                                 RecentApplications.record(mContext.context(), source, recentScope);
-                            complete(completion, result);
+                            completeActivity(prepared, completion, result);
                         })) {
                     DesktopExecSessionTracker.failed(sessionId);
-                    mContext.onUnavailable(prepared);
+                    if (completion == null) mContext.onUnavailable(prepared);
                     complete(completion, DesktopActivityLaunchResult.failed(
                             "Android Activity is unavailable"));
                 }
             } catch (RuntimeException error) {
                 DesktopExecSessionTracker.failed(sessionId);
-                mContext.onFailure(prepared, error);
+                if (completion == null) mContext.onFailure(prepared, error);
                 complete(completion, DesktopActivityLaunchResult.failed(error));
             }
             return true;
@@ -127,6 +127,16 @@ final class DesktopLaunchCoordinator {
         complete(completion, DesktopActivityLaunchResult.failed(
                 "launch request has no executable target"));
         return false;
+    }
+
+    private void completeActivity(
+            final DesktopLaunchRequest request,
+            final DesktopActivityLaunchResult.Completion completion,
+            final DesktopActivityLaunchResult result) {
+        if (completion == null && !result.succeeded()) {
+            mContext.onMain(() -> mContext.onFailure(request, new java.io.IOException(result.error)));
+        }
+        complete(completion, result);
     }
 
     private static void complete(

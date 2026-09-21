@@ -20,7 +20,7 @@ final class X11ApplicationLaunch {
         final String uniqueId = host.destinationUniqueId();
         final DesktopActivityLaunchResult.Completion done = result -> {
             if (result.succeeded()) session.recordUse(application.window(), RecentLaunchScope.of(destination));
-            else host.onFailure(request, new IllegalStateException(result.error));
+            else if (completion == null) host.onFailure(request, new IllegalStateException(result.error));
             if (completion != null) completion.onComplete(result);
         };
         final int taskId = session.hostTaskId(application.window());

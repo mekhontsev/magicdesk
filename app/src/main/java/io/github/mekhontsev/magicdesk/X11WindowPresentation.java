@@ -88,8 +88,8 @@ final class X11WindowPresentation {
             var captured = host.placement;
             try {
                 ToolApplications.open(context, replacementIntent, captured.target(), captured.uniqueId(),
-                        replacement, error -> { if (error != null && !closed) session.presentationFailed(error); });
-            } catch (RuntimeException error) { if (!closed) session.presentationFailed(error); }
+                        replacement, error -> presentationCompleted(window, error));
+            } catch (RuntimeException error) { presentationCompleted(window, error); }
         });
     }
 
@@ -104,13 +104,19 @@ final class X11WindowPresentation {
         if (!live && (placement == null || !ShellAccess.isReady())) return false;
         presented.add(window);
         var intent = intent(window);
-        BuiltInWindowLauncher.Callback done = error -> {
-            if (error != null && !closed) session.presentationFailed(error);
-        };
+        BuiltInWindowLauncher.Callback done = error -> presentationCompleted(window, error);
         try {
             if (live) ToolApplications.openSibling(activity, intent, done);
             else ToolApplications.open(context, intent, placement.target(), placement.uniqueId(), done);
         } catch (RuntimeException error) { done.onComplete(error); }
         return true;
+    }
+
+    private void presentationCompleted(long window, Throwable error) {
+        // A client can finish while its Android replacement is still being launched.
+        if (error != null && !closed && session.state() == X11Sessions.State.READY
+                && session.windows().stream().anyMatch(item -> item.id() == window)) {
+            session.presentationFailed(error);
+        }
     }
 }

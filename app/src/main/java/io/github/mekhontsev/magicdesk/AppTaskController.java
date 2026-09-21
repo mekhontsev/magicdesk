@@ -520,6 +520,9 @@ final class AppTaskController {
                 AndroidLaunchSpec.Delivery.SHELL_INTENT, result -> {
                     if (result.hasObservedTask()) RecentApplications.recordBuiltIn(
                             mActivity, launchIntent, launchTarget, RecentLaunchScope.DESKTOP);
+                    else mActivity.runOnUiThread(() -> {
+                        if (!mActivity.isActivityUnavailable()) mActivity.showLaunchFailure(new IOException(result.error));
+                    });
                 });
     }
 
@@ -647,7 +650,7 @@ final class AppTaskController {
                 mActivity.getPackageManager());
         if (launchIntent == null) {
             AppWindowStateStore.cancelModeUpdate(modeUpdate);
-            showMissingLauncher(app);
+            if (completion == null) showMissingLauncher(app);
             complete(completion, DesktopActivityLaunchResult.failed(
                     "no launcher Activity is available"));
             return;
@@ -821,6 +824,7 @@ final class AppTaskController {
             final Exception error) {
         runIfPresent(onFailure, error);
         complete(completion, DesktopActivityLaunchResult.failed(error));
+        if (completion != null) return;
         mActivity.runOnUiThread(() -> {
             if (!mActivity.isActivityUnavailable()) {
                 mActivity.showLaunchFailure(error);
@@ -960,7 +964,7 @@ final class AppTaskController {
                         displayId, false);
                 runIfPresent(onFailure, error);
                 complete(completion, DesktopActivityLaunchResult.failed(error));
-                reportFullscreenLaunchFailure(app, displayId, error);
+                if (completion == null) reportFullscreenLaunchFailure(app, displayId, error);
             }
         });
     }
