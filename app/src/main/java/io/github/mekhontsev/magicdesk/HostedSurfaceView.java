@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.text.InputType;
 import android.util.SparseIntArray;
@@ -13,18 +14,17 @@ import android.view.inputmethod.InputConnection;
 
 /** Android input, IME and Surface lifetime, independent of the guest display protocol. */
 final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callback {
-    private static final HostedSurfaceOutput.Button[] POINTER_BUTTONS = HostedSurfaceOutput.Button.values();
+    private final HostedPointerInput pointerInput;
     private HostedSurfaceOutput output;
-    private int frameWidth, frameHeight, buttons;
+    private int frameWidth, frameHeight;
     private HostedViewport viewport = HostedViewport.EMPTY;
-    private boolean touching;
     private boolean contentDrag;
     private Runnable beforeInteraction;
     private final SparseIntArray keys = new SparseIntArray();
-    private float lastX, lastY;
 
     HostedSurfaceView(Context context) {
         super(context);
+        pointerInput = new HostedPointerInput(this);
         setFocusable(true);
         setFocusableInTouchMode(true);
         getHolder().addCallback(this);
@@ -33,6 +33,7 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     void bind(HostedSurfaceOutput next) {
         release();
         output = next;
+        pointerInput.bind(next);
         if (output != null && getHolder().getSurface().isValid() && getWidth() > 0 && getHeight() > 0)
             output.setSurface(getHolder().getSurface(), getWidth(), getHeight());
     }
@@ -41,6 +42,7 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         frameWidth = width;
         frameHeight = height;
         viewport = HostedViewport.fit(getWidth(), getHeight(), width, height);
+        pointerInput.viewport(viewport);
     }
 
     record Geometry(int contentWidth, int contentHeight, float left, float top, float right, float bottom) { }
@@ -56,22 +58,21 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
         super.onSizeChanged(width, height, oldWidth, oldHeight);
         viewport = HostedViewport.fit(width, height, frameWidth, frameHeight);
+        pointerInput.viewport(viewport);
     }
 
     void release() {
         releaseInput();
         if (output != null) output.close();
         output = null;
+        pointerInput.bind(null);
         frameWidth = frameHeight = 0;
         viewport = HostedViewport.EMPTY;
+        pointerInput.viewport(viewport);
     }
 
     private void releaseInput() {
-        if (!contentDrag) {
-            mouseButtons(0);
-            if (touching && output != null) output.button(lastX, lastY, HostedSurfaceOutput.Button.PRIMARY, false);
-            touching = false;
-        }
+        if (!contentDrag) pointerInput.release();
         if (output != null) {
             for (int i = 0; i < keys.size(); i++) output.key(keys.keyAt(i), keys.valueAt(i), false);
         }
@@ -90,69 +91,33 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         else if (output != null) output.focus();
     }
 
-    private boolean pointer(MotionEvent event) {
-        if (output == null || !viewport.available()) return false;
-        android.graphics.PointF point = contentPoint(event.getX(), event.getY());
-        lastX = point.x;
-        lastY = point.y;
-        output.pointer(lastX, lastY);
-        return true;
-    }
-
     android.graphics.PointF contentPoint(float x, float y) {
         return new android.graphics.PointF(viewport.contentX(x), viewport.contentY(y));
     }
 
-    boolean canStartContentDrag() { return output != null && !contentDrag && (touching || (buttons & MotionEvent.BUTTON_PRIMARY) != 0); }
+    boolean canStartContentDrag() { return output != null && !contentDrag && pointerInput.dragging(); }
     void beforeInteraction(Runnable action) { beforeInteraction = action; }
-    void beginContentDrag() { contentDrag = true; }
-    void endContentDrag() { contentDrag = false; touching = false; buttons = 0; }
+    void beginContentDrag() { contentDrag = true; pointerInput.handoff(); }
+    void endContentDrag() { contentDrag = false; pointerInput.handoff(); }
 
-    private void mouseButtons(int next) {
-        for (HostedSurfaceOutput.Button button : POINTER_BUTTONS) {
-            int mask = switch (button) {
-                case PRIMARY -> MotionEvent.BUTTON_PRIMARY;
-                case MIDDLE -> MotionEvent.BUTTON_TERTIARY;
-                case SECONDARY -> MotionEvent.BUTTON_SECONDARY;
-            };
-            if (output != null && ((buttons ^ next) & mask) != 0)
-                output.button(lastX, lastY, button, (next & mask) != 0);
-        }
-        buttons = next;
-    }
-
+    @SuppressLint("ClickableViewAccessibility") // HostedPointerInput calls performClick for completed taps.
     @Override public boolean onTouchEvent(MotionEvent event) {
-        if (contentDrag) return true;
-        if (event.getActionMasked() == MotionEvent.ACTION_DOWN && beforeInteraction != null) beforeInteraction.run();
-        if (!pointer(event)) return false;
-        int action = event.getActionMasked();
-        if (action == MotionEvent.ACTION_DOWN) requestFocus();
-        if (event.getToolType(0) == MotionEvent.TOOL_TYPE_MOUSE) {
-            mouseButtons(action == MotionEvent.ACTION_CANCEL ? 0 : event.getButtonState());
-        } else if (action == MotionEvent.ACTION_DOWN) {
-            touching = true;
-            output.button(lastX, lastY, HostedSurfaceOutput.Button.PRIMARY, true);
-        } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-            if (touching) output.button(lastX, lastY, HostedSurfaceOutput.Button.PRIMARY, false);
-            touching = false;
-            if (action == MotionEvent.ACTION_UP) performClick();
-        }
-        return true;
+        return motion(event);
     }
 
     @Override public boolean performClick() { super.performClick(); return true; }
 
     @Override public boolean onGenericMotionEvent(MotionEvent event) {
+        return motion(event) || super.onGenericMotionEvent(event);
+    }
+
+    private boolean motion(MotionEvent event) {
         if (contentDrag) return true;
-        if (event.getActionMasked() == MotionEvent.ACTION_BUTTON_PRESS && beforeInteraction != null) beforeInteraction.run();
-        if (!pointer(event)) return super.onGenericMotionEvent(event);
-        if (event.getActionMasked() == MotionEvent.ACTION_BUTTON_PRESS) requestFocus();
-        mouseButtons(event.getButtonState());
-        if (event.getActionMasked() == MotionEvent.ACTION_SCROLL) {
-            output.scroll(lastX, lastY, event.getAxisValue(MotionEvent.AXIS_HSCROLL),
-                    event.getAxisValue(MotionEvent.AXIS_VSCROLL));
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN || event.getActionMasked() == MotionEvent.ACTION_BUTTON_PRESS) {
+            if (beforeInteraction != null) beforeInteraction.run();
+            requestFocus();
         }
-        return true;
+        return pointerInput.event(event);
     }
 
     @Override public boolean onKeyDown(int key, KeyEvent event) { return key(event, true) || super.onKeyDown(key, event); }
