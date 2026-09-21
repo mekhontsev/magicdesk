@@ -77,6 +77,36 @@ public final class HostedPointerInputTest {
             """);
     }
 
+    @Test public void hoverExitBeforeMouseDownDoesNotCreateAnotherClick() throws Exception {
+        verify("""
+            var f = new Input(); f.source=InputDevice.SOURCE_MOUSE; f.tool=MotionEvent.TOOL_TYPE_MOUSE;
+            f.send(9, 1, 100, 100); f.send(7, 1, 200, 100);
+            f.buttons=1; f.send(10, 1, 200, 100);
+            check(f.out.edges.isEmpty(), "hover exit already carries pressed state, but is not a press");
+            f.send(0, 1, 200, 100); f.send(11, 1, 200, 100);
+            f.buttons=0; f.send(12, 1, 200, 100); f.send(1, 1, 200, 100);
+            f.send(9, 1, 200, 100);
+            check(f.out.edges.equals(List.of("PRIMARY:true", "PRIMARY:false")), "one tap is one click");
+            check(f.out.x == .2f && f.out.y == .1f, "hover retains pointer position");
+            """);
+    }
+
+    @Test public void hoverDoesNotChangeButtonOrContactOwnership() throws Exception {
+        verify("""
+            var f = new Input(); f.source=InputDevice.SOURCE_MOUSE; f.tool=MotionEvent.TOOL_TYPE_MOUSE;
+            for (int action : new int[]{9, 7, 10}) {
+                f.buttons=2; f.send(action, 1, 200, 100);
+            }
+            check(f.out.edges.isEmpty(), "hover cannot press a secondary button either");
+            f.buttons=1; f.send(0, 1, 200, 100); f.send(11, 1, 200, 100);
+            f.buttons=0;
+            for (int action : new int[]{9, 7, 10}) f.send(action, 1, 300, 100);
+            check(f.input.dragging() && f.out.edges.equals(List.of("PRIMARY:true")), "hover cannot release a drag");
+            f.send(12, 1, 300, 100); f.send(1, 1, 300, 100);
+            check(f.out.edges.equals(List.of("PRIMARY:true", "PRIMARY:false")), "button event releases drag");
+            """);
+    }
+
     @Test public void stylusIsDirectAndContactDoesNotRequireMouseSource() throws Exception {
         verify("""
             var f = new Input(); f.tool=2; f.send(0,1,100,100);

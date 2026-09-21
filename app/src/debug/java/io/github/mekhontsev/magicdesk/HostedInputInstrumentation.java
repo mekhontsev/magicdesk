@@ -24,7 +24,7 @@ public final class HostedInputInstrumentation extends Instrumentation {
                 catch (RuntimeException | AssertionError error) { failure.set(error); }
             });
             if (failure.get() != null) throw new AssertionError(failure.get());
-            result.putString("hosted_input", "PASS touch, mouse-source fingers, raw touchpad, mouse wheel/drag, focus loss, output lifecycle, cursor shape/scale/hide/reset");
+            result.putString("hosted_input", "PASS touch, mouse-source fingers, raw touchpad, mouse hover/click/wheel/drag, focus loss, output lifecycle, cursor shape/scale/hide/reset");
             finish(Activity.RESULT_OK, result);
         } catch (RuntimeException | AssertionError error) {
             result.putString("hosted_input", "FAIL " + error);
@@ -63,6 +63,7 @@ public final class HostedInputInstrumentation extends Instrumentation {
         int oldScroll = output.scrolls;
         send(view, InputDevice.SOURCE_MOUSE, 3, 8, 0, 1, 300, 300);
         require(output.scrolls == oldScroll + 1, "ordinary wheel");
+        verifyHoverClick(view, output);
         verifyCursor(view);
         view.release();
         require(output.closed, "output released");
@@ -73,6 +74,20 @@ public final class HostedInputInstrumentation extends Instrumentation {
         send(view, InputDevice.SOURCE_TOUCHSCREEN, 1, 1, 0, 1, 200, 200);
         require(replacement.presses == 0, "new output cannot use stale geometry");
         view.release();
+    }
+
+    private static void verifyHoverClick(HostedSurfaceView view, Output output) {
+        int presses = output.presses, releases = output.releases;
+        send(view, InputDevice.SOURCE_MOUSE, 3, MotionEvent.ACTION_HOVER_ENTER, 0, 1, 200, 200);
+        send(view, InputDevice.SOURCE_MOUSE, 3, MotionEvent.ACTION_HOVER_MOVE, 0, 1, 300, 200);
+        send(view, InputDevice.SOURCE_MOUSE, 3, MotionEvent.ACTION_HOVER_EXIT, 1, 1, 300, 200);
+        require(output.presses == presses && output.releases == releases, "hover exit is not a press");
+        send(view, InputDevice.SOURCE_MOUSE, 3, MotionEvent.ACTION_DOWN, 1, 1, 300, 200);
+        send(view, InputDevice.SOURCE_MOUSE, 3, MotionEvent.ACTION_BUTTON_PRESS, 1, 1, 300, 200);
+        send(view, InputDevice.SOURCE_MOUSE, 3, MotionEvent.ACTION_BUTTON_RELEASE, 0, 1, 300, 200);
+        send(view, InputDevice.SOURCE_MOUSE, 3, MotionEvent.ACTION_UP, 0, 1, 300, 200);
+        send(view, InputDevice.SOURCE_MOUSE, 3, MotionEvent.ACTION_HOVER_ENTER, 0, 1, 300, 200);
+        require(output.presses == presses + 1 && output.releases == releases + 1, "one physical click, no duplicate edges");
     }
 
     private void verifyCursor(HostedSurfaceView view) {

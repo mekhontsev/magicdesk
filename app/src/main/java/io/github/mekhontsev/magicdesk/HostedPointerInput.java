@@ -86,9 +86,13 @@ final class HostedPointerInput {
                     event.getAxisValue(MotionEvent.AXIS_VSCROLL));
             return true;
         }
-        if (action == MotionEvent.ACTION_BUTTON_PRESS || action == MotionEvent.ACTION_BUTTON_RELEASE
-                || action == MotionEvent.ACTION_HOVER_MOVE || action == MotionEvent.ACTION_HOVER_ENTER
+        if (action == MotionEvent.ACTION_HOVER_MOVE || action == MotionEvent.ACTION_HOVER_ENTER
                 || action == MotionEvent.ACTION_HOVER_EXIT) {
+            // HOVER_EXIT can carry a pressed button before DOWN; hover does not own button edges.
+            if (!rawPad) position(event.getX(), event.getY());
+            return true;
+        }
+        if (action == MotionEvent.ACTION_BUTTON_PRESS || action == MotionEvent.ACTION_BUTTON_RELEASE) {
             pendingTap = syntheticButton = false;
             view.removeCallbacks(longPress);
             if (!rawPad) position(event.getX(), event.getY());
