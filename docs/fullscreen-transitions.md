@@ -579,7 +579,10 @@ observer, timer, or transaction. An explicit close
 makes the source plane non-focusable, selects the successor, and confirms input
 focus before removing the now-background application task. Application-initiated
 removal submits the same handoff from `onTaskRemovalStarted` without waiting
-inside the framework callback; if the framework nevertheless reports anchor
+inside the framework callback. If Android has already selected HOME, the
+handoff requires the closing task to own the foremost committed plane above
+HOME, with no intervening visible application or explicit desktop presentation.
+If the framework nevertheless reports anchor
 focus, that focus callback immediately restores the invariant. Neither path
 adds background polling. Explicit close retains the existing bounded
 input-focus verification around its WCT handoff; application removal remains

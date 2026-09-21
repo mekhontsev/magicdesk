@@ -693,7 +693,13 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         try {
             final Object task = HiddenTaskApi.findTask(
                     service, mDisplayId, taskId);
-            if (task == null || !HiddenTaskApi.isTaskFocused(task)) {
+            final boolean focused = task != null && HiddenTaskApi.isTaskFocused(task);
+            // Activity.finish() can select HOME before the removal callback arrives.
+            // Only the foremost committed plane may recover that premature handoff.
+            if (!focused && !shouldRecoverRemovalFromHome(
+                    taskId, ownership.desktopHostTaskId(), mDisplayId,
+                    mCommittedPlaneLayers, mPlanes.keySet(), mConcealedForShowDesktop,
+                    FrameworkTaskSnapshotSource.readWindowState(service, mDisplayId, 100))) {
                 return;
             }
             final int focusTaskId = findRemovalFocusTarget(
@@ -702,11 +708,39 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     service, mDisplayId, plane, focusTaskId);
             Log.i(TAG, "prepared fullscreen plane removal task=" + taskId
                     + " successor=" + focusTaskId
+                    + " source=" + (focused ? "focused-task" : "committed-plane")
                     + " display=" + mDisplayId);
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "could not prepare fullscreen plane removal task="
                     + taskId, error);
         }
+    }
+
+    static boolean shouldRecoverRemovalFromHome(
+            final int closingTaskId,
+            final int homeTaskId,
+            final int displayId,
+            final Map<Integer, Integer> committedLayers,
+            final Set<Integer> planeTaskIds,
+            final boolean concealed,
+            final List<FrameworkTaskSnapshot> tasks) {
+        final Integer closingLayer = committedLayers.get(closingTaskId);
+        if (concealed || !planeTaskIds.contains(closingTaskId)
+                || closingLayer == null || closingLayer <= 0) {
+            return false;
+        }
+        for (final Map.Entry<Integer, Integer> entry : committedLayers.entrySet()) {
+            if (planeTaskIds.contains(entry.getKey()) && entry.getValue() > closingLayer) {
+                return false;
+            }
+        }
+        for (final FrameworkTaskSnapshot task : tasks) {
+            if (task.displayId == displayId && task.taskId != closingTaskId
+                    && task.visible && !DesktopInfrastructureTasks.isTask(task)) {
+                return task.taskId == homeTaskId;
+            }
+        }
+        return false;
     }
 
     synchronized boolean recoverAnchorFocus(

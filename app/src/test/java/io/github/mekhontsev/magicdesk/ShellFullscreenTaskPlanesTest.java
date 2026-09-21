@@ -15,6 +15,61 @@ import java.util.Set;
 
 public final class ShellFullscreenTaskPlanesTest {
     @Test
+    public void closingForemostPlaneRecoversPrematureHomeSelection() {
+        assertEquals(true, ShellFullscreenTaskPlanes.shouldRecoverRemovalFromHome(
+                11, 99, 4, Map.of(10, 1, 11, 2), planeIds(10, 11), false,
+                Arrays.asList(task(99, 1), task(10, 1))));
+    }
+
+    @Test
+    public void closingBackgroundPlaneCannotReclaimFocus() {
+        assertEquals(false, ShellFullscreenTaskPlanes.shouldRecoverRemovalFromHome(
+                10, 99, 4, Map.of(10, 1, 11, 2), planeIds(10, 11), false,
+                Arrays.asList(task(99, 1), task(11, 1))));
+    }
+
+    @Test
+    public void removalKeepsAnAlreadyExposedApplication() {
+        for (final int mode : new int[]{1, 5}) {
+            assertEquals(false, ShellFullscreenTaskPlanes.shouldRecoverRemovalFromHome(
+                    11, 99, 4, Map.of(10, 1, 11, 2), planeIds(10, 11), false,
+                    Arrays.asList(task(20, mode), task(99, 1), task(10, 1))));
+        }
+    }
+
+    @Test
+    public void removalDoesNotUndoExplicitDesktopPresentation() {
+        assertEquals(false, ShellFullscreenTaskPlanes.shouldRecoverRemovalFromHome(
+                11, 99, 4, Map.of(10, 1, 11, 2), planeIds(10, 11), true,
+                Arrays.asList(task(99, 1), task(10, 1))));
+        assertEquals(false, ShellFullscreenTaskPlanes.shouldRecoverRemovalFromHome(
+                11, 99, 4, Map.of(10, -2, 11, -1), planeIds(10, 11), false,
+                Arrays.asList(task(99, 1), task(10, 1))));
+    }
+
+    @Test
+    public void removalRequiresKnownCompositionAndCurrentHome() {
+        assertEquals(false, ShellFullscreenTaskPlanes.shouldRecoverRemovalFromHome(
+                11, 99, 4, Map.of(), planeIds(10, 11), false,
+                Arrays.asList(task(99, 1), task(10, 1))));
+        assertEquals(false, ShellFullscreenTaskPlanes.shouldRecoverRemovalFromHome(
+                11, 99, 4, Map.of(11, 2), planeIds(10), false,
+                Arrays.asList(task(99, 1), task(10, 1))));
+        assertEquals(false, ShellFullscreenTaskPlanes.shouldRecoverRemovalFromHome(
+                11, 99, 4, Map.of(11, 2), planeIds(11), false, Collections.emptyList()));
+        assertEquals(false, ShellFullscreenTaskPlanes.shouldRecoverRemovalFromHome(
+                11, 99, 0, Map.of(11, 2), planeIds(11), false,
+                Arrays.asList(task(99, 1), task(10, 1))));
+    }
+
+    @Test
+    public void removalIgnoresRetiredLayersAndItsOwnClosingSurface() {
+        assertEquals(true, ShellFullscreenTaskPlanes.shouldRecoverRemovalFromHome(
+                11, 99, 4, Map.of(10, 1, 11, 2, 12, 3), planeIds(10, 11), false,
+                Arrays.asList(task(11, 1), task(99, 1), task(10, 1))));
+    }
+
+    @Test
     public void freeformRestoreRetainsComposedFullscreenBackgroundBelowHomeInHierarchy() {
         assertEquals(11, ShellFullscreenTaskPlanes.composedFullscreenBackground(
                 -1, Arrays.asList(10, 11), false));
