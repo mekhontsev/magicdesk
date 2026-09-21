@@ -127,8 +127,19 @@ jobs:
           else
             notes=(--generate-notes)
           fi
-          gh release create "$GITHUB_REF_NAME" \
-            --verify-tag \
-            "${notes[@]}" \
-            --title "MagicDesk $GITHUB_REF_NAME" \
-            dist/*
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+            if [[ ! -f "$notes_file" ]]; then
+              notes=()
+            fi
+            gh release edit "$GITHUB_REF_NAME" \
+              "${notes[@]}" \
+              --title "MagicDesk $GITHUB_REF_NAME" \
+              --target "$GITHUB_SHA"
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --verify-tag \
+              "${notes[@]}" \
+              --title "MagicDesk $GITHUB_REF_NAME" \
+              dist/*
+          fi
