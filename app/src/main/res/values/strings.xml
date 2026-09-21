@@ -786,8 +786,10 @@
     <string name="settings_open_touchpad_automatically">Open touchpad automatically</string>
     <string name="settings_keyboard_on_app_display">Show keyboard on app display</string>
     <string name="keyboard_placement_failed">Could not change keyboard placement: %1$s</string>
-    <string name="settings_keep_desktop_awake">Keep desktop session awake</string>
-    <string name="settings_disable_adaptive_brightness">Disable adaptive brightness during external desktop</string>
+    <string name="settings_keep_desktop_awake">Keep session active</string>
+    <string name="settings_keep_screen_on">Keep phone screen on</string>
+    <string name="settings_phone_fullscreen_default">New windows fullscreen on phone</string>
+    <string name="settings_disable_adaptive_brightness">Disable adaptive brightness</string>
     <string name="settings_mcp_enabled">Local MCP automation server</string>
     <string name="settings_mcp_local_access">Local MCP permissions</string>
     <string name="settings_mcp_network_access">Network MCP permissions</string>

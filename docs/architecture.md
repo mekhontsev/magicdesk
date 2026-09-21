@@ -633,7 +633,15 @@ runtime integration and are not distributed through the same release path.
   contract exposed through `MagicDeskRuntime`; callers do not locate a
   process-global active task controller. The optional non-reference-counted partial
   wake lock is held only while both its setting and a MagicDesk desktop
-  session are active. It is released by the same service lifecycle. There is
+  session are active. A separate opt-in screen wake lock keeps the phone display
+  on while any workspace is active, including simulated workspaces. Neither
+  lock wakes a sleeping device; explicit screen-off and lock remain authoritative.
+  Both are released after the last workspace. Adaptive-brightness suppression
+  also covers all workspace kinds: `FrameworkDisplayBrightnessApi` preserves the
+  current float brightness before switching to manual mode. The controller
+  restores automatic mode only when it owned the change and has not observed a
+  subsequent user mode change. Manual brightness adjustments remain available.
+  These session settings do not modify Android's screen timeout. There is
   no boot receiver; the user starts MagicDesk manually. The notification body
   is a stable display-0 entry
   point to Phone Control Panel; its separate touchpad action opens the
@@ -3126,6 +3134,13 @@ HOME transition. The external-session touchpad exposes the same operation for
 its target display, so its own phone task and every other display remain
 untouched. `PRESENT_DESKTOP` remains the separate command that conceals all
 application windows to expose bare wallpaper.
+
+`DesktopLaunchPolicy` resolves managed launch presentation uniformly for apps,
+Intents, published shortcuts and built-in hosts (including X11). The opt-in
+phone fullscreen default is only a fallback for new windows on display 0.
+Explicit requests, a reused task's mode, and saved per-application mode/bounds
+take precedence. It does not change independent launch policy or existing
+windows when the setting changes.
 
 The control-panel toolbar offers **Start desktop**, or **Show desktop**
 for the selected row's existing workspace. Another display can start its own workspace without

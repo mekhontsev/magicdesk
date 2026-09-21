@@ -36,6 +36,8 @@ public final class MagicDeskRuntimeService extends Service
     private boolean mToolsRequested;
     private DesktopSessionWakeLock mSessionWakeLock;
     private DesktopAdaptiveBrightnessController mAdaptiveBrightness;
+    private DesktopSessionWakeLock mScreenWakeLock;
+    private boolean mKeepScreenOn;
     private MagicDeskMcpRuntime mMcpRuntime;
     private BroadcastReceiver mConfigurationReceiver;
     private volatile boolean mDestroyed;
@@ -459,8 +461,10 @@ public final class MagicDeskRuntimeService extends Service
         ensureInputRuntime();
         final MagicDeskSettings.Values settings = MagicDeskSettings.load();
         mKeepDesktopAwake = settings.keepDesktopAwake;
+        mKeepScreenOn = settings.keepScreenOn;
+        mScreenWakeLock = DesktopSessionWakeLock.screen(this);
         mDisableAdaptiveBrightness =
-                settings.disableAdaptiveBrightnessOnExternalDesktop;
+                settings.disableAdaptiveBrightness;
         mAdaptiveBrightness =
                 new DesktopAdaptiveBrightnessController(this);
         mDesktopSession = new RuntimeDesktopSessionCoordinator(
@@ -631,8 +635,9 @@ public final class MagicDeskRuntimeService extends Service
             mSessionWakeLock.release();
         }
         if (mAdaptiveBrightness != null) {
-            mAdaptiveBrightness.release();
+            mAdaptiveBrightness.close();
         }
+        if (mScreenWakeLock != null) mScreenWakeLock.release();
         mPlatform.stopRuntime();
         mPhoneUi.requestPhoneScreenRestore();
     }
@@ -722,19 +727,22 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     private void updateSessionWakeLock() {
+        final boolean hasWorkspaces = DesktopRuntimeBridge.hasWorkspaces();
+        if (mScreenWakeLock != null) mScreenWakeLock.reconcile(mKeepScreenOn, hasWorkspaces);
         if (mSessionWakeLock == null) {
             return;
         }
         mSessionWakeLock.reconcile(
                 mKeepDesktopAwake,
-                DesktopRuntimeBridge.hasWorkspaces());
+                hasWorkspaces);
     }
 
     private void refreshRuntimeSettings(final Runnable completion) {
         final MagicDeskSettings.Values settings = MagicDeskSettings.load();
         mKeepDesktopAwake = settings.keepDesktopAwake;
+        mKeepScreenOn = settings.keepScreenOn;
         mDisableAdaptiveBrightness =
-                settings.disableAdaptiveBrightnessOnExternalDesktop;
+                settings.disableAdaptiveBrightness;
         updateSessionWakeLock();
         updateAdaptiveBrightness();
         if (mMcpRuntime != null) {

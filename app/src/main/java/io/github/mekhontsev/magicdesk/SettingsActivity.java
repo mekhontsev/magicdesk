@@ -71,11 +71,19 @@ public final class SettingsActivity extends Activity
         saveSetting(MagicDeskSettings.setKeepDesktopAwake(enabled));
     }
 
+    @Override public void setKeepScreenOn(final boolean enabled) {
+        saveSetting(MagicDeskSettings.setKeepScreenOn(enabled));
+    }
+
+    @Override public void setPhoneFullscreenByDefault(final boolean enabled) {
+        saveSetting(MagicDeskSettings.setPhoneFullscreenByDefault(enabled));
+    }
+
     @Override
-    public void setDisableAdaptiveBrightnessOnExternalDesktop(
+    public void setDisableAdaptiveBrightness(
             final boolean enabled) {
         saveSetting(MagicDeskSettings
-                .setDisableAdaptiveBrightnessOnExternalDesktop(enabled));
+                .setDisableAdaptiveBrightness(enabled));
     }
 
     @Override

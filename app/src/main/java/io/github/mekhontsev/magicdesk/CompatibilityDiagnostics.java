@@ -418,8 +418,10 @@ public final class CompatibilityDiagnostics {
                 .append(settings.keyboardOnAppDisplay)
                 .append(", keepDesktopAwake=")
                 .append(settings.keepDesktopAwake)
-                .append(", disableAdaptiveBrightnessOnExternalDesktop=")
-                .append(settings.disableAdaptiveBrightnessOnExternalDesktop)
+                .append(", keepScreenOn=").append(settings.keepScreenOn)
+                .append(", phoneFullscreenByDefault=").append(settings.phoneFullscreenByDefault)
+                .append(", disableAdaptiveBrightness=")
+                .append(settings.disableAdaptiveBrightness)
                 .append(", openItemsWithSingleClick=")
                 .append(settings.openFilesWithSingleClick)
                 .append('\n');

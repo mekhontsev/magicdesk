@@ -50,32 +50,6 @@ final class WindowedAppLauncher {
     private WindowedAppLauncher() {
     }
 
-    static LaunchResult launchBuiltInWindow(
-            final Intent launchIntent,
-            final AppLaunchTarget launchTarget,
-            final int displayId,
-            final int[] preservedTaskIds,
-            final TaskReadyCallback taskReadyCallback) throws IOException {
-        return launch(
-                launchIntent,
-                launchTarget,
-                displayId,
-                preservedTaskIds,
-                true,
-                builtInWindowBounds(launchIntent, launchTarget),
-                BuiltInDesktopAppCatalog.supportsMultipleWindows(launchTarget)
-                        ? DesktopTaskInstancePolicy.CREATE_NEW
-                        : DesktopTaskInstancePolicy.REUSE_EXISTING,
-                taskReadyCallback);
-    }
-
-    static RelativeWindowBounds builtInWindowBounds(Intent intent, AppLaunchTarget target) {
-        var context = MagicDeskApplication.applicationContext();
-        var reference = BuiltInWindowIdentity.resolve(context, intent, AppProfile.current(context).reference(target));
-        var saved = AppWindowStateStore.load(reference);
-        return saved != null && saved.windowBounds != null ? saved.windowBounds
-                : BuiltInDesktopAppCatalog.defaultWindowBounds(target);
-    }
 
     static LaunchResult launch(
             final Intent launchIntent,

@@ -28,8 +28,10 @@ public final class RuntimeWindowHandoffRegressionTest {
                     activity.drainUi();
                     check(callbacks==0, "built-in launch completed before readiness acknowledgement");
                     check(RecentApplications.scopes.isEmpty(), "history recorded before readiness");
-                    check(Arrays.equals(WindowedAppLauncher.preserved,new int[]{41}), "preserved tasks changed");
-                    check(WindowedAppLauncher.ready.complete(new TaskRepository.ActionResult(true,"ready")),
+                    check(DesktopRuntimeBridge.presentation.mode==DesktopLaunchMode.AUTO, "default mode forced");
+                    check(DesktopRuntimeBridge.presentation.instancePolicy==DesktopTaskInstancePolicy.CREATE_NEW,
+                            "default instance policy lost");
+                    check(DesktopRuntimeBridge.ready.complete(new DesktopActivityLaunchResult(true,"ready")),
                             "acknowledgement already completed");
                     check(callbacks==0, "completion bypassed UI dispatch");
                     activity.drainUi();
@@ -46,7 +48,7 @@ public final class RuntimeWindowHandoffRegressionTest {
                     Activity activity=new Activity();
                     List<Throwable> errors=new ArrayList<>();
                     launch(activity,new Intent(),new AppLaunchTarget(), errors::add);
-                    WindowedAppLauncher.ready.complete(new TaskRepository.ActionResult(false,"focus rejected"));
+                    DesktopRuntimeBridge.ready.complete(new DesktopActivityLaunchResult(false,"focus rejected"));
                     activity.drainUi();
                     check(errors.size()==1 && errors.get(0) instanceof IOException,
                             "rejected readiness did not return IOException");
@@ -72,7 +74,7 @@ public final class RuntimeWindowHandoffRegressionTest {
                     check(callbacks==1 && activity.started==1, "fallback did not launch and complete");
                     check(intent.flags==0 && activity.startedFlags==7 && activity.startedDisplay==0,
                             "ordinary launch mutated caller Intent or changed destination");
-                    check(WindowedAppLauncher.calls==0 && ShellAccess.calls==0, "ordinary launch used desktop/shell path");
+                    check(DesktopRuntimeBridge.calls==0 && ShellAccess.calls==0, "ordinary launch used desktop/shell path");
                     ShellAccess.ready=true;
                     activity.startFailure=new IllegalStateException("activity rejected");
                     launch(activity,new Intent(),new AppLaunchTarget(), error -> {
@@ -100,7 +102,7 @@ public final class RuntimeWindowHandoffRegressionTest {
                     activity.drainUi();
                     check(callbacks==1 && ShellAccess.calls==1 && ShellAccess.display==7,
                             "secondary display did not use exact shell placement");
-                    check(activity.started==0 && WindowedAppLauncher.calls==0,
+                    check(activity.started==0 && DesktopRuntimeBridge.calls==0,
                             "secondary launch acquired app-side or desktop policy");
                 }
                 """);
@@ -111,16 +113,16 @@ public final class RuntimeWindowHandoffRegressionTest {
         verifyLaunch(launchFixture() + """
                 public static void verify() {
                     Activity activity=new Activity();
-                    WindowedAppLauncher.failure=new IOException("launch rejected");
+                    DesktopRuntimeBridge.failure=new IllegalStateException("launch rejected");
                     launch(activity,new Intent(),new AppLaunchTarget(), error -> {
-                        check(error==WindowedAppLauncher.failure, "synchronous failure lost"); callbacks++;
+                        check(error==DesktopRuntimeBridge.failure, "synchronous failure lost"); callbacks++;
                     });
                     activity.drainUi();
                     check(callbacks==1, "synchronous failure did not complete");
-                    WindowedAppLauncher.failure=null;
+                    DesktopRuntimeBridge.failure=null;
                     launch(activity,new Intent(),new AppLaunchTarget(), error -> callbacks++);
                     activity.destroyed=true;
-                    WindowedAppLauncher.ready.complete(new TaskRepository.ActionResult(true,"ready"));
+                    DesktopRuntimeBridge.ready.complete(new DesktopActivityLaunchResult(true,"ready"));
                     activity.drainUi();
                     check(callbacks==1, "destroyed activity received late completion");
                     check(RecentApplications.scopes.equals(List.of(RecentLaunchScope.DESKTOP)),
@@ -182,9 +184,15 @@ public final class RuntimeWindowHandoffRegressionTest {
                 }
                 static class AppLaunchTarget { String packageName = "magicdesk"; }
                 enum DesktopLaunchMode { AUTO, WINDOWED, FULLSCREEN }
-                static class DesktopTaskInstancePolicy { Intent applyTo(Object pm, Intent i) { return new Intent(i); } }
+                static class DesktopTaskInstancePolicy {
+                    static final DesktopTaskInstancePolicy CREATE_NEW=new DesktopTaskInstancePolicy();
+                    static final DesktopTaskInstancePolicy REUSE_EXISTING=new DesktopTaskInstancePolicy();
+                    Intent applyTo(Object pm, Intent i) { return new Intent(i); }
+                }
                 static class DesktopLaunchPresentation {
                     DesktopLaunchMode mode = DesktopLaunchMode.AUTO;
+                    static DesktopLaunchPresentation automatic() { return new DesktopLaunchPresentation(); }
+                    DesktopLaunchPresentation withInstancePolicy(DesktopTaskInstancePolicy p) { instancePolicy=p; return this; }
                     Object bounds;
                     DesktopTaskInstancePolicy instancePolicy = new DesktopTaskInstancePolicy();
                 }
@@ -195,12 +203,15 @@ public final class RuntimeWindowHandoffRegressionTest {
                 }
                 static class DesktopLaunchRequest {
                     DesktopLaunchRequest(String n, String i, Object a, Object b, Object e,
-                            DesktopLaunchPresentation p, Object args, String f) {}
+                            DesktopLaunchPresentation p, Object args, String f) { presentation=p; }
+                    DesktopLaunchPresentation presentation;
                 }
                 static class DesktopActivityLaunchResult {
                     interface Completion { void onComplete(DesktopActivityLaunchResult result); }
-                    String error = "";
-                    boolean hasObservedTask() { return true; }
+                    String error;
+                    boolean success;
+                    DesktopActivityLaunchResult(boolean value, String detail) { success=value; error=detail; }
+                    boolean hasObservedTask() { return success; }
                 }
                 static class OrdinaryActivityLaunch {
                     static void requirePresentation(DesktopLaunchPresentation p) {}
@@ -227,6 +238,7 @@ public final class RuntimeWindowHandoffRegressionTest {
                     }
                 }
                 static class BuiltInDesktopAppCatalog {
+                    static boolean supportsMultipleWindows(AppLaunchTarget target) { return true; }
                     static class Entry { boolean multipleWindows=true; }
                     static Entry find(AppLaunchTarget target) { return new Entry(); }
                     static Object defaultWindowBounds(AppLaunchTarget target) { return null; }
@@ -252,31 +264,19 @@ public final class RuntimeWindowHandoffRegressionTest {
                     static List<TaskRepository.TaskEntry> selectVisibleFreeformTasks(Object snapshot) { return List.of(); }
                 }
                 static class DesktopRuntimeBridge {
+                    static int calls;
+                    static RuntimeException failure;
+                    static DesktopLaunchPresentation presentation;
+                    static CompletableFuture<DesktopActivityLaunchResult> ready=new CompletableFuture<>();
                     static void launchAutomationRequest(DesktopLaunchRequest r, int d,
-                            DesktopActivityLaunchResult.Completion c) { c.onComplete(new DesktopActivityLaunchResult()); }
+                            DesktopActivityLaunchResult.Completion c) {
+                        calls++; presentation=r.presentation;
+                        if (failure!=null) throw failure;
+                        ready.thenAccept(c::onComplete);
+                    }
                     static Set<Integer> workspaceDisplayIds() { return MagicDeskRuntime.active < 0 ? Set.of() : Set.of(MagicDeskRuntime.active); }
                     static boolean hasWorkspace(int id) { return MagicDeskRuntime.active == id; }
-                    static void syncTaskbarWithSnapshot(int displayId,Object snapshot) {} }
-                static class WindowedAppLauncher {
-                    static Object builtInWindowBounds(Intent intent, AppLaunchTarget target) { return null; }
-                    interface TaskReadyCallback { void onTaskReady(); }
-                    static int calls; static int[] preserved; static IOException failure;
-                    static CompletableFuture<TaskRepository.ActionResult> ready=new CompletableFuture<>();
-                    static class LaunchResult {
-                        final CompletableFuture<TaskRepository.ActionResult> mReady=ready;
-                """ + RuntimeSourceFixture.methods("WindowedAppLauncher", "whenReady") + "}\n"
-                + """
-                    static LaunchResult launch(Intent i, AppLaunchTarget t, int d, int[] tasks, boolean w,
-                            Object bounds, DesktopTaskInstancePolicy policy, TaskReadyCallback callback) throws IOException {
-                        return launchBuiltInWindow(i, t, d, tasks, callback);
-                    }
-                    static LaunchResult launchBuiltInWindow(Intent intent,AppLaunchTarget target,int display,
-                            int[] tasks,TaskReadyCallback callback) throws IOException {
-                        calls++; preserved=tasks;
-                        if (failure!=null) throw failure;
-                        return new LaunchResult();
-                    }
                 }
-                """ + RuntimeSourceFixture.methods("BuiltInWindowLauncher", "launch", "taskIds", "complete");
+                """ + RuntimeSourceFixture.methods("BuiltInWindowLauncher", "launch", "complete");
     }
 }

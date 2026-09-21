@@ -20,8 +20,10 @@ final class SettingsView {
         void setTaskbarAutoHide(boolean enabled);
 
         void setKeepDesktopAwake(boolean enabled);
+        void setKeepScreenOn(boolean enabled);
+        void setPhoneFullscreenByDefault(boolean enabled);
 
-        void setDisableAdaptiveBrightnessOnExternalDesktop(boolean enabled);
+        void setDisableAdaptiveBrightness(boolean enabled);
 
         void setOpenTouchpadAutomatically(boolean enabled);
         void setKeyboardOnAppDisplay(boolean enabled);
@@ -78,6 +80,8 @@ final class SettingsView {
     private final Actions mActions;
     private Switch mTaskbarAutoHide;
     private Switch mKeepDesktopAwake;
+    private Switch mKeepScreenOn;
+    private Switch mPhoneFullscreenByDefault;
     private Switch mDisableAdaptiveBrightness;
     private Switch mOpenTouchpadAutomatically;
     private Switch mKeyboardOnAppDisplay;
@@ -145,6 +149,10 @@ final class SettingsView {
                         mActions.setOpenFilesWithSingleClick(checked);
                     }
                 });
+        mPhoneFullscreenByDefault = addSwitch(content, R.string.settings_phone_fullscreen_default);
+        mPhoneFullscreenByDefault.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) mActions.setPhoneFullscreenByDefault(checked);
+        });
         addAction(
                 content,
                 R.drawable.ic_quick_controls,
@@ -171,6 +179,10 @@ final class SettingsView {
         mKeyboardOnAppDisplay.setOnCheckedChangeListener((button, checked) -> {
             if (!mRendering) mActions.setKeyboardOnAppDisplay(checked);
         });
+        mKeepScreenOn = addSwitch(content, R.string.settings_keep_screen_on);
+        mKeepScreenOn.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) mActions.setKeepScreenOn(checked);
+        });
         mKeepDesktopAwake = addSwitch(
                 content, R.string.settings_keep_desktop_awake);
         mKeepDesktopAwake.setOnCheckedChangeListener((button, checked) -> {
@@ -184,7 +196,7 @@ final class SettingsView {
         mDisableAdaptiveBrightness.setOnCheckedChangeListener(
                 (button, checked) -> {
                     if (!mRendering) {
-                        mActions.setDisableAdaptiveBrightnessOnExternalDesktop(
+                        mActions.setDisableAdaptiveBrightness(
                                 checked);
                     }
                 });
@@ -392,7 +404,8 @@ final class SettingsView {
                 ? R.string.capability_android_15_required : !RuntimeLimits.active().desktopAllowed()
                 ? R.string.limit_desktop_disabled : R.string.capability_access_required);
         for (final Switch control : new Switch[] {mTaskbarAutoHide, mKeyboardOnAppDisplay,
-                mOpenTouchpadAutomatically, mKeepDesktopAwake, mDisableAdaptiveBrightness}) {
+                mOpenTouchpadAutomatically, mKeepDesktopAwake, mKeepScreenOn,
+                mPhoneFullscreenByDefault, mDisableAdaptiveBrightness}) {
             control.setEnabled(mDesktopSettingsAvailable);
         }
         mOpenFilesWithSingleClick.setEnabled(settings != null);
@@ -411,7 +424,9 @@ final class SettingsView {
                 mCompatibility.get(option).setChecked(compatibility.enabled(option));
             }
             mKeepDesktopAwake.setChecked(settings.keepDesktopAwake);
-            mDisableAdaptiveBrightness.setChecked(settings.disableAdaptiveBrightnessOnExternalDesktop);
+            mKeepScreenOn.setChecked(settings.keepScreenOn);
+            mPhoneFullscreenByDefault.setChecked(settings.phoneFullscreenByDefault);
+            mDisableAdaptiveBrightness.setChecked(settings.disableAdaptiveBrightness);
         }
         mMcpEnabled.setChecked(mcp.enabled);
         mMcpNetworkEnabled.setChecked(mcp.enabled && mcp.networkEnabled);

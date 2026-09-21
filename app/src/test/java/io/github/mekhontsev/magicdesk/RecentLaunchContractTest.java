@@ -99,7 +99,7 @@ public final class RecentLaunchContractTest {
         assertTrue(builtIn.contains("BuiltInDesktopAppCatalog.searchEntries()"));
         assertFalse(builtIn.contains("source.toUri"));
         final String internal = RuntimeSourceFixture.methods("AppTaskController", "launchInternalWindow");
-        assertTrue(internal.contains("(launchedDisplay, taskId, reused) -> RecentApplications.recordBuiltIn("));
-        assertTrue(internal.indexOf("mActivity.startActivity") < internal.indexOf("RecentApplications.recordBuiltIn"));
+        assertTrue(internal.contains("result.hasObservedTask()"));
+        assertTrue(internal.indexOf("launchIntent(") < internal.indexOf("RecentApplications.recordBuiltIn"));
     }
 }

@@ -7,15 +7,25 @@ import android.util.Log;
 
 final class DesktopSessionWakeLock {
     private static final String TAG = "MagicDeskWakeLock";
-    private static final String LOCK_TAG = "MagicDesk:DesktopSession";
-
     private final PowerManager.WakeLock mWakeLock;
 
     DesktopSessionWakeLock(final Context context) {
+        this(context, PowerManager.PARTIAL_WAKE_LOCK, "MagicDesk:DesktopSession");
+    }
+
+    @SuppressWarnings("deprecation")
+    static DesktopSessionWakeLock screen(final Context context) {
+        // HOME can be covered, so a window flag cannot own this session policy.
+        // No wake-up/on-release flags: explicit power-off and lock take priority.
+        return new DesktopSessionWakeLock(context, PowerManager.SCREEN_BRIGHT_WAKE_LOCK,
+                "MagicDesk:DesktopScreen");
+    }
+
+    private DesktopSessionWakeLock(final Context context, final int level, final String tag) {
         final PowerManager powerManager = context == null
                 ? null : context.getSystemService(PowerManager.class);
         mWakeLock = powerManager == null ? null : powerManager.newWakeLock(
-                PowerManager.PARTIAL_WAKE_LOCK, LOCK_TAG);
+                level, tag);
         if (mWakeLock != null) {
             mWakeLock.setReferenceCounted(false);
         }

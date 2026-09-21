@@ -7,7 +7,6 @@ import android.os.Handler;
 import android.os.Looper;
 
 import java.io.IOException;
-import java.util.List;
 
 /** Selects ordinary Activity placement or the existing managed desktop path. */
 final class BuiltInWindowLauncher {
@@ -92,53 +91,20 @@ final class BuiltInWindowLauncher {
                     }
                     return;
                 }
-                if (presentation != null && presentation.mode == DesktopLaunchMode.FULLSCREEN) {
-                    final DesktopLaunchRequest request = new DesktopLaunchRequest(target.packageName, "",
-                            AndroidLaunchSpec.intent(target, intent.toUri(Intent.URI_INTENT_SCHEME)),
-                            null, null, presentation, DesktopLaunchArguments.empty(), "");
-                    DesktopRuntimeBridge.launchAutomationRequest(request, displayId,
-                            result -> launched.onComplete(
-                                    result.hasObservedTask() ? null : new IOException(result.error)));
-                    return;
-                }
-                List<TaskRepository.TaskEntry> visibleTasks =
-                        MagicDeskRuntime.getVisibleFreeformTasks(displayId);
-                if (visibleTasks == null || visibleTasks.isEmpty()) {
-                    visibleTasks = DesktopTaskController
-                            .selectVisibleFreeformTasks(
-                                    TaskRepository.loadNow(displayId));
-                }
-                final WindowedAppLauncher.LaunchResult launch =
-                        presentation == null ? WindowedAppLauncher.launchBuiltInWindow(
-                                intent,
-                                target,
-                                displayId,
-                                taskIds(visibleTasks),
-                                () -> DesktopRuntimeBridge.syncTaskbarWithSnapshot(
-                                        displayId,
-                                        TaskRepository.loadNow(displayId)))
-                                : WindowedAppLauncher.launch(intent, target, displayId,
-                                        taskIds(visibleTasks), true,
-                                        presentation.bounds == null ? WindowedAppLauncher.builtInWindowBounds(intent, target)
-                                                : presentation.bounds,
-                                        presentation.instancePolicy,
-                                        () -> DesktopRuntimeBridge.syncTaskbarWithSnapshot(displayId,
-                                                TaskRepository.loadNow(displayId)));
-                launch.whenReady(result -> launched.onComplete(
-                        result.success ? null : new IOException(result.message)));
+                final DesktopLaunchPresentation policy = presentation != null ? presentation
+                        : DesktopLaunchPresentation.automatic().withInstancePolicy(
+                                BuiltInDesktopAppCatalog.supportsMultipleWindows(target)
+                                        ? DesktopTaskInstancePolicy.CREATE_NEW : DesktopTaskInstancePolicy.REUSE_EXISTING);
+                final DesktopLaunchRequest request = new DesktopLaunchRequest(target.packageName, "",
+                        AndroidLaunchSpec.intent(target, intent.toUri(Intent.URI_INTENT_SCHEME)),
+                        null, null, policy, DesktopLaunchArguments.empty(), "");
+                DesktopRuntimeBridge.launchAutomationRequest(request, displayId,
+                        result -> launched.onComplete(result.hasObservedTask()
+                                ? null : new IOException(result.error)));
             } catch (IOException | RuntimeException error) {
                 launched.onComplete(error);
             }
         });
-    }
-
-    private static int[] taskIds(
-            final List<TaskRepository.TaskEntry> tasks) {
-        final int[] ids = new int[tasks == null ? 0 : tasks.size()];
-        for (int index = 0; index < ids.length; index++) {
-            ids[index] = tasks.get(index).taskId;
-        }
-        return ids;
     }
 
     private static void complete(

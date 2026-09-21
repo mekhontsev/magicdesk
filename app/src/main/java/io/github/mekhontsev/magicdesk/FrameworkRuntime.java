@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 /** One resolved Android framework profile shared by runtime and diagnostics. */
 final class FrameworkRuntime {
     private FrameworkDisplayWindowingApi mDisplayWindowingApi;
+    private FrameworkDisplayBrightnessApi mDisplayBrightnessApi;
     private FrameworkInputRoutingApi mInputRoutingApi;
     private FrameworkInputInjectionApi mInputInjectionApi;
     private FrameworkInputMethodApi mInputMethodApi;
@@ -42,6 +43,11 @@ final class FrameworkRuntime {
 
     FrameworkWindowingCompat.Capabilities capabilities() {
         return windowingCompat().capabilities();
+    }
+
+    synchronized FrameworkDisplayBrightnessApi displayBrightness() throws ReflectiveOperationException {
+        if (mDisplayBrightnessApi == null) mDisplayBrightnessApi = new FrameworkDisplayBrightnessApi();
+        return mDisplayBrightnessApi;
     }
 
     synchronized FrameworkVirtualDisplayApi virtualDisplays()

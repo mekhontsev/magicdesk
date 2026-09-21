@@ -207,6 +207,18 @@ The control panel's **Apps** opens fullscreen Start, even without Desktop. Its
 Every Start has its own launch-display choice; changing it does not switch input
 or start a Desktop.
 
+**Settings > Desktop > New windows fullscreen on phone** makes fullscreen the
+default for new phone Desktop windows. Explicit launch choices and saved window
+mode or geometry take precedence; existing windows and other displays are unchanged.
+
+**Settings > Session** has independent options for **Keep phone screen on**,
+**Keep session active** (CPU wake lock), and **Disable adaptive brightness**.
+They apply while any Desktop is running, including phone and simulated sessions.
+Screen retention does not override explicit screen-off or lock. Disabling adaptive
+brightness preserves the current brightness and still allows manual adjustment;
+automatic mode is restored after the last Desktop closes unless the user changed
+the mode meanwhile. These options are off by default.
+
 Notification-listener access is optional. Grant it only when MagicDesk's
 notification center and popups are wanted.
 

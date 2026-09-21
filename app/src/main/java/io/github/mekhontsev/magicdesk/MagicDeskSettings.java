@@ -22,10 +22,18 @@ final class MagicDeskSettings {
                 state -> state.settings.keepDesktopAwake = enabled);
     }
 
-    static boolean setDisableAdaptiveBrightnessOnExternalDesktop(
+    static boolean setKeepScreenOn(final boolean enabled) {
+        return DesktopStateStore.update(state -> state.settings.keepScreenOn = enabled);
+    }
+
+    static boolean setPhoneFullscreenByDefault(final boolean enabled) {
+        return DesktopStateStore.update(state -> state.settings.phoneFullscreenByDefault = enabled);
+    }
+
+    static boolean setDisableAdaptiveBrightness(
             final boolean enabled) {
         return DesktopStateStore.update(state ->
-                state.settings.disableAdaptiveBrightnessOnExternalDesktop =
+                state.settings.disableAdaptiveBrightness =
                         enabled);
     }
 
@@ -56,8 +64,10 @@ final class MagicDeskSettings {
     static final class Values {
         private static final String TASKBAR_AUTO_HIDE = "taskbarAutoHide";
         private static final String KEEP_DESKTOP_AWAKE = "keepDesktopAwake";
+        private static final String KEEP_SCREEN_ON = "keepScreenOn";
+        private static final String PHONE_FULLSCREEN_BY_DEFAULT = "phoneFullscreenByDefault";
         private static final String DISABLE_ADAPTIVE_BRIGHTNESS =
-                "disableAdaptiveBrightnessOnExternalDesktop";
+                "disableAdaptiveBrightness";
         private static final String OPEN_TOUCHPAD_AUTOMATICALLY =
                 "openTouchpadAutomatically";
         private static final String COMPATIBILITY = "compatibility";
@@ -67,7 +77,9 @@ final class MagicDeskSettings {
 
         boolean taskbarAutoHide;
         boolean keepDesktopAwake;
-        boolean disableAdaptiveBrightnessOnExternalDesktop;
+        boolean keepScreenOn;
+        boolean phoneFullscreenByDefault;
+        boolean disableAdaptiveBrightness;
         boolean openTouchpadAutomatically;
         boolean keyboardOnAppDisplay;
         // Unset follows the platform recommendation without persisting it.
@@ -88,7 +100,9 @@ final class MagicDeskSettings {
                         TASKBAR_AUTO_HIDE, false);
                 values.keepDesktopAwake = json.optBoolean(
                         KEEP_DESKTOP_AWAKE, false);
-                values.disableAdaptiveBrightnessOnExternalDesktop =
+                values.keepScreenOn = json.optBoolean(KEEP_SCREEN_ON, false);
+                values.phoneFullscreenByDefault = json.optBoolean(PHONE_FULLSCREEN_BY_DEFAULT, false);
+                values.disableAdaptiveBrightness =
                         json.optBoolean(DISABLE_ADAPTIVE_BRIGHTNESS, false);
                 values.openTouchpadAutomatically = json.optBoolean(
                         OPEN_TOUCHPAD_AUTOMATICALLY, true);
@@ -112,8 +126,10 @@ final class MagicDeskSettings {
             final Values copy = new Values();
             copy.taskbarAutoHide = taskbarAutoHide;
             copy.keepDesktopAwake = keepDesktopAwake;
-            copy.disableAdaptiveBrightnessOnExternalDesktop =
-                    disableAdaptiveBrightnessOnExternalDesktop;
+            copy.keepScreenOn = keepScreenOn;
+            copy.phoneFullscreenByDefault = phoneFullscreenByDefault;
+            copy.disableAdaptiveBrightness =
+                    disableAdaptiveBrightness;
             copy.openTouchpadAutomatically = openTouchpadAutomatically;
             copy.keyboardOnAppDisplay = keyboardOnAppDisplay;
             copy.compatibility.putAll(compatibility);
@@ -126,9 +142,11 @@ final class MagicDeskSettings {
             json.put(TASKBAR_AUTO_HIDE, taskbarAutoHide);
             json.put(KEYBOARD_ON_APP_DISPLAY, keyboardOnAppDisplay);
             json.put(KEEP_DESKTOP_AWAKE, keepDesktopAwake);
+            json.put(KEEP_SCREEN_ON, keepScreenOn);
+            json.put(PHONE_FULLSCREEN_BY_DEFAULT, phoneFullscreenByDefault);
             json.put(
                     DISABLE_ADAPTIVE_BRIGHTNESS,
-                    disableAdaptiveBrightnessOnExternalDesktop);
+                    disableAdaptiveBrightness);
             json.put(
                     OPEN_TOUCHPAD_AUTOMATICALLY,
                     openTouchpadAutomatically);

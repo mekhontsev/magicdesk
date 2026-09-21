@@ -77,7 +77,7 @@ public final class DesktopDisplayBindingTest {
     }
 
     @Test
-    public void homeSelectionUsesWorkspaceWhileBrightnessUsesOutput() {
+    public void homeSelectionUsesWorkspaceWhileBrightnessCoversEveryOutput() {
         final DesktopDisplayTarget target = binding(0, 7);
         assertTrue(target.isDefaultWorkspace());
         assertTrue(DesktopSessionSnapshot.empty().noteTarget(target).isLocalActiveOrStarting());
@@ -89,7 +89,8 @@ public final class DesktopDisplayBindingTest {
                 DesktopDisplayOutput.ActivationSource.MAGICDESK_REQUESTED);
         assertEquals(DesktopHomeSurfaceRouter.Surface.LAUNCHER,
                 DesktopHomeSurfaceRouter.forWorkspaces(java.util.List.of(phoneOutput)).primary);
-        assertFalse(DesktopAdaptiveBrightnessController.shouldDisable(true, phoneOutput));
+        assertTrue(DesktopAdaptiveBrightnessController.shouldDisable(true, phoneOutput));
+        assertFalse(DesktopAdaptiveBrightnessController.shouldDisable(false, phoneOutput));
     }
 
     @Test

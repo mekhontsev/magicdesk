@@ -1266,6 +1266,14 @@ public final class ShellAccess {
         }
     }
 
+    static void preserveDisplayBrightness(final int displayId) throws IOException {
+        try { requireService().preserveDisplayBrightness(displayId); }
+        catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("could not preserve display brightness: " + usefulMessage(error), error);
+        }
+    }
+
     static boolean canCreateAlwaysUnlockedDisplay() throws IOException {
         try { return requireService().canCreateAlwaysUnlockedDisplay(); }
         catch (RemoteException | RuntimeException error) {

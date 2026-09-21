@@ -78,6 +78,14 @@ public final class ShellCommandService extends IShellCommandService.Stub {
 
     @Override public String sourceId() { return BuildConfig.SOURCE_ID; }
 
+    @Override public void preserveDisplayBrightness(final int displayId) {
+        final long identity = Binder.clearCallingIdentity();
+        try { FrameworkRuntime.current().displayBrightness().preserveCurrentBrightness(displayId); }
+        catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("Cannot preserve display brightness", error);
+        } finally { Binder.restoreCallingIdentity(identity); }
+    }
+
     @Override public void configureCommandEnvironment(String endpoint, String apk) {
         try { CommandShellEnvironment.configure(endpoint, apk); }
         catch (IOException error) { throw new IllegalStateException("Cannot prepare shell commands", error); }

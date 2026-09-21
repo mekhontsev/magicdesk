@@ -71,7 +71,9 @@ public final class DesktopStateStoreTest {
                 new AppPresentationProfile(125));
         source.settings.taskbarAutoHide = true;
         source.settings.keepDesktopAwake = true;
-        source.settings.disableAdaptiveBrightnessOnExternalDesktop = true;
+        source.settings.keepScreenOn = true;
+        source.settings.phoneFullscreenByDefault = true;
+        source.settings.disableAdaptiveBrightness = true;
         source.settings.openTouchpadAutomatically = false;
         source.settings.keyboardOnAppDisplay = true;
         source.settings.compatibility.put(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR, true);
@@ -111,7 +113,11 @@ public final class DesktopStateStoreTest {
                         app("example.application").application).scalePercent);
         assertTrue(decoded.settings.taskbarAutoHide);
         assertTrue(decoded.settings.keepDesktopAwake);
-        assertTrue(decoded.settings.disableAdaptiveBrightnessOnExternalDesktop);
+        assertTrue(decoded.settings.keepScreenOn);
+        assertTrue(decoded.settings.phoneFullscreenByDefault);
+        assertTrue(decoded.settings.copy().keepScreenOn);
+        assertTrue(decoded.settings.copy().phoneFullscreenByDefault);
+        assertTrue(decoded.settings.disableAdaptiveBrightness);
         assertFalse(decoded.settings.openTouchpadAutomatically);
         assertTrue(decoded.settings.keyboardOnAppDisplay);
         assertTrue(decoded.settings.copy().keyboardOnAppDisplay);
@@ -131,6 +137,9 @@ public final class DesktopStateStoreTest {
     @Test
     public void inputRelayPreferencePreservesUnsetAndExplicitOff() throws Exception {
         final MagicDeskSettings.Values defaults = MagicDeskSettings.Values.defaults();
+        assertFalse(defaults.keepScreenOn);
+        assertFalse(defaults.phoneFullscreenByDefault);
+        assertFalse(defaults.disableAdaptiveBrightness);
         assertNull(MagicDeskSettings.Values.fromJson(defaults.toJson()).compatibility.get(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
         defaults.compatibility.put(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR, false);
         assertEquals(Boolean.FALSE, defaults.copy().compatibility.get(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
@@ -163,7 +172,7 @@ public final class DesktopStateStoreTest {
         assertTrue(decoded.settings.openTouchpadAutomatically);
         assertFalse(decoded.settings.keyboardOnAppDisplay);
         assertFalse(
-                decoded.settings.disableAdaptiveBrightnessOnExternalDesktop);
+                decoded.settings.disableAdaptiveBrightness);
         assertFalse(decoded.settings.openFilesWithSingleClick);
     }
 

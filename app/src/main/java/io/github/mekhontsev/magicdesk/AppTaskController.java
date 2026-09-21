@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.app.ActivityOptions;
 import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Intent;
@@ -136,80 +135,11 @@ final class AppTaskController {
             final AppItem app,
             final Runnable onPrepared,
             final DesktopActivityLaunchResult.Completion completion) {
-        launchDefault(
+        launchForPresentation(
                 app,
                 DesktopLaunchPresentation.automatic(),
                 onPrepared,
                 completion);
-    }
-
-    private void launchDefault(
-            final AppItem app,
-            final DesktopLaunchPresentation presentation,
-            final Runnable onPrepared,
-            final DesktopActivityLaunchResult.Completion completion) {
-        final DesktopLaunchPresentation policy = presentation == null
-                ? DesktopLaunchPresentation.automatic() : presentation;
-        final AppWindowState saved = savedWindowState(app);
-        Log.i(TAG, "launch default package=" + app.packageName
-                + " canFloat=" + app.canFloat
-                + " fullscreenReason=" + app.fullscreenReason
-                + " display=" + mActivity.getCurrentDisplayId());
-        if (saved != null
-                && saved.shouldLaunchWindowed()
-                && canControlWindowing()) {
-            launchFloating(
-                    app,
-                    true,
-                    saved.windowBounds,
-                    policy.instancePolicy,
-                    policy.preferredTaskId,
-                    onPrepared,
-                    completion);
-        } else if (saved != null
-                && saved.mode == AppWindowState.Mode.FULLSCREEN) {
-            launchFullscreen(
-                    app,
-                    false,
-                    app.label,
-                    intentFullscreenTaskSource(
-                            app,
-                            null,
-                            app.launchTarget,
-                            null,
-                            policy.instancePolicy,
-                            policy.preferredTaskId),
-                    preparedTaskAction(onPrepared),
-                    null,
-                    completion);
-        } else if (canControlWindowing()
-                && app.canFloat
-                && AppItem.FULLSCREEN_REASON_NONE.equals(
-                        app.fullscreenReason)) {
-            launchFloating(
-                    app,
-                    false,
-                    policy.bounds,
-                    policy.instancePolicy,
-                    policy.preferredTaskId,
-                    onPrepared,
-                    completion);
-        } else {
-            launchFullscreen(
-                    app,
-                    false,
-                    app.label,
-                    intentFullscreenTaskSource(
-                            app,
-                            null,
-                            app.launchTarget,
-                            null,
-                            policy.instancePolicy,
-                            policy.preferredTaskId),
-                    preparedTaskAction(onPrepared),
-                    null,
-                    completion);
-        }
     }
 
     void launchForPresentation(
@@ -219,36 +149,37 @@ final class AppTaskController {
             final DesktopActivityLaunchResult.Completion completion) {
         final DesktopLaunchPresentation policy = presentation == null
                 ? DesktopLaunchPresentation.automatic() : presentation;
-        if (policy.mode == DesktopLaunchMode.WINDOWED) {
-            final AppWindowState saved = savedWindowState(app);
-            launchFloating(
-                    app,
-                    true,
-                    policy.bounds != null
-                            ? policy.bounds
-                            : saved == null ? null : saved.windowBounds,
-                    policy.instancePolicy,
-                    policy.preferredTaskId,
-                    onPrepared,
-                    completion);
-        } else if (policy.mode == DesktopLaunchMode.FULLSCREEN) {
-            launchFullscreen(
-                    app,
-                    true,
-                    app.label,
-                    intentFullscreenTaskSource(
-                            app,
-                            null,
-                            app.launchTarget,
-                            null,
-                            policy.instancePolicy,
-                            policy.preferredTaskId),
-                    preparedTaskAction(onPrepared),
-                    null,
-                    completion);
+        final DesktopLaunchPolicy decision = launchPolicy(app, app.launchTarget, policy);
+        if (decision.mode == DesktopLaunchMode.WINDOWED) {
+            launchFloating(app, decision.explicitWindowed, decision.bounds,
+                    policy.instancePolicy, policy.preferredTaskId, onPrepared, completion);
         } else {
-            launchDefault(app, policy, onPrepared, completion);
+            launchFullscreen(app, policy.mode == DesktopLaunchMode.FULLSCREEN, app.label,
+                    intentFullscreenTaskSource(app, null, app.launchTarget, null,
+                            policy.instancePolicy, policy.preferredTaskId),
+                    preparedTaskAction(onPrepared), null, completion);
         }
+    }
+
+    private DesktopLaunchPolicy launchPolicy(final AppItem app, final AppLaunchTarget target,
+            final DesktopLaunchPresentation policy) {
+        DesktopLaunchMode existingMode = null;
+        final TaskRepository.Snapshot snapshot = mActivity.getTaskSnapshot();
+        if (policy.instancePolicy == DesktopTaskInstancePolicy.REUSE_EXISTING && snapshot.available) {
+            for (final TaskRepository.TaskEntry task : snapshot.tasks) {
+                if (app.profile.owns(task.userId) && target.matchesTask(task)
+                        && (policy.preferredTaskId < 0 || policy.preferredTaskId == task.taskId)
+                        && DesktopManagedTaskPolicy.isManagedApplicationTask(task)) {
+                    existingMode = task.isFreeform() ? DesktopLaunchMode.WINDOWED
+                            : task.isFullscreen() ? DesktopLaunchMode.FULLSCREEN : null;
+                    break;
+                }
+            }
+        }
+        return DesktopLaunchPolicy.resolve(policy, savedWindowState(app), existingMode,
+                canControlWindowing(), app.canFloat && AppItem.FULLSCREEN_REASON_NONE.equals(app.fullscreenReason),
+                mActivity.getCurrentDisplayId() == Display.DEFAULT_DISPLAY,
+                MagicDeskSettings.load().phoneFullscreenByDefault);
     }
 
     void launchShortcut(
@@ -274,30 +205,10 @@ final class AppTaskController {
                     "app shortcut is unavailable"));
             return;
         }
-        final AppWindowState saved = savedWindowState(app);
-        if (launchMode == DesktopLaunchMode.WINDOWED) {
-            launchShortcutWindowed(
-                    app,
-                    shortcut,
-                    true,
-                    saved == null ? null : saved.windowBounds,
-                    completion);
-        } else if (launchMode == DesktopLaunchMode.FULLSCREEN) {
-            launchShortcutFullscreen(app, shortcut, completion);
-        } else if (saved != null
-                && saved.shouldLaunchWindowed()
-                && canControlWindowing()) {
-            launchShortcutWindowed(
-                    app, shortcut, true, saved.windowBounds, completion);
-        } else if (saved != null
-                && saved.mode == AppWindowState.Mode.FULLSCREEN) {
-            launchShortcutFullscreen(app, shortcut, completion);
-        } else if (canControlWindowing()
-                && app.canFloat
-                && AppItem.FULLSCREEN_REASON_NONE.equals(
-                        app.fullscreenReason)) {
-            launchShortcutWindowed(
-                    app, shortcut, false, null, completion);
+        final DesktopLaunchPolicy decision = launchPolicy(
+                app, shortcut.taskTarget(), DesktopLaunchPresentation.forMode(launchMode));
+        if (decision.mode == DesktopLaunchMode.WINDOWED) {
+            launchShortcutWindowed(app, shortcut, decision.explicitWindowed, decision.bounds, completion);
         } else {
             launchShortcutFullscreen(app, shortcut, completion);
         }
@@ -322,86 +233,14 @@ final class AppTaskController {
         app = app.withReference(BuiltInWindowIdentity.resolve(mActivity, intent, app.reference));
         final DesktopLaunchPresentation policy = presentation == null
                 ? DesktopLaunchPresentation.automatic() : presentation;
-        final DesktopLaunchMode resolvedMode = policy.mode;
-        if (resolvedMode == DesktopLaunchMode.WINDOWED) {
-            final AppWindowState saved = savedWindowState(app);
-            launchIntentWindowed(
-                    app,
-                    name,
-                    intent,
-                    taskTarget,
-                    true,
-                    policy.bounds != null
-                            ? policy.bounds
-                            : saved == null ? null : saved.windowBounds,
-                    policy.instancePolicy,
-                    policy.preferredTaskId,
-                    delivery,
-                    completion);
-        } else if (resolvedMode == DesktopLaunchMode.FULLSCREEN) {
-            launchIntentFullscreen(
-                    app,
-                    name,
-                    intent,
-                    taskTarget,
-                    policy.instancePolicy,
-                    policy.preferredTaskId,
-                    delivery,
-                    completion);
+        final DesktopLaunchPolicy decision = launchPolicy(app, taskTarget, policy);
+        if (decision.mode == DesktopLaunchMode.WINDOWED) {
+            launchIntentWindowed(app, name, intent, taskTarget, decision.explicitWindowed,
+                    decision.bounds != null ? decision.bounds : BuiltInDesktopAppCatalog.defaultWindowBounds(taskTarget),
+                    policy.instancePolicy, policy.preferredTaskId, delivery, completion);
         } else {
-            final AppWindowState saved = savedWindowState(app);
-            if (saved != null
-                    && saved.shouldLaunchWindowed()
-                    && canControlWindowing()) {
-                launchIntentWindowed(
-                        app,
-                        name,
-                        intent,
-                        taskTarget,
-                        true,
-                        policy.bounds != null
-                                ? policy.bounds : saved.windowBounds,
-                        policy.instancePolicy,
-                        policy.preferredTaskId,
-                        delivery,
-                        completion);
-            } else if (saved != null
-                    && saved.mode == AppWindowState.Mode.FULLSCREEN) {
-                launchIntentFullscreen(
-                        app,
-                        name,
-                        intent,
-                        taskTarget,
-                        policy.instancePolicy,
-                        policy.preferredTaskId,
-                        delivery,
-                        completion);
-            } else if (canControlWindowing()
-                    && app.canFloat
-                    && AppItem.FULLSCREEN_REASON_NONE.equals(
-                            app.fullscreenReason)) {
-                launchIntentWindowed(
-                        app,
-                        name,
-                        intent,
-                        taskTarget,
-                        false,
-                        policy.bounds,
-                        policy.instancePolicy,
-                        policy.preferredTaskId,
-                        delivery,
-                        completion);
-            } else {
-                launchIntentFullscreen(
-                        app,
-                        name,
-                        intent,
-                        taskTarget,
-                        policy.instancePolicy,
-                        policy.preferredTaskId,
-                        delivery,
-                        completion);
-            }
+            launchIntentFullscreen(app, name, intent, taskTarget,
+                    policy.instancePolicy, policy.preferredTaskId, delivery, completion);
         }
     }
 
@@ -525,39 +364,12 @@ final class AppTaskController {
         }
         final DesktopLaunchPresentation policy = presentation == null
                 ? DesktopLaunchPresentation.automatic() : presentation;
-        if (policy.mode == DesktopLaunchMode.FULLSCREEN) {
-            launchFullscreen(
-                    app,
-                    false,
-                    name,
-                    intentFullscreenTaskSource(
-                            app,
-                            null,
-                            taskTarget,
-                            pendingIntent,
-                            policy.instancePolicy,
-                            policy.preferredTaskId),
-                    null,
-                    null,
-                    completion);
-            return;
-        }
-        if (!canControlWindowing()
-                && policy.mode != DesktopLaunchMode.WINDOWED) {
-            launchFullscreen(
-                    app,
-                    false,
-                    name,
-                    intentFullscreenTaskSource(
-                            app,
-                            null,
-                            taskTarget,
-                            pendingIntent,
-                            policy.instancePolicy,
-                            policy.preferredTaskId),
-                    null,
-                    null,
-                    completion);
+        final DesktopLaunchPolicy decision = launchPolicy(app, taskTarget, policy);
+        if (decision.mode == DesktopLaunchMode.FULLSCREEN) {
+            launchFullscreen(app, false, name,
+                    intentFullscreenTaskSource(app, null, taskTarget, pendingIntent,
+                            policy.instancePolicy, policy.preferredTaskId),
+                    null, null, completion);
             return;
         }
         launchWindow(
@@ -568,8 +380,8 @@ final class AppTaskController {
                                 taskTarget,
                                 displayId,
                                 preservedTaskIds,
-                                policy.mode == DesktopLaunchMode.WINDOWED,
-                                policy.bounds,
+                                decision.explicitWindowed,
+                                decision.bounds,
                                 policy.instancePolicy,
                                 policy.preferredTaskId,
                                 taskReadyCallback),
@@ -694,46 +506,21 @@ final class AppTaskController {
             final Intent launchIntent,
             final AppLaunchTarget launchTarget,
             final String label) {
-        final int displayId = mActivity.getCurrentDisplayId();
         final boolean multipleWindows =
                 BuiltInDesktopAppCatalog.supportsMultipleWindows(launchTarget);
-        final AppWindowState saved =
-                BuiltInDesktopAppCatalog.remembersWindowState(launchTarget)
-                        ? AppWindowStateStore.load(
-                                BuiltInWindowIdentity.resolve(mActivity, launchIntent,
-                                        mActivity.appProfile().reference(launchTarget)))
-                        : null;
-        if (!canControlWindowing()) {
-            final ActivityOptions options = ActivityOptions.makeBasic();
-            options.setLaunchDisplayId(displayId);
-            final DesktopTaskInstancePolicy instancePolicy = multipleWindows
-                    ? DesktopTaskInstancePolicy.CREATE_NEW
-                    : DesktopTaskInstancePolicy.REUSE_EXISTING;
-            final Intent routedIntent = instancePolicy.applyTo(mActivity.getPackageManager(), launchIntent)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            if (!multipleWindows) {
-                routedIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP
-                        | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            }
-            mActivity.startActivity(routedIntent, options.toBundle());
-            RecentApplications.recordBuiltIn(mActivity, launchIntent, launchTarget, RecentLaunchScope.DESKTOP);
+        final AppItem app = mActivity.findOrLoadApp(mActivity.getLauncherApps(),
+                mActivity.appProfile().application(launchTarget.packageName), launchTarget);
+        if (app == null) {
+            mActivity.showLaunchFailure(new IOException("built-in application is unavailable"));
             return;
         }
-
-        launchWindow(
-                launchIntent,
-                launchTarget,
-                label,
-                true,
-                saved != null && saved.windowBounds != null
-                        ? saved.windowBounds
-                        : BuiltInDesktopAppCatalog.defaultWindowBounds(
-                                launchTarget),
-                multipleWindows
-                        ? DesktopTaskInstancePolicy.CREATE_NEW
-                        : DesktopTaskInstancePolicy.REUSE_EXISTING,
-                (launchedDisplay, taskId, reused) -> RecentApplications.recordBuiltIn(
-                        mActivity, launchIntent, launchTarget, RecentLaunchScope.DESKTOP));
+        launchIntent(app, label, launchIntent, launchTarget,
+                DesktopLaunchPresentation.automatic().withInstancePolicy(multipleWindows
+                        ? DesktopTaskInstancePolicy.CREATE_NEW : DesktopTaskInstancePolicy.REUSE_EXISTING),
+                AndroidLaunchSpec.Delivery.SHELL_INTENT, result -> {
+                    if (result.hasObservedTask()) RecentApplications.recordBuiltIn(
+                            mActivity, launchIntent, launchTarget, RecentLaunchScope.DESKTOP);
+                });
     }
 
     private void launchFloating(

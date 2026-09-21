@@ -485,4 +485,5 @@ interface IShellCommandService {
     io.github.mekhontsev.magicdesk.IBackgroundWorkLease acquireBackgroundWork(
         int displayId, String uniqueId, int appUid, long durationMillis,
         boolean keepDisplayAwake, IBinder displayOwner, IBinder owner) = 146;
+    void preserveDisplayBrightness(int displayId) = 147;
 }
