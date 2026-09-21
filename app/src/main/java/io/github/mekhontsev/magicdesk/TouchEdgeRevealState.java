@@ -1,6 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
-/** Resolves a bottom-edge touch sequence into explicit reveal state. */
+/** Keeps a touch/navigation reveal until a taskbar action or outside touch. */
 final class TouchEdgeRevealState {
     enum Action {
         NONE,
@@ -18,12 +18,21 @@ final class TouchEdgeRevealState {
     void setArmed(final boolean armed) {
         mArmed = armed;
         mTracking = false;
-        mRevealed = false;
         mDismissOnUp = false;
     }
 
+    Action reveal() {
+        if (mRevealed) {
+            return Action.NONE;
+        }
+        mTracking = false;
+        mDismissOnUp = false;
+        mRevealed = true;
+        return Action.REVEAL;
+    }
+
     Action onDown(final float x, final float y) {
-        if (!mArmed) {
+        if (!mArmed && !mRevealed) {
             return Action.NONE;
         }
         mDismissOnUp = mRevealed;
@@ -46,14 +55,12 @@ final class TouchEdgeRevealState {
                 || upwardDistance <= horizontalDistance) {
             return Action.NONE;
         }
-        mTracking = false;
-        mRevealed = true;
-        return Action.REVEAL;
+        return reveal();
     }
 
     Action onUp() {
         mTracking = false;
-        if (!mArmed || !mDismissOnUp || !mRevealed) {
+        if (!mDismissOnUp || !mRevealed) {
             mDismissOnUp = false;
             return Action.NONE;
         }
@@ -71,7 +78,7 @@ final class TouchEdgeRevealState {
     Action onOutside() {
         mTracking = false;
         mDismissOnUp = false;
-        if (!mArmed || !mRevealed) {
+        if (!mRevealed) {
             return Action.NONE;
         }
         mRevealed = false;

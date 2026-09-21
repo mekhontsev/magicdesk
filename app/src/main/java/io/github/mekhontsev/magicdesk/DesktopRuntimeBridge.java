@@ -128,6 +128,10 @@ public final class DesktopRuntimeBridge {
         return UI.getDesktopTaskbarBounds(displayId);
     }
 
+    static boolean revealPhoneTaskbar() {
+        return UI.revealPhoneTaskbar();
+    }
+
     static boolean showStart(final int displayId) {
         return UI.showStart(displayId);
     }

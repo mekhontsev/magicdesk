@@ -1341,17 +1341,9 @@ final class DesktopTaskWatcher {
                 final DesktopDisplayTarget phoneTarget =
                         lease.targetForDisplay(Display.DEFAULT_DISPLAY);
                 if (phoneTarget != null) {
-                    // HOME already exists. A fresh Activity launch can enter
-                    // Android's root-task lookup across a fullscreen task area.
-                    final DesktopSessionSnapshot phone =
-                            DesktopRuntimeBridge.getSessionSnapshot(Display.DEFAULT_DISPLAY);
-                    if (!DesktopSessionController.presentExistingSession(
-                            phoneTarget, phone.policy(), result -> {
-                                if (!result.success) {
-                                    mOwner.onObserverError(mGeneration,
-                                            "phone Overview presentation failed: " + result.message);
-                                }
-                            })) {
+                    // Navigation reveals existing chrome without launching HOME
+                    // or changing application focus and workspace order.
+                    if (!DesktopRuntimeBridge.revealPhoneTaskbar()) {
                         throw new IllegalStateException("phone desktop is not ready");
                     }
                     return;

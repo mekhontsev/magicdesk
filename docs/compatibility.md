@@ -64,7 +64,7 @@ refresh, Activity handoff mode/bounds repair, wired/wireless phone-task
 isolation, retained phone-task recovery, stale phone freeform Recents cleanup,
 and phone Recents redirection to HOME.
 For external sessions, routed HOME selects phone Start's Recent page; for phone
-Desktop, it presents the workspace.
+Desktop, it reveals the hidden taskbar.
 Every platform can override these individually. The Android baseline recommends
 focus repair enabled and the other six disabled. Stock Nubia firmware recommends
 all seven; hybrid firmware adds the recommendations of its selected components

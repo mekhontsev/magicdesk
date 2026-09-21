@@ -15,6 +15,11 @@ enum DesktopSessionPolicy {
         this.persistWorkspace = persistWorkspace;
     }
 
+    boolean usesSavedDisplayProfile(final DesktopDisplayOutput output) {
+        return this != ISOLATED_SELF_TEST || output == null
+                || output.kind != DesktopDisplayOutput.Kind.SIMULATED;
+    }
+
     static DesktopSessionPolicy parse(final String value) {
         if (value != null && !value.isEmpty()) {
             try {

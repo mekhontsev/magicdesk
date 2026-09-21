@@ -276,7 +276,8 @@ public final class DesktopChromeActivity extends Activity {
                         height,
                         WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
                         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                                | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                                | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                                | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                         PixelFormat.TRANSLUCENT);
         params.gravity = Gravity.LEFT | Gravity.BOTTOM;
         params.token = mRoot.getWindowToken();

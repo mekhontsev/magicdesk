@@ -176,6 +176,15 @@ final class DesktopSelfTestController {
                             }
                             return Integer.valueOf(created);
                         }, null).intValue();
+                final int simulatedDisplayId = displayId;
+                require(result, "DISPLAY-DPI-001",
+                        "Prepare standard simulated display density", () -> {
+                            // Android retains WM overrides by overlay unique ID.
+                            ExternalDisplayController.applyStartupDensity(
+                                    simulatedDisplayId,
+                                    android.util.DisplayMetrics.DENSITY_DEFAULT);
+                            return "dpi=" + android.util.DisplayMetrics.DENSITY_DEFAULT;
+                        });
             } else {
                 displayId = requirePreparedDisplay(target, result);
                 workspaceLease.adoptPreparedSession(displayId);

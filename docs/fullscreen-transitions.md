@@ -45,8 +45,8 @@ root ownership: delegate setup changes only the delegate leaf, never the shared
 root's focus, translucency or order. Ownership is resolved from live typed task
 identity during setup, not from an assumed activity type or a background query.
 Application roots and their windowing modes are unchanged.
-HOME navigation still uses the existing workspace gateway. Typed task-area
-identity classifies these delegates as infrastructure, not fullscreen apps
+Phone HOME navigation reveals a hidden taskbar through the UI gateway. Typed
+task-area identity classifies these delegates as infrastructure, not fullscreen apps
 that would cover the desktop or disable the taskbar.
 
 ## Fullscreen Transactions

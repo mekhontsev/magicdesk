@@ -599,7 +599,6 @@ public abstract class DesktopShellActivity extends Activity
         MagicDeskRuntime.refreshNotification();
         refreshDisplayProfile();
         setDesktopWindowFocusable(true);
-        setTaskbarVisible(true);
         if (mLastApps.isEmpty()) {
             renderApps();
         } else {
@@ -860,8 +859,7 @@ public abstract class DesktopShellActivity extends Activity
         } else if (ACTION_RESTORE_WINDOWS.equals(action)) {
             restoreLastVisibleWindows();
         } else if (isPhoneDesktopHomeIntent(intent)) {
-            DesktopOperations.presentDesktopWorkspace(
-                    resolvedDesktopTarget(), null);
+            revealTaskbar();
         }
     }
 
@@ -2222,6 +2220,12 @@ public abstract class DesktopShellActivity extends Activity
         }
     }
 
+    void revealTaskbar() {
+        if (hasRequiredHomeLease() && mTaskbarRevealController != null) {
+            mTaskbarRevealController.reveal();
+        }
+    }
+
     boolean isTaskbarVisible() {
         return mTaskbarVisible;
     }
@@ -2305,6 +2309,11 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     public DesktopDisplayOutput getDesktopOutput() {
         return mDisplayTarget == null ? null : mDisplayTarget.output;
+    }
+
+    @Override
+    public DesktopSessionPolicy getSessionPolicy() {
+        return mSessionPolicy;
     }
 
     static void setLaunchWindowingMode(

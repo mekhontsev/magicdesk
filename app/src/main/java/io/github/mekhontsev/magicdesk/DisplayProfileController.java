@@ -70,15 +70,19 @@ public final class DisplayProfileController {
         final String displayKey = resolveProfileKey();
         mProfileDisplayKey = displayKey;
         final Display profileDisplay = getProfileDisplay();
-        mProfile = DisplayProfileStore.load(
+        mProfile = loadProfile(
                 displayKey,
-                initialDpi(profileDisplay));
+                initialDpi(profileDisplay),
+                mHost.getDesktopOutput(), mHost.getSessionPolicy());
         mHost.onDisplayProfileReset();
         return mProfile;
     }
 
     void save() {
-        DisplayProfileStore.save(getProfile());
+        if (mHost.getSessionPolicy().usesSavedDisplayProfile(
+                mHost.getDesktopOutput())) {
+            DisplayProfileStore.save(getProfile());
+        }
     }
 
     void refreshForDisplay() {
@@ -145,6 +149,13 @@ public final class DisplayProfileController {
     static DisplayProfileStore.Profile loadPreparedProfile(
             final Context context,
             final DesktopDisplayTarget target) {
+        return loadPreparedProfile(context, target, DesktopSessionPolicy.USER);
+    }
+
+    static DisplayProfileStore.Profile loadPreparedProfile(
+            final Context context,
+            final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy) {
         if (context == null || target == null || !target.output.hasProfile()) {
             return null;
         }
@@ -155,8 +166,21 @@ public final class DisplayProfileController {
         if (display == null) {
             return null;
         }
-        return DisplayProfileStore.load(
-                target.output.profileKey, initialDpi(display));
+        return loadProfile(target.output.profileKey, initialDpi(display),
+                target.output, policy);
+    }
+
+    static DisplayProfileStore.Profile loadProfile(
+            final String key, final int defaultDpi,
+            final DesktopDisplayOutput output,
+            final DesktopSessionPolicy policy) {
+        if (policy.usesSavedDisplayProfile(output)) {
+            return DisplayProfileStore.load(key, defaultDpi);
+        }
+        final DisplayProfileStore.Profile profile =
+                new DisplayProfileStore.Profile(key);
+        profile.dpi = DisplayMetrics.DENSITY_DEFAULT;
+        return profile;
     }
 
     private void refreshAfterDisplayChange() {
@@ -251,6 +275,8 @@ public final class DisplayProfileController {
         Display getDisplay();
 
         DesktopDisplayOutput getDesktopOutput();
+
+        DesktopSessionPolicy getSessionPolicy();
 
         void onDisplayProfileReset();
 

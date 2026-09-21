@@ -3,14 +3,11 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 public final class PhoneOverviewPresentationTest {
-    @Test public void phoneOverviewUsesExistingWorkspaceWithoutHomeLaunch() throws Exception {
+    @Test public void phoneOverviewOnlyRevealsTaskbarWithoutHomeLaunch() throws Exception {
         verify("""
                 callback.presentHomeFromRecents();
                 check(presentations == 1 && launches == 0, "phone Overview relaunched HOME");
-                check(presentedTarget == phoneTarget && presentedPolicy == phonePolicy,
-                        "selected another workspace or its policy");
-                completion.onComplete(new ActionResult(true, "shown"));
-                check(errors.isEmpty(), "successful presentation reported failure");
+                check(errors.isEmpty(), "successful reveal reported failure");
                 """);
     }
 
@@ -37,13 +34,11 @@ public final class PhoneOverviewPresentationTest {
                 """);
     }
 
-    @Test public void asynchronousPresentationFailureIsReported() throws Exception {
+    @Test public void repeatedNavigationDoesNotLaunchAnotherActivity() throws Exception {
         verify("""
                 callback.presentHomeFromRecents();
-                completion.onComplete(new ActionResult(false, "focus did not converge"));
-                check(errors.equals(List.of("phone Overview presentation failed: focus did not converge")),
-                        "command failure was lost");
-                check(launches == 0, "failed presentation relaunched HOME");
+                callback.presentHomeFromRecents();
+                check(presentations == 2 && launches == 0, "repeated navigation relaunched HOME");
                 """);
     }
 
@@ -74,18 +69,13 @@ public final class PhoneOverviewPresentationTest {
                 static class RemoteException extends Exception { }
                 static class Display { static final int DEFAULT_DISPLAY = 0; }
                 static class DesktopDisplayTarget { }
-                static class DesktopSessionPolicy { }
-                static DesktopDisplayTarget phoneTarget = new DesktopDisplayTarget(), presentedTarget;
-                static DesktopSessionPolicy phonePolicy = new DesktopSessionPolicy(), presentedPolicy;
+                static DesktopDisplayTarget phoneTarget = new DesktopDisplayTarget();
                 static DesktopHomeRoleLease.State lease = new DesktopHomeRoleLease.State();
                 static boolean observerActive = true, accepted = true;
                 static int presentations, launches, launchDisplay = -1;
                 static Intent launched;
                 static RuntimeException launchFailure;
-                static Completion completion;
                 static final List<String> errors = new ArrayList<>();
-                record ActionResult(boolean success, String message) { }
-                interface Completion { void onComplete(ActionResult result); }
                 static class DesktopHomeRoleLease {
                     enum Phase { ACTIVE, RELEASING }
                     static class State {
@@ -97,20 +87,9 @@ public final class PhoneOverviewPresentationTest {
                     }
                     static State snapshot() { return lease; }
                 }
-                static class DesktopSessionSnapshot {
-                    DesktopSessionPolicy policy() { return phonePolicy; }
-                }
                 static class DesktopRuntimeBridge {
-                    static DesktopSessionSnapshot getSessionSnapshot(int id) {
-                        check(id == 0, "looked up another workspace");
-                        return new DesktopSessionSnapshot();
-                    }
-                }
-                static class DesktopSessionController {
-                    static boolean presentExistingSession(DesktopDisplayTarget target,
-                            DesktopSessionPolicy policy, Completion callback) {
-                        presentations++; presentedTarget = target; presentedPolicy = policy;
-                        completion = callback;
+                    static boolean revealPhoneTaskbar() {
+                        presentations++;
                         return accepted;
                     }
                 }

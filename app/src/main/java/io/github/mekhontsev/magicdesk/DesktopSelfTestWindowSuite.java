@@ -59,8 +59,7 @@ final class DesktopSelfTestWindowSuite {
         final TaskStackParser.Entry preparedDesktop = require(
                 result, "DESKTOP-001", "Prepare desktop session", () -> {
             if (target == DesktopSelfTestTarget.SIMULATED) {
-                // Exercise the same display policy as a user-started session,
-                // including profiles and the phone-side touchpad.
+                // Use the production session launch with isolated test preferences.
                 if (workspaceLease == null) {
                     throw new IOException(
                             "workspace isolation lease is unavailable");

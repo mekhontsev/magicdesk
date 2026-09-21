@@ -10,6 +10,37 @@ public final class TouchEdgeRevealStateTest {
     private static final int TOUCH_SLOP = 12;
 
     @Test
+    public void navigationRevealIsIdempotentAndDismissedByOutsideTouch() {
+        final TouchEdgeRevealState state = armedState();
+        assertEquals(TouchEdgeRevealState.Action.REVEAL, state.reveal());
+        assertEquals(TouchEdgeRevealState.Action.NONE, state.reveal());
+        assertTrue(state.isRevealed());
+        assertEquals(TouchEdgeRevealState.Action.DISMISS, state.onOutside());
+        assertFalse(state.isRevealed());
+    }
+
+    @Test
+    public void navigationRevealSurvivesTemporaryPolicyVisibility() {
+        final TouchEdgeRevealState state = new TouchEdgeRevealState();
+        assertEquals(TouchEdgeRevealState.Action.REVEAL, state.reveal());
+        state.setArmed(true);
+        state.setArmed(false);
+        state.setArmed(true);
+        assertTrue(state.isRevealed());
+        assertEquals(TouchEdgeRevealState.Action.NONE, state.reveal());
+        assertEquals(TouchEdgeRevealState.Action.DISMISS, state.onOutside());
+    }
+
+    @Test
+    public void taskbarActionDismissesNavigationReveal() {
+        final TouchEdgeRevealState state = armedState();
+        state.reveal();
+        state.onDown(50, 50);
+        assertEquals(TouchEdgeRevealState.Action.DISMISS, state.onUp());
+        assertFalse(state.isRevealed());
+    }
+
+    @Test
     public void upwardSwipeRevealsAndReleaseKeepsTaskbarVisible() {
         final TouchEdgeRevealState state = armedState();
 
@@ -55,16 +86,18 @@ public final class TouchEdgeRevealStateTest {
     }
 
     @Test
-    public void disarmingClearsTemporaryReveal() {
+    public void disarmingStopsGesturesButExplicitRevealStillNeedsDismissal() {
         final TouchEdgeRevealState state = revealedState();
 
         state.setArmed(false);
 
-        assertFalse(state.isRevealed());
+        assertTrue(state.isRevealed());
         state.onDown(50, 100);
         assertEquals(
                 TouchEdgeRevealState.Action.NONE,
                 state.onMove(50, 70, TOUCH_SLOP));
+        assertEquals(TouchEdgeRevealState.Action.DISMISS, state.onUp());
+        assertFalse(state.isRevealed());
     }
 
     private static TouchEdgeRevealState armedState() {

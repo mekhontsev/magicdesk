@@ -207,6 +207,9 @@ The control panel's **Apps** opens fullscreen Start, even without Desktop. Its
 Every Start has its own launch-display choice; changing it does not switch input
 or start a Desktop.
 
+On phone Desktop, Home shows the hidden taskbar. An outside touch or taskbar
+action dismisses it.
+
 **Settings > Desktop > New windows fullscreen on phone** makes fullscreen the
 default for new phone Desktop windows. Explicit launch choices and saved window
 mode or geometry take precedence; existing windows and other displays are unchanged.

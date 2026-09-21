@@ -129,6 +129,16 @@ final class DesktopTaskbarRevealController {
         }
     }
 
+    void reveal() {
+        if (!mStarted || mReleased || !mTouchEdgeEnabled
+                || resolvePresentation(mAvailable, mPolicyVisible, mAutoHide, mForcedVisible,
+                        mPointerState.isRevealed() || mTouchState.isRevealed())
+                        != Presentation.EDGE) {
+            return;
+        }
+        applyTouchAction(mTouchState.reveal(), false);
+    }
+
     void release() {
         if (mReleased) {
             return;
@@ -242,6 +252,10 @@ final class DesktopTaskbarRevealController {
                 mAvailable, mPolicyVisible, mAutoHide, mForcedVisible,
                 false) == Presentation.EDGE;
         mPointerState.setArmed(armed);
+        // A navigation reveal lasts until user input, across HOME visibility changes.
+        if (!mAvailable) {
+            mTouchState.onOutside();
+        }
         mTouchState.setArmed(mTouchEdgeEnabled && armed);
     }
 

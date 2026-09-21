@@ -2935,9 +2935,9 @@ their ordinary taskbar icons; screen drivers do not implement separate sizing
 or task-switching behavior.
 The phone desktop also exposes the hidden taskbar through a touch edge gesture.
 It uses Android's configured edge and touch slop, is scoped to display 0, and
-feeds an explicit reveal state into the shared controller. The taskbar is
-dismissed by the next taskbar action or outside touch rather than by a timeout;
-the blocked SystemUI Recents gesture is not intercepted or re-enabled.
+feeds an explicit reveal state into the shared controller. Phone Home navigation
+uses the same state to reveal a hidden taskbar. The taskbar is
+dismissed by the next taskbar action or outside touch rather than by a timeout.
 When automatic hiding is enabled, the same existing pointer-edge state machine
 reveals it without introducing a second overlay or polling loop, and window
 placement uses the full viewport. IME and other forced-visible policy still
@@ -3111,15 +3111,12 @@ the concrete primary HOME component on display 0 before restoring its report;
 a secondary launcher from the same package is not an equivalent result. If the
 display-removal suite already completed production display-loss recovery, the
 expected phone destination is Control Panel instead.
-With an active phone workspace, the routed request submits `PRESENT_WORKSPACE`
-through the existing session/controller gateway, without launching another HOME
-Activity or raising a Viewer on another output. Android's Activity-start path can
-fail in `TaskDisplayArea.getRootTaskAbove` when a fullscreen plane is a sibling
-of the HOME root; navigation to the already registered workspace needs no launch.
+With an active phone workspace, the routed request reveals its hidden taskbar
+through `DesktopUiGateway` on the registered host.
 Without a phone workspace, an ordinary, package-scoped HOME Intent on display 0
 selects Recent within phone Start. There is no separate phone Overview Activity.
-An unavailable phone host rejects presentation rather than falling back to a new
-HOME launch; asynchronous command failures are recorded by the task observer.
+An unavailable phone host rejects the request. UI dispatch revalidates the host
+and its active lease.
 Managed tasks remain available through the desktop taskbar, task overview and
 Alt+Tab. With `RECENTS_TO_HOME` disabled, the system retains its native gesture.
 This common compatibility preference uses the platform provider's recommended
@@ -3128,10 +3125,10 @@ default and can be overridden by the user for the next session.
 Returning to an already active desktop is display-scoped and does not restart
 the session. `PRESENT_WORKSPACE` orders every managed fullscreen plane below
 the HOME host and raises every live managed freeform task above it. On a phone
-desktop, Android's HOME intent and the control panel's **Show desktop** use
-this operation; a foreign fullscreen phone task is left to Android's normal
-HOME transition. The external-session touchpad exposes the same operation for
-its target display, so its own phone task and every other display remain
+desktop, the control panel's **Show desktop** uses this operation. Android's
+HOME intent only reveals the taskbar; a foreign fullscreen phone task is left
+to Android's normal HOME transition. The external-session touchpad exposes
+the same operation for its target display, so its own phone task and every other display remain
 untouched. `PRESENT_DESKTOP` remains the separate command that conceals all
 application windows to expose bare wallpaper.
 

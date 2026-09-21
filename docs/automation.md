@@ -1520,7 +1520,10 @@ the before-test snapshot with the timeout distinguishes pre-existing SystemUI
 state from a transition created during the run, without background observation.
 
 Every self-test session uses an isolated workspace policy: it neither restores
-the saved user window stack nor persists test window state. The phone rotation
+the saved user window stack nor persists test window state. Simulated tests use
+1920x1080 at 160 DPI independently of saved display preferences and Android's
+retained density override. Their display profile remains in memory; the saved
+user profile is unchanged. The phone rotation
 is locked at its current value for the run and restored exactly afterward. If
 the tested desktop session closes, its existing lifecycle event cancels the run
 and cleanup begins; no background session polling is added.

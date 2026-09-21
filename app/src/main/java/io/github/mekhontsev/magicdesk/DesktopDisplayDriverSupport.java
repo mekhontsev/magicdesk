@@ -32,7 +32,7 @@ final class DesktopDisplayDriverSupport {
                         context, target);
         final DisplayProfileStore.Profile profile =
                 DisplayProfileController.loadPreparedProfile(
-                        context, preparedTarget);
+                        context, preparedTarget, policy);
         if (profile != null) {
             try {
                 ExternalDisplayController.applyStartupDensity(
