@@ -134,8 +134,7 @@ jobs:
             fi
             gh release edit "$GITHUB_REF_NAME" \
               "${notes[@]}" \
-              --title "MagicDesk $GITHUB_REF_NAME" \
-              --target "$GITHUB_SHA"
+              --title "MagicDesk $GITHUB_REF_NAME"
           else
             gh release create "$GITHUB_REF_NAME" \
               --verify-tag \
