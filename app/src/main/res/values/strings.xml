@@ -101,7 +101,6 @@
     <string name="terminal_end_confirm">End this terminal and its running process?</string>
     <string name="terminal_detach_tmux_confirm">Disconnect this client? The tmux session and its programs will remain running.</string>
     <string name="terminal_end_tmux_confirm">End tmux session %1$s and all its windows? This also affects other connected clients.</string>
-    <string name="display_type">Display type</string>
     <string name="display_resolution">Resolution</string>
     <string name="display_resolution_default">Default: %1$d x %2$d</string>
     <string name="desktop_shortcut_service_label">Desktop keyboard shortcuts</string>
@@ -1000,8 +999,7 @@
     <string name="display_desktop_active">Desktop active</string>
     <string name="display_create">Create display</string>
     <string name="display_remove">Remove display</string>
-    <string name="display_virtual">Virtual display</string>
-    <string name="display_preview">Display with phone preview</string>
+    <string name="display_preview">Preview on phone</string>
     <string name="display_custom">Custom</string>
     <string name="display_width">Width</string>
     <string name="display_height">Height</string>

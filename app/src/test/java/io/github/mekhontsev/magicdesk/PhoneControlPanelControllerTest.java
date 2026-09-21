@@ -605,6 +605,31 @@ public final class PhoneControlPanelControllerTest {
     }
 
     @Test
+    public void creationDialogUsesAnOptionalPreviewCheckboxBelowOtherOptions() throws Exception {
+        final String dialog = RuntimeSourceFixture.methods("DisplayCreationDialog", "showPrepared");
+        assertFalse(dialog.contains("Spinner kind"));
+        assertTrue(dialog.contains("final CheckBox preview = new CheckBox(mActivity)"));
+        assertTrue(dialog.contains("preview.setText(R.string.display_preview)"));
+        assertTrue(dialog.indexOf("content.addView(preview)") > dialog.indexOf("content.addView(warning)"));
+        assertFalse(dialog.contains("preview.setChecked(true)"));
+        assertTrue(dialog.contains("final boolean withPreview = preview.isChecked()"));
+        assertTrue(dialog.contains("if (withPreview) { spec.requireOverlayCompatible(); }"));
+        assertTrue(dialog.contains("mActions.createDisplay(spec, withPreview)"));
+    }
+
+    @Test
+    public void previewDisablesIncompatibleOptionsEvenWhenCapabilitiesArriveLater() throws Exception {
+        final String dialog = RuntimeSourceFixture.methods("DisplayCreationDialog", "showPrepared");
+        assertTrue(dialog.contains("preview.setOnCheckedChangeListener"));
+        assertTrue(dialog.contains("protection.setEnabled(!checked && protectionAllowed[0])"));
+        assertTrue(dialog.contains("unlocked.setEnabled(!checked && unlockedAllowed[0])"));
+        assertTrue(dialog.contains("protection.setChecked(false)"));
+        assertTrue(dialog.contains("unlocked.setChecked(false)"));
+        assertTrue(dialog.contains("unlocked.setEnabled(unlockedPermission && !preview.isChecked())"));
+        assertTrue(dialog.contains("protection.setEnabled(permission && !preview.isChecked())"));
+    }
+
+    @Test
     public void outputControlsBelongOnlyToTheSelectedWiredDisplay() {
         assertTrue(DisplayTableView.hasOutputControls(display(3, "wired", true, false), true));
         assertFalse(DisplayTableView.hasOutputControls(display(3, "wired", true, false), false));

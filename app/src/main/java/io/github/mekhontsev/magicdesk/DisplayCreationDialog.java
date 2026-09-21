@@ -54,10 +54,6 @@ final class DisplayCreationDialog {
         final LinearLayout content = new LinearLayout(mActivity);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(20), dp(8), dp(20), dp(8));
-        final Spinner kind = spinner(content, new String[] {
-                mActivity.getString(R.string.display_virtual),
-                mActivity.getString(R.string.display_preview)});
-        kind.setContentDescription(mActivity.getString(R.string.display_type));
         final int[][] sizes = {resolution,
                 {1920, 1080}, {1280, 720}, {2560, 1440}, {2560, 1080}, {3840, 2160}};
         final Spinner preset = spinner(content, new String[] {
@@ -82,16 +78,18 @@ final class DisplayCreationDialog {
         content.addView(warning);
         unlocked.setOnCheckedChangeListener((button, checked) ->
                 warning.setVisibility(checked ? View.VISIBLE : View.GONE));
+        final CheckBox preview = new CheckBox(mActivity);
+        preview.setText(R.string.display_preview);
+        content.addView(preview);
         final boolean[] unlockedAllowed = {false};
         final boolean[] protectionAllowed = {false};
-        kind.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override public void onItemSelected(AdapterView<?> p, View v, int position, long id) {
-                protection.setEnabled(position == 0 && protectionAllowed[0]);
-                if (position != 0) protection.setChecked(false);
-                unlocked.setEnabled(position == 0 && unlockedAllowed[0]);
-                if (position != 0) unlocked.setChecked(false);
+        preview.setOnCheckedChangeListener((button, checked) -> {
+            protection.setEnabled(!checked && protectionAllowed[0]);
+            unlocked.setEnabled(!checked && unlockedAllowed[0]);
+            if (checked) {
+                protection.setChecked(false);
+                unlocked.setChecked(false);
             }
-            @Override public void onNothingSelected(AdapterView<?> p) { }
         });
         preset.setSelection(0);
         preset.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
@@ -123,9 +121,9 @@ final class DisplayCreationDialog {
                                 Integer.parseInt(width.getText().toString()),
                                 Integer.parseInt(height.getText().toString()), densityForScale(percent, defaults.densityDpi),
                                 protection.isChecked()).withAlwaysUnlocked(unlocked.isChecked());
-                        final boolean preview = kind.getSelectedItemPosition() == 1;
-                        if (preview) { spec.requireOverlayCompatible(); }
-                        mActions.createDisplay(spec, preview);
+                        final boolean withPreview = preview.isChecked();
+                        if (withPreview) { spec.requireOverlayCompatible(); }
+                        mActions.createDisplay(spec, withPreview);
                         dialog.dismiss();
                     } catch (IllegalArgumentException error) {
                         width.setError(mActivity.getString(R.string.display_invalid_parameters));
@@ -148,8 +146,8 @@ final class DisplayCreationDialog {
                 if (!dialog.isShowing() || mActivity.isDestroyed()) return;
                 protectionAllowed[0] = permission;
                 unlockedAllowed[0] = unlockedPermission;
-                unlocked.setEnabled(unlockedPermission && kind.getSelectedItemPosition() == 0);
-                protection.setEnabled(permission && kind.getSelectedItemPosition() == 0);
+                unlocked.setEnabled(unlockedPermission && !preview.isChecked());
+                protection.setEnabled(permission && !preview.isChecked());
                 protection.setTooltipText(failure != null ? failure : permission ? null
                         : mActivity.getString(R.string.display_protected_content_unavailable));
             });

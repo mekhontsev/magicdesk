@@ -127,12 +127,12 @@ choose **Current** or another display, managed window/fullscreen or independent
 placement, and request a new window where the application supports it.
 Independent tasks appear in that display's application list, not Desktop Alt+Tab.
 
-**Create display** offers:
-
-- **Virtual display:** a headless display, suitable for a scrcpy viewer;
-  several may coexist.
-- **Display with phone preview:** Android's preview surface on the phone.
-  Its shared overlay configuration cannot replace an existing overlay set.
+**Create display** creates a headless virtual display by default, suitable for
+a scrcpy viewer; several may coexist. Enable **Preview on phone** at the bottom
+of the dialog to use Android's preview surface instead. Its shared overlay
+configuration cannot replace an existing overlay set. Preview does not support
+protected content or availability while the phone is locked; these options are
+cleared and disabled while preview is selected.
 
 Dimensions and scale initially follow the selected display, using its saved DPI
 when configured. You can override them before creation. A virtual display keeps
