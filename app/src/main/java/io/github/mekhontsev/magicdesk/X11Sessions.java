@@ -37,6 +37,7 @@ final class X11Sessions {
         void onChanged();
         default Host inspectHost() { return null; }
         default void onFrame(X11Session.Output output, int width, int height, boolean available) { }
+        default void onCursor(X11Session.Output output, X11Session.Cursor cursor) { }
         default void onDataOffer(X11DataExchange.Offer offer) { }
         default void onDragEvent(int operation, int output, boolean accepted) { }
     }
@@ -446,6 +447,9 @@ final class X11Sessions {
                 pending = new X11Session(MAIN::post, new X11Session.Listener() {
                     @Override public void onFrame(X11Session.Output output, int width, int height, boolean available) {
                         for (Listener listener : listeners) listener.onFrame(output, width, height, available);
+                    }
+                    @Override public void onCursor(X11Session.Output output, X11Session.Cursor cursor) {
+                        if (!stopped()) for (Listener listener : listeners) listener.onCursor(output, cursor);
                     }
                     @Override public void onDisconnected() { fail(new IllegalStateException("X11 renderer disconnected")); }
                     @Override public void onDataOffer(X11DataExchange.Offer offer) {

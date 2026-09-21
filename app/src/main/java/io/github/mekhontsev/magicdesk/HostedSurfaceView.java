@@ -6,6 +6,7 @@ import android.text.InputType;
 import android.util.SparseIntArray;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.PointerIcon;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.inputmethod.BaseInputConnection;
@@ -15,6 +16,7 @@ import android.view.inputmethod.InputConnection;
 /** Android input, IME and Surface lifetime, independent of the guest display protocol. */
 final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callback {
     private final HostedPointerInput pointerInput;
+    private final HostedCursor cursor = new HostedCursor();
     private HostedSurfaceOutput output;
     private int frameWidth, frameHeight;
     private HostedViewport viewport = HostedViewport.EMPTY;
@@ -43,6 +45,22 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         frameHeight = height;
         viewport = HostedViewport.fit(getWidth(), getHeight(), width, height);
         pointerInput.viewport(viewport);
+        updateCursor();
+    }
+
+    void cursor(android.graphics.Bitmap image, int hotspotX, int hotspotY, boolean hidden) {
+        cursor.set(image, hotspotX, hotspotY, hidden);
+        updateCursor();
+    }
+
+    private void updateCursor() {
+        setPointerIcon(cursor.icon(getContext(), frameWidth > 0 ? viewport.width() / frameWidth : 0));
+    }
+
+    @Override public PointerIcon onResolvePointerIcon(MotionEvent event, int pointerIndex) {
+        float x = viewport.contentX(event.getX(pointerIndex)), y = viewport.contentY(event.getY(pointerIndex));
+        if (contentDrag || !viewport.available() || x < 0 || y < 0 || x >= 1 || y >= 1) return null;
+        return getPointerIcon();
     }
 
     record Geometry(int contentWidth, int contentHeight, float left, float top, float right, float bottom) { }
@@ -59,6 +77,7 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         super.onSizeChanged(width, height, oldWidth, oldHeight);
         viewport = HostedViewport.fit(width, height, frameWidth, frameHeight);
         pointerInput.viewport(viewport);
+        updateCursor();
     }
 
     void release() {
@@ -69,6 +88,7 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         frameWidth = frameHeight = 0;
         viewport = HostedViewport.EMPTY;
         pointerInput.viewport(viewport);
+        cursor(null, 0, 0, false);
     }
 
     private void releaseInput() {

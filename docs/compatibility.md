@@ -242,7 +242,7 @@ in-APK catalog recognition must not use its reused stock fingerprint alone.
   Shell-hosted chroot entry needs actual UID 0; the X server itself uses the app
   UID. The standalone Termux:X11 APK is not required. Graphics acceleration is
   capability-based; unsupported Vulkan
-  imports retain CPU fallback. X cursor images are not yet presented; oversized
+  imports retain CPU fallback. Oversized
   dialogs are aspect-fitted with their parent rather than drawn outside Android
   host bounds. See [X11 graphics and limits](x11.md#graphics-and-limits).
 - X11 clipboard and copy drag-and-drop require compatible formats at both ends.

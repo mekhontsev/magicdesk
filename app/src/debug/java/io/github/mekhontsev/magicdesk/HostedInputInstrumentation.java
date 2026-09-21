@@ -2,10 +2,12 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
 import android.app.Instrumentation;
+import android.graphics.Bitmap;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.InputDevice;
 import android.view.MotionEvent;
+import android.view.PointerIcon;
 import android.view.Surface;
 import android.view.ViewConfiguration;
 
@@ -22,7 +24,7 @@ public final class HostedInputInstrumentation extends Instrumentation {
                 catch (RuntimeException | AssertionError error) { failure.set(error); }
             });
             if (failure.get() != null) throw new AssertionError(failure.get());
-            result.putString("hosted_input", "PASS touch, mouse-source fingers, raw touchpad, mouse wheel/drag, focus loss, output lifecycle");
+            result.putString("hosted_input", "PASS touch, mouse-source fingers, raw touchpad, mouse wheel/drag, focus loss, output lifecycle, cursor shape/scale/hide/reset");
             finish(Activity.RESULT_OK, result);
         } catch (RuntimeException | AssertionError error) {
             result.putString("hosted_input", "FAIL " + error);
@@ -61,14 +63,45 @@ public final class HostedInputInstrumentation extends Instrumentation {
         int oldScroll = output.scrolls;
         send(view, InputDevice.SOURCE_MOUSE, 3, 8, 0, 1, 300, 300);
         require(output.scrolls == oldScroll + 1, "ordinary wheel");
+        verifyCursor(view);
         view.release();
         require(output.closed, "output released");
+        require(view.getPointerIcon() == null, "output release resets cursor");
         Output replacement = new Output();
         view.bind(replacement);
         send(view, InputDevice.SOURCE_TOUCHSCREEN, 1, 0, 0, 1, 200, 200);
         send(view, InputDevice.SOURCE_TOUCHSCREEN, 1, 1, 0, 1, 200, 200);
         require(replacement.presses == 0, "new output cannot use stale geometry");
         view.release();
+    }
+
+    private void verifyCursor(HostedSurfaceView view) {
+        Bitmap image = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888);
+        image.eraseColor(0x80ff0000);
+        view.cursor(image, 31, 31, false);
+        PointerIcon icon = view.getPointerIcon();
+        require(icon != null, "custom pointer installed");
+        require(resolveCursor(view, 500, 500) == icon, "content uses custom pointer");
+        view.frame(2000, 1000);
+        PointerIcon scaled = view.getPointerIcon();
+        require(scaled != null && scaled != icon, "content scaling updates pointer");
+        require(resolveCursor(view, 500, 100) == null, "letterbox uses Android default");
+        require(resolveCursor(view, 500, 500) == scaled, "scaled content uses custom pointer");
+        view.beginContentDrag();
+        require(resolveCursor(view, 500, 500) == null, "Android owns drag pointer");
+        view.endContentDrag();
+        view.cursor(null, 0, 0, true);
+        require(view.getPointerIcon().equals(PointerIcon.getSystemIcon(getTargetContext(), PointerIcon.TYPE_NULL)),
+                "guest hides existing Android pointer");
+        view.cursor(null, 0, 0, false);
+        require(view.getPointerIcon() == null, "default cursor restored");
+        view.cursor(image, 0, 0, false);
+    }
+
+    private static PointerIcon resolveCursor(HostedSurfaceView view, float x, float y) {
+        MotionEvent event = MotionEvent.obtain(0, 0, MotionEvent.ACTION_HOVER_MOVE, x, y, 0);
+        try { return view.onResolvePointerIcon(event, 0); }
+        finally { event.recycle(); }
     }
 
     private static void send(HostedSurfaceView view, int source, int tool, int action, int buttons, int count, float x, float y) {

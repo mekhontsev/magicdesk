@@ -30,6 +30,7 @@ public final class X11HostBindingTest {
             }
             static class X11Session {
                 record Window(long id, X11WindowManagement management) { }
+                record Cursor(Object image, int hotspotX, int hotspotY, boolean hidden) { }
                 static class Output {
                     boolean closed;
                     void close() { if (!closed) { closed = true; events.add("output"); } }
@@ -41,6 +42,7 @@ public final class X11HostBindingTest {
                     void onChanged();
                     default Host inspectHost() { return null; }
                     default void onFrame(X11Session.Output output, int width, int height, boolean available) { }
+                    default void onCursor(X11Session.Output output, X11Session.Cursor cursor) { }
                 }
                 static class Session {
                     final Presentation presentation = new Presentation();
@@ -89,11 +91,12 @@ public final class X11HostBindingTest {
                 Geometry geometry() { return new Geometry(width, height); }
                 X11SurfaceOutput output;
                 boolean failBind;
-                int width, height;
+                int width, height, cursors;
                 void bind(X11SurfaceOutput output) { this.output = output; if (failBind) throw new IllegalStateException("bind failed"); }
                 void release() { if (output != null) output.output().close(); output = null; }
                 void requestFocus() { }
                 void frame(int width, int height) { this.width = width; this.height = height; }
+                void cursor(Object image, int hotspotX, int hotspotY, boolean hidden) { cursors++; }
             }
             record X11ContentExchange(Activity activity, X11Sessions.Session session, X11Session.Output output) { }
             static class HostedContentExchange {
@@ -134,6 +137,11 @@ public final class X11HostBindingTest {
                 check(surface.width == 0, "foreign frame ignored");
                 host.onFrame(output, 12, 34, true);
                 check(surface.width == 12 && surface.height == 34, "own frame accepted");
+                var cursor = new X11Session.Cursor(null, 0, 0, true);
+                host.onCursor(new X11Session.Output(), cursor);
+                check(surface.cursors == 0, "foreign cursor ignored");
+                host.onCursor(output, cursor);
+                check(surface.cursors == 1, "own cursor accepted");
                 var observed = host.inspectHost();
                 check(observed.taskId() == 10 && observed.displayId() == 7 && observed.windowId() == 31,
                         "inspection identifies the exact host, not another session window");
@@ -152,6 +160,8 @@ public final class X11HostBindingTest {
                 int eventCount = events.size(); host.close(true); host.onChanged(); host.onFrame(output, 20, 40, true);
                 host.refresh(31, true); host.focusChanged(true); host.updateDensity(); host.presentationChanged(); host.rejectImmersive();
                 check(events.size() == eventCount && changes[0] == 0 && surface.width == 0, "closed binding ignores late callbacks");
+                host.onCursor(output, cursor);
+                check(surface.cursors == 1, "closed binding ignores cursor");
                 other.refresh(31, true);
                 check(other.immersiveRequest() != null && HostedFullscreen.created.size() == 2, "remaining host acquires released fullscreen lease");
                 check(other.requestClose(false), "live client defers Android removal");
@@ -193,6 +203,8 @@ public final class X11HostBindingTest {
                 check(startupSession.clientCloses == 0 && startupSession.serverCloses == 0, "handoff does not close clients or server");
                 startup.onFrame(splashOutput, 100, 100, true);
                 check(startupSurface.width == 0, "late splash frames cannot update the new output");
+                startup.onCursor(splashOutput, cursor);
+                check(startupSurface.cursors == 0, "late splash cursor cannot update replacement");
                 startup.close(false);
 
                 var failedSurface = new HostedSurfaceView(); failedSurface.failBind = true;

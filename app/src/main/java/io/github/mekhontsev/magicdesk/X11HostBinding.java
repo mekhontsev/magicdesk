@@ -123,6 +123,11 @@ final class X11HostBinding implements X11Sessions.Listener {
         if (!closed && source == output) surface.frame(available ? width : 0, available ? height : 0);
     }
 
+    @Override public void onCursor(X11Session.Output source, X11Session.Cursor cursor) {
+        if (!closed && source == output)
+            surface.cursor(cursor.image(), cursor.hotspotX(), cursor.hotspotY(), cursor.hidden());
+    }
+
     boolean requestClose(boolean force) {
         if (closed) return false;
         if (window != 0 && session.windows().stream().anyMatch(item -> item.id() == window)) {

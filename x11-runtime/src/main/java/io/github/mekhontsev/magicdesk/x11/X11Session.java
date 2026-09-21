@@ -26,6 +26,13 @@ public final class X11Session implements AutoCloseable {
         default void onWindowsChanged(java.util.List<Window> windows) { }
         default void onDataOffer(X11DataExchange.Offer offer) { }
         default void onDragEvent(int operation, int output, boolean accepted) { }
+        default void onCursor(Output output, Cursor cursor) { }
+    }
+
+    /** Immutable shape in X content pixels. A null image is either hidden or the host default. */
+    public record Cursor(Bitmap image, int hotspotX, int hotspotY, boolean hidden) {
+        public static final Cursor DEFAULT = new Cursor(null, 0, 0, false);
+        public static final Cursor HIDDEN = new Cursor(null, 0, 0, true);
     }
 
     public enum WindowRole { APPLICATION, SPLASH, UNCLASSIFIED }
@@ -97,6 +104,7 @@ public final class X11Session implements AutoCloseable {
         try (descriptor) {
             call(() -> {
                 cancelInspections();
+                for (Output output : outputs.values()) output.cursor(Cursor.DEFAULT);
                 if (!nativeConnect(nativeHandle, descriptor.detachFd())) {
                     connected = false;
                     throw new IllegalStateException("Cannot connect X11 server");
@@ -258,6 +266,8 @@ public final class X11Session implements AutoCloseable {
         private volatile boolean released;
         private int width, height;
         private int frameWidth = -1, frameHeight = -1, frameAvailable = -1;
+        private Cursor cursor = Cursor.DEFAULT;
+        private boolean cursorPending;
 
         private Output(int id, int window) { this.id = id; this.window = window; }
         public int id() { return id; }
@@ -307,6 +317,19 @@ public final class X11Session implements AutoCloseable {
 
         private boolean acceptsInput() { return !released && !closed && connected; }
 
+        private void cursor(Cursor next) {
+            synchronized (this) {
+                cursor = next;
+                if (cursorPending) return;
+                cursorPending = true;
+            }
+            callbacks.execute(() -> {
+                Cursor current;
+                synchronized (this) { current = cursor; cursorPending = false; }
+                if (!closed && !released) listener.onCursor(this, current);
+            });
+        }
+
         /** Releases only this presentation, never the X client or server process. */
         @Override public void close() {
             if (released || closed) return;
@@ -329,6 +352,7 @@ public final class X11Session implements AutoCloseable {
         output.frameWidth = width;
         output.frameHeight = height;
         output.frameAvailable = available;
+        if (available == 0) output.cursor(Cursor.DEFAULT);
         callbacks.execute(() -> {
             if (!closed && !output.released) listener.onFrame(output, width, height, available != 0);
         });
@@ -336,9 +360,20 @@ public final class X11Session implements AutoCloseable {
 
     private void onNativeDisconnected() {
         connected = false;
+        for (Output output : outputs.values()) output.cursor(Cursor.DEFAULT);
         cancelInspections();
         dataExchange.disconnected();
         callbacks.execute(() -> { if (!closed) listener.onDisconnected(); });
+    }
+
+    private void onNativeCursor(int id, int window, int kind, int width, int height,
+            int hotspotX, int hotspotY, int[] pixels) {
+        Output output = outputs.get(id);
+        if (output == null || output.released || output.window != window || !connected) return;
+        Cursor cursor = kind == 1 ? Cursor.HIDDEN : Cursor.DEFAULT;
+        if (kind == 2) cursor = new Cursor(Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888),
+                hotspotX, hotspotY, false);
+        output.cursor(cursor);
     }
 
     @Override public void close() {

@@ -62,7 +62,7 @@ public final class HostedContentBoundaryTest {
     }
 
     @Test public void androidHostsDoNotDependOnX11() throws Exception {
-        for (String name : new String[]{"HostedViewport", "HostedSurfaceView", "HostedPointerInput", "HostedSurfaceOutput", "HostedContentExchange", "HostedContentBackend"}) {
+        for (String name : new String[]{"HostedViewport", "HostedSurfaceView", "HostedPointerInput", "HostedCursor", "HostedSurfaceOutput", "HostedContentExchange", "HostedContentBackend"}) {
             String source = source(name);
             assertFalse(name, source.contains("com.termux"));
             assertFalse(name, source.contains("X11"));

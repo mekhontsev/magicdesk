@@ -14,7 +14,7 @@ namespace {
 struct Connection {
     JNIEnv* env;
     jobject owner;
-    jmethodID frame, disconnected, window, windowRemoved, windows, data;
+    jmethodID frame, disconnected, window, windowRemoved, windows, data, cursor;
     jclass managementClass;
     jmethodID managementConstructor;
     jclass inspectionNodeClass;
@@ -115,6 +115,22 @@ const LorieCallbacks callbacks = {
         c->env->CallVoidMethod(c->owner, c->inspectionDone, (jint)serial, (jint)result->window,
                 (jint)result->focus, (jint)result->focusKind, result->screenWidth, result->screenHeight,
                 (jint)result->count, (jboolean)result->found, (jboolean)result->truncated);
+    },
+    .cursor = [](void* ptr, uint32_t output, uint32_t window, const LorieCursorInfo* info, const uint32_t* pixels) {
+        auto* c = (Connection*)ptr;
+        JNIEnv* env = c->env;
+        if (env->ExceptionCheck()) return;
+        jintArray image = nullptr;
+        jsize count = (jsize)lorieCursorPixelCount(info);
+        if (count) {
+            image = env->NewIntArray(count);
+            if (!image) return;
+            env->SetIntArrayRegion(image, 0, count, (const jint*)pixels);
+        }
+        if (!env->ExceptionCheck()) env->CallVoidMethod(c->owner, c->cursor, (jint)output, (jint)window,
+                (jint)info->kind, (jint)info->width, (jint)info->height,
+                (jint)info->hotspotX, (jint)info->hotspotY, image);
+        if (image) env->DeleteLocalRef(image);
     }
 };
 
@@ -148,6 +164,7 @@ extern "C" JNIEXPORT jlong JNICALL JNI(X11Session_nativeCreate)(JNIEnv* env, job
     c->data = env->GetMethodID(cls, "onNativeData", "(IIIIIIIILjava/lang/String;I)V");
     c->inspectionNode = env->GetMethodID(cls, "onNativeInspectionNode", "(ILio/github/mekhontsev/magicdesk/x11/X11WindowInspection$Node;)V");
     c->inspectionDone = env->GetMethodID(cls, "onNativeInspectionDone", "(IIIIIIIZZ)V");
+    c->cursor = env->GetMethodID(cls, "onNativeCursor", "(IIIIIII[I)V");
     env->DeleteLocalRef(cls);
     if (!env->ExceptionCheck()) {
         jclass management = env->FindClass("io/github/mekhontsev/magicdesk/x11/X11WindowManagement");
