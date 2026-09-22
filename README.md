@@ -19,6 +19,8 @@ For privileged features, use [Shizuku](https://github.com/RikkaApps/Shizuku) on 
 service. Root is optional, and root users can limit that service to Android's
 shell UID 2000. **Termux terminals and X11 applications also work without Shizuku,
 root or a Desktop session**, on the phone or an Android-allowed secondary display.
+MagicDesk can also complement your [existing desktop mode](#using-your-existing-desktop-mode),
+including Samsung DeX, with Linux graphical applications and Termux terminals.
 
 [Latest release](https://github.com/mekhontsev/magicdesk/releases/latest) |
 [Development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk) |
@@ -254,6 +256,28 @@ is needed for this mode.
 
 *GIMP, the Linux build of Firefox and MagicDesk Task Manager running together
 on one desktop. Both graphical applications are supplied by Termux.*
+
+### Using Your Existing Desktop Mode
+
+**Keep your desktop shell and use MagicDesk for Linux applications and Termux
+terminals. No Shizuku, root or MagicDesk Desktop setup is needed for this path.**
+
+In **Samsung DeX**, use MagicDesk's Linux applications and Termux terminals
+alongside Android apps, with DeX managing their windows. MagicDesk presents
+these tools as ordinary Android windows, so the same approach can potentially
+work with Motorola Smart Connect's Mobile desktop or Android's desktop mode
+on supported Pixel devices.
+
+Open MagicDesk on that desktop's display, then choose **Apps** to open Start.
+After the [Termux setup](docs/getting-started.md), launch an installed graphical
+application or a Termux terminal with **Current** selected as the destination.
+There is no need to press **Start desktop**: MagicDesk supplies the tools while
+your existing shell manages the windows. A configured proot Linux environment
+can also supply individual applications or a whole Linux desktop inside one
+Android window.
+
+Using MagicDesk's own Desktop instead is a separate scenario: it requires
+Android 15+, Shizuku or root, Desktop setup and working framework windowing.
 
 ### Installed Apps In Start
 
