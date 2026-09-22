@@ -46,7 +46,7 @@ final class X11Sessions {
         String script = command == null || command.isBlank() ? "true" : command;
         String exec = "sh -c " + ShellCommandLine.quote(script).replace("%", "%%");
         var shortcut = new DesktopApplicationShortcut(name, "", exec, null, "", DesktopLaunchMode.AUTO,
-                false, backend, false).withX11(new X11LaunchOptions(true, keyboardDirectory));
+                false, backend, false).withGraphics(new GraphicalLaunchOptions(true, keyboardDirectory));
         return start(context, name, command, "", false, "", RecentApplications.describe(context, shortcut, ""), backend, keyboardDirectory);
     }
 
@@ -198,7 +198,7 @@ final class X11Sessions {
             startupCommand = command;
             startupDirectory = directory;
             launch = execution.spec(density.resolve(scalePercent), application,
-                    recipe == null || recipe.shortcut().x11 == null ? "" : recipe.shortcut().x11.fileEnvironment());
+                    recipe == null || recipe.shortcut().graphics == null ? "" : recipe.shortcut().graphics.fileEnvironment());
         }
 
         int scalePercent() { return scalePercent; }
@@ -229,7 +229,7 @@ final class X11Sessions {
         private synchronized void associateRecipes(List<X11Session.Window> snapshot) {
             windowRecipes.keySet().retainAll(snapshot.stream().map(X11Session.Window::id).toList());
             if (recipe == null) return;
-            String expected = recipe.shortcut().x11 == null ? "" : recipe.shortcut().x11.startupClass();
+            String expected = recipe.shortcut().graphics == null ? "" : recipe.shortcut().graphics.startupClass();
             boolean initial = !hadApplicationWindow;
             for (var item : snapshot) if (!item.provisional()) {
                 if (initial || item.matchesClass(expected)) windowRecipes.putIfAbsent(item.id(), recipe);
@@ -505,7 +505,7 @@ final class X11Sessions {
                 if (!startupCommand.isBlank()) MAIN.post(() -> {
                     if (stopped()) return;
                     if (application) {
-                        String expected = recipe == null || recipe.shortcut().x11 == null ? "" : recipe.shortcut().x11.startupClass();
+                        String expected = recipe == null || recipe.shortcut().graphics == null ? "" : recipe.shortcut().graphics.startupClass();
                         LAUNCHES.begin(id(), launchScope(), expected);
                         DesktopAutomationEventJournal.record("x11", "launch_tracking", true,
                                 "session=" + id() + " scope=" + launchScope() + " class=" + expected);

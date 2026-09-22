@@ -207,6 +207,12 @@
     <string name="command_app_linux_user">Linux user (optional)</string>
     <string name="command_app_linux_user_hint">Launcher default</string>
     <string name="command_app_presentation">Open as</string>
+    <string name="command_app_graphics">Graphics protocol</string>
+    <string name="graphics_waiting_application">Waiting for application window</string>
+    <string-array name="command_app_graphics_protocols">
+        <item>X11</item>
+        <item>Wayland</item>
+    </string-array>
     <string-array name="command_app_presentations">
         <item>Terminal</item>
         <item>X11 application</item>
@@ -222,7 +228,7 @@
     <string-array name="command_app_backends">
         <item>Android shell</item>
         <item>Termux</item>
-        <item>Termux X11</item>
+        <item>Termux graphics</item>
         <item>Linux (Termux)</item>
         <item>Linux (Shell / root)</item>
     </string-array>

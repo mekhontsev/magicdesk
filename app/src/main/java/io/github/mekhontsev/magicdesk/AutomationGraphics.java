@@ -23,7 +23,7 @@ final class AutomationGraphics {
                 } else if (operation.equals("graphics.start")) {
                     String command = args.optString("command", "");
                     if (!command.isBlank()) DesktopExecCommand.normalize(command);
-                    var session = GraphicalSessions.start(context, GraphicalSessions.protocol(args.getString("protocol")),
+                    var session = GraphicalSessions.start(context, GraphicalProtocol.parse(args.getString("protocol")),
                             args.getString("name"), command, args.optString("directory", ""),
                             DesktopExecBackend.parse(args.getString("backend")), args.optString("keyboardDirectory", ""));
                     result[0] = describe(session).put("accepted", true);

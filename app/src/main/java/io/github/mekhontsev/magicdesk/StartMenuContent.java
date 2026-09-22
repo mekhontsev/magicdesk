@@ -859,9 +859,11 @@ final class StartMenuContent {
                             || entry.recent.termuxPackage().equals(IntegrationPackage.TERMUX.selected()))
                             && mCatalog.snapshot().termux().entries().stream().anyMatch(current -> current.userShortcut
                                     && current.desktopFilePath.equals(application.desktopFilePath));
-                    if (!userShortcut && application.shortcut.x11 == null) return false;
+                    final boolean scale = application.shortcut.graphics != null
+                            && application.shortcut.graphics.protocol() == GraphicalProtocol.X11;
+                    if (!userShortcut && !scale) return false;
                     final android.widget.PopupMenu menu = new android.widget.PopupMenu(mActivity, anchor);
-                    if (application.shortcut.x11 != null) menu.getMenu().add(R.string.app_presentation_scale)
+                    if (scale) menu.getMenu().add(R.string.app_presentation_scale)
                             .setOnMenuItemClickListener(item -> {
                                 X11ScaleDialog.show(mActivity, entry.label, application.desktopFilePath);
                                 return true;

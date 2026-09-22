@@ -77,8 +77,8 @@ final class LinuxLaunchRecipe {
         DesktopExecTemplate.expandArguments(exec, DesktopLaunchArguments.empty(), name, "", "");
         return new DesktopApplicationShortcut(name, graphical ? "computer" : "utilities-terminal",
                 exec, null, "", DesktopLaunchMode.AUTO, false, environment.backend(),
-                !graphical).withLiteralExec(true).withX11(graphical
-                        ? new X11LaunchOptions(presentation == Presentation.DESKTOP, environment.keyboardDirectory(), "",
+                !graphical).withLiteralExec(true).withGraphics(graphical
+                        ? new GraphicalLaunchOptions(presentation == Presentation.DESKTOP, environment.keyboardDirectory(), "",
                                 environment.kind().name() + ":" + environment.target().length() + ":"
                                         + environment.target() + ":" + user) : null);
     }

@@ -64,7 +64,7 @@ final class RuntimeSourceFixture {
                                 ? super.visitClass(node, unused) : null;
                     }
                     @Override public Void visitMethod(final MethodTree method, final Void unused) {
-                        if (requested.contains(method.getName().toString())) {
+                        if (method.getBody() != null && requested.contains(method.getName().toString())) {
                             methods.append(standaloneMethod(source.substring(
                                     (int) positions.getStartPosition(unit, method),
                                     (int) positions.getEndPosition(unit, method))))

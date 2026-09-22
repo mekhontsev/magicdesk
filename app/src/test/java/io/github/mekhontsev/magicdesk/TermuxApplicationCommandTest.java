@@ -41,11 +41,23 @@ public final class TermuxApplicationCommandTest {
         Path file = write(applications.resolve("office.desktop"), "Calc");
         Files.writeString(file, Files.readString(file) + "StartupWMClass=libreoffice-calc\n");
         var entry = load().get(0);
-        assertEquals("libreoffice-calc", entry.shortcut.x11.startupClass());
+        assertEquals("libreoffice-calc", entry.shortcut.graphics.startupClass());
         var recent = new RecentApplicationStore.Entry(entry.shortcut, entry.desktopFilePath, "com.termux", 1);
         var restored = DesktopEntryFile.parseRecent(DesktopEntryFile.encodeRecent(recent));
         assertNotNull(restored);
-        assertEquals("libreoffice-calc", restored.shortcut().x11.startupClass());
+        assertEquals("libreoffice-calc", restored.shortcut().graphics.startupClass());
+    }
+
+    @Test public void keepsExplicitGraphicalProtocolThroughDiscoveryAndRecent() throws Exception {
+        Path file = write(applications.resolve("wayland.desktop"), "Wayland editor");
+        Files.writeString(file, Files.readString(file) + "X-MagicDesk-Graphics=wayland\n"
+                + "X-MagicDesk-KeyboardDirectory=/custom/xkb\n");
+        var entry = load().get(0);
+        assertEquals(GraphicalProtocol.WAYLAND, entry.shortcut.graphics.protocol());
+        assertEquals("/custom/xkb", entry.shortcut.graphics.keyboardDirectory());
+        var recent = new RecentApplicationStore.Entry(entry.shortcut, entry.desktopFilePath, "com.termux", 1);
+        assertEquals(entry.shortcut.graphics,
+                DesktopEntryFile.parseRecent(DesktopEntryFile.encodeRecent(recent)).shortcut().graphics);
     }
 
     @Test public void skipsBrokenLinksLinkCyclesAndLinkedSubdirectories() throws Exception {
@@ -68,11 +80,11 @@ public final class TermuxApplicationCommandTest {
                 "thunar", "", "alice", LinuxLaunchRecipe.Presentation.APPLICATION);
         Files.writeString(applications.resolve("guest.desktop"), DesktopEntryFile.encodeApplication(shortcut));
         var entry = load().get(0);
-        assertEquals(shortcut.x11.fileEnvironment(), entry.shortcut.x11.fileEnvironment());
+        assertEquals(shortcut.graphics.fileEnvironment(), entry.shortcut.graphics.fileEnvironment());
         var recent = new RecentApplicationStore.Entry(entry.shortcut, entry.desktopFilePath, "com.termux", 1);
         var restored = DesktopEntryFile.parseRecent(DesktopEntryFile.encodeRecent(recent));
         assertNotNull(restored);
-        assertEquals(shortcut.x11.fileEnvironment(), restored.shortcut().x11.fileEnvironment());
+        assertEquals(shortcut.graphics.fileEnvironment(), restored.shortcut().graphics.fileEnvironment());
     }
 
     @Test public void linkedUserOverrideMasksInstalledEntryEvenWhenCatalogRootIsLinked() throws Exception {

@@ -7,7 +7,7 @@ public final class X11ApplicationIdentityTest {
         RuntimeSourceFixture.verify("""
             record Application(Fixture session, long window) { }
             record Recipe(String key) { Shortcut shortcut() { return new Shortcut(); } }
-            static class Shortcut { Options x11 = new Options(); }
+            static class Shortcut { Options graphics = new Options(); }
             static class Options { String startupClass() { return "writer"; } }
             static class X11Session {
                 record Window(long id, String cls) {

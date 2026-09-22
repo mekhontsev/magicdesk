@@ -6,7 +6,7 @@ final class DesktopExecSpec {
     final String command;
     final boolean terminal;
     final String workingDirectory;
-    final X11LaunchOptions x11;
+    final GraphicalLaunchOptions graphics;
     final boolean literal;
 
     DesktopExecSpec(
@@ -25,7 +25,7 @@ final class DesktopExecSpec {
     }
 
     DesktopExecSpec(DesktopExecBackend backend, String command, boolean terminal,
-            String workingDirectory, X11LaunchOptions x11, boolean literal) {
+            String workingDirectory, GraphicalLaunchOptions graphics, boolean literal) {
         this.backend = backend == null
                 ? DesktopExecBackend.SHELL : backend;
         this.command = DesktopExecCommand.normalize(command);
@@ -33,7 +33,7 @@ final class DesktopExecSpec {
             throw new IllegalArgumentException("missing desktop Exec command");
         }
         this.terminal = terminal;
-        this.x11 = x11;
+        this.graphics = graphics;
         this.literal = literal;
         this.workingDirectory = DesktopExecWorkingDirectory.normalize(
                 workingDirectory);
@@ -41,6 +41,6 @@ final class DesktopExecSpec {
 
     DesktopExecSpec withCommand(final String value) {
         return new DesktopExecSpec(
-                backend, value, terminal, workingDirectory, x11, literal);
+                backend, value, terminal, workingDirectory, graphics, literal);
     }
 }

@@ -49,7 +49,7 @@ Start refreshes after saving; Recent retains the launch recipe and its selected
 executor, including the package identity for Termux. Identical saves do not
 create duplicates, and a different entry with the same name is not overwritten.
 These launchers use ordinary
-`Exec`, `Terminal`, and the existing `X-MagicDesk-X11Mode` presentation hint;
+`Exec`, `Terminal`, `X-MagicDesk-Graphics=x11` and `X-MagicDesk-GraphicsMode`;
 there is no separate distribution registry or executor.
 
 Long-press or right-click a user-created Termux shortcut in Start and select
@@ -95,7 +95,7 @@ Graphical Linux scripts must also bind `MAGICDESK_GUEST_FILES_HELPER` at
 `MAGICDESK_GUEST_FILES_TOKEN` to the supplied guest command. Start that command
 after selecting the guest user. The helper reads exported files with the same
 credentials as the application; imports use the session's shared content
-directory. The Linux editor emits `X-MagicDesk-X11FileEnvironment`, an explicit
+directory. The Linux editor emits `X-MagicDesk-FileEnvironment`, an explicit
 environment/user identity retained in Recent and used to isolate launch correlation.
 This is a MagicDesk desktop-entry extension, not a freedesktop standard key.
 
@@ -201,7 +201,7 @@ as a retained terminal session. Closing its window detaches the view; explicit
 session termination closes the PTY. Desktop Entry command tracking does not own
 that lifetime.
 
-X11 presentation is independent of the selected `shell` or `termux` executor:
+Graphical protocol and presentation are independent of the command executor:
 
 ```ini
 [Desktop Entry]
@@ -210,7 +210,8 @@ Name=Firefox (Termux)
 Exec=firefox %u
 Terminal=false
 X-MagicDesk-ExecBackend=termux
-X-MagicDesk-X11Mode=application
+X-MagicDesk-Graphics=x11
+X-MagicDesk-GraphicsMode=application
 ```
 
 It starts an authenticated, independently owned X server and presents client
@@ -219,17 +220,27 @@ Termux `.desktop` entries automatically. The standalone Termux:X11 APK is not
 required. Graphical recipes follow desktop-entry argument expansion even without
 field codes; shell constructs require explicit `sh -c`. Non-graphical entries
 may also select literal argv with `X-MagicDesk-ExecSyntax=argv`. `Terminal=true`
-omits the X11 mode and selects the executor's Console path. Shell X11 recipes
-also set `X-MagicDesk-X11KeyboardDirectory=/host/path/to/X11/xkb`. See
+omits graphical options and selects the executor's Console path. Shell X11 recipes
+also set `X-MagicDesk-KeyboardDirectory=/host/path/to/X11/xkb`. See
 [Embedded X11](x11.md) for retention, multiple windows and container commands.
 
-For a complete Linux desktop, use `X-MagicDesk-X11Mode=desktop` instead of
+For a complete Linux desktop, use `X-MagicDesk-GraphicsMode=desktop` instead of
 `application`, which presents individual client windows. Desktop mode presents
 the whole X screen and retains the server after its Android window closes.
 The PRoot editor generates this recipe for installed `proot-distro` environments.
 For custom proot/chroot setups, use an explicit `Exec` script exposing the
 supplied X socket and authorization to the guest. MagicDesk does not infer
 which guest application or desktop command to start.
+
+`X-MagicDesk-Graphics=wayland` selects the experimental Wayland compositor for
+individual applications. `application` is the default graphical mode. Start,
+Recent, recipe identity and Android placement use the same owners as X11;
+ordinary installed Termux graphical entries default to X11 unless they explicitly
+select another protocol. The command editor offers **Termux graphics** with an
+X11/Wayland selector. Toolkit-specific command arguments belong in `Exec`.
+Wayland whole-desktop and guest file recipes are rejected before launch until
+those capabilities are implemented. See [Wayland](wayland.md) for current scope.
+These `X-MagicDesk-*` keys are application extensions, not standard freedesktop keys.
 
 ## Recent Launches
 

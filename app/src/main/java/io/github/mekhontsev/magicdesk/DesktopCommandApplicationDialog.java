@@ -113,6 +113,13 @@ final class DesktopCommandApplicationDialog {
         final Spinner backend = spinner(activity, R.array.command_app_backends,
                 initial.backend.ordinal());
         form.addView(backend, matchWrap());
+        final LinearLayout graphicsFields = new LinearLayout(activity);
+        graphicsFields.setOrientation(LinearLayout.VERTICAL);
+        graphicsFields.setVisibility(View.GONE);
+        label(activity, graphicsFields, R.string.command_app_graphics);
+        final Spinner protocol = spinner(activity, R.array.command_app_graphics_protocols, 0);
+        graphicsFields.addView(protocol, matchWrap());
+        form.addView(graphicsFields, matchWrap());
         final LinuxEnvironmentPicker linux = new LinuxEnvironmentPicker(activity);
         linux.setVisibility(View.GONE);
         form.addView(linux, matchWrap());
@@ -156,6 +163,7 @@ final class DesktopCommandApplicationDialog {
 
             @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 boolean isLinux = position >= 3;
+                graphicsFields.setVisibility(position == 2 ? View.VISIBLE : View.GONE);
                 linux.setBackend(position == 4 ? DesktopExecBackend.SHELL : DesktopExecBackend.TERMUX);
                 linux.setActive(isLinux);
                 linux.setGraphical(presentation.getSelectedItemPosition() != 0);
@@ -259,7 +267,8 @@ final class DesktopCommandApplicationDialog {
                     } else create(activity, backend.getSelectedItemPosition() == 2
                             ? new DesktopApplicationShortcut(shortcut.name, shortcut.icon, shortcut.exec, null, "",
                                     shortcut.launchMode, false, shortcut.execBackend, false, shortcut.workingDirectory,
-                                    shortcut.mimeTypes).withX11(new X11LaunchOptions(false, "")) : shortcut,
+                                    shortcut.mimeTypes).withGraphics(new GraphicalLaunchOptions(
+                                            GraphicalProtocol.values()[protocol.getSelectedItemPosition()], false, "", "", "")) : shortcut,
                             listener, dialog);
                 }));
         return dialog;

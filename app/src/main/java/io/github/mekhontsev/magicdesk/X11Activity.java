@@ -19,7 +19,6 @@ public final class X11Activity extends Activity implements
     static final String WINDOW = "x11_window";
     static final String DESKTOP_FILE = "x11_desktop_file";
     static final String APPLICATION = "x11_application";
-    static final String RECIPE = "x11_recipe";
     static final String RECENT_SCOPE = "x11_recent_scope";
     static final String BACKEND = "x11_backend";
     static final String KEYBOARD_DIRECTORY = "x11_keyboard_directory";
@@ -41,8 +40,9 @@ public final class X11Activity extends Activity implements
     static Intent createIntent(Context context) { return new Intent(context, X11Activity.class); }
 
     static Intent windowIntent(Context context, X11Sessions.Session session, long window) {
-        return BuiltInWindowIdentity.bind(createIntent(context).putExtra(SESSION, session.id()).putExtra(WINDOW, window),
-                X11ApplicationLaunch.reference(context, session.windowRecipe(window)));
+        return BuiltInWindowIdentity.bind(createIntent(context).putExtra(SESSION, session.id()).putExtra(WINDOW, window)
+                .putExtra(APPLICATION, session.application),
+                GraphicalApplicationLaunch.reference(context, session.windowRecipe(window)));
     }
 
     static Intent createApplicationIntent(Context context, String name, String command, String directory) {
@@ -69,12 +69,12 @@ public final class X11Activity extends Activity implements
         window = state == null ? getIntent().getLongExtra(WINDOW, 0) : state.getLong(WINDOW);
         provisional = state == null ? window == 0 : state.getBoolean("x11_provisional", window == 0);
         String id = state == null ? getIntent().getStringExtra(SESSION) : state.getString(SESSION);
-        final var recipe = getIntent().hasExtra(RECIPE) ? DesktopEntryFile.parseRecent(getIntent().getStringExtra(RECIPE)) : null;
+        final var recipe = getIntent().hasExtra(GraphicalApplicationLaunch.RECIPE) ? DesktopEntryFile.parseRecent(getIntent().getStringExtra(GraphicalApplicationLaunch.RECIPE)) : null;
         identityRecipe = recipe;
-        windowApplication = X11ApplicationLaunch.reference(this, recipe);
+        windowApplication = GraphicalApplicationLaunch.reference(this, recipe);
         application = state == null ? getIntent().getBooleanExtra(APPLICATION,
-                getIntent().hasExtra(COMMAND) && (recipe == null || recipe.shortcut().x11 == null
-                        || !recipe.shortcut().x11.desktop())) : state.getBoolean(APPLICATION);
+                getIntent().hasExtra(COMMAND) && (recipe == null || recipe.shortcut().graphics == null
+                        || !recipe.shortcut().graphics.desktop())) : state.getBoolean(APPLICATION);
         if (getIntent().hasExtra(COMMAND) && state == null && id == null) {
             try {
                 DesktopExecBackend backend = DesktopExecBackend.parse(getIntent().getStringExtra(BACKEND));
@@ -83,7 +83,7 @@ public final class X11Activity extends Activity implements
                             : R.string.capability_access_required);
                     return;
                 }
-                if (getIntent().hasExtra(RECIPE) && recipe == null) throw new IllegalArgumentException("Invalid X11 launch recipe");
+                if (getIntent().hasExtra(GraphicalApplicationLaunch.RECIPE) && recipe == null) throw new IllegalArgumentException("Invalid X11 launch recipe");
                 if (recipe != null) RecentApplications.requireEnvironment(this, recipe);
                 select(X11Sessions.startCommand(this, getIntent().getStringExtra(NAME),
                         getIntent().getStringExtra(COMMAND), getIntent().getStringExtra(DIRECTORY),
@@ -135,7 +135,7 @@ public final class X11Activity extends Activity implements
         var currentRecipe = session == null ? null : session.windowRecipe(window);
         if (currentRecipe != identityRecipe) {
             identityRecipe = currentRecipe;
-            windowApplication = X11ApplicationLaunch.reference(this, currentRecipe);
+            windowApplication = GraphicalApplicationLaunch.reference(this, currentRecipe);
             DesktopRuntimeBridge.refreshTaskPresentations();
         }
         if (application && session != null && session.state() == X11Sessions.State.CLOSED) { finish(); return; }

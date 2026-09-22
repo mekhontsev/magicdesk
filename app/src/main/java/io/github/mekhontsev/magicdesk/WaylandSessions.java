@@ -34,9 +34,14 @@ final class WaylandSessions {
 
     static Session start(Context context, String name, String command, String directory,
             DesktopExecBackend backend, String keyboard) {
+        return start(context, name, command, directory, backend, keyboard, null);
+    }
+
+    static Session start(Context context, String name, String command, String directory,
+            DesktopExecBackend backend, String keyboard, RecentApplicationStore.Entry recipe) {
         if (name == null || name.isBlank() || name.length() > 128)
             throw new IllegalArgumentException("Session name must contain 1 to 128 characters");
-        Session session = new Session(context.getApplicationContext(), name.trim(), new WaylandExecution(context, backend, keyboard));
+        Session session = new Session(context.getApplicationContext(), name.trim(), new WaylandExecution(context, backend, keyboard), recipe);
         synchronized (SESSIONS) { SESSIONS.put(session.id(), session); }
         MAIN.post(() -> session.start(command, directory));
         return session;
@@ -47,6 +52,9 @@ final class WaylandSessions {
     static int count() { synchronized (SESSIONS) { return SESSIONS.size(); } }
     static void closeAll() { for (var session : list()) session.close(); }
     static void prepareForExit() { for (var session : list()) session.presentation.close(); }
+    static void forgetLaunchSource(String termuxPackage, String path) {
+        for (var session : list()) session.forgetRecipe(termuxPackage, path);
+    }
 
     static final class Session implements HostedWindowPresentation.Session, WaylandSession.Listener {
         final String name;
@@ -63,6 +71,11 @@ final class WaylandSessions {
         private final Runnable timeout = () -> fail(new IOException("Wayland server startup deadline expired"));
         private String startupCommand, startupDirectory;
         private String socket;
+        private volatile RecentApplicationStore.Entry recipe;
+        private RecentLaunchScope recentScope;
+        private final boolean application;
+        private boolean hadWindows;
+        private final Runnable applicationTimeout = () -> fail(new IOException("Wayland application did not open a window"));
         private final BroadcastReceiver admission = new BroadcastReceiver() {
             @Override public void onReceive(Context source, Intent intent) {
                 if (stopped() || getSentFromUid() != execution.serverUid
@@ -88,6 +101,7 @@ final class WaylandSessions {
                         state = "READY";
                         MAIN.removeCallbacks(timeout);
                         unregister();
+                        if (application) MAIN.postDelayed(applicationTimeout, 60_000);
                         if (startupCommand != null && !startupCommand.isBlank()) execute(startupCommand, startupDirectory);
                         changed();
                     }
@@ -95,8 +109,9 @@ final class WaylandSessions {
             }
         };
 
-        Session(Context context, String name, WaylandExecution execution) {
+        Session(Context context, String name, WaylandExecution execution, RecentApplicationStore.Entry recipe) {
             this.context = context; this.name = name; this.execution = execution;
+            this.recipe = recipe; application = recipe != null;
             presentation = new HostedWindowPresentation(context, this);
         }
 
@@ -131,10 +146,32 @@ final class WaylandSessions {
         @Override public boolean containsWindow(long id) { return windows().stream().anyMatch(window -> window.id() == id); }
         void listen(Listener listener) { listeners.add(listener); }
         void unlisten(Listener listener) { listeners.remove(listener); }
-        void host(int taskId, long window) { hosts.put(taskId, window); presentation.claim(window); }
-        void releaseHost(int taskId) { hosts.remove(taskId); }
-        @Override public int hostTaskId(long window) {
-            return hosts.entrySet().stream().filter(entry -> entry.getValue() == window).map(Map.Entry::getKey).findFirst().orElse(-1);
+        synchronized void host(int taskId, long window) { hosts.put(taskId, window); presentation.claim(window); }
+        synchronized void releaseHost(int taskId) { hosts.remove(taskId); }
+        @Override public synchronized int hostTaskId(long window) {
+            return hosts.entrySet().stream().filter(entry -> window == 0 || entry.getValue() == window)
+                    .map(Map.Entry::getKey).findFirst().orElse(-1);
+        }
+        RecentApplicationStore.Entry recipe() { return recipe; }
+        long recipeWindow(String key) {
+            if (stopped() || recipe == null || !recipe.key().equals(key)) return -1;
+            return windows().stream().filter(WaylandSession.Window::mapped).mapToLong(WaylandSession.Window::id)
+                    .findFirst().orElse(hadWindows ? -1 : 0);
+        }
+        synchronized boolean recordTaskUse(int taskId, RecentLaunchScope scope) {
+            if (!hosts.containsKey(taskId)) return false;
+            recordUse(scope); return true;
+        }
+        void recordUse(RecentLaunchScope scope) {
+            if (Looper.myLooper() != Looper.getMainLooper()) { MAIN.post(() -> recordUse(scope)); return; }
+            recentScope = scope;
+            var entry = recipe;
+            if (entry != null && hadWindows && ready() && scope != null)
+                RecentApplications.record(context, entry.usedAt(System.currentTimeMillis()), scope);
+        }
+        private void forgetRecipe(String termuxPackage, String path) {
+            var entry = recipe;
+            if (entry != null && entry.termuxPackage().equals(termuxPackage) && entry.sourcePath().equals(path)) recipe = null;
         }
         @Override public Intent windowIntent(Context context, long window) { return WaylandActivity.windowIntent(context, this, window); }
         WaylandSession.Output openOutput(long window, int width, int height) {
@@ -206,6 +243,12 @@ final class WaylandSessions {
 
         @Override public void changed() {
             if (Looper.myLooper() != Looper.getMainLooper()) { MAIN.post(this::changed); return; }
+            if (ready() && windows().stream().anyMatch(WaylandSession.Window::mapped) && !hadWindows) {
+                hadWindows = true;
+                MAIN.removeCallbacks(applicationTimeout);
+                recordUse(recentScope);
+            }
+            if (ready() && application && hadWindows && windows().isEmpty()) { close(); return; }
             presentation.retain(windows().stream().map(WaylandSession.Window::id).collect(java.util.stream.Collectors.toSet()));
             for (var listener : listeners) listener.changed();
             if (ready()) for (var window : windows()) if (window.mapped()) presentation.present(window.id());
@@ -232,6 +275,7 @@ final class WaylandSessions {
             state = next; error = message;
             presentation.close();
             MAIN.removeCallbacks(timeout);
+            MAIN.removeCallbacks(applicationTimeout);
             unregister();
             if (renderer != null) renderer.close();
             resources.close();

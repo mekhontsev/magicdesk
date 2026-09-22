@@ -100,7 +100,7 @@ final class DesktopLaunchRequest {
                     shortcut.execBackend,
                     shortcut.exec,
                     shortcut.terminal,
-                    shortcut.workingDirectory, shortcut.x11, shortcut.literalExec);
+                    shortcut.workingDirectory, shortcut.graphics, shortcut.literalExec);
         }
         return new DesktopLaunchRequest(
                 shortcut.name,

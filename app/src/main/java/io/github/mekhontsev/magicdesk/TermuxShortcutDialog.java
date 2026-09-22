@@ -27,6 +27,7 @@ final class TermuxShortcutDialog {
                     return;
                 }
                 X11Sessions.forgetLaunchSource(endpoint.packageName, path);
+                WaylandSessions.forgetLaunchSource(endpoint.packageName, path);
                 RecentApplications.removeSource(activity, endpoint.packageName, path, error -> {
                     if (error != null) {
                         failed(activity, ShellAccess.usefulMessage(error));

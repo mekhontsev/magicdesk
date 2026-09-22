@@ -36,7 +36,7 @@ public final class X11ActivityHandoffTest {
             static class X11WindowSelection {
             """ + RuntimeSourceFixture.methods("X11WindowSelection", "select") + """
             }
-            static class X11ApplicationLaunch {
+            static class GraphicalApplicationLaunch {
                 static Object reference(Object context, Object recipe) { return recipe; }
             }
             static class DesktopRuntimeBridge { static void refreshTaskPresentations() { } }

@@ -90,9 +90,10 @@ final class RecentApplications {
     }
 
     static void recordTask(Context context, TaskRepository.TaskEntry task, List<AppItem> apps) {
-        // X11 hosts publish their original recipe, not the generic X11 manager component.
+        // Graphical hosts publish their launch recipe, not the generic manager component.
         if (task.packageName.equals(context.getPackageName())) {
             for (var session : X11Sessions.list()) if (session.recordTaskUse(task.taskId, RecentLaunchScope.DESKTOP)) return;
+            for (var session : WaylandSessions.list()) if (session.recordTaskUse(task.taskId, RecentLaunchScope.DESKTOP)) return;
             // Built-in launches retain their own semantic recipe, not a generic Activity.
             return;
         }
@@ -111,6 +112,11 @@ final class RecentApplications {
         if (target.activityClassName.equals(X11Activity.class.getName())) {
             var session = X11Sessions.find(intent.getStringExtra(X11Activity.SESSION));
             if (session != null) session.recordUse(intent.getLongExtra(X11Activity.WINDOW, 0), scope);
+            return;
+        }
+        if (target.activityClassName.equals(WaylandActivity.class.getName())) {
+            var session = WaylandSessions.find(intent.getStringExtra(WaylandActivity.SESSION));
+            if (session != null) session.recordUse(scope);
             return;
         }
         var shortcut = BuiltInRecentLaunch.describe(context, intent, target);

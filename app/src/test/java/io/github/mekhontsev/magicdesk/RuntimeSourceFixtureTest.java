@@ -1,12 +1,19 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
 public final class RuntimeSourceFixtureTest {
+    @Test public void extractionOmitsInterfaceDeclarationsWithoutBodies() throws Exception {
+        final String methods = RuntimeSourceFixture.methods("WaylandSessions", "changed");
+        assertTrue(methods.contains("public void changed() {"));
+        assertFalse(methods.contains("void changed();"));
+    }
+
     @Test public void extractionPreservesInferredLocalTypes() throws Exception {
         final String methods = RuntimeSourceFixture.methods("TaskManagerActivity", "allTasks");
         assertTrue(methods.contains("final var tasks"));

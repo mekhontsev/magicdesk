@@ -53,8 +53,8 @@ final class DesktopLaunchCoordinator {
             if (source.application != null) {
                 source.application.requireProfile(AppProfile.current(mContext.context()));
             }
-            if (X11ApplicationLaunch.reuse(mContext, source, completion)) return true;
-            request = X11ApplicationLaunch.prepare(mContext, source.prepareExec());
+            if (GraphicalApplicationLaunch.reuse(mContext, source, completion)) return true;
+            request = GraphicalApplicationLaunch.prepare(mContext, source.prepareExec());
         } catch (RuntimeException error) {
             if (completion == null) mContext.onFailure(source, error);
             complete(completion, DesktopActivityLaunchResult.failed(error));

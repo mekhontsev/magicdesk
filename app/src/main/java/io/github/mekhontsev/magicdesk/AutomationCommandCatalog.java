@@ -1764,8 +1764,10 @@ final class AutomationCommandCatalog {
                                 .put("desktopPath", stringProperty("Desktop file path for launch_desktop_entry."))
                                 .put("backend", stringProperty("Execution backend."))
                                 .put("terminal", booleanProperty("Launches a terminal."))
-                                .put("x11", booleanProperty("Presents the command through the embedded X11 server."))
-                                .put("x11Desktop", booleanProperty("Launches a whole Linux desktop.")))))
+                                .put("graphics", objectSchema(new JSONObject()
+                                        .put("protocol", enumProperty("Graphical protocol.", "x11", "wayland"))
+                                        .put("mode", enumProperty("Graphical presentation.", "application", "desktop")), "protocol", "mode")
+                                        .put("type", new JSONArray().put("object").put("null"))))))
                         .put("source", stringProperty("Catalog source."))
                         .put("total", integerProperty("Matching application count."))
                         .put("truncated", booleanProperty("More entries matched than returned."));

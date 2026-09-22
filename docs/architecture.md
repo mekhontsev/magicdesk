@@ -1732,7 +1732,7 @@ Android placement goes through `ToolApplications`.
 The read-only Termux `.desktop` catalog feeds shared Start content and MCP/CLI
 application discovery. `DesktopEntrySource` separates its authority from shell
 file access: Termux launches resolve an exact freshly queried catalog path.
-`X11ApplicationLaunch` turns graphical presentation into a normal Android launch request;
+`GraphicalApplicationLaunch` turns graphical presentation into a normal Android launch request;
 the native window model owns X relationships, never Android task topology.
 Clipboard and copy drag-and-drop reuse the shared Android content boundary;
 the fork owns native selection/XDND negotiation, while MagicDesk owns the Java
@@ -3254,15 +3254,16 @@ their D-Bus/runtime-directory lifetime. No startup scan or Desktop prerequisite
 is introduced. The catalog marks deletable user shortcuts from their storage
 location, never from untrusted file metadata. Deletion uses the captured Termux
 endpoint, refuses package-owned files and symbolic links, and removes matching
-source/package recipes from both Recent scopes. Retained X11 sessions forget
+source/package recipes from both Recent scopes. Retained graphical sessions forget
 that launch recipe without stopping their clients or server.
 
 `DesktopExecRunner` owns the execution-backend boundary. Android shell is the
 default backend;
-`X-MagicDesk-ExecBackend=termux` selects Termux explicitly. `X11LaunchOptions`
-is orthogonal presentation plus keyboard data, not a third executor. It
-is prepared by `X11ApplicationLaunch` as an Android host request before generic
-command delegation. Terminal recipes omit X11 options. Unknown backend
+`X-MagicDesk-ExecBackend=termux` selects Termux explicitly. `GraphicalLaunchOptions`
+selects X11 or Wayland presentation plus keyboard data, not a third executor. It
+is prepared by `GraphicalApplicationLaunch` as an Android host request before generic
+command delegation. Both protocols share recipe reuse, Recent identity and Android
+placement through `GraphicalSessions`. Terminal recipes omit graphical options. Unknown backend
 names invalidate the entry instead of silently running a command in the wrong
 environment. `Terminal=true` opens the built-in Console with either a
 UserService-backed Android shell PTY or a Termux-hosted PTY.

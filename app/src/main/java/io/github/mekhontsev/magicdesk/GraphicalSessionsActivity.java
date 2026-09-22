@@ -165,7 +165,7 @@ public final class GraphicalSessionsActivity extends Activity {
                         var executor = backend.getSelectedItemPosition() == 0 ? DesktopExecBackend.TERMUX : DesktopExecBackend.SHELL;
                         if (DesktopExecRunner.prepareBackend(this, executor) != DesktopExecRunner.StartResult.STARTED) return;
                         var selectedProtocol = protocol.getSelectedItemPosition() == 0
-                                ? GraphicalSessions.Protocol.X11 : GraphicalSessions.Protocol.WAYLAND;
+                                ? GraphicalProtocol.X11 : GraphicalProtocol.WAYLAND;
                         select(GraphicalSessions.start(this, selectedProtocol, name.getText().toString().isBlank()
                                 ? protocol.getSelectedItem().toString() : name.getText().toString(),
                                 command.getText().toString(), "", executor, keyboard.getText().toString()));

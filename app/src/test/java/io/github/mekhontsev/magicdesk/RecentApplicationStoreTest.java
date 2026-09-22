@@ -20,7 +20,7 @@ public final class RecentApplicationStoreTest {
     }
     private static DesktopApplicationShortcut x11(String name, String command) {
         return new DesktopApplicationShortcut(name, "gimp", command, null, "", DesktopLaunchMode.AUTO,
-                false, DesktopExecBackend.TERMUX, false, "/data/data/com.termux/files/home").withX11(new X11LaunchOptions(false, ""));
+                false, DesktopExecBackend.TERMUX, false, "/data/data/com.termux/files/home").withGraphics(new GraphicalLaunchOptions(false, ""));
     }
     private static RecentApplicationStore.Entry entry(DesktopApplicationShortcut app, String path) {
         return new RecentApplicationStore.Entry(app, path, app.hasExecLaunch() ? "com.termux" : "", 100);
@@ -40,11 +40,11 @@ public final class RecentApplicationStoreTest {
     @Test public void mixedHistorySurvivesRestartWithoutAnIndexOrRuntimeIds() throws Exception {
         var app = entry(android(new AppProfile(0, 5), "example.app"), "");
         var gimp = entry(x11("GIMP", "gimp %U"), "/termux/gimp.desktop");
-        var desktop = entry(x11("Ubuntu", "proot-distro login ubuntu -- startxfce4").withX11(new X11LaunchOptions(true, "")), "");
+        var desktop = entry(x11("Ubuntu", "proot-distro login ubuntu -- startxfce4").withGraphics(new GraphicalLaunchOptions(true, "")), "");
         store().record(app); store().record(gimp); store().record(desktop);
         var entries = store().read();
         assertEquals(List.of(desktop.key(), gimp.key(), app.key()), entries.stream().map(RecentApplicationStore.Entry::key).toList());
-        assertTrue(entries.get(0).shortcut().x11.desktop());
+        assertTrue(entries.get(0).shortcut().graphics.desktop());
         assertEquals("gimp %U", entries.get(1).shortcut().exec);
         assertEquals("/termux/gimp.desktop", entries.get(1).sourcePath());
         assertEquals(app.shortcut().application, entries.get(2).shortcut().application);
@@ -88,7 +88,7 @@ public final class RecentApplicationStoreTest {
     @Test public void distinctRecipesAndEnvironmentsAreNotMerged() {
         var gimp = entry(x11("GIMP", "gimp"), "");
         assertNotEquals(gimp.key(), entry(x11("GIMP", "gimp --no-data"), "").key());
-        assertNotEquals(gimp.key(), entry(gimp.shortcut().withX11(new X11LaunchOptions(true, "")), "").key());
+        assertNotEquals(gimp.key(), entry(gimp.shortcut().withGraphics(new GraphicalLaunchOptions(true, "")), "").key());
         assertNotEquals(gimp.key(), new RecentApplicationStore.Entry(gimp.shortcut(), "", "org.example.termux", 100).key());
         var field = x11("Wrapper", "wrapper %k");
         assertNotEquals(entry(field, "/a.desktop").key(), entry(field, "/b.desktop").key());
@@ -165,10 +165,10 @@ public final class RecentApplicationStoreTest {
 
     @Test public void importedTermuxDesktopModePreservesOnlySupportedExtensions() {
         var app = DesktopEntryFile.parseTermuxApplication("[Desktop Entry]\nType=Application\nName=Ubuntu\nExec=proot-distro login ubuntu -- startxfce4\n"
-                + "X-MagicDesk-X11Mode=desktop\nX-MagicDesk-Package=evil.app\nX-MagicDesk-Default=true\nX-MagicDesk-Intent=evil\n");
-        assertNotNull(app); assertTrue(app.x11.desktop()); assertNull(app.launchTarget); assertFalse(app.defaultLaunch);
-        assertTrue(((DesktopApplicationShortcut) DesktopEntryFile.parse(DesktopEntryFile.encodeApplication(app))).x11.desktop());
-        assertThrows(IllegalArgumentException.class, () -> android(new AppProfile(0, 5), "example.app").withX11(new X11LaunchOptions(true, "")));
+                + "X-MagicDesk-GraphicsMode=desktop\nX-MagicDesk-Package=evil.app\nX-MagicDesk-Default=true\nX-MagicDesk-Intent=evil\n");
+        assertNotNull(app); assertTrue(app.graphics.desktop()); assertNull(app.launchTarget); assertFalse(app.defaultLaunch);
+        assertTrue(((DesktopApplicationShortcut) DesktopEntryFile.parse(DesktopEntryFile.encodeApplication(app))).graphics.desktop());
+        assertThrows(IllegalArgumentException.class, () -> android(new AppProfile(0, 5), "example.app").withGraphics(new GraphicalLaunchOptions(true, "")));
     }
 
     @Test public void preparedLaunchRetainsOriginalRecipeNotExpandedArguments() {

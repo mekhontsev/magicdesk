@@ -400,6 +400,11 @@ Neither route requires Desktop or a separate container-management MCP API.
 both protocols. The **Linux graphics** built-in uses ordinary tool placement and
 remains available without Desktop. `services.graphics` describes executor
 availability; individual protocols still validate their launch requirements.
+`list_desktop_entries` exposes each recipe's `graphics` selection as
+`{protocol: x11|wayland, mode: application|desktop}`, or `null` for a non-graphical
+command. `launch_desktop_entry` uses that selection through Start's shared launch
+coordinator, including recipe reuse and `instance=new`. Acceptance is not a mapped
+client window; observe the graphical catalog and Android task separately.
 
 `x11.inspect_window` reads one live window family by `sessionId` and X11
 `windowId` from that catalog. It requires `content`, not Desktop or shell access.

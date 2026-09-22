@@ -23,7 +23,7 @@ public final class LinuxLaunchRecipeTest {
     @Test public void terminalWithoutCommandEntersLoginShellWithoutX11() throws Exception {
         var shortcut = recipe("", "", LinuxLaunchRecipe.Presentation.TERMINAL);
         assertTrue(shortcut.terminal);
-        assertNull(shortcut.x11);
+        assertNull(shortcut.graphics);
         assertEquals(List.of("login", "--isolated", "ubuntu"), arguments(shortcut));
         assertFalse(shortcut.exec.contains("DISPLAY"));
     }
@@ -40,7 +40,7 @@ public final class LinuxLaunchRecipeTest {
         for (var mode : List.of(LinuxLaunchRecipe.Presentation.APPLICATION, LinuxLaunchRecipe.Presentation.DESKTOP)) {
             var shortcut = recipe("xfce4-session", "", mode);
             assertFalse(shortcut.terminal);
-            assertEquals(mode == LinuxLaunchRecipe.Presentation.DESKTOP, shortcut.x11 != null && shortcut.x11.desktop());
+            assertEquals(mode == LinuxLaunchRecipe.Presentation.DESKTOP, shortcut.graphics != null && shortcut.graphics.desktop());
             var args = arguments(shortcut);
             assertEquals(List.of("login", "--isolated", "--shared-tmp", "--bind",
                     "/private/runtime ' dir:/tmp/magicdesk-x11", "--bind", "/apk/helper:/tmp/magicdesk-guest-files",
@@ -55,8 +55,8 @@ public final class LinuxLaunchRecipeTest {
             var parsed = DesktopEntryFile.parseTermuxApplication(DesktopEntryFile.encodeApplication(shortcut));
             assertNotNull(parsed);
             assertEquals(shortcut.exec, parsed.exec);
-            assertEquals(shortcut.x11.desktop(), parsed.x11.desktop());
-            assertEquals(shortcut.x11.fileEnvironment(), parsed.x11.fileEnvironment());
+            assertEquals(shortcut.graphics.desktop(), parsed.graphics.desktop());
+            assertEquals(shortcut.graphics.fileEnvironment(), parsed.graphics.fileEnvironment());
         }
     }
 
@@ -81,11 +81,11 @@ public final class LinuxLaunchRecipeTest {
         var otherUser = LinuxLaunchRecipe.build("Calc", proot(), "libreoffice --calc", "", "bob", mode);
         var otherGuest = LinuxLaunchRecipe.build("Calc", new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.PROOT, "debian"),
                 "libreoffice --calc", "", "alice", mode);
-        assertEquals(one.x11.fileEnvironment(), two.x11.fileEnvironment());
-        assertNotEquals(one.x11.fileEnvironment(), otherUser.x11.fileEnvironment());
-        assertNotEquals(one.x11.fileEnvironment(), otherGuest.x11.fileEnvironment());
+        assertEquals(one.graphics.fileEnvironment(), two.graphics.fileEnvironment());
+        assertNotEquals(one.graphics.fileEnvironment(), otherUser.graphics.fileEnvironment());
+        assertNotEquals(one.graphics.fileEnvironment(), otherGuest.graphics.fileEnvironment());
         assertNotEquals(new RecentApplicationStore.Entry(one, "", "com.termux", 1).key(),
-                new RecentApplicationStore.Entry(one.withX11(new X11LaunchOptions(false, "")), "", "com.termux", 1).key());
+                new RecentApplicationStore.Entry(one.withGraphics(new GraphicalLaunchOptions(false, "")), "", "com.termux", 1).key());
     }
 
 
@@ -112,7 +112,7 @@ public final class LinuxLaunchRecipeTest {
             assertFalse(shortcut.exec.contains("proot-distro"));
             assertFalse(shortcut.exec.contains("su -c"));
             assertEquals(mode == LinuxLaunchRecipe.Presentation.TERMINAL, shortcut.terminal);
-            assertEquals(mode == LinuxLaunchRecipe.Presentation.DESKTOP, shortcut.x11 != null && shortcut.x11.desktop());
+            assertEquals(mode == LinuxLaunchRecipe.Presentation.DESKTOP, shortcut.graphics != null && shortcut.graphics.desktop());
             if (!shortcut.terminal) assertTrue(args.get(args.size() - 1).contains("dbus-run-session"));
             assertEquals(shortcut.exec, DesktopEntryFile.parseTermuxApplication(DesktopEntryFile.encodeApplication(shortcut)).exec);
         }
@@ -145,7 +145,7 @@ public final class LinuxLaunchRecipeTest {
                 var parsed = (DesktopApplicationShortcut) DesktopEntryFile.parse(DesktopEntryFile.encodeApplication(app));
                 assertNotNull(parsed);
                 assertEquals(backend, parsed.execBackend);
-                assertEquals(app.x11, parsed.x11);
+                assertEquals(app.graphics, parsed.graphics);
                 assertEquals(arguments(app, launcher), arguments(parsed, launcher));
                 var recent = new RecentApplicationStore.Entry(app, "", backend == DesktopExecBackend.TERMUX ? "com.termux" : "", 1);
                 assertEquals(recent.key(), DesktopEntryFile.parseRecent(DesktopEntryFile.encodeRecent(recent)).key());
@@ -155,7 +155,7 @@ public final class LinuxLaunchRecipeTest {
 
     @Test public void rootTerminalDoesNotRequireKeyboardDataButX11Does() {
         var environment = new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.SCRIPT, "/enter-linux", DesktopExecBackend.SHELL, "");
-        assertNull(LinuxLaunchRecipe.build("Linux", environment, "", "", "", LinuxLaunchRecipe.Presentation.TERMINAL).x11);
+        assertNull(LinuxLaunchRecipe.build("Linux", environment, "", "", "", LinuxLaunchRecipe.Presentation.TERMINAL).graphics);
         assertThrows(IllegalArgumentException.class, () -> LinuxLaunchRecipe.build("Linux", environment, "xterm", "", "",
                 LinuxLaunchRecipe.Presentation.APPLICATION));
         assertThrows(IllegalArgumentException.class, () -> new LinuxLaunchRecipe.Environment(

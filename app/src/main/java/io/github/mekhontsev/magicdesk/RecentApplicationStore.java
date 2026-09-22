@@ -44,9 +44,10 @@ final class RecentApplicationStore {
                     shortcut.launchTarget == null ? "" : shortcut.launchTarget.stableKey(),
                     shortcut.intentUri, shortcut.appShortcutId, Boolean.toString(shortcut.defaultLaunch),
                     shortcut.execBackend.wireName, command, Boolean.toString(shortcut.terminal),
-                    shortcut.workingDirectory, shortcut.x11 == null ? "" : shortcut.x11.desktop() ? "desktop" : "application",
-                    shortcut.x11 == null ? "" : shortcut.x11.keyboardDirectory(),
-                    shortcut.x11 == null ? "" : shortcut.x11.fileEnvironment());
+                    shortcut.workingDirectory, shortcut.graphics == null ? "" : shortcut.graphics.protocol().name(),
+                    shortcut.graphics == null ? "" : shortcut.graphics.desktop() ? "desktop" : "application",
+                    shortcut.graphics == null ? "" : shortcut.graphics.keyboardDirectory(),
+                    shortcut.graphics == null ? "" : shortcut.graphics.fileEnvironment());
         }
 
         Entry usedAt(long time) { return new Entry(shortcut, sourcePath, termuxPackage, time); }

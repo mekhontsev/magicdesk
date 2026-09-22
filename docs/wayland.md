@@ -7,8 +7,9 @@ runtime module. The APK packages the compositor and a separate host renderer.
 **Linux graphics** manages X11 and Wayland sessions through the same controls;
 Wayland opens each toplevel in an ordinary Android host. The shared
 `graphics.list/start/execute/stop/open_window` automation commands also generate
-the built-in CLI interface. Existing installed-app discovery and `.desktop`
-graphical recipes still select X11. A successful native test or APK build does
+the built-in CLI interface. Start and `.desktop` recipes select X11 or Wayland
+through the shared graphical launch model; ordinary installed Termux entries
+default to X11. A successful native test or APK build does
 not establish application compatibility or support on every Android release.
 
 Termux is an optional build environment, not a runtime dependency. The executor
@@ -16,7 +17,7 @@ library statically links its non-system dependencies and requires only Android's
 `libc.so`, `libm.so`, and `libdl.so`. The host renderer uses Android's public
 `ANativeWindow` API and does not link wlroots or load Termux libraries.
 
-The launch integration must retain the X11 execution model: Termux is an optional
+The launch integration shares the X11 execution model: Termux is an optional
 client executor; shell clients use the explicitly authorized command identity,
 while their compositor runs under MagicDesk's app UID, never an elevated renderer
 UID. Termux clients use the compositor's private named socket, allowing each
@@ -67,6 +68,13 @@ describe its creator and must not be mistaken for the launched client's identity
   `HostedWindowPresentation` placement/recovery owner as X11. Normal close sends
   `xdg_toplevel.close` and keeps the host for confirmation; force close disconnects
   that client connection, not other clients or the compositor.
+- `GraphicalApplicationLaunch` shares recipe reuse, profile-scoped application
+  identity, Recent and Android placement between X11 and Wayland. The pending
+  application host claims the first mapped toplevel; additional toplevels use
+  `HostedWindowPresentation`. A recipe launch owns a dedicated session, which
+  ends when its last window is destroyed. Sessions explicitly created in the
+  manager remain retained until stopped. Deleting a shortcut forgets its launch
+  history without closing live clients.
 - The native compositor API knows no Java classes, packages, Binder authorization,
   Android tasks or placement policy. Its calls and callbacks are serialized on
   the owning event loop; strings and pixel pointers are borrowed during callbacks.
@@ -106,13 +114,77 @@ input, focus release and graceful close. The standard data-device manager and
 seat selection serve guest-to-guest clipboard requests; they do not publish or
 read Android clipboard content. Popup nodes are composed with their
 parent, but popup policy and multi-window behavior need more coverage. IME/text,
-clipboard, drag-and-drop, density/fullscreen policy, launch identity, and GPU
+clipboard, drag-and-drop, density/fullscreen policy, and GPU
 buffer import are not complete. Android text input is explicitly unavailable
 instead of accepting and discarding IME text. Physical keys use the shared
 Android-to-evdev mapping. XWayland and full desktop environments are not part
 of this slice.
 
+## Implementation Plan
+
+The target includes both individual applications in Android windows and a whole
+Linux desktop in one Android host. The steps below are planned work, not current
+capabilities. Whole-desktop feasibility is the next step, independently of GPU support.
+
+1. **Whole-desktop feasibility.** Run a suitable nested Linux compositor with
+   software rendering in one Android host. The guest compositor owns its internal
+   windows. Verify pointer/key input, resize and viewer reopening without stopping
+   the guest session. Record requirements for the tested compositor separately
+   from support for other desktop environments; use the result to scope the
+   whole-desktop implementation through the shared session and host owners.
+2. **Everyday interaction.** Implement Android IME, bidirectional clipboard and
+   one visible cursor through the shared host adapters and Wayland protocol
+   backends. Complete density and fullscreen integration through existing
+   presentation policy. Verify text composition, selection, focus changes,
+   popups, close confirmations and resizing across GTK and Qt clients, with X11
+   regression coverage. Validate managed recipe placement on a Desktop separately
+   from independent Android hosts.
+3. **Drag-and-drop.** Connect Wayland data offers and drag lifecycle to the shared
+   content exchange. Verify text and file transfers in both directions, cancellation,
+   URI-grant lifetime and guest filesystem translation for prepared proot/chroot
+   environments. Keep container preparation outside the graphical runtime.
+4. **Optional GPU path.** Add buffer import, synchronization and presentation behind
+   the existing frame boundaries. Verify ownership, teardown and software fallback
+   on supported devices before advertising hardware-buffer capabilities. GPU
+   support must not change launch identity or become a startup requirement.
+
+Root/chroot client bootstrap is a separate prerequisite for testing those
+execution environments, not for the initial Termux application workflow. Extend
+the existing command executor and authenticated connection boundary; keep the
+compositor unprivileged and validate connections from independently launched
+clients and child processes. Do not treat one inherited client FD as a reusable
+endpoint for an entire desktop.
+
+Each step needs focused protocol tests and real Android-host workflows through
+the same UI/MCP service owners. As work lands, remove completed items from this
+plan and describe the resulting behavior in the relevant sections. Keep Status
+and Verification aligned with current capabilities and actual device coverage.
+This document describes the current design and remaining work, not a development
+chronicle; implementation history belongs in Git.
+
 ## Session Controls
+
+Installed Termux applications are discovered by Start. A Wayland recipe selects
+its protocol explicitly:
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=GTK Demo (Wayland)
+Exec=env GDK_BACKEND=wayland gtk3-demo
+Icon=gtk3-demo
+Terminal=false
+X-MagicDesk-Graphics=wayland
+```
+
+Place the entry in Termux's user applications directory, or select **Termux
+graphics** and **Wayland** in the command shortcut editor. The normal launch
+reuses a live recipe window; **New window** starts another session. Recent
+retains the recipe and executor, not a generic Wayland host. The semantic recipe
+key also supplies Android application-profile and saved-placement identity.
+Wayland whole-desktop recipes and guest file environments fail explicitly until
+their integration is implemented. See [Desktop entries](desktop-entries.md) for
+the common format and argument rules.
 
 Open **Linux graphics** from Start, create a session, and explicitly select X11
 or Wayland and the client executor. Wayland startup commands open toplevels using
@@ -262,3 +334,12 @@ retained. The X11 regression covered a GTK viewer, pointer input, retained
 sessions after viewer/manager closure, and explicit session shutdown. Selecting
 a session in the shared manager did not create a viewer. These are focused
 workflows without Desktop, not a declaration of full GTK/Qt feature parity.
+
+The shared recipe workflow on API 36 covers Termux GTK3 and Qt6 Designer launches,
+additional toplevels, keyboard dismissal of a Qt dialog, protocol closure and
+application-session shutdown after the last window. GTK also covers recipe reuse
+without duplicate hosts, explicit new instances, and reopening from Start's
+independent Recent list. The corresponding X11 GTK recipe still launches and
+closes through the same coordinator. Qt popup interaction and close confirmation
+need further validation; this coverage does not include managed Desktop placement
+or an API-34 device.
