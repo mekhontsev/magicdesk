@@ -380,13 +380,13 @@
             android:taskAffinity="${applicationId}.displayviewer"
             android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize" />
         <activity
-            android:name=".X11ManagerActivity"
+            android:name=".GraphicalSessionsActivity"
             android:exported="true"
             android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
             android:icon="@drawable/ic_show_desktop"
-            android:label="@string/x11_title"
+            android:label="@string/graphics_title"
             android:resizeableActivity="true"
-            android:taskAffinity="${applicationId}.x11manager"
+            android:taskAffinity="${applicationId}.graphicsmanager"
             android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
             android:windowSoftInputMode="adjustResize" />
         <activity
@@ -397,6 +397,16 @@
             android:label="@string/x11_title"
             android:resizeableActivity="true"
             android:taskAffinity="${applicationId}.x11"
+            android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".WaylandActivity"
+            android:exported="true"
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:icon="@drawable/ic_show_desktop"
+            android:label="@string/wayland_title"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.wayland"
             android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
             android:windowSoftInputMode="adjustResize" />
         <activity

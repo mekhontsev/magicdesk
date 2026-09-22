@@ -1,0 +1,134 @@
+plugins { id 'com.android.library' }
+
+def termux = System.getenv('PREFIX')?.startsWith('/data/data/') && file("${System.getenv('PREFIX')}/bin/clang").isFile()
+def nativeDirectory = layout.buildDirectory.dir('renderer').get().asFile
+def jniDirectory = layout.buildDirectory.dir('jniLibs').get().asFile
+def dependencyDirectory = layout.buildDirectory.dir('dependencies').get().asFile
+def suppliedRuntime = providers.gradleProperty('magicDeskWaylandRuntime')
+def runtimePrefix = suppliedRuntime.isPresent() ? file(suppliedRuntime.get())
+    : new File(dependencyDirectory, 'prefix')
+def licenseAssets = layout.buildDirectory.dir('licenseAssets').get().asFile
+def localMeson = rootProject.file('build/wayland-tools/bin/meson')
+def meson = providers.gradleProperty('magicDeskMeson').orElse(localMeson.isFile() ? localMeson.path : 'meson').get()
+def ndkDirectory = providers.provider {
+    def explicit = System.getenv('ANDROID_NDK_HOME') ?: System.getenv('ANDROID_NDK_ROOT')
+    explicit ? file(explicit) : androidComponents.sdkComponents.ndkDirectory.get().asFile
+}
+def readelf = providers.provider {
+    if (termux) return "${System.getenv('PREFIX')}/bin/llvm-readelf"
+    def host = System.getProperty('os.name').toLowerCase(Locale.ROOT)
+    def tag = host.contains('win') ? 'windows-x86_64' : host.contains('mac') ? 'darwin-x86_64' : 'linux-x86_64'
+    new File(ndkDirectory.get(), "toolchains/llvm/prebuilt/${tag}/bin/llvm-readelf${host.contains('win') ? '.exe' : ''}").path
+}
+
+android {
+    namespace 'io.github.mekhontsev.magicdesk.wayland'
+    compileSdk 37
+    ndkVersion '27.3.13750724'
+    defaultConfig {
+        minSdk 34
+        ndk { abiFilters 'arm64-v8a' }
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+    buildFeatures { aidl true }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    sourceSets.main.jniLibs.srcDir jniDirectory
+    sourceSets.main.assets.srcDir licenseAssets
+    if (!termux) externalNativeBuild { cmake { path 'src/main/renderer/CMakeLists.txt' } }
+}
+
+dependencies {
+    implementation project(':hosted-runtime')
+    testImplementation 'junit:junit:4.13.2'
+}
+
+def verifyRuntime = tasks.register('verifyRuntime', Exec) {
+    doFirst {
+        if (!new File(runtimePrefix, 'lib/libmagicdesk_wayland_executor.so').isFile()
+            || !new File(runtimePrefix, 'lib/libmagicdesk_wayland_client.so').isFile())
+            throw new GradleException('The Wayland runtime must contain both ARM64 libraries and their licenses.')
+        for (def dependency : ['wlroots', 'wayland', 'protocols', 'pixman', 'drm', 'xkbcommon', 'ffi']) {
+            if (fileTree(new File(runtimePrefix, "licenses/${dependency}")).isEmpty())
+                throw new GradleException("The Wayland runtime is missing license notices for ${dependency}.")
+        }
+        commandLine 'cmake', "-DLIBRARY=${runtimePrefix}/lib/libmagicdesk_wayland_executor.so",
+                "-DREADELF=${readelf.get()}", '-P', file('native-deps/verify-runtime.cmake')
+    }
+}
+def verifyClient = tasks.register('verifyClient', Exec) {
+    dependsOn verifyRuntime
+    doFirst {
+        commandLine 'cmake', "-DLIBRARY=${runtimePrefix}/lib/libmagicdesk_wayland_client.so",
+                "-DREADELF=${readelf.get()}", '-P', file('native-deps/verify-runtime.cmake')
+    }
+}
+def collectLicenses = tasks.register('collectLicenses', Sync) {
+    dependsOn verifyRuntime
+    from new File(runtimePrefix, 'licenses')
+    into new File(licenseAssets, 'licenses/wayland')
+}
+def packageNative = tasks.register('packageNative', Sync) {
+    dependsOn verifyClient
+    from new File(runtimePrefix, 'lib/libmagicdesk_wayland_executor.so')
+    from new File(runtimePrefix, 'lib/libmagicdesk_wayland_client.so')
+    into new File(jniDirectory, 'arm64-v8a')
+}
+tasks.named('preBuild').configure { dependsOn packageNative, collectLicenses }
+
+if (!suppliedRuntime.isPresent()) {
+    def configureDependencies = tasks.register('configureDependencies', Exec) {
+        inputs.files fileTree('native-deps')
+        inputs.property 'meson', meson
+        outputs.file new File(dependencyDirectory, 'build.ninja')
+        inputs.property 'termux', termux
+        if (!termux) inputs.property 'ndkDirectory', ndkDirectory.map { it.path }
+        doFirst {
+            if (!termux && System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('win'))
+                throw new GradleException('Build the Wayland runtime on Linux/Termux first and set magicDeskWaylandRuntime to its exported directory. See docs/wayland.md.')
+            def target = termux ? [
+                    '-DCMAKE_C_COMPILER=clang', '-DCMAKE_C_FLAGS=--target=aarch64-linux-android34',
+                    '-DCMAKE_EXE_LINKER_FLAGS=-fno-termux-rpath'
+            ] : [
+                    "-DCMAKE_TOOLCHAIN_FILE=${ndkDirectory.get()}/build/cmake/android.toolchain.cmake",
+                    '-DANDROID_ABI=arm64-v8a', '-DANDROID_PLATFORM=android-34'
+            ]
+            commandLine(['cmake', '-S', file('native-deps'), '-B', dependencyDirectory,
+                    '-G', 'Ninja', "-DMESON=${meson}"] + target)
+        }
+    }
+    def buildDependencies = tasks.register('buildDependencies', Exec) {
+        dependsOn configureDependencies
+        commandLine 'cmake', '--build', dependencyDirectory, '--parallel', '2'
+    }
+    verifyRuntime.configure { dependsOn buildDependencies }
+}
+
+tasks.register('exportRuntime', Sync) {
+    dependsOn verifyClient
+    from(runtimePrefix) {
+        include 'lib/libmagicdesk_wayland_executor.so', 'lib/libmagicdesk_wayland_client.so', 'licenses/**'
+    }
+    into layout.buildDirectory.dir('runtime')
+}
+
+if (termux) {
+    def configureRenderer = tasks.register('configureRenderer', Exec) {
+        inputs.file 'src/main/renderer/CMakeLists.txt'
+        outputs.file new File(nativeDirectory, 'build.ninja')
+        commandLine 'cmake', '-S', file('src/main/renderer'), '-B', nativeDirectory, '-G', 'Ninja',
+                '-DCMAKE_C_COMPILER=clang', '-DCMAKE_C_FLAGS=--target=aarch64-linux-android34',
+                "-DJNI_INCLUDE_DIR=${System.getProperty('java.home')}/include",
+                '-DCMAKE_SHARED_LINKER_FLAGS=-L/system/lib64 -fno-termux-rpath -Wl,-z,max-page-size=16384'
+    }
+    def buildRenderer = tasks.register('buildRenderer', Exec) {
+        dependsOn configureRenderer
+        commandLine 'cmake', '--build', nativeDirectory, '-j', '4'
+    }
+    packageNative.configure {
+        dependsOn buildRenderer
+        from new File(nativeDirectory, 'libmagicdesk_wayland_host.so')
+    }
+}

@@ -50,8 +50,8 @@ jobs:
             > "$RUNNER_TEMP/magicdesk-signing/release.jks"
           chmod 600 "$RUNNER_TEMP/magicdesk-signing/release.jks"
 
-      - name: X11 native host tools
-        run: sudo apt-get install -y bison ninja-build patch
+      - name: Graphics native host tools
+        uses: ./.github/actions/setup-graphics-build
 
       - name: Package corresponding source
         run: python3 scripts/package-source.py "$RUNNER_TEMP/MagicDesk-source.tar.gz"
@@ -69,6 +69,10 @@ jobs:
             :terminal-emulator:lintRelease \
             :x11-runtime:testDebugUnitTest \
             :x11-runtime:lintRelease \
+            :hosted-runtime:testDebugUnitTest \
+            :hosted-runtime:lintRelease \
+            :wayland-runtime:testDebugUnitTest \
+            :wayland-runtime:lintRelease \
             :app:lintRelease \
             :app:assembleRelease
 

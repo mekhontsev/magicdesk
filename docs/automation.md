@@ -395,8 +395,11 @@ the server: Shell/root sessions run their X server as the ordinary app UID.
 Launch a Shell Linux `.desktop` recipe with `launch_desktop_entry`, or pass an
 entry script as `terminal.open`'s shell command for a terminal-only chroot.
 Neither route requires Desktop or a separate container-management MCP API.
-`runtime.x11Sessions` is the live session count. The X11 built-in uses ordinary
-tool placement and remains available without Desktop.
+`get_state.graphics` and `graphics.list` share the X11/Wayland session catalog;
+`get_state.x11` adds X11-specific diagnostics. `runtime.graphicalSessions` counts
+both protocols. The **Linux graphics** built-in uses ordinary tool placement and
+remains available without Desktop. `services.graphics` describes executor
+availability; individual protocols still validate their launch requirements.
 
 `x11.inspect_window` reads one live window family by `sessionId` and X11
 `windowId` from that catalog. It requires `content`, not Desktop or shell access.
@@ -729,6 +732,16 @@ Normal commands include:
 - start, stop, and inspect screen recording.
 
 Use `tools/list` as the authoritative command and argument catalog.
+
+`graphics.list`, `graphics.start`, `graphics.execute`, `graphics.stop` and
+`graphics.open_window` address retained X11/Wayland sessions through the same
+service used by **Linux graphics**. Starting selects an explicit protocol and
+executor and returns a session ID before readiness; it does not open an Android
+host. `graphics.list` supplies native window IDs; `graphics.open_window` uses the
+ordinary tool placement options. X11 alone accepts window ID zero for its
+whole-desktop viewer. Observation, shell execution and Android placement retain
+separate MCP grants. The [Wayland guide](wayland.md) records its current scope
+and input/client-launch limitations.
 
 `magicdesk.set_app_presentation` accepts an `appIdentity` from `list_apps` and a scale from
 50 through 200 percent. The percentage is display-independent; MagicDesk

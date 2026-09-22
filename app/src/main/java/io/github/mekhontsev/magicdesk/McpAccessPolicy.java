@@ -26,7 +26,7 @@ final class McpAccessPolicy {
             "get_self_test", "wait_for_state",
             "query_intent_handlers", "list_android_actions", "list_app_actions",
             "search_app_functions", "get_recording_status", "begin_trace", "end_trace",
-            "app.update_status");
+            "app.update_status", "graphics.list");
     private final Set<Permission> mPermissions;
 
     McpAccessPolicy(final Set<String> names) {
@@ -47,7 +47,8 @@ final class McpAccessPolicy {
 
     static Permission required(final String name) {
         return switch (name) {
-            case "console.open", "console.execute", "console.status", "console.close",
+            case "graphics.start", "graphics.execute", "graphics.stop",
+                    "console.open", "console.execute", "console.status", "console.close",
                     "terminal.open", "terminal.list", "terminal.status", "terminal.read",
                     "terminal.write", "terminal.send_key", "terminal.close", "terminal.attach",
                     "terminal.detach", "terminal.emit", "tmux.list", "tmux.open", "tmux.panes", "tmux.emit"
@@ -68,7 +69,7 @@ final class McpAccessPolicy {
                     "clipboard.open", "clipboard.share", "list_notifications",
                     "get_intent_result", "get_activity_history" -> Permission.CONTENT;
             case "ui.inspect", "ui.wait", "ui.read_text", "x11.inspect_window" -> Permission.CONTENT;
-            case "start_desktop", "close_desktop", "create_display", "remove_display",
+            case "graphics.open_window", "start_desktop", "close_desktop", "create_display", "remove_display",
                     "select_display_viewer",
                     "control_display", "move_task",
                     "launch_app", "set_app_presentation", "reset_app_presentation",

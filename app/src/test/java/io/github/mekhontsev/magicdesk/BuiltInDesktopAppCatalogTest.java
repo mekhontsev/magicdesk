@@ -19,7 +19,7 @@ public final class BuiltInDesktopAppCatalogTest {
                 BuiltInDesktopAppCatalog.requiredService(BuiltInDesktopAppCatalog.filesTarget()));
         for (var target : new AppLaunchTarget[] {BuiltInDesktopAppCatalog.settingsTarget(),
                 BuiltInDesktopAppCatalog.diagnosticsTarget(), BuiltInDesktopAppCatalog.consoleTarget(),
-                BuiltInDesktopAppCatalog.findComponent(X11ManagerActivity.class.getName()).launchTarget,
+                BuiltInDesktopAppCatalog.findComponent(GraphicalSessionsActivity.class.getName()).launchTarget,
                 BuiltInDesktopAppCatalog.findComponent(X11Activity.class.getName()).launchTarget}) {
             assertEquals(RuntimeCapabilities.Service.BUILTIN_UI, BuiltInDesktopAppCatalog.requiredService(target));
         }

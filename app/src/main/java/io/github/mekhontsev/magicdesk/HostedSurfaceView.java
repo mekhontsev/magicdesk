@@ -37,7 +37,7 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         output = next;
         pointerInput.bind(next);
         if (output != null && getHolder().getSurface().isValid() && getWidth() > 0 && getHeight() > 0)
-            output.setSurface(getHolder().getSurface(), getWidth(), getHeight());
+            attachSurface(getHolder(), getWidth(), getHeight());
     }
 
     void frame(int width, int height) {
@@ -157,9 +157,10 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         if (output != null) { output.key(key, 0, true); output.key(key, 0, false); }
     }
 
-    @Override public boolean onCheckIsTextEditor() { return true; }
+    @Override public boolean onCheckIsTextEditor() { return output == null || output.supportsText(); }
 
     @Override public InputConnection onCreateInputConnection(EditorInfo info) {
+        if (!onCheckIsTextEditor()) return null;
         info.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
         info.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_ACTION_NONE;
         return new BaseInputConnection(this, true) {
@@ -185,8 +186,14 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     }
 
     @Override public void surfaceCreated(SurfaceHolder holder) { }
+    private void attachSurface(SurfaceHolder holder, int width, int height) {
+        if (output == null) return;
+        output.setSurface(holder.getSurface(), width, height);
+        // Window focus may arrive before the first Surface, or remain held while it is replaced.
+        if (hasWindowFocus() && isFocused()) output.focus();
+    }
     @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-        if (output != null) output.setSurface(holder.getSurface(), width, height);
+        attachSurface(holder, width, height);
     }
     @Override public void surfaceDestroyed(SurfaceHolder holder) {
         releaseInput();

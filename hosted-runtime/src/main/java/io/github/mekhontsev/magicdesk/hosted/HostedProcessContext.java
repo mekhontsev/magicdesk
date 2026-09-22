@@ -1,16 +1,15 @@
-package io.github.mekhontsev.magicdesk.x11;
+package io.github.mekhontsev.magicdesk.hosted;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.os.Process;
 import android.os.UserHandle;
 
-/** Only the app_process context adapter touches hidden framework startup methods. */
-final class X11ProcessContext {
-    private X11ProcessContext() { }
+public final class HostedProcessContext {
+    private HostedProcessContext() { }
 
     @SuppressLint("PrivateApi")
-    static Context create(String executorPackage) throws ReflectiveOperationException {
+    public static Context create(String executorPackage) throws ReflectiveOperationException {
         Class<?> type = Class.forName("android.app.ActivityThread");
         Object thread = type.getMethod("systemMain").invoke(null);
         Context system = (Context) type.getMethod("getSystemContext").invoke(thread);
@@ -18,7 +17,7 @@ final class X11ProcessContext {
                 String.class, int.class, UserHandle.class).invoke(system, executorPackage,
                 Context.CONTEXT_IGNORE_SECURITY, UserHandle.getUserHandleForUid(Process.myUid()));
         if (context.getApplicationInfo().uid != Process.myUid())
-            throw new SecurityException("X11 executor package does not match process UID");
+            throw new SecurityException("Hosted executor package does not match process UID");
         return context;
     }
 }

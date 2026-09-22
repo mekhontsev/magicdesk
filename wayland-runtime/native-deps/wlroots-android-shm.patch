@@ -1,0 +1,14 @@
+--- a/util/shm.c
++++ b/util/shm.c
+@@ -1,3 +1,6 @@
++#ifdef __ANDROID__
++#include "android-shm.c"
++#else
+ #include <errno.h>
+ #include <fcntl.h>
+ #include <string.h>
+@@ -100,3 +103,4 @@
+ 	*ro_fd_ptr = ro_fd;
+ 	return true;
+ }
++#endif

@@ -134,13 +134,17 @@ final class BuiltInDesktopAppCatalog {
             AppLaunchTarget.explicit(PACKAGE_NAME, DisplayViewerActivity.class.getName(), ""),
             R.string.display_viewer, true, true, true, true,
             new RelativeWindowBounds(5000, 5000, 7000, 8000));
-    private static final Entry X11 = new Entry(
-            AppLaunchTarget.explicit(PACKAGE_NAME, X11ManagerActivity.class.getName(), ""),
-            R.string.x11_title, true, true, true, true,
+    private static final Entry GRAPHICS = new Entry(
+            AppLaunchTarget.explicit(PACKAGE_NAME, GraphicalSessionsActivity.class.getName(), ""),
+            R.string.graphics_title, true, true, true, true,
             new RelativeWindowBounds(5000, 5000, 7000, 8000));
     private static final Entry X11_WINDOW = new Entry(
             AppLaunchTarget.explicit(PACKAGE_NAME, X11Activity.class.getName(), ""),
             R.string.x11_title, false, true, false, true,
+            new RelativeWindowBounds(5000, 5000, 7000, 8000));
+    private static final Entry WAYLAND_WINDOW = new Entry(
+            AppLaunchTarget.explicit(PACKAGE_NAME, WaylandActivity.class.getName(), ""),
+            R.string.wayland_title, false, true, false, true,
             new RelativeWindowBounds(5000, 5000, 7000, 8000));
     private static final List<Entry> ENTRIES = Collections.unmodifiableList(
             Arrays.asList(
@@ -152,12 +156,14 @@ final class BuiltInDesktopAppCatalog {
                     DIAGNOSTICS,
                     LOG_VIEWER,
                     ACTIVITY_EXPLORER,
-                    USER_PROMPT, DISPLAY_VIEWER, X11, X11_WINDOW));
+                    USER_PROMPT, DISPLAY_VIEWER, GRAPHICS, X11_WINDOW, WAYLAND_WINDOW));
 
     private BuiltInDesktopAppCatalog() {
     }
 
-    static boolean hostsApplications(AppLaunchTarget target) { return find(target) == X11_WINDOW; }
+    static boolean hostsApplications(AppLaunchTarget target) {
+        return find(target) == X11_WINDOW || find(target) == WAYLAND_WINDOW;
+    }
 
     static AppLaunchTarget filesTarget() {
         return FILES.launchTarget;
@@ -204,7 +210,7 @@ final class BuiltInDesktopAppCatalog {
     static List<Entry> searchEntries() {
         final List<Entry> result = new ArrayList<>();
         for (final Entry entry : ENTRIES) {
-            if (entry != LOG_VIEWER && entry != USER_PROMPT && entry != X11_WINDOW) {
+            if (entry != LOG_VIEWER && entry != USER_PROMPT && entry != X11_WINDOW && entry != WAYLAND_WINDOW) {
                 result.add(entry);
             }
         }

@@ -19,7 +19,7 @@ public final class RuntimeCapabilitiesTest {
                         assertEquals(privileged ? "" : "privileged_disabled", caps.missing(RuntimeCapabilities.Service.SHELL));
                         assertEquals(privileged ? "" : "privileged_disabled", caps.missing(RuntimeCapabilities.Service.VIRTUAL_DISPLAY));
                         assertEquals(termux ? "" : "termux_disabled", caps.missing(RuntimeCapabilities.Service.TERMUX));
-                        assertEquals(privileged || termux ? "" : "x11_executor", caps.missing(RuntimeCapabilities.Service.X11));
+                        assertEquals(privileged || termux ? "" : "graphics_executor", caps.missing(RuntimeCapabilities.Service.GRAPHICS));
                         assertEquals(privileged || termux ? "" : "terminal_backend", caps.missing(RuntimeCapabilities.Service.TERMINAL));
                         assertEquals(sdk < 35 ? "android_15" : !desktop ? "desktop_disabled"
                                 : !privileged ? "privileged_disabled" : "", caps.missing(RuntimeCapabilities.Service.DESKTOP));
@@ -87,8 +87,8 @@ public final class RuntimeCapabilitiesTest {
                         assertEquals(shell ? "" : "privileged_service", caps.missing(RuntimeCapabilities.Service.VIRTUAL_DISPLAY));
                         assertEquals(shell || installed && authorized ? "" : "terminal_backend",
                                 caps.missing(RuntimeCapabilities.Service.TERMINAL));
-                        assertEquals(shell || installed && authorized ? "" : "x11_executor",
-                                caps.missing(RuntimeCapabilities.Service.X11));
+                        assertEquals(shell || installed && authorized ? "" : "graphics_executor",
+                                caps.missing(RuntimeCapabilities.Service.GRAPHICS));
                         assertEquals(sdk < 35 ? "android_15" : !shell ? "privileged_service" : "",
                                 caps.missing(RuntimeCapabilities.Service.DESKTOP));
                     }

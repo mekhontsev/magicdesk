@@ -11,7 +11,10 @@ def collectLicenses = tasks.register('collectLicenses', Sync) {
     into new File(licenseAssets, 'licenses/magicdesk-x11')
 }
 
-dependencies { testImplementation 'junit:junit:4.13.2' }
+dependencies {
+    implementation project(':hosted-runtime')
+    testImplementation 'junit:junit:4.13.2'
+}
 
 android {
     namespace 'io.github.mekhontsev.magicdesk.x11'

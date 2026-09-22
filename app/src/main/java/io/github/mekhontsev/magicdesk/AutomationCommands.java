@@ -68,6 +68,7 @@ final class AutomationCommands implements AutoCloseable {
         final JSONObject args = arguments == null
                 ? new JSONObject() : arguments;
         final JSONObject data;
+        if (name.startsWith("graphics.")) return AutomationGraphics.execute(name, args);
         if (name.equals("dialog.show") || name.equals("notification.post")
                 || name.equals("interaction.result") || name.equals("interaction.close")) {
             return DesktopAutomationResult.success("ok", interactions().execute(name, args));

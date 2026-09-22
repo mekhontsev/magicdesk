@@ -6,6 +6,38 @@ import java.nio.file.Path;
 import static org.junit.Assert.*;
 
 public final class HostedContentBoundaryTest {
+    @Test public void readySurfaceRestoresOnlyOwnedFocus() throws Exception {
+        RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk",
+                RuntimeSourceFixture.methods("HostedSurfaceView", "attachSurface") + """
+            static class SurfaceHolder { Object getSurface() { return this; } }
+            static class Output {
+                final List<String> calls = new ArrayList<>();
+                void setSurface(Object surface, int width, int height) { calls.add("surface"); }
+                void focus() { calls.add("focus"); }
+            }
+            Output output = new Output();
+            boolean windowFocus, viewFocus;
+            boolean hasWindowFocus() { return windowFocus; }
+            boolean isFocused() { return viewFocus; }
+            public static void verify() {
+                var fixture = new Fixture();
+                fixture.attachSurface(new SurfaceHolder(), 640, 480);
+                check(fixture.output.calls.equals(List.of("surface")), "background output must not acquire focus");
+                fixture.windowFocus = true;
+                fixture.viewFocus = true;
+                fixture.output.calls.clear();
+                fixture.attachSurface(new SurfaceHolder(), 640, 480);
+                check(fixture.output.calls.equals(List.of("surface", "focus")), "focus must follow surface visibility");
+                fixture.viewFocus = false;
+                fixture.output.calls.clear();
+                fixture.attachSurface(new SurfaceHolder(), 640, 480);
+                check(fixture.output.calls.equals(List.of("surface")), "another view owns focus");
+                fixture.output = null;
+                fixture.attachSurface(new SurfaceHolder(), 640, 480);
+            }
+            """);
+    }
+
     private static String source(String name) throws Exception {
         return Files.readString(Path.of(RuntimeSourceFixture.MAIN + name + ".java"));
     }
@@ -72,14 +104,14 @@ public final class HostedContentBoundaryTest {
     }
 
     @Test public void sessionControlsNeverBorrowWindowResources() throws Exception {
-        String manager = source("X11ManagerActivity");
+        String manager = source("GraphicalSessionsActivity");
         for (String forbidden : new String[]{"openOutput", "hostDensity", "claimClipboard", "closeWindow", "SurfaceView", "releaseHost"})
             assertFalse(forbidden, manager.contains(forbidden));
-        String destroy = RuntimeSourceFixture.methods("X11ManagerActivity", "onDestroy");
-        assertTrue(destroy.contains("session.unlisten(this)"));
+        String destroy = RuntimeSourceFixture.methods("GraphicalSessionsActivity", "onDestroy");
+        assertTrue(destroy.contains("session.unlisten(listener)"));
         assertFalse(destroy.contains("session.close()"));
         assertFalse(source("X11Activity").contains("createSessionControls"));
-        assertTrue(RuntimeSourceFixture.methods("ToolApplications", "intent").contains("X11ManagerActivity.createIntent(context)"));
+        assertTrue(RuntimeSourceFixture.methods("ToolApplications", "intent").contains("GraphicalSessionsActivity.createIntent(context)"));
         assertTrue(RuntimeSourceFixture.methods("BuiltInDesktopAppCatalog", "searchEntries").contains("entry != X11_WINDOW"));
     }
 

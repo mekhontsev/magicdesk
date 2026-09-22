@@ -9,7 +9,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 /** Explicit privileged import of keyboard data. Never consulted by X clients or on a frame/input path. */
-final class X11KeyboardData {
+final class HostedKeyboardData {
     private static final Map<String, Path> COPIES = new HashMap<>();
     private static final long MAX_BYTES = 32L * 1024 * 1024;
     private long remaining = MAX_BYTES;
@@ -17,7 +17,7 @@ final class X11KeyboardData {
 
     static synchronized String prepare(Context context, String source) throws IOException {
         source = DesktopExecWorkingDirectory.normalize(source);
-        if (source.isEmpty()) throw new IOException("An XKB data directory is required for the Shell X11 executor");
+        if (source.isEmpty()) throw new IOException("An XKB data directory is required for the Shell graphical executor");
         String key = ShellAccess.currentSnapshot().uid + ":" + source;
         Path existing = COPIES.get(key);
         if (existing != null) return existing.toString();
@@ -26,7 +26,7 @@ final class X11KeyboardData {
         Path target = Files.createTempDirectory(parent, "data-");
         boolean ready = false;
         try {
-            X11KeyboardData transfer = new X11KeyboardData();
+            HostedKeyboardData transfer = new HostedKeyboardData();
             transfer.copy(source, target, 0);
             if (!Files.isRegularFile(target.resolve("rules/evdev"))) throw new IOException("Missing XKB rules/evdev");
             Path published = parent.resolve(java.util.UUID.nameUUIDFromBytes(
@@ -77,5 +77,5 @@ final class X11KeyboardData {
         } while (true);
     }
 
-    private X11KeyboardData() { }
+    private HostedKeyboardData() { }
 }

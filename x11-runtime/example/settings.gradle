@@ -12,3 +12,5 @@ dependencyResolutionManagement {
 rootProject.name = 'MagicDeskX11Example'
 include ':app', ':x11-runtime'
 project(':x11-runtime').projectDir = file('..')
+include ':hosted-runtime'
+project(':hosted-runtime').projectDir = file('../../hosted-runtime')

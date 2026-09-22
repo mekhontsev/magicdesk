@@ -13,7 +13,7 @@ final class RuntimeCapabilities {
                         == android.content.pm.PackageManager.PERMISSION_GRANTED;
     }
 
-    enum Service { AUTOMATION, BUILTIN_UI, DISPLAYS, SHELL, TERMUX, TERMINAL, X11, VIRTUAL_DISPLAY, DESKTOP }
+    enum Service { AUTOMATION, BUILTIN_UI, DISPLAYS, SHELL, TERMUX, TERMINAL, GRAPHICS, VIRTUAL_DISPLAY, DESKTOP }
 
     static boolean supportsDesktop(final int sdk) {
         return sdk >= DESKTOP_MIN_SDK;
@@ -60,8 +60,8 @@ final class RuntimeCapabilities {
             case AUTOMATION, BUILTIN_UI, DISPLAYS -> "";
             case SHELL, VIRTUAL_DISPLAY -> !mLimits.privilegedAllowed() ? "privileged_disabled" : mShell ? "" : "privileged_service";
             case TERMUX -> !mLimits.termux() ? "termux_disabled" : !mTermuxInstalled ? "termux" : !mTermuxAuthorized ? "termux_run_command" : "";
-            case X11 -> mLimits.privilegedAllowed() && mShell
-                    || mLimits.termux() && mTermuxInstalled && mTermuxAuthorized ? "" : "x11_executor";
+            case GRAPHICS -> mLimits.privilegedAllowed() && mShell
+                    || mLimits.termux() && mTermuxInstalled && mTermuxAuthorized ? "" : "graphics_executor";
             case TERMINAL -> mLimits.privilegedAllowed() && mShell
                     || mLimits.termux() && mTermuxInstalled && mTermuxAuthorized ? "" : "terminal_backend";
             case DESKTOP -> !supportsDesktop(mSdk) ? "android_15"
@@ -87,7 +87,7 @@ final class RuntimeCapabilities {
             case "termux" -> R.string.capability_termux_required;
             case "termux_run_command" -> R.string.capability_termux_permission_required;
             case "terminal_backend" -> R.string.capability_terminal_required;
-            case "x11_executor" -> R.string.capability_terminal_required;
+            case "graphics_executor" -> R.string.capability_terminal_required;
             case "desktop_setup_checking" -> R.string.setup_status_checking;
             case "desktop_setup_unknown" -> R.string.control_desktop_unknown;
             case "desktop_setup" -> R.string.control_desktop_setup_required;

@@ -3,7 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 public final class MagicDeskExitProcessTest {
-    @Test public void exitDisablesX11PresentationBeforeRemovingAnyHost() throws Exception {
+    @Test public void exitDisablesGraphicalPresentationBeforeRemovingAnyHost() throws Exception {
         RuntimeSourceFixture.verify("""
             static final List<String> events = new ArrayList<>();
             static class Host { void showSessionStatus(String status) { } }
@@ -11,7 +11,7 @@ public final class MagicDeskExitProcessTest {
             static class R { static class string { static int status_exiting; } }
             static class Log { static void i(String tag, String text) { } }
             static class MagicDeskRuntime { static void clearParkedDesktopTasks() { } }
-            static class X11Sessions { static void prepareForExit() { events.add("stop-presentation"); } }
+            static class GraphicalSessions { static void prepareForExit() { events.add("stop-presentation"); } }
             static class BuiltInWindowRegistry {
                 static void finishAll(Runnable next) { events.add("finish-windows"); next.run(); }
             }
@@ -50,7 +50,7 @@ public final class MagicDeskExitProcessTest {
                 static class MagicDeskRuntime { static void detach(Object service) { events.add("detach"); } }
                 static class ShellAccess { static void removeStateListener(Object listener) { events.add("listener"); } }
                 static class ConsoleTerminalRegistry { static void closeAll() { events.add("terminals"); } }
-                static class X11Sessions { static void closeAll() { events.add("x11"); } }
+                static class GraphicalSessions { static void closeAll() { events.add("graphics"); } }
                 static class AutomationCommandRuntime { static void closeCurrent() { events.add("cli"); } }
                 static class Service {
                     boolean mDestroyed;
@@ -72,7 +72,7 @@ public final class MagicDeskExitProcessTest {
                     check(events.isEmpty(), "service cleanup ran on task worker");
                     service.mHandler.dispatch();
                     check(events.equals(List.of("detach", "listener", "displays", "desktop", "input",
-                            "terminals", "x11", "mcp", "cli", "handler", "complete")), "shutdown order: " + events);
+                            "terminals", "graphics", "mcp", "cli", "handler", "complete")), "shutdown order: " + events);
                     service.closeRuntime();
                     check(events.size() == 11, "onDestroy repeated completed cleanup");
                     check(service.mDestroyed && service.mDisplayInput == null && service.mMcpRuntime == null,

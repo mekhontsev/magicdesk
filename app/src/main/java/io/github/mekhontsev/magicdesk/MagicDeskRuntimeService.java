@@ -600,7 +600,7 @@ public final class MagicDeskRuntimeService extends Service
             mDisplayInput = null;
         }
         ConsoleTerminalRegistry.closeAll();
-        X11Sessions.closeAll();
+        GraphicalSessions.closeAll();
         if (mMcpRuntime != null) {
             mMcpRuntime.close();
             mMcpRuntime = null;
@@ -749,7 +749,7 @@ public final class MagicDeskRuntimeService extends Service
             mMcpRuntime.reconcile();
         }
         if (!mInitialized && !mToolsRequested && !MagicDeskMcpPreferences.isEnabled(this)
-                && ConsoleTerminalRegistry.registeredCount() == 0 && X11Sessions.count() == 0) {
+                && ConsoleTerminalRegistry.registeredCount() == 0 && GraphicalSessions.count() == 0) {
             stopSelf();
         }
         if (mDisplayInput != null) {

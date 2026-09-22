@@ -1,0 +1,3 @@
+-keep class io.github.mekhontsev.magicdesk.wayland.WaylandServer { *; }
+-keep class io.github.mekhontsev.magicdesk.wayland.WaylandClientMain { public static void main(java.lang.String[]); }
+-keepclasseswithmembernames class io.github.mekhontsev.magicdesk.wayland.WaylandFramePresenter { native <methods>; }

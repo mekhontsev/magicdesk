@@ -19,7 +19,7 @@ final class ToolApplications {
             case "diagnostics" -> DiagnosticsActivity.createIntent(context);
             case "activity_explorer" -> ActivityExplorerActivity.createIntent(context);
             case "display_viewer" -> DisplayViewerActivity.createIntent(context);
-            case "x11" -> X11ManagerActivity.createIntent(context);
+            case "graphics" -> GraphicalSessionsActivity.createIntent(context);
             default -> throw new IllegalArgumentException("unknown built-in application: " + name);
         };
     }

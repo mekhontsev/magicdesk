@@ -21,6 +21,13 @@ behavior, static verification and remaining device coverage.
 - Shared services own files, profiles, content, shell execution, Termux PTYs
   and embedded X11 sessions.
   MCP is an authorized adapter to these services, not their lifetime owner.
+  `hosted-runtime` contains the shared process-context adapter and retained-server
+  lifecycle used by X11 and the experimental [Wayland runtime](wayland.md).
+  Neither module owns Android tasks, Desktop or privilege startup. Wayland's
+  compositor, frame transport and Android presentation have separate owners;
+  `GraphicalSessions` supplies shared manager and automation controls. Protocol
+  owners retain their catalogs; `HostedWindowPresentation` owns Android placement
+  reservations and replacement hosts for both protocols.
 - `ToolApplications` and `ToolLaunchTarget` select ordinary fullscreen Activity
   placement or the existing managed Desktop launch path. Phone control-panel
   tools do not acquire HOME or require Desktop provisioning. Background launches
@@ -1733,7 +1740,7 @@ transactions, focus and URI grants. The local `x11-runtime` module owns Java,
 Binder bootstrap, executor context and JNI. The native fork exposes `embedded.h`
 with opaque connections, borrowed native windows, owned descriptors and callbacks;
 it has no Java classes, Android application, Gradle modules or JNI dependency.
-`X11ManagerActivity` only selects and controls sessions; `X11Activity` hosts
+`GraphicalSessionsActivity` selects and controls X11 and Wayland sessions; `X11Activity` hosts
 client/desktop viewers. `X11HostBinding` scopes the viewer's borrowed
 output, content exchange, subscriptions, density and fullscreen responder;
 closing/recreating that binding does not own the retained server. Density,
@@ -4365,14 +4372,18 @@ tests cannot prove firmware behavior.
 
 ## Build And Release Boundaries
 
-The Gradle project has five modules:
+The Gradle project has seven modules:
 
 - `app`: main MagicDesk APK;
 - `hidden-api-stubs`: compile-only framework signatures;
 - `kernel-fixes`: independent optional APK;
 - `terminal-emulator`: locally maintained terminal parser and screen model;
+- `hosted-runtime`: shared graphical-process context and lifecycle support;
 - `x11-runtime`: MagicDesk's Android X11 runtime and JNI adapter, linking the
-  fork's native engine. No upstream Java or compile-only X11 stubs are used.
+  fork's native engine. No upstream Java or compile-only X11 stubs are used;
+- `wayland-runtime`: the experimental wlroots compositor, immutable frame
+  transport, Android presenter and authenticated client-FD handoff. wlroots and
+  its non-system dependencies are pinned source builds, not a fork.
 
 Every main-app build compiles five native helpers from source: the virtual mouse,
 PTY transport, one-shot privileged service launcher and identity-checked process
@@ -4387,6 +4398,9 @@ Fixes APK contains exactly the reviewed module and no main-app native helper.
 The APK, main-app helpers and X11 library currently cover ARM64 only. Linux
 and Windows CI both target Android ARM64; package checks reject other native ABIs.
 Both helper compiler paths target the APK's API 34 minimum, as does embedded X11.
+The Wayland stack is built and checked in Termux for that same minimum;
+non-Termux build hosts currently require a prepared runtime prefix. Its NDK
+dependency cross-build and CI integration remain pending; see [Wayland](wayland.md).
 Compilation does not establish native compatibility. Device coverage is documented in
 [Runtime API levels](runtime-api-levels.md).
 
@@ -4404,7 +4418,7 @@ fixtures replace only device I/O to exercise motion, buttons, scrolling,
 protocol validation and write errors.
 They use bounded subprocess lifetimes and a temporary directory, without
 physical input access. The same script checks process incarnation signaling and
-guest-file descriptor exchange and X11 icon/density wire formats. Linux CI runs
+guest-file descriptor exchange, shared graphical key mapping and X11 icon/density wire formats. Linux CI runs
 it in addition to Gradle verification. `scripts/tests/test_guest_files.py` also
 tests the real helper's authorization and process lifetime; setting
 `MAGICDESK_GUEST_FILE_HELPER` to the static binary enables a prepared Ubuntu

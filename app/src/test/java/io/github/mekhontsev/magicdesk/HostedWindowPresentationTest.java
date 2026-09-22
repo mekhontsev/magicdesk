@@ -2,9 +2,9 @@ package io.github.mekhontsev.magicdesk;
 
 import org.junit.Test;
 
-public final class X11WindowPresentationTest {
+public final class HostedWindowPresentationTest {
     @Test public void presentationAndRecoveryShareReservationsButRetainExactHostPlacement() throws Exception {
-        RuntimeSourceFixture.verify("static " + RuntimeSourceFixture.nestedClass("X11WindowPresentation", "X11WindowPresentation")
+        RuntimeSourceFixture.verify("static " + RuntimeSourceFixture.nestedClass("HostedWindowPresentation", "HostedWindowPresentation")
                 .replace("WeakReference<", "java.lang.ref.WeakReference<") + """
             static class Context { }
             static class Activity extends Context {
@@ -74,21 +74,24 @@ public final class X11WindowPresentationTest {
             static class X11Sessions {
                 enum State { READY, CLOSED }
                 record Window(long id) { }
-                static class Session {
+                static class Session implements HostedWindowPresentation.Session {
                     int changes, failures, otherHost = -1;
                     State state = State.READY;
                     List<Window> windows = List.of(new Window(1), new Window(2), new Window(3));
                     String id() { return "session"; }
+                    public boolean ready() { return state == State.READY; }
+                    public boolean containsWindow(long id) { return windows.stream().anyMatch(item -> item.id() == id); }
+                    public Intent windowIntent(Context context, long id) { return new Intent().putExtra("window", id); }
                     State state() { return state; }
                     List<Window> windows() { return windows; }
-                    int hostTaskId(long window) { return otherHost; }
-                    void presentationChanged() { changes++; }
-                    void presentationFailed(Throwable error) { failures++; }
+                    public int hostTaskId(long window) { return otherHost; }
+                    public void presentationChanged() { changes++; }
+                    public void presentationFailed(Throwable error) { failures++; }
                 }
             }
             public static void verify() {
                 var session = new X11Sessions.Session();
-                var presentation = new X11WindowPresentation(new Context(), session);
+                var presentation = new HostedWindowPresentation(new Context(), session);
                 check(!presentation.present(1), "no host or placement yet");
                 var host = new Activity(11, 7);
                 presentation.host(host); Handler.drain();
@@ -162,7 +165,7 @@ public final class X11WindowPresentationTest {
                 check(ToolApplications.opens == before + 1 && !presentation.present(5), "Exit cancels all pending presentations");
 
                 var retained = new X11Sessions.Session();
-                var retainedPresentation = new X11WindowPresentation(new Context(), retained);
+                var retainedPresentation = new HostedWindowPresentation(new Context(), retained);
                 retainedPresentation.host(other); Handler.drain();
                 ToolApplications.defer = true;
                 retainedPresentation.hostRemoved(other, 2, true); Handler.drain();

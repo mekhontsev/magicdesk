@@ -70,8 +70,11 @@ jobs:
       - name: Verify APK boundary fixtures
         run: python3 -m unittest discover -s scripts/tests -p test_verify_apks.py
 
-      - name: X11 native host tools
-        run: sudo apt-get install -y bison ninja-build patch
+      - name: Verify Wayland build boundary fixtures
+        run: python3 -m unittest discover -s scripts/tests -p test_wayland_build.py
+
+      - name: Graphics native host tools
+        uses: ./.github/actions/setup-graphics-build
 
       - name: Package corresponding source
         run: python3 scripts/package-source.py dist/MagicDesk-source.tar.gz
@@ -143,6 +146,10 @@ jobs:
             :terminal-emulator:lintRelease \
             :x11-runtime:testDebugUnitTest \
             :x11-runtime:lintRelease \
+            :hosted-runtime:testDebugUnitTest \
+            :hosted-runtime:lintRelease \
+            :wayland-runtime:testDebugUnitTest \
+            :wayland-runtime:lintRelease \
             :app:lintRelease \
             :kernel-fixes:lintRelease \
             :app:assembleRelease \
@@ -157,6 +164,10 @@ jobs:
             :terminal-emulator:lintRelease \
             :x11-runtime:testDebugUnitTest \
             :x11-runtime:lintRelease \
+            :hosted-runtime:testDebugUnitTest \
+            :hosted-runtime:lintRelease \
+            :wayland-runtime:testDebugUnitTest \
+            :wayland-runtime:lintRelease \
             :app:lintRelease \
             :kernel-fixes:lintRelease \
             :app:assembleRelease \
@@ -164,6 +175,17 @@ jobs:
 
       - name: Verify independent X11 host
         run: ./gradlew --no-daemon -p x11-runtime/example :app:assembleDebug :app:lintDebug
+
+      - name: Export Android Wayland runtime
+        run: ./gradlew --no-daemon :wayland-runtime:exportRuntime
+
+      - name: Share verified Wayland runtime with Windows build
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: wayland-android-runtime
+          if-no-files-found: error
+          retention-days: 7
+          path: wayland-runtime/build/runtime/
 
       - name: Verify signed APK and package boundaries
         if: github.event_name == 'push'
@@ -236,8 +258,12 @@ jobs:
             **/build/reports/tests/**
 
   windows-smoke:
+    needs: build
     runs-on: windows-2025
     timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
 
     steps:
       - name: Check out source
@@ -266,6 +292,13 @@ jobs:
             }
           }
 
+      - name: Download Android Wayland runtime
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh run download "$env:GITHUB_RUN_ID" --repo "$env:GITHUB_REPOSITORY" --name wayland-android-runtime --dir "$env:RUNNER_TEMP/wayland-runtime"
+
       - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884
         with:
           msystem: UCRT64
@@ -281,7 +314,7 @@ jobs:
 
       - name: Verify Windows build
         shell: pwsh
-        run: .\gradlew.bat --no-daemon verifyDevelopment
+        run: .\gradlew.bat --no-daemon "-PmagicDeskWaylandRuntime=$env:RUNNER_TEMP/wayland-runtime" verifyDevelopment
 
       - name: Verify independent X11 host
         shell: pwsh

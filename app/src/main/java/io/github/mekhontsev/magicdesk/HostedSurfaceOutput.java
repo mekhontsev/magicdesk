@@ -13,5 +13,6 @@ interface HostedSurfaceOutput extends AutoCloseable {
     void scroll(float x, float y, float horizontal, float vertical);
     void key(int androidKey, int scanCode, boolean down);
     void text(String text);
+    default boolean supportsText() { return true; }
     @Override void close();
 }

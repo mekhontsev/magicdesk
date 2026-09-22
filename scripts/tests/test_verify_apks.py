@@ -6,7 +6,8 @@ import zipfile
 
 
 VERIFY = Path(__file__).resolve().parents[1] / "verify-apks.sh"
-HELPERS = ("uinput_bridge", "pty_bridge", "service_launcher", "process_signal", "guest_files")
+HELPERS = ("uinput_bridge", "pty_bridge", "service_launcher", "process_signal", "guest_files",
+           "wayland_executor", "wayland_client", "wayland_host")
 
 
 class VerifyApksTest(unittest.TestCase):

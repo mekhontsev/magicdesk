@@ -1,6 +1,6 @@
 #pragma once
 #include <linux/input-event-codes.h>
-static int android_to_linux_keycode[304] = {
+static const int android_to_linux_keycode[304] = {
         [ 4   /* ANDROID_KEYCODE_BACK */] = KEY_ESC,
         [ 7   /* ANDROID_KEYCODE_0 */] = KEY_0,
         [ 8   /* ANDROID_KEYCODE_1 */] = KEY_1,
@@ -144,3 +144,9 @@ static int android_to_linux_keycode[304] = {
         [ 208  /* ANDROID_KEYCODE_CALENDAR */] = KEY_CALENDAR,
         [ 210  /* ANDROID_KEYCODE_CALCULATOR */] = KEY_CALC,
 };
+
+static inline int hosted_evdev_keycode(int android_key, int scan_code) {
+    if (scan_code > 0 && scan_code <= KEY_MAX) return scan_code;
+    if (android_key < 0 || android_key >= 304) return 0;
+    return android_to_linux_keycode[android_key];
+}

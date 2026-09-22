@@ -24,6 +24,8 @@ Diagnostics.
 - Android SDK platform and build tools 37
 - Android NDK 27.3.13750724, installed as **NDK (Side by side)**
 - CMake 3.22+, Ninja, Python 3, Bison, patch and a host C compiler for embedded X11
+- CMake 3.24+, Meson 1.9.1, make, pkg-config, Flex and host Expat development
+  files for Wayland
 
 Initialize source dependencies with `git submodule update --init --recursive`.
 On Windows, the X11 host generators use MSYS2 Bison/patch and UCRT64 GCC;
@@ -45,7 +47,12 @@ sdk.dir=/absolute/path/to/android-sdk
 ```
 
 Termux builds use `$PREFIX/bin/clang` and do not require the desktop NDK
-toolchain.
+toolchain. On Linux, Wayland's pinned native dependencies are cross-compiled
+with the NDK as part of the Gradle build. The host protocol scanner is built
+separately; no system Wayland development libraries are required. On Windows,
+provide an exported ARM64 runtime from a Linux/Termux build through
+`-PmagicDeskWaylandRuntime=/path/to/runtime`. CI transfers that artifact between
+its Linux and Windows jobs. See [Wayland build details](docs/wayland.md#build).
 
 The current native helpers are ARM64-only. Both helper compiler paths target the
 APK's minimum SDK, API 34; actual device validation at that floor remains pending.

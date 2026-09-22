@@ -1,0 +1,19 @@
+[binaries]
+c = @MDW_MESON_CC@
+ar = @MDW_MESON_AR@
+strip = @MDW_MESON_STRIP@
+pkg-config = @MDW_MESON_PKG_CONFIG@
+
+[host_machine]
+system = 'android'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = true
+pkg_config_libdir = @MDW_MESON_PKG_DIRS@
+
+[built-in options]
+c_args = @MDW_MESON_CFLAGS@
+c_link_args = @MDW_MESON_LDFLAGS@

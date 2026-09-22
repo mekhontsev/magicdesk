@@ -1,0 +1,12 @@
+name: Graphics build tools
+description: Host generators for the embedded X11 and Wayland runtimes
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bison flex ninja-build patch pkg-config libexpat1-dev python3-venv
+        python3 -m venv "$RUNNER_TEMP/wayland-tools"
+        "$RUNNER_TEMP/wayland-tools/bin/pip" install meson==1.9.1
+        printf '%s\n' "$RUNNER_TEMP/wayland-tools/bin" >> "$GITHUB_PATH"

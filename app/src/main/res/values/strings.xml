@@ -23,6 +23,14 @@
     <string name="task_manager_end_session_confirm">End %1$s and its session-owned programs? Unsaved work may be lost.</string>
     <string name="terminal_session_actions_generic">Actions</string>
     <string name="x11_title">X11</string>
+    <string name="wayland_title">Wayland</string>
+    <string name="graphics_title">Linux graphics</string>
+    <string name="graphics_sessions">Sessions</string>
+    <string name="graphics_windows">Application windows</string>
+    <string name="graphics_new_session">New graphical session</string>
+    <string name="graphics_stop_session">Stop graphical session?</string>
+    <string name="graphics_no_session">No session selected</string>
+    <string name="graphics_force_stop_client">Disconnect this client without saving? All windows sharing its connection will close.</string>
     <string name="x11_windows">X11 windows</string>
     <string name="x11_waiting_application">Waiting for application window...</string>
     <string name="x11_permission_required">Allow Termux RUN_COMMAND access, then open the application again.</string>

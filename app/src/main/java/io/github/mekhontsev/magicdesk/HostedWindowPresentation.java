@@ -12,9 +12,17 @@ import java.util.Map;
 import java.util.Set;
 
 /** Session-owned presentation reservations, independent of which viewer currently has focus. */
-final class X11WindowPresentation {
+final class HostedWindowPresentation {
+    interface Session {
+        boolean ready();
+        boolean containsWindow(long window);
+        int hostTaskId(long window);
+        Intent windowIntent(Context context, long window);
+        void presentationChanged();
+        void presentationFailed(Throwable error);
+    }
     private final Context context;
-    private final X11Sessions.Session session;
+    private final Session session;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Set<Long> presented = new HashSet<>();
     private WeakReference<Activity> source = new WeakReference<>(null);
@@ -29,7 +37,7 @@ final class X11WindowPresentation {
         ToolApplications.WindowPlacement placement;
     }
 
-    X11WindowPresentation(Context context, X11Sessions.Session session) {
+    HostedWindowPresentation(Context context, Session session) {
         this.context = context; this.session = session;
     }
 
@@ -67,7 +75,7 @@ final class X11WindowPresentation {
         final DesktopLaunchPresentation replacement;
         final Intent replacementIntent = intent(window);
         try {
-            if (host == null || host.placement == null) throw new IllegalStateException("X11 host placement is unavailable");
+            if (host == null || host.placement == null) throw new IllegalStateException("Host placement is unavailable");
             replacement = ToolApplications.replacementPresentation(activity, host.placement);
             SystemBarInsets.preserveCaption(activity, replacementIntent);
         } catch (RuntimeException error) {
@@ -77,11 +85,11 @@ final class X11WindowPresentation {
         }
         // Let teardown finish, then use the current catalog. No guessed client-response delay.
         main.post(() -> {
-            if (!recovering.remove(window) || closed || session.state() != X11Sessions.State.READY
-                    || session.windows().stream().noneMatch(item -> item.id() == window)
+            if (!recovering.remove(window) || closed || !session.ready()
+                    || !session.containsWindow(window)
                     || session.hostTaskId(window) >= 0) return;
             if (!ShellAccess.isReady()) {
-                session.presentationFailed(new IllegalStateException("Cannot restore the closed X11 host automatically"));
+                session.presentationFailed(new IllegalStateException("Cannot restore the closed application host automatically"));
                 return;
             }
             presented.add(window);
@@ -94,7 +102,7 @@ final class X11WindowPresentation {
     }
 
     private Intent intent(long window) {
-        return X11Activity.windowIntent(context, session, window);
+        return session.windowIntent(context, window);
     }
 
     boolean present(long window) {
@@ -114,8 +122,7 @@ final class X11WindowPresentation {
 
     private void presentationCompleted(long window, Throwable error) {
         // A client can finish while its Android replacement is still being launched.
-        if (error != null && !closed && session.state() == X11Sessions.State.READY
-                && session.windows().stream().anyMatch(item -> item.id() == window)) {
+        if (error != null && !closed && session.ready() && session.containsWindow(window)) {
             session.presentationFailed(error);
         }
     }

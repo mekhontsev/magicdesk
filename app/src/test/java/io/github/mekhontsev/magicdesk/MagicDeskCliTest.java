@@ -41,6 +41,16 @@ public final class MagicDeskCliTest {
         assertEquals(0, calls.get());
     }
 
+    @Test public void graphicalCommandsUseTheSameGeneratedInterface() throws Exception {
+        assertEquals(0, run("graphics.start", "--protocol", "wayland", "--backend", "termux", "--name", "GTK"));
+        assertEquals("graphics.start", name);
+        assertEquals("wayland", arguments.getString("protocol"));
+        assertEquals(0, run("graphics.open_window", "--sessionId", "wayland-test", "--windowId", "7",
+                "--placement", "display", "--displayId", "0"));
+        assertEquals(7, arguments.getInt("windowId"));
+        assertEquals(0, arguments.getInt("displayId"));
+    }
+
     @Test public void fieldOutputNeedsNoExternalJsonParserAndPreservesText() {
         assertEquals(0, run("list_tasks", "--query", "first\nsecond", "--field", "data.query"));
         assertEquals("first\nsecond" + System.lineSeparator(), stdout);

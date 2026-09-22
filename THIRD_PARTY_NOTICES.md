@@ -39,6 +39,16 @@ MagicDesk's local `x11-runtime` module.
 - Corresponding source archives include the fork, recursively pinned native
   dependencies, modifications and build scripts; see [licensing](docs/licensing.md).
 
+## Embedded Wayland
+
+The `wayland-runtime` module builds pinned upstream wlroots, Wayland,
+wayland-protocols, Pixman, libdrm, libxkbcommon and libffi. Source archive URLs
+and SHA-256 hashes are recorded in
+[`native-deps/CMakeLists.txt`](wayland-runtime/native-deps/CMakeLists.txt).
+The build preserves their license notices under `assets/licenses/wayland` in
+the APK, including libdrm's per-file notices. The local Android shared-memory
+adapter is applied as a checked source patch; wlroots is not a fork.
+
 ## JetBrains Mono Nerd Font Mono
 
 Console bundles the unmodified regular, bold, italic and bold-italic faces of

@@ -1,0 +1,14 @@
+--- a/meson.build
++++ b/meson.build
+@@ -136,5 +136,10 @@
+ math = cc.find_library('m')
+-rt = cc.find_library('rt')
++if host_machine.system() == 'android'
++    # Bionic provides the POSIX clock functions in libc, without librt.
++    rt = declare_dependency()
++else
++    rt = cc.find_library('rt')
++endif
+
+ wlr_files = []
+ wlr_deps = [

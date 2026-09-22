@@ -22,6 +22,29 @@ final class AutomationCommandCatalog {
                                 .put("windowId", integerProperty("Selected main X window id, 1 through 4294967295."))
                                 .put("limit", integerProperty("Maximum returned family windows, 1 through 256; default 256.")),
                                 "sessionId", "windowId")))
+                .put(readTool("graphics.list", "List graphical sessions",
+                        "Read retained X11 and Wayland sessions and native window IDs. Does not create Android windows, claim input or start Desktop.", emptySchema()))
+                .put(actionTool("graphics.start", "Start graphical session",
+                        "Start a retained compositor through the selected executor, optionally running a startup command. Returns a sessionId before readiness; observe graphics.list. No Android window is opened. Wayland currently supports software per-application windows, not a whole desktop, and its shell client bootstrap requires UID 2000. An expired observation does not cancel a dispatched start; inspect before retrying.",
+                        objectSchema(new JSONObject().put("protocol", enumProperty("Display protocol.", "x11", "wayland"))
+                                .put("backend", enumProperty("Explicit client executor; never elevated or replaced.", "termux", "shell"))
+                                .put("name", stringProperty("Session name, 1 to 128 characters."))
+                                .put("command", stringProperty("Optional startup shell command."))
+                                .put("directory", stringProperty("Optional absolute client working directory."))
+                                .put("keyboardDirectory", stringProperty("XKB data path; required for shell, optional for Termux.")),
+                                "protocol", "backend", "name")))
+                .put(actionTool("graphics.execute", "Run graphical command",
+                        "Run a command in a ready retained graphical session using its captured executor. Acceptance is not client completion. No Desktop or Android placement changes.",
+                        objectSchema(new JSONObject().put("sessionId", stringProperty("Live graphical session ID."))
+                                .put("command", stringProperty("Shell command."))
+                                .put("directory", stringProperty("Optional absolute client working directory.")), "sessionId", "command")))
+                .put(actionTool("graphics.stop", "Stop graphical session",
+                        "Explicitly stop the retained server and disconnect its graphical clients. All its client hosts close; other graphical sessions are unaffected. This does not terminate arbitrary background jobs in the selected executor.",
+                        objectSchema(new JSONObject().put("sessionId", stringProperty("Live graphical session ID.")), "sessionId")))
+                .put(actionTool("graphics.open_window", "Open graphical window",
+                        "Borrow one native window in an ordinary MagicDesk Android host. windowId comes from graphics.list, not Android task IDs. X11 alone accepts 0 for a whole-desktop viewer. Placement uses the shared tool launcher and does not claim input or start Desktop.",
+                        objectSchema(toolPlacementProperties().put("sessionId", stringProperty("Live graphical session ID."))
+                                .put("windowId", integerProperty("Native window ID; X11 accepts 0 for its whole desktop.")), "sessionId", "windowId")))
                 .put(readTool(
                         "get_pointer_state",
                         "Get pointer state",
@@ -206,7 +229,7 @@ final class AutomationCommandCatalog {
                 .put(destructiveTool(
                         "close_task",
                         "Close task",
-                        "Request closure of an application task without force-stopping its package. Hosted X11 clients receive WM_DELETE_WINDOW and keep their Android window for save/cancel confirmation. Acceptance does not mean task removal; observe task_absent separately.",
+                        "Request closure of an application task without force-stopping its package. Hosted graphical clients receive their protocol's close request and keep their Android window for save/cancel confirmation. Acceptance does not mean task removal; observe task_absent separately.",
                         taskIdSchema()))
                 .put(actionTool(
                         "set_window_mode",
@@ -315,7 +338,7 @@ final class AutomationCommandCatalog {
                                         "files", "console", "termux",
                                         "task_manager", "settings",
                                         "app_profiles",
-                                        "diagnostics", "activity_explorer", "display_viewer", "x11"))
+                                        "diagnostics", "activity_explorer", "display_viewer", "graphics"))
                                 .put("viewer", objectSchema(new JSONObject()
                                         .put("sourceDisplayId", integerProperty("Viewer source, including 0. Omit for interactive source selection."))
                                         .put("mode", enumProperty("Viewer only: mirror (default) opens a separate copy using normal placement; output reuses one independent fullscreen Viewer per output and connects owned virtual sources directly. Output requires sourceDisplayId and independent placement; use placement=display to avoid inheriting Desktop.", "mirror", "output"))
@@ -453,7 +476,7 @@ final class AutomationCommandCatalog {
             tools.put(destructiveTool(
                         "force_stop_app",
                         "Force stop application",
-                        "Force-stop an Android package by appIdentity or the application owning taskId. A hosted X11 task disconnects its guest client, including all windows sharing that client; a whole-X11-desktop task stops its session. No save confirmation. Exactly one selector is required.",
+                        "Force-stop an Android package by appIdentity or the application owning taskId. A hosted graphical task disconnects its guest client, including all windows sharing that client; a whole-X11-desktop task stops its session. No save confirmation. Exactly one selector is required.",
                         objectSchema(new JSONObject().put(
                                 "appIdentity", stringProperty(
                                         "Profile-scoped Android identity returned by list_apps."))
@@ -1303,6 +1326,25 @@ final class AutomationCommandCatalog {
             throws JSONException {
         final JSONObject properties = new JSONObject();
         switch (toolName) {
+            case "graphics.list":
+                properties.put("sessions", arrayProperty("Retained graphical sessions with sessionId, protocol, name, state, ready, error and native windows.", openObjectProperty("Graphical session.")));
+                break;
+            case "graphics.start":
+            case "graphics.execute":
+            case "graphics.stop":
+                properties.put("sessionId", stringProperty("Exact retained session ID."))
+                        .put("accepted", booleanProperty("Operation dispatched, not completed."))
+                        .put("protocol", enumProperty("Display protocol.", "x11", "wayland"))
+                        .put("state", stringProperty("Observed lifecycle state."))
+                        .put("ready", booleanProperty("Server is ready."))
+                        .put("error", stringProperty("Last operation error."))
+                        .put("windows", arrayProperty("Native windows.", openObjectProperty("Native window.")));
+                break;
+            case "graphics.open_window":
+                properties.put("accepted", booleanProperty("Android launch accepted."))
+                        .put("displayId", integerProperty("Android display ID."))
+                        .put("placement", enumProperty("Android ownership.", "desktop", "display"));
+                break;
             case "x11.inspect_window":
                 properties.put("sessionId", stringProperty("Exact X11 session id."))
                         .put("windowId", integerProperty("Selected X window id."))

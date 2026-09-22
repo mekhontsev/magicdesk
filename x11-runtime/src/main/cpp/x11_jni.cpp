@@ -220,10 +220,8 @@ extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativePointer)(JNIEnv*, jclass,
 
 extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeKey)(JNIEnv*, jclass, jlong ptr,
         jint output, jint window, jint androidKey, jint scanCode, jboolean down) {
-    int xKeyCode = scanCode > 0 ? scanCode + 8 : 0;
-    if (!xKeyCode && androidKey >= 0 &&
-            (size_t)androidKey < sizeof(android_to_linux_keycode) / sizeof(android_to_linux_keycode[0]))
-        xKeyCode = android_to_linux_keycode[androidKey] ? android_to_linux_keycode[androidKey] + 8 : 0;
+    int evdev = hosted_evdev_keycode(androidKey, scanCode);
+    int xKeyCode = evdev ? evdev + 8 : 0;
     lorieOutputKey(((Connection*)ptr)->native, output, window, xKeyCode, down);
 }
 

@@ -148,7 +148,7 @@ final class X11Sessions {
         }
     }
 
-    static final class Session {
+    static final class Session implements HostedWindowPresentation.Session {
         final String name;
         final X11Execution execution;
         final boolean application;
@@ -181,7 +181,7 @@ final class X11Sessions {
         private volatile String display = "";
         private volatile List<X11Session.Window> windows = List.of();
         private Listener clipboardOwner;
-        final X11WindowPresentation presentation;
+        final HostedWindowPresentation presentation;
         private final java.util.Map<Long, Object> fullscreenOwners = new java.util.HashMap<>();
 
         Session(Context context, X11Execution execution, String name, String command,
@@ -191,7 +191,7 @@ final class X11Sessions {
             this.name = name;
             this.application = application;
             this.recipe = recipe;
-            presentation = new X11WindowPresentation(context, this);
+            presentation = new HostedWindowPresentation(context, this);
             presentationKey = X11PresentationPreferences.key(execution.commands.scope, desktopFile);
             scalePercent = X11PresentationPreferences.load(context, presentationKey);
             density = new X11Density(densityDpi);
@@ -236,7 +236,7 @@ final class X11Sessions {
                 initial = false;
             }
         }
-        synchronized int hostTaskId(long window) {
+        @Override public synchronized int hostTaskId(long window) {
             if (window == 0) return hostTaskId();
             int task = -1;
             for (var host : hosts.entrySet()) if (host.getValue() == window) task = host.getKey();
@@ -326,8 +326,13 @@ final class X11Sessions {
             return result;
         }
         void claimWindow(long id) { presentation.claim(id); LAUNCHES.presented(id(), id); }
-        void presentationChanged() { changed(); }
-        void presentationFailed(Throwable failure) {
+        @Override public boolean ready() { return state == State.READY; }
+        @Override public boolean containsWindow(long window) { return windows.stream().anyMatch(item -> item.id() == window); }
+        @Override public android.content.Intent windowIntent(Context context, long window) {
+            return X11Activity.windowIntent(context, this, window);
+        }
+        @Override public void presentationChanged() { changed(); }
+        @Override public void presentationFailed(Throwable failure) {
             DesktopAutomationEventJournal.record("x11", "window_presentation_failed", false,
                     "session=" + id() + " detail=" + ShellAccess.usefulMessage(failure));
             error = ShellAccess.usefulMessage(failure);

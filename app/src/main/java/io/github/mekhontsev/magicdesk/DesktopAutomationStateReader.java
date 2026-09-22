@@ -85,6 +85,7 @@ final class DesktopAutomationStateReader {
                         .put("apiVersion", shell.version < 0 ? JSONObject.NULL : shell.version)
                         .put("error", shell.error))
                 .put("termux", TermuxIntegration.inspect(mContext).toJson())
+                .put("graphics", AutomationGraphics.snapshot())
                 .put("x11", x11Sessions())
                 .put("integrationPackages", integrationPackages())
                 .put("platform", new JSONObject()
@@ -107,7 +108,7 @@ final class DesktopAutomationStateReader {
                         .put("terminalWindows",
                                 ConsoleTerminalRegistry.windowCount())
                         .put("terminalSessions", ConsoleTerminalRegistry.registeredCount())
-                        .put("x11Sessions", X11Sessions.count()))
+                        .put("graphicalSessions", GraphicalSessions.count()))
                 .put("windows", windows.toJson())
                 .put("mcp", MagicDeskMcpRuntime.snapshotJson())
                 .put("eventSequence",
