@@ -47,11 +47,11 @@ final class WaylandShellBinding implements AutoCloseable, WaylandSession.ShellLi
     ShellLayout.Surface surface(final long id) { return mLayout.surface(id); }
     WaylandViewGeometry geometry(final long id) { return mNative.geometry(id); }
 
-    HostedShellWindows host(final HostedShellWindows.Host host) {
+    HostedShellWindows host(final HostedShellWindows.Host host, final ShellPresentationScope presentation) {
         checkThread();
         if (mClosed || mWindows != null) throw new IllegalStateException("Shell binding already hosted or closed");
         final var main = new android.os.Handler(Looper.getMainLooper());
-        mWindows = new HostedShellWindows(host, main::post, error -> closed(error.toString()));
+        mWindows = new HostedShellWindows(host, presentation, main::post, error -> closed(error.toString()));
         updateWindows();
         return mWindows;
     }

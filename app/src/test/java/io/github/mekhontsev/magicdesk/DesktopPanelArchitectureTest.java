@@ -11,6 +11,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 public final class DesktopPanelArchitectureTest {
+    @Test public void shellPresentationStopsItsProducerBeforeRevokingGeometryOwners() throws IOException {
+        String release = RuntimeSourceFixture.methods("DesktopShellActivity", "releaseDesktopUiWindows");
+        assertTrue(release.indexOf("mTaskbarRevealController.release()") < release.indexOf("mShellPresentation.close()"));
+        assertTrue(release.indexOf("mShellPresentation.close()") < release.indexOf("mHomeSurfaceHost.close()"));
+        assertTrue(release.indexOf("mShellPresentation.close()") < release.indexOf("mDesktopLayout.release()"));
+    }
+
     @Test
     public void manifestNeedsNoDisplayOverOtherAppsPermission()
             throws IOException {

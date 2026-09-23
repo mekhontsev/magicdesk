@@ -29,6 +29,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
     private int chromeDisplay = -1;
     private int workspaceDisplay = -1;
     private boolean homeLayers;
+    private int policyTask = -1;
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         clientPath = arguments == null ? null : arguments.getString("client");
@@ -36,6 +37,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
         if (arguments != null) chromeDisplay = Integer.parseInt(arguments.getString("chrome_display", "-1"));
         if (arguments != null) workspaceDisplay = Integer.parseInt(arguments.getString("workspace_display", "-1"));
         homeLayers = arguments != null && Boolean.parseBoolean(arguments.getString("home_layers", "false"));
+        if (arguments != null) policyTask = Integer.parseInt(arguments.getString("policy_task", "-1"));
         start();
     }
 
@@ -46,6 +48,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                 runRuntime();
                 result.putString("wayland_runtime", workspaceDisplay >= 0
                         ? "passed: workspace catalog hosting, automatic placement, input holes, unmap/remap, role rejection, reservation cleanup, retained application"
+                                + (policyTask >= 0 ? "; fullscreen conceal/reveal with stable reservation and task plane" : "")
                         : chromeDisplay >= 0
                         ? "passed: Wayland chrome pixels, exact input holes, replacement receipts, borrowed output cleanup; shell runtime checks"
                         : shellTest
@@ -192,6 +195,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
         HostedShellWindows windows;
         ShellLayoutScope scope;
         ShellBounds initialWorkArea;
+        DesktopShellActivity activity;
         final java.util.List<CompletableFuture<Void>> frames = java.util.List.of(
                 new CompletableFuture<>(), new CompletableFuture<>(), new CompletableFuture<>());
         final CompletableFuture<String> revoked = new CompletableFuture<>();
@@ -209,7 +213,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
             runOnMainSync(() -> {
                 try {
                     var runtime = DesktopRuntimeBridge.getWorkspaceRuntime(workspaceDisplay);
-                    var activity = runtime == null ? null : runtime.host();
+                    activity = runtime == null ? null : runtime.host();
                     if (activity == null) throw new IOException("Explicit active Desktop required");
                     var panels = activity.panels();
                     if (homeLayers) homeRoot = (android.widget.FrameLayout) ((android.view.ViewGroup)
@@ -222,7 +226,8 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                     initialWorkArea = scope.snapshot().workArea();
                     binding = new WaylandShellBinding(session, scope, density, this);
                     windows = binding.host(activity.shellSurfaceHost(state -> new WaylandSurfaceOutput(
-                            binding.openOutput(state.id(), state.bounds().width(), state.bounds().height()))));
+                            binding.openOutput(state.id(), state.bounds().width(), state.bounds().height()))),
+                            activity.shellPresentation());
                     created.complete(null);
                 } catch (Exception error) { created.completeExceptionally(error); }
             });
@@ -270,6 +275,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                             + " catalog=" + binding.surfaces() + " geometry=" + binding.geometry(surface)));
                     throw new IOException("Workspace presentation timed out: " + detail.get(), error);
                 }
+                if (frame == frames.get(0) && policyTask >= 0) exercisePolicy();
                 var placement = new AtomicReference<ShellBounds>();
                 runOnMainSync(() -> {
                     var bounds = binding.surface(surface).content();
@@ -299,6 +305,83 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                 if (!scope.snapshot().workArea().equals(initialWorkArea))
                     throw new IllegalStateException("Workspace retained a revoked reservation");
             });
+        }
+
+        private void exercisePolicy() throws Exception {
+            if (homeLayers) throw new IllegalArgumentException("Fullscreen policy fixture requires a TOP panel");
+            var initial = policyTask();
+            if (!initial.isFreeform()) throw new IOException("Policy fixture requires an existing freeform task");
+            var reserved = new AtomicReference<ShellBounds>();
+            runOnMainSync(() -> reserved.set(scope.snapshot().workArea()));
+            boolean restore = false;
+            try {
+                var transition = new CompletableFuture<TaskRepository.ActionResult>();
+                restore = MagicDeskRuntime.makeTaskFullscreen(initial, transition::complete);
+                if (!restore) throw new IOException("Fullscreen gateway declined the fixture task");
+                // EVENT_WAIT: production fullscreen completion; timeout fails, without replaying the transition.
+                var result = transition.get(15, TimeUnit.SECONDS);
+                if (!result.success) throw new IOException(result.message);
+                awaitTop(false, () -> {});
+                var fullscreen = policyTask();
+                if (!fullscreen.isFullscreen()) throw new IOException("Fixture task did not enter fullscreen");
+                runOnMainSync(() -> {
+                    if (!windows.presented(surface).isCompletedExceptionally())
+                        throw new IllegalStateException("Concealed surface retained a presentation receipt");
+                });
+                awaitTop(true, () -> activity.showStartSection(StartMenuController.MENU_APPS, false));
+                awaitPresented();
+                awaitTop(false, () -> activity.panels().hideAll());
+                var after = policyTask();
+                if (!after.isFullscreen() || after.rootTaskId != fullscreen.rootTaskId
+                        || !after.bounds.equals(fullscreen.bounds) || after.displayId != fullscreen.displayId)
+                    throw new IOException("Shell reveal changed the fullscreen task topology");
+                runOnMainSync(() -> {
+                    if (!reserved.get().equals(scope.snapshot().workArea()) || mappings != 1 || !wasMapped)
+                        throw new IllegalStateException("Presentation policy changed the panel's protocol/layout state");
+                });
+            } finally {
+                runOnMainSync(() -> activity.panels().hideAll());
+                if (restore) awaitTop(true, () -> {
+                    if (!MagicDeskRuntime.arrangeTask(workspaceDisplay, policyTask, DesktopTaskController.SHORTCUT_RESTORE))
+                        throw new IllegalStateException("Restore gateway declined the fixture task");
+                });
+            }
+            awaitPresented();
+        }
+
+        private TaskRepository.TaskEntry policyTask() throws IOException {
+            var snapshot = MagicDeskRuntime.observedTaskSnapshot(workspaceDisplay);
+            if (snapshot == null || !snapshot.available) throw new IOException("Workspace observation unavailable");
+            return snapshot.tasks.stream().filter(task -> task.taskId == policyTask).findFirst()
+                    .orElseThrow(() -> new IOException("Fixture task left the workspace"));
+        }
+
+        private void awaitTop(boolean visible, Runnable action) throws Exception {
+            var state = new CompletableFuture<Void>();
+            var presentation = new AtomicReference<ShellPresentationScope>();
+            Runnable changed = () -> {
+                if (presentation.get().isClosed()) state.completeExceptionally(new IOException("Workspace closed"));
+                else if (presentation.get().visible(ShellSurface.Layer.TOP) == visible) state.complete(null);
+            };
+            runOnMainSync(() -> {
+                try {
+                    presentation.set(activity.shellPresentation());
+                    presentation.get().listen(changed);
+                    action.run();
+                    changed.run();
+                } catch (Exception error) { state.completeExceptionally(error); }
+            });
+            try {
+                // EVENT_WAIT: workspace presentation policy publication; timeout fails the fixture, not the command.
+                state.get(15, TimeUnit.SECONDS);
+            } finally { runOnMainSync(() -> { if (presentation.get() != null) presentation.get().unlisten(changed); }); }
+        }
+
+        private void awaitPresented() throws Exception {
+            var receipt = new AtomicReference<CompletableFuture<Void>>();
+            runOnMainSync(() -> receipt.set(windows.presented(surface)));
+            // EVENT_WAIT: replacement pixels and input region must be admitted before exercising the panel.
+            receipt.get().get(15, TimeUnit.SECONDS);
         }
 
         @android.annotation.SuppressLint({"ClickableViewAccessibility", "RtlHardcoded"}) // Raw input assertions in display coordinates.

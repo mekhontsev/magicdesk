@@ -1052,7 +1052,11 @@ runtime integration and are not distributed through the same release path.
 - `DesktopHomeSurfaceHost` borrows background and bottom graphical surfaces inside
   HOME's view tree. `HostedShellWindows` reconciles the same protocol-neutral
   leases for HOME and chrome. Geometry, exact local input and output lifetime stay
-  separate from Android task topology and the retained graphical session; see
+  separate from Android task topology and the retained graphical session.
+  `ShellPresentationScope` publishes workspace-local layer visibility from the
+  existing taskbar fullscreen/reveal policy. Concealment releases borrowed windows,
+  not protocol mappings or reservations; scope loss revokes hidden contributions
+  as well. Native taskbar auto-hide remains a taskbar preference. See
   [Shell layout](shell-layout.md#android-adapter).
 - `SystemPanelController` presents Quick controls using those same panel
   windows. It measures content within the available work area and anchors the

@@ -10,6 +10,18 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public final class DesktopTaskbarRevealControllerTest {
+    @Test public void externalLayersFollowFullscreenRevealAndAvailabilityWithoutChangingHome() {
+        for (int flags = 0; flags < 16; flags++) {
+            boolean available = (flags & 1) != 0, policy = (flags & 2) != 0,
+                    forced = (flags & 4) != 0, revealed = (flags & 8) != 0;
+            var layers = DesktopTaskbarRevealController.resolveShellLayers(available, policy, forced, revealed);
+            assertTrue(layers.contains(ShellSurface.Layer.BACKGROUND));
+            assertTrue(layers.contains(ShellSurface.Layer.BOTTOM));
+            assertEquals(available, layers.contains(ShellSurface.Layer.OVERLAY));
+            assertEquals(available && (policy || forced || revealed), layers.contains(ShellSurface.Layer.TOP));
+        }
+    }
+
     @Test
     public void navigationOnlyRevealsLiveHiddenPhoneChromeOnce() throws Exception {
         RuntimeSourceFixture.verify("""

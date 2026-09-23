@@ -112,6 +112,23 @@ revokes the contribution rather than retaining an invisible reservation. The hos
 validates semantic roles, including unmapped clients; the current chrome adapter
 admits only `TOP` with keyboard `NONE`.
 
+`ShellPresentationScope` publishes the visible semantic layers for one workspace,
+separately from layout. `DesktopTaskbarRevealController` supplies the existing
+fullscreen, availability and temporary-reveal decisions. Managed fullscreen
+conceals external `TOP` panels; edge reveal or the native Start/IME visibility
+hold presents them again. An independent fullscreen foreground suppresses chrome
+layers even during a reveal. The native taskbar's auto-hide preference does not
+hide external panels. HOME layers remain in their existing Android view hierarchy
+and are naturally covered by application tasks. `OVERLAY` remains a separate
+policy intent, not an admitted host role or permission to cover system UI.
+
+The reconciler releases concealed windows and input, retaining their protocol
+catalog and geometry reservations. Reveal borrows outputs with the latest geometry
+and requires new pixel/input receipts. Equal policy updates do no work. Scope
+closure revokes even fully concealed contributions; callbacks from released leases
+cannot revive them. Policy changes use the existing task publication and reveal
+events, not another task observer, polling loop or window transaction.
+
 `DesktopHomeSurfaceHost` admits `BACKGROUND` and `BOTTOM` with keyboard `NONE`
 inside the existing HOME view tree. External backgrounds paint above the native
 wallpaper and below native desktop items; bottom surfaces paint above those items
@@ -166,7 +183,7 @@ its typed Binder catalog to an explicitly supplied `ShellLayoutScope`. It never
 starts Desktop, selects a display or merges nested scopes. An explicit binding can
 borrow a host from the selected Desktop's panel controller; catalog and family
 geometry events then reconcile its windows automatically. Public workspace
-selection, complete layer/focus policy and X11 strut adaptation are pending.
+selection, keyboard-focus admission and X11 strut adaptation are pending.
 The adapters preserve protocol lifetimes
 and coordinate conversion:
 
@@ -222,9 +239,9 @@ and [EWMH](https://specifications.freedesktop.org/wm/latest-single/).
 ## Integration Work
 
 1. Extend host admission beyond keyboard-inert background, bottom and top surfaces.
-   Apply workspace fullscreen and focus
-   policy through existing hosts rather than mapping layer numbers directly to
-   Android z-order. Keep pointer admission and keyboard ownership separate.
+   Apply focus policy through the existing host gate rather than mapping layer
+   numbers directly to Android z-order. Keep pointer admission and keyboard
+   ownership separate.
 2. Adapt X11 DOCK/DESKTOP properties and struts to the same bindings. Preserve
    guest-WM ownership for whole-desktop sessions.
 3. Expose the shared application catalog and semantic actions to external panels,
@@ -286,3 +303,9 @@ receipt replacement, renderer failure and output release. The runtime fixture's
 `home_layers=true` variant checks transparent HOME pixels, background-to-bottom
 remapping, native control priority, input holes and keyboard isolation on the
 explicitly selected Desktop. No Desktop self-test is substituted for these checks.
+`ShellPresentationScopeTest` and the reconciler fixtures cover workspace isolation,
+layer-selective concealment, reentrant publication, hidden-scope revocation and
+late receipts. The workspace runtime fixture accepts an explicit `policy_task`
+for an existing managed freeform task: the production fullscreen/restore gateways
+and native Start exercise conceal/reveal while retaining the same fullscreen task
+plane, panel mapping and work-area reservation.

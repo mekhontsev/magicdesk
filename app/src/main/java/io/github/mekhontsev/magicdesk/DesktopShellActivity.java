@@ -85,6 +85,7 @@ public abstract class DesktopShellActivity extends Activity
     private TaskbarController mTaskbarController;
     private DesktopTaskbarHost mTaskbarHost;
     private DesktopTaskbarRevealController mTaskbarRevealController;
+    private ShellPresentationScope mShellPresentation;
     private AltTabController mAltTabController;
     private DesktopWorkspaceController mDesktopWorkspaceController;
     private AppTaskController mAppTasks;
@@ -376,13 +377,17 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void releaseDesktopUiWindows() {
-        if (mHomeSurfaceHost != null) {
-            mHomeSurfaceHost.close();
-            mHomeSurfaceHost = null;
-        }
         if (mTaskbarRevealController != null) {
             mTaskbarRevealController.release();
             mTaskbarRevealController = null;
+        }
+        if (mShellPresentation != null) {
+            mShellPresentation.close();
+            mShellPresentation = null;
+        }
+        if (mHomeSurfaceHost != null) {
+            mHomeSurfaceHost.close();
+            mHomeSurfaceHost = null;
         }
         if (mDesktopLayout != null) {
             mDesktopLayout.release();
@@ -905,6 +910,11 @@ public abstract class DesktopShellActivity extends Activity
         }
     }
 
+    ShellPresentationScope shellPresentation() {
+        if (mShellPresentation == null) throw new IllegalStateException("Desktop shell presentation is unavailable");
+        return mShellPresentation;
+    }
+
     HostedShellWindows.Host shellSurfaceHost(
             java.util.function.Function<HostedShellWindows.Surface, HostedShellOutput> outputs) {
         if (mHomeSurfaceHost == null || mDesktopPanelWindowController == null)
@@ -929,6 +939,7 @@ public abstract class DesktopShellActivity extends Activity
     @SuppressLint("ClickableViewAccessibility")
     private View createDesktopContentView() {
         final FrameLayout root = new FrameLayout(this);
+        mShellPresentation = new ShellPresentationScope();
         mDesktopRoot = root;
         mDesktopPanelWindowController = new DesktopPanelWindowController(
                 this,

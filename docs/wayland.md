@@ -152,11 +152,13 @@ failure releases the session. Application output ownership remains separate.
 An explicitly hosted binding reconciles its catalog and family geometry through
 the protocol-neutral `HostedShellWindows` owner. The Android adapters admit
 keyboard-inert background/bottom surfaces inside HOME and top panels in chrome,
-all on the selected Desktop's actual layout scope. Role or
+all on the selected Desktop's actual layout scope. Its separate presentation scope
+applies existing fullscreen and reveal policy without unmapping the Linux panel
+or releasing its reservation. Role or
 host failure revokes that contribution and its reservations, not the session.
 Catalog snapshots are published with their UI callbacks so rapid unmap/remap
-retains lifecycle order. User-facing workspace selection and complete layer/focus
-policy are pending; ordinary sessions do not enable layer-shell admission automatically.
+retains lifecycle order. User-facing workspace selection and keyboard-focus
+admission are pending; ordinary sessions do not enable layer-shell admission automatically.
 
 `MdwView` owns a rendered surface family independently of its xdg or layer role.
 Ordinary application outputs use wlroots scene rendering. Transparent shell
@@ -450,6 +452,11 @@ It checks movement without redundant configure, exact input holes, unmap/remap,
 unsupported keyboard-role rejection and removal of the workspace reservation.
 An ordinary application must survive shell revocation and close independently.
 On RM11/API 36 with service UID 2000, this workflow passed on the wired display.
+Add `-e policy_task TASK_ID` for an existing managed freeform task to exercise the
+production fullscreen/restore gateways and native Start conceal/reveal. The
+fixture requires fresh output/input receipts on reveal and checks that the panel's
+mapping, reservation and the application's fullscreen plane remain stable. This
+variant also passed on RM11/API 36 with service UID 2000 on the wired display.
 
 On API 36, both UID-2000 and Termux-UID client handoffs passed. The runtime fixture
 also passed compositor startup under the selected Termux UID, cross-UID frames

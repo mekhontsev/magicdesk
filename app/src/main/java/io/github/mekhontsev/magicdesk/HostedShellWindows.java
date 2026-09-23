@@ -34,16 +34,20 @@ final class HostedShellWindows implements AutoCloseable {
     }
 
     private final Host host;
+    private final ShellPresentationScope presentation;
+    private final Runnable presentationChanged = this::presentationChanged;
     private final Executor events;
     private final Consumer<Throwable> failure;
     private final Map<Long, Entry> windows = new LinkedHashMap<>();
     private List<Surface> surfaces = List.of();
-    private boolean visible = true, closed;
+    private boolean closed, reconciling, reconcilePending;
 
-    HostedShellWindows(Host host, Executor events, Consumer<Throwable> failure) {
+    HostedShellWindows(Host host, ShellPresentationScope presentation, Executor events, Consumer<Throwable> failure) {
         this.host = Objects.requireNonNull(host);
+        this.presentation = Objects.requireNonNull(presentation);
         this.events = Objects.requireNonNull(events);
         this.failure = Objects.requireNonNull(failure);
+        presentation.listen(presentationChanged);
     }
 
     void update(List<Surface> next) {
@@ -61,9 +65,9 @@ final class HostedShellWindows implements AutoCloseable {
         } catch (RuntimeException error) { fail(error); }
     }
 
-    void visible(boolean value) {
-        if (closed || visible == value) return;
-        visible = value;
+    private void presentationChanged() {
+        if (closed) return;
+        if (presentation.isClosed()) { fail(new IllegalStateException("Shell presentation scope was released")); return; }
         try { reconcile(); }
         catch (RuntimeException error) { fail(error); }
     }
@@ -75,25 +79,39 @@ final class HostedShellWindows implements AutoCloseable {
     }
 
     private void reconcile() {
+        if (reconciling) { reconcilePending = true; return; }
+        reconciling = true;
+        try {
+            do {
+                reconcilePending = false;
+                reconcileOnce();
+            } while (!closed && reconcilePending);
+        } finally { reconciling = false; }
+    }
+
+    private void reconcileOnce() {
         var wanted = new LinkedHashMap<Long, Surface>();
-        if (visible) for (var surface : surfaces) if (surface.frame() != null) wanted.put(surface.id(), surface);
+        for (var surface : surfaces)
+            if (surface.frame() != null && presentation.visible(surface.layer())) wanted.put(surface.id(), surface);
         for (var entry : List.copyOf(windows.values())) {
             if (!wanted.containsKey(entry.surface.id())) remove(entry);
         }
         for (var surface : wanted.values()) {
-            if (closed) break;
+            if (closed || reconcilePending) break;
             var entry = windows.get(surface.id());
             if (entry != null && (entry.surface.layer() != surface.layer()
                     || entry.surface.keyboard() != surface.keyboard())) {
                 remove(entry);
                 entry = null;
             }
+            if (closed || reconcilePending) break;
             if (entry == null) {
                 entry = new Entry(surface);
                 windows.put(surface.id(), entry);
                 final var current = entry;
                 try {
                     current.window = host.open(surface);
+                    if (!owns(current)) { current.window.close(); break; }
                     current.window.ended().whenComplete((ignored, error) -> events.execute(() -> {
                         if (owns(current)) fail(error != null ? error : new IllegalStateException("Shell host was released"));
                     }));
@@ -101,21 +119,24 @@ final class HostedShellWindows implements AutoCloseable {
                         if (!owns(current)) return;
                         if (error != null) { fail(error); return; }
                         current.ready = true;
-                        present(current);
+                        reconcile();
                     }));
                 } catch (RuntimeException error) { fail(error); }
             } else if (!surface.equals(entry.surface)) {
                 entry.surface = surface;
                 entry.generation++;
-                entry.receipt.completeExceptionally(new CancellationException("Shell presentation replaced"));
+                var previous = entry.receipt;
                 entry.receipt = new CompletableFuture<>();
-                if (entry.ready) present(entry);
+                previous.completeExceptionally(new CancellationException("Shell presentation replaced"));
             }
+            if (!closed && !reconcilePending && owns(entry) && entry.ready) present(entry);
         }
     }
 
     private void present(Entry entry) {
         long generation = entry.generation;
+        if (entry.submitted == generation) return;
+        entry.submitted = generation;
         try {
             entry.window.present(entry.surface.bounds(), entry.surface.frame()).whenComplete((ignored, error) ->
                     events.execute(() -> {
@@ -129,7 +150,7 @@ final class HostedShellWindows implements AutoCloseable {
     private boolean owns(Entry entry) { return !closed && windows.get(entry.surface.id()) == entry; }
 
     private void remove(Entry entry) {
-        windows.remove(entry.surface.id());
+        if (!windows.remove(entry.surface.id(), entry)) return;
         entry.receipt.completeExceptionally(new CancellationException("Shell window released"));
         if (entry.window != null) entry.window.close();
     }
@@ -143,6 +164,7 @@ final class HostedShellWindows implements AutoCloseable {
     @Override public void close() {
         if (closed) return;
         closed = true;
+        presentation.unlisten(presentationChanged);
         surfaces = List.of();
         for (var entry : List.copyOf(windows.values())) remove(entry);
     }
@@ -152,6 +174,7 @@ final class HostedShellWindows implements AutoCloseable {
         Window window;
         boolean ready;
         long generation;
+        long submitted = -1;
         CompletableFuture<Void> receipt = new CompletableFuture<>();
         Entry(Surface surface) { this.surface = surface; }
     }

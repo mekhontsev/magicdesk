@@ -7,6 +7,7 @@ import android.view.Display;
 import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.ViewConfiguration;
+import java.util.Set;
 
 /** Keeps a hidden taskbar reachable from a passive strip at the screen edge. */
 final class DesktopTaskbarRevealController {
@@ -198,6 +199,9 @@ final class DesktopTaskbarRevealController {
     }
 
     private void applyPresentation() {
+        final boolean revealed = mPointerState.isRevealed() || mTouchState.isRevealed();
+        mActivity.shellPresentation().update(resolveShellLayers(
+                mAvailable, mPolicyVisible, mForcedVisible, revealed));
         final TaskbarController taskbar = mActivity.taskbar();
         final DesktopTaskbarHost taskbarHost = mActivity.taskbarHost();
         if (taskbar == null || taskbarHost == null) {
@@ -205,7 +209,7 @@ final class DesktopTaskbarRevealController {
         }
         final Presentation presentation = resolvePresentation(
                 mAvailable, mPolicyVisible, mAutoHide, mForcedVisible,
-                mPointerState.isRevealed() || mTouchState.isRevealed());
+                revealed);
         if (presentation == Presentation.UNAVAILABLE) {
             taskbarHost.setPresented(false);
             taskbar.setEdgeHidden(false);
@@ -230,6 +234,15 @@ final class DesktopTaskbarRevealController {
     private void cancelTimers() {
         mHandler.removeCallbacks(mRevealTimeout);
         mHandler.removeCallbacks(mHideTimeout);
+    }
+
+    static Set<ShellSurface.Layer> resolveShellLayers(boolean available, boolean policyVisible,
+            boolean forcedVisible, boolean revealed) {
+        // HOME layers remain naturally occluded by Android tasks. Taskbar auto-hide is a
+        // preference for the native taskbar, not a request to hide every external panel.
+        if (!available) return Set.of(ShellSurface.Layer.BACKGROUND, ShellSurface.Layer.BOTTOM);
+        if (policyVisible || forcedVisible || revealed) return Set.of(ShellSurface.Layer.values());
+        return Set.of(ShellSurface.Layer.BACKGROUND, ShellSurface.Layer.BOTTOM, ShellSurface.Layer.OVERLAY);
     }
 
     static Presentation resolvePresentation(
