@@ -12,7 +12,7 @@ struct Bridge {
     MdwServer *server;
     JNIEnv *env;
     jobject owner;
-    jmethodID window, shell, frame, wanted, can_render, error;
+    jmethodID window, shell, geometry, frame, wanted, can_render, error;
 };
 
 static jbyteArray bytes(JNIEnv *env, const char *value) {
@@ -66,6 +66,27 @@ static void shell_event(void *context, uint64_t id, const MdwShellSurface *surfa
     (*env)->DeleteLocalRef(env, name);
 }
 
+static void geometry_event(void *context, const MdwViewGeometry *geometry) {
+    struct Bridge *bridge = context;
+    JNIEnv *env = bridge->env;
+    if ((*env)->ExceptionCheck(env)) return;
+    jintArray input = (*env)->NewIntArray(env, geometry->input_count * 4);
+    if (!input) return;
+    jint rects[MDW_MAX_INPUT_RECTS * 4];
+    for (size_t i = 0; i < geometry->input_count; ++i) {
+        rects[i * 4] = geometry->input[i].left;
+        rects[i * 4 + 1] = geometry->input[i].top;
+        rects[i * 4 + 2] = geometry->input[i].right;
+        rects[i * 4 + 3] = geometry->input[i].bottom;
+    }
+    if (geometry->input_count) (*env)->SetIntArrayRegion(env, input, 0, geometry->input_count * 4, rects);
+    if (!(*env)->ExceptionCheck(env))
+        (*env)->CallVoidMethod(env, bridge->owner, bridge->geometry, (jlong)geometry->id, (jlong)geometry->revision,
+            (jboolean)geometry->mapped, (jint)geometry->paint.left, (jint)geometry->paint.top,
+            (jint)geometry->paint.right, (jint)geometry->paint.bottom, (jboolean)geometry->input_complete, input);
+    (*env)->DeleteLocalRef(env, input);
+}
+
 static void frame_event(void *context, MdwOutput *output, const MdwFrame *frame) {
     struct Bridge *bridge = context;
     JNIEnv *env = bridge->env;
@@ -100,6 +121,7 @@ JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner) {
     jclass type = (*env)->GetObjectClass(env, owner);
     bridge->window = (*env)->GetMethodID(env, type, "onWindow", "(JJ[B[BZIIZ)V");
     if (!(*env)->ExceptionCheck(env)) bridge->shell = (*env)->GetMethodID(env, type, "onShell", "(J[BZZIIIJJIIIIIZ)V");
+    if (!(*env)->ExceptionCheck(env)) bridge->geometry = (*env)->GetMethodID(env, type, "onGeometry", "(JJZIIIIZ[I)V");
     if (!(*env)->ExceptionCheck(env)) bridge->frame = (*env)->GetMethodID(env, type, "onFrame", "(JIII)V");
     if (!(*env)->ExceptionCheck(env)) bridge->wanted = (*env)->GetMethodID(env, type, "frameWanted", "(J)Z");
     if (!(*env)->ExceptionCheck(env)) bridge->can_render = (*env)->GetMethodID(env, type, "canRender", "(J)Z");
@@ -111,7 +133,8 @@ JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner) {
         free(bridge);
         return 0;
     }
-    MdwEvents events = {.window = window_event, .shell = shell_event, .frame = frame_event, .can_render = can_render,
+    MdwEvents events = {.window = window_event, .shell = shell_event, .geometry = geometry_event,
+        .frame = frame_event, .can_render = can_render,
         .error = error_event, .context = bridge};
     mdw_server_set_events(bridge->server, &events);
     return (jlong)(intptr_t)bridge;

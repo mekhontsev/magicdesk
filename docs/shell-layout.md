@@ -134,6 +134,14 @@ shell scope; application-recipe sessions cannot contribute shell components.
 Viewport/density changes update the same binding. Pixel commits and pointer
 motion do not recalculate layout or publish catalogs.
 
+Rendered-family geometry is a separate protocol observation. Wayland publishes
+paint extents and precise input rectangles, including popups/subsurfaces, through
+`WaylandViewGeometry`; it does not enlarge a panel's reservation when its menu opens.
+Shell geometry follows the same revocable owner as the surface catalog. Android
+hosts must translate these family coordinates into their layout scope and apply
+exact input regions. An incomplete region is not permission to capture its bounding
+box. Frame/viewport synchronization and Android materialization remain host work.
+
 The wlroots separation of protocol state, `full_area`/`usable_area` arrangement,
 scene nodes and seat focus is the reference, not an Android dependency. The
 current pinned source is wlroots 0.18.2, particularly
@@ -144,8 +152,8 @@ and [EWMH](https://specifications.freedesktop.org/wm/latest-single/).
 ## Integration Work
 
 1. Host backgrounds and bottom surfaces in existing HOME infrastructure, and top
-   surfaces in the existing chrome host. Complete popup paint extents and precise
-   input regions before admitting external panels. Apply workspace fullscreen and
+   surfaces in the existing chrome host. Consume popup paint extents and precise
+   input regions, with frame/viewport synchronization, before admitting external panels. Apply workspace fullscreen and
    focus policy rather than mapping layer numbers directly to Android z-order.
 2. Adapt X11 DOCK/DESKTOP properties and struts to the same bindings. Preserve
    guest-WM ownership for whole-desktop sessions.
@@ -166,8 +174,11 @@ Wayland native shell fixture verifies transparent pixels, configure deduplicatio
 mapping lifetime, independent pointer/keyboard ownership and output revocation.
 `WaylandShellLayoutTest` covers protocol-zone conversion, density, remapping,
 oversized requests and nested-scope isolation. `ShellSurfaceCatalogTest` covers
-lease revocation, obsolete configurations and catalog bounds. The dedicated
-Android shell runtime fixture uses the Binder bridge and an isolated layout scope;
+lease revocation, obsolete configurations and catalog bounds. The native
+geometry fixture covers constrained popups, synchronized subsurfaces,
+input holes, publication limits and pixel-only metadata stability;
+`WaylandViewGeometryTest` covers immutable snapshots and unavailable input.
+The Android shell runtime fixture uses the Binder bridge and an isolated layout scope;
 it does not test external panels hosted over Android application tasks.
 Desktop self-tests cover existing Android geometry and fullscreen transitions;
 they do not validate external Linux panel protocols or integrated-shell UX.

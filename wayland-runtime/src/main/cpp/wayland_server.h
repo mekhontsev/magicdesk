@@ -36,6 +36,16 @@ typedef struct {
     int32_t exclusive_zone;
 } MdwShellSurface;
 
+typedef struct { int32_t left, top, right, bottom; } MdwRect;
+enum { MDW_MAX_INPUT_RECTS = 512 };
+typedef struct {
+    uint64_t id, revision;
+    bool mapped, input_complete;
+    MdwRect paint;
+    const MdwRect *input; /* Borrowed for this callback; surface-family coordinates. */
+    size_t input_count;
+} MdwViewGeometry;
+
 typedef struct {
 	const void *pixels;
 	uint32_t format;
@@ -47,6 +57,7 @@ typedef struct {
 typedef struct {
 	void (*window)(void *context, uint64_t id, const MdwWindow *window);
     void (*shell)(void *context, uint64_t id, const MdwShellSurface *surface);
+    void (*geometry)(void *context, const MdwViewGeometry *geometry);
 	void (*frame)(void *context, MdwOutput *output, const MdwFrame *frame);
 	bool (*can_render)(void *context, MdwOutput *output);
 	void (*error)(void *context, const char *message);
@@ -66,6 +77,8 @@ bool mdw_shell_surface_configure(MdwServer *server, uint64_t id,
     int x, int y, int width, int height);
 MdwOutput *mdw_output_create(MdwServer *server, uint64_t window, int width, int height);
 bool mdw_output_resize(MdwOutput *output, int width, int height);
+/* Select rendered family coordinates without configuring the client's content size. */
+bool mdw_output_viewport(MdwOutput *output, int x, int y, int width, int height);
 bool mdw_output_set_visible(MdwOutput *output, bool visible);
 bool mdw_output_refresh(MdwOutput *output);
 bool mdw_output_focus(MdwOutput *output, bool focused);

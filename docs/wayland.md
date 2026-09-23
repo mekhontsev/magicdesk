@@ -115,7 +115,8 @@ rendering, configure/ack, frame callbacks, borrowed-output resize, pointer/key
 input, focus release and graceful close. The standard data-device manager and
 seat selection serve guest-to-guest clipboard requests; they do not publish or
 read Android clipboard content. Popup nodes are composed with their
-parent, but popup policy and multi-window behavior need more coverage. IME/text,
+parent; shell popup constraints and surface-family input geometry are covered by
+native fixtures. Android popup hosting and multi-window behavior need more coverage. IME/text,
 clipboard, drag-and-drop, density/fullscreen policy, and GPU
 buffer import are not complete. Android text input is explicitly unavailable
 instead of accepting and discarding IME text. Physical keys use the shared
@@ -155,8 +156,28 @@ unit scale and no output transform; client buffer transforms and viewports are
 applied during composition. Damage retirement prevents unchanged shell surfaces
 from continuously submitting frames. Host protocol events are flushed before a
 blocking dispatch, so idle scenes do not delay close, configure or input events.
-Popup paint expansion and Android input-region
-publication must be completed before exposing shell surfaces as Android panels.
+
+`WaylandViewGeometry` publishes immutable paint bounds and exact input rectangles
+for a rendered family, including popups and subsurfaces. Coordinates are relative
+to the family's scene origin and may be negative. Geometry has its own revision
+and callback across JNI/Binder: popup changes neither rebuild application catalogs
+nor change panel reservations. Shell geometry is qualified by the binding owner;
+destruction and scope revocation remove it. Native scene watches are attached once
+per scene surface. Commit-time comparisons coalesce geometry changes into event-loop
+idle work after wlroots listeners; pixel-only updates do not allocate notification
+work or publish geometry. There is no geometry timer or pointer-motion query.
+
+Input publication is bounded to 512 rectangles. An over-complex region is explicitly
+incomplete with no published input rectangles, not replaced by its bounding box.
+Hosts must not capture input using incomplete geometry. Layer popups are constrained
+against the logical shell output in family coordinates, independently of the panel's
+reserved strip. The native output viewport can include negative paint extents without
+resizing the client; pointer hit-testing uses that same viewport origin.
+
+Android shell hosts still need to materialize this geometry, synchronize viewport
+changes with presented frames, and apply exact Android touchable regions before
+external panels can be exposed. Ordinary application hosts retain their existing
+viewport policy.
 
 ## Implementation Plan
 
@@ -345,7 +366,10 @@ hidden-output suspend/resume.
 The shell fixture checks explicit admission, separate application/shell catalogs,
 configure deduplication, transparent pixels, pointer interaction without keyboard
 capture, key release on policy revocation, idle-frame suppression, unmap/remap and scope teardown without
-application termination. These native fixtures do not establish Android-host
+application termination. The geometry fixture covers popup constraint adjustment,
+negative paint extents, synchronized subsurface movement, input holes and bounded
+region publication, viewport-aligned pointer delivery, and stable metadata during
+pixel-only repaints. These native fixtures do not establish Android-host
 shell integration.
 
 The installed debug APK tests the production Binder handoff and native exec
@@ -375,7 +399,7 @@ operation on API 34 still require device validation.
 
 The shell variant drives a real layer-shell client through JNI/Binder and the
 common layout adapter, using an isolated scope rather than Desktop. It checks
-premultiplied alpha in an Android Surface, keyboard-inert pointer interaction,
+family geometry publication and revocation, premultiplied alpha in an Android Surface, keyboard-inert pointer interaction,
 on-demand keyboard input, remapping and scope revocation:
 
 ```sh
@@ -408,7 +432,8 @@ or an API-34 device.
 
 The API-36 shell runtime fixture passed with a Termux-UID compositor and an
 app-UID Android presenter: typed catalog/configure exchange, alpha pixels,
-pointer interaction while application keyboard focus is retained, on-demand
-keyboard transfer, remapping and scope release. The ordinary application runtime
-fixture also passed after the shell transport changes. These checks do not
+family geometry with precise input holes and revocation, pointer interaction while
+application keyboard focus is retained, on-demand keyboard transfer, remapping
+and scope release. The ordinary application runtime fixture also passed, including
+family geometry publication and cleanup. These checks do not
 establish Android chrome-host integration, Linux panel UX or API-34 coverage.

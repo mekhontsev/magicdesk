@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -22,10 +23,12 @@ public final class WaylandSession implements AutoCloseable {
         void changed();
         void failed(long output, String message);
         default void frame(long output, int width, int height) { }
+        default void geometryChanged(long window) { }
     }
     public interface ShellListener {
         void changed();
         void closed(String reason);
+        default void geometryChanged(long surface) { }
     }
     private interface Command { void run() throws RemoteException; }
 
@@ -37,6 +40,7 @@ public final class WaylandSession implements AutoCloseable {
     private final Handler handler;
     private final AtomicBoolean closed = new AtomicBoolean();
     private final LongSparseArray<Window> catalog = new LongSparseArray<>();
+    private final ConcurrentHashMap<Long, WaylandViewGeometry> geometries = new ConcurrentHashMap<>();
     private final LongSparseArray<Output> outputs = new LongSparseArray<>();
     private final LongSparseArray<Connection> connections = new LongSparseArray<>();
     private volatile List<Window> windows = List.of();
@@ -58,6 +62,7 @@ public final class WaylandSession implements AutoCloseable {
                 if (closed.get()) return;
                 if (removed) {
                     catalog.remove(id);
+                    geometries.remove(id);
                     releaseSurfaceOutputs(id);
                 }
                 else catalog.put(id, new Window(id, parent, title, appId, mapped, width, height));
@@ -110,7 +115,7 @@ public final class WaylandSession implements AutoCloseable {
                 ShellBinding binding = shellBinding;
                 if (closed.get() || binding == null || binding.released.get() || binding.id != owner) return;
                 if (!binding.catalog.update(owner, id, surface)) return;
-                if (surface == null) releaseSurfaceOutputs(id);
+                if (surface == null) { binding.geometries.remove(id); releaseSurfaceOutputs(id); }
                 binding.surfaces = binding.catalog.snapshot();
                 main.post(() -> { if (!binding.released.get() && !closed.get()) binding.listener.changed(); });
             });
@@ -127,7 +132,34 @@ public final class WaylandSession implements AutoCloseable {
                 }
             });
         }
+        @Override public void geometry(long owner, WaylandViewGeometry geometry) {
+            checkCaller();
+            java.util.Objects.requireNonNull(geometry);
+            handler.post(() -> {
+                if (closed.get()) return;
+                long id = geometry.id();
+                ShellBinding binding = shellBinding;
+                if (owner == 0) {
+                    if (catalog.get(id) == null || !updateGeometry(geometries, geometry)) return;
+                    main.post(() -> { if (!closed.get() && geometries.containsKey(id)) listener.geometryChanged(id); });
+                } else {
+                    if (binding == null || binding.released.get() || binding.id != owner
+                            || !binding.catalog.contains(id) || !updateGeometry(binding.geometries, geometry)) return;
+                    main.post(() -> {
+                        if (!closed.get() && !binding.released.get() && binding.geometries.containsKey(id))
+                            binding.listener.geometryChanged(id);
+                    });
+                }
+            });
+        }
     };
+
+    private static boolean updateGeometry(ConcurrentHashMap<Long, WaylandViewGeometry> catalog, WaylandViewGeometry next) {
+        WaylandViewGeometry previous = catalog.get(next.id());
+        if (previous != null && previous.revision() >= next.revision()) return false;
+        catalog.put(next.id(), next);
+        return true;
+    }
 
     public WaylandSession(IWaylandServer server, int executorUid, Listener listener) throws RemoteException {
         this.server = java.util.Objects.requireNonNull(server);
@@ -146,6 +178,7 @@ public final class WaylandSession implements AutoCloseable {
     }
 
     public List<Window> windows() { return windows; }
+    public WaylandViewGeometry geometry(long window) { return closed.get() ? null : geometries.get(window); }
     public boolean isClosed() { return closed.get(); }
 
     /** Explicit admission, independent of Android display placement or Desktop startup. */
@@ -269,6 +302,7 @@ public final class WaylandSession implements AutoCloseable {
             for (int index = 0; index < outputs.size(); ++index) outputs.valueAt(index).release();
             outputs.clear();
             catalog.clear();
+            geometries.clear();
             windows = List.of();
             try { server.stop(); } catch (RemoteException ignored) { }
             thread.quitSafely();
@@ -283,10 +317,12 @@ public final class WaylandSession implements AutoCloseable {
         private final AtomicBoolean released = new AtomicBoolean();
         private final CompletableFuture<Void> ready = new CompletableFuture<>();
         private volatile List<WaylandShellSurface> surfaces = List.of();
+        private final ConcurrentHashMap<Long, WaylandViewGeometry> geometries = new ConcurrentHashMap<>();
 
         private ShellBinding(long id, ShellListener listener) { this.id = id; this.listener = listener; }
 
         public List<WaylandShellSurface> surfaces() { return released.get() ? List.of() : surfaces; }
+        public WaylandViewGeometry geometry(long surface) { return released.get() ? null : geometries.get(surface); }
         public boolean isClosed() { return released.get(); }
         public CompletableFuture<Void> ready() { return ready.copy(); }
 
@@ -316,6 +352,7 @@ public final class WaylandSession implements AutoCloseable {
                 // Queue revocation before allowing a replacement owner to enqueue admission.
                 handler.post(() -> {
                     catalog.release(id);
+                    geometries.clear();
                     for (int index = outputs.size() - 1; index >= 0; --index) {
                         Output output = outputs.valueAt(index);
                         if (output.binding != this) continue;

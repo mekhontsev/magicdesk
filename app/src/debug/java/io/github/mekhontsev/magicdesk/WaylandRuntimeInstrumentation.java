@@ -38,8 +38,8 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
             try {
                 runRuntime();
                 result.putString("wayland_runtime", shellTest
-                        ? "passed: cross-UID shell binding, Android alpha pixels, input isolation, remap, scope release"
-                        : "passed: cross-UID compositor, client FD, Android pixels, input, close");
+                        ? "passed: cross-UID shell binding, family geometry, Android alpha pixels, input isolation, remap, scope release"
+                        : "passed: cross-UID compositor, client FD, family geometry, Android pixels, input, close");
                 finish(Activity.RESULT_OK, result);
             } catch (Exception error) {
                 result.putString("wayland_runtime", "failed: " + error);
@@ -60,10 +60,16 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
         String library = context.getApplicationInfo().nativeLibraryDir;
         AtomicReference<WaylandSession> session = new AtomicReference<>();
         CompletableFuture<Void> ready = new CompletableFuture<>(), pixels = new CompletableFuture<>();
+        CompletableFuture<Void> geometry = new CompletableFuture<>();
         CompletableFuture<Void> destroyed = new CompletableFuture<>(), serverExit = new CompletableFuture<>(), clientExit = new CompletableFuture<>();
         CompletableFuture<Long> mapped = new CompletableFuture<>();
         AtomicReference<String> failure = new AtomicReference<>();
         WaylandSession.Listener listener = new WaylandSession.Listener() {
+            @Override public void geometryChanged(long window) {
+                var value = session.get().geometry(window);
+                if (value != null && value.mapped() && value.inputComplete() && value.acceptsInput(20, 20))
+                    geometry.complete(null);
+            }
             @Override public void changed() {
                 WaylandSession current = session.get();
                 if (current == null) return;
@@ -76,6 +82,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                 ready.completeExceptionally(error);
                 mapped.completeExceptionally(error);
                 pixels.completeExceptionally(error);
+                geometry.completeExceptionally(error);
                 destroyed.completeExceptionally(error);
             }
         };
@@ -129,6 +136,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                         (code, output, error) -> complete(clientExit, code, output, error))) {
                     launch.transferred().toCompletableFuture().get(15, TimeUnit.SECONDS);
                     long window = mapped.get(15, TimeUnit.SECONDS);
+                    geometry.get(15, TimeUnit.SECONDS);
                     try (var output = session.get().openOutput(window, 80, 60)) {
                         output.setSurface(images.getSurface(), 80, 60);
                         if (shell != null) shell.exercise(output);
@@ -143,6 +151,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                         }
                         clientExit.get(15, TimeUnit.SECONDS);
                         destroyed.get(15, TimeUnit.SECONDS);
+                        if (session.get().geometry(window) != null) throw new IOException("Destroyed view retained geometry");
                     }
                 }
             }
@@ -161,6 +170,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
         final CompletableFuture<Long> mapped = new CompletableFuture<>();
         final CompletableFuture<Void> alpha = new CompletableFuture<>(), interactive = new CompletableFuture<>();
         final CompletableFuture<Void> remapped = new CompletableFuture<>();
+        final CompletableFuture<Void> geometry = new CompletableFuture<>();
         final ImageReader images = ImageReader.newInstance(80, 40, PixelFormat.RGBA_8888, 2);
         boolean remapping;
 
@@ -168,6 +178,15 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
             runOnMainSync(() -> {
                 scope.resize(new ShellBounds(0, 0, 64, 100), new ShellBounds(0, 0, 64, 100));
                 binding.set(new WaylandShellBinding(session, scope, 160, new WaylandShellBinding.Listener() {
+                    @Override public void geometryChanged(long id) {
+                        var value = binding.get().geometry(id);
+                        if (value == null || !value.mapped()) return;
+                        if (!value.inputComplete() || value.paint().left() != 0 || value.paint().top() != 0
+                                || value.paint().right() != 64 || value.paint().bottom() != 24
+                                || !value.acceptsInput(10, 10) || value.acceptsInput(30, 10) || value.acceptsInput(70, 35))
+                            fail(new IOException("Incorrect shell family geometry"));
+                        else geometry.complete(null);
+                    }
                     @Override public void changed() {
                         var current = binding.get();
                         if (current == null) return;
@@ -189,6 +208,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                     private void fail(Exception error) {
                         mapped.completeExceptionally(error); alpha.completeExceptionally(error);
                         interactive.completeExceptionally(error); remapped.completeExceptionally(error);
+                        geometry.completeExceptionally(error);
                     }
                 }));
             });
@@ -207,6 +227,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
 
         void exercise(WaylandSession.Output app) throws Exception {
             long surface = mapped.get(15, TimeUnit.SECONDS);
+            geometry.get(15, TimeUnit.SECONDS);
             AtomicReference<WaylandSession.Output> panel = new AtomicReference<>();
             runOnMainSync(() -> panel.set(binding.get().openOutput(surface, 80, 40)));
             try (var output = panel.get()) {
@@ -226,6 +247,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                 remapped.get(15, TimeUnit.SECONDS);
                 runOnMainSync(scope::clear);
                 if (!scope.snapshot().exclusions().isEmpty()) throw new IOException("Shell reservations survived revocation");
+                if (binding.get().geometry(surface) != null) throw new IOException("Shell geometry survived revocation");
             }
         }
 

@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.os.Looper;
 import io.github.mekhontsev.magicdesk.wayland.WaylandSession;
 import io.github.mekhontsev.magicdesk.wayland.WaylandShellSurface;
+import io.github.mekhontsev.magicdesk.wayland.WaylandViewGeometry;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -12,6 +13,7 @@ final class WaylandShellBinding implements AutoCloseable, WaylandSession.ShellLi
     interface Listener {
         void changed();
         void closed(String reason);
+        default void geometryChanged(long surface) { }
     }
 
     private final ShellLayoutScope mScope;
@@ -42,6 +44,12 @@ final class WaylandShellBinding implements AutoCloseable, WaylandSession.ShellLi
     java.util.concurrent.CompletableFuture<Void> ready() { return mNative.ready(); }
     List<WaylandShellSurface> surfaces() { return mClosed ? List.of() : mNative.surfaces(); }
     ShellLayout.Surface surface(final long id) { return mLayout.surface(id); }
+    WaylandViewGeometry geometry(final long id) { return mNative.geometry(id); }
+
+    @Override public void geometryChanged(final long id) {
+        checkThread();
+        if (!mClosed) mListener.geometryChanged(id);
+    }
 
     WaylandSession.Output openOutput(final long id, final int width, final int height) {
         checkThread();

@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk.wayland;
 import android.os.ParcelFileDescriptor;
 import io.github.mekhontsev.magicdesk.wayland.WaylandShellSurface;
+import io.github.mekhontsev.magicdesk.wayland.WaylandViewGeometry;
 
 oneway interface IWaylandEvents {
     void window(long id, long parent, String title, String appId, boolean mapped,
@@ -10,4 +11,5 @@ oneway interface IWaylandEvents {
     void client(long request, in @nullable ParcelFileDescriptor connection, String error);
     void shellSurface(long owner, long id, in @nullable WaylandShellSurface surface);
     void shellOutput(long owner, int width, int height, String error);
+    void geometry(long shellOwner, in WaylandViewGeometry geometry);
 }

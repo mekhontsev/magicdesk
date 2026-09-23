@@ -28,11 +28,6 @@ struct MdwToplevel {
     char *published_title, *published_app_id;
 };
 
-struct MdwPopup {
-    struct wlr_xdg_popup *xdg;
-    struct wl_listener commit, destroy;
-};
-
 struct MdwOutput {
     struct wl_list link;
     MdwServer *server;
@@ -165,6 +160,10 @@ bool mdw_view_init(MdwServer *server, struct MdwView *view, struct wlr_surface *
     view->server = server;
     view->surface = surface;
     view->id = ++server->next_id;
+    wl_list_init(&view->watches);
+    wl_list_init(&view->popups);
+    pixman_region32_init(&view->input);
+    pixman_region32_init(&view->geometry_scratch);
     wl_list_insert(&server->views, &view->link);
     return true;
 }
@@ -180,6 +179,8 @@ void mdw_view_unmap(struct MdwView *view) {
 }
 
 void mdw_view_finish(struct MdwView *view) {
+    mdw_view_geometry_finish(view);
+    mdw_view_popups_finish(view);
     MdwOutput *output;
     wl_list_for_each(output, &view->server->outputs, link) {
         if (output->view != view) continue;
@@ -312,45 +313,25 @@ static void new_toplevel(struct wl_listener *listener, void *data) {
     listen_signal(&xdg->events.set_parent, &window->parent, window_parent);
     listen_signal(&xdg->events.request_fullscreen, &window->fullscreen, window_fullscreen);
     listen_signal(&xdg->events.request_maximize, &window->maximize, window_maximize);
+    mdw_view_observe(&window->view);
     publish(window);
 }
 
-static void popup_commit(struct wl_listener *listener, void *data) {
-    (void)data;
-    struct MdwPopup *popup = wl_container_of(listener, popup, commit);
-    if (popup->xdg->base->initial_commit) wlr_xdg_surface_schedule_configure(popup->xdg->base);
-}
-
-static void popup_destroy(struct wl_listener *listener, void *data) {
-    (void)data;
-    struct MdwPopup *popup = wl_container_of(listener, popup, destroy);
-    wl_list_remove(&popup->commit.link);
-    wl_list_remove(&popup->destroy.link);
-    free(popup);
-}
-
-void mdw_popup_create(struct wlr_xdg_popup *xdg, struct wlr_scene_tree *parent) {
-    struct MdwPopup *popup = calloc(1, sizeof(*popup));
-    if (!popup) { wl_client_post_no_memory(wl_resource_get_client(xdg->resource)); return; }
-    xdg->base->data = wlr_scene_xdg_surface_create(parent, xdg->base);
-    if (!xdg->base->data) {
-        free(popup);
-        wl_client_post_no_memory(wl_resource_get_client(xdg->resource));
-        return;
-    }
-    popup->xdg = xdg;
-    listen_signal(&xdg->base->surface->events.commit, &popup->commit, popup_commit);
-    listen_signal(&xdg->events.destroy, &popup->destroy, popup_destroy);
-}
-
 static void new_popup(struct wl_listener *listener, void *data) {
-    (void)listener;
+    MdwServer *server = wl_container_of(listener, server, new_popup);
     struct wlr_xdg_popup *xdg = data;
     // A layer-shell parent is assigned by get_popup before the initial commit.
     if (!xdg->parent) return;
     struct wlr_xdg_surface *parent = wlr_xdg_surface_try_from_wlr_surface(xdg->parent);
     if (!parent || !parent->data) { wlr_xdg_popup_destroy(xdg); return; }
-    mdw_popup_create(xdg, parent->data);
+    struct wlr_scene_tree *tree = parent->data;
+    struct wlr_scene_node *root = &tree->node;
+    while (root->parent) root = &root->parent->node;
+    struct MdwView *view;
+    wl_list_for_each(view, &server->views, link) {
+        if (&view->scene->tree.node == root) { mdw_popup_create(view, xdg, tree); return; }
+    }
+    wlr_xdg_popup_destroy(xdg);
 }
 
 static void keyboard_modifiers(struct wl_listener *listener, void *data) {
@@ -469,8 +450,16 @@ MdwOutput *mdw_output_create(MdwServer *server, uint64_t id, int width, int heig
 }
 
 bool mdw_output_resize(MdwOutput *output, int width, int height) {
+    if (!mdw_output_viewport(output, output && output->scene_output ? output->scene_output->x : 0,
+            output && output->scene_output ? output->scene_output->y : 0, width, height)) return false;
+    if (output->view->configure) output->view->configure(output->view, width, height);
+    return true;
+}
+
+bool mdw_output_viewport(MdwOutput *output, int x, int y, int width, int height) {
     if (!output || !output->view || !output->output ||
-            width < 1 || height < 1 || width > 4096 || height > 4096) return false;
+            width < 1 || height < 1 || width > 4096 || height > 4096 ||
+            x < -16384 || y < -16384 || x > 16384 || y > 16384) return false;
     struct wlr_output_state state;
     wlr_output_state_init(&state);
     wlr_output_state_set_enabled(&state, output->visible);
@@ -478,7 +467,7 @@ bool mdw_output_resize(MdwOutput *output, int width, int height) {
     bool committed = wlr_output_commit_state(output->output, &state);
     wlr_output_state_finish(&state);
     if (committed) {
-        if (output->view->configure) output->view->configure(output->view, width, height);
+        wlr_scene_output_set_position(output->scene_output, x, y);
         if (output->visible) wlr_output_schedule_frame(output->output);
     }
     return committed;
@@ -584,7 +573,8 @@ bool mdw_output_pointer(MdwOutput *output, double x, double y) {
     double local_x, local_y;
     // Hit-test the rendered scene, not the client's asynchronously acknowledged size.
     struct wlr_scene_node *node = wlr_scene_node_at(&output->view->scene->tree.node,
-        x * output->output->width, y * output->output->height, &local_x, &local_y);
+        output->scene_output->x + x * output->output->width,
+        output->scene_output->y + y * output->output->height, &local_x, &local_y);
     struct wlr_scene_surface *scene_surface = node && node->type == WLR_SCENE_NODE_BUFFER
         ? wlr_scene_surface_try_from_buffer(wlr_scene_buffer_from_node(node)) : NULL;
     struct wlr_surface *surface = scene_surface ? scene_surface->surface : NULL;

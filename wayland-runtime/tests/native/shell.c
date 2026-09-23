@@ -88,6 +88,11 @@ static void layer_configure(void *data, struct zwlr_layer_surface_v1 *surface,
     assert(width == 64 && height == 24);
     client->configures++;
     zwlr_layer_surface_v1_ack_configure(surface, serial);
+    struct wl_region *input = wl_compositor_create_region(client->compositor);
+    wl_region_add(input, 0, 0, 16, 24);
+    wl_region_add(input, 48, 0, 16, 24);
+    wl_surface_set_input_region(client->panel, input);
+    wl_region_destroy(input);
     wl_callback_add_listener(wl_surface_frame(client->panel), &frame_listener, client);
     paint(client, client->panel, width, height, 0x80402010);
 }

@@ -101,7 +101,15 @@ static void layer_close(struct MdwView *view) {
 
 static void layer_popup(struct wl_listener *listener, void *data) {
     struct MdwLayerSurface *layer = wl_container_of(listener, layer, popup);
-    mdw_popup_create(data, layer->tree);
+    mdw_popup_create(&layer->view, data, layer->tree);
+}
+
+static void popup_bounds(struct MdwLayerSurface *layer) {
+    if (!layer->configured_once) return;
+    const struct wlr_output *output = layer->view.server->shell_output;
+    mdw_view_popup_bounds(&layer->view, &(struct wlr_box) {
+        -layer->configured.x, -layer->configured.y, output->width, output->height,
+    });
 }
 
 static void new_layer(struct wl_listener *listener, void *data) {
@@ -136,6 +144,7 @@ static void new_layer(struct wl_listener *listener, void *data) {
     listen(&surface->surface->events.unmap, &layer->unmap, layer_unmap);
     listen(&surface->events.destroy, &layer->destroy, layer_destroy);
     listen(&surface->events.new_popup, &layer->popup, layer_popup);
+    mdw_view_observe(&layer->view);
 }
 
 bool mdw_server_shell_output(MdwServer *server, int width, int height) {
@@ -170,6 +179,8 @@ bool mdw_server_shell_output(MdwServer *server, int width, int height) {
         return false;
     }
     wlr_output_create_global(server->shell_output, server->display);
+    struct MdwLayerSurface *layer;
+    wl_list_for_each(layer, &server->layers, link) popup_bounds(layer);
     if (!server->layer_shell) {
         server->layer_shell = wlr_layer_shell_v1_create(server->display, 4);
         if (!server->layer_shell) {
@@ -194,6 +205,7 @@ bool mdw_shell_surface_configure(MdwServer *server, uint64_t id,
             layer->configured.height != height;
         layer->configured = (struct wlr_box){x, y, width, height};
         layer->configured_once = true;
+        popup_bounds(layer);
         if (resize) wlr_layer_surface_v1_configure(layer->layer, width, height);
         return true;
     }

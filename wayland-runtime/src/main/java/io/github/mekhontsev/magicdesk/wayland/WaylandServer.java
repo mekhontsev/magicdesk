@@ -19,6 +19,7 @@ import io.github.mekhontsev.magicdesk.hosted.HostedServerLifecycle;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
+import java.util.HashSet;
 import java.util.function.LongConsumer;
 
 public final class WaylandServer extends IWaylandServer.Stub {
@@ -30,6 +31,7 @@ public final class WaylandServer extends IWaylandServer.Stub {
     private final LongSparseArray<Output> outputs = new LongSparseArray<>();
     private final LongSparseArray<Output> nativeOutputs = new LongSparseArray<>();
     private final ShellSurfaceCatalog shell = new ShellSurfaceCatalog();
+    private final HashSet<Long> applicationViews = new HashSet<>();
     private final IBinder.DeathRecipient ownerDied = this::requestStop;
     private final Runnable deadline = this::expireAdmission;
     private IWaylandEvents owner;
@@ -269,6 +271,8 @@ public final class WaylandServer extends IWaylandServer.Stub {
 
     private void onWindow(long id, long parent, byte[] title, byte[] appId, boolean mapped,
             int width, int height, boolean removed) {
+        if (removed) applicationViews.remove(id);
+        else applicationViews.add(id);
         if (removed) releaseSurfaceOutputs(id);
         try {
             owner.window(id, parent, new String(title, StandardCharsets.UTF_8),
@@ -286,6 +290,15 @@ public final class WaylandServer extends IWaylandServer.Stub {
                 left, top, right, bottom, exclusiveZone);
         if (!shell.update(shell.owner(), id, surface)) return;
         try { owner.shellSurface(shell.owner(), id, surface); }
+        catch (RemoteException error) { requestStop(); }
+    }
+
+    private void onGeometry(long id, long revision, boolean mapped, int left, int top, int right, int bottom,
+            boolean complete, int[] input) {
+        boolean shellSurface = shell.contains(id);
+        if (!shellSurface && !applicationViews.contains(id)) return;
+        var geometry = WaylandViewGeometry.fromNative(id, revision, mapped, left, top, right, bottom, complete, input);
+        try { owner.geometry(shellSurface ? shell.owner() : 0, geometry); }
         catch (RemoteException error) { requestStop(); }
     }
 
