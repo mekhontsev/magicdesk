@@ -101,6 +101,23 @@ Desktop. No global touch-security setting is changed. This SurfaceFlinger commit
 does not acknowledge child-window input regions or displayed pixels; those remain
 separate admission conditions for an external panel.
 
+`DesktopPanelWindowController.ShellWindow` lends persistent, keyboard-inert child
+windows in that chrome host. Ordinary popup dismissal does not release them;
+explicit closure or host loss does. They borrow graphical outputs, not sessions.
+`HostedShellSurfaceView` joins the window-layout frame and matching graphical
+viewport receipt before publishing the exact touchable region. `HostedShellFrame`
+translates family-local input to window pixels, clips it to the viewport and
+rounds inward so fractional scaling cannot capture a transparent hole.
+
+Input readiness additionally requires an exact window-token/display/region
+observation from `FrameworkInputWindowObservationSource`, followed by the
+InputDispatcher receipt in `FrameworkSurfaceInputApi`. `ShellInputRegionReceipt`
+owns this one-shot subscription, callback and deadline. Replacement, detachment,
+owner death and closure cancel it; stale callbacks cannot re-enable input. The
+deadline reports failure, never successful readiness. These event-driven receipts
+allocate no worker thread, poll no state and are not requested for pointer motion
+or pixel-only repaints. Ordinary application hosts retain their existing behavior.
+
 Taskbar concealment/reveal and IME visibility keep their existing presentation
 policy. They do not discard the taskbar's layout intent or move its stable viewport.
 `DesktopTaskbarHost` and `DesktopChromeActivity` still own the actual bounded child
@@ -116,8 +133,8 @@ SurfaceControl z-order. See [fullscreen transitions](fullscreen-transitions.md).
 The Wayland runtime implements layer-shell admission, committed state,
 configure/ack and borrowed transparent outputs. `WaylandShellBinding` connects
 its typed Binder catalog to an explicitly supplied `ShellLayoutScope`. It never
-starts Desktop, selects a display or merges nested scopes. Android panel hosts
-and X11 strut adaptation are pending. The adapters preserve protocol lifetimes
+starts Desktop, selects a display or merges nested scopes. Automatic workspace
+host binding and X11 strut adaptation are pending. The adapters preserve protocol lifetimes
 and coordinate conversion:
 
 - Wayland consumes committed layer-surface state and reports geometry through
@@ -165,10 +182,9 @@ and [EWMH](https://specifications.freedesktop.org/wm/latest-single/).
 
 ## Integration Work
 
-1. Host backgrounds and bottom surfaces in existing HOME infrastructure, and top
-   surfaces in the existing chrome host. Consume popup paint extents and precise
-   input regions, coordinate placement/input with frame receipts, and verify
-   the optional chrome input capability before admitting external panels. Apply
+1. Connect the retained shell binding to Android hosts: backgrounds and bottom
+   surfaces in existing HOME infrastructure, top surfaces through chrome surface
+   leases. Translate family paint/input geometry into the workspace and apply
    workspace fullscreen and focus policy rather than mapping layer numbers
    directly to Android z-order.
 2. Adapt X11 DOCK/DESKTOP properties and struts to the same bindings. Preserve
@@ -209,5 +225,12 @@ dispatcher reports inherited `TRUSTED_OVERLAY`; mouse and touch reach both activ
 strips while holes pass through to a different-UID Android application without
 closing the panel or stealing its keyboard focus. This verifies the Android
 host capability, not Wayland frame/region synchronization or other firmware.
+`HostedShellFrameTest`, `ShellFrameAdmissionTest`, `DesktopShellWindowTest`,
+`FrameworkInputRegionReceiptTest` and `ShellInputRegionReceiptTest` cover geometry,
+receipt ordering, replacement, permission rejection, cancellation, deadline failure
+and host/owner loss. The `chrome_display` variant of `WaylandRuntimeInstrumentation`
+drives a real Wayland family through the production chrome lease, checks alpha
+pixels and exact input holes after movement/resizing, and sends input immediately after admission. It also
+checks replacement receipts and releases borrowed hosts independently of the session.
 Desktop self-tests cover existing Android geometry and fullscreen transitions;
 they do not validate external Linux panel protocols or integrated-shell UX.

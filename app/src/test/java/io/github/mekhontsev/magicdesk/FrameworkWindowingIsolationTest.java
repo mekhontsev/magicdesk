@@ -152,7 +152,7 @@ public final class FrameworkWindowingIsolationTest {
     @Test public void shellSurfaceTrustHasOneFrameworkOwner() throws IOException {
         assertNoSourceTokensOutside("Surface input policy outside framework adapter",
                 List.of("io/github/mekhontsev/magicdesk/FrameworkSurfaceInputApi.java"),
-                "\"setTrustedOverlay\"");
+                "\"setTrustedOverlay\"", "\"addWindowInfosReportedListener\"");
     }
 
     @Test

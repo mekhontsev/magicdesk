@@ -346,7 +346,7 @@ int main(int argc, char **argv) {
             assert(host.frames == 1);
             assert(mdw_output_focus(host.app_output, true));
             assert(mdw_output_key(host.app_output, KEY_A, true));
-            assert(mdw_output_focus(host.panel_output, true));
+            assert(mdw_output_pointer(host.panel_output, .1, .1));
             assert(!mdw_output_key(host.panel_output, KEY_B, true));
             assert(mdw_output_key(host.app_output, KEY_A, false));
             assert(mdw_output_pointer(host.panel_output, .1, .1));

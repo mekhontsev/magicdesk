@@ -2,14 +2,18 @@ package io.github.mekhontsev.magicdesk;
 
 import android.util.Log;
 import android.util.Pair;
+import android.graphics.Region;
+import android.os.IBinder;
 import android.view.InputWindowHandle;
 import android.window.WindowInfosListener;
 
 import java.io.Closeable;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -170,6 +174,52 @@ final class FrameworkInputWindowObservationSource implements Closeable,
 
     FrameworkInputWindowState.Snapshot latestSnapshot() {
         return mLatestSnapshot;
+    }
+
+    /** On-demand geometry observation; the caller owns cancellation and its deadline. */
+    static Closeable observeTouchableRegion(IBinder window, int displayId, Region expected,
+            Consumer<Throwable> completion) throws ReflectiveOperationException {
+        if (window == null || displayId < 0 || expected == null)
+            throw new IllegalArgumentException("A window, display and input region are required");
+        var token = InputWindowHandle.class.getMethod("getWindowToken");
+        var display = InputWindowHandle.class.getField("displayId");
+        var region = InputWindowHandle.class.getField("touchableRegion");
+        var config = InputWindowHandle.class.getField("inputConfig");
+        var finished = new AtomicBoolean();
+        var listener = new WindowInfosListener() {
+            @Override public void onWindowInfosChanged(InputWindowHandle[] handles,
+                    WindowInfosListener.DisplayInfo[] displays) {
+                try {
+                    if (hasTouchableRegion(handles, token, display, region, config,
+                            window, displayId, expected) && finished.compareAndSet(false, true))
+                        completion.accept(null);
+                } catch (ReflectiveOperationException | RuntimeException error) {
+                    if (finished.compareAndSet(false, true)) completion.accept(error);
+                }
+            }
+        };
+        var initial = listener.register();
+        try {
+            if (initial != null) listener.onWindowInfosChanged(initial.first, initial.second);
+        } catch (RuntimeException error) {
+            listener.unregister();
+            throw error;
+        }
+        return () -> { finished.set(true); listener.unregister(); };
+    }
+
+    private static boolean hasTouchableRegion(InputWindowHandle[] handles, Method token,
+            Field display, Field region, Field config, IBinder window, int displayId,
+            Region expected) throws ReflectiveOperationException {
+        if (handles == null) return false;
+        for (var handle : handles) {
+            // Ignore hidden/no-channel surfaces and mirror clones of the same window.
+            if (handle != null && display.getInt(handle) == displayId
+                    && (config.getInt(handle) & (1 | 2 | 65_536)) == 0
+                    && window.equals(token.invoke(handle))
+                    && expected.equals(region.get(handle))) return true;
+        }
+        return false;
     }
 
     static String diagnostics() {

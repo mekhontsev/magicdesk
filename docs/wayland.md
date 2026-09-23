@@ -149,7 +149,7 @@ catalog into a caller-owned layout scope, including density and configure replie
 Replies are qualified by owner and committed revision; late events cannot revive
 a released binding. Binding errors release only that integration, while compositor
 failure releases the session. Application output ownership remains separate.
-User-facing workspace selection and Android shell panel hosts are not implemented;
+User-facing workspace selection and automatic shell host binding are not implemented;
 ordinary sessions do not enable layer-shell admission automatically.
 
 `MdwView` owns a rendered surface family independently of its xdg or layer role.
@@ -183,9 +183,12 @@ paint extents without resizing the client; pointer hit-testing uses that same
 viewport origin. Its future confirms submission of the corresponding pixels.
 The size-based application adapter also configures the client at origin zero.
 
-Android shell hosts still need to coordinate window placement and input with
-these receipts, and apply exact Android touchable regions before external panels
-can be exposed. Touchable regions alone do not establish cross-UID pass-through:
+The protocol-neutral `HostedShellSurfaceView` consumes these receipts and exact
+input geometry in a bounded Android child window. Its chrome surface lease
+retains the panel across ordinary popup dismissal; host loss releases only its
+borrowed output. Input is enabled after the matching layout/pixels and a cancellable
+system input-region acknowledgement, not a render callback or a guessed delay.
+Touchable regions alone do not establish cross-UID pass-through:
 Android's obscuring-window check also considers window frames. The optional
 trusted-overlay capability of the existing chrome host addresses that separate
 boundary; see [shell layout](shell-layout.md#android-adapter). Linux surface
@@ -422,6 +425,12 @@ am instrument --no-restart -w -e shell true \
   io.github.mekhontsev.magicdesk/.WaylandRuntimeInstrumentation
 ```
 
+Add `-e chrome_display DISPLAY_ID` to exercise the Android shell host on an
+explicitly selected active Desktop. This fixture uses the production surface
+lease, alpha pixels, negative viewport origin, exact input holes, immediate input
+after admission, replaced receipts and borrowed-output cleanup. It does not start
+Desktop or select a display implicitly.
+
 On API 36, both UID-2000 and Termux-UID client handoffs passed. The runtime fixture
 also passed compositor startup under the selected Termux UID, cross-UID frames
 into an Android Surface, input delivery/release, client close and server exit.
@@ -451,5 +460,6 @@ viewport receipts and pixels after Surface replacement, pointer interaction whil
 application keyboard focus is retained, on-demand keyboard transfer, remapping
 and scope release. The ordinary application runtime fixture also passed, including
 family geometry publication, an unchanged viewport's fresh frame receipt and
-cleanup. These checks do not
-establish Android chrome-host integration, Linux panel UX or API-34 coverage.
+cleanup. The chrome-host variant also passed on RM11/API 36 with privileged UID
+2000, including the first injected click after input-region acknowledgement.
+These checks do not establish automatic Linux panel UX or API-34 coverage.

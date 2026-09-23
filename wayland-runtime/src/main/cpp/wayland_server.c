@@ -543,6 +543,13 @@ void mdw_view_keyboard(struct MdwView *view, bool allowed) {
     if (!allowed && owner && owner->view == view) release_keyboard(owner);
 }
 
+static void claim_pointer(MdwOutput *output) {
+    MdwServer *server = output->server;
+    if (server->pointer_owner == output) return;
+    if (server->pointer_owner) release_pointer(server->pointer_owner);
+    server->pointer_owner = output;
+}
+
 bool mdw_output_focus(MdwOutput *output, bool focused) {
     if (!output) return false;
     MdwServer *server = output->server;
@@ -552,10 +559,7 @@ bool mdw_output_focus(MdwOutput *output, bool focused) {
         return true;
     }
     if (!accepts_input(output)) return false;
-    if (server->pointer_owner != output) {
-        if (server->pointer_owner) release_pointer(server->pointer_owner);
-        server->pointer_owner = output;
-    }
+    claim_pointer(output);
     if (!output->view->keyboard_allowed) return true;
     if (server->keyboard_owner == output) return true;
     if (server->keyboard_owner) release_keyboard(server->keyboard_owner);
@@ -567,8 +571,9 @@ bool mdw_output_focus(MdwOutput *output, bool focused) {
 }
 
 bool mdw_output_pointer(MdwOutput *output, double x, double y) {
-    if (!accepts_input(output) || output->server->pointer_owner != output ||
-            !isfinite(x) || !isfinite(y)) return false;
+    if (!accepts_input(output) || !isfinite(x) || !isfinite(y)) return false;
+    // Pointer delivery selects its output independently of keyboard focus.
+    claim_pointer(output);
     double local_x, local_y;
     // Hit-test the rendered scene, not the client's asynchronously acknowledged size.
     struct wlr_scene_node *node = wlr_scene_node_at(&output->view->scene->tree.node,

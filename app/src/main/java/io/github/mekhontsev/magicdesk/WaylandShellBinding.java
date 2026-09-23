@@ -46,6 +46,15 @@ final class WaylandShellBinding implements AutoCloseable, WaylandSession.ShellLi
     ShellLayout.Surface surface(final long id) { return mLayout.surface(id); }
     WaylandViewGeometry geometry(final long id) { return mNative.geometry(id); }
 
+    static HostedShellFrame frame(final WaylandViewGeometry geometry) {
+        if (geometry == null || !geometry.mapped()) return null;
+        final var paint = geometry.paint();
+        if (paint.right() == paint.left() || paint.bottom() == paint.top()) return null;
+        return new HostedShellFrame(new ShellBounds(paint.left(), paint.top(), paint.right(), paint.bottom()),
+                geometry.inputComplete(), geometry.input().stream()
+                .map(rect -> new ShellBounds(rect.left(), rect.top(), rect.right(), rect.bottom())).toList());
+    }
+
     @Override public void geometryChanged(final long id) {
         checkThread();
         if (!mClosed) mListener.geometryChanged(id);

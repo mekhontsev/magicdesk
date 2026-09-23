@@ -19,6 +19,15 @@ final class FrameworkSurfaceInputApi {
                 "setTrustedOverlay", SurfaceControl.class, boolean.class);
     }
 
+    /** Call after observing the expected region; callback follows InputDispatcher's acknowledgement. */
+    static void reportInputWindows(Runnable reported) throws ReflectiveOperationException {
+        try (var transaction = new SurfaceControl.Transaction()) {
+            SurfaceControl.Transaction.class.getMethod("addWindowInfosReportedListener", Runnable.class)
+                    .invoke(transaction, reported);
+            transaction.apply();
+        }
+    }
+
     void trustOwnedOverlay(final Context context, final Object ownedSurface)
             throws ReflectiveOperationException {
         if (context.checkPermission(PERMISSION, Process.myPid(), Process.myUid())
@@ -34,7 +43,7 @@ final class FrameworkSurfaceInputApi {
             transaction.addTransactionCommittedListener(Runnable::run, committed::countDown);
             transaction.apply();
             try {
-                // SurfaceFlinger commit, not a presentation or input-region acknowledgement.
+                // EVENT_WAIT: SF commit, not presentation/input readiness; timeout rejects the grant.
                 if (!committed.await(2, TimeUnit.SECONDS)) {
                     throw new IllegalStateException("Shell surface input commit timed out");
                 }

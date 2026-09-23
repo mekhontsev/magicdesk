@@ -3,6 +3,32 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 public final class FrameworkSurfaceInputApiTest {
+    @Test public void inputReadinessNeedsDispatcherReceiptNotJustTransactionSubmission() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static int applied, closed, acknowledged;
+                static boolean reply = true;
+                public static class SurfaceControl {
+                    public static class Transaction implements AutoCloseable {
+                        Runnable listener;
+                        public void addWindowInfosReportedListener(Runnable callback) { listener = callback; }
+                        void apply() { applied++; if (reply) listener.run(); }
+                        public void close() { closed++; }
+                    }
+                }
+                static class EventDrivenWaits {
+                    enum Reason { INPUT_WINDOW_COMMIT }
+                    static void noteFrameworkWait(Reason reason) { }
+                }
+                public static void verify() throws Exception {
+                    reportInputWindows(() -> acknowledged++);
+                    check(applied == 1 && closed == 1 && acknowledged == 1, "receipt transaction leaked");
+                    reply = false;
+                    reportInputWindows(() -> acknowledged++);
+                    check(applied == 2 && closed == 2 && acknowledged == 1, "submission mistaken for receipt");
+                }
+                """ + RuntimeSourceFixture.methods("FrameworkSurfaceInputApi", "reportInputWindows"));
+    }
+
     @Test public void permissionAndOwnershipPrecedeTransactions() throws Exception {
         verify("""
                 context.granted = false;

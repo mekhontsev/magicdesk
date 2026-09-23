@@ -103,6 +103,9 @@ intentional protocol/backoff/gesture delays in `RuntimeDelays`. Do not call
 `Thread.sleep`, `SystemClock.sleep`, or `Object.wait` directly. Prefer an
 existing callback or observer; the 150 ms framework task snapshot is the one
 documented active-session fallback, not a general polling interval.
+Mark bounded event/callback waits with an `EVENT_WAIT` comment naming the event
+and timeout outcome. A timeout is a failure/cancellation bound, not a settling
+delay or evidence that the awaited state was reached.
 
 Use semantic MCP actions and event-driven waits when available. Interactive
 self-tests require an awake, unlocked device and must retain production paths

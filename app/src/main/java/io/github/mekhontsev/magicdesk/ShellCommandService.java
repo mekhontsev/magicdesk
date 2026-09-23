@@ -615,6 +615,11 @@ public final class ShellCommandService extends IShellCommandService.Stub {
                 callback, displayId, requireTrustedOverlay);
     }
 
+    @Override public IInputRegionReceipt observeWindowInputRegion(IBinder window, int displayId,
+            android.graphics.Region region, IInputRegionCallback callback) {
+        return new ShellInputRegionReceipt(window, displayId, region, callback);
+    }
+
     @Override
     public void setDesktopChromeFocusable(final ITaskObserverCallback callback,
             final int displayId, final int taskId, final boolean focusable) {

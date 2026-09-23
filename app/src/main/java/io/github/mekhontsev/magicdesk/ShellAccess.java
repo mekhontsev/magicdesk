@@ -58,6 +58,15 @@ public final class ShellAccess {
         return sSnapshot.isReady();
     }
 
+    static IInputRegionReceipt observeWindowInputRegion(IBinder window, int displayId,
+            android.graphics.Region region, IInputRegionCallback callback) throws IOException {
+        try { return requireService().observeWindowInputRegion(window, displayId, region, callback); }
+        catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("Window input region acknowledgement failed: " + usefulMessage(error), error);
+        }
+    }
+
     public static String statusLabel() {
         return isReady() ? "ready" : "unavailable";
     }

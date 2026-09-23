@@ -15,7 +15,10 @@ public final class HostedContentBoundaryTest {
                 void setSurface(Object surface, int width, int height) { calls.add("surface"); }
                 void focus() { calls.add("focus"); }
             }
+            interface SurfaceBinding { void changed(Object surface, int width, int height); }
             Output output = new Output();
+            SurfaceBinding surfaceBinding = output::setSurface;
+            boolean inputAllowed = true;
             boolean windowFocus, viewFocus;
             boolean hasWindowFocus() { return windowFocus; }
             boolean isFocused() { return viewFocus; }
@@ -28,6 +31,11 @@ public final class HostedContentBoundaryTest {
                 fixture.output.calls.clear();
                 fixture.attachSurface(new SurfaceHolder(), 640, 480);
                 check(fixture.output.calls.equals(List.of("surface", "focus")), "focus must follow surface visibility");
+                fixture.inputAllowed = false;
+                fixture.output.calls.clear();
+                fixture.attachSurface(new SurfaceHolder(), 640, 480);
+                check(fixture.output.calls.equals(List.of("surface")), "unadmitted surface acquired focus");
+                fixture.inputAllowed = true;
                 fixture.viewFocus = false;
                 fixture.output.calls.clear();
                 fixture.attachSurface(new SurfaceHolder(), 640, 480);

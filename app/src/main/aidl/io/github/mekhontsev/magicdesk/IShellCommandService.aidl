@@ -9,6 +9,7 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ShortcutInfo;
 import android.graphics.Rect;
+import android.graphics.Region;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.UserHandle;
@@ -487,4 +488,7 @@ interface IShellCommandService {
         int displayId, String uniqueId, int appUid, long durationMillis,
         boolean keepDisplayAwake, IBinder displayOwner, IBinder owner) = 146;
     void preserveDisplayBrightness(int displayId) = 147;
+    io.github.mekhontsev.magicdesk.IInputRegionReceipt observeWindowInputRegion(
+        IBinder window, int displayId, in Region region,
+        io.github.mekhontsev.magicdesk.IInputRegionCallback callback) = 148;
 }

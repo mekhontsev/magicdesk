@@ -26,10 +26,12 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class WaylandRuntimeInstrumentation extends Instrumentation {
     private String clientPath;
     private boolean shellTest;
+    private int chromeDisplay = -1;
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         clientPath = arguments == null ? null : arguments.getString("client");
         shellTest = arguments != null && Boolean.parseBoolean(arguments.getString("shell"));
+        if (arguments != null) chromeDisplay = Integer.parseInt(arguments.getString("chrome_display", "-1"));
         start();
     }
 
@@ -38,12 +40,15 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
             Bundle result = new Bundle();
             try {
                 runRuntime();
-                result.putString("wayland_runtime", shellTest
+                result.putString("wayland_runtime", chromeDisplay >= 0
+                        ? "passed: Wayland chrome pixels, exact input holes, replacement receipts, borrowed output cleanup; shell runtime checks"
+                        : shellTest
                         ? "passed: cross-UID shell binding, family geometry, viewport pixels/input, Surface replacement, input isolation, remap, scope release"
                         : "passed: cross-UID compositor, client FD, family geometry, Android pixels, input, close");
                 finish(Activity.RESULT_OK, result);
             } catch (Exception error) {
                 result.putString("wayland_runtime", "failed: " + error);
+                result.putString("trace", android.util.Log.getStackTraceString(error));
                 finish(Activity.RESULT_CANCELED, result);
             }
         }, "WaylandRuntimeFixture").start();
@@ -243,10 +248,13 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                 output.focus(true);
                 output.key(48, true);
                 app.key(30, false);
-                output.pointer(.2, .25);
-                output.button(0, true);
-                output.button(0, false);
-                interactive.get(15, TimeUnit.SECONDS);
+                if (chromeDisplay >= 0) exerciseChrome(surface);
+                else {
+                    output.pointer(.2, .25);
+                    output.button(0, true);
+                    output.button(0, false);
+                    interactive.get(15, TimeUnit.SECONDS);
+                }
                 output.focus(true);
                 output.key(48, true);
                 remapped.get(15, TimeUnit.SECONDS);
@@ -266,6 +274,105 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                 runOnMainSync(scope::clear);
                 if (!scope.snapshot().exclusions().isEmpty()) throw new IOException("Shell reservations survived revocation");
                 if (binding.get().geometry(surface) != null) throw new IOException("Shell geometry survived revocation");
+            }
+        }
+
+        @SuppressWarnings("unchecked")
+        @android.annotation.SuppressLint("ClickableViewAccessibility") // Counts without consuming; HostedSurfaceView owns clicks.
+        private void exerciseChrome(long surface) throws Exception {
+            var panels = new AtomicReference<DesktopPanelWindowController>();
+            var view = new AtomicReference<HostedShellSurfaceView>();
+            var lease = new AtomicReference<DesktopPanelWindowController.ShellWindow>();
+            var bounds = new ShellBounds(340, 218, 940, 518);
+            var shown = new CompletableFuture<Void>();
+            var downs = new java.util.concurrent.atomic.AtomicInteger();
+            try {
+                runOnMainSync(() -> {
+                    try {
+                        var field = DesktopPanelWindowController.class.getDeclaredField("CONTROLLERS");
+                        field.setAccessible(true);
+                        panels.set(((java.util.Map<Integer, DesktopPanelWindowController>) field.get(null)).get(chromeDisplay));
+                        if (panels.get() == null) throw new IOException("Explicit Desktop host required");
+                        var display = getTargetContext().getSystemService(android.hardware.display.DisplayManager.class)
+                                .getDisplay(chromeDisplay);
+                        var output = binding.get().openOutput(surface, 80, 40);
+                        view.set(new HostedShellSurfaceView(getTargetContext().createDisplayContext(display),
+                                new WaylandSurfaceOutput(output)));
+                        view.get().getChildAt(0).setOnTouchListener((target, event) -> {
+                            if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) downs.incrementAndGet();
+                            return false;
+                        });
+                        var actual = WaylandShellBinding.frame(binding.get().geometry(surface));
+                        var viewport = new ShellBounds(-8, -6, 72, 34);
+                        lease.set(panels.get().borrowShellSurface(view.get(), bounds, "MagicDesk Wayland shell fixture"));
+                        lease.get().ready().thenCompose(ignored -> {
+                            var stale = lease.get().present(bounds, new HostedShellFrame(viewport, false, java.util.List.of()));
+                            var current = lease.get().present(bounds, new HostedShellFrame(viewport, actual.inputComplete(), actual.input()));
+                            if (!stale.isCompletedExceptionally()) throw new IllegalStateException("Replaced receipt remained pending");
+                            return current;
+                        }).whenComplete((ignored, error) -> {
+                            if (error == null) shown.complete(null); else shown.completeExceptionally(error);
+                        });
+                    } catch (Exception error) { shown.completeExceptionally(error); }
+                });
+                // EVENT_WAIT: frame/input admission; deadline fails the fixture, never delays its clicks.
+                try { shown.get(15, TimeUnit.SECONDS); }
+                catch (java.util.concurrent.TimeoutException error) {
+                    var detail = new AtomicReference<String>();
+                    runOnMainSync(() -> {
+                        try {
+                            var field = HostedShellSurfaceView.class.getDeclaredField("admission");
+                            field.setAccessible(true);
+                            var state = (ShellFrameAdmission) field.get(view.get());
+                            detail.set("phase=" + state.phase() + " generation=" + state.generation()
+                                    + " size=" + view.get().getWidth() + "x" + view.get().getHeight()
+                                    + " attached=" + view.get().isAttachedToWindow());
+                        } catch (Exception reflection) { detail.set(reflection.toString()); }
+                    });
+                    throw new IOException("Chrome presentation receipt timed out: " + detail.get(), error);
+                }
+                var movedBounds = new ShellBounds(340, 218, 1060, 578);
+                for (var placement : java.util.List.of(new ShellBounds(380, 218, 980, 518), movedBounds)) {
+                    var moved = new CompletableFuture<Void>();
+                    runOnMainSync(() -> {
+                        var actual = WaylandShellBinding.frame(binding.get().geometry(surface));
+                        lease.get().present(placement, new HostedShellFrame(new ShellBounds(-8, -6, 72, 34),
+                                actual.inputComplete(), actual.input())).whenComplete((ignored, error) -> {
+                            if (error == null) moved.complete(null); else moved.completeExceptionally(error);
+                        });
+                    });
+                    // EVENT_WAIT: moved/resized window admission, not an animation settling pause.
+                    moved.get(15, TimeUnit.SECONDS);
+                }
+                var copied = new CompletableFuture<Void>();
+                runOnMainSync(() -> {
+                    var bitmap = android.graphics.Bitmap.createBitmap(80, 40, android.graphics.Bitmap.Config.ARGB_8888);
+                    var content = (android.view.SurfaceView) view.get().getChildAt(0);
+                    android.view.PixelCopy.request(content, bitmap, status -> {
+                        try {
+                            if (status != android.view.PixelCopy.SUCCESS || !view.get().inputReady()
+                                    || android.graphics.Color.alpha(bitmap.getPixel(0, 0)) != 0
+                                    || Math.abs(android.graphics.Color.alpha(bitmap.getPixel(12, 10)) - 128) > 1)
+                                throw new IOException("Chrome frame pixels/admission mismatch: " + status);
+                            copied.complete(null);
+                        } catch (Exception error) { copied.completeExceptionally(error); }
+                        finally { bitmap.recycle(); }
+                    }, new Handler(Looper.getMainLooper()));
+                });
+                // EVENT_WAIT: PixelCopy completion; missing pixels fail the fixture.
+                copied.get(15, TimeUnit.SECONDS);
+                int y = movedBounds.top() + movedBounds.height() * 2 / 5;
+                if (!ShellAccess.injectPointerClickAt(chromeDisplay, movedBounds.left() + movedBounds.width() * 19 / 40, y, 1)
+                        || !ShellAccess.injectPointerClickAt(chromeDisplay, movedBounds.left() + movedBounds.width() / 5, y, 1))
+                    throw new IOException("Android pointer injection failed");
+                // EVENT_WAIT: client reacts to its first button pair; no retry or synthetic settling delay.
+                interactive.get(15, TimeUnit.SECONDS);
+                if (downs.get() != 1) throw new IOException("Input hole captured Android touch: " + downs.get());
+            } finally {
+                runOnMainSync(() -> {
+                    if (lease.get() != null) lease.get().close();
+                    else if (view.get() != null) view.get().close();
+                });
             }
         }
 
