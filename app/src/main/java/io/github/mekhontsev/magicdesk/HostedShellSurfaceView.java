@@ -93,6 +93,12 @@ final class HostedShellSurfaceView extends FrameLayout implements AutoCloseable 
 
     boolean inputReady() { return admission.ready(); }
 
+    void screenOrigin(java.util.function.Consumer<int[]> origin) { content.screenOrigin(origin); }
+
+    void placementChanged() {
+        if (!closed && frame != null) invalidatePresentation();
+    }
+
     private void surfaceChanged(Surface next, int width, int height) {
         surface = next;
         surfaceWidth = width;
@@ -178,7 +184,7 @@ final class HostedShellSurfaceView extends FrameLayout implements AutoCloseable 
             region.op(rect.left(), rect.top(), rect.right(), rect.bottom(), Region.Op.UNION);
         root.setTouchableRegion(region);
         int[] location = new int[2];
-        getLocationOnScreen(location);
+        content.locateOnScreen(location);
         var expected = new Region(region);
         expected.translate(location[0], location[1]);
         var window = getWindowToken();

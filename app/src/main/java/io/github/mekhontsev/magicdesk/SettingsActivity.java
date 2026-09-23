@@ -79,6 +79,10 @@ public final class SettingsActivity extends Activity
         saveSetting(MagicDeskSettings.setPhoneFullscreenByDefault(enabled));
     }
 
+    @Override public void setExternalLinuxChildWindows(final boolean enabled) {
+        saveSetting(MagicDeskSettings.setExternalLinuxChildWindows(enabled));
+    }
+
     @Override
     public void setDisableAdaptiveBrightness(
             final boolean enabled) {

@@ -8,6 +8,7 @@ final class FrameworkRuntime {
     private FrameworkInputInjectionApi mInputInjectionApi;
     private FrameworkInputMethodApi mInputMethodApi;
     private FrameworkSurfaceInputApi mSurfaceInputApi;
+    private FrameworkHostedSurfaceApi mHostedSurfaceApi;
     private FrameworkVirtualDisplayApi mVirtualDisplayApi;
     private FrameworkDisplayMirrorApi mDisplayMirrorApi;
     private final FrameworkDisplayCaptureApi mDisplayCaptureApi = new FrameworkDisplayCaptureApi();
@@ -79,6 +80,11 @@ final class FrameworkRuntime {
     synchronized FrameworkSurfaceInputApi surfaceInput() throws ReflectiveOperationException {
         if (mSurfaceInputApi == null) { mSurfaceInputApi = new FrameworkSurfaceInputApi(); }
         return mSurfaceInputApi;
+    }
+
+    synchronized FrameworkHostedSurfaceApi hostedSurface() throws ReflectiveOperationException {
+        if (mHostedSurfaceApi == null) mHostedSurfaceApi = new FrameworkHostedSurfaceApi();
+        return mHostedSurfaceApi;
     }
 
     synchronized FrameworkDisplayMirrorApi displayMirror() throws ReflectiveOperationException {

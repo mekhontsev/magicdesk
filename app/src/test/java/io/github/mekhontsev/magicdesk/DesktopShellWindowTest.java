@@ -92,6 +92,17 @@ public final class DesktopShellWindowTest {
                 """);
     }
 
+    @Test public void hostLossClosesDependentParentAlongsideShellWindows() throws Exception {
+        verify("""
+                var window = host.borrowShellSurface(view, bounds, "test");
+                callback.accept(new Result(true));
+                host.clearHost();
+                check(host.mSurfaceParent.closes == 1 && view.closes == 1,
+                        "host loss retained a dependent parent or shell output");
+                check(host.mHostActivity == null && host.mWindowManager == null, "host resources retained");
+                """);
+    }
+
     private static void verify(String scenario) throws Exception {
         RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", """
                 static int adds, removes;
@@ -132,11 +143,13 @@ public final class DesktopShellWindowTest {
                     }
                 }
                 static class FocusGate { void reset() { } }
+                static class SurfaceParent { int closes; void close() { closes++; } }
                 int mDisplayId = 9;
                 boolean mReleased, mHostLaunchRequested, mClearingHost;
                 Object mHostActivity = new Object(), mWindowToken = new Object();
                 WindowManager mWindowManager = new WindowManager();
                 FocusGate mFocusGate = new FocusGate();
+                SurfaceParent mSurfaceParent = new SurfaceParent();
                 Set<ShellWindow> mShellWindows = new LinkedHashSet<>();
                 ShellWindow mKeyboardShell;
                 boolean gateReady, nativeRequest;

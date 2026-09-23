@@ -491,4 +491,6 @@ interface IShellCommandService {
     io.github.mekhontsev.magicdesk.IInputRegionReceipt observeWindowInputRegion(
         IBinder window, int displayId, in Region region,
         io.github.mekhontsev.magicdesk.IInputRegionCallback callback) = 148;
+    void orderHostedSurface(in android.view.SurfaceControl surface,
+        in android.view.SurfaceControl relative) = 149;
 }

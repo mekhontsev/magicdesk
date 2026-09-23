@@ -45,6 +45,7 @@ final class DesktopPanelWindowController {
     private final DesktopShellLayout mLayout;
     private final java.util.Set<ShellWindow> mShellWindows = new java.util.LinkedHashSet<>();
     private ShellWindow mKeyboardShell;
+    private DesktopSurfaceParent mSurfaceParent;
     private ShellLayoutScope.Binding mPanelLayout;
     private ShellLayoutScope.Binding mChildLayout;
     private ShellLayoutScope.Binding mTransientLayout;
@@ -163,6 +164,37 @@ final class DesktopPanelWindowController {
     }
 
     ShellLayoutScope shellScope() { return mLayout.scope(); }
+
+    /** Borrows only an existing Desktop host; independent tools never create this container. */
+    static DesktopSurfaceParent.Lease borrowSurfaceParent(int displayId) {
+        if (android.os.Build.VERSION.SDK_INT < 35)
+            throw new UnsupportedOperationException("Desktop surfaces require Android 15");
+        if (Looper.myLooper() != Looper.getMainLooper()) throw new IllegalStateException("Surface parent requires main thread");
+        final DesktopPanelWindowController controller;
+        synchronized (REGISTRY_LOCK) { controller = CONTROLLERS.get(displayId); }
+        if (controller == null || controller.mReleased || controller.mClearingHost
+                || controller.mHostActivity == null)
+            throw new IllegalStateException("Desktop surface parent is unavailable");
+        return controller.borrowSurfaceParent();
+    }
+
+    private DesktopSurfaceParent.Lease borrowSurfaceParent() {
+        if (mSurfaceParent != null) return mSurfaceParent.borrow();
+        final var parent = new DesktopSurfaceParent(released -> {
+            if (mSurfaceParent == released) mSurfaceParent = null;
+        });
+        mSurfaceParent = parent;
+        final var lease = parent.borrow();
+        MagicDeskRuntime.prepareDesktopChromeHost(mDisplayId, true, result -> {
+            if (mSurfaceParent != parent) return;
+            if (mReleased || mClearingHost || mHostActivity == null || result == null || !result.success) {
+                parent.fail(new IllegalStateException(result == null ? "Desktop host unavailable" : result.message));
+                return;
+            }
+            parent.attach(mHostActivity, mWindowManager, mWindowToken);
+        });
+        return lease;
+    }
 
     void releaseShellKeyboard() { if (mKeyboardShell != null) mKeyboardShell.releaseKeyboard(); }
 
@@ -705,6 +737,7 @@ final class DesktopPanelWindowController {
     private void clearHost() {
         mClearingHost = true;
         try {
+            if (mSurfaceParent != null) mSurfaceParent.close();
             for (final var window : java.util.List.copyOf(mShellWindows)) window.close();
             mFocusGate.reset();
             mHostActivity = null;

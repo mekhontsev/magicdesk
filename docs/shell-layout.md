@@ -179,6 +179,34 @@ Android DisplayArea ownership, stable fullscreen planes and the task activation
 gateway remain separate. No layer enum maps directly to a DisplayArea or raw
 SurfaceControl z-order. See [fullscreen transitions](fullscreen-transitions.md).
 
+## Application-Relative Surfaces
+
+`HostedDependentWindow` provides an API-35+ Android host for a borrowed View
+hierarchy outside an application's task crop. It acquires `DesktopSurfaceParent`
+from an existing Desktop chrome controller; it cannot start Desktop or acquire
+HOME. The parent is a non-interactive, display-sized application panel, shared by
+its active leases and removed when the last lease ends.
+
+The embedded hierarchy uses the application's `InputTransferToken`.
+`FrameworkHostedSurfaceApi` orders its owned surface relative to the application's
+SurfaceView, while the structural parent supplies the uncropped space. Application
+tasks, fullscreen planes, windowing modes and focus commands retain their existing
+owners. Ordering and reparenting have separate commit receipts; neither receipt
+establishes renderer or InputDispatcher readiness.
+
+`HostedShellSurfaceView` supplies the existing frame and exact-input admission
+path. An embedded View root reports local coordinates, so its placement owner
+supplies the screen origin for input-region observation and content geometry.
+Geometry changes invalidate input admission. Anchor Surface loss, Desktop host
+loss or explicit closure ends the borrowed Android hierarchy. The protocol caller
+retains ownership of its output, family and session and must react to that end.
+
+This host is covered by the debug dependent-window fixture. Individual X11 and
+Wayland application adapters still use their in-window family presentation;
+external family rendering and protocol-grab handoff are not connected yet.
+`HostedChildWindowPolicy` reserves the opt-in path for managed individual
+applications on API 35+, with in-window presentation as the default.
+
 ## Protocol Adapters
 
 The Wayland runtime implements layer-shell admission, committed state,

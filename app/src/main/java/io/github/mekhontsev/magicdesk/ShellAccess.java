@@ -71,6 +71,15 @@ public final class ShellAccess {
         return isReady() ? "ready" : "unavailable";
     }
 
+    static void orderHostedSurface(android.view.SurfaceControl surface,
+            android.view.SurfaceControl relative) throws IOException {
+        try { requireService().orderHostedSurface(surface, relative); }
+        catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("Hosted surface ordering failed: " + usefulMessage(error), error);
+        }
+    }
+
     static void resume() {
         if (SERVICE_CONNECTION.resume()) {
             ShellServiceLauncher.current().requestPermission();

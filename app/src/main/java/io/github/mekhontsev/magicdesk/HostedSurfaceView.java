@@ -28,6 +28,7 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     private HostedViewport viewport = HostedViewport.EMPTY;
     private boolean contentDrag;
     private Runnable beforeInteraction;
+    private java.util.function.Consumer<int[]> screenOrigin;
     private final SparseIntArray keys = new SparseIntArray();
 
     HostedSurfaceView(Context context) {
@@ -79,9 +80,17 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     /** On-demand UI-thread observation; coordinates are on the containing Android display. */
     Geometry geometry() {
         int[] location = new int[2];
-        getLocationOnScreen(location);
+        locateOnScreen(location);
         float left = location[0] + viewport.left(), top = location[1] + viewport.top();
         return new Geometry(frameWidth, frameHeight, left, top, left + viewport.width(), top + viewport.height());
+    }
+
+    /** Embedded View roots have local coordinates; their placement owner supplies the display origin. */
+    void screenOrigin(java.util.function.Consumer<int[]> origin) { screenOrigin = origin; }
+
+    void locateOnScreen(int[] location) {
+        if (screenOrigin == null) getLocationOnScreen(location);
+        else screenOrigin.accept(location);
     }
 
     @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {

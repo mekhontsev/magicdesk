@@ -806,6 +806,7 @@
     <string name="settings_keep_desktop_awake">Keep session active</string>
     <string name="settings_keep_screen_on">Keep phone screen on</string>
     <string name="settings_phone_fullscreen_default">New windows fullscreen on phone</string>
+    <string name="settings_external_linux_child_windows">Linux child windows outside parent</string>
     <string name="settings_disable_adaptive_brightness">Disable adaptive brightness</string>
     <string name="settings_mcp_enabled">Local MCP automation server</string>
     <string name="settings_mcp_local_access">Local MCP permissions</string>

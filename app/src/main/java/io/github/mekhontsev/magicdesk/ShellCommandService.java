@@ -620,6 +620,19 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         return new ShellInputRegionReceipt(window, displayId, region, callback);
     }
 
+    @Override public void orderHostedSurface(android.view.SurfaceControl surface,
+            android.view.SurfaceControl relative) {
+        final long identity = Binder.clearCallingIdentity();
+        try { FrameworkRuntime.current().hostedSurface().order(surface, relative); }
+        catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("Hosted surface ordering is unavailable", error);
+        } finally {
+            if (surface != null) surface.release();
+            if (relative != null) relative.release();
+            Binder.restoreCallingIdentity(identity);
+        }
+    }
+
     @Override
     public void setDesktopChromeFocusable(final ITaskObserverCallback callback,
             final int displayId, final int taskId, final boolean focusable) {
