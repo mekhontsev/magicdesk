@@ -150,8 +150,9 @@ Replies are qualified by owner and committed revision; late events cannot revive
 a released binding. Binding errors release only that integration, while compositor
 failure releases the session. Application output ownership remains separate.
 An explicitly hosted binding reconciles its catalog and family geometry through
-the protocol-neutral `HostedShellWindows` owner. The current Android adapter admits
-keyboard-inert top panels on the selected Desktop's actual layout scope. Role or
+the protocol-neutral `HostedShellWindows` owner. The Android adapters admit
+keyboard-inert background/bottom surfaces inside HOME and top panels in chrome,
+all on the selected Desktop's actual layout scope. Role or
 host failure revokes that contribution and its reservations, not the session.
 Catalog snapshots are published with their UI callbacks so rapid unmap/remap
 retains lifecycle order. User-facing workspace selection and complete layer/focus

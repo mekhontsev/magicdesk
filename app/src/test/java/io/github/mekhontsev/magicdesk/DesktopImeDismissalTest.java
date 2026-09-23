@@ -86,13 +86,15 @@ public final class DesktopImeDismissalTest {
     @Test
     public void wallpaperUsesCompletedClickWithoutChangingGestureOrFocusPolicy() throws Exception {
         final String content = RuntimeSourceFixture.methods("DesktopShellActivity", "createDesktopContentView");
-        assertTrue(content.contains("desktop.setOnClickListener"));
+        assertTrue(content.contains("root.setOnClickListener"));
         assertTrue(content.contains("mDesktopWorkspaceController.clearFileSelection()"));
         assertTrue(content.contains("mInputController.onDesktopClick()"));
         final String grid = RuntimeSourceFixture.methods("DesktopWorkspaceController", "createGrid");
         assertFalse(grid.contains("setOnClickListener"));
         assertFalse(grid.contains("setOnTouchListener"));
-        assertTrue(content.contains("desktop.performClick()"));
+        assertTrue(content.contains("root.performClick()"));
+        assertTrue(content.contains("root.setFocusable(false)"));
+        assertTrue(content.contains("root.setFocusableInTouchMode(false)"));
         assertTrue(content.contains("desktop.setFocusable(false)"));
         assertTrue(content.contains("desktop.setFocusableInTouchMode(false)"));
         assertFalse(RuntimeSourceFixture.methods("DesktopShellActivity", "onDown", "onLongPress")
@@ -104,5 +106,16 @@ public final class DesktopImeDismissalTest {
         assertTrue(aidl.contains("oneway void requestHideCurrentInputMethod(int originatingDisplayId)"));
         final String framework = Files.readString(Path.of(RuntimeSourceFixture.MAIN + "FrameworkRuntime.java"));
         assertFalse(framework.contains("private final FrameworkInputMethodApi"));
+    }
+
+    @Test public void nativeContextActionsAreLocalAndEmptySpaceIsOnlyAFallback() throws Exception {
+        String content = RuntimeSourceFixture.methods("DesktopShellActivity", "createDesktopContentView");
+        assertTrue(content.contains("root.setOnTouchListener"));
+        assertTrue(content.contains("root.setOnGenericMotionListener"));
+        assertFalse(RuntimeSourceFixture.methods("DesktopShellActivity", "dispatchTouchEvent", "dispatchGenericMotionEvent")
+                .contains("mInputController"));
+        String targets = RuntimeSourceFixture.methods("DesktopContextMenuController", "registerTarget");
+        assertTrue(targets.contains("view.setOnContextClickListener"));
+        assertTrue(targets.contains("showForView(target, contextTarget, false)"));
     }
 }

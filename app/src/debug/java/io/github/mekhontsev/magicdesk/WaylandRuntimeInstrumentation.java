@@ -28,12 +28,14 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
     private boolean shellTest;
     private int chromeDisplay = -1;
     private int workspaceDisplay = -1;
+    private boolean homeLayers;
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         clientPath = arguments == null ? null : arguments.getString("client");
         shellTest = arguments != null && Boolean.parseBoolean(arguments.getString("shell"));
         if (arguments != null) chromeDisplay = Integer.parseInt(arguments.getString("chrome_display", "-1"));
         if (arguments != null) workspaceDisplay = Integer.parseInt(arguments.getString("workspace_display", "-1"));
+        homeLayers = arguments != null && Boolean.parseBoolean(arguments.getString("home_layers", "false"));
         start();
     }
 
@@ -144,7 +146,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                 String invocation = "env -u LD_PRELOAD -u LD_LIBRARY_PATH CLASSPATH=" + q(context.getApplicationInfo().sourceDir)
                         + " " + String.join(" ", launch.arguments(execution.termux.packageName,
                                 library + "/libmagicdesk_wayland_client.so", clientPath,
-                                workspace != null ? "--workspace-client" : "--client")
+                                workspace != null ? homeLayers ? "--home-client" : "--workspace-client" : "--client")
                                 .stream().map(WaylandRuntimeInstrumentation::q).toList());
                 try (var client = execution.start(invocation, "", id + "-client", null,
                         (code, output, error) -> complete(clientExit, code, output, error))) {
@@ -196,16 +198,22 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
         int density, mappings;
         boolean wasMapped;
         long surface;
+        android.widget.FrameLayout homeRoot;
+        android.view.View nativeControl;
+        int nativeClicks;
+        int expectedNativeClicks;
+        CompletableFuture<Void> nativeInput;
 
-        @SuppressWarnings("unchecked")
         WorkspaceFixture(WaylandSession session) throws Exception {
             var created = new CompletableFuture<Void>();
             runOnMainSync(() -> {
                 try {
-                    var field = DesktopPanelWindowController.class.getDeclaredField("CONTROLLERS");
-                    field.setAccessible(true);
-                    var panels = ((java.util.Map<Integer, DesktopPanelWindowController>) field.get(null)).get(workspaceDisplay);
-                    if (panels == null) throw new IOException("Explicit active Desktop required");
+                    var runtime = DesktopRuntimeBridge.getWorkspaceRuntime(workspaceDisplay);
+                    var activity = runtime == null ? null : runtime.host();
+                    if (activity == null) throw new IOException("Explicit active Desktop required");
+                    var panels = activity.panels();
+                    if (homeLayers) homeRoot = (android.widget.FrameLayout) ((android.view.ViewGroup)
+                            activity.findViewById(android.R.id.content)).getChildAt(0);
                     var display = getTargetContext().getSystemService(android.hardware.display.DisplayManager.class)
                             .getDisplay(workspaceDisplay);
                     var context = getTargetContext().createDisplayContext(display);
@@ -213,7 +221,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                     scope = panels.shellScope();
                     initialWorkArea = scope.snapshot().workArea();
                     binding = new WaylandShellBinding(session, scope, density, this);
-                    windows = binding.host(panels.shellHost(context, state -> new WaylandSurfaceOutput(
+                    windows = binding.host(activity.shellSurfaceHost(state -> new WaylandSurfaceOutput(
                             binding.openOutput(state.id(), state.bounds().width(), state.bounds().height()))));
                     created.complete(null);
                 } catch (Exception error) { created.completeExceptionally(error); }
@@ -271,8 +279,17 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                 });
                 var bounds = placement.get();
                 int x = bounds.left(), y = bounds.top() + Math.round(10 * density / 160f);
+                if (homeLayers) prepareHomeProbe(bounds, frames.indexOf(frame) < 2);
                 if (!ShellAccess.injectPointerClickAt(workspaceDisplay, x + Math.round(30 * density / 160f), y, 1)
-                        || !ShellAccess.injectPointerClickAt(workspaceDisplay, x + Math.round(10 * density / 160f), y, 1))
+                        || homeLayers && frames.indexOf(frame) < 2 && !ShellAccess.injectPointerClickAt(
+                                workspaceDisplay, x + Math.round(58 * density / 160f), y, 1))
+                    throw new IOException("Workspace pointer injection failed");
+                // EVENT_WAIT: native View receives the input hole, and overlaps a BACKGROUND surface.
+                if (homeLayers) nativeInput.get(15, TimeUnit.SECONDS);
+                if (homeLayers && !ShellAccess.injectPointerClickAt(workspaceDisplay,
+                        x + Math.round(10 * density / 160f), y, 2))
+                    throw new IOException("HOME shell secondary click injection failed");
+                if (!ShellAccess.injectPointerClickAt(workspaceDisplay, x + Math.round(10 * density / 160f), y, 1))
                     throw new IOException("Workspace pointer injection failed");
             }
             // EVENT_WAIT: unsupported keyboard role revokes this contribution, not its graphical session.
@@ -284,7 +301,63 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
             });
         }
 
-        @Override public void close() { runOnMainSync(() -> { if (binding != null) binding.close(); }); }
+        @android.annotation.SuppressLint({"ClickableViewAccessibility", "RtlHardcoded"}) // Raw input assertions in display coordinates.
+        private void prepareHomeProbe(ShellBounds bounds, boolean background) throws Exception {
+            var placed = new CompletableFuture<Void>();
+            runOnMainSync(() -> {
+                try {
+                    var texture = findTexture(homeRoot);
+                    if (texture == null) throw new IOException("HOME has no shell texture");
+                    var bitmap = texture.getBitmap(80, 40);
+                    if (bitmap == null) throw new IOException("HOME shell pixels are unavailable");
+                    try {
+                        if (Math.abs(android.graphics.Color.alpha(bitmap.getPixel(12, 10)) - 128) > 1)
+                            throw new IOException("HOME shell alpha was lost");
+                    } finally { bitmap.recycle(); }
+                    var layer = (android.view.View) texture.getParent();
+                    if (nativeControl == null) {
+                        nativeControl = new android.view.View(homeRoot.getContext());
+                        nativeControl.setBackgroundColor(android.graphics.Color.RED);
+                        nativeControl.setOnTouchListener((view, event) -> {
+                            if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN
+                                    && ++nativeClicks == expectedNativeClicks) nativeInput.complete(null);
+                            return true;
+                        });
+                        homeRoot.addView(nativeControl, homeRoot.indexOfChild(layer) + 1);
+                    }
+                    int layerIndex = homeRoot.indexOfChild(layer), nativeIndex = homeRoot.indexOfChild(nativeControl);
+                    if (background ? layerIndex >= nativeIndex : layerIndex <= nativeIndex)
+                        throw new IOException("HOME layer order differs from shell policy");
+                    int[] origin = new int[2];
+                    homeRoot.getLocationOnScreen(origin);
+                    var params = new android.widget.FrameLayout.LayoutParams(Math.round(44 * density / 160f),
+                            bounds.height(), android.view.Gravity.TOP | android.view.Gravity.LEFT);
+                    params.leftMargin = bounds.left() - origin[0] + Math.round(20 * density / 160f);
+                    params.topMargin = bounds.top() - origin[1];
+                    nativeControl.setLayoutParams(params);
+                    expectedNativeClicks = nativeClicks + (background ? 2 : 1);
+                    nativeInput = new CompletableFuture<>();
+                    homeRoot.getViewTreeObserver().registerFrameCommitCallback(() -> placed.complete(null));
+                    homeRoot.invalidate();
+                } catch (Exception error) { placed.completeExceptionally(error); }
+            });
+            // EVENT_WAIT: native test control layout is committed before pointer injection.
+            placed.get(15, TimeUnit.SECONDS);
+        }
+
+        private android.view.TextureView findTexture(android.view.View view) {
+            if (view instanceof android.view.TextureView texture) return texture;
+            if (view instanceof android.view.ViewGroup group) for (int i = 0; i < group.getChildCount(); i++) {
+                var result = findTexture(group.getChildAt(i));
+                if (result != null) return result;
+            }
+            return null;
+        }
+
+        @Override public void close() { runOnMainSync(() -> {
+            if (binding != null) binding.close();
+            if (nativeControl != null) homeRoot.removeView(nativeControl);
+        }); }
     }
 
     private final class ShellFixture implements AutoCloseable {

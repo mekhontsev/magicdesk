@@ -71,6 +71,7 @@ public abstract class DesktopShellActivity extends Activity
     private DesktopLayoutController mDesktopLayout;
     private DesktopWallpaperController mDesktopWallpaperController;
     private DesktopPanelWindowController mDesktopPanelWindowController;
+    private DesktopHomeSurfaceHost mHomeSurfaceHost;
     private DesktopUiFactory mUi;
     private DesktopAutomationUiRegistry mAutomationUi;
     private CalendarPanelController mCalendarController;
@@ -375,6 +376,10 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void releaseDesktopUiWindows() {
+        if (mHomeSurfaceHost != null) {
+            mHomeSurfaceHost.close();
+            mHomeSurfaceHost = null;
+        }
         if (mTaskbarRevealController != null) {
             mTaskbarRevealController.release();
             mTaskbarRevealController = null;
@@ -437,24 +442,6 @@ public abstract class DesktopShellActivity extends Activity
             EXPECTED_DISPLAY_BY_TASK.remove(Integer.valueOf(getTaskId()));
         }
         super.onDestroy();
-    }
-
-    @Override
-    public boolean dispatchTouchEvent(final MotionEvent event) {
-        if (mInputController != null
-                && mInputController.handleTouchEvent(event, false)) {
-            return true;
-        }
-        return super.dispatchTouchEvent(event);
-    }
-
-    @Override
-    public boolean dispatchGenericMotionEvent(final MotionEvent event) {
-        if (mInputController != null
-                && mInputController.handleGenericMotionEvent(event, false)) {
-            return true;
-        }
-        return super.dispatchGenericMotionEvent(event);
     }
 
     boolean handleDesktopMouseTouchEvent(final MotionEvent event,
@@ -918,6 +905,26 @@ public abstract class DesktopShellActivity extends Activity
         }
     }
 
+    HostedShellWindows.Host shellSurfaceHost(
+            java.util.function.Function<HostedShellWindows.Surface, HostedShellOutput> outputs) {
+        if (mHomeSurfaceHost == null || mDesktopPanelWindowController == null)
+            throw new IllegalStateException("Desktop shell hosts are unavailable");
+        var home = mHomeSurfaceHost.host(outputs);
+        var chrome = mDesktopPanelWindowController.shellHost(this, outputs);
+        return new HostedShellWindows.Host() {
+            private HostedShellWindows.Host owner(HostedShellWindows.Surface surface) {
+                return switch (surface.layer()) {
+                    case BACKGROUND, BOTTOM -> home;
+                    case TOP, OVERLAY -> chrome;
+                };
+            }
+            @Override public void validate(HostedShellWindows.Surface surface) { owner(surface).validate(surface); }
+            @Override public HostedShellWindows.Window open(HostedShellWindows.Surface surface) {
+                return owner(surface).open(surface);
+            }
+        };
+    }
+
     // GestureDetector routes confirmed taps through performClick().
     @SuppressLint("ClickableViewAccessibility")
     private View createDesktopContentView() {
@@ -944,6 +951,10 @@ public abstract class DesktopShellActivity extends Activity
         mDesktopWallpaperController = new DesktopWallpaperController(
                 this, wallpaper);
         mDesktopWallpaperController.start();
+
+        final FrameLayout shellBackground = new FrameLayout(this);
+        root.addView(shellBackground, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
         // Android keeps the phone status bar transparent above freeform
         // tasks. Cover its reserved viewport inset so desktop wallpaper does
@@ -973,7 +984,11 @@ public abstract class DesktopShellActivity extends Activity
         desktop.setOrientation(LinearLayout.VERTICAL);
         desktop.setPadding(desktopDp(24, 10), desktopDp(22, 8),
                 desktopDp(24, 10), desktopDp(12, 6));
-        desktop.setClickable(true);
+        // Empty-space gestures are the parent's fallback, after native icons and shell input holes.
+        root.setClickable(true);
+        root.setFocusable(false);
+        root.setFocusableInTouchMode(false);
+        root.setDefaultFocusHighlightEnabled(false);
         desktop.setFocusable(false);
         desktop.setFocusableInTouchMode(false);
         desktop.setDefaultFocusHighlightEnabled(false);
@@ -990,7 +1005,7 @@ public abstract class DesktopShellActivity extends Activity
 
                     @Override
                     public boolean onSingleTapUp(final MotionEvent event) {
-                        desktop.performClick();
+                        root.performClick();
                         return true;
                     }
 
@@ -1000,7 +1015,8 @@ public abstract class DesktopShellActivity extends Activity
                         showDesktopContextMenu(event.getRawX(), event.getRawY());
                     }
                 });
-        desktop.setOnTouchListener((view, event) -> {
+        root.setOnTouchListener((view, event) -> {
+            if (mInputController.handleTouchEvent(event, true)) return true;
             final boolean handled = desktopGestures.onTouchEvent(event);
             if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
                 hideAllPanels();
@@ -1008,12 +1024,13 @@ public abstract class DesktopShellActivity extends Activity
             }
             return handled;
         });
-        desktop.setOnClickListener(view -> {
+        root.setOnGenericMotionListener((view, event) -> mInputController.handleGenericMotionEvent(event, true));
+        root.setOnClickListener(view -> {
             mDesktopWorkspaceController.clearFileSelection();
             mInputController.onDesktopClick();
         });
         registerAutomationUiElement(
-                desktop, "desktop", "desktop", "Desktop");
+                root, "desktop", "desktop", "Desktop");
 
         final DesktopGridLayout desktopIcons =
                 mDesktopWorkspaceController.createGrid();
@@ -1027,6 +1044,13 @@ public abstract class DesktopShellActivity extends Activity
         root.addView(desktopViewport, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
+
+        final FrameLayout shellBottom = new FrameLayout(this);
+        root.addView(shellBottom, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        root.bringChildToFront(statusBarBackdrop);
+        root.bringChildToFront(navigationBarBackdrop);
+        mHomeSurfaceHost = new DesktopHomeSurfaceHost(shellBackground, shellBottom);
 
         mStartMenuController.create();
         final LinearLayout taskbar = mTaskbarController.create();

@@ -112,6 +112,28 @@ revokes the contribution rather than retaining an invisible reservation. The hos
 validates semantic roles, including unmapped clients; the current chrome adapter
 admits only `TOP` with keyboard `NONE`.
 
+`DesktopHomeSurfaceHost` admits `BACKGROUND` and `BOTTOM` with keyboard `NONE`
+inside the existing HOME view tree. External backgrounds paint above the native
+wallpaper and below native desktop items; bottom surfaces paint above those items
+but remain in HOME, below Android application tasks. System-bar backdrops retain
+their native position. `DesktopShellActivity.shellSurfaceHost` routes each admitted
+role to HOME or chrome; changing a role replaces the borrowed lease through the
+same reconciler. Neither route creates a task or changes application focus.
+
+The HOME adapter uses transparent
+[`TextureView`](https://developer.android.com/reference/android/view/TextureView)
+content so ordinary Android view ordering applies. It borrows the same graphical
+output contract and `HostedPointerInput` as windowed hosts. Pixel submission and a
+subsequent HOME frame commit gate local input; this is not a display-scanout receipt.
+Exact input regions are hit-tested inside the view hierarchy, without changing
+HOME's window-wide input region. An accepted gesture retains its release outside
+the region. Native desktop empty-space gestures are a parent fallback, allowing
+icons and external surfaces to receive their own input first. Native items own
+their context-click actions; HOME does not intercept the
+secondary button before dispatching to its children. Surface loss revokes
+input; detachment, renderer failure or host closure releases the lease and reports
+its end. The retained graphical session is not owned by that view.
+
 `HostedShellSurfaceView` joins the window-layout frame and matching graphical
 viewport receipt before publishing the exact touchable region. `HostedShellFrame`
 translates family-local input to window pixels, clips it to the viewport and
@@ -199,8 +221,8 @@ and [EWMH](https://specifications.freedesktop.org/wm/latest-single/).
 
 ## Integration Work
 
-1. Extend host admission beyond keyboard-inert top panels: backgrounds and bottom
-   surfaces use existing HOME infrastructure. Apply workspace fullscreen and focus
+1. Extend host admission beyond keyboard-inert background, bottom and top surfaces.
+   Apply workspace fullscreen and focus
    policy through existing hosts rather than mapping layer numbers directly to
    Android z-order. Keep pointer admission and keyboard ownership separate.
 2. Adapt X11 DOCK/DESKTOP properties and struts to the same bindings. Preserve
@@ -258,3 +280,9 @@ unmap/remap, unsupported-role rejection, reservation cleanup and application
 survival after shell revocation. It does not select a workspace on the user's behalf.
 Desktop self-tests cover existing Android geometry and fullscreen transitions;
 they do not validate external Linux panel protocols or integrated-shell UX.
+`DesktopHomeSurfaceHostTest` and `HostedShellTextureViewTest` cover HOME role
+admission, display-relative placement, exact local hit testing, gesture completion,
+receipt replacement, renderer failure and output release. The runtime fixture's
+`home_layers=true` variant checks transparent HOME pixels, background-to-bottom
+remapping, native control priority, input holes and keyboard isolation on the
+explicitly selected Desktop. No Desktop self-test is substituted for these checks.

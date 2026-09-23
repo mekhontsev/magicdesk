@@ -29,8 +29,8 @@ struct Client {
     struct xdg_toplevel *toplevel;
     struct zwlr_layer_surface_v1 *layer;
     int app_width, app_height;
-    int app_keys, panel_keys, buttons, frames, configures, outputs;
-    bool closed, workspace, app_closed;
+    int app_keys, panel_keys, buttons, secondary_buttons, frames, configures, outputs;
+    bool closed, workspace, home, app_closed;
 };
 
 static void buffer_release(void *data, struct wl_buffer *buffer) {
@@ -68,6 +68,8 @@ static void frame_done(void *data, struct wl_callback *callback, uint32_t time) 
 static const struct wl_callback_listener frame_listener = {frame_done};
 
 static void configure_panel(struct Client *client) {
+    if (client->home && client->configures > 0)
+        zwlr_layer_surface_v1_set_layer(client->layer, ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM);
     zwlr_layer_surface_v1_set_size(client->layer, 0, 24);
     zwlr_layer_surface_v1_set_anchor(client->layer, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP |
         ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
@@ -103,6 +105,7 @@ static void layer_closed(void *data, struct zwlr_layer_surface_v1 *surface) {
         fprintf(stderr, "workspace client: keys=%d/%d buttons=%d frames=%d configures=%d\n",
             client->app_keys, client->panel_keys, client->buttons, client->frames, client->configures);
         assert(client->app_keys == 2 && client->panel_keys == 0 && client->buttons == 6);
+        assert(client->secondary_buttons == (client->home ? 6 : 0));
         // Moving a layer surface does not reconfigure its unchanged buffer size.
         assert(client->frames > 0 && client->configures == 2);
         client->closed = true;
@@ -159,6 +162,7 @@ static void pointer_button(void *data, struct wl_pointer *pointer, uint32_t seri
         uint32_t time, uint32_t button, uint32_t state) {
     (void)pointer; (void)serial; (void)time;
     struct Client *client = data;
+    if (client->home && button == BTN_RIGHT) { client->secondary_buttons++; return; }
     assert(button == BTN_LEFT);
     client->buttons++;
     if (state == WL_POINTER_BUTTON_STATE_RELEASED) {
@@ -261,8 +265,8 @@ static void global_remove(void *data, struct wl_registry *registry, uint32_t nam
 }
 static const struct wl_registry_listener registry_listener = {global, global_remove};
 
-static void run_client(const char *socket, bool workspace) {
-    struct Client client = {.workspace = workspace};
+static void run_client(const char *socket, bool workspace, bool home) {
+    struct Client client = {.workspace = workspace, .home = home};
     client.display = wl_display_connect(socket);
     assert(client.display);
     struct wl_registry *registry = wl_display_get_registry(client.display);
@@ -278,7 +282,7 @@ static void run_client(const char *socket, bool workspace) {
     wl_surface_commit(client.app);
     client.panel = wl_compositor_create_surface(client.compositor);
     client.layer = zwlr_layer_shell_v1_get_layer_surface(client.shell, client.panel, NULL,
-        ZWLR_LAYER_SHELL_V1_LAYER_TOP, "fixture-panel");
+        home ? ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND : ZWLR_LAYER_SHELL_V1_LAYER_TOP, "fixture-panel");
     zwlr_layer_surface_v1_add_listener(client.layer, &layer_listener, &client);
     configure_panel(&client);
     while (!client.closed) assert(wl_display_dispatch(client.display) >= 0);
@@ -349,8 +353,9 @@ static bool can_render(void *data, MdwOutput *output) {
 }
 
 int main(int argc, char **argv) {
-    if (argc == 2 && !strcmp(argv[1], "--client")) { run_client(NULL, false); return 0; }
-    if (argc == 2 && !strcmp(argv[1], "--workspace-client")) { run_client(NULL, true); return 0; }
+    if (argc == 2 && !strcmp(argv[1], "--client")) { run_client(NULL, false, false); return 0; }
+    if (argc == 2 && !strcmp(argv[1], "--workspace-client")) { run_client(NULL, true, false); return 0; }
+    if (argc == 2 && !strcmp(argv[1], "--home-client")) { run_client(NULL, true, true); return 0; }
     char directory[4096];
     snprintf(directory, sizeof(directory), "%s/mdw-shell-XXXXXX", getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp");
     assert(mkdtemp(directory) && setenv("XDG_RUNTIME_DIR", directory, 1) == 0);
@@ -364,7 +369,7 @@ int main(int argc, char **argv) {
     assert(mdw_server_shell_output(host.server, 900, 700));
     pid_t child = fork();
     assert(child >= 0);
-    if (child == 0) { run_client(mdw_server_socket(host.server), false); _exit(0); }
+    if (child == 0) { run_client(mdw_server_socket(host.server), false, false); _exit(0); }
     int stage = 0;
     while (!host.window_destroyed) {
         assert(mdw_server_dispatch(host.server, -1) >= 0);

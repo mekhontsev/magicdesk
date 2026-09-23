@@ -1049,6 +1049,11 @@ runtime integration and are not distributed through the same release path.
   `TYPE_APPLICATION_PANEL` windows and dialogs to the persistent
   `DesktopChromeActivity` token also used by the taskbar. There is no transient
   panel task or panel-specific organizer hierarchy.
+- `DesktopHomeSurfaceHost` borrows background and bottom graphical surfaces inside
+  HOME's view tree. `HostedShellWindows` reconciles the same protocol-neutral
+  leases for HOME and chrome. Geometry, exact local input and output lifetime stay
+  separate from Android task topology and the retained graphical session; see
+  [Shell layout](shell-layout.md#android-adapter).
 - `SystemPanelController` presents Quick controls using those same panel
   windows. It measures content within the available work area and anchors the
   panel above the taskbar, with scrolling when controls exceed that height.

@@ -134,6 +134,11 @@ final class DesktopContextMenuController {
             final boolean installLongClickListener) {
         mTargets.put(view, contextTarget);
         view.setHapticFeedbackEnabled(false);
+        view.setOnContextClickListener(target -> {
+            mActivity.captureInteractionStackForPanel();
+            showForView(target, contextTarget, false);
+            return true;
+        });
         if (installLongClickListener) {
             view.setOnLongClickListener(target -> {
                 mActivity.captureInteractionStackForPanel();
@@ -425,7 +430,11 @@ if (RuntimeLimits.active().termux() && TermuxIntegration.isInstalled(mActivity))
     private void showForView(
             final View view,
             final ContextTarget target) {
-        mRequestKeyboardFocus = true;
+        showForView(view, target, true);
+    }
+
+    private void showForView(final View view, final ContextTarget target, final boolean keyboardFocus) {
+        mRequestKeyboardFocus = keyboardFocus;
         final int[] location = new int[2];
         view.getLocationOnScreen(location);
         final DesktopPanelWindowController panels = mActivity.panels();
