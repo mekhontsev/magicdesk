@@ -140,8 +140,7 @@ public final class WaylandSession implements AutoCloseable {
                 if (closed.get() || binding == null || binding.released.get() || binding.id != owner) return;
                 if (!binding.catalog.update(owner, id, surface)) return;
                 if (surface == null) { binding.geometries.remove(id); releaseSurfaceOutputs(id); }
-                binding.surfaces = binding.catalog.snapshot();
-                main.post(() -> { if (!binding.released.get() && !closed.get()) binding.listener.changed(); });
+                publishShellSurface(binding, binding.catalog.snapshot());
             });
         }
         @Override public void shellOutput(long owner, int width, int height, String error) {
@@ -177,6 +176,15 @@ public final class WaylandSession implements AutoCloseable {
             });
         }
     };
+
+    private void publishShellSurface(ShellBinding binding, List<WaylandShellSurface> committed) {
+        main.post(() -> {
+            if (binding.released.get() || closed.get()) return;
+            // Publish with its callback so a fast unmap/remap cannot replace an unobserved lifecycle state.
+            binding.surfaces = committed;
+            binding.listener.changed();
+        });
+    }
 
     private static boolean updateGeometry(ConcurrentHashMap<Long, WaylandViewGeometry> catalog, WaylandViewGeometry next) {
         WaylandViewGeometry previous = catalog.get(next.id());

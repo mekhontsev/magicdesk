@@ -61,6 +61,7 @@ final class DesktopPanelWindowController {
     private IBinder mWindowToken;
     private boolean mHostLaunchRequested;
     private boolean mReleased;
+    private boolean mClearingHost;
 
     private View mVisiblePanel;
     private String mVisibleTitle = "";
@@ -160,9 +161,34 @@ final class DesktopPanelWindowController {
         }
     }
 
+    ShellLayoutScope shellScope() { return mLayout.scope(); }
+
+    HostedShellWindows.Host shellHost(final Context context,
+            final java.util.function.Function<HostedShellWindows.Surface, HostedShellOutput> outputs) {
+        return new HostedShellWindows.Host() {
+            @Override public void validate(HostedShellWindows.Surface surface) {
+                if (mReleased || mClearingHost) throw new IllegalStateException("Desktop shell host is unavailable");
+                if (surface.layer() != ShellSurface.Layer.TOP || surface.keyboard() != ShellSurface.Keyboard.NONE)
+                    throw new UnsupportedOperationException("This shell host requires a TOP surface with keyboard NONE");
+            }
+            @Override public HostedShellWindows.Window open(HostedShellWindows.Surface surface) {
+                validate(surface);
+                var output = outputs.apply(surface);
+                HostedShellSurfaceView view = null;
+                try {
+                    view = new HostedShellSurfaceView(context, output);
+                    return borrowShellSurface(view, surface.bounds(), "MagicDesk shell surface " + surface.id());
+                } catch (RuntimeException error) {
+                    if (view != null) view.close(); else output.close();
+                    throw error;
+                }
+            }
+        };
+    }
+
     /** Persistent, keyboard-inert surface lease; popup dismissal does not own its lifetime. */
     ShellWindow borrowShellSurface(final HostedShellSurfaceView view, final ShellBounds bounds, final String title) {
-        if (mReleased) throw new IllegalStateException("Desktop panel host is released");
+        if (mReleased || mClearingHost) throw new IllegalStateException("Desktop panel host is released");
         if (Looper.myLooper() != Looper.getMainLooper()) throw new IllegalStateException("Shell host requires main thread");
         final ShellWindow window = new ShellWindow(view, bounds, title);
         mShellWindows.add(window);
@@ -178,10 +204,11 @@ final class DesktopPanelWindowController {
         return window;
     }
 
-    final class ShellWindow implements AutoCloseable {
+    final class ShellWindow implements HostedShellWindows.Window {
         private final HostedShellSurfaceView view;
         private final WindowManager.LayoutParams params;
         private final java.util.concurrent.CompletableFuture<Void> ready = new java.util.concurrent.CompletableFuture<>();
+        private final java.util.concurrent.CompletableFuture<Void> ended = new java.util.concurrent.CompletableFuture<>();
         private boolean trusted, added, closed;
 
         private ShellWindow(HostedShellSurfaceView view, ShellBounds bounds, String title) {
@@ -194,9 +221,10 @@ final class DesktopPanelWindowController {
                     bounds.left(), bounds.top(), safeTitle(title));
         }
 
-        java.util.concurrent.CompletableFuture<Void> ready() { return ready.copy(); }
+        @Override public java.util.concurrent.CompletableFuture<Void> ready() { return ready.copy(); }
+        @Override public java.util.concurrent.CompletableFuture<Void> ended() { return ended.copy(); }
 
-        java.util.concurrent.CompletableFuture<Void> present(ShellBounds bounds, HostedShellFrame frame) {
+        @Override public java.util.concurrent.CompletableFuture<Void> present(ShellBounds bounds, HostedShellFrame frame) {
             if (closed || !added) throw new IllegalStateException("Shell window is not attached");
             if (bounds.isEmpty()) throw new IllegalArgumentException("Empty shell window");
             final var receipt = view.present(frame);
@@ -230,6 +258,7 @@ final class DesktopPanelWindowController {
             if (added && mWindowManager != null) removeView(view, "shell surface");
             added = false;
             ready.completeExceptionally(new java.util.concurrent.CancellationException("Shell window released"));
+            ended.complete(null);
         }
     }
 
@@ -640,12 +669,15 @@ final class DesktopPanelWindowController {
     }
 
     private void clearHost() {
-        for (final var window : java.util.List.copyOf(mShellWindows)) window.close();
-        mFocusGate.reset();
-        mHostActivity = null;
-        mWindowManager = null;
-        mWindowToken = null;
-        mHostLaunchRequested = false;
+        mClearingHost = true;
+        try {
+            for (final var window : java.util.List.copyOf(mShellWindows)) window.close();
+            mFocusGate.reset();
+            mHostActivity = null;
+            mWindowManager = null;
+            mWindowToken = null;
+            mHostLaunchRequested = false;
+        } finally { mClearingHost = false; }
     }
 
     private boolean ensureHostAndAttach() {

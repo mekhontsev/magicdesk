@@ -27,11 +27,13 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
     private String clientPath;
     private boolean shellTest;
     private int chromeDisplay = -1;
+    private int workspaceDisplay = -1;
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         clientPath = arguments == null ? null : arguments.getString("client");
         shellTest = arguments != null && Boolean.parseBoolean(arguments.getString("shell"));
         if (arguments != null) chromeDisplay = Integer.parseInt(arguments.getString("chrome_display", "-1"));
+        if (arguments != null) workspaceDisplay = Integer.parseInt(arguments.getString("workspace_display", "-1"));
         start();
     }
 
@@ -40,7 +42,9 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
             Bundle result = new Bundle();
             try {
                 runRuntime();
-                result.putString("wayland_runtime", chromeDisplay >= 0
+                result.putString("wayland_runtime", workspaceDisplay >= 0
+                        ? "passed: workspace catalog hosting, automatic placement, input holes, unmap/remap, role rejection, reservation cleanup, retained application"
+                        : chromeDisplay >= 0
                         ? "passed: Wayland chrome pixels, exact input holes, replacement receipts, borrowed output cleanup; shell runtime checks"
                         : shellTest
                         ? "passed: cross-UID shell binding, family geometry, viewport pixels/input, Surface replacement, input isolation, remap, scope release"
@@ -131,12 +135,16 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                             && (buffer.get(offset + 2) & 255) == 0xab) pixels.complete(null);
                 } catch (RuntimeException error) { pixels.completeExceptionally(error); }
             }, main);
-            try (var shell = shellTest ? new ShellFixture(session.get(), main) : null;
+            try (var shell = shellTest && workspaceDisplay < 0 ? new ShellFixture(session.get(), main) : null;
+                    var workspace = workspaceDisplay >= 0 ? new WorkspaceFixture(session.get()) : null;
                     var launch = new WaylandClientLaunch(context, session.get().connect().get(10, TimeUnit.SECONDS), execution.uid)) {
                 if (shell != null) shell.binding.get().ready().get(10, TimeUnit.SECONDS);
+                // EVENT_WAIT: compositor admission; a missing acknowledgement aborts this fixture.
+                if (workspace != null) workspace.binding.ready().get(10, TimeUnit.SECONDS);
                 String invocation = "env -u LD_PRELOAD -u LD_LIBRARY_PATH CLASSPATH=" + q(context.getApplicationInfo().sourceDir)
                         + " " + String.join(" ", launch.arguments(execution.termux.packageName,
-                                library + "/libmagicdesk_wayland_client.so", clientPath, "--client")
+                                library + "/libmagicdesk_wayland_client.so", clientPath,
+                                workspace != null ? "--workspace-client" : "--client")
                                 .stream().map(WaylandRuntimeInstrumentation::q).toList());
                 try (var client = execution.start(invocation, "", id + "-client", null,
                         (code, output, error) -> complete(clientExit, code, output, error))) {
@@ -145,7 +153,12 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                     geometry.get(15, TimeUnit.SECONDS);
                     try (var output = session.get().openOutput(window, 80, 60)) {
                         output.setSurface(images.getSurface(), 80, 60);
-                        if (shell != null) shell.exercise(output);
+                        if (workspace != null) {
+                            workspace.exercise(output);
+                            if (session.get().windows().stream().noneMatch(item -> item.id() == window))
+                                throw new IOException("Shell revocation destroyed the application");
+                            session.get().closeWindow(window);
+                        } else if (shell != null) shell.exercise(output);
                         else {
                             pixels.get(15, TimeUnit.SECONDS);
                             // A replacement presentation also needs a receipt when the client is idle.
@@ -170,6 +183,108 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
             context.unregisterReceiver(receiver);
             if (session.get() != null) session.get().close();
         }
+    }
+
+    private final class WorkspaceFixture implements AutoCloseable, WaylandShellBinding.Listener {
+        WaylandShellBinding binding;
+        HostedShellWindows windows;
+        ShellLayoutScope scope;
+        ShellBounds initialWorkArea;
+        final java.util.List<CompletableFuture<Void>> frames = java.util.List.of(
+                new CompletableFuture<>(), new CompletableFuture<>(), new CompletableFuture<>());
+        final CompletableFuture<String> revoked = new CompletableFuture<>();
+        int density, mappings;
+        boolean wasMapped;
+        long surface;
+
+        @SuppressWarnings("unchecked")
+        WorkspaceFixture(WaylandSession session) throws Exception {
+            var created = new CompletableFuture<Void>();
+            runOnMainSync(() -> {
+                try {
+                    var field = DesktopPanelWindowController.class.getDeclaredField("CONTROLLERS");
+                    field.setAccessible(true);
+                    var panels = ((java.util.Map<Integer, DesktopPanelWindowController>) field.get(null)).get(workspaceDisplay);
+                    if (panels == null) throw new IOException("Explicit active Desktop required");
+                    var display = getTargetContext().getSystemService(android.hardware.display.DisplayManager.class)
+                            .getDisplay(workspaceDisplay);
+                    var context = getTargetContext().createDisplayContext(display);
+                    density = context.getResources().getDisplayMetrics().densityDpi;
+                    scope = panels.shellScope();
+                    initialWorkArea = scope.snapshot().workArea();
+                    binding = new WaylandShellBinding(session, scope, density, this);
+                    windows = binding.host(panels.shellHost(context, state -> new WaylandSurfaceOutput(
+                            binding.openOutput(state.id(), state.bounds().width(), state.bounds().height()))));
+                    created.complete(null);
+                } catch (Exception error) { created.completeExceptionally(error); }
+            });
+            created.get();
+        }
+
+        @Override public void changed() {
+            if (binding == null) return;
+            for (var state : binding.surfaces()) {
+                surface = state.id();
+                if (state.mapped() && !wasMapped) mappings++;
+                wasMapped = state.mapped();
+                observe();
+            }
+        }
+
+        @Override public void geometryChanged(long id) { observe(); }
+
+        private void observe() {
+            if (windows == null || !wasMapped) return;
+            var state = binding.surfaces().stream().filter(item -> item.id() == surface).findFirst().orElse(null);
+            var frame = WaylandShellBinding.frame(binding.geometry(surface));
+            if (state == null || frame == null) return;
+            int phase = mappings > 1 ? 2 : state.marginTop() == 13 ? 1 : 0;
+            windows.presented(surface).whenComplete((ignored, error) -> {
+                if (error == null) frames.get(phase).complete(null);
+            });
+        }
+
+        @Override public void closed(String reason) {
+            revoked.complete(reason);
+            for (var frame : frames) if (!frame.isDone()) frame.completeExceptionally(new IOException(reason));
+        }
+
+        void exercise(WaylandSession.Output app) throws Exception {
+            app.focus(true);
+            app.key(30, true);
+            app.key(30, false);
+            for (var frame : frames) {
+                // EVENT_WAIT: exact presentation/input receipt; clicks are never delayed by a settling timer.
+                try { frame.get(15, TimeUnit.SECONDS); }
+                catch (java.util.concurrent.TimeoutException error) {
+                    var detail = new AtomicReference<String>();
+                    runOnMainSync(() -> detail.set("stage=" + frames.indexOf(frame) + " mappings=" + mappings
+                            + " catalog=" + binding.surfaces() + " geometry=" + binding.geometry(surface)));
+                    throw new IOException("Workspace presentation timed out: " + detail.get(), error);
+                }
+                var placement = new AtomicReference<ShellBounds>();
+                runOnMainSync(() -> {
+                    var bounds = binding.surface(surface).content();
+                    if (scope.snapshot().workArea().top() != bounds.bottom())
+                        throw new IllegalStateException("Workspace reservation differs from panel placement");
+                    placement.set(bounds);
+                });
+                var bounds = placement.get();
+                int x = bounds.left(), y = bounds.top() + Math.round(10 * density / 160f);
+                if (!ShellAccess.injectPointerClickAt(workspaceDisplay, x + Math.round(30 * density / 160f), y, 1)
+                        || !ShellAccess.injectPointerClickAt(workspaceDisplay, x + Math.round(10 * density / 160f), y, 1))
+                    throw new IOException("Workspace pointer injection failed");
+            }
+            // EVENT_WAIT: unsupported keyboard role revokes this contribution, not its graphical session.
+            String reason = revoked.get(15, TimeUnit.SECONDS);
+            if (!reason.contains("keyboard NONE")) throw new IOException("Unexpected workspace revocation: " + reason);
+            runOnMainSync(() -> {
+                if (!scope.snapshot().workArea().equals(initialWorkArea))
+                    throw new IllegalStateException("Workspace retained a revoked reservation");
+            });
+        }
+
+        @Override public void close() { runOnMainSync(() -> { if (binding != null) binding.close(); }); }
     }
 
     private final class ShellFixture implements AutoCloseable {

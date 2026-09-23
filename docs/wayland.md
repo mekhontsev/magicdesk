@@ -149,8 +149,13 @@ catalog into a caller-owned layout scope, including density and configure replie
 Replies are qualified by owner and committed revision; late events cannot revive
 a released binding. Binding errors release only that integration, while compositor
 failure releases the session. Application output ownership remains separate.
-User-facing workspace selection and automatic shell host binding are not implemented;
-ordinary sessions do not enable layer-shell admission automatically.
+An explicitly hosted binding reconciles its catalog and family geometry through
+the protocol-neutral `HostedShellWindows` owner. The current Android adapter admits
+keyboard-inert top panels on the selected Desktop's actual layout scope. Role or
+host failure revokes that contribution and its reservations, not the session.
+Catalog snapshots are published with their UI callbacks so rapid unmap/remap
+retains lifecycle order. User-facing workspace selection and complete layer/focus
+policy are pending; ordinary sessions do not enable layer-shell admission automatically.
 
 `MdwView` owns a rendered surface family independently of its xdg or layer role.
 Ordinary application outputs use wlroots scene rendering. Transparent shell
@@ -430,6 +435,20 @@ explicitly selected active Desktop. This fixture uses the production surface
 lease, alpha pixels, negative viewport origin, exact input holes, immediate input
 after admission, replaced receipts and borrowed-output cleanup. It does not start
 Desktop or select a display implicitly.
+
+The workspace variant uses the selected Desktop's actual layout scope and
+automatic catalog-driven hosting instead of fixture-supplied window placement:
+
+```sh
+am instrument --no-restart -w -e workspace_display DISPLAY_ID \
+  -e client /absolute/termux/path/to/build/wayland-portable/wayland-shell-test \
+  io.github.mekhontsev.magicdesk/.WaylandRuntimeInstrumentation
+```
+
+It checks movement without redundant configure, exact input holes, unmap/remap,
+unsupported keyboard-role rejection and removal of the workspace reservation.
+An ordinary application must survive shell revocation and close independently.
+On RM11/API 36 with service UID 2000, this workflow passed on the wired display.
 
 On API 36, both UID-2000 and Termux-UID client handoffs passed. The runtime fixture
 also passed compositor startup under the selected Termux UID, cross-UID frames

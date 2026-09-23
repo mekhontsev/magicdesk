@@ -25,6 +25,7 @@ final class WaylandShellBinding implements AutoCloseable, WaylandSession.ShellLi
     private ShellBounds mOutput;
     private int mDensity;
     private boolean mClosed, mUpdating;
+    private HostedShellWindows mWindows;
 
     WaylandShellBinding(final WaylandSession session, final ShellLayoutScope scope,
             final int density, final Listener listener) {
@@ -46,6 +47,31 @@ final class WaylandShellBinding implements AutoCloseable, WaylandSession.ShellLi
     ShellLayout.Surface surface(final long id) { return mLayout.surface(id); }
     WaylandViewGeometry geometry(final long id) { return mNative.geometry(id); }
 
+    HostedShellWindows host(final HostedShellWindows.Host host) {
+        checkThread();
+        if (mClosed || mWindows != null) throw new IllegalStateException("Shell binding already hosted or closed");
+        final var main = new android.os.Handler(Looper.getMainLooper());
+        mWindows = new HostedShellWindows(host, main::post, error -> closed(error.toString()));
+        updateWindows();
+        return mWindows;
+    }
+
+    private void updateWindows() {
+        if (mWindows == null || mClosed) return;
+        try {
+            final var next = new java.util.ArrayList<HostedShellWindows.Surface>();
+            for (var state : surfaces()) {
+                var resolved = surface(state.id());
+                if (resolved == null) continue;
+                var frame = state.mapped() ? frame(geometry(state.id())) : null;
+                var bounds = frame == null ? null : HostedShellPlacement.bounds(resolved.content(), frame, mDensity);
+                next.add(new HostedShellWindows.Surface(state.id(), resolved.request().layer(),
+                        resolved.request().keyboard(), bounds, frame));
+            }
+            mWindows.update(next);
+        } catch (RuntimeException error) { closed(error.toString()); }
+    }
+
     static HostedShellFrame frame(final WaylandViewGeometry geometry) {
         if (geometry == null || !geometry.mapped()) return null;
         final var paint = geometry.paint();
@@ -57,6 +83,8 @@ final class WaylandShellBinding implements AutoCloseable, WaylandSession.ShellLi
 
     @Override public void geometryChanged(final long id) {
         checkThread();
+        if (mClosed) return;
+        updateWindows();
         if (!mClosed) mListener.geometryChanged(id);
     }
 
@@ -102,7 +130,8 @@ final class WaylandShellBinding implements AutoCloseable, WaylandSession.ShellLi
                     bounds.width(), bounds.height());
         }
         mConfigured = next;
-        mListener.changed();
+        updateWindows();
+        if (!mClosed) mListener.changed();
     }
 
     @Override public void closed(final String reason) {
@@ -110,6 +139,7 @@ final class WaylandShellBinding implements AutoCloseable, WaylandSession.ShellLi
         if (mClosed) return;
         mClosed = true;
         mScope.unlisten(mScopeChanged);
+        if (mWindows != null) mWindows.close();
         mNative.close();
         mLayout.close();
         mConfigured = Map.of();

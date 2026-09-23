@@ -104,6 +104,14 @@ separate admission conditions for an external panel.
 `DesktopPanelWindowController.ShellWindow` lends persistent, keyboard-inert child
 windows in that chrome host. Ordinary popup dismissal does not release them;
 explicit closure or host loss does. They borrow graphical outputs, not sessions.
+`HostedShellWindows` reconciles a committed surface set against these leases.
+Unmap removes a window; remap borrows a new output. Changed geometry updates the
+existing window, while equal state does not restart presentation. A replacement
+invalidates its previous receipt before relayout. Host loss or presentation failure
+revokes the contribution rather than retaining an invisible reservation. The host
+validates semantic roles, including unmapped clients; the current chrome adapter
+admits only `TOP` with keyboard `NONE`.
+
 `HostedShellSurfaceView` joins the window-layout frame and matching graphical
 viewport receipt before publishing the exact touchable region. `HostedShellFrame`
 translates family-local input to window pixels, clips it to the viewport and
@@ -133,8 +141,11 @@ SurfaceControl z-order. See [fullscreen transitions](fullscreen-transitions.md).
 The Wayland runtime implements layer-shell admission, committed state,
 configure/ack and borrowed transparent outputs. `WaylandShellBinding` connects
 its typed Binder catalog to an explicitly supplied `ShellLayoutScope`. It never
-starts Desktop, selects a display or merges nested scopes. Automatic workspace
-host binding and X11 strut adaptation are pending. The adapters preserve protocol lifetimes
+starts Desktop, selects a display or merges nested scopes. An explicit binding can
+borrow a host from the selected Desktop's panel controller; catalog and family
+geometry events then reconcile its windows automatically. Public workspace
+selection, complete layer/focus policy and X11 strut adaptation are pending.
+The adapters preserve protocol lifetimes
 and coordinate conversion:
 
 - Wayland consumes committed layer-surface state and reports geometry through
@@ -160,13 +171,19 @@ because no panel has mapped yet. A retained graphics session admits at most one
 shell scope; application-recipe sessions cannot contribute shell components.
 Viewport/density changes update the same binding. Pixel commits and pointer
 motion do not recalculate layout or publish catalogs.
+The Java bridge publishes each immutable shell catalog on the consumer's event
+thread together with its callback. A fast unmap/remap cannot replace an unobserved
+lifecycle state. Released owners discard queued publications.
 
 Rendered-family geometry is a separate protocol observation. Wayland publishes
 paint extents and precise input rectangles, including popups/subsurfaces, through
 `WaylandViewGeometry`; it does not enlarge a panel's reservation when its menu opens.
-Shell geometry follows the same revocable owner as the surface catalog. Android
-hosts must translate these family coordinates into their layout scope and apply
-exact input regions. An incomplete region is not permission to capture its bounding
+Shell geometry follows the same revocable owner as the surface catalog.
+`HostedShellPlacement` translates family-local paint extents, including negative
+popup origins, relative to the panel's resolved content position at the workspace
+density. Painted bounds round outward; exact input regions still round inward.
+The paint extension does not enlarge the panel's reservation. An incomplete region
+is not permission to capture its bounding
 box. The output API provides a generation-qualified viewport/Surface receipt:
 matching pixels have been queued to Android, not necessarily displayed. Hosts must
 coordinate placement and input with this receipt. Android's separate cross-UID
@@ -182,11 +199,10 @@ and [EWMH](https://specifications.freedesktop.org/wm/latest-single/).
 
 ## Integration Work
 
-1. Connect the retained shell binding to Android hosts: backgrounds and bottom
-   surfaces in existing HOME infrastructure, top surfaces through chrome surface
-   leases. Translate family paint/input geometry into the workspace and apply
-   workspace fullscreen and focus policy rather than mapping layer numbers
-   directly to Android z-order.
+1. Extend host admission beyond keyboard-inert top panels: backgrounds and bottom
+   surfaces use existing HOME infrastructure. Apply workspace fullscreen and focus
+   policy through existing hosts rather than mapping layer numbers directly to
+   Android z-order. Keep pointer admission and keyboard ownership separate.
 2. Adapt X11 DOCK/DESKTOP properties and struts to the same bindings. Preserve
    guest-WM ownership for whole-desktop sessions.
 3. Expose the shared application catalog and semantic actions to external panels,
@@ -232,5 +248,13 @@ and host/owner loss. The `chrome_display` variant of `WaylandRuntimeInstrumentat
 drives a real Wayland family through the production chrome lease, checks alpha
 pixels and exact input holes after movement/resizing, and sends input immediately after admission. It also
 checks replacement receipts and releases borrowed hosts independently of the session.
+`HostedShellWindowsTest`, `HostedShellPlacementTest` and
+`WaylandShellPublicationTest` cover automatic reconciliation, pending-window
+replacement, stale receipts, host failure, policy concealment, remapping, family
+origins, fractional DPI and ordered lifecycle publication. The
+`workspace_display` runtime fixture binds to the selected Desktop's actual layout
+scope. It checks automatic placement, exact input holes, client-requested movement,
+unmap/remap, unsupported-role rejection, reservation cleanup and application
+survival after shell revocation. It does not select a workspace on the user's behalf.
 Desktop self-tests cover existing Android geometry and fullscreen transitions;
 they do not validate external Linux panel protocols or integrated-shell UX.

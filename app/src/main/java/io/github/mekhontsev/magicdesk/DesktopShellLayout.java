@@ -31,6 +31,7 @@ final class DesktopShellLayout {
     }
 
     ShellLayout.Snapshot snapshot() { return mScope.snapshot(); }
+    ShellLayoutScope scope() { return mScope; }
     ShellLayout.Surface taskbar() { return mTaskbar.surface(TASKBAR); }
     ShellLayoutScope.Binding bind() { return mScope.bind(); }
     void listen(final Runnable listener) { mScope.listen(listener); }

@@ -93,7 +93,7 @@ public final class DesktopShellWindowTest {
                 }
                 static class FocusGate { void reset() { } }
                 int mDisplayId = 9;
-                boolean mReleased, mHostLaunchRequested;
+                boolean mReleased, mHostLaunchRequested, mClearingHost;
                 Object mHostActivity = new Object(), mWindowToken = new Object();
                 WindowManager mWindowManager = new WindowManager();
                 FocusGate mFocusGate = new FocusGate();
@@ -117,6 +117,8 @@ public final class DesktopShellWindowTest {
                     var bounds = new ShellBounds(10, 20, 110, 220);
                 """ + scenario + "}\n"
                 + RuntimeSourceFixture.methods("DesktopPanelWindowController", "borrowShellSurface", "clearHost")
-                + RuntimeSourceFixture.nestedClass("DesktopPanelWindowController", "ShellWindow"), "ShellBounds");
+                + RuntimeSourceFixture.nestedClass("DesktopPanelWindowController", "ShellWindow")
+                        .replace(" implements HostedShellWindows.Window", " implements AutoCloseable")
+                        .replace("@Override public java.util.concurrent.CompletableFuture", "public java.util.concurrent.CompletableFuture"), "ShellBounds");
     }
 }
