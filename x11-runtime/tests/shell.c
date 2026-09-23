@@ -2,8 +2,35 @@
 #include <gdk/gdkx.h>
 #include <X11/Xatom.h>
 #include <stdio.h>
+#include <string.h>
 
 static GtkWidget *panel;
+static gboolean grab_broken(GtkWidget *widget, GdkEventGrabBroken *event, gpointer unused) {
+    (void)widget; (void)unused;
+    g_print("x11-shell grab-broken keyboard=%d implicit=%d replacement=%p\n",
+            event->keyboard, event->implicit, (void*)event->grab_window);
+    return FALSE;
+}
+static void menu_hidden(GtkWidget *widget, gpointer unused) {
+    (void)widget; (void)unused;
+    g_print("x11-shell menu=hidden\n");
+}
+static int probe_grabs(void) {
+    Display *display = XOpenDisplay(NULL);
+    if (!display) return 1;
+    Window focus;
+    int revert;
+    XGetInputFocus(display, &focus, &revert);
+    int pointer = XGrabPointer(display, DefaultRootWindow(display), False, 0,
+            GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+    if (pointer == GrabSuccess) XUngrabPointer(display, CurrentTime);
+    int keyboard = XGrabKeyboard(display, DefaultRootWindow(display), False,
+            GrabModeAsync, GrabModeAsync, CurrentTime);
+    if (keyboard == GrabSuccess) XUngrabKeyboard(display, CurrentTime);
+    printf("x11-shell probe focus=%lu pointer=%d keyboard=%d\n", focus, pointer, keyboard);
+    XCloseDisplay(display);
+    return 0;
+}
 static void text_changed(GtkEntry *entry, gpointer unused) {
     (void)unused;
     g_print("x11-shell text=%s\n", gtk_entry_get_text(entry));
@@ -30,6 +57,7 @@ static void realized(GtkWidget *widget, gpointer unused) {
     g_print("x11-shell window=%lu\n", GDK_WINDOW_XID(window));
 }
 int main(int argc, char **argv) {
+    if (argc == 2 && !strcmp(argv[1], "--probe-grabs")) return probe_grabs();
     gtk_init(&argc, &argv);
     panel = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(panel), "MagicDesk X11 shell fixture");
@@ -45,6 +73,8 @@ int main(int argc, char **argv) {
     GtkWidget *menu_button = gtk_menu_button_new();
     gtk_button_set_label(GTK_BUTTON(menu_button), "Menu");
     GtkWidget *menu = gtk_menu_new();
+    g_signal_connect(menu, "grab-broken-event", G_CALLBACK(grab_broken), NULL);
+    g_signal_connect(menu, "hide", G_CALLBACK(menu_hidden), NULL);
     GtkWidget *item = gtk_menu_item_new_with_label("Test action");
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
     g_signal_connect(item, "activate", G_CALLBACK(action), NULL);
