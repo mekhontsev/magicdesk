@@ -24,9 +24,11 @@ import java.util.concurrent.atomic.AtomicReference;
 /** Cross-UID production runtime test, independent of Desktop and privileged service startup. */
 public final class WaylandRuntimeInstrumentation extends Instrumentation {
     private String clientPath;
+    private boolean shellTest;
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         clientPath = arguments == null ? null : arguments.getString("client");
+        shellTest = arguments != null && Boolean.parseBoolean(arguments.getString("shell"));
         start();
     }
 
@@ -35,7 +37,9 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
             Bundle result = new Bundle();
             try {
                 runRuntime();
-                result.putString("wayland_runtime", "passed: cross-UID compositor, client FD, Android pixels, input, close");
+                result.putString("wayland_runtime", shellTest
+                        ? "passed: cross-UID shell binding, Android alpha pixels, input isolation, remap, scope release"
+                        : "passed: cross-UID compositor, client FD, Android pixels, input, close");
                 finish(Activity.RESULT_OK, result);
             } catch (Exception error) {
                 result.putString("wayland_runtime", "failed: " + error);
@@ -114,7 +118,9 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                             && (buffer.get(offset + 2) & 255) == 0xab) pixels.complete(null);
                 } catch (RuntimeException error) { pixels.completeExceptionally(error); }
             }, main);
-            try (var launch = new WaylandClientLaunch(context, session.get().connect().get(10, TimeUnit.SECONDS), execution.uid)) {
+            try (var shell = shellTest ? new ShellFixture(session.get(), main) : null;
+                    var launch = new WaylandClientLaunch(context, session.get().connect().get(10, TimeUnit.SECONDS), execution.uid)) {
+                if (shell != null) shell.binding.get().ready().get(10, TimeUnit.SECONDS);
                 String invocation = "env -u LD_PRELOAD -u LD_LIBRARY_PATH CLASSPATH=" + q(context.getApplicationInfo().sourceDir)
                         + " " + String.join(" ", launch.arguments(execution.termux.packageName,
                                 library + "/libmagicdesk_wayland_client.so", clientPath, "--client")
@@ -125,13 +131,16 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                     long window = mapped.get(15, TimeUnit.SECONDS);
                     try (var output = session.get().openOutput(window, 80, 60)) {
                         output.setSurface(images.getSurface(), 80, 60);
-                        pixels.get(15, TimeUnit.SECONDS);
-                        output.focus(true);
-                        output.pointer(.25, .25);
-                        output.button(0, true);
-                        output.key(30, true);
-                        output.focus(false);
-                        session.get().closeWindow(window);
+                        if (shell != null) shell.exercise(output);
+                        else {
+                            pixels.get(15, TimeUnit.SECONDS);
+                            output.focus(true);
+                            output.pointer(.25, .25);
+                            output.button(0, true);
+                            output.key(30, true);
+                            output.focus(false);
+                            session.get().closeWindow(window);
+                        }
                         clientExit.get(15, TimeUnit.SECONDS);
                         destroyed.get(15, TimeUnit.SECONDS);
                     }
@@ -143,6 +152,86 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
         } finally {
             context.unregisterReceiver(receiver);
             if (session.get() != null) session.get().close();
+        }
+    }
+
+    private final class ShellFixture implements AutoCloseable {
+        final AtomicReference<WaylandShellBinding> binding = new AtomicReference<>();
+        final ShellLayoutScope scope = new ShellLayoutScope();
+        final CompletableFuture<Long> mapped = new CompletableFuture<>();
+        final CompletableFuture<Void> alpha = new CompletableFuture<>(), interactive = new CompletableFuture<>();
+        final CompletableFuture<Void> remapped = new CompletableFuture<>();
+        final ImageReader images = ImageReader.newInstance(80, 40, PixelFormat.RGBA_8888, 2);
+        boolean remapping;
+
+        ShellFixture(WaylandSession session, Handler main) {
+            runOnMainSync(() -> {
+                scope.resize(new ShellBounds(0, 0, 64, 100), new ShellBounds(0, 0, 64, 100));
+                binding.set(new WaylandShellBinding(session, scope, 160, new WaylandShellBinding.Listener() {
+                    @Override public void changed() {
+                        var current = binding.get();
+                        if (current == null) return;
+                        for (var surface : current.surfaces()) {
+                            if (surface.configureNeeded() && mapped.isDone()) remapping = true;
+                            if (surface.mapped()) {
+                                mapped.complete(surface.id());
+                                if (remapping) remapped.complete(null);
+                                if (scope.snapshot().workArea().top() != 27)
+                                    fail(new IOException("Shell reservation not committed"));
+                            }
+                            if (surface.keyboard() == io.github.mekhontsev.magicdesk.wayland.WaylandShellSurface.Keyboard.ON_DEMAND)
+                                interactive.complete(null);
+                        }
+                    }
+                    @Override public void closed(String reason) {
+                        if (!reason.isEmpty() && !reason.equals("Shell layout scope was released")) fail(new IOException(reason));
+                    }
+                    private void fail(Exception error) {
+                        mapped.completeExceptionally(error); alpha.completeExceptionally(error);
+                        interactive.completeExceptionally(error); remapped.completeExceptionally(error);
+                    }
+                }));
+            });
+            images.setOnImageAvailableListener(reader -> {
+                try (var image = reader.acquireLatestImage()) {
+                    if (image == null) return;
+                    var plane = image.getPlanes()[0];
+                    var pixels = plane.getBuffer();
+                    int padding = 35 * plane.getRowStride() + 70 * plane.getPixelStride();
+                    if ((pixels.get(0) & 255) == 0x40 && (pixels.get(1) & 255) == 0x20
+                            && (pixels.get(2) & 255) == 0x10 && (pixels.get(3) & 255) == 0x80
+                            && pixels.get(padding + 3) == 0) alpha.complete(null);
+                } catch (RuntimeException error) { alpha.completeExceptionally(error); }
+            }, main);
+        }
+
+        void exercise(WaylandSession.Output app) throws Exception {
+            long surface = mapped.get(15, TimeUnit.SECONDS);
+            AtomicReference<WaylandSession.Output> panel = new AtomicReference<>();
+            runOnMainSync(() -> panel.set(binding.get().openOutput(surface, 80, 40)));
+            try (var output = panel.get()) {
+                output.setSurface(images.getSurface(), 80, 40);
+                alpha.get(15, TimeUnit.SECONDS);
+                app.focus(true);
+                app.key(30, true);
+                output.focus(true);
+                output.key(48, true);
+                app.key(30, false);
+                output.pointer(.1, .1);
+                output.button(0, true);
+                output.button(0, false);
+                interactive.get(15, TimeUnit.SECONDS);
+                output.focus(true);
+                output.key(48, true);
+                remapped.get(15, TimeUnit.SECONDS);
+                runOnMainSync(scope::clear);
+                if (!scope.snapshot().exclusions().isEmpty()) throw new IOException("Shell reservations survived revocation");
+            }
+        }
+
+        @Override public void close() {
+            runOnMainSync(() -> { if (binding.get() != null) binding.get().close(); });
+            images.close();
         }
     }
 

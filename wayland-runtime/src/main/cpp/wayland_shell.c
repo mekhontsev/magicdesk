@@ -22,7 +22,8 @@ static void listen(struct wl_signal *signal, struct wl_listener *listener,
 }
 
 static bool same_state(const MdwShellSurface *a, const MdwShellSurface *b) {
-    return a->id == b->id && a->mapped == b->mapped && a->layer == b->layer &&
+    return a->id == b->id && a->mapped == b->mapped &&
+        a->configure_needed == b->configure_needed && a->layer == b->layer &&
         a->keyboard == b->keyboard && a->anchors == b->anchors &&
         a->width == b->width && a->height == b->height &&
         a->margin_left == b->margin_left && a->margin_top == b->margin_top &&
@@ -35,6 +36,7 @@ static void publish(struct MdwLayerSurface *layer, bool force) {
     MdwShellSurface info = {
         .id = layer->view.id, .name = layer->layer->namespace,
         .mapped = layer->view.surface->mapped,
+        .configure_needed = layer->layer->initialized && !layer->configured_once,
         .layer = (MdwLayer)state->layer,
         .keyboard = state->keyboard_interactive == ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE
             ? MDW_KEYBOARD_EXCLUSIVE

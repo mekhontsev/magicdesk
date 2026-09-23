@@ -29,10 +29,11 @@ public final class WaylandServer extends IWaylandServer.Stub {
     private final String hostPackage, session, token;
     private final LongSparseArray<Output> outputs = new LongSparseArray<>();
     private final LongSparseArray<Output> nativeOutputs = new LongSparseArray<>();
+    private final ShellSurfaceCatalog shell = new ShellSurfaceCatalog();
     private final IBinder.DeathRecipient ownerDied = this::requestStop;
     private final Runnable deadline = this::expireAdmission;
     private IWaylandEvents owner;
-    private long handle, lastOutput, lastClient;
+    private long handle, lastOutput, lastClient, shellRevision;
     private ParcelFileDescriptor eventDescriptor;
 
     private static final class Output {
@@ -130,9 +131,11 @@ public final class WaylandServer extends IWaylandServer.Stub {
         return pixels <= 16_777_216;
     }
 
-    @Override public void openOutput(long id, long window, int width, int height) {
+    @Override public void openOutput(long id, long window, long shellOwner, int width, int height) {
         command(() -> {
-            if (id <= lastOutput || outputs.size() >= 16 || !dimensions(id, width, height)) {
+            boolean admitted = shellOwner == 0 ? !shell.contains(window)
+                    : shellOwner == shell.owner() && shell.contains(window);
+            if (!admitted || id <= lastOutput || outputs.size() >= 16 || !dimensions(id, width, height)) {
                 failed(id, "Invalid or exhausted Wayland output lease");
                 return;
             }
@@ -183,6 +186,50 @@ public final class WaylandServer extends IWaylandServer.Stub {
     }
     @Override public void closeWindow(long window, boolean force) { command(() -> nativeCloseWindow(handle, window, force)); }
 
+    @Override public void setShellOutput(long id, int width, int height) {
+        command(() -> {
+            if (id <= 0 || width < 1 || height < 1 || width > 16384 || height > 16384) {
+                shellOutput(id, 0, 0, "Invalid Wayland shell output dimensions");
+                return;
+            }
+            if (shell.owner() != id && !shell.acquire(id)) {
+                shellOutput(id, 0, 0, "Wayland shell output already owned or lease expired");
+                return;
+            }
+            if (!nativeShellOutput(handle, width, height)) {
+                releaseShellOutput(id);
+                shellOutput(id, 0, 0, "Cannot configure Wayland shell output");
+                return;
+            }
+            shellOutput(id, width, height, "");
+        });
+    }
+
+    @Override public void releaseShell(long id) { command(() -> releaseShellOutput(id)); }
+
+    private void releaseShellOutput(long id) {
+        if (id == 0 || shell.owner() != id) return;
+        // Native destruction publishes removals under the old owner before it is revoked.
+        nativeShellOutput(handle, 0, 0);
+        shell.release(id);
+    }
+
+    @Override public void configureShell(long owner, long surface, long revision,
+            int x, int y, int width, int height) {
+        command(() -> {
+            if (!shell.accepts(owner, surface, revision)) return;
+            if (!nativeConfigureShell(handle, surface, x, y, width, height)) {
+                releaseShellOutput(owner);
+                shellOutput(owner, 0, 0, "Cannot configure Wayland shell surface");
+            }
+        });
+    }
+
+    private void shellOutput(long id, int width, int height, String error) {
+        try { owner.shellOutput(id, width, height, error); }
+        catch (RemoteException failure) { requestStop(); }
+    }
+
     @Override public void openClient(long request) {
         command(() -> {
             int descriptor = -1;
@@ -222,19 +269,34 @@ public final class WaylandServer extends IWaylandServer.Stub {
 
     private void onWindow(long id, long parent, byte[] title, byte[] appId, boolean mapped,
             int width, int height, boolean removed) {
-        if (removed) {
-            for (int index = outputs.size() - 1; index >= 0; --index) {
-                Output output = outputs.valueAt(index);
-                if (output.window != id) continue;
-                outputs.removeAt(index);
-                nativeOutputs.remove(output.handle);
-                nativeReleaseOutput(output.handle);
-            }
-        }
+        if (removed) releaseSurfaceOutputs(id);
         try {
             owner.window(id, parent, new String(title, StandardCharsets.UTF_8),
                     new String(appId, StandardCharsets.UTF_8), mapped, width, height, removed);
         } catch (RemoteException error) { requestStop(); }
+    }
+
+    private void onShell(long id, byte[] name, boolean mapped, boolean configureNeeded, int layer, int keyboard,
+            int anchors, long width, long height, int left, int top, int right, int bottom,
+            int exclusiveZone, boolean removed) {
+        if (removed) releaseSurfaceOutputs(id);
+        WaylandShellSurface surface = removed ? null : new WaylandShellSurface(id, ++shellRevision,
+                new String(name, StandardCharsets.UTF_8), mapped, configureNeeded, WaylandShellSurface.layer(layer),
+                WaylandShellSurface.keyboard(keyboard), anchors, width, height,
+                left, top, right, bottom, exclusiveZone);
+        if (!shell.update(shell.owner(), id, surface)) return;
+        try { owner.shellSurface(shell.owner(), id, surface); }
+        catch (RemoteException error) { requestStop(); }
+    }
+
+    private void releaseSurfaceOutputs(long id) {
+        for (int index = outputs.size() - 1; index >= 0; --index) {
+            Output output = outputs.valueAt(index);
+            if (output.window != id) continue;
+            outputs.removeAt(index);
+            nativeOutputs.remove(output.handle);
+            nativeReleaseOutput(output.handle);
+        }
     }
 
     private void onError(String message) { failed(0, message); requestStop(); }
@@ -297,4 +359,6 @@ public final class WaylandServer extends IWaylandServer.Stub {
     private static native void nativeScroll(long output, double horizontal, double vertical);
     private static native void nativeKey(long output, int androidKey, int scanCode, boolean down);
     private static native void nativeCloseWindow(long server, long window, boolean force);
+    private static native boolean nativeShellOutput(long server, int width, int height);
+    private static native boolean nativeConfigureShell(long server, long surface, int x, int y, int width, int height);
 }

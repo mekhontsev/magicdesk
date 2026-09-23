@@ -97,6 +97,15 @@ public final class ShellLayoutScopeTest {
         assertEquals(60, owner.surface("first").content().top());
     }
 
+    @Test public void emptyOwnerStillObservesScopeRevocation() {
+        final ShellLayoutScope scope = scope();
+        final var owner = scope.bind();
+        final boolean[] notified = {false};
+        scope.listen(() -> notified[0] = owner.isClosed());
+        scope.clear();
+        assertTrue(notified[0]);
+    }
+
     @Test public void secondEdgePanelChangesStartAndWorkAreaWithoutConsumerSpecialCases() {
         final DesktopShellLayout desktop = new DesktopShellLayout();
         desktop.update(new DesktopViewport(0, 0, 1920, 1080, 0, 0, 0, 0), 64, true);

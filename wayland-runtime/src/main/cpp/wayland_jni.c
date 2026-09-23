@@ -12,7 +12,7 @@ struct Bridge {
     MdwServer *server;
     JNIEnv *env;
     jobject owner;
-    jmethodID window, frame, wanted, can_render, error;
+    jmethodID window, shell, frame, wanted, can_render, error;
 };
 
 static jbyteArray bytes(JNIEnv *env, const char *value) {
@@ -49,6 +49,23 @@ static void error_event(void *context, const char *message) {
     }
 }
 
+static void shell_event(void *context, uint64_t id, const MdwShellSurface *surface) {
+    struct Bridge *bridge = context;
+    JNIEnv *env = bridge->env;
+    if ((*env)->ExceptionCheck(env)) return;
+    jbyteArray name = bytes(env, surface ? surface->name : NULL);
+    if (!name) return;
+    (*env)->CallVoidMethod(env, bridge->owner, bridge->shell, (jlong)id, name,
+        (jboolean)(surface && surface->mapped), (jboolean)(surface && surface->configure_needed),
+        (jint)(surface ? surface->layer : 0),
+        (jint)(surface ? surface->keyboard : 0), (jint)(surface ? surface->anchors : 0),
+        (jlong)(surface ? surface->width : 0), (jlong)(surface ? surface->height : 0),
+        (jint)(surface ? surface->margin_left : 0), (jint)(surface ? surface->margin_top : 0),
+        (jint)(surface ? surface->margin_right : 0), (jint)(surface ? surface->margin_bottom : 0),
+        (jint)(surface ? surface->exclusive_zone : 0), (jboolean)(surface == NULL));
+    (*env)->DeleteLocalRef(env, name);
+}
+
 static void frame_event(void *context, MdwOutput *output, const MdwFrame *frame) {
     struct Bridge *bridge = context;
     JNIEnv *env = bridge->env;
@@ -82,6 +99,7 @@ JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner) {
     if (!bridge->owner) { free(bridge); return 0; }
     jclass type = (*env)->GetObjectClass(env, owner);
     bridge->window = (*env)->GetMethodID(env, type, "onWindow", "(JJ[B[BZIIZ)V");
+    if (!(*env)->ExceptionCheck(env)) bridge->shell = (*env)->GetMethodID(env, type, "onShell", "(J[BZZIIIJJIIIIIZ)V");
     if (!(*env)->ExceptionCheck(env)) bridge->frame = (*env)->GetMethodID(env, type, "onFrame", "(JIII)V");
     if (!(*env)->ExceptionCheck(env)) bridge->wanted = (*env)->GetMethodID(env, type, "frameWanted", "(J)Z");
     if (!(*env)->ExceptionCheck(env)) bridge->can_render = (*env)->GetMethodID(env, type, "canRender", "(J)Z");
@@ -93,7 +111,7 @@ JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner) {
         free(bridge);
         return 0;
     }
-    MdwEvents events = {.window = window_event, .frame = frame_event, .can_render = can_render,
+    MdwEvents events = {.window = window_event, .shell = shell_event, .frame = frame_event, .can_render = can_render,
         .error = error_event, .context = bridge};
     mdw_server_set_events(bridge->server, &events);
     return (jlong)(intptr_t)bridge;
@@ -190,4 +208,18 @@ JNIEXPORT void JNICALL JNI(nativeCloseWindow)(JNIEnv *env, jclass type, jlong ha
     struct Bridge *bridge = (void *)(intptr_t)handle;
     if (force) mdw_window_disconnect(bridge->server, window);
     else mdw_window_close(bridge->server, window);
+}
+
+JNIEXPORT jboolean JNICALL JNI(nativeShellOutput)(JNIEnv *env, jclass type, jlong handle,
+        jint width, jint height) {
+    (void)env; (void)type;
+    struct Bridge *bridge = (void *)(intptr_t)handle;
+    return mdw_server_shell_output(bridge->server, width, height);
+}
+
+JNIEXPORT jboolean JNICALL JNI(nativeConfigureShell)(JNIEnv *env, jclass type, jlong handle,
+        jlong surface, jint x, jint y, jint width, jint height) {
+    (void)env; (void)type;
+    struct Bridge *bridge = (void *)(intptr_t)handle;
+    return mdw_shell_surface_configure(bridge->server, surface, x, y, width, height);
 }

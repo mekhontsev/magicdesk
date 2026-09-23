@@ -103,11 +103,12 @@ SurfaceControl z-order. See [fullscreen transitions](fullscreen-transitions.md).
 
 ## Protocol Adapters
 
-The native Wayland runtime implements layer-shell admission, committed state,
-configure/ack and borrowed transparent outputs. It publishes shell surfaces
-separately from application windows. It does not yet connect them to Android
-workspace hosts. X11 strut adaptation is also pending. These adapters must
-preserve protocol lifetimes and coordinate conversion:
+The Wayland runtime implements layer-shell admission, committed state,
+configure/ack and borrowed transparent outputs. `WaylandShellBinding` connects
+its typed Binder catalog to an explicitly supplied `ShellLayoutScope`. It never
+starts Desktop, selects a display or merges nested scopes. Android panel hosts
+and X11 strut adaptation are pending. The adapters preserve protocol lifetimes
+and coordinate conversion:
 
 - Wayland consumes committed layer-surface state and reports geometry through
   configure/ack; mapping controls reservations. The native compositor retains
@@ -116,6 +117,22 @@ preserve protocol lifetimes and coordinate conversion:
   converts root-relative distances and inclusive intervals, and follows property,
   map/unmap and destruction events. DOCK/DESKTOP roles are shell surfaces, not
   ordinary application tasks. Guest-WM reservations stay inside the guest scope.
+
+`WaylandShellLayout` translates surface units and signed margins to display
+pixels using the scope owner's density, and resolved geometry back to logical
+output coordinates. Positive zones reserve an unambiguous anchored edge;
+zero zones avoid existing reservations, and negative zones use the complete
+output. Configure requests carry the exact committed revision. The initial
+configure handshake is distinct from an unmapped surface that needs no reply.
+
+Each binding has a monotonically increasing runtime identity. Revocation releases
+its surface outputs and reservations, but not application windows or the graphics
+session. Both ends reject obsolete owners and geometry replies. Scope release
+also notifies an empty binding, so admission cannot outlive its workspace merely
+because no panel has mapped yet. A retained graphics session admits at most one
+shell scope; application-recipe sessions cannot contribute shell components.
+Viewport/density changes update the same binding. Pixel commits and pointer
+motion do not recalculate layout or publish catalogs.
 
 The wlroots separation of protocol state, `full_area`/`usable_area` arrangement,
 scene nodes and seat focus is the reference, not an Android dependency. The
@@ -126,16 +143,13 @@ and [EWMH](https://specifications.freedesktop.org/wm/latest-single/).
 
 ## Integration Work
 
-1. Connect native shell state to an explicitly selected live workspace binding.
-   Keep nested-desktop scopes separate; output presentation alone is not admission.
-   Translate geometry and density once at this boundary.
-2. Host backgrounds and bottom surfaces in existing HOME infrastructure, and top
+1. Host backgrounds and bottom surfaces in existing HOME infrastructure, and top
    surfaces in the existing chrome host. Complete popup paint extents and precise
    input regions before admitting external panels. Apply workspace fullscreen and
    focus policy rather than mapping layer numbers directly to Android z-order.
-3. Adapt X11 DOCK/DESKTOP properties and struts to the same bindings. Preserve
+2. Adapt X11 DOCK/DESKTOP properties and struts to the same bindings. Preserve
    guest-WM ownership for whole-desktop sessions.
-4. Expose the shared application catalog and semantic actions to external panels,
+3. Expose the shared application catalog and semantic actions to external panels,
    using the existing task gateway. Add explicit session/workspace selection and
    cleanup on workspace loss or client failure.
 
@@ -150,5 +164,10 @@ immutable snapshots. Quick-controls fixtures retain their placement assertions.
 `DesktopPanelArchitectureTest` guards Android host and focus boundaries. The
 Wayland native shell fixture verifies transparent pixels, configure deduplication,
 mapping lifetime, independent pointer/keyboard ownership and output revocation.
+`WaylandShellLayoutTest` covers protocol-zone conversion, density, remapping,
+oversized requests and nested-scope isolation. `ShellSurfaceCatalogTest` covers
+lease revocation, obsolete configurations and catalog bounds. The dedicated
+Android shell runtime fixture uses the Binder bridge and an isolated layout scope;
+it does not test external panels hosted over Android application tasks.
 Desktop self-tests cover existing Android geometry and fullscreen transitions;
 they do not validate external Linux panel protocols or integrated-shell UX.

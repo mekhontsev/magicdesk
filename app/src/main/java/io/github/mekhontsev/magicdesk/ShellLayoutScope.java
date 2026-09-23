@@ -39,13 +39,14 @@ final class ShellLayoutScope {
 
     void clear() {
         final var previous = mLayout.snapshot();
+        final boolean revoked = !mBindings.isEmpty();
         for (Binding binding : mBindings) {
             binding.mClosed = true;
             binding.mSurfaces = Map.of();
         }
         mBindings.clear();
         mLayout.clear();
-        publish(previous);
+        publish(previous, revoked);
     }
 
     private List<ShellSurface> surfaces() {
@@ -69,8 +70,12 @@ final class ShellLayoutScope {
     }
 
     private void publish(final ShellLayout.Snapshot previous) {
+        publish(previous, false);
+    }
+
+    private void publish(final ShellLayout.Snapshot previous, final boolean revoked) {
         final var current = mLayout.snapshot();
-        if (previous == current) return;
+        if (!revoked && previous == current) return;
         for (Runnable listener : List.copyOf(mListeners)) {
             // A listener can release an owner. Never deliver the superseded state afterward.
             if (current != mLayout.snapshot()) break;
@@ -84,6 +89,8 @@ final class ShellLayoutScope {
         private boolean mClosed;
 
         private Binding(final long identity) { mIdentity = identity; }
+
+        boolean isClosed() { return mClosed; }
 
         void commit(final List<ShellSurface> surfaces) {
             replace(mOutput, mContent, surfaces);

@@ -178,6 +178,11 @@ final class WaylandSessions {
             if (!ready()) throw new IllegalStateException("Wayland session is not ready");
             return renderer.openOutput(window, width, height);
         }
+        WaylandShellBinding bindShell(ShellLayoutScope scope, int density, WaylandShellBinding.Listener listener) {
+            if (!ready()) throw new IllegalStateException("Wayland session is not ready");
+            if (application) throw new IllegalStateException("Shell components require a retained graphics session");
+            return new WaylandShellBinding(renderer, scope, density, listener);
+        }
         void closeWindow(long window, boolean force) {
             if (!ready()) return;
             renderer.closeWindow(window, force);

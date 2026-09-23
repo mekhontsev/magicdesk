@@ -314,7 +314,8 @@ static bool can_render(void *data, MdwOutput *output) {
     return true;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    if (argc == 2 && !strcmp(argv[1], "--client")) { run_client(NULL); return 0; }
     char directory[4096];
     snprintf(directory, sizeof(directory), "%s/mdw-shell-XXXXXX", getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp");
     assert(mkdtemp(directory) && setenv("XDG_RUNTIME_DIR", directory, 1) == 0);

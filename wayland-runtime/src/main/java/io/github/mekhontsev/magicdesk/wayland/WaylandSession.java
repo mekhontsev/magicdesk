@@ -23,6 +23,10 @@ public final class WaylandSession implements AutoCloseable {
         void failed(long output, String message);
         default void frame(long output, int width, int height) { }
     }
+    public interface ShellListener {
+        void changed();
+        void closed(String reason);
+    }
     private interface Command { void run() throws RemoteException; }
 
     private final IWaylandServer server;
@@ -36,7 +40,8 @@ public final class WaylandSession implements AutoCloseable {
     private final LongSparseArray<Output> outputs = new LongSparseArray<>();
     private final LongSparseArray<Connection> connections = new LongSparseArray<>();
     private volatile List<Window> windows = List.of();
-    private long nextOutput, nextConnection;
+    private long nextOutput, nextConnection, nextShell;
+    private volatile ShellBinding shellBinding;
     private final IBinder.DeathRecipient serverDied = () -> {
         failed(0, "Wayland executor disconnected");
         close();
@@ -53,12 +58,7 @@ public final class WaylandSession implements AutoCloseable {
                 if (closed.get()) return;
                 if (removed) {
                     catalog.remove(id);
-                    for (int index = outputs.size() - 1; index >= 0; --index) {
-                        Output output = outputs.valueAt(index);
-                        if (output.window != id) continue;
-                        output.release();
-                        outputs.removeAt(index);
-                    }
+                    releaseSurfaceOutputs(id);
                 }
                 else catalog.put(id, new Window(id, parent, title, appId, mapped, width, height));
                 ArrayList<Window> snapshot = new ArrayList<>(catalog.size());
@@ -104,6 +104,29 @@ public final class WaylandSession implements AutoCloseable {
                 } else if (!connection.result.complete(descriptor)) closeDescriptor(descriptor);
             })) closeDescriptor(descriptor);
         }
+        @Override public void shellSurface(long owner, long id, WaylandShellSurface surface) {
+            checkCaller();
+            handler.post(() -> {
+                ShellBinding binding = shellBinding;
+                if (closed.get() || binding == null || binding.released.get() || binding.id != owner) return;
+                if (!binding.catalog.update(owner, id, surface)) return;
+                if (surface == null) releaseSurfaceOutputs(id);
+                binding.surfaces = binding.catalog.snapshot();
+                main.post(() -> { if (!binding.released.get() && !closed.get()) binding.listener.changed(); });
+            });
+        }
+        @Override public void shellOutput(long owner, int width, int height, String error) {
+            checkCaller();
+            handler.post(() -> {
+                ShellBinding binding = shellBinding;
+                if (closed.get() || binding == null || binding.released.get() || binding.id != owner) return;
+                if (error == null || !error.isEmpty()) {
+                    binding.release(error == null ? "Invalid Wayland shell output response" : error);
+                } else {
+                    binding.ready.complete(null);
+                }
+            });
+        }
     };
 
     public WaylandSession(IWaylandServer server, int executorUid, Listener listener) throws RemoteException {
@@ -124,6 +147,26 @@ public final class WaylandSession implements AutoCloseable {
 
     public List<Window> windows() { return windows; }
     public boolean isClosed() { return closed.get(); }
+
+    /** Explicit admission, independent of Android display placement or Desktop startup. */
+    public synchronized ShellBinding bindShell(int width, int height, ShellListener listener) {
+        checkShellDimensions(width, height);
+        if (closed.get()) throw new IllegalStateException("Wayland session is closed");
+        if (shellBinding != null) throw new IllegalStateException("Wayland shell output already bound");
+        ShellBinding binding = new ShellBinding(++nextShell, java.util.Objects.requireNonNull(listener));
+        shellBinding = binding;
+        if (!handler.post(() -> {
+            if (closed.get() || binding.released.get()) return;
+            binding.catalog.acquire(binding.id);
+            remote(() -> server.setShellOutput(binding.id, width, height));
+        })) binding.release("Wayland session is closed");
+        return binding;
+    }
+
+    private static void checkShellDimensions(int width, int height) {
+        if (width < 1 || height < 1 || width > 16384 || height > 16384)
+            throw new IllegalArgumentException("Invalid Wayland shell output dimensions");
+    }
 
     public CompletableFuture<ParcelFileDescriptor> connect() {
         CompletableFuture<ParcelFileDescriptor> result = new CompletableFuture<>();
@@ -165,12 +208,17 @@ public final class WaylandSession implements AutoCloseable {
     }
 
     public synchronized Output openOutput(long window, int width, int height) {
+        return openOutput(window, null, width, height);
+    }
+
+    private synchronized Output openOutput(long window, ShellBinding binding, int width, int height) {
         if (closed.get()) throw new IllegalStateException("Wayland session is closed");
-        Output output = new Output(++nextOutput, window);
+        if (binding != null && binding.released.get()) throw new IllegalStateException("Wayland shell binding is closed");
+        Output output = new Output(++nextOutput, window, binding);
         if (!handler.post(() -> {
-            if (closed.get()) { output.release(); return; }
+            if (closed.get() || (binding != null && binding.released.get())) { output.release(); return; }
             outputs.put(output.id, output);
-            remote(() -> server.openOutput(output.id, window, width, height));
+            remote(() -> server.openOutput(output.id, window, binding == null ? 0 : binding.id, width, height));
         })) output.release();
         return output;
     }
@@ -194,8 +242,22 @@ public final class WaylandSession implements AutoCloseable {
 
     private void failed(long output, String message) { main.post(() -> listener.failed(output, message)); }
 
+    private void releaseSurfaceOutputs(long id) {
+        for (int index = outputs.size() - 1; index >= 0; --index) {
+            Output output = outputs.valueAt(index);
+            if (output.window != id) continue;
+            output.release();
+            outputs.removeAt(index);
+        }
+    }
+
     @Override public void close() {
-        if (!closed.compareAndSet(false, true)) return;
+        final ShellBinding binding;
+        synchronized (this) {
+            if (!closed.compareAndSet(false, true)) return;
+            binding = shellBinding;
+        }
+        if (binding != null) binding.release("Wayland session is closed");
         server.asBinder().unlinkToDeath(serverDied, 0);
         handler.post(() -> {
             for (int index = 0; index < connections.size(); ++index) {
@@ -214,16 +276,74 @@ public final class WaylandSession implements AutoCloseable {
         });
     }
 
+    public final class ShellBinding implements AutoCloseable {
+        private final long id;
+        private final ShellListener listener;
+        private final ShellSurfaceCatalog catalog = new ShellSurfaceCatalog();
+        private final AtomicBoolean released = new AtomicBoolean();
+        private final CompletableFuture<Void> ready = new CompletableFuture<>();
+        private volatile List<WaylandShellSurface> surfaces = List.of();
+
+        private ShellBinding(long id, ShellListener listener) { this.id = id; this.listener = listener; }
+
+        public List<WaylandShellSurface> surfaces() { return released.get() ? List.of() : surfaces; }
+        public boolean isClosed() { return released.get(); }
+        public CompletableFuture<Void> ready() { return ready.copy(); }
+
+        public void resize(int width, int height) {
+            checkShellDimensions(width, height);
+            handler.post(() -> {
+                if (!released.get() && !closed.get()) remote(() -> server.setShellOutput(id, width, height));
+            });
+        }
+
+        public void configure(long surface, long revision, int x, int y, int width, int height) {
+            handler.post(() -> {
+                if (!released.get() && !closed.get() && catalog.accepts(id, surface, revision))
+                    remote(() -> server.configureShell(id, surface, revision, x, y, width, height));
+            });
+        }
+
+        public Output openOutput(long surface, int width, int height) {
+            return WaylandSession.this.openOutput(surface, this, width, height);
+        }
+
+        private void release(String reason) {
+            synchronized (WaylandSession.this) {
+                if (!released.compareAndSet(false, true)) return;
+                if (shellBinding == this) shellBinding = null;
+                surfaces = List.of();
+                // Queue revocation before allowing a replacement owner to enqueue admission.
+                handler.post(() -> {
+                    catalog.release(id);
+                    for (int index = outputs.size() - 1; index >= 0; --index) {
+                        Output output = outputs.valueAt(index);
+                        if (output.binding != this) continue;
+                        output.release();
+                        outputs.removeAt(index);
+                    }
+                    if (!closed.get()) remote(() -> server.releaseShell(id));
+                });
+            }
+            ready.completeExceptionally(new IOException(reason.isEmpty() ? "Wayland shell binding is closed" : reason));
+            main.post(() -> listener.closed(reason));
+        }
+
+        @Override public void close() { release(""); }
+    }
+
     public final class Output implements AutoCloseable {
         public final long id;
         private final long window;
+        private final ShellBinding binding;
         private int width, height;
         private final AtomicBoolean released = new AtomicBoolean();
         private final WaylandFramePresenter presenter;
 
-        private Output(long id, long window) {
+        private Output(long id, long window, ShellBinding binding) {
             this.id = id;
             this.window = window;
+            this.binding = binding;
             presenter = new WaylandFramePresenter(id, message -> failed(id, message));
         }
 

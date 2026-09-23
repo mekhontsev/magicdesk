@@ -134,9 +134,15 @@ remapping starts a fresh configure handshake.
 
 Revoking the shell output closes its layer surfaces and borrowed outputs without
 closing ordinary applications. The compositor bounds admitted layer surfaces to
-32. Native shell admission does not start Desktop or acquire HOME. The Android
-session/host adapter and user-facing workspace binding are not implemented yet;
-the APK's ordinary Wayland sessions do not advertise layer-shell.
+32. Shell admission does not start Desktop or acquire HOME. `WaylandSession`
+exposes a separate revocable shell binding, with immutable `WaylandShellSurface`
+metadata across JNI/Binder. The main-thread `WaylandShellBinding` translates this
+catalog into a caller-owned layout scope, including density and configure replies.
+Replies are qualified by owner and committed revision; late events cannot revive
+a released binding. Binding errors release only that integration, while compositor
+failure releases the session. Application output ownership remains separate.
+User-facing workspace selection and Android shell panel hosts are not implemented;
+ordinary sessions do not enable layer-shell admission automatically.
 
 `MdwView` owns a rendered surface family independently of its xdg or layer role.
 Ordinary application outputs use wlroots scene rendering. Transparent shell
@@ -367,6 +373,17 @@ Require an explicit `passed` result; instrumentation completion alone is not a
 pass. Android Activity focus changes, general application compatibility, and
 operation on API 34 still require device validation.
 
+The shell variant drives a real layer-shell client through JNI/Binder and the
+common layout adapter, using an isolated scope rather than Desktop. It checks
+premultiplied alpha in an Android Surface, keyboard-inert pointer interaction,
+on-demand keyboard input, remapping and scope revocation:
+
+```sh
+am instrument --no-restart -w -e shell true \
+  -e client /absolute/termux/path/to/build/wayland-portable/wayland-shell-test \
+  io.github.mekhontsev.magicdesk/.WaylandRuntimeInstrumentation
+```
+
 On API 36, both UID-2000 and Termux-UID client handoffs passed. The runtime fixture
 also passed compositor startup under the selected Termux UID, cross-UID frames
 into an Android Surface, input delivery/release, client close and server exit.
@@ -388,3 +405,10 @@ independent Recent list. The corresponding X11 GTK recipe still launches and
 closes through the same coordinator. Qt popup interaction and close confirmation
 need further validation; this coverage does not include managed Desktop placement
 or an API-34 device.
+
+The API-36 shell runtime fixture passed with a Termux-UID compositor and an
+app-UID Android presenter: typed catalog/configure exchange, alpha pixels,
+pointer interaction while application keyboard focus is retained, on-demand
+keyboard transfer, remapping and scope release. The ordinary application runtime
+fixture also passed after the shell transport changes. These checks do not
+establish Android chrome-host integration, Linux panel UX or API-34 coverage.

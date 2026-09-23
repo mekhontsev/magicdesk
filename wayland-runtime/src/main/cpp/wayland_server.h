@@ -27,6 +27,7 @@ typedef struct {
     uint64_t id;
     const char *name;
     bool mapped;
+    bool configure_needed;
     MdwLayer layer;
     MdwKeyboard keyboard;
     uint32_t anchors;
