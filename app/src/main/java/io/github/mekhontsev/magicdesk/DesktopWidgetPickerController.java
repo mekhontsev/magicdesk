@@ -79,12 +79,8 @@ final class DesktopWidgetPickerController {
         final int height = Math.min(
                 dp(mActivity.isCompactDesktopPreview() ? 560 : 760),
                 availableHeight);
-        final int left = area.left
-                + Math.max(0, (area.width() - width) / 2);
-        final int top = area.top
-                + Math.max(0, (availableHeight - height) / 2);
         panels.show(
-                panel, left, top, width, height,
+                panel, ShellPanelPlacement.centered(width, height),
                 false, "MagicDesk widgets");
     }
 

@@ -143,10 +143,8 @@ final class NotificationCenterController {
                 Math.min(dp(420), Math.max(dp(280), areaWidth - dp(16)));
         final int height = Math.max(
                 dp(180), areaHeight - dp(16));
-        final int left = area.left
-                + Math.max(0, areaWidth - width - dp(8));
-        final int top = area.top + dp(8);
-        if (!panels.show(mPanel, left, top, width, height,
+        if (!panels.show(mPanel, ShellPanelPlacement.anchored(width, height,
+                ShellSurface.RIGHT | ShellSurface.TOP, 0, dp(8), dp(8), 0),
                 false, "MagicDesk notifications")) {
             mActivity.setErrorStatus("PANEL-001", mActivity.getString(
                     R.string.status_desktop_panel_unavailable));
@@ -516,7 +514,7 @@ final class NotificationCenterController {
         final Rect area = mActivity.getDesktopPanelAreaBounds();
         final int areaWidth = area.width();
         final int areaHeight = area.height();
-        final int width = Math.min(dp(380), areaWidth - dp(24));
+        final int width = Math.max(1, Math.min(dp(380), areaWidth - dp(24)));
         popup.measure(
                 View.MeasureSpec.makeMeasureSpec(
                         width, View.MeasureSpec.EXACTLY),
@@ -524,13 +522,9 @@ final class NotificationCenterController {
                         Math.max(dp(100), areaHeight - dp(24)),
                         View.MeasureSpec.AT_MOST));
         final int height = Math.max(dp(92), popup.getMeasuredHeight());
-        final int left = area.left
-                + Math.max(0, areaWidth - width - dp(12));
-        final int top = area.top + Math.max(
-                dp(12),
-                areaHeight - height - dp(12));
         if (!panels.showTransient(
-                popup, left, top, width, height, 7000L,
+                popup, ShellPanelPlacement.anchored(width, height,
+                        ShellSurface.RIGHT | ShellSurface.BOTTOM, 0, 0, dp(12), dp(12)), 7000L,
                 "MagicDesk notification")) {
             Log.w(TAG, "notification popup panel unavailable");
         }

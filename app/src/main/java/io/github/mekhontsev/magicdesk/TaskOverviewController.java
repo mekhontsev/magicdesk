@@ -219,22 +219,14 @@ final class TaskOverviewController {
         final Rect area = mActivity.getDesktopPanelAreaBounds();
         final int areaWidth = area.width();
         final int areaHeight = area.height();
-        final int width = Math.min(dp(760), areaWidth - dp(32));
-        final int height = Math.min(
+        final int width = Math.max(1, Math.min(dp(760), areaWidth - dp(32)));
+        final int height = Math.max(1, Math.min(
                 dp(520),
-                areaHeight - dp(32));
-        final int left = area.left
-                + Math.max(0, (areaWidth - width) / 2);
-        final int top = area.top + Math.max(
-                0,
-                (areaHeight - height) / 2);
+                areaHeight - dp(32)));
         final DesktopPanelWindowController panels = mActivity.panels();
         if (panels != null && panels.show(
                 mPanel,
-                left,
-                top,
-                width,
-                height,
+                ShellPanelPlacement.centered(width, height),
                 focusable,
                 "MagicDesk open tasks")) {
             return true;

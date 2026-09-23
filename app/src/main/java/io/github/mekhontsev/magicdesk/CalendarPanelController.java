@@ -114,12 +114,9 @@ final class CalendarPanelController {
         final int availableHeight =
                 Math.max(1, areaHeight - dp(16));
         final int height = Math.min(dp(430), availableHeight);
-        final int left = contentBounds.left
-                + Math.max(0, areaWidth - width - dp(8));
-        final int top = contentBounds.top
-                + Math.max(0, areaHeight - height);
         if (!panels.show(
-                mPanel, left, top, width, height,
+                mPanel, ShellPanelPlacement.anchored(width, height,
+                        ShellSurface.RIGHT | ShellSurface.BOTTOM, 0, 0, dp(8), 0),
                 false, "MagicDesk calendar")) {
             mPanelUnavailable.run();
         }

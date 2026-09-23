@@ -94,10 +94,8 @@ final class DisplaySwitchPanel implements AutoCloseable {
                 @Override public void onViewDetachedFromWindow(View view) { cancel.run(); }
             });
             if (panels == null || !panels.show(content,
-                    area.left + (area.width() - panelWidth) / 2,
-                    area.top + Math.max(padding,
-                            (area.height() - panelHeight) / 2),
-                    panelWidth, panelHeight, false, false, "MagicDesk display switcher")) {
+                    ShellPanelPlacement.centered(panelWidth, panelHeight),
+                    false, false, "MagicDesk display switcher")) {
                 throw new IllegalStateException("Display switcher panel is unavailable");
             }
         } else if (overlay != null) {

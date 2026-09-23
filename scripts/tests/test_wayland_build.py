@@ -32,6 +32,9 @@ class WaylandBuildTest(unittest.TestCase):
             protocol = prefix / "share/wayland-protocols/stable/xdg-shell"
             protocol.mkdir(parents=True)
             (protocol / "xdg-shell.xml").write_text("", encoding="utf-8")
+            wlr_protocol = root / "wlroots/protocol"
+            wlr_protocol.mkdir(parents=True)
+            (wlr_protocol / "wlr-layer-shell-unstable-v1.xml").write_text("", encoding="utf-8")
             libraries = {"wlroots-0.18": "0.18.2", "wayland-server": "1.25.0",
                          "wayland-client": "1.25.0", "xkbcommon": "1.13.2"}
             for name, version in libraries.items():
@@ -47,6 +50,7 @@ class WaylandBuildTest(unittest.TestCase):
             result = subprocess.run([
                 "cmake", "-S", str(source), "-B", str(build),
                 f"-DMDW_DEPENDENCY_PREFIX={prefix}", f"-DCMAKE_FIND_ROOT_PATH={root / 'sysroot'}",
+                f"-DMDW_WLR_PROTOCOL_DIR={wlr_protocol}",
                 "-DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY", f"-DWAYLAND_SCANNER={sys.executable}"],
                 capture_output=True, text=True)
             self.assertEqual(0, result.returncode, result.stdout + result.stderr)

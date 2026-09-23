@@ -8,12 +8,19 @@ The owner submits a complete committed set of surface intents and viewport bound
 readers receive an immutable snapshot. Equal commits reuse that snapshot. Layout
 runs on geometry/state changes, not on rendering, pointer motion or a polling timer.
 
-A layout instance defines the coordinate and lifetime scope. Surface IDs are local
-to that instance, not Android task IDs or persistent display identities. A nested
+A `ShellLayoutScope` defines the coordinate and lifetime scope. Its bindings own
+complete surface sets, namespace client-local identities and release only their
+own reservations. Viewport and owner-state changes can commit atomically. Scope
+release revokes all bindings; delayed commits through a revoked owner are rejected.
+Notifications are event-driven and do not deliver superseded snapshots after a
+reentrant owner release. Surface IDs are not Android task IDs or persistent
+display identities. A nested
 Linux desktop must have its own layout: its panels cannot reserve space on the
 Android desktop containing its viewer. Output attachment does not merge scopes.
-The adapter converts its protocol coordinates and density into the scope's logical
-pixels before committing them. All rectangles and edge intervals are half-open.
+The adapter converts its protocol coordinates and density into the scope's units
+before committing them. The Android Desktop scope uses display pixels, including
+the density-resolved sizes of its Views. All rectangles and edge intervals are
+half-open.
 
 The surface owner submits `mapped=false` on unmap and omits destroyed/disconnected
 surfaces. Unmapped clients still receive resolved geometry for configuration, but
@@ -25,11 +32,12 @@ adapter; they are not additional mutable fields shared with layout readers.
 
 `ShellSurface` describes identity, mapping, semantic layer, keyboard intent,
 placement, paint extension, input bounds and edge reservations. Placement includes
-anchors, requested size, margins and one of three reference frames:
+anchors, requested size, margins and one of four reference frames:
 
 - `OUTPUT`: the complete output rectangle;
 - `CONTENT`: the stable viewport after system insets;
 - `AVAILABLE`: space remaining after window reservations.
+- `PANEL`: space remaining after window and shell-only reservations.
 
 Zero size requests stretch between opposite anchors. Fixed size requests align
 with one anchor or center between opposite anchors; only applicable margins affect
@@ -51,7 +59,7 @@ input or create a privileged Android layer by choosing an enum value.
 - A placement-relative exclusive zone including its edge margin. Panels placed
   against `AVAILABLE` can stack; panels against `CONTENT` can overlap.
 
-Mapped window-reserving surfaces are arranged first, then other surfaces. Higher
+Mapped reserving surfaces are arranged first, then other surfaces. Higher
 semantic layers take layout precedence; ties retain the owner's commit order.
 Absolute regions are collected before arrangement, independently of that order.
 This is layout policy, not a command to reorder Android tasks or scene nodes.
@@ -71,6 +79,18 @@ bounds to Android rectangles and updates existing desktop views and taskbar host
 Window placement, shell panels, popup limits and the icon-grid viewport consume the
 same result rather than independently subtracting a taskbar height.
 
+Start, overview, notifications and quick controls submit measured sizes and
+`ShellPanelPlacement` intents. Popup placement resolves anchors, edge flipping and
+clamping centrally. An owned popup follows its parent's resolved position; it
+cannot resolve against an absent or unmapped parent. The Android controller closes
+children before releasing their parent.
+
+`DesktopPanelWindowController` materializes the resolved geometry in application
+panel windows. Geometry changes update existing windows rather than detaching
+them or reacquiring focus. Its host-token lifecycle, focus-acknowledgement gate,
+IME targeting and modal-child input behavior remain platform responsibilities.
+Neither keyboard intent nor a geometry binding grants focus by itself.
+
 Taskbar concealment/reveal and IME visibility keep their existing presentation
 policy. They do not discard the taskbar's layout intent or move its stable viewport.
 `DesktopTaskbarHost` and `DesktopChromeActivity` still own the actual bounded child
@@ -83,8 +103,11 @@ SurfaceControl z-order. See [fullscreen transitions](fullscreen-transitions.md).
 
 ## Protocol Adapters
 
-Wayland layer-shell and X11 strut adapters are not implemented. Their future
-integration must preserve protocol lifetimes and coordinate conversion:
+The native Wayland runtime implements layer-shell admission, committed state,
+configure/ack and borrowed transparent outputs. It publishes shell surfaces
+separately from application windows. It does not yet connect them to Android
+workspace hosts. X11 strut adaptation is also pending. These adapters must
+preserve protocol lifetimes and coordinate conversion:
 
 - Wayland consumes committed layer-surface state and reports geometry through
   configure/ack; mapping controls reservations. The native compositor retains
@@ -101,10 +124,31 @@ current pinned source is wlroots 0.18.2, particularly
 Protocol references: [layer-shell](https://wayland.app/protocols/wlr-layer-shell-unstable-v1)
 and [EWMH](https://specifications.freedesktop.org/wm/latest-single/).
 
+## Integration Work
+
+1. Connect native shell state to an explicitly selected live workspace binding.
+   Keep nested-desktop scopes separate; output presentation alone is not admission.
+   Translate geometry and density once at this boundary.
+2. Host backgrounds and bottom surfaces in existing HOME infrastructure, and top
+   surfaces in the existing chrome host. Complete popup paint extents and precise
+   input regions before admitting external panels. Apply workspace fullscreen and
+   focus policy rather than mapping layer numbers directly to Android z-order.
+3. Adapt X11 DOCK/DESKTOP properties and struts to the same bindings. Preserve
+   guest-WM ownership for whole-desktop sessions.
+4. Expose the shared application catalog and semantic actions to external panels,
+   using the existing task gateway. Add explicit session/workspace selection and
+   cleanup on workspace loss or client failure.
+
 ## Verification
 
-`ShellLayoutTest`, `DesktopShellLayoutTest` and `DesktopViewportTest` cover pure
+`ShellLayoutTest`, `ShellLayoutScopeTest`, `ShellPanelPlacementTest`,
+`DesktopShellLayoutTest` and `DesktopViewportTest` cover pure
 layout, partial/overlapping exclusions, mapped lifetime, isolated scopes,
 placement margins, viewport origins, DPI-dependent taskbar height, autohide,
-navigation paint extension and immutable snapshots. Android shell changes also
-require the existing phone/simulated geometry and fullscreen self-tests.
+navigation paint extension, owner-relative popups, atomic viewport commits and
+immutable snapshots. Quick-controls fixtures retain their placement assertions.
+`DesktopPanelArchitectureTest` guards Android host and focus boundaries. The
+Wayland native shell fixture verifies transparent pixels, configure deduplication,
+mapping lifetime, independent pointer/keyboard ownership and output revocation.
+Desktop self-tests cover existing Android geometry and fullscreen transitions;
+they do not validate external Linux panel protocols or integrated-shell UX.

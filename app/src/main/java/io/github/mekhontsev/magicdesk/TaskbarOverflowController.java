@@ -142,8 +142,6 @@ final class TaskbarOverflowController {
         mActivity.captureInteractionStackForPanel();
 
         final Rect workArea = mActivity.getDesktopPanelAreaBounds();
-        final int areaLeft = workArea.left;
-        final int areaTop = workArea.top;
         final int areaWidth = workArea.width();
         final int rowHeight = desktopDp(54, 44);
         final int width = Math.min(
@@ -157,17 +155,11 @@ final class TaskbarOverflowController {
                 mItems.size() * rowHeight + dp(12));
         final int[] location = new int[2];
         anchor.getLocationOnScreen(location);
-        final int maxLeft = areaLeft + Math.max(0, areaWidth - width);
-        final int left = Math.max(
-                areaLeft,
-                Math.min(maxLeft, location[0] + anchor.getWidth() - width));
-        final int top = Math.max(areaTop, location[1] - height);
         if (!panels.show(
                 mPanel,
-                left,
-                top,
-                width,
-                height,
+                ShellPanelPlacement.aboveRight(new ShellBounds(
+                        location[0], location[1], location[0] + anchor.getWidth(),
+                        location[1] + anchor.getHeight()), width, height),
                 true,
                 false,
                 "MagicDesk taskbar overflow")) {

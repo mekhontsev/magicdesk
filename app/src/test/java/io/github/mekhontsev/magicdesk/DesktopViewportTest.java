@@ -45,7 +45,7 @@ public final class DesktopViewportTest {
     private static int taskbarTop(final DesktopViewport viewport, final int height) {
         final DesktopShellLayout layout = new DesktopShellLayout();
         layout.update(viewport, height, false);
-        return layout.snapshot().surfaces().get(DesktopShellLayout.TASKBAR).content().top();
+        return layout.taskbar().content().top();
     }
 
     private static void assertContentBounds(

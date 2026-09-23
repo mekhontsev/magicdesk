@@ -175,12 +175,9 @@ final class InputMethodMenuController {
         final int[] location = new int[2];
         anchor.getLocationOnScreen(location);
         final int height = Math.min(maxHeight, mPanel.getMeasuredHeight());
-        final int left = Math.max(
-                area.left,
-                location[0] + anchor.getWidth() - width);
-        final int top = Math.max(
-                area.top, location[1] - height);
-        panels.show(mPanel, left, top, width, height,
+        panels.show(mPanel, ShellPanelPlacement.aboveRight(new ShellBounds(
+                location[0], location[1], location[0] + anchor.getWidth(),
+                location[1] + anchor.getHeight()), width, height),
                 false, false, "MagicDesk input methods");
     }
 

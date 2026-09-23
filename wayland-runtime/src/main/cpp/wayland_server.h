@@ -19,6 +19,22 @@ typedef struct {
 	int height;
 } MdwWindow;
 
+typedef enum { MDW_BACKGROUND, MDW_BOTTOM, MDW_TOP, MDW_OVERLAY } MdwLayer;
+typedef enum { MDW_KEYBOARD_NONE, MDW_KEYBOARD_ON_DEMAND, MDW_KEYBOARD_EXCLUSIVE } MdwKeyboard;
+enum { MDW_ANCHOR_LEFT = 1, MDW_ANCHOR_TOP = 2, MDW_ANCHOR_RIGHT = 4, MDW_ANCHOR_BOTTOM = 8 };
+
+typedef struct {
+    uint64_t id;
+    const char *name;
+    bool mapped;
+    MdwLayer layer;
+    MdwKeyboard keyboard;
+    uint32_t anchors;
+    uint32_t width, height;
+    int32_t margin_left, margin_top, margin_right, margin_bottom;
+    int32_t exclusive_zone;
+} MdwShellSurface;
+
 typedef struct {
 	const void *pixels;
 	uint32_t format;
@@ -29,6 +45,7 @@ typedef struct {
 
 typedef struct {
 	void (*window)(void *context, uint64_t id, const MdwWindow *window);
+    void (*shell)(void *context, uint64_t id, const MdwShellSurface *surface);
 	void (*frame)(void *context, MdwOutput *output, const MdwFrame *frame);
 	bool (*can_render)(void *context, MdwOutput *output);
 	void (*error)(void *context, const char *message);
@@ -42,6 +59,10 @@ int mdw_server_fd(MdwServer *server);
 int mdw_server_connect(MdwServer *server);
 int mdw_server_dispatch(MdwServer *server, int timeout_ms);
 void mdw_server_destroy(MdwServer *server);
+/* Explicit shell admission. Removing the output closes its shell surfaces, not applications. */
+bool mdw_server_shell_output(MdwServer *server, int width, int height);
+bool mdw_shell_surface_configure(MdwServer *server, uint64_t id,
+    int x, int y, int width, int height);
 MdwOutput *mdw_output_create(MdwServer *server, uint64_t window, int width, int height);
 bool mdw_output_resize(MdwOutput *output, int width, int height);
 bool mdw_output_set_visible(MdwOutput *output, bool visible);

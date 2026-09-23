@@ -70,16 +70,10 @@ final class SystemPanelController {
                 View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(maxHeight, View.MeasureSpec.AT_MOST));
         final int height = Math.min(maxHeight, mPanel.getMeasuredHeight());
-        final int left = area.left
-                + Math.max(0, areaWidth - width - dp(8));
-        final int top = area.top + Math.max(dp(8),
-                areaHeight - dp(8) - height);
         if (!panels.show(
                 mPanel,
-                left,
-                top,
-                width,
-                height,
+                ShellPanelPlacement.anchored(width, height,
+                        ShellSurface.RIGHT | ShellSurface.BOTTOM, 0, 0, dp(8), dp(8)),
                 false,
                 mActivity.getString(R.string.section_quick_controls))) {
             mActivity.setErrorStatus(

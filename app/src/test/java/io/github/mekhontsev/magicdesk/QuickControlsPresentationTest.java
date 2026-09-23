@@ -142,7 +142,7 @@ public final class QuickControlsPresentationTest {
     }
 
     private static void verifyPlacement(final String scenario) throws Exception {
-        RuntimeSourceFixture.verify("""
+        RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", """
                 static class Rect {
                     int left, top, right, bottom;
                     Rect(int l, int t, int r, int b) { left=l; top=t; right=r; bottom=b; }
@@ -165,17 +165,28 @@ public final class QuickControlsPresentationTest {
                     int getMeasuredHeight() { return height; }
                 }
                 static class DesktopPanelWindowController {
+                    final Activity activity;
+                    DesktopPanelWindowController(Activity activity) { this.activity = activity; }
                     int left, top, width, height;
                     boolean requested;
                     boolean isRequested(Panel panel) { return requested; }
-                    boolean show(Panel panel, int l, int t, int w, int h, boolean focus, String title) {
-                        left = l; top = t; width = w; height = h;
+                    boolean show(Panel panel, ShellPanelPlacement placement, boolean focus, String title) {
+                        Rect area = activity.getDesktopPanelAreaBounds();
+                        ShellBounds bounds = new ShellBounds(area.left, area.top, area.right, area.bottom);
+                        ShellLayout layout = new ShellLayout();
+                        layout.commit(bounds, bounds, List.of());
+                        layout.commit(bounds, bounds, List.of(new ShellSurface("panel", true,
+                                ShellSurface.Layer.OVERLAY, ShellSurface.Keyboard.NONE,
+                                placement.resolve(layout.snapshot()), ShellSurface.Margins.NONE,
+                                ShellSurface.Input.CONTENT, List.of())));
+                        bounds = layout.snapshot().surfaces().get("panel").content();
+                        left = bounds.left(); top = bounds.top(); width = bounds.width(); height = bounds.height();
                         check(!focus, "quick controls unexpectedly stole app focus");
                         return true;
                     }
                 }
                 static class Activity {
-                    final DesktopPanelWindowController panels = new DesktopPanelWindowController();
+                    final DesktopPanelWindowController panels = new DesktopPanelWindowController(this);
                     int width = 1920, height = 1080, bar = 64, left, top, hidden;
                     DesktopPanelWindowController panels() { return panels; }
                     void hideAllPanels() { hidden++; }
@@ -198,6 +209,7 @@ public final class QuickControlsPresentationTest {
                 void render() { renders++; }
                 public static void verify() {
                     Fixture f = new Fixture();
-                """ + scenario + "}\n" + RuntimeSourceFixture.methods("SystemPanelController", "toggle"));
+                """ + scenario + "}\n" + RuntimeSourceFixture.methods("SystemPanelController", "toggle"),
+                "ShellBounds", "ShellSurface", "ShellReservation", "ShellLayout", "ShellPanelPlacement");
     }
 }

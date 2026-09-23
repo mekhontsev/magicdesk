@@ -42,6 +42,15 @@ final class DesktopPanelWindowController {
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private final PanelVisibilityListener mPanelVisibilityListener;
     private final DesktopPanelFocusGate mFocusGate;
+    private final DesktopShellLayout mLayout;
+    private ShellLayoutScope.Binding mPanelLayout;
+    private ShellLayoutScope.Binding mChildLayout;
+    private ShellLayoutScope.Binding mTransientLayout;
+    private ShellPanelPlacement mPanelPlacement;
+    private ShellPanelPlacement mChildPlacement;
+    private ShellPanelPlacement mTransientPlacement;
+    private final Runnable mLayoutChanged = this::relayout;
+    private boolean mRelayout;
     private final Rect mBounds = new Rect();
     private final Rect mChildBounds = new Rect();
     private final Rect mInteractionOwnerBounds = new Rect();
@@ -81,8 +90,10 @@ final class DesktopPanelWindowController {
     DesktopPanelWindowController(
             final Context context,
             final int displayId,
+            final DesktopShellLayout layout,
             final PanelVisibilityListener panelVisibilityListener) {
         mDisplayId = displayId;
+        mLayout = layout;
         mPanelVisibilityListener = panelVisibilityListener;
         mFocusGate = new DesktopPanelFocusGate(
                 (focusable, callback) -> MagicDeskRuntime.setDesktopChromeFocusable(
@@ -109,6 +120,7 @@ final class DesktopPanelWindowController {
         if (host != null) {
             attachHost(host.activity, host.windowManager, host.windowToken);
         }
+        mLayout.listen(mLayoutChanged);
     }
 
     static void registerActivity(
@@ -148,24 +160,29 @@ final class DesktopPanelWindowController {
     }
 
     @SuppressLint("ClickableViewAccessibility")
-    boolean show(final View panel, final int left, final int top,
-            final int width, final int height, final boolean focusable,
+    boolean show(final View panel, final ShellPanelPlacement placement, final boolean focusable,
             final String title) {
-        return show(panel, left, top, width, height, focusable, true, title);
+        return show(panel, placement, focusable, true, title);
     }
 
     // The listener observes ACTION_OUTSIDE only and does not implement clicks.
     @SuppressLint("ClickableViewAccessibility")
-    boolean show(final View panel, final int left, final int top,
-            final int width, final int height, final boolean focusable,
+    boolean show(final View panel, final ShellPanelPlacement placement, final boolean focusable,
             final boolean inputMethodTarget, final String title) {
-        if (mReleased || panel == null || width <= 0 || height <= 0) {
+        if (mReleased || panel == null || placement == null) {
             return false;
         }
         final boolean replacingSamePanel = mVisibleRequested
                 && mVisiblePanel == panel;
         hideAll(replacingSamePanel);
         dismissDialog();
+        mPanelLayout = mLayout.bind();
+        mPanelPlacement = placement;
+        final ShellBounds bounds = place(mPanelLayout, placement, focusable);
+        final int left = bounds.left();
+        final int top = bounds.top();
+        final int width = bounds.width();
+        final int height = bounds.height();
 
         int flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                 | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
@@ -214,19 +231,25 @@ final class DesktopPanelWindowController {
 
     /** Shows one modal child while retaining its owning desktop panel. */
     @SuppressLint("ClickableViewAccessibility")
-    boolean showChild(final View panel, final int left, final int top,
-            final int width, final int height, final String title,
+    boolean showChild(final View panel, final ShellPanelPlacement placement, final String title,
             final ChildInputListener inputListener) {
         if (!mVisibleRequested || mVisiblePanel == null) {
-            return show(panel, left, top, width, height, false, title);
+            return show(panel, placement, false, title);
         }
-        if (mReleased || panel == null || width <= 0 || height <= 0) {
+        if (mReleased || panel == null || placement == null) {
             return false;
         }
         final View ownerFocus = mChildRequested
                 ? mOwnerFocusBeforeChild : mVisiblePanel.findFocus();
         hideChild(false);
         mOwnerFocusBeforeChild = ownerFocus;
+        mChildLayout = mLayout.bind();
+        mChildPlacement = placement.ownedBy(mPanelLayout.surface("panel"));
+        final ShellBounds bounds = place(mChildLayout, mChildPlacement, mVisibleFocusable);
+        final int left = bounds.left();
+        final int top = bounds.top();
+        final int width = bounds.width();
+        final int height = bounds.height();
 
         final Rect hostBounds = new Rect(mBounds);
         hostBounds.union(left, top, left + width, top + height);
@@ -286,19 +309,21 @@ final class DesktopPanelWindowController {
         return true;
     }
 
-    boolean showTransient(final View view, final int left, final int top,
-            final int width, final int height, final long durationMillis,
+    boolean showTransient(final View view, final ShellPanelPlacement placement, final long durationMillis,
             final String title) {
-        if (mReleased || view == null || width <= 0 || height <= 0) {
+        if (mReleased || view == null || placement == null) {
             return false;
         }
         hideTransient();
+        mTransientLayout = mLayout.bind();
+        mTransientPlacement = placement;
+        final ShellBounds bounds = place(mTransientLayout, placement, false);
         final int flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                 | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                 | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
         mTransientParams = createParams(
-                width, height, flags, left, top, title);
+                bounds.width(), bounds.height(), flags, bounds.left(), bounds.top(), title);
         mTransientView = view;
         mTransientDurationMillis = durationMillis;
         mTransientRequested = true;
@@ -407,6 +432,7 @@ final class DesktopPanelWindowController {
             return;
         }
         mReleased = true;
+        mLayout.unlisten(mLayoutChanged);
         synchronized (REGISTRY_LOCK) {
             if (CONTROLLERS.get(Integer.valueOf(mDisplayId)) == this) {
                 CONTROLLERS.remove(Integer.valueOf(mDisplayId));
@@ -765,6 +791,12 @@ final class DesktopPanelWindowController {
     }
 
     private void clearVisibleRequest(final boolean notifyHidden) {
+        if (mPanelLayout != null) {
+            final var owner = mPanelLayout;
+            mPanelLayout = null;
+            mPanelPlacement = null;
+            owner.close();
+        }
         final View panel = mVisiblePanel;
         final boolean wasRequested = mVisibleRequested;
         if (panel != null) {
@@ -784,6 +816,12 @@ final class DesktopPanelWindowController {
     }
 
     private void clearChildRequest() {
+        if (mChildLayout != null) {
+            final var owner = mChildLayout;
+            mChildLayout = null;
+            mChildPlacement = null;
+            owner.close();
+        }
         final View panel = mChildPanel;
         final FrameLayout host = mChildHost;
         if (host != null && panel != null && panel.getParent() == host) {
@@ -805,6 +843,12 @@ final class DesktopPanelWindowController {
     }
 
     private void clearTransientRequest() {
+        if (mTransientLayout != null) {
+            final var owner = mTransientLayout;
+            mTransientLayout = null;
+            mTransientPlacement = null;
+            owner.close();
+        }
         if (mTransientView != null) {
             mTransientView.setVisibility(View.GONE);
         }
@@ -813,6 +857,64 @@ final class DesktopPanelWindowController {
         mTransientRequested = false;
         mTransientAdded = false;
         mTransientDurationMillis = 0;
+    }
+
+    private ShellBounds place(final ShellLayoutScope.Binding binding,
+            final ShellPanelPlacement placement, final boolean focusable) {
+        binding.commit(java.util.List.of(new ShellSurface("panel", true, ShellSurface.Layer.OVERLAY,
+                focusable ? ShellSurface.Keyboard.ON_DEMAND : ShellSurface.Keyboard.NONE,
+                placement.resolve(mLayout.snapshot()), ShellSurface.Margins.NONE,
+                ShellSurface.Input.CONTENT, java.util.List.of())));
+        return binding.surface("panel").content();
+    }
+
+    private void relayout() {
+        if (mReleased || mRelayout) return;
+        mRelayout = true;
+        try {
+            if (mVisibleRequested && mPanelLayout != null && mPanelLayout.surface("panel") != null) {
+                final var bounds = place(mPanelLayout, mPanelPlacement, mVisibleFocusable);
+                mBounds.set(bounds.left(), bounds.top(), bounds.right(), bounds.bottom());
+                updateGeometry(mVisiblePanel, mVisibleParams, bounds, mVisibleAdded);
+            }
+            if (mChildRequested && mChildLayout != null && mChildLayout.surface("panel") != null) {
+                final var bounds = place(mChildLayout, mChildPlacement, mChildFocusable);
+                mChildBounds.set(bounds.left(), bounds.top(), bounds.right(), bounds.bottom());
+                final Rect host = new Rect(mBounds);
+                host.union(mChildBounds);
+                final Rect local = new Rect(mChildBounds);
+                local.offset(-host.left, -host.top);
+                ((ChildPanelHost) mChildHost).setMenuBounds(local);
+                final FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) mChildPanel.getLayoutParams();
+                if (params.width != local.width() || params.height != local.height()
+                        || params.leftMargin != local.left || params.topMargin != local.top) {
+                    params.width = local.width(); params.height = local.height();
+                    params.leftMargin = local.left; params.topMargin = local.top;
+                    mChildPanel.setLayoutParams(params);
+                }
+                updateGeometry(mChildHost, mChildParams,
+                        new ShellBounds(host.left, host.top, host.right, host.bottom), mChildAdded);
+            }
+            if (mTransientRequested && mTransientLayout != null && mTransientLayout.surface("panel") != null) {
+                updateGeometry(mTransientView, mTransientParams,
+                        place(mTransientLayout, mTransientPlacement, false), mTransientAdded);
+            }
+        } finally { mRelayout = false; }
+    }
+
+    private void updateGeometry(final View view, final WindowManager.LayoutParams params,
+            final ShellBounds bounds, final boolean added) {
+        if (params == null || (params.x == bounds.left() && params.y == bounds.top()
+                && params.width == bounds.width() && params.height == bounds.height())) return;
+        params.x = bounds.left(); params.y = bounds.top();
+        params.width = bounds.width(); params.height = bounds.height();
+        if (added && mWindowManager != null) {
+            try { mWindowManager.updateViewLayout(view, params); }
+            catch (RuntimeException error) {
+                CompatibilityDiagnostics.record("PANEL-003", "A desktop panel could not be resized",
+                        "display=" + mDisplayId, error);
+            }
+        }
     }
 
     private void restoreOwnerFocus(final View ownerFocus) {
@@ -850,6 +952,8 @@ final class DesktopPanelWindowController {
             mMenuBounds = new Rect(menuBounds);
             mInputListener = inputListener;
         }
+
+        void setMenuBounds(final Rect bounds) { mMenuBounds.set(bounds); }
 
         @Override
         public boolean dispatchTouchEvent(final MotionEvent event) {

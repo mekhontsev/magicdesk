@@ -5,7 +5,8 @@ import java.util.List;
 /** Desktop shell policy expressed as layout intents; contains no Android window operations. */
 final class DesktopShellLayout {
     static final String TASKBAR = "taskbar";
-    private final ShellLayout mLayout = new ShellLayout();
+    private final ShellLayoutScope mScope = new ShellLayoutScope();
+    private ShellLayoutScope.Binding mTaskbar = mScope.bind();
     private DesktopViewport mViewport;
     private int mTaskbarHeight;
     private boolean mAutoHide;
@@ -23,16 +24,21 @@ final class DesktopShellLayout {
                 new ShellSurface.Margins(0, 0, 0, viewport.insetBottom()),
                 ShellSurface.Input.PAINT,
                 List.of(ShellReservation.exclusive(ShellReservation.Edge.BOTTOM, height, !autoHide)));
-        mLayout.commit(viewport.outputGeometry(), viewport.contentGeometry(), List.of(taskbar));
+        mTaskbar.commit(viewport.outputGeometry(), viewport.contentGeometry(), List.of(taskbar));
         mViewport = viewport;
         mTaskbarHeight = height;
         mAutoHide = autoHide;
     }
 
-    ShellLayout.Snapshot snapshot() { return mLayout.snapshot(); }
+    ShellLayout.Snapshot snapshot() { return mScope.snapshot(); }
+    ShellLayout.Surface taskbar() { return mTaskbar.surface(TASKBAR); }
+    ShellLayoutScope.Binding bind() { return mScope.bind(); }
+    void listen(final Runnable listener) { mScope.listen(listener); }
+    void unlisten(final Runnable listener) { mScope.unlisten(listener); }
 
     void release() {
-        mLayout.clear();
+        mScope.clear();
+        mTaskbar = mScope.bind();
         mViewport = null;
     }
 }

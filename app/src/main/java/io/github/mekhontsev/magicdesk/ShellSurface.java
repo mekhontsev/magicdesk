@@ -9,7 +9,7 @@ record ShellSurface(String id, boolean mapped, Layer layer, Keyboard keyboard, P
     enum Layer { BACKGROUND, BOTTOM, TOP, OVERLAY }
     enum Keyboard { NONE, ON_DEMAND, EXCLUSIVE }
     enum Input { NONE, CONTENT, PAINT }
-    enum Reference { OUTPUT, CONTENT, AVAILABLE }
+    enum Reference { OUTPUT, CONTENT, AVAILABLE, PANEL }
 
     static final int LEFT = 1;
     static final int TOP = 2;
@@ -60,5 +60,10 @@ record ShellSurface(String id, boolean mapped, Layer layer, Keyboard keyboard, P
                 }
             }
         }
+    }
+
+    ShellSurface withId(final String identity) {
+        return new ShellSurface(identity, mapped, layer, keyboard, placement,
+                paintExtension, input, reservations);
     }
 }

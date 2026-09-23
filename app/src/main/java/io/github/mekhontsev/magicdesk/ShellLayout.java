@@ -66,7 +66,7 @@ final class ShellLayout {
         // Exclusive clients precede ordinary clients. Within a layer retain the
         // owner's insertion order, including when a surface commits new state.
         ordered.sort(Comparator.comparing((ShellSurface surface) ->
-                !surface.mapped() || surface.reservations().stream().noneMatch(ShellReservation::windows))
+                !surface.mapped() || surface.reservations().isEmpty())
                 .thenComparing(Comparator.comparing(ShellSurface::layer).reversed()));
         for (ShellSurface surface : ordered) {
             for (ShellReservation reservation : surface.reservations()) {
@@ -80,6 +80,7 @@ final class ShellLayout {
                 case OUTPUT -> mOutput;
                 case CONTENT -> mContent;
                 case AVAILABLE -> available(exclusions, true);
+                case PANEL -> available(exclusions, false);
             };
             final ShellBounds bounds = place(surface.placement(), frame);
             final ShellSurface.Margins extension = surface.paintExtension();

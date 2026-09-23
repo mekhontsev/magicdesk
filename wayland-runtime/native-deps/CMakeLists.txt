@@ -122,6 +122,7 @@ ExternalProject_Add(executor
         -DWAYLAND_SCANNER=${MDW_WAYLAND_SCANNER}
         -DPKG_CONFIG_EXECUTABLE=${MDW_PKG_CONFIG}
         -DMDW_DEPENDENCY_PREFIX=${MDW_DEPENDENCY_PREFIX}
+        -DMDW_WLR_PROTOCOL_DIR=${SOURCE_DIR}/protocol
     BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --target magicdesk_wayland_executor wayland-client --parallel 4
     BUILD_ALWAYS TRUE
     INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_if_different

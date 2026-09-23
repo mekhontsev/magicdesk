@@ -2860,7 +2860,9 @@ disable shadows or change task topology to obtain the source RGB value.
 
 The desktop uses one `WindowMetrics`/WindowInsets viewport model on every
 display. `DesktopViewport` supplies stable system geometry to the protocol-neutral
-`ShellLayout`. `DesktopShellLayout` owns Desktop surface intents; its immutable
+`ShellLayout`. `ShellLayoutScope` owns revocable, namespaced surface bindings.
+`DesktopShellLayout` submits taskbar policy; `ShellPanelPlacement` describes
+ordinary panels and owner-relative popups. The immutable
 result supplies taskbar, icon-grid, popup and application work-area bounds through
 `DesktopLayoutController`. Separate layout instances isolate Desktop and nested
 graphical scopes. Precise edge exclusions coexist with the rectangular work area;

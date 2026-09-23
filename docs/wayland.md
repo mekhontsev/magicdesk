@@ -96,8 +96,10 @@ describe its creator and must not be mistaken for the launched client's identity
   its `ANativeWindow` writes. Output closure releases the presenter independently
   from client/session closure. Window metadata crosses Binder only when changed;
   pixel-only commits do not rebuild the window catalog.
-- Native input belongs to one output lease. Focus transfer, output release and
-  unmap release held keys/buttons. Protocol-specific input uses evdev codes and
+- Native pointer and keyboard input have separate output owners. A keyboard-inert
+  shell surface can accept pointer input without taking the application's keyboard.
+  Focus transfer, output release, keyboard-policy revocation and unmap release the
+  affected owner's held keys/buttons. Protocol-specific input uses evdev codes and
   a Wayland seat, not X11 button/key encodings.
   Pointer hit-testing uses the rendered scene and output dimensions, including
   when a client has not acknowledged a resize or retains a larger minimum size.
@@ -119,6 +121,36 @@ buffer import are not complete. Android text input is explicitly unavailable
 instead of accepting and discarding IME text. Physical keys use the shared
 Android-to-evdev mapping. XWayland and full desktop environments are not part
 of this slice.
+
+## Native Shell Surfaces
+
+The native API admits layer-shell only after its owner provides a shell event
+consumer and explicitly creates a logical shell output. This output is distinct
+from the borrowed render outputs. Layer surfaces use a separate catalog and
+committed metadata callback, not `xdg_toplevel` application events. wlroots owns
+protocol validation and configure acknowledgements; the host owns placement and
+calls `mdw_shell_surface_configure`. Equal size configurations are suppressed;
+remapping starts a fresh configure handshake.
+
+Revoking the shell output closes its layer surfaces and borrowed outputs without
+closing ordinary applications. The compositor bounds admitted layer surfaces to
+32. Native shell admission does not start Desktop or acquire HOME. The Android
+session/host adapter and user-facing workspace binding are not implemented yet;
+the APK's ordinary Wayland sessions do not advertise layer-shell.
+
+`MdwView` owns a rendered surface family independently of its xdg or layer role.
+Ordinary application outputs use wlroots scene rendering. Transparent shell
+families use the public render-pass API with cached client textures and the output
+swapchain, preserving premultiplied alpha rather than an opaque background. The
+scene retains subsurface placement, damage events and hit-testing. There are no
+additional per-buffer texture imports or pixel copies in this compositor pass;
+the existing software frame export remains unchanged. Borrowed view outputs use
+unit scale and no output transform; client buffer transforms and viewports are
+applied during composition. Damage retirement prevents unchanged shell surfaces
+from continuously submitting frames. Host protocol events are flushed before a
+blocking dispatch, so idle scenes do not delay close, configure or input events.
+Popup paint expansion and Android input-region
+publication must be completed before exposing shell surfaces as Android panels.
 
 ## Implementation Plan
 
@@ -155,11 +187,12 @@ compositor unprivileged and validate connections from independently launched
 clients and child processes. Do not treat one inherited client FD as a reusable
 endpoint for an entire desktop.
 
-Shell geometry uses the shared [shell layout model](shell-layout.md). A future
-layer-shell adapter must translate committed client state, mapping and exclusive
-zones into a layout scope without sharing reservations with a containing Android
-Desktop. Native wlroots still owns protocol validation, configure/ack, scene
-nodes and seat focus; the geometry model does not replace Android task planes.
+Integrated Linux shell components use the separate work plan in the shared
+[shell layout model](shell-layout.md#integration-work). A session must explicitly
+bind to a MagicDesk workspace to contribute its panels and reservations. A nested
+Linux desktop retains its own scope and cannot reserve space on its containing
+Android Desktop. Native wlroots owns protocol validation, configure/ack, scene
+nodes and seat state; the geometry model does not replace Android task planes.
 
 Each step needs focused protocol tests and real Android-host workflows through
 the same UI/MCP service owners. As work lands, remove completed items from this
@@ -277,6 +310,7 @@ ctest --test-dir wayland-runtime/build/dependencies --output-on-failure
 cmake -S wayland-runtime/src/main/cpp -B build/wayland-portable -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug -DMDW_BUILD_JNI=ON \
   -DMDW_DEPENDENCY_PREFIX="$PWD/wayland-runtime/build/dependencies/prefix" \
+  -DMDW_WLR_PROTOCOL_DIR="$PWD/wayland-runtime/build/dependencies/wlroots-prefix/src/wlroots/protocol" \
   -DWAYLAND_SCANNER="$PWD/wayland-runtime/build/dependencies/host/bin/wayland-scanner" \
   -DCMAKE_C_FLAGS=--target=aarch64-linux-android34 \
   -DCMAKE_SHARED_LINKER_FLAGS=-fno-termux-rpath \
@@ -302,6 +336,11 @@ isolation across exec. Unit tests cover UID/nonce admission and replay, and
 render admission without consuming frame credit. The window fixture covers
 minimum-size coordinate mapping, unchanged metadata, rendering backpressure and
 hidden-output suspend/resume.
+The shell fixture checks explicit admission, separate application/shell catalogs,
+configure deduplication, transparent pixels, pointer interaction without keyboard
+capture, key release on policy revocation, idle-frame suppression, unmap/remap and scope teardown without
+application termination. These native fixtures do not establish Android-host
+shell integration.
 
 The installed debug APK tests the production Binder handoff and native exec
 helper with separate app and executor UIDs:

@@ -89,15 +89,11 @@ final class ShortcutHelpController {
         }
         final int areaWidth = contentBounds.width();
         final int areaHeight = contentBounds.height();
-        final int width = Math.min(dp(520), areaWidth - dp(24));
+        final int width = Math.max(1, Math.min(dp(520), areaWidth - dp(24)));
         final int height =
-                Math.min(dp(560), areaHeight - dp(24));
-        final int left = contentBounds.left
-                + Math.max(0, (areaWidth - width) / 2);
-        final int top = contentBounds.top
-                + Math.max(0, (areaHeight - height) / 2);
+                Math.max(1, Math.min(dp(560), areaHeight - dp(24)));
         if (!panels.show(
-                mPanel, left, top, width, height,
+                mPanel, ShellPanelPlacement.centered(width, height),
                 false, "MagicDesk keyboard shortcuts")) {
             mPanelUnavailable.run();
         }

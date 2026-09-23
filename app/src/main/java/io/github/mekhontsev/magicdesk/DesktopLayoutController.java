@@ -24,6 +24,7 @@ final class DesktopLayoutController {
         boolean taskbarAutoHide();
         void onImeVisibilityChanged(boolean visible);
         void onViewportChanged();
+        void onWorkAreaChanged();
     }
 
     private final Activity mActivity;
@@ -31,6 +32,8 @@ final class DesktopLayoutController {
 
     private DesktopViewport mViewport;
     private final DesktopShellLayout mShellLayout = new DesktopShellLayout();
+    private final Runnable mShellChanged = this::applyShellGeometry;
+    private ShellLayout.Snapshot mAppliedLayout;
     private View mWindowRoot;
     private View mDesktopContent;
     private View mStatusBarBackdrop;
@@ -51,6 +54,8 @@ final class DesktopLayoutController {
         }
         mViewport = readViewport();
         updateShellLayout();
+        mAppliedLayout = mShellLayout.snapshot();
+        mShellLayout.listen(mShellChanged);
     }
 
     void attachDesktopViews(
@@ -99,13 +104,15 @@ final class DesktopLayoutController {
         return mViewport;
     }
 
+    DesktopShellLayout shellLayout() { return mShellLayout; }
+
     Rect taskbarBounds() {
-        final ShellLayout.Surface taskbar = mShellLayout.snapshot().surfaces().get(DesktopShellLayout.TASKBAR);
+        final ShellLayout.Surface taskbar = mShellLayout.taskbar();
         return taskbar == null ? new Rect() : rect(taskbar.content());
     }
 
     private Rect taskbarSurfaceBounds() {
-        return rect(mShellLayout.snapshot().surfaces().get(DesktopShellLayout.TASKBAR).paint());
+        return rect(mShellLayout.taskbar().paint());
     }
 
     Rect workAreaBounds() {
@@ -131,6 +138,7 @@ final class DesktopLayoutController {
     }
 
     void release() {
+        mShellLayout.unlisten(mShellChanged);
         if (mWindowRoot != null) {
             mWindowRoot.setOnApplyWindowInsetsListener(null);
         }
@@ -141,6 +149,16 @@ final class DesktopLayoutController {
         mTaskbar = null;
         mTaskbarHost = null;
         mShellLayout.release();
+    }
+
+    private void applyShellGeometry() {
+        final ShellLayout.Snapshot previous = mAppliedLayout;
+        final ShellLayout.Snapshot next = mShellLayout.snapshot();
+        mAppliedLayout = next;
+        if (previous == next) return;
+        if (previous == null || !previous.panelArea().equals(next.panelArea())) applyViewportPadding();
+        updateTaskbarBounds();
+        if (previous != null && !previous.workArea().equals(next.workArea())) mRuntimeState.onWorkAreaChanged();
     }
 
     private DesktopViewport readViewport() {

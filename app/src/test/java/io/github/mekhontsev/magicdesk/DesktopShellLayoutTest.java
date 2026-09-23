@@ -8,7 +8,7 @@ public final class DesktopShellLayoutTest {
     @Test public void externalTaskbarAndWorkAreaMatchExistingGeometry() {
         final DesktopShellLayout layout = layout(1920, 1080, 0, 0, 64, false);
         assertEquals(new ShellBounds(0, 0, 1920, 1016), layout.snapshot().workArea());
-        final ShellLayout.Surface taskbar = layout.snapshot().surfaces().get(DesktopShellLayout.TASKBAR);
+        final ShellLayout.Surface taskbar = layout.taskbar();
         assertEquals(new ShellBounds(0, 1016, 1920, 1080), taskbar.content());
         assertEquals(taskbar.content(), taskbar.paint());
         assertEquals(taskbar.paint(), taskbar.input());
@@ -17,7 +17,7 @@ public final class DesktopShellLayoutTest {
 
     @Test public void phonePaintExtendsThroughNavigationButControlsDoNot() {
         final DesktopShellLayout layout = layout(1216, 2688, 147, 126, 169, false);
-        final ShellLayout.Surface taskbar = layout.snapshot().surfaces().get(DesktopShellLayout.TASKBAR);
+        final ShellLayout.Surface taskbar = layout.taskbar();
         assertEquals(new ShellBounds(0, 2393, 1216, 2562), taskbar.content());
         assertEquals(new ShellBounds(0, 2393, 1216, 2688), taskbar.paint());
         assertEquals(new ShellBounds(0, 147, 1216, 2393), layout.snapshot().workArea());
@@ -27,11 +27,11 @@ public final class DesktopShellLayoutTest {
     @Test public void autoHideChangesOnlyWindowReservationNotPopupOrTaskbarBounds() {
         final DesktopShellLayout layout = layout(1920, 1080, 0, 0, 64, false);
         final ShellLayout.Snapshot before = layout.snapshot();
+        final ShellBounds paint = layout.taskbar().paint();
         layout.update(new DesktopViewport(0, 0, 1920, 1080, 0, 0, 0, 0), 64, true);
         assertEquals(before.content(), layout.snapshot().workArea());
         assertEquals(before.panelArea(), layout.snapshot().panelArea());
-        assertEquals(before.surfaces().get(DesktopShellLayout.TASKBAR).paint(),
-                layout.snapshot().surfaces().get(DesktopShellLayout.TASKBAR).paint());
+        assertEquals(paint, layout.taskbar().paint());
     }
 
     @Test public void stableInputsReuseSnapshotAndDensityChangeRecomputesIt() {

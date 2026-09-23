@@ -1144,24 +1144,8 @@ if (RuntimeLimits.active().termux() && TermuxIntegration.isInstalled(mActivity))
         final int menuHeight = Math.min(
                 mPanel.getMeasuredHeight(),
                 Math.max(1, maxHeight - dp(16)));
-        final int areaLeft = workArea.left;
-        final int areaTop = workArea.top;
-        final int areaRight = workArea.right;
-        final int areaBottom = workArea.bottom;
-        int left = Math.round(pointerX) + dp(8);
-        int top = Math.round(pointerY) + dp(8);
-        if (left + width > areaRight - dp(8)) {
-            left = Math.round(pointerX) - width - dp(8);
-        }
-        if (top + menuHeight > areaBottom - dp(8)) {
-            top = Math.round(pointerY) - menuHeight - dp(8);
-        }
-        left = Math.max(
-                areaLeft + dp(8),
-                Math.min(left, areaRight - width - dp(8)));
-        top = Math.max(
-                areaTop + dp(8),
-                Math.min(top, areaBottom - menuHeight - dp(8)));
+        final ShellPanelPlacement placement = ShellPanelPlacement.atPointer(
+                Math.round(pointerX), Math.round(pointerY), width, menuHeight, dp(8));
 
         final DesktopPanelWindowController panels = mActivity.panels();
         mMenuRoot.scrollTo(0, 0);
@@ -1169,18 +1153,12 @@ if (RuntimeLimits.active().termux() && TermuxIntegration.isInstalled(mActivity))
                 && (mRetainOwnerPanel
                         ? panels.showChild(
                                 mMenuRoot,
-                                left,
-                                top,
-                                width,
-                                menuHeight,
+                                placement,
                                 "MagicDesk context menu",
                                 mActivity::handleSecondaryClick)
                         : panels.show(
                                 mMenuRoot,
-                                left,
-                                top,
-                                width,
-                                menuHeight,
+                                placement,
                                 mRequestKeyboardFocus,
                                 false,
                                 "MagicDesk context menu"));

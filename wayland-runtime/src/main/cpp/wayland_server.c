@@ -1,4 +1,4 @@
-#include "wayland_server.h"
+#include "wayland_internal.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -20,10 +20,8 @@
 
 struct MdwToplevel {
     struct wl_list link;
-    MdwServer *server;
-    uint64_t id;
+    struct MdwView view;
     struct wlr_xdg_toplevel *xdg;
-    struct wlr_scene *scene;
     struct wl_listener map, unmap, commit, destroy, title, app_id, parent;
     struct wl_listener fullscreen, maximize;
     MdwWindow published;
@@ -38,7 +36,7 @@ struct MdwPopup {
 struct MdwOutput {
     struct wl_list link;
     MdwServer *server;
-    struct MdwToplevel *window;
+    struct MdwView *view;
     struct wlr_output *output;
     struct wlr_scene_output *scene_output;
     struct wl_listener frame, commit;
@@ -48,24 +46,7 @@ struct MdwOutput {
     bool buttons[3];
 };
 
-struct MdwServer {
-    struct wl_display *display;
-    struct wlr_backend *backend;
-    struct wlr_renderer *renderer;
-    struct wlr_allocator *allocator;
-    struct wlr_xdg_shell *shell;
-    struct wlr_seat *seat;
-    struct wlr_keyboard keyboard;
-    bool keyboard_initialized;
-    struct wl_listener modifiers;
-    struct wl_listener selection;
-    MdwOutput *input_owner;
-    struct wl_listener new_toplevel, new_popup;
-    struct wl_list windows, outputs;
-    uint64_t next_id;
-    MdwEvents events;
-    const char *socket;
-};
+
 
 static void listen_signal(struct wl_signal *signal, struct wl_listener *listener,
         void (*notify)(struct wl_listener *, void *)) {
@@ -77,26 +58,26 @@ static void report_error(MdwServer *server, const char *message) {
     if (server->events.error) server->events.error(server->events.context, message);
 }
 
-static struct MdwToplevel *find_window(MdwServer *server, uint64_t id) {
-    struct MdwToplevel *window;
-    wl_list_for_each(window, &server->windows, link) {
-        if (window->id == id) return window;
+static struct MdwView *find_view(MdwServer *server, uint64_t id) {
+    struct MdwView *view;
+    wl_list_for_each(view, &server->views, link) {
+        if (view->id == id) return view;
     }
     return NULL;
 }
 
 static void publish(struct MdwToplevel *window) {
-    MdwServer *server = window->server;
+    MdwServer *server = window->view.server;
     if (!server->events.window) return;
     uint64_t parent = 0;
     struct MdwToplevel *candidate;
     wl_list_for_each(candidate, &server->windows, link) {
-        if (candidate->xdg == window->xdg->parent) parent = candidate->id;
+        if (candidate->xdg == window->xdg->parent) parent = candidate->view.id;
     }
     struct wlr_box geometry;
     wlr_xdg_surface_get_geometry(window->xdg->base, &geometry);
     MdwWindow info = {
-        .id = window->id, .parent = parent,
+        .id = window->view.id, .parent = parent,
         .title = window->xdg->title ? window->xdg->title : "",
         .app_id = window->xdg->app_id ? window->xdg->app_id : "",
         .mapped = window->xdg->base->surface->mapped,
@@ -123,7 +104,7 @@ static void publish(struct MdwToplevel *window) {
     window->published = info;
     window->published.title = window->published_title;
     window->published.app_id = window->published_app_id;
-    server->events.window(server->events.context, window->id, &info);
+    server->events.window(server->events.context, window->view.id, &info);
 }
 
 static void output_commit(struct wl_listener *listener, void *data) {
@@ -149,11 +130,13 @@ static void output_commit(struct wl_listener *listener, void *data) {
 static void output_frame(struct wl_listener *listener, void *data) {
     (void)data;
     MdwOutput *output = wl_container_of(listener, output, frame);
-    if (!output->visible || !output->window || !output->window->xdg->base->surface->mapped) return;
+    if (!output->visible || !output->view || !output->view->surface->mapped) return;
     MdwEvents *events = &output->server->events;
     if (events->can_render && !events->can_render(events->context, output)) return;
     output->presenting = true;
-    bool committed = wlr_scene_output_commit(output->scene_output, NULL);
+    bool committed = output->view->transparent
+        ? mdw_scene_render_transparent(output->scene_output)
+        : wlr_scene_output_commit(output->scene_output, NULL);
     output->presenting = false;
     if (!committed) {
         report_error(output->server, "software scene commit failed");
@@ -175,6 +158,38 @@ static void release_output(MdwOutput *output) {
     output->scene_output = NULL;
 }
 
+bool mdw_view_init(MdwServer *server, struct MdwView *view, struct wlr_surface *surface) {
+    view->scene = wlr_scene_create();
+    if (!view->scene) return false;
+    view->scene->direct_scanout = false;
+    view->server = server;
+    view->surface = surface;
+    view->id = ++server->next_id;
+    wl_list_insert(&server->views, &view->link);
+    return true;
+}
+
+void mdw_view_unmap(struct MdwView *view) {
+    MdwOutput *output;
+    wl_list_for_each(output, &view->server->outputs, link) {
+        if (output->view != view) continue;
+        mdw_output_focus(output, false);
+        if (view->server->events.frame)
+            view->server->events.frame(view->server->events.context, output, NULL);
+    }
+}
+
+void mdw_view_finish(struct MdwView *view) {
+    MdwOutput *output;
+    wl_list_for_each(output, &view->server->outputs, link) {
+        if (output->view != view) continue;
+        release_output(output);
+        output->view = NULL;
+    }
+    wl_list_remove(&view->link);
+    wlr_scene_node_destroy(&view->scene->tree.node);
+}
+
 static void window_map(struct wl_listener *listener, void *data) {
     (void)data;
     struct MdwToplevel *window = wl_container_of(listener, window, map);
@@ -184,13 +199,7 @@ static void window_map(struct wl_listener *listener, void *data) {
 static void window_unmap(struct wl_listener *listener, void *data) {
     (void)data;
     struct MdwToplevel *window = wl_container_of(listener, window, unmap);
-    MdwOutput *output;
-    wl_list_for_each(output, &window->server->outputs, link) {
-        if (output->window != window) continue;
-        mdw_output_focus(output, false);
-        if (window->server->events.frame)
-            window->server->events.frame(window->server->events.context, output, NULL);
-    }
+    mdw_view_unmap(&window->view);
     publish(window);
 }
 
@@ -237,13 +246,8 @@ static void window_maximize(struct wl_listener *listener, void *data) {
 static void window_destroy(struct wl_listener *listener, void *data) {
     (void)data;
     struct MdwToplevel *window = wl_container_of(listener, window, destroy);
-    MdwServer *server = window->server;
-    MdwOutput *output;
-    wl_list_for_each(output, &server->outputs, link) {
-        if (output->window != window) continue;
-        release_output(output);
-        output->window = NULL;
-    }
+    MdwServer *server = window->view.server;
+    mdw_view_finish(&window->view);
     wl_list_remove(&window->link);
     wl_list_remove(&window->map.link);
     wl_list_remove(&window->unmap.link);
@@ -254,11 +258,25 @@ static void window_destroy(struct wl_listener *listener, void *data) {
     wl_list_remove(&window->parent.link);
     wl_list_remove(&window->fullscreen.link);
     wl_list_remove(&window->maximize.link);
-    wlr_scene_node_destroy(&window->scene->tree.node);
-    if (server->events.window) server->events.window(server->events.context, window->id, NULL);
+    if (server->events.window) server->events.window(server->events.context, window->view.id, NULL);
     free(window->published_title);
     free(window->published_app_id);
     free(window);
+}
+
+static void toplevel_configure(struct MdwView *view, int width, int height) {
+    struct MdwToplevel *window = wl_container_of(view, window, view);
+    wlr_xdg_toplevel_set_size(window->xdg, width, height);
+}
+
+static void toplevel_activate(struct MdwView *view, bool active) {
+    struct MdwToplevel *window = wl_container_of(view, window, view);
+    wlr_xdg_toplevel_set_activated(window->xdg, active);
+}
+
+static void toplevel_close(struct MdwView *view) {
+    struct MdwToplevel *window = wl_container_of(view, window, view);
+    wlr_xdg_toplevel_send_close(window->xdg);
 }
 
 static void new_toplevel(struct wl_listener *listener, void *data) {
@@ -266,15 +284,19 @@ static void new_toplevel(struct wl_listener *listener, void *data) {
     struct wlr_xdg_toplevel *xdg = data;
     struct MdwToplevel *window = calloc(1, sizeof(*window));
     if (!window) { wl_client_post_no_memory(wl_resource_get_client(xdg->resource)); return; }
-    window->server = server;
     window->xdg = xdg;
-    window->id = ++server->next_id;
-    window->scene = wlr_scene_create();
-    if (!window->scene) { free(window); wl_client_post_no_memory(wl_resource_get_client(xdg->resource)); return; }
-    window->scene->direct_scanout = false;
-    struct wlr_scene_tree *tree = wlr_scene_xdg_surface_create(&window->scene->tree, xdg->base);
+    if (!mdw_view_init(server, &window->view, xdg->base->surface)) {
+        free(window);
+        wl_client_post_no_memory(wl_resource_get_client(xdg->resource));
+        return;
+    }
+    window->view.configure = toplevel_configure;
+    window->view.keyboard_allowed = true;
+    window->view.activate = toplevel_activate;
+    window->view.close = toplevel_close;
+    struct wlr_scene_tree *tree = wlr_scene_xdg_surface_create(&window->view.scene->tree, xdg->base);
     if (!tree) {
-        wlr_scene_node_destroy(&window->scene->tree.node);
+        mdw_view_finish(&window->view);
         free(window);
         wl_client_post_no_memory(wl_resource_get_client(xdg->resource));
         return;
@@ -307,14 +329,10 @@ static void popup_destroy(struct wl_listener *listener, void *data) {
     free(popup);
 }
 
-static void new_popup(struct wl_listener *listener, void *data) {
-    (void)listener;
-    struct wlr_xdg_popup *xdg = data;
-    struct wlr_xdg_surface *parent = wlr_xdg_surface_try_from_wlr_surface(xdg->parent);
-    if (!parent || !parent->data) { wlr_xdg_popup_destroy(xdg); return; }
+void mdw_popup_create(struct wlr_xdg_popup *xdg, struct wlr_scene_tree *parent) {
     struct MdwPopup *popup = calloc(1, sizeof(*popup));
     if (!popup) { wl_client_post_no_memory(wl_resource_get_client(xdg->resource)); return; }
-    xdg->base->data = wlr_scene_xdg_surface_create(parent->data, xdg->base);
+    xdg->base->data = wlr_scene_xdg_surface_create(parent, xdg->base);
     if (!xdg->base->data) {
         free(popup);
         wl_client_post_no_memory(wl_resource_get_client(xdg->resource));
@@ -323,6 +341,16 @@ static void new_popup(struct wl_listener *listener, void *data) {
     popup->xdg = xdg;
     listen_signal(&xdg->base->surface->events.commit, &popup->commit, popup_commit);
     listen_signal(&xdg->events.destroy, &popup->destroy, popup_destroy);
+}
+
+static void new_popup(struct wl_listener *listener, void *data) {
+    (void)listener;
+    struct wlr_xdg_popup *xdg = data;
+    // A layer-shell parent is assigned by get_popup before the initial commit.
+    if (!xdg->parent) return;
+    struct wlr_xdg_surface *parent = wlr_xdg_surface_try_from_wlr_surface(xdg->parent);
+    if (!parent || !parent->data) { wlr_xdg_popup_destroy(xdg); return; }
+    mdw_popup_create(xdg, parent->data);
 }
 
 static void keyboard_modifiers(struct wl_listener *listener, void *data) {
@@ -343,7 +371,9 @@ MdwServer *mdw_server_create(void) {
     MdwServer *server = calloc(1, sizeof(*server));
     if (!server) return NULL;
     wl_list_init(&server->windows);
+    wl_list_init(&server->views);
     wl_list_init(&server->outputs);
+    wl_list_init(&server->layers);
     server->display = wl_display_create();
     if (!server->display) goto fail;
     server->backend = wlr_headless_backend_create(wl_display_get_event_loop(server->display));
@@ -415,12 +445,12 @@ void mdw_server_set_events(MdwServer *server, const MdwEvents *events) {
 }
 
 MdwOutput *mdw_output_create(MdwServer *server, uint64_t id, int width, int height) {
-    struct MdwToplevel *window = find_window(server, id);
-    if (!window || width < 1 || height < 1 || width > 4096 || height > 4096) return NULL;
+    struct MdwView *view = find_view(server, id);
+    if (!view || width < 1 || height < 1 || width > 4096 || height > 4096) return NULL;
     MdwOutput *output = calloc(1, sizeof(*output));
     if (!output) return NULL;
     output->server = server;
-    output->window = window;
+    output->view = view;
     output->visible = true;
     output->output = wlr_headless_add_output(server->backend, width, height);
     if (!output->output) { free(output); return NULL; }
@@ -429,7 +459,7 @@ MdwOutput *mdw_output_create(MdwServer *server, uint64_t id, int width, int heig
         free(output);
         return NULL;
     }
-    output->scene_output = wlr_scene_output_create(window->scene, output->output);
+    output->scene_output = wlr_scene_output_create(view->scene, output->output);
     if (!output->scene_output) { wlr_output_destroy(output->output); free(output); return NULL; }
     wl_list_insert(&server->outputs, &output->link);
     listen_signal(&output->output->events.frame, &output->frame, output_frame);
@@ -439,7 +469,7 @@ MdwOutput *mdw_output_create(MdwServer *server, uint64_t id, int width, int heig
 }
 
 bool mdw_output_resize(MdwOutput *output, int width, int height) {
-    if (!output || !output->window || !output->output ||
+    if (!output || !output->view || !output->output ||
             width < 1 || height < 1 || width > 4096 || height > 4096) return false;
     struct wlr_output_state state;
     wlr_output_state_init(&state);
@@ -448,7 +478,7 @@ bool mdw_output_resize(MdwOutput *output, int width, int height) {
     bool committed = wlr_output_commit_state(output->output, &state);
     wlr_output_state_finish(&state);
     if (committed) {
-        wlr_xdg_toplevel_set_size(output->window->xdg, width, height);
+        if (output->view->configure) output->view->configure(output->view, width, height);
         if (output->visible) wlr_output_schedule_frame(output->output);
     }
     return committed;
@@ -475,9 +505,8 @@ static uint32_t time_msec(void) {
     return (uint32_t)((uint64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000);
 }
 
-static bool owns_input(MdwOutput *output) {
-    return output && output->visible && output->window && output->window->xdg->base->surface->mapped &&
-        output->server->input_owner == output;
+static bool accepts_input(MdwOutput *output) {
+    return output && output->visible && output->view && output->view->surface->mapped;
 }
 
 static void key_event(MdwOutput *output, uint32_t code, bool down) {
@@ -493,44 +522,68 @@ static void key_event(MdwOutput *output, uint32_t code, bool down) {
 
 static const uint32_t button_codes[] = {BTN_LEFT, BTN_MIDDLE, BTN_RIGHT};
 
+static void release_pointer(MdwOutput *output) {
+    MdwServer *server = output->server;
+    if (server->pointer_owner != output) return;
+    for (int button = 0; button < 3; ++button) {
+        if (output->buttons[button]) {
+            wlr_seat_pointer_notify_button(server->seat, time_msec(), button_codes[button],
+                WL_POINTER_BUTTON_STATE_RELEASED);
+            output->buttons[button] = false;
+        }
+    }
+    wlr_seat_pointer_notify_frame(server->seat);
+    wlr_seat_pointer_notify_clear_focus(server->seat);
+    server->pointer_owner = NULL;
+}
+
+static void release_keyboard(MdwOutput *output) {
+    MdwServer *server = output->server;
+    if (server->keyboard_owner != output) return;
+    for (uint32_t code = 0; code <= KEY_MAX; ++code) {
+        if (output->keys[code]) key_event(output, code, false);
+    }
+    wlr_seat_keyboard_notify_clear_focus(server->seat);
+    if (output->view && output->view->activate && output->view->surface->mapped)
+        output->view->activate(output->view, false);
+    server->keyboard_owner = NULL;
+}
+
+void mdw_view_keyboard(struct MdwView *view, bool allowed) {
+    view->keyboard_allowed = allowed;
+    MdwOutput *owner = view->server->keyboard_owner;
+    if (!allowed && owner && owner->view == view) release_keyboard(owner);
+}
+
 bool mdw_output_focus(MdwOutput *output, bool focused) {
     if (!output) return false;
     MdwServer *server = output->server;
     if (!focused) {
-        if (server->input_owner != output) return true;
-        for (uint32_t code = 0; code <= KEY_MAX; ++code) {
-            if (output->keys[code]) key_event(output, code, false);
-        }
-        for (int button = 0; button < 3; ++button) {
-            if (output->buttons[button]) {
-                wlr_seat_pointer_notify_button(server->seat, time_msec(), button_codes[button],
-                    WL_POINTER_BUTTON_STATE_RELEASED);
-                output->buttons[button] = false;
-            }
-        }
-        wlr_seat_pointer_notify_frame(server->seat);
-        wlr_seat_pointer_notify_clear_focus(server->seat);
-        wlr_seat_keyboard_notify_clear_focus(server->seat);
-        if (output->window && output->window->xdg->base->surface->mapped)
-            wlr_xdg_toplevel_set_activated(output->window->xdg, false);
-        server->input_owner = NULL;
+        release_pointer(output);
+        release_keyboard(output);
         return true;
     }
-    if (!output->visible || !output->window || !output->window->xdg->base->surface->mapped) return false;
-    if (server->input_owner == output) return true;
-    if (server->input_owner) mdw_output_focus(server->input_owner, false);
-    server->input_owner = output;
-    wlr_xdg_toplevel_set_activated(output->window->xdg, true);
-    wlr_seat_keyboard_notify_enter(server->seat, output->window->xdg->base->surface,
+    if (!accepts_input(output)) return false;
+    if (server->pointer_owner != output) {
+        if (server->pointer_owner) release_pointer(server->pointer_owner);
+        server->pointer_owner = output;
+    }
+    if (!output->view->keyboard_allowed) return true;
+    if (server->keyboard_owner == output) return true;
+    if (server->keyboard_owner) release_keyboard(server->keyboard_owner);
+    server->keyboard_owner = output;
+    if (output->view->activate) output->view->activate(output->view, true);
+    wlr_seat_keyboard_notify_enter(server->seat, output->view->surface,
         server->keyboard.keycodes, server->keyboard.num_keycodes, &server->keyboard.modifiers);
     return true;
 }
 
 bool mdw_output_pointer(MdwOutput *output, double x, double y) {
-    if (!owns_input(output) || !isfinite(x) || !isfinite(y)) return false;
+    if (!accepts_input(output) || output->server->pointer_owner != output ||
+            !isfinite(x) || !isfinite(y)) return false;
     double local_x, local_y;
     // Hit-test the rendered scene, not the client's asynchronously acknowledged size.
-    struct wlr_scene_node *node = wlr_scene_node_at(&output->window->scene->tree.node,
+    struct wlr_scene_node *node = wlr_scene_node_at(&output->view->scene->tree.node,
         x * output->output->width, y * output->output->height, &local_x, &local_y);
     struct wlr_scene_surface *scene_surface = node && node->type == WLR_SCENE_NODE_BUFFER
         ? wlr_scene_surface_try_from_buffer(wlr_scene_buffer_from_node(node)) : NULL;
@@ -544,7 +597,8 @@ bool mdw_output_pointer(MdwOutput *output, double x, double y) {
 }
 
 bool mdw_output_button(MdwOutput *output, MdwButton button, bool down) {
-    if (!owns_input(output) || button < MDW_PRIMARY || button > MDW_SECONDARY) return false;
+    if (!accepts_input(output) || output->server->pointer_owner != output ||
+            button < MDW_PRIMARY || button > MDW_SECONDARY) return false;
     if (output->buttons[button] == down) return true;
     wlr_seat_pointer_notify_button(output->server->seat, time_msec(), button_codes[button],
         down ? WL_POINTER_BUTTON_STATE_PRESSED : WL_POINTER_BUTTON_STATE_RELEASED);
@@ -554,7 +608,8 @@ bool mdw_output_button(MdwOutput *output, MdwButton button, bool down) {
 }
 
 bool mdw_output_scroll(MdwOutput *output, double horizontal, double vertical) {
-    if (!owns_input(output) || !isfinite(horizontal) || !isfinite(vertical) ||
+    if (!accepts_input(output) || output->server->pointer_owner != output ||
+            !isfinite(horizontal) || !isfinite(vertical) ||
             fabs(horizontal) > 10000 || fabs(vertical) > 10000) return false;
     if (horizontal != 0) wlr_seat_pointer_notify_axis(output->server->seat, time_msec(),
         WL_POINTER_AXIS_HORIZONTAL_SCROLL, horizontal, 0, WL_POINTER_AXIS_SOURCE_CONTINUOUS,
@@ -567,7 +622,8 @@ bool mdw_output_scroll(MdwOutput *output, double horizontal, double vertical) {
 }
 
 bool mdw_output_key(MdwOutput *output, uint32_t code, bool down) {
-    if (!owns_input(output) || code == 0 || code > KEY_MAX) return false;
+    if (!accepts_input(output) || output->server->keyboard_owner != output ||
+            !output->view->keyboard_allowed || code == 0 || code > KEY_MAX) return false;
     if (output->keys[code] != down) key_event(output, code, down);
     return true;
 }
@@ -580,20 +636,23 @@ void mdw_output_destroy(MdwOutput *output) {
 }
 
 bool mdw_window_close(MdwServer *server, uint64_t id) {
-    struct MdwToplevel *window = find_window(server, id);
-    if (!window) return false;
-    wlr_xdg_toplevel_send_close(window->xdg);
+    struct MdwView *view = find_view(server, id);
+    if (!view || !view->close) return false;
+    view->close(view);
     return true;
 }
 
 bool mdw_window_disconnect(MdwServer *server, uint64_t id) {
-    struct MdwToplevel *window = find_window(server, id);
-    if (!window) return false;
-    wl_client_destroy(wl_resource_get_client(window->xdg->base->resource));
+    struct MdwView *view = find_view(server, id);
+    if (!view) return false;
+    wl_client_destroy(wl_resource_get_client(view->surface->resource));
     return true;
 }
 
 int mdw_server_dispatch(MdwServer *server, int timeout_ms) {
+    // Host commands can queue events while the scene is idle. Deliver them before
+    // blocking for a client response rather than depending on another frame.
+    wl_display_flush_clients(server->display);
     int result = wl_event_loop_dispatch(wl_display_get_event_loop(server->display), timeout_ms);
     wl_display_flush_clients(server->display);
     return result;
@@ -604,6 +663,7 @@ void mdw_server_destroy(MdwServer *server) {
     MdwOutput *output, *next;
     wl_list_for_each_safe(output, next, &server->outputs, link) mdw_output_destroy(output);
     if (server->display) wl_display_destroy_clients(server->display);
+    mdw_shell_finish(server);
     if (server->shell) {
         wl_list_remove(&server->new_toplevel.link);
         wl_list_remove(&server->new_popup.link);

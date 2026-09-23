@@ -285,6 +285,11 @@ public abstract class DesktopShellActivity extends Activity
                         }
                         MagicDeskRuntime.refreshDesktopTasks();
                     }
+
+                    @Override
+                    public void onWorkAreaChanged() {
+                        MagicDeskRuntime.refreshDesktopTasks();
+                    }
                 });
         mCalendarController = new CalendarPanelController(
                 this,
@@ -921,6 +926,7 @@ public abstract class DesktopShellActivity extends Activity
         mDesktopPanelWindowController = new DesktopPanelWindowController(
                 this,
                 getCurrentDisplayId(),
+                mDesktopLayout.shellLayout(),
                 this::onPanelVisibilityChanged);
         root.setBackgroundColor(COLOR_BACKGROUND);
 
@@ -1866,10 +1872,6 @@ public abstract class DesktopShellActivity extends Activity
 
     int getTaskbarHeight() {
         return desktopDp(TASKBAR_HEIGHT_DP, COMPACT_TASKBAR_HEIGHT_DP);
-    }
-
-    boolean isTaskbarAutoHideEnabled() {
-        return mTaskbarAutoHide;
     }
 
     void setTaskbarAutoHide(final boolean enabled, final Runnable completion) {
