@@ -186,8 +186,10 @@ The size-based application adapter also configures the client at origin zero.
 Android shell hosts still need to coordinate window placement and input with
 these receipts, and apply exact Android touchable regions before external panels
 can be exposed. Touchable regions alone do not establish cross-UID pass-through:
-Android's obscuring-window check also considers window frames. Validate that
-boundary without disabling untrusted-touch protection or changing task topology.
+Android's obscuring-window check also considers window frames. The optional
+trusted-overlay capability of the existing chrome host addresses that separate
+boundary; see [shell layout](shell-layout.md#android-adapter). Linux surface
+admission must request it explicitly and retain the frame/region checks above.
 Ordinary application hosts retain their existing viewport policy.
 
 ## Implementation Plan

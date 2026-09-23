@@ -91,6 +91,16 @@ them or reacquiring focus. Its host-token lifecycle, focus-acknowledgement gate,
 IME targeting and modal-child input behavior remain platform responsibilities.
 Neither keyboard intent nor a geometry binding grants focus by itself.
 
+Sparse external panels additionally request trusted input-occlusion handling from
+the existing chrome host. `FrameworkSurfaceInputApi` checks the current service's
+`ACCESS_SURFACE_FLINGER` permission and commits `setTrustedOverlay` on the host's
+owned organizer surface. Child windows inherit that state. The grant lives with
+that host, does not alter task order/focus, and is not requested by ordinary native
+panels. Missing permission/API rejects the optional request without disabling
+Desktop. No global touch-security setting is changed. This SurfaceFlinger commit
+does not acknowledge child-window input regions or displayed pixels; those remain
+separate admission conditions for an external panel.
+
 Taskbar concealment/reveal and IME visibility keep their existing presentation
 policy. They do not discard the taskbar's layout intent or move its stable viewport.
 `DesktopTaskbarHost` and `DesktopChromeActivity` still own the actual bounded child
@@ -158,8 +168,9 @@ and [EWMH](https://specifications.freedesktop.org/wm/latest-single/).
 1. Host backgrounds and bottom surfaces in existing HOME infrastructure, and top
    surfaces in the existing chrome host. Consume popup paint extents and precise
    input regions, coordinate placement/input with frame receipts, and verify
-   cross-UID touch pass-through before admitting external panels. Apply workspace fullscreen and
-   focus policy rather than mapping layer numbers directly to Android z-order.
+   the optional chrome input capability before admitting external panels. Apply
+   workspace fullscreen and focus policy rather than mapping layer numbers
+   directly to Android z-order.
 2. Adapt X11 DOCK/DESKTOP properties and struts to the same bindings. Preserve
    guest-WM ownership for whole-desktop sessions.
 3. Expose the shared application catalog and semantic actions to external panels,
@@ -188,5 +199,15 @@ release, failure, reentrant completions and viewport limits.
 The Android shell runtime fixture uses the Binder bridge and an isolated layout scope,
 checking viewport-aligned pixels/input, Surface replacement and frame receipts;
 it does not test external panels hosted over Android application tasks.
+`FrameworkSurfaceInputApiTest` and `ShellDesktopChromeHostTest` cover permission
+denial, invalid ownership, commit failure/interruption, optional initialization
+and grant reset on host replacement. `ShellPanelInstrumentation` is a separate
+debug fixture on an explicitly selected active Desktop: it borrows the normal
+panel host and sets an exact two-part touchable region with the public
+`AttachedSurfaceControl` API. On RM11/API 36 with service UID 2000, the input
+dispatcher reports inherited `TRUSTED_OVERLAY`; mouse and touch reach both active
+strips while holes pass through to a different-UID Android application without
+closing the panel or stealing its keyboard focus. This verifies the Android
+host capability, not Wayland frame/region synchronization or other firmware.
 Desktop self-tests cover existing Android geometry and fullscreen transitions;
 they do not validate external Linux panel protocols or integrated-shell UX.

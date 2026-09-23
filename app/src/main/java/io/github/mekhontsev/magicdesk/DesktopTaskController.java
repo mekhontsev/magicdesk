@@ -602,6 +602,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     @Override
     public void prepareDesktopChromeHost(
             final int displayId,
+            final boolean requireTrustedOverlay,
             final TaskRepository.ActionCallback callback) {
         mHandler.post(() -> {
             if (!mRunning || mDisplayId != displayId || !mTaskWatcherReady) {
@@ -611,7 +612,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 }
                 return;
             }
-            mTaskWatcher.prepareDesktopChromeHost(displayId, callback);
+            mTaskWatcher.prepareDesktopChromeHost(displayId, requireTrustedOverlay, callback);
         });
     }
 

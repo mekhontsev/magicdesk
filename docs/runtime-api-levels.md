@@ -25,6 +25,7 @@ device validation on that release is still pending.
 | Android UI inspection and actions | API 34 plus authorized privileged service and a free UiAutomation connection. Inspect/wait select a display or task; task ownership uses the hidden AOSP AccessibilityWindowInfo accessor through the framework adapter. Missing ownership remains unknown, without disabling display inspection. No Desktop or root requirement; API 34 device validation is pending. |
 | Display input control and task transfer | API 34 plus working privileged framework capabilities. Explicit input control and ordinary fullscreen transfers do not start Desktop. Display switching is shared; Desktop window shortcuts remain API 35+ and require its prepared workspace. |
 | Managed Desktop and its self-tests | API 35 plus Desktop provisioning and the required task/window/input APIs. Ordinary tool availability does not imply Desktop availability. |
+| Sparse shell panels (optional host capability) | Managed Desktop plus `ACCESS_SURFACE_FLINGER` and the trusted-overlay SurfaceControl operation in the current service. Ordinary Desktop panels do not request it. The owned chrome surface retains its existing topology and input-focus policy; external panel admission also requires exact input geometry. |
 
 ## Boundary Enforcement
 

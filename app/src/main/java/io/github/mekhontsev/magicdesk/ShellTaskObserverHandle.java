@@ -99,9 +99,9 @@ final class ShellTaskObserverHandle implements Closeable {
                 mCallback, displayId, taskId, focusable));
     }
 
-    int prepareDesktopChromeHost(final int displayId) throws IOException {
+    int prepareDesktopChromeHost(final int displayId, final boolean requireTrustedOverlay) throws IOException {
         return callServiceForResult(() ->
-                mService.prepareDesktopChromeHost(mCallback, displayId));
+                mService.prepareDesktopChromeHost(mCallback, displayId, requireTrustedOverlay));
     }
 
     boolean clearConfiguration(final int expectedDisplayId)

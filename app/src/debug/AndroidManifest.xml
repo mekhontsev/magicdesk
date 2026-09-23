@@ -23,6 +23,10 @@
     </application>
 
     <instrumentation
+        android:name=".ShellPanelInstrumentation"
+        android:functionalTest="true"
+        android:targetPackage="io.github.mekhontsev.magicdesk" />
+    <instrumentation
         android:name=".ShellProbeInstrumentation"
         android:functionalTest="true"
         android:targetPackage="io.github.mekhontsev.magicdesk" />

@@ -492,7 +492,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             return plane;
         }
         final TaskDisplayAreaHandle plane =
-                TaskDisplayAreaHandle.createSurfaceOrdered(
+                TaskDisplayAreaHandle.createWithSurface(
                         displayId,
                         TaskDisplayAreaHandle.Parent.DEFAULT_TASK_CONTAINER,
                         "MagicDesk fullscreen slot " + mNextPlaneSlotId++);

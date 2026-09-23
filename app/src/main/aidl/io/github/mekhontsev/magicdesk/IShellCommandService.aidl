@@ -405,7 +405,8 @@ interface IShellCommandService {
 
     int prepareDesktopChromeHost(
         ITaskObserverCallback callback,
-        int displayId) = 113;
+        int displayId,
+        boolean requireTrustedOverlay) = 113;
 
     int launchPendingActivity(
         ITaskObserverCallback callback,

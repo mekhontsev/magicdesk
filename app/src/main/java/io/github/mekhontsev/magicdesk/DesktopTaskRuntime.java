@@ -151,7 +151,7 @@ interface DesktopTaskRuntime {
             IBinder activityToken, TaskRepository.ActionCallback callback);
 
     void prepareDesktopChromeHost(
-            int displayId, TaskRepository.ActionCallback callback);
+            int displayId, boolean requireTrustedOverlay, TaskRepository.ActionCallback callback);
 
     void setDesktopChromeFocusable(int displayId, int taskId,
             boolean focusable, TaskRepository.ActionCallback callback);

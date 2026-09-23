@@ -149,6 +149,12 @@ public final class FrameworkWindowingIsolationTest {
                 "\"syncInputTransactions\"");
     }
 
+    @Test public void shellSurfaceTrustHasOneFrameworkOwner() throws IOException {
+        assertNoSourceTokensOutside("Surface input policy outside framework adapter",
+                List.of("io/github/mekhontsev/magicdesk/FrameworkSurfaceInputApi.java"),
+                "\"setTrustedOverlay\"");
+    }
+
     @Test
     public void logicalCaptureUsesTheFrameworkAdapter() throws IOException {
         assertNoSourceTokensOutside(

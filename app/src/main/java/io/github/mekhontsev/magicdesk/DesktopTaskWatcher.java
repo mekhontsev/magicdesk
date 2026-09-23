@@ -231,6 +231,7 @@ final class DesktopTaskWatcher {
 
     void prepareDesktopChromeHost(
             final int displayId,
+            final boolean requireTrustedOverlay,
             final TaskRepository.ActionCallback callback) {
         final ShellTaskObserverHandle handle = currentHandle();
         if (handle == null) {
@@ -240,7 +241,7 @@ final class DesktopTaskWatcher {
         }
         TaskCommandQueue.execute(() -> {
             try {
-                final int taskId = handle.prepareDesktopChromeHost(displayId);
+                final int taskId = handle.prepareDesktopChromeHost(displayId, requireTrustedOverlay);
                 completeChromeHostPreparation(
                         callback, true, "task=" + taskId);
             } catch (IOException | RuntimeException error) {

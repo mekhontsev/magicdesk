@@ -116,7 +116,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mService, mDesktopOwnership);
         mFullscreenTaskArea = new ShellFullscreenTaskArea(
                 mDesktopOwnership, mSurfaceOrder);
-        mDesktopChromeHost = new ShellDesktopChromeHost(mService);
+        mDesktopChromeHost = new ShellDesktopChromeHost(mService, context);
         mSelfTestTaskStackGuard = new ShellSelfTestTaskStackGuard(mService);
         mSystemDialogTracker = new ShellSystemDialogTracker(
                 ShellSystemDialogPolicy.create(context.getPackageManager()),
@@ -612,7 +612,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mDesktopChromeHost.setFocusable(displayId, taskId, focusable);
     }
 
-    int prepareDesktopChromeHost(final int displayId) {
+    int prepareDesktopChromeHost(final int displayId, final boolean requireTrustedOverlay) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
@@ -622,7 +622,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                             + "; configured=" + mConfiguredDisplayId);
         }
         try {
-            return mDesktopChromeHost.prepare(displayId);
+            return mDesktopChromeHost.prepare(displayId, requireTrustedOverlay);
         } catch (RuntimeException error) {
             throw new IllegalStateException(
                     "cannot prepare desktop chrome host: "

@@ -610,9 +610,9 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     @Override
     public int prepareDesktopChromeHost(
             final ITaskObserverCallback callback,
-            final int displayId) {
+            final int displayId, final boolean requireTrustedOverlay) {
         return mTaskObserverManager.prepareDesktopChromeHost(
-                callback, displayId);
+                callback, displayId, requireTrustedOverlay);
     }
 
     @Override

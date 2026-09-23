@@ -66,11 +66,11 @@ public final class DesktopPanelArchitectureTest {
         assertTrue(controller.contains("prepareDesktopChromeHost"));
         assertFalse(controller.contains("startActivity("));
         assertTrue(host.contains("launchFullscreenTaskBehind"));
-        assertTrue(host.contains("TaskDisplayAreaHandle.create("));
+        assertTrue(host.contains("TaskDisplayAreaHandle.createWithSurface("));
         assertTrue(host.contains(
                 "TaskDisplayAreaHandle.Parent.ROOT"));
         assertFalse(host.contains("TaskDisplayAreaHandle.Parent.DEFAULT_TASK_CONTAINER"));
-        assertFalse(host.contains("createSurfaceOrdered"));
+        assertFalse(host.contains("setLayer("));
         assertFalse(host.contains("mSurfaceOrder"));
         assertFalse(host.contains("setSurfaceLayer"));
         final String planes = read(
@@ -83,6 +83,9 @@ public final class DesktopPanelArchitectureTest {
         assertFalse(host.contains("reorder(transaction, mArea.token()"));
         assertFalse(host.contains("setFocusable(transaction, mArea.token()"));
         assertFalse(host.contains("void raise("));
+        assertTrue(host.contains("requireTrustedOverlay && !mTrustedOverlay"));
+        assertTrue(host.contains("surfaceInput().trustOwnedOverlay("));
+        assertTrue(host.contains("mTrustedOverlay = false"));
         assertTrue(styles.contains("<style name=\"DesktopChromeTheme\""));
         assertTrue(styles.contains(
                 "<item name=\"android:windowIsTranslucent\">true</item>"));

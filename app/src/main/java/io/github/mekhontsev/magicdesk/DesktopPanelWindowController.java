@@ -587,6 +587,7 @@ final class DesktopPanelWindowController {
         mHostLaunchRequested = true;
         MagicDeskRuntime.prepareDesktopChromeHost(
                 mDisplayId,
+                false,
                 result -> {
                     if (mReleased) {
                         return;

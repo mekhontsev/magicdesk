@@ -115,9 +115,9 @@ final class ShellTaskObserverManager implements Closeable {
 
     int prepareDesktopChromeHost(
             final ITaskObserverCallback callback,
-            final int displayId) {
+            final int displayId, final boolean requireTrustedOverlay) {
         return requireSession(callback).observer.prepareDesktopChromeHost(
-                displayId);
+                displayId, requireTrustedOverlay);
     }
 
     boolean clearConfiguration(

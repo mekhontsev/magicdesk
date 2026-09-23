@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.ComponentName;
+import android.content.Context;
 import android.graphics.Rect;
 import android.util.Log;
 import android.view.Display;
@@ -16,14 +17,17 @@ final class ShellDesktopChromeHost implements AutoCloseable {
     private static final long TASK_REMOVAL_POLL_MILLIS = 25L;
 
     private final Object mService;
+    private final Context mContext;
 
     private TaskDisplayAreaHandle mArea;
     private int mDisplayId = Display.INVALID_DISPLAY;
     private int mTaskId = -1;
     private boolean mFocusable;
+    private boolean mTrustedOverlay;
 
-    ShellDesktopChromeHost(final Object service) {
+    ShellDesktopChromeHost(final Object service, final Context context) {
         mService = service;
+        mContext = context;
     }
 
     synchronized void configure(final int displayId) {
@@ -42,7 +46,7 @@ final class ShellDesktopChromeHost implements AutoCloseable {
         }
         mDisplayId = displayId;
         try {
-            mArea = TaskDisplayAreaHandle.create(
+            mArea = TaskDisplayAreaHandle.createWithSurface(
                     displayId,
                     // ActivityStarter assumes the next sibling of a root Task
                     // is also a Task. Keep chrome outside that sibling list.
@@ -74,7 +78,7 @@ final class ShellDesktopChromeHost implements AutoCloseable {
         }
     }
 
-    synchronized int prepare(final int displayId) {
+    synchronized int prepare(final int displayId, final boolean requireTrustedOverlay) {
         if (displayId != mDisplayId) {
             throw new IllegalStateException(
                     "stale chrome display " + displayId
@@ -89,6 +93,17 @@ final class ShellDesktopChromeHost implements AutoCloseable {
         if (task == null) {
             throw new IllegalStateException(
                     "desktop chrome host task is unavailable");
+        }
+        if (requireTrustedOverlay && !mTrustedOverlay) {
+            try {
+                ShellWindowTransitionExecutor.prepareSurfaceTransactions();
+                FrameworkRuntime.current().surfaceInput().trustOwnedOverlay(
+                        mContext, mArea.surfaceLeash());
+                // The grant belongs to this owned host's lifetime, not to a Linux client.
+                mTrustedOverlay = true;
+            } catch (ReflectiveOperationException error) {
+                throw new IllegalStateException("Shell surface input is unavailable", error);
+            }
         }
         return mTaskId;
     }
@@ -258,5 +273,6 @@ final class ShellDesktopChromeHost implements AutoCloseable {
         mDisplayId = Display.INVALID_DISPLAY;
         mTaskId = -1;
         mFocusable = false;
+        mTrustedOverlay = false;
     }
 }

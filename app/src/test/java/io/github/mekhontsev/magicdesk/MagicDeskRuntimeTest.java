@@ -112,7 +112,7 @@ public final class MagicDeskRuntimeTest {
         final int[] callbacks = {0};
 
         MagicDeskRuntime.configureDesktopActivityInput(7, token);
-        MagicDeskRuntime.prepareDesktopChromeHost(7, result -> {
+        MagicDeskRuntime.prepareDesktopChromeHost(7, false, result -> {
             callbacks[0]++;
             assertFalse(result.success);
         });

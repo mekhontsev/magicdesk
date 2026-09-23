@@ -51,7 +51,7 @@ final class TaskDisplayAreaHandle {
         return create(displayId, parent, name, false);
     }
 
-    static TaskDisplayAreaHandle createSurfaceOrdered(
+    static TaskDisplayAreaHandle createWithSurface(
             final int displayId,
             final Parent parent,
             final String name) throws ReflectiveOperationException {

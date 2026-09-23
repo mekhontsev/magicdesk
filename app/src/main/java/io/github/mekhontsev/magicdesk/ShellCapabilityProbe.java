@@ -36,6 +36,7 @@ public final class ShellCapabilityProbe {
             "android.permission.MANAGE_ACTIVITY_TASKS",
             "android.permission.SET_ACTIVITY_WATCHER",
             "android.permission.INTERNAL_SYSTEM_WINDOW",
+            FrameworkSurfaceInputApi.PERMISSION,
             "android.permission.WRITE_SECURE_SETTINGS",
             "android.permission.DEVICE_POWER",
             "android.permission.STATUS_BAR",

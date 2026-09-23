@@ -219,6 +219,7 @@ public final class MagicDeskRuntime {
 
     static void prepareDesktopChromeHost(
             final int displayId,
+            final boolean requireTrustedOverlay,
             final TaskRepository.ActionCallback callback) {
         final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks == null) {
@@ -228,7 +229,7 @@ public final class MagicDeskRuntime {
             }
             return;
         }
-        tasks.prepareDesktopChromeHost(displayId, callback);
+        tasks.prepareDesktopChromeHost(displayId, requireTrustedOverlay, callback);
     }
 
     static void setDesktopChromeFocusable(final int displayId, final int taskId,
