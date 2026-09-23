@@ -450,8 +450,7 @@ MdwOutput *mdw_output_create(MdwServer *server, uint64_t id, int width, int heig
 }
 
 bool mdw_output_resize(MdwOutput *output, int width, int height) {
-    if (!mdw_output_viewport(output, output && output->scene_output ? output->scene_output->x : 0,
-            output && output->scene_output ? output->scene_output->y : 0, width, height)) return false;
+    if (!mdw_output_viewport(output, 0, 0, width, height)) return false;
     if (output->view->configure) output->view->configure(output->view, width, height);
     return true;
 }
@@ -468,7 +467,7 @@ bool mdw_output_viewport(MdwOutput *output, int x, int y, int width, int height)
     wlr_output_state_finish(&state);
     if (committed) {
         wlr_scene_output_set_position(output->scene_output, x, y);
-        if (output->visible) wlr_output_schedule_frame(output->output);
+        mdw_output_refresh(output);
     }
     return committed;
 }

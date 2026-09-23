@@ -86,8 +86,8 @@ describe its creator and must not be mistaken for the launched client's identity
   Closing a window sends `xdg_toplevel.close`; client destruction is a separate
   observation. Closing the retained session stops the server.
 - Software frames cross Binder as sealed, tightly packed RGBA memfds, not byte
-  arrays or Android surfaces. Each output has one unacknowledged frame and the
-  visible host retains at most one latest frame. Credit is checked before
+  arrays or Android surfaces. Each output has one unacknowledged frame; the
+  presenter releases its memfd after submission to the Android buffer queue. Credit is checked before
   rendering; a deferred update requests a redraw after acknowledgement. Stale
   acknowledgements cannot release a newer frame. An absent Android Surface
   disables its output and releases focus instead of continuing hidden animation.
@@ -96,6 +96,13 @@ describe its creator and must not be mistaken for the launched client's identity
   its `ANativeWindow` writes. Output closure releases the presenter independently
   from client/session closure. Window metadata crosses Binder only when changed;
   pixel-only commits do not rebuild the window catalog.
+- A presentation generation identifies an output viewport and its retained
+  Android Surface. Stale frames are acknowledged without presentation, and stale
+  viewport failures cannot reject a newer request. `FramePresentation` completes
+  a receipt only after a matching frame is queued to that Surface; it is not an
+  Android compositor/scanout acknowledgement or a grant of input focus. Replacing
+  a request cancels its old receipt. A Surface replacement requests fresh pixels
+  even when geometry and client content have not changed.
 - Native pointer and keyboard input have separate output owners. A keyboard-inert
   shell surface can accept pointer input without taking the application's keyboard.
   Focus transfer, output release, keyboard-policy revocation and unmap release the
@@ -171,13 +178,17 @@ Input publication is bounded to 512 rectangles. An over-complex region is explic
 incomplete with no published input rectangles, not replaced by its bounding box.
 Hosts must not capture input using incomplete geometry. Layer popups are constrained
 against the logical shell output in family coordinates, independently of the panel's
-reserved strip. The native output viewport can include negative paint extents without
-resizing the client; pointer hit-testing uses that same viewport origin.
+reserved strip. `Output.setSurface(Surface, WaylandViewport)` can include negative
+paint extents without resizing the client; pointer hit-testing uses that same
+viewport origin. Its future confirms submission of the corresponding pixels.
+The size-based application adapter also configures the client at origin zero.
 
-Android shell hosts still need to materialize this geometry, synchronize viewport
-changes with presented frames, and apply exact Android touchable regions before
-external panels can be exposed. Ordinary application hosts retain their existing
-viewport policy.
+Android shell hosts still need to coordinate window placement and input with
+these receipts, and apply exact Android touchable regions before external panels
+can be exposed. Touchable regions alone do not establish cross-UID pass-through:
+Android's obscuring-window check also considers window frames. Validate that
+boundary without disabling untrusted-touch protection or changing task topology.
+Ordinary application hosts retain their existing viewport policy.
 
 ## Implementation Plan
 
@@ -399,8 +410,9 @@ operation on API 34 still require device validation.
 
 The shell variant drives a real layer-shell client through JNI/Binder and the
 common layout adapter, using an isolated scope rather than Desktop. It checks
-family geometry publication and revocation, premultiplied alpha in an Android Surface, keyboard-inert pointer interaction,
-on-demand keyboard input, remapping and scope revocation:
+family geometry publication and revocation, premultiplied alpha in an Android
+Surface, negative-origin viewport pixels/input, Surface replacement, keyboard-inert
+pointer interaction, on-demand keyboard input, remapping and scope revocation:
 
 ```sh
 am instrument --no-restart -w -e shell true \
@@ -432,8 +444,10 @@ or an API-34 device.
 
 The API-36 shell runtime fixture passed with a Termux-UID compositor and an
 app-UID Android presenter: typed catalog/configure exchange, alpha pixels,
-family geometry with precise input holes and revocation, pointer interaction while
+family geometry with precise input holes and revocation, generation-qualified
+viewport receipts and pixels after Surface replacement, pointer interaction while
 application keyboard focus is retained, on-demand keyboard transfer, remapping
 and scope release. The ordinary application runtime fixture also passed, including
-family geometry publication and cleanup. These checks do not
+family geometry publication, an unchanged viewport's fresh frame receipt and
+cleanup. These checks do not
 establish Android chrome-host integration, Linux panel UX or API-34 coverage.

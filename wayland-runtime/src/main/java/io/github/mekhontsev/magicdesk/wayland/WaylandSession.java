@@ -72,27 +72,51 @@ public final class WaylandSession implements AutoCloseable {
                 main.post(listener::changed);
             });
         }
-        @Override public void frame(long id, long serial, ParcelFileDescriptor pixels, int width, int height) {
+        @Override public void frame(long id, long serial, long generation, ParcelFileDescriptor pixels, int width, int height) {
             try { checkCaller(); }
             catch (RuntimeException error) { closeDescriptor(pixels); throw error; }
             if (!handler.post(() -> {
                 Output output = outputs.get(id);
-                if (closed.get() || output == null || output.released.get()) {
+                if (closed.get() || output == null || output.released.get() || !output.presentation.accepts(generation)) {
                     closeDescriptor(pixels);
                     frameConsumed(id, serial);
                 } else {
-                    if (output.width != width || output.height != height) {
-                        output.width = width; output.height = height;
-                        main.post(() -> { if (!closed.get() && !output.released.get()) listener.frame(id, width, height); });
-                    }
-                    output.presenter.present(pixels, width, height,
-                            () -> handler.post(() -> frameConsumed(id, serial)));
+                    output.presenter.present(pixels, width, height, generation, submitted -> handler.post(() -> {
+                        frameConsumed(id, serial);
+                        if (closed.get() || output.released.get() || !output.presentation.accepts(generation)) return;
+                        if (!submitted) {
+                            String message = "Wayland frame was not submitted to the Android Surface";
+                            output.presentation.fail(new IOException(message));
+                            if (pixels != null) WaylandSession.this.failed(id, message);
+                            return;
+                        }
+                        if (output.width != width || output.height != height) {
+                            output.width = width; output.height = height;
+                            main.post(() -> {
+                                if (!closed.get() && !output.released.get() && output.presentation.accepts(generation))
+                                    listener.frame(id, width, height);
+                            });
+                        }
+                        output.presentation.submitted(generation);
+                    }));
                 }
             })) closeDescriptor(pixels);
         }
-        @Override public void failed(long output, String message) {
+        @Override public void failed(long output, long generation, String message) {
             checkCaller();
-            WaylandSession.this.failed(output, message);
+            handler.post(() -> {
+                Output current = outputs.get(output);
+                if (generation != 0 && (current == null || !current.presentation.accepts(generation))) return;
+                if (current != null) {
+                    if (generation == 0) {
+                        current.release();
+                        outputs.remove(output);
+                        if (!closed.get()) remote(() -> server.releaseOutput(output));
+                    }
+                    else current.presentation.fail(new IOException(message));
+                }
+                WaylandSession.this.failed(output, message);
+            });
         }
         @Override public void client(long request, ParcelFileDescriptor descriptor, String error) {
             try { checkCaller(); }
@@ -376,12 +400,13 @@ public final class WaylandSession implements AutoCloseable {
         private int width, height;
         private final AtomicBoolean released = new AtomicBoolean();
         private final WaylandFramePresenter presenter;
+        private final FramePresentation presentation = new FramePresentation();
 
         private Output(long id, long window, ShellBinding binding) {
             this.id = id;
             this.window = window;
             this.binding = binding;
-            presenter = new WaylandFramePresenter(id, message -> failed(id, message));
+            presenter = new WaylandFramePresenter(id);
         }
 
         private void command(Command command) {
@@ -389,12 +414,49 @@ public final class WaylandSession implements AutoCloseable {
         }
 
         public void setSurface(Surface nextSurface, int width, int height) {
-            if (released.get() || closed.get()) return;
-            if (!presenter.setSurface(nextSurface)) return;
-            command(() -> {
-                if (nextSurface != null) server.resize(id, width, height);
-                server.setVisible(id, nextSurface != null);
-            });
+            try { setSurface(nextSurface, nextSurface == null ? null : new WaylandViewport(0, 0, width, height), true); }
+            catch (IllegalArgumentException error) { failed(id, error.getMessage()); }
+        }
+
+        /** Completes after a matching frame is queued to this Surface, not after display scanout. */
+        public CompletableFuture<Void> setSurface(Surface surface, WaylandViewport viewport) {
+            return setSurface(java.util.Objects.requireNonNull(surface), java.util.Objects.requireNonNull(viewport), false);
+        }
+
+        private CompletableFuture<Void> setSurface(Surface surface, WaylandViewport viewport, boolean configureClient) {
+            CompletableFuture<Void> completion = new CompletableFuture<>();
+            final WaylandFramePresenter.SurfaceLease lease;
+            try { lease = new WaylandFramePresenter.SurfaceLease(surface); }
+            catch (IOException | RuntimeException error) {
+                completion.completeExceptionally(error);
+                failed(id, error.getMessage());
+                return completion;
+            }
+            if (!handler.post(() -> {
+                if (closed.get() || released.get()) {
+                    lease.close();
+                    completion.completeExceptionally(new IOException("Wayland output is closed"));
+                    return;
+                }
+                long generation = presentation.begin(completion);
+                width = height = 0;
+                if (!presenter.setSurface(lease, generation)) {
+                    String message = "Cannot attach Android Surface";
+                    presentation.fail(new IOException(message));
+                    failed(id, message);
+                    return;
+                }
+                remote(() -> {
+                    if (surface != null) server.viewport(id, generation, viewport.x(), viewport.y(),
+                            viewport.width(), viewport.height(), configureClient);
+                    server.setVisible(id, surface != null);
+                });
+                if (surface == null) presentation.submitted(generation);
+            })) {
+                lease.close();
+                completion.completeExceptionally(new IOException("Wayland session is closed"));
+            }
+            return completion;
         }
 
         public void focus(boolean focused) { command(() -> server.focus(id, focused)); }
@@ -408,6 +470,7 @@ public final class WaylandSession implements AutoCloseable {
 
         private void release() {
             released.set(true);
+            presentation.invalidate("Wayland output released");
             presenter.close();
         }
 

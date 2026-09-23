@@ -14,67 +14,63 @@ final class WaylandFramePresenter implements AutoCloseable {
     private final HandlerThread thread;
     private final Handler handler;
     private final AtomicBoolean closed = new AtomicBoolean();
-    private final Consumer<String> failure;
     private long surface;
-    private ParcelFileDescriptor frame;
-    private int frameWidth, frameHeight;
+    private volatile long requestedGeneration;
+    private long surfaceGeneration;
 
-    WaylandFramePresenter(long id, Consumer<String> failure) {
-        this.failure = failure;
+    WaylandFramePresenter(long id) {
         thread = new HandlerThread("WaylandOutput-" + id);
         thread.start();
         handler = new Handler(thread.getLooper());
     }
 
-    boolean setSurface(Surface nextSurface) {
-        if (closed.get()) return false;
-        long next = nextSurface == null ? 0 : nativeAcquire(nextSurface);
-        if (nextSurface != null && next == 0) {
-            failure.accept("Cannot retain Android Surface");
-            return false;
+    /** Retained before the caller can release its Java Surface; transferred once to the worker. */
+    static final class SurfaceLease implements AutoCloseable {
+        private long handle;
+
+        SurfaceLease(Surface surface) throws IOException {
+            handle = surface == null ? 0 : nativeAcquire(surface);
+            if (surface != null && handle == 0) throw new IOException("Cannot retain Android Surface");
         }
+
+        long take() { long result = handle; handle = 0; return result; }
+        @Override public void close() { nativeRelease(take()); }
+    }
+
+    boolean setSurface(SurfaceLease lease, long generation) {
+        long next = lease.take();
+        if (closed.get()) { nativeRelease(next); return false; }
+        requestedGeneration = generation;
         if (handler.post(() -> {
             if (closed.get()) { nativeRelease(next); return; }
             nativeRelease(surface);
             surface = next;
-            if (surface == 0) clearFrame();
-            else if (frame != null && !nativePresent(surface, frame.getFd(), frameWidth, frameHeight))
-                failure.accept("Cannot present retained Wayland frame");
+            surfaceGeneration = generation;
         })) return true;
         nativeRelease(next);
         return false;
     }
 
-    void present(ParcelFileDescriptor pixels, int width, int height, Runnable consumed) {
+    void present(ParcelFileDescriptor pixels, int width, int height, long generation, Consumer<Boolean> consumed) {
         if (!handler.post(() -> {
+            boolean submitted = false;
             try {
-                if (closed.get() || surface == 0) { closeDescriptor(pixels); return; }
-                clearFrame();
+                if (closed.get() || surface == 0 || generation != requestedGeneration || generation != surfaceGeneration) return;
                 if (pixels == null) { nativeClear(surface); return; }
-                if (!nativePresent(surface, pixels.getFd(), width, height)) {
-                    closeDescriptor(pixels);
-                    failure.accept("Invalid or unavailable Wayland frame");
-                    return;
-                }
-                frame = pixels;
-                frameWidth = width;
-                frameHeight = height;
-            } finally { consumed.run(); }
+                submitted = nativePresent(surface, pixels.getFd(), width, height);
+            } finally {
+                closeDescriptor(pixels);
+                consumed.accept(submitted);
+            }
         })) {
             closeDescriptor(pixels);
-            consumed.run();
+            consumed.accept(false);
         }
-    }
-
-    private void clearFrame() {
-        closeDescriptor(frame);
-        frame = null;
     }
 
     @Override public void close() {
         if (!closed.compareAndSet(false, true)) return;
         handler.post(() -> {
-            clearFrame();
             nativeRelease(surface);
             surface = 0;
             thread.quitSafely();

@@ -140,7 +140,11 @@ paint extents and precise input rectangles, including popups/subsurfaces, throug
 Shell geometry follows the same revocable owner as the surface catalog. Android
 hosts must translate these family coordinates into their layout scope and apply
 exact input regions. An incomplete region is not permission to capture its bounding
-box. Frame/viewport synchronization and Android materialization remain host work.
+box. The output API provides a generation-qualified viewport/Surface receipt:
+matching pixels have been queued to Android, not necessarily displayed. Hosts must
+coordinate placement and input with this receipt. Android's separate cross-UID
+touch-occlusion checks must also be satisfied; a region with holes is not by itself
+proof that underlying application windows can receive input.
 
 The wlroots separation of protocol state, `full_area`/`usable_area` arrangement,
 scene nodes and seat focus is the reference, not an Android dependency. The
@@ -153,7 +157,8 @@ and [EWMH](https://specifications.freedesktop.org/wm/latest-single/).
 
 1. Host backgrounds and bottom surfaces in existing HOME infrastructure, and top
    surfaces in the existing chrome host. Consume popup paint extents and precise
-   input regions, with frame/viewport synchronization, before admitting external panels. Apply workspace fullscreen and
+   input regions, coordinate placement/input with frame receipts, and verify
+   cross-UID touch pass-through before admitting external panels. Apply workspace fullscreen and
    focus policy rather than mapping layer numbers directly to Android z-order.
 2. Adapt X11 DOCK/DESKTOP properties and struts to the same bindings. Preserve
    guest-WM ownership for whole-desktop sessions.
@@ -178,7 +183,10 @@ lease revocation, obsolete configurations and catalog bounds. The native
 geometry fixture covers constrained popups, synchronized subsurfaces,
 input holes, publication limits and pixel-only metadata stability;
 `WaylandViewGeometryTest` covers immutable snapshots and unavailable input.
-The Android shell runtime fixture uses the Binder bridge and an isolated layout scope;
+`FramePresentationTest` covers generation replacement, stale acknowledgements,
+release, failure, reentrant completions and viewport limits.
+The Android shell runtime fixture uses the Binder bridge and an isolated layout scope,
+checking viewport-aligned pixels/input, Surface replacement and frame receipts;
 it does not test external panels hosted over Android application tasks.
 Desktop self-tests cover existing Android geometry and fullscreen transitions;
 they do not validate external Linux panel protocols or integrated-shell UX.

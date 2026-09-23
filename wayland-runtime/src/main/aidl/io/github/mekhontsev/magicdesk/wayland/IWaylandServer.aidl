@@ -4,7 +4,7 @@ import io.github.mekhontsev.magicdesk.wayland.IWaylandEvents;
 interface IWaylandServer {
     void retain(IWaylandEvents owner);
     oneway void openOutput(long output, long window, long shellOwner, int width, int height);
-    oneway void resize(long output, int width, int height);
+    oneway void viewport(long output, long generation, int x, int y, int width, int height, boolean configureClient);
     oneway void setVisible(long output, boolean visible);
     oneway void releaseOutput(long output);
     oneway void focus(long output, boolean focused);

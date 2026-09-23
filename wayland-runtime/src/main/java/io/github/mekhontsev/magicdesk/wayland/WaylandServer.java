@@ -41,6 +41,7 @@ public final class WaylandServer extends IWaylandServer.Stub {
     private static final class Output {
         final long id, window, handle;
         final FrameCredit credit = new FrameCredit();
+        long generation;
         int width, height;
         Output(long id, long window, long handle, int width, int height) {
             this.id = id; this.window = window; this.handle = handle; this.width = width; this.height = height;
@@ -151,14 +152,19 @@ public final class WaylandServer extends IWaylandServer.Stub {
         });
     }
 
-    @Override public void resize(long id, int width, int height) {
+    @Override public void viewport(long id, long generation, int x, int y, int width, int height, boolean configureClient) {
         command(() -> {
             Output output = outputs.get(id);
-            if (output == null) return;
-            if (!dimensions(id, width, height) || !nativeResize(output.handle, width, height)) {
-                failed(id, "Cannot resize Wayland output");
+            if (output == null) { failed(id, generation, "Wayland output is unavailable"); return; }
+            if (generation <= output.generation) return;
+            if (x < -16384 || y < -16384 || x > 16384 || y > 16384
+                    || (configureClient && (x != 0 || y != 0)) || !dimensions(id, width, height)
+                    || !(configureClient ? nativeResize(output.handle, width, height)
+                        : nativeViewport(output.handle, x, y, width, height))) {
+                failed(id, generation, "Cannot configure Wayland output viewport");
                 return;
             }
+            output.generation = generation;
             output.width = width; output.height = height;
         });
     }
@@ -265,7 +271,8 @@ public final class WaylandServer extends IWaylandServer.Stub {
     private void onFrame(long pointer, int descriptor, int width, int height) {
         try (ParcelFileDescriptor pixels = descriptor < 0 ? null : ParcelFileDescriptor.adoptFd(descriptor)) {
             Output output = nativeOutputs.get(pointer);
-            if (output != null) owner.frame(output.id, pixels == null ? 0 : output.credit.pending(), pixels, width, height);
+            if (output != null) owner.frame(output.id, pixels == null ? 0 : output.credit.pending(),
+                    output.generation, pixels, width, height);
         } catch (RemoteException | IOException error) { requestStop(); }
     }
 
@@ -314,7 +321,10 @@ public final class WaylandServer extends IWaylandServer.Stub {
 
     private void onError(String message) { failed(0, message); requestStop(); }
     private void failed(long id, String message) {
-        try { if (owner != null) owner.failed(id, message); }
+        failed(id, 0, message);
+    }
+    private void failed(long id, long generation, String message) {
+        try { if (owner != null) owner.failed(id, generation, message); }
         catch (RemoteException error) { requestStop(); }
     }
 
@@ -363,6 +373,7 @@ public final class WaylandServer extends IWaylandServer.Stub {
     private static native void nativeStop(long server);
     private static native long nativeOpenOutput(long server, long window, int width, int height);
     private static native boolean nativeResize(long output, int width, int height);
+    private static native boolean nativeViewport(long output, int x, int y, int width, int height);
     private static native boolean nativeSetVisible(long output, boolean visible);
     private static native void nativeReleaseOutput(long output);
     private static native void nativeRefresh(long output);

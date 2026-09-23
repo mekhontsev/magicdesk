@@ -15,6 +15,7 @@ import io.github.mekhontsev.magicdesk.wayland.IWaylandServer;
 import io.github.mekhontsev.magicdesk.wayland.WaylandClientLaunch;
 import io.github.mekhontsev.magicdesk.wayland.WaylandServer;
 import io.github.mekhontsev.magicdesk.wayland.WaylandSession;
+import io.github.mekhontsev.magicdesk.wayland.WaylandViewport;
 import java.io.IOException;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -38,7 +39,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
             try {
                 runRuntime();
                 result.putString("wayland_runtime", shellTest
-                        ? "passed: cross-UID shell binding, family geometry, Android alpha pixels, input isolation, remap, scope release"
+                        ? "passed: cross-UID shell binding, family geometry, viewport pixels/input, Surface replacement, input isolation, remap, scope release"
                         : "passed: cross-UID compositor, client FD, family geometry, Android pixels, input, close");
                 finish(Activity.RESULT_OK, result);
             } catch (Exception error) {
@@ -142,6 +143,8 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                         if (shell != null) shell.exercise(output);
                         else {
                             pixels.get(15, TimeUnit.SECONDS);
+                            // A replacement presentation also needs a receipt when the client is idle.
+                            output.setSurface(images.getSurface(), new WaylandViewport(0, 0, 80, 60)).get(15, TimeUnit.SECONDS);
                             output.focus(true);
                             output.pointer(.25, .25);
                             output.button(0, true);
@@ -218,8 +221,9 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                     var plane = image.getPlanes()[0];
                     var pixels = plane.getBuffer();
                     int padding = 35 * plane.getRowStride() + 70 * plane.getPixelStride();
-                    if ((pixels.get(0) & 255) == 0x40 && (pixels.get(1) & 255) == 0x20
-                            && (pixels.get(2) & 255) == 0x10 && (pixels.get(3) & 255) == 0x80
+                    int color = 10 * plane.getRowStride() + 12 * plane.getPixelStride();
+                    if (pixels.get(3) == 0 && (pixels.get(color) & 255) == 0x40 && (pixels.get(color + 1) & 255) == 0x20
+                            && (pixels.get(color + 2) & 255) == 0x10 && (pixels.get(color + 3) & 255) == 0x80
                             && pixels.get(padding + 3) == 0) alpha.complete(null);
                 } catch (RuntimeException error) { alpha.completeExceptionally(error); }
             }, main);
@@ -230,21 +234,35 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
             geometry.get(15, TimeUnit.SECONDS);
             AtomicReference<WaylandSession.Output> panel = new AtomicReference<>();
             runOnMainSync(() -> panel.set(binding.get().openOutput(surface, 80, 40)));
-            try (var output = panel.get()) {
-                output.setSurface(images.getSurface(), 80, 40);
+            try (var output = panel.get();
+                    var replacement = ImageReader.newInstance(80, 40, PixelFormat.RGBA_8888, 2)) {
+                output.setSurface(images.getSurface(), new WaylandViewport(-8, -6, 80, 40)).get(15, TimeUnit.SECONDS);
                 alpha.get(15, TimeUnit.SECONDS);
                 app.focus(true);
                 app.key(30, true);
                 output.focus(true);
                 output.key(48, true);
                 app.key(30, false);
-                output.pointer(.1, .1);
+                output.pointer(.2, .25);
                 output.button(0, true);
                 output.button(0, false);
                 interactive.get(15, TimeUnit.SECONDS);
                 output.focus(true);
                 output.key(48, true);
                 remapped.get(15, TimeUnit.SECONDS);
+                var replacedPixels = new CompletableFuture<Void>();
+                replacement.setOnImageAvailableListener(reader -> {
+                    try (var image = reader.acquireLatestImage()) {
+                        if (image == null) return;
+                        var plane = image.getPlanes()[0];
+                        var data = plane.getBuffer();
+                        if ((data.get(0) & 255) == 0x40 && (data.get(1) & 255) == 0x20
+                                && (data.get(2) & 255) == 0x10 && (data.get(3) & 255) == 0x80)
+                            replacedPixels.complete(null);
+                    } catch (RuntimeException error) { replacedPixels.completeExceptionally(error); }
+                }, new Handler(Looper.getMainLooper()));
+                output.setSurface(replacement.getSurface(), new WaylandViewport(4, 2, 80, 40)).get(15, TimeUnit.SECONDS);
+                replacedPixels.get(15, TimeUnit.SECONDS);
                 runOnMainSync(scope::clear);
                 if (!scope.snapshot().exclusions().isEmpty()) throw new IOException("Shell reservations survived revocation");
                 if (binding.get().geometry(surface) != null) throw new IOException("Shell geometry survived revocation");

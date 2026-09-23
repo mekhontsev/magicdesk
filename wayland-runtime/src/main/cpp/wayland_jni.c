@@ -185,6 +185,12 @@ JNIEXPORT jboolean JNICALL JNI(nativeResize)(JNIEnv *env, jclass type, jlong out
     return mdw_output_resize((void *)(intptr_t)output, width, height);
 }
 
+JNIEXPORT jboolean JNICALL JNI(nativeViewport)(JNIEnv *env, jclass type, jlong output,
+        jint x, jint y, jint width, jint height) {
+    (void)env; (void)type;
+    return mdw_output_viewport((void *)(intptr_t)output, x, y, width, height);
+}
+
 JNIEXPORT void JNICALL JNI(nativeReleaseOutput)(JNIEnv *env, jclass type, jlong output) {
     (void)env; (void)type;
     mdw_output_destroy((void *)(intptr_t)output);
