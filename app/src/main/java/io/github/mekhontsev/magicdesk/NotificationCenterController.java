@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.graphics.Rect;
+
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_CYAN;
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_MUTED;
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_PANEL;
@@ -134,15 +136,16 @@ final class NotificationCenterController {
         mActivity.captureInteractionStackForPanel();
         DesktopNotificationListenerService.markAllRead();
         render();
-        final int areaWidth = mActivity.getDesktopAreaWidth();
-        final int areaHeight = mActivity.getDesktopAreaHeight();
+        final Rect area = mActivity.getDesktopPanelAreaBounds();
+        final int areaWidth = area.width();
+        final int areaHeight = area.height();
         final int width =
                 Math.min(dp(420), Math.max(dp(280), areaWidth - dp(16)));
         final int height = Math.max(
-                dp(180), areaHeight - mActivity.getTaskbarHeight() - dp(16));
-        final int left = mActivity.getDesktopAreaLeft()
+                dp(180), areaHeight - dp(16));
+        final int left = area.left
                 + Math.max(0, areaWidth - width - dp(8));
-        final int top = mActivity.getDesktopAreaTop() + dp(8);
+        final int top = area.top + dp(8);
         if (!panels.show(mPanel, left, top, width, height,
                 false, "MagicDesk notifications")) {
             mActivity.setErrorStatus("PANEL-001", mActivity.getString(
@@ -510,23 +513,22 @@ final class NotificationCenterController {
             return;
         }
         final View popup = createItem(entry, true);
-        final int areaWidth = mActivity.getDesktopAreaWidth();
-        final int areaHeight = mActivity.getDesktopAreaHeight();
+        final Rect area = mActivity.getDesktopPanelAreaBounds();
+        final int areaWidth = area.width();
+        final int areaHeight = area.height();
         final int width = Math.min(dp(380), areaWidth - dp(24));
         popup.measure(
                 View.MeasureSpec.makeMeasureSpec(
                         width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(
-                        Math.max(dp(100), areaHeight
-                                - mActivity.getTaskbarHeight() - dp(24)),
+                        Math.max(dp(100), areaHeight - dp(24)),
                         View.MeasureSpec.AT_MOST));
         final int height = Math.max(dp(92), popup.getMeasuredHeight());
-        final int left = mActivity.getDesktopAreaLeft()
+        final int left = area.left
                 + Math.max(0, areaWidth - width - dp(12));
-        final int top = mActivity.getDesktopAreaTop() + Math.max(
+        final int top = area.top + Math.max(
                 dp(12),
-                areaHeight - mActivity.getTaskbarHeight()
-                        - height - dp(12));
+                areaHeight - height - dp(12));
         if (!panels.showTransient(
                 popup, left, top, width, height, 7000L,
                 "MagicDesk notification")) {

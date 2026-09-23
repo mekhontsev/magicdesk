@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.graphics.Rect;
+
 import android.app.Activity;
 import android.content.Context;
 import android.graphics.PixelFormat;
@@ -83,17 +85,18 @@ final class DisplaySwitchPanel implements AutoCloseable {
             windows = null;
             popup = null;
             panels = pointerHost.panels();
-            final int panelWidth = Math.min(width, Math.max(1, pointerHost.getDesktopAreaWidth() - padding * 2));
+            final Rect area = pointerHost.getDesktopPanelAreaBounds();
+            final int panelWidth = Math.min(width, Math.max(1, area.width() - padding * 2));
             final int panelHeight = Math.min(height + Math.round(48 * density), Math.max(1,
-                    pointerHost.getDesktopAreaHeight() - pointerHost.getTaskbarHeight() - padding * 2));
+                    area.height() - padding * 2));
             content.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
                 @Override public void onViewAttachedToWindow(View view) { }
                 @Override public void onViewDetachedFromWindow(View view) { cancel.run(); }
             });
             if (panels == null || !panels.show(content,
-                    pointerHost.getDesktopAreaLeft() + (pointerHost.getDesktopAreaWidth() - panelWidth) / 2,
-                    pointerHost.getDesktopAreaTop() + Math.max(padding,
-                            (pointerHost.getDesktopAreaHeight() - pointerHost.getTaskbarHeight() - panelHeight) / 2),
+                    area.left + (area.width() - panelWidth) / 2,
+                    area.top + Math.max(padding,
+                            (area.height() - panelHeight) / 2),
                     panelWidth, panelHeight, false, false, "MagicDesk display switcher")) {
                 throw new IllegalStateException("Display switcher panel is unavailable");
             }

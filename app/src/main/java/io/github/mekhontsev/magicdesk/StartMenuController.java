@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.graphics.Rect;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.LinearLayout;
@@ -74,12 +75,12 @@ final class StartMenuController implements StartMenuContent.Host {
             return;
         }
         mContent.prepare(focusable);
-        final int width = getWidth();
-        final int height = getHeight();
-        final int left = mActivity.getDesktopAreaLeft() + mUi.desktopDp(
+        final Rect area = mActivity.getDesktopPanelAreaBounds();
+        final int width = getWidth(area);
+        final int height = getHeight(area);
+        final int left = area.left + mUi.desktopDp(
                 16, 6, mActivity.isCompactDesktopPreview());
-        final int top = mActivity.getDesktopAreaTop() + Math.max(
-                0, mActivity.getDesktopAreaHeight() - mActivity.getTaskbarHeight() - height);
+        final int top = area.top + Math.max(0, area.height() - height);
         if (!panels.show(mPanel, left, top, width, height, focusable,
                 "MagicDesk Start")) {
             mActivity.setErrorStatus(
@@ -91,16 +92,16 @@ final class StartMenuController implements StartMenuContent.Host {
         }
     }
 
-    private int getWidth() {
+    private int getWidth(final Rect area) {
         final int margin = mUi.desktopDp(16, 6, mActivity.isCompactDesktopPreview());
         return Math.min(mUi.dp(560), Math.max(
-                1, mActivity.getDesktopAreaWidth() - margin * 2));
+                1, area.width() - margin * 2));
     }
 
-    private int getHeight() {
+    private int getHeight(final Rect area) {
         final int margin = mUi.desktopDp(12, 4, mActivity.isCompactDesktopPreview());
         return Math.min(mUi.dp(620), Math.max(
-                1, mActivity.getDesktopAreaHeight() - mActivity.getTaskbarHeight() - margin));
+                1, area.height() - margin));
     }
 
     @Override public List<AppItem> apps() { return mActivity.getLauncherApps(); }

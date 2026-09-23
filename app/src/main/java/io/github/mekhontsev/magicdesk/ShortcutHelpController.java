@@ -79,8 +79,7 @@ final class ShortcutHelpController {
 
     void toggle(
             final DesktopPanelWindowController panels,
-            final Rect contentBounds,
-            final int taskbarHeight) {
+            final Rect contentBounds) {
         if (panels == null || mPanel == null) {
             return;
         }
@@ -92,11 +91,11 @@ final class ShortcutHelpController {
         final int areaHeight = contentBounds.height();
         final int width = Math.min(dp(520), areaWidth - dp(24));
         final int height =
-                Math.min(dp(560), areaHeight - taskbarHeight - dp(24));
+                Math.min(dp(560), areaHeight - dp(24));
         final int left = contentBounds.left
                 + Math.max(0, (areaWidth - width) / 2);
         final int top = contentBounds.top
-                + Math.max(0, (areaHeight - taskbarHeight - height) / 2);
+                + Math.max(0, (areaHeight - height) / 2);
         if (!panels.show(
                 mPanel, left, top, width, height,
                 false, "MagicDesk keyboard shortcuts")) {

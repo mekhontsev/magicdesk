@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.graphics.Rect;
+
 import android.appwidget.AppWidgetProviderInfo;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
@@ -67,19 +69,19 @@ final class DesktopWidgetPickerController {
         panel.addView(scroll, scrollParams);
 
         final int margin = dp(16);
+        final Rect area = mActivity.getDesktopPanelAreaBounds();
         final int width = Math.min(
                 dp(mActivity.isCompactDesktopPreview() ? 390 : 560),
-                Math.max(dp(280), mActivity.getDesktopAreaWidth() - 2 * margin));
+                Math.max(dp(280), area.width() - 2 * margin));
         final int availableHeight = Math.max(
                 dp(240),
-                mActivity.getDesktopAreaHeight()
-                        - mActivity.getTaskbarHeight() - 2 * margin);
+                area.height() - 2 * margin);
         final int height = Math.min(
                 dp(mActivity.isCompactDesktopPreview() ? 560 : 760),
                 availableHeight);
-        final int left = mActivity.getDesktopAreaLeft()
-                + Math.max(0, (mActivity.getDesktopAreaWidth() - width) / 2);
-        final int top = mActivity.getDesktopAreaTop()
+        final int left = area.left
+                + Math.max(0, (area.width() - width) / 2);
+        final int top = area.top
                 + Math.max(0, (availableHeight - height) / 2);
         panels.show(
                 panel, left, top, width, height,

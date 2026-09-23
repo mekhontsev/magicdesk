@@ -21,6 +21,7 @@ final class DesktopLayoutController {
     interface RuntimeState {
         int displayId();
         int taskbarHeight();
+        boolean taskbarAutoHide();
         void onImeVisibilityChanged(boolean visible);
         void onViewportChanged();
     }
@@ -29,6 +30,7 @@ final class DesktopLayoutController {
     private final RuntimeState mRuntimeState;
 
     private DesktopViewport mViewport;
+    private final DesktopShellLayout mShellLayout = new DesktopShellLayout();
     private View mWindowRoot;
     private View mDesktopContent;
     private View mStatusBarBackdrop;
@@ -48,6 +50,7 @@ final class DesktopLayoutController {
             activity.getWindow().setDecorFitsSystemWindows(false);
         }
         mViewport = readViewport();
+        updateShellLayout();
     }
 
     void attachDesktopViews(
@@ -97,28 +100,34 @@ final class DesktopLayoutController {
     }
 
     Rect taskbarBounds() {
-        return mViewport.taskbarBounds(mRuntimeState.taskbarHeight());
+        final ShellLayout.Surface taskbar = mShellLayout.snapshot().surfaces().get(DesktopShellLayout.TASKBAR);
+        return taskbar == null ? new Rect() : rect(taskbar.content());
     }
 
     private Rect taskbarSurfaceBounds() {
-        return mViewport.taskbarSurfaceBounds(
-                mRuntimeState.taskbarHeight());
+        return rect(mShellLayout.snapshot().surfaces().get(DesktopShellLayout.TASKBAR).paint());
     }
 
-    int desktopAreaWidth() {
-        return mViewport.contentWidth();
+    Rect workAreaBounds() {
+        return rect(mShellLayout.snapshot().workArea());
     }
 
-    int desktopAreaHeight() {
-        return mViewport.contentHeight();
+    Rect panelAreaBounds() {
+        return rect(mShellLayout.snapshot().panelArea());
     }
 
-    int desktopAreaLeft() {
-        return mViewport.contentLeft();
+    void refreshShellLayout() {
+        updateShellLayout();
+        applyViewportPadding();
+        updateTaskbarBounds();
     }
 
-    int desktopAreaTop() {
-        return mViewport.contentTop();
+    private void updateShellLayout() {
+        mShellLayout.update(mViewport, mRuntimeState.taskbarHeight(), mRuntimeState.taskbarAutoHide());
+    }
+
+    private static Rect rect(final ShellBounds bounds) {
+        return new Rect(bounds.left(), bounds.top(), bounds.right(), bounds.bottom());
     }
 
     void release() {
@@ -131,6 +140,7 @@ final class DesktopLayoutController {
         mNavigationBarBackdrop = null;
         mTaskbar = null;
         mTaskbarHost = null;
+        mShellLayout.release();
     }
 
     private DesktopViewport readViewport() {
@@ -156,6 +166,7 @@ final class DesktopLayoutController {
             return;
         }
         mViewport = viewport;
+        updateShellLayout();
         applyViewportPadding();
         updateSystemBarBackdrops();
         updateTaskbarBounds();
@@ -166,11 +177,11 @@ final class DesktopLayoutController {
         if (mDesktopContent == null || mViewport == null) {
             return;
         }
-        mDesktopContent.setPadding(
-                mViewport.insetLeft(),
-                mViewport.insetTop(),
-                mViewport.insetRight(),
-                mViewport.insetBottom());
+        final ShellLayout.Snapshot layout = mShellLayout.snapshot();
+        final ShellBounds area = layout.panelArea();
+        final ShellBounds output = layout.output();
+        mDesktopContent.setPadding(area.left() - output.left(), area.top() - output.top(),
+                output.right() - area.right(), output.bottom() - area.bottom());
     }
 
     private void updateTaskbarBounds() {

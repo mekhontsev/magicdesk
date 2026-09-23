@@ -2859,12 +2859,19 @@ panel visibility retain their separate color comparisons. The test does not
 disable shadows or change task topology to obtain the source RGB value.
 
 The desktop uses one `WindowMetrics`/WindowInsets viewport model on every
-display. A phone desktop is an explicitly selected primary HOME session: it
+display. `DesktopViewport` supplies stable system geometry to the protocol-neutral
+`ShellLayout`. `DesktopShellLayout` owns Desktop surface intents; its immutable
+result supplies taskbar, icon-grid, popup and application work-area bounds through
+`DesktopLayoutController`. Separate layout instances isolate Desktop and nested
+graphical scopes. Precise edge exclusions coexist with the rectangular work area;
+absolute partial reservations and stacked exclusive zones retain distinct
+semantics. See [shell layout](shell-layout.md) for the model and protocol boundaries.
+A phone desktop is an explicitly selected primary HOME session: it
 reserves the status and navigation bars and places its taskbar above the stable
 navigation inset. Visibility changes do not move the desktop because geometry
 uses the bars' ignoring-visibility insets. A dedicated external display
 normally reports zero system-bar insets and fills the panel. The desktop
-viewport provides separate control and surface bounds for the taskbar. On the
+layout provides separate control and surface bounds for the taskbar. On the
 phone display the visible surface extends through the stable navigation inset,
 so its application panel paints that inset as taskbar chrome even when a
 managed fullscreen plane covers HOME. The taskbar controls retain their

@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.graphics.Rect;
+
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_TEXT;
 
 import android.graphics.Typeface;
@@ -58,19 +60,20 @@ final class SystemPanelController {
         mActivity.captureInteractionStackForPanel();
         render();
 
-        final int areaWidth = mActivity.getDesktopAreaWidth();
-        final int areaHeight = mActivity.getDesktopAreaHeight();
+        final Rect area = mActivity.getDesktopPanelAreaBounds();
+        final int areaWidth = area.width();
+        final int areaHeight = area.height();
         final int width = mUi.menuWidth(areaWidth, dp(8));
         final int maxHeight = Math.max(1,
-                areaHeight - mActivity.getTaskbarHeight() - dp(16));
+                areaHeight - dp(16));
         mPanel.measure(
                 View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(maxHeight, View.MeasureSpec.AT_MOST));
         final int height = Math.min(maxHeight, mPanel.getMeasuredHeight());
-        final int left = mActivity.getDesktopAreaLeft()
+        final int left = area.left
                 + Math.max(0, areaWidth - width - dp(8));
-        final int top = mActivity.getDesktopAreaTop() + Math.max(dp(8),
-                areaHeight - mActivity.getTaskbarHeight() - dp(8) - height);
+        final int top = area.top + Math.max(dp(8),
+                areaHeight - dp(8) - height);
         if (!panels.show(
                 mPanel,
                 left,

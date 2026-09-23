@@ -287,13 +287,7 @@ final class DesktopUiGateway {
         if (activity == null || activity.getCurrentDisplayId() != displayId) {
             return null;
         }
-        final DesktopViewport viewport = activity.getDesktopViewport();
-        if (viewport == null) {
-            return null;
-        }
-        return activity.isTaskbarAutoHideEnabled()
-                ? viewport.contentBounds()
-                : viewport.workAreaBounds(activity.getTaskbarHeight());
+        return activity.getDesktopWorkAreaBounds();
     }
 
     Rect getDesktopTaskbarBounds(final int displayId) {

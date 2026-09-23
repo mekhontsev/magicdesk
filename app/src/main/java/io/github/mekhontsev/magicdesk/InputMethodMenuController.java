@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.graphics.Rect;
+
 import android.content.ComponentName;
 import android.provider.Settings;
 import android.util.Log;
@@ -163,9 +165,9 @@ final class InputMethodMenuController {
     private void show(
             final DesktopPanelWindowController panels,
             final View anchor) {
-        final int width = Math.min(dp(320, 260), Math.max(1, mActivity.getDesktopAreaWidth() - dp(16, 12)));
-        final int maxHeight = Math.max(1, mActivity.getDesktopAreaHeight()
-                - mActivity.getTaskbarHeight() - dp(16, 12));
+        final Rect area = mActivity.getDesktopPanelAreaBounds();
+        final int width = Math.min(dp(320, 260), Math.max(1, area.width() - dp(16, 12)));
+        final int maxHeight = Math.max(1, area.height() - dp(16, 12));
         mPanel.measure(
                 View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(
@@ -174,10 +176,10 @@ final class InputMethodMenuController {
         anchor.getLocationOnScreen(location);
         final int height = Math.min(maxHeight, mPanel.getMeasuredHeight());
         final int left = Math.max(
-                mActivity.getDesktopAreaLeft(),
+                area.left,
                 location[0] + anchor.getWidth() - width);
         final int top = Math.max(
-                mActivity.getDesktopAreaTop(), location[1] - height);
+                area.top, location[1] - height);
         panels.show(mPanel, left, top, width, height,
                 false, false, "MagicDesk input methods");
     }

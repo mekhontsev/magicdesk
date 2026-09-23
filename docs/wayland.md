@@ -155,6 +155,12 @@ compositor unprivileged and validate connections from independently launched
 clients and child processes. Do not treat one inherited client FD as a reusable
 endpoint for an entire desktop.
 
+Shell geometry uses the shared [shell layout model](shell-layout.md). A future
+layer-shell adapter must translate committed client state, mapping and exclusive
+zones into a layout scope without sharing reservations with a containing Android
+Desktop. Native wlroots still owns protocol validation, configure/ack, scene
+nodes and seat focus; the geometry model does not replace Android task planes.
+
 Each step needs focused protocol tests and real Android-host workflows through
 the same UI/MCP service owners. As work lands, remove completed items from this
 plan and describe the resulting behavior in the relevant sections. Keep Status

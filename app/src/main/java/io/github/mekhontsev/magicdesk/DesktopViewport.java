@@ -113,29 +113,12 @@ final class DesktopViewport {
                 mContentLeft, mContentTop, mContentRight, mContentBottom);
     }
 
-    Rect taskbarBounds(final int requestedHeight) {
-        final int height = Math.max(
-                1, Math.min(requestedHeight, contentHeight()));
-        return new Rect(
-                mContentLeft,
-                mContentBottom - height,
-                mContentRight,
-                mContentBottom);
+    ShellBounds outputGeometry() {
+        return new ShellBounds(mDisplayLeft, mDisplayTop, mDisplayRight, mDisplayBottom);
     }
 
-    Rect taskbarSurfaceBounds(final int requestedHeight) {
-        final Rect bounds = taskbarBounds(requestedHeight);
-        bounds.bottom = mDisplayBottom;
-        return bounds;
-    }
-
-    Rect workAreaBounds(final int taskbarHeight) {
-        final int taskbarTop = taskbarTop(taskbarHeight);
-        return new Rect(
-                mContentLeft,
-                mContentTop,
-                mContentRight,
-                Math.max(mContentTop + 1, taskbarTop));
+    ShellBounds contentGeometry() {
+        return new ShellBounds(mContentLeft, mContentTop, mContentRight, mContentBottom);
     }
 
     int contentLeft() {
@@ -160,12 +143,6 @@ final class DesktopViewport {
 
     int contentHeight() {
         return mContentBottom - mContentTop;
-    }
-
-    int taskbarTop(final int requestedHeight) {
-        final int height = Math.max(
-                1, Math.min(requestedHeight, contentHeight()));
-        return mContentBottom - height;
     }
 
     int insetLeft() {

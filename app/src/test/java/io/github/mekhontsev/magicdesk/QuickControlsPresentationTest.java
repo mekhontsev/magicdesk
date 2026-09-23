@@ -143,6 +143,12 @@ public final class QuickControlsPresentationTest {
 
     private static void verifyPlacement(final String scenario) throws Exception {
         RuntimeSourceFixture.verify("""
+                static class Rect {
+                    int left, top, right, bottom;
+                    Rect(int l, int t, int r, int b) { left=l; top=t; right=r; bottom=b; }
+                    int width() { return right-left; }
+                    int height() { return bottom-top; }
+                }
                 static class R { static class string {
                     static int section_quick_controls = 1, status_desktop_panel_unavailable = 2;
                 } }
@@ -174,11 +180,9 @@ public final class QuickControlsPresentationTest {
                     DesktopPanelWindowController panels() { return panels; }
                     void hideAllPanels() { hidden++; }
                     void captureInteractionStackForPanel() {}
-                    int getDesktopAreaWidth() { return width; }
-                    int getDesktopAreaHeight() { return height; }
-                    int getTaskbarHeight() { return bar; }
-                    int getDesktopAreaLeft() { return left; }
-                    int getDesktopAreaTop() { return top; }
+                    Rect getDesktopPanelAreaBounds() {
+                        return new Rect(left, top, left + width, top + height - bar);
+                    }
                     String getString(int res) { return "label"; }
                     void setErrorStatus(String code, String message) { throw new AssertionError(message); }
                 }

@@ -266,6 +266,11 @@ public abstract class DesktopShellActivity extends Activity
                     }
 
                     @Override
+                    public boolean taskbarAutoHide() {
+                        return mTaskbarAutoHide;
+                    }
+
+                    @Override
                     public void onImeVisibilityChanged(
                             final boolean visible) {
                         DesktopShellActivity.this
@@ -961,7 +966,7 @@ public abstract class DesktopShellActivity extends Activity
         final LinearLayout desktop = new LinearLayout(this);
         desktop.setOrientation(LinearLayout.VERTICAL);
         desktop.setPadding(desktopDp(24, 10), desktopDp(22, 8),
-                desktopDp(24, 10), getTaskbarHeight() + desktopDp(12, 6));
+                desktopDp(24, 10), desktopDp(12, 6));
         desktop.setClickable(true);
         desktop.setFocusable(false);
         desktop.setFocusableInTouchMode(false);
@@ -1036,8 +1041,7 @@ public abstract class DesktopShellActivity extends Activity
     void toggleCalendarPanel() {
         mCalendarController.toggle(
                 mDesktopPanelWindowController,
-                mDesktopLayout.viewport().contentBounds(),
-                getTaskbarHeight());
+                getDesktopPanelAreaBounds());
     }
 
     private void openCalendarApplication() {
@@ -1831,8 +1835,7 @@ public abstract class DesktopShellActivity extends Activity
     void toggleShortcutHelp() {
         mShortcutHelpController.toggle(
                 mDesktopPanelWindowController,
-                mDesktopLayout.viewport().contentBounds(),
-                getTaskbarHeight());
+                getDesktopPanelAreaBounds());
     }
 
     void hideAllPanels() {
@@ -1853,20 +1856,12 @@ public abstract class DesktopShellActivity extends Activity
         }
     }
 
-    int getDesktopAreaWidth() {
-        return mDesktopLayout.desktopAreaWidth();
+    Rect getDesktopPanelAreaBounds() {
+        return mDesktopLayout.panelAreaBounds();
     }
 
-    int getDesktopAreaHeight() {
-        return mDesktopLayout.desktopAreaHeight();
-    }
-
-    int getDesktopAreaLeft() {
-        return mDesktopLayout.desktopAreaLeft();
-    }
-
-    int getDesktopAreaTop() {
-        return mDesktopLayout.desktopAreaTop();
+    Rect getDesktopWorkAreaBounds() {
+        return mDesktopLayout.workAreaBounds();
     }
 
     int getTaskbarHeight() {
@@ -2239,6 +2234,9 @@ public abstract class DesktopShellActivity extends Activity
     void refreshSettings() {
         final MagicDeskSettings.Values settings = MagicDeskSettings.load();
         mTaskbarAutoHide = settings.taskbarAutoHide;
+        if (mDesktopLayout != null) {
+            mDesktopLayout.refreshShellLayout();
+        }
         if (mTaskbarRevealController != null) {
             mTaskbarRevealController.setAutoHide(mTaskbarAutoHide);
         }

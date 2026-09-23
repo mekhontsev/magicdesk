@@ -141,8 +141,7 @@ final class TaskbarOverflowController {
         populate();
         mActivity.captureInteractionStackForPanel();
 
-        final Rect workArea = mActivity.getDesktopViewport()
-                .workAreaBounds(mActivity.getTaskbarHeight());
+        final Rect workArea = mActivity.getDesktopPanelAreaBounds();
         final int areaLeft = workArea.left;
         final int areaTop = workArea.top;
         final int areaWidth = workArea.width();

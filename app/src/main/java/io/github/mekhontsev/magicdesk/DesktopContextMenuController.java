@@ -1133,8 +1133,7 @@ if (RuntimeLimits.active().termux() && TermuxIntegration.isInstalled(mActivity))
     private void positionAndShow(
             final float pointerX,
             final float pointerY) {
-        final Rect workArea = mActivity.getDesktopViewport()
-                .workAreaBounds(mActivity.getTaskbarHeight());
+        final Rect workArea = mActivity.getDesktopPanelAreaBounds();
         final int width = getWidth(workArea.width());
         final int maxHeight = workArea.height();
         mPanel.measure(

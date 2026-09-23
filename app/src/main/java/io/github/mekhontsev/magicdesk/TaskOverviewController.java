@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.graphics.Rect;
+
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.text.TextUtils;
@@ -214,17 +216,18 @@ final class TaskOverviewController {
     }
 
     private boolean showPanel(final boolean focusable) {
-        final int areaWidth = mActivity.getDesktopAreaWidth();
-        final int areaHeight = mActivity.getDesktopAreaHeight();
+        final Rect area = mActivity.getDesktopPanelAreaBounds();
+        final int areaWidth = area.width();
+        final int areaHeight = area.height();
         final int width = Math.min(dp(760), areaWidth - dp(32));
         final int height = Math.min(
                 dp(520),
-                areaHeight - mActivity.getTaskbarHeight() - dp(32));
-        final int left = mActivity.getDesktopAreaLeft()
+                areaHeight - dp(32));
+        final int left = area.left
                 + Math.max(0, (areaWidth - width) / 2);
-        final int top = mActivity.getDesktopAreaTop() + Math.max(
+        final int top = area.top + Math.max(
                 0,
-                (areaHeight - mActivity.getTaskbarHeight() - height) / 2);
+                (areaHeight - height) / 2);
         final DesktopPanelWindowController panels = mActivity.panels();
         if (panels != null && panels.show(
                 mPanel,
