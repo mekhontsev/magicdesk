@@ -30,6 +30,9 @@
     <string name="graphics_new_session">New graphical session</string>
     <string name="graphics_stop_session">Stop graphical session?</string>
     <string name="graphics_no_session">No session selected</string>
+    <string name="graphics_shell_workspace">Shell workspace</string>
+    <string name="graphics_shell_separate">Separate</string>
+    <string name="graphics_shell_display">Desktop [%1$d]</string>
     <string name="graphics_force_stop_client">Disconnect this client without saving? All windows sharing its connection will close.</string>
     <string name="x11_windows">X11 windows</string>
     <string name="x11_waiting_application">Waiting for application window...</string>

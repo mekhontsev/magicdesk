@@ -387,6 +387,18 @@ final class X11Sessions {
             current.closeWindow(id, force);
         }
 
+        X11ShellBinding bindShell(ShellLayoutScope scope, int densityDpi, java.util.function.Consumer<String> ended) {
+            X11Session current = renderer;
+            if (!ready() || current == null || application) throw new IllegalStateException("Shell components require a ready retained X11 session");
+            Object densityOwner = new Object();
+            var binding = new X11ShellBinding(current, scope, reason -> {
+                releaseDensity(densityOwner);
+                ended.accept(reason);
+            });
+            hostDensity(densityOwner, densityDpi, true);
+            return binding;
+        }
+
         X11Session.Output openOutput(long xid) {
             X11Session current = renderer;
             if (state != State.READY || current == null) throw new IllegalStateException("X11 session is not ready");

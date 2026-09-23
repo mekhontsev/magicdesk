@@ -13,6 +13,7 @@ final class WaylandSurfaceOutput implements HostedShellOutput {
                 viewport.left(), viewport.top(), viewport.width(), viewport.height()));
     }
     @Override public void focus() { output.focus(true); }
+    @Override public void blur() { output.focus(false); }
     @Override public void pointer(float x, float y) { output.pointer(x, y); }
     @Override public void button(float x, float y, Button button, boolean down) {
         output.pointer(x, y);

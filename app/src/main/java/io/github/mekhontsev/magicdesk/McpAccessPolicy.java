@@ -69,7 +69,7 @@ final class McpAccessPolicy {
                     "clipboard.open", "clipboard.share", "list_notifications",
                     "get_intent_result", "get_activity_history" -> Permission.CONTENT;
             case "ui.inspect", "ui.wait", "ui.read_text", "x11.inspect_window" -> Permission.CONTENT;
-            case "graphics.open_window", "start_desktop", "close_desktop", "create_display", "remove_display",
+            case "graphics.open_window", "graphics.set_workspace", "start_desktop", "close_desktop", "create_display", "remove_display",
                     "select_display_viewer",
                     "control_display", "move_task",
                     "launch_app", "set_app_presentation", "reset_app_presentation",

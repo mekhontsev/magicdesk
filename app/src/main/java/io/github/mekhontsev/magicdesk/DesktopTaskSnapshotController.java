@@ -27,6 +27,7 @@ final class DesktopTaskSnapshotController {
     TaskRepository.Snapshot setSnapshot(
             final TaskRepository.Snapshot snapshot) {
         mSnapshot = selectDesktopTaskSnapshot(snapshot);
+        mActivity.publishShellTasks(mSnapshot);
         return mSnapshot;
     }
 
@@ -36,6 +37,7 @@ final class DesktopTaskSnapshotController {
         }
         final TaskRepository.Snapshot desktopSnapshot =
                 selectDesktopTaskSnapshot(snapshot);
+        mActivity.publishShellTasks(desktopSnapshot);
         if (!desktopSnapshot.available) {
             mSnapshot = desktopSnapshot;
             mActivity.renderTaskbarPins(mActivity.getLauncherApps());

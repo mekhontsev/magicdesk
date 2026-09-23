@@ -40,6 +40,8 @@ final class DesktopWindowTransitionController {
     static final int SHORTCUT_SNAP_TOP_RIGHT = 7;
     static final int SHORTCUT_SNAP_BOTTOM_LEFT = 8;
     static final int SHORTCUT_SNAP_BOTTOM_RIGHT = 9;
+    static final int SHORTCUT_MAXIMIZE = 10;
+    static final int SHORTCUT_UNMAXIMIZE = 11;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final long STARTUP_IMMERSIVE_SETTLE_MILLIS = 1_000L;
@@ -127,6 +129,7 @@ final class DesktopWindowTransitionController {
 
     static boolean supportsFullscreenTask(final int shortcut) {
         return shortcut == SHORTCUT_CLOSE
+                || shortcut == SHORTCUT_MAXIMIZE
                 || shortcut == SHORTCUT_RESTORE
                 || shortcut == SHORTCUT_SNAP_LEFT
                 || shortcut == SHORTCUT_SNAP_RIGHT
@@ -177,6 +180,15 @@ final class DesktopWindowTransitionController {
                 break;
             case SHORTCUT_CLOSE:
                 close(task);
+                break;
+            case SHORTCUT_MAXIMIZE:
+                arrange(task, mNativeWindowBounds.getTaskbarMaximizedBounds());
+                break;
+            case SHORTCUT_UNMAXIMIZE:
+                if (task.isFreeform()) {
+                    mNativeWindowBounds.rememberRestoreBounds(task);
+                    applyRestoreShortcut(task);
+                }
                 break;
             default:
                 Log.w(TAG, "unknown native window shortcut=" + shortcut);
@@ -417,7 +429,10 @@ final class DesktopWindowTransitionController {
             final TaskRepository.TaskEntry task,
             final boolean left,
             final int row) {
-        final Rect targetBounds = mNativeWindowBounds.getSnappedBounds(left, row);
+        arrange(task, mNativeWindowBounds.getSnappedBounds(left, row));
+    }
+
+    private void arrange(final TaskRepository.TaskEntry task, final Rect targetBounds) {
         final DesktopTaskRuntimeState state = mTaskStates.state(task.taskId);
         if (state.pendingSnapBounds() != null) {
             // The fullscreen exit owns its transaction; apply the latest snap

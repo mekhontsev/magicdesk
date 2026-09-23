@@ -40,7 +40,8 @@ if(NOT EXISTS "${LAYER_XML}")
 	message(FATAL_ERROR "MDW_WLR_PROTOCOL_DIR must reference the pinned wlroots protocol directory")
 endif()
 mdw_protocol(wlr-layer-shell-unstable-v1 ${LAYER_XML})
-add_library(magicdesk_wayland STATIC wayland_server.c wayland_shell.c wayland_scene.c wayland_geometry.c wayland_popup.c
+mdw_protocol(wlr-foreign-toplevel-management-unstable-v1 ${MDW_WLR_PROTOCOL_DIR}/wlr-foreign-toplevel-management-unstable-v1.xml)
+add_library(magicdesk_wayland STATIC wayland_server.c wayland_shell.c wayland_scene.c wayland_geometry.c wayland_popup.c wayland_toplevels.c
 	${CMAKE_CURRENT_BINARY_DIR}/xdg-shell-protocol.h
 	${CMAKE_CURRENT_BINARY_DIR}/wlr-layer-shell-unstable-v1-protocol.h)
 add_library(magicdesk_frame STATIC frame_fd.c)
@@ -99,6 +100,12 @@ add_executable(wayland-geometry-test ../../../tests/native/geometry.c
 target_link_libraries(wayland-geometry-test PRIVATE magicdesk_wayland)
 add_test(NAME wayland-geometry COMMAND wayland-geometry-test)
 set_tests_properties(wayland-geometry PROPERTIES TIMEOUT 15)
-foreach(fixture wayland-smoke wayland-window-test wayland-client-test wayland-shell-test wayland-geometry-test)
+add_executable(wayland-toplevel-test ../../../tests/native/toplevel.c
+    ${CMAKE_CURRENT_BINARY_DIR}/wlr-foreign-toplevel-management-unstable-v1-client-protocol.h
+    ${CMAKE_CURRENT_BINARY_DIR}/wlr-foreign-toplevel-management-unstable-v1-protocol.c)
+target_link_libraries(wayland-toplevel-test PRIVATE magicdesk_wayland)
+add_test(NAME wayland-toplevel COMMAND wayland-toplevel-test)
+set_tests_properties(wayland-toplevel PROPERTIES TIMEOUT 15)
+foreach(fixture wayland-smoke wayland-window-test wayland-client-test wayland-shell-test wayland-geometry-test wayland-toplevel-test)
 	target_compile_options(${fixture} PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 endforeach()

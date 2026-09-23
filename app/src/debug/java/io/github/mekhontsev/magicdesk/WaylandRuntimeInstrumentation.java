@@ -300,7 +300,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
             }
             // EVENT_WAIT: unsupported keyboard role revokes this contribution, not its graphical session.
             String reason = revoked.get(15, TimeUnit.SECONDS);
-            if (!reason.contains("keyboard NONE")) throw new IOException("Unexpected workspace revocation: " + reason);
+            if (!reason.contains("keyboard")) throw new IOException("Unexpected workspace revocation: " + reason);
             runOnMainSync(() -> {
                 if (!scope.snapshot().workArea().equals(initialWorkArea))
                     throw new IllegalStateException("Workspace retained a revoked reservation");

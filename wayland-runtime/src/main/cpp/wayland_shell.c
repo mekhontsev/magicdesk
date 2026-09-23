@@ -152,6 +152,7 @@ bool mdw_server_shell_output(MdwServer *server, int width, int height) {
         struct MdwLayerSurface *layer, *next;
         wl_list_for_each_safe(layer, next, &server->layers, link)
             wlr_layer_surface_v1_destroy(layer->layer);
+        mdw_toplevels_clear(server);
         if (server->shell_output) wlr_output_destroy(server->shell_output);
         server->shell_output = NULL;
         return true;
@@ -179,6 +180,10 @@ bool mdw_server_shell_output(MdwServer *server, int width, int height) {
         return false;
     }
     wlr_output_create_global(server->shell_output, server->display);
+    if (!mdw_toplevels_prepare(server)) {
+        mdw_server_shell_output(server, 0, 0);
+        return false;
+    }
     struct MdwLayerSurface *layer;
     wl_list_for_each(layer, &server->layers, link) popup_bounds(layer);
     if (!server->layer_shell) {

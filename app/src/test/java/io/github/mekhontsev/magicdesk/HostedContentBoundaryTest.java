@@ -18,7 +18,7 @@ public final class HostedContentBoundaryTest {
             interface SurfaceBinding { void changed(Object surface, int width, int height); }
             Output output = new Output();
             SurfaceBinding surfaceBinding = output::setSurface;
-            boolean inputAllowed = true;
+            boolean inputAllowed = true, keyboardAllowed = true;
             boolean windowFocus, viewFocus;
             boolean hasWindowFocus() { return windowFocus; }
             boolean isFocused() { return viewFocus; }
@@ -36,6 +36,11 @@ public final class HostedContentBoundaryTest {
                 fixture.attachSurface(new SurfaceHolder(), 640, 480);
                 check(fixture.output.calls.equals(List.of("surface")), "unadmitted surface acquired focus");
                 fixture.inputAllowed = true;
+                fixture.keyboardAllowed = false;
+                fixture.output.calls.clear();
+                fixture.attachSurface(new SurfaceHolder(), 640, 480);
+                check(fixture.output.calls.equals(List.of("surface")), "pointer admission is not keyboard ownership");
+                fixture.keyboardAllowed = true;
                 fixture.viewFocus = false;
                 fixture.output.calls.clear();
                 fixture.attachSurface(new SurfaceHolder(), 640, 480);

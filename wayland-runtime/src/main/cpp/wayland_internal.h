@@ -36,6 +36,8 @@ struct MdwServer {
     struct wlr_xdg_shell *shell;
     struct wlr_layer_shell_v1 *layer_shell;
     struct wlr_output *shell_output;
+    struct wlr_foreign_toplevel_manager_v1 *foreign_manager;
+    struct wl_list foreign_windows;
     struct wlr_seat *seat;
     struct wlr_keyboard keyboard;
     bool keyboard_initialized;
@@ -60,6 +62,8 @@ void mdw_popup_create(struct MdwView *view, struct wlr_xdg_popup *popup, struct 
 void mdw_view_popup_bounds(struct MdwView *view, const struct wlr_box *bounds);
 void mdw_view_popups_finish(struct MdwView *view);
 void mdw_shell_finish(MdwServer *server);
+void mdw_toplevels_clear(MdwServer *server);
+bool mdw_toplevels_prepare(MdwServer *server);
 bool mdw_scene_render_transparent(struct wlr_scene_output *output);
 
 #endif

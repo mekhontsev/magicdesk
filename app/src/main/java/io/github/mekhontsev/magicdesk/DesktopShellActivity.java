@@ -86,6 +86,7 @@ public abstract class DesktopShellActivity extends Activity
     private DesktopTaskbarHost mTaskbarHost;
     private DesktopTaskbarRevealController mTaskbarRevealController;
     private ShellPresentationScope mShellPresentation;
+    private DesktopShellTasks mShellTasks;
     private AltTabController mAltTabController;
     private DesktopWorkspaceController mDesktopWorkspaceController;
     private AppTaskController mAppTasks;
@@ -377,6 +378,8 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void releaseDesktopUiWindows() {
+        GraphicalShells.releaseHost(this);
+        if (mShellTasks != null) { mShellTasks.close(); mShellTasks = null; }
         if (mTaskbarRevealController != null) {
             mTaskbarRevealController.release();
             mTaskbarRevealController = null;
@@ -915,6 +918,15 @@ public abstract class DesktopShellActivity extends Activity
         return mShellPresentation;
     }
 
+    ShellTaskCatalog shellTasks() {
+        if (mShellTasks == null) throw new IllegalStateException("Desktop shell catalog is unavailable");
+        return mShellTasks.catalog;
+    }
+
+    void publishShellTasks(TaskRepository.Snapshot snapshot) {
+        if (mShellTasks != null) mShellTasks.update(snapshot);
+    }
+
     HostedShellWindows.Host shellSurfaceHost(
             java.util.function.Function<HostedShellWindows.Surface, HostedShellOutput> outputs) {
         if (mHomeSurfaceHost == null || mDesktopPanelWindowController == null)
@@ -940,6 +952,7 @@ public abstract class DesktopShellActivity extends Activity
     private View createDesktopContentView() {
         final FrameLayout root = new FrameLayout(this);
         mShellPresentation = new ShellPresentationScope();
+        mShellTasks = new DesktopShellTasks(this);
         mDesktopRoot = root;
         mDesktopPanelWindowController = new DesktopPanelWindowController(
                 this,

@@ -1,4 +1,5 @@
 package io.github.mekhontsev.magicdesk.wayland;
+import io.github.mekhontsev.magicdesk.hosted.FramePresentation;
 
 import android.os.Binder;
 import android.os.Handler;
@@ -19,6 +20,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class WaylandSession implements AutoCloseable {
     public record Window(long id, long parent, String title, String appId, boolean mapped, int width, int height) { }
+    public record Toplevel(long id, String title, String appId, boolean active, boolean maximized, boolean fullscreen) { }
+    public enum ToplevelAction { ACTIVATE, MAXIMIZE, FULLSCREEN, UNMAXIMIZE, UNFULLSCREEN, CLOSE }
     public interface Listener {
         void changed();
         void failed(long output, String message);
@@ -29,6 +32,7 @@ public final class WaylandSession implements AutoCloseable {
         void changed();
         void closed(String reason);
         default void geometryChanged(long surface) { }
+        default void toplevelAction(long id, ToplevelAction action) { }
     }
     private interface Command { void run() throws RemoteException; }
 
@@ -153,6 +157,15 @@ public final class WaylandSession implements AutoCloseable {
                 } else {
                     binding.ready.complete(null);
                 }
+            });
+        }
+        @Override public void toplevelAction(long owner, long id, int action) {
+            checkCaller();
+            if (action < 0 || action >= ToplevelAction.values().length) return;
+            ShellBinding binding = shellBinding;
+            main.post(() -> {
+                if (!closed.get() && binding != null && !binding.released.get() && binding.id == owner)
+                    binding.listener.toplevelAction(id, ToplevelAction.values()[action]);
             });
         }
         @Override public void geometry(long owner, WaylandViewGeometry geometry) {
@@ -357,6 +370,16 @@ public final class WaylandSession implements AutoCloseable {
         public WaylandViewGeometry geometry(long surface) { return released.get() ? null : geometries.get(surface); }
         public boolean isClosed() { return released.get(); }
         public CompletableFuture<Void> ready() { return ready.copy(); }
+
+        public void publishToplevel(Toplevel window, boolean removed) {
+            java.util.Objects.requireNonNull(window);
+            if (window.id() <= 0 || window.title() == null || window.appId() == null)
+                throw new IllegalArgumentException("Invalid toplevel identity");
+            handler.post(() -> {
+                if (!released.get() && !closed.get()) remote(() -> server.publishToplevel(id, window.id(),
+                        window.title(), window.appId(), window.active(), window.maximized(), window.fullscreen(), removed));
+            });
+        }
 
         public void resize(int width, int height) {
             checkShellDimensions(width, height);

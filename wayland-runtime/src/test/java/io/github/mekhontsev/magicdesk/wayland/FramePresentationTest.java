@@ -1,4 +1,5 @@
 package io.github.mekhontsev.magicdesk.wayland;
+import io.github.mekhontsev.magicdesk.hosted.FramePresentation;
 
 import static org.junit.Assert.*;
 import java.io.IOException;

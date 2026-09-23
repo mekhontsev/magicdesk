@@ -35,6 +35,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private static final long WATCHER_RESTART_MILLIS = 1000;
     static final int SHORTCUT_FULLSCREEN =
             DesktopWindowTransitionController.SHORTCUT_FULLSCREEN;
+    static final int SHORTCUT_MAXIMIZE = DesktopWindowTransitionController.SHORTCUT_MAXIMIZE;
+    static final int SHORTCUT_UNMAXIMIZE = DesktopWindowTransitionController.SHORTCUT_UNMAXIMIZE;
     static final int SHORTCUT_RESTORE =
             DesktopWindowTransitionController.SHORTCUT_RESTORE;
     static final int SHORTCUT_SNAP_LEFT =

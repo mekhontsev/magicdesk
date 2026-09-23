@@ -13,8 +13,10 @@
 namespace {
 struct Connection {
     JNIEnv* env;
+    JavaVM* vm;
     jobject owner;
     jmethodID frame, disconnected, window, windowRemoved, windows, data, cursor;
+    jmethodID shell, shellState, presented;
     jclass managementClass;
     jmethodID managementConstructor;
     jclass inspectionNodeClass;
@@ -131,6 +133,40 @@ const LorieCallbacks callbacks = {
                 (jint)info->kind, (jint)info->width, (jint)info->height,
                 (jint)info->hotspotX, (jint)info->hotspotY, image);
         if (image) env->DeleteLocalRef(image);
+    },
+    .shell = [](void* ptr, uint32_t owner, uint32_t window, const LorieShellInfo* info) {
+        auto* c = (Connection*)ptr;
+        JNIEnv* env = c->env;
+        jintArray values = nullptr;
+        if (info) {
+            jint fields[23 + LORIE_SHELL_INPUT_LIMIT * 4] = {(jint)info->role, (jint)info->mapped,
+                (jint)info->inputComplete, info->x, info->y, info->width, info->height,
+                info->paint.left, info->paint.top, info->paint.right, info->paint.bottom};
+            for (unsigned i = 0; i < 12; i++) fields[11+i] = (jint)info->strut[i];
+            for (unsigned i = 0; i < info->inputCount; i++) {
+                fields[23+4*i] = info->input[i].left; fields[24+4*i] = info->input[i].top;
+                fields[25+4*i] = info->input[i].right; fields[26+4*i] = info->input[i].bottom;
+            }
+            int count = 23 + 4 * info->inputCount;
+            values = env->NewIntArray(count);
+            if (!values) return;
+            env->SetIntArrayRegion(values, 0, count, fields);
+        }
+        if (!env->ExceptionCheck()) env->CallVoidMethod(c->owner, c->shell, (jint)owner, (jint)window, values);
+        if (values) env->DeleteLocalRef(values);
+    },
+    .shellState = [](void* ptr, uint32_t owner, bool available) {
+        auto* c = (Connection*)ptr;
+        c->env->CallVoidMethod(c->owner, c->shellState, (jint)owner, (jboolean)available);
+    },
+    .presented = [](void* ptr, uint32_t output, uint32_t serial, bool success) {
+        auto* c = (Connection*)ptr;
+        JNIEnv* env = nullptr;
+        bool attach = c->vm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK;
+        if (attach && c->vm->AttachCurrentThread(&env, nullptr) != JNI_OK) return;
+        env->CallVoidMethod(c->owner, c->presented, (jint)output, (jint)serial, (jboolean)success);
+        if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
+        if (attach) c->vm->DetachCurrentThread();
     }
 };
 
@@ -157,6 +193,10 @@ extern "C" JNIEXPORT jlong JNICALL JNI(X11Session_nativeCreate)(JNIEnv* env, job
     c->owner = env->NewGlobalRef(owner);
     jclass cls = env->GetObjectClass(owner);
     c->frame = env->GetMethodID(cls, "onNativeFrame", "(IIIII)V");
+    env->GetJavaVM(&c->vm);
+    c->shell = env->GetMethodID(cls, "onNativeShell", "(II[I)V");
+    c->shellState = env->GetMethodID(cls, "onNativeShellState", "(IZ)V");
+    c->presented = env->GetMethodID(cls, "onNativePresented", "(IIZ)V");
     c->disconnected = env->GetMethodID(cls, "onNativeDisconnected", "()V");
     c->window = env->GetMethodID(cls, "onNativeWindow", "(I[B[IZILio/github/mekhontsev/magicdesk/x11/X11WindowManagement;[B[B)V");
     c->windowRemoved = env->GetMethodID(cls, "onNativeWindowRemoved", "(I)V");
@@ -207,6 +247,16 @@ extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeSurface)(JNIEnv* env, jcl
 extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeBind)(JNIEnv*, jclass, jlong ptr, jint output, jint window) {
     lorieOutputBind(((Connection*)ptr)->native, output, window);
 }
+extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeBindShell)(JNIEnv*, jclass, jlong ptr, jint output, jint window) {
+    lorieOutputBindShell(((Connection*)ptr)->native, output, window);
+}
+extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeShell)(JNIEnv*, jclass, jlong ptr, jint owner, jint width, jint height) {
+    lorieConfigureShell(((Connection*)ptr)->native, owner, width, height);
+}
+extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativePresent)(JNIEnv*, jclass, jlong ptr, jint output, jint window,
+        jint serial, jint left, jint top, jint right, jint bottom) {
+    loriePresentShell(((Connection*)ptr)->native, output, window, serial, {left, top, right, bottom});
+}
 
 extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeResize)(JNIEnv*, jclass, jlong ptr,
         jint output, jint window, jint width, jint height) {
@@ -227,6 +277,9 @@ extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeKey)(JNIEnv*, jclass, jlo
 
 extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeFocus)(JNIEnv*, jclass, jlong ptr, jint output, jint window) {
     lorieOutputFocus(((Connection*)ptr)->native, output, window);
+}
+extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeBlur)(JNIEnv*, jclass, jlong ptr, jint output, jint window) {
+    lorieOutputBlur(((Connection*)ptr)->native, output, window);
 }
 
 extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeRelease)(JNIEnv*, jclass, jlong ptr, jint output, jint window) {

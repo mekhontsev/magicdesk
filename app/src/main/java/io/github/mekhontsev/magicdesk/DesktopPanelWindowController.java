@@ -44,6 +44,7 @@ final class DesktopPanelWindowController {
     private final DesktopPanelFocusGate mFocusGate;
     private final DesktopShellLayout mLayout;
     private final java.util.Set<ShellWindow> mShellWindows = new java.util.LinkedHashSet<>();
+    private ShellWindow mKeyboardShell;
     private ShellLayoutScope.Binding mPanelLayout;
     private ShellLayoutScope.Binding mChildLayout;
     private ShellLayoutScope.Binding mTransientLayout;
@@ -163,13 +164,15 @@ final class DesktopPanelWindowController {
 
     ShellLayoutScope shellScope() { return mLayout.scope(); }
 
+    void releaseShellKeyboard() { if (mKeyboardShell != null) mKeyboardShell.releaseKeyboard(); }
+
     HostedShellWindows.Host shellHost(final Context context,
             final java.util.function.Function<HostedShellWindows.Surface, HostedShellOutput> outputs) {
         return new HostedShellWindows.Host() {
             @Override public void validate(HostedShellWindows.Surface surface) {
                 if (mReleased || mClearingHost) throw new IllegalStateException("Desktop shell host is unavailable");
-                if (surface.layer() != ShellSurface.Layer.TOP || surface.keyboard() != ShellSurface.Keyboard.NONE)
-                    throw new UnsupportedOperationException("This shell host requires a TOP surface with keyboard NONE");
+                if (surface.layer() != ShellSurface.Layer.TOP || surface.keyboard() == ShellSurface.Keyboard.EXCLUSIVE)
+                    throw new UnsupportedOperationException("This shell host requires TOP with NONE or ON_DEMAND keyboard");
             }
             @Override public HostedShellWindows.Window open(HostedShellWindows.Surface surface) {
                 validate(surface);
@@ -177,7 +180,10 @@ final class DesktopPanelWindowController {
                 HostedShellSurfaceView view = null;
                 try {
                     view = new HostedShellSurfaceView(context, output);
-                    return borrowShellSurface(view, surface.bounds(), "MagicDesk shell surface " + surface.id());
+                    var window = borrowShellSurface(view, surface.bounds(), "MagicDesk shell surface " + surface.id());
+                    if (surface.keyboard() == ShellSurface.Keyboard.ON_DEMAND)
+                        view.keyboardRequests(window::requestKeyboard, window::releaseKeyboard);
+                    return window;
                 } catch (RuntimeException error) {
                     if (view != null) view.close(); else output.close();
                     throw error;
@@ -186,7 +192,7 @@ final class DesktopPanelWindowController {
         };
     }
 
-    /** Persistent, keyboard-inert surface lease; popup dismissal does not own its lifetime. */
+    /** Persistent surface lease; popup dismissal does not own its lifetime. */
     ShellWindow borrowShellSurface(final HostedShellSurfaceView view, final ShellBounds bounds, final String title) {
         if (mReleased || mClearingHost) throw new IllegalStateException("Desktop panel host is released");
         if (Looper.myLooper() != Looper.getMainLooper()) throw new IllegalStateException("Shell host requires main thread");
@@ -210,6 +216,7 @@ final class DesktopPanelWindowController {
         private final java.util.concurrent.CompletableFuture<Void> ready = new java.util.concurrent.CompletableFuture<>();
         private final java.util.concurrent.CompletableFuture<Void> ended = new java.util.concurrent.CompletableFuture<>();
         private boolean trusted, added, closed;
+        private boolean keyboardEnabled;
 
         private ShellWindow(HostedShellSurfaceView view, ShellBounds bounds, String title) {
             this.view = java.util.Objects.requireNonNull(view);
@@ -217,7 +224,7 @@ final class DesktopPanelWindowController {
             params = createParams(bounds.width(), bounds.height(),
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                             | WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                            | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                            | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                     bounds.left(), bounds.top(), safeTitle(title));
         }
 
@@ -245,6 +252,32 @@ final class DesktopPanelWindowController {
             ready.complete(null);
         }
 
+        private void requestKeyboard() {
+            if (closed || !added || nativeKeyboardRequested()) return;
+            if (mKeyboardShell != null && mKeyboardShell != this) mKeyboardShell.releaseKeyboard();
+            mKeyboardShell = this;
+            attachRequestedWindows();
+        }
+
+        private void applyKeyboard(boolean enabled) {
+            if (keyboardEnabled == enabled || closed || !added) return;
+            keyboardEnabled = enabled;
+            int inert = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
+            if (enabled) params.flags &= ~inert; else params.flags |= inert;
+            // Release guest focus before making the Android child inert; acquire only after the gate acknowledgement.
+            if (!enabled) view.keyboard(false);
+            try { mWindowManager.updateViewLayout(view, params); }
+            catch (RuntimeException error) { fail(error.toString()); return; }
+            if (enabled) view.keyboard(true);
+        }
+
+        private void releaseKeyboard() {
+            if (mKeyboardShell != this) return;
+            mKeyboardShell = null;
+            applyKeyboard(false);
+            updateHostFocus();
+        }
+
         private void fail(String message) {
             ready.completeExceptionally(new IllegalStateException(message));
             close();
@@ -252,6 +285,7 @@ final class DesktopPanelWindowController {
 
         @Override public void close() {
             if (closed) return;
+            releaseKeyboard();
             closed = true;
             mShellWindows.remove(this);
             view.close();
@@ -723,6 +757,7 @@ final class DesktopPanelWindowController {
         if (!updateHostFocus()) {
             return true;
         }
+        if (mKeyboardShell != null) mKeyboardShell.applyKeyboard(true);
         boolean success = true;
         if (mVisibleRequested && !mVisibleAdded) {
             success &= addVisiblePanel();
@@ -741,10 +776,17 @@ final class DesktopPanelWindowController {
     }
 
     private boolean updateHostFocus() {
-        return mHostActivity != null && mFocusGate.require(
-                (mVisibleRequested && mVisibleFocusable)
-                        || (mChildRequested && mChildFocusable)
-                        || mDialogFactory != null);
+        final boolean nativeRequest = nativeKeyboardRequested();
+        if (nativeRequest && mKeyboardShell != null) {
+            final var previous = mKeyboardShell;
+            mKeyboardShell = null;
+            previous.applyKeyboard(false);
+        }
+        return mHostActivity != null && mFocusGate.require(nativeRequest || mKeyboardShell != null);
+    }
+
+    private boolean nativeKeyboardRequested() {
+        return (mVisibleRequested && mVisibleFocusable) || (mChildRequested && mChildFocusable) || mDialogFactory != null;
     }
 
     private boolean addVisiblePanel() {

@@ -28,4 +28,26 @@ public final class HostedShellPlacementTest {
         assertThrows(ArithmeticException.class, () -> HostedShellPlacement.bounds(
                 new ShellBounds(Integer.MAX_VALUE - 2, 0, Integer.MAX_VALUE, 2), frame, 320));
     }
+
+    @Test public void clipsOffscreenSubsurfacesWithoutChangingPanelReservation() {
+        var content = new ShellBounds(0, 0, 1920, 50);
+        var input = List.of(content, new ShellBounds(1708, -14, 1842, 50));
+        var frame = new HostedShellFrame(new ShellBounds(0, -14, 1920, 50), true, input);
+        var clipped = HostedShellPlacement.clip(content, frame, new ShellBounds(0, 0, 1920, 1080), 160);
+        assertEquals(content, HostedShellPlacement.bounds(content, clipped, 160));
+        assertEquals(content, clipped.viewport());
+        assertEquals(List.of(content, new ShellBounds(1708, 0, 1842, 50)), clipped.inputPixels(1920, 50));
+        assertEquals(new ShellBounds(0, 0, 1920, 50), content);
+    }
+
+    @Test public void clippingUsesOutputPixelsAndRoundsInwardAtFractionalDensity() {
+        var content = new ShellBounds(100, 200, 200, 250);
+        var frame = new HostedShellFrame(new ShellBounds(-20, -20, 100, 100), false, List.of());
+        var output = new ShellBounds(99, 199, 201, 251);
+        var clipped = HostedShellPlacement.clip(content, frame, output, 212);
+        assertEquals(new ShellBounds(0, 0, 76, 38), clipped.viewport());
+        assertEquals(new ShellBounds(100, 200, 201, 251), HostedShellPlacement.bounds(content, clipped, 212));
+        assertNull(HostedShellPlacement.clip(content, frame, new ShellBounds(500, 500, 600, 600), 212));
+        assertSame(frame, HostedShellPlacement.clip(content, frame, new ShellBounds(0, 0, 1000, 1000), 212));
+    }
 }

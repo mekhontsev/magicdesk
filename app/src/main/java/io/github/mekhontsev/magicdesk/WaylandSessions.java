@@ -183,6 +183,7 @@ final class WaylandSessions {
             if (application) throw new IllegalStateException("Shell components require a retained graphics session");
             return new WaylandShellBinding(renderer, scope, density, listener);
         }
+        boolean canIntegrateShell() { return !application; }
         void closeWindow(long window, boolean force) {
             if (!ready()) return;
             renderer.closeWindow(window, force);

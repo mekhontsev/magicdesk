@@ -12,4 +12,5 @@ oneway interface IWaylandEvents {
     void shellSurface(long owner, long id, in @nullable WaylandShellSurface surface);
     void shellOutput(long owner, int width, int height, String error);
     void geometry(long shellOwner, in WaylandViewGeometry geometry);
+    void toplevelAction(long shellOwner, long id, int action);
 }

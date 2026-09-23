@@ -215,6 +215,25 @@ public final class WaylandServer extends IWaylandServer.Stub {
 
     @Override public void releaseShell(long id) { command(() -> releaseShellOutput(id)); }
 
+    @Override public void publishToplevel(long binding, long id, String title, String appId,
+            boolean active, boolean maximized, boolean fullscreen, boolean removed) {
+        command(() -> {
+            if (binding <= 0 || shell.owner() != binding) return;
+            if (title == null || appId == null || !nativeToplevel(handle, id,
+                    title.getBytes(StandardCharsets.UTF_8), appId.getBytes(StandardCharsets.UTF_8),
+                    active, maximized, fullscreen, removed)) {
+                releaseShellOutput(binding);
+                shellOutput(binding, 0, 0, "Invalid workspace toplevel publication");
+            }
+        });
+    }
+
+    private void onToplevelAction(long id, int action) {
+        if (shell.owner() <= 0) return;
+        try { owner.toplevelAction(shell.owner(), id, action); }
+        catch (RemoteException error) { requestStop(); }
+    }
+
     private void releaseShellOutput(long id) {
         if (id == 0 || shell.owner() != id) return;
         // Native destruction publishes removals under the old owner before it is revoked.
@@ -384,5 +403,7 @@ public final class WaylandServer extends IWaylandServer.Stub {
     private static native void nativeKey(long output, int androidKey, int scanCode, boolean down);
     private static native void nativeCloseWindow(long server, long window, boolean force);
     private static native boolean nativeShellOutput(long server, int width, int height);
+    private static native boolean nativeToplevel(long server, long id, byte[] title, byte[] appId,
+            boolean active, boolean maximized, boolean fullscreen, boolean removed);
     private static native boolean nativeConfigureShell(long server, long surface, int x, int y, int width, int height);
 }

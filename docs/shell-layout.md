@@ -101,7 +101,7 @@ Desktop. No global touch-security setting is changed. This SurfaceFlinger commit
 does not acknowledge child-window input regions or displayed pixels; those remain
 separate admission conditions for an external panel.
 
-`DesktopPanelWindowController.ShellWindow` lends persistent, keyboard-inert child
+`DesktopPanelWindowController.ShellWindow` lends persistent child
 windows in that chrome host. Ordinary popup dismissal does not release them;
 explicit closure or host loss does. They borrow graphical outputs, not sessions.
 `HostedShellWindows` reconciles a committed surface set against these leases.
@@ -110,7 +110,11 @@ existing window, while equal state does not restart presentation. A replacement
 invalidates its previous receipt before relayout. Host loss or presentation failure
 revokes the contribution rather than retaining an invisible reservation. The host
 validates semantic roles, including unmapped clients; the current chrome adapter
-admits only `TOP` with keyboard `NONE`.
+admits `TOP` with keyboard `NONE` or `ON_DEMAND`. On-demand interaction acquires
+the existing chrome focus gate before enabling the child's keyboard and IME
+eligibility. Outside interaction, focus loss, hiding or closure releases that
+lease. A native focusable panel takes precedence. Pointer admission is independent;
+`EXCLUSIVE` and `OVERLAY` requests are rejected rather than elevated implicitly.
 
 `ShellPresentationScope` publishes the visible semantic layers for one workspace,
 separately from layout. `DesktopTaskbarRevealController` supplies the existing
@@ -182,8 +186,9 @@ configure/ack and borrowed transparent outputs. `WaylandShellBinding` connects
 its typed Binder catalog to an explicitly supplied `ShellLayoutScope`. It never
 starts Desktop, selects a display or merges nested scopes. An explicit binding can
 borrow a host from the selected Desktop's panel controller; catalog and family
-geometry events then reconcile its windows automatically. Public workspace
-selection, keyboard-focus admission and X11 strut adaptation are pending.
+geometry events then reconcile its windows automatically. **Linux graphics** and
+`graphics.set_workspace` select an existing workspace explicitly. Clearing the
+selection releases shell windows and reservations, not the graphical session.
 The adapters preserve protocol lifetimes
 and coordinate conversion:
 
@@ -236,19 +241,40 @@ current pinned source is wlroots 0.18.2, particularly
 Protocol references: [layer-shell](https://wayland.app/protocols/wlr-layer-shell-unstable-v1)
 and [EWMH](https://specifications.freedesktop.org/wm/latest-single/).
 
-## Integration Work
+## Workspace Tasks
 
-1. Extend host admission beyond keyboard-inert background, bottom and top surfaces.
-   Apply focus policy through the existing host gate rather than mapping layer
-   numbers directly to Android z-order. Keep pointer admission and keyboard
-   ownership separate.
-2. Adapt X11 DOCK/DESKTOP properties and struts to the same bindings. Preserve
-   guest-WM ownership for whole-desktop sessions.
-3. Expose the shared application catalog and semantic actions to external panels,
-   using the existing task gateway. Add explicit session/workspace selection and
-   cleanup on workspace loss or client failure.
+`DesktopShellTasks` publishes the selected workspace's managed tasks from its
+existing observer into `ShellTaskCatalog`. Handles are opaque and lifetime-bound;
+a removed task or changed application identity cannot inherit an old action target.
+Unknown observation preserves metadata but refuses actions. Activation, close,
+maximize and fullscreen requests use the existing task gateway and never operate
+on another workspace's tasks. Maximize and unmaximize are explicit, not toggles.
+
+An explicitly bound Wayland session exposes these handles through
+`wlr-foreign-toplevel-management`. Titles, app IDs, activation, maximized and
+fullscreen state are diffed; unbinding closes handles and disables action delivery.
+Minimize requests are not implemented. This catalog is separate from layer-surface
+placement and does not acquire a new task observer.
+
+`GraphicalShells` owns revocable session/workspace associations. Workspace loss,
+protocol failure and host admission failure release that contribution. Graphical
+servers and ordinary application hosts retain their independent lifetimes.
 
 ## Verification
+
+`wayland-runtime/tests/gtk-shell.c` exercises a real GTK layer-shell entry and
+menu. `MAGICDESK_TEST_POPOVER=1` uses a subsurface popover instead of an xdg-popup.
+`x11-runtime/tests/shell.c` exercises an EWMH dock, partial strut, entry, menu and
+guest-WM takeover. Both use the production graphics session and explicit workspace
+selection. Build these optional fixtures with the installed GTK development files;
+GTK and gtk-layer-shell are not APK dependencies.
+
+`wayland-runtime/tests/toplevel-client.c` lists the bound workspace's foreign
+toplevels and accepts an exact title plus one semantic action. Run it with a
+command deadline and observe the resulting Android task state separately; a
+Wayland roundtrip confirms delivery, not completion of an Android transition.
+The native `wayland-toplevel` fixture verifies protocol metadata, action mapping,
+handle replacement and revocation without Android.
 
 `ShellLayoutTest`, `ShellLayoutScopeTest`, `ShellPanelPlacementTest`,
 `DesktopShellLayoutTest` and `DesktopViewportTest` cover pure

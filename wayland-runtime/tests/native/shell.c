@@ -178,7 +178,8 @@ static void pointer_button(void *data, struct wl_pointer *pointer, uint32_t seri
             return;
         }
         zwlr_layer_surface_v1_set_keyboard_interactivity(client->layer,
-            ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_ON_DEMAND);
+            client->workspace ? ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE :
+                ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_ON_DEMAND);
         wl_surface_commit(client->panel);
     }
 }

@@ -23,6 +23,7 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     private HostedSurfaceOutput output;
     private SurfaceBinding surfaceBinding;
     private boolean inputAllowed = true;
+    private boolean keyboardAllowed = true;
     private int frameWidth, frameHeight;
     private HostedViewport viewport = HostedViewport.EMPTY;
     private boolean contentDrag;
@@ -107,8 +108,24 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         inputAllowed = allowed;
     }
 
+    void allowKeyboard(boolean allowed) {
+        if (keyboardAllowed == allowed) return;
+        keyboardAllowed = allowed;
+        if (!allowed) {
+            releaseKeys();
+            if (output != null) output.blur();
+            clearFocus();
+        }
+        setFocusable(allowed);
+        setFocusableInTouchMode(allowed);
+    }
+
     private void releaseInput() {
         if (!contentDrag) pointerInput.release();
+        releaseKeys();
+    }
+
+    private void releaseKeys() {
         if (output != null) {
             for (int i = 0; i < keys.size(); i++) output.key(keys.keyAt(i), keys.valueAt(i), false);
         }
@@ -117,14 +134,16 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
 
     @Override protected void onFocusChanged(boolean gain, int direction, android.graphics.Rect previous) {
         super.onFocusChanged(gain, direction, previous);
-        if (gain && inputAllowed && output != null) output.focus();
+        if (gain && keyboardAllowed && inputAllowed && output != null && hasWindowFocus()) output.focus();
         else if (!gain) releaseInput();
     }
 
     @Override public void onWindowFocusChanged(boolean gain) {
         super.onWindowFocusChanged(gain);
-        if (!gain) releaseInput();
-        else if (inputAllowed && output != null) output.focus();
+        if (!gain) {
+            releaseInput();
+            if (output != null) output.blur();
+        } else if (keyboardAllowed && inputAllowed && output != null && isFocused()) output.focus();
     }
 
     android.graphics.PointF contentPoint(float x, float y) {
@@ -152,7 +171,7 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         if (contentDrag) return true;
         if (event.getActionMasked() == MotionEvent.ACTION_DOWN || event.getActionMasked() == MotionEvent.ACTION_BUTTON_PRESS) {
             if (beforeInteraction != null) beforeInteraction.run();
-            requestFocus();
+            if (keyboardAllowed) requestFocus();
         }
         return pointerInput.event(event);
     }
@@ -161,7 +180,7 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     @Override public boolean onKeyUp(int key, KeyEvent event) { return key(event, false) || super.onKeyUp(key, event); }
 
     private boolean key(KeyEvent event, boolean down) {
-        if (!inputAllowed || output == null || event.getKeyCode() == KeyEvent.KEYCODE_BACK || event.getKeyCode() == KeyEvent.KEYCODE_VOLUME_UP
+        if (!keyboardAllowed || !inputAllowed || output == null || event.getKeyCode() == KeyEvent.KEYCODE_BACK || event.getKeyCode() == KeyEvent.KEYCODE_VOLUME_UP
                 || event.getKeyCode() == KeyEvent.KEYCODE_VOLUME_DOWN) return false;
         int scan = event.getScanCode();
         if (down) keys.put(event.getKeyCode(), scan);
@@ -171,10 +190,10 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     }
 
     private void press(int key) {
-        if (inputAllowed && output != null) { output.key(key, 0, true); output.key(key, 0, false); }
+        if (keyboardAllowed && inputAllowed && output != null) { output.key(key, 0, true); output.key(key, 0, false); }
     }
 
-    @Override public boolean onCheckIsTextEditor() { return inputAllowed && (output == null || output.supportsText()); }
+    @Override public boolean onCheckIsTextEditor() { return keyboardAllowed && inputAllowed && output != null && output.supportsText(); }
 
     @Override public InputConnection onCreateInputConnection(EditorInfo info) {
         if (!onCheckIsTextEditor()) return null;
@@ -182,12 +201,12 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         info.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_ACTION_NONE;
         return new BaseInputConnection(this, true) {
             @Override public boolean commitText(CharSequence text, int cursor) {
-                if (inputAllowed && output != null) output.text(text.toString());
+                if (keyboardAllowed && inputAllowed && output != null) output.text(text.toString());
                 getEditable().clear();
                 return true;
             }
             @Override public boolean finishComposingText() {
-                if (inputAllowed && output != null && getEditable().length() > 0) output.text(getEditable().toString());
+                if (keyboardAllowed && inputAllowed && output != null && getEditable().length() > 0) output.text(getEditable().toString());
                 getEditable().clear();
                 return super.finishComposingText();
             }
@@ -207,7 +226,7 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         if (output == null) return;
         surfaceBinding.changed(holder.getSurface(), width, height);
         // Window focus may arrive before the first Surface, or remain held while it is replaced.
-        if (inputAllowed && hasWindowFocus() && isFocused()) output.focus();
+        if (keyboardAllowed && inputAllowed && hasWindowFocus() && isFocused()) output.focus();
     }
     @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
         attachSurface(holder, width, height);

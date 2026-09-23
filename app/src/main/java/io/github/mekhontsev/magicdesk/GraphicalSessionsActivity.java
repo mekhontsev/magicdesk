@@ -19,6 +19,7 @@ public final class GraphicalSessionsActivity extends Activity {
     private final Runnable listener = this::onChanged;
     private DesktopUiFactory ui;
     private Button sessions;
+    private Button shellWorkspace;
     private TextView status;
     private ImageButton open, windows, execute, scale, stop;
 
@@ -38,6 +39,10 @@ public final class GraphicalSessionsActivity extends Activity {
         status.setTextColor(DesktopUiFactory.COLOR_MUTED);
         status.setPadding(ui.dp(12), ui.dp(6), ui.dp(12), ui.dp(6));
         root.addView(status);
+        shellWorkspace = ui.menuItem(R.string.graphics_shell_workspace, DesktopUiFactory.COLOR_TEXT);
+        shellWorkspace.setOnClickListener(view -> chooseShellWorkspace());
+        root.addView(shellWorkspace);
+        GraphicalShells.listen(listener);
         setContentView(root);
         select(GraphicalSessions.find(state == null ? null : state.getString("session")));
     }
@@ -88,8 +93,34 @@ public final class GraphicalSessionsActivity extends Activity {
         execute.setEnabled(ready && session.canExecute());
         scale.setEnabled(ready && session.canScale());
         stop.setEnabled(session != null && !session.stopped());
+        shellWorkspace.setEnabled(ready && session.canIntegrateShell());
+        var shell = session == null ? null : GraphicalShells.state(session.id());
+        shellWorkspace.setText(getString(R.string.graphics_shell_workspace) + ": "
+                + (shell == null || shell.displayId() < 0 ? getString(R.string.graphics_shell_separate)
+                : getString(R.string.graphics_shell_display, shell.displayId())));
         status.setText(session == null ? getString(R.string.graphics_no_session)
-                : !session.error().isEmpty() ? session.error() : session.state());
+                : !session.error().isEmpty() ? session.error()
+                : shell != null && !shell.error().isEmpty() ? shell.error() : session.state());
+    }
+
+    private void chooseShellWorkspace() {
+        var selected = session;
+        if (selected == null) return;
+        var items = DesktopRuntimeBridge.getWorkspaces().stream().filter(DesktopSessionSnapshot::hasHost).toList();
+        var labels = new String[items.size() + 1];
+        labels[0] = getString(R.string.graphics_shell_separate);
+        int current = 0;
+        String id = GraphicalShells.state(selected.id()).workspaceId();
+        for (int i = 0; i < items.size(); i++) {
+            labels[i + 1] = getString(R.string.graphics_shell_display, items.get(i).activeWorkspaceDisplayId());
+            if (items.get(i).workspace().id.equals(id)) current = i + 1;
+        }
+        new AlertDialog.Builder(this).setTitle(R.string.graphics_shell_workspace)
+                .setSingleChoiceItems(labels, current, (dialog, which) -> {
+                    try { GraphicalShells.select(selected, which == 0 ? "" : items.get(which - 1).workspace().id); }
+                    catch (RuntimeException error) { showError(error); }
+                    dialog.dismiss();
+                }).setNegativeButton(android.R.string.cancel, null).show();
     }
 
     @Override public void onWindowFocusChanged(boolean focused) {
@@ -202,6 +233,7 @@ public final class GraphicalSessionsActivity extends Activity {
     }
 
     @Override public void onDestroy() {
+        GraphicalShells.unlisten(listener);
         if (session != null) { session.unlisten(listener); session.unwatch(this); }
         BuiltInWindowRegistry.unregister(this);
         super.onDestroy();

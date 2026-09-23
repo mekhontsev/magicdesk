@@ -30,6 +30,10 @@ final class GraphicalSessions {
         int hostTaskId(long window);
         void recordUse(long window, RecentLaunchScope scope);
         default boolean desktop() { return false; }
+        default boolean canIntegrateShell() { return false; }
+        default AutoCloseable bindShell(DesktopShellActivity host, java.util.function.Consumer<String> ended) {
+            throw new UnsupportedOperationException("Shell integration is unavailable for this session");
+        }
         default void watch(Activity activity) { }
         default void unwatch(Activity activity) { }
         default boolean canScale() { return false; }
@@ -88,6 +92,15 @@ final class GraphicalSessions {
         public boolean stopped() { return session.stopped(); }
         public boolean canExecute() { return session.canExecuteHostCommand(); }
         public boolean desktop() { return true; }
+        public boolean canIntegrateShell() { return !session.application; }
+        public AutoCloseable bindShell(DesktopShellActivity host, java.util.function.Consumer<String> ended) {
+            var binding = session.bindShell(host.panels().shellScope(), host.getResources().getDisplayMetrics().densityDpi, ended);
+            try {
+                binding.host(host.shellSurfaceHost(surface -> new X11SurfaceOutput(binding.openOutput(surface.id()))),
+                        host.shellPresentation());
+                return binding;
+            } catch (RuntimeException error) { binding.close(); throw error; }
+        }
         public boolean canScale() { return true; }
         public void scale(Activity activity) { X11ScaleDialog.show(activity, session); }
         public List<Window> windows() {
@@ -120,6 +133,21 @@ final class GraphicalSessions {
         public boolean ready() { return session.ready(); }
         public boolean stopped() { return session.stopped(); }
         public boolean canExecute() { return true; }
+        public boolean canIntegrateShell() { return session.canIntegrateShell(); }
+        public AutoCloseable bindShell(DesktopShellActivity host, java.util.function.Consumer<String> ended) {
+            var binding = session.bindShell(host.panels().shellScope(), host.getResources().getDisplayMetrics().densityDpi,
+                    new WaylandShellBinding.Listener() {
+                        public void changed() { }
+                        public void closed(String reason) { ended.accept(reason); }
+                    });
+            try {
+                binding.host(host.shellSurfaceHost(surface -> new WaylandSurfaceOutput(
+                        binding.openOutput(surface.id(), surface.bounds().width(), surface.bounds().height()))),
+                        host.shellPresentation());
+                binding.tasks(host.shellTasks());
+                return binding;
+            } catch (RuntimeException error) { binding.close(); throw error; }
+        }
         public List<Window> windows() {
             return session.windows().stream().map(window -> new Window(window.id(), window.title(), window.mapped())).toList();
         }

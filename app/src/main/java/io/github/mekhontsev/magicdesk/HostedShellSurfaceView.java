@@ -26,15 +26,54 @@ final class HostedShellSurfaceView extends FrameLayout implements AutoCloseable 
     private boolean closed;
     private CompletableFuture<Void> pending;
     private IInputRegionReceipt inputReceipt;
+    private Runnable releaseKeyboard;
+    private boolean keyboardFocused;
 
     HostedShellSurfaceView(Context context, HostedShellOutput output) {
         super(context);
         this.output = java.util.Objects.requireNonNull(output);
         content = new HostedSurfaceView(context);
+        content.allowKeyboard(false);
         content.getHolder().setFormat(PixelFormat.TRANSLUCENT);
         content.allowInput(false);
         addView(content, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
         content.bind(output, this::surfaceChanged);
+    }
+
+    void keyboardRequests(Runnable request, Runnable release) {
+        content.beforeInteraction(request);
+        releaseKeyboard = release;
+    }
+
+    void keyboard(boolean enabled) {
+        if (!enabled) keyboardFocused = false;
+        content.allowKeyboard(enabled);
+        if (enabled) content.requestFocus();
+    }
+
+    @Override public void onWindowFocusChanged(boolean focused) {
+        super.onWindowFocusChanged(focused);
+        if (focused) keyboardFocused = true;
+        else if (keyboardFocused) {
+            keyboardFocused = false;
+            if (releaseKeyboard != null) releaseKeyboard.run();
+        }
+    }
+
+    @Override public boolean dispatchTouchEvent(android.view.MotionEvent event) {
+        if (event.getActionMasked() == android.view.MotionEvent.ACTION_OUTSIDE) {
+            if (releaseKeyboard != null) releaseKeyboard.run();
+            return true;
+        }
+        return super.dispatchTouchEvent(event);
+    }
+
+    @Override public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        if (event.getKeyCode() == android.view.KeyEvent.KEYCODE_BACK && releaseKeyboard != null) {
+            if (event.getAction() == android.view.KeyEvent.ACTION_UP) releaseKeyboard.run();
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
     }
 
     /** Completes after pixels are submitted and Android acknowledges the exact input region. */

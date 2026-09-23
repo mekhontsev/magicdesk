@@ -12,7 +12,7 @@ struct Bridge {
     MdwServer *server;
     JNIEnv *env;
     jobject owner;
-    jmethodID window, shell, geometry, frame, wanted, can_render, error;
+    jmethodID window, shell, geometry, toplevel_action, frame, wanted, can_render, error;
 };
 
 static jbyteArray bytes(JNIEnv *env, const char *value) {
@@ -64,6 +64,28 @@ static void shell_event(void *context, uint64_t id, const MdwShellSurface *surfa
         (jint)(surface ? surface->margin_right : 0), (jint)(surface ? surface->margin_bottom : 0),
         (jint)(surface ? surface->exclusive_zone : 0), (jboolean)(surface == NULL));
     (*env)->DeleteLocalRef(env, name);
+}
+
+static void toplevel_action(void *context, uint64_t id, MdwToplevelAction action) {
+    struct Bridge *bridge = context;
+    if (!(*bridge->env)->ExceptionCheck(bridge->env))
+        (*bridge->env)->CallVoidMethod(bridge->env, bridge->owner, bridge->toplevel_action, (jlong)id, (jint)action);
+}
+
+JNIEXPORT jboolean JNICALL JNI(nativeToplevel)(JNIEnv *env, jclass type, jlong handle, jlong id,
+        jbyteArray title, jbyteArray app_id, jboolean active, jboolean maximized, jboolean fullscreen, jboolean removed) {
+    (void)type;
+    struct Bridge *bridge = (void *)(intptr_t)handle;
+    char name[4097] = {0}, app[1025] = {0};
+    if (!removed) {
+        if (!title || !app_id) return false;
+        jsize name_len = (*env)->GetArrayLength(env, title), app_len = (*env)->GetArrayLength(env, app_id);
+        if (name_len > 4096 || app_len > 1024) return false;
+        (*env)->GetByteArrayRegion(env, title, 0, name_len, (jbyte *)name);
+        (*env)->GetByteArrayRegion(env, app_id, 0, app_len, (jbyte *)app);
+        if ((*env)->ExceptionCheck(env)) return false;
+    }
+    return mdw_server_toplevel(bridge->server, (uint64_t)id, name, app, active, maximized, fullscreen, removed);
 }
 
 static void geometry_event(void *context, const MdwViewGeometry *geometry) {
@@ -122,6 +144,7 @@ JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner) {
     bridge->window = (*env)->GetMethodID(env, type, "onWindow", "(JJ[B[BZIIZ)V");
     if (!(*env)->ExceptionCheck(env)) bridge->shell = (*env)->GetMethodID(env, type, "onShell", "(J[BZZIIIJJIIIIIZ)V");
     if (!(*env)->ExceptionCheck(env)) bridge->geometry = (*env)->GetMethodID(env, type, "onGeometry", "(JJZIIIIZ[I)V");
+    if (!(*env)->ExceptionCheck(env)) bridge->toplevel_action = (*env)->GetMethodID(env, type, "onToplevelAction", "(JI)V");
     if (!(*env)->ExceptionCheck(env)) bridge->frame = (*env)->GetMethodID(env, type, "onFrame", "(JIII)V");
     if (!(*env)->ExceptionCheck(env)) bridge->wanted = (*env)->GetMethodID(env, type, "frameWanted", "(J)Z");
     if (!(*env)->ExceptionCheck(env)) bridge->can_render = (*env)->GetMethodID(env, type, "canRender", "(J)Z");
@@ -133,7 +156,7 @@ JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner) {
         free(bridge);
         return 0;
     }
-    MdwEvents events = {.window = window_event, .shell = shell_event, .geometry = geometry_event,
+    MdwEvents events = {.window = window_event, .shell = shell_event, .geometry = geometry_event, .toplevel_action = toplevel_action,
         .frame = frame_event, .can_render = can_render,
         .error = error_event, .context = bridge};
     mdw_server_set_events(bridge->server, &events);

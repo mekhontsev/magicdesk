@@ -346,7 +346,7 @@ public final class NativeWindowBoundsReconciliationTest {
                     }
                 """ + RuntimeSourceFixture.methods("DesktopWindowTransitionController",
                 "applyRestoreShortcut", "classifyRestoreShortcut", "setWindowBounds",
-                "snap", "snapFullscreenTask", "noteManualFreeformTransition") + """
+                "snap", "arrange", "snapFullscreenTask", "noteManualFreeformTransition") + """
                 }
                 public static void verify() {
                     Fixture f = new Fixture();

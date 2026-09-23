@@ -26,6 +26,10 @@ final class WaylandShellBinding implements AutoCloseable, WaylandSession.ShellLi
     private int mDensity;
     private boolean mClosed, mUpdating;
     private HostedShellWindows mWindows;
+    private ShellTaskCatalog mTasks;
+    private final Runnable mTasksChanged = this::publishTasks;
+    private Map<Long, WaylandSession.Toplevel> mPublishedTasks = Map.of();
+    private boolean mTasksReady;
 
     WaylandShellBinding(final WaylandSession session, final ShellLayoutScope scope,
             final int density, final Listener listener) {
@@ -43,6 +47,45 @@ final class WaylandShellBinding implements AutoCloseable, WaylandSession.ShellLi
     }
 
     java.util.concurrent.CompletableFuture<Void> ready() { return mNative.ready(); }
+
+    void tasks(ShellTaskCatalog catalog) {
+        checkThread();
+        if (mClosed || mTasks != null) throw new IllegalStateException("Shell task catalog already bound or closed");
+        mTasks = java.util.Objects.requireNonNull(catalog);
+        mTasks.listen(mTasksChanged);
+        var main = new android.os.Handler(Looper.getMainLooper());
+        mNative.ready().whenComplete((ignored, error) -> main.post(() -> {
+            if (mClosed) return;
+            if (error != null) closed(error.toString());
+            else { mTasksReady = true; publishTasks(); }
+        }));
+    }
+
+    private void publishTasks() {
+        if (mClosed || mTasks == null || !mTasksReady) return;
+        var next = new LinkedHashMap<Long, WaylandSession.Toplevel>();
+        for (var window : mTasks.snapshot()) {
+            var task = window.task();
+            var value = new WaylandSession.Toplevel(window.id(), task.title(), task.appId(), task.active(), task.maximized(), task.fullscreen());
+            next.put(window.id(), value);
+            if (!value.equals(mPublishedTasks.get(window.id()))) mNative.publishToplevel(value, false);
+        }
+        for (var previous : mPublishedTasks.values()) if (!next.containsKey(previous.id())) mNative.publishToplevel(previous, true);
+        mPublishedTasks = Map.copyOf(next);
+    }
+
+    @Override public void toplevelAction(long id, WaylandSession.ToplevelAction action) {
+        checkThread();
+        if (mClosed || mTasks == null) return;
+        mTasks.request(id, switch (action) {
+            case ACTIVATE -> ShellTaskCatalog.Action.ACTIVATE;
+            case MAXIMIZE -> ShellTaskCatalog.Action.MAXIMIZE;
+            case FULLSCREEN -> ShellTaskCatalog.Action.FULLSCREEN;
+            case UNMAXIMIZE -> ShellTaskCatalog.Action.UNMAXIMIZE;
+            case UNFULLSCREEN -> ShellTaskCatalog.Action.UNFULLSCREEN;
+            case CLOSE -> ShellTaskCatalog.Action.CLOSE;
+        });
+    }
     List<WaylandShellSurface> surfaces() { return mClosed ? List.of() : mNative.surfaces(); }
     ShellLayout.Surface surface(final long id) { return mLayout.surface(id); }
     WaylandViewGeometry geometry(final long id) { return mNative.geometry(id); }
@@ -64,6 +107,7 @@ final class WaylandShellBinding implements AutoCloseable, WaylandSession.ShellLi
                 var resolved = surface(state.id());
                 if (resolved == null) continue;
                 var frame = state.mapped() ? frame(geometry(state.id())) : null;
+                if (frame != null) frame = HostedShellPlacement.clip(resolved.content(), frame, mScope.snapshot().output(), mDensity);
                 var bounds = frame == null ? null : HostedShellPlacement.bounds(resolved.content(), frame, mDensity);
                 next.add(new HostedShellWindows.Surface(state.id(), resolved.request().layer(),
                         resolved.request().keyboard(), bounds, frame));
@@ -138,6 +182,8 @@ final class WaylandShellBinding implements AutoCloseable, WaylandSession.ShellLi
         checkThread();
         if (mClosed) return;
         mClosed = true;
+        if (mTasks != null) mTasks.unlisten(mTasksChanged);
+        mPublishedTasks = Map.of();
         mScope.unlisten(mScopeChanged);
         if (mWindows != null) mWindows.close();
         mNative.close();

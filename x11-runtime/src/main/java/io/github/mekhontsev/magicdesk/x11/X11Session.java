@@ -15,6 +15,8 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.CompletableFuture;
 import java.util.ArrayList;
+import java.util.List;
+import io.github.mekhontsev.magicdesk.hosted.FramePresentation;
 
 /** One server connection and Present queue, independently retained from its output windows. */
 public final class X11Session implements AutoCloseable {
@@ -60,6 +62,8 @@ public final class X11Session implements AutoCloseable {
     private boolean windowsChanged;
     private int dpi;
     private int nextInspection;
+    private int nextShell;
+    private ShellBinding shell;
     private final Map<Integer, Inspection> inspections = new LinkedHashMap<>();
     private record Inspection(long window, int limit, ArrayList<X11WindowInspection.Node> nodes,
             CompletableFuture<X11WindowInspection> result, Runnable timeout) { }
@@ -103,6 +107,7 @@ public final class X11Session implements AutoCloseable {
         java.util.Objects.requireNonNull(descriptor);
         try (descriptor) {
             call(() -> {
+                if (shell != null) shell.end("X11 server connection replaced");
                 cancelInspections();
                 for (Output output : outputs.values()) output.cursor(Cursor.DEFAULT);
                 if (!nativeConnect(nativeHandle, descriptor.detachFd())) {
@@ -176,6 +181,7 @@ public final class X11Session implements AutoCloseable {
     }
 
     private void onNativeWindowsCommitted() {
+        if (shell != null) shell.publish();
         if (!windowsChanged) return;
         windowsChanged = false;
         java.util.List<Window> snapshot = java.util.List.copyOf(windows.values());
@@ -183,6 +189,113 @@ public final class X11Session implements AutoCloseable {
     }
 
     public X11DataExchange dataExchange() { return dataExchange; }
+
+    public interface ShellListener {
+        void changed();
+        void closed(String reason);
+    }
+
+    /** An explicit, revocable shell catalog lease. It does not acquire the guest WM selection. */
+    public ShellBinding bindShell(int width, int height, ShellListener listener) {
+        shellSize(width, height);
+        java.util.Objects.requireNonNull(listener);
+        return call(() -> {
+            if (!connected || shell != null) throw new IllegalStateException("X11 shell already bound or unavailable");
+            for (var output : outputs.values()) if (output.window == 0 && !output.released)
+                throw new IllegalStateException("A whole-desktop viewer owns this X screen");
+            if (nextShell == Integer.MAX_VALUE) throw new IllegalStateException("Shell identifiers exhausted");
+            var binding = new ShellBinding(++nextShell, listener);
+            shell = binding;
+            nativeShell(nativeHandle, binding.id, width, height);
+            // EVENT_WAIT: server shell admission; expiry releases the lease and fails binding.
+            handler.postDelayed(binding.timeout, 5000);
+            return binding;
+        });
+    }
+
+    private static void shellSize(int width, int height) {
+        if (width < 1 || height < 1 || width > 16384 || height > 16384)
+            throw new IllegalArgumentException("Invalid X11 shell output size");
+    }
+
+    public final class ShellBinding implements AutoCloseable {
+        private final int id;
+        private final ShellListener listener;
+        private final CompletableFuture<Void> ready = new CompletableFuture<>();
+        private final Map<Integer, X11ShellSurface> catalog = new LinkedHashMap<>();
+        private volatile List<X11ShellSurface> snapshot = List.of();
+        private volatile boolean ended;
+        private boolean changed;
+        private final Runnable timeout = () -> end("X11 shell admission deadline expired");
+
+        private ShellBinding(int id, ShellListener listener) { this.id = id; this.listener = listener; }
+        public CompletableFuture<Void> ready() { return ready; }
+        public List<X11ShellSurface> surfaces() { return snapshot; }
+        public void resize(int width, int height) {
+            shellSize(width, height);
+            post(() -> { if (!ended) nativeShell(nativeHandle, id, width, height); });
+        }
+        public Output openOutput(long windowId) {
+            return call(() -> {
+                if (ended || shell != this || !ready.isDone() || ready.isCompletedExceptionally() ||
+                        windowId <= 0 || windowId > 0xffffffffL || !catalog.containsKey((int)windowId))
+                    throw new IllegalStateException("X11 shell surface is unavailable");
+                if (nextOutputId == Integer.MAX_VALUE) throw new IllegalStateException("Output identifiers exhausted");
+                var output = new Output(++nextOutputId, (int)windowId, true);
+                nativeSurface(nativeHandle, output.id, null, false);
+                outputs.put(output.id, output);
+                nativeBindShell(nativeHandle, output.id, output.window);
+                return output;
+            });
+        }
+        private void publish() {
+            if (ended || !changed) return;
+            changed = false;
+            snapshot = List.copyOf(catalog.values());
+            callbacks.execute(() -> { if (!closed && !ended) listener.changed(); });
+        }
+        private void end(String reason) {
+            if (ended) return;
+            ended = true;
+            handler.removeCallbacks(timeout);
+            if (shell == this) shell = null;
+            if (connected) nativeShell(nativeHandle, id, 0, 0);
+            snapshot = List.of();
+            catalog.clear();
+            for (var output : List.copyOf(outputs.values())) if (output.shellOutput) output.release();
+            ready.completeExceptionally(new IllegalStateException(reason.isEmpty() ? "X11 shell released" : reason));
+            callbacks.execute(() -> listener.closed(reason));
+        }
+        @Override public void close() { dispatch(() -> { end(""); return null; }, true); }
+    }
+
+    private void onNativeShell(int owner, int window, int[] fields) {
+        var binding = shell;
+        if (binding == null || binding.id != owner || binding.ended) return;
+        try {
+            if (fields == null) binding.catalog.remove(window);
+            else binding.catalog.put(window, X11ShellSurface.decode(window, fields));
+            binding.changed = true;
+        } catch (RuntimeException error) { binding.end("Invalid X11 shell metadata: " + error.getMessage()); }
+    }
+
+    private void onNativeShellState(int owner, boolean available) {
+        var binding = shell;
+        if (binding == null || binding.id != owner) return;
+        handler.removeCallbacks(binding.timeout);
+        if (available) binding.ready.complete(null);
+        else binding.end("X11 shell ownership unavailable (guest window manager or invalid output)");
+    }
+
+    // Renderer callbacks do not touch the connection's control-thread state.
+    private void onNativePresented(int id, int serial, boolean success) {
+        handler.post(() -> {
+            var output = outputs.get(id);
+            if (output == null || output.released || !output.presentation.accepts(serial)) return;
+            if (success) output.presentation.submitted(serial);
+            else output.presentation.fail(new IllegalStateException("X11 frame submission failed"));
+        });
+    }
 
     public CompletableFuture<X11WindowInspection> inspectWindow(long windowId, int limit) {
         if (windowId <= 0 || windowId > 0xffffffffL || limit < 1 || limit > 256)
@@ -199,7 +312,8 @@ public final class X11Session implements AutoCloseable {
                         new IllegalStateException("X11 inspection response deadline expired"));
             };
             inspections.put(serial, new Inspection(windowId, limit, new ArrayList<>(), result, timeout));
-            handler.postDelayed(timeout, 5000); // Bounds one protocol reply, not a polling interval.
+            // EVENT_WAIT: inspection reply; expiry fails the request, never supplies a partial snapshot.
+            handler.postDelayed(timeout, 5000);
             result.whenComplete((value, error) -> handler.post(() -> {
                 Inspection pending = inspections.remove(serial);
                 if (pending != null) handler.removeCallbacks(pending.timeout);
@@ -252,8 +366,9 @@ public final class X11Session implements AutoCloseable {
     public Output openOutput(long windowId) {
         if (windowId < 0 || windowId > 0xffffffffL) throw new IllegalArgumentException("Invalid X11 window ID");
         return call(() -> {
+            if (windowId == 0 && shell != null) throw new IllegalStateException("Release shell integration before viewing the whole X screen");
             if (nextOutputId == Integer.MAX_VALUE) throw new IllegalStateException("Output identifiers exhausted");
-            Output output = new Output(++nextOutputId, (int)windowId);
+            Output output = new Output(++nextOutputId, (int)windowId, false);
             nativeSurface(nativeHandle, output.id, null, false);
             outputs.put(output.id, output);
             if (connected) nativeBind(nativeHandle, output.id, output.window);
@@ -263,13 +378,15 @@ public final class X11Session implements AutoCloseable {
 
     public final class Output implements AutoCloseable {
         private final int id, window;
+        private final boolean shellOutput;
+        private final FramePresentation presentation = new FramePresentation();
         private volatile boolean released;
         private int width, height;
         private int frameWidth = -1, frameHeight = -1, frameAvailable = -1;
         private Cursor cursor = Cursor.DEFAULT;
         private boolean cursorPending;
 
-        private Output(int id, int window) { this.id = id; this.window = window; }
+        private Output(int id, int window, boolean shellOutput) { this.id = id; this.window = window; this.shellOutput = shellOutput; }
         public int id() { return id; }
         public long windowId() { return Integer.toUnsignedLong(window); }
 
@@ -282,8 +399,9 @@ public final class X11Session implements AutoCloseable {
                 if (surface != null) {
                     this.width = width;
                     this.height = height;
-                    if (connected) nativeResize(nativeHandle, id, window, width, height);
+                    if (connected && !shellOutput) nativeResize(nativeHandle, id, window, width, height);
                 }
+                presentation.invalidate("X11 Surface replaced");
                 nativeSurface(nativeHandle, id, surface, false);
                 return null;
             }, true);
@@ -307,6 +425,38 @@ public final class X11Session implements AutoCloseable {
         public void focus() {
             if (released || closed) return;
             handler.post(() -> { if (acceptsInput()) nativeFocus(nativeHandle, id, window); });
+        }
+
+        public void blur() {
+            if (!shellOutput || released || closed) return;
+            handler.post(() -> { if (acceptsInput()) nativeBlur(nativeHandle, id, window); });
+        }
+
+        /** Shell viewports never resize or move the X client's window family. */
+        public CompletableFuture<Void> present(Surface surface, X11ShellSurface.Rect viewport) {
+            java.util.Objects.requireNonNull(surface);
+            java.util.Objects.requireNonNull(viewport);
+            if (!shellOutput || viewport.left() < -16384 || viewport.top() < -16384 ||
+                    viewport.right() > 16384 || viewport.bottom() > 16384 ||
+                    viewport.right() <= viewport.left() || viewport.bottom() <= viewport.top())
+                throw new IllegalArgumentException("Invalid X11 shell viewport");
+            return call(() -> {
+                if (released || !connected) throw new IllegalStateException("X11 output unavailable");
+                var completion = new CompletableFuture<Void>();
+                long generation = presentation.begin(completion);
+                if (generation > Integer.MAX_VALUE) throw new IllegalStateException("Presentation identifiers exhausted");
+                try {
+                    nativeSurface(nativeHandle, id, surface, false);
+                    nativePresent(nativeHandle, id, window, (int)generation, viewport.left(), viewport.top(), viewport.right(), viewport.bottom());
+                } catch (RuntimeException error) { presentation.fail(error); }
+                Runnable timeout = () -> {
+                    if (presentation.accepts(generation)) presentation.fail(new IllegalStateException("X11 frame presentation deadline expired"));
+                };
+                // EVENT_WAIT: matching renderer swap; expiry revokes shell input admission through the failed receipt.
+                handler.postDelayed(timeout, 5000);
+                completion.whenComplete((ignored, error) -> handler.removeCallbacks(timeout));
+                return completion;
+            });
         }
 
         public void text(String text) {
@@ -334,14 +484,18 @@ public final class X11Session implements AutoCloseable {
         @Override public void close() {
             if (released || closed) return;
             dispatch(() -> {
-                if (!released) {
-                    released = true;
-                    if (connected) nativeRelease(nativeHandle, id, window);
-                    nativeSurface(nativeHandle, id, null, true);
-                    outputs.remove(id);
-                }
+                release();
                 return null;
             }, true);
+        }
+
+        private void release() {
+            if (released) return;
+            released = true;
+            presentation.invalidate("X11 output released");
+            if (connected) nativeRelease(nativeHandle, id, window);
+            nativeSurface(nativeHandle, id, null, true);
+            outputs.remove(id);
         }
     }
 
@@ -360,6 +514,8 @@ public final class X11Session implements AutoCloseable {
 
     private void onNativeDisconnected() {
         connected = false;
+        if (shell != null) shell.end("X11 server disconnected");
+        for (Output output : outputs.values()) output.presentation.invalidate("X11 server disconnected");
         for (Output output : outputs.values()) output.cursor(Cursor.DEFAULT);
         cancelInspections();
         dataExchange.disconnected();
@@ -383,8 +539,12 @@ public final class X11Session implements AutoCloseable {
             if (closed) return;
             if (shutdown == null) {
                 shutdown = new FutureTask<>(() -> {
+                    if (shell != null) shell.end("X11 session closed");
                     cancelInspections();
-                    for (Output output : outputs.values()) output.released = true;
+                    for (Output output : outputs.values()) {
+                        output.released = true;
+                        output.presentation.invalidate("X11 session closed");
+                    }
                     outputs.clear();
                     nativeDestroy(nativeHandle);
                     nativeHandle = 0;
@@ -452,10 +612,14 @@ public final class X11Session implements AutoCloseable {
     private static native boolean nativeConnect(long handle, int fd);
     private static native void nativeSurface(long handle, int output, Surface surface, boolean release);
     private static native void nativeBind(long handle, int output, int window);
+    private static native void nativeBindShell(long handle, int output, int window);
+    private static native void nativeShell(long handle, int owner, int width, int height);
+    private static native void nativePresent(long handle, int output, int window, int serial, int left, int top, int right, int bottom);
     private static native void nativeResize(long handle, int output, int window, int width, int height);
     private static native void nativePointer(long handle, int output, int window, float x, float y, int button, boolean down);
     private static native void nativeKey(long handle, int output, int window, int androidKeyCode, int scanCode, boolean down);
     private static native void nativeFocus(long handle, int output, int window);
+    private static native void nativeBlur(long handle, int output, int window);
     private static native void nativeRelease(long handle, int output, int window);
     private static native void nativeObserveWindows(long handle);
     private static native void nativeInspectWindow(long handle, int serial, int window, int limit);

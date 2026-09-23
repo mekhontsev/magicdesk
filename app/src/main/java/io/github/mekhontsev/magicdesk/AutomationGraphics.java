@@ -19,7 +19,11 @@ final class AutomationGraphics {
             try {
                 var context = MagicDeskApplication.applicationContext();
                 if (operation.equals("graphics.list")) {
-                    result[0] = new JSONObject().put("sessions", snapshot());
+                    var workspaces = new JSONArray();
+                    for (var item : DesktopRuntimeBridge.getWorkspaces()) if (item.hasHost())
+                        workspaces.put(new JSONObject().put("workspaceId", item.workspace().id)
+                                .put("displayId", item.activeWorkspaceDisplayId()));
+                    result[0] = new JSONObject().put("sessions", snapshot()).put("workspaces", workspaces);
                 } else if (operation.equals("graphics.start")) {
                     String command = args.optString("command", "");
                     if (!command.isBlank()) DesktopExecCommand.normalize(command);
@@ -31,6 +35,7 @@ final class AutomationGraphics {
                     var session = GraphicalSessions.find(args.getString("sessionId"));
                     if (session == null) throw new IllegalArgumentException("Graphical session is unavailable");
                     switch (operation) {
+                        case "graphics.set_workspace" -> GraphicalShells.select(session, args.getString("workspaceId"));
                         case "graphics.execute" -> session.execute(DesktopExecCommand.normalize(args.getString("command")), args.optString("directory", ""));
                         case "graphics.stop" -> session.close();
                         case "graphics.open_window" -> {
@@ -48,6 +53,7 @@ final class AutomationGraphics {
             finally { completed.countDown(); }
         };
         main.post(action);
+        // EVENT_WAIT: main-thread command completion; expiry cancels only work that has not started.
         var pending = AutomationCallbackWait.await(completed, 10_000, operation, operation.equals("graphics.list"),
                 new JSONObject());
         if (pending != null) {
@@ -72,10 +78,13 @@ final class AutomationGraphics {
         JSONArray windows = new JSONArray();
         for (var window : session.windows()) windows.put(new JSONObject().put("windowId", window.id())
                 .put("title", window.title()).put("mapped", window.mapped()));
+        var shell = GraphicalShells.state(session.id());
         return new JSONObject().put("sessionId", session.id()).put("name", session.name())
                 .put("protocol", session.protocol().name().toLowerCase(java.util.Locale.ROOT))
                 .put("state", session.state()).put("ready", session.ready()).put("error", session.error())
-                .put("wholeDesktop", session.desktop()).put("windows", windows);
+                .put("wholeDesktop", session.desktop()).put("windows", windows)
+                .put("shellIntegration", new JSONObject().put("available", session.canIntegrateShell())
+                        .put("workspaceId", shell.workspaceId()).put("displayId", shell.displayId()).put("error", shell.error()));
     }
 
     private AutomationGraphics() { }

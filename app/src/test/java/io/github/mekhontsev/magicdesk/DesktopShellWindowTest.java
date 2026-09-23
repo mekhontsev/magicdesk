@@ -3,6 +3,44 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 public final class DesktopShellWindowTest {
+    @Test public void keyboardNeedsDemandAndHostAcknowledgement() throws Exception {
+        verify("""
+                var window = host.borrowShellSurface(view, bounds, "keyboard");
+                callback.accept(new Result(true));
+                check(!view.keyboard, "attachment acquired keyboard");
+                window.requestKeyboard();
+                check(host.mKeyboardShell == window && !view.keyboard, "keyboard bypassed acknowledgement");
+                host.gateReady = true;
+                host.attachRequestedWindows();
+                check(view.keyboard && (window.params.flags & 5) == 0, "ack did not enable child/IME");
+                window.releaseKeyboard();
+                check(!view.keyboard && host.mKeyboardShell == null && (window.params.flags & 5) == 5,
+                        "release retained guest or Android focus");
+                window.close();
+                host.attachRequestedWindows();
+                check(!view.keyboard, "late ack revived closed output");
+                """);
+    }
+
+    @Test public void keyboardIsExclusiveBetweenShellLeasesAndYieldsToNativePanels() throws Exception {
+        verify("""
+                var first = host.borrowShellSurface(view, bounds, "one");
+                callback.accept(new Result(true));
+                var secondView = new HostedShellSurfaceView();
+                var second = host.borrowShellSurface(secondView, bounds, "two");
+                callback.accept(new Result(true));
+                host.gateReady = true;
+                first.requestKeyboard();
+                second.requestKeyboard();
+                check(!view.keyboard && secondView.keyboard && host.mKeyboardShell == second, "two keyboard owners");
+                second.close();
+                check(!secondView.keyboard && host.mKeyboardShell == null, "close retained demand");
+                host.nativeRequest = true;
+                first.requestKeyboard();
+                check(host.mKeyboardShell == null && !view.keyboard, "external click displaced native panel");
+                """);
+    }
+
     @Test public void admissionNeedsCapabilityAndCancellationRejectsLateCompletion() throws Exception {
         verify("""
                 var window = host.borrowShellSurface(view, bounds, "test");
@@ -73,16 +111,18 @@ public final class DesktopShellWindowTest {
                 static class HostedShellFrame { }
                 static class HostedShellSurfaceView {
                     int closes;
+                    boolean keyboard;
                     CompletableFuture<Void> pending;
                     CompletableFuture<Void> present(HostedShellFrame frame) {
                         order.add("revoke"); pending = new CompletableFuture<>(); return pending;
                     }
                     void close() { closes++; if (pending != null) pending.completeExceptionally(new IOException("closed")); }
+                    void keyboard(boolean enabled) { keyboard = enabled; }
                 }
                 static class WindowManager {
                     static class LayoutParams {
                         static final int FLAG_NOT_FOCUSABLE=1, FLAG_NOT_TOUCH_MODAL=2, FLAG_ALT_FOCUSABLE_IM=4,
-                                FLAG_LAYOUT_IN_SCREEN=8, FLAG_LAYOUT_NO_LIMITS=16;
+                                FLAG_LAYOUT_IN_SCREEN=8, FLAG_LAYOUT_NO_LIMITS=16, FLAG_WATCH_OUTSIDE_TOUCH=32;
                         int x, y, width, height, flags;
                         String title;
                         CharSequence getTitle() { return title; }
@@ -98,6 +138,14 @@ public final class DesktopShellWindowTest {
                 WindowManager mWindowManager = new WindowManager();
                 FocusGate mFocusGate = new FocusGate();
                 Set<ShellWindow> mShellWindows = new LinkedHashSet<>();
+                ShellWindow mKeyboardShell;
+                boolean gateReady, nativeRequest;
+                boolean nativeKeyboardRequested() { return nativeRequest; }
+                boolean updateHostFocus() { return true; }
+                boolean attachRequestedWindows() {
+                    if (gateReady && mKeyboardShell != null) mKeyboardShell.applyKeyboard(true);
+                    return true;
+                }
                 boolean ensureHostAndAttach() {
                     for (var lease : List.copyOf(mShellWindows)) lease.attach(); return true;
                 }

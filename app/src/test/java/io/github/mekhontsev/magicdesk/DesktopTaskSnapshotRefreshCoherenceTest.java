@@ -149,6 +149,8 @@ public final class DesktopTaskSnapshotRefreshCoherenceTest {
                     boolean isActivityUnavailable() { return unavailable; }
                     void runOnUiThread(Runnable action) { action.run(); }
                     void updateDesktopControls() { updates++; }
+                    TaskRepository.Snapshot shellTasks;
+                    void publishShellTasks(TaskRepository.Snapshot snapshot) { shellTasks = snapshot; }
                     AppProfile appProfile() { return new AppProfile(); }
                     Object getLauncherApps() { return null; }
                     void renderTaskbarPins(Object apps) {}

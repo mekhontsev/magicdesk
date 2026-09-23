@@ -8,6 +8,7 @@ interface HostedSurfaceOutput extends AutoCloseable {
 
     void setSurface(Surface surface, int width, int height);
     void focus();
+    default void blur() { }
     void pointer(float x, float y);
     void button(float x, float y, Button button, boolean down);
     void scroll(float x, float y, float horizontal, float vertical);

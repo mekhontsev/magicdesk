@@ -24,6 +24,10 @@ final class AutomationCommandCatalog {
                                 "sessionId", "windowId")))
                 .put(readTool("graphics.list", "List graphical sessions",
                         "Read retained X11 and Wayland sessions and native window IDs. Does not create Android windows, claim input or start Desktop.", emptySchema()))
+                .put(actionTool("graphics.set_workspace", "Select shell workspace",
+                        "Explicitly bind a retained graphics session's shell components to an existing Desktop workspace. Use a live workspaceId from graphics.list, or an empty string to release. Closing the workspace revokes panels without stopping the graphics session. Does not start Desktop or acquire display input.",
+                        objectSchema(new JSONObject().put("sessionId", stringProperty("Live graphical session ID."))
+                                .put("workspaceId", stringProperty("Exact workspace residency ID, or empty to release.")), "sessionId", "workspaceId")))
                 .put(actionTool("graphics.start", "Start graphical session",
                         "Start a retained compositor through the selected executor, optionally running a startup command. Returns a sessionId before readiness; observe graphics.list. No Android window is opened. Wayland currently supports software per-application windows, not a whole desktop, and its shell client bootstrap requires UID 2000. An expired observation does not cancel a dispatched start; inspect before retrying.",
                         objectSchema(new JSONObject().put("protocol", enumProperty("Display protocol.", "x11", "wayland"))
@@ -1332,6 +1336,7 @@ final class AutomationCommandCatalog {
             case "graphics.start":
             case "graphics.execute":
             case "graphics.stop":
+            case "graphics.set_workspace":
                 properties.put("sessionId", stringProperty("Exact retained session ID."))
                         .put("accepted", booleanProperty("Operation dispatched, not completed."))
                         .put("protocol", enumProperty("Display protocol.", "x11", "wayland"))

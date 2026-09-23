@@ -355,6 +355,7 @@ MdwServer *mdw_server_create(void) {
     wl_list_init(&server->views);
     wl_list_init(&server->outputs);
     wl_list_init(&server->layers);
+    wl_list_init(&server->foreign_windows);
     server->display = wl_display_create();
     if (!server->display) goto fail;
     server->backend = wlr_headless_backend_create(wl_display_get_event_loop(server->display));
@@ -644,8 +645,9 @@ bool mdw_window_disconnect(MdwServer *server, uint64_t id) {
 }
 
 int mdw_server_dispatch(MdwServer *server, int timeout_ms) {
-    // Host commands can queue events while the scene is idle. Deliver them before
-    // blocking for a client response rather than depending on another frame.
+    // Host commands run outside Wayland dispatch and may schedule idle protocol
+    // batches. Complete and flush those before waiting for the client's response.
+    wl_event_loop_dispatch_idle(wl_display_get_event_loop(server->display));
     wl_display_flush_clients(server->display);
     int result = wl_event_loop_dispatch(wl_display_get_event_loop(server->display), timeout_ms);
     wl_display_flush_clients(server->display);

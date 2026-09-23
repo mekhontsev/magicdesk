@@ -157,8 +157,18 @@ applies existing fullscreen and reveal policy without unmapping the Linux panel
 or releasing its reservation. Role or
 host failure revokes that contribution and its reservations, not the session.
 Catalog snapshots are published with their UI callbacks so rapid unmap/remap
-retains lifecycle order. User-facing workspace selection and keyboard-focus
-admission are pending; ordinary sessions do not enable layer-shell admission automatically.
+retains lifecycle order. Top panels can request on-demand keyboard focus through
+the chrome host's focus gate. **Linux graphics** exposes an explicit shell-workspace
+selection; ordinary sessions do not enable layer-shell admission automatically.
+
+An admitted workspace also supplies a `wlr-foreign-toplevel-management` catalog.
+It contains that workspace's managed Android task hosts, including hosted Linux
+applications, with opaque lifetime-bound handles. Activation, close, maximize,
+unmaximize, fullscreen and exit-fullscreen requests go through the same task
+gateway as MagicDesk's own controls. Minimize requests are ignored. Unbinding
+closes handles and revokes requests without closing those applications.
+Metadata/action processing is event-driven; pending wlroots idle notifications
+are dispatched before flushing and waiting for the next protocol event.
 
 `MdwView` owns a rendered surface family independently of its xdg or layer role.
 Ordinary application outputs use wlroots scene rendering. Transparent shell
