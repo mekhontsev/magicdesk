@@ -29,7 +29,7 @@ struct Bridge {
     MdwServer *server;
     JNIEnv *env;
     jobject owner;
-    jmethodID window, shell, geometry, toplevel_action, frame, wanted, can_render, error, text_input, cursor;
+    jmethodID window, window_gesture, shell, geometry, toplevel_action, frame, wanted, can_render, error, text_input, cursor;
     jmethodID content_offer, content_request, content_reply, drag_event;
 };
 
@@ -118,11 +118,22 @@ static void window_event(void *context, uint64_t id, const MdwWindow *window) {
         (*env)->CallVoidMethod(env, bridge->owner, bridge->window, (jlong)id,
             (jlong)(window ? window->parent : 0), title, app_id,
             (jboolean)(window && window->mapped), (jint)(window ? window->width : 0),
-            (jint)(window ? window->height : 0), (jlong)(window ? window->request_serial : 0),
-            (jboolean)(window && window->fullscreen), (jboolean)(window == NULL));
+            (jint)(window ? window->height : 0),
+            (jint)(window ? window->min_width : 0), (jint)(window ? window->min_height : 0),
+            (jint)(window ? window->max_width : 0), (jint)(window ? window->max_height : 0),
+            (jlong)(window ? window->request_serial : 0),
+            (jboolean)(window && window->fullscreen),
+            (jlong)(window ? window->maximize_serial : 0), (jboolean)(window && window->maximized),
+            (jboolean)(window == NULL));
         (*env)->DeleteLocalRef(env, app_id);
     }
     (*env)->DeleteLocalRef(env, title);
+}
+
+static void window_gesture(void *context, uint64_t id, uint32_t edges) {
+    struct Bridge *bridge = context;
+    if (!(*bridge->env)->ExceptionCheck(bridge->env))
+        (*bridge->env)->CallVoidMethod(bridge->env, bridge->owner, bridge->window_gesture, (jlong)id, (jint)edges);
 }
 
 static void error_event(void *context, const char *message) {
@@ -169,7 +180,9 @@ static void text_input_event(void *context, MdwOutput *output, const MdwTextStat
     if (!(*env)->ExceptionCheck(env))
         (*env)->CallVoidMethod(env, bridge->owner, bridge->text_input,
             (jlong)(intptr_t)output, (jlong)state->editor, (jlong)state->revision, text,
-            (jint)state->cursor, (jint)state->anchor, (jint)state->purpose, (jint)state->hints);
+            (jint)state->cursor, (jint)state->anchor, (jint)state->purpose, (jint)state->hints,
+            (jboolean)state->caret_valid, (jfloat)state->caret[0], (jfloat)state->caret[1],
+            (jfloat)state->caret[2], (jfloat)state->caret[3]);
     if (text) (*env)->DeleteLocalRef(env, text);
 }
 
@@ -267,7 +280,8 @@ JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner) {
     bridge->owner = (*env)->NewGlobalRef(env, owner);
     if (!bridge->owner) { free(bridge); return 0; }
     jclass type = (*env)->GetObjectClass(env, owner);
-    bridge->window = (*env)->GetMethodID(env, type, "onWindow", "(JJ[B[BZIIJZZ)V");
+    bridge->window = (*env)->GetMethodID(env, type, "onWindow", "(JJ[B[BZIIIIIIJZJZZ)V");
+    if (!(*env)->ExceptionCheck(env)) bridge->window_gesture = (*env)->GetMethodID(env, type, "onWindowGesture", "(JI)V");
     if (!(*env)->ExceptionCheck(env)) bridge->shell = (*env)->GetMethodID(env, type, "onShell", "(J[BZZIIIJJIIIIIZ)V");
     if (!(*env)->ExceptionCheck(env)) bridge->geometry = (*env)->GetMethodID(env, type, "onGeometry", "(JJZIIIIZ[IZ)V");
     if (!(*env)->ExceptionCheck(env)) bridge->toplevel_action = (*env)->GetMethodID(env, type, "onToplevelAction", "(JI)V");
@@ -275,7 +289,7 @@ JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner) {
     if (!(*env)->ExceptionCheck(env)) bridge->wanted = (*env)->GetMethodID(env, type, "frameWanted", "(J)Z");
     if (!(*env)->ExceptionCheck(env)) bridge->can_render = (*env)->GetMethodID(env, type, "canRender", "(J)Z");
     if (!(*env)->ExceptionCheck(env)) bridge->error = (*env)->GetMethodID(env, type, "onError", "(Ljava/lang/String;)V");
-    if (!(*env)->ExceptionCheck(env)) bridge->text_input = (*env)->GetMethodID(env, type, "onTextInput", "(JJJ[BIIII)V");
+    if (!(*env)->ExceptionCheck(env)) bridge->text_input = (*env)->GetMethodID(env, type, "onTextInput", "(JJJ[BIIIIZFFFF)V");
     if (!(*env)->ExceptionCheck(env)) bridge->cursor = (*env)->GetMethodID(env, type, "onCursor", "(J[IIIIIZ)V");
     if (!(*env)->ExceptionCheck(env)) bridge->content_offer = (*env)->GetMethodID(env, type, "onContentOffer", "(IJJLjava/lang/String;)V");
     if (!(*env)->ExceptionCheck(env)) bridge->content_request = (*env)->GetMethodID(env, type, "onContentRequest", "(IJJLjava/lang/String;)V");
@@ -288,7 +302,8 @@ JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner) {
         free(bridge);
         return 0;
     }
-    MdwEvents events = {.window = window_event, .shell = shell_event, .geometry = geometry_event, .toplevel_action = toplevel_action,
+    MdwEvents events = {.window = window_event, .window_gesture = window_gesture,
+        .shell = shell_event, .geometry = geometry_event, .toplevel_action = toplevel_action,
         .frame = frame_event, .can_render = can_render,
         .error = error_event, .text_input = text_input_event, .cursor = cursor_event, .context = bridge,
         .content_offer = content_offer, .content_request = content_request, .content_reply = content_reply, .drag_event = drag_event};
@@ -300,6 +315,13 @@ JNIEXPORT jint JNICALL JNI(nativeEventFd)(JNIEnv *env, jclass type, jlong handle
     (void)env; (void)type;
     struct Bridge *bridge = (void *)(intptr_t)handle;
     return mdw_server_fd(bridge->server);
+}
+
+JNIEXPORT void JNICALL JNI(nativeConfirmMaximized)(JNIEnv *env, jclass type, jlong handle,
+        jlong window, jlong serial, jboolean maximized) {
+    (void)env; (void)type;
+    struct Bridge *bridge = (void *)(intptr_t)handle;
+    mdw_window_confirm_maximized(bridge->server, window, serial, maximized);
 }
 
 JNIEXPORT void JNICALL JNI(nativeConfirmFullscreen)(JNIEnv *env, jclass type, jlong handle,

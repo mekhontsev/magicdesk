@@ -32,12 +32,17 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     private SparseIntArray keys = new SparseIntArray();
     private boolean borrowedKeyboard;
     private HostedTextInputConnection textConnection;
+    private java.util.function.Predicate<MotionEvent> windowMotion;
+    private float rawX, rawY;
 
     HostedSurfaceView(Context context) {
         super(context);
         pointerInput = new HostedPointerInput(this);
         setFocusable(true);
         setFocusableInTouchMode(true);
+        addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (textConnection != null) textConnection.cursorChanged();
+        });
         getHolder().addCallback(this);
     }
 
@@ -62,9 +67,12 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     void frame(int width, int height) {
         frameWidth = width;
         frameHeight = height;
-        viewport = HostedViewport.fit(getWidth(), getHeight(), width, height);
+        var next = HostedViewport.fit(getWidth(), getHeight(), width, height);
+        boolean moved = !next.equals(viewport);
+        viewport = next;
         pointerInput.viewport(viewport);
         updateCursor();
+        if (moved && textConnection != null) textConnection.cursorChanged();
     }
 
     void cursor(android.graphics.Bitmap image, int hotspotX, int hotspotY, boolean hidden) {
@@ -215,6 +223,8 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
 
     private boolean motion(MotionEvent event) {
         if (!inputAllowed) return false;
+        rawX = event.getRawX(); rawY = event.getRawY();
+        if (windowMotion != null && windowMotion.test(event)) return true;
         if (contentDrag) return true;
         if (event.getActionMasked() == MotionEvent.ACTION_DOWN || event.getActionMasked() == MotionEvent.ACTION_BUTTON_PRESS) {
             if (beforeInteraction != null) beforeInteraction.run();
@@ -237,6 +247,12 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     }
 
     @Override public boolean onCheckIsTextEditor() { return keyboardAllowed && inputAllowed && output != null && output.supportsText(); }
+
+    void windowMotion(java.util.function.Predicate<MotionEvent> receiver) { windowMotion = receiver; }
+    android.graphics.PointF pressedPointer() {
+        return pointerInput.dragging() ? new android.graphics.PointF(rawX, rawY) : null;
+    }
+    void cancelPointer() { pointerInput.release(); }
 
     void textInputChanged() {
         android.view.inputmethod.InputMethodManager manager = getContext().getSystemService(

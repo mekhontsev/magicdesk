@@ -863,6 +863,12 @@ public final class MagicDeskRuntime {
         return tasks != null && tasks.arrangeTask(taskId, shortcut);
     }
 
+    static void setMaximized(int displayId, int taskId, boolean maximized, TaskRepository.ActionCallback callback) {
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
+        if (tasks == null) { completeTaskAction(callback, false, "desktop task runtime unavailable"); return; }
+        tasks.setMaximized(displayId, taskId, maximized, callback);
+    }
+
     static void setWindowBounds(
             final int displayId,
             final int taskId,

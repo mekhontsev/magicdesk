@@ -37,7 +37,7 @@ public final class WaylandApplicationIdentityTest {
                 List<Long> retained=List.of();
                 void retain(List<Long> ids) { retained=ids; }
             }
-            FullscreenOwners fullscreenOwners=new FullscreenOwners();
+            FullscreenOwners windowControlOwners=new FullscreenOwners();
             public static void verify() {
                 Fixture f=new Fixture();
                 f.changed();
@@ -49,7 +49,7 @@ public final class WaylandApplicationIdentityTest {
                 f.catalog=List.of(new WaylandSession.Window(1,false)); f.changed();
                 check(!f.closed && f.presentation.retained.equals(Set.of(1L)) && f.presentation.presented.isEmpty(),
                         "unmapping destroyed an existing client");
-                check(f.fullscreenOwners.retained.equals(List.of(1L)),"unmapped client lost its fullscreen owner");
+                check(f.windowControlOwners.retained.equals(List.of(1L)),"unmapped client lost its window control owner");
                 f.catalog=List.of(); f.changed();
                 check(f.closed,"last destroyed window left an application session running");
                 Fixture manager=new Fixture(); manager.application=false; manager.hadWindows=true; manager.changed();

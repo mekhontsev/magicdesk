@@ -449,6 +449,15 @@ final class DesktopWindowTransitionController {
         mNativeWindowBounds.requestBounds(task, targetBounds, true);
     }
 
+    void setMaximized(TaskRepository.TaskEntry task, boolean maximized, TaskRepository.ActionCallback callback) {
+        Rect work = mNativeWindowBounds.getTaskbarMaximizedBounds();
+        if (maximized == task.bounds.equals(work)) { complete(callback, true, "unchanged"); return; }
+        noteManualFreeformTransition(task.taskId);
+        mNativeWindowBounds.rememberRestoreBounds(task);
+        Rect target = maximized ? work : mTaskStates.state(task.taskId).windowRestoreBounds();
+        mNativeWindowBounds.requestBounds(task, target, maximized, callback);
+    }
+
     void setWindowBounds(
             final TaskRepository.TaskEntry task,
             final Rect targetBounds,

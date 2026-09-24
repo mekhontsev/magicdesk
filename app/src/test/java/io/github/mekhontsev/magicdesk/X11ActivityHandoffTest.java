@@ -29,6 +29,7 @@ public final class X11ActivityHandoffTest {
                     State state() { return state; }
                     List<X11Session.Window> windows() { return windows; }
                     void claimWindow(long id) { }
+                    Layout layout(long id) { return new Layout(); }
                     Object windowRecipe(long id) { return null; }
                     String error() { return ""; }
                 }
@@ -51,12 +52,17 @@ public final class X11ActivityHandoffTest {
                 long window;
                 void refresh(long window, boolean ready) { if (ready) this.window=window; }
             }
+            static class Content {
+                void constraints(Object value, float scale) { }
+            }
+            static class Layout { Object constraints() { return null; } }
             static class Activity {
                 X11Sessions.Session session;
                 long window;
                 boolean application=true, provisional=true, seenWindow, finishing, destroyed;
                 Object identityRecipe, windowApplication;
                 Status status=new Status(); Binding binding=new Binding();
+                Content content=new Content();
                 boolean isDestroyed() { return destroyed; }
                 boolean isFinishing() { return finishing; }
                 void finish() { finishing=true; }

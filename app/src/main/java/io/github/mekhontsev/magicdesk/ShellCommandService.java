@@ -294,6 +294,13 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         mTaskObserverManager.releaseDesktopTasks(displayId, taskIds);
     }
 
+    @Override public void resizeTaskBounds(int displayId, int taskId, Rect bounds) {
+        try { HiddenTaskApi.resizeTaskBounds(HiddenTaskApi.getService(), displayId, taskId, bounds); }
+        catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException("task bounds change failed", error);
+        }
+    }
+
     @Override public void moveOrdinaryTask(final int taskId, final int sourceDisplayId,
             final int targetDisplayId, final int userId) {
         try {

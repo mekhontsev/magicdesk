@@ -219,8 +219,13 @@ public final class TaskRepository {
             complete(callback, false, "invalid task bounds");
             return;
         }
-        runAction(createBoundsTransactionCommand(
-                task.displayId, task.taskId, bounds), callback);
+        final Rect target = new Rect(bounds);
+        TaskCommandQueue.execute(() -> {
+            try {
+                ShellAccess.resizeTaskBounds(task.displayId, task.taskId, target);
+                complete(callback, true, "");
+            } catch (IOException error) { complete(callback, false, usefulMessage(error)); }
+        });
     }
 
     static void sendBackToDisplay(final int displayId, final ActionCallback callback) {
@@ -330,19 +335,6 @@ public final class TaskRepository {
     private static String createTaskWindowingCommand(final String arguments) {
         return AppProcessCommand.run(
                 TASK_WINDOWING_COMMAND, arguments);
-    }
-
-    static String createBoundsTransactionCommand(
-            final int displayId,
-            final int taskId,
-            final Rect bounds) {
-        if (displayId < 0 || taskId < 0 || !hasExplicitBounds(bounds)) {
-            throw new IllegalArgumentException("invalid task bounds");
-        }
-        return createTaskWindowingCommand(
-                "bounds " + displayId + " " + taskId
-                        + " " + bounds.left + " " + bounds.top
-                        + " " + bounds.right + " " + bounds.bottom);
     }
 
     static String createFullscreenTransitionCommand(final int displayId,

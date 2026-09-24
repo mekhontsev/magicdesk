@@ -19,6 +19,7 @@ interface IWaylandServer {
     oneway void frameConsumed(long output, long serial);
     oneway void closeWindow(long window, boolean force);
     oneway void confirmFullscreen(long window, long serial, boolean fullscreen);
+    oneway void confirmMaximized(long window, long serial, boolean maximized);
     oneway void contentActive(boolean active);
     oneway void publishContent(int channel, long id, String types);
     oneway void readContent(int channel, long id, long request, String type);

@@ -42,7 +42,7 @@ struct Client {
     struct zwp_text_input_manager_v3 *text_manager;
     struct zwp_text_input_v3 *text;
     struct wl_surface *cursor;
-    bool preedit, committed, fullscreen, deleted;
+    bool preedit, committed, fullscreen, maximized, deleted;
     bool data_device_manager;
     int key_down, key_up, button_down, button_up;
     int width, height, frames;
@@ -62,6 +62,7 @@ static void text_enter(void *data, struct zwp_text_input_v3 *text, struct wl_sur
     zwp_text_input_v3_set_surrounding_text(text, "a\xd0\x96\xf0\x9f\x98\x80z", 7, 3);
     zwp_text_input_v3_set_content_type(text, ZWP_TEXT_INPUT_V3_CONTENT_HINT_COMPLETION,
             ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_EMAIL);
+    zwp_text_input_v3_set_cursor_rectangle(text, 5, 6, 2, 4);
     zwp_text_input_v3_commit(text);
 }
 static void text_leave(void *data, struct zwp_text_input_v3 *text, struct wl_surface *surface) {
@@ -100,7 +101,8 @@ static void pointer_enter(void *data, struct wl_pointer *pointer, uint32_t seria
     (void)pointer; (void)serial;
     struct Client *client = data;
     assert(surface == client->surface);
-    assert(wl_fixed_to_double(x) == (interaction ? 10 : 20) && wl_fixed_to_double(y) == (interaction ? 7.5 : 15));
+    assert(wl_fixed_to_double(x) == (interaction ? 10 : fixed_client_size ? 40 : 20)
+        && wl_fixed_to_double(y) == (interaction ? 7.5 : fixed_client_size ? 30 : 15));
     if (interaction) {
         client->cursor = wl_compositor_create_surface(client->compositor);
         wl_pointer_set_cursor(pointer, serial, client->cursor, 1, 2);
@@ -131,6 +133,7 @@ static void pointer_enter(void *data, struct wl_pointer *pointer, uint32_t seria
         wl_surface_attach(client->cursor, buffer, 0, 0);
         wl_surface_commit(client->cursor);
         xdg_toplevel_set_fullscreen(client->toplevel, NULL);
+        xdg_toplevel_set_maximized(client->toplevel);
     }
 }
 static void pointer_leave(void *data, struct wl_pointer *pointer, uint32_t serial, struct wl_surface *surface) {
@@ -144,7 +147,14 @@ static void pointer_button(void *data, struct wl_pointer *pointer, uint32_t seri
     (void)pointer; (void)serial; (void)time;
     struct Client *client = data;
     assert(button == BTN_LEFT);
-    if (state == WL_POINTER_BUTTON_STATE_PRESSED) client->button_down++;
+    if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
+        client->button_down++;
+        if (interaction) {
+            xdg_toplevel_move(client->toplevel, client->seat, UINT32_MAX);
+            xdg_toplevel_move(client->toplevel, client->seat, serial);
+            xdg_toplevel_resize(client->toplevel, client->seat, serial, XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_RIGHT);
+        }
+    }
     else client->button_up++;
 }
 static void pointer_axis(void *data, struct wl_pointer *pointer, uint32_t time,
@@ -294,8 +304,12 @@ static void toplevel_configure(void *data, struct xdg_toplevel *toplevel,
     client->width = fixed_client_size ? 160 : width > 0 ? width : 80;
     client->height = fixed_client_size ? 120 : height > 0 ? height : 60;
     client->fullscreen = false;
+    client->maximized = false;
     uint32_t *state;
-    wl_array_for_each(state, states) if (*state == XDG_TOPLEVEL_STATE_FULLSCREEN) client->fullscreen = true;
+    wl_array_for_each(state, states) {
+        if (*state == XDG_TOPLEVEL_STATE_FULLSCREEN) client->fullscreen = true;
+        if (*state == XDG_TOPLEVEL_STATE_MAXIMIZED) client->maximized = true;
+    }
 }
 static void toplevel_close(void *data, struct xdg_toplevel *toplevel) {
     (void)toplevel;
@@ -303,7 +317,7 @@ static void toplevel_close(void *data, struct xdg_toplevel *toplevel) {
     assert(client->frames > 0);
     assert(client->key_down == 1 && client->key_up == 1);
     assert(client->button_down == 1 && client->button_up == 1);
-    if (interaction) assert(client->committed && client->fullscreen && client->width == 40 && client->height == 30);
+    if (interaction) assert(client->committed && client->fullscreen && client->maximized && client->width == 40 && client->height == 30);
     client->closed = true;
 }
 static const struct xdg_toplevel_listener toplevel_listener = {
@@ -335,7 +349,10 @@ static void run_client(const char *socket) {
     xdg_surface_add_listener(client.xdg_surface, &surface_listener, &client);
     client.toplevel = xdg_surface_get_toplevel(client.xdg_surface);
     xdg_toplevel_add_listener(client.toplevel, &toplevel_listener, &client);
-    if (fixed_client_size) xdg_toplevel_set_min_size(client.toplevel, 160, 120);
+    if (fixed_client_size) {
+        xdg_toplevel_set_min_size(client.toplevel, 160, 120);
+        xdg_toplevel_set_max_size(client.toplevel, 160, 120);
+    }
     xdg_toplevel_set_title(client.toplevel, "MagicDesk Wayland fixture");
     xdg_toplevel_set_app_id(client.toplevel, "io.magicdesk.fixture");
     wl_surface_commit(client.surface);
@@ -363,6 +380,7 @@ struct Host {
     bool text_enabled, cursor_seen;
     uint64_t editor;
     uint32_t text_revision;
+    int gestures;
     int frames;
     bool allow_render;
     int deferred_frames;
@@ -377,7 +395,8 @@ static void window_event(void *data, uint64_t id, const MdwWindow *window) {
         host->previous.mapped != window->mapped || host->previous.width != window->width ||
         host->previous.height != window->height || strcmp(host->title, window->title) ||
         strcmp(host->app_id, window->app_id) || host->previous.request_serial != window->request_serial ||
-        host->previous.fullscreen != window->fullscreen);
+        host->previous.fullscreen != window->fullscreen || host->previous.maximize_serial != window->maximize_serial
+        || host->previous.min_width != window->min_width || host->previous.max_width != window->max_width);
     host->previous = *window;
     snprintf(host->title, sizeof(host->title), "%s", window->title);
     snprintf(host->app_id, sizeof(host->app_id), "%s", window->app_id);
@@ -393,17 +412,18 @@ static void frame_event(void *data, MdwOutput *output, const MdwFrame *frame) {
     (void)output;
     struct Host *host = data;
     if (!frame) return;
-    assert(frame->width == 80 && frame->height == 60);
-    uint32_t pixels[80 * 60];
-    assert(mdg_image_read(frame->image, pixels, 80 * 4));
-    assert((pixels[20 * 80 + 20] & 0x00ffffff) == 0x00ab6712);
+    int width = fixed_client_size ? 160 : 80, height = fixed_client_size ? 120 : 60;
+    assert(frame->width == width && frame->height == height);
+    uint32_t pixels[160 * 120];
+    assert(mdg_image_read(frame->image, pixels, width * 4));
+    assert((pixels[20 * width + 20] & 0x00ffffff) == 0x00ab6712);
     int descriptor = mdw_frame_export(frame);
     assert(descriptor >= 0);
     int seals = fcntl(descriptor, F_GET_SEALS);
     assert((seals & (F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK)) ==
         (F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK));
     uint8_t rgba[4];
-    assert(pread(descriptor, rgba, 4, (20 * 80 + 20) * 4) == 4);
+    assert(pread(descriptor, rgba, 4, (20 * width + 20) * 4) == 4);
     assert(rgba[0] == 0x12 && rgba[1] == 0x67 && rgba[2] == 0xab && rgba[3] == 255);
     assert(pwrite(descriptor, rgba, 4, 0) < 0);
     close(descriptor);
@@ -434,7 +454,16 @@ static void text_input_event(void *data, MdwOutput *output, const MdwTextState *
         assert(state->cursor == 7 && state->anchor == 3);
         assert(state->purpose == ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_EMAIL);
         assert(state->hints == ZWP_TEXT_INPUT_V3_CONTENT_HINT_COMPLETION);
+        assert(state->caret_valid && fabs(state->caret[0] - .125f) < .0001f
+            && fabs(state->caret[1] - .2f) < .0001f && fabs(state->caret[2] - .175f) < .0001f
+            && fabs(state->caret[3] - (1.f / 3)) < .0001f);
     }
+}
+static void window_gesture(void *data, uint64_t window, uint32_t edges) {
+    struct Host *host = data;
+    assert(window == host->window && host->gestures < 2);
+    assert(edges == (host->gestures == 0 ? 0 : XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_RIGHT));
+    ++host->gestures;
 }
 static void cursor_event(void *data, MdwOutput *output, const uint32_t *pixels,
         int width, int height, int x, int y, bool hidden) {
@@ -460,7 +489,7 @@ int main(int argc, char **argv) {
     assert(server);
     assert(mdw_server_fd(server) >= 0);
     struct Host host = {.allow_render = true};
-    MdwEvents events = {.window = window_event, .frame = frame_event, .can_render = can_render,
+    MdwEvents events = {.window = window_event, .window_gesture = window_gesture, .frame = frame_event, .can_render = can_render,
         .error = error_event, .text_input = text_input_event, .cursor = cursor_event, .context = &host};
     mdw_server_set_events(server, &events);
     int connection = argc == 2 && !strcmp(argv[1], "--fd") ? mdw_server_connect(server) : -1;
@@ -534,6 +563,8 @@ int main(int argc, char **argv) {
         if (interaction && !host.destroyed && !closing && host.previous.fullscreen) {
             assert(!mdw_window_confirm_fullscreen(server, host.window, host.previous.request_serial + 1, true));
             assert(mdw_window_confirm_fullscreen(server, host.window, host.previous.request_serial, true));
+            assert(!mdw_window_confirm_maximized(server, host.window, host.previous.maximize_serial + 1, true));
+            assert(mdw_window_confirm_maximized(server, host.window, host.previous.maximize_serial, true));
             if (host.text_enabled && !text_sent) {
                 assert(!mdw_output_text(output, host.editor + 1, "stale", false, 5));
                 assert(!mdw_output_delete_text(output, host.editor, host.text_revision + 1, 2, 1, "", 0));
@@ -545,7 +576,7 @@ int main(int argc, char **argv) {
             }
         }
         if (input_sent && !closing && (!interaction ||
-                (host.cursor_seen && !strcmp(host.app_id, "io.magicdesk.committed")))) {
+                (host.cursor_seen && host.gestures == 2 && !strcmp(host.app_id, "io.magicdesk.committed")))) {
             assert(mdw_output_focus(output, false));
             assert(!mdw_output_key(output, KEY_A, false));
             assert(mdw_window_close(server, host.window));

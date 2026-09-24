@@ -306,8 +306,7 @@ final class ExistingTaskController {
             final int displayId,
             final int taskId,
             final Rect bounds) throws IOException {
-        runCommand(TaskRepository.createBoundsTransactionCommand(
-                displayId, taskId, bounds));
+        ShellAccess.resizeTaskBounds(displayId, taskId, bounds);
     }
 
     private static void setCaptionInsetExcluded(final int taskId, final int displayId,

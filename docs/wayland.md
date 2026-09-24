@@ -178,6 +178,14 @@ preserves the active composition in the same protocol batch. Arbitrary remote
 selection changes and composing regions are not fabricated when the protocol
 cannot express them.
 
+The guest caret rectangle travels with its editor context in normalized output
+coordinates, including scene offsets and host density. The shared InputConnection
+publishes an Android `CursorAnchorInfo` insertion marker through the rendered
+viewport transform. Editor and layout events update it; unchanged video frames
+do not. Unavailable glyph bounds and baselines remain unknown. The content host
+uses the existing system-bar/IME safe area, so keyboard occlusion changes the
+client viewport and the caret transform together.
+
 Client enable/disable events update the Android text editor; clients without this
 protocol retain physical-key input. Commits are split at UTF-8 boundaries to fit
 Wayland messages. Oversized composition stays in Android until committed.
@@ -195,6 +203,24 @@ use the same transform. Fullscreen requests carry a native revision through
 `HostedFullscreen` and the existing Android presentation gateway. A stale host
 or acknowledgement cannot confirm a newer request. Neither feature changes
 Android task-area ownership.
+
+Client minimum/maximum dimensions and parent identity use the shared
+`HostedWindowLayout` contract. Zero limits are unspecified. Native configure
+respects the limits, including changes after mapping, and retains the offered
+Android viewport for later density changes. `HostedContentLayout` centers a
+size-limited client without enlarging it to fill the host. A transient toplevel
+opens relative to its actual parent's Android host; managed windowed placement
+includes Android decorations and is clamped to the workspace. Independent hosts
+retain ordinary Android placement.
+
+`HostedWindowCommands` handles xdg maximize/restore and validated pointer
+move/resize requests. It uses the existing Desktop task gateway, preserving
+ordinary restore bounds and confirming observed Android geometry with the
+request serial. One host owns each window's responses. Pointer grabs require
+the matching seat, client surface and press serial; Android motion is coalesced
+behind one outstanding bounds command. Focus loss or host closure cancels the
+gesture. Without managed Desktop these requests do not create a workspace or
+claim an Android task.
 
 `HostedContentExchange` owns Android clipboard focus, drag lifecycle and URI
 grants for both graphical protocols. `WaylandContentExchange` translates MIME
@@ -586,9 +612,26 @@ delivery and bounded content-stream cancellation. `HostedInputInstrumentation`
 exercises Android InputConnection composition/commit, UTF-16 surrounding text and
 selection, field-purpose/privacy flags and stale connections alongside the shared
 pointer and cursor tests. Actual keyboard-app behavior and other text-input protocols
-need further device/toolkit coverage. Small fixed-size GTK dialogs currently
-retain the configured host canvas; size-hint-driven Android placement remains
-separate work.
+need further device/toolkit coverage.
+
+`HostedGuestEditorInstrumentation` exercises a real GTK3 guest through its Android
+host: composition, Unicode correction, field switching, private PINs, caret geometry,
+controlled IME-inset delivery and a size-constrained dialog. Prepare an independent
+non-phone display and a command launching `tests/gtk-guest-content.py` with the
+session's Wayland socket available inside the guest, then run:
+
+```sh
+am instrument --no-restart -w -e display DISPLAY_ID -e command 'GUEST_LAUNCH_COMMAND' \
+  io.github.mekhontsev.magicdesk/.HostedGuestEditorInstrumentation
+```
+
+The caller needs instrumentation permission. `--no-restart` retains the running
+application and its display resources. The fixture closes its guest session and
+hosts. The GTK script's `--window-controls` mode supplies client-side maximize,
+move and resize controls for managed-window checks. On RM11/API 36, the PRoot GTK3
+fixture passes the editor workflow and managed maximize/restore, move, resize and
+parent-relative dialog placement/dismissal. The shared X11 host regression covers
+a centered size-constrained GTK dialog and pointer-driven closure without Desktop.
 
 `tests/toolkits/interaction.qml` exercises Qt Quick through its Vulkan renderer:
 animation, pointer input, text entry, menus and separate popup windows. On RM11/API

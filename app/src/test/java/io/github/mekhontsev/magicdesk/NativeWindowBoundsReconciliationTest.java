@@ -3,6 +3,23 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 public final class NativeWindowBoundsReconciliationTest {
+    @Test public void clientMaximizeIsIdempotentAndRestoresOrdinaryBounds() throws Exception {
+        verify("""
+                f.sample(ordinary);
+                Dispatch d = new Dispatch(f);
+                d.setMaximized(f.task, true, null);
+                check(f.requests.get(0).equals(work), "maximize did not use shared work area");
+                f.sample(work); f.complete(true); f.sample(work);
+                d.setMaximized(f.task, true, null);
+                check(f.requests.size() == 1, "repeated maximize toggled or resized");
+                check(f.state().windowRestoreBounds().equals(ordinary), "maximize overwrote ordinary geometry");
+                d.setMaximized(f.task, false, null);
+                check(f.requests.get(1).equals(ordinary), "client restore lost original geometry");
+                f.complete(true); f.sample(ordinary);
+                d.setMaximized(f.task, false, null);
+                check(f.requests.size() == 2, "repeated restore toggled or resized");
+                """);
+    }
     @Test
     public void cornerHalfCornerPreservesOriginalBoundsUntilRestoreOrManualMove() throws Exception {
         verify("""
@@ -345,7 +362,7 @@ public final class NativeWindowBoundsReconciliationTest {
                         exits.add(request); exitCallbacks.add(callback);
                     }
                 """ + RuntimeSourceFixture.methods("DesktopWindowTransitionController",
-                "applyRestoreShortcut", "classifyRestoreShortcut", "setWindowBounds",
+                "applyRestoreShortcut", "classifyRestoreShortcut", "setWindowBounds", "setMaximized", "complete",
                 "snap", "arrange", "snapFullscreenTask", "noteManualFreeformTransition") + """
                 }
                 public static void verify() {

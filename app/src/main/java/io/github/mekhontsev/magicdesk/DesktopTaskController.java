@@ -1503,6 +1503,10 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         return true;
     }
 
+    @Override public void setMaximized(int displayId, int taskId, boolean maximized, TaskRepository.ActionCallback callback) {
+        withFreeformTask(displayId, taskId, task -> mWindowTransitions.setMaximized(task, maximized, callback), callback);
+    }
+
     @Override
     public void setWindowBounds(
             final int displayId,
@@ -1514,6 +1518,12 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             completeActionCallback(callback, false, "invalid task bounds");
             return;
         }
+        final Rect target = new Rect(bounds);
+        withFreeformTask(displayId, taskId, task -> mWindowTransitions.setWindowBounds(task, target, callback), callback);
+    }
+
+    private void withFreeformTask(int displayId, int taskId,
+            java.util.function.Consumer<TaskRepository.TaskEntry> operation, TaskRepository.ActionCallback callback) {
         final int generation = mGeneration;
         TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
             if (!mRunning || generation != mGeneration
@@ -1540,7 +1550,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 completeActionCallback(callback, false, "task unavailable");
                 return;
             }
-            mWindowTransitions.setWindowBounds(task, bounds, callback);
+            operation.accept(task);
         }));
     }
 

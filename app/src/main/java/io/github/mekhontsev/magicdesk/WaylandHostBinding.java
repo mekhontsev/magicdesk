@@ -22,6 +22,7 @@ final class WaylandHostBinding implements AutoCloseable {
     private int publishedWidth, publishedHeight;
     private boolean closed;
     private volatile HostedFullscreen fullscreen;
+    private HostedWindowCommands commands;
     private long fullscreenSerial = -1;
     private int density;
 
@@ -75,7 +76,15 @@ final class WaylandHostBinding implements AutoCloseable {
         density = next;
         output.scale(Math.max(0.25, Math.min(8, next / 160.0)));
     }
-    void focusChanged() { if (!closed) { family.focusChanged(); updateExchangeFocus(); updateFullscreen(); } }
+    void focusChanged() {
+        if (!closed) {
+            family.focusChanged(); updateExchangeFocus(); updateFullscreen();
+            if (commands != null) commands.focusChanged();
+        }
+    }
+    void windowGesture(io.github.mekhontsev.magicdesk.hosted.HostedWindowGesture gesture) {
+        if (!closed && session.claimWindowControl(window, this) && commands != null) commands.begin(gesture);
+    }
     private void updateExchangeFocus() {
         if (closed) return;
         exchange.focus(activity.hasWindowFocus());
@@ -84,7 +93,10 @@ final class WaylandHostBinding implements AutoCloseable {
     }
     private void updateFullscreen() {
         var info = session.windows().stream().filter(item -> item.id() == window).findFirst().orElse(null);
-        if (info == null || !session.claimFullscreen(window, this)) return;
+        if (info == null || !session.claimWindowControl(window, this)) return;
+        if (commands == null) commands = new HostedWindowCommands(activity, surface,
+                (serial, actual) -> session.confirmMaximized(window, this, serial, actual));
+        commands.update(info.maximizeSerial(), info.maximized(), info.constraints(), Math.max(0.25f, Math.min(8, density / 160f)));
         if (fullscreen == null) fullscreen = new HostedFullscreen(activity, surface,
                 actual -> session.confirmFullscreen(window, this, fullscreenSerial, actual));
         if (fullscreenSerial != info.requestSerial()) {
@@ -122,9 +134,10 @@ final class WaylandHostBinding implements AutoCloseable {
     @Override public void close() {
         if (closed) return;
         closed = true;
+        if (commands != null) commands.close();
         if (fullscreen != null) fullscreen.close();
         fullscreen = null;
-        session.releaseFullscreen(this);
+        session.releaseWindowControl(this);
         family.close();
         exchange.close();
         surface.release();

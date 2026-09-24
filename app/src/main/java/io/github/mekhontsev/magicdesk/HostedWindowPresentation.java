@@ -10,6 +10,7 @@ import java.util.HashSet;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout;
 
 /** Session-owned presentation reservations, independent of which viewer currently has focus. */
 final class HostedWindowPresentation {
@@ -20,6 +21,8 @@ final class HostedWindowPresentation {
         Intent windowIntent(Context context, long window);
         void presentationChanged();
         void presentationFailed(Throwable error);
+        default HostedWindowLayout layout(long window) { return HostedWindowLayout.NONE; }
+        default float unitScale(Activity activity) { return 1; }
     }
     private final Context context;
     private final Session session;
@@ -35,6 +38,7 @@ final class HostedWindowPresentation {
     private static final class Host {
         long generation;
         ToolApplications.WindowPlacement placement;
+        WeakReference<Activity> activity;
     }
 
     HostedWindowPresentation(Context context, Session session) {
@@ -48,6 +52,7 @@ final class HostedWindowPresentation {
         int display = activity.getDisplay() == null ? 0 : activity.getDisplay().getDisplayId();
         int task = activity.getTaskId();
         Host host = hosts.computeIfAbsent(task, key -> new Host());
+        host.activity = new WeakReference<>(activity);
         host.generation = version;
         TaskCommandQueue.execute(() -> {
             try {
@@ -108,13 +113,18 @@ final class HostedWindowPresentation {
     boolean present(long window) {
         if (closed || presented.contains(window)) return false;
         Activity activity = source.get();
+        var layout = session.layout(window);
+        Host parent = layout.parent() == 0 ? null : hosts.get(session.hostTaskId(layout.parent()));
+        Activity parentActivity = parent == null || parent.activity == null ? null : parent.activity.get();
+        if (parentActivity != null && !parentActivity.isDestroyed() && !parentActivity.isFinishing()) activity = parentActivity;
         boolean live = activity != null && !activity.isFinishing() && !activity.isDestroyed();
         if (!live && (placement == null || !ShellAccess.isReady())) return false;
         presented.add(window);
         var intent = intent(window);
         BuiltInWindowLauncher.Callback done = error -> presentationCompleted(window, error);
         try {
-            if (live) ToolApplications.openSibling(activity, intent, done);
+            if (live) ToolApplications.openSibling(activity, intent,
+                    ToolApplications.childPresentation(activity, layout, session.unitScale(activity)), done);
             else ToolApplications.open(context, intent, placement.target(), placement.uniqueId(), done);
         } catch (RuntimeException error) { done.onComplete(error); }
         return true;

@@ -4,6 +4,7 @@ import os
 import hashlib
 import pathlib
 import tempfile
+import sys
 import gi
 
 gi.require_version("Gtk", "3.0")
@@ -12,6 +13,15 @@ from gi.repository import Gdk, Gtk
 
 window = Gtk.Window(title="Wayland guest exchange")
 window.set_default_size(700, 500)
+if "--window-controls" in sys.argv:
+    header = Gtk.HeaderBar(title="GTK window controls", show_close_button=True)
+    header.set_decoration_layout(":maximize,close")
+    resize = Gtk.Button(label="Resize")
+    resize.connect("button-press-event", lambda _button, event: (
+        window.begin_resize_drag(Gdk.WindowEdge.SOUTH_EAST, event.button,
+                                 int(event.x_root), int(event.y_root), event.time), True)[1])
+    header.pack_start(resize)
+    window.set_titlebar(header)
 window.connect("destroy", Gtk.main_quit)
 body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=24)
 window.add(body)

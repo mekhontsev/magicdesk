@@ -20,13 +20,6 @@ public final class TaskWindowingCommand {
                         parseInt(args[5], "right"), parseInt(args[6], "bottom"));
                 return;
             }
-            if (args.length == 7 && "bounds".equals(args[0])) {
-                setBounds(parseInt(args[1], "display id"),
-                        parseInt(args[2], "task id"),
-                        parseInt(args[3], "left"), parseInt(args[4], "top"),
-                        parseInt(args[5], "right"), parseInt(args[6], "bottom"));
-                return;
-            }
             if (args.length == 4 && "minimize".equals(args[0])) {
                 minimize(parseInt(args[1], "display id"),
                         parseInt(args[2], "task id"),
@@ -44,7 +37,7 @@ public final class TaskWindowingCommand {
                 return;
             }
             System.err.println("usage: TaskWindowingCommand "
-                    + "<freeform|bounds display task left top right bottom"
+                    + "<freeform display task left top right bottom"
                     + "|minimize display task focus-task"
                     + "|focus display task..."
                     + "|restore-layout display task left top right bottom...>");
@@ -71,21 +64,6 @@ public final class TaskWindowingCommand {
                 taskId,
                 new Rect(left, top, right, bottom));
         System.out.println("task-freeform=" + taskId);
-    }
-
-    private static void setBounds(
-            final int displayId,
-            final int taskId,
-            final int left,
-            final int top,
-            final int right,
-            final int bottom) throws ReflectiveOperationException {
-        if (right <= left || bottom <= top) {
-            throw new IllegalArgumentException("invalid bounds");
-        }
-        HiddenTaskApi.resizeTaskBounds(HiddenTaskApi.getService(),
-                displayId, taskId, new Rect(left, top, right, bottom));
-        System.out.println("task-bounds=" + taskId);
     }
 
     private static void minimize(final int displayId, final int taskId,

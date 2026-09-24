@@ -331,6 +331,10 @@ final class X11Sessions {
         @Override public android.content.Intent windowIntent(Context context, long window) {
             return X11Activity.windowIntent(context, this, window);
         }
+        @Override public io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout layout(long window) {
+            return windows.stream().filter(item -> item.id() == window).map(X11Session.Window::layout)
+                    .findFirst().orElse(io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout.NONE);
+        }
         @Override public void presentationChanged() { changed(); }
         @Override public void presentationFailed(Throwable failure) {
             DesktopAutomationEventJournal.record("x11", "window_presentation_failed", false,

@@ -12,6 +12,7 @@ import android.view.inputmethod.ExtractedTextRequest;
 import android.view.inputmethod.InputMethodManager;
 import android.view.inputmethod.SurroundingText;
 import android.view.inputmethod.TextSnapshot;
+import android.view.inputmethod.CursorAnchorInfo;
 import io.github.mekhontsev.magicdesk.hosted.HostedTextState;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
@@ -23,10 +24,13 @@ final class HostedTextInputConnection extends BaseInputConnection {
     private final BooleanSupplier allowed;
     private final Predicate<KeyEvent> keys;
     private boolean closed;
+    private final View view;
+    private boolean monitorCursor;
 
     HostedTextInputConnection(View view, HostedSurfaceOutput output, BooleanSupplier allowed,
             Predicate<KeyEvent> keys, EditorInfo info) {
         super(view, true);
+        this.view = view;
         this.output = output; this.allowed = allowed; this.keys = keys;
         editor = output.textState();
         info.inputType = inputType(editor);
@@ -173,6 +177,48 @@ final class HostedTextInputConnection extends BaseInputConnection {
         var c = context();
         manager.updateSelection(view, c.anchor, c.cursor, c.composingStart, c.composingEnd);
         manager.invalidateInput(view);
+        cursorChanged();
+    }
+    @Override public boolean requestCursorUpdates(int mode) { return requestCursorUpdates(mode, 0); }
+
+    @Override public boolean requestCursorUpdates(int mode, int filter) {
+        if (!sameEditor() || !(view instanceof HostedSurfaceView)
+                || output.textState() == null
+                || (mode & ~(CURSOR_UPDATE_IMMEDIATE | CURSOR_UPDATE_MONITOR)) != 0
+                || (filter & ~CURSOR_UPDATE_FILTER_INSERTION_MARKER) != 0) return false;
+        monitorCursor = (mode & CURSOR_UPDATE_MONITOR) != 0;
+        if ((mode & CURSOR_UPDATE_IMMEDIATE) != 0) publishCursor();
+        return true;
+    }
+
+    void cursorChanged() { if (monitorCursor) publishCursor(); }
+
+    CursorAnchorInfo cursorInfo() {
+        var state = output.textState();
+        if (!sameEditor(state) || state == null || state.caret() == null
+                || !(view instanceof HostedSurfaceView surface)) return null;
+        var geometry = surface.geometry();
+        if (geometry.right() <= geometry.left() || geometry.bottom() <= geometry.top()) return null;
+        var caret = state.caret();
+        var matrix = new android.graphics.Matrix();
+        matrix.setScale(geometry.right() - geometry.left(), geometry.bottom() - geometry.top());
+        matrix.postTranslate(geometry.left(), geometry.top());
+        boolean visible = caret.left() >= 0 && caret.left() <= 1 && caret.top() >= 0 && caret.bottom() <= 1;
+        var context = context();
+        var builder = new CursorAnchorInfo.Builder().setMatrix(matrix)
+                .setSelectionRange(context.anchor, context.cursor)
+                .setInsertionMarkerLocation(caret.left(), caret.top(), Float.NaN, caret.bottom(),
+                        visible ? CursorAnchorInfo.FLAG_HAS_VISIBLE_REGION : CursorAnchorInfo.FLAG_HAS_INVISIBLE_REGION);
+        if (context.composingStart >= 0 && !state.privateText())
+            builder.setComposingText(context.composingStart,
+                    context.text.substring(context.composingStart, context.composingEnd));
+        return builder.build();
+    }
+
+    private void publishCursor() {
+        var info = cursorInfo();
+        var manager = view.getContext().getSystemService(InputMethodManager.class);
+        if (info != null && manager != null && view.hasWindowFocus()) manager.updateCursorAnchorInfo(view, info);
     }
     private void press(int key) { output.key(key, 0, true); output.key(key, 0, false); }
     @Override public boolean sendKeyEvent(KeyEvent event) { return sameEditor() && keys.test(event); }

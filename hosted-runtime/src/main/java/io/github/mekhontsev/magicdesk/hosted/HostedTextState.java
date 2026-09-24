@@ -2,7 +2,19 @@ package io.github.mekhontsev.magicdesk.hosted;
 
 /** Immutable guest editor context. Positions use UTF-16; null text means unavailable, not empty. */
 public record HostedTextState(long editor, long revision, Purpose purpose, int hints,
-        String surrounding, int cursor, int anchor) {
+        String surrounding, int cursor, int anchor, Caret caret) {
+    /** Rectangle in normalized output coordinates, including out-of-viewport positions. */
+    public record Caret(float left, float top, float right, float bottom) {
+        public Caret {
+            if (!Float.isFinite(left) || !Float.isFinite(top) || !Float.isFinite(right)
+                    || !Float.isFinite(bottom) || right < left || bottom < top)
+                throw new IllegalArgumentException("Invalid editor rectangle");
+        }
+    }
+    public HostedTextState(long editor, long revision, Purpose purpose, int hints,
+            String surrounding, int cursor, int anchor) {
+        this(editor, revision, purpose, hints, surrounding, cursor, anchor, null);
+    }
     public enum Purpose { NORMAL, ALPHA, DIGITS, NUMBER, PHONE, URL, EMAIL, NAME, PASSWORD, PIN, DATE, TIME, DATETIME, TERMINAL }
     public static final int COMPLETION = 1, SPELLCHECK = 2, AUTO_CAPITALIZE = 4,
             LOWERCASE = 8, UPPERCASE = 16, TITLECASE = 32, HIDDEN = 64,

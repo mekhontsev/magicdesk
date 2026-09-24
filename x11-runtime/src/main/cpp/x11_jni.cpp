@@ -70,7 +70,9 @@ const LorieCallbacks callbacks = {
                     (jboolean)state.managed, (jint)state.request.serial,
                     (jboolean)state.request.fullscreen, (jboolean)state.actual.fullscreen);
             if (management) {
-                env->CallVoidMethod(c->owner, c->window, (jint)id, title, icon, (jboolean)info->mapped, (jint)info->role, management, instance, className);
+                env->CallVoidMethod(c->owner, c->window, (jint)id, title, icon, (jboolean)info->mapped, (jint)info->role,
+                    management, instance, className, (jint)info->parent, (jint)info->width, (jint)info->height,
+                    (jint)info->minWidth, (jint)info->minHeight, (jint)info->maxWidth, (jint)info->maxHeight);
             }
             if (management) {
                 env->DeleteLocalRef(management);
@@ -216,7 +218,7 @@ extern "C" JNIEXPORT jlong JNICALL JNI(X11Session_nativeCreate)(JNIEnv* env, job
     c->family = env->GetMethodID(cls, "onNativeFamily", "(I[I)V");
     c->presented = env->GetMethodID(cls, "onNativePresented", "(IIZ)V");
     c->disconnected = env->GetMethodID(cls, "onNativeDisconnected", "()V");
-    c->window = env->GetMethodID(cls, "onNativeWindow", "(I[B[IZILio/github/mekhontsev/magicdesk/x11/X11WindowManagement;[B[B)V");
+    c->window = env->GetMethodID(cls, "onNativeWindow", "(I[B[IZILio/github/mekhontsev/magicdesk/x11/X11WindowManagement;[B[BIIIIIII)V");
     c->windowRemoved = env->GetMethodID(cls, "onNativeWindowRemoved", "(I)V");
     c->windows = env->GetMethodID(cls, "onNativeWindowsCommitted", "()V");
     c->data = env->GetMethodID(cls, "onNativeData", "(IIIIIIIILjava/lang/String;I)V");

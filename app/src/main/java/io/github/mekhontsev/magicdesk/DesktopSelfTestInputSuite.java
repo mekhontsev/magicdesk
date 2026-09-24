@@ -2147,8 +2147,7 @@ final class DesktopSelfTestInputSuite {
                             && task.visible);
             final Rect captionBounds = geometry.captionControlsWindow(!left);
             if (!DesktopSelfTestGeometry.matches(before.bounds, captionBounds)) {
-                ShellAccess.run(TaskRepository.createBoundsTransactionCommand(
-                        displayId, taskId, captionBounds));
+                ShellAccess.resizeTaskBounds(displayId, taskId, captionBounds);
                 before = waitForTask(
                         displayId,
                         FIXTURE_CLASS,

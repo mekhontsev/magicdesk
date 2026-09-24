@@ -2047,10 +2047,8 @@ final class DesktopSelfTestWindowSuite {
                     context, secondToken, displayId);
             sampleDesktopSurface(
                     surfaceObservation, surfaceReference, "first-frame");
-            ShellAccess.run(TaskRepository.createBoundsTransactionCommand(
-                    displayId, firstTaskId, leftBounds));
-            ShellAccess.run(TaskRepository.createBoundsTransactionCommand(
-                    displayId, secondTaskId, rightBounds));
+            ShellAccess.resizeTaskBounds(displayId, firstTaskId, leftBounds);
+            ShellAccess.resizeTaskBounds(displayId, secondTaskId, rightBounds);
             waitForTask(displayId, FIXTURE_CLASS,
                     entry -> entry.taskId == firstTaskId
                             && "freeform".equals(entry.windowingMode)

@@ -47,16 +47,39 @@ final class ToolApplications {
     /** A child tool follows its source task, including an independent task over an active Desktop. */
     static void openSibling(final android.app.Activity source, final Intent intent,
             final BuiltInWindowLauncher.Callback callback) {
+        openSibling(source, intent, null, callback);
+    }
+
+    static void openSibling(final android.app.Activity source, final Intent intent,
+            final DesktopLaunchPresentation presentation, final BuiltInWindowLauncher.Callback callback) {
         final int display = source.getDisplay() == null ? 0 : source.getDisplay().getDisplayId();
         final int taskId = source.getTaskId();
         TaskCommandQueue.execute(() -> {
             try {
                 final var placement = windowPlacement(display, taskId);
-                open(source, intent, placement.target(), placement.uniqueId(), callback);
+                open(source, intent, placement.target(), placement.uniqueId(),
+                        placement.presentation().mode == DesktopLaunchMode.WINDOWED ? presentation : null, callback);
             } catch (java.io.IOException | RuntimeException error) {
                 source.runOnUiThread(() -> { if (!source.isDestroyed() && !source.isFinishing()) callback.onComplete(error); });
             }
         });
+    }
+
+    static DesktopLaunchPresentation childPresentation(android.app.Activity parent,
+            io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout layout, float scale) {
+        if (layout.parent() == 0 || layout.width() < 1 || layout.height() < 1 || !parent.isInMultiWindowMode()) return null;
+        int display = parent.getDisplay() == null ? 0 : parent.getDisplay().getDisplayId();
+        var work = DesktopRuntimeBridge.getDesktopWorkAreaBounds(display);
+        if (work == null || work.isEmpty()) return null;
+        var metrics = parent.getWindowManager().getCurrentWindowMetrics();
+        var origin = metrics.getBounds();
+        var decor = metrics.getWindowInsets().getInsets(android.view.WindowInsets.Type.systemBars());
+        int width = Math.min(work.width(), Math.round(layout.constraints().width(layout.width()) * scale) + decor.left + decor.right);
+        int height = Math.min(work.height(), Math.round(layout.constraints().height(layout.height()) * scale) + decor.top + decor.bottom);
+        int left = Math.max(work.left, Math.min(work.right - width, origin.centerX() - width / 2));
+        int top = Math.max(work.top, Math.min(work.bottom - height, origin.centerY() - height / 2));
+        var relative = RelativeWindowBounds.from(new android.graphics.Rect(left, top, left + width, top + height), work);
+        return new DesktopLaunchPresentation(DesktopLaunchMode.WINDOWED, relative, DesktopTaskInstancePolicy.CREATE_NEW, -1);
     }
 
     /** One-shot ownership capture on the command queue; never infers ownership from the display alone. */

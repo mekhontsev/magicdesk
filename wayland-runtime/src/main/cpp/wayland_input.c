@@ -52,8 +52,15 @@ static void publish_text(struct MdwInput *input) {
             state.purpose = text->current.content_type.purpose;
             state.hints = text->current.content_type.hint;
         }
+        if (text->active_features & WLR_TEXT_INPUT_V3_FEATURE_CURSOR_RECTANGLE)
+            state.caret_valid = mdw_output_caret(input->text_owner, text->focused_surface,
+                &text->current.cursor_rectangle, state.caret);
     }
     server->events.text_input(server->events.context, input->text_owner, &state);
+}
+
+void mdw_input_geometry(MdwServer *server) {
+    if (server->input) publish_text(server->input);
 }
 
 void mdw_input_refresh(MdwServer *server) {

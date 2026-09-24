@@ -32,6 +32,7 @@ final class WaylandSessions {
         default void frame(long output, int width, int height) { }
         default void geometryChanged(long window) { }
         default void textInputChanged(long output) { }
+        default void windowGesture(long window, io.github.mekhontsev.magicdesk.hosted.HostedWindowGesture gesture) { }
         default void contentOffer(io.github.mekhontsev.magicdesk.wayland.WaylandDataExchange.Offer offer) { }
         default void dragEvent(long output, long offer, boolean finished, boolean accepted) { }
         default void cursor(long output, android.graphics.Bitmap image, int hotspotX, int hotspotY, boolean hidden) { }
@@ -76,7 +77,7 @@ final class WaylandSessions {
         private final OperationResources resources = new OperationResources();
         private final CopyOnWriteArrayList<Listener> listeners = new CopyOnWriteArrayList<>();
         private final Map<Integer, Long> hosts = new LinkedHashMap<>();
-        private final HostedWindowOwners fullscreenOwners = new HostedWindowOwners();
+        private final HostedWindowOwners windowControlOwners = new HostedWindowOwners();
         private volatile WaylandSession renderer;
         private volatile String state = "STARTING", error = "";
         private IBinder serverIdentity;
@@ -251,6 +252,14 @@ final class WaylandSessions {
             if (entry != null && entry.termuxPackage().equals(termuxPackage) && entry.sourcePath().equals(path)) recipe = null;
         }
         @Override public Intent windowIntent(Context context, long window) { return WaylandActivity.windowIntent(context, this, window); }
+        @Override public io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout layout(long window) {
+            var info = windows().stream().filter(item -> item.id() == window).findFirst().orElse(null);
+            return info == null ? io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout.NONE
+                    : new io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout(info.parent(), info.width(), info.height(), info.constraints());
+        }
+        @Override public float unitScale(android.app.Activity activity) {
+            return Math.max(0.25f, Math.min(8, activity.getResources().getConfiguration().densityDpi / 160f));
+        }
         WaylandSession.Output openOutput(long window, int width, int height) {
             if (!ready()) throw new IllegalStateException("Wayland session is not ready");
             return renderer.openOutput(window, width, height);
@@ -269,10 +278,16 @@ final class WaylandSessions {
             renderer.closeWindow(window, force);
         }
 
-        boolean claimFullscreen(long window, Object host) { return fullscreenOwners.claim(window, host); }
-        void releaseFullscreen(Object host) { if (fullscreenOwners.release(host)) changed(); }
+        boolean claimWindowControl(long window, Object host) { return windowControlOwners.claim(window, host); }
+        void releaseWindowControl(Object host) { if (windowControlOwners.release(host)) changed(); }
         void confirmFullscreen(long window, Object host, long serial, boolean actual) {
-            if (ready() && fullscreenOwners.owns(window, host)) renderer.confirmFullscreen(window, serial, actual);
+            if (ready() && windowControlOwners.owns(window, host)) renderer.confirmFullscreen(window, serial, actual);
+        }
+        void confirmMaximized(long window, Object host, long serial, boolean actual) {
+            if (ready() && windowControlOwners.owns(window, host)) renderer.confirmMaximized(window, serial, actual);
+        }
+        @Override public void windowGesture(long window, io.github.mekhontsev.magicdesk.hosted.HostedWindowGesture gesture) {
+            if (!stopped()) for (var listener : listeners) listener.windowGesture(window, gesture);
         }
 
         void execute(String command, String directory) {
@@ -348,7 +363,7 @@ final class WaylandSessions {
             }
             if (ready() && application && hadWindows && windows().isEmpty()) { close(); return; }
             presentation.retain(windows().stream().map(WaylandSession.Window::id).collect(java.util.stream.Collectors.toSet()));
-            fullscreenOwners.retain(windows().stream().map(WaylandSession.Window::id).toList());
+            windowControlOwners.retain(windows().stream().map(WaylandSession.Window::id).toList());
             for (var listener : listeners) listener.changed();
             if (ready()) for (var window : windows()) if (window.mapped()) presentation.present(window.id());
         }

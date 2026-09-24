@@ -6,6 +6,7 @@ public final class HostedWindowPresentationTest {
     @Test public void presentationAndRecoveryShareReservationsButRetainExactHostPlacement() throws Exception {
         RuntimeSourceFixture.verify("static " + RuntimeSourceFixture.nestedClass("HostedWindowPresentation", "HostedWindowPresentation")
                 .replace("WeakReference<", "java.lang.ref.WeakReference<") + """
+            record HostedWindowLayout(long parent) { static final HostedWindowLayout NONE = new HostedWindowLayout(0); }
             static class Context { }
             static class Activity extends Context {
                 final int task, display;
@@ -43,6 +44,7 @@ public final class HostedWindowPresentationTest {
             static class ToolApplications {
                 record WindowPlacement(int target, String uniqueId, int presentation) { }
                 static int opens, restoredDisplay, restoredGeometry;
+                static int siblingSource;
                 static long restoredWindow;
                 static boolean fail;
                 static boolean defer;
@@ -53,8 +55,9 @@ public final class HostedWindowPresentationTest {
                 static DesktopLaunchPresentation replacementPresentation(Activity activity, WindowPlacement placement) {
                     return new DesktopLaunchPresentation(activity.geometry);
                 }
-                static void openSibling(Activity activity, Intent intent, BuiltInWindowLauncher.Callback done) {
-                    opens++; done.onComplete(fail ? new IOException("unavailable") : null);
+                static DesktopLaunchPresentation childPresentation(Activity activity, HostedWindowLayout layout, float scale) { return null; }
+                static void openSibling(Activity activity, Intent intent, DesktopLaunchPresentation presentation, BuiltInWindowLauncher.Callback done) {
+                    opens++; siblingSource = activity.task; done.onComplete(fail ? new IOException("unavailable") : null);
                 }
                 static void open(Context context, Intent intent, int target, String identity, BuiltInWindowLauncher.Callback done) {
                     open(context, intent, target, identity, -1, done);
@@ -76,6 +79,8 @@ public final class HostedWindowPresentationTest {
                 record Window(long id) { }
                 static class Session implements HostedWindowPresentation.Session {
                     int changes, failures, otherHost = -1;
+                    long parent;
+                    int parentTask = -1;
                     State state = State.READY;
                     List<Window> windows = List.of(new Window(1), new Window(2), new Window(3));
                     String id() { return "session"; }
@@ -84,7 +89,8 @@ public final class HostedWindowPresentationTest {
                     public Intent windowIntent(Context context, long id) { return new Intent().putExtra("window", id); }
                     State state() { return state; }
                     List<Window> windows() { return windows; }
-                    public int hostTaskId(long window) { return otherHost; }
+                    public int hostTaskId(long window) { return window == parent ? parentTask : otherHost; }
+                    public HostedWindowLayout layout(long window) { return new HostedWindowLayout(parent); }
                     public void presentationChanged() { changes++; }
                     public void presentationFailed(Throwable error) { failures++; }
                 }
@@ -187,6 +193,15 @@ public final class HostedWindowPresentationTest {
                 retainedPresentation.close();
                 ToolApplications.pending.onComplete(new IOException("session closed during launch"));
                 check(retained.failures == 1, "session closure cancels in-flight presentation errors");
+
+                var family = new X11Sessions.Session(); family.parent = 1; family.parentTask = 31;
+                var familyPresentation = new HostedWindowPresentation(new Context(), family);
+                var parent = new Activity(31, 7);
+                var sibling = new Activity(32, 9);
+                familyPresentation.host(parent); Handler.drain();
+                familyPresentation.host(sibling); Handler.drain();
+                check(familyPresentation.present(2) && ToolApplications.siblingSource == 31,
+                        "child followed last-focused sibling instead of its actual parent");
             }
             """);
     }

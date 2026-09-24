@@ -493,4 +493,5 @@ interface IShellCommandService {
         io.github.mekhontsev.magicdesk.IInputRegionCallback callback) = 148;
     void orderHostedSurface(in android.view.SurfaceControl surface,
         in android.view.SurfaceControl relative) = 149;
+    void resizeTaskBounds(int displayId, int taskId, in Rect bounds) = 150;
 }

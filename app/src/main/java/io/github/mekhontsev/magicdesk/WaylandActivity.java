@@ -20,6 +20,7 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
     private WaylandSessions.Session session;
     private WaylandHostBinding binding;
     private HostedSurfaceView surface;
+    private HostedContentLayout content;
     private TextView status;
     private long window;
     private volatile BuiltInWindowRegistry.Presentation presentation;
@@ -61,7 +62,8 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
         surface.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
             if (session != null && binding == null && right > left && bottom > top) changed();
         });
-        root.addView(surface, new LinearLayout.LayoutParams(-1, 0, 1));
+        content = new HostedContentLayout(this, surface);
+        root.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
         setContentView(root);
         if (state == null && sessionId == null && getIntent().hasExtra(COMMAND)) {
             try {
@@ -115,6 +117,7 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
         }
         if (session.stopped() || window <= 0 || !session.containsWindow(window)) { finishAndRemoveTask(); return; }
         var current = session.windows().stream().filter(item -> item.id() == window).findFirst().orElseThrow();
+        content.constraints(current.constraints(), Math.max(0.25f, Math.min(8, getResources().getConfiguration().densityDpi / 160f)));
         String title = current.title().isBlank() ? session.name : current.title();
         present(title);
         status.setText(session.error());
@@ -142,6 +145,9 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
     }
     @Override public void geometryChanged(long id) { if (id == window && binding != null) binding.geometryChanged(); }
     @Override public void textInputChanged(long output) { if (binding != null) binding.textInputChanged(output); }
+    @Override public void windowGesture(long id, io.github.mekhontsev.magicdesk.hosted.HostedWindowGesture gesture) {
+        if (id == window && binding != null) binding.windowGesture(gesture);
+    }
     @Override public void cursor(long output, android.graphics.Bitmap image, int hotspotX, int hotspotY, boolean hidden) {
         if (binding != null) binding.cursor(output, image, hotspotX, hotspotY, hidden);
     }

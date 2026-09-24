@@ -27,6 +27,7 @@ struct MdwView {
     bool transparent;
     bool keyboard_allowed;
     void (*configure)(struct MdwView *, int width, int height);
+    void (*constrain)(struct MdwView *, int *width, int *height);
     void (*activate)(struct MdwView *, bool active);
     void (*close)(struct MdwView *);
 };
@@ -79,6 +80,8 @@ void mdw_cursor_finish(MdwServer *server);
 void mdw_cursor_refresh(MdwServer *server);
 void mdw_input_finish(MdwServer *server);
 void mdw_input_refresh(MdwServer *server);
+void mdw_input_geometry(MdwServer *server);
+bool mdw_output_caret(MdwOutput *output, struct wlr_surface *surface, const struct wlr_box *rect, float caret[4]);
 bool mdw_input_text(MdwServer *server, uint64_t editor, const char *text, bool composing, int cursor);
 bool mdw_input_delete_text(MdwServer *server, uint64_t editor, uint32_t revision, uint32_t before, uint32_t after,
     const char *preedit, int cursor);

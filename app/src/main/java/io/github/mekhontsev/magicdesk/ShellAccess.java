@@ -1005,6 +1005,18 @@ public final class ShellAccess {
         }
     }
 
+    static void resizeTaskBounds(int displayId, int taskId, android.graphics.Rect bounds) throws IOException {
+        if (displayId < 0 || taskId < 0 || bounds == null || bounds.isEmpty())
+            throw new IllegalArgumentException("invalid task bounds");
+        try { requireService().resizeTaskBounds(displayId, taskId, bounds); }
+        catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw new IOException("Task bounds change failed: " + usefulMessage(error), error);
+        } catch (RuntimeException error) {
+            throw new IOException("Task bounds change failed: " + usefulMessage(error), error);
+        }
+    }
+
     static FrameworkTaskSnapshot[] readTaskSnapshots(
             final int displayId,
             final int limit) throws IOException {

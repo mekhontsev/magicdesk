@@ -29,7 +29,7 @@ public final class X11LaunchTrackerTest {
     }
 
     private static X11Session.Window window(long id, String cls) {
-        return new X11Session.Window(id, "Document", true, null, X11Session.WindowRole.APPLICATION, null, "suite", cls);
+        return new X11Session.Window(id, "Document", true, null, X11Session.WindowRole.APPLICATION, null, "suite", cls, io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout.NONE);
     }
 
     @Test public void forwardedWindowWaitsForSuccessfulCommandAndIsAssignedOnce() {
@@ -99,7 +99,7 @@ public final class X11LaunchTrackerTest {
         tracker.completed("launch");
         tracker.update("old", "a", List.of(window(1, "calc")));
         assertTrue(tracker.takeMatches().isEmpty());
-        var provisional = new X11Session.Window(2, "", true, null, X11Session.WindowRole.SPLASH, null, "", "calc");
+        var provisional = new X11Session.Window(2, "", true, null, X11Session.WindowRole.SPLASH, null, "", "calc", io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout.NONE);
         tracker.update("old", "a", List.of(window(1, "calc"), provisional));
         assertTrue(tracker.takeMatches().isEmpty());
         tracker.update("old", "a", List.of(window(1, "calc"), window(2, "calc")));

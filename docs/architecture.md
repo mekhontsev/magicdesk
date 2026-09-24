@@ -1776,9 +1776,20 @@ offers and drag transactions. `HostedContentTransfer` streams Android payloads
 through the selected guest namespace; `hosted-runtime` owns seekable content
 descriptors, file staging and the authenticated guest-file bridge. These host
 contracts do not impose X11's session-global density or root-window model on
-Wayland. `HostedWindowOwners` qualifies per-native-window fullscreen responders;
+Wayland. `HostedWindowOwners` qualifies per-native-window command responders;
 each protocol confirms requests through its own revision/acknowledgement rules.
 Protocol execution and rendering remain separate implementations.
+`HostedWindowLayout` carries client size limits and parent identity in protocol
+units. `HostedContentLayout` fits constrained content inside Android's inset-safe
+area; `ToolApplications` computes parent-relative managed placement with Android
+decorations. `HostedWindowCommands` routes supported client maximize and pointer
+move/resize requests through `DesktopTaskController`, with one outstanding bounds
+command and latest-motion coalescing. It never creates Desktop or changes task
+area ownership. Bounds changes use the persistent privileged service's typed
+Binder operation and `HiddenTaskApi`'s ATM resize semantics.
+`HostedTextState` supplies optional normalized caret geometry to
+the shared InputConnection; Android cursor-anchor coordinates use the same
+rendered viewport transform as pointer input.
 Individual outputs constrain Android Surface geometry by the client's X11
 minimum/maximum size hints; fixed-size content is aspect-fitted, not stretched
 by changing its X window. The native window model owns hint decoding, with no

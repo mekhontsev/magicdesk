@@ -113,6 +113,20 @@ public final class HostedInputInstrumentation extends Instrumentation {
         require(connection.getTextBeforeCursor(20, 0).toString().equals("a\u0416"), "surrounding prefix");
         require(connection.getSelectedText(0).toString().equals("\ud83d\ude00"), "selected supplementary character");
         require(connection.getTextAfterCursor(20, 0).toString().equals("z"), "surrounding suffix");
+        output.state = new io.github.mekhontsev.magicdesk.hosted.HostedTextState(11, 2,
+                output.state.purpose(), output.state.hints(), output.state.surrounding(), 4, 2,
+                new io.github.mekhontsev.magicdesk.hosted.HostedTextState.Caret(.25f, .5f, .26f, .6f));
+        require(connection.requestCursorUpdates(android.view.inputmethod.InputConnection.CURSOR_UPDATE_MONITOR,
+                android.view.inputmethod.InputConnection.CURSOR_UPDATE_FILTER_INSERTION_MARKER), "caret subscription");
+        var caret = ((HostedTextInputConnection)connection).cursorInfo();
+        require(caret != null && caret.getInsertionMarkerHorizontal() == .25f, "guest caret position");
+        float[] point = {.25f, .5f};
+        caret.getMatrix().mapPoints(point);
+        var geometry = view.geometry();
+        require(Math.abs(point[0] - (geometry.left() + (geometry.right() - geometry.left()) * .25f)) < .01f,
+                "caret follows rendered viewport including letterbox");
+        require(!connection.requestCursorUpdates(0, android.view.inputmethod.InputConnection.CURSOR_UPDATE_FILTER_CHARACTER_BOUNDS),
+                "unavailable glyph geometry is not fabricated");
         require(!connection.setSelection(0, 0), "unsupported remote selection is not fabricated");
         connection.setComposingText("edit", 1);
         require(connection.getTextBeforeCursor(20, 0).toString().equals("a\u0416edit"), "preedit overlays guest selection");

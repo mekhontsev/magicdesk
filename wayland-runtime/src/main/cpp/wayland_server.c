@@ -27,9 +27,10 @@ struct MdwToplevel {
     struct MdwView view;
     struct wlr_xdg_toplevel *xdg;
     struct wl_listener map, unmap, commit, destroy, title, app_id, parent;
-    struct wl_listener fullscreen, maximize;
+    struct wl_listener fullscreen, maximize, move, resize;
     MdwWindow published;
     uint64_t request_serial;
+    uint64_t maximize_serial;
     char *published_title, *published_app_id;
 };
 
@@ -46,6 +47,7 @@ struct MdwOutput {
     bool presenting;
     bool visible;
     int viewport_width, viewport_height;
+    int requested_width, requested_height;
     double scale;
     MdwOutput *parent, *dependents;
     bool keys[KEY_MAX + 1];
@@ -88,13 +90,19 @@ static void publish(struct MdwToplevel *window) {
         .app_id = window->xdg->app_id ? window->xdg->app_id : "",
         .mapped = window->xdg->base->surface->mapped,
         .width = geometry.width, .height = geometry.height,
+        .min_width = window->xdg->current.min_width, .min_height = window->xdg->current.min_height,
+        .max_width = window->xdg->current.max_width, .max_height = window->xdg->current.max_height,
         .request_serial = window->request_serial,
         .fullscreen = window->xdg->requested.fullscreen,
+        .maximize_serial = window->maximize_serial, .maximized = window->xdg->requested.maximized,
     };
     MdwWindow *previous = &window->published;
     if (previous->id && previous->parent == info.parent && previous->mapped == info.mapped &&
             previous->width == info.width && previous->height == info.height &&
+            previous->min_width == info.min_width && previous->min_height == info.min_height &&
+            previous->max_width == info.max_width && previous->max_height == info.max_height &&
             previous->request_serial == info.request_serial && previous->fullscreen == info.fullscreen &&
+            previous->maximize_serial == info.maximize_serial && previous->maximized == info.maximized &&
             !strcmp(previous->title, info.title) && !strcmp(previous->app_id, info.app_id)) return;
     bool title_changed = !window->published_title || strcmp(window->published_title, info.title);
     bool app_changed = !window->published_app_id || strcmp(window->published_app_id, info.app_id);
@@ -290,8 +298,18 @@ static void window_commit(struct wl_listener *listener, void *data) {
     (void)data;
     struct MdwToplevel *window = wl_container_of(listener, window, commit);
     if (window->xdg->base->initial_commit) {
-        wlr_xdg_toplevel_set_wm_capabilities(window->xdg, WLR_XDG_TOPLEVEL_WM_CAPABILITIES_FULLSCREEN);
-        wlr_xdg_toplevel_set_size(window->xdg, 640, 480);
+        wlr_xdg_toplevel_set_wm_capabilities(window->xdg, WLR_XDG_TOPLEVEL_WM_CAPABILITIES_FULLSCREEN
+            | WLR_XDG_TOPLEVEL_WM_CAPABILITIES_MAXIMIZE);
+        wlr_xdg_toplevel_set_size(window->xdg, window->xdg->parent ? 0 : 640, window->xdg->parent ? 0 : 480);
+    }
+    MdwWindow *previous = &window->published;
+    if (previous->min_width != window->xdg->current.min_width || previous->min_height != window->xdg->current.min_height ||
+            previous->max_width != window->xdg->current.max_width || previous->max_height != window->xdg->current.max_height) {
+        MdwOutput *output;
+        wl_list_for_each(output, &window->view.server->outputs, link) {
+            if (output->view == &window->view && !output->parent)
+                mdw_output_resize(output, output->requested_width, output->requested_height);
+        }
     }
     publish(window);
 }
@@ -336,7 +354,40 @@ bool mdw_window_confirm_fullscreen(MdwServer *server, uint64_t id, uint64_t seri
 static void window_maximize(struct wl_listener *listener, void *data) {
     (void)data;
     struct MdwToplevel *window = wl_container_of(listener, window, maximize);
+    ++window->maximize_serial;
+    publish(window);
     wlr_xdg_surface_schedule_configure(window->xdg->base);
+}
+
+bool mdw_window_confirm_maximized(MdwServer *server, uint64_t id, uint64_t serial, bool maximized) {
+    struct MdwToplevel *window;
+    wl_list_for_each(window, &server->windows, link) {
+        if (window->view.id != id) continue;
+        if (window->maximize_serial != serial) return false;
+        wlr_xdg_toplevel_set_maximized(window->xdg, maximized);
+        return true;
+    }
+    return false;
+}
+
+static void window_gesture(struct MdwToplevel *window, struct wlr_seat_client *seat, uint32_t serial, uint32_t edges) {
+    MdwServer *server = window->view.server;
+    if (seat->seat != server->seat || !server->pointer_owner
+            || server->pointer_owner->view != &window->view
+            || !wlr_seat_validate_pointer_grab_serial(server->seat, window->view.surface, serial)) return;
+    if (server->events.window_gesture) server->events.window_gesture(server->events.context, window->view.id, edges);
+}
+
+static void window_move(struct wl_listener *listener, void *data) {
+    struct MdwToplevel *window = wl_container_of(listener, window, move);
+    struct wlr_xdg_toplevel_move_event *event = data;
+    window_gesture(window, event->seat, event->serial, 0);
+}
+
+static void window_resize(struct wl_listener *listener, void *data) {
+    struct MdwToplevel *window = wl_container_of(listener, window, resize);
+    struct wlr_xdg_toplevel_resize_event *event = data;
+    window_gesture(window, event->seat, event->serial, event->edges);
 }
 
 static void window_destroy(struct wl_listener *listener, void *data) {
@@ -354,6 +405,8 @@ static void window_destroy(struct wl_listener *listener, void *data) {
     wl_list_remove(&window->parent.link);
     wl_list_remove(&window->fullscreen.link);
     wl_list_remove(&window->maximize.link);
+    wl_list_remove(&window->move.link);
+    wl_list_remove(&window->resize.link);
     if (server->events.window) server->events.window(server->events.context, window->view.id, NULL);
     free(window->published_title);
     free(window->published_app_id);
@@ -363,6 +416,19 @@ static void window_destroy(struct wl_listener *listener, void *data) {
 static void toplevel_configure(struct MdwView *view, int width, int height) {
     struct MdwToplevel *window = wl_container_of(view, window, view);
     wlr_xdg_toplevel_set_size(window->xdg, width, height);
+}
+
+static int constrain_axis(int offered, uint32_t minimum, uint32_t maximum) {
+    int min = minimum > 4096 ? 4096 : (int)minimum;
+    int max = !maximum || maximum > 4096 ? 4096 : (int)maximum;
+    if (max < min) max = min;
+    return offered < min ? min : offered > max ? max : offered;
+}
+
+static void toplevel_constrain(struct MdwView *view, int *width, int *height) {
+    struct MdwToplevel *window = wl_container_of(view, window, view);
+    *width = constrain_axis(*width, window->xdg->current.min_width, window->xdg->current.max_width);
+    *height = constrain_axis(*height, window->xdg->current.min_height, window->xdg->current.max_height);
 }
 
 static void toplevel_activate(struct MdwView *view, bool active) {
@@ -387,6 +453,7 @@ static void new_toplevel(struct wl_listener *listener, void *data) {
         return;
     }
     window->view.configure = toplevel_configure;
+    window->view.constrain = toplevel_constrain;
     window->view.keyboard_allowed = true;
     window->view.activate = toplevel_activate;
     window->view.close = toplevel_close;
@@ -408,6 +475,8 @@ static void new_toplevel(struct wl_listener *listener, void *data) {
     listen_signal(&xdg->events.set_parent, &window->parent, window_parent);
     listen_signal(&xdg->events.request_fullscreen, &window->fullscreen, window_fullscreen);
     listen_signal(&xdg->events.request_maximize, &window->maximize, window_maximize);
+    listen_signal(&xdg->events.request_move, &window->move, window_move);
+    listen_signal(&xdg->events.request_resize, &window->resize, window_resize);
     mdw_view_observe(&window->view);
     publish(window);
 }
@@ -562,10 +631,14 @@ MdwOutput *mdw_output_borrow_dependents(MdwOutput *parent) {
 }
 
 bool mdw_output_resize(MdwOutput *output, int width, int height) {
-    if (output && output->parent) return false;
-    if (!mdw_output_viewport(output, 0, 0, width, height)) return false;
-    if (output->view->configure) output->view->configure(output->view,
-        (int)fmax(1, round(width / output->scale)), (int)fmax(1, round(height / output->scale)));
+    if (!output || output->parent || !output->view || width < 1 || height < 1 || width > 4096 || height > 4096) return false;
+    int logical_width = (int)fmax(1, round(width / output->scale));
+    int logical_height = (int)fmax(1, round(height / output->scale));
+    if (output->view->constrain) output->view->constrain(output->view, &logical_width, &logical_height);
+    if (!mdw_output_viewport(output, 0, 0, (int)fmin(4096, round(logical_width * output->scale)),
+            (int)fmin(4096, round(logical_height * output->scale)))) return false;
+    output->requested_width = width; output->requested_height = height;
+    if (output->view->configure) output->view->configure(output->view, logical_width, logical_height);
     return true;
 }
 
@@ -582,7 +655,7 @@ bool mdw_output_scale(MdwOutput *output, double scale) {
     if (output->scale == scale) return true;
     double previous = output->scale;
     output->scale = scale;
-    if (!mdw_output_resize(output, output->viewport_width, output->viewport_height)) {
+    if (!mdw_output_resize(output, output->requested_width, output->requested_height)) {
         output->scale = previous;
         return false;
     }
@@ -611,6 +684,7 @@ bool mdw_output_viewport(MdwOutput *output, int x, int y, int width, int height)
         output->viewport_width = width; output->viewport_height = height;
         wlr_scene_output_set_position(output->scene_output, x, y);
         mdw_output_refresh(output);
+        if (output->server->keyboard_owner == output) mdw_input_geometry(output->server);
     }
     return committed;
 }
@@ -757,6 +831,34 @@ bool mdw_output_pointer(MdwOutput *output, double x, double y) {
     } else wlr_seat_pointer_notify_clear_focus(output->server->seat);
     wlr_seat_pointer_notify_frame(output->server->seat);
     return surface != NULL;
+}
+
+struct CaretGeometry {
+    struct wlr_surface *surface;
+    int x, y;
+    bool found;
+};
+
+static void caret_surface(struct wlr_scene_buffer *buffer, int x, int y, void *data) {
+    struct CaretGeometry *geometry = data;
+    struct wlr_scene_surface *scene = wlr_scene_surface_try_from_buffer(buffer);
+    if (scene && scene->surface == geometry->surface) {
+        geometry->x = x; geometry->y = y; geometry->found = true;
+    }
+}
+
+bool mdw_output_caret(MdwOutput *output, struct wlr_surface *surface, const struct wlr_box *rect, float caret[4]) {
+    if (!output || !output->view || !output->output || !surface || rect->width < 0 || rect->height < 0) return false;
+    struct CaretGeometry geometry = {.surface = surface};
+    wlr_scene_node_for_each_buffer(&output->view->scene->tree.node, caret_surface, &geometry);
+    if (!geometry.found || output->viewport_width <= 0 || output->viewport_height <= 0) return false;
+    double x = (double)geometry.x + rect->x - output->scene_output->x;
+    double y = (double)geometry.y + rect->y - output->scene_output->y;
+    caret[0] = x * output->scale / output->viewport_width;
+    caret[1] = y * output->scale / output->viewport_height;
+    caret[2] = (x + rect->width) * output->scale / output->viewport_width;
+    caret[3] = (y + rect->height) * output->scale / output->viewport_height;
+    return true;
 }
 
 bool mdw_output_button(MdwOutput *output, MdwButton button, bool down) {

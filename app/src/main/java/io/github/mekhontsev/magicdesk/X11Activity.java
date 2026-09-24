@@ -29,6 +29,7 @@ public final class X11Activity extends Activity implements
     private X11Sessions.Session session;
     private volatile X11HostBinding binding;
     private HostedSurfaceView surface;
+    private HostedContentLayout content;
     private TextView status;
     private long window;
     private boolean seenWindow;
@@ -65,7 +66,8 @@ public final class X11Activity extends Activity implements
         status.setPadding(ui.dp(12), ui.dp(6), ui.dp(12), ui.dp(6));
         root.addView(status);
         surface = new HostedSurfaceView(this);
-        root.addView(surface, new LinearLayout.LayoutParams(-1, 0, 1));
+        content = new HostedContentLayout(this, surface);
+        root.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
         setContentView(root);
         window = state == null ? getIntent().getLongExtra(WINDOW, 0) : state.getLong(WINDOW);
         provisional = state == null ? window == 0 : state.getBoolean("x11_provisional", window == 0);
@@ -133,6 +135,8 @@ public final class X11Activity extends Activity implements
         if (ready && window != 0) {
             session.claimWindow(window);
         }
+        content.constraints(session == null ? io.github.mekhontsev.magicdesk.hosted.HostedWindowConstraints.NONE
+                : session.layout(window).constraints(), 1);
         var currentRecipe = session == null ? null : session.windowRecipe(window);
         if (currentRecipe != identityRecipe) {
             identityRecipe = currentRecipe;

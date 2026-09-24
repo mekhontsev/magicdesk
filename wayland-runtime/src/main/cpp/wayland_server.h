@@ -20,8 +20,11 @@ typedef struct {
 	bool mapped;
 	int width;
 	int height;
+    int min_width, min_height, max_width, max_height;
     uint64_t request_serial;
     bool fullscreen;
+    uint64_t maximize_serial;
+    bool maximized;
 } MdwWindow;
 
 typedef enum { MDW_BACKGROUND, MDW_BOTTOM, MDW_TOP, MDW_OVERLAY } MdwLayer;
@@ -62,10 +65,14 @@ typedef struct {
     uint64_t editor; /* Zero disables input; renewed on each field enable. */
     uint32_t revision, cursor, anchor, purpose, hints;
     const char *surrounding; /* Borrowed UTF-8, null when the client supplies no context. */
+    bool caret_valid;
+    float caret[4]; /* Normalized output rectangle; no guessed baseline. */
 } MdwTextState;
 
 typedef struct {
 	void (*window)(void *context, uint64_t id, const MdwWindow *window);
+    /* Validated interactive pointer request; zero edges means move, otherwise xdg resize edges. */
+    void (*window_gesture)(void *context, uint64_t id, uint32_t edges);
     void (*shell)(void *context, uint64_t id, const MdwShellSurface *surface);
     void (*geometry)(void *context, const MdwViewGeometry *geometry);
     void (*toplevel_action)(void *context, uint64_t id, MdwToplevelAction action);
@@ -128,5 +135,6 @@ void mdw_output_destroy(MdwOutput *output);
 bool mdw_window_close(MdwServer *server, uint64_t window);
 bool mdw_window_disconnect(MdwServer *server, uint64_t window);
 bool mdw_window_confirm_fullscreen(MdwServer *server, uint64_t window, uint64_t request_serial, bool fullscreen);
+bool mdw_window_confirm_maximized(MdwServer *server, uint64_t window, uint64_t serial, bool maximized);
 
 #endif

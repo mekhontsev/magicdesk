@@ -2,6 +2,8 @@ package io.github.mekhontsev.magicdesk.wayland;
 import io.github.mekhontsev.magicdesk.hosted.FramePresentation;
 import io.github.mekhontsev.magicdesk.hosted.HostedFrame;
 import io.github.mekhontsev.magicdesk.hosted.HostedFramePresenter;
+import io.github.mekhontsev.magicdesk.hosted.HostedWindowConstraints;
+import io.github.mekhontsev.magicdesk.hosted.HostedWindowGesture;
 
 import android.os.Binder;
 import android.os.Handler;
@@ -22,7 +24,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class WaylandSession implements AutoCloseable {
     public record Window(long id, long parent, String title, String appId, boolean mapped, int width, int height,
-            long requestSerial, boolean fullscreen) { }
+            HostedWindowConstraints constraints, long requestSerial, boolean fullscreen,
+            long maximizeSerial, boolean maximized) { }
     public record Toplevel(long id, String title, String appId, boolean active, boolean maximized, boolean fullscreen) { }
     public enum ToplevelAction { ACTIVATE, MAXIMIZE, FULLSCREEN, UNMAXIMIZE, UNFULLSCREEN, CLOSE }
     public interface Listener {
@@ -31,6 +34,7 @@ public final class WaylandSession implements AutoCloseable {
         default void frame(long output, int width, int height) { }
         default void geometryChanged(long window) { }
         default void textInputChanged(long output) { }
+        default void windowGesture(long window, HostedWindowGesture gesture) { }
         default void contentOffer(WaylandDataExchange.Offer offer) { }
         default void dragEvent(long output, long offer, boolean finished, boolean accepted) { }
         default void cursor(long output, android.graphics.Bitmap image, int hotspotX, int hotspotY, boolean hidden) { }
@@ -84,9 +88,14 @@ public final class WaylandSession implements AutoCloseable {
             if (!handler.post(() -> content.reply(request, fd))) closeDescriptor(fd);
         }
         @Override public void textInput(long id, long editor, long revision, byte[] surrounding,
-                int cursor, int anchor, int purpose, int hints) {
+                int cursor, int anchor, int purpose, int hints, boolean caretValid,
+                float left, float top, float right, float bottom) {
             checkCaller();
-            var state = WaylandText.state(editor, revision, surrounding, cursor, anchor, purpose, hints);
+            var context = WaylandText.state(editor, revision, surrounding, cursor, anchor, purpose, hints);
+            var state = context == null ? null : new io.github.mekhontsev.magicdesk.hosted.HostedTextState(
+                    context.editor(), context.revision(), context.purpose(), context.hints(), context.surrounding(),
+                    context.cursor(), context.anchor(), caretValid
+                    ? new io.github.mekhontsev.magicdesk.hosted.HostedTextState.Caret(left, top, right, bottom) : null);
             handler.post(() -> {
                 Output output = outputs.get(id);
                 if (closed.get() || output == null || output.released.get()
@@ -110,7 +119,8 @@ public final class WaylandSession implements AutoCloseable {
             });
         }
         @Override public void window(long id, long parent, String title, String appId, boolean mapped,
-                int width, int height, long requestSerial, boolean fullscreen, boolean removed) {
+                int width, int height, int minWidth, int minHeight, int maxWidth, int maxHeight,
+                long requestSerial, boolean fullscreen, long maximizeSerial, boolean maximized, boolean removed) {
             checkCaller();
             handler.post(() -> {
                 if (closed.get()) return;
@@ -120,12 +130,30 @@ public final class WaylandSession implements AutoCloseable {
                     dependentGeometries.remove(id);
                     releaseSurfaceOutputs(id);
                 }
-                else catalog.put(id, new Window(id, parent, title, appId, mapped, width, height, requestSerial, fullscreen));
+                else catalog.put(id, new Window(id, parent, title, appId, mapped, width, height,
+                        new HostedWindowConstraints(minWidth, minHeight, maxWidth, maxHeight), requestSerial, fullscreen,
+                        maximizeSerial, maximized));
                 ArrayList<Window> snapshot = new ArrayList<>(catalog.size());
                 for (int index = 0; index < catalog.size(); ++index) snapshot.add(catalog.valueAt(index));
                 windows = List.copyOf(snapshot);
                 main.post(listener::changed);
             });
+        }
+        @Override public void windowGesture(long window, int edges) {
+            checkCaller();
+            HostedWindowGesture gesture = switch (edges) {
+                case 0 -> HostedWindowGesture.MOVE;
+                case 1 -> HostedWindowGesture.NORTH;
+                case 2 -> HostedWindowGesture.SOUTH;
+                case 4 -> HostedWindowGesture.WEST;
+                case 8 -> HostedWindowGesture.EAST;
+                case 5 -> HostedWindowGesture.NORTH_WEST;
+                case 9 -> HostedWindowGesture.NORTH_EAST;
+                case 6 -> HostedWindowGesture.SOUTH_WEST;
+                case 10 -> HostedWindowGesture.SOUTH_EAST;
+                default -> throw new IllegalArgumentException("Invalid Wayland resize edge");
+            };
+            main.post(() -> { if (!closed.get()) listener.windowGesture(window, gesture); });
         }
         @Override public void frame(long id, long serial, long generation, HostedFrame frame) {
             int width = frame == null ? 0 : frame.width, height = frame == null ? 0 : frame.height;
@@ -378,6 +406,9 @@ public final class WaylandSession implements AutoCloseable {
 
     public void confirmFullscreen(long window, long serial, boolean fullscreen) {
         handler.post(() -> { if (!closed.get()) remote(() -> server.confirmFullscreen(window, serial, fullscreen)); });
+    }
+    public void confirmMaximized(long window, long serial, boolean maximized) {
+        handler.post(() -> { if (!closed.get()) remote(() -> server.confirmMaximized(window, serial, maximized)); });
     }
 
     private void frameConsumed(long id, long serial) {

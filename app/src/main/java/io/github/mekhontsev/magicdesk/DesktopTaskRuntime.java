@@ -127,6 +127,8 @@ interface DesktopTaskRuntime {
 
     boolean arrangeTask(int taskId, int shortcut);
 
+    void setMaximized(int displayId, int taskId, boolean maximized, TaskRepository.ActionCallback callback);
+
     void setWindowBounds(
             int displayId,
             int taskId,
