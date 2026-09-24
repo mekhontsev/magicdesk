@@ -118,8 +118,10 @@ describe its creator and must not be mistaken for the launched client's identity
 The compositor uses the [shared Vulkan/software renderer](graphics.md) through
 wlroots' renderer/allocator interfaces, without a wlroots fork. Frame transport
 and Android presentation remain separate from launch, input and placement policy.
-The renderer does not advertise Linux DMA-BUF client import. Software remains
-the compatibility path; GPU drivers are not a startup requirement.
+Optional `linux-dmabuf` v3 admission supports explicit linear RGB allocations
+through the [shared GPU importer](graphics.md#linux-buffer-import), without a
+DRM node. SHM/software remains the compatibility path; GPU drivers are not a
+startup requirement.
 
 The native runtime covers xdg-toplevel discovery and metadata, GPU/software
 rendering, configure/ack, frame callbacks, borrowed-output resize, pointer/key
@@ -130,7 +132,7 @@ parent's task crop through the shared opt-in
 Ordinary subsurfaces remain in their owning tree; transient toplevels retain
 separate Android hosts. Shell popup constraints and surface-family input geometry
 are covered by native fixtures. Physical keys use the shared Android-to-evdev
-mapping. XWayland and Linux DMA-BUF client import are not enabled.
+mapping. XWayland is not enabled.
 
 ## Host Interaction
 
@@ -260,13 +262,12 @@ Ordinary application hosts retain their existing viewport policy.
 
 ## Remaining Work
 
-**Linux GPU client buffers.** Connect protocol admission and wlroots buffer
-lifetime to the [shared linear DMA-BUF importer](graphics.md#linux-buffer-import).
-Advertise only compatible layouts with working synchronization; do not require
-a DRM node on Android or invent a DRM device identity for feedback. Nonlinear
-allocations require a separate capability-backed image importer. Android
-compositor acceleration is separate from accepting GPU-produced Linux client
-buffers without changing launch identity or making GPU a prerequisite.
+**Linux GPU client compatibility.** Validate real client drivers and toolkits
+against linear DMA-BUF admission. Nonlinear/multi-plane allocations require a
+separate capability-backed image importer; implicit layouts must not be guessed.
+Cursor publication currently reads SHM pixels; GPU-only cursor surfaces need
+asynchronous readback before Android pointer-icon publication. Keep these
+capabilities separate from startup and from Android compositor acceleration.
 
 Root/chroot client bootstrap is a separate prerequisite for testing those
 execution environments, not for the initial Termux application workflow. Extend

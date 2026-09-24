@@ -19,6 +19,7 @@
 #include <wlr/types/wlr_fractional_scale_v1.h>
 #include <wlr/types/wlr_viewporter.h>
 #include "wayland_renderer.h"
+#include "wayland_dmabuf.h"
 #include <drm_fourcc.h>
 
 struct MdwToplevel {
@@ -419,6 +420,7 @@ MdwServer *mdw_server_create(void) {
     if (!server->backend) goto fail;
     server->renderer = mdw_renderer_create();
     if (!server->renderer || !wlr_renderer_init_wl_display(server->renderer, server->display)) goto fail;
+    if (!mdw_dmabuf_init(server->display, server->renderer)) goto fail;
     server->allocator = mdw_allocator_create(server->renderer);
     if (!server->allocator) goto fail;
     if (!wlr_compositor_create(server->display, 6, server->renderer) ||

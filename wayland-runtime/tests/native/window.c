@@ -2,6 +2,10 @@
 #include "wayland_server.h"
 #include "xdg-shell-client-protocol.h"
 #include "text-input-unstable-v3-client-protocol.h"
+#include "linux-dmabuf-v1-client-protocol.h"
+#ifdef __ANDROID__
+#include "dmabuf_producer.h"
+#endif
 #include <assert.h>
 #include <drm_fourcc.h>
 #include <fcntl.h>
@@ -20,11 +24,13 @@
 
 static bool fixed_client_size;
 static bool interaction;
+static bool dma_client;
 
 struct Client {
     struct wl_display *display;
     struct wl_compositor *compositor;
     struct wl_shm *shm;
+    struct zwp_linux_dmabuf_v1 *dma;
     struct xdg_wm_base *shell;
     struct wl_surface *surface;
     struct xdg_surface *xdg_surface;
@@ -182,6 +188,10 @@ static void global(void *data, struct wl_registry *registry, uint32_t name,
         client->compositor = wl_registry_bind(registry, name, &wl_compositor_interface, 4);
     else if (!strcmp(interface, "wl_shm"))
         client->shm = wl_registry_bind(registry, name, &wl_shm_interface, 1);
+    else if (dma_client && !strcmp(interface, "zwp_linux_dmabuf_v1")) {
+        assert(version >= 3);
+        client->dma = wl_registry_bind(registry, name, &zwp_linux_dmabuf_v1_interface, 3);
+    }
     else if (!strcmp(interface, "wl_data_device_manager")) client->data_device_manager = true;
     else if (!strcmp(interface, "zwp_text_input_manager_v3"))
         client->text_manager = wl_registry_bind(registry, name, &zwp_text_input_manager_v3_interface, 1);
@@ -213,9 +223,22 @@ static void buffer_release(void *data, struct wl_buffer *buffer) {
 }
 static const struct wl_buffer_listener buffer_listener = {buffer_release};
 
-static void configure(void *data, struct xdg_surface *surface, uint32_t serial) {
-    struct Client *client = data;
-    xdg_surface_ack_configure(surface, serial);
+static struct wl_buffer *client_buffer(struct Client *client) {
+#ifdef __ANDROID__
+    if (dma_client) {
+        assert(client->dma);
+        struct Producer producer = {.fd = -1, .width = client->width, .height = client->height, .stride = client->width * 4};
+        assert(producer_create(&producer));
+        producer_write(&producer, 0xffab6712, 0xffab6712);
+        struct zwp_linux_buffer_params_v1 *params = zwp_linux_dmabuf_v1_create_params(client->dma);
+        zwp_linux_buffer_params_v1_add(params, producer.fd, 0, 0, producer.stride, 0, DRM_FORMAT_MOD_LINEAR);
+        struct wl_buffer *buffer = zwp_linux_buffer_params_v1_create_immed(params, client->width, client->height, DRM_FORMAT_ABGR8888, 0);
+        zwp_linux_buffer_params_v1_destroy(params);
+        /* Wayland's queued FD retains the allocation after the producer completes. */
+        producer_destroy(&producer);
+        return buffer;
+    }
+#endif
     int stride = client->width * 4;
     size_t size = (size_t)stride * client->height;
     int descriptor = syscall(SYS_memfd_create, "mdw-client", MFD_CLOEXEC);
@@ -226,10 +249,16 @@ static void configure(void *data, struct xdg_surface *surface, uint32_t serial) 
     struct wl_shm_pool *pool = wl_shm_create_pool(client->shm, descriptor, size);
     struct wl_buffer *buffer = wl_shm_pool_create_buffer(pool, 0, client->width,
         client->height, stride, WL_SHM_FORMAT_ARGB8888);
-    wl_buffer_add_listener(buffer, &buffer_listener, NULL);
     wl_shm_pool_destroy(pool);
     close(descriptor);
     munmap(pixels, size);
+    return buffer;
+}
+static void configure(void *data, struct xdg_surface *surface, uint32_t serial) {
+    struct Client *client = data;
+    xdg_surface_ack_configure(surface, serial);
+    struct wl_buffer *buffer = client_buffer(client);
+    wl_buffer_add_listener(buffer, &buffer_listener, NULL);
     wl_surface_attach(client->surface, buffer, 0, 0);
     wl_surface_damage_buffer(client->surface, 0, 0, client->width, client->height);
     wl_callback_add_listener(wl_surface_frame(client->surface), &frame_listener, client);
@@ -270,6 +299,11 @@ static void run_client(const char *socket) {
     assert(wl_display_roundtrip(client.display) >= 0);
     assert(client.compositor && client.shm && client.shell && client.keyboard && client.pointer);
     assert(client.data_device_manager);
+#ifdef __ANDROID__
+    if (dma_client) assert(client.dma);
+#else
+    assert(!dma_client);
+#endif
     if (interaction) {
         assert(client.text_manager);
         client.text = zwp_text_input_manager_v3_get_text_input(client.text_manager, client.seat);
@@ -380,6 +414,7 @@ static void cursor_event(void *data, MdwOutput *output, const uint32_t *pixels,
 }
 
 int main(int argc, char **argv) {
+    if (argc == 2 && !strcmp(argv[1], "--dma-client")) { dma_client = true; run_client(NULL); return 0; }
     if (argc == 2 && !strcmp(argv[1], "--client")) { run_client(NULL); return 0; }
     fixed_client_size = argc == 2 && !strcmp(argv[1], "--fixed-size");
     interaction = argc == 2 && !strcmp(argv[1], "--interaction");

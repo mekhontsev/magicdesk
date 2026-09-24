@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class WaylandRuntimeInstrumentation extends Instrumentation {
     private String clientPath;
     private boolean shellTest;
+    private boolean dmabuf;
     private int chromeDisplay = -1;
     private int workspaceDisplay = -1;
     private boolean homeLayers;
@@ -34,6 +35,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
         super.onCreate(arguments);
         clientPath = arguments == null ? null : arguments.getString("client");
         shellTest = arguments != null && Boolean.parseBoolean(arguments.getString("shell"));
+        dmabuf = arguments != null && Boolean.parseBoolean(arguments.getString("dmabuf"));
         if (arguments != null) chromeDisplay = Integer.parseInt(arguments.getString("chrome_display", "-1"));
         if (arguments != null) workspaceDisplay = Integer.parseInt(arguments.getString("workspace_display", "-1"));
         homeLayers = arguments != null && Boolean.parseBoolean(arguments.getString("home_layers", "false"));
@@ -53,7 +55,8 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                         ? "passed: Wayland chrome pixels, exact input holes, replacement receipts, borrowed output cleanup; shell runtime checks"
                         : shellTest
                         ? "passed: cross-UID shell binding, family geometry, viewport pixels/input, Surface replacement, input isolation, remap, scope release"
-                        : "passed: cross-UID compositor, client FD, family geometry, Android pixels, input, close");
+                        : "passed: cross-UID compositor, client FD, family geometry, Android pixels, input, close"
+                                + (dmabuf ? "; GPU-produced DMA-BUF client" : ""));
                 finish(Activity.RESULT_OK, result);
             } catch (Exception error) {
                 result.putString("wayland_runtime", "failed: " + error);
@@ -149,7 +152,8 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                 String invocation = "env -u LD_PRELOAD -u LD_LIBRARY_PATH CLASSPATH=" + q(context.getApplicationInfo().sourceDir)
                         + " " + String.join(" ", launch.arguments(execution.termux.packageName,
                                 library + "/libmagicdesk_wayland_client.so", clientPath,
-                                workspace != null ? homeLayers ? "--home-client" : "--workspace-client" : "--client")
+                                workspace != null ? homeLayers ? "--home-client" : "--workspace-client"
+                                        : dmabuf ? "--dma-client" : "--client")
                                 .stream().map(WaylandRuntimeInstrumentation::q).toList());
                 try (var client = execution.start(invocation, "", id + "-client", null,
                         (code, output, error) -> complete(clientExit, code, output, error))) {

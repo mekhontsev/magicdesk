@@ -6,10 +6,11 @@
 #include <wlr/interfaces/wlr_buffer.h>
 #include <wlr/render/allocator.h>
 #include <wlr/render/drm_format_set.h>
+#include <wlr/render/dmabuf.h>
 #include <wlr/render/interface.h>
 #include <wlr/render/pass.h>
 
-struct Buffer { struct wlr_buffer base; MdgImage *image; };
+struct Buffer { struct wlr_buffer base; MdgImage *image; struct wlr_dmabuf_attributes dma; };
 struct Allocator { struct wlr_allocator base; MdgDevice *device; };
 struct Texture {
     struct wlr_texture base;
@@ -17,6 +18,7 @@ struct Texture {
     MdgImage *image;
     void *pixels;
     MdgFormat format;
+    struct wlr_buffer *borrowed;
 };
 struct Pass {
     struct wlr_render_pass base;
@@ -27,7 +29,7 @@ struct Pass {
 struct Renderer {
     struct wlr_renderer base;
     MdgDevice *device;
-    struct wlr_drm_format_set texture_formats, render_formats;
+    struct wlr_drm_format_set texture_formats, render_formats, dma_formats;
     struct wl_list textures;
     struct Pass pass;
 };
@@ -43,16 +45,25 @@ static bool format(uint32_t drm, MdgFormat *result) {
 }
 static void buffer_destroy(struct wlr_buffer *base) {
     struct Buffer *buffer = (void *)base;
+    wlr_dmabuf_attributes_finish(&buffer->dma);
     mdg_image_unref(buffer->image); free(buffer);
+}
+static bool buffer_dmabuf(struct wlr_buffer *base, struct wlr_dmabuf_attributes *attributes) {
+    struct Buffer *buffer = (void *)base;
+    if (!buffer->dma.n_planes) return false;
+    *attributes = buffer->dma;
+    return true;
 }
 static bool buffer_map(struct wlr_buffer *base, uint32_t flags, void **data, uint32_t *format, size_t *stride) {
     struct Buffer *buffer = (void *)base;
+    if (buffer->dma.n_planes) return false;
     *format = DRM_FORMAT_ABGR8888;
     return mdg_map(buffer->image, flags & WLR_BUFFER_DATA_PTR_ACCESS_WRITE, data, stride);
 }
 static void buffer_unmap(struct wlr_buffer *base) { mdg_unmap(((struct Buffer *)base)->image); }
 static const struct wlr_buffer_impl buffer_impl = {
     .destroy = buffer_destroy, .begin_data_ptr_access = buffer_map, .end_data_ptr_access = buffer_unmap,
+    .get_dmabuf = buffer_dmabuf,
 };
 MdgImage *mdw_buffer_image(struct wlr_buffer *base) {
     return base && base->impl == &buffer_impl ? ((struct Buffer *)base)->image : NULL;
@@ -78,14 +89,32 @@ struct wlr_allocator *mdw_allocator_create(struct wlr_renderer *base) {
 }
 MdgDevice *mdw_renderer_device(struct wlr_renderer *base) { return ((struct Renderer *)base)->device; }
 
+struct wlr_buffer *mdw_renderer_import_dmabuf(struct wlr_renderer *base, const struct wlr_dmabuf_attributes *attributes) {
+    MdgFormat pixel_format;
+    if (!attributes || attributes->n_planes != 1 || attributes->modifier != DRM_FORMAT_MOD_LINEAR ||
+            attributes->width < 1 || attributes->height < 1 || !format(attributes->format, &pixel_format)) return NULL;
+    MdgLinearDmaBuf source = {.fd = attributes->fd[0], .width = attributes->width, .height = attributes->height,
+        .offset = attributes->offset[0], .stride = attributes->stride[0], .format = pixel_format};
+    MdgImage *image = mdg_image_linear_dmabuf(mdw_renderer_device(base), &source);
+    if (!image) return NULL;
+    struct Buffer *buffer = calloc(1, sizeof(*buffer));
+    if (!buffer) { mdg_image_unref(image); return NULL; }
+    if (!wlr_dmabuf_attributes_copy(&buffer->dma, attributes)) { free(buffer); mdg_image_unref(image); return NULL; }
+    buffer->image = image;
+    wlr_buffer_init(&buffer->base, &buffer_impl, source.width, source.height);
+    return &buffer->base;
+}
+
 static void texture_destroy(struct wlr_texture *base) {
     struct Texture *texture = (void *)base;
     mdg_image_unref(texture->image); free(texture->pixels);
+    wlr_buffer_unlock(texture->borrowed);
     wl_list_remove(&texture->link); free(texture);
 }
 static bool texture_update(struct wlr_texture *base, struct wlr_buffer *buffer, const pixman_region32_t *damage) {
     (void)damage;
     struct Texture *texture = (void *)base;
+    if (texture->borrowed) return texture->borrowed == buffer;
     void *pixels; uint32_t drm; size_t stride; MdgFormat pixel_format;
     if (buffer->width != (int)base->width || buffer->height != (int)base->height ||
         !wlr_buffer_begin_data_ptr_access(buffer, WLR_BUFFER_DATA_PTR_ACCESS_READ, &pixels, &drm, &stride)) return false;
@@ -115,7 +144,10 @@ static struct wlr_texture *texture_from_buffer(struct wlr_renderer *base, struct
     wlr_texture_init(&texture->base, base, &texture_impl, buffer->width, buffer->height);
     wl_list_insert(&renderer->textures, &texture->link);
     MdgImage *image = mdw_buffer_image(buffer);
-    if (image) { texture->image = image; mdg_image_ref(image); }
+    if (image) {
+        texture->image = image; mdg_image_ref(image);
+        texture->borrowed = wlr_buffer_lock(buffer);
+    }
     else if (!texture_update(&texture->base, buffer, NULL)) { texture_destroy(&texture->base); return NULL; }
     return &texture->base;
 }
@@ -176,6 +208,10 @@ static struct wlr_render_pass *begin(struct wlr_renderer *base, struct wlr_buffe
     return &renderer->pass.base;
 }
 static const struct wlr_drm_format_set *texture_formats(struct wlr_renderer *base, uint32_t caps) {
+    if (caps & WLR_BUFFER_CAP_DMABUF) {
+        struct Renderer *renderer = (void *)base;
+        return mdg_device_linear_dmabuf(renderer->device) ? &renderer->dma_formats : NULL;
+    }
     return caps & WLR_BUFFER_CAP_DATA_PTR ? &((struct Renderer *)base)->texture_formats : NULL;
 }
 static const struct wlr_drm_format_set *render_formats(struct wlr_renderer *base) { return &((struct Renderer *)base)->render_formats; }
@@ -186,6 +222,7 @@ static void destroy(struct wlr_renderer *base) {
     mdg_device_destroy(renderer->device);
     wlr_drm_format_set_finish(&renderer->texture_formats);
     wlr_drm_format_set_finish(&renderer->render_formats);
+    wlr_drm_format_set_finish(&renderer->dma_formats);
     free(renderer);
 }
 static const struct wlr_renderer_impl renderer_impl = {.destroy = destroy, .texture_from_buffer = texture_from_buffer,
@@ -200,6 +237,9 @@ struct wlr_renderer *mdw_renderer_create(void) {
     uint32_t formats[] = {DRM_FORMAT_ABGR8888, DRM_FORMAT_XBGR8888, DRM_FORMAT_ARGB8888, DRM_FORMAT_XRGB8888};
     for (unsigned i = 0; i < sizeof(formats) / sizeof(*formats); ++i)
         if (!wlr_drm_format_set_add(&renderer->texture_formats, formats[i], DRM_FORMAT_MOD_INVALID)) goto fail;
+    if (mdg_device_linear_dmabuf(renderer->device))
+        for (unsigned i = 0; i < sizeof(formats) / sizeof(*formats); ++i)
+            if (!wlr_drm_format_set_add(&renderer->dma_formats, formats[i], DRM_FORMAT_MOD_LINEAR)) goto fail;
     if (!wlr_drm_format_set_add(&renderer->render_formats, DRM_FORMAT_ABGR8888, DRM_FORMAT_MOD_INVALID)) goto fail;
     return &renderer->base;
 fail:
