@@ -1,0 +1,27 @@
+Mesa 26.2.3 client-side experiment, not part of the MagicDesk APK.
+
+An explicitly selected Zink driver can present through Kopper's Vulkan WSI
+without a DRM render node. Use the existing Kopper initializer and the same
+non-DRM EGLDevice convention as platform_x11_finalize(force_zink).
+This does not select Zink automatically or force software GL rendering.
+
+--- a/src/egl/drivers/dri2/platform_wayland.c
++++ b/src/egl/drivers/dri2/platform_wayland.c
+@@ -3262,7 +3262,7 @@ dri2_initialize_wayland_swrast(_EGLDisplay *disp)
+    if (!dri2_create_screen(disp))
+       goto cleanup;
+ 
+-   if (!dri2_setup_device(disp, disp->Options.ForceSoftware)) {
++   if (!dri2_setup_device(disp, disp->Options.ForceSoftware || disp->Options.Zink)) {
+       _eglError(EGL_NOT_INITIALIZED, "DRI2: failed to setup EGLDevice");
+       goto cleanup;
+    }
+@@ -3297,7 +3297,7 @@ dri2_initialize_wayland_swrast(_EGLDisplay *disp)
+ EGLBoolean
+ dri2_initialize_wayland(_EGLDisplay *disp)
+ {
+-   if (disp->Options.ForceSoftware)
++   if (disp->Options.ForceSoftware || disp->Options.Zink)
+       return dri2_initialize_wayland_swrast(disp);
+    else
+       return dri2_initialize_wayland_drm(disp);

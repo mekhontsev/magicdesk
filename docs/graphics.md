@@ -94,6 +94,34 @@ without DMA-BUF support exposes no DMA-BUF global. SHM remains available.
 
 ## Protocol Adapters
 
+### Client GL Loaders
+
+Client EGL/GL libraries belong to the selected Linux environment, not the APK.
+Mesa's Wayland EGL loader normally discovers a DRM render node through compositor
+feedback or `wl_drm`. Android KGSL plus Vulkan WSI does not supply that identity.
+Consequently, installing a working Vulkan driver does not by itself make EGL's
+default Zink path work. Software GL remains independent of this limitation.
+
+The optional [Mesa 26.2.3 test patch](../wayland-runtime/tests/mesa-wayland-zink.patch)
+routes explicitly selected Zink through Kopper and uses Mesa's existing non-DRM
+EGLDevice convention. On RM11/API 36, Termux Mesa/Turnip with this client patch
+reports OpenGL 4.6 and GLES 3.2 on Adreno 840; GTK4's GL renderer and GLArea present
+linear DMA-BUFs and respond to pointer input. The unmodified loader fails before
+that path; forcing only `GALLIUM_DRIVER=zink` can instead produce empty SHM frames.
+This is a tested client-side patch, not a bundled driver or general Mesa support
+claim. Different GPUs and distribution builds require their own checks.
+
+Build a separate EGL vendor library using the exact installed Mesa version and
+the environment's normal build patches (including Termux's Android-detection
+patch). Select it for the test process through a private GLVND JSON file and
+`__EGL_VENDOR_LIBRARY_FILENAMES`; do not replace the system vendor library.
+Use `MESA_LOADER_DRIVER_OVERRIDE=zink`, the intended Vulkan ICD and no
+`LIBGL_ALWAYS_SOFTWARE`. Check `eglinfo -B -p wayland`, actual pixels, input and
+`WAYLAND_DEBUG=client` buffer submissions. A renderer string alone is not proof
+that the client presented a frame.
+
+### Server Composition
+
 X11's native `LorieGraphics` contract receives a host-owned implementation from
 `x11-runtime`. The engine owns X protocol, output selection, window families and
 Present ordering; it does not know Java classes or MagicDesk placement. Its
