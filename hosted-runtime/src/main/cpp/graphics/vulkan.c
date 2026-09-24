@@ -116,6 +116,7 @@ bool mdg_vk_create(MdgDevice *device) {
     INSTANCE(EnumeratePhysicalDevices); INSTANCE(EnumerateDeviceExtensionProperties);
     INSTANCE(GetPhysicalDeviceMemoryProperties); INSTANCE(GetPhysicalDeviceQueueFamilyProperties);
     INSTANCE(GetPhysicalDeviceProperties); INSTANCE(GetPhysicalDeviceExternalSemaphoreProperties);
+    INSTANCE(GetPhysicalDeviceExternalBufferProperties);
     INSTANCE(CreateDevice); INSTANCE(GetDeviceProcAddr);
 #undef INSTANCE
     uint32_t count = 16;
@@ -136,8 +137,18 @@ bool mdg_vk_create(MdgDevice *device) {
         bool supported = EnumerateDeviceExtensionProperties(physical[i], NULL, &extensions_count, extensions) == VK_SUCCESS;
         for (unsigned e = 0; e < sizeof(required) / sizeof(*required); ++e)
             supported &= has_extension(extensions, extensions_count, required[e]);
+        bool dmabuf = supported && has_extension(extensions, extensions_count, VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME) &&
+            has_extension(extensions, extensions_count, VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME);
         free(extensions);
         if (!supported) continue;
+        if (dmabuf) {
+            VkPhysicalDeviceExternalBufferInfo external = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_BUFFER_INFO,
+                .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT, .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT};
+            VkExternalBufferProperties result = {.sType = VK_STRUCTURE_TYPE_EXTERNAL_BUFFER_PROPERTIES};
+            GetPhysicalDeviceExternalBufferProperties(physical[i], &external, &result);
+            VkExternalMemoryFeatureFlags flags = result.externalMemoryProperties.externalMemoryFeatures;
+            dmabuf = (flags & VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT) && !(flags & VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT);
+        }
         VkPhysicalDeviceExternalSemaphoreInfo sync = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SEMAPHORE_INFO,
             .handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT};
         VkExternalSemaphoreProperties support = {.sType = VK_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_PROPERTIES};
@@ -152,9 +163,21 @@ bool mdg_vk_create(MdgDevice *device) {
         float priority = 1;
         VkDeviceQueueCreateInfo queue = {.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
             .queueFamilyIndex = family, .queueCount = 1, .pQueuePriorities = &priority};
+        const char *enabled[6];
+        unsigned required_count = sizeof(required) / sizeof(*required);
+        memcpy(enabled, required, sizeof(required));
+        enabled[required_count] = VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME;
+        enabled[required_count + 1] = VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME;
         VkDeviceCreateInfo info = {.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, .queueCreateInfoCount = 1,
-            .pQueueCreateInfos = &queue, .enabledExtensionCount = sizeof(required) / sizeof(*required), .ppEnabledExtensionNames = required};
-        if (CreateDevice(physical[i], &info, NULL, &gpu->device)) continue;
+            .pQueueCreateInfos = &queue, .enabledExtensionCount = required_count + (dmabuf ? 2 : 0), .ppEnabledExtensionNames = enabled};
+        if (CreateDevice(physical[i], &info, NULL, &gpu->device)) {
+            if (!dmabuf) continue;
+            dmabuf = false;
+            info.enabledExtensionCount = required_count;
+            if (CreateDevice(physical[i], &info, NULL, &gpu->device)) continue;
+        }
+        gpu->GetMemoryFdPropertiesKHR = dmabuf ? (PFN_vkGetMemoryFdPropertiesKHR)GetDeviceProcAddr(gpu->device, "vkGetMemoryFdPropertiesKHR") : NULL;
+        gpu->linear_dmabuf = gpu->GetMemoryFdPropertiesKHR != NULL;
         gpu->family = family;
         gpu->physical = physical[i];
         GetPhysicalDeviceMemoryProperties(physical[i], &gpu->memory);
@@ -254,6 +277,8 @@ void mdg_vk_image_destroy(MdgImage *image) {
     Image *native = image->gpu;
     if (!native) return;
     Gpu *gpu = image->device->gpu;
+    if (native->dma_buffer) gpu->DestroyBuffer(gpu->device, native->dma_buffer, NULL);
+    if (native->dma_memory) gpu->FreeMemory(gpu->device, native->dma_memory, NULL);
     if (native->framebuffer) gpu->DestroyFramebuffer(gpu->device, native->framebuffer, NULL);
     if (native->view) gpu->DestroyImageView(gpu->device, native->view, NULL);
     if (native->image && !native->swapchain) gpu->DestroyImage(gpu->device, native->image, NULL);
@@ -337,7 +362,7 @@ bool mdg_vk_submit(MdgPass *pass) {
         while (j < image_count && images[j] != image) ++j;
         if (j != image_count) continue;
         images[image_count++] = image;
-        if (!image->hardware) upload_size += (VkDeviceSize)image->width * image->height * 4;
+        if (!image->hardware && image->dmabuf_fd < 0) upload_size += (VkDeviceSize)image->width * image->height * 4;
     }
     if (!pass->gpu && !pass_create(pass)) { mdg_vk_pass_destroy(pass); return false; }
     Pass *native = pass->gpu;
@@ -352,17 +377,22 @@ bool mdg_vk_submit(MdgPass *pass) {
             barrier(gpu, native, image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 0, VK_ACCESS_SHADER_READ_BIT, true, false);
         } else {
-            for (unsigned y = 0; y < image->height; ++y)
-                memcpy((uint8_t *)native->mapped + offset + (size_t)y * image->width * 4,
-                    (const uint8_t *)image->pixels + y * image->stride, (size_t)image->width * 4);
+            bool dma = image->dmabuf_fd >= 0;
+            if (dma) mdg_vk_dmabuf_barrier(gpu, native, source, true);
+            else for (unsigned y = 0; y < image->height; ++y)
+                    memcpy((uint8_t *)native->mapped + offset + (size_t)y * image->width * 4,
+                        (const uint8_t *)image->pixels + y * image->stride, (size_t)image->width * 4);
             barrier(gpu, native, image, source->initialized ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_UNDEFINED,
                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, false, false);
-            VkBufferImageCopy copy = {.bufferOffset = offset, .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+            VkBufferImageCopy copy = {.bufferOffset = dma ? image->dmabuf_offset : offset,
+                .bufferRowLength = dma ? image->stride / 4 : 0, .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
                 .imageExtent = {image->width, image->height, 1}};
-            gpu->CmdCopyBufferToImage(native->command, native->upload, source->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+            gpu->CmdCopyBufferToImage(native->command, dma ? source->dma_buffer : native->upload,
+                source->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+            if (dma) mdg_vk_dmabuf_barrier(gpu, native, source, false);
             barrier(gpu, native, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, false, false);
-            offset += (VkDeviceSize)image->width * image->height * 4;
+            if (!dma) offset += (VkDeviceSize)image->width * image->height * 4;
         }
     }
     barrier(gpu, native, pass->target, pass->preserve && target->initialized ?
@@ -418,7 +448,8 @@ bool mdg_vk_submit(MdgPass *pass) {
     unsigned wait_count = 0;
     VkPipelineStageFlags stages[MDG_MAX_DRAWS + 1];
     for (unsigned i = 0; i < image_count; ++i) {
-        if (images[i]->fence < 0) continue;
+        bool dma = images[i]->dmabuf_fd >= 0;
+        if (!dma && images[i]->fence < 0) continue;
         if (wait_count == native->waits) {
             VkSemaphoreCreateInfo info = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
             if (gpu->CreateSemaphore(gpu->device, &info, NULL, &native->wait[wait_count])) return false;
@@ -444,6 +475,12 @@ bool mdg_vk_submit(MdgPass *pass) {
     if (gpu->GetSemaphoreFdKHR(gpu->device, &export, &fd)) { gpu->lost = true; return false; }
     mdg_image_set_fence(pass->target, fd);
     if (!mdg_image_fence(pass->target, &pass->completion)) { gpu->lost = true; return false; }
+    for (unsigned i = 0; i < image_count; ++i) {
+        if (images[i]->dmabuf_fd >= 0 && !mdg_dmabuf_release(images[i], fd)) {
+            gpu->lost = true;
+            return false;
+        }
+    }
     return true;
 }
 

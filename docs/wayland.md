@@ -260,10 +260,13 @@ Ordinary application hosts retain their existing viewport policy.
 
 ## Remaining Work
 
-**Linux GPU client buffers.** Add DMA-BUF import and capability negotiation only
-for compatible allocations and synchronization. Android compositor acceleration
-is separate from accepting GPU-produced Linux
-client buffers without changing launch identity or making GPU a prerequisite.
+**Linux GPU client buffers.** Connect protocol admission and wlroots buffer
+lifetime to the [shared linear DMA-BUF importer](graphics.md#linux-buffer-import).
+Advertise only compatible layouts with working synchronization; do not require
+a DRM node on Android or invent a DRM device identity for feedback. Nonlinear
+allocations require a separate capability-backed image importer. Android
+compositor acceleration is separate from accepting GPU-produced Linux client
+buffers without changing launch identity or making GPU a prerequisite.
 
 Root/chroot client bootstrap is a separate prerequisite for testing those
 execution environments, not for the initial Termux application workflow. Extend

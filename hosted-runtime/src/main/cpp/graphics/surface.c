@@ -112,11 +112,10 @@ static bool create_swapchain(MdgSurface *surface, unsigned width, unsigned heigh
     result = gpu->GetSwapchainImagesKHR(gpu->device, surface->swapchain, &count, images);
     if (result) return failed("enumerate swapchain", result);
     for (unsigned i = 0; i < count; ++i) {
-        MdgImage *image = calloc(1, sizeof(*image));
+        MdgImage *image = mdg_image_new(surface->device, size.width, size.height);
         Image *native = calloc(1, sizeof(*native));
         if (!image || !native) { free(image); free(native); return false; }
-        *image = (MdgImage){.device = surface->device, .references = 1,
-            .width = size.width, .height = size.height, .gpu = native, .fence = -1};
+        image->gpu = native;
         *native = (Image){.image = images[i], .attachment = true, .swapchain = true};
         surface->images[surface->count++] = image;
         VkImageViewCreateInfo view = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,

@@ -22,6 +22,7 @@ MdgDevice *mdg_device_create(bool software_only) {
 }
 
 bool mdg_device_gpu(const MdgDevice *device) { return device && mdg_vk_ready(device); }
+bool mdg_device_linear_dmabuf(const MdgDevice *device) { return device && mdg_vk_linear_dmabuf(device); }
 const char *mdg_device_name(const MdgDevice *device) { return device ? device->name : "unavailable"; }
 MdgStats mdg_device_stats(const MdgDevice *device) { return device ? device->stats : (MdgStats){0}; }
 
@@ -60,7 +61,7 @@ void mdg_device_destroy(MdgDevice *device) {
     free(device);
 }
 
-static MdgImage *image_new(MdgDevice *device, unsigned width, unsigned height) {
+MdgImage *mdg_image_new(MdgDevice *device, unsigned width, unsigned height) {
     if (!device || !width || !height || width > MDG_MAX_DIMENSION || height > MDG_MAX_DIMENSION) return NULL;
     MdgImage *image = calloc(1, sizeof(*image));
     if (!image) return NULL;
@@ -70,11 +71,12 @@ static MdgImage *image_new(MdgDevice *device, unsigned width, unsigned height) {
     image->height = height;
     image->stride = (size_t)width * 4;
     image->fence = -1;
+    image->dmabuf_fd = -1;
     return image;
 }
 
 MdgImage *mdg_image_create(MdgDevice *device, unsigned width, unsigned height) {
-    MdgImage *image = image_new(device, width, height);
+    MdgImage *image = mdg_image_new(device, width, height);
     if (!image) return NULL;
 #ifdef MDG_ANDROID
     AHardwareBuffer_Desc desc = {.width = width, .height = height, .layers = 1,
@@ -96,7 +98,7 @@ MdgImage *mdg_image_cpu(MdgDevice *device, unsigned width, unsigned height,
         size_t stride, MdgFormat format, const void *pixels) {
     if (!pixels || format > MDG_BGRX || stride < (size_t)width * 4 ||
         stride > SIZE_MAX / (height ? height : 1)) return NULL;
-    MdgImage *image = image_new(device, width, height);
+    MdgImage *image = mdg_image_new(device, width, height);
     if (!image) return NULL;
     image->stride = stride;
     image->format = format;
@@ -111,7 +113,7 @@ MdgImage *mdg_image_hardware(MdgDevice *device, AHardwareBuffer *buffer) {
     AHardwareBuffer_Desc desc;
     AHardwareBuffer_describe(buffer, &desc);
     if (desc.layers != 1 || (desc.format != 1 && desc.format != 2 && desc.format != 5)) return NULL;
-    MdgImage *image = image_new(device, desc.width, desc.height);
+    MdgImage *image = mdg_image_new(device, desc.width, desc.height);
     if (!image) return NULL;
     image->format = desc.format == 5 ? MDG_BGRA : desc.format == 2 ? MDG_RGBX : MDG_RGBA;
     image->stride = (size_t)desc.stride * 4;
@@ -126,6 +128,19 @@ MdgImage *mdg_image_hardware(MdgDevice *device, AHardwareBuffer *buffer) {
 #endif
 }
 
+MdgImage *mdg_image_linear_dmabuf(MdgDevice *device, const MdgLinearDmaBuf *buffer) {
+    if (!buffer || !mdg_device_linear_dmabuf(device) || buffer->fd < 0 ||
+        (unsigned)buffer->format > MDG_BGRX || buffer->offset % 4 || buffer->stride % 4 ||
+        (uint64_t)buffer->stride < (uint64_t)buffer->width * 4) return NULL;
+    MdgImage *image = mdg_image_new(device, buffer->width, buffer->height);
+    if (!image) return NULL;
+    image->format = buffer->format;
+    image->stride = buffer->stride;
+    image->dmabuf_offset = buffer->offset;
+    if (!mdg_vk_import_dmabuf(image, buffer)) { mdg_image_unref(image); return NULL; }
+    return image;
+}
+
 void mdg_image_ref(MdgImage *image) { if (image) ++image->references; }
 void mdg_image_unref(MdgImage *image) {
     if (!image || --image->references) return;
@@ -134,6 +149,7 @@ void mdg_image_unref(MdgImage *image) {
     if (image->hardware) AHardwareBuffer_release(image->hardware);
 #endif
     if (image->fence >= 0) close(image->fence);
+    if (image->dmabuf_fd >= 0) close(image->dmabuf_fd);
     free(image->owned_pixels);
     free(image);
 }
@@ -142,6 +158,7 @@ unsigned mdg_image_height(const MdgImage *image) { return image ? image->height 
 AHardwareBuffer *mdg_image_buffer(MdgImage *image) { return image ? image->hardware : NULL; }
 bool mdg_image_fence(MdgImage *image, int *owned_fd) {
     if (!image || !owned_fd) return false;
+    if (image->dmabuf_fd >= 0) return mdg_dmabuf_acquire(image, owned_fd);
     *owned_fd = image->fence >= 0 ? fcntl(image->fence, F_DUPFD_CLOEXEC, 0) : -1;
     return image->fence < 0 || *owned_fd >= 0;
 }

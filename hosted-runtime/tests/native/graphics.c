@@ -31,6 +31,10 @@ int main(int argc, char **argv) {
     assert(device);
     printf("renderer=%s\n", mdg_device_name(device)); fflush(stdout);
     if (require_gpu) assert(mdg_device_gpu(device));
+    if (software) assert(!mdg_device_linear_dmabuf(device));
+    assert(!mdg_device_linear_dmabuf(NULL));
+    assert(!mdg_image_linear_dmabuf(device, NULL));
+    assert(!mdg_image_linear_dmabuf(device, &(MdgLinearDmaBuf){.fd = -1}));
     MdgImage *target = mdg_image_create(device, 8, 8);
     assert(target);
     static const uint8_t source[] = {

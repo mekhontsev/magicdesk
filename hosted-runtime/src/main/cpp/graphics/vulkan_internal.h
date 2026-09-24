@@ -41,7 +41,8 @@ typedef struct {
     VkPipeline pipelines[2][2];
     VkSampler samplers[2];
     MdgImage *white;
-    bool lost;
+    bool lost, linear_dmabuf;
+    PFN_vkGetMemoryFdPropertiesKHR GetMemoryFdPropertiesKHR;
     PFN_vkDestroyInstance DestroyInstance;
     PFN_vkCreateAndroidSurfaceKHR CreateAndroidSurfaceKHR;
     PFN_vkDestroySurfaceKHR DestroySurfaceKHR;
@@ -57,6 +58,9 @@ typedef struct {
     VkDeviceMemory memory;
     VkImageView view;
     VkFramebuffer framebuffer;
+    VkBuffer dma_buffer;
+    VkDeviceMemory dma_memory;
+    VkDeviceSize dma_size;
     bool initialized, attachment, swapchain;
     unsigned format_index;
 } Image;
@@ -73,4 +77,7 @@ typedef struct {
     void *mapped;
     VkDeviceSize capacity;
 } Pass;
+
+bool mdg_dmabuf_release(MdgImage *image, int completion_fd);
+void mdg_vk_dmabuf_barrier(Gpu *gpu, Pass *pass, Image *image, bool acquire);
 #endif

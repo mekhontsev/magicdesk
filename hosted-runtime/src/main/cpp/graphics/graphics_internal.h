@@ -22,6 +22,8 @@ struct MdgImage {
     AHardwareBuffer *hardware;
     void *gpu;
     int fence;
+    int dmabuf_fd;
+    uint32_t dmabuf_offset;
     bool external;
 };
 struct MdgPass {
@@ -42,6 +44,7 @@ struct MdgDevice {
 };
 
 bool mdg_software_submit(MdgPass *pass);
+MdgImage *mdg_image_new(MdgDevice *device, unsigned width, unsigned height);
 bool mdg_map(MdgImage *image, bool write, void **pixels, size_t *stride);
 void mdg_unmap(MdgImage *image);
 bool mdg_wait_fence(int fd);
@@ -50,6 +53,9 @@ bool mdg_vk_create(MdgDevice *device);
 bool mdg_vk_ready(const MdgDevice *device);
 void mdg_vk_destroy(MdgDevice *device);
 bool mdg_vk_image(MdgImage *image);
+bool mdg_vk_linear_dmabuf(const MdgDevice *device);
+bool mdg_vk_import_dmabuf(MdgImage *image, const MdgLinearDmaBuf *buffer);
+bool mdg_dmabuf_acquire(MdgImage *image, int *owned_fd);
 void mdg_vk_image_destroy(MdgImage *image);
 bool mdg_vk_submit(MdgPass *pass);
 bool mdg_vk_complete(MdgPass *pass);

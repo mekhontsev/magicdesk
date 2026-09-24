@@ -18,6 +18,13 @@ typedef struct ANativeWindow ANativeWindow;
 typedef struct MdgSurface MdgSurface;
 
 typedef enum { MDG_RGBA, MDG_RGBX, MDG_BGRA, MDG_BGRX } MdgFormat;
+/* One explicitly linear packed-RGB plane, not an opaque/tiled image FD. */
+typedef struct {
+    int fd;
+    unsigned width, height;
+    uint32_t offset, stride;
+    MdgFormat format;
+} MdgLinearDmaBuf;
 typedef struct { float x, y, width, height; } MdgBox;
 typedef struct { int x, y, width, height; } MdgClip;
 typedef struct {
@@ -33,6 +40,8 @@ typedef struct {
 MdgDevice *mdg_device_create(bool software_only);
 void mdg_device_destroy(MdgDevice *device);
 bool mdg_device_gpu(const MdgDevice *device);
+/* Optional Vulkan transfer import; individual allocations can still be rejected. */
+bool mdg_device_linear_dmabuf(const MdgDevice *device);
 const char *mdg_device_name(const MdgDevice *device);
 MdgStats mdg_device_stats(const MdgDevice *device);
 void mdg_device_collect(MdgDevice *device);
@@ -43,6 +52,10 @@ MdgImage *mdg_image_create(MdgDevice *device, unsigned width, unsigned height);
 MdgImage *mdg_image_cpu(MdgDevice *device, unsigned width, unsigned height,
     size_t stride, MdgFormat format, const void *pixels);
 MdgImage *mdg_image_hardware(MdgDevice *device, AHardwareBuffer *buffer);
+/* Borrows the FD on entry, retains its own FD on success. GPU sampling only.
+ * Producers must honor DMA-BUF implicit fences. Each submission acquires the
+ * producer's writes and publishes its read fence before returning. */
+MdgImage *mdg_image_linear_dmabuf(MdgDevice *device, const MdgLinearDmaBuf *buffer);
 void mdg_image_ref(MdgImage *image);
 void mdg_image_unref(MdgImage *image);
 unsigned mdg_image_width(const MdgImage *image);
@@ -61,7 +74,7 @@ bool mdg_pass_submit(MdgPass *pass);
 /* Pixel-lock users may wait on their rendering worker, never on a protocol Looper. */
 bool mdg_pass_submit_and_wait(MdgPass *pass);
 void mdg_pass_cancel(MdgPass *pass);
-/* Exports an owned sync_file FD (-1 when complete); failure is never completion. */
+/* Exports an owned acquire sync_file FD (-1 when complete); failure is never completion. */
 bool mdg_image_fence(MdgImage *image, int *owned_fd);
 void mdg_image_set_fence(MdgImage *image, int owned_fd);
 /* Export an owned pending sync_file for event-loop readiness registration. */

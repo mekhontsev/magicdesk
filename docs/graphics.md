@@ -27,6 +27,37 @@ that arbitrary Linux DMA-BUFs are compatible with the device's driver. The
 graphics library does not bundle Mesa or a device-specific driver. Native buffer
 references follow the [Vulkan AHardwareBuffer import contract](https://docs.vulkan.org/refpages/latest/refpages/source/VkImportAndroidHardwareBufferInfoANDROID.html).
 
+## Linux Buffer Import
+
+`MdgLinearDmaBuf` describes one explicitly linear RGBA/RGBX/BGRA/BGRX plane,
+including its byte offset and stride. The optional Vulkan transfer importer
+retains the FD and copies its pixels into a reusable GPU texture without CPU
+mapping or upload. It does not reinterpret tiled allocations as linear or
+construct Android hardware-buffer handles from raw FDs. Imported DMA-BUF images
+are sampling sources, not render targets or CPU-readable images.
+
+Capability discovery checks external-memory extensions and transfer-buffer
+import support independently of compositor startup. Each allocation must also
+pass layout, size, memory-type and kernel synchronization checks. Ordinary
+memfds, unsupported layouts and missing fence ioctls are rejected. The software
+backend does not claim DMA-BUF support; existing SHM/AHardwareBuffer paths remain
+independent.
+
+Every submission exports the producer's implicit write fences into a Vulkan
+wait semaphore and publishes its completion as an implicit read fence. The
+producer must honor those read fences before overwriting or recycling storage.
+This uses the kernel's [DMA-BUF sync-file bridge](https://kernel.org/doc/html/next/driver-api/dma-buf.html),
+not a CPU wait or a settling delay. GPU resources are cached per import/command
+slot; fence FDs have per-submission ownership. A failed read-fence publication
+after submission rejects the frame and disables that GPU owner without releasing
+in-flight resources or starting a racing software copy.
+
+This native import contract is not Wayland protocol admission. The compositor
+does not advertise `linux-dmabuf` until its protocol adapter can accept and retain
+client buffers through completion. wlroots' DMA-BUF feedback path needs a real
+DRM device identity, which an Android Vulkan driver need not expose. A KGSL FD
+must not be passed off as a DRM render node.
+
 ## Protocol Adapters
 
 X11's native `LorieGraphics` contract receives a host-owned implementation from
@@ -74,3 +105,10 @@ its results to wlroots' Pixman implementation. Android instrumentation checks th
 cross-UID frame path, visible pixels, input, transparency and Surface replacement.
 Desktop self-tests do not replace these checks. Device coverage on one Android
 release is not proof of compatibility on another.
+
+The Android `graphics-dmabuf-test` fixture uses separate producer and consumer
+Vulkan devices, GPU-written linear buffers, nonzero offsets, padded rows and all
+four formats. It queues producer overwrites before waiting for consumer readback
+to exercise acquire/release synchronization, and checks invalid-FD rejection and
+retained-buffer lifetime. Its default capability skip is distinct from a pass;
+`--required` makes unavailable DMA-BUF support a test failure.
