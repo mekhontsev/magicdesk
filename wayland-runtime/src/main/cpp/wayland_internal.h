@@ -79,7 +79,9 @@ void mdw_cursor_finish(MdwServer *server);
 void mdw_cursor_refresh(MdwServer *server);
 void mdw_input_finish(MdwServer *server);
 void mdw_input_refresh(MdwServer *server);
-bool mdw_input_text(MdwServer *server, const char *text, bool composing, int cursor);
+bool mdw_input_text(MdwServer *server, uint64_t editor, const char *text, bool composing, int cursor);
+bool mdw_input_delete_text(MdwServer *server, uint64_t editor, uint32_t revision, uint32_t before, uint32_t after,
+    const char *preedit, int cursor);
 bool mdw_content_init(MdwServer *server);
 void mdw_content_finish(MdwServer *server);
 bool mdw_content_pointer_held(MdwServer *server);

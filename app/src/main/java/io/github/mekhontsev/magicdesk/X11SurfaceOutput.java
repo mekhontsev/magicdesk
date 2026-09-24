@@ -28,6 +28,6 @@ final class X11SurfaceOutput implements HostedShellOutput {
     @Override public void key(int androidKey, int scanCode, boolean down) {
         output.key(androidKey, X11InputEncoding.scanCode(scanCode), down);
     }
-    @Override public void text(String text) { output.text(text); }
+    @Override public void text(io.github.mekhontsev.magicdesk.hosted.HostedTextState editor, String text) { output.text(text); }
     @Override public void close() { output.close(); }
 }

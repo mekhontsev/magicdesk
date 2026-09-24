@@ -14,7 +14,8 @@ oneway interface IWaylandEvents {
     void shellOutput(long owner, int width, int height, String error);
     void geometry(long shellOwner, in WaylandViewGeometry geometry);
     void toplevelAction(long shellOwner, long id, int action);
-    void textInput(long output, boolean enabled);
+    void textInput(long output, long editor, long revision, in @nullable byte[] surrounding,
+            int cursor, int anchor, int purpose, int hints);
     void contentOffer(int channel, long id, long output, String types);
     void contentRequest(int channel, long id, long request, String type);
     void contentReply(long request, in @nullable ParcelFileDescriptor data);

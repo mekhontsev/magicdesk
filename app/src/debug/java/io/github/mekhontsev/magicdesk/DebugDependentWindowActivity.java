@@ -182,7 +182,7 @@ public final class DebugDependentWindowActivity extends Activity {
         }
         @Override public void scroll(float x, float y, float horizontal, float vertical) { }
         @Override public void key(int key, int scan, boolean down) { }
-        @Override public void text(String text) { }
+        @Override public void text(io.github.mekhontsev.magicdesk.hosted.HostedTextState editor, String text) { }
         @Override public boolean supportsText() { return false; }
         @Override public void close() { Log.i("DependentWindowFixture", "render output closed"); }
     }

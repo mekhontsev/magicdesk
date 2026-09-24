@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.view.Surface;
+import io.github.mekhontsev.magicdesk.hosted.HostedTextState;
 import io.github.mekhontsev.magicdesk.wayland.WaylandSession;
 
 /** Android gestures enter a Wayland seat through normalized output coordinates. */
@@ -25,10 +26,14 @@ final class WaylandSurfaceOutput implements HostedShellOutput {
     }
     @Override public void key(int androidKey, int scanCode, boolean down) { output.key(androidKey, scanCode, down); }
     @Override public boolean supportsText() { return output.supportsText(); }
-    @Override public void text(String text) { output.text(text, false, text.length()); }
-    @Override public boolean preedit(String text, int cursor) {
-        if (!supportsText()) return false;
-        output.text(text, true, cursor);
+    @Override public HostedTextState textState() { return output.textState(); }
+    @Override public boolean deleteText(HostedTextState snapshot, int before, int after, boolean codePoints, String preedit, int cursor) {
+        return output.deleteText(snapshot, before, after, codePoints, preedit, cursor);
+    }
+    @Override public void text(HostedTextState editor, String text) { output.text(editor, text, false, text.length()); }
+    @Override public boolean preedit(HostedTextState editor, String text, int cursor) {
+        if (editor == null) return false;
+        output.text(editor, text, true, cursor);
         return true;
     }
     @Override public void close() { output.close(); }

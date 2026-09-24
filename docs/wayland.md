@@ -167,6 +167,17 @@ mapping. XWayland is not enabled.
 
 `HostedSurfaceView` owns Android input and IME lifecycle. The Wayland adapter
 bridges `text-input-v3` preedit and committed UTF-8 text to the focused client.
+`HostedTextState` carries immutable surrounding text, cursor/selection and field
+purpose/hints to the shared Android InputConnection. UTF-8 byte offsets are
+converted at the Wayland boundary; Android receives UTF-16 offsets and appropriate
+text, email, numeric or password editor flags. Unavailable context is distinct
+from empty text. Client commits update context without restarting the keyboard
+on each keystroke. Enable generations reject old editor connections; destructive
+edits additionally require the observed client serial. Surrounding-text deletion
+preserves the active composition in the same protocol batch. Arbitrary remote
+selection changes and composing regions are not fabricated when the protocol
+cannot express them.
+
 Client enable/disable events update the Android text editor; clients without this
 protocol retain physical-key input. Commits are split at UTF-8 boundaries to fit
 Wayland messages. Oversized composition stays in Android until committed.
@@ -296,10 +307,11 @@ Ordinary application hosts retain their existing viewport policy.
 ## Remaining Work
 
 **Linux GPU client compatibility.** Broaden driver/toolkit coverage beyond the
-verified Mesa/Turnip `vkcube` linear DMA-BUF path. Nonlinear/multi-plane allocations require a
+verified Mesa/Turnip Vulkan and patched Zink linear DMA-BUF paths. Nonlinear/multi-plane allocations require a
 separate capability-backed image importer; implicit layouts must not be guessed.
 Keep client GPU capabilities separate from startup and Android compositor
-acceleration. Broaden chroot toolkit, guest-content and root-provider coverage;
+acceleration. Broaden coverage beyond the tested Ubuntu PRoot and Alpine chroot
+recipes and the Magisk root provider;
 successful shared-memory admission does not establish GPU driver compatibility
 inside a guest distribution.
 
@@ -311,8 +323,8 @@ Android Desktop. Native wlroots owns protocol validation, configure/ack, scene
 nodes and seat state; the geometry model does not replace Android task planes.
 
 Further toolkit and IME coverage must use real Android hosts as well as focused
-protocol tests. Surrounding-text/content-type synchronization and toolkit
-protocols other than text-input-v3 are not implemented. General desktop-environment
+protocol tests. Toolkit protocols other than text-input-v3 are not implemented.
+General desktop-environment
 compatibility is separate from successfully hosting a nested compositor.
 
 ## Session Controls
@@ -551,22 +563,29 @@ application-session shutdown after the last window. GTK also covers recipe reuse
 without duplicate hosts, explicit new instances, reopening from independent
 Recent, managed placement, fullscreen/restore and cancelling a close confirmation.
 GTK clipboard text and file drag-and-drop pass in both directions with Android,
-including a PRoot Ubuntu recipe and file-content hash verification. Same-session
+including PRoot Ubuntu and Alpine chroot recipes with file-content hash verification.
+The chroot GTK client and guest-file helper run as UID 65534; the renderer stays
+under the MagicDesk app UID. `tests/gtk-guest-content.py` provides text/email/PIN
+fields, clipboard actions, file drag endpoints and a dependent dialog for these
+checks. Same-session
 drags between Android hosts insert once. The X11 regression covers clipboard and
 files in both directions through the shared adapters. GTK menus accept pointer
 input after a density change. These checks use RM11/API 36; API 34 device coverage
 is still pending.
 
-Weston 16 with its Wayland backend, Pixman renderer and desktop shell presents a
-nested desktop and terminal. Closing and reopening its Android viewer retains
-the guest session. This is software-compositor coverage, not validation of every
+Weston with its Wayland backend, Pixman renderer and desktop shell presents a
+nested desktop and terminal in Termux (16), PRoot Ubuntu (13) and Alpine chroot
+(14, UID 65534). Closing and reopening its Android viewer retains the guest
+session and terminal processes. This is software-compositor coverage, not validation of every
 Linux desktop environment or hardware acceleration.
 
-Native fixtures exercise text-input-v3 preedit/Unicode commit, cursor pixels,
+Native fixtures exercise text-input-v3 preedit/Unicode commit, serial-qualified
+surrounding deletion with composition preservation, stale editor rejection, cursor pixels,
 scale, stale fullscreen acknowledgements, bidirectional selections, native drag
 delivery and bounded content-stream cancellation. `HostedInputInstrumentation`
-exercises Android InputConnection composition/commit alongside the shared pointer
-and cursor tests. Actual keyboard-app behavior and other text-input protocols
+exercises Android InputConnection composition/commit, UTF-16 surrounding text and
+selection, field-purpose/privacy flags and stale connections alongside the shared
+pointer and cursor tests. Actual keyboard-app behavior and other text-input protocols
 need further device/toolkit coverage. Small fixed-size GTK dialogs currently
 retain the configured host canvas; size-hint-driven Android placement remains
 separate work.
@@ -575,8 +594,9 @@ separate work.
 animation, pointer input, text entry, menus and separate popup windows. On RM11/API
 36, Qt 6 with Mesa Turnip submits linear DMA-BUFs successfully. Termux GTK4's
 software renderer also presents correctly; its installed build has no Vulkan
-renderer, and the tested GL/Zink path did not produce usable content. These
-toolkit/driver results are not interchangeable with compositor GPU support.
+renderer. Its GL/Zink renderer presents GPU content with the separate
+[Mesa client-loader patch](graphics.md#client-gl-loaders). These toolkit/driver
+results are not interchangeable with compositor GPU support.
 
 Root-broker validation on RM11/API 36 with SELinux Enforcing covers Alpine
 Weston terminals as root and UID 65534, independently launched and child

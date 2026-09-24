@@ -21,6 +21,8 @@ public final class DebugContentExchangeActivity extends Activity {
     private TextView status;
 
     @Override protected void onCreate(Bundle state) {
+        boolean floating = getIntent().getBooleanExtra("floating", false);
+        if (floating) setTheme(android.R.style.Theme_Material_Light_Dialog_NoActionBar);
         super.onCreate(state);
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
@@ -75,6 +77,13 @@ public final class DebugContentExchangeActivity extends Activity {
             return true;
         });
         setContentView(body);
+        if (floating) {
+            // An ordinary Android peer beside a fullscreen guest, without Desktop.
+            getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL);
+            getWindow().setGravity(android.view.Gravity.RIGHT | android.view.Gravity.CENTER_VERTICAL);
+            getWindow().setLayout(400, 680);
+        }
     }
 
     private AndroidContentPayload payload(String type) throws Exception {

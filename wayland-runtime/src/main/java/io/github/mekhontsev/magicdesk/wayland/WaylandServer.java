@@ -227,10 +227,16 @@ public final class WaylandServer extends IWaylandServer.Stub {
         output(id, pointer -> nativeKey(pointer, androidKey, scanCode, down));
     }
     @Override public void closeWindow(long window, boolean force) { command(() -> nativeCloseWindow(handle, window, force)); }
-    @Override public void text(long id, byte[] utf8, boolean composing, int cursor) {
+    @Override public void text(long id, long editor, byte[] utf8, boolean composing, int cursor) {
         if (utf8 == null || utf8.length > WaylandText.MAX_BYTES || cursor < 0 || cursor > utf8.length)
             throw new IllegalArgumentException("Invalid Wayland text edit");
-        output(id, pointer -> nativeText(pointer, utf8, composing, cursor));
+        output(id, pointer -> nativeText(pointer, editor, utf8, composing, cursor));
+    }
+    @Override public void deleteText(long id, long editor, long revision, int before, int after, byte[] preedit, int cursor) {
+        if (before < 0 || after < 0 || before > WaylandText.MAX_BYTES || after > WaylandText.MAX_BYTES
+                || preedit == null || preedit.length > WaylandText.MAX_BYTES || cursor < 0 || cursor > preedit.length)
+            throw new IllegalArgumentException("Invalid Wayland text deletion");
+        output(id, pointer -> nativeDeleteText(pointer, editor, revision, before, after, preedit, cursor));
     }
     @Override public void confirmFullscreen(long window, long serial, boolean fullscreen) {
         command(() -> nativeConfirmFullscreen(handle, window, serial, fullscreen));
@@ -410,10 +416,11 @@ public final class WaylandServer extends IWaylandServer.Stub {
         } catch (RemoteException error) { requestStop(); }
     }
 
-    private void onTextInput(long pointer, boolean enabled) {
+    private void onTextInput(long pointer, long editor, long revision, byte[] surrounding,
+            int cursor, int anchor, int purpose, int hints) {
         Output output = nativeOutputs.get(pointer);
         if (output == null) return;
-        try { owner.textInput(output.id, enabled); }
+        try { owner.textInput(output.id, editor, revision, surrounding, cursor, anchor, purpose, hints); }
         catch (RemoteException error) { requestStop(); }
     }
     private void onCursor(long pointer, int[] pixels, int width, int height, int hotspotX, int hotspotY, boolean hidden) {
@@ -527,7 +534,8 @@ public final class WaylandServer extends IWaylandServer.Stub {
     private static native void nativeButton(long output, int button, boolean down);
     private static native void nativeScroll(long output, double horizontal, double vertical);
     private static native void nativeKey(long output, int androidKey, int scanCode, boolean down);
-    private static native void nativeText(long output, byte[] utf8, boolean composing, int cursor);
+    private static native void nativeText(long output, long editor, byte[] utf8, boolean composing, int cursor);
+    private static native void nativeDeleteText(long output, long editor, long revision, int before, int after, byte[] preedit, int cursor);
     private static native void nativeCloseWindow(long server, long window, boolean force);
     private static native void nativeConfirmFullscreen(long server, long window, long serial, boolean fullscreen);
     private static native void nativeContentEnable(long server, boolean active);

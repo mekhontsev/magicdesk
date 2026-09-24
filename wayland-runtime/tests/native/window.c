@@ -42,7 +42,7 @@ struct Client {
     struct zwp_text_input_manager_v3 *text_manager;
     struct zwp_text_input_v3 *text;
     struct wl_surface *cursor;
-    bool preedit, committed, fullscreen;
+    bool preedit, committed, fullscreen, deleted;
     bool data_device_manager;
     int key_down, key_up, button_down, button_up;
     int width, height, frames;
@@ -59,7 +59,9 @@ static void text_enter(void *data, struct zwp_text_input_v3 *text, struct wl_sur
     struct Client *client = data;
     assert(surface == client->surface);
     zwp_text_input_v3_enable(text);
-    zwp_text_input_v3_set_surrounding_text(text, "", 0, 0);
+    zwp_text_input_v3_set_surrounding_text(text, "a\xd0\x96\xf0\x9f\x98\x80z", 7, 3);
+    zwp_text_input_v3_set_content_type(text, ZWP_TEXT_INPUT_V3_CONTENT_HINT_COMPLETION,
+            ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_EMAIL);
     zwp_text_input_v3_commit(text);
 }
 static void text_leave(void *data, struct zwp_text_input_v3 *text, struct wl_surface *surface) {
@@ -76,12 +78,14 @@ static void text_preedit(void *data, struct zwp_text_input_v3 *text, const char 
 static void text_commit(void *data, struct zwp_text_input_v3 *text, const char *value) {
     (void)text;
     struct Client *client = data;
-    assert(client->preedit && !strcmp(value, "Unicode \xd0\x96 \xf0\x9f\x98\x80"));
+    assert(client->deleted && client->preedit && !strcmp(value, "Unicode \xd0\x96 \xf0\x9f\x98\x80"));
     client->committed = true;
     xdg_toplevel_set_app_id(client->toplevel, "io.magicdesk.committed");
 }
 static void text_delete(void *data, struct zwp_text_input_v3 *text, uint32_t before, uint32_t after) {
-    (void)data; (void)text; (void)before; (void)after;
+    (void)text;
+    assert(before == 2 && after == 1);
+    ((struct Client *)data)->deleted = true;
 }
 static void text_done(void *data, struct zwp_text_input_v3 *text, uint32_t serial) {
     (void)data; (void)text; (void)serial;
@@ -357,6 +361,8 @@ struct Host {
     uint64_t window;
     bool mapped, destroyed;
     bool text_enabled, cursor_seen;
+    uint64_t editor;
+    uint32_t text_revision;
     int frames;
     bool allow_render;
     int deferred_frames;
@@ -417,9 +423,18 @@ static void error_event(void *data, const char *message) {
     abort();
 }
 
-static void text_input_event(void *data, MdwOutput *output, bool enabled) {
+static void text_input_event(void *data, MdwOutput *output, const MdwTextState *state) {
     (void)output;
-    ((struct Host *)data)->text_enabled = enabled;
+    struct Host *host = data;
+    host->text_enabled = state->editor != 0;
+    host->editor = state->editor;
+    host->text_revision = state->revision;
+    if (state->editor) {
+        assert(state->surrounding && !strcmp(state->surrounding, "a\xd0\x96\xf0\x9f\x98\x80z"));
+        assert(state->cursor == 7 && state->anchor == 3);
+        assert(state->purpose == ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_EMAIL);
+        assert(state->hints == ZWP_TEXT_INPUT_V3_CONTENT_HINT_COMPLETION);
+    }
 }
 static void cursor_event(void *data, MdwOutput *output, const uint32_t *pixels,
         int width, int height, int x, int y, bool hidden) {
@@ -520,8 +535,12 @@ int main(int argc, char **argv) {
             assert(!mdw_window_confirm_fullscreen(server, host.window, host.previous.request_serial + 1, true));
             assert(mdw_window_confirm_fullscreen(server, host.window, host.previous.request_serial, true));
             if (host.text_enabled && !text_sent) {
-                assert(mdw_output_text(output, "compose", true, 7));
-                assert(mdw_output_text(output, "Unicode \xd0\x96 \xf0\x9f\x98\x80", false, 15));
+                assert(!mdw_output_text(output, host.editor + 1, "stale", false, 5));
+                assert(!mdw_output_delete_text(output, host.editor, host.text_revision + 1, 2, 1, "", 0));
+                assert(!mdw_output_delete_text(output, host.editor, host.text_revision, 1, 1, "", 0));
+                assert(mdw_output_text(output, host.editor, "compose", true, 7));
+                assert(mdw_output_delete_text(output, host.editor, host.text_revision, 2, 1, "compose", 7));
+                assert(mdw_output_text(output, host.editor, "Unicode \xd0\x96 \xf0\x9f\x98\x80", false, 15));
                 text_sent = true;
             }
         }

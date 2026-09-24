@@ -14,7 +14,8 @@ interface IWaylandServer {
     oneway void button(long output, int button, boolean down);
     oneway void scroll(long output, double horizontal, double vertical);
     oneway void key(long output, int androidKey, int scanCode, boolean down);
-    oneway void text(long output, in byte[] utf8, boolean composing, int cursor);
+    oneway void text(long output, long editor, in byte[] utf8, boolean composing, int cursor);
+    oneway void deleteText(long output, long editor, long revision, int before, int after, in byte[] preedit, int cursor);
     oneway void frameConsumed(long output, long serial);
     oneway void closeWindow(long window, boolean force);
     oneway void confirmFullscreen(long window, long serial, boolean fullscreen);

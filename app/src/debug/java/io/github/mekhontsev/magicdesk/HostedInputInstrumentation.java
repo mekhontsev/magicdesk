@@ -103,6 +103,38 @@ public final class HostedInputInstrumentation extends Instrumentation {
         output.textEnabled = false;
         require(view.onCreateInputConnection(new EditorInfo()) == null, "unsupported client has no text editor");
         output.textEnabled = true;
+        output.state = new io.github.mekhontsev.magicdesk.hosted.HostedTextState(11, 1,
+                io.github.mekhontsev.magicdesk.hosted.HostedTextState.Purpose.EMAIL, 1, "a\u0416\ud83d\ude00z", 4, 2);
+        EditorInfo info = new EditorInfo();
+        connection = view.onCreateInputConnection(info);
+        require(info.initialSelStart == 2 && info.initialSelEnd == 4, "initial guest selection");
+        require((info.inputType & android.text.InputType.TYPE_MASK_VARIATION) == android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS,
+                "field purpose selects Android editor type");
+        require(connection.getTextBeforeCursor(20, 0).toString().equals("a\u0416"), "surrounding prefix");
+        require(connection.getSelectedText(0).toString().equals("\ud83d\ude00"), "selected supplementary character");
+        require(connection.getTextAfterCursor(20, 0).toString().equals("z"), "surrounding suffix");
+        require(!connection.setSelection(0, 0), "unsupported remote selection is not fabricated");
+        connection.setComposingText("edit", 1);
+        require(connection.getTextBeforeCursor(20, 0).toString().equals("a\u0416edit"), "preedit overlays guest selection");
+        require(connection.getTextAfterCursor(20, 0).toString().equals("z"), "preedit retains suffix");
+        require(connection.deleteSurroundingText(1, 1), "deletion alongside composition");
+        require(output.deletion.equals("1:1:false:edit:4"), "deletion retains the guest preedit atomically");
+        require(output.editedState == output.state, "deletion carries the observed revision");
+        require(connection.getTextBeforeCursor(20, 0).toString().equals("a\u0416edit"), "deletion does not consume the composition");
+        var nextEditor = new io.github.mekhontsev.magicdesk.hosted.HostedTextState(12, 1,
+                io.github.mekhontsev.magicdesk.hosted.HostedTextState.Purpose.PIN, 0, null, -1, -1);
+        output.afterTextStateRead = () -> output.state = nextEditor;
+        require(connection.commitText("racing", 1), "edit dispatched after its editor check");
+        require(output.editedState.editor() == 11 && output.state.editor() == 12,
+                "editor change during dispatch cannot retarget a queued edit");
+        require(!connection.commitText("stale", 1), "old editor cannot type into a new field");
+        require(!connection.deleteSurroundingText(1, 0), "old editor cannot delete in a new field");
+        info = new EditorInfo();
+        connection = view.onCreateInputConnection(info);
+        require((info.inputType & android.text.InputType.TYPE_MASK_CLASS) == android.text.InputType.TYPE_CLASS_NUMBER,
+                "PIN requests numeric keyboard");
+        require((info.imeOptions & EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0, "private field disables learning");
+        output.state = null;
     }
 
     private static void verifyHoverClick(HostedSurfaceView view, Output output) {
@@ -181,7 +213,10 @@ public final class HostedInputInstrumentation extends Instrumentation {
         boolean closed;
         boolean clientPreedit = true, textEnabled = true;
         String preedit = "";
+        String deletion = "";
         int cursor;
+        io.github.mekhontsev.magicdesk.hosted.HostedTextState state;
+        Runnable afterTextStateRead;
         final java.util.List<String> commits = new java.util.ArrayList<>();
         public void setSurface(Surface surface, int width, int height) { }
         public void focus() { }
@@ -189,9 +224,26 @@ public final class HostedInputInstrumentation extends Instrumentation {
         public void button(float x, float y, Button button, boolean down) { if (down) presses++; else releases++; }
         public void scroll(float x, float y, float h, float v) { scrolls++; }
         public void key(int key, int scan, boolean down) { }
-        public void text(String text) { commits.add(text); }
+        io.github.mekhontsev.magicdesk.hosted.HostedTextState editedState;
+        public void text(io.github.mekhontsev.magicdesk.hosted.HostedTextState editor, String text) {
+            editedState = editor; commits.add(text);
+        }
         public boolean supportsText() { return textEnabled; }
-        public boolean preedit(String text, int cursor) {
+        public io.github.mekhontsev.magicdesk.hosted.HostedTextState textState() {
+            var result = state;
+            var hook = afterTextStateRead;
+            afterTextStateRead = null;
+            if (hook != null) hook.run();
+            return result;
+        }
+        public boolean deleteText(io.github.mekhontsev.magicdesk.hosted.HostedTextState snapshot,
+                int before, int after, boolean codePoints, String preedit, int cursor) {
+            editedState = snapshot;
+            deletion = before + ":" + after + ":" + codePoints + ":" + preedit + ":" + cursor;
+            return state != null;
+        }
+        public boolean preedit(io.github.mekhontsev.magicdesk.hosted.HostedTextState editor, String text, int cursor) {
+            editedState = editor;
             if (!clientPreedit) return false;
             this.preedit = text; this.cursor = cursor; return true;
         }

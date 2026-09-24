@@ -83,12 +83,15 @@ public final class WaylandSession implements AutoCloseable {
             catch (RuntimeException error) { closeDescriptor(fd); throw error; }
             if (!handler.post(() -> content.reply(request, fd))) closeDescriptor(fd);
         }
-        @Override public void textInput(long id, boolean enabled) {
+        @Override public void textInput(long id, long editor, long revision, byte[] surrounding,
+                int cursor, int anchor, int purpose, int hints) {
             checkCaller();
+            var state = WaylandText.state(editor, revision, surrounding, cursor, anchor, purpose, hints);
             handler.post(() -> {
                 Output output = outputs.get(id);
-                if (closed.get() || output == null || output.released.get() || output.textEnabled == enabled) return;
-                output.textEnabled = enabled;
+                if (closed.get() || output == null || output.released.get()
+                        || java.util.Objects.equals(output.textState, state)) return;
+                output.textState = state;
                 main.post(() -> { if (!closed.get() && !output.released.get()) listener.textInputChanged(id); });
             });
         }
@@ -502,7 +505,7 @@ public final class WaylandSession implements AutoCloseable {
         private volatile Output dependents;
         private final java.util.function.Consumer<Throwable> failureListener;
         private int width, height;
-        private volatile boolean textEnabled;
+        private volatile io.github.mekhontsev.magicdesk.hosted.HostedTextState textState;
         private final AtomicBoolean released = new AtomicBoolean();
         private final HostedFramePresenter presenter;
         private final FramePresentation presentation = new FramePresentation();
@@ -602,12 +605,21 @@ public final class WaylandSession implements AutoCloseable {
         public void key(int androidKey, int scanCode, boolean down) {
             command(() -> server.key(id, androidKey, scanCode, down));
         }
-        public boolean supportsText() { return textEnabled && !released.get(); }
-        public void text(String text, boolean composing, int cursor) {
+        public io.github.mekhontsev.magicdesk.hosted.HostedTextState textState() { return released.get() ? null : textState; }
+        public boolean supportsText() { return textState() != null; }
+        public void text(io.github.mekhontsev.magicdesk.hosted.HostedTextState state, String text, boolean composing, int cursor) {
             if (text == null || text.indexOf('\0') >= 0 || cursor < 0 || cursor > text.length())
                 throw new IllegalArgumentException("Invalid text edit");
-            command(() -> WaylandText.send(text, composing, cursor,
-                    edit -> remote(() -> server.text(id, edit.text(), edit.composing(), edit.cursor()))));
+            if (state != null) command(() -> WaylandText.send(text, composing, cursor,
+                    edit -> remote(() -> server.text(id, state.editor(), edit.text(), edit.composing(), edit.cursor()))));
+        }
+        public boolean deleteText(io.github.mekhontsev.magicdesk.hosted.HostedTextState state,
+                int before, int after, boolean codePoints, String preedit, int cursor) {
+            var edit = WaylandText.deletion(state, before, after, codePoints);
+            if (edit == null) return false;
+            WaylandText.send(preedit, true, cursor, preview -> command(() -> server.deleteText(
+                    id, state.editor(), state.revision(), edit.before(), edit.after(), preview.text(), preview.cursor())));
+            return true;
         }
 
         private void release() {

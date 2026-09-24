@@ -8,6 +8,7 @@
             android:taskAffinity="io.github.mekhontsev.magicdesk.debug.dependent" />
         <activity
             android:name=".DebugContentExchangeActivity"
+            android:theme="@style/TransparentActivityTheme"
             android:exported="true"
             android:excludeFromRecents="true"
             android:permission="android.permission.MANAGE_ACTIVITY_TASKS"

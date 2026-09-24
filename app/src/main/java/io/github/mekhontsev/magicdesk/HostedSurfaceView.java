@@ -2,14 +2,12 @@ package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
-import android.text.InputType;
 import android.util.SparseIntArray;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.PointerIcon;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
-import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 
@@ -33,6 +31,7 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     private Runnable focusBoundary;
     private SparseIntArray keys = new SparseIntArray();
     private boolean borrowedKeyboard;
+    private HostedTextInputConnection textConnection;
 
     HostedSurfaceView(Context context) {
         super(context);
@@ -109,6 +108,7 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     }
 
     void release() {
+        if (textConnection != null) { textConnection.closeConnection(); textConnection = null; }
         releaseInput();
         if (output != null) {
             if (ownsOutput) output.close();
@@ -236,16 +236,16 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         return true;
     }
 
-    private void press(int key) {
-        if (keyboardAllowed && inputAllowed && output != null) { output.key(key, 0, true); output.key(key, 0, false); }
-    }
-
     @Override public boolean onCheckIsTextEditor() { return keyboardAllowed && inputAllowed && output != null && output.supportsText(); }
 
     void textInputChanged() {
         android.view.inputmethod.InputMethodManager manager = getContext().getSystemService(
                 android.view.inputmethod.InputMethodManager.class);
         if (manager != null && hasWindowFocus()) {
+            if (textConnection != null && textConnection.sameEditor()) {
+                textConnection.update(manager, this);
+                return;
+            }
             manager.restartInput(this);
             if (onCheckIsTextEditor()) manager.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
             else manager.hideSoftInputFromWindow(getWindowToken(), 0);
@@ -254,39 +254,12 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
 
     @Override public InputConnection onCreateInputConnection(EditorInfo info) {
         if (!onCheckIsTextEditor()) return null;
-        info.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
-        info.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_ACTION_NONE;
-        return new BaseInputConnection(this, true) {
-            @Override public boolean setComposingText(CharSequence text, int cursor) {
-                boolean result = super.setComposingText(text, cursor);
-                if (keyboardAllowed && inputAllowed && output != null)
-                    output.preedit(getEditable().toString(), Math.max(0, android.text.Selection.getSelectionEnd(getEditable())));
-                return result;
-            }
-            @Override public boolean commitText(CharSequence text, int cursor) {
-                if (keyboardAllowed && inputAllowed && output != null) output.text(text.toString());
-                getEditable().clear();
-                return true;
-            }
-            @Override public boolean finishComposingText() {
-                if (keyboardAllowed && inputAllowed && output != null && getEditable().length() > 0) output.text(getEditable().toString());
-                getEditable().clear();
-                return super.finishComposingText();
-            }
-            @Override public boolean deleteSurroundingText(int before, int after) {
-                if (getEditable().length() > 0) {
-                    boolean result = super.deleteSurroundingText(before, after);
-                    if (keyboardAllowed && inputAllowed && output != null)
-                        output.preedit(getEditable().toString(), Math.max(0, android.text.Selection.getSelectionEnd(getEditable())));
-                    return result;
-                }
-                for (int i = 0; i < Math.min(1024, before); i++) press(KeyEvent.KEYCODE_DEL);
-                for (int i = 0; i < Math.min(1024, after); i++) press(KeyEvent.KEYCODE_FORWARD_DEL);
-                return true;
-            }
-            @Override public boolean sendKeyEvent(KeyEvent event) { return key(event, event.getAction() == KeyEvent.ACTION_DOWN); }
-            @Override public boolean performEditorAction(int action) { press(KeyEvent.KEYCODE_ENTER); return true; }
-        };
+        if (textConnection != null) textConnection.closeConnection();
+        HostedSurfaceOutput target = output;
+        textConnection = new HostedTextInputConnection(this, target,
+                () -> keyboardAllowed && inputAllowed && output == target,
+                event -> key(event, event.getAction() == KeyEvent.ACTION_DOWN), info);
+        return textConnection;
     }
 
     @Override public void surfaceCreated(SurfaceHolder holder) { }

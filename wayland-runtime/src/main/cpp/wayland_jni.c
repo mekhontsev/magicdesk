@@ -159,11 +159,18 @@ static void toplevel_action(void *context, uint64_t id, MdwToplevelAction action
         (*bridge->env)->CallVoidMethod(bridge->env, bridge->owner, bridge->toplevel_action, (jlong)id, (jint)action);
 }
 
-static void text_input_event(void *context, MdwOutput *output, bool enabled) {
+static void text_input_event(void *context, MdwOutput *output, const MdwTextState *state) {
     struct Bridge *bridge = context;
-    if (!(*bridge->env)->ExceptionCheck(bridge->env))
-        (*bridge->env)->CallVoidMethod(bridge->env, bridge->owner, bridge->text_input,
-            (jlong)(intptr_t)output, (jboolean)enabled);
+    JNIEnv *env = bridge->env;
+    if ((*env)->ExceptionCheck(env)) return;
+    size_t length = state->surrounding ? strlen(state->surrounding) : 0;
+    jbyteArray text = state->surrounding ? (*env)->NewByteArray(env, length) : NULL;
+    if (text) (*env)->SetByteArrayRegion(env, text, 0, length, (const jbyte *)state->surrounding);
+    if (!(*env)->ExceptionCheck(env))
+        (*env)->CallVoidMethod(env, bridge->owner, bridge->text_input,
+            (jlong)(intptr_t)output, (jlong)state->editor, (jlong)state->revision, text,
+            (jint)state->cursor, (jint)state->anchor, (jint)state->purpose, (jint)state->hints);
+    if (text) (*env)->DeleteLocalRef(env, text);
 }
 
 static void cursor_event(void *context, MdwOutput *output, const uint32_t *pixels,
@@ -268,7 +275,7 @@ JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner) {
     if (!(*env)->ExceptionCheck(env)) bridge->wanted = (*env)->GetMethodID(env, type, "frameWanted", "(J)Z");
     if (!(*env)->ExceptionCheck(env)) bridge->can_render = (*env)->GetMethodID(env, type, "canRender", "(J)Z");
     if (!(*env)->ExceptionCheck(env)) bridge->error = (*env)->GetMethodID(env, type, "onError", "(Ljava/lang/String;)V");
-    if (!(*env)->ExceptionCheck(env)) bridge->text_input = (*env)->GetMethodID(env, type, "onTextInput", "(JZ)V");
+    if (!(*env)->ExceptionCheck(env)) bridge->text_input = (*env)->GetMethodID(env, type, "onTextInput", "(JJJ[BIIII)V");
     if (!(*env)->ExceptionCheck(env)) bridge->cursor = (*env)->GetMethodID(env, type, "onCursor", "(J[IIIIIZ)V");
     if (!(*env)->ExceptionCheck(env)) bridge->content_offer = (*env)->GetMethodID(env, type, "onContentOffer", "(IJJLjava/lang/String;)V");
     if (!(*env)->ExceptionCheck(env)) bridge->content_request = (*env)->GetMethodID(env, type, "onContentRequest", "(IJJLjava/lang/String;)V");
@@ -302,19 +309,30 @@ JNIEXPORT void JNICALL JNI(nativeConfirmFullscreen)(JNIEnv *env, jclass type, jl
     mdw_window_confirm_fullscreen(bridge->server, window, serial, fullscreen);
 }
 
-JNIEXPORT void JNICALL JNI(nativeText)(JNIEnv *env, jclass type, jlong output,
-        jbyteArray bytes, jboolean composing, jint cursor) {
-    (void)type;
-    if (!bytes) return;
+static bool text_bytes(JNIEnv *env, jbyteArray bytes, jint cursor, char text[4001]) {
+    if (!bytes) return false;
     jsize length = (*env)->GetArrayLength(env, bytes);
-    if (length > 65536 || cursor < 0 || cursor > length) return;
-    char *text = malloc((size_t)length + 1);
-    if (!text) return;
+    if (length > 4000 || cursor < 0 || cursor > length) return false;
     (*env)->GetByteArrayRegion(env, bytes, 0, length, (jbyte *)text);
     text[length] = 0;
-    if (!(*env)->ExceptionCheck(env) && !memchr(text, 0, length))
-        mdw_output_text((void *)(intptr_t)output, text, composing, cursor);
-    free(text);
+    return !(*env)->ExceptionCheck(env) && !memchr(text, 0, length);
+}
+
+JNIEXPORT void JNICALL JNI(nativeText)(JNIEnv *env, jclass type, jlong output,
+        jlong editor, jbyteArray bytes, jboolean composing, jint cursor) {
+    (void)type;
+    char text[4001];
+    if (text_bytes(env, bytes, cursor, text))
+        mdw_output_text((void *)(intptr_t)output, editor, text, composing, cursor);
+}
+
+JNIEXPORT void JNICALL JNI(nativeDeleteText)(JNIEnv *env, jclass type, jlong output,
+        jlong editor, jlong revision, jint before, jint after, jbyteArray preedit, jint cursor) {
+    (void)type;
+    if (revision < 0 || revision > UINT32_MAX || before < 0 || after < 0) return;
+    char text[4001];
+    if (text_bytes(env, preedit, cursor, text))
+        mdw_output_delete_text((void *)(intptr_t)output, editor, revision, before, after, text, cursor);
 }
 
 JNIEXPORT jboolean JNICALL JNI(nativeScale)(JNIEnv *env, jclass type, jlong output, jdouble scale) {

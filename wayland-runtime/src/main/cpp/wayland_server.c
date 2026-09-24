@@ -824,9 +824,15 @@ bool mdw_window_disconnect(MdwServer *server, uint64_t id) {
     return true;
 }
 
-bool mdw_output_text(MdwOutput *output, const char *text, bool composing, int cursor) {
+bool mdw_output_text(MdwOutput *output, uint64_t editor, const char *text, bool composing, int cursor) {
     return accepts_input(output) && output->server->keyboard_owner == output &&
-        mdw_input_text(output->server, text, composing, cursor);
+        mdw_input_text(output->server, editor, text, composing, cursor);
+}
+
+bool mdw_output_delete_text(MdwOutput *output, uint64_t editor, uint32_t revision, uint32_t before, uint32_t after,
+        const char *preedit, int cursor) {
+    return accepts_input(output) && output->server->keyboard_owner == output &&
+        mdw_input_delete_text(output->server, editor, revision, before, after, preedit, cursor);
 }
 
 int mdw_server_dispatch(MdwServer *server, int timeout_ms) {

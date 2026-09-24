@@ -6,6 +6,39 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public final class WaylandTextTest {
+    @Test public void purposesAreDecodedAtTheProtocolBoundary() {
+        assertEquals(io.github.mekhontsev.magicdesk.hosted.HostedTextState.Purpose.EMAIL,
+                WaylandText.state(1, 0, null, 0, 0, 6, 0).purpose());
+        assertEquals(io.github.mekhontsev.magicdesk.hosted.HostedTextState.Purpose.TERMINAL,
+                WaylandText.state(1, 0, null, 0, 0, 13, 0).purpose());
+        assertThrows(IllegalArgumentException.class, () -> WaylandText.state(1, 0, null, 0, 0, 14, 0));
+    }
+    @Test public void surroundingOffsetsAndDeletionExcludeSelection() {
+        var state = WaylandText.state(5, 17, "a\u0416\ud83d\ude00z".getBytes(StandardCharsets.UTF_8), 7, 3, 6, 1);
+        assertEquals("a\u0416\ud83d\ude00z", state.surrounding());
+        assertEquals(4, state.cursor());
+        assertEquals(2, state.anchor());
+        assertEquals(new WaylandText.Deletion(2, 1), WaylandText.deletion(state, 1, 1, false));
+        assertEquals(new WaylandText.Deletion(3, 1), WaylandText.deletion(state, Integer.MAX_VALUE, Integer.MAX_VALUE, true));
+    }
+    @Test public void deletionNeverSplitsSupplementaryCharacter() {
+        var state = WaylandText.state(5, 1, "\ud83d\ude00".getBytes(StandardCharsets.UTF_8), 4, 4, 0, 0);
+        assertEquals(new WaylandText.Deletion(4, 0), WaylandText.deletion(state, 1, 0, false));
+        assertEquals(new WaylandText.Deletion(4, 0), WaylandText.deletion(state, 1, 0, true));
+        assertEquals(new WaylandText.Deletion(0, 0), WaylandText.deletion(state, 0, 0, false));
+    }
+    @Test public void unavailableContextIsNotEmptyAndDisabledIsNotAnEditor() {
+        assertNull(WaylandText.state(0, 0, null, 0, 0, 0, 0));
+        var missing = WaylandText.state(1, 0, null, 0, 0, 8, 0);
+        assertTrue(missing.privateText());
+        assertEquals(-1, missing.cursor());
+        assertNull(WaylandText.deletion(missing, 1, 0, false));
+        var empty = WaylandText.state(1, 0, new byte[0], 0, 0, 8, 0);
+        assertEquals(new WaylandText.Deletion(0, 0), WaylandText.deletion(empty, 1, 0, false));
+    }
+    @Test(expected = IllegalArgumentException.class) public void rejectCursorInsideUtf8Character() {
+        WaylandText.state(1, 0, "\u0416".getBytes(StandardCharsets.UTF_8), 1, 0, 0, 0);
+    }
     @Test public void largeCommitPreservesAllCodePoints() {
         String text = ("a".repeat(3998) + "\u0416\ud83d\ude00").repeat(30);
         var edits = new ArrayList<WaylandText.Edit>();

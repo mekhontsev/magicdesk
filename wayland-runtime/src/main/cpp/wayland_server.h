@@ -53,17 +53,23 @@ typedef struct {
 } MdwViewGeometry;
 
 typedef struct {
-    MdgImage *image; /* Borrowed for this frame callback. */
+	MdgImage *image; /* Borrowed for this frame callback. */
 	int width;
 	int height;
 } MdwFrame;
+
+typedef struct {
+    uint64_t editor; /* Zero disables input; renewed on each field enable. */
+    uint32_t revision, cursor, anchor, purpose, hints;
+    const char *surrounding; /* Borrowed UTF-8, null when the client supplies no context. */
+} MdwTextState;
 
 typedef struct {
 	void (*window)(void *context, uint64_t id, const MdwWindow *window);
     void (*shell)(void *context, uint64_t id, const MdwShellSurface *surface);
     void (*geometry)(void *context, const MdwViewGeometry *geometry);
     void (*toplevel_action)(void *context, uint64_t id, MdwToplevelAction action);
-    void (*text_input)(void *context, MdwOutput *output, bool enabled);
+    void (*text_input)(void *context, MdwOutput *output, const MdwTextState *state);
     /* Borrowed ARGB pixels, never rendered into the client image. Null selects the host default. */
     void (*cursor)(void *context, MdwOutput *output, const uint32_t *pixels,
         int width, int height, int hotspot_x, int hotspot_y, bool hidden);
@@ -115,7 +121,9 @@ bool mdw_output_pointer(MdwOutput *output, double x, double y);
 bool mdw_output_button(MdwOutput *output, MdwButton button, bool down);
 bool mdw_output_scroll(MdwOutput *output, double horizontal, double vertical);
 bool mdw_output_key(MdwOutput *output, uint32_t evdev_code, bool down);
-bool mdw_output_text(MdwOutput *output, const char *text, bool composing, int cursor);
+bool mdw_output_text(MdwOutput *output, uint64_t editor, const char *text, bool composing, int cursor);
+bool mdw_output_delete_text(MdwOutput *output, uint64_t editor, uint32_t revision, uint32_t before, uint32_t after,
+    const char *preedit, int cursor);
 void mdw_output_destroy(MdwOutput *output);
 bool mdw_window_close(MdwServer *server, uint64_t window);
 bool mdw_window_disconnect(MdwServer *server, uint64_t window);
