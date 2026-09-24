@@ -11,7 +11,7 @@ public final class FrameCreditTest {
         assertEquals(0, credit.pending());
         long serial = credit.offer();
         assertFalse(credit.canRender());
-        assertTrue(credit.acknowledge(serial));
+        assertEquals(FrameCredit.Acknowledgement.REFRESH, credit.acknowledge(serial));
         assertTrue(credit.canRender());
     }
 
@@ -22,7 +22,7 @@ public final class FrameCreditTest {
         assertEquals(0, credit.offer());
         assertEquals(0, credit.offer());
         assertEquals(first, credit.pending());
-        assertTrue(credit.acknowledge(first));
+        assertEquals(FrameCredit.Acknowledgement.REFRESH, credit.acknowledge(first));
         assertEquals(0, credit.pending());
         assertTrue(credit.offer() > first);
     }
@@ -30,13 +30,13 @@ public final class FrameCreditTest {
     @Test public void staleAcknowledgementCannotReleaseNewFrame() {
         var credit = new FrameCredit();
         long first = credit.offer();
-        assertFalse(credit.acknowledge(first));
+        assertEquals(FrameCredit.Acknowledgement.CONSUMED, credit.acknowledge(first));
         long second = credit.offer();
-        assertFalse(credit.acknowledge(first));
-        assertFalse(credit.acknowledge(0));
+        assertEquals(FrameCredit.Acknowledgement.STALE, credit.acknowledge(first));
+        assertEquals(FrameCredit.Acknowledgement.STALE, credit.acknowledge(0));
         assertEquals(second, credit.pending());
         assertEquals(0, credit.offer());
-        assertTrue(credit.acknowledge(second));
-        assertFalse(credit.acknowledge(second));
+        assertEquals(FrameCredit.Acknowledgement.REFRESH, credit.acknowledge(second));
+        assertEquals(FrameCredit.Acknowledgement.STALE, credit.acknowledge(second));
     }
 }

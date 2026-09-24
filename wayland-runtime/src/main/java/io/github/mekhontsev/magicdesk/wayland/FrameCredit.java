@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk.wayland;
 
 final class FrameCredit {
+    enum Acknowledgement { STALE, CONSUMED, REFRESH }
     private long sequence, pending;
     private boolean dirty;
 
@@ -17,11 +18,11 @@ final class FrameCredit {
 
     long pending() { return pending; }
 
-    boolean acknowledge(long serial) {
-        if (serial == 0 || serial != pending) return false;
+    Acknowledgement acknowledge(long serial) {
+        if (serial == 0 || serial != pending) return Acknowledgement.STALE;
         pending = 0;
         boolean refresh = dirty;
         dirty = false;
-        return refresh;
+        return refresh ? Acknowledgement.REFRESH : Acknowledgement.CONSUMED;
     }
 }

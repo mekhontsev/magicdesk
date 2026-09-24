@@ -1,4 +1,6 @@
 package io.github.mekhontsev.magicdesk.wayland;
+import android.hardware.HardwareBuffer;
+import io.github.mekhontsev.magicdesk.hosted.HostedFrame;
 
 import android.app.BroadcastOptions;
 import android.content.Context;
@@ -351,7 +353,10 @@ public final class WaylandServer extends IWaylandServer.Stub {
     @Override public void frameConsumed(long id, long serial) {
         command(() -> {
             Output output = outputs.get(id);
-            if (output != null && output.credit.acknowledge(serial)) nativeRefresh(output.handle);
+            if (output == null) return;
+            var acknowledgement = output.credit.acknowledge(serial);
+            if (acknowledgement != FrameCredit.Acknowledgement.STALE)
+                nativeFrameConsumed(output.handle, acknowledgement == FrameCredit.Acknowledgement.REFRESH);
         });
     }
 
@@ -365,11 +370,13 @@ public final class WaylandServer extends IWaylandServer.Stub {
         return output != null && output.credit.canRender();
     }
 
-    private void onFrame(long pointer, int descriptor, int width, int height) {
-        try (ParcelFileDescriptor pixels = descriptor < 0 ? null : ParcelFileDescriptor.adoptFd(descriptor)) {
+    private void onFrame(long pointer, HardwareBuffer buffer, int descriptor, int fence, int width, int height) {
+        try (buffer;
+             ParcelFileDescriptor pixels = descriptor < 0 ? null : ParcelFileDescriptor.adoptFd(descriptor);
+             ParcelFileDescriptor acquire = fence < 0 ? null : ParcelFileDescriptor.adoptFd(fence)) {
             Output output = nativeOutputs.get(pointer);
-            if (output != null) owner.frame(output.id, pixels == null ? 0 : output.credit.pending(),
-                    output.generation, pixels, width, height);
+            HostedFrame frame = pixels == null && buffer == null ? null : new HostedFrame(buffer, pixels, acquire, width, height);
+            if (output != null) owner.frame(output.id, frame == null ? 0 : output.credit.pending(), output.generation, frame);
         } catch (RemoteException | IOException error) { requestStop(); }
     }
 
@@ -487,7 +494,7 @@ public final class WaylandServer extends IWaylandServer.Stub {
     private static native boolean nativeViewport(long output, int x, int y, int width, int height);
     private static native boolean nativeSetVisible(long output, boolean visible);
     private static native void nativeReleaseOutput(long output);
-    private static native void nativeRefresh(long output);
+    private static native void nativeFrameConsumed(long output, boolean refresh);
     private static native void nativeFocus(long output, boolean focused);
     private static native boolean nativeScale(long output, double scale);
     private static native long nativeBorrowDependents(long output);

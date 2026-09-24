@@ -47,6 +47,11 @@ done
     "$project_dir/vendor/magicdesk-x11/examples/window-icon-test.c" -o "$work/x11_window_icon_test"
 "$compiler" -std=c17 -O2 -Wall -Wextra -UNDEBUG \
     "$project_dir/vendor/magicdesk-x11/examples/density-settings-test.c" -o "$work/x11_density_settings_test"
+graphics="$project_dir/hosted-runtime/src/main/cpp/graphics"
+"$compiler" -std=c17 -D_GNU_SOURCE -DMDG_PORTABLE_TEST -O2 -Wall -Wextra -Werror -UNDEBUG \
+    -I"$graphics" "$project_dir/hosted-runtime/tests/native/graphics.c" \
+    "$graphics/graphics.c" "$graphics/software.c" "$graphics/vulkan_stub.c" \
+    -lm -o "$work/hosted_graphics_test"
 
 # Fixtures use only their own PTYs/processes; keep their files under this owner.
 TMPDIR=$work
@@ -65,4 +70,5 @@ timeout --kill-after=2s 15s ./magicdesk_guest_files_test
 timeout --kill-after=2s 15s ./magicdesk_hosted_keycodes_test
 timeout --kill-after=2s 15s ./x11_window_icon_test
 timeout --kill-after=2s 15s ./x11_density_settings_test
-printf 'Native host fixtures verified (18 runs).\n'
+timeout --kill-after=2s 15s ./hosted_graphics_test --software
+printf 'Native host fixtures verified (19 runs).\n'

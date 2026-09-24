@@ -333,8 +333,9 @@ kind of X11 session: its surviving windows become independent fullscreen tasks.
 
 Termux applications and proot do not require root, and X11 can run on the phone
 without managed Desktop. A chroot environment needs its own privileged setup.
-Graphics retain upstream AHardwareBuffer/EGL support, with optional Vulkan
-acceleration for supported buffer paths and a CPU-copy fallback where needed.
+X11 and Wayland share a Vulkan/software compositor with Android HardwareBuffer
+transport. Client GPU acceleration depends on the application's graphics driver
+and compatible buffer formats; software clients remain supported.
 See [Embedded X11](docs/x11.md) for setup, container launchers and current limits.
 
 ## Shizuku Or Direct Root

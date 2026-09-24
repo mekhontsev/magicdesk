@@ -53,7 +53,7 @@ bool mdw_scene_render_family(struct wlr_scene_output *output, struct wlr_surface
         return true;
     struct wlr_output_state state;
     wlr_output_state_init(&state);
-    wlr_output_state_set_render_format(&state, DRM_FORMAT_ARGB8888);
+    wlr_output_state_set_render_format(&state, DRM_FORMAT_ABGR8888);
     struct wlr_render_pass *pass = wlr_output_begin_render_pass(output->output, &state, NULL, NULL);
     if (!pass) { wlr_output_state_finish(&state); return false; }
     // This pass paints the whole borrowed buffer. Retire current damage before

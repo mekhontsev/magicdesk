@@ -36,6 +36,8 @@ struct MdwServer {
     struct wlr_backend *backend;
     struct wlr_renderer *renderer;
     struct wlr_allocator *allocator;
+    struct wl_event_source *gpu_ready;
+    int gpu_ready_fd;
     struct wlr_xdg_shell *shell;
     struct wlr_layer_shell_v1 *layer_shell;
     struct wlr_output *shell_output;

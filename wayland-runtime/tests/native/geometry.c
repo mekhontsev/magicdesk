@@ -229,10 +229,11 @@ static void frame(void *data, MdwOutput *output, const MdwFrame *frame) {
     (void)output;
     struct Host *h = data;
     if (!frame) return;
-    const uint32_t *pixel = (const void *)((const char *)frame->pixels + 35 * frame->stride + 5 * 4);
-    if (h->stage == 1 && *pixel == 0xffe06020) h->popup_pixels = true;
-    pixel = (const void *)((const char *)frame->pixels + 12 * frame->stride + 20 * 4);
-    if (h->stage == 5 && *pixel == 0xff778899) h->repainted = true;
+    uint32_t *pixels = malloc((size_t)frame->width * frame->height * 4);
+    assert(pixels && mdg_image_read(frame->image, pixels, (size_t)frame->width * 4));
+    if (h->stage == 1 && pixels[35 * frame->width + 5] == 0xff2060e0) h->popup_pixels = true;
+    if (h->stage == 5 && pixels[12 * frame->width + 20] == 0xff998877) h->repainted = true;
+    free(pixels);
 }
 static void error(void *data, const char *message) { (void)data; fprintf(stderr, "%s\n", message); abort(); }
 static void click(struct Host *h, double x, double y) {

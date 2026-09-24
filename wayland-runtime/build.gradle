@@ -1,7 +1,6 @@
 plugins { id 'com.android.library' }
 
 def termux = System.getenv('PREFIX')?.startsWith('/data/data/') && file("${System.getenv('PREFIX')}/bin/clang").isFile()
-def nativeDirectory = layout.buildDirectory.dir('renderer').get().asFile
 def jniDirectory = layout.buildDirectory.dir('jniLibs').get().asFile
 def dependencyDirectory = layout.buildDirectory.dir('dependencies').get().asFile
 def suppliedRuntime = providers.gradleProperty('magicDeskWaylandRuntime')
@@ -37,7 +36,6 @@ android {
     }
     sourceSets.main.jniLibs.srcDir jniDirectory
     sourceSets.main.assets.srcDir licenseAssets
-    if (!termux) externalNativeBuild { cmake { path 'src/main/renderer/CMakeLists.txt' } }
 }
 
 dependencies {
@@ -112,23 +110,4 @@ tasks.register('exportRuntime', Sync) {
         include 'lib/libmagicdesk_wayland_executor.so', 'lib/libmagicdesk_wayland_client.so', 'licenses/**'
     }
     into layout.buildDirectory.dir('runtime')
-}
-
-if (termux) {
-    def configureRenderer = tasks.register('configureRenderer', Exec) {
-        inputs.file 'src/main/renderer/CMakeLists.txt'
-        outputs.file new File(nativeDirectory, 'build.ninja')
-        commandLine 'cmake', '-S', file('src/main/renderer'), '-B', nativeDirectory, '-G', 'Ninja',
-                '-DCMAKE_C_COMPILER=clang', '-DCMAKE_C_FLAGS=--target=aarch64-linux-android34',
-                "-DJNI_INCLUDE_DIR=${System.getProperty('java.home')}/include",
-                '-DCMAKE_SHARED_LINKER_FLAGS=-L/system/lib64 -fno-termux-rpath -Wl,-z,max-page-size=16384'
-    }
-    def buildRenderer = tasks.register('buildRenderer', Exec) {
-        dependsOn configureRenderer
-        commandLine 'cmake', '--build', nativeDirectory, '-j', '4'
-    }
-    packageNative.configure {
-        dependsOn buildRenderer
-        from new File(nativeDirectory, 'libmagicdesk_wayland_host.so')
-    }
 }

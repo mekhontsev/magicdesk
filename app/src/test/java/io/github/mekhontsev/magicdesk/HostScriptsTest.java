@@ -20,7 +20,7 @@ import org.junit.rules.TemporaryFolder;
 public final class HostScriptsTest {
     private static final List<String> NATIVE_LIBRARIES = List.of(
             "uinput_bridge", "pty_bridge", "service_launcher", "process_signal", "guest_files",
-            "wayland_executor", "wayland_client", "wayland_host");
+            "wayland_executor", "wayland_client", "graphics_host");
     @Rule
     public final TemporaryFolder temporary = new TemporaryFolder();
 
@@ -130,8 +130,9 @@ public final class HostScriptsTest {
         expected.add("magicdesk_hosted_keycodes_test:cwd");
         expected.add("x11_window_icon_test:cwd");
         expected.add("x11_density_settings_test:cwd");
+        expected.add("hosted_graphics_test:--software");
         assertEquals(expected, Files.readAllLines(fixture.log));
-        assertTrue(result.output.contains("verified (18 runs)"));
+        assertTrue(result.output.contains("verified (19 runs)"));
         assertEmptyDirectory(fixture.output);
     }
 
@@ -148,7 +149,7 @@ public final class HostScriptsTest {
         final var testResult = nativeVerifier(testFailure, "fragmented", false);
         assertEquals(testResult.output, 9, testResult.exitCode);
         assertEquals(6, Files.readAllLines(testFailure.log).size());
-        assertTrue(!testResult.output.contains("verified (18 runs)"));
+        assertTrue(!testResult.output.contains("verified (19 runs)"));
         assertEmptyDirectory(testFailure.output);
 
         final var inputFailure = nativeVerifierFixture();

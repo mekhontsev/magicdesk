@@ -23,6 +23,9 @@ behavior, static verification and remaining device coverage.
   MCP is an authorized adapter to these services, not their lifetime owner.
   `hosted-runtime` contains the shared process-context adapter and retained-server
   lifecycle used by X11 and the experimental [Wayland runtime](wayland.md).
+  Its [graphics backend](graphics.md) supplies Vulkan/software composition,
+  HardwareBuffer ownership, synchronization and Android presentation to both
+  protocols. Renderer selection does not change executor identity or placement.
   Neither module owns Android tasks, Desktop or privilege startup. Wayland's
   compositor, frame transport and Android presentation have separate owners;
   `GraphicalSessions` supplies shared manager and automation controls. Protocol

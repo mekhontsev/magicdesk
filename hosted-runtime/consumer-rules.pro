@@ -1,0 +1,1 @@
+-keepclasseswithmembernames class io.github.mekhontsev.magicdesk.hosted.HostedFramePresenter { native <methods>; }

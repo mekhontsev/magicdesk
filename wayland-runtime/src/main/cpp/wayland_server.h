@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <graphics.h>
 
 typedef struct MdwServer MdwServer;
 typedef struct MdwOutput MdwOutput;
@@ -52,9 +53,7 @@ typedef struct {
 } MdwViewGeometry;
 
 typedef struct {
-	const void *pixels;
-	uint32_t format;
-	size_t stride;
+    MdgImage *image; /* Borrowed for this frame callback. */
 	int width;
 	int height;
 } MdwFrame;
@@ -110,6 +109,7 @@ bool mdw_output_scale(MdwOutput *output, double scale);
 bool mdw_output_viewport(MdwOutput *output, int x, int y, int width, int height);
 bool mdw_output_set_visible(MdwOutput *output, bool visible);
 bool mdw_output_refresh(MdwOutput *output);
+void mdw_output_frame_consumed(MdwOutput *output);
 bool mdw_output_focus(MdwOutput *output, bool focused);
 bool mdw_output_pointer(MdwOutput *output, double x, double y);
 bool mdw_output_button(MdwOutput *output, MdwButton button, bool down);

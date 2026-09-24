@@ -14,8 +14,8 @@ default to X11. A successful native test or APK build does
 not establish application compatibility or support on every Android release.
 
 Termux is an optional build environment, not a runtime dependency. The executor
-library statically links its non-system dependencies and requires only Android's
-`libc.so`, `libm.so`, and `libdl.so`. The host renderer uses Android's public
+library statically links its non-system dependencies and uses only Android system
+libraries (`libc`, `libm`, `libdl`, `libandroid`, `liblog`). The host renderer uses Android's public
 `ANativeWindow` API and does not link wlroots or load Termux libraries.
 
 The launch integration shares the X11 execution model: Termux is an optional
@@ -80,7 +80,7 @@ describe its creator and must not be mistaken for the launched client's identity
   history without closing live clients.
 - The native compositor API knows no Java classes, packages, Binder authorization,
   Android tasks or placement policy. Its calls and callbacks are serialized on
-  the owning event loop; strings and pixel pointers are borrowed during callbacks.
+  the owning event loop; strings and frame images are borrowed during callbacks.
 - The Android server adapter checks the host UID, retains one Binder owner and
   stops on owner death. It integrates the Wayland event-loop FD with the Android
   Looper, without a polling timer. Startup announcements still require host-side
@@ -88,13 +88,14 @@ describe its creator and must not be mistaken for the launched client's identity
 - Hosts borrow outputs. Releasing an output does not close its Wayland client.
   Closing a window sends `xdg_toplevel.close`; client destruction is a separate
   observation. Closing the retained session stops the server.
-- Software frames cross Binder as sealed, tightly packed RGBA memfds, not byte
-  arrays or Android surfaces. Each output has one unacknowledged frame; the
-  presenter releases its memfd after submission to the Android buffer queue. Credit is checked before
+- Frames cross Binder as retained HardwareBuffers and acquire fences, or sealed
+  RGBA memfds when hardware storage is unavailable. Each output has one
+  unacknowledged frame; its wlroots buffer stays locked until the presenter
+  completes reading it. Credit is checked before
   rendering; a deferred update requests a redraw after acknowledgement. Stale
   acknowledgements cannot release a newer frame. An absent Android Surface
   disables its output and releases focus instead of continuing hidden animation.
-- Each Android output owns a `WaylandFramePresenter` worker and its buffer queue.
+- Each Android output owns a shared `HostedFramePresenter` worker and its buffer queue.
   Session control, input, connection deadlines and other outputs never wait for
   its `ANativeWindow` writes. Output closure releases the presenter independently
   from client/session closure. Window metadata crosses Binder only when changed;
@@ -114,13 +115,13 @@ describe its creator and must not be mistaken for the launched client's identity
   Pointer hit-testing uses the rendered scene and output dimensions, including
   when a client has not acknowledged a resize or retains a larger minimum size.
 
-The software engine callback, immutable-frame transport and Android presenter
-are separate boundaries. Optional GPU buffer import and presentation can replace
-the frame path without changing launch, input or Android placement policy. The
-current renderer does not advertise DMA-BUF support. Software remains the
-compatibility path; GPU drivers are not a startup requirement.
+The compositor uses the [shared Vulkan/software renderer](graphics.md) through
+wlroots' renderer/allocator interfaces, without a wlroots fork. Frame transport
+and Android presentation remain separate from launch, input and placement policy.
+The renderer does not advertise Linux DMA-BUF client import. Software remains
+the compatibility path; GPU drivers are not a startup requirement.
 
-The native runtime covers xdg-toplevel discovery and metadata, software
+The native runtime covers xdg-toplevel discovery and metadata, GPU/software
 rendering, configure/ack, frame callbacks, borrowed-output resize, pointer/key
 input, focus release and graceful close. Popup nodes retain their parent's native scene
 and grab lifetime. Managed API-35+ hosts can present the popup family outside the
@@ -129,7 +130,7 @@ parent's task crop through the shared opt-in
 Ordinary subsurfaces remain in their owning tree; transient toplevels retain
 separate Android hosts. Shell popup constraints and surface-family input geometry
 are covered by native fixtures. Physical keys use the shared Android-to-evdev
-mapping. XWayland and GPU buffer import are not enabled.
+mapping. XWayland and Linux DMA-BUF client import are not enabled.
 
 ## Host Interaction
 
@@ -219,7 +220,7 @@ families use the public render-pass API with cached client textures and the outp
 swapchain, preserving premultiplied alpha rather than an opaque background. The
 scene retains subsurface placement, damage events and hit-testing. There are no
 additional per-buffer texture imports or pixel copies in this compositor pass;
-the existing software frame export remains unchanged. Explicit shell/dependent
+frame transport uses the shared hosted graphics contract. Explicit shell/dependent
 viewports use unit scale and no output transform; application outputs use their
 host density. Client buffer transforms and viewports are
 applied during composition. Damage retirement prevents unchanged shell surfaces
@@ -259,10 +260,10 @@ Ordinary application hosts retain their existing viewport policy.
 
 ## Remaining Work
 
-**Optional GPU path.** Add buffer import, synchronization and presentation behind
-the existing frame boundaries. Verify ownership, teardown and software fallback
-on supported devices before advertising hardware-buffer capabilities. GPU support
-must not change launch identity or become a startup requirement.
+**Linux GPU client buffers.** Add DMA-BUF import and capability negotiation only
+for compatible allocations and synchronization. Android compositor acceleration
+is separate from accepting GPU-produced Linux
+client buffers without changing launch identity or making GPU a prerequisite.
 
 Root/chroot client bootstrap is a separate prerequisite for testing those
 execution environments, not for the initial Termux application workflow. Extend
@@ -356,8 +357,9 @@ build/wayland-tools/bin/pip install meson==1.9.1
 
 `magicDeskMeson` can explicitly select another Meson executable. The dependency
 build downloads pinned archives with SHA-256 verification, uses an isolated
-pkg-config prefix and disables external wlroots backends, XWayland and GPU
-renderers. `wayland-runtime/native-deps/CMakeLists.txt` owns the source versions.
+pkg-config prefix and disables external wlroots backends, XWayland and wlroots'
+GPU renderers. Composition uses MagicDesk's shared graphics backend.
+`wayland-runtime/native-deps/CMakeLists.txt` owns the source versions.
 The protocol scanner is built from the same pinned Wayland source for the
 build machine, separately from the target libraries. Its native pkg-config
 search is separate from the private Android dependency prefix. Meson does not
@@ -370,7 +372,7 @@ retaining upstream's implementation on other platforms. `wlroots-android-libs.pa
 uses Bionic's clock functions in libc instead of requiring a separate librt.
 Patch application is checked and idempotent; an incompatible upstream change
 fails the build.
-Rendering allocations use memfd. Read/write plus read-only FD pairs use an
+The Android POSIX shared-memory adapter uses memfd. Read/write plus read-only FD pairs use an
 immediately unlinked file in the explicitly provided private `XDG_RUNTIME_DIR`:
 Android may deny reopening memfds through `/proc/self/fd`. There is no hardcoded
 Termux directory or named shared-memory service.

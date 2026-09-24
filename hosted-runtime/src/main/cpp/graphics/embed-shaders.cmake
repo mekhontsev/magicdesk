@@ -1,0 +1,5 @@
+file(READ "${VERTEX}" vertex HEX)
+file(READ "${FRAGMENT}" fragment HEX)
+string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," vertex "${vertex}")
+string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," fragment "${fragment}")
+file(WRITE "${OUTPUT}" "#include <stdint.h>\n_Alignas(4) static const uint8_t mdg_vertex[] = {${vertex}};\n_Alignas(4) static const uint8_t mdg_fragment[] = {${fragment}};\n")

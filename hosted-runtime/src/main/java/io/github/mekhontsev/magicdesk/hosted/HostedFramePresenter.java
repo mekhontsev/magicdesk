@@ -1,16 +1,16 @@
-package io.github.mekhontsev.magicdesk.wayland;
+package io.github.mekhontsev.magicdesk.hosted;
 
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.os.ParcelFileDescriptor;
+import android.hardware.HardwareBuffer;
 import android.view.Surface;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 /** Owns one Android buffer queue; its blocking writes never run on session control. */
-final class WaylandFramePresenter implements AutoCloseable {
-    static { System.loadLibrary("magicdesk_wayland_host"); }
+public final class HostedFramePresenter implements AutoCloseable {
+    static { System.loadLibrary("magicdesk_graphics_host"); }
     private final HandlerThread thread;
     private final Handler handler;
     private final AtomicBoolean closed = new AtomicBoolean();
@@ -18,17 +18,17 @@ final class WaylandFramePresenter implements AutoCloseable {
     private volatile long requestedGeneration;
     private long surfaceGeneration;
 
-    WaylandFramePresenter(long id) {
-        thread = new HandlerThread("WaylandOutput-" + id);
+    public HostedFramePresenter(long id) {
+        thread = new HandlerThread("HostedOutput-" + id);
         thread.start();
         handler = new Handler(thread.getLooper());
     }
 
     /** Retained before the caller can release its Java Surface; transferred once to the worker. */
-    static final class SurfaceLease implements AutoCloseable {
+    public static final class SurfaceLease implements AutoCloseable {
         private long handle;
 
-        SurfaceLease(Surface surface) throws IOException {
+        public SurfaceLease(Surface surface) throws IOException {
             handle = surface == null ? 0 : nativeAcquire(surface);
             if (surface != null && handle == 0) throw new IOException("Cannot retain Android Surface");
         }
@@ -37,7 +37,7 @@ final class WaylandFramePresenter implements AutoCloseable {
         @Override public void close() { nativeRelease(take()); }
     }
 
-    boolean setSurface(SurfaceLease lease, long generation) {
+    public boolean setSurface(SurfaceLease lease, long generation) {
         long next = lease.take();
         if (closed.get()) { nativeRelease(next); return false; }
         requestedGeneration = generation;
@@ -51,19 +51,20 @@ final class WaylandFramePresenter implements AutoCloseable {
         return false;
     }
 
-    void present(ParcelFileDescriptor pixels, int width, int height, long generation, Consumer<Boolean> consumed) {
+    public void present(HostedFrame frame, long generation, Consumer<Boolean> consumed) {
         if (!handler.post(() -> {
             boolean submitted = false;
             try {
                 if (closed.get() || surface == 0 || generation != requestedGeneration || generation != surfaceGeneration) return;
-                if (pixels == null) { nativeClear(surface); return; }
-                submitted = nativePresent(surface, pixels.getFd(), width, height);
+                if (frame == null) { nativeClear(surface); return; }
+                submitted = nativePresent(surface, frame.buffer, frame.pixels == null ? -1 : frame.pixels.getFd(),
+                        frame.fence == null ? -1 : frame.fence.getFd(), frame.width, frame.height);
             } finally {
-                closeDescriptor(pixels);
+                HostedFrame.close(frame);
                 consumed.accept(submitted);
             }
         })) {
-            closeDescriptor(pixels);
+            HostedFrame.close(frame);
             consumed.accept(false);
         }
     }
@@ -77,12 +78,8 @@ final class WaylandFramePresenter implements AutoCloseable {
         });
     }
 
-    private static void closeDescriptor(ParcelFileDescriptor descriptor) {
-        if (descriptor != null) try { descriptor.close(); } catch (IOException ignored) { }
-    }
-
     private static native long nativeAcquire(Surface surface);
     private static native void nativeRelease(long surface);
-    private static native boolean nativePresent(long surface, int descriptor, int width, int height);
+    private static native boolean nativePresent(long surface, HardwareBuffer buffer, int descriptor, int fence, int width, int height);
     private static native void nativeClear(long surface);
 }

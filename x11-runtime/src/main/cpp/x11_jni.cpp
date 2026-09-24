@@ -6,6 +6,7 @@
 #include <sys/mman.h>
 #include <sys/syscall.h>
 #include "embedded.h"
+#include "x11_graphics.h"
 #include "android_keycodes.h"
 
 #define JNI(name) Java_io_github_mekhontsev_magicdesk_x11_##name
@@ -239,7 +240,7 @@ extern "C" JNIEXPORT jlong JNICALL JNI(X11Session_nativeCreate)(JNIEnv* env, job
             env->DeleteLocalRef(node);
         }
     }
-    if (!env->ExceptionCheck() && c->owner) c->native = lorieConnectionCreate(&callbacks, c);
+    if (!env->ExceptionCheck() && c->owner) c->native = lorieConnectionCreate(&callbacks, c, magicDeskX11Graphics());
     if (c->native) return (jlong)c;
     if (c->owner) env->DeleteGlobalRef(c->owner);
     if (c->managementClass) env->DeleteGlobalRef(c->managementClass);

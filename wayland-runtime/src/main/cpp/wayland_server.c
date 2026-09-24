@@ -10,7 +10,6 @@
 #include <wlr/backend/headless.h>
 #include <wlr/interfaces/wlr_keyboard.h>
 #include <wlr/render/allocator.h>
-#include <wlr/render/pixman.h>
 #include <wlr/types/wlr_buffer.h>
 #include <wlr/types/wlr_compositor.h>
 #include <wlr/types/wlr_data_device.h>
@@ -19,6 +18,8 @@
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/types/wlr_fractional_scale_v1.h>
 #include <wlr/types/wlr_viewporter.h>
+#include "wayland_renderer.h"
+#include <drm_fourcc.h>
 
 struct MdwToplevel {
     struct wl_list link;
@@ -37,6 +38,7 @@ struct MdwOutput {
     struct MdwView *view;
     struct wlr_output *output;
     struct wlr_scene_output *scene_output;
+    struct wlr_buffer *pending_frame;
     struct wl_listener frame, commit;
     bool presenting;
     bool visible;
@@ -117,18 +119,34 @@ static void output_commit(struct wl_listener *listener, void *data) {
     if (!output->presenting || !(event->state->committed & WLR_OUTPUT_STATE_BUFFER) ||
             !event->state->buffer || !output->server->events.frame) return;
     struct wlr_buffer *buffer = event->state->buffer;
-    void *pixels;
-    uint32_t format;
-    size_t stride;
-    if (!wlr_buffer_begin_data_ptr_access(buffer, WLR_BUFFER_DATA_PTR_ACCESS_READ,
-            &pixels, &format, &stride)) {
-        report_error(output->server, "software frame is not CPU-readable");
+    MdgImage *image = mdw_buffer_image(buffer);
+    if (!image) {
+        report_error(output->server, "unknown renderer buffer");
         return;
     }
-    MdwFrame frame = { .pixels = pixels, .format = format, .stride = stride,
+    mdw_output_frame_consumed(output);
+    output->pending_frame = wlr_buffer_lock(buffer);
+    MdwFrame frame = { .image = image,
         .width = buffer->width, .height = buffer->height };
     output->server->events.frame(output->server->events.context, output, &frame);
-    wlr_buffer_end_data_ptr_access(buffer);
+}
+
+void mdw_output_frame_consumed(MdwOutput *output) {
+    if (output->pending_frame) wlr_buffer_unlock(output->pending_frame);
+    output->pending_frame = NULL;
+}
+
+static int gpu_ready(int fd, uint32_t mask, void *data) {
+    (void)fd; (void)mask;
+    MdwServer *server = data;
+    wl_event_source_remove(server->gpu_ready);
+    server->gpu_ready = NULL;
+    close(server->gpu_ready_fd);
+    mdg_device_collect(mdw_renderer_device(server->renderer));
+    MdwOutput *output;
+    wl_list_for_each(output, &server->outputs, link)
+        if (output->output && output->visible) wlr_output_schedule_frame(output->output);
+    return 0;
 }
 
 static void output_frame(struct wl_listener *listener, void *data) {
@@ -137,6 +155,24 @@ static void output_frame(struct wl_listener *listener, void *data) {
     if (!output->visible || !output->view || !output->view->surface->mapped) return;
     MdwEvents *events = &output->server->events;
     if (events->can_render && !events->can_render(events->context, output)) return;
+    MdgDevice *device = mdw_renderer_device(output->server->renderer);
+    if (!mdg_device_available(device)) {
+        if (!output->server->gpu_ready) {
+            int fd = mdg_device_pending_fence(device);
+            if (fd < 0) {
+                report_error(output->server, "Cannot export pending GPU completion");
+                return;
+            }
+            output->server->gpu_ready_fd = fd;
+            output->server->gpu_ready = wl_event_loop_add_fd(wl_display_get_event_loop(output->server->display),
+                fd, WL_EVENT_READABLE, gpu_ready, output->server);
+            if (!output->server->gpu_ready) {
+                close(fd);
+                report_error(output->server, "Cannot observe GPU completion");
+            }
+        }
+        return;
+    }
     output->presenting = true;
     bool committed = output->parent || output->dependents
         ? mdw_scene_render_family(output->scene_output, output->view->surface, output->parent != NULL)
@@ -145,7 +181,7 @@ static void output_frame(struct wl_listener *listener, void *data) {
         : wlr_scene_output_commit(output->scene_output, NULL);
     output->presenting = false;
     if (!committed) {
-        report_error(output->server, "software scene commit failed");
+        report_error(output->server, "scene commit failed");
         return;
     }
     struct timespec now;
@@ -154,6 +190,7 @@ static void output_frame(struct wl_listener *listener, void *data) {
 }
 
 static void release_output(MdwOutput *output) {
+    mdw_output_frame_consumed(output);
     mdw_content_output_released(output->server, output);
     mdw_output_focus(output, false);
     if (!output->output) return;
@@ -380,9 +417,9 @@ MdwServer *mdw_server_create(void) {
     if (!server->display) goto fail;
     server->backend = wlr_headless_backend_create(wl_display_get_event_loop(server->display));
     if (!server->backend) goto fail;
-    server->renderer = wlr_pixman_renderer_create();
+    server->renderer = mdw_renderer_create();
     if (!server->renderer || !wlr_renderer_init_wl_display(server->renderer, server->display)) goto fail;
-    server->allocator = wlr_allocator_autocreate(server->backend, server->renderer);
+    server->allocator = mdw_allocator_create(server->renderer);
     if (!server->allocator) goto fail;
     if (!wlr_compositor_create(server->display, 6, server->renderer) ||
             !wlr_subcompositor_create(server->display) ||
@@ -530,6 +567,7 @@ bool mdw_output_viewport(MdwOutput *output, int x, int y, int width, int height)
     if (output->visible) {
         struct wlr_output_state state;
         wlr_output_state_init(&state);
+        wlr_output_state_set_render_format(&state, DRM_FORMAT_ABGR8888);
         wlr_output_state_set_enabled(&state, true);
         wlr_output_state_set_scale(&state, output->scale);
         wlr_output_state_set_custom_mode(&state, width, height, 60000);
@@ -550,9 +588,11 @@ bool mdw_output_set_visible(MdwOutput *output, bool visible) {
     struct wlr_output_state state;
     wlr_output_state_init(&state);
     wlr_output_state_set_enabled(&state, visible);
-    wlr_output_state_set_scale(&state, output->scale);
-    if (visible) wlr_output_state_set_custom_mode(&state,
-        output->viewport_width, output->viewport_height, 60000);
+    if (visible) {
+        wlr_output_state_set_render_format(&state, DRM_FORMAT_ABGR8888);
+        wlr_output_state_set_scale(&state, output->scale);
+        wlr_output_state_set_custom_mode(&state, output->viewport_width, output->viewport_height, 60000);
+    }
     bool committed = wlr_output_commit_state(output->output, &state);
     wlr_output_state_finish(&state);
     if (!committed) return false;
@@ -782,6 +822,10 @@ void mdw_server_destroy(MdwServer *server) {
         wlr_keyboard_finish(&server->keyboard);
     }
     mdw_content_finish(server);
+    if (server->gpu_ready) {
+        wl_event_source_remove(server->gpu_ready);
+        close(server->gpu_ready_fd);
+    }
     if (server->backend) wlr_backend_destroy(server->backend);
     if (server->display) wl_display_destroy(server->display);
     if (server->allocator) wlr_allocator_destroy(server->allocator);

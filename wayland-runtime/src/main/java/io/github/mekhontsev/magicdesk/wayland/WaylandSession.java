@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk.wayland;
 import io.github.mekhontsev.magicdesk.hosted.FramePresentation;
+import io.github.mekhontsev.magicdesk.hosted.HostedFrame;
+import io.github.mekhontsev.magicdesk.hosted.HostedFramePresenter;
 
 import android.os.Binder;
 import android.os.Handler;
@@ -122,22 +124,23 @@ public final class WaylandSession implements AutoCloseable {
                 main.post(listener::changed);
             });
         }
-        @Override public void frame(long id, long serial, long generation, ParcelFileDescriptor pixels, int width, int height) {
+        @Override public void frame(long id, long serial, long generation, HostedFrame frame) {
+            int width = frame == null ? 0 : frame.width, height = frame == null ? 0 : frame.height;
             try { checkCaller(); }
-            catch (RuntimeException error) { closeDescriptor(pixels); throw error; }
+            catch (RuntimeException error) { HostedFrame.close(frame); throw error; }
             if (!handler.post(() -> {
                 Output output = outputs.get(id);
                 if (closed.get() || output == null || !output.acceptsFrame(generation)) {
-                    closeDescriptor(pixels);
+                    HostedFrame.close(frame);
                     frameConsumed(id, serial);
                 } else {
-                    output.presenter.present(pixels, width, height, generation, submitted -> handler.post(() -> {
+                    output.presenter.present(frame, generation, submitted -> handler.post(() -> {
                         frameConsumed(id, serial);
                         if (closed.get() || !output.acceptsFrame(generation)) return;
                         if (!submitted) {
                             String message = "Wayland frame was not submitted to the Android Surface";
                             output.presentation.fail(generation, new IOException(message));
-                            if (pixels != null) output.failed(message, generation);
+                            if (frame != null) output.failed(message, generation);
                             return;
                         }
                         if (output.width != width || output.height != height) {
@@ -150,7 +153,7 @@ public final class WaylandSession implements AutoCloseable {
                         output.presentation.submitted(generation);
                     }));
                 }
-            })) closeDescriptor(pixels);
+            })) HostedFrame.close(frame);
         }
         @Override public void failed(long output, long generation, String message) {
             checkCaller();
@@ -501,7 +504,7 @@ public final class WaylandSession implements AutoCloseable {
         private int width, height;
         private volatile boolean textEnabled;
         private final AtomicBoolean released = new AtomicBoolean();
-        private final WaylandFramePresenter presenter;
+        private final HostedFramePresenter presenter;
         private final FramePresentation presentation = new FramePresentation();
 
         private Output(long id, long window, ShellBinding binding, Output parent,
@@ -511,7 +514,7 @@ public final class WaylandSession implements AutoCloseable {
             this.binding = binding;
             this.parent = parent;
             failureListener = failure;
-            presenter = new WaylandFramePresenter(id);
+            presenter = new HostedFramePresenter(id);
         }
 
         public Output borrowDependents(java.util.function.Consumer<Throwable> failed) {
@@ -557,8 +560,8 @@ public final class WaylandSession implements AutoCloseable {
             // Revoke old frames on the caller thread, before Android can destroy their Surface.
             CompletableFuture<Void> completion = new CompletableFuture<>();
             long generation = presentation.begin(completion);
-            final WaylandFramePresenter.SurfaceLease lease;
-            try { lease = new WaylandFramePresenter.SurfaceLease(surface); }
+            final HostedFramePresenter.SurfaceLease lease;
+            try { lease = new HostedFramePresenter.SurfaceLease(surface); }
             catch (IOException | RuntimeException error) {
                 presentation.fail(generation, error);
                 failed(error.getMessage(), generation);

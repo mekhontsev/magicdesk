@@ -29,7 +29,7 @@ final class AutomationCommandCatalog {
                         objectSchema(new JSONObject().put("sessionId", stringProperty("Live graphical session ID."))
                                 .put("workspaceId", stringProperty("Exact workspace residency ID, or empty to release.")), "sessionId", "workspaceId")))
                 .put(actionTool("graphics.start", "Start graphical session",
-                        "Start a retained compositor through the selected executor, optionally running a startup command. Returns a sessionId before readiness; observe graphics.list. No Android window is opened. Wayland uses software rendering; its shell client bootstrap requires UID 2000. An expired observation does not cancel a dispatched start; inspect before retrying.",
+                        "Start a retained compositor through the selected executor, optionally running a startup command. Returns a sessionId before readiness; observe graphics.list. No Android window is opened. X11 and Wayland use a Vulkan/software compositor; Wayland accepts SHM client buffers. Its shell client bootstrap requires UID 2000. An expired observation does not cancel a dispatched start; inspect before retrying.",
                         objectSchema(new JSONObject().put("protocol", enumProperty("Display protocol.", "x11", "wayland"))
                                 .put("backend", enumProperty("Explicit client executor; never elevated or replaced.", "termux", "shell"))
                                 .put("name", stringProperty("Session name, 1 to 128 characters."))

@@ -1,5 +1,6 @@
 #include "wayland_server.h"
 #include "frame_fd.h"
+#include <android/hardware_buffer_jni.h>
 #include "android_keycodes.h"
 #include <jni.h>
 #include <stdint.h>
@@ -209,15 +210,25 @@ static void frame_event(void *context, MdwOutput *output, const MdwFrame *frame)
     if ((*env)->ExceptionCheck(env)) return;
     jlong pointer = (jlong)(intptr_t)output;
     if (!frame) {
-        (*env)->CallVoidMethod(env, bridge->owner, bridge->frame, pointer, (jint)-1, (jint)0, (jint)0);
+        (*env)->CallVoidMethod(env, bridge->owner, bridge->frame, pointer, NULL, (jint)-1, (jint)-1, (jint)0, (jint)0);
         return;
     }
     bool wanted = (*env)->CallBooleanMethod(env, bridge->owner, bridge->wanted, pointer);
     if ((*env)->ExceptionCheck(env) || !wanted) return;
-    int descriptor = mdw_frame_export(frame);
-    if (descriptor < 0) { error_event(bridge, "Cannot export Wayland software frame"); return; }
-    (*env)->CallVoidMethod(env, bridge->owner, bridge->frame, pointer, (jint)descriptor,
+    AHardwareBuffer *buffer = mdg_image_buffer(frame->image);
+    jobject hardware = buffer ? AHardwareBuffer_toHardwareBuffer(env, buffer) : NULL;
+    if ((*env)->ExceptionCheck(env)) return;
+    int descriptor = hardware ? -1 : mdw_frame_export(frame);
+    if (!hardware && descriptor < 0) { error_event(bridge, "Cannot export Wayland frame"); return; }
+    int fence = -1;
+    if (hardware && !mdg_image_fence(frame->image, &fence)) {
+        (*env)->DeleteLocalRef(env, hardware);
+        error_event(bridge, "Cannot export Wayland completion fence");
+        return;
+    }
+    (*env)->CallVoidMethod(env, bridge->owner, bridge->frame, pointer, hardware, (jint)descriptor, (jint)fence,
         (jint)frame->width, (jint)frame->height);
+    if (hardware) (*env)->DeleteLocalRef(env, hardware);
 }
 
 static bool can_render(void *context, MdwOutput *output) {
@@ -239,7 +250,7 @@ JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner) {
     if (!(*env)->ExceptionCheck(env)) bridge->shell = (*env)->GetMethodID(env, type, "onShell", "(J[BZZIIIJJIIIIIZ)V");
     if (!(*env)->ExceptionCheck(env)) bridge->geometry = (*env)->GetMethodID(env, type, "onGeometry", "(JJZIIIIZ[IZ)V");
     if (!(*env)->ExceptionCheck(env)) bridge->toplevel_action = (*env)->GetMethodID(env, type, "onToplevelAction", "(JI)V");
-    if (!(*env)->ExceptionCheck(env)) bridge->frame = (*env)->GetMethodID(env, type, "onFrame", "(JIII)V");
+    if (!(*env)->ExceptionCheck(env)) bridge->frame = (*env)->GetMethodID(env, type, "onFrame", "(JLandroid/hardware/HardwareBuffer;IIII)V");
     if (!(*env)->ExceptionCheck(env)) bridge->wanted = (*env)->GetMethodID(env, type, "frameWanted", "(J)Z");
     if (!(*env)->ExceptionCheck(env)) bridge->can_render = (*env)->GetMethodID(env, type, "canRender", "(J)Z");
     if (!(*env)->ExceptionCheck(env)) bridge->error = (*env)->GetMethodID(env, type, "onError", "(Ljava/lang/String;)V");
@@ -357,9 +368,10 @@ JNIEXPORT jboolean JNICALL JNI(nativeSetVisible)(JNIEnv *env, jclass type, jlong
     return mdw_output_set_visible((void *)(intptr_t)output, visible);
 }
 
-JNIEXPORT void JNICALL JNI(nativeRefresh)(JNIEnv *env, jclass type, jlong output) {
+JNIEXPORT void JNICALL JNI(nativeFrameConsumed)(JNIEnv *env, jclass type, jlong output, jboolean refresh) {
     (void)env; (void)type;
-    mdw_output_refresh((void *)(intptr_t)output);
+    mdw_output_frame_consumed((void *)(intptr_t)output);
+    if (refresh) mdw_output_refresh((void *)(intptr_t)output);
 }
 
 JNIEXPORT void JNICALL JNI(nativeFocus)(JNIEnv *env, jclass type, jlong output, jboolean focused) {

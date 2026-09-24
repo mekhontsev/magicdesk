@@ -337,19 +337,9 @@ static void frame_event(void *data, MdwOutput *output, const MdwFrame *frame) {
     struct Host *host = data;
     if (!frame) return;
     assert(frame->width == 80 && frame->height == 60);
-    uint32_t pixel;
-    memcpy(&pixel, (const char *)frame->pixels + 20 * frame->stride + 20 * 4, 4);
-    uint32_t expected;
-    switch (frame->format) {
-        case DRM_FORMAT_ARGB8888:
-        case DRM_FORMAT_XRGB8888: expected = 0x001267ab; break;
-        case DRM_FORMAT_ABGR8888:
-        case DRM_FORMAT_XBGR8888: expected = 0x00ab6712; break;
-        default: fprintf(stderr, "Unexpected frame format %08x\n", frame->format); abort();
-    }
-    if ((pixel & 0x00ffffff) != expected)
-        fprintf(stderr, "format=%08x pixel=%08x expected=%08x\n", frame->format, pixel, expected);
-    assert((pixel & 0x00ffffff) == expected);
+    uint32_t pixels[80 * 60];
+    assert(mdg_image_read(frame->image, pixels, 80 * 4));
+    assert((pixels[20 * 80 + 20] & 0x00ffffff) == 0x00ab6712);
     int descriptor = mdw_frame_export(frame);
     assert(descriptor >= 0);
     int seals = fcntl(descriptor, F_GET_SEALS);
