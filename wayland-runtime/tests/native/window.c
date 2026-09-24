@@ -59,10 +59,15 @@ static void text_enter(void *data, struct zwp_text_input_v3 *text, struct wl_sur
     struct Client *client = data;
     assert(surface == client->surface);
     zwp_text_input_v3_enable(text);
+    zwp_text_input_v3_commit(text);
+    // Optional context can arrive after the initial empty editor was enabled.
+    zwp_text_input_v3_set_text_change_cause(text, ZWP_TEXT_INPUT_V3_CHANGE_CAUSE_OTHER);
     zwp_text_input_v3_set_surrounding_text(text, "a\xd0\x96\xf0\x9f\x98\x80z", 7, 3);
     zwp_text_input_v3_set_content_type(text, ZWP_TEXT_INPUT_V3_CONTENT_HINT_COMPLETION,
             ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_EMAIL);
     zwp_text_input_v3_set_cursor_rectangle(text, 5, 6, 2, 4);
+    zwp_text_input_v3_commit(text);
+    zwp_text_input_v3_set_text_change_cause(text, ZWP_TEXT_INPUT_V3_CHANGE_CAUSE_INPUT_METHOD);
     zwp_text_input_v3_commit(text);
 }
 static void text_leave(void *data, struct zwp_text_input_v3 *text, struct wl_surface *surface) {
@@ -446,10 +451,15 @@ static void error_event(void *data, const char *message) {
 static void text_input_event(void *data, MdwOutput *output, const MdwTextState *state) {
     (void)output;
     struct Host *host = data;
-    host->text_enabled = state->editor != 0;
+    host->text_enabled = state->editor != 0 && state->surrounding != NULL;
     host->editor = state->editor;
     host->text_revision = state->revision;
     if (state->editor) {
+        if (state->revision == 1) {
+            assert(!state->surrounding && !state->caret_valid);
+            assert(state->input_method_change);
+            return;
+        }
         assert(state->surrounding && !strcmp(state->surrounding, "a\xd0\x96\xf0\x9f\x98\x80z"));
         assert(state->cursor == 7 && state->anchor == 3);
         assert(state->purpose == ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_EMAIL);

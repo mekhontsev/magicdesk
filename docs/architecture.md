@@ -1789,7 +1789,14 @@ area ownership. Bounds changes use the persistent privileged service's typed
 Binder operation and `HiddenTaskApi`'s ATM resize semantics.
 `HostedTextState` supplies optional normalized caret geometry to
 the shared InputConnection; Android cursor-anchor coordinates use the same
-rendered viewport transform as pointer input.
+rendered viewport transform as pointer input. A logical editor owns composition
+and cursor subscriptions independently of Android's candidate InputConnections.
+Closing one transport does not discard another connection's composition; editor
+replacement invalidates all its transports. Text/selection revisions qualify
+destructive edits independently of caret geometry. Protocol-declared IME
+acknowledgements do not invalidate queued keyboard commands; external text changes
+can refresh Android's context. Private guest text is excluded from Android
+surrounding-text snapshots.
 Individual outputs constrain Android Surface geometry by the client's X11
 minimum/maximum size hints; fixed-size content is aspect-fitted, not stretched
 by changing its X window. The native window model owns hint decoding, with no

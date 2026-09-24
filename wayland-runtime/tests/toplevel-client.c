@@ -9,7 +9,7 @@
 struct Window {
     struct zwlr_foreign_toplevel_handle_v1 *handle;
     char title[1024], app[1024];
-    bool active, maximized, fullscreen;
+    bool active, maximized, fullscreen, minimized;
 };
 static struct Window windows[256];
 static unsigned count;
@@ -26,12 +26,13 @@ static void output(void *data, struct zwlr_foreign_toplevel_handle_v1 *handle, s
 }
 static void state(void *data, struct zwlr_foreign_toplevel_handle_v1 *handle, struct wl_array *values) {
     (void)handle;
-    struct Window *w = data; w->active = w->maximized = w->fullscreen = false;
+    struct Window *w = data; w->active = w->maximized = w->fullscreen = w->minimized = false;
     uint32_t *value;
     wl_array_for_each(value, values) {
         if (*value == ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_ACTIVATED) w->active = true;
         if (*value == ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_MAXIMIZED) w->maximized = true;
         if (*value == ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_FULLSCREEN) w->fullscreen = true;
+        if (*value == ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_MINIMIZED) w->minimized = true;
     }
 }
 static void done(void *data, struct zwlr_foreign_toplevel_handle_v1 *handle) { (void)data; (void)handle; }
@@ -72,7 +73,7 @@ int main(int argc, char **argv) {
     for (unsigned i = 0; i < count; i++) {
         struct Window *w = &windows[i];
         if (!w->handle) continue;
-        printf("%s | %s active=%d maximized=%d fullscreen=%d\n", w->app, w->title, w->active, w->maximized, w->fullscreen);
+        printf("%s | %s active=%d maximized=%d fullscreen=%d minimized=%d\n", w->app, w->title, w->active, w->maximized, w->fullscreen, w->minimized);
         if (argc == 3 && !strcmp(argv[1], w->title)) { if (target) return 4; target = w; }
     }
     if (argc == 3) {
@@ -80,6 +81,8 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[2], "activate")) zwlr_foreign_toplevel_handle_v1_activate(target->handle, seat);
         else if (!strcmp(argv[2], "maximize")) zwlr_foreign_toplevel_handle_v1_set_maximized(target->handle);
         else if (!strcmp(argv[2], "unmaximize")) zwlr_foreign_toplevel_handle_v1_unset_maximized(target->handle);
+        else if (!strcmp(argv[2], "minimize")) zwlr_foreign_toplevel_handle_v1_set_minimized(target->handle);
+        else if (!strcmp(argv[2], "unminimize")) zwlr_foreign_toplevel_handle_v1_unset_minimized(target->handle);
         else if (!strcmp(argv[2], "fullscreen")) zwlr_foreign_toplevel_handle_v1_set_fullscreen(target->handle, NULL);
         else if (!strcmp(argv[2], "unfullscreen")) zwlr_foreign_toplevel_handle_v1_unset_fullscreen(target->handle);
         else if (!strcmp(argv[2], "close")) zwlr_foreign_toplevel_handle_v1_close(target->handle);

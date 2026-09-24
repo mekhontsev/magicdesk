@@ -324,12 +324,12 @@ public final class WaylandServer extends IWaylandServer.Stub {
     @Override public void releaseShell(long id) { command(() -> releaseShellOutput(id)); }
 
     @Override public void publishToplevel(long binding, long id, String title, String appId,
-            boolean active, boolean maximized, boolean fullscreen, boolean removed) {
+            boolean active, boolean maximized, boolean fullscreen, boolean minimized, boolean removed) {
         command(() -> {
             if (binding <= 0 || shell.owner() != binding) return;
             if (title == null || appId == null || !nativeToplevel(handle, id,
                     title.getBytes(StandardCharsets.UTF_8), appId.getBytes(StandardCharsets.UTF_8),
-                    active, maximized, fullscreen, removed)) {
+                    active, maximized, fullscreen, minimized, removed)) {
                 releaseShellOutput(binding);
                 shellOutput(binding, 0, 0, "Invalid workspace toplevel publication");
             }
@@ -423,11 +423,11 @@ public final class WaylandServer extends IWaylandServer.Stub {
 
     private void onTextInput(long pointer, long editor, long revision, byte[] surrounding,
             int cursor, int anchor, int purpose, int hints, boolean caretValid,
-            float left, float top, float right, float bottom) {
+            float left, float top, float right, float bottom, boolean inputMethodChange) {
         Output output = nativeOutputs.get(pointer);
         if (output == null) return;
         try { owner.textInput(output.id, editor, revision, surrounding, cursor, anchor, purpose, hints,
-                caretValid, left, top, right, bottom); }
+                caretValid, left, top, right, bottom, inputMethodChange); }
         catch (RemoteException error) { requestStop(); }
     }
     private void onWindowGesture(long window, int edges) {
@@ -557,6 +557,6 @@ public final class WaylandServer extends IWaylandServer.Stub {
     private static native void nativeDrag(long server, long output, int action, long offer, double x, double y, boolean accepted);
     private static native boolean nativeShellOutput(long server, int width, int height);
     private static native boolean nativeToplevel(long server, long id, byte[] title, byte[] appId,
-            boolean active, boolean maximized, boolean fullscreen, boolean removed);
+            boolean active, boolean maximized, boolean fullscreen, boolean minimized, boolean removed);
     private static native boolean nativeConfigureShell(long server, long surface, int x, int y, int width, int height);
 }

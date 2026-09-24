@@ -16,7 +16,8 @@ final class DesktopShellTasks implements AutoCloseable {
         catalog.update(snapshot.tasks.stream().filter(host::isTaskbarTask).map(task -> {
             var app = LauncherAppRepository.findApplication(host.getLauncherApps(), host.appProfile().application(task));
             return new ShellTaskCatalog.Task(task.taskId, task.userId + ":" + task.packageName + ":" + task.componentName,
-                    bounded(TaskTitle.resolve(host, app, task), 512), task.packageName, task.active, task.isFullscreen(), maximized(task));
+                    bounded(TaskTitle.resolve(host, app, task), 512), task.packageName, task.active, task.isFullscreen(), maximized(task),
+                    MagicDeskRuntime.isTaskConcealed(host.getCurrentDisplayId(), task.taskId));
         }).toList(), true);
     }
 
@@ -43,10 +44,17 @@ final class DesktopShellTasks implements AutoCloseable {
         };
         switch (action) {
             case ACTIVATE -> MagicDeskRuntime.focusDesktopTask(display, task.taskId, completed);
+            case MINIMIZE -> MagicDeskRuntime.concealTask(display, task.taskId, completed);
+            case UNMINIMIZE -> {
+                if (MagicDeskRuntime.isTaskConcealed(display, task.taskId))
+                    MagicDeskRuntime.focusDesktopTask(display, task.taskId, completed);
+            }
             case CLOSE -> MagicDeskRuntime.closeTask(task, completed);
-            case MAXIMIZE -> { if (!maximized(task)) MagicDeskRuntime.arrangeTask(display, task.taskId, DesktopTaskController.SHORTCUT_MAXIMIZE); }
+            case MAXIMIZE -> MagicDeskRuntime.setMaximized(display, task.taskId,
+                    io.github.mekhontsev.magicdesk.hosted.HostedMaximization.BOTH, completed);
             case FULLSCREEN -> { if (!task.isFullscreen()) MagicDeskRuntime.makeTaskFullscreen(task, completed); }
-            case UNMAXIMIZE -> { if (maximized(task)) MagicDeskRuntime.arrangeTask(display, task.taskId, DesktopTaskController.SHORTCUT_UNMAXIMIZE); }
+            case UNMAXIMIZE -> MagicDeskRuntime.setMaximized(display, task.taskId,
+                    io.github.mekhontsev.magicdesk.hosted.HostedMaximization.NONE, completed);
             case UNFULLSCREEN -> { if (task.isFullscreen()) MagicDeskRuntime.arrangeTask(display, task.taskId, DesktopTaskController.SHORTCUT_RESTORE); }
         }
     }

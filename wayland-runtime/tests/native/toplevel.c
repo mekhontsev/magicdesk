@@ -13,7 +13,7 @@ struct Client {
     struct wl_seat *seat;
     struct zwlr_foreign_toplevel_manager_v1 *manager;
     unsigned stage, created, closed;
-    bool active, fullscreen, maximized;
+    bool active, fullscreen, maximized, minimized;
     char title[64], app[64];
 };
 static void title(void *data, struct zwlr_foreign_toplevel_handle_v1 *handle, const char *value) {
@@ -28,12 +28,13 @@ static void output(void *data, struct zwlr_foreign_toplevel_handle_v1 *handle, s
 static void state(void *data, struct zwlr_foreign_toplevel_handle_v1 *handle, struct wl_array *states) {
     (void)handle;
     struct Client *c = data;
-    c->active = c->fullscreen = c->maximized = false;
+    c->active = c->fullscreen = c->maximized = c->minimized = false;
     uint32_t *value;
     wl_array_for_each(value, states) {
         if (*value == ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_ACTIVATED) c->active = true;
         if (*value == ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_FULLSCREEN) c->fullscreen = true;
         if (*value == ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_MAXIMIZED) c->maximized = true;
+        if (*value == ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_MINIMIZED) c->minimized = true;
     }
 }
 static void done(void *data, struct zwlr_foreign_toplevel_handle_v1 *handle) {
@@ -63,6 +64,12 @@ static void done(void *data, struct zwlr_foreign_toplevel_handle_v1 *handle) {
             zwlr_foreign_toplevel_handle_v1_unset_maximized(handle); break;
         case 5:
             assert(!c->maximized);
+            zwlr_foreign_toplevel_handle_v1_set_minimized(handle); break;
+        case 6:
+            assert(c->minimized && !c->active);
+            zwlr_foreign_toplevel_handle_v1_unset_minimized(handle); break;
+        case 7:
+            assert(!c->minimized && c->active);
             zwlr_foreign_toplevel_handle_v1_close(handle); break;
         default: abort();
     }
@@ -102,7 +109,7 @@ static void client(const char *socket) {
     wl_registry_add_listener(wl_display_get_registry(c.display), &registry_listener, &c);
     // EVENT_WAIT: protocol events drive each stage; CTest's deadline fails a missing event.
     while (c.closed < 2) assert(wl_display_dispatch(c.display) >= 0);
-    assert(c.stage == 6 && c.created == 2);
+    assert(c.stage == 8 && c.created == 2);
     wl_display_disconnect(c.display);
 }
 struct Host { MdwServer *server; unsigned actions; bool finished, pending; uint64_t id; MdwToplevelAction action; };
@@ -117,16 +124,17 @@ static void apply(struct Host *h) {
     uint64_t id = h->id;
     MdwToplevelAction action = h->action;
     const MdwToplevelAction expected[] = {MDW_TOPLEVEL_ACTIVATE, MDW_TOPLEVEL_FULLSCREEN,
-        MDW_TOPLEVEL_UNFULLSCREEN, MDW_TOPLEVEL_MAXIMIZE, MDW_TOPLEVEL_UNMAXIMIZE, MDW_TOPLEVEL_CLOSE, MDW_TOPLEVEL_CLOSE};
-    assert(h->actions < 7 && action == expected[h->actions]);
-    assert(id == (h->actions == 6 ? 42 : 41));
+        MDW_TOPLEVEL_UNFULLSCREEN, MDW_TOPLEVEL_MAXIMIZE, MDW_TOPLEVEL_UNMAXIMIZE,
+        MDW_TOPLEVEL_MINIMIZE, MDW_TOPLEVEL_UNMINIMIZE, MDW_TOPLEVEL_CLOSE, MDW_TOPLEVEL_CLOSE};
+    assert(h->actions < 9 && action == expected[h->actions]);
+    assert(id == (h->actions == 8 ? 42 : 41));
     h->actions++;
     if (action == MDW_TOPLEVEL_CLOSE) {
-        assert(mdw_server_toplevel(h->server, id, NULL, NULL, false, false, false, true));
-        if (id == 41) assert(mdw_server_toplevel(h->server, 42, "Replacement", "test.application", false, false, false, false));
+        assert(mdw_server_toplevel(h->server, id, NULL, NULL, false, false, false, false, true));
+        if (id == 41) assert(mdw_server_toplevel(h->server, 42, "Replacement", "test.application", false, false, false, false, false));
         else h->finished = true;
-    } else assert(mdw_server_toplevel(h->server, id, "Workspace application", "test.application", true,
-            action == MDW_TOPLEVEL_MAXIMIZE, action == MDW_TOPLEVEL_FULLSCREEN, false));
+    } else assert(mdw_server_toplevel(h->server, id, "Workspace application", "test.application", action != MDW_TOPLEVEL_MINIMIZE,
+            action == MDW_TOPLEVEL_MAXIMIZE, action == MDW_TOPLEVEL_FULLSCREEN, action == MDW_TOPLEVEL_MINIMIZE, false));
 }
 static void shell(void *data, uint64_t id, const MdwShellSurface *surface) { (void)data; (void)id; (void)surface; }
 int main(void) {
@@ -137,9 +145,9 @@ int main(void) {
     assert(h.server);
     MdwEvents events = {.context = &h, .shell = shell, .toplevel_action = action};
     mdw_server_set_events(h.server, &events);
-    assert(!mdw_server_toplevel(h.server, 41, "Absent", "test.application", false, false, false, false));
+    assert(!mdw_server_toplevel(h.server, 41, "Absent", "test.application", false, false, false, false, false));
     assert(mdw_server_shell_output(h.server, 800, 600));
-    assert(mdw_server_toplevel(h.server, 41, "Workspace application", "test.application", false, false, false, false));
+    assert(mdw_server_toplevel(h.server, 41, "Workspace application", "test.application", false, false, false, false, false));
     pid_t pid = fork();
     assert(pid >= 0);
     if (!pid) { client(mdw_server_socket(h.server)); _exit(0); }
@@ -148,8 +156,8 @@ int main(void) {
     assert(mdw_server_dispatch(h.server, 0) >= 0);
     int status;
     assert(waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0);
-    assert(h.actions == 7 && mdw_server_shell_output(h.server, 0, 0));
-    assert(!mdw_server_toplevel(h.server, 42, "Released", "test.application", false, false, false, false));
+    assert(h.actions == 9 && mdw_server_shell_output(h.server, 0, 0));
+    assert(!mdw_server_toplevel(h.server, 42, "Released", "test.application", false, false, false, false, false));
     mdw_server_destroy(h.server);
     assert(rmdir(path) == 0);
     puts("foreign task metadata, semantic actions, removal and workspace release passed");

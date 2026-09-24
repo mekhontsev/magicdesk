@@ -25,22 +25,33 @@ final class HostedTextInputConnection extends BaseInputConnection {
     private final Predicate<KeyEvent> keys;
     private boolean closed;
     private final View view;
-    private boolean monitorCursor;
+    private final Editor binding;
+
+    private static final class Editor {
+        final android.text.Editable composition = new android.text.SpannableStringBuilder();
+        Context publishedContext;
+        HostedTextInputConnection cursorObserver;
+        boolean disposed;
+        Editor() { Selection.setSelection(composition, 0); }
+    }
 
     HostedTextInputConnection(View view, HostedSurfaceOutput output, BooleanSupplier allowed,
-            Predicate<KeyEvent> keys, EditorInfo info) {
+            Predicate<KeyEvent> keys, EditorInfo info, HostedTextInputConnection previous) {
         super(view, true);
         this.view = view;
         this.output = output; this.allowed = allowed; this.keys = keys;
         editor = output.textState();
+        binding = previous != null && previous.sameEditor(editor) ? previous.binding : new Editor();
+        if (previous != null && binding != previous.binding) previous.dispose();
         info.inputType = inputType(editor);
         info.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_ACTION_NONE;
         if (editor != null && (editor.hints() & HostedTextState.LATIN) != 0) info.imeOptions |= EditorInfo.IME_FLAG_FORCE_ASCII;
         if (editor != null && editor.privateText()) info.imeOptions |= EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING;
-        if (editor != null && editor.surrounding() != null) {
+        if (editor != null && !editor.privateText() && editor.surrounding() != null) {
             info.initialSelStart = editor.anchor(); info.initialSelEnd = editor.cursor();
             info.setInitialSurroundingSubText(editor.surrounding(), 0);
         }
+        if (binding.publishedContext == null) binding.publishedContext = context();
     }
 
     boolean sameEditor() {
@@ -48,7 +59,7 @@ final class HostedTextInputConnection extends BaseInputConnection {
     }
 
     private boolean sameEditor(HostedTextState state) {
-        return !closed && allowed.getAsBoolean() && output.supportsText()
+        return !closed && !binding.disposed && allowed.getAsBoolean() && output.supportsText()
                 && (editor == null ? state == null : editor.sameEditor(state));
     }
 
@@ -89,21 +100,34 @@ final class HostedTextInputConnection extends BaseInputConnection {
         return result;
     }
     private void publishPreedit() {
+        binding.publishedContext = context();
         output.preedit(editor, getEditable().toString(), Math.max(0, Selection.getSelectionEnd(getEditable())));
     }
     @Override public boolean commitText(CharSequence text, int cursor) {
         if (!sameEditor()) return false;
         output.text(editor, text.toString());
         getEditable().clear();
+        binding.publishedContext = context();
         return true;
     }
     @Override public boolean finishComposingText() {
-        if (!sameEditor()) { getEditable().clear(); return false; }
+        if (!sameEditor()) return false;
         if (getEditable().length() > 0) output.text(editor, getEditable().toString());
         getEditable().clear();
+        binding.publishedContext = context();
         return super.finishComposingText();
     }
-    @Override public void closeConnection() { closed = true; super.closeConnection(); }
+    @Override public android.text.Editable getEditable() { return binding.composition; }
+
+    // Android can create a candidate and retain the previous connection. Transport closure
+    // must not finish or discard the shared editor's composition through another connection.
+    @Override public void closeConnection() {
+        closed = true;
+        if (binding.cursorObserver == this) binding.cursorObserver = null;
+        super.closeConnection();
+    }
+
+    void dispose() { binding.disposed = true; binding.composition.clear(); closeConnection(); }
 
     @Override public boolean deleteSurroundingText(int before, int after) { return delete(before, after, false); }
     @Override public boolean deleteSurroundingTextInCodePoints(int before, int after) { return delete(before, after, true); }
@@ -122,7 +146,7 @@ final class HostedTextInputConnection extends BaseInputConnection {
     private record Context(String text, int anchor, int cursor, int composingStart, int composingEnd) { }
     private Context context() {
         var state = output.textState();
-        if (!sameEditor(state)) state = null;
+        if (!sameEditor(state) || state != null && state.privateText()) state = null;
         String composition = getEditable().toString();
         int cursor = Math.max(0, Selection.getSelectionEnd(getEditable()));
         if (state == null || state.surrounding() == null)
@@ -176,7 +200,11 @@ final class HostedTextInputConnection extends BaseInputConnection {
     void update(InputMethodManager manager, View view) {
         var c = context();
         manager.updateSelection(view, c.anchor, c.cursor, c.composingStart, c.composingEnd);
-        manager.invalidateInput(view);
+        // Caret updates and guest acknowledgements must not cancel queued IME edits.
+        var state = output.textState();
+        if (!c.equals(binding.publishedContext) && (state == null || !state.inputMethodChange()))
+            manager.invalidateInput(view);
+        binding.publishedContext = c;
         cursorChanged();
     }
     @Override public boolean requestCursorUpdates(int mode) { return requestCursorUpdates(mode, 0); }
@@ -186,12 +214,13 @@ final class HostedTextInputConnection extends BaseInputConnection {
                 || output.textState() == null
                 || (mode & ~(CURSOR_UPDATE_IMMEDIATE | CURSOR_UPDATE_MONITOR)) != 0
                 || (filter & ~CURSOR_UPDATE_FILTER_INSERTION_MARKER) != 0) return false;
-        monitorCursor = (mode & CURSOR_UPDATE_MONITOR) != 0;
+        if ((mode & CURSOR_UPDATE_MONITOR) != 0) binding.cursorObserver = this;
+        else if (binding.cursorObserver == this) binding.cursorObserver = null;
         if ((mode & CURSOR_UPDATE_IMMEDIATE) != 0) publishCursor();
         return true;
     }
 
-    void cursorChanged() { if (monitorCursor) publishCursor(); }
+    void cursorChanged() { if (binding.cursorObserver != null) binding.cursorObserver.publishCursor(); }
 
     CursorAnchorInfo cursorInfo() {
         var state = output.textState();

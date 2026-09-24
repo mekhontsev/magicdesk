@@ -9,8 +9,8 @@ import java.util.Set;
 
 /** Workspace-scoped public handles; stale protocol requests never become raw task operations. */
 final class ShellTaskCatalog implements AutoCloseable {
-    enum Action { ACTIVATE, MAXIMIZE, FULLSCREEN, UNMAXIMIZE, UNFULLSCREEN, CLOSE }
-    record Task(int taskId, String identity, String title, String appId, boolean active, boolean fullscreen, boolean maximized) { }
+    enum Action { ACTIVATE, MAXIMIZE, FULLSCREEN, UNMAXIMIZE, UNFULLSCREEN, CLOSE, MINIMIZE, UNMINIMIZE }
+    record Task(int taskId, String identity, String title, String appId, boolean active, boolean fullscreen, boolean maximized, boolean minimized) { }
     record Window(long id, Task task) { }
     interface Actions { void request(Task task, Action action); }
     private final Actions actions;

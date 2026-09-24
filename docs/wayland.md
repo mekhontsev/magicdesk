@@ -172,8 +172,12 @@ purpose/hints to the shared Android InputConnection. UTF-8 byte offsets are
 converted at the Wayland boundary; Android receives UTF-16 offsets and appropriate
 text, email, numeric or password editor flags. Unavailable context is distinct
 from empty text. Client commits update context without restarting the keyboard
-on each keystroke. Enable generations reject old editor connections; destructive
-edits additionally require the observed client serial. Surrounding-text deletion
+on each keystroke. Multiple Android connections borrow one editor composition;
+discarding a candidate connection does not close the active editor. Enable
+generations reject old editors; destructive edits additionally require the observed
+text/selection revision, unaffected by cursor-rectangle commits. Client-declared
+IME acknowledgements update selection without invalidating queued keyboard edits.
+Surrounding-text deletion
 preserves the active composition in the same protocol batch. Arbitrary remote
 selection changes and composing regions are not fabricated when the protocol
 cannot express them.
@@ -213,13 +217,14 @@ opens relative to its actual parent's Android host; managed windowed placement
 includes Android decorations and is clamped to the workspace. Independent hosts
 retain ordinary Android placement.
 
-`HostedWindowCommands` handles xdg maximize/restore and validated pointer
+`HostedWindowCommands` handles shared maximization state and validated pointer
 move/resize requests. It uses the existing Desktop task gateway, preserving
 ordinary restore bounds and confirming observed Android geometry with the
 request serial. One host owns each window's responses. Pointer grabs require
 the matching seat, client surface and press serial; Android motion is coalesced
 behind one outstanding bounds command. Focus loss or host closure cancels the
-gesture. Without managed Desktop these requests do not create a workspace or
+gesture. Viewport changes during the host-owned gesture retain the guest button
+until its actual release. Without managed Desktop these requests do not create a workspace or
 claim an Android task.
 
 `HostedContentExchange` owns Android clipboard focus, drag lifecycle and URI
@@ -281,7 +286,8 @@ An admitted workspace also supplies a `wlr-foreign-toplevel-management` catalog.
 It contains that workspace's managed Android task hosts, including hosted Linux
 applications, with opaque lifetime-bound handles. Activation, close, maximize,
 unmaximize, fullscreen and exit-fullscreen requests go through the same task
-gateway as MagicDesk's own controls. Minimize requests are ignored. Unbinding
+gateway as MagicDesk's own controls. Minimize and unminimize map to Desktop
+concealment and activation, preserving task mode, bounds and plane. Unbinding
 closes handles and revokes requests without closing those applications.
 Metadata/action processing is event-driven; pending wlroots idle notifications
 are dispatched before flushing and waiting for the next protocol event.
@@ -341,8 +347,8 @@ recipes and the Magisk root provider;
 successful shared-memory admission does not establish GPU driver compatibility
 inside a guest distribution.
 
-Integrated Linux shell components use the separate work plan in the shared
-[shell layout model](shell-layout.md#integration-work). A session must explicitly
+Integrated Linux shell components use the shared
+[shell layout model](shell-layout.md). A session must explicitly
 bind to a MagicDesk workspace to contribute its panels and reservations. A nested
 Linux desktop retains its own scope and cannot reserve space on its containing
 Android Desktop. Native wlroots owns protocol validation, configure/ack, scene
@@ -605,18 +611,18 @@ nested desktop and terminal in Termux (16), PRoot Ubuntu (13) and Alpine chroot
 session and terminal processes. This is software-compositor coverage, not validation of every
 Linux desktop environment or hardware acceleration.
 
-Native fixtures exercise text-input-v3 preedit/Unicode commit, serial-qualified
+Native fixtures exercise text-input-v3 preedit/Unicode commit, snapshot-qualified
 surrounding deletion with composition preservation, stale editor rejection, cursor pixels,
 scale, stale fullscreen acknowledgements, bidirectional selections, native drag
 delivery and bounded content-stream cancellation. `HostedInputInstrumentation`
 exercises Android InputConnection composition/commit, UTF-16 surrounding text and
-selection, field-purpose/privacy flags and stale connections alongside the shared
-pointer and cursor tests. Actual keyboard-app behavior and other text-input protocols
-need further device/toolkit coverage.
+selection, field-purpose/privacy flags, overlapping Android connections and stale
+editors alongside the shared pointer and cursor tests. Other text-input protocols
+need separate device/toolkit coverage.
 
-`HostedGuestEditorInstrumentation` exercises a real GTK3 guest through its Android
+`HostedGuestEditorInstrumentation` exercises a real GTK3 or Qt guest through its Android
 host: composition, Unicode correction, field switching, private PINs, caret geometry,
-controlled IME-inset delivery and a size-constrained dialog. Prepare an independent
+IME-inset delivery and a size-constrained dialog. Prepare an independent
 non-phone display and a command launching `tests/gtk-guest-content.py` with the
 session's Wayland socket available inside the guest, then run:
 
@@ -625,6 +631,12 @@ am instrument --no-restart -w -e display DISPLAY_ID -e command 'GUEST_LAUNCH_COM
   io.github.mekhontsev.magicdesk/.HostedGuestEditorInstrumentation
 ```
 
+With `-e ime true`, select the debug-only `HostedFixtureIme` first; the test uses
+Android's real keyboard connection and visible IME insets. Restore the previously
+selected keyboard afterwards. Without that argument it exercises controlled inset
+delivery. The Qt fixture is `tests/toolkits/editor.qml` (`-e entryY 95`), launched
+with `QT_QPA_PLATFORM=wayland` and `QT_WAYLAND_TEXT_INPUT_PROTOCOL=zwp_text_input_v3`.
+
 The caller needs instrumentation permission. `--no-restart` retains the running
 application and its display resources. The fixture closes its guest session and
 hosts. The GTK script's `--window-controls` mode supplies client-side maximize,
@@ -632,6 +644,15 @@ move and resize controls for managed-window checks. On RM11/API 36, the PRoot GT
 fixture passes the editor workflow and managed maximize/restore, move, resize and
 parent-relative dialog placement/dismissal. The shared X11 host regression covers
 a centered size-constrained GTK dialog and pointer-driven closure without Desktop.
+The Qt fixture supplies two levels of transient dialogs; moving its nested dialog
+between DPI 160 and 240 displays verifies fractional-scale publication and input.
+
+Qt 6.11.2's text-input-v3 client can omit the final `commit` after surrounding-text
+deletion: its reselection handling clears `needsCommit`. The strict correction
+stage exposes this limitation; MagicDesk does not consume uncommitted client state.
+`-e correction false` runs the other editor stages and explicitly reports correction
+as `NOT_TESTED`, not passed. See Qt's
+[text-input-v3 client](https://github.com/qt/qtbase/blob/v6.11.2/src/plugins/platforms/wayland/qwaylandtextinputv3.cpp).
 
 `tests/toolkits/interaction.qml` exercises Qt Quick through its Vulkan renderer:
 animation, pointer input, text entry, menus and separate popup windows. On RM11/API

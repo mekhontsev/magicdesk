@@ -66,7 +66,7 @@ final class WaylandShellBinding implements AutoCloseable, WaylandSession.ShellLi
         var next = new LinkedHashMap<Long, WaylandSession.Toplevel>();
         for (var window : mTasks.snapshot()) {
             var task = window.task();
-            var value = new WaylandSession.Toplevel(window.id(), task.title(), task.appId(), task.active(), task.maximized(), task.fullscreen());
+            var value = new WaylandSession.Toplevel(window.id(), task.title(), task.appId(), task.active(), task.maximized(), task.fullscreen(), task.minimized());
             next.put(window.id(), value);
             if (!value.equals(mPublishedTasks.get(window.id()))) mNative.publishToplevel(value, false);
         }
@@ -84,6 +84,8 @@ final class WaylandShellBinding implements AutoCloseable, WaylandSession.ShellLi
             case UNMAXIMIZE -> ShellTaskCatalog.Action.UNMAXIMIZE;
             case UNFULLSCREEN -> ShellTaskCatalog.Action.UNFULLSCREEN;
             case CLOSE -> ShellTaskCatalog.Action.CLOSE;
+            case MINIMIZE -> ShellTaskCatalog.Action.MINIMIZE;
+            case UNMINIMIZE -> ShellTaskCatalog.Action.UNMINIMIZE;
         });
     }
     List<WaylandShellSurface> surfaces() { return mClosed ? List.of() : mNative.surfaces(); }

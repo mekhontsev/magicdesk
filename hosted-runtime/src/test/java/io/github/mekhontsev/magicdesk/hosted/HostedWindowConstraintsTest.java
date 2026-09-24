@@ -28,4 +28,11 @@ public final class HostedWindowConstraintsTest {
         assertNotEquals(first, second);
         assertThrows(IllegalArgumentException.class, () -> new HostedTextState.Caret(0, 0, Float.NaN, 1));
     }
+    @Test public void editCauseDoesNotReplaceEditorIdentity() {
+        var external = new HostedTextState(1, 2, HostedTextState.Purpose.NORMAL, 0, "abc", 3, 3);
+        var ime = new HostedTextState(1, 3, HostedTextState.Purpose.NORMAL, 0, "abcd", 4, 4, null, true);
+        assertFalse(external.inputMethodChange());
+        assertTrue(ime.inputMethodChange());
+        assertTrue(external.sameEditor(ime));
+    }
 }

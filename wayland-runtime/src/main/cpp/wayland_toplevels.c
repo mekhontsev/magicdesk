@@ -8,7 +8,7 @@ struct MdwForeign {
     MdwServer *server;
     uint64_t id;
     struct wlr_foreign_toplevel_handle_v1 *handle;
-    struct wl_listener activate, maximize, fullscreen, close;
+    struct wl_listener activate, maximize, fullscreen, minimize, close;
 };
 
 static void request(struct MdwForeign *item, MdwToplevelAction action) {
@@ -32,6 +32,11 @@ static void fullscreen(struct wl_listener *listener, void *data) {
     if (!event->output || event->output == item->server->shell_output)
         request(item, event->fullscreen ? MDW_TOPLEVEL_FULLSCREEN : MDW_TOPLEVEL_UNFULLSCREEN);
 }
+static void minimize(struct wl_listener *listener, void *data) {
+    struct MdwForeign *item = wl_container_of(listener, item, minimize);
+    struct wlr_foreign_toplevel_handle_v1_minimized_event *event = data;
+    request(item, event->minimized ? MDW_TOPLEVEL_MINIMIZE : MDW_TOPLEVEL_UNMINIMIZE);
+}
 static void close_window(struct wl_listener *listener, void *data) {
     (void)data;
     struct MdwForeign *item = wl_container_of(listener, item, close);
@@ -42,6 +47,7 @@ static void remove_window(struct MdwForeign *item) {
     wl_list_remove(&item->activate.link);
     wl_list_remove(&item->maximize.link);
     wl_list_remove(&item->fullscreen.link);
+    wl_list_remove(&item->minimize.link);
     wl_list_remove(&item->close.link);
     wl_list_remove(&item->link);
     wlr_foreign_toplevel_handle_v1_destroy(item->handle);
@@ -60,7 +66,7 @@ bool mdw_toplevels_prepare(MdwServer *server) {
 }
 
 bool mdw_server_toplevel(MdwServer *server, uint64_t id, const char *title, const char *app_id,
-        bool active, bool maximized, bool fullscreen_state, bool removed) {
+        bool active, bool maximized, bool fullscreen_state, bool minimized, bool removed) {
     if (!id || !server->shell_output) return false;
     struct MdwForeign *item = NULL, *candidate;
     wl_list_for_each(candidate, &server->foreign_windows, link) if (candidate->id == id) { item = candidate; break; }
@@ -78,10 +84,12 @@ bool mdw_server_toplevel(MdwServer *server, uint64_t id, const char *title, cons
         item->activate.notify = activate;
         item->maximize.notify = maximize;
         item->fullscreen.notify = fullscreen;
+        item->minimize.notify = minimize;
         item->close.notify = close_window;
         wl_signal_add(&item->handle->events.request_activate, &item->activate);
         wl_signal_add(&item->handle->events.request_maximize, &item->maximize);
         wl_signal_add(&item->handle->events.request_fullscreen, &item->fullscreen);
+        wl_signal_add(&item->handle->events.request_minimize, &item->minimize);
         wl_signal_add(&item->handle->events.request_close, &item->close);
         wl_list_insert(server->foreign_windows.prev, &item->link);
         wlr_foreign_toplevel_handle_v1_output_enter(item->handle, server->shell_output);
@@ -91,5 +99,6 @@ bool mdw_server_toplevel(MdwServer *server, uint64_t id, const char *title, cons
     wlr_foreign_toplevel_handle_v1_set_activated(item->handle, active);
     wlr_foreign_toplevel_handle_v1_set_maximized(item->handle, maximized);
     wlr_foreign_toplevel_handle_v1_set_fullscreen(item->handle, fullscreen_state);
+    wlr_foreign_toplevel_handle_v1_set_minimized(item->handle, minimized);
     return true;
 }

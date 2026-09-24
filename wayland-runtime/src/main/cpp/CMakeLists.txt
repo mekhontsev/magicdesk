@@ -47,6 +47,7 @@ mdw_protocol(wlr-foreign-toplevel-management-unstable-v1 ${MDW_WLR_PROTOCOL_DIR}
 add_library(magicdesk_wayland STATIC wayland_server.c wayland_renderer.c wayland_dmabuf.c wayland_input.c wayland_cursor.c wayland_content.c content_stream.c wayland_shell.c wayland_scene.c wayland_geometry.c wayland_popup.c wayland_toplevels.c
 	${CMAKE_CURRENT_BINARY_DIR}/linux-dmabuf-v1-protocol.h
 	${CMAKE_CURRENT_BINARY_DIR}/xdg-shell-protocol.h
+	${CMAKE_CURRENT_BINARY_DIR}/text-input-unstable-v3-protocol.h
 	${CMAKE_CURRENT_BINARY_DIR}/wlr-layer-shell-unstable-v1-protocol.h)
 add_library(magicdesk_frame STATIC frame_fd.c)
 target_link_libraries(magicdesk_frame PUBLIC magicdesk_graphics PkgConfig::WLROOTS)

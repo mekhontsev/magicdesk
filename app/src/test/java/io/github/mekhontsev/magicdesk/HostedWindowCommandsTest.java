@@ -5,7 +5,15 @@ import org.junit.Test;
 public final class HostedWindowCommandsTest {
     @Test public void gesturesCoalesceAndRespectOwnershipConstraintsAndCancellation() throws Exception {
         RuntimeSourceFixture.verify("static " + RuntimeSourceFixture.nestedClass("HostedWindowCommands", "HostedWindowCommands")
-                .replace("BiConsumer<", "java.util.function.BiConsumer<") + """
+                .replace("BiConsumer<", "java.util.function.BiConsumer<")
+                + "static " + RuntimeSourceFixture.nestedClass("WindowMaximization", "WindowMaximization")
+                + """
+            enum HostedMaximization {
+                NONE(false,false),HORIZONTAL(true,false),VERTICAL(false,true),BOTH(true,true);
+                final boolean horizontal,vertical;
+                HostedMaximization(boolean h,boolean v) { horizontal=h; vertical=v; }
+                static HostedMaximization of(boolean h,boolean v) { return h ? (v ? BOTH:HORIZONTAL):(v ? VERTICAL:NONE); }
+            }
             static class Rect {
                 int left, top, right, bottom;
                 Rect(int l, int t, int r, int b) { left=l; top=t; right=r; bottom=b; }
@@ -37,6 +45,7 @@ public final class HostedWindowCommandsTest {
                 Point pressedPointer() { return new Point(); }
                 int getWidth() { return 780; } int getHeight() { return 560; }
                 void cancelPointer() { cancels++; }
+                void beginWindowGesture() { }
             }
             record HostedWindowConstraints(int minW,int minH,int maxW,int maxH) {
                 static final HostedWindowConstraints NONE=new HostedWindowConstraints(1,1,4000,4000);
@@ -44,7 +53,7 @@ public final class HostedWindowCommandsTest {
                 int height(int v) { return Math.max(minH,Math.min(maxH,v)); }
             }
             enum HostedWindowGesture {
-                MOVE(false,false,false,false),BOTTOM_RIGHT(false,false,true,true);
+                MOVE(false,false,false,false),BOTTOM_RIGHT(false,false,true,true),CANCEL(false,false,false,false);
                 final boolean left,top,right,bottom;
                 HostedWindowGesture(boolean l,boolean t,boolean r,boolean b) { left=l;top=t;right=r;bottom=b; }
             }
@@ -61,7 +70,7 @@ public final class HostedWindowCommandsTest {
                 static void setWindowBounds(int display,int task,Rect bounds,java.util.function.Consumer<Result> cb) {
                     check(pending==null,"one in-flight command"); calls++; target=bounds; pending=cb;
                 }
-                static void setMaximized(int display,int task,boolean max,java.util.function.Consumer<Result> cb) { cb.accept(new Result(true)); }
+                static void setMaximized(int display,int task,HostedMaximization max,java.util.function.Consumer<Result> cb) { cb.accept(new Result(true)); }
                 static void finish(boolean ok) { var p=pending; pending=null; p.accept(new Result(ok)); }
             }
             static class TaskRepository {
@@ -73,15 +82,16 @@ public final class HostedWindowCommandsTest {
                 Activity activity=new Activity(); HostedSurfaceView surface=new HostedSurfaceView();
                 var commands=new HostedWindowCommands(activity,surface,(serial,max)->{});
                 commands.begin(HostedWindowGesture.MOVE);
-                check(surface.cancels==1,"guest implicit grab released");
+                check(surface.cancels==0,"client press retained until the host gesture ends");
                 surface.receiver.test(new MotionEvent(2,110,120));
                 surface.receiver.test(new MotionEvent(2,120,130));
                 surface.receiver.test(new MotionEvent(1,140,150));
+                check(surface.cancels==1,"guest press released at gesture end");
                 check(MagicDeskRuntime.calls==1,"motion is coalesced");
                 MagicDeskRuntime.finish(true);
                 check(MagicDeskRuntime.target.equals(new Rect(50,70,850,670)),"final pointer position retained");
                 MagicDeskRuntime.finish(true);
-                commands.update(0,false,new HostedWindowConstraints(200,100,500,300),1);
+                commands.update(0,HostedMaximization.NONE,new HostedWindowConstraints(200,100,500,300),1);
                 commands.begin(HostedWindowGesture.BOTTOM_RIGHT);
                 surface.receiver.test(new MotionEvent(2,2000,2000));
                 check(MagicDeskRuntime.target.width()==520 && MagicDeskRuntime.target.height()==340,"client limits plus Android decor");

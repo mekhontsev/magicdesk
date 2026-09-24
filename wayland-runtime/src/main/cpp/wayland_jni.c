@@ -182,7 +182,7 @@ static void text_input_event(void *context, MdwOutput *output, const MdwTextStat
             (jlong)(intptr_t)output, (jlong)state->editor, (jlong)state->revision, text,
             (jint)state->cursor, (jint)state->anchor, (jint)state->purpose, (jint)state->hints,
             (jboolean)state->caret_valid, (jfloat)state->caret[0], (jfloat)state->caret[1],
-            (jfloat)state->caret[2], (jfloat)state->caret[3]);
+            (jfloat)state->caret[2], (jfloat)state->caret[3], (jboolean)state->input_method_change);
     if (text) (*env)->DeleteLocalRef(env, text);
 }
 
@@ -201,7 +201,7 @@ static void cursor_event(void *context, MdwOutput *output, const uint32_t *pixel
 }
 
 JNIEXPORT jboolean JNICALL JNI(nativeToplevel)(JNIEnv *env, jclass type, jlong handle, jlong id,
-        jbyteArray title, jbyteArray app_id, jboolean active, jboolean maximized, jboolean fullscreen, jboolean removed) {
+        jbyteArray title, jbyteArray app_id, jboolean active, jboolean maximized, jboolean fullscreen, jboolean minimized, jboolean removed) {
     (void)type;
     struct Bridge *bridge = (void *)(intptr_t)handle;
     char name[4097] = {0}, app[1025] = {0};
@@ -213,7 +213,7 @@ JNIEXPORT jboolean JNICALL JNI(nativeToplevel)(JNIEnv *env, jclass type, jlong h
         (*env)->GetByteArrayRegion(env, app_id, 0, app_len, (jbyte *)app);
         if ((*env)->ExceptionCheck(env)) return false;
     }
-    return mdw_server_toplevel(bridge->server, (uint64_t)id, name, app, active, maximized, fullscreen, removed);
+    return mdw_server_toplevel(bridge->server, (uint64_t)id, name, app, active, maximized, fullscreen, minimized, removed);
 }
 
 static void geometry_event(void *context, const MdwViewGeometry *geometry) {
@@ -289,7 +289,7 @@ JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner) {
     if (!(*env)->ExceptionCheck(env)) bridge->wanted = (*env)->GetMethodID(env, type, "frameWanted", "(J)Z");
     if (!(*env)->ExceptionCheck(env)) bridge->can_render = (*env)->GetMethodID(env, type, "canRender", "(J)Z");
     if (!(*env)->ExceptionCheck(env)) bridge->error = (*env)->GetMethodID(env, type, "onError", "(Ljava/lang/String;)V");
-    if (!(*env)->ExceptionCheck(env)) bridge->text_input = (*env)->GetMethodID(env, type, "onTextInput", "(JJJ[BIIIIZFFFF)V");
+    if (!(*env)->ExceptionCheck(env)) bridge->text_input = (*env)->GetMethodID(env, type, "onTextInput", "(JJJ[BIIIIZFFFFZ)V");
     if (!(*env)->ExceptionCheck(env)) bridge->cursor = (*env)->GetMethodID(env, type, "onCursor", "(J[IIIIIZ)V");
     if (!(*env)->ExceptionCheck(env)) bridge->content_offer = (*env)->GetMethodID(env, type, "onContentOffer", "(IJJLjava/lang/String;)V");
     if (!(*env)->ExceptionCheck(env)) bridge->content_request = (*env)->GetMethodID(env, type, "onContentRequest", "(IJJLjava/lang/String;)V");

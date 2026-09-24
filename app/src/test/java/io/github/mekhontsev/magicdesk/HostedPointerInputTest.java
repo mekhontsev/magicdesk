@@ -190,6 +190,20 @@ public final class HostedPointerInputTest {
             """);
     }
 
+    @Test public void windowGestureRetainsButtonAcrossResizeButNotFocusLoss() throws Exception {
+        verify("""
+            var f = new Input(); f.send(0,1,100,100); f.send(2,1,200,200);
+            f.input.windowGesture();
+            f.input.viewport(HostedViewport.fit(500,500,1000,1000));
+            check(f.input.dragging() && f.out.edges.equals(List.of("PRIMARY:true")), "host resizing retains guest press");
+            f.input.release();
+            check(f.out.edges.equals(List.of("PRIMARY:true", "PRIMARY:false")), "focus loss releases even a host gesture");
+            f.send(0,1,100,100); f.send(2,1,200,200);
+            f.input.viewport(HostedViewport.fit(600,600,1000,1000));
+            check(!f.input.dragging(), "next ordinary contact does not inherit gesture ownership");
+            """);
+    }
+
     @Test public void contentDragTransfersButtonOwnershipWithoutAnExtraRelease() throws Exception {
         verify("""
             var f = new Input(); f.send(0,1,100,100); f.send(2,1,200,200);

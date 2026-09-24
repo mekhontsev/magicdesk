@@ -3,6 +3,7 @@
 #include <string.h>
 #include <wlr/types/wlr_compositor.h>
 #include <wlr/types/wlr_text_input_v3.h>
+#include "text-input-unstable-v3-protocol.h"
 
 struct MdwTextInput {
     struct wl_list link;
@@ -10,6 +11,8 @@ struct MdwTextInput {
     struct wlr_text_input_v3 *text;
     struct wl_listener enable, disable, commit, destroy;
     uint64_t editor;
+    uint32_t revision, cursor, anchor;
+    char *surrounding;
 };
 
 struct MdwInput {
@@ -42,17 +45,20 @@ static void publish_text(struct MdwInput *input) {
     if (item && input->editor) {
         struct wlr_text_input_v3 *text = item->text;
         state.editor = item->editor;
-        state.revision = text->current_serial;
-        if (text->active_features & WLR_TEXT_INPUT_V3_FEATURE_SURROUNDING_TEXT) {
+        state.revision = item->revision;
+        state.input_method_change = text->current.text_change_cause == ZWP_TEXT_INPUT_V3_CHANGE_CAUSE_INPUT_METHOD;
+        // A client may publish optional context after enabling an initially empty editor.
+        // Read committed features, not the feature set captured at enable time.
+        if (text->current.features & WLR_TEXT_INPUT_V3_FEATURE_SURROUNDING_TEXT) {
             state.surrounding = text->current.surrounding.text;
             state.cursor = text->current.surrounding.cursor;
             state.anchor = text->current.surrounding.anchor;
         }
-        if (text->active_features & WLR_TEXT_INPUT_V3_FEATURE_CONTENT_TYPE) {
+        if (text->current.features & WLR_TEXT_INPUT_V3_FEATURE_CONTENT_TYPE) {
             state.purpose = text->current.content_type.purpose;
             state.hints = text->current.content_type.hint;
         }
-        if (text->active_features & WLR_TEXT_INPUT_V3_FEATURE_CURSOR_RECTANGLE)
+        if (text->current.features & WLR_TEXT_INPUT_V3_FEATURE_CURSOR_RECTANGLE)
             state.caret_valid = mdw_output_caret(input->text_owner, text->focused_surface,
                 &text->current.cursor_rectangle, state.caret);
     }
@@ -78,15 +84,38 @@ void mdw_input_refresh(MdwServer *server) {
     mdw_cursor_refresh(server);
 }
 
+static bool capture_context(struct MdwTextInput *item) {
+    struct wlr_text_input_v3 *text = item->text;
+    const char *surrounding = text->current.features & WLR_TEXT_INPUT_V3_FEATURE_SURROUNDING_TEXT
+        ? text->current.surrounding.text : NULL;
+    bool changed = surrounding ? !item->surrounding || strcmp(surrounding, item->surrounding)
+        : item->surrounding != NULL;
+    if (changed) {
+        char *copy = surrounding ? strdup(surrounding) : NULL;
+        if (surrounding && !copy) { wl_client_post_no_memory(wl_resource_get_client(text->resource)); return false; }
+        free(item->surrounding);
+        item->surrounding = copy;
+    }
+    // Deletions qualify the text/selection snapshot, not cursor-rectangle-only commits.
+    if (changed || !item->revision || item->cursor != text->current.surrounding.cursor
+            || item->anchor != text->current.surrounding.anchor) ++item->revision;
+    item->cursor = text->current.surrounding.cursor;
+    item->anchor = text->current.surrounding.anchor;
+    return true;
+}
+
 static void text_changed(struct wl_listener *listener, void *data) {
     (void)data;
     struct MdwTextInput *item = wl_container_of(listener, item, enable);
     item->editor = ++item->server->input->next_editor;
+    item->revision = 0;
+    if (!capture_context(item)) return;
     mdw_input_refresh(item->server);
 }
 static void text_committed(struct wl_listener *listener, void *data) {
     (void)data;
     struct MdwTextInput *item = wl_container_of(listener, item, commit);
+    if (!capture_context(item)) return;
     if (active_text(item->server->input) == item) publish_text(item->server->input);
 }
 static void text_disabled(struct wl_listener *listener, void *data) {
@@ -101,6 +130,7 @@ static void text_destroyed(struct wl_listener *listener, void *data) {
     wl_list_remove(&item->commit.link);
     wl_list_remove(&item->destroy.link); wl_list_remove(&item->link);
     mdw_input_refresh(item->server);
+    free(item->surrounding);
     free(item);
 }
 
@@ -149,12 +179,12 @@ bool mdw_input_text(MdwServer *server, uint64_t editor, const char *text, bool c
 bool mdw_input_delete_text(MdwServer *server, uint64_t editor, uint32_t revision, uint32_t before, uint32_t after,
         const char *preedit, int position) {
     struct MdwTextInput *item = server->input ? active_text(server->input) : NULL;
-    if (!item || !editor || item->editor != editor || item->text->current_serial != revision) return false;
+    if (!item || !editor || item->editor != editor || item->revision != revision) return false;
     if (!preedit || strlen(preedit) > 4000 || position < 0 || (size_t)position > strlen(preedit)
             || ((unsigned char)preedit[position] & 0xc0) == 0x80) return false;
     struct wlr_text_input_v3 *target = item->text;
     const char *text = target->current.surrounding.text;
-    if (!(target->active_features & WLR_TEXT_INPUT_V3_FEATURE_SURROUNDING_TEXT) || !text) return false;
+    if (!(target->current.features & WLR_TEXT_INPUT_V3_FEATURE_SURROUNDING_TEXT) || !text) return false;
     uint32_t cursor = target->current.surrounding.cursor, anchor = target->current.surrounding.anchor;
     uint32_t start = cursor < anchor ? cursor : anchor, end = cursor > anchor ? cursor : anchor;
     size_t length = strlen(text);

@@ -38,6 +38,7 @@ final class X11Sessions {
         default Host inspectHost() { return null; }
         default void onFrame(X11Session.Output output, int width, int height, boolean available) { }
         default void onCursor(X11Session.Output output, X11Session.Cursor cursor) { }
+        default void onWindowGesture(long window, io.github.mekhontsev.magicdesk.hosted.HostedWindowGesture gesture) { }
         default void onDataOffer(X11DataExchange.Offer offer) { }
         default void onDragEvent(int operation, int output, boolean accepted) { }
     }
@@ -182,7 +183,7 @@ final class X11Sessions {
         private volatile List<X11Session.Window> windows = List.of();
         private Listener clipboardOwner;
         final HostedWindowPresentation presentation;
-        private final HostedWindowOwners fullscreenOwners = new HostedWindowOwners();
+        private final HostedWindowOwners windowControlOwners = new HostedWindowOwners();
 
         Session(Context context, X11Execution execution, String name, String command,
                 String directory, boolean application, int densityDpi, String desktopFile, RecentApplicationStore.Entry recipe) {
@@ -352,18 +353,23 @@ final class X11Sessions {
             for (var item : windows) if (item.mapped() && !item.provisional() && !LAUNCHES.reserved(id(), item.id()))
                 if (presentation.present(item.id())) LAUNCHES.presented(id(), item.id());
         }
-        boolean claimFullscreen(long id, Object host) {
-            return fullscreenOwners.claim(id, host);
+        boolean claimWindowControl(long id, Object host) {
+            return windowControlOwners.claim(id, host);
         }
-        void releaseFullscreen(Object host) {
-            if (fullscreenOwners.release(host)) changed();
+        void releaseWindowControl(Object host) {
+            if (windowControlOwners.release(host)) changed();
         }
         void confirmFullscreen(long id, Object host,
                 io.github.mekhontsev.magicdesk.x11.X11WindowManagement.Request request,
                 io.github.mekhontsev.magicdesk.x11.X11WindowManagement.State actual) {
             X11Session current = renderer;
-            if (fullscreenOwners.owns(id, host) && current != null && state == State.READY)
+            if (windowControlOwners.owns(id, host) && current != null && state == State.READY)
                 current.confirmWindowState(id, request, actual);
+        }
+        void confirmMaximized(long id, Object host, long serial, io.github.mekhontsev.magicdesk.hosted.HostedMaximization actual) {
+            X11Session current = renderer;
+            if (windowControlOwners.owns(id, host) && current != null && state == State.READY)
+                current.confirmMaximized(id, serial, actual);
         }
         void claimClipboard(Listener owner) {
             clipboardOwner = owner;
@@ -472,6 +478,9 @@ final class X11Sessions {
                     @Override public void onCursor(X11Session.Output output, X11Session.Cursor cursor) {
                         if (!stopped()) for (Listener listener : listeners) listener.onCursor(output, cursor);
                     }
+                    @Override public void onWindowGesture(long window, io.github.mekhontsev.magicdesk.hosted.HostedWindowGesture gesture) {
+                        if (!stopped()) for (Listener listener : listeners) listener.onWindowGesture(window, gesture);
+                    }
                     @Override public void onDisconnected() { fail(new IllegalStateException("X11 renderer disconnected")); }
                     @Override public void onDataOffer(X11DataExchange.Offer offer) {
                         if (stopped()) return;
@@ -492,7 +501,7 @@ final class X11Sessions {
                         presentation.retain(live);
                         associateRecipes(snapshot);
                         if (application) LAUNCHES.update(id(), launchScope(), snapshot);
-                        fullscreenOwners.retain(snapshot.stream().map(X11Session.Window::id).toList());
+                        windowControlOwners.retain(snapshot.stream().map(X11Session.Window::id).toList());
                         if (!snapshot.isEmpty()) {
                             boolean first = !hadWindows;
                             hadWindows = true;

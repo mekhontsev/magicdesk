@@ -26,8 +26,8 @@ public final class WaylandSession implements AutoCloseable {
     public record Window(long id, long parent, String title, String appId, boolean mapped, int width, int height,
             HostedWindowConstraints constraints, long requestSerial, boolean fullscreen,
             long maximizeSerial, boolean maximized) { }
-    public record Toplevel(long id, String title, String appId, boolean active, boolean maximized, boolean fullscreen) { }
-    public enum ToplevelAction { ACTIVATE, MAXIMIZE, FULLSCREEN, UNMAXIMIZE, UNFULLSCREEN, CLOSE }
+    public record Toplevel(long id, String title, String appId, boolean active, boolean maximized, boolean fullscreen, boolean minimized) { }
+    public enum ToplevelAction { ACTIVATE, MAXIMIZE, FULLSCREEN, UNMAXIMIZE, UNFULLSCREEN, CLOSE, MINIMIZE, UNMINIMIZE }
     public interface Listener {
         void changed();
         void failed(long output, String message);
@@ -89,13 +89,14 @@ public final class WaylandSession implements AutoCloseable {
         }
         @Override public void textInput(long id, long editor, long revision, byte[] surrounding,
                 int cursor, int anchor, int purpose, int hints, boolean caretValid,
-                float left, float top, float right, float bottom) {
+                float left, float top, float right, float bottom, boolean inputMethodChange) {
             checkCaller();
             var context = WaylandText.state(editor, revision, surrounding, cursor, anchor, purpose, hints);
             var state = context == null ? null : new io.github.mekhontsev.magicdesk.hosted.HostedTextState(
                     context.editor(), context.revision(), context.purpose(), context.hints(), context.surrounding(),
                     context.cursor(), context.anchor(), caretValid
-                    ? new io.github.mekhontsev.magicdesk.hosted.HostedTextState.Caret(left, top, right, bottom) : null);
+                    ? new io.github.mekhontsev.magicdesk.hosted.HostedTextState.Caret(left, top, right, bottom) : null,
+                    inputMethodChange);
             handler.post(() -> {
                 Output output = outputs.get(id);
                 if (closed.get() || output == null || output.released.get()
@@ -481,7 +482,7 @@ public final class WaylandSession implements AutoCloseable {
                 throw new IllegalArgumentException("Invalid toplevel identity");
             handler.post(() -> {
                 if (!released.get() && !closed.get()) remote(() -> server.publishToplevel(id, window.id(),
-                        window.title(), window.appId(), window.active(), window.maximized(), window.fullscreen(), removed));
+                        window.title(), window.appId(), window.active(), window.maximized(), window.fullscreen(), window.minimized(), removed));
             });
         }
 

@@ -17,7 +17,7 @@ struct Connection {
     JavaVM* vm;
     jobject owner;
     jmethodID frame, disconnected, window, windowRemoved, windows, data, cursor;
-    jmethodID shell, shellState, presented, family;
+    jmethodID shell, shellState, presented, family, windowGesture;
     jclass managementClass;
     jmethodID managementConstructor;
     jclass inspectionNodeClass;
@@ -68,7 +68,8 @@ const LorieCallbacks callbacks = {
             const auto& state = info->management;
             jobject management = env->NewObject(c->managementClass, c->managementConstructor,
                     (jboolean)state.managed, (jint)state.request.serial,
-                    (jboolean)state.request.fullscreen, (jboolean)state.actual.fullscreen);
+                    (jboolean)state.request.fullscreen, (jboolean)state.actual.fullscreen,
+                    (jint)state.maximized.serial, (jint)state.maximized.requested, (jint)state.maximized.actual);
             if (management) {
                 env->CallVoidMethod(c->owner, c->window, (jint)id, title, icon, (jboolean)info->mapped, (jint)info->role,
                     management, instance, className, (jint)info->parent, (jint)info->width, (jint)info->height,
@@ -186,6 +187,10 @@ const LorieCallbacks callbacks = {
         env->CallVoidMethod(c->owner, c->presented, (jint)output, (jint)serial, (jboolean)success);
         if (env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
         if (attach) c->vm->DetachCurrentThread();
+    },
+    .windowGesture = [](void* ptr, uint32_t window, unsigned direction) {
+        auto* c = (Connection*)ptr;
+        c->env->CallVoidMethod(c->owner, c->windowGesture, (jint)window, (jint)direction);
     }
 };
 
@@ -221,6 +226,7 @@ extern "C" JNIEXPORT jlong JNICALL JNI(X11Session_nativeCreate)(JNIEnv* env, job
     c->window = env->GetMethodID(cls, "onNativeWindow", "(I[B[IZILio/github/mekhontsev/magicdesk/x11/X11WindowManagement;[B[BIIIIIII)V");
     c->windowRemoved = env->GetMethodID(cls, "onNativeWindowRemoved", "(I)V");
     c->windows = env->GetMethodID(cls, "onNativeWindowsCommitted", "()V");
+    c->windowGesture = env->GetMethodID(cls, "onNativeWindowGesture", "(II)V");
     c->data = env->GetMethodID(cls, "onNativeData", "(IIIIIIIILjava/lang/String;I)V");
     c->inspectionNode = env->GetMethodID(cls, "onNativeInspectionNode", "(ILio/github/mekhontsev/magicdesk/x11/X11WindowInspection$Node;)V");
     c->inspectionDone = env->GetMethodID(cls, "onNativeInspectionDone", "(IIIIIIIZZ)V");
@@ -230,7 +236,7 @@ extern "C" JNIEXPORT jlong JNICALL JNI(X11Session_nativeCreate)(JNIEnv* env, job
         jclass management = env->FindClass("io/github/mekhontsev/magicdesk/x11/X11WindowManagement");
         if (management) {
             c->managementClass = (jclass)env->NewGlobalRef(management);
-            c->managementConstructor = env->GetMethodID(management, "<init>", "(ZIZZ)V");
+            c->managementConstructor = env->GetMethodID(management, "<init>", "(ZIZZIII)V");
             env->DeleteLocalRef(management);
         }
     }
@@ -329,6 +335,11 @@ extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeDpi)(JNIEnv*, jclass, jlo
 extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeConfirmWindowState)(JNIEnv*, jclass, jlong ptr,
         jint window, jint requestSerial, jboolean fullscreen) {
     lorieConfirmWindowState(((Connection*)ptr)->native, window, requestSerial, {.fullscreen = fullscreen != 0});
+}
+
+extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeConfirmMaximized)(JNIEnv*, jclass, jlong ptr,
+        jint window, jint requestSerial, jint axes) {
+    lorieConfirmMaximized(((Connection*)ptr)->native, window, requestSerial, axes);
 }
 
 extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeText)(JNIEnv* env, jclass, jlong ptr,

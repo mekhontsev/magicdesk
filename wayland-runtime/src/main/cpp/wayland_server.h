@@ -10,7 +10,8 @@ typedef struct MdwServer MdwServer;
 typedef struct MdwOutput MdwOutput;
 typedef enum { MDW_PRIMARY, MDW_MIDDLE, MDW_SECONDARY } MdwButton;
 typedef enum { MDW_TOPLEVEL_ACTIVATE, MDW_TOPLEVEL_MAXIMIZE, MDW_TOPLEVEL_FULLSCREEN,
-    MDW_TOPLEVEL_UNMAXIMIZE, MDW_TOPLEVEL_UNFULLSCREEN, MDW_TOPLEVEL_CLOSE } MdwToplevelAction;
+    MDW_TOPLEVEL_UNMAXIMIZE, MDW_TOPLEVEL_UNFULLSCREEN, MDW_TOPLEVEL_CLOSE,
+    MDW_TOPLEVEL_MINIMIZE, MDW_TOPLEVEL_UNMINIMIZE } MdwToplevelAction;
 
 typedef struct {
 	uint64_t id;
@@ -66,6 +67,7 @@ typedef struct {
     uint32_t revision, cursor, anchor, purpose, hints;
     const char *surrounding; /* Borrowed UTF-8, null when the client supplies no context. */
     bool caret_valid;
+    bool input_method_change;
     float caret[4]; /* Normalized output rectangle; no guessed baseline. */
 } MdwTextState;
 
@@ -111,7 +113,7 @@ void mdw_server_destroy(MdwServer *server);
 /* Explicit shell admission. Removing the output closes its shell surfaces, not applications. */
 bool mdw_server_shell_output(MdwServer *server, int width, int height);
 bool mdw_server_toplevel(MdwServer *server, uint64_t id, const char *title, const char *app_id,
-    bool active, bool maximized, bool fullscreen, bool removed);
+        bool active, bool maximized, bool fullscreen, bool minimized, bool removed);
 bool mdw_shell_surface_configure(MdwServer *server, uint64_t id,
     int x, int y, int width, int height);
 MdwOutput *mdw_output_create(MdwServer *server, uint64_t window, int width, int height);

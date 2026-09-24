@@ -18,7 +18,7 @@ oneway interface IWaylandEvents {
     void toplevelAction(long shellOwner, long id, int action);
     void textInput(long output, long editor, long revision, in @nullable byte[] surrounding,
             int cursor, int anchor, int purpose, int hints, boolean caretValid,
-            float left, float top, float right, float bottom);
+            float left, float top, float right, float bottom, boolean inputMethodChange);
     void contentOffer(int channel, long id, long output, String types);
     void contentRequest(int channel, long id, long request, String type);
     void contentReply(long request, in @nullable ParcelFileDescriptor data);

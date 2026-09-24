@@ -116,7 +116,7 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     }
 
     void release() {
-        if (textConnection != null) { textConnection.closeConnection(); textConnection = null; }
+        if (textConnection != null) { textConnection.dispose(); textConnection = null; }
         releaseInput();
         if (output != null) {
             if (ownsOutput) output.close();
@@ -253,6 +253,7 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         return pointerInput.dragging() ? new android.graphics.PointF(rawX, rawY) : null;
     }
     void cancelPointer() { pointerInput.release(); }
+    void beginWindowGesture() { pointerInput.windowGesture(); }
 
     void textInputChanged() {
         android.view.inputmethod.InputMethodManager manager = getContext().getSystemService(
@@ -270,11 +271,10 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
 
     @Override public InputConnection onCreateInputConnection(EditorInfo info) {
         if (!onCheckIsTextEditor()) return null;
-        if (textConnection != null) textConnection.closeConnection();
         HostedSurfaceOutput target = output;
         textConnection = new HostedTextInputConnection(this, target,
                 () -> keyboardAllowed && inputAllowed && output == target,
-                event -> key(event, event.getAction() == KeyEvent.ACTION_DOWN), info);
+                event -> key(event, event.getAction() == KeyEvent.ACTION_DOWN), info, textConnection);
         return textConnection;
     }
 

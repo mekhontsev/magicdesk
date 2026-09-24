@@ -85,6 +85,13 @@ public final class HostedInputInstrumentation extends Instrumentation {
         connection.setComposingText(composed, 1);
         require(output.preedit.equals(composed) && output.cursor == composed.length(), "Unicode preedit and UTF-16 cursor");
         require(output.commits.isEmpty(), "composition is not committed prematurely");
+        var candidate = view.onCreateInputConnection(new EditorInfo());
+        require(connection.setComposingText(composed, 1), "candidate creation does not close Android's active connection");
+        require(candidate.getTextBeforeCursor(100, 0).toString().equals(composed), "candidate observes the same editor composition");
+        connection.closeConnection();
+        require(!connection.commitText("closed", 1), "closed transport rejects edits");
+        require(candidate.getTextBeforeCursor(100, 0).toString().equals(composed), "transport closure retains editor composition");
+        connection = candidate;
         connection.commitText("committed", 1);
         connection.finishComposingText();
         require(output.commits.equals(java.util.List.of("committed")), "commit is delivered exactly once");
@@ -148,6 +155,10 @@ public final class HostedInputInstrumentation extends Instrumentation {
         require((info.inputType & android.text.InputType.TYPE_MASK_CLASS) == android.text.InputType.TYPE_CLASS_NUMBER,
                 "PIN requests numeric keyboard");
         require((info.imeOptions & EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0, "private field disables learning");
+        output.state = new io.github.mekhontsev.magicdesk.hosted.HostedTextState(12, 2,
+                io.github.mekhontsev.magicdesk.hosted.HostedTextState.Purpose.PIN, 0, "1234", 4, 4);
+        require(connection.getTextBeforeCursor(100, 0).length() == 0, "guest PIN text is not published to Android queries");
+        require(connection.takeSnapshot().getSurroundingText().getText().length() == 0, "guest PIN snapshot stays private");
         output.state = null;
     }
 

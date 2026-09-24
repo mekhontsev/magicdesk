@@ -42,27 +42,11 @@ final class TaskbarTaskOrder {
     private TaskbarTaskOrder() {
     }
 
-    static List<Integer> concealActiveTask(
+    static List<Integer> concealTask(
             final TaskRepository.Snapshot snapshot,
             final int activeTaskId,
             final List<TaskRepository.TaskEntry> savedWorkspaceTopFirst,
             final Set<Integer> concealedTaskIds,
-            final int desktopHostTaskId) {
-        return concealActiveTask(
-                snapshot,
-                activeTaskId,
-                savedWorkspaceTopFirst,
-                concealedTaskIds,
-                -1,
-                desktopHostTaskId);
-    }
-
-    static List<Integer> concealActiveTask(
-            final TaskRepository.Snapshot snapshot,
-            final int activeTaskId,
-            final List<TaskRepository.TaskEntry> savedWorkspaceTopFirst,
-            final Set<Integer> concealedTaskIds,
-            final int focusedTaskId,
             final int desktopHostTaskId) {
         final List<Integer> order = new ArrayList<>();
         if (snapshot == null || !snapshot.available || activeTaskId < 0) {
@@ -73,7 +57,6 @@ final class TaskbarTaskOrder {
         final TaskRepository.TaskEntry desktopHost = findDesktopHost(
                 snapshot.tasks, desktopHostTaskId);
         if (activeTask == null
-                || (!activeTask.active && activeTask.taskId != focusedTaskId)
                 || desktopHost == null
                 || activeTask.displayId != desktopHost.displayId
                 || !DesktopManagedTaskPolicy

@@ -858,12 +858,23 @@ public final class MagicDeskRuntime {
         return tasks != null && tasks.handleActiveTaskShortcut(shortcut);
     }
 
+    static void concealTask(int displayId, int taskId, TaskRepository.ActionCallback callback) {
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
+        if (tasks == null) { completeTaskAction(callback, false, "desktop task runtime unavailable"); return; }
+        tasks.concealTask(displayId, taskId, callback);
+    }
+
+    static boolean isTaskConcealed(int displayId, int taskId) {
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
+        return tasks != null && tasks.isTaskConcealed(displayId, taskId);
+    }
+
     static boolean arrangeTask(final int displayId, final int taskId, final int shortcut) {
         final DesktopTaskRuntime tasks = desktopTasks(displayId);
         return tasks != null && tasks.arrangeTask(taskId, shortcut);
     }
 
-    static void setMaximized(int displayId, int taskId, boolean maximized, TaskRepository.ActionCallback callback) {
+    static void setMaximized(int displayId, int taskId, io.github.mekhontsev.magicdesk.hosted.HostedMaximization maximized, TaskRepository.ActionCallback callback) {
         final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks == null) { completeTaskAction(callback, false, "desktop task runtime unavailable"); return; }
         tasks.setMaximized(displayId, taskId, maximized, callback);

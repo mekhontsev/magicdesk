@@ -17,6 +17,7 @@ final class X11HostBinding implements X11Sessions.Listener {
     private HostedFamilyWindows family;
     private X11Session.Output dependentOutput;
     private volatile HostedFullscreen fullscreen;
+    private HostedWindowCommands commands;
     private X11WindowManagement.Request fullscreenRequest;
     private long window;
     private boolean closed;
@@ -37,7 +38,7 @@ final class X11HostBinding implements X11Sessions.Listener {
     void refresh(long window, boolean present) {
         if (closed) return;
         if (this.window != window) {
-            releaseFullscreen();
+            releaseWindowControl();
             releaseOutput();
         }
         this.window = window;
@@ -80,7 +81,7 @@ final class X11HostBinding implements X11Sessions.Listener {
             }
         } else if (!present && output != null) releaseOutput();
         updateExchangeFocus();
-        updateFullscreen();
+        updateWindowControl();
         if (family != null) family.refresh();
     }
 
@@ -88,15 +89,19 @@ final class X11HostBinding implements X11Sessions.Listener {
         return new ShellBounds(rect.left(), rect.top(), rect.right(), rect.bottom());
     }
 
-    private void updateFullscreen() {
+    private void updateWindowControl() {
         X11Session.Window info = window == 0 ? null
                 : session.windows().stream().filter(item -> item.id() == window).findFirst().orElse(null);
-        if (output == null || info == null || !info.management().managed() || !session.claimFullscreen(window, this)) {
-            releaseFullscreen();
+        if (output == null || info == null || !info.management().managed() || !session.claimWindowControl(window, this)) {
+            releaseWindowControl();
             return;
         }
         if (fullscreen == null) fullscreen = new HostedFullscreen(activity, surface,
                 actual -> session.confirmFullscreen(window, this, fullscreenRequest, new X11WindowManagement.State(actual)));
+        if (commands == null) commands = new HostedWindowCommands(activity, surface,
+                (serial, actual) -> session.confirmMaximized(window, this, serial, actual));
+        var maximize = info.management().maximization();
+        commands.update(Integer.toUnsignedLong(maximize.serial()), maximize.requested(), info.layout().constraints(), 1);
         X11WindowManagement.Request request = info.management().request();
         if (fullscreenRequest == null || fullscreenRequest.serial() != request.serial()) {
             fullscreenRequest = request;
@@ -111,11 +116,13 @@ final class X11HostBinding implements X11Sessions.Listener {
 
     void rejectImmersive() { if (!closed && fullscreen != null) fullscreen.reject(); }
 
-    private void releaseFullscreen() {
+    private void releaseWindowControl() {
+        if (commands != null) commands.close();
+        commands = null;
         if (fullscreen != null) fullscreen.close();
         fullscreen = null;
         fullscreenRequest = null;
-        session.releaseFullscreen(this);
+        session.releaseWindowControl(this);
     }
 
     void updateDensity() {
@@ -127,11 +134,13 @@ final class X11HostBinding implements X11Sessions.Listener {
         if (closed) return;
         updateDensity();
         if (family != null) family.focusChanged(); else session.host(activity.getTaskId(), window, focused);
+        if (commands != null) commands.focusChanged();
     }
 
     void presentationChanged() {
         if (closed) return;
         if (fullscreen != null) fullscreen.changed();
+        if (commands != null) commands.observe();
         if (family != null) family.refresh();
     }
     void updateExchangeFocus() {
@@ -157,6 +166,10 @@ final class X11HostBinding implements X11Sessions.Listener {
     }
 
     @Override public void onChanged() { if (!closed) changed.run(); }
+
+    @Override public void onWindowGesture(long id, io.github.mekhontsev.magicdesk.hosted.HostedWindowGesture gesture) {
+        if (!closed && id == window && commands != null && session.claimWindowControl(window, this)) commands.begin(gesture);
+    }
 
     @Override public X11Sessions.Host inspectHost() {
         if (closed || output == null || activity.isDestroyed() || activity.isFinishing()) return null;
@@ -195,7 +208,7 @@ final class X11HostBinding implements X11Sessions.Listener {
             catch (IllegalStateException ignored) { /* Disconnected session has no live close channel. */ }
         }
         closed = true;
-        releaseFullscreen();
+        releaseWindowControl();
         releaseExchange();
         session.unlisten(this);
         session.releaseDensity(this);

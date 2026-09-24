@@ -300,13 +300,16 @@ and [EWMH](https://specifications.freedesktop.org/wm/latest-single/).
 existing observer into `ShellTaskCatalog`. Handles are opaque and lifetime-bound;
 a removed task or changed application identity cannot inherit an old action target.
 Unknown observation preserves metadata but refuses actions. Activation, close,
-maximize and fullscreen requests use the existing task gateway and never operate
+maximize, conceal/restore and fullscreen requests use the existing task gateway and never operate
 on another workspace's tasks. Maximize and unmaximize are explicit, not toggles.
 
 An explicitly bound Wayland session exposes these handles through
 `wlr-foreign-toplevel-management`. Titles, app IDs, activation, maximized and
-fullscreen state are diffed; unbinding closes handles and disables action delivery.
-Minimize requests are not implemented. This catalog is separate from layer-surface
+fullscreen and minimized state are diffed; unbinding closes handles and disables action delivery.
+Minimize uses Desktop's existing concealment policy: it reorders the task behind
+the desktop without changing its mode, bounds or task plane. Unminimize activates
+a concealed task through the same focus gateway; repeated requests are idempotent.
+This catalog is separate from layer-surface
 placement and does not acquire a new task observer.
 
 `GraphicalShells` owns revocable session/workspace associations. Workspace loss,

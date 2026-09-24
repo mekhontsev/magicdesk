@@ -2,7 +2,11 @@ package io.github.mekhontsev.magicdesk.hosted;
 
 /** Immutable guest editor context. Positions use UTF-16; null text means unavailable, not empty. */
 public record HostedTextState(long editor, long revision, Purpose purpose, int hints,
-        String surrounding, int cursor, int anchor, Caret caret) {
+        String surrounding, int cursor, int anchor, Caret caret, boolean inputMethodChange) {
+    public HostedTextState(long editor, long revision, Purpose purpose, int hints,
+            String surrounding, int cursor, int anchor, Caret caret) {
+        this(editor, revision, purpose, hints, surrounding, cursor, anchor, caret, false);
+    }
     /** Rectangle in normalized output coordinates, including out-of-viewport positions. */
     public record Caret(float left, float top, float right, float bottom) {
         public Caret {

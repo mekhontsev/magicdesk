@@ -1209,6 +1209,23 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         });
     }
 
+    @Override public void concealTask(int displayId, int taskId, TaskRepository.ActionCallback callback) {
+        enqueueWorkspaceOperation(displayId, callback, (workspace, completion) -> {
+            final var task = findTask(workspace.tasks, taskId);
+            if (task == null || !isFocusableTask(task)) {
+                completeActionCallback(completion, false, "task unavailable");
+            } else if (isTaskConcealed(displayId, taskId)) {
+                completeActionCallback(completion, true, "unchanged");
+            } else demoteTask(workspace, taskId, completion);
+        });
+    }
+
+    @Override public boolean isTaskConcealed(int displayId, int taskId) {
+        synchronized (mTaskbarConcealedTaskIds) {
+            return isActiveOnDisplay(displayId) && mTaskbarConcealedTaskIds.contains(taskId);
+        }
+    }
+
     private void demoteTask(
             final TaskRepository.Snapshot snapshot,
             final int taskId,
@@ -1222,12 +1239,11 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     mTaskbarConcealedTaskIds);
         }
         final List<Integer> focusOrder =
-                TaskbarTaskOrder.concealActiveTask(
+                TaskbarTaskOrder.concealTask(
                         snapshot,
                         taskId,
                         mDisplayTaskState.lastVisibleTasks(),
                         concealedTaskIds,
-                        mActiveTaskId,
                         currentDesktopHostTaskId());
         if (focusOrder.size() < 2) {
             if (!alreadyConcealed) {
@@ -1247,6 +1263,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     if (!result.success && !alreadyConcealed) {
                         restoreTaskbarTask(taskId);
                     }
+                    notifyTaskStackChanged();
                     completeActionCallback(
                             callback, result.success, result.message);
                 });
@@ -1503,7 +1520,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         return true;
     }
 
-    @Override public void setMaximized(int displayId, int taskId, boolean maximized, TaskRepository.ActionCallback callback) {
+    @Override public void setMaximized(int displayId, int taskId, io.github.mekhontsev.magicdesk.hosted.HostedMaximization maximized, TaskRepository.ActionCallback callback) {
         withFreeformTask(displayId, taskId, task -> mWindowTransitions.setMaximized(task, maximized, callback), callback);
     }
 

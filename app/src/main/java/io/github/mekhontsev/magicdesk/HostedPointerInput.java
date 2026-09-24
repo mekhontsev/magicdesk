@@ -19,7 +19,7 @@ final class HostedPointerInput {
     private float x = .5f, y = .5f, startX, startY, previousX, previousY;
     private float scrollX, scrollY;
     private int buttons, physicalButtons;
-    private boolean contact, pendingTap, syntheticButton, scrolling, relative, moved;
+    private boolean contact, pendingTap, syntheticButton, scrolling, relative, moved, windowGesture;
 
     HostedPointerInput(View view) {
         this.view = view;
@@ -31,10 +31,13 @@ final class HostedPointerInput {
 
     void bind(HostedSurfaceOutput next) { release(); output = next; }
     void viewport(HostedViewport next) {
-        if (!viewport.equals(next)) release();
+        if (!viewport.equals(next) && !windowGesture) release();
         viewport = next;
     }
     boolean dragging() { return (buttons & MotionEvent.BUTTON_PRIMARY) != 0; }
+
+    /** The host now tracks raw display coordinates until the window gesture releases the button. */
+    void windowGesture() { windowGesture = true; view.removeCallbacks(longPress); }
 
     void release() {
         physicalButtons = 0;
@@ -51,6 +54,7 @@ final class HostedPointerInput {
     }
 
     private void forget() {
+        windowGesture = false;
         view.removeCallbacks(longPress);
         contact = pendingTap = scrolling = moved = false;
         scrollX = scrollY = 0;

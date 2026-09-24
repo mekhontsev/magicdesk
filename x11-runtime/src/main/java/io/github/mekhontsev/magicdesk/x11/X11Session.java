@@ -31,6 +31,7 @@ public final class X11Session implements AutoCloseable {
         default void onDataOffer(X11DataExchange.Offer offer) { }
         default void onDragEvent(int operation, int output, boolean accepted) { }
         default void onCursor(Output output, Cursor cursor) { }
+        default void onWindowGesture(long window, io.github.mekhontsev.magicdesk.hosted.HostedWindowGesture gesture) { }
     }
 
     /** Immutable shape in X content pixels. A null image is either hidden or the host default. */
@@ -179,6 +180,18 @@ public final class X11Session implements AutoCloseable {
                 new HostedWindowLayout(Integer.toUnsignedLong(parent), width, height,
                         new HostedWindowConstraints(minWidth, minHeight, maxWidth, maxHeight))));
         windowsChanged = true;
+    }
+
+    public void confirmMaximized(long windowId, long serial, io.github.mekhontsev.magicdesk.hosted.HostedMaximization actual) {
+        if (windowId <= 0 || windowId > 0xffffffffL) throw new IllegalArgumentException("Invalid X11 window ID");
+        java.util.Objects.requireNonNull(actual);
+        int axes = (actual.horizontal ? 1 : 0) | (actual.vertical ? 2 : 0);
+        post(() -> { if (connected) nativeConfirmMaximized(nativeHandle, (int)windowId, (int)serial, axes); });
+    }
+
+    private void onNativeWindowGesture(int id, int direction) {
+        var gesture = X11WindowGestures.decode(direction);
+        if (gesture != null) callbacks.execute(() -> { if (!closed) listener.onWindowGesture(Integer.toUnsignedLong(id), gesture); });
     }
 
     private void onNativeWindowRemoved(int id) {
@@ -672,6 +685,7 @@ public final class X11Session implements AutoCloseable {
     private static native void nativeCloseWindow(long handle, int window, boolean force);
     private static native void nativeDpi(long handle, int dpi);
     private static native void nativeConfirmWindowState(long handle, int window, int requestSerial, boolean fullscreen);
+    private static native void nativeConfirmMaximized(long handle, int window, int requestSerial, int axes);
     private static native void nativeText(long handle, int output, int window, String text);
     private static native void nativeData(long handle, int operation, int channel, int serial, int offer,
             int output, int window, int x, int y, String type, int descriptor);

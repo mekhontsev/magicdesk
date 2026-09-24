@@ -4,7 +4,7 @@ import org.junit.Test;
 
 public final class X11HostBindingTest {
     @Test public void borrowedResourcesAndWindowIntentRetainTheirLifetimes() throws Exception {
-        RuntimeSourceFixture.verify("static " + RuntimeSourceFixture.nestedClass("X11HostBinding", "X11HostBinding") + """
+        RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", "static " + RuntimeSourceFixture.nestedClass("X11HostBinding", "X11HostBinding") + """
             static final List<String> events = new ArrayList<>();
             static class Configuration { int densityDpi = 320; }
             static class Resources {
@@ -27,9 +27,15 @@ public final class X11HostBindingTest {
             record X11WindowManagement(boolean managed, Request request, State actual) {
                 record Request(int serial, boolean fullscreen) { }
                 record State(boolean fullscreen) { }
+                io.github.mekhontsev.magicdesk.x11.X11WindowManagement.Maximization maximization() {
+                    return new io.github.mekhontsev.magicdesk.x11.X11WindowManagement.Maximization(request.serial(),
+                            io.github.mekhontsev.magicdesk.hosted.HostedMaximization.NONE, io.github.mekhontsev.magicdesk.hosted.HostedMaximization.NONE);
+                }
             }
             static class X11Session {
-                record Window(long id, X11WindowManagement management) { }
+                record Window(long id, X11WindowManagement management) {
+                    io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout layout() { return io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout.NONE; }
+                }
                 record Cursor(Object image, int hotspotX, int hotspotY, boolean hidden) { }
                 static class Output {
                     boolean closed;
@@ -46,6 +52,7 @@ public final class X11HostBindingTest {
                     default Host inspectHost() { return null; }
                     default void onFrame(X11Session.Output output, int width, int height, boolean available) { }
                     default void onCursor(X11Session.Output output, X11Session.Cursor cursor) { }
+                    default void onWindowGesture(long window, io.github.mekhontsev.magicdesk.hosted.HostedWindowGesture gesture) { }
                 }
                 static class Session {
                     final Presentation presentation = new Presentation();
@@ -74,8 +81,11 @@ public final class X11HostBindingTest {
                     void releaseDensity(Object host) { densities.remove(host); events.add("density"); }
                     X11Session.Output openOutput(long id) { opens++; return output = new X11Session.Output(); }
                     List<X11Session.Window> windows() { return windows; }
-                    boolean claimFullscreen(long id, Object host) { return owners.computeIfAbsent(id, key -> host) == host; }
-                    void releaseFullscreen(Object host) { owners.values().removeIf(value -> value == host); events.add("owner"); }
+                    boolean claimWindowControl(long id, Object host) { return owners.computeIfAbsent(id, key -> host) == host; }
+                    void releaseWindowControl(Object host) { owners.values().removeIf(value -> value == host); events.add("owner"); }
+                    void confirmMaximized(long id, Object host, long serial, io.github.mekhontsev.magicdesk.hosted.HostedMaximization actual) {
+                        check(owners.get(id) == host, "only owner confirms maximization");
+                    }
                     void confirmFullscreen(long id, Object host, X11WindowManagement.Request request, X11WindowManagement.State state) {
                         check(owners.get(id) == host, "only the owner may confirm");
                         confirmed = request; actual = state; confirmations++;
@@ -124,6 +134,14 @@ public final class X11HostBindingTest {
                 void close() { events.add("exchange"); }
             }
             static class BuiltInWindowRegistry { record ImmersiveRequest(boolean requested) { } }
+            static class HostedWindowCommands {
+                HostedWindowCommands(Activity activity, HostedSurfaceView surface,
+                        java.util.function.BiConsumer<Long,io.github.mekhontsev.magicdesk.hosted.HostedMaximization> completed) { }
+                void update(long serial, io.github.mekhontsev.magicdesk.hosted.HostedMaximization requested,
+                        io.github.mekhontsev.magicdesk.hosted.HostedWindowConstraints constraints, float scale) { }
+                void focusChanged() { } void observe() { } void close() { }
+                void begin(io.github.mekhontsev.magicdesk.hosted.HostedWindowGesture gesture) { }
+            }
             static class HostedFullscreen {
                 static final List<HostedFullscreen> created = new ArrayList<>();
                 final java.util.function.Consumer<Boolean> completed;
@@ -238,6 +256,10 @@ public final class X11HostBindingTest {
                 failing.close(false);
                 check(desktopSession.listeners.isEmpty(), "failed and recovered binding unsubscribes");
             }
-            """);
+            """, java.nio.file.Path.of("../hosted-runtime/src/main/java/io/github/mekhontsev/magicdesk/hosted/HostedMaximization.java").toAbsolutePath().toString(),
+            java.nio.file.Path.of("../hosted-runtime/src/main/java/io/github/mekhontsev/magicdesk/hosted/HostedWindowGesture.java").toAbsolutePath().toString(),
+            java.nio.file.Path.of("../hosted-runtime/src/main/java/io/github/mekhontsev/magicdesk/hosted/HostedWindowLayout.java").toAbsolutePath().toString(),
+            java.nio.file.Path.of("../hosted-runtime/src/main/java/io/github/mekhontsev/magicdesk/hosted/HostedWindowConstraints.java").toAbsolutePath().toString(),
+            java.nio.file.Path.of("../x11-runtime/src/main/java/io/github/mekhontsev/magicdesk/x11/X11WindowManagement.java").toAbsolutePath().toString());
     }
 }

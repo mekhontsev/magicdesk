@@ -32,5 +32,5 @@ interface IWaylandServer {
     oneway void setShellOutput(long owner, int width, int height);
     oneway void releaseShell(long owner);
     oneway void configureShell(long owner, long surface, long revision, int x, int y, int width, int height);
-    oneway void publishToplevel(long owner, long id, String title, String appId, boolean active, boolean maximized, boolean fullscreen, boolean removed);
+    oneway void publishToplevel(long owner, long id, String title, String appId, boolean active, boolean maximized, boolean fullscreen, boolean minimized, boolean removed);
 }

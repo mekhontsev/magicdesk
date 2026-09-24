@@ -7,7 +7,7 @@ import static org.junit.Assert.*;
 
 public final class ShellTaskCatalogTest {
     private static ShellTaskCatalog.Task task(int id, String identity, boolean active) {
-        return new ShellTaskCatalog.Task(id, identity, "title", "application", active, false, false);
+        return new ShellTaskCatalog.Task(id, identity, "title", "application", active, false, false, false);
     }
 
     @Test public void staleHandlesCannotAddressReusedTasksOrUnavailableObservations() {

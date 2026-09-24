@@ -3,20 +3,37 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 public final class NativeWindowBoundsReconciliationTest {
+    @Test public void independentMaximizeAxesKeepOneRestoreRectangle() throws Exception {
+        verify("""
+                f.sample(ordinary);
+                Dispatch d = new Dispatch(f);
+                var horizontal = io.github.mekhontsev.magicdesk.hosted.HostedMaximization.HORIZONTAL;
+                var vertical = io.github.mekhontsev.magicdesk.hosted.HostedMaximization.VERTICAL;
+                for (var axes : List.of(horizontal, io.github.mekhontsev.magicdesk.hosted.HostedMaximization.BOTH, vertical)) {
+                    d.setMaximized(f.task, axes, null);
+                    Rect expected = WindowMaximization.target(axes, ordinary, work);
+                    check(f.requests.get(f.requests.size()-1).equals(expected), "independent axis geometry");
+                    f.sample(expected); f.complete(true); f.sample(expected);
+                    check(f.state().windowRestoreBounds().equals(ordinary), "partial maximization retains restore");
+                }
+                d.setMaximized(f.task, io.github.mekhontsev.magicdesk.hosted.HostedMaximization.NONE, null);
+                check(f.requests.get(f.requests.size()-1).equals(ordinary), "axis restoration returns original rectangle");
+                """);
+    }
     @Test public void clientMaximizeIsIdempotentAndRestoresOrdinaryBounds() throws Exception {
         verify("""
                 f.sample(ordinary);
                 Dispatch d = new Dispatch(f);
-                d.setMaximized(f.task, true, null);
+                d.setMaximized(f.task, io.github.mekhontsev.magicdesk.hosted.HostedMaximization.BOTH, null);
                 check(f.requests.get(0).equals(work), "maximize did not use shared work area");
                 f.sample(work); f.complete(true); f.sample(work);
-                d.setMaximized(f.task, true, null);
+                d.setMaximized(f.task, io.github.mekhontsev.magicdesk.hosted.HostedMaximization.BOTH, null);
                 check(f.requests.size() == 1, "repeated maximize toggled or resized");
                 check(f.state().windowRestoreBounds().equals(ordinary), "maximize overwrote ordinary geometry");
-                d.setMaximized(f.task, false, null);
+                d.setMaximized(f.task, io.github.mekhontsev.magicdesk.hosted.HostedMaximization.NONE, null);
                 check(f.requests.get(1).equals(ordinary), "client restore lost original geometry");
                 f.complete(true); f.sample(ordinary);
-                d.setMaximized(f.task, false, null);
+                d.setMaximized(f.task, io.github.mekhontsev.magicdesk.hosted.HostedMaximization.NONE, null);
                 check(f.requests.size() == 2, "repeated restore toggled or resized");
                 """);
     }
@@ -252,7 +269,8 @@ public final class NativeWindowBoundsReconciliationTest {
     }
 
     private static void verify(final String scenario) throws Exception {
-        RuntimeSourceFixture.verify("""
+        RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", "static " + RuntimeSourceFixture.nestedClass("WindowMaximization", "WindowMaximization")
+                .replace("HostedMaximization", "io.github.mekhontsev.magicdesk.hosted.HostedMaximization") + """
                 static class Rect {
                     int left, top, right, bottom;
                     Rect() {}
@@ -375,6 +393,7 @@ public final class NativeWindowBoundsReconciliationTest {
                 "NativeWindowBoundsController", "reconcile", "observeBounds",
                 "getSnappedBounds", "snappedBounds",
                 "rememberRestoreBounds", "occupiesHeight", "getDefaultWindowBounds",
-                "correctNativeCaptionSnapBounds", "sameBounds", "rect", "requestBounds", "complete"));
+                "correctNativeCaptionSnapBounds", "sameBounds", "rect", "requestBounds", "complete"),
+                java.nio.file.Path.of("../hosted-runtime/src/main/java/io/github/mekhontsev/magicdesk/hosted/HostedMaximization.java").toAbsolutePath().toString());
     }
 }

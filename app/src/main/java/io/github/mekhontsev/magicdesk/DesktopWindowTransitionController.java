@@ -449,13 +449,14 @@ final class DesktopWindowTransitionController {
         mNativeWindowBounds.requestBounds(task, targetBounds, true);
     }
 
-    void setMaximized(TaskRepository.TaskEntry task, boolean maximized, TaskRepository.ActionCallback callback) {
+    void setMaximized(TaskRepository.TaskEntry task, io.github.mekhontsev.magicdesk.hosted.HostedMaximization maximized, TaskRepository.ActionCallback callback) {
         Rect work = mNativeWindowBounds.getTaskbarMaximizedBounds();
-        if (maximized == task.bounds.equals(work)) { complete(callback, true, "unchanged"); return; }
+        if (maximized == WindowMaximization.observe(task.bounds, work)) { complete(callback, true, "unchanged"); return; }
         noteManualFreeformTransition(task.taskId);
         mNativeWindowBounds.rememberRestoreBounds(task);
-        Rect target = maximized ? work : mTaskStates.state(task.taskId).windowRestoreBounds();
-        mNativeWindowBounds.requestBounds(task, target, maximized, callback);
+        Rect restore = mTaskStates.state(task.taskId).windowRestoreBounds();
+        Rect target = WindowMaximization.target(maximized, restore, work);
+        mNativeWindowBounds.requestBounds(task, target, maximized != io.github.mekhontsev.magicdesk.hosted.HostedMaximization.NONE, callback);
     }
 
     void setWindowBounds(

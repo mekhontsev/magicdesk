@@ -95,8 +95,9 @@ final class WaylandHostBinding implements AutoCloseable {
         var info = session.windows().stream().filter(item -> item.id() == window).findFirst().orElse(null);
         if (info == null || !session.claimWindowControl(window, this)) return;
         if (commands == null) commands = new HostedWindowCommands(activity, surface,
-                (serial, actual) -> session.confirmMaximized(window, this, serial, actual));
-        commands.update(info.maximizeSerial(), info.maximized(), info.constraints(), Math.max(0.25f, Math.min(8, density / 160f)));
+                (serial, actual) -> session.confirmMaximized(window, this, serial, actual == io.github.mekhontsev.magicdesk.hosted.HostedMaximization.BOTH));
+        commands.update(info.maximizeSerial(), info.maximized() ? io.github.mekhontsev.magicdesk.hosted.HostedMaximization.BOTH
+                : io.github.mekhontsev.magicdesk.hosted.HostedMaximization.NONE, info.constraints(), Math.max(0.25f, Math.min(8, density / 160f)));
         if (fullscreen == null) fullscreen = new HostedFullscreen(activity, surface,
                 actual -> session.confirmFullscreen(window, this, fullscreenSerial, actual));
         if (fullscreenSerial != info.requestSerial()) {
