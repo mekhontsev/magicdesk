@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <math.h>
 #include <stdio.h>
+#include <sys/mman.h>
 #include <unistd.h>
 #include <vulkan/vulkan.h>
 
@@ -279,6 +280,7 @@ void mdg_vk_image_destroy(MdgImage *image) {
     Gpu *gpu = image->device->gpu;
     if (native->dma_buffer) gpu->DestroyBuffer(gpu->device, native->dma_buffer, NULL);
     if (native->dma_memory) gpu->FreeMemory(gpu->device, native->dma_memory, NULL);
+    if (native->dma_mapping) munmap(native->dma_mapping, native->dma_mapping_size);
     if (native->framebuffer) gpu->DestroyFramebuffer(gpu->device, native->framebuffer, NULL);
     if (native->view) gpu->DestroyImageView(gpu->device, native->view, NULL);
     if (native->image && !native->swapchain) gpu->DestroyImage(gpu->device, native->image, NULL);
@@ -363,6 +365,8 @@ bool mdg_vk_submit(MdgPass *pass) {
         if (j != image_count) continue;
         images[image_count++] = image;
         if (!image->hardware && image->dmabuf_fd < 0) upload_size += (VkDeviceSize)image->width * image->height * 4;
+        if (image->dmabuf_fd >= 0) upload_size += (VkDeviceSize)image->width *
+            (image->height - ((Image *)image->gpu)->dma_rows) * 4;
     }
     if (!pass->gpu && !pass_create(pass)) { mdg_vk_pass_destroy(pass); return false; }
     Pass *native = pass->gpu;
@@ -384,11 +388,22 @@ bool mdg_vk_submit(MdgPass *pass) {
                         (const uint8_t *)image->pixels + y * image->stride, (size_t)image->width * 4);
             barrier(gpu, native, image, source->initialized ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_UNDEFINED,
                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, false, false);
+            unsigned rows = dma ? source->dma_rows : image->height;
             VkBufferImageCopy copy = {.bufferOffset = dma ? image->dmabuf_offset : offset,
                 .bufferRowLength = dma ? image->stride / 4 : 0, .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-                .imageExtent = {image->width, image->height, 1}};
-            gpu->CmdCopyBufferToImage(native->command, dma ? source->dma_buffer : native->upload,
+                .imageExtent = {image->width, rows, 1}};
+            if (rows) gpu->CmdCopyBufferToImage(native->command, dma ? source->dma_buffer : native->upload,
                 source->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+            if (dma && rows < image->height) {
+                if (!mdg_vk_dmabuf_tail(image, (char *)native->mapped + offset)) return false;
+                copy.bufferOffset = offset;
+                copy.bufferRowLength = 0;
+                copy.imageOffset.y = rows;
+                copy.imageExtent.height = image->height - rows;
+                gpu->CmdCopyBufferToImage(native->command, native->upload,
+                    source->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+                offset += (VkDeviceSize)image->width * (image->height - rows) * 4;
+            }
             if (dma) mdg_vk_dmabuf_barrier(gpu, native, source, false);
             barrier(gpu, native, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, false, false);

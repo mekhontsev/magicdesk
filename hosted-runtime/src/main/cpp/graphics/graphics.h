@@ -12,7 +12,8 @@ extern "C" {
 typedef struct MdgDevice MdgDevice;
 typedef struct MdgImage MdgImage;
 typedef struct MdgPass MdgPass;
-typedef struct { uint64_t gpu_frames, software_frames, failed_frames; } MdgStats;
+typedef struct { uint64_t gpu_frames, software_frames, failed_frames, dma_tail_bytes; } MdgStats;
+typedef enum { MDG_SUBMIT_FAILED, MDG_SUBMIT_OK, MDG_SUBMIT_DEFERRED } MdgSubmitResult;
 typedef struct AHardwareBuffer AHardwareBuffer;
 typedef struct ANativeWindow ANativeWindow;
 typedef struct MdgSurface MdgSurface;
@@ -25,6 +26,13 @@ typedef struct {
     uint32_t offset, stride;
     MdgFormat format;
 } MdgLinearDmaBuf;
+/* Borrowed static operation name; code is errno or VkResult for that operation.
+ * Size checks publish bytes, not file paths or contents. Filled on failure only. */
+typedef struct {
+    const char *operation;
+    int code;
+    uint64_t available, required;
+} MdgImportError;
 typedef struct { float x, y, width, height; } MdgBox;
 typedef struct { int x, y, width, height; } MdgClip;
 typedef struct {
@@ -55,7 +63,7 @@ MdgImage *mdg_image_hardware(MdgDevice *device, AHardwareBuffer *buffer);
 /* Borrows the FD on entry, retains its own FD on success. GPU sampling only.
  * Producers must honor DMA-BUF implicit fences. Each submission acquires the
  * producer's writes and publishes its read fence before returning. */
-MdgImage *mdg_image_linear_dmabuf(MdgDevice *device, const MdgLinearDmaBuf *buffer);
+MdgImage *mdg_image_linear_dmabuf(MdgDevice *device, const MdgLinearDmaBuf *buffer, MdgImportError *error);
 void mdg_image_ref(MdgImage *image);
 void mdg_image_unref(MdgImage *image);
 unsigned mdg_image_width(const MdgImage *image);
@@ -70,7 +78,11 @@ bool mdg_device_available(MdgDevice *device);
 MdgPass *mdg_pass_begin(MdgDevice *device, MdgImage *target, const float clear[4], bool preserve);
 bool mdg_pass_draw(MdgPass *pass, const MdgDraw *draw);
 bool mdg_pass_rect(MdgPass *pass, MdgBox box, MdgClip clip, const float color[4], bool blend);
-bool mdg_pass_submit(MdgPass *pass);
+/* DEFERRED retains the recording and returns an owned source fence in wait_fd.
+ * Observe that fence before retrying, or cancel the recording. No pixels were
+ * modified and no completion was published. Other outcomes consume the pass.
+ * Producers must retain the consumer's buffer lease through submission. */
+MdgSubmitResult mdg_pass_submit(MdgPass *pass, int *wait_fd);
 /* Pixel-lock users may wait on their rendering worker, never on a protocol Looper. */
 bool mdg_pass_submit_and_wait(MdgPass *pass);
 void mdg_pass_cancel(MdgPass *pass);

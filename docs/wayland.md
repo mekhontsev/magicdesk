@@ -262,8 +262,8 @@ Ordinary application hosts retain their existing viewport policy.
 
 ## Remaining Work
 
-**Linux GPU client compatibility.** Validate real client drivers and toolkits
-against linear DMA-BUF admission. Nonlinear/multi-plane allocations require a
+**Linux GPU client compatibility.** Broaden driver/toolkit coverage beyond the
+verified Mesa/Turnip `vkcube` linear DMA-BUF path. Nonlinear/multi-plane allocations require a
 separate capability-backed image importer; implicit layouts must not be guessed.
 Cursor publication currently reads SHM pixels; GPU-only cursor surfaces need
 asynchronous readback before Android pointer-icon publication. Keep these

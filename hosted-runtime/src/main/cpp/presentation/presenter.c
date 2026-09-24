@@ -69,7 +69,10 @@ static bool compose(struct Presenter *presenter, MdgImage *source, unsigned widt
             .clip = {0, 0, mdg_image_width(target), mdg_image_height(target)}, .opacity = 1, .linear = true};
         if (!mdg_pass_draw(pass, &draw)) { mdg_pass_cancel(pass); return false; }
     }
-    return mdg_pass_submit(pass) && mdg_surface_present(presenter->surface);
+    int wait_fd;
+    MdgSubmitResult result = mdg_pass_submit(pass, &wait_fd);
+    if (result == MDG_SUBMIT_DEFERRED) { close(wait_fd); mdg_pass_cancel(pass); }
+    return result == MDG_SUBMIT_OK && mdg_surface_present(presenter->surface);
 }
 JNIEXPORT jboolean JNICALL JNI(nativePresent)(JNIEnv *env, jclass type, jlong handle,
         jobject hardware, jint descriptor, jint fence, jint width, jint height) {

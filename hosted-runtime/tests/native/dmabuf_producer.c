@@ -23,6 +23,7 @@ bool producer_create(struct Producer *p) {
     p->destroy_event = (PFN_vkDestroyEvent)proc(g->device, "vkDestroyEvent");
     p->wait_event = (PFN_vkCmdWaitEvents)proc(g->device, "vkCmdWaitEvents");
     p->set_event = (PFN_vkSetEvent)proc(g->device, "vkSetEvent");
+    p->reset_event = (PFN_vkResetEvent)proc(g->device, "vkResetEvent");
     PFN_vkGetPhysicalDeviceExternalBufferProperties properties = (PFN_vkGetPhysicalDeviceExternalBufferProperties)
         get(g->instance, "vkGetPhysicalDeviceExternalBufferProperties");
     VkPhysicalDeviceExternalBufferInfo bi = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_BUFFER_INFO,
@@ -81,6 +82,7 @@ void producer_write(struct Producer *p, uint32_t a, uint32_t b) {
         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
     assert(g->BeginCommandBuffer(p->commands, &begin) == VK_SUCCESS);
     if (p->gated) {
+        assert(p->reset_event(g->device, p->gate) == VK_SUCCESS);
         // EVENT_WAIT: fixture GPU gate is released after consumer submission; CTest bounds a deadlock.
         p->wait_event(p->commands, 1, &p->gate, VK_PIPELINE_STAGE_HOST_BIT,
             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, NULL, 0, NULL, 0, NULL);

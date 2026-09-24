@@ -33,8 +33,8 @@ int main(int argc, char **argv) {
     if (require_gpu) assert(mdg_device_gpu(device));
     if (software) assert(!mdg_device_linear_dmabuf(device));
     assert(!mdg_device_linear_dmabuf(NULL));
-    assert(!mdg_image_linear_dmabuf(device, NULL));
-    assert(!mdg_image_linear_dmabuf(device, &(MdgLinearDmaBuf){.fd = -1}));
+    assert(!mdg_image_linear_dmabuf(device, NULL, NULL));
+    assert(!mdg_image_linear_dmabuf(device, &(MdgLinearDmaBuf){.fd = -1}, NULL));
     MdgImage *target = mdg_image_create(device, 8, 8);
     assert(target);
     static const uint8_t source[] = {
@@ -49,7 +49,8 @@ int main(int argc, char **argv) {
         assert(mdg_pass_draw(pass, &(MdgDraw){.image = texture, .source = {0,0,2,2}, .destination = {0,0,8,8},
             .clip = {0,0,8,8}, .opacity = 1}));
         assert(mdg_pass_rect(pass, (MdgBox){4,4,4,4}, (MdgClip){5,5,2,2}, (float[]){0,0,0,.5f}, true));
-        assert(mdg_pass_submit(pass));
+        int wait_fd;
+        assert(mdg_pass_submit(pass, &wait_fd) == MDG_SUBMIT_OK && wait_fd == -1);
         int pending = mdg_device_pending_fence(device);
         int fence = -1;
         assert(mdg_image_fence(target, &fence));
@@ -78,7 +79,8 @@ int main(int argc, char **argv) {
         assert(pass);
         assert(mdg_pass_draw(pass, &(MdgDraw){.image = texture, .source = {0,0,2,2}, .destination = {0,0,8,8},
             .clip = {0,0,8,8}, .opacity = 1, .transform = transform}));
-        assert(mdg_pass_submit(pass));
+        int wait_fd;
+        assert(mdg_pass_submit(pass, &wait_fd) == MDG_SUBMIT_OK && wait_fd == -1);
         uint8_t pixels[256]; assert(mdg_image_read(target, pixels, 32));
         for (unsigned y = 0; y < 2; ++y) for (unsigned x = 0; x < 2; ++x) {
             unsigned u = (transform & 4) ? 1 - x : x, v = y;

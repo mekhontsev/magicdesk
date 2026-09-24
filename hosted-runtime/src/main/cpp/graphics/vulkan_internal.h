@@ -61,6 +61,10 @@ typedef struct {
     VkBuffer dma_buffer;
     VkDeviceMemory dma_memory;
     VkDeviceSize dma_size;
+    unsigned dma_rows;
+    void *dma_mapping;
+    size_t dma_mapping_size;
+    size_t dma_mapping_offset;
     bool initialized, attachment, swapchain;
     unsigned format_index;
 } Image;
@@ -80,4 +84,5 @@ typedef struct {
 
 bool mdg_dmabuf_release(MdgImage *image, int completion_fd);
 void mdg_vk_dmabuf_barrier(Gpu *gpu, Pass *pass, Image *image, bool acquire);
+bool mdg_vk_dmabuf_tail(MdgImage *image, void *destination);
 #endif

@@ -3,6 +3,7 @@
 #include <drm_fourcc.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <wlr/interfaces/wlr_buffer.h>
 #include <wlr/render/allocator.h>
 #include <wlr/render/drm_format_set.h>
@@ -32,6 +33,7 @@ struct Renderer {
     struct wlr_drm_format_set texture_formats, render_formats, dma_formats;
     struct wl_list textures;
     struct Pass pass;
+    int deferred_fd;
 };
 
 static bool format(uint32_t drm, MdgFormat *result) {
@@ -88,18 +90,28 @@ struct wlr_allocator *mdw_allocator_create(struct wlr_renderer *base) {
     return &allocator->base;
 }
 MdgDevice *mdw_renderer_device(struct wlr_renderer *base) { return ((struct Renderer *)base)->device; }
+int mdw_renderer_take_deferred_fence(struct wlr_renderer *base) {
+    struct Renderer *renderer = (void *)base;
+    int fd = renderer->deferred_fd;
+    renderer->deferred_fd = -1;
+    return fd;
+}
 
-struct wlr_buffer *mdw_renderer_import_dmabuf(struct wlr_renderer *base, const struct wlr_dmabuf_attributes *attributes) {
+struct wlr_buffer *mdw_renderer_import_dmabuf(struct wlr_renderer *base, const struct wlr_dmabuf_attributes *attributes,
+        MdgImportError *error) {
+    *error = (MdgImportError){.operation = "Wayland buffer layout"};
     MdgFormat pixel_format;
     if (!attributes || attributes->n_planes != 1 || attributes->modifier != DRM_FORMAT_MOD_LINEAR ||
             attributes->width < 1 || attributes->height < 1 || !format(attributes->format, &pixel_format)) return NULL;
     MdgLinearDmaBuf source = {.fd = attributes->fd[0], .width = attributes->width, .height = attributes->height,
         .offset = attributes->offset[0], .stride = attributes->stride[0], .format = pixel_format};
-    MdgImage *image = mdg_image_linear_dmabuf(mdw_renderer_device(base), &source);
+    MdgImage *image = mdg_image_linear_dmabuf(mdw_renderer_device(base), &source, error);
     if (!image) return NULL;
     struct Buffer *buffer = calloc(1, sizeof(*buffer));
-    if (!buffer) { mdg_image_unref(image); return NULL; }
-    if (!wlr_dmabuf_attributes_copy(&buffer->dma, attributes)) { free(buffer); mdg_image_unref(image); return NULL; }
+    if (!buffer) { error->operation = "Wayland buffer allocation"; mdg_image_unref(image); return NULL; }
+    if (!wlr_dmabuf_attributes_copy(&buffer->dma, attributes)) {
+        error->operation = "Wayland FD retention"; free(buffer); mdg_image_unref(image); return NULL;
+    }
     buffer->image = image;
     wlr_buffer_init(&buffer->base, &buffer_impl, source.width, source.height);
     return &buffer->base;
@@ -155,7 +167,12 @@ static struct wlr_texture *texture_from_buffer(struct wlr_renderer *base, struct
 static bool submit(struct wlr_render_pass *base) {
     struct Pass *pass = (void *)base;
     bool ok = !pass->failed;
-    if (ok) ok = mdg_pass_submit(pass->commands);
+    if (ok) {
+        struct Renderer *renderer = wl_container_of(pass, renderer, pass);
+        MdgSubmitResult result = mdg_pass_submit(pass->commands, &renderer->deferred_fd);
+        if (result == MDG_SUBMIT_DEFERRED) mdg_pass_cancel(pass->commands);
+        ok = result == MDG_SUBMIT_OK;
+    }
     else mdg_pass_cancel(pass->commands);
     wlr_buffer_unlock(pass->buffer);
     pass->commands = NULL; pass->buffer = NULL;
@@ -199,6 +216,7 @@ static const struct wlr_render_pass_impl pass_impl = {.submit = submit, .add_tex
 static struct wlr_render_pass *begin(struct wlr_renderer *base, struct wlr_buffer *buffer, const struct wlr_buffer_pass_options *options) {
     struct Renderer *renderer = (void *)base;
     if (renderer->pass.commands || (options && options->color_transform)) return NULL;
+    if (renderer->deferred_fd >= 0) { close(renderer->deferred_fd); renderer->deferred_fd = -1; }
     MdgImage *target = mdw_buffer_image(buffer);
     float clear[] = {0, 0, 0, 0};
     MdgPass *commands = mdg_pass_begin(renderer->device, target, clear, true);
@@ -217,6 +235,7 @@ static const struct wlr_drm_format_set *texture_formats(struct wlr_renderer *bas
 static const struct wlr_drm_format_set *render_formats(struct wlr_renderer *base) { return &((struct Renderer *)base)->render_formats; }
 static void destroy(struct wlr_renderer *base) {
     struct Renderer *renderer = (void *)base;
+    if (renderer->deferred_fd >= 0) close(renderer->deferred_fd);
     struct Texture *texture, *next;
     wl_list_for_each_safe(texture, next, &renderer->textures, link) texture_destroy(&texture->base);
     mdg_device_destroy(renderer->device);
@@ -229,6 +248,7 @@ static const struct wlr_renderer_impl renderer_impl = {.destroy = destroy, .text
     .get_texture_formats = texture_formats, .get_render_formats = render_formats, .begin_buffer_pass = begin};
 struct wlr_renderer *mdw_renderer_create(void) {
     struct Renderer *renderer = calloc(1, sizeof(*renderer));
+    if (renderer) renderer->deferred_fd = -1;
     if (!renderer) return NULL;
     wl_list_init(&renderer->textures);
     renderer->device = mdg_device_create(false);

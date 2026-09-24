@@ -2,6 +2,8 @@
 #include "wayland_renderer.h"
 #include "linux-dmabuf-v1-protocol.h"
 #include <drm_fourcc.h>
+#include <inttypes.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -10,6 +12,7 @@
 #include <wlr/render/dmabuf.h>
 #include <wlr/render/drm_format_set.h>
 #include <wlr/render/wlr_renderer.h>
+#include <wlr/util/log.h>
 
 struct Params {
     struct wlr_renderer *renderer;
@@ -86,6 +89,7 @@ static void create_buffer(struct wl_resource *resource, uint32_t id, int32_t wid
     struct wlr_dmabuf_attributes attributes = params->attributes;
     params->attributes.n_planes = 0;
     attributes.width = width; attributes.height = height; attributes.format = format;
+    char reason[240] = "unsupported DMA-BUF layout or flags";
     if (!attributes.n_planes) {
         wl_resource_post_error(resource, ZWP_LINUX_BUFFER_PARAMS_V1_ERROR_INCOMPLETE, "missing plane"); goto done;
     }
@@ -108,8 +112,13 @@ static void create_buffer(struct wl_resource *resource, uint32_t id, int32_t wid
         wl_resource_post_error(resource, ZWP_LINUX_BUFFER_PARAMS_V1_ERROR_OUT_OF_BOUNDS, "invalid packed RGB extent"); goto done;
     }
     if (attributes.stride[0] % 4 || attributes.offset[0] % 4) goto failed;
-    struct wlr_buffer *imported = mdw_renderer_import_dmabuf(params->renderer, &attributes);
-    if (!imported) goto failed;
+    MdgImportError error;
+    struct wlr_buffer *imported = mdw_renderer_import_dmabuf(params->renderer, &attributes, &error);
+    if (!imported) {
+        snprintf(reason, sizeof(reason), "DMA-BUF %s: code=%d, available=%" PRIu64 ", required=%" PRIu64,
+            error.operation ? error.operation : "import", error.code, error.available, error.required);
+        goto failed;
+    }
     struct BufferResource *buffer = calloc(1, sizeof(*buffer));
     if (!buffer) { wlr_buffer_drop(imported); wl_resource_post_no_memory(resource); goto done; }
     buffer->resource = wl_resource_create(wl_resource_get_client(resource), &wl_buffer_interface, 1, id);
@@ -121,8 +130,9 @@ static void create_buffer(struct wl_resource *resource, uint32_t id, int32_t wid
     if (!id) zwp_linux_buffer_params_v1_send_created(resource, buffer->resource);
     goto done;
 failed:
+    wlr_log(WLR_ERROR, "%s", reason);
     if (!id) zwp_linux_buffer_params_v1_send_failed(resource);
-    else wl_resource_post_error(resource, ZWP_LINUX_BUFFER_PARAMS_V1_ERROR_INVALID_WL_BUFFER, "DMA-BUF import unavailable for this allocation");
+    else wl_resource_post_error(resource, ZWP_LINUX_BUFFER_PARAMS_V1_ERROR_INVALID_WL_BUFFER, "%s", reason);
 done:
     wlr_dmabuf_attributes_finish(&attributes);
 }

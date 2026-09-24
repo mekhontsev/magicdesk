@@ -31,8 +31,12 @@ references follow the [Vulkan AHardwareBuffer import contract](https://docs.vulk
 
 `MdgLinearDmaBuf` describes one explicitly linear RGBA/RGBX/BGRA/BGRX plane,
 including its byte offset and stride. The optional Vulkan transfer importer
-retains the FD and copies its pixels into a reusable GPU texture without CPU
-mapping or upload. It does not reinterpret tiled allocations as linear or
+retains the FD and copies its pixels into a reusable GPU texture. When native
+Vulkan buffer requirements exceed the producer's allocation, it imports only
+complete rows that fit and uploads the remaining suffix through cached staging
+storage. Only that suffix is CPU-mapped/read; a small allocation can consist
+entirely of the suffix. Actual Vulkan requirements are checked again for the
+prefix. It does not reinterpret tiled allocations as linear or
 construct Android hardware-buffer handles from raw FDs. Imported DMA-BUF images
 are sampling sources, not render targets or CPU-readable images.
 
@@ -45,12 +49,26 @@ independent.
 
 Every submission exports the producer's implicit write fences into a Vulkan
 wait semaphore and publishes its completion as an implicit read fence. The
-producer must honor those read fences before overwriting or recycling storage.
+producer must honor those read fences before overwriting or recycling storage,
+and retain the consumer's buffer lease through submission.
 This uses the kernel's [DMA-BUF sync-file bridge](https://kernel.org/doc/html/next/driver-api/dma-buf.html),
-not a CPU wait or a settling delay. GPU resources are cached per import/command
+not a settling delay. A CPU suffix needs completed producer writes: submission
+returns `MDG_SUBMIT_DEFERRED` with an owned fence without changing pixels or
+publishing a completion. The caller observes that event and retries the retained
+recording, or cancels it. Wayland cancels the unsent pass, preserves scene damage
+and watches the fence for that output only; replacement content can supersede the
+wait. Other outputs and protocol dispatch remain independent. Pixel-lock workers
+can use the bounded blocking submission helper. DMA-BUF CPU cache synchronization
+brackets the suffix copy after readiness, not before it.
+
+GPU resources are cached per import/command
 slot; fence FDs have per-submission ownership. A failed read-fence publication
 after submission rejects the frame and disables that GPU owner without releasing
 in-flight resources or starting a racing software copy.
+
+Import rejection reports the failing operation and its errno/Vulkan result,
+with available/required byte counts for layout and allocation checks. Buffer
+contents and file paths are not included.
 
 Wayland exposes these capabilities through `linux-dmabuf` v3. Its focused
 protocol adapter imports only the four advertised RGB formats with an explicit
@@ -119,8 +137,10 @@ release is not proof of compatibility on another.
 The Android `graphics-dmabuf-test` fixture uses separate producer and consumer
 Vulkan devices, GPU-written linear buffers, nonzero offsets, padded rows and all
 four formats. It queues producer overwrites before waiting for consumer readback
-to exercise acquire/release synchronization, and checks invalid-FD rejection and
-retained-buffer lifetime. Its default capability skip is distinct from a pass;
+to exercise acquire/release synchronization, and checks invalid-FD rejection,
+structured import errors and retained-buffer lifetime. Test-owned imports also
+exercise a CPU suffix, fully staged small images, deferred/cancelled submissions
+and progress of an independent output while a producer is gated. Its default capability skip is distinct from a pass;
 `--required` makes unavailable DMA-BUF support a test failure.
 
 `wayland-dmabuf-test` exercises protocol advertisement, asynchronous/immediate

@@ -40,6 +40,8 @@ struct MdwOutput {
     struct wlr_output *output;
     struct wlr_scene_output *scene_output;
     struct wlr_buffer *pending_frame;
+    struct wl_event_source *source_ready;
+    int source_ready_fd;
     struct wl_listener frame, commit;
     bool presenting;
     bool visible;
@@ -150,9 +152,27 @@ static int gpu_ready(int fd, uint32_t mask, void *data) {
     return 0;
 }
 
+static void cancel_source_wait(MdwOutput *output) {
+    if (!output->source_ready) return;
+    wl_event_source_remove(output->source_ready);
+    output->source_ready = NULL;
+    close(output->source_ready_fd);
+}
+
+static int source_ready(int fd, uint32_t mask, void *data) {
+    (void)fd;
+    MdwOutput *output = data;
+    cancel_source_wait(output);
+    if (mask & (WL_EVENT_ERROR | WL_EVENT_HANGUP)) report_error(output->server, "Source fence failed");
+    else if (output->output && output->visible) wlr_output_schedule_frame(output->output);
+    return 0;
+}
+
 static void output_frame(struct wl_listener *listener, void *data) {
     (void)data;
     MdwOutput *output = wl_container_of(listener, output, frame);
+    /* A new scene update can supersede a producer that has not completed. */
+    cancel_source_wait(output);
     if (!output->visible || !output->view || !output->view->surface->mapped) return;
     MdwEvents *events = &output->server->events;
     if (events->can_render && !events->can_render(events->context, output)) return;
@@ -182,6 +202,16 @@ static void output_frame(struct wl_listener *listener, void *data) {
         : wlr_scene_output_commit(output->scene_output, NULL);
     output->presenting = false;
     if (!committed) {
+        int fd = mdw_renderer_take_deferred_fence(output->server->renderer);
+        if (fd >= 0) {
+            // EVENT_WAIT: producer write fence; output teardown cancels the wait.
+            // Other outputs and protocol dispatch retain their independent progress.
+            output->source_ready_fd = fd;
+            output->source_ready = wl_event_loop_add_fd(wl_display_get_event_loop(output->server->display),
+                fd, WL_EVENT_READABLE, source_ready, output);
+            if (!output->source_ready) { close(fd); report_error(output->server, "Cannot observe source fence"); }
+            return;
+        }
         report_error(output->server, "scene commit failed");
         return;
     }
@@ -191,6 +221,7 @@ static void output_frame(struct wl_listener *listener, void *data) {
 }
 
 static void release_output(MdwOutput *output) {
+    cancel_source_wait(output);
     mdw_output_frame_consumed(output);
     mdw_content_output_released(output->server, output);
     mdw_output_focus(output, false);

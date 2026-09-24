@@ -21,6 +21,7 @@ struct Producer {
     PFN_vkDestroyEvent destroy_event;
     PFN_vkCmdWaitEvents wait_event;
     PFN_vkSetEvent set_event;
+    PFN_vkResetEvent reset_event;
 };
 
 bool producer_create(struct Producer *producer);

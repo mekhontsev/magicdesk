@@ -20,23 +20,26 @@ static unsigned fd_count(void) {
 static void invalid_buffers(MdgDevice *device, int fd) {
     MdgLinearDmaBuf valid = {fd, WIDTH, HEIGHT, OFFSET, STRIDE, MDG_RGBA};
     MdgLinearDmaBuf b = valid; b.width = 8193;
-    assert(!mdg_image_linear_dmabuf(device, &b));
-    b = valid; b.height = 0; assert(!mdg_image_linear_dmabuf(device, &b));
-    b = valid; b.offset = UINT32_MAX - 3; assert(!mdg_image_linear_dmabuf(device, &b));
-    b = valid; b.offset++; assert(!mdg_image_linear_dmabuf(device, &b));
-    b = valid; b.stride = WIDTH * 4 - 1; assert(!mdg_image_linear_dmabuf(device, &b));
-    b = valid; b.format = (MdgFormat)-1; assert(!mdg_image_linear_dmabuf(device, &b));
+    MdgImportError error;
+    assert(!mdg_image_linear_dmabuf(device, &b, &error) && !strcmp(error.operation, "layout"));
+    b = valid; b.height = 0; assert(!mdg_image_linear_dmabuf(device, &b, NULL));
+    b = valid; b.offset = UINT32_MAX - 3; assert(!mdg_image_linear_dmabuf(device, &b, NULL));
+    b = valid; b.offset++; assert(!mdg_image_linear_dmabuf(device, &b, NULL));
+    b = valid; b.stride = WIDTH * 4 - 1; assert(!mdg_image_linear_dmabuf(device, &b, NULL));
+    b = valid; b.format = (MdgFormat)-1; assert(!mdg_image_linear_dmabuf(device, &b, NULL));
     int regular = memfd_create("not-a-dma-buf", MFD_CLOEXEC); assert(regular >= 0);
     assert(ftruncate(regular, ALLOCATION) == 0);
     b = valid; b.fd = regular;
     unsigned before = fd_count();
-    for (unsigned i = 0; i < 128; ++i) assert(!mdg_image_linear_dmabuf(device, &b));
+    for (unsigned i = 0; i < 128; ++i) assert(!mdg_image_linear_dmabuf(device, &b, NULL));
+    assert(!mdg_image_linear_dmabuf(device, &b, &error));
+    assert(!strcmp(error.operation, "DMA_BUF_IOCTL_EXPORT_SYNC_FILE") && error.code != 0);
     assert(fd_count() == before && fcntl(regular, F_GETFD) >= 0);
     close(regular);
-    b = valid; b.fd = -1; assert(!mdg_image_linear_dmabuf(device, &b));
+    b = valid; b.fd = -1; assert(!mdg_image_linear_dmabuf(device, &b, NULL));
     MdgDevice *software = mdg_device_create(true); assert(software);
     assert(!mdg_device_linear_dmabuf(software));
-    assert(!mdg_image_linear_dmabuf(software, &valid));
+    assert(!mdg_image_linear_dmabuf(software, &valid, NULL));
     mdg_device_destroy(software);
 }
 
@@ -53,10 +56,22 @@ int main(int argc, char **argv) {
     printf("DMA-BUF consumer=%s, producer=%s\n", mdg_device_name(device), mdg_device_name(producer.owner)); fflush(stdout);
     invalid_buffers(device, producer.fd);
     MdgImage *target = mdg_image_create(device, WIDTH, HEIGHT); assert(target);
-    for (unsigned format = MDG_RGBA; format <= MDG_BGRX; ++format) {
+    for (unsigned test = 0; test < 8; ++test) {
+        unsigned format = test % 4;
         int fd = dup(producer.fd); assert(fd >= 0);
         MdgLinearDmaBuf buffer = {fd, WIDTH, HEIGHT, OFFSET, STRIDE, format};
-        MdgImage *source = mdg_image_linear_dmabuf(device, &buffer); assert(source);
+        MdgImage *source = mdg_image_linear_dmabuf(device, &buffer, NULL); assert(source);
+        /* Exercise the tail synchronization contract even on drivers that need
+         * no extra allocation padding. This changes only test-owned imports. */
+        if (test >= 4) {
+            Image *native = source->gpu;
+            assert(!native->dma_mapping);
+            native->dma_rows = test == 7 ? 0 : HEIGHT - 4;
+            native->dma_mapping_size = ALLOCATION;
+            native->dma_mapping_offset = OFFSET + native->dma_rows * STRIDE;
+            native->dma_mapping = mmap(NULL, ALLOCATION, PROT_READ, MAP_SHARED, fd, 0);
+            assert(native->dma_mapping != MAP_FAILED);
+        }
         assert(fcntl(fd, F_GETFD) >= 0); close(fd);
         uint8_t pixels[WIDTH * HEIGHT * 4];
         assert(!mdg_image_read(source, pixels, WIDTH * 4));
@@ -71,7 +86,31 @@ int main(int argc, char **argv) {
             assert(mdg_pass_draw(pass, &(MdgDraw){.image = source, .source = {0,0,WIDTH,HEIGHT},
                 .destination = {0,0,WIDTH,HEIGHT}, .clip = {0,0,WIDTH,HEIGHT}, .opacity = 1}));
             if (frame == 31) mdg_image_unref(source); /* Queued read owns the import. */
-            assert(mdg_pass_submit(pass));
+            int wait_fd;
+            MdgSubmitResult submitted = mdg_pass_submit(pass, &wait_fd);
+            if (test >= 4) {
+                if (producer.gated) {
+                    assert(submitted == MDG_SUBMIT_DEFERRED && wait_fd >= 0);
+                    assert(mdg_device_stats(device).failed_frames == 0);
+                    /* Cancelling an unsent frame must not touch source storage.
+                     * A separate output can still render while this writer waits. */
+                    mdg_pass_cancel(pass); close(wait_fd);
+                    MdgPass *other = mdg_pass_begin(device, target, (float[]){0,0,0,0}, false);
+                    assert(other && mdg_pass_submit_and_wait(other));
+                    pass = mdg_pass_begin(device, target, (float[]){0,0,0,0}, false);
+                    assert(pass && mdg_pass_draw(pass, &(MdgDraw){.image = source, .source = {0,0,WIDTH,HEIGHT},
+                        .destination = {0,0,WIDTH,HEIGHT}, .clip = {0,0,WIDTH,HEIGHT}, .opacity = 1}));
+                    submitted = mdg_pass_submit(pass, &wait_fd);
+                    assert(submitted == MDG_SUBMIT_DEFERRED);
+                    assert(producer.set_event(producer.gpu->device, producer.gate) == VK_SUCCESS);
+                    producer.gated = false;
+                }
+                while (submitted == MDG_SUBMIT_DEFERRED) {
+                    assert(mdg_wait_fence(wait_fd)); close(wait_fd);
+                    submitted = mdg_pass_submit(pass, &wait_fd);
+                }
+            }
+            assert(submitted == MDG_SUBMIT_OK && wait_fd == -1);
             if (producer.gated) {
                 /* Submission must return while the producer is still gated. Its
                  * write fence and our consumer read fence must both be pending. */
@@ -102,8 +141,9 @@ int main(int argc, char **argv) {
         }
     }
     MdgStats stats = mdg_device_stats(device);
-    assert(stats.gpu_frames == 128 && stats.software_frames == 0 && stats.failed_frames == 0);
+    assert(stats.gpu_frames == 257 && stats.software_frames == 0 && stats.failed_frames == 0);
+    assert(stats.dma_tail_bytes == (uint64_t)WIDTH * 4 * (4 * 3 + HEIGHT) * 32);
     mdg_image_unref(target); mdg_device_destroy(device); producer_destroy(&producer);
-    puts("128 DMA-BUF frames: GPU writes/copies, implicit acquire/release fences, formats, offset/stride and lifetime passed");
+    puts("256 DMA-BUF frames: GPU/tail copies, deferred/cancelled writes, independent output, fences, formats and lifetime passed");
     return 0;
 }

@@ -128,16 +128,24 @@ MdgImage *mdg_image_hardware(MdgDevice *device, AHardwareBuffer *buffer) {
 #endif
 }
 
-MdgImage *mdg_image_linear_dmabuf(MdgDevice *device, const MdgLinearDmaBuf *buffer) {
-    if (!buffer || !mdg_device_linear_dmabuf(device) || buffer->fd < 0 ||
+MdgImage *mdg_image_linear_dmabuf(MdgDevice *device, const MdgLinearDmaBuf *buffer, MdgImportError *error) {
+    MdgImportError ignored;
+    if (!error) error = &ignored;
+    *error = (MdgImportError){.operation = "capability"};
+    if (!mdg_device_linear_dmabuf(device)) return NULL;
+    error->operation = "layout";
+    if (!buffer || buffer->fd < 0 || !buffer->width || !buffer->height ||
+        buffer->width > MDG_MAX_DIMENSION || buffer->height > MDG_MAX_DIMENSION ||
         (unsigned)buffer->format > MDG_BGRX || buffer->offset % 4 || buffer->stride % 4 ||
         (uint64_t)buffer->stride < (uint64_t)buffer->width * 4) return NULL;
     MdgImage *image = mdg_image_new(device, buffer->width, buffer->height);
+    error->operation = "image allocation";
     if (!image) return NULL;
     image->format = buffer->format;
     image->stride = buffer->stride;
     image->dmabuf_offset = buffer->offset;
-    if (!mdg_vk_import_dmabuf(image, buffer)) { mdg_image_unref(image); return NULL; }
+    if (!mdg_vk_import_dmabuf(image, buffer, error)) { mdg_image_unref(image); return NULL; }
+    *error = (MdgImportError){0};
     return image;
 }
 
@@ -290,22 +298,31 @@ bool mdg_pass_rect(MdgPass *pass, MdgBox box, MdgClip clip, const float color[4]
     return true;
 }
 
-bool mdg_pass_submit(MdgPass *pass) {
-    if (!pass || !pass->recording) return false;
+MdgSubmitResult mdg_pass_submit(MdgPass *pass, int *wait_fd) {
+    if (!wait_fd) return MDG_SUBMIT_FAILED;
+    *wait_fd = -1;
+    if (!pass || !pass->recording) return MDG_SUBMIT_FAILED;
+    MdgSubmitResult prepared = mdg_vk_prepare(pass, wait_fd);
+    if (prepared == MDG_SUBMIT_DEFERRED) return prepared;
+    if (prepared == MDG_SUBMIT_FAILED) {
+        ++pass->device->stats.failed_frames;
+        mdg_pass_release(pass);
+        return prepared;
+    }
     if (pass->device->gpu && mdg_vk_submit(pass)) {
-        ++pass->device->stats.gpu_frames; pass->recording = false; return true;
+        ++pass->device->stats.gpu_frames; pass->recording = false; return MDG_SUBMIT_OK;
     }
     if (pass->submitted || (pass->device->gpu && !mdg_vk_ready(pass->device))) {
         ++pass->device->stats.failed_frames;
         if (pass->submitted) pass->recording = false;
         else mdg_pass_release(pass);
-        return false;
+        return MDG_SUBMIT_FAILED;
     }
     bool result = mdg_software_submit(pass);
     if (result) ++pass->device->stats.software_frames;
     else ++pass->device->stats.failed_frames;
     mdg_pass_release(pass);
-    return result;
+    return result ? MDG_SUBMIT_OK : MDG_SUBMIT_FAILED;
 }
 
 void mdg_pass_cancel(MdgPass *pass) { if (pass && pass->recording) mdg_pass_release(pass); }
@@ -315,7 +332,15 @@ bool mdg_pass_submit_and_wait(MdgPass *pass) {
     MdgImage *target = pass->target;
     MdgDevice *device = pass->device;
     mdg_image_ref(target);
-    bool ok = mdg_pass_submit(pass) && mdg_wait_fence(target->fence);
+    int wait_fd;
+    MdgSubmitResult result;
+    while ((result = mdg_pass_submit(pass, &wait_fd)) == MDG_SUBMIT_DEFERRED) {
+        // EVENT_WAIT: producer write fence; expiry cancels this unsent recording.
+        bool ready = mdg_wait_fence(wait_fd);
+        close(wait_fd);
+        if (!ready) { mdg_pass_cancel(pass); break; }
+    }
+    bool ok = result == MDG_SUBMIT_OK && mdg_wait_fence(target->fence);
     mdg_device_collect(device);
     mdg_image_unref(target);
     return ok;
