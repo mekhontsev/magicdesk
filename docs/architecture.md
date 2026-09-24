@@ -1768,10 +1768,14 @@ owns X11 input encoding. `HostedViewport` owns the aspect-fit coordinate transfo
 without imposing a guest protocol's clipping or coordinate quantization.
 `HostedContentExchange` owns Android clipboard focus,
 drag gesture lifetime and URI grants through `HostedContentBackend`;
-`X11ContentExchange` owns protocol targets, output IDs and selection/XDND
-transactions. These host contracts do not impose X11's session-global density
-or root-window model on other renderers. Session bootstrap and rendering remain
-X11-specific; no second protocol or generalized session engine is introduced.
+`X11ContentExchange` and `WaylandContentExchange` own their respective protocol
+offers and drag transactions. `HostedContentTransfer` streams Android payloads
+through the selected guest namespace; `hosted-runtime` owns seekable content
+descriptors, file staging and the authenticated guest-file bridge. These host
+contracts do not impose X11's session-global density or root-window model on
+Wayland. `HostedWindowOwners` qualifies per-native-window fullscreen responders;
+each protocol confirms requests through its own revision/acknowledgement rules.
+Protocol execution and rendering remain separate implementations.
 Individual outputs constrain Android Surface geometry by the client's X11
 minimum/maximum size hints; fixed-size content is aspect-fitted, not stretched
 by changing its X window. The native window model owns hint decoding, with no

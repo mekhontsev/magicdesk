@@ -26,16 +26,17 @@ public final class GraphicalLaunchOptionsTest {
         assertNull(DesktopEntryFile.parse(ENTRY + "X-MagicDesk-GraphicsMode=application\n"));
     }
 
-    @Test public void futureModesRemainExplicitAndAreRejectedBeforeLaunch() {
+    @Test public void nestedDesktopAndGuestRecipesRoundTrip() {
         var desktop = DesktopEntryFile.parseTermuxApplication(ENTRY
                 + "X-MagicDesk-Graphics=wayland\nX-MagicDesk-GraphicsMode=desktop\n");
         assertNotNull(desktop);
-        assertThrows(IllegalArgumentException.class, desktop.graphics::requireSupported);
-        assertThrows(IllegalArgumentException.class, () -> GraphicalApplicationLaunch.prepare(null,
-                DesktopLaunchRequest.from(desktop)));
+        assertTrue(desktop.graphics.desktop());
+        assertEquals(desktop.graphics, ((DesktopApplicationShortcut) DesktopEntryFile.parse(
+                DesktopEntryFile.encodeApplication(desktop))).graphics);
         var guest = new GraphicalLaunchOptions(GraphicalProtocol.WAYLAND, false, "", "", "ubuntu:root");
-        assertThrows(IllegalArgumentException.class, guest::requireSupported);
-        new GraphicalLaunchOptions(true, "/xkb", "", "ubuntu:root").requireSupported();
+        var guestEntry = desktop.withGraphics(guest);
+        assertEquals(guest, ((DesktopApplicationShortcut) DesktopEntryFile.parse(
+                DesktopEntryFile.encodeApplication(guestEntry))).graphics);
     }
 
     @Test public void identityDistinguishesProtocolsButNotRecipeCopiesOrWindowTitles() {

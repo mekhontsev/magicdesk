@@ -360,19 +360,6 @@ extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeDestroy)(JNIEnv* env, jcl
     free(c);
 }
 
-extern "C" JNIEXPORT jint JNICALL JNI(X11DataExchange_nativeBytes)(JNIEnv* env, jclass, jbyteArray bytes) {
-    jsize length = env->GetArrayLength(bytes);
-    if (length > 1024 * 1024) return -1;
-    int fd = (int)syscall(__NR_memfd_create, "x11-content", MFD_CLOEXEC);
-    if (fd < 0) return -1;
-    jbyte* data = env->GetByteArrayElements(bytes, nullptr);
-    if (!data) { close(fd); return -1; }
-    bool ok = !length || pwrite(fd, data, length, 0) == length;
-    env->ReleaseByteArrayElements(bytes, data, JNI_ABORT);
-    if (!ok) { close(fd); return -1; }
-    return fd;
-}
-
 extern "C" JNIEXPORT jboolean JNICALL JNI(X11Server_nativeStart)(JNIEnv* env, jobject owner, jobjectArray args) {
     if (server) return false;
     int count = env->GetArrayLength(args);

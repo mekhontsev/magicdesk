@@ -31,8 +31,9 @@ lists installed environments only when selected, through the configured Termux
 application's `RUN_COMMAND` service. **Custom script (chroot or other)** instead
 accepts the absolute path of an executable entry script. **Linux (Shell / root)**
 uses the same script contract through the authorized command service. All offer
-**Terminal** (an empty command opens the guest login shell), **X11 application**,
-or **Linux desktop**. Enter a command already installed in that environment.
+**Terminal** (an empty command opens the guest login shell), **Graphical application**,
+or **Linux desktop**, with an X11/Wayland protocol selector for graphics.
+Enter a command already installed in that environment.
 The optional working directory is inside Linux, not Android or Termux.
 **Linux user** optionally selects an existing guest account through `--user`;
 leave it empty for the launcher's default (`root` inside PRoot, not Android root). No
@@ -49,7 +50,7 @@ Start refreshes after saving; Recent retains the launch recipe and its selected
 executor, including the package identity for Termux. Identical saves do not
 create duplicates, and a different entry with the same name is not overwritten.
 These launchers use ordinary
-`Exec`, `Terminal`, `X-MagicDesk-Graphics=x11` and `X-MagicDesk-GraphicsMode`;
+`Exec`, `Terminal`, `X-MagicDesk-Graphics` and `X-MagicDesk-GraphicsMode`;
 there is no separate distribution registry or executor.
 
 Long-press or right-click a user-created Termux shortcut in Start and select
@@ -60,7 +61,9 @@ sessions. Package-installed Termux launchers do not offer this action.
 For PRoot, the installed `proot-distro` must support `list --quiet` and `login --isolated`.
 Graphical launches need `dbus-run-session` in the guest. The PRoot adapter passes
 its allocated `DISPLAY`, binds the session's private Xauthority and shares the
-X11 socket via `--shared-tmp`. Each graphical launch gets its own D-Bus session
+X11 socket via `--shared-tmp`. Wayland instead binds its private runtime directory
+at `/tmp/magicdesk-wayland` and supplies an absolute guest `WAYLAND_DISPLAY`.
+Each graphical launch gets its own D-Bus session
 and temporary `XDG_RUNTIME_DIR`. This is not a security sandbox. Arbitrary
 Android file arguments are not mapped into the guest; the editor hides file
 associations for these recipes. MagicDesk does not install distributions or scan guest apps.
@@ -90,14 +93,20 @@ explicit privilege change. Do not use a fixed display number or disable X
 authentication. The script owns mounting, root authorization and matching
 cleanup; retain the launched process lifetime rather than detaching it.
 Graphical Linux scripts must also bind `MAGICDESK_GUEST_FILES_HELPER` at
-`/tmp/magicdesk-guest-files`, bind `MAGICDESK_X11_RUNTIME` at
-`/tmp/magicdesk-x11`, and pass `MAGICDESK_GUEST_FILES_SOCKET` and
+`/tmp/magicdesk-guest-files`, bind their protocol's runtime directory at
+`/tmp/magicdesk-x11` or `/tmp/magicdesk-wayland`, and pass `MAGICDESK_GUEST_FILES_SOCKET` and
 `MAGICDESK_GUEST_FILES_TOKEN` to the supplied guest command. Start that command
 after selecting the guest user. The helper reads exported files with the same
 credentials as the application; imports use the session's shared content
 directory. The Linux editor emits `X-MagicDesk-FileEnvironment`, an explicit
 environment/user identity retained in Recent and used to isolate launch correlation.
 This is a MagicDesk desktop-entry extension, not a freedesktop standard key.
+
+Wayland scripts inherit `WAYLAND_DISPLAY` and `MAGICDESK_WAYLAND_RUNTIME` and
+must expose the corresponding socket at the absolute guest `WAYLAND_DISPLAY`.
+The named-socket path currently requires the Termux executor. Wayland root/chroot
+bootstrap through the privileged command service is not available; see
+[Wayland](wayland.md#remaining-work). The chroot example below is an X11 adapter.
 
 MagicDesk does not implicitly switch its privileged backend, mount a rootfs,
 or store passwords. Interactive authentication can use terminal mode; graphical
@@ -225,21 +234,23 @@ also set `X-MagicDesk-KeyboardDirectory=/host/path/to/X11/xkb`. See
 [Embedded X11](x11.md) for retention, multiple windows and container commands.
 
 For a complete Linux desktop, use `X-MagicDesk-GraphicsMode=desktop` instead of
-`application`, which presents individual client windows. Desktop mode presents
-the whole X screen and retains the server after its Android window closes.
+`application`, which presents individual client windows. X11 Desktop mode presents
+the whole X screen. Wayland Desktop mode hosts a nested compositor's toplevel;
+the command must select its Wayland backend and a supported renderer. Both modes
+retain the server after the Android viewer closes.
 The PRoot editor generates this recipe for installed `proot-distro` environments.
 For custom proot/chroot setups, use an explicit `Exec` script exposing the
 supplied X socket and authorization to the guest. MagicDesk does not infer
 which guest application or desktop command to start.
 
-`X-MagicDesk-Graphics=wayland` selects the experimental Wayland compositor for
-individual applications. `application` is the default graphical mode. Start,
+`X-MagicDesk-Graphics=wayland` selects the experimental Wayland compositor.
+`application` is the default graphical mode. Start,
 Recent, recipe identity and Android placement use the same owners as X11;
 ordinary installed Termux graphical entries default to X11 unless they explicitly
 select another protocol. The command editor offers **Termux graphics** with an
 X11/Wayland selector. Toolkit-specific command arguments belong in `Exec`.
-Wayland whole-desktop and guest file recipes are rejected before launch until
-those capabilities are implemented. See [Wayland](wayland.md) for current scope.
+The Linux editor generates Wayland PRoot bindings and guest file access using
+the same recipe model. See [Wayland](wayland.md) for current scope.
 These `X-MagicDesk-*` keys are application extensions, not standard freedesktop keys.
 
 ## Recent Launches

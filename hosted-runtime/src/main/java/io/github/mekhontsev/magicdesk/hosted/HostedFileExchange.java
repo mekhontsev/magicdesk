@@ -1,4 +1,4 @@
-package io.github.mekhontsev.magicdesk.x11;
+package io.github.mekhontsev.magicdesk.hosted;
 
 import android.os.ParcelFileDescriptor;
 import android.system.ErrnoException;
@@ -14,23 +14,24 @@ import java.nio.file.StandardCopyOption;
 import java.util.UUID;
 
 /** Session file exchange: server-local paths or the explicitly selected guest's read-only bridge. */
-final class X11FileExchange {
+public final class HostedFileExchange {
     private static final long MAX_BYTES = 128L * 1024 * 1024, MAX_STORAGE = 256L * 1024 * 1024;
     private int fileCount;
     private volatile boolean closed;
     private File directory;
     private long used;
-    private final X11SharedFiles shared = "1".equals(System.getenv("MAGICDESK_X11_SHARED_FILES"))
-            ? new X11SharedFiles(System.getenv("MAGICDESK_X11_CONTENT_DIR")) : null;
+    private final SharedFileNamespace shared;
+    private final String contentDirectory;
     private final GuestFileBridge guest;
 
-    X11FileExchange() throws IOException {
-        String endpoint = System.getenv("MAGICDESK_GUEST_FILES_SOCKET");
-        guest = endpoint == null ? null : new GuestFileBridge(endpoint, System.getenv("MAGICDESK_GUEST_FILES_TOKEN"));
+    public HostedFileExchange(String directory, String guestAlias, String endpoint, String token) throws IOException {
+        contentDirectory = java.util.Objects.requireNonNull(directory);
+        shared = guestAlias == null ? null : new SharedFileNamespace(directory, guestAlias);
+        guest = endpoint == null ? null : new GuestFileBridge(endpoint, token);
     }
 
-    ParcelFileDescriptor open(String value) throws IOException {
-        if (closed) throw new IOException("X11 file exchange closed");
+    public ParcelFileDescriptor open(String value) throws IOException {
+        if (closed) throw new IOException("File exchange closed");
         URI uri;
         try { uri = URI.create(value); }
         catch (IllegalArgumentException error) { throw new IOException("Invalid file URI", error); }
@@ -62,24 +63,22 @@ final class X11FileExchange {
             if (!OsConstants.S_ISREG(stat.st_mode) || stat.st_size < 0 || stat.st_size > MAX_BYTES)
                 throw new IOException("Only regular files up to 128 MiB can be exported");
             return ParcelFileDescriptor.dup(descriptor);
-        } catch (ErrnoException error) { throw new IOException("Cannot read file in X11 environment", error); }
+        } catch (ErrnoException error) { throw new IOException("Cannot read file in the selected environment", error); }
         finally { if (descriptor != null) try { Os.close(descriptor); } catch (ErrnoException ignored) { } }
     }
 
-    synchronized String importFile(ParcelFileDescriptor source, String name) throws IOException {
+    public synchronized String importFile(ParcelFileDescriptor source, String name) throws IOException {
         if (source == null) throw new IOException("Missing file descriptor");
         try (source) {
             long size = source.getStatSize();
-            if (closed) throw new IOException("X11 file exchange closed");
+            if (closed) throw new IOException("File exchange closed");
             if (size < 0 || size > MAX_BYTES || size > MAX_STORAGE - used || fileCount >= 128)
-                throw new IOException("X11 file exchange storage is full or source is not seekable");
+                throw new IOException("File exchange storage is full or source is not seekable");
             if (name == null || name.isBlank() || name.equals(".") || name.equals("..") || name.length() > 240 ||
                     name.indexOf('/') >= 0 || name.indexOf('\\') >= 0 || name.indexOf('\0') >= 0)
                 throw new IOException("Invalid imported file name");
             if (directory == null) {
-                String path = System.getenv("MAGICDESK_X11_CONTENT_DIR");
-                if (path == null) throw new IOException("Missing X11 content directory");
-                directory = new File(path);
+                directory = new File(contentDirectory);
                 Files.createDirectories(directory.toPath());
                 if (shared != null) chmod(directory, 01777);
             }
@@ -95,7 +94,7 @@ final class X11FileExchange {
                     byte[] bytes = new byte[65536];
                     long copied = 0;
                     for (int count; (count = input.read(bytes)) >= 0;) {
-                        if (closed) throw new IOException("X11 file exchange closed");
+                        if (closed) throw new IOException("File exchange closed");
                         copied += count;
                         if (copied > size) throw new IOException("Imported file changed while reading");
                         output.write(bytes, 0, count);
@@ -116,7 +115,7 @@ final class X11FileExchange {
 
     // The launcher owns this private directory and removes it after process exit.
     // Cancellation must not block server shutdown behind an in-flight Binder copy.
-    void close() { closed = true; if (guest != null) guest.close(); }
+    public void close() { closed = true; if (guest != null) guest.close(); }
 
     private static void chmod(File file, int mode) throws IOException {
         try { Os.chmod(file.toString(), mode); }

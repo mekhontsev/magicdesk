@@ -1,5 +1,6 @@
 #include "wayland_internal.h"
 #include <drm_fourcc.h>
+#include <math.h>
 #include <wlr/render/pass.h>
 #include <wlr/types/wlr_buffer.h>
 #include <wlr/types/wlr_compositor.h>
@@ -28,10 +29,14 @@ static void render_buffer(struct wlr_scene_buffer *buffer, int x, int y, void *d
     wlr_output_transform_coords(buffer->transform, &width, &height);
     if (buffer->dst_width > 0) width = buffer->dst_width;
     if (buffer->dst_height > 0) height = buffer->dst_height;
+    double scale = render->output->output->scale;
+    int left = (int)round((x - render->output->x) * scale);
+    int top = (int)round((y - render->output->y) * scale);
     wlr_render_pass_add_texture(render->pass, &(struct wlr_render_texture_options) {
         .texture = client->texture,
         .src_box = buffer->src_box,
-        .dst_box = {x - render->output->x, y - render->output->y, width, height},
+        .dst_box = {left, top, (int)round((x - render->output->x + width) * scale) - left,
+            (int)round((y - render->output->y + height) * scale) - top},
         .alpha = &buffer->opacity,
         .transform = wlr_output_transform_invert(buffer->transform),
         .filter_mode = buffer->filter_mode,
@@ -39,10 +44,10 @@ static void render_buffer(struct wlr_scene_buffer *buffer, int x, int y, void *d
 }
 
 bool mdw_scene_render_family(struct wlr_scene_output *output, struct wlr_surface *owner, bool dependents) {
-    // Borrowed outputs are unit-scale, untransformed views of client-only scene trees.
+    // Borrowed outputs are untransformed views of client-only scene trees.
     // wlroots 0.18's scene pass clears opaque black; use its render API and cached
     // client textures for alpha composition, retaining the scene's layout and damage events.
-    if (output->output->scale != 1 || output->output->transform != WL_OUTPUT_TRANSFORM_NORMAL)
+    if (output->output->transform != WL_OUTPUT_TRANSFORM_NORMAL)
         return false;
     if (!output->output->needs_frame && !pixman_region32_not_empty(&output->damage_ring.current))
         return true;

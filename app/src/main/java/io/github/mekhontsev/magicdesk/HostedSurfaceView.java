@@ -242,11 +242,27 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
 
     @Override public boolean onCheckIsTextEditor() { return keyboardAllowed && inputAllowed && output != null && output.supportsText(); }
 
+    void textInputChanged() {
+        android.view.inputmethod.InputMethodManager manager = getContext().getSystemService(
+                android.view.inputmethod.InputMethodManager.class);
+        if (manager != null && hasWindowFocus()) {
+            manager.restartInput(this);
+            if (onCheckIsTextEditor()) manager.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+            else manager.hideSoftInputFromWindow(getWindowToken(), 0);
+        }
+    }
+
     @Override public InputConnection onCreateInputConnection(EditorInfo info) {
         if (!onCheckIsTextEditor()) return null;
         info.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
         info.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_ACTION_NONE;
         return new BaseInputConnection(this, true) {
+            @Override public boolean setComposingText(CharSequence text, int cursor) {
+                boolean result = super.setComposingText(text, cursor);
+                if (keyboardAllowed && inputAllowed && output != null)
+                    output.preedit(getEditable().toString(), Math.max(0, android.text.Selection.getSelectionEnd(getEditable())));
+                return result;
+            }
             @Override public boolean commitText(CharSequence text, int cursor) {
                 if (keyboardAllowed && inputAllowed && output != null) output.text(text.toString());
                 getEditable().clear();
@@ -258,7 +274,12 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
                 return super.finishComposingText();
             }
             @Override public boolean deleteSurroundingText(int before, int after) {
-                if (getEditable().length() > 0) return super.deleteSurroundingText(before, after);
+                if (getEditable().length() > 0) {
+                    boolean result = super.deleteSurroundingText(before, after);
+                    if (keyboardAllowed && inputAllowed && output != null)
+                        output.preedit(getEditable().toString(), Math.max(0, android.text.Selection.getSelectionEnd(getEditable())));
+                    return result;
+                }
                 for (int i = 0; i < Math.min(1024, before); i++) press(KeyEvent.KEYCODE_DEL);
                 for (int i = 0; i < Math.min(1024, after); i++) press(KeyEvent.KEYCODE_FORWARD_DEL);
                 return true;

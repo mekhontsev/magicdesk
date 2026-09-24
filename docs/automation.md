@@ -743,8 +743,9 @@ Use `tools/list` as the authoritative command and argument catalog.
 service used by **Linux graphics**. Starting selects an explicit protocol and
 executor and returns a session ID before readiness; it does not open an Android
 host. `graphics.list` supplies native window IDs; `graphics.open_window` uses the
-ordinary tool placement options. X11 alone accepts window ID zero for its
-whole-desktop viewer. Observation, shell execution and Android placement retain
+ordinary tool placement options. X11 accepts window ID zero for its
+whole-desktop viewer; Wayland accepts it for a session explicitly started with
+`wholeDesktop=true`, borrowing the nested compositor's toplevel. Observation, shell execution and Android placement retain
 separate MCP grants. The [Wayland guide](wayland.md) records its current scope
 and input/client-launch limitations.
 

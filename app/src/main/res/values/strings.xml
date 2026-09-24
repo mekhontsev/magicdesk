@@ -1,4 +1,6 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="graphics_nested_desktop">Nested Linux desktop</string>
+    <string name="graphics_whole_desktop">Whole Linux desktop</string>
     <string name="display_always_unlocked">Available while phone is locked</string>
     <string name="display_always_unlocked_warning">Apps on this display remain accessible through authorized automation and viewers while the phone is locked.</string>
     <string name="task_manager_applications">Applications</string>
@@ -218,7 +220,7 @@
     </string-array>
     <string-array name="command_app_presentations">
         <item>Terminal</item>
-        <item>X11 application</item>
+        <item>Graphical application</item>
         <item>Linux desktop</item>
     </string-array>
     <string name="command_app_create_failed">Cannot create application: %1$s</string>

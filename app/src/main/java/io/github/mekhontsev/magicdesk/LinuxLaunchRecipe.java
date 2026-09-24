@@ -39,6 +39,12 @@ final class LinuxLaunchRecipe {
 
     static DesktopApplicationShortcut build(String name, Environment environment, String command,
             String directory, String user, Presentation presentation) {
+        return build(name, environment, command, directory, user, presentation, GraphicalProtocol.X11);
+    }
+
+    static DesktopApplicationShortcut build(String name, Environment environment, String command,
+            String directory, String user, Presentation presentation, GraphicalProtocol protocol) {
+        if (protocol == null) throw new IllegalArgumentException("Select a graphical protocol");
         user = user == null ? "" : user.trim();
         if (!user.isEmpty() && !user.matches("[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}\\$?"))
             throw new IllegalArgumentException("Invalid Linux user name");
@@ -49,23 +55,30 @@ final class LinuxLaunchRecipe {
 
         boolean graphical = presentation != Presentation.TERMINAL;
         StringBuilder host = new StringBuilder("set -eu; ");
-        if (graphical) host.append(": \"${DISPLAY:?Missing X11 display}\" \"${XAUTHORITY:?Missing X11 authorization}\"; ");
+        if (graphical) host.append(protocol == GraphicalProtocol.X11
+                ? ": \"${DISPLAY:?Missing X11 display}\" \"${XAUTHORITY:?Missing X11 authorization}\"; "
+                : ": \"${WAYLAND_DISPLAY:?Missing Wayland display}\" \"${MAGICDESK_WAYLAND_RUNTIME:?Missing Wayland runtime}\"; ");
         final boolean proot = environment.kind() == Kind.PROOT;
         host.append("exec ").append(proot ? "proot-distro login --isolated" : q(environment.target()));
         if (!user.isEmpty()) host.append(" --user ").append(q(user));
         if (!directory.isEmpty()) host.append(" --work-dir ").append(q(directory));
-        if (graphical && proot) host.append(" --shared-tmp --bind \"$MAGICDESK_X11_RUNTIME:/tmp/magicdesk-x11\""
-                + " --bind \"$MAGICDESK_GUEST_FILES_HELPER:/tmp/magicdesk-guest-files\""
-                + " --env \"DISPLAY=$DISPLAY\" --env XAUTHORITY=/tmp/magicdesk-x11/Xauthority"
-                + " --env \"MAGICDESK_GUEST_FILES_SOCKET=$MAGICDESK_GUEST_FILES_SOCKET\""
-                + " --env \"MAGICDESK_GUEST_FILES_TOKEN=$MAGICDESK_GUEST_FILES_TOKEN\"");
+        if (graphical && proot) {
+            host.append(protocol == GraphicalProtocol.X11
+                    ? " --shared-tmp --bind \"$MAGICDESK_X11_RUNTIME:/tmp/magicdesk-x11\""
+                        + " --env \"DISPLAY=$DISPLAY\" --env XAUTHORITY=/tmp/magicdesk-x11/Xauthority"
+                    : " --bind \"$MAGICDESK_WAYLAND_RUNTIME:/tmp/magicdesk-wayland\""
+                        + " --env \"WAYLAND_DISPLAY=/tmp/magicdesk-wayland/$WAYLAND_DISPLAY\"");
+            host.append(" --bind \"$MAGICDESK_GUEST_FILES_HELPER:/tmp/magicdesk-guest-files\""
+                    + " --env \"MAGICDESK_GUEST_FILES_SOCKET=$MAGICDESK_GUEST_FILES_SOCKET\""
+                    + " --env \"MAGICDESK_GUEST_FILES_TOKEN=$MAGICDESK_GUEST_FILES_TOKEN\"");
+        }
         if (proot) host.append(' ').append(q(environment.target()));
         if (!command.isEmpty()) {
             String guest = command;
             if (graphical) {
                 // Each graphical launch owns its D-Bus session and private runtime directory.
                 guest = "set -eu; umask 077; XDG_RUNTIME_DIR=$(mktemp -d /tmp/magicdesk-runtime.XXXXXX); "
-                        + "export XDG_RUNTIME_DIR XDG_SESSION_TYPE=x11; "
+                        + "export XDG_RUNTIME_DIR XDG_SESSION_TYPE=" + protocol.wireName + "; "
                         + "trap 'rm -rf -- \"$XDG_RUNTIME_DIR\"' EXIT; "
                         + "dbus-run-session -- /bin/sh -lc " + q(command);
             }
@@ -78,7 +91,7 @@ final class LinuxLaunchRecipe {
         return new DesktopApplicationShortcut(name, graphical ? "computer" : "utilities-terminal",
                 exec, null, "", DesktopLaunchMode.AUTO, false, environment.backend(),
                 !graphical).withLiteralExec(true).withGraphics(graphical
-                        ? new GraphicalLaunchOptions(presentation == Presentation.DESKTOP, environment.keyboardDirectory(), "",
+                        ? new GraphicalLaunchOptions(protocol, presentation == Presentation.DESKTOP, environment.keyboardDirectory(), "",
                                 environment.kind().name() + ":" + environment.target().length() + ":"
                                         + environment.target() + ":" + user) : null);
     }

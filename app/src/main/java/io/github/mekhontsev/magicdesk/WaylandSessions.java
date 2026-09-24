@@ -31,6 +31,10 @@ final class WaylandSessions {
         void changed();
         default void frame(long output, int width, int height) { }
         default void geometryChanged(long window) { }
+        default void textInputChanged(long output) { }
+        default void contentOffer(io.github.mekhontsev.magicdesk.wayland.WaylandDataExchange.Offer offer) { }
+        default void dragEvent(long output, long offer, boolean finished, boolean accepted) { }
+        default void cursor(long output, android.graphics.Bitmap image, int hotspotX, int hotspotY, boolean hidden) { }
     }
 
     static Session start(Context context, String name, String command, String directory,
@@ -40,9 +44,16 @@ final class WaylandSessions {
 
     static Session start(Context context, String name, String command, String directory,
             DesktopExecBackend backend, String keyboard, RecentApplicationStore.Entry recipe) {
+        return start(context, name, command, directory, backend, keyboard, recipe,
+                recipe != null && recipe.shortcut().graphics.desktop());
+    }
+
+    static Session start(Context context, String name, String command, String directory,
+            DesktopExecBackend backend, String keyboard, RecentApplicationStore.Entry recipe, boolean desktop) {
         if (name == null || name.isBlank() || name.length() > 128)
             throw new IllegalArgumentException("Session name must contain 1 to 128 characters");
-        Session session = new Session(context.getApplicationContext(), name.trim(), new WaylandExecution(context, backend, keyboard), recipe);
+        Session session = new Session(context.getApplicationContext(), name.trim(), new WaylandExecution(context, backend, keyboard,
+                recipe == null || recipe.shortcut().graphics == null ? "" : recipe.shortcut().graphics.fileEnvironment()), recipe, desktop);
         synchronized (SESSIONS) { SESSIONS.put(session.id(), session); }
         MAIN.post(() -> session.start(command, directory));
         return session;
@@ -65,6 +76,7 @@ final class WaylandSessions {
         private final OperationResources resources = new OperationResources();
         private final CopyOnWriteArrayList<Listener> listeners = new CopyOnWriteArrayList<>();
         private final Map<Integer, Long> hosts = new LinkedHashMap<>();
+        private final HostedWindowOwners fullscreenOwners = new HostedWindowOwners();
         private volatile WaylandSession renderer;
         private volatile String state = "STARTING", error = "";
         private IBinder serverIdentity;
@@ -75,6 +87,7 @@ final class WaylandSessions {
         private volatile RecentApplicationStore.Entry recipe;
         private RecentLaunchScope recentScope;
         private final boolean application;
+        final boolean desktop;
         private boolean hadWindows;
         private final Runnable applicationTimeout = () -> fail(new IOException("Wayland application did not open a window"));
         private final BroadcastReceiver admission = new BroadcastReceiver() {
@@ -102,17 +115,18 @@ final class WaylandSessions {
                         state = "READY";
                         MAIN.removeCallbacks(timeout);
                         unregister();
-                        if (application) MAIN.postDelayed(applicationTimeout, 60_000);
-                        if (startupCommand != null && !startupCommand.isBlank()) execute(startupCommand, startupDirectory);
+                        // EVENT_WAIT: first client map after a recipe launch; expiry fails the launch.
+                        if (recipe != null) MAIN.postDelayed(applicationTimeout, 60_000);
+                        if (startupCommand != null && !startupCommand.isBlank()) launchCommand(startupCommand, startupDirectory);
                         changed();
                     }
                 } catch (android.os.RemoteException | RuntimeException failure) { fail(failure); }
             }
         };
 
-        Session(Context context, String name, WaylandExecution execution, RecentApplicationStore.Entry recipe) {
+        Session(Context context, String name, WaylandExecution execution, RecentApplicationStore.Entry recipe, boolean desktop) {
             this.context = context; this.name = name; this.execution = execution;
-            this.recipe = recipe; application = recipe != null;
+            this.recipe = recipe; this.desktop = desktop; application = recipe != null && !desktop;
             presentation = new HostedWindowPresentation(context, this);
         }
 
@@ -124,6 +138,7 @@ final class WaylandSessions {
                 MagicDeskRuntime.startTools(context, false);
                 context.registerReceiver(admission, new IntentFilter(WaylandServer.ACTION), null, MAIN, Context.RECEIVER_EXPORTED);
                 registered = true;
+                // EVENT_WAIT: authenticated server readiness; expiry releases startup resources.
                 MAIN.postDelayed(timeout, 60_000);
                 var process = resources.reserve();
                 WORK.execute(() -> {
@@ -147,6 +162,33 @@ final class WaylandSessions {
         @Override public boolean containsWindow(long id) { return windows().stream().anyMatch(window -> window.id() == id); }
         void listen(Listener listener) { listeners.add(listener); }
         void unlisten(Listener listener) { listeners.remove(listener); }
+        private Listener clipboardOwner;
+        void claimClipboard(Listener owner) {
+            clipboardOwner = owner;
+            if (ready()) renderer.content().active(true);
+        }
+        void releaseClipboard(Listener owner) {
+            if (clipboardOwner != owner) return;
+            clipboardOwner = null;
+            if (ready()) renderer.content().active(false);
+        }
+        io.github.mekhontsev.magicdesk.wayland.WaylandDataExchange content() {
+            if (!ready()) throw new IllegalStateException("Wayland session unavailable");
+            return renderer.content();
+        }
+        io.github.mekhontsev.magicdesk.wayland.IWaylandServer contentFiles() {
+            if (!ready()) throw new IllegalStateException("Wayland session unavailable");
+            return renderer.contentFiles();
+        }
+        @Override public void contentOffer(io.github.mekhontsev.magicdesk.wayland.WaylandDataExchange.Offer offer) {
+            if (stopped()) return;
+            if (offer.channel() == io.github.mekhontsev.magicdesk.wayland.WaylandDataExchange.CLIPBOARD) {
+                if (clipboardOwner != null) clipboardOwner.contentOffer(offer);
+            } else for (var listener : listeners) listener.contentOffer(offer);
+        }
+        @Override public void dragEvent(long output, long offer, boolean finished, boolean accepted) {
+            if (!stopped()) for (var listener : listeners) listener.dragEvent(output, offer, finished, accepted);
+        }
         synchronized void host(int taskId, long window) { hosts.put(taskId, window); presentation.claim(window); }
         synchronized void releaseHost(int taskId) { hosts.remove(taskId); }
         @Override public synchronized int hostTaskId(long window) {
@@ -184,16 +226,28 @@ final class WaylandSessions {
         }
         WaylandShellBinding bindShell(ShellLayoutScope scope, int density, WaylandShellBinding.Listener listener) {
             if (!ready()) throw new IllegalStateException("Wayland session is not ready");
-            if (application) throw new IllegalStateException("Shell components require a retained graphics session");
+            if (!canIntegrateShell()) throw new IllegalStateException("Shell components require a separate retained graphics session");
             return new WaylandShellBinding(renderer, scope, density, listener);
         }
-        boolean canIntegrateShell() { return !application; }
+        boolean canIntegrateShell() { return !application && !desktop; }
         void closeWindow(long window, boolean force) {
             if (!ready()) return;
             renderer.closeWindow(window, force);
         }
 
+        boolean claimFullscreen(long window, Object host) { return fullscreenOwners.claim(window, host); }
+        void releaseFullscreen(Object host) { if (fullscreenOwners.release(host)) changed(); }
+        void confirmFullscreen(long window, Object host, long serial, boolean actual) {
+            if (ready() && fullscreenOwners.owns(window, host)) renderer.confirmFullscreen(window, serial, actual);
+        }
+
         void execute(String command, String directory) {
+            if (!execution.canExecuteHostCommand())
+                throw new IllegalStateException("Open another application through the selected Linux environment");
+            launchCommand(command, directory);
+        }
+
+        private void launchCommand(String command, String directory) {
             if (command == null || command.isBlank()) throw new IllegalArgumentException("Missing Wayland command");
             if (!ready()) throw new IllegalStateException("Wayland session is not ready");
             String cwd = DesktopExecWorkingDirectory.normalize(directory);
@@ -260,11 +314,18 @@ final class WaylandSessions {
             }
             if (ready() && application && hadWindows && windows().isEmpty()) { close(); return; }
             presentation.retain(windows().stream().map(WaylandSession.Window::id).collect(java.util.stream.Collectors.toSet()));
+            fullscreenOwners.retain(windows().stream().map(WaylandSession.Window::id).toList());
             for (var listener : listeners) listener.changed();
             if (ready()) for (var window : windows()) if (window.mapped()) presentation.present(window.id());
         }
         @Override public void frame(long output, int width, int height) {
             for (var listener : listeners) listener.frame(output, width, height);
+        }
+        @Override public void textInputChanged(long output) {
+            for (var listener : listeners) listener.textInputChanged(output);
+        }
+        @Override public void cursor(long output, android.graphics.Bitmap image, int hotspotX, int hotspotY, boolean hidden) {
+            for (var listener : listeners) listener.cursor(output, image, hotspotX, hotspotY, hidden);
         }
         @Override public void geometryChanged(long window) {
             for (var listener : listeners) listener.geometryChanged(window);

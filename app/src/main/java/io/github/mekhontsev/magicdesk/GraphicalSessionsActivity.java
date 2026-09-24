@@ -173,6 +173,15 @@ public final class GraphicalSessionsActivity extends Activity {
         protocols.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         protocol.setAdapter(protocols);
         fields.addView(protocol);
+        android.widget.CheckBox desktop = new android.widget.CheckBox(this);
+        desktop.setText(R.string.graphics_nested_desktop);
+        fields.addView(desktop);
+        protocol.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> parent, android.view.View view, int position, long id) {
+                desktop.setVisibility(position == 1 ? android.view.View.VISIBLE : android.view.View.GONE);
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
+        });
         android.widget.Spinner backend = new android.widget.Spinner(this);
         var options = new android.widget.ArrayAdapter<>(this, android.R.layout.simple_spinner_item,
                 new String[]{"Termux", "Shell / root"});
@@ -199,7 +208,7 @@ public final class GraphicalSessionsActivity extends Activity {
                                 ? GraphicalProtocol.X11 : GraphicalProtocol.WAYLAND;
                         select(GraphicalSessions.start(this, selectedProtocol, name.getText().toString().isBlank()
                                 ? protocol.getSelectedItem().toString() : name.getText().toString(),
-                                command.getText().toString(), "", executor, keyboard.getText().toString()));
+                                command.getText().toString(), "", executor, keyboard.getText().toString(), desktop.isChecked()));
                         if (session.desktop()) openWindow(0);
                         else session.watch(this);
                         dialog.dismiss();

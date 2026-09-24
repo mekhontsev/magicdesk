@@ -176,7 +176,10 @@ static void global(void *data, struct wl_registry *registry, uint32_t id, const 
         wl_seat_add_listener(c->seat, &seat_listener, c);
     }
 }
-static const struct wl_registry_listener registry_listener = {.global = global};
+static void global_remove(void *data, struct wl_registry *registry, uint32_t name) {
+    (void)data; (void)registry; (void)name;
+}
+static const struct wl_registry_listener registry_listener = {.global = global, .global_remove = global_remove};
 static void client(const char *socket) {
     struct Client c = {.display = wl_display_connect(socket)};
     assert(c.display);

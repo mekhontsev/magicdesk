@@ -43,9 +43,10 @@ struct MdwServer {
     struct wl_list foreign_windows;
     struct wlr_seat *seat;
     struct wlr_keyboard keyboard;
+    struct MdwInput *input;
+    struct MdwContent *content;
     bool keyboard_initialized;
     struct wl_listener modifiers;
-    struct wl_listener selection;
     MdwOutput *pointer_owner, *keyboard_owner;
     struct wl_listener new_toplevel, new_popup;
     struct wl_listener new_layer;
@@ -69,5 +70,13 @@ void mdw_toplevels_clear(MdwServer *server);
 bool mdw_toplevels_prepare(MdwServer *server);
 bool mdw_scene_render_transparent(struct wlr_scene_output *output);
 bool mdw_scene_render_family(struct wlr_scene_output *output, struct wlr_surface *owner, bool dependents);
+bool mdw_input_init(MdwServer *server);
+void mdw_input_finish(MdwServer *server);
+void mdw_input_refresh(MdwServer *server);
+bool mdw_input_text(MdwServer *server, const char *text, bool composing, int cursor);
+bool mdw_content_init(MdwServer *server);
+void mdw_content_finish(MdwServer *server);
+bool mdw_content_pointer_held(MdwServer *server);
+void mdw_content_output_released(MdwServer *server, MdwOutput *output);
 
 #endif

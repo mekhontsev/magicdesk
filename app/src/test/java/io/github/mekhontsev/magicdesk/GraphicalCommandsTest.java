@@ -34,6 +34,7 @@ public final class GraphicalCommandsTest {
         assertEquals(Set.of("sessionId", "windowId"), strings(open.getJSONArray("required")));
         assertFalse(start.getJSONObject("properties").has("displayId"));
         assertTrue(open.getJSONObject("properties").has("displayId"));
+        assertEquals("boolean", start.getJSONObject("properties").getJSONObject("wholeDesktop").getString("type"));
         AutomationCommandArguments.check("graphics.start", new JSONObject()
                 .put("protocol", "wayland").put("backend", "termux").put("name", "Test"));
         try {

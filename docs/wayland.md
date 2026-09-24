@@ -5,7 +5,8 @@
 The `wayland-runtime` module contains an experimental per-toplevel compositor and Android
 runtime module. The APK packages the compositor and a separate host renderer.
 **Linux graphics** manages X11 and Wayland sessions through the same controls;
-Wayland opens each toplevel in an ordinary Android host. The shared
+Wayland opens each toplevel in an ordinary Android host. A nested compositor can
+instead present a whole Linux desktop in a retained Android viewer. The shared
 `graphics.list/start/execute/stop/open_window` automation commands also generate
 the built-in CLI interface. Start and `.desktop` recipes select X11 or Wayland
 through the shared graphical launch model; ordinary installed Termux entries
@@ -67,13 +68,15 @@ describe its creator and must not be mistaken for the launched client's identity
   `WaylandActivity` uses `HostedSurfaceView`, pointer gestures and the same
   `HostedWindowPresentation` placement/recovery owner as X11. Normal close sends
   `xdg_toplevel.close` and keeps the host for confirmation; force close disconnects
-  that client connection, not other clients or the compositor.
+  that client connection, not other clients or the compositor. A whole-desktop
+  viewer detaches without requesting client closure; the manager owns explicit
+  session shutdown.
 - `GraphicalApplicationLaunch` shares recipe reuse, profile-scoped application
   identity, Recent and Android placement between X11 and Wayland. The pending
   application host claims the first mapped toplevel; additional toplevels use
   `HostedWindowPresentation`. A recipe launch owns a dedicated session, which
-  ends when its last window is destroyed. Sessions explicitly created in the
-  manager remain retained until stopped. Deleting a shortcut forgets its launch
+  ends when its last window is destroyed. Whole-desktop recipes and sessions
+  explicitly created in the manager remain retained until stopped. Deleting a shortcut forgets its launch
   history without closing live clients.
 - The native compositor API knows no Java classes, packages, Binder authorization,
   Android tasks or placement policy. Its calls and callbacks are serialized on
@@ -117,22 +120,58 @@ the frame path without changing launch, input or Android placement policy. The
 current renderer does not advertise DMA-BUF support. Software remains the
 compatibility path; GPU drivers are not a startup requirement.
 
-The current native slice covers xdg-toplevel discovery and metadata, software
+The native runtime covers xdg-toplevel discovery and metadata, software
 rendering, configure/ack, frame callbacks, borrowed-output resize, pointer/key
-input, focus release and graceful close. The standard data-device manager and
-seat selection serve guest-to-guest clipboard requests; they do not publish or
-read Android clipboard content. Popup nodes retain their parent's native scene
+input, focus release and graceful close. Popup nodes retain their parent's native scene
 and grab lifetime. Managed API-35+ hosts can present the popup family outside the
 parent's task crop through the shared opt-in
 [dependent-surface host](shell-layout.md#application-relative-surfaces).
 Ordinary subsurfaces remain in their owning tree; transient toplevels retain
 separate Android hosts. Shell popup constraints and surface-family input geometry
-are covered by native fixtures. IME/text,
-clipboard, drag-and-drop, density/fullscreen policy, and GPU
-buffer import are not complete. Android text input is explicitly unavailable
-instead of accepting and discarding IME text. Physical keys use the shared
-Android-to-evdev mapping. XWayland and full desktop environments are not part
-of this slice.
+are covered by native fixtures. Physical keys use the shared Android-to-evdev
+mapping. XWayland and GPU buffer import are not enabled.
+
+## Host Interaction
+
+`HostedSurfaceView` owns Android input and IME lifecycle. The Wayland adapter
+bridges `text-input-v3` preedit and committed UTF-8 text to the focused client.
+Client enable/disable events update the Android text editor; clients without this
+protocol retain physical-key input. Commits are split at UTF-8 boundaries to fit
+Wayland messages. Oversized composition stays in Android until committed.
+Cursor surfaces update Android's pointer image and hotspot rather than drawing a
+second cursor in the framebuffer. Focus/output loss restores the Android default.
+
+Each application output derives its scale from its Android host's density.
+`wl_output`, preferred buffer scale, fractional scale and viewporter expose that
+scale to clients. Surface coordinates remain logical; rendering and hit-testing
+use the same transform. Fullscreen requests carry a native revision through
+`HostedFullscreen` and the existing Android presentation gateway. A stale host
+or acknowledgement cannot confirm a newer request. Neither feature changes
+Android task-area ownership.
+
+`HostedContentExchange` owns Android clipboard focus, drag lifecycle and URI
+grants for both graphical protocols. `WaylandContentExchange` translates MIME
+offers and `wl_data_device` events; `HostedContentTransfer` handles Android
+providers and guest file access. Text, HTML, PNG and file URI lists reuse the
+same payload model as X11. Same-session drags retain the original guest source
+so Android does not insert a second copy. Offer IDs qualify completion and
+cancellation, including transitions between hosts.
+
+Native content I/O uses event-driven nonblocking pipes and sealed memfds, with
+at most 16 transfers and 128 MiB per transfer. Each readiness callback moves at
+most 64 KiB. The 30-second deadline cancels an unfinished transfer; it is not a
+settling delay. Host provider I/O runs on bounded workers, independently of the
+compositor event loop and Android main thread. Clipboard ownership is scoped to
+the focused host, with source tagging to prevent feedback.
+
+`HostedFileExchange`, `SharedFileNamespace` and `GuestFileBridge` are shared with
+X11. A guest recipe binds a private session directory at `/tmp/magicdesk-wayland`
+and starts the authenticated helper as the guest application's user. Import
+paths refer to that shared directory; export opens the actual guest file, not
+an identically named host path. One session retains one explicit file environment.
+The PRoot recipe builder supplies these bindings; custom entry scripts own their
+mounts and authorization. Root/chroot Wayland bootstrap remains separate pending
+work; the common file contract does not bypass that launch restriction.
 
 ## Native Shell Surfaces
 
@@ -180,8 +219,9 @@ families use the public render-pass API with cached client textures and the outp
 swapchain, preserving premultiplied alpha rather than an opaque background. The
 scene retains subsurface placement, damage events and hit-testing. There are no
 additional per-buffer texture imports or pixel copies in this compositor pass;
-the existing software frame export remains unchanged. Borrowed view outputs use
-unit scale and no output transform; client buffer transforms and viewports are
+the existing software frame export remains unchanged. Explicit shell/dependent
+viewports use unit scale and no output transform; application outputs use their
+host density. Client buffer transforms and viewports are
 applied during composition. Damage retirement prevents unchanged shell surfaces
 from continuously submitting frames. Host protocol events are flushed before a
 blocking dispatch, so idle scenes do not delay close, configure or input events.
@@ -217,33 +257,12 @@ boundary; see [shell layout](shell-layout.md#android-adapter). Linux surface
 admission must request it explicitly and retain the frame/region checks above.
 Ordinary application hosts retain their existing viewport policy.
 
-## Implementation Plan
+## Remaining Work
 
-The target includes both individual applications in Android windows and a whole
-Linux desktop in one Android host. The steps below are planned work, not current
-capabilities. Whole-desktop feasibility is the next step, independently of GPU support.
-
-1. **Whole-desktop feasibility.** Run a suitable nested Linux compositor with
-   software rendering in one Android host. The guest compositor owns its internal
-   windows. Verify pointer/key input, resize and viewer reopening without stopping
-   the guest session. Record requirements for the tested compositor separately
-   from support for other desktop environments; use the result to scope the
-   whole-desktop implementation through the shared session and host owners.
-2. **Everyday interaction.** Implement Android IME, bidirectional clipboard and
-   one visible cursor through the shared host adapters and Wayland protocol
-   backends. Complete density and fullscreen integration through existing
-   presentation policy. Verify text composition, selection, focus changes,
-   popups, close confirmations and resizing across GTK and Qt clients, with X11
-   regression coverage. Validate managed recipe placement on a Desktop separately
-   from independent Android hosts.
-3. **Drag-and-drop.** Connect Wayland data offers and drag lifecycle to the shared
-   content exchange. Verify text and file transfers in both directions, cancellation,
-   URI-grant lifetime and guest filesystem translation for prepared proot/chroot
-   environments. Keep container preparation outside the graphical runtime.
-4. **Optional GPU path.** Add buffer import, synchronization and presentation behind
-   the existing frame boundaries. Verify ownership, teardown and software fallback
-   on supported devices before advertising hardware-buffer capabilities. GPU
-   support must not change launch identity or become a startup requirement.
+**Optional GPU path.** Add buffer import, synchronization and presentation behind
+the existing frame boundaries. Verify ownership, teardown and software fallback
+on supported devices before advertising hardware-buffer capabilities. GPU support
+must not change launch identity or become a startup requirement.
 
 Root/chroot client bootstrap is a separate prerequisite for testing those
 execution environments, not for the initial Termux application workflow. Extend
@@ -259,12 +278,10 @@ Linux desktop retains its own scope and cannot reserve space on its containing
 Android Desktop. Native wlroots owns protocol validation, configure/ack, scene
 nodes and seat state; the geometry model does not replace Android task planes.
 
-Each step needs focused protocol tests and real Android-host workflows through
-the same UI/MCP service owners. As work lands, remove completed items from this
-plan and describe the resulting behavior in the relevant sections. Keep Status
-and Verification aligned with current capabilities and actual device coverage.
-This document describes the current design and remaining work, not a development
-chronicle; implementation history belongs in Git.
+Further toolkit and IME coverage must use real Android hosts as well as focused
+protocol tests. Surrounding-text/content-type synchronization and toolkit
+protocols other than text-input-v3 are not implemented. General desktop-environment
+compatibility is separate from successfully hosting a nested compositor.
 
 ## Session Controls
 
@@ -286,15 +303,25 @@ graphics** and **Wayland** in the command shortcut editor. The normal launch
 reuses a live recipe window; **New window** starts another session. Recent
 retains the recipe and executor, not a generic Wayland host. The semantic recipe
 key also supplies Android application-profile and saved-placement identity.
-Wayland whole-desktop recipes and guest file environments fail explicitly until
-their integration is implemented. See [Desktop entries](desktop-entries.md) for
+See [Desktop entries](desktop-entries.md) for
 the common format and argument rules.
 
 Open **Linux graphics** from Start, create a session, and explicitly select X11
 or Wayland and the client executor. Wayland startup commands open toplevels using
 the manager's verified Android destination. The window picker can open an
-existing toplevel; closing the manager retains the session. X11 additionally
-offers its whole-desktop viewer and interface-scale control.
+existing toplevel; closing the manager retains the session. Both protocols offer
+whole-desktop presentation. X11 also has a session-wide interface-scale control;
+Wayland derives application density from each Android host.
+
+For a nested desktop, select **Nested Linux desktop** in the manager, or set
+`X-MagicDesk-GraphicsMode=desktop` in a Wayland recipe. Supply a compositor
+command with a Wayland backend and software rendering, for example Weston 16:
+`weston --backend=wayland --renderer=pixman --shell=desktop-shell.so`.
+The guest compositor owns its internal windows. Closing the Android viewer
+retains the session; reopening it borrows the existing toplevel. This mode does
+not itself install or start an arbitrary desktop environment. `graphics.start`
+accepts `wholeDesktop=true`; `graphics.open_window` accepts window ID zero for
+such a session. Ordinary Wayland sessions require a real native window ID.
 
 For example, with an installed GTK client in Termux:
 
@@ -486,13 +513,30 @@ a session in the shared manager did not create a viewer. These are focused
 workflows without Desktop, not a declaration of full GTK/Qt feature parity.
 
 The shared recipe workflow on API 36 covers Termux GTK3 and Qt6 Designer launches,
-additional toplevels, keyboard dismissal of a Qt dialog, protocol closure and
+additional toplevels, Qt menu selection and dialog dismissal, protocol closure and
 application-session shutdown after the last window. GTK also covers recipe reuse
-without duplicate hosts, explicit new instances, and reopening from Start's
-independent Recent list. The corresponding X11 GTK recipe still launches and
-closes through the same coordinator. Qt popup interaction and close confirmation
-need further validation; this coverage does not include managed Desktop placement
-or an API-34 device.
+without duplicate hosts, explicit new instances, reopening from independent
+Recent, managed placement, fullscreen/restore and cancelling a close confirmation.
+GTK clipboard text and file drag-and-drop pass in both directions with Android,
+including a PRoot Ubuntu recipe and file-content hash verification. Same-session
+drags between Android hosts insert once. The X11 regression covers clipboard and
+files in both directions through the shared adapters. GTK menus accept pointer
+input after a density change. These checks use RM11/API 36; API 34 device coverage
+is still pending.
+
+Weston 16 with its Wayland backend, Pixman renderer and desktop shell presents a
+nested desktop and terminal. Closing and reopening its Android viewer retains
+the guest session. This is software-compositor coverage, not validation of every
+Linux desktop environment or hardware acceleration.
+
+Native fixtures exercise text-input-v3 preedit/Unicode commit, cursor pixels,
+scale, stale fullscreen acknowledgements, bidirectional selections, native drag
+delivery and bounded content-stream cancellation. `HostedInputInstrumentation`
+exercises Android InputConnection composition/commit alongside the shared pointer
+and cursor tests. Actual keyboard-app behavior and other text-input protocols
+need further device/toolkit coverage. Small fixed-size GTK dialogs currently
+retain the configured host canvas; size-hint-driven Android placement remains
+separate work.
 
 The API-36 shell runtime fixture passed with a Termux-UID compositor and an
 app-UID Android presenter: typed catalog/configure exchange, alpha pixels,

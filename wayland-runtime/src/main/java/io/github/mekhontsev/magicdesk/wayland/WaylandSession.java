@@ -19,7 +19,8 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class WaylandSession implements AutoCloseable {
-    public record Window(long id, long parent, String title, String appId, boolean mapped, int width, int height) { }
+    public record Window(long id, long parent, String title, String appId, boolean mapped, int width, int height,
+            long requestSerial, boolean fullscreen) { }
     public record Toplevel(long id, String title, String appId, boolean active, boolean maximized, boolean fullscreen) { }
     public enum ToplevelAction { ACTIVATE, MAXIMIZE, FULLSCREEN, UNMAXIMIZE, UNFULLSCREEN, CLOSE }
     public interface Listener {
@@ -27,6 +28,10 @@ public final class WaylandSession implements AutoCloseable {
         void failed(long output, String message);
         default void frame(long output, int width, int height) { }
         default void geometryChanged(long window) { }
+        default void textInputChanged(long output) { }
+        default void contentOffer(WaylandDataExchange.Offer offer) { }
+        default void dragEvent(long output, long offer, boolean finished, boolean accepted) { }
+        default void cursor(long output, android.graphics.Bitmap image, int hotspotX, int hotspotY, boolean hidden) { }
     }
     public interface ShellListener {
         void changed();
@@ -42,6 +47,7 @@ public final class WaylandSession implements AutoCloseable {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final HandlerThread thread = new HandlerThread("WaylandControl");
     private final Handler handler;
+    private final WaylandDataExchange content;
     private final AtomicBoolean closed = new AtomicBoolean();
     private final LongSparseArray<Window> catalog = new LongSparseArray<>();
     private final ConcurrentHashMap<Long, WaylandViewGeometry> geometries = new ConcurrentHashMap<>();
@@ -60,8 +66,46 @@ public final class WaylandSession implements AutoCloseable {
         private void checkCaller() {
             if (Binder.getCallingUid() != executorUid) throw new SecurityException("Not the Wayland executor UID");
         }
+        @Override public void contentOffer(int channel, long id, long output, String types) {
+            checkCaller(); handler.post(() -> content.offered(channel, id, output, types));
+        }
+        @Override public void contentRequest(int channel, long id, long request, String type) {
+            checkCaller(); handler.post(() -> content.requested(channel, id, request, type));
+        }
+        @Override public void dragEvent(long output, long offer, boolean finished, boolean accepted) {
+            checkCaller();
+            main.post(() -> { if (!closed.get()) listener.dragEvent(output, offer, finished, accepted); });
+        }
+        @Override public void contentReply(long request, ParcelFileDescriptor fd) {
+            try { checkCaller(); }
+            catch (RuntimeException error) { closeDescriptor(fd); throw error; }
+            if (!handler.post(() -> content.reply(request, fd))) closeDescriptor(fd);
+        }
+        @Override public void textInput(long id, boolean enabled) {
+            checkCaller();
+            handler.post(() -> {
+                Output output = outputs.get(id);
+                if (closed.get() || output == null || output.released.get() || output.textEnabled == enabled) return;
+                output.textEnabled = enabled;
+                main.post(() -> { if (!closed.get() && !output.released.get()) listener.textInputChanged(id); });
+            });
+        }
+        @Override public void cursor(long id, int[] pixels, int width, int height, int x, int y, boolean hidden) {
+            checkCaller();
+            if (pixels != null && (width < 1 || height < 1 || width > 256 || height > 256 || pixels.length != width * height))
+                throw new IllegalArgumentException("Invalid Wayland cursor image");
+            handler.post(() -> {
+                Output output = outputs.get(id);
+                if (closed.get() || output == null || output.released.get()) return;
+                android.graphics.Bitmap bitmap = pixels == null ? null : android.graphics.Bitmap.createBitmap(
+                        pixels, width, height, android.graphics.Bitmap.Config.ARGB_8888);
+                main.post(() -> {
+                    if (!closed.get() && !output.released.get()) listener.cursor(id, bitmap, x, y, hidden);
+                });
+            });
+        }
         @Override public void window(long id, long parent, String title, String appId, boolean mapped,
-                int width, int height, boolean removed) {
+                int width, int height, long requestSerial, boolean fullscreen, boolean removed) {
             checkCaller();
             handler.post(() -> {
                 if (closed.get()) return;
@@ -71,7 +115,7 @@ public final class WaylandSession implements AutoCloseable {
                     dependentGeometries.remove(id);
                     releaseSurfaceOutputs(id);
                 }
-                else catalog.put(id, new Window(id, parent, title, appId, mapped, width, height));
+                else catalog.put(id, new Window(id, parent, title, appId, mapped, width, height, requestSerial, fullscreen));
                 ArrayList<Window> snapshot = new ArrayList<>(catalog.size());
                 for (int index = 0; index < catalog.size(); ++index) snapshot.add(catalog.valueAt(index));
                 windows = List.copyOf(snapshot);
@@ -219,6 +263,7 @@ public final class WaylandSession implements AutoCloseable {
         this.listener = java.util.Objects.requireNonNull(listener);
         thread.start();
         handler = new Handler(thread.getLooper());
+        content = new WaylandDataExchange(server, handler, main::post, listener::contentOffer);
         try {
             server.asBinder().linkToDeath(serverDied, 0);
             server.retain(events);
@@ -233,6 +278,8 @@ public final class WaylandSession implements AutoCloseable {
     public WaylandViewGeometry geometry(long window) { return closed.get() ? null : geometries.get(window); }
     public WaylandViewGeometry dependentGeometry(long window) { return closed.get() ? null : dependentGeometries.get(window); }
     public boolean isClosed() { return closed.get(); }
+    public WaylandDataExchange content() { return content; }
+    public IWaylandServer contentFiles() { return server; }
 
     /** Explicit admission, independent of Android display placement or Desktop startup. */
     public synchronized ShellBinding bindShell(int width, int height, ShellListener listener) {
@@ -323,6 +370,10 @@ public final class WaylandSession implements AutoCloseable {
         handler.post(() -> { if (!closed.get()) remote(() -> server.closeWindow(window, force)); });
     }
 
+    public void confirmFullscreen(long window, long serial, boolean fullscreen) {
+        handler.post(() -> { if (!closed.get()) remote(() -> server.confirmFullscreen(window, serial, fullscreen)); });
+    }
+
     private void frameConsumed(long id, long serial) {
         if (!closed.get() && serial != 0) remote(() -> server.frameConsumed(id, serial));
     }
@@ -347,6 +398,7 @@ public final class WaylandSession implements AutoCloseable {
         final ShellBinding binding;
         synchronized (this) {
             if (!closed.compareAndSet(false, true)) return;
+            content.close();
             binding = shellBinding;
         }
         if (binding != null) binding.release("Wayland session is closed");
@@ -447,6 +499,7 @@ public final class WaylandSession implements AutoCloseable {
         private volatile Output dependents;
         private final java.util.function.Consumer<Throwable> failureListener;
         private int width, height;
+        private volatile boolean textEnabled;
         private final AtomicBoolean released = new AtomicBoolean();
         private final WaylandFramePresenter presenter;
         private final FramePresentation presentation = new FramePresentation();
@@ -538,12 +591,20 @@ public final class WaylandSession implements AutoCloseable {
         }
 
         public void focus(boolean focused) { command(() -> server.focus(id, focused)); }
+        public void scale(double scale) { command(() -> server.scale(id, scale)); }
         public void pointer(double x, double y) { command(() -> server.pointer(id, x, y)); }
         public void button(int button, boolean down) { command(() -> server.button(id, button, down)); }
         public void scroll(double horizontal, double vertical) { command(() -> server.scroll(id, horizontal, vertical)); }
         public void key(int evdevCode, boolean down) { key(0, evdevCode, down); }
         public void key(int androidKey, int scanCode, boolean down) {
             command(() -> server.key(id, androidKey, scanCode, down));
+        }
+        public boolean supportsText() { return textEnabled && !released.get(); }
+        public void text(String text, boolean composing, int cursor) {
+            if (text == null || text.indexOf('\0') >= 0 || cursor < 0 || cursor > text.length())
+                throw new IllegalArgumentException("Invalid text edit");
+            command(() -> WaylandText.send(text, composing, cursor,
+                    edit -> remote(() -> server.text(id, edit.text(), edit.composing(), edit.cursor()))));
         }
 
         private void release() {

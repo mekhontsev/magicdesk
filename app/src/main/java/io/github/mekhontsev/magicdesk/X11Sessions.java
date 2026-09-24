@@ -182,7 +182,7 @@ final class X11Sessions {
         private volatile List<X11Session.Window> windows = List.of();
         private Listener clipboardOwner;
         final HostedWindowPresentation presentation;
-        private final java.util.Map<Long, Object> fullscreenOwners = new java.util.HashMap<>();
+        private final HostedWindowOwners fullscreenOwners = new HostedWindowOwners();
 
         Session(Context context, X11Execution execution, String name, String command,
                 String directory, boolean application, int densityDpi, String desktopFile, RecentApplicationStore.Entry recipe) {
@@ -349,16 +349,16 @@ final class X11Sessions {
                 if (presentation.present(item.id())) LAUNCHES.presented(id(), item.id());
         }
         boolean claimFullscreen(long id, Object host) {
-            return fullscreenOwners.computeIfAbsent(id, key -> host) == host;
+            return fullscreenOwners.claim(id, host);
         }
         void releaseFullscreen(Object host) {
-            if (fullscreenOwners.values().removeIf(value -> value == host)) changed();
+            if (fullscreenOwners.release(host)) changed();
         }
         void confirmFullscreen(long id, Object host,
                 io.github.mekhontsev.magicdesk.x11.X11WindowManagement.Request request,
                 io.github.mekhontsev.magicdesk.x11.X11WindowManagement.State actual) {
             X11Session current = renderer;
-            if (fullscreenOwners.get(id) == host && current != null && state == State.READY)
+            if (fullscreenOwners.owns(id, host) && current != null && state == State.READY)
                 current.confirmWindowState(id, request, actual);
         }
         void claimClipboard(Listener owner) {
@@ -488,7 +488,7 @@ final class X11Sessions {
                         presentation.retain(live);
                         associateRecipes(snapshot);
                         if (application) LAUNCHES.update(id(), launchScope(), snapshot);
-                        fullscreenOwners.keySet().retainAll(snapshot.stream().map(X11Session.Window::id).toList());
+                        fullscreenOwners.retain(snapshot.stream().map(X11Session.Window::id).toList());
                         if (!snapshot.isEmpty()) {
                             boolean first = !hadWindows;
                             hadWindows = true;

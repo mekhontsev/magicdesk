@@ -12,7 +12,6 @@ final class GraphicalApplicationLaunch {
                 || request.sourceShortcut == null || !request.arguments.isEmpty()
                 || request.presentation.instancePolicy == DesktopTaskInstancePolicy.CREATE_NEW) return false;
         final var recipe = RecentApplications.describe(host.context(), request.sourceShortcut, request.desktopFilePath);
-        request.exec.graphics.requireSupported();
         final var application = GraphicalSessions.findRecipe(recipe.key());
         if (application == null) return false;
         final var session = application.session();
@@ -74,7 +73,6 @@ final class GraphicalApplicationLaunch {
 
     static DesktopLaunchRequest prepare(DesktopLaunchContext host, DesktopLaunchRequest request) {
         if (request.exec == null || request.exec.graphics == null) return request;
-        request.exec.graphics.requireSupported();
         if (request.androidLaunch != null || request.androidShortcut != null)
             throw new IllegalArgumentException("Graphical commands cannot also launch an Android application");
         Context context = host.context();

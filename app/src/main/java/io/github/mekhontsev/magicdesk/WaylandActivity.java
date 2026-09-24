@@ -11,7 +11,7 @@ import io.github.mekhontsev.magicdesk.wayland.WaylandSession;
 
 /** An Android host borrows one Wayland toplevel; it does not own the compositor. */
 public final class WaylandActivity extends Activity implements WaylandSessions.Listener,
-        BuiltInWindowRegistry.PresentationSource, BuiltInWindowRegistry.CloseHandler,
+        BuiltInWindowRegistry.PresentationSource, BuiltInWindowRegistry.CloseHandler, BuiltInWindowRegistry.ImmersiveSource,
         BuiltInWindowRegistry.ApplicationSource, BuiltInWindowRegistry.DesktopPresentationListener {
     static final String SESSION = "wayland_session";
     private static final String WINDOW = "wayland_window", COMMAND = "wayland_command", NAME = "wayland_name",
@@ -75,7 +75,6 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
                 if (recipe == null || recipe.shortcut().graphics == null
                         || recipe.shortcut().graphics.protocol() != GraphicalProtocol.WAYLAND)
                     throw new IllegalArgumentException("Invalid Wayland launch recipe");
-                recipe.shortcut().graphics.requireSupported();
                 RecentApplications.requireEnvironment(this, recipe);
                 session = WaylandSessions.start(this, getIntent().getStringExtra(NAME), getIntent().getStringExtra(COMMAND),
                         getIntent().getStringExtra(DIRECTORY), backend, getIntent().getStringExtra(KEYBOARD), recipe);
@@ -83,7 +82,7 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
             } catch (RuntimeException error) { status.setText(ShellAccess.usefulMessage(error)); return; }
         }
         if (session != null) {
-            pendingLaunch = window == 0 && session.recipe() != null;
+            pendingLaunch = window == 0 && (session.recipe() != null || session.desktop);
             session.listen(this);
             session.host(getTaskId(), window);
             session.presentation.host(this);
@@ -142,8 +141,16 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
         if (!isFinishing() && !isDestroyed() && binding != null) binding.frame(id, width, height);
     }
     @Override public void geometryChanged(long id) { if (id == window && binding != null) binding.geometryChanged(); }
+    @Override public void textInputChanged(long output) { if (binding != null) binding.textInputChanged(output); }
+    @Override public void cursor(long output, android.graphics.Bitmap image, int hotspotX, int hotspotY, boolean hidden) {
+        if (binding != null) binding.cursor(output, image, hotspotX, hotspotY, hidden);
+    }
     @Override public void desktopPresentationChanged() { if (binding != null) binding.refresh(); }
     @Override public BuiltInWindowRegistry.Presentation taskPresentation() { return presentation; }
+    @Override public BuiltInWindowRegistry.ImmersiveRequest immersiveRequest() {
+        return binding == null ? null : binding.immersiveRequest();
+    }
+    @Override public void onImmersiveRejected() { if (binding != null) binding.rejectImmersive(); }
     @Override public AppReference windowApplication() { return application; }
     @Override public void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
@@ -164,16 +171,18 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
         if (binding != null) binding.refresh();
     }
     @Override public void requestClose(boolean force) {
+        if (session != null && session.desktop) { finishAndRemoveTask(); return; }
         if (pendingLaunch && session != null) { session.close(); finishAndRemoveTask(); return; }
         if (session != null && session.ready() && session.containsWindow(window)) session.closeWindow(window, force);
         else finishAndRemoveTask();
     }
     @Override public BuiltInWindowRegistry.ForceCloseAction forceCloseAction() {
+        if (session != null && session.desktop) return null;
         return new BuiltInWindowRegistry.ForceCloseAction(R.string.action_force_stop, getString(R.string.graphics_force_stop_client));
     }
     @Override public void onDestroy() {
-        if (isFinishing() && pendingLaunch && session != null) session.close();
-        boolean request = isFinishing() && session != null && session.ready() && session.containsWindow(window);
+        if (isFinishing() && pendingLaunch && session != null && !session.desktop) session.close();
+        boolean request = isFinishing() && session != null && !session.desktop && session.ready() && session.containsWindow(window);
         if (request) session.closeWindow(window, false);
         if (binding != null) binding.close();
         else if (surface != null) surface.release();

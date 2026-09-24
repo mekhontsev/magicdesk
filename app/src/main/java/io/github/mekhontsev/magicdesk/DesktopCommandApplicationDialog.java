@@ -119,6 +119,9 @@ final class DesktopCommandApplicationDialog {
         label(activity, graphicsFields, R.string.command_app_graphics);
         final Spinner protocol = spinner(activity, R.array.command_app_graphics_protocols, 0);
         graphicsFields.addView(protocol, matchWrap());
+        final android.widget.CheckBox wholeDesktop = new android.widget.CheckBox(activity);
+        wholeDesktop.setText(R.string.graphics_whole_desktop);
+        graphicsFields.addView(wholeDesktop, matchWrap());
         form.addView(graphicsFields, matchWrap());
         final LinuxEnvironmentPicker linux = new LinuxEnvironmentPicker(activity);
         linux.setVisibility(View.GONE);
@@ -163,7 +166,9 @@ final class DesktopCommandApplicationDialog {
 
             @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 boolean isLinux = position >= 3;
-                graphicsFields.setVisibility(position == 2 ? View.VISIBLE : View.GONE);
+                graphicsFields.setVisibility(position == 2 || (isLinux && presentation.getSelectedItemPosition() != 0)
+                        ? View.VISIBLE : View.GONE);
+                wholeDesktop.setVisibility(position == 2 ? View.VISIBLE : View.GONE);
                 linux.setBackend(position == 4 ? DesktopExecBackend.SHELL : DesktopExecBackend.TERMUX);
                 linux.setActive(isLinux);
                 linux.setGraphical(presentation.getSelectedItemPosition() != 0);
@@ -189,6 +194,8 @@ final class DesktopCommandApplicationDialog {
         presentation.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 linux.setGraphical(position != 0);
+                if (backend.getSelectedItemPosition() >= 3)
+                    graphicsFields.setVisibility(position != 0 ? View.VISIBLE : View.GONE);
             }
             @Override public void onNothingSelected(AdapterView<?> parent) { }
         });
@@ -239,7 +246,8 @@ final class DesktopCommandApplicationDialog {
                         shortcut = isLinux ? LinuxLaunchRecipe.build(name.getText().toString(),
                                 linux.selected(), command.getText().toString(), workingDirectory,
                                 linuxUser.getText().toString(),
-                                LinuxLaunchRecipe.Presentation.values()[presentation.getSelectedItemPosition()])
+                                LinuxLaunchRecipe.Presentation.values()[presentation.getSelectedItemPosition()],
+                                GraphicalProtocol.values()[protocol.getSelectedItemPosition()])
                                 : new DesktopCommandApplicationDraft(
                                     name.getText().toString(),
                                     command.getText().toString(),
@@ -268,7 +276,7 @@ final class DesktopCommandApplicationDialog {
                             ? new DesktopApplicationShortcut(shortcut.name, shortcut.icon, shortcut.exec, null, "",
                                     shortcut.launchMode, false, shortcut.execBackend, false, shortcut.workingDirectory,
                                     shortcut.mimeTypes).withGraphics(new GraphicalLaunchOptions(
-                                            GraphicalProtocol.values()[protocol.getSelectedItemPosition()], false, "", "", "")) : shortcut,
+                                            GraphicalProtocol.values()[protocol.getSelectedItemPosition()], wholeDesktop.isChecked(), "", "", "")) : shortcut,
                             listener, dialog);
                 }));
         return dialog;

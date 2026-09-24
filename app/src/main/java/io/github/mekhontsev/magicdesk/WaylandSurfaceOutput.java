@@ -24,7 +24,12 @@ final class WaylandSurfaceOutput implements HostedShellOutput {
         output.scroll(-horizontal * 15, -vertical * 15);
     }
     @Override public void key(int androidKey, int scanCode, boolean down) { output.key(androidKey, scanCode, down); }
-    @Override public boolean supportsText() { return false; }
-    @Override public void text(String text) { throw new UnsupportedOperationException("Wayland text input is not available"); }
+    @Override public boolean supportsText() { return output.supportsText(); }
+    @Override public void text(String text) { output.text(text, false, text.length()); }
+    @Override public boolean preedit(String text, int cursor) {
+        if (!supportsText()) return false;
+        output.text(text, true, cursor);
+        return true;
+    }
     @Override public void close() { output.close(); }
 }

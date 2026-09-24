@@ -50,7 +50,7 @@ final class GraphicalSessions {
         return null;
     }
     static Session start(Context context, GraphicalProtocol protocol, String name, String command, String directory,
-            DesktopExecBackend backend, String keyboard) {
+            DesktopExecBackend backend, String keyboard, boolean desktop) {
         RuntimeCapabilities.current(context).require(context, backend == DesktopExecBackend.TERMUX
                 ? RuntimeCapabilities.Service.TERMUX : RuntimeCapabilities.Service.SHELL);
         return switch (protocol) {
@@ -60,7 +60,7 @@ final class GraphicalSessions {
                 if (!cwd.isEmpty()) script = "cd -- " + ShellCommandLine.quote(cwd) + " || exit\n" + script;
                 yield new X11(X11Sessions.start(context, name, script, backend, keyboard));
             }
-            case WAYLAND -> new Wayland(WaylandSessions.start(context, name, command, directory, backend, keyboard));
+            case WAYLAND -> new Wayland(WaylandSessions.start(context, name, command, directory, backend, keyboard, null, desktop));
         };
     }
     static Session find(String id) {
@@ -132,7 +132,8 @@ final class GraphicalSessions {
         public String error() { return session.error(); }
         public boolean ready() { return session.ready(); }
         public boolean stopped() { return session.stopped(); }
-        public boolean canExecute() { return true; }
+        public boolean canExecute() { return session.execution.canExecuteHostCommand(); }
+        public boolean desktop() { return session.desktop; }
         public boolean canIntegrateShell() { return session.canIntegrateShell(); }
         public AutoCloseable bindShell(DesktopShellActivity host, java.util.function.Consumer<String> ended) {
             var binding = session.bindShell(host.panels().shellScope(), host.getResources().getDisplayMetrics().densityDpi,

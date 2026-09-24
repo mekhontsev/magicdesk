@@ -4,6 +4,7 @@ import android.content.Context;
 import android.os.ParcelFileDescriptor;
 import io.github.mekhontsev.magicdesk.x11.X11DataExchange;
 import io.github.mekhontsev.magicdesk.x11.X11Session;
+import io.github.mekhontsev.magicdesk.hosted.HostedDataSource;
 import java.io.IOException;
 import java.util.List;
 
@@ -12,7 +13,10 @@ final class X11ContentExchange implements HostedContentBackend, X11Sessions.List
     private final X11Sessions.Session session;
     private final X11Session.Output output;
     private final X11DataExchange exchange;
-    private final X11ContentTransfer transfer;
+    static final HostedContentFormats FORMATS = new HostedContentFormats(
+            List.of("UTF8_STRING", "text/plain;charset=utf-8", "text/plain", "STRING"),
+            java.util.Map.of("STRING", java.nio.charset.StandardCharsets.ISO_8859_1));
+    private final HostedContentTransfer transfer;
     private HostedContentBackend.Listener listener;
     private Incoming incoming;
 
@@ -20,7 +24,14 @@ final class X11ContentExchange implements HostedContentBackend, X11Sessions.List
         this.session = session;
         this.output = output;
         exchange = session.dataExchange();
-        transfer = new X11ContentTransfer(context, session);
+        transfer = new HostedContentTransfer(context, new HostedContentTransfer.FilesAccess() {
+            @Override public ParcelFileDescriptor open(String uri) throws IOException, android.os.RemoteException {
+                return session.contentFiles().openContentFile(uri);
+            }
+            @Override public String importFile(ParcelFileDescriptor fd, String name) throws IOException, android.os.RemoteException {
+                return session.contentFiles().importContentFile(fd, name);
+            }
+        }, session::stopped, FORMATS, "X11");
     }
 
     @Override public String clipboardIdentity() { return "x11:" + session.id() + ":"; }
@@ -58,14 +69,14 @@ final class X11ContentExchange implements HostedContentBackend, X11Sessions.List
 
     @Override public Drop createDrop(List<String> mimeTypes, AndroidContentPayload localContent,
             Content content, DragOffer localOffer) {
-        List<String> targets = localContent == null ? X11ContentFormats.dragTypes(mimeTypes) : X11ContentTransfer.formats(localContent);
+        List<String> targets = localContent == null ? FORMATS.dragTypes(mimeTypes) : FORMATS.formats(localContent);
         if (targets.isEmpty()) return null;
         Outgoing local = localOffer instanceof Outgoing candidate && candidate.source == session ? candidate : null;
         return new Incoming(targets, content, local, localContent != null);
     }
 
     private final class Incoming implements Drop {
-        final X11DataExchange.Source source;
+        final HostedDataSource source;
         final Outgoing local;
         final boolean preview;
         boolean active;
@@ -74,8 +85,8 @@ final class X11ContentExchange implements HostedContentBackend, X11Sessions.List
         Incoming(List<String> targets, Content content, Outgoing local, boolean preview) {
             this.local = local;
             this.preview = preview;
-            source = new X11DataExchange.Source() {
-                private X11DataExchange.Source resolved;
+            source = new HostedDataSource() {
+                private HostedDataSource resolved;
                 @Override public List<String> types() { return targets; }
                 @Override public synchronized ParcelFileDescriptor open(String type) throws IOException {
                     if (resolved == null) resolved = transfer.offer(content.read());

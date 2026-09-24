@@ -17,6 +17,8 @@
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_subcompositor.h>
 #include <wlr/types/wlr_xdg_shell.h>
+#include <wlr/types/wlr_fractional_scale_v1.h>
+#include <wlr/types/wlr_viewporter.h>
 
 struct MdwToplevel {
     struct wl_list link;
@@ -25,6 +27,7 @@ struct MdwToplevel {
     struct wl_listener map, unmap, commit, destroy, title, app_id, parent;
     struct wl_listener fullscreen, maximize;
     MdwWindow published;
+    uint64_t request_serial;
     char *published_title, *published_app_id;
 };
 
@@ -38,6 +41,7 @@ struct MdwOutput {
     bool presenting;
     bool visible;
     int viewport_width, viewport_height;
+    double scale;
     MdwOutput *parent, *dependents;
     bool keys[KEY_MAX + 1];
     bool buttons[3];
@@ -79,10 +83,13 @@ static void publish(struct MdwToplevel *window) {
         .app_id = window->xdg->app_id ? window->xdg->app_id : "",
         .mapped = window->xdg->base->surface->mapped,
         .width = geometry.width, .height = geometry.height,
+        .request_serial = window->request_serial,
+        .fullscreen = window->xdg->requested.fullscreen,
     };
     MdwWindow *previous = &window->published;
     if (previous->id && previous->parent == info.parent && previous->mapped == info.mapped &&
             previous->width == info.width && previous->height == info.height &&
+            previous->request_serial == info.request_serial && previous->fullscreen == info.fullscreen &&
             !strcmp(previous->title, info.title) && !strcmp(previous->app_id, info.app_id)) return;
     bool title_changed = !window->published_title || strcmp(window->published_title, info.title);
     bool app_changed = !window->published_app_id || strcmp(window->published_app_id, info.app_id);
@@ -147,6 +154,7 @@ static void output_frame(struct wl_listener *listener, void *data) {
 }
 
 static void release_output(MdwOutput *output) {
+    mdw_content_output_released(output->server, output);
     mdw_output_focus(output, false);
     if (!output->output) return;
     wl_list_remove(&output->frame.link);
@@ -213,7 +221,7 @@ static void window_commit(struct wl_listener *listener, void *data) {
     (void)data;
     struct MdwToplevel *window = wl_container_of(listener, window, commit);
     if (window->xdg->base->initial_commit) {
-        wlr_xdg_toplevel_set_wm_capabilities(window->xdg, 0);
+        wlr_xdg_toplevel_set_wm_capabilities(window->xdg, WLR_XDG_TOPLEVEL_WM_CAPABILITIES_FULLSCREEN);
         wlr_xdg_toplevel_set_size(window->xdg, 640, 480);
     }
     publish(window);
@@ -240,7 +248,20 @@ static void window_parent(struct wl_listener *listener, void *data) {
 static void window_fullscreen(struct wl_listener *listener, void *data) {
     (void)data;
     struct MdwToplevel *window = wl_container_of(listener, window, fullscreen);
+    ++window->request_serial;
+    publish(window);
     wlr_xdg_surface_schedule_configure(window->xdg->base);
+}
+
+bool mdw_window_confirm_fullscreen(MdwServer *server, uint64_t id, uint64_t serial, bool fullscreen) {
+    struct MdwToplevel *window;
+    wl_list_for_each(window, &server->windows, link) {
+        if (window->view.id != id) continue;
+        if (window->request_serial != serial) return false;
+        wlr_xdg_toplevel_set_fullscreen(window->xdg, fullscreen);
+        return true;
+    }
+    return false;
 }
 
 static void window_maximize(struct wl_listener *listener, void *data) {
@@ -347,12 +368,6 @@ static void keyboard_modifiers(struct wl_listener *listener, void *data) {
 
 static const struct wlr_keyboard_impl keyboard_impl = {.name = "magicdesk-host"};
 
-static void seat_selection(struct wl_listener *listener, void *data) {
-    MdwServer *server = wl_container_of(listener, server, selection);
-    struct wlr_seat_request_set_selection_event *event = data;
-    wlr_seat_set_selection(server->seat, event->source, event->serial);
-}
-
 MdwServer *mdw_server_create(void) {
     MdwServer *server = calloc(1, sizeof(*server));
     if (!server) return NULL;
@@ -371,10 +386,12 @@ MdwServer *mdw_server_create(void) {
     if (!server->allocator) goto fail;
     if (!wlr_compositor_create(server->display, 6, server->renderer) ||
             !wlr_subcompositor_create(server->display) ||
-            !wlr_data_device_manager_create(server->display)) goto fail;
+            !wlr_data_device_manager_create(server->display) ||
+            !wlr_fractional_scale_manager_v1_create(server->display, 1) ||
+            !wlr_viewporter_create(server->display)) goto fail;
     server->seat = wlr_seat_create(server->display, "magicdesk");
     if (!server->seat) goto fail;
-    listen_signal(&server->seat->events.request_set_selection, &server->selection, seat_selection);
+    if (!mdw_content_init(server)) goto fail;
     wlr_keyboard_init(&server->keyboard, &keyboard_impl, "magicdesk-host");
     server->keyboard_initialized = true;
     listen_signal(&server->keyboard.events.modifiers, &server->modifiers, keyboard_modifiers);
@@ -389,6 +406,7 @@ MdwServer *mdw_server_create(void) {
     wlr_keyboard_set_repeat_info(&server->keyboard, 25, 600);
     wlr_seat_set_keyboard(server->seat, &server->keyboard);
     wlr_seat_set_capabilities(server->seat, WL_SEAT_CAPABILITY_KEYBOARD | WL_SEAT_CAPABILITY_POINTER);
+    if (!mdw_input_init(server)) goto fail;
     server->shell = wlr_xdg_shell_create(server->display, 6);
     if (!server->shell) goto fail;
     listen_signal(&server->shell->events.new_toplevel, &server->new_toplevel, new_toplevel);
@@ -439,8 +457,10 @@ static MdwOutput *create_output(MdwServer *server, uint64_t id, int width, int h
     output->server = server;
     output->view = view;
     output->visible = true;
+    output->scale = 1;
     output->output = wlr_headless_add_output(server->backend, width, height);
     if (!output->output) { free(output); return NULL; }
+    wlr_output_create_global(output->output, server->display);
     if (!wlr_output_init_render(output->output, server->allocator, server->renderer)) {
         wlr_output_destroy(output->output);
         free(output);
@@ -474,7 +494,29 @@ MdwOutput *mdw_output_borrow_dependents(MdwOutput *parent) {
 bool mdw_output_resize(MdwOutput *output, int width, int height) {
     if (output && output->parent) return false;
     if (!mdw_output_viewport(output, 0, 0, width, height)) return false;
-    if (output->view->configure) output->view->configure(output->view, width, height);
+    if (output->view->configure) output->view->configure(output->view,
+        (int)fmax(1, round(width / output->scale)), (int)fmax(1, round(height / output->scale)));
+    return true;
+}
+
+static void surface_scale(struct wlr_surface *surface, int sx, int sy, void *data) {
+    (void)sx; (void)sy;
+    double scale = *(double *)data;
+    wlr_surface_set_preferred_buffer_scale(surface, (int)ceil(scale));
+    wlr_fractional_scale_v1_notify_scale(surface, scale);
+}
+
+bool mdw_output_scale(MdwOutput *output, double scale) {
+    if (!output || output->parent || !output->view || !output->view->configure ||
+            !isfinite(scale) || scale < 0.25 || scale > 8) return false;
+    if (output->scale == scale) return true;
+    double previous = output->scale;
+    output->scale = scale;
+    if (!mdw_output_resize(output, output->viewport_width, output->viewport_height)) {
+        output->scale = previous;
+        return false;
+    }
+    wlr_surface_for_each_surface(output->view->surface, surface_scale, &scale);
     return true;
 }
 
@@ -489,6 +531,7 @@ bool mdw_output_viewport(MdwOutput *output, int x, int y, int width, int height)
         struct wlr_output_state state;
         wlr_output_state_init(&state);
         wlr_output_state_set_enabled(&state, true);
+        wlr_output_state_set_scale(&state, output->scale);
         wlr_output_state_set_custom_mode(&state, width, height, 60000);
         committed = wlr_output_commit_state(output->output, &state);
         wlr_output_state_finish(&state);
@@ -507,6 +550,7 @@ bool mdw_output_set_visible(MdwOutput *output, bool visible) {
     struct wlr_output_state state;
     wlr_output_state_init(&state);
     wlr_output_state_set_enabled(&state, visible);
+    wlr_output_state_set_scale(&state, output->scale);
     if (visible) wlr_output_state_set_custom_mode(&state,
         output->viewport_width, output->viewport_height, 60000);
     bool committed = wlr_output_commit_state(output->output, &state);
@@ -546,14 +590,16 @@ static void release_pointer(MdwOutput *output) {
     if (server->pointer_owner != output) return;
     for (int button = 0; button < 3; ++button) {
         if (output->buttons[button]) {
-            wlr_seat_pointer_notify_button(server->seat, time_msec(), button_codes[button],
-                WL_POINTER_BUTTON_STATE_RELEASED);
+            if (!mdw_content_pointer_held(server))
+                wlr_seat_pointer_notify_button(server->seat, time_msec(), button_codes[button],
+                    WL_POINTER_BUTTON_STATE_RELEASED);
             output->buttons[button] = false;
         }
     }
     wlr_seat_pointer_notify_frame(server->seat);
     wlr_seat_pointer_notify_clear_focus(server->seat);
     server->pointer_owner = NULL;
+    mdw_input_refresh(server);
 }
 
 static void release_keyboard(MdwOutput *output) {
@@ -567,6 +613,7 @@ static void release_keyboard(MdwOutput *output) {
     if (output->view && output->view->activate && output->view->surface->mapped)
         output->view->activate(output->view, false);
     server->keyboard_owner = NULL;
+    mdw_input_refresh(server);
 }
 
 void mdw_view_keyboard(struct MdwView *view, bool allowed) {
@@ -582,10 +629,12 @@ static void claim_pointer(MdwOutput *output) {
         memcpy(output->buttons, server->pointer_owner->buttons, sizeof(output->buttons));
         memset(server->pointer_owner->buttons, 0, sizeof(output->buttons));
         server->pointer_owner = output;
+        mdw_input_refresh(server);
         return;
     }
     if (server->pointer_owner) release_pointer(server->pointer_owner);
     server->pointer_owner = output;
+    mdw_input_refresh(server);
 }
 
 bool mdw_output_focus(MdwOutput *output, bool focused) {
@@ -605,6 +654,7 @@ bool mdw_output_focus(MdwOutput *output, bool focused) {
         memcpy(output->keys, server->keyboard_owner->keys, sizeof(output->keys));
         memset(server->keyboard_owner->keys, 0, sizeof(output->keys));
         server->keyboard_owner = output;
+        mdw_input_refresh(server);
         return true;
     }
     if (server->keyboard_owner) release_keyboard(server->keyboard_owner);
@@ -612,6 +662,7 @@ bool mdw_output_focus(MdwOutput *output, bool focused) {
     if (output->view->activate) output->view->activate(output->view, true);
     wlr_seat_keyboard_notify_enter(server->seat, output->view->surface,
         server->keyboard.keycodes, server->keyboard.num_keycodes, &server->keyboard.modifiers);
+    mdw_input_refresh(server);
     return true;
 }
 
@@ -622,8 +673,8 @@ bool mdw_output_pointer(MdwOutput *output, double x, double y) {
     double local_x, local_y;
     // Hit-test the rendered scene, not the client's asynchronously acknowledged size.
     struct wlr_scene_node *node = wlr_scene_node_at(&output->view->scene->tree.node,
-        output->scene_output->x + x * output->output->width,
-        output->scene_output->y + y * output->output->height, &local_x, &local_y);
+        output->scene_output->x + x * output->output->width / output->scale,
+        output->scene_output->y + y * output->output->height / output->scale, &local_x, &local_y);
     struct wlr_scene_surface *scene_surface = node && node->type == WLR_SCENE_NODE_BUFFER
         ? wlr_scene_surface_try_from_buffer(wlr_scene_buffer_from_node(node)) : NULL;
     struct wlr_surface *surface = scene_surface ? scene_surface->surface : NULL;
@@ -639,6 +690,7 @@ bool mdw_output_button(MdwOutput *output, MdwButton button, bool down) {
     if (!accepts_input(output) || output->server->pointer_owner != output ||
             button < MDW_PRIMARY || button > MDW_SECONDARY) return false;
     if (output->buttons[button] == down) return true;
+    if (mdw_content_pointer_held(output->server)) { output->buttons[button] = down; return true; }
     wlr_seat_pointer_notify_button(output->server->seat, time_msec(), button_codes[button],
         down ? WL_POINTER_BUTTON_STATE_PRESSED : WL_POINTER_BUTTON_STATE_RELEASED);
     wlr_seat_pointer_notify_frame(output->server->seat);
@@ -699,6 +751,11 @@ bool mdw_window_disconnect(MdwServer *server, uint64_t id) {
     return true;
 }
 
+bool mdw_output_text(MdwOutput *output, const char *text, bool composing, int cursor) {
+    return accepts_input(output) && output->server->keyboard_owner == output &&
+        mdw_input_text(output->server, text, composing, cursor);
+}
+
 int mdw_server_dispatch(MdwServer *server, int timeout_ms) {
     // Host commands run outside Wayland dispatch and may schedule idle protocol
     // batches. Complete and flush those before waiting for the client's response.
@@ -714,6 +771,7 @@ void mdw_server_destroy(MdwServer *server) {
     MdwOutput *output, *next;
     wl_list_for_each_safe(output, next, &server->outputs, link) mdw_output_destroy(output);
     if (server->display) wl_display_destroy_clients(server->display);
+    mdw_input_finish(server);
     mdw_shell_finish(server);
     if (server->shell) {
         wl_list_remove(&server->new_toplevel.link);
@@ -723,7 +781,7 @@ void mdw_server_destroy(MdwServer *server) {
         wl_list_remove(&server->modifiers.link);
         wlr_keyboard_finish(&server->keyboard);
     }
-    if (server->seat) wl_list_remove(&server->selection.link);
+    mdw_content_finish(server);
     if (server->backend) wlr_backend_destroy(server->backend);
     if (server->display) wl_display_destroy(server->display);
     if (server->allocator) wlr_allocator_destroy(server->allocator);

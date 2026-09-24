@@ -14,6 +14,8 @@ interface HostedSurfaceOutput extends AutoCloseable {
     void scroll(float x, float y, float horizontal, float vertical);
     void key(int androidKey, int scanCode, boolean down);
     void text(String text);
+    /** True when the client owns preedit display; otherwise Android retains composition until commit. */
+    default boolean preedit(String text, int cursor) { return false; }
     default boolean supportsText() { return true; }
     @Override void close();
 }

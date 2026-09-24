@@ -41,7 +41,7 @@ android {
 }
 
 dependencies {
-    implementation project(':hosted-runtime')
+    api project(':hosted-runtime')
     testImplementation 'junit:junit:4.13.2'
 }
 

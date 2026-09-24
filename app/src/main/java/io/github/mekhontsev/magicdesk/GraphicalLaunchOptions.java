@@ -21,8 +21,4 @@ record GraphicalLaunchOptions(GraphicalProtocol protocol, boolean desktop, Strin
             throw new IllegalArgumentException("Invalid Linux file environment");
     }
 
-    void requireSupported() {
-        if (protocol == GraphicalProtocol.WAYLAND && (desktop || !fileEnvironment.isEmpty()))
-            throw new IllegalArgumentException("Wayland desktop and guest file integration are not available yet");
-    }
 }

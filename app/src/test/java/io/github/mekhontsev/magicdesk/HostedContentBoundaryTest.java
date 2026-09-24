@@ -139,24 +139,39 @@ public final class HostedContentBoundaryTest {
         backend = backend.substring(backend.indexOf("interface HostedContentBackend"));
         String adapter = source("X11ContentExchange");
         adapter = "static " + adapter.substring(adapter.indexOf("final class X11ContentExchange"));
-        RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", backend + adapter + """
+        String formats = source("HostedContentFormats");
+        formats = "static " + formats.substring(formats.indexOf("final class HostedContentFormats"))
+                .replaceAll("\\bCharset\\b", "java.nio.charset.Charset")
+                .replaceAll("\\bStandardCharsets\\b", "java.nio.charset.StandardCharsets")
+                .replaceAll("\\bURI\\b", "java.net.URI");
+        RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", backend + adapter + formats + """
             static class Context { }
-            record AndroidContentPayload(String text) { }
+            static class AndroidContentPayload {
+                final String text, htmlText = "";
+                final List<UriItem> uriItems = List.of();
+                AndroidContentPayload(String text) { this.text = text; }
+                String text() { return text; }
+                static class UriItem { String mimeType; }
+            }
             record ParcelFileDescriptor(String text) { }
+            interface HostedDataSource { List<String> types(); ParcelFileDescriptor open(String type) throws IOException; }
+            static class android { static class os { static class RemoteException extends Exception { } } }
             static class X11Session {
                 record Output(int id, long windowId) { }
             }
             static class X11DataExchange {
                 static final int CLIPBOARD=1, DRAG=2, BEGIN=3, FINISH=4, CANCEL=5, ENTER=6, MOVE=7, LEAVE=8, DROP=9;
-                interface Source { List<String> types(); ParcelFileDescriptor open(String type) throws IOException; }
-                record Offer(int channel, int output, int id) { }
+                record Offer(int channel, int output, int id) implements HostedDataSource {
+                    public List<String> types() { return List.of("text/plain"); }
+                    public ParcelFileDescriptor open(String type) { return new ParcelFileDescriptor("offer:" + id); }
+                }
                 int publishes, lastOperation, lastOffer, lastOutput;
                 long lastWindow;
                 boolean lastAccepted;
                 float lastX, lastY;
                 final List<Integer> operations = new ArrayList<>();
-                Source source;
-                int publish(int channel, Source source) { this.source=source; publishes++; return 100 + publishes; }
+                HostedDataSource source;
+                int publish(int channel, HostedDataSource source) { this.source=source; publishes++; return 100 + publishes; }
                 void drag(int operation, int offer, int output, long window, float x, float y, boolean accepted) {
                     lastOperation=operation; lastOffer=offer; lastOutput=output; lastWindow=window; lastAccepted=accepted;
                     operations.add(operation);
@@ -176,6 +191,8 @@ public final class HostedContentBoundaryTest {
                     Listener owner;
                     Session(String id) { this.id=id; }
                     String id() { return id; }
+                    boolean stopped() { return false; }
+                    FilesAccess contentFiles() { return new FilesAccess(); }
                     X11DataExchange dataExchange() { return exchange; }
                     void listen(Listener listener) { listeners.add(listener); }
                     void unlisten(Listener listener) { listeners.remove(listener); }
@@ -183,13 +200,21 @@ public final class HostedContentBoundaryTest {
                     void releaseClipboard(Listener listener) { if (owner == listener) owner=null; }
                 }
             }
-            static class X11ContentTransfer {
-                X11ContentTransfer(Context context, X11Sessions.Session session) { }
-                AndroidContentPayload receive(X11DataExchange.Offer offer) { return new AndroidContentPayload("offer:" + offer.id()); }
-                static List<String> formats(AndroidContentPayload payload) { return List.of("UTF8_STRING", "text/plain"); }
-                X11DataExchange.Source offer(AndroidContentPayload payload) {
-                    return new X11DataExchange.Source() {
-                        public List<String> types() { return formats(payload); }
+            static class FilesAccess {
+                ParcelFileDescriptor openContentFile(String uri) { return null; }
+                String importContentFile(ParcelFileDescriptor fd, String name) { return ""; }
+            }
+            static class HostedContentTransfer {
+                interface FilesAccess {
+                    ParcelFileDescriptor open(String uri) throws IOException, android.os.RemoteException;
+                    String importFile(ParcelFileDescriptor fd, String name) throws IOException, android.os.RemoteException;
+                }
+                HostedContentTransfer(Context context, FilesAccess files, java.util.function.BooleanSupplier stopped,
+                        HostedContentFormats formats, String label) { }
+                AndroidContentPayload receive(HostedDataSource offer) throws IOException { return new AndroidContentPayload(offer.open("text/plain").text()); }
+                HostedDataSource offer(AndroidContentPayload payload) {
+                    return new HostedDataSource() {
+                        public List<String> types() { return List.of("UTF8_STRING", "text/plain"); }
                         public ParcelFileDescriptor open(String type) { return new ParcelFileDescriptor(payload.text()); }
                     };
                 }
@@ -284,6 +309,6 @@ public final class HostedContentBoundaryTest {
                 first.onDragEvent(X11DataExchange.CANCEL, 1, false);
                 check(events.cancellations == 1, "closed adapter ignores late callbacks");
             }
-            """, "X11ContentFormats");
+            """);
     }
 }

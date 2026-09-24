@@ -29,12 +29,13 @@ final class AutomationCommandCatalog {
                         objectSchema(new JSONObject().put("sessionId", stringProperty("Live graphical session ID."))
                                 .put("workspaceId", stringProperty("Exact workspace residency ID, or empty to release.")), "sessionId", "workspaceId")))
                 .put(actionTool("graphics.start", "Start graphical session",
-                        "Start a retained compositor through the selected executor, optionally running a startup command. Returns a sessionId before readiness; observe graphics.list. No Android window is opened. Wayland currently supports software per-application windows, not a whole desktop, and its shell client bootstrap requires UID 2000. An expired observation does not cancel a dispatched start; inspect before retrying.",
+                        "Start a retained compositor through the selected executor, optionally running a startup command. Returns a sessionId before readiness; observe graphics.list. No Android window is opened. Wayland uses software rendering; its shell client bootstrap requires UID 2000. An expired observation does not cancel a dispatched start; inspect before retrying.",
                         objectSchema(new JSONObject().put("protocol", enumProperty("Display protocol.", "x11", "wayland"))
                                 .put("backend", enumProperty("Explicit client executor; never elevated or replaced.", "termux", "shell"))
                                 .put("name", stringProperty("Session name, 1 to 128 characters."))
                                 .put("command", stringProperty("Optional startup shell command."))
                                 .put("directory", stringProperty("Optional absolute client working directory."))
+                                .put("wholeDesktop", booleanProperty("For Wayland, the command launches a nested desktop compositor; closing its Android viewer retains the client. X11 always provides a whole-desktop viewer. Default false."))
                                 .put("keyboardDirectory", stringProperty("XKB data path; required for shell, optional for Termux.")),
                                 "protocol", "backend", "name")))
                 .put(actionTool("graphics.execute", "Run graphical command",
@@ -46,9 +47,9 @@ final class AutomationCommandCatalog {
                         "Explicitly stop the retained server and disconnect its graphical clients. All its client hosts close; other graphical sessions are unaffected. This does not terminate arbitrary background jobs in the selected executor.",
                         objectSchema(new JSONObject().put("sessionId", stringProperty("Live graphical session ID.")), "sessionId")))
                 .put(actionTool("graphics.open_window", "Open graphical window",
-                        "Borrow one native window in an ordinary MagicDesk Android host. windowId comes from graphics.list, not Android task IDs. X11 alone accepts 0 for a whole-desktop viewer. Placement uses the shared tool launcher and does not claim input or start Desktop.",
+                        "Borrow one native window in an ordinary MagicDesk Android host. windowId comes from graphics.list, not Android task IDs. Sessions advertising wholeDesktop accept 0 for their desktop viewer. Placement uses the shared tool launcher and does not claim input or start Desktop.",
                         objectSchema(toolPlacementProperties().put("sessionId", stringProperty("Live graphical session ID."))
-                                .put("windowId", integerProperty("Native window ID; X11 accepts 0 for its whole desktop.")), "sessionId", "windowId")))
+                                .put("windowId", integerProperty("Native window ID, or 0 for a session advertising wholeDesktop.")), "sessionId", "windowId")))
                 .put(readTool(
                         "get_pointer_state",
                         "Get pointer state",

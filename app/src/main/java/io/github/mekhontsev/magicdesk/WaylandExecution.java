@@ -22,10 +22,14 @@ final class WaylandExecution {
     private final String keyboard;
     private final String directory;
     private final String executorPackage;
+    private final HostedGuestFiles guestFiles;
+    private final String fileEnvironment;
 
-    WaylandExecution(Context context, DesktopExecBackend backend, String keyboardDirectory) {
+    WaylandExecution(Context context, DesktopExecBackend backend, String keyboardDirectory, String fileEnvironment) {
         this.context = context.getApplicationContext();
         commands = new CommandExecution(context, backend);
+        this.fileEnvironment = fileEnvironment;
+        guestFiles = new HostedGuestFiles(context.getApplicationInfo().nativeLibraryDir, !fileEnvironment.isEmpty());
         serverUid = commands.termux == null ? Process.myUid() : commands.uid;
         executorPackage = commands.termux == null ? context.getPackageName() : commands.termux.packageName;
         keyboard = DesktopExecWorkingDirectory.normalize(keyboardDirectory);
@@ -52,6 +56,8 @@ final class WaylandExecution {
         environment.put("MAGICDESK_WAYLAND_TOKEN", token);
         environment.put("MAGICDESK_WAYLAND_LIBRARY", info.nativeLibraryDir + "/libmagicdesk_wayland_executor.so");
         environment.put("XDG_RUNTIME_DIR", directory);
+        guestFiles.configure(environment);
+        if (!fileEnvironment.isEmpty()) environment.put("MAGICDESK_WAYLAND_GUEST_CONTENT", "/tmp/magicdesk-wayland/content");
         environment.put("XKB_CONFIG_ROOT", commands.termux == null ? HostedKeyboardData.prepare(context, keyboard)
                 : keyboard.isEmpty() ? new java.io.File(commands.home).getParent() + "/usr/share/X11/xkb" : keyboard);
         var arguments = List.of("/system/bin/app_process", "-Xnoimage-dex2oat", "/", "--nice-name=" + id,
@@ -61,7 +67,7 @@ final class WaylandExecution {
             environment.forEach((key, value) -> invocation.append(' ').append(key).append('=').append(q(value)));
             arguments.forEach(value -> invocation.append(' ').append(q(value)));
             String command = "set -eu\numask 077\nmkdir -p " + q(Path.of(directory).getParent().toString())
-                    + "\nmkdir " + q(directory) + "\ntrap " + q("rm -f -- " + q(directory + "/wayland-0")
+                    + "\nmkdir " + q(directory) + "\ntrap " + q("rm -rf -- " + q(directory + "/content") + "; rm -f -- " + q(directory + "/wayland-0")
                             + " " + q(directory + "/wayland-0.lock") + "; rmdir -- " + q(directory))
                     + " EXIT\n" + invocation;
             return commands.start(command, "", id, null, completion);
@@ -95,9 +101,11 @@ final class WaylandExecution {
         if (commands.uid != serverUid || socket == null || !socket.matches("wayland-[0-9]+"))
             throw new IllegalArgumentException("No same-identity Wayland socket");
         String script = "unset DISPLAY WAYLAND_SOCKET\nexport XDG_SESSION_TYPE=wayland XDG_RUNTIME_DIR=" + q(directory)
-                + " WAYLAND_DISPLAY=" + q(socket) + "\n" + command;
+                + " WAYLAND_DISPLAY=" + q(socket) + " MAGICDESK_WAYLAND_RUNTIME=" + q(directory)
+                + guestFiles.exports() + "\n" + command;
         return commands.start(script, workingDirectory, id + "-client", null, completion);
     }
 
     private static String q(String value) { return ShellCommandLine.quote(value); }
+    boolean canExecuteHostCommand() { return fileEnvironment.isEmpty(); }
 }

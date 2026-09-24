@@ -43,8 +43,8 @@ public final class LinuxLaunchRecipeTest {
             assertEquals(mode == LinuxLaunchRecipe.Presentation.DESKTOP, shortcut.graphics != null && shortcut.graphics.desktop());
             var args = arguments(shortcut);
             assertEquals(List.of("login", "--isolated", "--shared-tmp", "--bind",
-                    "/private/runtime ' dir:/tmp/magicdesk-x11", "--bind", "/apk/helper:/tmp/magicdesk-guest-files",
-                    "--env", "DISPLAY=:37", "--env", "XAUTHORITY=/tmp/magicdesk-x11/Xauthority",
+                    "/private/runtime ' dir:/tmp/magicdesk-x11", "--env", "DISPLAY=:37", "--env", "XAUTHORITY=/tmp/magicdesk-x11/Xauthority",
+                    "--bind", "/apk/helper:/tmp/magicdesk-guest-files",
                     "--env", "MAGICDESK_GUEST_FILES_SOCKET=channel", "--env", "MAGICDESK_GUEST_FILES_TOKEN=secret",
                     "ubuntu", "--", "/tmp/magicdesk-guest-files", "--", "/bin/sh", "-lc"),
                     args.subList(0, args.size() - 1));
@@ -64,6 +64,27 @@ public final class LinuxLaunchRecipeTest {
         assertThrows(IllegalArgumentException.class, () -> recipe("", "", LinuxLaunchRecipe.Presentation.APPLICATION));
         assertThrows(IllegalArgumentException.class, () -> recipe("id", "relative", LinuxLaunchRecipe.Presentation.TERMINAL));
         assertThrows(IllegalArgumentException.class, () -> recipe("'".repeat(2000), "", LinuxLaunchRecipe.Presentation.DESKTOP));
+    }
+
+    @Test public void waylandGuestsBindTheSelectedSocketAndShareFileAccessWithoutX11() throws Exception {
+        for (var mode : List.of(LinuxLaunchRecipe.Presentation.APPLICATION, LinuxLaunchRecipe.Presentation.DESKTOP)) {
+            var shortcut = LinuxLaunchRecipe.build("Guest Wayland", proot(), "weston --backend=wayland --renderer=pixman",
+                    "", "alice", mode, GraphicalProtocol.WAYLAND);
+            var args = arguments(shortcut);
+            assertEquals(List.of("login", "--isolated", "--user", "alice", "--bind",
+                    "/private/wayland ' dir:/tmp/magicdesk-wayland", "--env", "WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0",
+                    "--bind", "/apk/helper:/tmp/magicdesk-guest-files", "--env", "MAGICDESK_GUEST_FILES_SOCKET=channel",
+                    "--env", "MAGICDESK_GUEST_FILES_TOKEN=secret", "ubuntu", "--", "/tmp/magicdesk-guest-files", "--", "/bin/sh", "-lc"),
+                    args.subList(0, args.size() - 1));
+            assertTrue(args.get(args.size() - 1).contains("XDG_SESSION_TYPE=wayland"));
+            assertFalse(shortcut.exec.contains("XAUTHORITY"));
+            assertFalse(shortcut.exec.contains("MAGICDESK_X11"));
+            assertEquals(GraphicalProtocol.WAYLAND, shortcut.graphics.protocol());
+            assertEquals(mode == LinuxLaunchRecipe.Presentation.DESKTOP, shortcut.graphics.desktop());
+            var parsed = DesktopEntryFile.parseTermuxApplication(DesktopEntryFile.encodeApplication(shortcut));
+            assertEquals(shortcut.graphics, parsed.graphics);
+            assertEquals(shortcut.exec, parsed.exec);
+        }
     }
 
     private DesktopApplicationShortcut recipe(String command, String directory, LinuxLaunchRecipe.Presentation mode) {
@@ -178,6 +199,8 @@ public final class LinuxLaunchRecipeTest {
         builder.environment().put("DISPLAY", ":37");
         builder.environment().put("XAUTHORITY", "/private/auth ' file");
         builder.environment().put("MAGICDESK_X11_RUNTIME", "/private/runtime ' dir");
+        builder.environment().put("MAGICDESK_WAYLAND_RUNTIME", "/private/wayland ' dir");
+        builder.environment().put("WAYLAND_DISPLAY", "wayland-0");
         builder.environment().put("MAGICDESK_GUEST_FILES_HELPER", "/apk/helper");
         builder.environment().put("MAGICDESK_GUEST_FILES_SOCKET", "channel");
         builder.environment().put("MAGICDESK_GUEST_FILES_TOKEN", "secret");

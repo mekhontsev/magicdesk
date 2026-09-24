@@ -10,6 +10,7 @@ import android.view.MotionEvent;
 import android.view.PointerIcon;
 import android.view.Surface;
 import android.view.ViewConfiguration;
+import android.view.inputmethod.EditorInfo;
 
 /** Exercises the actual Android view entry points without Desktop or injected system input. */
 public final class HostedInputInstrumentation extends Instrumentation {
@@ -24,7 +25,7 @@ public final class HostedInputInstrumentation extends Instrumentation {
                 catch (RuntimeException | AssertionError error) { failure.set(error); }
             });
             if (failure.get() != null) throw new AssertionError(failure.get());
-            result.putString("hosted_input", "PASS touch, mouse-source fingers, raw touchpad, mouse hover/click/wheel/drag, focus loss, output lifecycle, cursor shape/scale/hide/reset");
+            result.putString("hosted_input", "PASS touch, mouse-source fingers, raw touchpad, mouse hover/click/wheel/drag, focus loss, output lifecycle, cursor shape/scale/hide/reset, IME composition/commit");
             finish(Activity.RESULT_OK, result);
         } catch (RuntimeException | AssertionError error) {
             result.putString("hosted_input", "FAIL " + error);
@@ -65,6 +66,7 @@ public final class HostedInputInstrumentation extends Instrumentation {
         require(output.scrolls == oldScroll + 1, "ordinary wheel");
         verifyHoverClick(view, output);
         verifyCursor(view);
+        verifyText(view, output);
         view.release();
         require(output.closed, "output released");
         require(view.getPointerIcon() == null, "output release resets cursor");
@@ -74,6 +76,33 @@ public final class HostedInputInstrumentation extends Instrumentation {
         send(view, InputDevice.SOURCE_TOUCHSCREEN, 1, 1, 0, 1, 200, 200);
         require(replacement.presses == 0, "new output cannot use stale geometry");
         view.release();
+    }
+
+    private static void verifyText(HostedSurfaceView view, Output output) {
+        var connection = view.onCreateInputConnection(new EditorInfo());
+        require(connection != null, "text-enabled output has an InputConnection");
+        String composed = "Unicode \u0416 \ud83d\ude00";
+        connection.setComposingText(composed, 1);
+        require(output.preedit.equals(composed) && output.cursor == composed.length(), "Unicode preedit and UTF-16 cursor");
+        require(output.commits.isEmpty(), "composition is not committed prematurely");
+        connection.commitText("committed", 1);
+        connection.finishComposingText();
+        require(output.commits.equals(java.util.List.of("committed")), "commit is delivered exactly once");
+        connection.setComposingText("finish", 1);
+        connection.finishComposingText();
+        require(output.commits.equals(java.util.List.of("committed", "finish")), "finish commits retained composition");
+        connection.setComposingText("cancel", 1);
+        connection.setComposingText("", 1);
+        connection.finishComposingText();
+        require(output.preedit.isEmpty() && output.commits.size() == 2, "empty preedit clears without inserting text");
+        output.clientPreedit = false;
+        connection.setComposingText("android", 1);
+        require(output.commits.size() == 2, "non-preedit clients retain composition in Android");
+        connection.finishComposingText();
+        require(output.commits.get(2).equals("android"), "non-preedit client receives finished text");
+        output.textEnabled = false;
+        require(view.onCreateInputConnection(new EditorInfo()) == null, "unsupported client has no text editor");
+        output.textEnabled = true;
     }
 
     private static void verifyHoverClick(HostedSurfaceView view, Output output) {
@@ -150,13 +179,22 @@ public final class HostedInputInstrumentation extends Instrumentation {
         int presses, releases, scrolls;
         float x;
         boolean closed;
+        boolean clientPreedit = true, textEnabled = true;
+        String preedit = "";
+        int cursor;
+        final java.util.List<String> commits = new java.util.ArrayList<>();
         public void setSurface(Surface surface, int width, int height) { }
         public void focus() { }
         public void pointer(float x, float y) { this.x = x; }
         public void button(float x, float y, Button button, boolean down) { if (down) presses++; else releases++; }
         public void scroll(float x, float y, float h, float v) { scrolls++; }
         public void key(int key, int scan, boolean down) { }
-        public void text(String text) { }
+        public void text(String text) { commits.add(text); }
+        public boolean supportsText() { return textEnabled; }
+        public boolean preedit(String text, int cursor) {
+            if (!clientPreedit) return false;
+            this.preedit = text; this.cursor = cursor; return true;
+        }
         public void close() { closed = true; }
     }
 }

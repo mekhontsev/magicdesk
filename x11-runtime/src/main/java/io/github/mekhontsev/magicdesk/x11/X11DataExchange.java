@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk.x11;
 
 import android.os.Handler;
 import android.os.ParcelFileDescriptor;
+import io.github.mekhontsev.magicdesk.hosted.HostedDataSource;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -25,12 +26,6 @@ public final class X11DataExchange implements AutoCloseable {
     private static final long REQUEST_TIMEOUT_MILLIS = 30_000;
     private static final int MAX_REQUESTS = 16;
 
-    public interface Source {
-        List<String> types();
-        /** An independently owned seekable descriptor. Null explicitly rejects the format. */
-        ParcelFileDescriptor open(String type) throws IOException;
-    }
-
     interface Sender {
         void send(int operation, int channel, int serial, int offer, int output, int window,
                 int x, int y, String type, ParcelFileDescriptor descriptor);
@@ -41,7 +36,7 @@ public final class X11DataExchange implements AutoCloseable {
         void onDragEvent(int operation, int output, boolean accepted);
     }
 
-    public final class Offer implements Source {
+    public final class Offer implements HostedDataSource {
         private final int channel, id, output, window;
         private final List<String> types;
         private Offer(int channel, int id, int output, int window, List<String> types) {
@@ -65,7 +60,7 @@ public final class X11DataExchange implements AutoCloseable {
     }
 
     private record Pending(int channel, int offer, CompletableFuture<ParcelFileDescriptor> result, Runnable timeout) { }
-    private record Published(int id, Source source) { }
+    private record Published(int id, HostedDataSource source) { }
     private final Handler handler;
     private final Executor callbacks;
     private final Listener listener;
@@ -84,13 +79,13 @@ public final class X11DataExchange implements AutoCloseable {
 
     public void clipboardActive(boolean active) { send(ENABLE, 0, 0, 0, 0, 0, active ? 1 : 0, 0, "", null); }
 
-    public synchronized int publish(int channel, Source source) {
+    public synchronized int publish(int channel, HostedDataSource source) {
         if (closed) throw new IllegalStateException("X11 exchange closed");
         if (channel < 0 || channel > 1) throw new IllegalArgumentException("Invalid selection");
         List<String> types = validateTypes(source.types());
         int id = nextId();
         published[channel] = new Published(id, source);
-        try (ParcelFileDescriptor fd = bytes(String.join("\n", types).getBytes(StandardCharsets.US_ASCII))) {
+        try (ParcelFileDescriptor fd = HostedDataSource.bytes(String.join("\n", types).getBytes(StandardCharsets.US_ASCII))) {
             send(OFFER, channel, 0, id, 0, 0, 0, 0, "", fd);
         } catch (IOException e) { throw new IllegalStateException("Cannot publish X11 offer", e); }
         return id;
@@ -213,13 +208,6 @@ public final class X11DataExchange implements AutoCloseable {
         return values.stream().distinct().toList();
     }
 
-    public static ParcelFileDescriptor bytes(byte[] bytes) throws IOException {
-        if (bytes.length > 1024 * 1024) throw new IOException("Inline selection exceeds 1 MiB");
-        int fd = nativeBytes(bytes);
-        if (fd < 0) throw new IOException("Cannot allocate selection descriptor");
-        return ParcelFileDescriptor.adoptFd(fd);
-    }
-
     private static void closeFd(ParcelFileDescriptor fd) { if (fd != null) try { fd.close(); } catch (IOException ignored) { } }
 
     synchronized void disconnected() {
@@ -239,5 +227,4 @@ public final class X11DataExchange implements AutoCloseable {
         io.shutdownNow();
     }
 
-    private static native int nativeBytes(byte[] bytes);
 }

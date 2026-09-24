@@ -78,6 +78,7 @@ final class HostedContentExchange implements AutoCloseable, View.OnDragListener,
                     this, local == null ? null : local.offer);
         }
         @Override public AndroidContentPayload read() throws IOException {
+            // EVENT_WAIT: Android DROP grants the payload; expiry cancels this read.
             try { return available.get(DROP_DEADLINE_MILLIS, TimeUnit.MILLISECONDS); }
             catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new java.io.InterruptedIOException(); }
             catch (java.util.concurrent.ExecutionException error) { throw new IOException("Drop cancelled", error.getCause()); }
@@ -231,6 +232,7 @@ final class HostedContentExchange implements AutoCloseable, View.OnDragListener,
                 incoming.dropped = true;
                 if (incoming.local != null) incoming.local.hostedTarget = true;
                 incoming.available.complete(payload);
+                // EVENT_WAIT: backend transfer completion; expiry releases grants and cancels the drop.
                 MAIN.postDelayed(incoming.deadline, DROP_DEADLINE_MILLIS);
                 point(event);
                 incoming.target.drop();

@@ -16,7 +16,10 @@ import io.github.mekhontsev.magicdesk.hosted.HostedServerLifecycle;
 public final class X11Server extends IX11Server.Stub {
     public static final String ACTION = "io.github.mekhontsev.magicdesk.x11.SERVER_READY";
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private final X11FileExchange files = new X11FileExchange();
+    private final io.github.mekhontsev.magicdesk.hosted.HostedFileExchange files =
+            new io.github.mekhontsev.magicdesk.hosted.HostedFileExchange(required("MAGICDESK_X11_CONTENT_DIR"),
+                    "1".equals(System.getenv("MAGICDESK_X11_SHARED_FILES")) ? "/tmp/magicdesk-x11/content" : null,
+                    System.getenv("MAGICDESK_GUEST_FILES_SOCKET"), System.getenv("MAGICDESK_GUEST_FILES_TOKEN"));
     private final Context context;
     private final String hostPackage, session, token;
     private final int hostUid;

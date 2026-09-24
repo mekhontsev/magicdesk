@@ -19,7 +19,7 @@ final class X11LaunchSpec {
     final String temporaryDirectory;
     final String keyboardDirectory;
     final String fileEnvironment;
-    private final String guestHelper, guestSocket, guestToken;
+    private final HostedGuestFiles guestFiles;
     final java.util.Map<String, String> environment;
     final java.util.List<String> arguments;
 
@@ -32,11 +32,7 @@ final class X11LaunchSpec {
         random.nextBytes(secret);
         random.nextBytes(cookie);
         this.fileEnvironment = fileEnvironment;
-        guestHelper = nativeLibraryDirectory + "/libmagicdesk_guest_files.so";
-        guestSocket = "magicdesk-files-" + UUID.randomUUID();
-        byte[] guestSecret = new byte[32];
-        random.nextBytes(guestSecret);
-        guestToken = java.util.HexFormat.of().formatHex(guestSecret);
+        guestFiles = new HostedGuestFiles(nativeLibraryDirectory, !fileEnvironment.isEmpty());
         token = Base64.getUrlEncoder().withoutPadding().encodeToString(secret);
         directory = runtimeParent + "/" + id;
         this.temporaryDirectory = temporaryDirectory.isEmpty() ? directory : temporaryDirectory;
@@ -50,10 +46,7 @@ final class X11LaunchSpec {
         env.put("MAGICDESK_X11_EXECUTOR", executorPackage);
         env.put("MAGICDESK_X11_CONTENT_DIR", directory + "/content");
         env.put("MAGICDESK_X11_SHARED_FILES", sharedFiles || !fileEnvironment.isEmpty() ? "1" : "0");
-        if (!fileEnvironment.isEmpty()) {
-            env.put("MAGICDESK_GUEST_FILES_SOCKET", guestSocket);
-            env.put("MAGICDESK_GUEST_FILES_TOKEN", guestToken);
-        }
+        guestFiles.configure(env);
         env.put("MAGICDESK_X11_XSETTINGS", application ? "1" : "0");
         env.put("MAGICDESK_X11_HOST_WM", application ? "1" : "0");
         env.put("MAGICDESK_X11_SESSION", id);
@@ -84,8 +77,7 @@ final class X11LaunchSpec {
         return "export DISPLAY=" + q(":" + display) + " XAUTHORITY=" + q(authorityFile)
                 + " MAGICDESK_X11_RUNTIME=" + q(directory)
                 + " MAGICDESK_X11_TMPDIR=" + q(temporaryDirectory)
-                + (fileEnvironment.isEmpty() ? "" : " MAGICDESK_GUEST_FILES_HELPER=" + q(guestHelper)
-                        + " MAGICDESK_GUEST_FILES_SOCKET=" + q(guestSocket) + " MAGICDESK_GUEST_FILES_TOKEN=" + q(guestToken))
+                + guestFiles.exports()
                 + "\n" + command;
     }
 

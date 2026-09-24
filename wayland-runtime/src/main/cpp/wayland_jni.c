@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #define JNI(method) Java_io_github_mekhontsev_magicdesk_wayland_WaylandServer_##method
 
@@ -12,8 +14,77 @@ struct Bridge {
     MdwServer *server;
     JNIEnv *env;
     jobject owner;
-    jmethodID window, shell, geometry, toplevel_action, frame, wanted, can_render, error;
+    jmethodID window, shell, geometry, toplevel_action, frame, wanted, can_render, error, text_input, cursor;
+    jmethodID content_offer, content_request, content_reply, drag_event;
 };
+
+static void content_offer(void *context, int channel, uint64_t id, MdwOutput *output, const char *types) {
+    struct Bridge *b = context;
+    JNIEnv *env = b->env;
+    if ((*env)->ExceptionCheck(env)) return;
+    jstring list = (*env)->NewStringUTF(env, types);
+    if (!list) return;
+    (*env)->CallVoidMethod(env, b->owner, b->content_offer, (jint)channel, (jlong)id, (jlong)(intptr_t)output, list);
+    (*env)->DeleteLocalRef(env, list);
+}
+static void content_request(void *context, int channel, uint64_t id, uint64_t request, const char *type) {
+    struct Bridge *b = context;
+    JNIEnv *env = b->env;
+    if ((*env)->ExceptionCheck(env)) return;
+    jstring mime = (*env)->NewStringUTF(env, type);
+    if (!mime) return;
+    (*env)->CallVoidMethod(env, b->owner, b->content_request, (jint)channel, (jlong)id, (jlong)request, mime);
+    (*env)->DeleteLocalRef(env, mime);
+}
+static void content_reply(void *context, uint64_t request, int fd) {
+    struct Bridge *b = context;
+    if ((*b->env)->ExceptionCheck(b->env)) return;
+    int owned = fd < 0 ? -1 : fcntl(fd, F_DUPFD_CLOEXEC, 0);
+    (*b->env)->CallVoidMethod(b->env, b->owner, b->content_reply, (jlong)request, (jint)owned);
+}
+static void drag_event(void *context, MdwOutput *output, uint64_t offer, bool finished, bool accepted) {
+    struct Bridge *b = context;
+    if (!(*b->env)->ExceptionCheck(b->env))
+        (*b->env)->CallVoidMethod(b->env, b->owner, b->drag_event,
+            (jlong)(intptr_t)output, (jlong)offer, (jboolean)finished, (jboolean)accepted);
+}
+JNIEXPORT void JNICALL JNI(nativeDrag)(JNIEnv *env, jclass type, jlong handle,
+        jlong output, jint action, jlong offer, jdouble x, jdouble y, jboolean accepted) {
+    (void)env; (void)type;
+    struct Bridge *b = (void *)(intptr_t)handle;
+    mdw_content_drag(b->server, (void *)(intptr_t)output, action, offer, x, y, accepted);
+}
+
+JNIEXPORT void JNICALL JNI(nativeContentEnable)(JNIEnv *env, jclass type, jlong handle, jboolean enabled) {
+    (void)env; (void)type;
+    struct Bridge *b = (void *)(intptr_t)handle;
+    mdw_content_enable(b->server, enabled);
+}
+JNIEXPORT jboolean JNICALL JNI(nativeContentPublish)(JNIEnv *env, jclass type, jlong handle,
+        jint channel, jlong id, jstring types) {
+    (void)type;
+    struct Bridge *b = (void *)(intptr_t)handle;
+    const char *list = types ? (*env)->GetStringUTFChars(env, types, NULL) : NULL;
+    if (!list) return false;
+    bool result = mdw_content_publish(b->server, channel, id, list);
+    (*env)->ReleaseStringUTFChars(env, types, list);
+    return result;
+}
+JNIEXPORT void JNICALL JNI(nativeContentRead)(JNIEnv *env, jclass type, jlong handle,
+        jint channel, jlong id, jlong request, jstring mime) {
+    (void)type;
+    struct Bridge *b = (void *)(intptr_t)handle;
+    const char *name = mime ? (*env)->GetStringUTFChars(env, mime, NULL) : NULL;
+    if (!name) return;
+    bool result = mdw_content_read(b->server, channel, id, request, name);
+    (*env)->ReleaseStringUTFChars(env, mime, name);
+    if (!result) content_reply(b, request, -1);
+}
+JNIEXPORT void JNICALL JNI(nativeContentReply)(JNIEnv *env, jclass type, jlong handle, jlong request, jint fd) {
+    (void)env; (void)type;
+    struct Bridge *b = (void *)(intptr_t)handle;
+    mdw_content_reply(b->server, request, fd);
+}
 
 static jbyteArray bytes(JNIEnv *env, const char *value) {
     size_t length = value ? strlen(value) : 0;
@@ -32,7 +103,8 @@ static void window_event(void *context, uint64_t id, const MdwWindow *window) {
         (*env)->CallVoidMethod(env, bridge->owner, bridge->window, (jlong)id,
             (jlong)(window ? window->parent : 0), title, app_id,
             (jboolean)(window && window->mapped), (jint)(window ? window->width : 0),
-            (jint)(window ? window->height : 0), (jboolean)(window == NULL));
+            (jint)(window ? window->height : 0), (jlong)(window ? window->request_serial : 0),
+            (jboolean)(window && window->fullscreen), (jboolean)(window == NULL));
         (*env)->DeleteLocalRef(env, app_id);
     }
     (*env)->DeleteLocalRef(env, title);
@@ -70,6 +142,27 @@ static void toplevel_action(void *context, uint64_t id, MdwToplevelAction action
     struct Bridge *bridge = context;
     if (!(*bridge->env)->ExceptionCheck(bridge->env))
         (*bridge->env)->CallVoidMethod(bridge->env, bridge->owner, bridge->toplevel_action, (jlong)id, (jint)action);
+}
+
+static void text_input_event(void *context, MdwOutput *output, bool enabled) {
+    struct Bridge *bridge = context;
+    if (!(*bridge->env)->ExceptionCheck(bridge->env))
+        (*bridge->env)->CallVoidMethod(bridge->env, bridge->owner, bridge->text_input,
+            (jlong)(intptr_t)output, (jboolean)enabled);
+}
+
+static void cursor_event(void *context, MdwOutput *output, const uint32_t *pixels,
+        int width, int height, int x, int y, bool hidden) {
+    struct Bridge *bridge = context;
+    JNIEnv *env = bridge->env;
+    if ((*env)->ExceptionCheck(env)) return;
+    jintArray image = pixels ? (*env)->NewIntArray(env, width * height) : NULL;
+    if (pixels && !image) return;
+    if (image) (*env)->SetIntArrayRegion(env, image, 0, width * height, (const jint *)pixels);
+    if (!(*env)->ExceptionCheck(env))
+        (*env)->CallVoidMethod(env, bridge->owner, bridge->cursor, (jlong)(intptr_t)output,
+            image, (jint)width, (jint)height, (jint)x, (jint)y, (jboolean)hidden);
+    if (image) (*env)->DeleteLocalRef(env, image);
 }
 
 JNIEXPORT jboolean JNICALL JNI(nativeToplevel)(JNIEnv *env, jclass type, jlong handle, jlong id,
@@ -142,7 +235,7 @@ JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner) {
     bridge->owner = (*env)->NewGlobalRef(env, owner);
     if (!bridge->owner) { free(bridge); return 0; }
     jclass type = (*env)->GetObjectClass(env, owner);
-    bridge->window = (*env)->GetMethodID(env, type, "onWindow", "(JJ[B[BZIIZ)V");
+    bridge->window = (*env)->GetMethodID(env, type, "onWindow", "(JJ[B[BZIIJZZ)V");
     if (!(*env)->ExceptionCheck(env)) bridge->shell = (*env)->GetMethodID(env, type, "onShell", "(J[BZZIIIJJIIIIIZ)V");
     if (!(*env)->ExceptionCheck(env)) bridge->geometry = (*env)->GetMethodID(env, type, "onGeometry", "(JJZIIIIZ[IZ)V");
     if (!(*env)->ExceptionCheck(env)) bridge->toplevel_action = (*env)->GetMethodID(env, type, "onToplevelAction", "(JI)V");
@@ -150,6 +243,12 @@ JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner) {
     if (!(*env)->ExceptionCheck(env)) bridge->wanted = (*env)->GetMethodID(env, type, "frameWanted", "(J)Z");
     if (!(*env)->ExceptionCheck(env)) bridge->can_render = (*env)->GetMethodID(env, type, "canRender", "(J)Z");
     if (!(*env)->ExceptionCheck(env)) bridge->error = (*env)->GetMethodID(env, type, "onError", "(Ljava/lang/String;)V");
+    if (!(*env)->ExceptionCheck(env)) bridge->text_input = (*env)->GetMethodID(env, type, "onTextInput", "(JZ)V");
+    if (!(*env)->ExceptionCheck(env)) bridge->cursor = (*env)->GetMethodID(env, type, "onCursor", "(J[IIIIIZ)V");
+    if (!(*env)->ExceptionCheck(env)) bridge->content_offer = (*env)->GetMethodID(env, type, "onContentOffer", "(IJJLjava/lang/String;)V");
+    if (!(*env)->ExceptionCheck(env)) bridge->content_request = (*env)->GetMethodID(env, type, "onContentRequest", "(IJJLjava/lang/String;)V");
+    if (!(*env)->ExceptionCheck(env)) bridge->content_reply = (*env)->GetMethodID(env, type, "onContentReply", "(JI)V");
+    if (!(*env)->ExceptionCheck(env)) bridge->drag_event = (*env)->GetMethodID(env, type, "onDragEvent", "(JJZZ)V");
     (*env)->DeleteLocalRef(env, type);
     if (!(*env)->ExceptionCheck(env)) bridge->server = mdw_server_create();
     if (!bridge->server) {
@@ -159,7 +258,8 @@ JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner) {
     }
     MdwEvents events = {.window = window_event, .shell = shell_event, .geometry = geometry_event, .toplevel_action = toplevel_action,
         .frame = frame_event, .can_render = can_render,
-        .error = error_event, .context = bridge};
+        .error = error_event, .text_input = text_input_event, .cursor = cursor_event, .context = bridge,
+        .content_offer = content_offer, .content_request = content_request, .content_reply = content_reply, .drag_event = drag_event};
     mdw_server_set_events(bridge->server, &events);
     return (jlong)(intptr_t)bridge;
 }
@@ -168,6 +268,33 @@ JNIEXPORT jint JNICALL JNI(nativeEventFd)(JNIEnv *env, jclass type, jlong handle
     (void)env; (void)type;
     struct Bridge *bridge = (void *)(intptr_t)handle;
     return mdw_server_fd(bridge->server);
+}
+
+JNIEXPORT void JNICALL JNI(nativeConfirmFullscreen)(JNIEnv *env, jclass type, jlong handle,
+        jlong window, jlong serial, jboolean fullscreen) {
+    (void)env; (void)type;
+    struct Bridge *bridge = (void *)(intptr_t)handle;
+    mdw_window_confirm_fullscreen(bridge->server, window, serial, fullscreen);
+}
+
+JNIEXPORT void JNICALL JNI(nativeText)(JNIEnv *env, jclass type, jlong output,
+        jbyteArray bytes, jboolean composing, jint cursor) {
+    (void)type;
+    if (!bytes) return;
+    jsize length = (*env)->GetArrayLength(env, bytes);
+    if (length > 65536 || cursor < 0 || cursor > length) return;
+    char *text = malloc((size_t)length + 1);
+    if (!text) return;
+    (*env)->GetByteArrayRegion(env, bytes, 0, length, (jbyte *)text);
+    text[length] = 0;
+    if (!(*env)->ExceptionCheck(env) && !memchr(text, 0, length))
+        mdw_output_text((void *)(intptr_t)output, text, composing, cursor);
+    free(text);
+}
+
+JNIEXPORT jboolean JNICALL JNI(nativeScale)(JNIEnv *env, jclass type, jlong output, jdouble scale) {
+    (void)env; (void)type;
+    return mdw_output_scale((void *)(intptr_t)output, scale);
 }
 
 JNIEXPORT jint JNICALL JNI(nativeDispatch)(JNIEnv *env, jclass type, jlong handle) {

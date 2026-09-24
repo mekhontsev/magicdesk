@@ -8,22 +8,32 @@ import java.util.function.Consumer;
 /** Android resources borrowed by one Wayland application host, independently of its server. */
 final class WaylandHostBinding implements AutoCloseable {
     private final HostedSurfaceView surface;
+    private final Activity activity;
     private final WaylandSessions.Session session;
     private final long window;
     private final WaylandSession.Output output;
     private final HostedFamilyWindows family;
     private WaylandSession.Output dependents;
+    private HostedSurfaceView dependentSurface;
+    private final HostedContentExchange exchange;
+    private HostedContentExchange dependentExchange;
     private Consumer<HostedFamilyGeometry> geometry;
     private WaylandViewGeometry published;
     private int publishedWidth, publishedHeight;
     private boolean closed;
+    private volatile HostedFullscreen fullscreen;
+    private long fullscreenSerial = -1;
+    private int density;
 
     WaylandHostBinding(Activity activity, HostedSurfaceView surface, WaylandSessions.Session session, long window) {
         this.surface = surface;
+        this.activity = activity;
         this.session = session;
         this.window = window;
         output = session.openOutput(window, surface.getWidth(), surface.getHeight());
+        updateDensity();
         surface.bind(new WaylandSurfaceOutput(output));
+        exchange = new HostedContentExchange(activity, surface, new WaylandContentExchange(activity, session, output));
         family = new HostedFamilyWindows(activity, surface, new HostedFamilyWindows.Backend() {
             @Override public HostedShellOutput borrow(Consumer<HostedFamilyGeometry> changed, Consumer<Throwable> failed) {
                 geometry = changed;
@@ -39,16 +49,62 @@ final class WaylandHostBinding implements AutoCloseable {
                     output.focus(false);
                     if (dependents != null) dependents.focus(false);
                 }
+                updateExchangeFocus();
+            }
+            @Override public void mounted(HostedSurfaceView view) {
+                dependentSurface = view;
+                dependentExchange = new HostedContentExchange(activity, view,
+                        new WaylandContentExchange(activity, session, dependents));
+                updateExchangeFocus();
+            }
+            @Override public void unmounted() {
+                if (dependentExchange != null) dependentExchange.close();
+                dependentExchange = null; dependentSurface = null;
             }
             @Override public void released() { dependents = null; geometry = null; published = null; }
         });
         surface.requestFocus();
         family.refresh();
+        updateExchangeFocus();
     }
 
-    void refresh() { if (!closed) { family.refresh(); geometryChanged(); } }
-    void focusChanged() { if (!closed) family.focusChanged(); }
+    void refresh() { if (!closed) { updateDensity(); family.refresh(); geometryChanged(); updateFullscreen(); } }
+    private void updateDensity() {
+        int next = activity.getResources().getConfiguration().densityDpi;
+        if (density == next) return;
+        density = next;
+        output.scale(Math.max(0.25, Math.min(8, next / 160.0)));
+    }
+    void focusChanged() { if (!closed) { family.focusChanged(); updateExchangeFocus(); updateFullscreen(); } }
+    private void updateExchangeFocus() {
+        if (closed) return;
+        exchange.focus(activity.hasWindowFocus());
+        if (dependentExchange != null)
+            dependentExchange.focus(family != null && family.focused() && !activity.hasWindowFocus());
+    }
+    private void updateFullscreen() {
+        var info = session.windows().stream().filter(item -> item.id() == window).findFirst().orElse(null);
+        if (info == null || !session.claimFullscreen(window, this)) return;
+        if (fullscreen == null) fullscreen = new HostedFullscreen(activity, surface,
+                actual -> session.confirmFullscreen(window, this, fullscreenSerial, actual));
+        if (fullscreenSerial != info.requestSerial()) {
+            fullscreenSerial = info.requestSerial();
+            fullscreen.request(info.fullscreen());
+        } else fullscreen.changed();
+    }
+    BuiltInWindowRegistry.ImmersiveRequest immersiveRequest() { return fullscreen == null ? null : fullscreen.snapshot(); }
+    void rejectImmersive() { if (!closed && fullscreen != null) fullscreen.reject(); }
     void frame(long id, int width, int height) { if (!closed && id == output.id) surface.frame(width, height); }
+    void textInputChanged(long id) {
+        if (closed) return;
+        if (id == output.id) surface.textInputChanged();
+        else if (dependents != null && id == dependents.id && dependentSurface != null) dependentSurface.textInputChanged();
+    }
+    void cursor(long id, android.graphics.Bitmap image, int hotspotX, int hotspotY, boolean hidden) {
+        if (closed) return;
+        if (id == output.id) surface.cursor(image, hotspotX, hotspotY, hidden);
+        else if (dependents != null && id == dependents.id) family.cursor(image, hotspotX, hotspotY, hidden);
+    }
     void geometryChanged() {
         if (closed || geometry == null) return;
         var next = session.dependentGeometry(window);
@@ -66,7 +122,11 @@ final class WaylandHostBinding implements AutoCloseable {
     @Override public void close() {
         if (closed) return;
         closed = true;
+        if (fullscreen != null) fullscreen.close();
+        fullscreen = null;
+        session.releaseFullscreen(this);
         family.close();
+        exchange.close();
         surface.release();
         output.close();
         geometry = null;

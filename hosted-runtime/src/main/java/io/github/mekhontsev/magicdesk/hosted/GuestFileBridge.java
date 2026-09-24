@@ -1,4 +1,4 @@
-package io.github.mekhontsev.magicdesk.x11;
+package io.github.mekhontsev.magicdesk.hosted;
 
 import android.net.LocalServerSocket;
 import android.net.LocalSocket;
@@ -33,7 +33,8 @@ final class GuestFileBridge implements Closeable {
                 pending = candidate;
                 boolean retained = false;
                 try {
-                    candidate.setSoTimeout(10_000); // Bounds authorization and each file-open reply, not guest lifetime.
+                    // EVENT_WAIT: guest authorization/file-open reply; expiry rejects or disconnects the peer.
+                    candidate.setSoTimeout(10_000);
                     if (closed) return;
                     byte[] supplied = candidate.getInputStream().readNBytes(64);
                     if (!MessageDigest.isEqual(token, supplied)) continue;

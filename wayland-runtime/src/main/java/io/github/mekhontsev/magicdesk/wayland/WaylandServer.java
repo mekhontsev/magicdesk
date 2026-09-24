@@ -16,6 +16,7 @@ import android.system.OsConstants;
 import android.util.LongSparseArray;
 import io.github.mekhontsev.magicdesk.hosted.HostedProcessContext;
 import io.github.mekhontsev.magicdesk.hosted.HostedServerLifecycle;
+import io.github.mekhontsev.magicdesk.hosted.HostedFileExchange;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
@@ -37,6 +38,7 @@ public final class WaylandServer extends IWaylandServer.Stub {
     private IWaylandEvents owner;
     private long handle, lastOutput, lastClient, shellRevision;
     private ParcelFileDescriptor eventDescriptor;
+    private final HostedFileExchange contentFiles;
 
     private static final class Output {
         final long id, window, handle;
@@ -59,6 +61,9 @@ public final class WaylandServer extends IWaylandServer.Stub {
                 || (directory.st_mode & 0777) != 0700)
             throw new SecurityException("Wayland runtime directory must be private to the executor");
         System.load(required("MAGICDESK_WAYLAND_LIBRARY"));
+        contentFiles = new HostedFileExchange(required("XDG_RUNTIME_DIR") + "/content",
+                System.getenv("MAGICDESK_WAYLAND_GUEST_CONTENT"),
+                System.getenv("MAGICDESK_GUEST_FILES_SOCKET"), System.getenv("MAGICDESK_GUEST_FILES_TOKEN"));
     }
 
     public static void main(String[] arguments) throws Exception {
@@ -184,6 +189,9 @@ public final class WaylandServer extends IWaylandServer.Stub {
         });
     }
     @Override public void focus(long id, boolean focused) { output(id, pointer -> nativeFocus(pointer, focused)); }
+    @Override public void scale(long id, double scale) {
+        output(id, pointer -> { if (!nativeScale(pointer, scale)) failed(id, "Invalid Wayland output scale"); });
+    }
     @Override public void setVisible(long id, boolean visible) {
         output(id, pointer -> {
             if (!nativeSetVisible(pointer, visible)) failed(id, "Cannot change Wayland output visibility");
@@ -198,6 +206,71 @@ public final class WaylandServer extends IWaylandServer.Stub {
         output(id, pointer -> nativeKey(pointer, androidKey, scanCode, down));
     }
     @Override public void closeWindow(long window, boolean force) { command(() -> nativeCloseWindow(handle, window, force)); }
+    @Override public void text(long id, byte[] utf8, boolean composing, int cursor) {
+        if (utf8 == null || utf8.length > WaylandText.MAX_BYTES || cursor < 0 || cursor > utf8.length)
+            throw new IllegalArgumentException("Invalid Wayland text edit");
+        output(id, pointer -> nativeText(pointer, utf8, composing, cursor));
+    }
+    @Override public void confirmFullscreen(long window, long serial, boolean fullscreen) {
+        command(() -> nativeConfirmFullscreen(handle, window, serial, fullscreen));
+    }
+
+    @Override public void contentActive(boolean active) { command(() -> nativeContentEnable(handle, active)); }
+    @Override public void drag(long id, int action, long offer, double x, double y, boolean accepted) {
+        if (action < 0 || action > 6 || !Double.isFinite(x) || !Double.isFinite(y))
+            throw new IllegalArgumentException("Invalid drag event");
+        output(id, pointer -> nativeDrag(handle, pointer, action, offer, x, y, accepted));
+    }
+    @Override public void publishContent(int channel, long id, String types) {
+        if (types == null || types.length() >= 8192) throw new IllegalArgumentException("Invalid content formats");
+        command(() -> nativeContentPublish(handle, channel, id, types));
+    }
+    @Override public void readContent(int channel, long id, long request, String type) {
+        if (type == null || type.length() >= 128) throw new IllegalArgumentException("Invalid content type");
+        command(() -> nativeContentRead(handle, channel, id, request, type));
+    }
+    @Override public void replyContent(long request, ParcelFileDescriptor data) {
+        try { lifecycle.checkReady(Binder.getCallingUid()); }
+        catch (RuntimeException error) { closeDescriptor(data); throw error; }
+        if (!handler.post(() -> {
+            try { if (handle != 0) nativeContentReply(handle, request, data == null ? -1 : data.getFd()); }
+            finally { closeDescriptor(data); }
+        })) closeDescriptor(data);
+    }
+    @Override public ParcelFileDescriptor openContentFile(String uri) {
+        lifecycle.checkReady(Binder.getCallingUid());
+        try { return contentFiles.open(uri); }
+        catch (IOException e) { throw new IllegalStateException("Cannot open guest file", e); }
+    }
+    @Override public String importContentFile(ParcelFileDescriptor file, String name) {
+        try (file) {
+            lifecycle.checkReady(Binder.getCallingUid());
+            return contentFiles.importFile(file, name);
+        } catch (IOException e) { throw new IllegalStateException("Cannot import guest file", e); }
+    }
+    private static void closeDescriptor(ParcelFileDescriptor fd) {
+        if (fd != null) try { fd.close(); } catch (IOException ignored) { }
+    }
+    private void onContentOffer(int channel, long id, long pointer, String types) {
+        Output output = nativeOutputs.get(pointer);
+        try { owner.contentOffer(channel, id, output == null ? 0 : output.id, types); }
+        catch (RemoteException error) { requestStop(); }
+    }
+    private void onContentRequest(int channel, long id, long request, String type) {
+        try { owner.contentRequest(channel, id, request, type); }
+        catch (RemoteException error) { requestStop(); }
+    }
+    private void onContentReply(long request, int fd) {
+        try (ParcelFileDescriptor data = fd < 0 ? null : ParcelFileDescriptor.adoptFd(fd)) {
+            owner.contentReply(request, data);
+        } catch (IOException | RemoteException error) { requestStop(); }
+    }
+    private void onDragEvent(long pointer, long offer, boolean finished, boolean accepted) {
+        Output output = nativeOutputs.get(pointer);
+        if (output == null) return;
+        try { owner.dragEvent(output.id, offer, finished, accepted); }
+        catch (RemoteException error) { requestStop(); }
+    }
 
     @Override public void setShellOutput(long id, int width, int height) {
         command(() -> {
@@ -301,14 +374,27 @@ public final class WaylandServer extends IWaylandServer.Stub {
     }
 
     private void onWindow(long id, long parent, byte[] title, byte[] appId, boolean mapped,
-            int width, int height, boolean removed) {
+            int width, int height, long requestSerial, boolean fullscreen, boolean removed) {
         if (removed) applicationViews.remove(id);
         else applicationViews.add(id);
         if (removed) releaseSurfaceOutputs(id);
         try {
             owner.window(id, parent, new String(title, StandardCharsets.UTF_8),
-                    new String(appId, StandardCharsets.UTF_8), mapped, width, height, removed);
+                    new String(appId, StandardCharsets.UTF_8), mapped, width, height, requestSerial, fullscreen, removed);
         } catch (RemoteException error) { requestStop(); }
+    }
+
+    private void onTextInput(long pointer, boolean enabled) {
+        Output output = nativeOutputs.get(pointer);
+        if (output == null) return;
+        try { owner.textInput(output.id, enabled); }
+        catch (RemoteException error) { requestStop(); }
+    }
+    private void onCursor(long pointer, int[] pixels, int width, int height, int hotspotX, int hotspotY, boolean hidden) {
+        Output output = nativeOutputs.get(pointer);
+        if (output == null) return;
+        try { owner.cursor(output.id, pixels, width, height, hotspotX, hotspotY, hidden); }
+        catch (RemoteException error) { requestStop(); }
     }
 
     private void onShell(long id, byte[] name, boolean mapped, boolean configureNeeded, int layer, int keyboard,
@@ -363,6 +449,7 @@ public final class WaylandServer extends IWaylandServer.Stub {
     }
 
     private void shutdown() {
+        contentFiles.close();
         if (eventDescriptor != null) {
             Looper.myQueue().removeOnFileDescriptorEventListener(eventDescriptor.getFileDescriptor());
             try { eventDescriptor.close(); } catch (IOException ignored) { }
@@ -402,12 +489,20 @@ public final class WaylandServer extends IWaylandServer.Stub {
     private static native void nativeReleaseOutput(long output);
     private static native void nativeRefresh(long output);
     private static native void nativeFocus(long output, boolean focused);
+    private static native boolean nativeScale(long output, double scale);
     private static native long nativeBorrowDependents(long output);
     private static native void nativePointer(long output, double x, double y);
     private static native void nativeButton(long output, int button, boolean down);
     private static native void nativeScroll(long output, double horizontal, double vertical);
     private static native void nativeKey(long output, int androidKey, int scanCode, boolean down);
+    private static native void nativeText(long output, byte[] utf8, boolean composing, int cursor);
     private static native void nativeCloseWindow(long server, long window, boolean force);
+    private static native void nativeConfirmFullscreen(long server, long window, long serial, boolean fullscreen);
+    private static native void nativeContentEnable(long server, boolean active);
+    private static native boolean nativeContentPublish(long server, int channel, long id, String types);
+    private static native void nativeContentRead(long server, int channel, long id, long request, String type);
+    private static native void nativeContentReply(long server, long request, int fd);
+    private static native void nativeDrag(long server, long output, int action, long offer, double x, double y, boolean accepted);
     private static native boolean nativeShellOutput(long server, int width, int height);
     private static native boolean nativeToplevel(long server, long id, byte[] title, byte[] appId,
             boolean active, boolean maximized, boolean fullscreen, boolean removed);
