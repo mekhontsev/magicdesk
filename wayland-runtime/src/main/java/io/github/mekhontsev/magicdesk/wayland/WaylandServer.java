@@ -134,7 +134,7 @@ public final class WaylandServer extends IWaylandServer.Stub {
         return pixels <= 16_777_216;
     }
 
-    @Override public void openOutput(long id, long window, long shellOwner, int width, int height) {
+    @Override public void openOutput(long id, long window, long shellOwner, long parentOutput, int width, int height) {
         command(() -> {
             boolean admitted = shellOwner == 0 ? !shell.contains(window)
                     : shellOwner == shell.owner() && shell.contains(window);
@@ -143,7 +143,12 @@ public final class WaylandServer extends IWaylandServer.Stub {
                 return;
             }
             lastOutput = id;
-            long pointer = nativeOpenOutput(handle, window, width, height);
+            Output parent = parentOutput == 0 ? null : outputs.get(parentOutput);
+            if (parentOutput != 0 && (shellOwner != 0 || parent == null || parent.window != window)) {
+                failed(id, "Invalid dependent output owner"); return;
+            }
+            long pointer = parent == null ? nativeOpenOutput(handle, window, width, height)
+                    : nativeBorrowDependents(parent.handle);
             if (pointer == 0) { failed(id, "Cannot open Wayland window output"); return; }
             Output output = new Output(id, window, pointer, width, height);
             outputs.put(id, output);
@@ -320,10 +325,10 @@ public final class WaylandServer extends IWaylandServer.Stub {
     }
 
     private void onGeometry(long id, long revision, boolean mapped, int left, int top, int right, int bottom,
-            boolean complete, int[] input) {
+            boolean complete, int[] input, boolean dependents) {
         boolean shellSurface = shell.contains(id);
         if (!shellSurface && !applicationViews.contains(id)) return;
-        var geometry = WaylandViewGeometry.fromNative(id, revision, mapped, left, top, right, bottom, complete, input);
+        var geometry = WaylandViewGeometry.fromNative(id, revision, mapped, left, top, right, bottom, complete, input, dependents);
         try { owner.geometry(shellSurface ? shell.owner() : 0, geometry); }
         catch (RemoteException error) { requestStop(); }
     }
@@ -397,6 +402,7 @@ public final class WaylandServer extends IWaylandServer.Stub {
     private static native void nativeReleaseOutput(long output);
     private static native void nativeRefresh(long output);
     private static native void nativeFocus(long output, boolean focused);
+    private static native long nativeBorrowDependents(long output);
     private static native void nativePointer(long output, double x, double y);
     private static native void nativeButton(long output, int button, boolean down);
     private static native void nativeScroll(long output, double horizontal, double vertical);

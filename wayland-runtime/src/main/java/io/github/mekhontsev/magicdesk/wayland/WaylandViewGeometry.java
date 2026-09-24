@@ -8,8 +8,11 @@ import java.util.Objects;
 
 /** Rendered family coordinates, independent of shell placement and exclusive zones. */
 public record WaylandViewGeometry(long id, long revision, boolean mapped, Rect paint,
-        boolean inputComplete, List<Rect> input) implements Parcelable {
+        boolean inputComplete, List<Rect> input, boolean dependents) implements Parcelable {
     public static final int MAX_INPUT_RECTS = 512;
+    public WaylandViewGeometry(long id, long revision, boolean mapped, Rect paint, boolean inputComplete, List<Rect> input) {
+        this(id, revision, mapped, paint, inputComplete, input, false);
+    }
 
     public record Rect(int left, int top, int right, int bottom) {
         public Rect {
@@ -32,13 +35,13 @@ public record WaylandViewGeometry(long id, long revision, boolean mapped, Rect p
     }
 
     static WaylandViewGeometry fromNative(long id, long revision, boolean mapped,
-            int left, int top, int right, int bottom, boolean complete, int[] coordinates) {
+            int left, int top, int right, int bottom, boolean complete, int[] coordinates, boolean dependents) {
         if (coordinates.length % 4 != 0 || coordinates.length > MAX_INPUT_RECTS * 4)
             throw new IllegalArgumentException("Invalid Wayland input region");
         List<Rect> input = new ArrayList<>(coordinates.length / 4);
         for (int i = 0; i < coordinates.length; i += 4)
             input.add(new Rect(coordinates[i], coordinates[i + 1], coordinates[i + 2], coordinates[i + 3]));
-        return new WaylandViewGeometry(id, revision, mapped, new Rect(left, top, right, bottom), complete, input);
+        return new WaylandViewGeometry(id, revision, mapped, new Rect(left, top, right, bottom), complete, input, dependents);
     }
 
     @Override public int describeContents() { return 0; }
@@ -47,6 +50,7 @@ public record WaylandViewGeometry(long id, long revision, boolean mapped, Rect p
         writeRect(out, paint);
         out.writeBoolean(inputComplete); out.writeInt(input.size());
         for (Rect rect : input) writeRect(out, rect);
+        out.writeBoolean(dependents);
     }
 
     private static void writeRect(Parcel out, Rect rect) {
@@ -64,7 +68,7 @@ public record WaylandViewGeometry(long id, long revision, boolean mapped, Rect p
             if (count < 0 || count > MAX_INPUT_RECTS) throw new IllegalArgumentException("Wayland input region too large");
             List<Rect> input = new ArrayList<>(count);
             for (int i = 0; i < count; ++i) input.add(readRect(in));
-            return new WaylandViewGeometry(id, revision, mapped, paint, complete, input);
+            return new WaylandViewGeometry(id, revision, mapped, paint, complete, input, in.readBoolean());
         }
         @Override public WaylandViewGeometry[] newArray(int size) { return new WaylandViewGeometry[size]; }
     };

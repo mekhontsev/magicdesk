@@ -10,7 +10,8 @@ public class WaylandViewGeometryTest {
 
     @Test public void exactInputHolesAreIndependentOfPaint() {
         var geometry = WaylandViewGeometry.fromNative(1, 1, true, -10, -6, 64, 44, true,
-                new int[] {0, 0, 8, 24, 56, 0, 64, 24, -10, 24, 20, 44});
+                new int[] {0, 0, 8, 24, 56, 0, 64, 24, -10, 24, 20, 44}, true);
+        assertTrue(geometry.dependents());
         assertEquals(PAINT, geometry.paint());
         assertTrue(geometry.acceptsInput(-5, 30));
         assertTrue(geometry.acceptsInput(60, 10));
@@ -36,14 +37,14 @@ public class WaylandViewGeometryTest {
 
     @Test public void nativeTransportIsBoundedAndCopied() {
         int[] coordinates = {0, 0, 10, 10};
-        var geometry = WaylandViewGeometry.fromNative(1, 1, true, 0, 0, 10, 10, true, coordinates);
+        var geometry = WaylandViewGeometry.fromNative(1, 1, true, 0, 0, 10, 10, true, coordinates, false);
         coordinates[2] = 0;
         assertTrue(geometry.acceptsInput(5, 5));
         assertThrows(IllegalArgumentException.class,
-                () -> WaylandViewGeometry.fromNative(1, 1, true, 0, 0, 10, 10, true, new int[3]));
+                () -> WaylandViewGeometry.fromNative(1, 1, true, 0, 0, 10, 10, true, new int[3], false));
         assertThrows(IllegalArgumentException.class,
                 () -> WaylandViewGeometry.fromNative(1, 1, true, 0, 0, 10, 10, true,
-                        new int[(WaylandViewGeometry.MAX_INPUT_RECTS + 1) * 4]));
+                        new int[(WaylandViewGeometry.MAX_INPUT_RECTS + 1) * 4], false));
         assertThrows(IllegalArgumentException.class, () -> new WaylandViewGeometry.Rect(1, 0, 0, 1));
     }
 }

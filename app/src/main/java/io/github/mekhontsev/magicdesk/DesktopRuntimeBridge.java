@@ -321,6 +321,7 @@ public final class DesktopRuntimeBridge {
 
     static void refreshSettings() {
         UI.refreshSettings();
+        BuiltInWindowRegistry.refreshDesktopPresentations(-1);
     }
 
     static boolean isDesktopReadyOnDisplay(final int displayId) {
@@ -375,5 +376,6 @@ public final class DesktopRuntimeBridge {
             final int displayId,
             final TaskRepository.Snapshot snapshot) {
         UI.syncTaskbarWithSnapshot(displayId, snapshot);
+        BuiltInWindowRegistry.refreshDesktopPresentations(displayId);
     }
 }

@@ -33,6 +33,9 @@ public final class X11HostBindingTest {
                 record Cursor(Object image, int hotspotX, int hotspotY, boolean hidden) { }
                 static class Output {
                     boolean closed;
+                    Output borrowDependents(java.util.function.Consumer<io.github.mekhontsev.magicdesk.x11.X11FamilyGeometry> changed) { return new Output(); }
+                    void focus() { }
+                    void blurFamily() { }
                     void close() { if (!closed) { closed = true; events.add("output"); } }
                 }
             }
@@ -85,7 +88,23 @@ public final class X11HostBindingTest {
                     }
                 }
             }
-            record X11SurfaceOutput(X11Session.Output output) { }
+            interface HostedShellOutput { }
+            record X11SurfaceOutput(X11Session.Output output) implements HostedShellOutput { }
+            static class HostedFamilyWindows {
+                interface Backend {
+                    HostedShellOutput borrow(java.util.function.Consumer<HostedFamilyGeometry> changed, java.util.function.Consumer<Throwable> failed);
+                    void mounted(HostedSurfaceView view);
+                    void unmounted();
+                    void released();
+                    void focus(boolean focused, boolean dependent);
+                }
+                HostedFamilyWindows(Activity activity, HostedSurfaceView surface, Backend backend) { }
+                void refresh() { }
+                void focusChanged() { }
+                boolean focused() { return false; }
+                void cursor(Object image, int x, int y, boolean hidden) { }
+                void close() { }
+            }
             static class HostedSurfaceView {
                 record Geometry(int width, int height) { }
                 Geometry geometry() { return new Geometry(width, height); }

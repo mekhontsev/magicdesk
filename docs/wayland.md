@@ -121,9 +121,13 @@ The current native slice covers xdg-toplevel discovery and metadata, software
 rendering, configure/ack, frame callbacks, borrowed-output resize, pointer/key
 input, focus release and graceful close. The standard data-device manager and
 seat selection serve guest-to-guest clipboard requests; they do not publish or
-read Android clipboard content. Popup nodes are composed with their
-parent; shell popup constraints and surface-family input geometry are covered by
-native fixtures. Android popup hosting and multi-window behavior need more coverage. IME/text,
+read Android clipboard content. Popup nodes retain their parent's native scene
+and grab lifetime. Managed API-35+ hosts can present the popup family outside the
+parent's task crop through the shared opt-in
+[dependent-surface host](shell-layout.md#application-relative-surfaces).
+Ordinary subsurfaces remain in their owning tree; transient toplevels retain
+separate Android hosts. Shell popup constraints and surface-family input geometry
+are covered by native fixtures. IME/text,
 clipboard, drag-and-drop, density/fullscreen policy, and GPU
 buffer import are not complete. Android text input is explicitly unavailable
 instead of accepting and discarding IME text. Physical keys use the shared

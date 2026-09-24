@@ -15,6 +15,7 @@ import java.util.concurrent.CompletableFuture;
 final class HostedShellSurfaceView extends FrameLayout implements AutoCloseable {
     private final HostedSurfaceView content;
     private final HostedShellOutput output;
+    private final boolean ownsOutput;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ShellFrameAdmission admission = new ShellFrameAdmission();
     private final Region region = new Region();
@@ -28,17 +29,26 @@ final class HostedShellSurfaceView extends FrameLayout implements AutoCloseable 
     private IInputRegionReceipt inputReceipt;
     private Runnable releaseKeyboard;
     private boolean keyboardFocused;
+    private java.util.function.Consumer<Throwable> failure;
 
     HostedShellSurfaceView(Context context, HostedShellOutput output) {
+        this(context, output, true);
+    }
+
+    HostedShellSurfaceView(Context context, HostedShellOutput output, boolean ownsOutput) {
         super(context);
         this.output = java.util.Objects.requireNonNull(output);
+        this.ownsOutput = ownsOutput;
         content = new HostedSurfaceView(context);
         content.allowKeyboard(false);
         content.getHolder().setFormat(PixelFormat.TRANSLUCENT);
         content.allowInput(false);
         addView(content, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
-        content.bind(output, this::surfaceChanged);
+        content.bind(output, this::surfaceChanged, ownsOutput);
     }
+
+    HostedSurfaceView content() { return content; }
+    void failure(java.util.function.Consumer<Throwable> callback) { failure = callback; }
 
     void keyboardRequests(Runnable request, Runnable release) {
         content.beforeInteraction(request);
@@ -215,6 +225,7 @@ final class HostedShellSurfaceView extends FrameLayout implements AutoCloseable 
         var completion = pending;
         pending = null;
         if (completion != null) completion.completeExceptionally(error);
+        if (failure != null) failure.accept(error);
     }
 
     private void cancelPending(String reason) {
@@ -231,6 +242,7 @@ final class HostedShellSurfaceView extends FrameLayout implements AutoCloseable 
         clearInput();
         frame = null;
         surface = null;
+        if (!ownsOutput) output.setSurface(null, 0, 0);
         content.release();
         cancelPending("Shell host closed");
     }

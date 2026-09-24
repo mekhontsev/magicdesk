@@ -14,7 +14,8 @@ import io.github.mekhontsev.magicdesk.x11.X11Session;
 /** An ordinary Android window onto a retained X server or one selected X client window. */
 public final class X11Activity extends Activity implements
         BuiltInWindowRegistry.PresentationSource, BuiltInWindowRegistry.ImmersiveSource,
-        BuiltInWindowRegistry.CloseHandler, BuiltInWindowRegistry.ApplicationSource {
+        BuiltInWindowRegistry.CloseHandler, BuiltInWindowRegistry.ApplicationSource,
+        BuiltInWindowRegistry.DesktopPresentationListener {
     static final String SESSION = "x11_session";
     static final String WINDOW = "x11_window";
     static final String DESKTOP_FILE = "x11_desktop_file";
@@ -174,6 +175,7 @@ public final class X11Activity extends Activity implements
 
     @Override public BuiltInWindowRegistry.Presentation taskPresentation() { return presentation; }
     @Override public AppReference windowApplication() { return windowApplication; }
+    @Override public void desktopPresentationChanged() { if (binding != null) binding.presentationChanged(); }
 
     private void present(String title, Bitmap icon) {
         if (presentation != null && presentation.title().equals(title) && presentation.icon() == icon) return;

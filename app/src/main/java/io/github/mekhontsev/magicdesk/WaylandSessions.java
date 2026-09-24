@@ -30,6 +30,7 @@ final class WaylandSessions {
     interface Listener {
         void changed();
         default void frame(long output, int width, int height) { }
+        default void geometryChanged(long window) { }
     }
 
     static Session start(Context context, String name, String command, String directory,
@@ -178,6 +179,9 @@ final class WaylandSessions {
             if (!ready()) throw new IllegalStateException("Wayland session is not ready");
             return renderer.openOutput(window, width, height);
         }
+        io.github.mekhontsev.magicdesk.wayland.WaylandViewGeometry dependentGeometry(long window) {
+            return renderer == null ? null : renderer.dependentGeometry(window);
+        }
         WaylandShellBinding bindShell(ShellLayoutScope scope, int density, WaylandShellBinding.Listener listener) {
             if (!ready()) throw new IllegalStateException("Wayland session is not ready");
             if (application) throw new IllegalStateException("Shell components require a retained graphics session");
@@ -261,6 +265,9 @@ final class WaylandSessions {
         }
         @Override public void frame(long output, int width, int height) {
             for (var listener : listeners) listener.frame(output, width, height);
+        }
+        @Override public void geometryChanged(long window) {
+            for (var listener : listeners) listener.geometryChanged(window);
         }
         @Override public void failed(long output, String message) { fail(new IOException(message)); }
         @Override public void presentationChanged() { changed(); }

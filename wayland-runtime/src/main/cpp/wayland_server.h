@@ -46,6 +46,7 @@ typedef struct {
     MdwRect paint;
     const MdwRect *input; /* Borrowed for this callback; surface-family coordinates. */
     size_t input_count;
+    bool dependents;
 } MdwViewGeometry;
 
 typedef struct {
@@ -81,6 +82,7 @@ bool mdw_server_toplevel(MdwServer *server, uint64_t id, const char *title, cons
 bool mdw_shell_surface_configure(MdwServer *server, uint64_t id,
     int x, int y, int width, int height);
 MdwOutput *mdw_output_create(MdwServer *server, uint64_t window, int width, int height);
+MdwOutput *mdw_output_borrow_dependents(MdwOutput *parent);
 bool mdw_output_resize(MdwOutput *output, int width, int height);
 /* Select rendered family coordinates without configuring the client's content size. */
 bool mdw_output_viewport(MdwOutput *output, int x, int y, int width, int height);

@@ -17,74 +17,88 @@ struct Watch {
 
 static void changed(struct MdwView *view);
 
+struct Geometry {
+    struct MdwView *view;
+    struct wlr_box paint;
+    bool complete, dependents;
+};
+
 static void collect(struct wlr_scene_buffer *buffer, int x, int y, void *data) {
-    struct MdwView *view = data;
+    struct Geometry *geometry = data;
+    struct MdwView *view = geometry->view;
     struct wlr_scene_surface *scene = wlr_scene_surface_try_from_buffer(buffer);
     if (!scene || !buffer->buffer) return;
     struct wlr_surface *surface = scene->surface;
+    if (geometry->dependents && wlr_surface_get_root_surface(surface) == view->surface) return;
     struct wlr_box box = {x, y, surface->current.width, surface->current.height};
     if (wlr_box_empty(&box)) return;
     int64_t right = (int64_t)x + box.width, bottom = (int64_t)y + box.height;
-    if (right > INT_MAX || bottom > INT_MAX) { view->collecting_complete = false; return; }
-    if (wlr_box_empty(&view->paint)) view->paint = box;
+    if (right > INT_MAX || bottom > INT_MAX) { geometry->complete = false; return; }
+    if (wlr_box_empty(&geometry->paint)) geometry->paint = box;
     else {
-        if (right < (int64_t)view->paint.x + view->paint.width) right = (int64_t)view->paint.x + view->paint.width;
-        if (bottom < (int64_t)view->paint.y + view->paint.height) bottom = (int64_t)view->paint.y + view->paint.height;
-        int left = view->paint.x < x ? view->paint.x : x;
-        int top = view->paint.y < y ? view->paint.y : y;
-        if (right - left > INT_MAX || bottom - top > INT_MAX) { view->collecting_complete = false; return; }
-        view->paint = (struct wlr_box){left, top, right - left, bottom - top};
+        if (right < (int64_t)geometry->paint.x + geometry->paint.width) right = (int64_t)geometry->paint.x + geometry->paint.width;
+        if (bottom < (int64_t)geometry->paint.y + geometry->paint.height) bottom = (int64_t)geometry->paint.y + geometry->paint.height;
+        int left = geometry->paint.x < x ? geometry->paint.x : x;
+        int top = geometry->paint.y < y ? geometry->paint.y : y;
+        if (right - left > INT_MAX || bottom - top > INT_MAX) { geometry->complete = false; return; }
+        geometry->paint = (struct wlr_box){left, top, right - left, bottom - top};
     }
     int count;
     const pixman_box32_t *rects = pixman_region32_rectangles(&surface->input_region, &count);
-    if (count > MDW_MAX_INPUT_RECTS || !view->collecting_complete) {
-        view->collecting_complete = false;
+    if (count > MDW_MAX_INPUT_RECTS || !geometry->complete) {
+        geometry->complete = false;
         return;
     }
     for (int i = 0; i < count; ++i) {
         if (!pixman_region32_union_rect(&view->geometry_scratch, &view->geometry_scratch,
                 x + rects[i].x1, y + rects[i].y1, rects[i].x2 - rects[i].x1, rects[i].y2 - rects[i].y1))
-            view->collecting_complete = false;
+            geometry->complete = false;
         if (pixman_region32_n_rects(&view->geometry_scratch) > MDW_MAX_INPUT_RECTS) {
-            view->collecting_complete = false;
+            geometry->complete = false;
             break;
         }
     }
 }
 
-static void publish(void *data) {
-    struct MdwView *view = data;
-    view->geometry_idle = NULL;
-    struct wlr_box previous = view->paint;
-    view->paint = (struct wlr_box){0};
+static void publish_geometry(struct MdwView *view, bool dependents) {
+    struct wlr_box *paint = dependents ? &view->dependent_paint : &view->paint;
+    pixman_region32_t *input = dependents ? &view->dependent_input : &view->input;
+    bool *complete_state = dependents ? &view->dependent_complete : &view->geometry_complete;
+    struct Geometry collecting = {.view = view, .complete = true, .dependents = dependents};
     pixman_region32_clear(&view->geometry_scratch);
-    view->collecting_complete = true;
     bool mapped = view->surface->mapped;
-    if (mapped) wlr_scene_node_for_each_buffer(&view->scene->tree.node, collect, view);
+    if (mapped) wlr_scene_node_for_each_buffer(&view->scene->tree.node, collect, &collecting);
     if (view->geometry_revision && mapped == view->geometry_mapped &&
-            view->geometry_complete == view->collecting_complete &&
-            wlr_box_equal(&previous, &view->paint) &&
-            pixman_region32_equal(&view->input, &view->geometry_scratch)) return;
-    pixman_region32_t swap = view->input;
-    view->input = view->geometry_scratch;
+            *complete_state == collecting.complete && wlr_box_equal(paint, &collecting.paint) &&
+            pixman_region32_equal(input, &view->geometry_scratch)) return;
+    *paint = collecting.paint;
+    pixman_region32_t swap = *input;
+    *input = view->geometry_scratch;
     view->geometry_scratch = swap;
-    view->geometry_mapped = mapped;
-    view->geometry_complete = view->collecting_complete;
+    *complete_state = collecting.complete;
     ++view->geometry_revision;
     if (!view->server->events.geometry) return;
     int count;
-    const pixman_box32_t *boxes = pixman_region32_rectangles(&view->input, &count);
+    const pixman_box32_t *boxes = pixman_region32_rectangles(input, &count);
     MdwRect rects[MDW_MAX_INPUT_RECTS];
-    bool complete = view->geometry_complete && count <= MDW_MAX_INPUT_RECTS;
+    bool complete = *complete_state && count <= MDW_MAX_INPUT_RECTS;
     if (complete) for (int i = 0; i < count; ++i)
         rects[i] = (MdwRect){boxes[i].x1, boxes[i].y1, boxes[i].x2, boxes[i].y2};
     MdwViewGeometry geometry = {
         .id = view->id, .revision = view->geometry_revision, .mapped = mapped,
-        .paint = {view->paint.x, view->paint.y,
-            view->paint.x + view->paint.width, view->paint.y + view->paint.height},
+        .paint = {paint->x, paint->y, paint->x + paint->width, paint->y + paint->height},
         .input_complete = complete, .input = rects, .input_count = complete ? (size_t)count : 0,
+        .dependents = dependents,
     };
     view->server->events.geometry(view->server->events.context, &geometry);
+}
+
+static void publish(void *data) {
+    struct MdwView *view = data;
+    view->geometry_idle = NULL;
+    publish_geometry(view, false);
+    if (!view->transparent) publish_geometry(view, true);
+    view->geometry_mapped = view->surface->mapped;
 }
 
 static void changed(struct MdwView *view) {
@@ -196,4 +210,5 @@ void mdw_view_geometry_finish(struct MdwView *view) {
     wl_list_for_each_safe(watch, next, &view->watches, link) destroy(&watch->addon);
     pixman_region32_fini(&view->input);
     pixman_region32_fini(&view->geometry_scratch);
+    pixman_region32_fini(&view->dependent_input);
 }

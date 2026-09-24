@@ -2,6 +2,7 @@
 #include <drm_fourcc.h>
 #include <wlr/render/pass.h>
 #include <wlr/types/wlr_buffer.h>
+#include <wlr/types/wlr_compositor.h>
 #include <wlr/types/wlr_output.h>
 #include <wlr/util/transform.h>
 
@@ -9,11 +10,17 @@ struct Render {
     struct wlr_render_pass *pass;
     struct wlr_scene_output *output;
     bool valid;
+    struct wlr_surface *owner;
+    bool dependents;
 };
 
 static void render_buffer(struct wlr_scene_buffer *buffer, int x, int y, void *data) {
     struct Render *render = data;
     if (!buffer->buffer) return;
+    if (render->owner) {
+        struct wlr_scene_surface *scene = wlr_scene_surface_try_from_buffer(buffer);
+        if (!scene || (wlr_surface_get_root_surface(scene->surface) != render->owner) != render->dependents) return;
+    }
     struct wlr_client_buffer *client = wlr_client_buffer_get(buffer->buffer);
     if (!client) { render->valid = false; return; }
     if (!client->texture) return;
@@ -31,7 +38,7 @@ static void render_buffer(struct wlr_scene_buffer *buffer, int x, int y, void *d
     });
 }
 
-bool mdw_scene_render_transparent(struct wlr_scene_output *output) {
+bool mdw_scene_render_family(struct wlr_scene_output *output, struct wlr_surface *owner, bool dependents) {
     // Borrowed outputs are unit-scale, untransformed views of client-only scene trees.
     // wlroots 0.18's scene pass clears opaque black; use its render API and cached
     // client textures for alpha composition, retaining the scene's layout and damage events.
@@ -51,11 +58,15 @@ bool mdw_scene_render_transparent(struct wlr_scene_output *output) {
         .box = {.width = output->output->width, .height = output->output->height},
         .color = {0}, .blend_mode = WLR_RENDER_BLEND_MODE_NONE,
     });
-    struct Render render = {.pass = pass, .output = output, .valid = true};
-    wlr_scene_output_for_each_buffer(output, render_buffer, &render);
+    struct Render render = {.pass = pass, .output = output, .valid = true, .owner = owner, .dependents = dependents};
+    wlr_scene_node_for_each_buffer(&output->scene->tree.node, render_buffer, &render);
     bool submitted = wlr_render_pass_submit(pass);
     bool committed = submitted && render.valid && wlr_output_commit_state(output->output, &state);
     if (!committed) wlr_damage_ring_add_whole(&output->damage_ring);
     wlr_output_state_finish(&state);
     return committed;
+}
+
+bool mdw_scene_render_transparent(struct wlr_scene_output *output) {
+    return mdw_scene_render_family(output, NULL, false);
 }

@@ -29,7 +29,10 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     private boolean contentDrag;
     private Runnable beforeInteraction;
     private java.util.function.Consumer<int[]> screenOrigin;
-    private final SparseIntArray keys = new SparseIntArray();
+    private boolean ownsOutput = true;
+    private Runnable focusBoundary;
+    private SparseIntArray keys = new SparseIntArray();
+    private boolean borrowedKeyboard;
 
     HostedSurfaceView(Context context) {
         super(context);
@@ -44,7 +47,12 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     }
 
     void bind(HostedSurfaceOutput next, SurfaceBinding surfaces) {
+        bind(next, surfaces, true);
+    }
+
+    void bind(HostedSurfaceOutput next, SurfaceBinding surfaces, boolean ownsOutput) {
         release();
+        this.ownsOutput = ownsOutput;
         output = next;
         surfaceBinding = next == null ? null : java.util.Objects.requireNonNull(surfaces);
         pointerInput.bind(next);
@@ -102,7 +110,10 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
 
     void release() {
         releaseInput();
-        if (output != null) output.close();
+        if (output != null) {
+            if (ownsOutput) output.close();
+            else if (surfaceBinding != null) surfaceBinding.changed(null, 0, 0);
+        }
         output = null;
         surfaceBinding = null;
         pointerInput.bind(null);
@@ -122,7 +133,8 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         keyboardAllowed = allowed;
         if (!allowed) {
             releaseKeys();
-            if (output != null) output.blur();
+            if (focusBoundary != null) focusBoundary.run();
+            else if (output != null) output.blur();
             clearFocus();
         }
         setFocusable(allowed);
@@ -135,6 +147,11 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     }
 
     private void releaseKeys() {
+        if (focusBoundary != null) return;
+        releaseHeldKeys();
+    }
+
+    private void releaseHeldKeys() {
         if (output != null) {
             for (int i = 0; i < keys.size(); i++) output.key(keys.keyAt(i), keys.valueAt(i), false);
         }
@@ -143,16 +160,37 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
 
     @Override protected void onFocusChanged(boolean gain, int direction, android.graphics.Rect previous) {
         super.onFocusChanged(gain, direction, previous);
-        if (gain && keyboardAllowed && inputAllowed && output != null && hasWindowFocus()) output.focus();
-        else if (!gain) releaseInput();
+        if (gain && keyboardAllowed && inputAllowed && output != null && hasWindowFocus()) {
+            if (focusBoundary != null) focusBoundary.run(); else output.focus();
+        }
+        else if (!gain && focusBoundary == null) releaseInput();
+        if (!gain && focusBoundary != null) focusBoundary.run();
     }
 
     @Override public void onWindowFocusChanged(boolean gain) {
         super.onWindowFocusChanged(gain);
         if (!gain) {
-            releaseInput();
-            if (output != null) output.blur();
-        } else if (keyboardAllowed && inputAllowed && output != null && isFocused()) output.focus();
+            if (focusBoundary == null) releaseInput();
+            if (focusBoundary == null && output != null) output.blur();
+        } else if (focusBoundary == null && keyboardAllowed && inputAllowed && output != null && isFocused()) output.focus();
+        if (focusBoundary != null) focusBoundary.run();
+    }
+
+    void focusBoundary(Runnable callback) { focusBoundary = callback; }
+
+    void shareKeyboard(HostedSurfaceView owner) {
+        keys = owner.keys;
+        borrowedKeyboard = true;
+    }
+
+    void leaveKeyboardFamily() {
+        if (borrowedKeyboard) keys = new SparseIntArray();
+        borrowedKeyboard = false;
+    }
+
+    void releaseFamilyInput() {
+        if (!contentDrag) pointerInput.release();
+        releaseHeldKeys();
     }
 
     android.graphics.PointF contentPoint(float x, float y) {
@@ -235,7 +273,9 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         if (output == null) return;
         surfaceBinding.changed(holder.getSurface(), width, height);
         // Window focus may arrive before the first Surface, or remain held while it is replaced.
-        if (keyboardAllowed && inputAllowed && hasWindowFocus() && isFocused()) output.focus();
+        if (keyboardAllowed && inputAllowed && hasWindowFocus() && isFocused()) {
+            if (focusBoundary != null) focusBoundary.run(); else output.focus();
+        }
     }
     @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
         attachSurface(holder, width, height);

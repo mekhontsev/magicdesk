@@ -12,13 +12,13 @@ import io.github.mekhontsev.magicdesk.wayland.WaylandSession;
 /** An Android host borrows one Wayland toplevel; it does not own the compositor. */
 public final class WaylandActivity extends Activity implements WaylandSessions.Listener,
         BuiltInWindowRegistry.PresentationSource, BuiltInWindowRegistry.CloseHandler,
-        BuiltInWindowRegistry.ApplicationSource {
+        BuiltInWindowRegistry.ApplicationSource, BuiltInWindowRegistry.DesktopPresentationListener {
     static final String SESSION = "wayland_session";
     private static final String WINDOW = "wayland_window", COMMAND = "wayland_command", NAME = "wayland_name",
             DIRECTORY = "wayland_directory", BACKEND = "wayland_backend", KEYBOARD = "wayland_keyboard",
             SCOPE = "wayland_recent_scope";
     private WaylandSessions.Session session;
-    private WaylandSession.Output output;
+    private WaylandHostBinding binding;
     private HostedSurfaceView surface;
     private TextView status;
     private long window;
@@ -59,7 +59,7 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
         root.addView(status);
         surface = new HostedSurfaceView(this);
         surface.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-            if (session != null && output == null && right > left && bottom > top) changed();
+            if (session != null && binding == null && right > left && bottom > top) changed();
         });
         root.addView(surface, new LinearLayout.LayoutParams(-1, 0, 1));
         setContentView(root);
@@ -120,11 +120,10 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
         present(title);
         status.setText(session.error());
         status.setVisibility(session.error().isEmpty() ? View.GONE : View.VISIBLE);
-        if (current.mapped() && output == null && surface.getWidth() > 0 && surface.getHeight() > 0) {
-            output = session.openOutput(window, surface.getWidth(), surface.getHeight());
-            surface.bind(new WaylandSurfaceOutput(output));
-            surface.requestFocus();
-        } else if (!current.mapped() && output != null) { surface.release(); output = null; }
+        if (current.mapped() && binding == null && surface.getWidth() > 0 && surface.getHeight() > 0) {
+            binding = new WaylandHostBinding(this, surface, session, window);
+        } else if (!current.mapped() && binding != null) { binding.close(); binding = null; }
+        if (binding != null) binding.refresh();
     }
 
     private void present(String title) {
@@ -140,8 +139,10 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
     }
 
     @Override public void frame(long id, int width, int height) {
-        if (!isFinishing() && !isDestroyed() && output != null && output.id == id) surface.frame(width, height);
+        if (!isFinishing() && !isDestroyed() && binding != null) binding.frame(id, width, height);
     }
+    @Override public void geometryChanged(long id) { if (id == window && binding != null) binding.geometryChanged(); }
+    @Override public void desktopPresentationChanged() { if (binding != null) binding.refresh(); }
     @Override public BuiltInWindowRegistry.Presentation taskPresentation() { return presentation; }
     @Override public AppReference windowApplication() { return application; }
     @Override public void onSaveInstanceState(Bundle state) {
@@ -151,7 +152,7 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
     }
     @Override public void onWindowFocusChanged(boolean focused) {
         super.onWindowFocusChanged(focused);
-        if (output != null) output.focus(focused);
+        if (binding != null) binding.focusChanged();
         if (focused && session != null) {
             session.presentation.host(this);
             changed();
@@ -160,6 +161,7 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
     @Override public void onConfigurationChanged(android.content.res.Configuration configuration) {
         super.onConfigurationChanged(configuration);
         if (session != null) session.presentation.host(this);
+        if (binding != null) binding.refresh();
     }
     @Override public void requestClose(boolean force) {
         if (pendingLaunch && session != null) { session.close(); finishAndRemoveTask(); return; }
@@ -173,8 +175,9 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
         if (isFinishing() && pendingLaunch && session != null) session.close();
         boolean request = isFinishing() && session != null && session.ready() && session.containsWindow(window);
         if (request) session.closeWindow(window, false);
-        if (surface != null) surface.release();
-        output = null;
+        if (binding != null) binding.close();
+        else if (surface != null) surface.release();
+        binding = null;
         if (session != null) {
             session.unlisten(this);
             session.releaseHost(getTaskId());

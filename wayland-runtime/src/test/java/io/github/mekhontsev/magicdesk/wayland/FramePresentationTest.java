@@ -32,6 +32,39 @@ public class FramePresentationTest {
         assertFalse(state.accepts(generation));
     }
 
+    @Test public void surfaceReplacementRevokesWorkerFailureBeforeItsCallback() throws Exception {
+        var state = new FramePresentation();
+        long old = state.begin(new CompletableFuture<>());
+        var replacement = new CompletableFuture<Void>();
+        long current = state.begin(replacement);
+        var worker = new Thread(() -> state.fail(old, new IOException("abandoned Surface")));
+        worker.start();
+        worker.join();
+        assertFalse(replacement.isDone());
+        state.submitted(current);
+        assertFalse(replacement.isCompletedExceptionally());
+    }
+
+    @Test public void callbacksCanUseAnotherThreadWithoutHoldingReceiptLock() throws Exception {
+        var state = new FramePresentation();
+        var first = new CompletableFuture<Void>();
+        var second = new CompletableFuture<Void>();
+        long current = state.begin(first);
+        var callback = first.thenRun(() -> {
+            var worker = new Thread(() -> state.begin(second));
+            worker.start();
+            // EVENT_WAIT: the worker enters the receipt from a completion callback; timeout detects a held lock.
+            try { worker.join(1_000); }
+            catch (InterruptedException error) { throw new AssertionError(error); }
+            assertFalse("Completion must not hold the receipt lock", worker.isAlive());
+        });
+        state.submitted(current);
+        callback.join();
+        assertFalse(second.isDone());
+        state.submitted(state.generation());
+        assertTrue(second.isDone());
+    }
+
     @Test public void failureDoesNotCompleteAFutureRequest() {
         var state = new FramePresentation();
         var first = new CompletableFuture<Void>();

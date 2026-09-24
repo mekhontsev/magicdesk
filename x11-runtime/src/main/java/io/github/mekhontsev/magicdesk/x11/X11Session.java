@@ -121,8 +121,9 @@ public final class X11Session implements AutoCloseable {
                 nativeObserveWindows(nativeHandle);
                 for (Output output : outputs.values()) {
                     output.frameAvailable = -1;
-                    nativeBind(nativeHandle, output.id, output.window);
-                    if (output.width > 0) nativeResize(nativeHandle, output.id, output.window, output.width, output.height);
+                    if (output.parent != null) nativeBindDependents(nativeHandle, output.id, output.window, output.parent.id);
+                    else nativeBind(nativeHandle, output.id, output.window);
+                    if (!output.borrowed() && output.width > 0) nativeResize(nativeHandle, output.id, output.window, output.width, output.height);
                 }
                 return null;
             });
@@ -385,10 +386,32 @@ public final class X11Session implements AutoCloseable {
         private int frameWidth = -1, frameHeight = -1, frameAvailable = -1;
         private Cursor cursor = Cursor.DEFAULT;
         private boolean cursorPending;
+        private Output parent, dependents;
+        private java.util.function.Consumer<X11FamilyGeometry> geometryListener;
 
         private Output(int id, int window, boolean shellOutput) { this.id = id; this.window = window; this.shellOutput = shellOutput; }
         public int id() { return id; }
         public long windowId() { return Integer.toUnsignedLong(window); }
+
+        private boolean borrowed() { return shellOutput || parent != null; }
+
+        /** A single borrowed dependent presentation. Closing it restores the parent's complete family. */
+        public Output borrowDependents(java.util.function.Consumer<X11FamilyGeometry> listener) {
+            java.util.Objects.requireNonNull(listener);
+            return call(() -> {
+                if (released || !connected || window == 0 || borrowed() || dependents != null)
+                    throw new IllegalStateException("X11 family cannot be borrowed");
+                if (nextOutputId == Integer.MAX_VALUE) throw new IllegalStateException("Output identifiers exhausted");
+                Output child = new Output(++nextOutputId, window, false);
+                child.parent = this;
+                child.geometryListener = listener;
+                nativeSurface(nativeHandle, child.id, null, false);
+                outputs.put(child.id, child);
+                dependents = child;
+                nativeBindDependents(nativeHandle, child.id, window, id);
+                return child;
+            });
+        }
 
         public void setSurface(Surface surface, int width, int height) {
             if (surface != null && (width < 1 || height < 1 || width > 16384 || height > 16384))
@@ -399,7 +422,7 @@ public final class X11Session implements AutoCloseable {
                 if (surface != null) {
                     this.width = width;
                     this.height = height;
-                    if (connected && !shellOutput) nativeResize(nativeHandle, id, window, width, height);
+                    if (connected && !borrowed()) nativeResize(nativeHandle, id, window, width, height);
                 }
                 presentation.invalidate("X11 Surface replaced");
                 nativeSurface(nativeHandle, id, surface, false);
@@ -429,6 +452,12 @@ public final class X11Session implements AutoCloseable {
 
         public void blur() {
             if (!shellOutput || released || closed) return;
+            blurFamily();
+        }
+
+        /** The Android owner left a split family; switching between its roots must not call this. */
+        public void blurFamily() {
+            if (released || closed) return;
             handler.post(() -> { if (acceptsInput()) nativeBlur(nativeHandle, id, window); });
         }
 
@@ -436,7 +465,7 @@ public final class X11Session implements AutoCloseable {
         public CompletableFuture<Void> present(Surface surface, X11ShellSurface.Rect viewport) {
             java.util.Objects.requireNonNull(surface);
             java.util.Objects.requireNonNull(viewport);
-            if (!shellOutput || viewport.left() < -16384 || viewport.top() < -16384 ||
+            if (!borrowed() || viewport.left() < -16384 || viewport.top() < -16384 ||
                     viewport.right() > 16384 || viewport.bottom() > 16384 ||
                     viewport.right() <= viewport.left() || viewport.bottom() <= viewport.top())
                 throw new IllegalArgumentException("Invalid X11 shell viewport");
@@ -492,11 +521,22 @@ public final class X11Session implements AutoCloseable {
         private void release() {
             if (released) return;
             released = true;
+            if (dependents != null) dependents.release();
+            if (parent != null && parent.dependents == this) parent.dependents = null;
             presentation.invalidate("X11 output released");
             if (connected) nativeRelease(nativeHandle, id, window);
             nativeSurface(nativeHandle, id, null, true);
             outputs.remove(id);
         }
+    }
+
+    private void onNativeFamily(int id, int[] fields) {
+        Output output = outputs.get(id);
+        if (output == null || output.released || output.geometryListener == null) return;
+        var geometry = X11FamilyGeometry.decode(fields);
+        callbacks.execute(() -> {
+            if (!closed && !output.released) output.geometryListener.accept(geometry);
+        });
     }
 
     private void onNativeFrame(int id, int window, int width, int height, int available) {
@@ -613,6 +653,7 @@ public final class X11Session implements AutoCloseable {
     private static native void nativeSurface(long handle, int output, Surface surface, boolean release);
     private static native void nativeBind(long handle, int output, int window);
     private static native void nativeBindShell(long handle, int output, int window);
+    private static native void nativeBindDependents(long handle, int output, int window, int parent);
     private static native void nativeShell(long handle, int owner, int width, int height);
     private static native void nativePresent(long handle, int output, int window, int serial, int left, int top, int right, int bottom);
     private static native void nativeResize(long handle, int output, int window, int width, int height);

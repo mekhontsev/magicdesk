@@ -16,7 +16,7 @@ struct Connection {
     JavaVM* vm;
     jobject owner;
     jmethodID frame, disconnected, window, windowRemoved, windows, data, cursor;
-    jmethodID shell, shellState, presented;
+    jmethodID shell, shellState, presented, family;
     jclass managementClass;
     jmethodID managementConstructor;
     jclass inspectionNodeClass;
@@ -159,6 +159,22 @@ const LorieCallbacks callbacks = {
         auto* c = (Connection*)ptr;
         c->env->CallVoidMethod(c->owner, c->shellState, (jint)owner, (jboolean)available);
     },
+    .family = [](void* ptr, uint32_t output, const LorieFamilyGeometry* info) {
+        auto* c = (Connection*)ptr;
+        JNIEnv* env = c->env;
+        jint fields[7 + LORIE_SHELL_INPUT_LIMIT * 4] = {info->width, info->height,
+            (jint)info->inputComplete, info->paint.left, info->paint.top, info->paint.right, info->paint.bottom};
+        for (unsigned i = 0; i < info->inputCount; i++) {
+            fields[7+4*i] = info->input[i].left; fields[8+4*i] = info->input[i].top;
+            fields[9+4*i] = info->input[i].right; fields[10+4*i] = info->input[i].bottom;
+        }
+        int count = 7 + 4 * info->inputCount;
+        jintArray values = env->NewIntArray(count);
+        if (!values) return;
+        env->SetIntArrayRegion(values, 0, count, fields);
+        if (!env->ExceptionCheck()) env->CallVoidMethod(c->owner, c->family, (jint)output, values);
+        env->DeleteLocalRef(values);
+    },
     .presented = [](void* ptr, uint32_t output, uint32_t serial, bool success) {
         auto* c = (Connection*)ptr;
         JNIEnv* env = nullptr;
@@ -196,6 +212,7 @@ extern "C" JNIEXPORT jlong JNICALL JNI(X11Session_nativeCreate)(JNIEnv* env, job
     env->GetJavaVM(&c->vm);
     c->shell = env->GetMethodID(cls, "onNativeShell", "(II[I)V");
     c->shellState = env->GetMethodID(cls, "onNativeShellState", "(IZ)V");
+    c->family = env->GetMethodID(cls, "onNativeFamily", "(I[I)V");
     c->presented = env->GetMethodID(cls, "onNativePresented", "(IIZ)V");
     c->disconnected = env->GetMethodID(cls, "onNativeDisconnected", "()V");
     c->window = env->GetMethodID(cls, "onNativeWindow", "(I[B[IZILio/github/mekhontsev/magicdesk/x11/X11WindowManagement;[B[B)V");
@@ -249,6 +266,9 @@ extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeBind)(JNIEnv*, jclass, jl
 }
 extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeBindShell)(JNIEnv*, jclass, jlong ptr, jint output, jint window) {
     lorieOutputBindShell(((Connection*)ptr)->native, output, window);
+}
+extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeBindDependents)(JNIEnv*, jclass, jlong ptr, jint output, jint window, jint parent) {
+    lorieOutputBindDependents(((Connection*)ptr)->native, output, window, parent);
 }
 extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeShell)(JNIEnv*, jclass, jlong ptr, jint owner, jint width, jint height) {
     lorieConfigureShell(((Connection*)ptr)->native, owner, width, height);

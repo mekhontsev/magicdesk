@@ -105,7 +105,8 @@ static void geometry_event(void *context, const MdwViewGeometry *geometry) {
     if (!(*env)->ExceptionCheck(env))
         (*env)->CallVoidMethod(env, bridge->owner, bridge->geometry, (jlong)geometry->id, (jlong)geometry->revision,
             (jboolean)geometry->mapped, (jint)geometry->paint.left, (jint)geometry->paint.top,
-            (jint)geometry->paint.right, (jint)geometry->paint.bottom, (jboolean)geometry->input_complete, input);
+            (jint)geometry->paint.right, (jint)geometry->paint.bottom, (jboolean)geometry->input_complete, input,
+            (jboolean)geometry->dependents);
     (*env)->DeleteLocalRef(env, input);
 }
 
@@ -143,7 +144,7 @@ JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner) {
     jclass type = (*env)->GetObjectClass(env, owner);
     bridge->window = (*env)->GetMethodID(env, type, "onWindow", "(JJ[B[BZIIZ)V");
     if (!(*env)->ExceptionCheck(env)) bridge->shell = (*env)->GetMethodID(env, type, "onShell", "(J[BZZIIIJJIIIIIZ)V");
-    if (!(*env)->ExceptionCheck(env)) bridge->geometry = (*env)->GetMethodID(env, type, "onGeometry", "(JJZIIIIZ[I)V");
+    if (!(*env)->ExceptionCheck(env)) bridge->geometry = (*env)->GetMethodID(env, type, "onGeometry", "(JJZIIIIZ[IZ)V");
     if (!(*env)->ExceptionCheck(env)) bridge->toplevel_action = (*env)->GetMethodID(env, type, "onToplevelAction", "(JI)V");
     if (!(*env)->ExceptionCheck(env)) bridge->frame = (*env)->GetMethodID(env, type, "onFrame", "(JIII)V");
     if (!(*env)->ExceptionCheck(env)) bridge->wanted = (*env)->GetMethodID(env, type, "frameWanted", "(J)Z");
@@ -206,6 +207,11 @@ JNIEXPORT jlong JNICALL JNI(nativeOpenOutput)(JNIEnv *env, jclass type, jlong ha
 JNIEXPORT jboolean JNICALL JNI(nativeResize)(JNIEnv *env, jclass type, jlong output, jint width, jint height) {
     (void)env; (void)type;
     return mdw_output_resize((void *)(intptr_t)output, width, height);
+}
+
+JNIEXPORT jlong JNICALL JNI(nativeBorrowDependents)(JNIEnv *env, jclass type, jlong parent) {
+    (void)env; (void)type;
+    return (jlong)(intptr_t)mdw_output_borrow_dependents((void *)(intptr_t)parent);
 }
 
 JNIEXPORT jboolean JNICALL JNI(nativeViewport)(JNIEnv *env, jclass type, jlong output,

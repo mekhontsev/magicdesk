@@ -18,6 +18,9 @@ struct MdwView {
     struct wl_list watches, popups;
     struct wl_event_source *geometry_idle;
     pixman_region32_t input, geometry_scratch;
+    pixman_region32_t dependent_input;
+    struct wlr_box dependent_paint;
+    bool dependent_complete;
     struct wlr_box paint, popup_bounds;
     uint64_t geometry_revision;
     bool geometry_mapped, geometry_complete, collecting_complete, finishing;
@@ -60,10 +63,11 @@ void mdw_view_observe(struct MdwView *view);
 void mdw_view_geometry_finish(struct MdwView *view);
 void mdw_popup_create(struct MdwView *view, struct wlr_xdg_popup *popup, struct wlr_scene_tree *parent);
 void mdw_view_popup_bounds(struct MdwView *view, const struct wlr_box *bounds);
-void mdw_view_popups_finish(struct MdwView *view);
+void mdw_view_dismiss_popups(struct MdwView *view);
 void mdw_shell_finish(MdwServer *server);
 void mdw_toplevels_clear(MdwServer *server);
 bool mdw_toplevels_prepare(MdwServer *server);
 bool mdw_scene_render_transparent(struct wlr_scene_output *output);
+bool mdw_scene_render_family(struct wlr_scene_output *output, struct wlr_surface *owner, bool dependents);
 
 #endif

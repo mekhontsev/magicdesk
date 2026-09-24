@@ -37,6 +37,8 @@ struct MdwOutput {
     struct wl_listener frame, commit;
     bool presenting;
     bool visible;
+    int viewport_width, viewport_height;
+    MdwOutput *parent, *dependents;
     bool keys[KEY_MAX + 1];
     bool buttons[3];
 };
@@ -129,7 +131,9 @@ static void output_frame(struct wl_listener *listener, void *data) {
     MdwEvents *events = &output->server->events;
     if (events->can_render && !events->can_render(events->context, output)) return;
     output->presenting = true;
-    bool committed = output->view->transparent
+    bool committed = output->parent || output->dependents
+        ? mdw_scene_render_family(output->scene_output, output->view->surface, output->parent != NULL)
+        : output->view->transparent
         ? mdw_scene_render_transparent(output->scene_output)
         : wlr_scene_output_commit(output->scene_output, NULL);
     output->presenting = false;
@@ -164,6 +168,7 @@ bool mdw_view_init(MdwServer *server, struct MdwView *view, struct wlr_surface *
     wl_list_init(&view->popups);
     pixman_region32_init(&view->input);
     pixman_region32_init(&view->geometry_scratch);
+    pixman_region32_init(&view->dependent_input);
     wl_list_insert(&server->views, &view->link);
     return true;
 }
@@ -180,7 +185,7 @@ void mdw_view_unmap(struct MdwView *view) {
 
 void mdw_view_finish(struct MdwView *view) {
     mdw_view_geometry_finish(view);
-    mdw_view_popups_finish(view);
+    mdw_view_dismiss_popups(view);
     MdwOutput *output;
     wl_list_for_each(output, &view->server->outputs, link) {
         if (output->view != view) continue;
@@ -426,7 +431,7 @@ void mdw_server_set_events(MdwServer *server, const MdwEvents *events) {
     server->events = events ? *events : (MdwEvents){0};
 }
 
-MdwOutput *mdw_output_create(MdwServer *server, uint64_t id, int width, int height) {
+static MdwOutput *create_output(MdwServer *server, uint64_t id, int width, int height, bool configure) {
     struct MdwView *view = find_view(server, id);
     if (!view || width < 1 || height < 1 || width > 4096 || height > 4096) return NULL;
     MdwOutput *output = calloc(1, sizeof(*output));
@@ -446,11 +451,28 @@ MdwOutput *mdw_output_create(MdwServer *server, uint64_t id, int width, int heig
     wl_list_insert(&server->outputs, &output->link);
     listen_signal(&output->output->events.frame, &output->frame, output_frame);
     listen_signal(&output->output->events.commit, &output->commit, output_commit);
-    if (!mdw_output_resize(output, width, height)) { mdw_output_destroy(output); return NULL; }
+    if (!(configure ? mdw_output_resize(output, width, height) : mdw_output_viewport(output, 0, 0, width, height))) {
+        mdw_output_destroy(output); return NULL;
+    }
+    return output;
+}
+
+MdwOutput *mdw_output_create(MdwServer *server, uint64_t id, int width, int height) {
+    return create_output(server, id, width, height, true);
+}
+
+MdwOutput *mdw_output_borrow_dependents(MdwOutput *parent) {
+    if (!parent || !parent->view || !parent->output || parent->parent || parent->dependents) return NULL;
+    MdwOutput *output = create_output(parent->server, parent->view->id, 1, 1, false);
+    if (!output) return NULL;
+    output->parent = parent;
+    parent->dependents = output;
+    mdw_output_refresh(parent);
     return output;
 }
 
 bool mdw_output_resize(MdwOutput *output, int width, int height) {
+    if (output && output->parent) return false;
     if (!mdw_output_viewport(output, 0, 0, width, height)) return false;
     if (output->view->configure) output->view->configure(output->view, width, height);
     return true;
@@ -460,13 +482,19 @@ bool mdw_output_viewport(MdwOutput *output, int x, int y, int width, int height)
     if (!output || !output->view || !output->output ||
             width < 1 || height < 1 || width > 4096 || height > 4096 ||
             x < -16384 || y < -16384 || x > 16384 || y > 16384) return false;
-    struct wlr_output_state state;
-    wlr_output_state_init(&state);
-    wlr_output_state_set_enabled(&state, output->visible);
-    wlr_output_state_set_custom_mode(&state, width, height, 60000);
-    bool committed = wlr_output_commit_state(output->output, &state);
-    wlr_output_state_finish(&state);
+    bool committed = true;
+    // A disabled wlroots output cannot commit a new mode. Retain the requested
+    // viewport and apply it atomically with the next enable, before rendering.
+    if (output->visible) {
+        struct wlr_output_state state;
+        wlr_output_state_init(&state);
+        wlr_output_state_set_enabled(&state, true);
+        wlr_output_state_set_custom_mode(&state, width, height, 60000);
+        committed = wlr_output_commit_state(output->output, &state);
+        wlr_output_state_finish(&state);
+    }
     if (committed) {
+        output->viewport_width = width; output->viewport_height = height;
         wlr_scene_output_set_position(output->scene_output, x, y);
         mdw_output_refresh(output);
     }
@@ -479,6 +507,8 @@ bool mdw_output_set_visible(MdwOutput *output, bool visible) {
     struct wlr_output_state state;
     wlr_output_state_init(&state);
     wlr_output_state_set_enabled(&state, visible);
+    if (visible) wlr_output_state_set_custom_mode(&state,
+        output->viewport_width, output->viewport_height, 60000);
     bool committed = wlr_output_commit_state(output->output, &state);
     wlr_output_state_finish(&state);
     if (!committed) return false;
@@ -533,6 +563,7 @@ static void release_keyboard(MdwOutput *output) {
         if (output->keys[code]) key_event(output, code, false);
     }
     wlr_seat_keyboard_notify_clear_focus(server->seat);
+    if (output->view) mdw_view_dismiss_popups(output->view);
     if (output->view && output->view->activate && output->view->surface->mapped)
         output->view->activate(output->view, false);
     server->keyboard_owner = NULL;
@@ -547,6 +578,12 @@ void mdw_view_keyboard(struct MdwView *view, bool allowed) {
 static void claim_pointer(MdwOutput *output) {
     MdwServer *server = output->server;
     if (server->pointer_owner == output) return;
+    if (server->pointer_owner && server->pointer_owner->view == output->view) {
+        memcpy(output->buttons, server->pointer_owner->buttons, sizeof(output->buttons));
+        memset(server->pointer_owner->buttons, 0, sizeof(output->buttons));
+        server->pointer_owner = output;
+        return;
+    }
     if (server->pointer_owner) release_pointer(server->pointer_owner);
     server->pointer_owner = output;
 }
@@ -563,6 +600,13 @@ bool mdw_output_focus(MdwOutput *output, bool focused) {
     claim_pointer(output);
     if (!output->view->keyboard_allowed) return true;
     if (server->keyboard_owner == output) return true;
+    // Android roots are presentation handles, not new Wayland focus domains.
+    if (server->keyboard_owner && server->keyboard_owner->view == output->view) {
+        memcpy(output->keys, server->keyboard_owner->keys, sizeof(output->keys));
+        memset(server->keyboard_owner->keys, 0, sizeof(output->keys));
+        server->keyboard_owner = output;
+        return true;
+    }
     if (server->keyboard_owner) release_keyboard(server->keyboard_owner);
     server->keyboard_owner = output;
     if (output->view->activate) output->view->activate(output->view, true);
@@ -625,6 +669,17 @@ bool mdw_output_key(MdwOutput *output, uint32_t code, bool down) {
 
 void mdw_output_destroy(MdwOutput *output) {
     if (!output) return;
+    if (output->parent) {
+        output->parent->dependents = NULL;
+        mdw_output_refresh(output->parent);
+        output->parent = NULL;
+    }
+    if (output->dependents) {
+        output->dependents->parent = NULL;
+        release_output(output->dependents);
+        output->dependents->view = NULL;
+        output->dependents = NULL;
+    }
     release_output(output);
     wl_list_remove(&output->link);
     free(output);

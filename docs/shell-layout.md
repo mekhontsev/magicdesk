@@ -201,11 +201,36 @@ Geometry changes invalidate input admission. Anchor Surface loss, Desktop host
 loss or explicit closure ends the borrowed Android hierarchy. The protocol caller
 retains ownership of its output, family and session and must react to that end.
 
-This host is covered by the debug dependent-window fixture. Individual X11 and
-Wayland application adapters still use their in-window family presentation;
-external family rendering and protocol-grab handoff are not connected yet.
-`HostedChildWindowPolicy` reserves the opt-in path for managed individual
-applications on API 35+, with in-window presentation as the default.
+`HostedFamilyWindows` connects individual X11 and Wayland application hosts to
+this placement path. `HostedChildWindowPolicy` admits managed individual
+applications on API 35+ when **Linux child windows outside parent** is enabled;
+in-window presentation remains the default and the independent/API-34 path.
+The controller reads the existing Desktop task publication, not another observer.
+Settings, task ownership, anchor layout and protocol geometry trigger reconciliation.
+
+Each protocol lends a dependent-only output linked to its owner's normal output.
+The owner alone controls client size. While borrowed, dependent pixels are omitted
+from the normal output; returning the lease restores its complete family renderer.
+Metadata contains owner-local paint and exact input bounds, not protocol window IDs
+in Android placement policy. Equal metadata and pixel-only commits do not rebuild
+geometry. The Android adapter fits the family at the owner's scale, clamps it to
+the workspace panel area and uniformly fits oversized families. Input uses the
+same viewport. Transparent holes never acquire a bounding-box input region.
+
+The native backend retains popup grabs, transient ancestry, modality and client
+closure. Android focus is aggregated across the two View roots; held keys share
+one family ledger. Unmounting a dependent presentation returns focus to its owner
+without closing a client. Surface detachment revokes pending frame receipts before
+Android releases the buffer queue. A new menu reuses the borrowed output with a
+new Surface generation. Admission failure releases the optional presentation and
+restores in-window rendering; it never starts Desktop or elevates access.
+
+X11 publishes mapped family members other than the main window, including durable
+transient dialogs. Wayland separates xdg-popup roots and their subsurfaces;
+ordinary wl_subsurfaces remain part of their owning surface tree, not applications.
+Transient xdg-toplevels retain their separate application hosts and protocol
+parent metadata. Presenting an xdg-toplevel as a popup would incorrectly change
+its configure, focus and close contract.
 
 ## Protocol Adapters
 
@@ -320,7 +345,19 @@ geometry fixture covers constrained popups, synchronized subsurfaces,
 input holes, publication limits and pixel-only metadata stability;
 `WaylandViewGeometryTest` covers immutable snapshots and unavailable input.
 `FramePresentationTest` covers generation replacement, stale acknowledgements,
-release, failure, reentrant completions and viewport limits.
+release, failure, concurrent replacement, reentrant completions and viewport limits.
+`HostedFamilyGeometryTest` covers owner-relative scaling, sparse input, workspace
+clamping and oversized families. `HostedFamilyInputTest` verifies shared key
+ownership across parent/child focus changes and detachment of borrowed surfaces.
+`X11FamilyGeometryTest` checks bounded, immutable native geometry publication.
+The native Wayland window fixture covers dependent-output ownership, viewport
+configuration before activation and same-family key/button transfer.
+
+On RM11/API 36 with UID 2000, simulated-display checks cover X11 transient menus
+and oversized dialogs, real GTK menus on X11 and Wayland, nested-menu input
+outside the parent task, owner movement, live preference changes and Desktop
+closure with retained graphical sessions. These checks do not establish API 34
+device coverage or compatibility with every toolkit's transient-window policy.
 The Android shell runtime fixture uses the Binder bridge and an isolated layout scope,
 checking viewport-aligned pixels/input, Surface replacement and frame receipts;
 it does not test external panels hosted over Android application tasks.

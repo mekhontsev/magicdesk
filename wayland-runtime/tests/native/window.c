@@ -344,6 +344,13 @@ int main(int argc, char **argv) {
             assert(!mdw_output_resize(output, 0, 60));
         }
         if (host.frames >= 1 && !detached) {
+            MdwOutput *dependents = mdw_output_borrow_dependents(output);
+            assert(dependents && !mdw_output_borrow_dependents(output));
+            assert(!mdw_output_resize(dependents, 30, 20));
+            assert(mdw_output_set_visible(dependents, false));
+            assert(mdw_output_viewport(dependents, 10, 10, 30, 20));
+            assert(mdw_output_set_visible(dependents, true));
+            mdw_output_destroy(dependents);
             mdw_output_destroy(output);
             output = mdw_output_create(server, host.window, 80, 60);
             assert(output && !host.destroyed);
@@ -370,6 +377,10 @@ int main(int argc, char **argv) {
             assert(mdw_output_pointer(output, .25, .25));
             assert(mdw_output_button(output, MDW_PRIMARY, true));
             assert(mdw_output_key(output, KEY_A, true));
+            MdwOutput *dependents = mdw_output_borrow_dependents(output);
+            assert(dependents && mdw_output_focus(dependents, true));
+            assert(mdw_output_focus(output, true));
+            mdw_output_destroy(dependents);
             assert(mdw_output_focus(output, false));
             assert(!mdw_output_key(output, KEY_A, false));
             assert(mdw_window_close(server, host.window));

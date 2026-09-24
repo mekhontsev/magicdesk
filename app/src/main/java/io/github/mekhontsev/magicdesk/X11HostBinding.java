@@ -13,6 +13,9 @@ final class X11HostBinding implements X11Sessions.Listener {
     private final Runnable changed;
     private X11Session.Output output;
     private HostedContentExchange exchange;
+    private HostedContentExchange dependentExchange;
+    private HostedFamilyWindows family;
+    private X11Session.Output dependentOutput;
     private volatile HostedFullscreen fullscreen;
     private X11WindowManagement.Request fullscreenRequest;
     private long window;
@@ -44,6 +47,32 @@ final class X11HostBinding implements X11Sessions.Listener {
                 output = session.openOutput(window);
                 surface.bind(new X11SurfaceOutput(output));
                 exchange = new HostedContentExchange(activity, surface, new X11ContentExchange(activity, session, output));
+                if (window != 0) family = new HostedFamilyWindows(activity, surface, new HostedFamilyWindows.Backend() {
+                    @Override public HostedShellOutput borrow(java.util.function.Consumer<HostedFamilyGeometry> changed,
+                            java.util.function.Consumer<Throwable> failed) {
+                        dependentOutput = output.borrowDependents(geometry -> changed.accept(new HostedFamilyGeometry(
+                                geometry.width(), geometry.height(), bounds(geometry.paint()), geometry.inputComplete(),
+                                geometry.input().stream().map(X11HostBinding::bounds).toList())));
+                        return new X11SurfaceOutput(dependentOutput);
+                    }
+                    @Override public void mounted(HostedSurfaceView view) {
+                        dependentExchange = new HostedContentExchange(activity, view,
+                                new X11ContentExchange(activity, session, dependentOutput));
+                        updateExchangeFocus();
+                    }
+                    @Override public void unmounted() {
+                        if (dependentExchange != null) dependentExchange.close();
+                        dependentExchange = null;
+                    }
+                    @Override public void released() { dependentOutput = null; }
+                    @Override public void focus(boolean focused, boolean dependent) {
+                        if (output == null) return;
+                        if (focused) output.focus();
+                        else if (dependentOutput != null) output.blurFamily();
+                        session.host(activity.getTaskId(), X11HostBinding.this.window, focused);
+                        updateExchangeFocus();
+                    }
+                });
                 surface.requestFocus();
             } catch (RuntimeException error) {
                 releaseOutput();
@@ -52,6 +81,11 @@ final class X11HostBinding implements X11Sessions.Listener {
         } else if (!present && output != null) releaseOutput();
         updateExchangeFocus();
         updateFullscreen();
+        if (family != null) family.refresh();
+    }
+
+    private static ShellBounds bounds(io.github.mekhontsev.magicdesk.x11.X11ShellSurface.Rect rect) {
+        return new ShellBounds(rect.left(), rect.top(), rect.right(), rect.bottom());
     }
 
     private void updateFullscreen() {
@@ -92,11 +126,19 @@ final class X11HostBinding implements X11Sessions.Listener {
     void focusChanged(boolean focused) {
         if (closed) return;
         updateDensity();
-        session.host(activity.getTaskId(), window, focused);
+        if (family != null) family.focusChanged(); else session.host(activity.getTaskId(), window, focused);
     }
 
-    void presentationChanged() { if (!closed && fullscreen != null) fullscreen.changed(); }
-    void updateExchangeFocus() { if (!closed && exchange != null) exchange.focus(activity.hasWindowFocus()); }
+    void presentationChanged() {
+        if (closed) return;
+        if (fullscreen != null) fullscreen.changed();
+        if (family != null) family.refresh();
+    }
+    void updateExchangeFocus() {
+        if (closed) return;
+        if (exchange != null) exchange.focus(activity.hasWindowFocus());
+        if (dependentExchange != null) dependentExchange.focus(family != null && family.focused() && !activity.hasWindowFocus());
+    }
 
     private void releaseExchange() {
         if (exchange != null) exchange.close();
@@ -104,6 +146,9 @@ final class X11HostBinding implements X11Sessions.Listener {
     }
 
     private void releaseOutput() {
+        if (family != null) family.close();
+        family = null;
+        dependentOutput = null;
         releaseExchange();
         surface.release();
         // Also covers a bind that failed before the SurfaceView could take ownership.
@@ -126,6 +171,8 @@ final class X11HostBinding implements X11Sessions.Listener {
     @Override public void onCursor(X11Session.Output source, X11Session.Cursor cursor) {
         if (!closed && source == output)
             surface.cursor(cursor.image(), cursor.hotspotX(), cursor.hotspotY(), cursor.hidden());
+        else if (!closed && source == dependentOutput && family != null)
+            family.cursor(cursor.image(), cursor.hotspotX(), cursor.hotspotY(), cursor.hidden());
     }
 
     boolean requestClose(boolean force) {

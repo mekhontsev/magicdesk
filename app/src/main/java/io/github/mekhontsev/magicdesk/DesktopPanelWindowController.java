@@ -165,6 +165,12 @@ final class DesktopPanelWindowController {
 
     ShellLayoutScope shellScope() { return mLayout.scope(); }
 
+    static ShellLayout.Snapshot layoutForDisplay(int displayId) {
+        final DesktopPanelWindowController controller;
+        synchronized (REGISTRY_LOCK) { controller = CONTROLLERS.get(displayId); }
+        return controller == null || controller.mReleased ? null : controller.mLayout.snapshot();
+    }
+
     /** Borrows only an existing Desktop host; independent tools never create this container. */
     static DesktopSurfaceParent.Lease borrowSurfaceParent(int displayId) {
         if (android.os.Build.VERSION.SDK_INT < 35)

@@ -67,7 +67,7 @@ void mdw_view_popup_bounds(struct MdwView *view, const struct wlr_box *bounds) {
     }
 }
 
-void mdw_view_popups_finish(struct MdwView *view) {
+void mdw_view_dismiss_popups(struct MdwView *view) {
     // Destroying an ancestor also destroys descendants; take a fresh list head each time.
     while (!wl_list_empty(&view->popups)) {
         struct MdwPopup *popup = wl_container_of(view->popups.next, popup, link);

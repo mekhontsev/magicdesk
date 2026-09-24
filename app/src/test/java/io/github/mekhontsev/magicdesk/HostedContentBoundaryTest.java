@@ -18,6 +18,7 @@ public final class HostedContentBoundaryTest {
             interface SurfaceBinding { void changed(Object surface, int width, int height); }
             Output output = new Output();
             SurfaceBinding surfaceBinding = output::setSurface;
+            Runnable focusBoundary;
             boolean inputAllowed = true, keyboardAllowed = true;
             boolean windowFocus, viewFocus;
             boolean hasWindowFocus() { return windowFocus; }
@@ -31,6 +32,11 @@ public final class HostedContentBoundaryTest {
                 fixture.output.calls.clear();
                 fixture.attachSurface(new SurfaceHolder(), 640, 480);
                 check(fixture.output.calls.equals(List.of("surface", "focus")), "focus must follow surface visibility");
+                fixture.focusBoundary = () -> fixture.output.calls.add("family");
+                fixture.output.calls.clear();
+                fixture.attachSurface(new SurfaceHolder(), 640, 480);
+                check(fixture.output.calls.equals(List.of("surface", "family")), "split roots delegate to the family focus owner");
+                fixture.focusBoundary = null;
                 fixture.inputAllowed = false;
                 fixture.output.calls.clear();
                 fixture.attachSurface(new SurfaceHolder(), 640, 480);

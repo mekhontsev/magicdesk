@@ -20,6 +20,25 @@ final class BuiltInWindowRegistry {
     interface ApplicationSource {
         AppReference windowApplication();
     }
+    interface DesktopPresentationListener {
+        void desktopPresentationChanged();
+    }
+
+    static void refreshDesktopPresentations(int displayId) {
+        MAIN.post(() -> {
+            var recipients = new ArrayList<DesktopPresentationListener>();
+            synchronized (WINDOWS) {
+                for (var reference : WINDOWS) {
+                    var activity = reference.get();
+                    if (activity != null && !activity.isDestroyed() && !activity.isFinishing()
+                            && activity instanceof DesktopPresentationListener listener
+                            && (displayId < 0 || activity.getDisplay() != null && activity.getDisplay().getDisplayId() == displayId))
+                        recipients.add(listener);
+                }
+            }
+            for (var recipient : recipients) recipient.desktopPresentationChanged();
+        });
+    }
     record ImmersiveRequest(long version, boolean requested, boolean foreground) { }
     interface ImmersiveSource {
         ImmersiveRequest immersiveRequest();
