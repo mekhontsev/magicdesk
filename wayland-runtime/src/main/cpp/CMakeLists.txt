@@ -44,7 +44,7 @@ if(NOT EXISTS "${LAYER_XML}")
 endif()
 mdw_protocol(wlr-layer-shell-unstable-v1 ${LAYER_XML})
 mdw_protocol(wlr-foreign-toplevel-management-unstable-v1 ${MDW_WLR_PROTOCOL_DIR}/wlr-foreign-toplevel-management-unstable-v1.xml)
-add_library(magicdesk_wayland STATIC wayland_server.c wayland_renderer.c wayland_dmabuf.c wayland_input.c wayland_content.c content_stream.c wayland_shell.c wayland_scene.c wayland_geometry.c wayland_popup.c wayland_toplevels.c
+add_library(magicdesk_wayland STATIC wayland_server.c wayland_renderer.c wayland_dmabuf.c wayland_input.c wayland_cursor.c wayland_content.c content_stream.c wayland_shell.c wayland_scene.c wayland_geometry.c wayland_popup.c wayland_toplevels.c
 	${CMAKE_CURRENT_BINARY_DIR}/linux-dmabuf-v1-protocol.h
 	${CMAKE_CURRENT_BINARY_DIR}/xdg-shell-protocol.h
 	${CMAKE_CURRENT_BINARY_DIR}/wlr-layer-shell-unstable-v1-protocol.h)
@@ -62,7 +62,8 @@ if(MDW_BUILD_JNI)
 		find_path(JNI_INCLUDE_DIR jni.h HINTS "$ENV{JAVA_HOME}/include"
 			"$ENV{PREFIX}/lib/jvm/java-17-openjdk/include" REQUIRED)
 	endif()
-	add_library(magicdesk_wayland_executor SHARED wayland_jni.c)
+	add_library(magicdesk_wayland_executor SHARED wayland_jni.c
+        ../../../../hosted-runtime/src/main/cpp/anonymous_buffer.c)
 	target_include_directories(magicdesk_wayland_executor PRIVATE ../../../../hosted-runtime/src/main/cpp)
 	if(JNI_INCLUDE_DIR)
 		target_include_directories(magicdesk_wayland_executor PRIVATE ${JNI_INCLUDE_DIR} ${JNI_INCLUDE_DIR}/linux)
@@ -102,13 +103,28 @@ target_link_libraries(wayland-content-test PRIVATE magicdesk_wayland)
 target_compile_options(wayland-content-test PRIVATE -UNDEBUG -Wall -Wextra -Werror -Wno-missing-field-initializers)
 add_test(NAME wayland-content COMMAND wayland-content-test)
 set_tests_properties(wayland-content PROPERTIES TIMEOUT 15)
-add_executable(wayland-client ../client.c)
+add_executable(wayland-client ../client.c ../broker.c
+    ../../../../hosted-runtime/src/main/cpp/fd_stream.c
+    ../../../../hosted-runtime/src/main/cpp/anonymous_buffer.c)
+target_include_directories(wayland-client PRIVATE ../../../../hosted-runtime/src/main/cpp)
 target_compile_options(wayland-client PRIVATE -Wall -Wextra -Werror)
 target_link_options(wayland-client PRIVATE -Wl,-z,max-page-size=16384)
 set_target_properties(wayland-client PROPERTIES OUTPUT_NAME libmagicdesk_wayland_client.so)
 add_executable(wayland-client-test ../../../tests/native/client.c)
 add_test(NAME wayland-client COMMAND wayland-client-test $<TARGET_FILE:wayland-client>)
 set_tests_properties(wayland-client PROPERTIES TIMEOUT 15)
+add_executable(hosted-fd-stream-test ../../../../hosted-runtime/tests/native/fd_stream.c
+    ../../../../hosted-runtime/src/main/cpp/fd_stream.c)
+target_include_directories(hosted-fd-stream-test PRIVATE ../../../../hosted-runtime/src/main/cpp)
+target_compile_options(hosted-fd-stream-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME hosted-fd-stream COMMAND hosted-fd-stream-test)
+set_tests_properties(hosted-fd-stream PROPERTIES TIMEOUT 10)
+add_executable(hosted-buffer-access-test ../../../../hosted-runtime/tests/native/anonymous_buffer.c
+    ../../../../hosted-runtime/src/main/cpp/anonymous_buffer.c)
+target_include_directories(hosted-buffer-access-test PRIVATE ../../../../hosted-runtime/src/main/cpp)
+target_compile_options(hosted-buffer-access-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME hosted-buffer-access COMMAND hosted-buffer-access-test)
+set_tests_properties(hosted-buffer-access PROPERTIES TIMEOUT 10 SKIP_RETURN_CODE 77)
 add_executable(wayland-smoke ../../../tests/native/smoke.c)
 target_link_libraries(wayland-smoke PRIVATE magicdesk_wayland)
 add_test(NAME wayland-smoke COMMAND wayland-smoke)
@@ -126,6 +142,10 @@ add_test(NAME wayland-window COMMAND wayland-window-test)
 add_test(NAME wayland-window-fd COMMAND wayland-window-test --fd)
 add_test(NAME wayland-window-fixed-size COMMAND wayland-window-test --fixed-size)
 add_test(NAME wayland-interaction COMMAND wayland-window-test --interaction)
+if(MDG_ANDROID_BUILD)
+    add_test(NAME wayland-gpu-cursor COMMAND wayland-window-test --dma-cursor)
+    set_tests_properties(wayland-gpu-cursor PROPERTIES TIMEOUT 15)
+endif()
 set_tests_properties(wayland-window wayland-window-fd wayland-window-fixed-size wayland-interaction PROPERTIES TIMEOUT 15)
 add_executable(wayland-shell-test ../../../tests/native/shell.c
 	${CMAKE_CURRENT_BINARY_DIR}/xdg-shell-client-protocol.h ${CMAKE_CURRENT_BINARY_DIR}/xdg-shell-protocol.c

@@ -62,6 +62,7 @@ public final class WaylandClientLaunch implements AutoCloseable {
             connection.close();
             throw error;
         }
+        // EVENT_WAIT: authenticated FD delivery receipt; expiry fails and releases the transfer.
         handler.postDelayed(deadline, 10_000);
     }
 

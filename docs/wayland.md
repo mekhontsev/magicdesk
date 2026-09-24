@@ -24,8 +24,8 @@ while their compositor runs under MagicDesk's app UID, never an elevated rendere
 UID. Termux clients use the compositor's private named socket, allowing each
 program and its children to establish independent connections. UID-2000 shell
 clients instead receive one connection FD. That FD belongs to one Wayland
-connection, not a shareable endpoint for unrelated clients. Root client
-bootstrapping is not available yet; it fails explicitly without changing identity.
+connection, not a shareable endpoint for unrelated clients. Root clients use a
+session-owned named endpoint with descriptor admission, described below.
 Desktop, HOME and root are not prerequisites for the Termux path.
 
 An app-UID compositor's private socket directory is not a shell-client launch
@@ -43,17 +43,46 @@ The helper closes unrelated descriptors and exports `WAYLAND_SOCKET` before
 exec. The argument list must be launched through the selected `CommandExecution`
 with the installed APK as `CLASSPATH`; the transfer adapter neither chooses an
 executor nor owns the client process. A receipt confirms descriptor delivery,
-not successful client exec. Root client bootstrapping still needs its own
-integration through the existing privileged command owner, not package impersonation.
+not successful client exec.
 
 Connection requests and handoff channels have deadlines and explicit cleanup.
 Handoff completion callbacks run after cleanup and outside resource locks.
 Cancelling a handoff cannot revoke an FD already received by the client;
 the command/session owner still owns client cancellation. `WaylandSessions`
 owns admission, pending transfers and runtime exit independently of its hosts.
-Do not broaden directory permissions or
-raise the compositor UID to bypass this boundary. Socketpair peer credentials
+Do not expose a shell client's private socket or raise the compositor UID to
+bypass this boundary. Socketpair peer credentials
 describe its creator and must not be mistaken for the launched client's identity.
+
+### Root Guest Connections
+
+An explicitly selected root executor owns one native broker for the session.
+It publishes a named socket in the selected session directory; independent
+chroot programs and child processes connect normally through `WAYLAND_DISPLAY`.
+The app-private enclosing directory remains mode 0700. The session directory
+is searchable for the guest's ordinary Linux users and may be bind-mounted by
+the user's entry script. The compositor's own socket remains private.
+
+`WaylandBroker` owns an authenticated local control connection and a bounded
+startup deadline. Readiness requires receipt, reading and writable shared mapping
+of an actual admitted memory buffer. The label comes from the authenticated compositor's own memfd,
+including its current SELinux categories. The native helper validates the app
+UID on its control and upstream connections. It never impersonates an Android
+package, changes SELinux policy or elevates the compositor.
+
+The shared native FD-stream transport has bounded queues, close-on-exec
+descriptors, backpressure and single delivery across partial writes. The broker
+accepts at most 32 client connections. Anonymous-buffer admission only changes
+unlinked regular tmpfs objects matching the selected executor's own new-memfd
+label; the destination is the compositor's buffer label. Other anonymous labels
+are rejected, not rewritten. Linked files, pipes and DMA-BUFs are not relabelled.
+Protocol bytes and FDs cross the broker; pixel contents are not copied by it.
+
+Closing the session or losing the control channel releases the listener and
+connections. Command completion does not close this session endpoint, so a
+program that detaches from its launcher can retain its connection. Root access
+does not guarantee a firmware permits descriptor admission: failed startup
+remains explicit, without a different UID or system-policy fallback.
 
 ## Boundaries
 
@@ -143,6 +172,10 @@ protocol retain physical-key input. Commits are split at UTF-8 boundaries to fit
 Wayland messages. Oversized composition stays in Android until committed.
 Cursor surfaces update Android's pointer image and hotspot rather than drawing a
 second cursor in the framebuffer. Focus/output loss restores the Android default.
+SHM cursors use direct pixel access; GPU cursors use the shared asynchronous
+`MdgReadback`. Fence callbacks advance readback without blocking protocol dispatch.
+New commits, focus changes and surface destruction cancel obsolete requests and
+release their producer leases. Cursor storage is bounded to 256 by 256 pixels.
 
 Each application output derives its scale from its Android host's density.
 `wl_output`, preferred buffer scale, fractional scale and viewporter expose that
@@ -173,8 +206,8 @@ and starts the authenticated helper as the guest application's user. Import
 paths refer to that shared directory; export opens the actual guest file, not
 an identically named host path. One session retains one explicit file environment.
 The PRoot recipe builder supplies these bindings; custom entry scripts own their
-mounts and authorization. Root/chroot Wayland bootstrap remains separate pending
-work; the common file contract does not bypass that launch restriction.
+mounts and authorization. Root chroot recipes use the session broker and the
+same guest file environment; the renderer remains under the app UID.
 
 ## Native Shell Surfaces
 
@@ -265,16 +298,10 @@ Ordinary application hosts retain their existing viewport policy.
 **Linux GPU client compatibility.** Broaden driver/toolkit coverage beyond the
 verified Mesa/Turnip `vkcube` linear DMA-BUF path. Nonlinear/multi-plane allocations require a
 separate capability-backed image importer; implicit layouts must not be guessed.
-Cursor publication currently reads SHM pixels; GPU-only cursor surfaces need
-asynchronous readback before Android pointer-icon publication. Keep these
-capabilities separate from startup and from Android compositor acceleration.
-
-Root/chroot client bootstrap is a separate prerequisite for testing those
-execution environments, not for the initial Termux application workflow. Extend
-the existing command executor and authenticated connection boundary; keep the
-compositor unprivileged and validate connections from independently launched
-clients and child processes. Do not treat one inherited client FD as a reusable
-endpoint for an entire desktop.
+Keep client GPU capabilities separate from startup and Android compositor
+acceleration. Broaden chroot toolkit, guest-content and root-provider coverage;
+successful shared-memory admission does not establish GPU driver compatibility
+inside a guest distribution.
 
 Integrated Linux shell components use the separate work plan in the shared
 [shell layout model](shell-layout.md#integration-work). A session must explicitly
@@ -543,6 +570,24 @@ and cursor tests. Actual keyboard-app behavior and other text-input protocols
 need further device/toolkit coverage. Small fixed-size GTK dialogs currently
 retain the configured host canvas; size-hint-driven Android placement remains
 separate work.
+
+`tests/toolkits/interaction.qml` exercises Qt Quick through its Vulkan renderer:
+animation, pointer input, text entry, menus and separate popup windows. On RM11/API
+36, Qt 6 with Mesa Turnip submits linear DMA-BUFs successfully. Termux GTK4's
+software renderer also presents correctly; its installed build has no Vulkan
+renderer, and the tested GL/Zink path did not produce usable content. These
+toolkit/driver results are not interchangeable with compositor GPU support.
+
+Root-broker validation on RM11/API 36 with SELinux Enforcing covers Alpine
+Weston terminals as root and UID 65534, independently launched and child
+connections, a nested Weston desktop, and a client detached from its launcher.
+The compositor remains the MagicDesk app UID. Normal session closure, cancellation
+during startup and forced broker death release the owned processes and sockets;
+broker loss produces an explicit session failure. The transport fixtures verify
+partial writes, backpressure, descriptor ordering, EOF draining, ancillary
+truncation and rejected-buffer cleanup. Anonymous-buffer fixtures check label
+admission and rejection without modifying global policy. Other root providers,
+chroot GPU drivers and API-34 devices need separate coverage.
 
 The API-36 shell runtime fixture passed with a Termux-UID compositor and an
 app-UID Android presenter: typed catalog/configure exchange, alpha pixels,

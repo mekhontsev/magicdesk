@@ -158,18 +158,20 @@ public final class LinuxLaunchRecipeTest {
     @Test public void preparedLinuxHasTheSameRecipeWithEitherExecutor() throws Exception {
         Path launcher = unixHome().resolve("enter-linux");
         for (var backend : DesktopExecBackend.values()) {
-            var environment = new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.SCRIPT,
-                    launcher.toString(), backend, "/linux/usr/share/X11/xkb");
-            for (var mode : LinuxLaunchRecipe.Presentation.values()) {
-                var app = LinuxLaunchRecipe.build("Alpine", environment, "id", "/home/test", "test", mode);
-                assertEquals(backend, app.execBackend);
-                var parsed = (DesktopApplicationShortcut) DesktopEntryFile.parse(DesktopEntryFile.encodeApplication(app));
-                assertNotNull(parsed);
-                assertEquals(backend, parsed.execBackend);
-                assertEquals(app.graphics, parsed.graphics);
-                assertEquals(arguments(app, launcher), arguments(parsed, launcher));
-                var recent = new RecentApplicationStore.Entry(app, "", backend == DesktopExecBackend.TERMUX ? "com.termux" : "", 1);
-                assertEquals(recent.key(), DesktopEntryFile.parseRecent(DesktopEntryFile.encodeRecent(recent)).key());
+            for (var protocol : GraphicalProtocol.values()) {
+                var environment = new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.SCRIPT,
+                        launcher.toString(), backend, "/linux/usr/share/X11/xkb");
+                for (var mode : LinuxLaunchRecipe.Presentation.values()) {
+                    var app = LinuxLaunchRecipe.build("Alpine", environment, "id", "/home/test", "test", mode, protocol);
+                    assertEquals(backend, app.execBackend);
+                    var parsed = (DesktopApplicationShortcut) DesktopEntryFile.parse(DesktopEntryFile.encodeApplication(app));
+                    assertNotNull(parsed);
+                    assertEquals(backend, parsed.execBackend);
+                    assertEquals(app.graphics, parsed.graphics);
+                    assertEquals(arguments(app, launcher), arguments(parsed, launcher));
+                    var recent = new RecentApplicationStore.Entry(app, "", backend == DesktopExecBackend.TERMUX ? "com.termux" : "", 1);
+                    assertEquals(recent.key(), DesktopEntryFile.parseRecent(DesktopEntryFile.encodeRecent(recent)).key());
+                }
             }
         }
     }

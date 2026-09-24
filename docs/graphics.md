@@ -20,6 +20,12 @@ Termux, a DRM device, or EGL. The Android baseline is API 34.
   run on an output worker, never while holding a producer's pixel mutex. The
   software output uses the public ANativeWindow buffer API. Unsupported WSI
   capabilities select this output path without requiring a different protocol host.
+- `MdgReadback` converts a retained image into CPU-readable RGBA storage without
+  waiting on the compositor event loop. It returns owned readiness fences for
+  producer completion, available command slots and target completion. The caller
+  observes those events, retains the producer lease, and may cancel or replace
+  the request. Same-sized target storage is reused; submitted GPU work retains
+  resources independently of cancellation. Reading consumes the ready result.
 
 The Vulkan backend dynamically loads the system driver and checks required
 extensions. AHardwareBuffer is the Android interchange allocation, not a claim
@@ -140,7 +146,9 @@ four formats. It queues producer overwrites before waiting for consumer readback
 to exercise acquire/release synchronization, and checks invalid-FD rejection,
 structured import errors and retained-buffer lifetime. Test-owned imports also
 exercise a CPU suffix, fully staged small images, deferred/cancelled submissions
-and progress of an independent output while a producer is gated. Its default capability skip is distinct from a pass;
+and nonblocking submission of an independent output while a producer is gated.
+Readback fixtures cover software/GPU pixels, target reuse, replacement and
+cancellation before producer completion. Its default capability skip is distinct from a pass;
 `--required` makes unavailable DMA-BUF support a test failure.
 
 `wayland-dmabuf-test` exercises protocol advertisement, asynchronous/immediate

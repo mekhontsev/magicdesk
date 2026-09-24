@@ -46,6 +46,7 @@ struct MdwServer {
     struct wlr_seat *seat;
     struct wlr_keyboard keyboard;
     struct MdwInput *input;
+    struct MdwCursor *cursor;
     struct MdwContent *content;
     bool keyboard_initialized;
     struct wl_listener modifiers;
@@ -73,6 +74,9 @@ bool mdw_toplevels_prepare(MdwServer *server);
 bool mdw_scene_render_transparent(struct wlr_scene_output *output);
 bool mdw_scene_render_family(struct wlr_scene_output *output, struct wlr_surface *owner, bool dependents);
 bool mdw_input_init(MdwServer *server);
+bool mdw_cursor_init(MdwServer *server);
+void mdw_cursor_finish(MdwServer *server);
+void mdw_cursor_refresh(MdwServer *server);
 void mdw_input_finish(MdwServer *server);
 void mdw_input_refresh(MdwServer *server);
 bool mdw_input_text(MdwServer *server, const char *text, bool composing, int cursor);

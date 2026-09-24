@@ -48,9 +48,13 @@ done
 "$compiler" -std=c17 -O2 -Wall -Wextra -UNDEBUG \
     "$project_dir/vendor/magicdesk-x11/examples/density-settings-test.c" -o "$work/x11_density_settings_test"
 graphics="$project_dir/hosted-runtime/src/main/cpp/graphics"
+"$compiler" -std=c17 -O2 -Wall -Wextra -Werror -UNDEBUG \
+    -I"$project_dir/hosted-runtime/src/main/cpp" \
+    "$project_dir/hosted-runtime/tests/native/fd_stream.c" \
+    "$project_dir/hosted-runtime/src/main/cpp/fd_stream.c" -o "$work/hosted_fd_stream_test"
 "$compiler" -std=c17 -D_GNU_SOURCE -DMDG_PORTABLE_TEST -O2 -Wall -Wextra -Werror -UNDEBUG \
     -I"$graphics" "$project_dir/hosted-runtime/tests/native/graphics.c" \
-    "$graphics/graphics.c" "$graphics/software.c" "$graphics/vulkan_stub.c" \
+    "$graphics/graphics.c" "$graphics/software.c" "$graphics/readback.c" "$graphics/vulkan_stub.c" \
     -lm -o "$work/hosted_graphics_test"
 
 # Fixtures use only their own PTYs/processes; keep their files under this owner.
@@ -71,4 +75,5 @@ timeout --kill-after=2s 15s ./magicdesk_hosted_keycodes_test
 timeout --kill-after=2s 15s ./x11_window_icon_test
 timeout --kill-after=2s 15s ./x11_density_settings_test
 timeout --kill-after=2s 15s ./hosted_graphics_test --software
-printf 'Native host fixtures verified (19 runs).\n'
+timeout --kill-after=2s 15s ./hosted_fd_stream_test
+printf 'Native host fixtures verified (20 runs).\n'

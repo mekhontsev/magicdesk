@@ -25,6 +25,7 @@
 static bool fixed_client_size;
 static bool interaction;
 static bool dma_client;
+static bool dma_cursor;
 
 struct Client {
     struct wl_display *display;
@@ -99,16 +100,32 @@ static void pointer_enter(void *data, struct wl_pointer *pointer, uint32_t seria
     if (interaction) {
         client->cursor = wl_compositor_create_surface(client->compositor);
         wl_pointer_set_cursor(pointer, serial, client->cursor, 1, 2);
+        struct wl_buffer *buffer;
+#ifdef __ANDROID__
+        if (dma_cursor) {
+            assert(client->dma);
+            struct Producer producer = {.fd = -1, .width = 4, .height = 4, .stride = 16};
+            assert(producer_create(&producer));
+            producer_write(&producer, 0xff0000ff, 0xff0000ff);
+            struct zwp_linux_buffer_params_v1 *params = zwp_linux_dmabuf_v1_create_params(client->dma);
+            zwp_linux_buffer_params_v1_add(params, producer.fd, 0, 0, 16, 0, DRM_FORMAT_MOD_LINEAR);
+            buffer = zwp_linux_buffer_params_v1_create_immed(params, 4, 4, DRM_FORMAT_ABGR8888, 0);
+            zwp_linux_buffer_params_v1_destroy(params);
+            producer_destroy(&producer);
+        } else
+#endif
+        {
         int fd = syscall(SYS_memfd_create, "mdw-cursor", MFD_CLOEXEC);
         assert(fd >= 0 && ftruncate(fd, 4 * 4 * 4) == 0);
         uint32_t image[16];
         for (int i = 0; i < 16; ++i) image[i] = 0xffff0000;
         assert(write(fd, image, sizeof(image)) == sizeof(image));
         struct wl_shm_pool *pool = wl_shm_create_pool(client->shm, fd, sizeof(image));
-        struct wl_buffer *buffer = wl_shm_pool_create_buffer(pool, 0, 4, 4, 16, WL_SHM_FORMAT_ARGB8888);
+        buffer = wl_shm_pool_create_buffer(pool, 0, 4, 4, 16, WL_SHM_FORMAT_ARGB8888);
+        wl_shm_pool_destroy(pool); close(fd);
+        }
         wl_surface_attach(client->cursor, buffer, 0, 0);
         wl_surface_commit(client->cursor);
-        wl_shm_pool_destroy(pool); close(fd);
         xdg_toplevel_set_fullscreen(client->toplevel, NULL);
     }
 }
@@ -188,7 +205,7 @@ static void global(void *data, struct wl_registry *registry, uint32_t name,
         client->compositor = wl_registry_bind(registry, name, &wl_compositor_interface, 4);
     else if (!strcmp(interface, "wl_shm"))
         client->shm = wl_registry_bind(registry, name, &wl_shm_interface, 1);
-    else if (dma_client && !strcmp(interface, "zwp_linux_dmabuf_v1")) {
+    else if ((dma_client || dma_cursor) && !strcmp(interface, "zwp_linux_dmabuf_v1")) {
         assert(version >= 3);
         client->dma = wl_registry_bind(registry, name, &zwp_linux_dmabuf_v1_interface, 3);
     }
@@ -417,7 +434,8 @@ int main(int argc, char **argv) {
     if (argc == 2 && !strcmp(argv[1], "--dma-client")) { dma_client = true; run_client(NULL); return 0; }
     if (argc == 2 && !strcmp(argv[1], "--client")) { run_client(NULL); return 0; }
     fixed_client_size = argc == 2 && !strcmp(argv[1], "--fixed-size");
-    interaction = argc == 2 && !strcmp(argv[1], "--interaction");
+    dma_cursor = argc == 2 && !strcmp(argv[1], "--dma-cursor");
+    interaction = dma_cursor || (argc == 2 && !strcmp(argv[1], "--interaction"));
     const char *temporary = getenv("TMPDIR");
     char directory[4096];
     snprintf(directory, sizeof(directory), "%s/mdw-window-XXXXXX", temporary ? temporary : "/tmp");

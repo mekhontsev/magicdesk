@@ -97,6 +97,7 @@ public final class WaylandServer extends IWaylandServer.Stub {
         try {
             handle = nativeStart();
             if (handle == 0) throw new IllegalStateException("Cannot start Wayland compositor");
+            if ("1".equals(System.getenv("MAGICDESK_WAYLAND_GUEST_SOCKET"))) exportGuestSocket();
             eventDescriptor = ParcelFileDescriptor.fromFd(nativeEventFd(handle));
             Looper.myQueue().addOnFileDescriptorEventListener(eventDescriptor.getFileDescriptor(),
                     MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT, (descriptor, events) -> {
@@ -112,6 +113,24 @@ public final class WaylandServer extends IWaylandServer.Stub {
         } catch (IOException | RuntimeException error) {
             onError(error.getMessage());
             shutdown();
+        }
+    }
+
+    private void exportGuestSocket() throws IOException {
+        try {
+            java.io.File directory = new java.io.File(required("XDG_RUNTIME_DIR"));
+            var parent = Os.lstat(directory.getParent());
+            String socket = new java.io.File(directory, nativeSocket(handle)).getPath();
+            var endpoint = Os.lstat(socket);
+            if (!OsConstants.S_ISDIR(parent.st_mode) || parent.st_uid != Process.myUid()
+                    || (parent.st_mode & 0777) != 0700 || !OsConstants.S_ISSOCK(endpoint.st_mode)
+                    || endpoint.st_uid != Process.myUid())
+                throw new SecurityException("Guest socket needs a private executor-owned parent");
+            // The authorized root executor may bind this session into a guest namespace.
+            // The private parent stays inaccessible to other Android application UIDs.
+            Os.chmod(directory.getPath(), 0755);
+        } catch (android.system.ErrnoException error) {
+            throw new IOException("Cannot expose the selected Wayland socket to its guest", error);
         }
     }
 
@@ -473,6 +492,11 @@ public final class WaylandServer extends IWaylandServer.Stub {
         extras.putString("token", token);
         extras.putString("phase", phase);
         extras.putString("display", display);
+        if ("ready".equals(phase) && "1".equals(System.getenv("MAGICDESK_WAYLAND_GUEST_SOCKET"))) {
+            String label = nativeMemoryLabel();
+            if (label == null) throw new IllegalStateException("Cannot identify compositor shared-memory access");
+            extras.putString("memoryLabel", label);
+        }
         context.sendBroadcast(new Intent(ACTION).setPackage(hostPackage).putExtras(extras), null,
                 BroadcastOptions.makeBasic().setShareIdentityEnabled(true).toBundle());
     }
@@ -484,6 +508,7 @@ public final class WaylandServer extends IWaylandServer.Stub {
     }
 
     private native long nativeStart();
+    private static native String nativeMemoryLabel();
     private static native int nativeEventFd(long server);
     private static native int nativeDispatch(long server);
     private static native int nativeConnect(long server);

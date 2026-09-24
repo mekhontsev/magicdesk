@@ -24,6 +24,20 @@ static void expect(const uint8_t *pixels, unsigned x, unsigned y, unsigned strid
     }
 }
 
+static void await_readback(MdgReadback *readback) {
+    for (unsigned attempt = 0; attempt < 8; ++attempt) {
+        int fd;
+        MdgReadbackStatus status = mdg_readback_poll(readback, &fd);
+        if (status == MDG_READBACK_READY) { assert(fd == -1); return; }
+        assert(status == MDG_READBACK_PENDING && fd >= 0);
+        struct pollfd event = {.fd = fd, .events = POLLIN};
+        // EVENT_WAIT: fixture fence completion; an expired bound fails the test.
+        assert(poll(&event, 1, 5000) == 1 && event.revents == POLLIN);
+        close(fd);
+    }
+    assert(false);
+}
+
 int main(int argc, char **argv) {
     bool software = argc > 1 && !strcmp(argv[1], "--software");
     bool require_gpu = argc > 1 && !strcmp(argv[1], "--gpu");
@@ -132,6 +146,30 @@ int main(int argc, char **argv) {
         AHardwareBuffer_release(buffer);
     }
 #endif
+    MdgReadback *readback = mdg_readback_create(device);
+    assert(readback);
+    uint8_t copied[256];
+    int readback_fd;
+    assert(mdg_readback_poll(readback, &readback_fd) == MDG_READBACK_FAILED);
+    assert(!mdg_readback_read(readback, copied, 32));
+    for (unsigned iteration = 0; iteration < 4; ++iteration) {
+        assert(mdg_readback_start(readback, texture));
+        await_readback(readback);
+        assert(mdg_readback_read(readback, copied, 8));
+        assert(!memcmp(copied, source, sizeof(source)));
+        ++expected_frames;
+        mdg_readback_cancel(readback);
+        assert(mdg_readback_poll(readback, &readback_fd) == MDG_READBACK_FAILED);
+        assert(!mdg_readback_read(readback, copied, 8));
+    }
+    // Replace before submission, including a target resize, then release the source.
+    assert(mdg_readback_start(readback, target));
+    assert(mdg_readback_start(readback, texture));
+    await_readback(readback);
+    assert(mdg_readback_read(readback, copied, 8));
+    assert(!memcmp(copied, source, sizeof(source)));
+    ++expected_frames;
+    mdg_readback_destroy(readback);
     MdgPass *cancel = mdg_pass_begin(device, target, (float[]){0,0,0,0}, false);
     assert(cancel);
     assert(!mdg_pass_draw(cancel, &(MdgDraw){.image = target}));

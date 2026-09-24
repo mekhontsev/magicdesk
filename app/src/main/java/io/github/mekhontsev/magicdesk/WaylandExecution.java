@@ -4,6 +4,7 @@ import android.content.Context;
 import android.os.Process;
 import io.github.mekhontsev.magicdesk.wayland.WaylandClientLaunch;
 import io.github.mekhontsev.magicdesk.wayland.WaylandServer;
+import io.github.mekhontsev.magicdesk.wayland.WaylandBroker;
 import java.io.Closeable;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -35,14 +36,13 @@ final class WaylandExecution {
         keyboard = DesktopExecWorkingDirectory.normalize(keyboardDirectory);
         if (commands.termux == null && keyboard.isEmpty())
             throw new IllegalArgumentException("An XKB data directory is required for the Shell graphical executor");
-        if (commands.termux == null && commands.uid != 2000)
-            throw new IllegalStateException("Wayland root client bootstrap is not available yet");
         byte[] secret = new byte[32];
         new java.security.SecureRandom().nextBytes(secret);
         token = java.util.HexFormat.of().formatHex(secret);
         String parent = commands.termux == null ? context.getCacheDir() + "/w" : commands.home + "/.cache/w";
         directory = parent + "/" + UUID.randomUUID().toString().replace("-", "");
-        if ((directory + "/wayland-0").getBytes(java.nio.charset.StandardCharsets.UTF_8).length >= 108)
+        String endpoint = commands.uid == 0 ? "/wayland-2147483647" : "/wayland-0";
+        if ((directory + endpoint).getBytes(java.nio.charset.StandardCharsets.UTF_8).length >= 108)
             throw new IllegalArgumentException("Wayland runtime directory exceeds Unix socket path limit");
     }
 
@@ -56,6 +56,7 @@ final class WaylandExecution {
         environment.put("MAGICDESK_WAYLAND_TOKEN", token);
         environment.put("MAGICDESK_WAYLAND_LIBRARY", info.nativeLibraryDir + "/libmagicdesk_wayland_executor.so");
         environment.put("XDG_RUNTIME_DIR", directory);
+        if (commands.uid == 0) environment.put("MAGICDESK_WAYLAND_GUEST_SOCKET", "1");
         guestFiles.configure(environment);
         if (!fileEnvironment.isEmpty()) environment.put("MAGICDESK_WAYLAND_GUEST_CONTENT", "/tmp/magicdesk-wayland/content");
         environment.put("XKB_CONFIG_ROOT", commands.termux == null ? HostedKeyboardData.prepare(context, keyboard)
@@ -76,6 +77,7 @@ final class WaylandExecution {
         Files.createDirectories(path.getParent());
         Files.createDirectory(path);
         try {
+            android.system.Os.chmod(path.getParent().toString(), 0700);
             android.system.Os.chmod(directory, 0700);
             return HostedServerProcess.start(arguments, environment, path, id, completion);
         } catch (IOException | android.system.ErrnoException | RuntimeException error) {
@@ -97,9 +99,21 @@ final class WaylandExecution {
         return commands.start(invocation, workingDirectory, id + "-client", null, completion);
     }
 
-    Closeable startLocalClient(String socket, String command, String workingDirectory, CommandExecution.Completion completion) {
-        if (commands.uid != serverUid || socket == null || !socket.matches("wayland-[0-9]+"))
-            throw new IllegalArgumentException("No same-identity Wayland socket");
+    boolean hasNamedEndpoint() { return commands.uid == serverUid || commands.uid == 0; }
+
+    Closeable startBroker(WaylandBroker broker, String socket, String memoryLabel, CommandExecution.Completion completion) {
+        if (commands.uid != 0 || socket == null || !socket.matches("wayland-[0-9]+"))
+            throw new IllegalStateException("Wayland broker requires the captured root executor");
+        var arguments = broker.arguments(context.getApplicationInfo().nativeLibraryDir + "/libmagicdesk_wayland_client.so",
+                directory + "/" + socket, serverUid, memoryLabel);
+        String command = "unset LD_PRELOAD LD_LIBRARY_PATH\nexec "
+                + String.join(" ", arguments.stream().map(WaylandExecution::q).toList());
+        return commands.start(command, "", id + "-broker", null, completion);
+    }
+
+    Closeable startNamedClient(String socket, String command, String workingDirectory, CommandExecution.Completion completion) {
+        if (!hasNamedEndpoint() || socket == null || !socket.matches("wayland-[0-9]+"))
+            throw new IllegalArgumentException("No accessible Wayland socket");
         String script = "unset DISPLAY WAYLAND_SOCKET\nexport XDG_SESSION_TYPE=wayland XDG_RUNTIME_DIR=" + q(directory)
                 + " WAYLAND_DISPLAY=" + q(socket) + " MAGICDESK_WAYLAND_RUNTIME=" + q(directory)
                 + guestFiles.exports() + "\n" + command;

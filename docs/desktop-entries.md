@@ -104,9 +104,10 @@ This is a MagicDesk desktop-entry extension, not a freedesktop standard key.
 
 Wayland scripts inherit `WAYLAND_DISPLAY` and `MAGICDESK_WAYLAND_RUNTIME` and
 must expose the corresponding socket at the absolute guest `WAYLAND_DISPLAY`.
-The named-socket path currently requires the Termux executor. Wayland root/chroot
-bootstrap through the privileged command service is not available; see
-[Wayland](wayland.md#remaining-work). The chroot example below is an X11 adapter.
+Named sockets are available through Termux or the explicitly selected root
+executor's [Wayland broker](wayland.md#root-guest-connections). UID-2000 shell
+clients retain the single-connection FD path. The chroot example below supports
+both X11 and Wayland, without changing the compositor's app UID.
 
 MagicDesk does not implicitly switch its privileged backend, mount a rootfs,
 or store passwords. Interactive authentication can use terminal mode; graphical

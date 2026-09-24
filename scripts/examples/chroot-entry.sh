@@ -27,6 +27,8 @@ mount -t proc proc "$root/proc"
 mount --rbind /dev "$root/dev"
 guest_display=
 guest_auth=
+guest_wayland=
+guest_session=
 guest_file_socket=
 guest_file_token=
 if [ -n "${DISPLAY:-}" ]; then
@@ -36,17 +38,27 @@ if [ -n "${DISPLAY:-}" ]; then
     mount --bind "$MAGICDESK_X11_TMPDIR/.X11-unix" "$root/tmp/.X11-unix"
     guest_display=$DISPLAY
     guest_auth=/tmp/magicdesk-x11/Xauthority
-    if [ -n "${MAGICDESK_GUEST_FILES_HELPER:-}" ]; then
-        touch "$root/tmp/magicdesk-guest-files"
-        mount --bind "$MAGICDESK_GUEST_FILES_HELPER" "$root/tmp/magicdesk-guest-files"
-        guest_file_socket=$MAGICDESK_GUEST_FILES_SOCKET
-        guest_file_token=$MAGICDESK_GUEST_FILES_TOKEN
-    fi
+    guest_session=x11
+elif [ -n "${WAYLAND_DISPLAY:-}" ]; then
+    : "${MAGICDESK_WAYLAND_RUNTIME:?Missing Wayland runtime}"
+    case "$WAYLAND_DISPLAY" in wayland-[0-9]*) ;; *) echo 'Invalid Wayland socket name' >&2; exit 2 ;; esac
+    case "${WAYLAND_DISPLAY#wayland-}" in *[!0-9]*) echo 'Invalid Wayland socket name' >&2; exit 2 ;; esac
+    mkdir -p "$root/tmp/magicdesk-wayland"
+    mount --bind "$MAGICDESK_WAYLAND_RUNTIME" "$root/tmp/magicdesk-wayland"
+    guest_wayland=/tmp/magicdesk-wayland/$WAYLAND_DISPLAY
+    guest_session=wayland
+fi
+if [ -n "$guest_session" ] && [ -n "${MAGICDESK_GUEST_FILES_HELPER:-}" ]; then
+    touch "$root/tmp/magicdesk-guest-files"
+    mount --bind "$MAGICDESK_GUEST_FILES_HELPER" "$root/tmp/magicdesk-guest-files"
+    guest_file_socket=$MAGICDESK_GUEST_FILES_SOCKET
+    guest_file_token=$MAGICDESK_GUEST_FILES_TOKEN
 fi
 
 # The guest chooses its login shell and home. No passwords or host loader variables cross the boundary.
 exec /system/bin/chroot "$root" /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin \
     TERM="${TERM:-xterm-256color}" LANG=C.UTF-8 DISPLAY="$guest_display" XAUTHORITY="$guest_auth" \
+    WAYLAND_DISPLAY="$guest_wayland" XDG_SESSION_TYPE="$guest_session" \
     MAGICDESK_GUEST_FILES_SOCKET="$guest_file_socket" MAGICDESK_GUEST_FILES_TOKEN="$guest_file_token" \
     /bin/sh -c '
         user=$1; work=$2; shift 2

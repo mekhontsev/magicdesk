@@ -476,7 +476,7 @@ MdwServer *mdw_server_create(void) {
     wlr_keyboard_set_repeat_info(&server->keyboard, 25, 600);
     wlr_seat_set_keyboard(server->seat, &server->keyboard);
     wlr_seat_set_capabilities(server->seat, WL_SEAT_CAPABILITY_KEYBOARD | WL_SEAT_CAPABILITY_POINTER);
-    if (!mdw_input_init(server)) goto fail;
+    if (!mdw_input_init(server) || !mdw_cursor_init(server)) goto fail;
     server->shell = wlr_xdg_shell_create(server->display, 6);
     if (!server->shell) goto fail;
     listen_signal(&server->shell->events.new_toplevel, &server->new_toplevel, new_toplevel);
@@ -844,6 +844,7 @@ void mdw_server_destroy(MdwServer *server) {
     MdwOutput *output, *next;
     wl_list_for_each_safe(output, next, &server->outputs, link) mdw_output_destroy(output);
     if (server->display) wl_display_destroy_clients(server->display);
+    mdw_cursor_finish(server);
     mdw_input_finish(server);
     mdw_shell_finish(server);
     if (server->shell) {

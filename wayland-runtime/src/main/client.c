@@ -5,8 +5,10 @@
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include "broker.h"
 
 static int close_unrelated(int preserved) {
     DIR *directory = opendir("/proc/self/fd");
@@ -21,6 +23,10 @@ static int close_unrelated(int preserved) {
 }
 
 int main(int argc, char **argv) {
+    if (argc > 1 && !strcmp(argv[1], "--broker")) {
+        if (close_unrelated(-1) < 0) return 1;
+        return wayland_broker(argc, argv);
+    }
     if (argc < 3 || argv[2][0] != '/') return 2;
     char *end;
     errno = 0;

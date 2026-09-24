@@ -1,15 +1,29 @@
+#define _GNU_SOURCE
 #include "wayland_server.h"
 #include "frame_fd.h"
 #include <android/hardware_buffer_jni.h>
 #include "android_keycodes.h"
+#include "anonymous_buffer.h"
 #include <jni.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <linux/memfd.h>
+#include <sys/syscall.h>
 
 #define JNI(method) Java_io_github_mekhontsev_magicdesk_wayland_WaylandServer_##method
+
+JNIEXPORT jstring JNICALL JNI(nativeMemoryLabel)(JNIEnv *env, jclass type) {
+    (void)type;
+    int fd = syscall(SYS_memfd_create, "MagicDesk-buffer-label", MFD_CLOEXEC);
+    if (fd < 0) return NULL;
+    char label[MDH_LABEL_BYTES];
+    int result = mdh_buffer_label(fd, label);
+    close(fd);
+    return result == 0 ? (*env)->NewStringUTF(env, label) : NULL;
+}
 
 struct Bridge {
     MdwServer *server;

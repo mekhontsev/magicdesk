@@ -17,6 +17,8 @@ typedef enum { MDG_SUBMIT_FAILED, MDG_SUBMIT_OK, MDG_SUBMIT_DEFERRED } MdgSubmit
 typedef struct AHardwareBuffer AHardwareBuffer;
 typedef struct ANativeWindow ANativeWindow;
 typedef struct MdgSurface MdgSurface;
+typedef struct MdgReadback MdgReadback;
+typedef enum { MDG_READBACK_FAILED, MDG_READBACK_READY, MDG_READBACK_PENDING } MdgReadbackStatus;
 
 typedef enum { MDG_RGBA, MDG_RGBX, MDG_BGRA, MDG_BGRX } MdgFormat;
 /* One explicitly linear packed-RGB plane, not an opaque/tiled image FD. */
@@ -91,6 +93,18 @@ bool mdg_image_fence(MdgImage *image, int *owned_fd);
 void mdg_image_set_fence(MdgImage *image, int owned_fd);
 /* Export an owned pending sync_file for event-loop readiness registration. */
 int mdg_device_pending_fence(MdgDevice *device);
+
+/* Reusable, serialized-owner readback. start replaces the previous request;
+ * cancelled GPU work retains its storage through completion. The caller holds
+ * the producer's buffer lease/borrowed CPU pixels until completion or cancel.
+ * poll never waits for a fence; PENDING returns an owned FD to observe before
+ * retrying. read requires READY and produces tightly described RGBA rows. */
+MdgReadback *mdg_readback_create(MdgDevice *device);
+void mdg_readback_destroy(MdgReadback *readback);
+bool mdg_readback_start(MdgReadback *readback, MdgImage *source);
+MdgReadbackStatus mdg_readback_poll(MdgReadback *readback, int *wait_fd);
+bool mdg_readback_read(MdgReadback *readback, void *rgba, size_t stride);
+void mdg_readback_cancel(MdgReadback *readback);
 
 /* A Surface has a dedicated serialized graphics owner. Acquisition/presentation
  * may wait for the Android consumer, never on a protocol or UI thread. */

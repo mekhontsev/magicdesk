@@ -49,6 +49,7 @@ public final class WaylandClientMain {
         Bundle extras = new Bundle();
         extras.putBinder("client", client);
         extras.putString("token", arguments[3]);
+        // EVENT_WAIT: host FD delivery; expiry exits without starting the client.
         handler.postDelayed(deadline, 10_000);
         context.sendBroadcast(new Intent(arguments[2]).setPackage(arguments[1]).putExtras(extras), null,
                 BroadcastOptions.makeBasic().setShareIdentityEnabled(true).toBundle());

@@ -96,7 +96,7 @@ int main(int argc, char **argv) {
                      * A separate output can still render while this writer waits. */
                     mdg_pass_cancel(pass); close(wait_fd);
                     MdgPass *other = mdg_pass_begin(device, target, (float[]){0,0,0,0}, false);
-                    assert(other && mdg_pass_submit_and_wait(other));
+                    assert(other && mdg_pass_submit(other, &wait_fd) == MDG_SUBMIT_OK && wait_fd == -1);
                     pass = mdg_pass_begin(device, target, (float[]){0,0,0,0}, false);
                     assert(pass && mdg_pass_draw(pass, &(MdgDraw){.image = source, .source = {0,0,WIDTH,HEIGHT},
                         .destination = {0,0,WIDTH,HEIGHT}, .clip = {0,0,WIDTH,HEIGHT}, .opacity = 1}));
@@ -143,6 +143,56 @@ int main(int argc, char **argv) {
     MdgStats stats = mdg_device_stats(device);
     assert(stats.gpu_frames == 257 && stats.software_frames == 0 && stats.failed_frames == 0);
     assert(stats.dma_tail_bytes == (uint64_t)WIDTH * 4 * (4 * 3 + HEIGHT) * 32);
+    MdgReadback *readback = mdg_readback_create(device);
+    MdgImage *cursor = mdg_image_linear_dmabuf(device,
+        &(MdgLinearDmaBuf){producer.fd, WIDTH, HEIGHT, OFFSET, STRIDE, MDG_RGBA}, NULL);
+    assert(readback && cursor && mdg_readback_start(readback, cursor));
+    producer.gated = true;
+    producer_write(&producer, 0xff0000ff, 0xff0000ff);
+    int wait_fd;
+    assert(mdg_readback_poll(readback, &wait_fd) == MDG_READBACK_PENDING && wait_fd >= 0);
+    struct pollfd event = {.fd = wait_fd, .events = POLLIN};
+    assert(poll(&event, 1, 0) == 0);
+    close(wait_fd);
+    uint8_t pixel[] = {0,255,0,255};
+    MdgImage *replacement = mdg_image_cpu(device, 1, 1, 4, MDG_RGBA, pixel);
+    assert(replacement && mdg_readback_start(readback, replacement));
+    // A stalled producer must not block submission. GPU queues may share hardware,
+    // so release the producer before waiting for another queue's completion.
+    MdgReadbackStatus replacement_status = mdg_readback_poll(readback, &wait_fd);
+    assert(replacement_status != MDG_READBACK_FAILED);
+    if (wait_fd >= 0) close(wait_fd);
+    assert(producer.set_event(producer.gpu->device, producer.gate) == VK_SUCCESS);
+    producer.gated = false;
+    for (;;) {
+        MdgReadbackStatus status = mdg_readback_poll(readback, &wait_fd);
+        if (status == MDG_READBACK_READY) break;
+        assert(status == MDG_READBACK_PENDING && wait_fd >= 0);
+        event = (struct pollfd){.fd = wait_fd, .events = POLLIN};
+        // EVENT_WAIT: readback fence; fixture failure on timeout, never a settling delay.
+        assert(poll(&event, 1, 5000) == 1 && event.revents == POLLIN);
+        close(wait_fd);
+    }
+    uint8_t pixels[WIDTH * HEIGHT * 4];
+    assert(mdg_readback_read(readback, pixels, 4) && !memcmp(pixels, pixel, 4));
+    assert(mdg_readback_start(readback, cursor));
+    mdg_image_unref(cursor);
+    for (;;) {
+        MdgReadbackStatus status = mdg_readback_poll(readback, &wait_fd);
+        if (status == MDG_READBACK_READY) break;
+        assert(status == MDG_READBACK_PENDING && wait_fd >= 0);
+        event = (struct pollfd){.fd = wait_fd, .events = POLLIN};
+        // EVENT_WAIT: readback fence; expiry fails the fixture.
+        assert(poll(&event, 1, 5000) == 1 && event.revents == POLLIN);
+        close(wait_fd);
+    }
+    assert(mdg_readback_read(readback, pixels, WIDTH * 4));
+    for (unsigned i = 0; i < WIDTH * HEIGHT; ++i)
+        assert(!memcmp(pixels + i * 4, (uint8_t[]){255,0,0,255}, 4));
+    mdg_readback_cancel(readback);
+    assert(!mdg_readback_read(readback, pixels, WIDTH * 4));
+    mdg_readback_destroy(readback);
+    mdg_image_unref(replacement);
     mdg_image_unref(target); mdg_device_destroy(device); producer_destroy(&producer);
     puts("256 DMA-BUF frames: GPU/tail copies, deferred/cancelled writes, independent output, fences, formats and lifetime passed");
     return 0;

@@ -80,6 +80,7 @@ static int transfer(int fd, uint32_t mask, void *data) {
         if (count < 0 && (errno == EAGAIN || errno == EINTR)) return 0;
         if (count <= 0) { finish(s, false); return 0; }
         s->consumed += count; s->position += count;
+        if (s->position == s->size) { finish(s, true); return 0; }
     }
     return 0;
 }
