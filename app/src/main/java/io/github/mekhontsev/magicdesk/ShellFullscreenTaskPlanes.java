@@ -79,7 +79,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         if (ownership.isDesktopHostTask(targetTaskId)) {
             focusDesktopHost(
                     service, displayId, targetTaskId, requestedTaskIds);
-            return ShellFullscreenTaskArea.FocusResult.WORKSPACE_FOREGROUND;
+            return ShellFullscreenTaskArea.FocusResult.DESKTOP_FOREGROUND;
         }
         final MixedStackOrder mixedOrder = mixedStackOrder(
                 service,

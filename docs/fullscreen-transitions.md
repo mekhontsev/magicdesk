@@ -529,7 +529,10 @@ Task selection is modeled as z-order, not as a window-state transition:
   Previously explicitly concealed tasks are not implicit successors: demoting
   two fullscreen peers in turn reveals HOME instead of reviving the first one.
   If there is no eligible peer, the desktop host comes to the front while the
-  application remains live below it. Explicit activation makes that task
+  application remains live below it. Selecting the host also conceals retained
+  fullscreen plane surfaces through the same composition boundary as desktop
+  presentation, so native layer reassignment cannot expose them above HOME.
+  Explicit activation reveals those planes and makes that task
   eligible again.
 
 Both operations preserve the task's windowing mode, bounds, parent, and hidden

@@ -152,9 +152,12 @@ final class ShellDesktopWorkspaceCoordinator {
                         new int[]{targetTaskId});
             }
         }
-        if (command.concealsFullscreenPlanes()) {
-            // A HOME gesture can race an application's OPEN transition. Its
-            // finish transaction must not reveal planes after presentation.
+        if (command.concealsFullscreenPlanes()
+                || focusResult == ShellFullscreenTaskArea.FocusResult.DESKTOP_FOREGROUND) {
+            // HOME selection includes demotion of the last exposed task. Its
+            // planes need the same concealment as an explicit presentation.
+            // EVENT_WAIT: WM transition/input commit; failure aborts concealment.
+            // A pending native finish must not reveal planes after this commit.
             FrameworkWindowCommitBarrier.awaitSystemTransitions();
             if (!mFullscreenTaskArea.concealForShowDesktop(command.displayId)) {
                 throw new IllegalStateException(

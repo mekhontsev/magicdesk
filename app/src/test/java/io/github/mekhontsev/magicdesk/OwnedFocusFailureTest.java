@@ -29,7 +29,7 @@ public final class OwnedFocusFailureTest {
                     }
                 }
                 static class ShellFullscreenTaskArea {
-                    enum FocusResult { NOT_HANDLED, WORKSPACE_FOREGROUND, FULLSCREEN_FOREGROUND }
+                    enum FocusResult { NOT_HANDLED, DESKTOP_FOREGROUND, WORKSPACE_FOREGROUND, FULLSCREEN_FOREGROUND }
                     int mDisplayId = 4;
                     final Ownership mOwnership = new Ownership(); final Planes mPlanes = new Planes();
                     int[] desktopFocusTasks(Object service, int display, int[] tasks) { return tasks; }

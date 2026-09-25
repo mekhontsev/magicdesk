@@ -22,13 +22,14 @@ public final class WorkspacePresentationSurfaceTest {
                     boolean concealsFullscreenPlanes() { return conceal; }
                 }
                 static class ShellFullscreenTaskArea {
-                    enum FocusResult { NOT_HANDLED, WORKSPACE_FOREGROUND }
+                    enum FocusResult { NOT_HANDLED, DESKTOP_FOREGROUND, WORKSPACE_FOREGROUND, FULLSCREEN_FOREGROUND }
+                    FocusResult result = FocusResult.WORKSPACE_FOREGROUND;
                     boolean concealAccepted = true;
                     FocusResult focusStack(Object service, int display, int[] order) {
                         check(display == 0 && order[order.length - 1] == 42,
                                 "workspace plan changed");
                         calls.append("order;");
-                        return FocusResult.WORKSPACE_FOREGROUND;
+                        return result;
                     }
                     boolean concealForShowDesktop(int display) {
                         calls.append("conceal;");
@@ -62,6 +63,17 @@ public final class WorkspacePresentationSurfaceTest {
                     command.conceal = false;
                     fixture.applyPhysicalOrder(command, new int[]{42});
                     check(calls.toString().equals("order;"), "selection concealed planes");
+
+                    calls.setLength(0);
+                    fixture.mFullscreenTaskArea.result = ShellFullscreenTaskArea.FocusResult.DESKTOP_FOREGROUND;
+                    fixture.applyPhysicalOrder(command, new int[]{10, 42});
+                    check(calls.toString().equals("order;settle;conceal;"),
+                            "demotion to HOME left fullscreen surfaces visible");
+
+                    calls.setLength(0);
+                    fixture.mFullscreenTaskArea.result = ShellFullscreenTaskArea.FocusResult.FULLSCREEN_FOREGROUND;
+                    fixture.applyPhysicalOrder(command, new int[]{42});
+                    check(calls.toString().equals("order;"), "fullscreen successor was concealed");
 
                     command.conceal = true;
                     fixture.mFullscreenTaskArea.concealAccepted = false;

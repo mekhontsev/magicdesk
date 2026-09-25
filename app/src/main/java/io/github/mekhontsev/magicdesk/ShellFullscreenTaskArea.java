@@ -16,6 +16,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
 
     enum FocusResult {
         NOT_HANDLED,
+        DESKTOP_FOREGROUND,
         WORKSPACE_FOREGROUND,
         FULLSCREEN_FOREGROUND
     }
