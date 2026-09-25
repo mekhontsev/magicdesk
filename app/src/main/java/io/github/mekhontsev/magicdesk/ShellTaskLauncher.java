@@ -362,11 +362,12 @@ final class ShellTaskLauncher {
             if (creatorAuthorized) {
                 TaskDisplayAreaLaunchCommand
                         .launchCreatorAuthorizedPendingIntentTaskAction(
-                                displayId, taskId, pendingIntent);
+                                displayId, taskId, task, pendingIntent);
             } else {
                 TaskDisplayAreaLaunchCommand.launchPendingIntentTaskAction(
                         displayId,
                         taskId,
+                        task,
                         pendingIntent,
                         mActivityLauncher);
             }

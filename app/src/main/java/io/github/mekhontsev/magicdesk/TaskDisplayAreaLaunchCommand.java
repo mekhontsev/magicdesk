@@ -611,6 +611,7 @@ public final class TaskDisplayAreaLaunchCommand {
     static void launchPendingIntentTaskAction(
             final int displayId,
             final int taskId,
+            final Object task,
             final PendingIntent pendingIntent,
             final IActivityLaunchCallback activityLauncher)
             throws ReflectiveOperationException {
@@ -619,24 +620,21 @@ public final class TaskDisplayAreaLaunchCommand {
             throw new IllegalArgumentException(
                     "invalid pending intent task target");
         }
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        options.setLaunchDisplayId(displayId);
-        FrameworkActivityLaunchApi.setTask(options, taskId);
+        final ActivityOptions options = taskActionOptions(displayId, taskId, task);
         sendPendingIntent(activityLauncher, pendingIntent, options);
     }
 
     static void launchCreatorAuthorizedPendingIntentTaskAction(
             final int displayId,
             final int taskId,
+            final Object task,
             final PendingIntent pendingIntent)
             throws ReflectiveOperationException {
         if (displayId < 0 || taskId < 0 || pendingIntent == null) {
             throw new IllegalArgumentException(
                     "invalid pending intent task target");
         }
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        options.setLaunchDisplayId(displayId);
-        FrameworkActivityLaunchApi.setTask(options, taskId);
+        final ActivityOptions options = taskActionOptions(displayId, taskId, task);
         sendCreatorAuthorizedPendingIntent(pendingIntent, options);
     }
 
@@ -693,13 +691,23 @@ public final class TaskDisplayAreaLaunchCommand {
             throw new IllegalArgumentException(
                     "task does not belong to " + packageName);
         }
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        options.setLaunchDisplayId(displayId);
         // Shortcut entry activities often redirect and finish immediately.
         // Starting them inside the prepared app task keeps that redirect from
         // becoming a short-lived desktop root task.
+        launchActivity(service, intent, taskActionOptions(displayId, taskId, task));
+    }
+
+    private static ActivityOptions taskActionOptions(
+            final int displayId,
+            final int taskId,
+            final Object task) throws ReflectiveOperationException {
+        if (task == null) throw new IllegalArgumentException("task is unavailable: " + taskId);
+        // A task ID alone still lets Android apply the display's launch defaults.
+        // Deliver the action without replacing the prepared task's presentation.
+        final ActivityOptions options = existingTaskOptions(displayId,
+                HiddenTaskApi.getTaskWindowingMode(task), HiddenTaskApi.readBounds(task), null);
         FrameworkActivityLaunchApi.setTask(options, taskId);
-        launchActivity(service, intent, options);
+        return options;
     }
 
     private static void launchActivity(

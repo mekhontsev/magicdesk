@@ -3243,6 +3243,10 @@ Explicit requests, a reused task's mode, and saved per-application mode/bounds
 take precedence. It does not change independent launch policy or existing
 windows when the setting changes.
 
+Intent and PendingIntent delivery into a prepared existing task carries its
+current windowing mode and bounds alongside the task and display IDs. Delivery
+preserves task-area ownership and does not reapply display launch defaults.
+
 The control-panel toolbar offers **Start desktop**, or **Show desktop**
 for the selected row's existing workspace. Another display can start its own workspace without
 closing the current one. Start and Close operations are serialized.
