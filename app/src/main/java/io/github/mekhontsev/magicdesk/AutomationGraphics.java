@@ -38,6 +38,8 @@ final class AutomationGraphics {
                     if (session == null) throw new IllegalArgumentException("Graphical session is unavailable");
                     switch (operation) {
                         case "graphics.set_workspace" -> GraphicalShells.select(session, args.getString("workspaceId"));
+                        case "graphics.set_scale" -> GraphicalPresentationPreferences.save(context, session,
+                                AutomationJsonArguments.requiredInt(args, "scalePercent"));
                         case "graphics.execute" -> session.execute(DesktopExecCommand.normalize(args.getString("command")), args.optString("directory", ""));
                         case "graphics.stop" -> session.close();
                         case "graphics.close_window" -> {
@@ -97,6 +99,7 @@ final class AutomationGraphics {
         return new JSONObject().put("sessionId", session.id()).put("name", session.name())
                 .put("protocol", session.protocol().name().toLowerCase(java.util.Locale.ROOT))
                 .put("state", session.state()).put("ready", session.ready()).put("error", session.error())
+                .put("scalePercent", session.scalePercent()).put("scalePersistent", !session.presentationKey().isEmpty())
                 .put("wholeDesktop", session.desktop()).put("windows", windows)
                 .put("hosts", hosts(session))
                 .put("executor", identity.backend().wireName).put("executorUid", identity.executorUid())

@@ -60,6 +60,12 @@ final class AutomationCommandCatalog {
                         objectSchema(new JSONObject().put("sessionId", stringProperty("Live graphical session ID."))
                                 .put("command", stringProperty("Shell command."))
                                 .put("directory", stringProperty("Optional absolute client working directory.")), "sessionId", "command")))
+                .put(actionTool("graphics.set_scale", "Set Linux interface scale",
+                        "Set X11 or Wayland interface scale relative to the automatic Android host scale. 100 resets to automatic. Saves the launcher profile and updates its live sessions; ad-hoc sessions retain it only until stopped. Does not start Desktop. Client toolkits may defer updates until restart.",
+                        objectSchema(new JSONObject().put("sessionId", stringProperty("Live graphical session ID."))
+                                .put("scalePercent", integerRangeProperty("Interface scale percentage.",
+                                        AppPresentationProfile.MIN_SCALE_PERCENT, AppPresentationProfile.MAX_SCALE_PERCENT)),
+                                "sessionId", "scalePercent")))
                 .put(actionTool("graphics.stop", "Stop graphical session",
                         "Explicitly stop the retained server and disconnect its graphical clients. All its client hosts close; other graphical sessions are unaffected. This does not terminate arbitrary background jobs in the selected executor.",
                         objectSchema(new JSONObject().put("sessionId", stringProperty("Live graphical session ID.")), "sessionId")))
@@ -1363,9 +1369,11 @@ final class AutomationCommandCatalog {
                 .put("executorUid", integerProperty("Command UID."))
                 .put("serverUid", integerProperty("Server UID; not implicitly elevated."))
                 .put("wholeDesktop", booleanProperty("Accepts windowId=0 for a retained whole-desktop viewer."))
+                .put("scalePercent", integerProperty("Linux interface scale relative to the automatic host scale; 100 is automatic."))
+                .put("scalePersistent", booleanProperty("Scale is saved for this launcher's executor and source path."))
                 .put("windows", graphicalWindowsSchema()).put("hosts", graphicalHostsSchema())
                 .put("shellIntegration", openObjectProperty("available, workspaceId, displayId and error."))
-                .put("protocolDetails", openObjectProperty("Protocol-specific diagnostics; X11 display, dpi, scalePercent, application and fileEnvironment.")));
+                .put("protocolDetails", openObjectProperty("Protocol-specific diagnostics; X11 display, dpi, application and fileEnvironment.")));
     }
 
     private static JSONObject graphicalWindowsSchema() throws JSONException {
@@ -1412,6 +1420,7 @@ final class AutomationCommandCatalog {
             case "graphics.execute":
             case "graphics.stop":
             case "graphics.set_workspace":
+            case "graphics.set_scale":
             case "graphics.close_window":
             case "graphics.detach_viewer":
                 properties.put("sessionId", stringProperty("Exact retained session ID."))
@@ -1419,6 +1428,8 @@ final class AutomationCommandCatalog {
                         .put("protocol", enumProperty("Display protocol.", "x11", "wayland"))
                         .put("state", stringProperty("Observed lifecycle state."))
                         .put("ready", booleanProperty("Server is ready."))
+                        .put("scalePercent", integerProperty("Selected interface scale percentage."))
+                        .put("scalePersistent", booleanProperty("Scale is saved for the launcher."))
                         .put("error", stringProperty("Last operation error."))
                         .put("windows", graphicalWindowsSchema()).put("hosts", graphicalHostsSchema())
                         .put("shellIntegration", openObjectProperty("available, workspaceId, displayId and error for the shell binding."));

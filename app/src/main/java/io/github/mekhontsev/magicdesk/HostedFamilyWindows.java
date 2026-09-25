@@ -107,8 +107,7 @@ final class HostedFamilyWindows implements AutoCloseable {
         var owned = MagicDeskRuntime.selectDesktopTaskSnapshot(display, snapshot);
         boolean managed = owned.available && owned.tasks.stream().anyMatch(task ->
                 task.taskId == activity.getTaskId() && task.visible && activity.getPackageName().equals(task.packageName));
-        return HostedChildWindowPolicy.external(MagicDeskSettings.load().externalLinuxChildWindows,
-                android.os.Build.VERSION.SDK_INT, managed, true);
+        return HostedChildWindowPolicy.external(android.os.Build.VERSION.SDK_INT, managed, true);
     }
 
     @android.annotation.TargetApi(35)

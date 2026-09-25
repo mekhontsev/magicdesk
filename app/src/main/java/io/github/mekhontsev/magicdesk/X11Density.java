@@ -34,8 +34,6 @@ final class X11Density {
     int resolve(int scalePercent) { return resolve(scale, scalePercent); }
 
     static int resolve(double scale, int scalePercent) {
-        if (!Double.isFinite(scale) || scale <= 0 || !AppPresentationProfile.isValidScale(scalePercent))
-            throw new IllegalArgumentException("Invalid X11 scale");
-        return (int) Math.max(24, Math.min(1536, Math.round(96 * scale * (scalePercent / 100.0))));
+        return (int) Math.round(96 * HostedUiScale.adjust(scale, scalePercent));
     }
 }

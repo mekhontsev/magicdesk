@@ -72,6 +72,8 @@ final class WaylandSessions {
     static final class Session implements HostedWindowPresentation.Session, WaylandSession.Listener {
         final String name;
         final WaylandExecution execution;
+        final String presentationKey;
+        private volatile int scalePercent;
         final HostedWindowPresentation presentation;
         private final Context context;
         private final OperationResources resources = new OperationResources();
@@ -162,6 +164,9 @@ final class WaylandSessions {
         Session(Context context, String name, WaylandExecution execution, RecentApplicationStore.Entry recipe, boolean desktop) {
             this.context = context; this.name = name; this.execution = execution;
             this.recipe = recipe; this.desktop = desktop; application = recipe != null && !desktop;
+            presentationKey = GraphicalPresentationPreferences.key(execution.commands.scope,
+                    recipe == null ? "" : recipe.sourcePath());
+            scalePercent = GraphicalPresentationPreferences.load(context, presentationKey);
             presentation = new HostedWindowPresentation(context, this);
         }
 
@@ -189,6 +194,13 @@ final class WaylandSessions {
         }
 
         String id() { return execution.id; }
+        int scalePercent() { return scalePercent; }
+        void setScale(int scale) {
+            if (!AppPresentationProfile.isValidScale(scale)) throw new IllegalArgumentException("Invalid Linux scale");
+            if (scalePercent == scale) return;
+            scalePercent = scale;
+            changed();
+        }
         String state() { return state; }
         String error() { return error; }
         boolean stopped() { return state.equals("CLOSED") || state.equals("FAILED"); }
@@ -266,7 +278,7 @@ final class WaylandSessions {
                     : new io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout(info.parent(), info.width(), info.height(), info.constraints());
         }
         @Override public float unitScale(android.app.Activity activity) {
-            return HostedUiScale.resolve(activity);
+            return (float) HostedUiScale.adjust(HostedUiScale.resolve(activity), scalePercent);
         }
         WaylandSession.Output openOutput(long window, int width, int height) {
             if (!ready()) throw new IllegalStateException("Wayland session is not ready");

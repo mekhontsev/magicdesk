@@ -24,11 +24,12 @@ selection, and rendering; it does not package Termux's native `libtermux.so`.
 
 ## Embedded Termux:X11
 
-MagicDesk embeds the native server and renderer from its
+MagicDesk embeds the native X server and protocol/graphics adapters from its
 [MagicDesk X11 fork](https://github.com/mekhontsev/magicdesk-x11), pinned by
 the `vendor/magicdesk-x11` submodule. It does not require the standalone
 Termux:X11 Android application. Java, Binder and JNI integration is owned by
-MagicDesk's local `x11-runtime` module.
+MagicDesk's local `x11-runtime` module. X11 and Wayland use MagicDesk's shared
+`hosted-runtime` graphics backend and Android frame presenter.
 
 - Upstream: https://github.com/termux/termux-x11
 - License: GNU GPL version 3; see

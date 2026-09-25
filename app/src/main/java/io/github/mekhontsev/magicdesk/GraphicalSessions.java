@@ -47,8 +47,9 @@ final class GraphicalSessions {
         }
         default void watch(Activity activity) { }
         default void unwatch(Activity activity) { }
-        default boolean canScale() { return false; }
-        default void scale(Activity activity) { throw new UnsupportedOperationException("Interface scaling is unavailable"); }
+        String presentationKey();
+        int scalePercent();
+        void setScale(int percent);
     }
 
     static Application findRecipe(String key) {
@@ -104,7 +105,7 @@ final class GraphicalSessions {
         public GraphicalProtocol protocol() { return GraphicalProtocol.X11; }
         public Identity identity() { return new Identity(session.execution.commands.backend, session.execution.commands.uid, session.execution.serverUid); }
         public Map<String, Object> details() {
-            return Map.of("display", session.display(), "dpi", session.dpi(), "scalePercent", session.scalePercent(),
+            return Map.of("display", session.display(), "dpi", session.dpi(),
                     "application", session.application, "fileEnvironment", session.fileEnvironment());
         }
         public Map<String, Object> windowDetails(long id) {
@@ -128,8 +129,9 @@ final class GraphicalSessions {
                 return binding;
             } catch (RuntimeException error) { binding.close(); throw error; }
         }
-        public boolean canScale() { return true; }
-        public void scale(Activity activity) { X11ScaleDialog.show(activity, session); }
+        public String presentationKey() { return session.presentationKey; }
+        public int scalePercent() { return session.scalePercent(); }
+        public void setScale(int percent) { session.setScale(percent); }
         public List<Window> windows() {
             return session.windows().stream().map(window -> {
                 var control = window.management();
@@ -161,6 +163,9 @@ final class GraphicalSessions {
         final WaylandSessions.Session session;
         final Map<Runnable, WaylandSessions.Listener> listeners = new LinkedHashMap<>();
         Wayland(WaylandSessions.Session session) { this.session = session; }
+        public String presentationKey() { return session.presentationKey; }
+        public int scalePercent() { return session.scalePercent(); }
+        public void setScale(int percent) { session.setScale(percent); }
         public String id() { return session.id(); }
         public String name() { return session.name; }
         public GraphicalProtocol protocol() { return GraphicalProtocol.WAYLAND; }

@@ -1,6 +1,6 @@
 # Workstation Tools
 
-Files, Console, Termux and embedded X11 sessions are shared tools, not
+Files, Console, Termux and X11/Wayland sessions are shared tools, not
 Desktop-owned services.
 The APK baseline is Android 14; managed Desktop requires Android 15. Tools open
 as ordinary fullscreen Activities on the phone or selected display outside a
@@ -111,7 +111,7 @@ MagicDesk supports a bounded freedesktop-compatible `.desktop` subset for:
 - Android applications and published shortcuts;
 - Android shell commands;
 - Termux commands;
-- embedded X11 applications and whole Linux desktops;
+- embedded X11 and Wayland applications and whole Linux desktops;
 - composite Android viewer and external-process launches.
 
 Entries can select a working directory, launch mode, execution backend, MIME
@@ -254,21 +254,28 @@ replace it with a package-specific startup or reconnect script. See
 
 ## Linux Applications And Desktops
 
-MagicDesk embeds its X11 server and renderer; installing the standalone
-Termux:X11 APK is unnecessary. Installed Termux graphical applications with
-launchable `.desktop` entries appear in Start. They can open as independent
-fullscreen applications or managed Desktop windows with native Android captions.
-The X11 session manager can also launch a command, open a whole Linux desktop,
-or present individual windows from a retained session.
+MagicDesk embeds an X11 server and a Wayland compositor with shared Android
+hosting, input and rendering. No companion display-server APK is required.
+Installed Termux graphical applications with launchable `.desktop` entries
+appear in Start and default to X11; custom recipes can select either protocol.
+They can open as independent applications or managed Desktop windows with native
+Android captions. **Linux graphics** manages both protocols, runs commands,
+opens whole Linux desktops and selects clients through **Application windows**.
+X11 desktop mode presents a whole X screen; Wayland desktop mode presents a
+nested compositor using its Wayland backend.
 
-Focused X11 windows exchange text, HTML, PNG images and files with Android's
-clipboard. Copy drag-and-drop works between compatible Android and X11 windows,
-including different X11 sessions. Termux-hosted file exchange uses its UID.
+Focused Linux windows exchange text, HTML, PNG images and files with Android's
+clipboard. Copy drag-and-drop works between compatible Android and Linux windows,
+including separate sessions. Termux-hosted file exchange uses its UID.
 Shell-hosted servers run under MagicDesk's app UID and exchange files only
 through their explicit shared content directory. Prepared chroots can use
 Shell/root launchers without Termux; the existing service must have UID 0.
-Desktop is not a prerequisite. See [Embedded X11](x11.md) for setup, DPI,
-session lifetime, container examples and transfer limits.
+Desktop is not a prerequisite. See [Embedded X11](x11.md) and [Embedded Wayland](wayland.md)
+for setup, shared interface scaling, session lifetime, container examples and
+transfer limits. In managed Desktop, supported child windows can extend beyond
+their parent's task; independent hosts use in-window composition. **Shell
+workspace** explicitly binds a session's panels/backgrounds to an existing
+Desktop through the [shared shell layout](shell-layout.md).
 
 ## Task Manager And Desktop Controls
 
@@ -285,7 +292,7 @@ While another display has Desktop but the phone does not, phone HOME embeds
 the same Start content and defaults to ordinary phone fullscreen launches.
 Recent selects the global managed or independent launch history according to
 the destination and launch mode. Both include Android apps, built-in tools and
-command/X11 recipes. Running applications is a separate live-task view.
+command and graphical recipes. Running applications is a separate live-task view.
 Every Start surface offers the same destination, managed/independent placement
 and new-window controls. Independent tasks stay outside Desktop's Alt+Tab and
 taskbar, and can be selected from the control panel's display row actions.
@@ -352,7 +359,9 @@ The Settings window controls persistent MagicDesk behavior, including:
 - taskbar auto-hide;
 - single-click file activation;
 - automatic phone-touchpad startup;
-- keeping an active desktop session awake;
+- phone-screen retention, a session CPU wake lock and adaptive-brightness control;
+- a temporary system-wide light/dark theme during Desktop;
+- fullscreen defaults for new phone Desktop windows;
 - remembered application launch mode;
 - application-specific interface scale;
 - loopback and optional network MCP, with separate tokens and permission sets;
@@ -369,7 +378,9 @@ interactive launches use Android's app-specific display permission checks.
 Privileged actions retain their slots and are disabled until access is ready.
 Status occupies one full-width row. The underlined **Access**, **Termux** and
 **Desktop** controls open setup/status dialogs. Desktop checks API level, access,
-device setup and pending reboot without starting a session. Access reports
+device setup and pending reboot without starting a session. **Limited** identifies
+configured windowing without an advertised framework Desktop provider; it is
+separate from missing setup. Access reports
 the connected service identity; Termux distinguishes missing prerequisites from
 Available, Checking, Ready and Check failed, with details in its dialog. Available
 confirms the service and Android permission, not command execution. A one-shot

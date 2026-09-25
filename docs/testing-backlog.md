@@ -56,17 +56,28 @@ Run these without Desktop; managed Desktop self-tests cannot prove isolation:
 - [ ] Verify retained shell/Termux detach/reattach, explicit End session,
   transport failure and process replacement. Closing a managed tmux window must
   release only its client; an ordinary shell remains retained.
-- [ ] On actual API 34, validate embedded X11 startup, individual/whole-desktop
+- [ ] On actual API 34, validate X11 and Wayland startup, individual/whole-desktop
   views, input, live DPI and shutdown with no Desktop or privileged service.
-- [ ] Exercise X11 clipboard and copy drag-and-drop with Android and same-/cross-X
-  sessions: text, HTML, PNG, files, large INCR transfers, denied URI grants,
+- [ ] Exercise clipboard and copy drag-and-drop with Android and same-/cross-protocol
+  Linux sessions: text, HTML, PNG, files, large transfers (including X11 INCR), denied URI grants,
   cancellation and owner loss. Include container paths accessible and inaccessible
   to the selected server. Shell-hosted chroot file exchange must stay inside its
   explicit shared directory; never resolve a failure by escalating identity.
-- [ ] Exercise Shell/root chroot terminals and X11 with Termux disabled, including
+- [ ] Exercise Shell/root chroot terminals, X11 and Wayland with Termux disabled, including
   guest users, shared-file limits, concurrent sessions, Stop and process loss.
   Basic Alpine workflows were exercised on RM11/API 36; other firmware and
   Android 14 remain unverified.
+- [ ] Exercise Linux menus, popups and transient windows through the common
+  dependent host on API 35+, including unavailable-capability fallback, parent
+  movement, clipping, grabs, density changes and parent/display closure. Verify
+  independent hosts and whole-desktop viewers without external presentation.
+- [ ] Exercise X11 dock/desktop reservations and Wayland layer-shell/foreign-
+  toplevel panels alongside Android windows, including binding loss and release.
+  Use the focused [shell-layout fixtures](shell-layout.md#verification); Desktop
+  self-tests do not replace protocol-client coverage.
+- [ ] Validate Vulkan and software composition, DMA-BUF format rejection, frame
+  fences, resize and output loss across graphics drivers. Use the focused
+  [graphics fixtures](graphics.md) and [Wayland tests](wayland.md#verification).
 - [ ] Create a virtual display, launch/capture fullscreen tools there and remove
   it without Desktop; verify viewer/display/session lifetimes separately.
 - [ ] Verify APK update, exact installer receipt and reconnect on API 34/35/36,

@@ -22,7 +22,6 @@ final class SettingsView {
         void setKeepDesktopAwake(boolean enabled);
         void setKeepScreenOn(boolean enabled);
         void setPhoneFullscreenByDefault(boolean enabled);
-        void setExternalLinuxChildWindows(boolean enabled);
 
         void setDisableAdaptiveBrightness(boolean enabled);
         void configureSystemTheme();
@@ -84,7 +83,6 @@ final class SettingsView {
     private Switch mKeepDesktopAwake;
     private Switch mKeepScreenOn;
     private Switch mPhoneFullscreenByDefault;
-    private Switch mExternalLinuxChildWindows;
     private Switch mDisableAdaptiveBrightness;
     private View mSystemThemeAction;
     private TextView mSystemTheme;
@@ -157,10 +155,6 @@ final class SettingsView {
         mPhoneFullscreenByDefault = addSwitch(content, R.string.settings_phone_fullscreen_default);
         mPhoneFullscreenByDefault.setOnCheckedChangeListener((button, checked) -> {
             if (!mRendering) mActions.setPhoneFullscreenByDefault(checked);
-        });
-        mExternalLinuxChildWindows = addSwitch(content, R.string.settings_external_linux_child_windows);
-        mExternalLinuxChildWindows.setOnCheckedChangeListener((button, checked) -> {
-            if (!mRendering) mActions.setExternalLinuxChildWindows(checked);
         });
         addAction(
                 content,
@@ -426,7 +420,7 @@ final class SettingsView {
                 ? R.string.limit_desktop_disabled : R.string.capability_access_required);
         for (final Switch control : new Switch[] {mTaskbarAutoHide, mKeyboardOnAppDisplay,
                 mOpenTouchpadAutomatically, mKeepDesktopAwake, mKeepScreenOn,
-                mPhoneFullscreenByDefault, mExternalLinuxChildWindows, mDisableAdaptiveBrightness}) {
+                mPhoneFullscreenByDefault, mDisableAdaptiveBrightness}) {
             control.setEnabled(mDesktopSettingsAvailable);
         }
         mOpenFilesWithSingleClick.setEnabled(settings != null);
@@ -449,7 +443,6 @@ final class SettingsView {
             mKeepDesktopAwake.setChecked(settings.keepDesktopAwake);
             mKeepScreenOn.setChecked(settings.keepScreenOn);
             mPhoneFullscreenByDefault.setChecked(settings.phoneFullscreenByDefault);
-            mExternalLinuxChildWindows.setChecked(settings.externalLinuxChildWindows);
             mDisableAdaptiveBrightness.setChecked(settings.disableAdaptiveBrightness);
             mSystemTheme.setText(systemThemeLabel(settings.systemTheme));
         }

@@ -1,9 +1,10 @@
 # Embedded Wayland Runtime
 
-## Status
+## Overview
 
-The `wayland-runtime` module contains an experimental per-toplevel compositor and Android
-runtime module. The APK packages the compositor and a separate host renderer.
+The `wayland-runtime` module supplies the embedded per-toplevel compositor and
+its Android adapters. X11 and Wayland use the same shared graphics backend;
+the APK packages the compositor and a separate host renderer.
 **Linux graphics** manages X11 and Wayland sessions through the same controls;
 Wayland opens each toplevel in an ordinary Android host. A nested compositor can
 instead present a whole Linux desktop in a retained Android viewer. The shared
@@ -155,9 +156,10 @@ startup requirement.
 The native runtime covers xdg-toplevel discovery and metadata, GPU/software
 rendering, configure/ack, frame callbacks, borrowed-output resize, pointer/key
 input, focus release and graceful close. Popup nodes retain their parent's native scene
-and grab lifetime. Managed API-35+ hosts can present the popup family outside the
-parent's task crop through the shared opt-in
+and grab lifetime. Managed API-35+ hosts automatically present the popup family
+outside the parent's task crop through the shared
 [dependent-surface host](shell-layout.md#application-relative-surfaces).
+Independent hosts and unavailable external presentation retain in-window rendering.
 Ordinary subsurfaces remain in their owning tree; transient toplevels retain
 separate Android hosts. Shell popup constraints and surface-family input geometry
 are covered by native fixtures. Physical keys use the shared Android-to-evdev
@@ -205,7 +207,8 @@ Each application output uses the shared `HostedUiScale` policy: Android density
 divided by 160, retaining the fractional scale from 1 to 8 and limited by a logical window
 offer of at least 600 on the short side and 800 on the long side where possible.
 The offer excludes stable system bars and cutouts, not IME insets or client
-constraints. Output scale, Android client limits and child placement use the
+constraints. The saved Linux interface-scale percentage (50-200%, with 100%
+meaning automatic) is applied after this calculation. Output scale, Android client limits and child placement use the
 same result. Fractional scale exposes it to clients; preferred integer buffer
 scale rounds upward independently of the logical interface scale.
 Surface coordinates remain logical. Output rendering uses a uniform scale bounded
@@ -391,8 +394,12 @@ Open **Linux graphics** from Start, create a session, and explicitly select X11
 or Wayland and the client executor. Wayland startup commands open toplevels using
 the manager's verified Android destination. The window picker can open an
 existing toplevel; closing the manager retains the session. Both protocols offer
-whole-desktop presentation. X11 also has a session-wide interface-scale control;
-Wayland derives application scale from each Android host's density and size.
+whole-desktop presentation and the same **Interface scale** control. The preference
+adjusts each Android host's automatic scale and updates its output and client
+limits together. Start's installed-app context menu and `graphics.set_scale`
+share the same profile, keyed by executor and launcher path within the Android
+profile. Ad-hoc sessions retain their percentage only until stopped. Nested
+compositors and applications remain responsible for their toolkit preferences.
 
 For a nested desktop, select **Nested Linux desktop** in the manager, or set
 `X-MagicDesk-GraphicsMode=desktop` in a Wayland recipe. Supply a compositor

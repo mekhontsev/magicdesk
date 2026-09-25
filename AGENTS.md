@@ -33,20 +33,25 @@ An explicitly managed tmux window releases only its client PTY; tmux owns the
 server session and programs. MCP is an authorized adapter to these services, not their owner.
 Keep profile-scoped application identities and storage boundaries intact.
 
-Embedded X11 is also a shared service: an explicitly selected Termux or shell
-executor supplies programs, while the fork owns only the native X server/protocol and rendering.
-Shell-hosted X servers run as MagicDesk's app UID; a prepared chroot is entered
+Embedded X11 and Wayland are shared services. An explicitly selected Termux or
+shell executor supplies programs; protocol runtimes own the X server or Wayland
+compositor, while `hosted-runtime` owns shared graphics and frame presentation.
+Shell-hosted display servers run as MagicDesk's app UID; a prepared chroot is entered
 by the already-authorized command service, never by elevating the renderer.
-MagicDesk's `x11-runtime` owns all Java, Binder and JNI adapters; do not import
+MagicDesk's `x11-runtime` owns all X11 Java, Binder and JNI adapters; do not import
 upstream Java, AIDL, Android stubs or Gradle modules. The native `embedded.h`
 contract must not know Java classes, packages, authorization or Activity policy.
 Android hosts borrow outputs; whole-desktop viewer closure retains the session, whereas an
 individual-client host requests that client's closure. Keep clipboard, drag URI
 grants and Android placement in the host, not the native renderer. Read
-`docs/x11.md` and the fork's `docs/embedding.md` before changing this boundary.
+`docs/x11.md`, `docs/wayland.md`, `docs/graphics.md` and the X11 fork's
+`docs/embedding.md` before changing this boundary.
 `HostedSurfaceView` and `HostedContentExchange` are Android adapters: keep X11
-button codes, target names, window IDs and XDND in their X11 backends. The X11
-manager must not acquire viewer outputs, clipboard ownership or density ownership.
+button codes, target names, window IDs and XDND in their X11 backends, and
+Wayland seat/data-device semantics in their Wayland adapters. The common Linux
+graphics manager must not acquire viewer outputs, clipboard ownership or density
+ownership. Shell contributions and dependent windows use the shared model in
+`docs/shell-layout.md`; they do not replace Android task-area topology.
 
 Do not retain obsolete internal APIs, persisted-data formats or MCP protocols
 solely for backward compatibility unless explicitly requested. Remove replaced

@@ -266,8 +266,10 @@ the taskbar, the child window collapses to its reveal edge with a transparent
 background; its window opacity and input handling remain unchanged. An unrelated
 foreground fullscreen task suppresses its automatic presentation. Phone Home
 can explicitly reveal it without changing that task's focus or ownership;
-outside touch or a taskbar action releases the reveal. Visible freeform windows retain
-the panel and reveal edge regardless of task ownership; this does not authorize
+outside touch or a taskbar action releases the transient reveal. An open Start
+or another panel independently holds the taskbar visible until it closes.
+Visible freeform windows retain the panel and reveal edge regardless of task
+ownership; this does not authorize
 window operations on those tasks. The transparent chrome host remains
 structurally stable without covering fullscreen content.
 
@@ -411,23 +413,14 @@ animation. An unrelated external resize with the same geometry is
 indistinguishable. It neither changes Android's own maximized state nor replaces
 the caption, transition handler or fullscreen-plane topology.
 
-A 2026-09-17 experiment inside the actual MagicDesk APK successfully published
-a visible global 64px bottom `navigationBars` source through `providedInsets`
-on a transparent child of the desktop chrome. The privileged service used UID
-2000 and the app's registered `IWindowSession`; no global session replacement,
-input interception, or task reparenting was needed. A standalone `app_process`
-cannot create its own window session on the tested Android 16 build because
-WindowManager requires an ActivityManager-registered process.
-
-Publishing the inset alone did **not** fix the toggle. Both the inspected
+Publishing a `navigationBars` source alone cannot reconcile this toggle. Both the inspected
 firmware and AOSP's [DisplayLayout](https://github.com/aosp-mirror/platform_frameworks_base/blob/android15-release/libs/WindowManager/Shell/src/com/android/wm/shell/common/DisplayLayout.java)
 only include navigation-bar insets when `hasNavigationBar` is true. That check
 uses display flags and the global force-desktop setting for external displays,
-not simply the presence of an inset provider. The tested HDMI display did not
-pass it. The experimental publisher was removed; enabling global system
-Desktop is not an established way to reconcile the work areas. Publishing a
-native work area must also account for ordinary resize, taskbar visibility and
-fullscreen; the geometry adaptation above does not depend on that mechanism.
+not simply the presence of an inset provider. A native work-area provider would
+also need to account for ordinary resize, taskbar visibility and fullscreen.
+MagicDesk uses the geometry adaptation above without publishing synthetic
+navigation-bar insets or enabling system Desktop.
 
 ## Submission Constraints
 
@@ -637,8 +630,9 @@ barrier before concealing planes; an in-flight application OPEN finish must not
 reveal them afterward. This is a bounded framework wait, not a fixed delay or a
 second hierarchy submission.
 Ordinary task activation reveals the retained planes through their existing
-owner. Phone Overview navigation uses this existing-workspace command instead
-of launching another HOME Activity across organizer task areas.
+owner. The control panel's Show desktop and the external-session touchpad use
+this existing-workspace command. Routed phone HOME/Overview navigation instead
+reveals the taskbar through the existing host's UI gateway.
 The operation is scoped to the active desktop display and
 does not change task mode, bounds, parent, or tasks on any other display.
 

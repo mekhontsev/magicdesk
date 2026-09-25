@@ -205,11 +205,11 @@ loss or explicit closure ends the borrowed Android hierarchy. The protocol calle
 retains ownership of its output, family and session and must react to that end.
 
 `HostedFamilyWindows` connects individual X11 and Wayland application hosts to
-this placement path. `HostedChildWindowPolicy` admits managed individual
-applications on API 35+ when **Linux child windows outside parent** is enabled;
-in-window presentation remains the default and the independent/API-34 path.
+this placement path. `HostedChildWindowPolicy` automatically admits managed
+individual applications on API 35+; independent applications, whole-desktop
+viewers and API-34 hosts retain in-window presentation.
 The controller reads the existing Desktop task publication, not another observer.
-Settings, task ownership, anchor layout and protocol geometry trigger reconciliation.
+Task ownership, anchor layout and protocol geometry trigger reconciliation.
 
 Each protocol lends a dependent-only output linked to its owner's normal output.
 The owner alone controls client size. While borrowed, dependent pixels are omitted

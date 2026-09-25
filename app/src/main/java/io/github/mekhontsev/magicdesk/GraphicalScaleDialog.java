@@ -8,18 +8,16 @@ import android.widget.TextView;
 import java.util.function.IntConsumer;
 
 /** Linux scale controls shared by Start and the retained-session manager. */
-final class X11ScaleDialog {
-    static void show(Activity activity, String title, String desktopFile) {
-        String key = X11PresentationPreferences.key(IntegrationPackage.TERMUX.selected(), desktopFile);
-        show(activity, title, X11PresentationPreferences.load(activity, key),
-                scale -> X11PresentationPreferences.save(activity, key, scale));
+final class GraphicalScaleDialog {
+    static void show(Activity activity, String title, String executor, String desktopFile) {
+        String key = GraphicalPresentationPreferences.key(executor, desktopFile);
+        show(activity, title, GraphicalPresentationPreferences.load(activity, key),
+                scale -> GraphicalPresentationPreferences.save(activity, key, scale));
     }
 
-    static void show(Activity activity, X11Sessions.Session session) {
-        show(activity, session.name, session.scalePercent(), scale -> {
-            X11PresentationPreferences.save(activity, session.presentationKey, scale);
-            session.setScale(scale);
-        });
+    static void show(Activity activity, GraphicalSessions.Session session) {
+        show(activity, session.name(), session.scalePercent(),
+                scale -> GraphicalPresentationPreferences.save(activity, session, scale));
     }
 
     private static void show(Activity activity, String title, int scale, IntConsumer save) {
@@ -47,11 +45,18 @@ final class X11ScaleDialog {
             @Override public void onStopTrackingTouch(SeekBar bar) { }
         });
         update.run();
+        IntConsumer apply = value -> {
+            try { save.accept(value); }
+            catch (RuntimeException error) {
+                new AlertDialog.Builder(activity).setMessage(ShellAccess.usefulMessage(error))
+                        .setPositiveButton(android.R.string.ok, null).show();
+            }
+        };
         new AlertDialog.Builder(activity).setTitle(title).setView(content)
                 .setNegativeButton(android.R.string.cancel, null)
-                .setNeutralButton(R.string.app_presentation_system, (dialog, which) -> save.accept(100))
-                .setPositiveButton(android.R.string.ok, (dialog, which) -> save.accept(slider.getProgress())).show();
+                .setNeutralButton(R.string.app_presentation_system, (dialog, which) -> apply.accept(100))
+                .setPositiveButton(android.R.string.ok, (dialog, which) -> apply.accept(slider.getProgress())).show();
     }
 
-    private X11ScaleDialog() { }
+    private GraphicalScaleDialog() { }
 }

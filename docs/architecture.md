@@ -19,10 +19,10 @@ Desktop. The [API-level contract](runtime-api-levels.md) records OS-dependent
 behavior, static verification and remaining device coverage.
 
 - Shared services own files, profiles, content, shell execution, Termux PTYs
-  and embedded X11 sessions.
+  and embedded X11/Wayland sessions.
   MCP is an authorized adapter to these services, not their lifetime owner.
   `hosted-runtime` contains the shared process-context adapter and retained-server
-  lifecycle used by X11 and the experimental [Wayland runtime](wayland.md).
+  lifecycle used by X11 and the [Wayland runtime](wayland.md).
   Its [graphics backend](graphics.md) supplies Vulkan/software composition,
   HardwareBuffer ownership, synchronization and Android presentation to both
   protocols. Renderer selection does not change executor identity or placement.
@@ -41,7 +41,7 @@ behavior, static verification and remaining device coverage.
   launch check and secondary-Activity feature. Pinned destinations retain identity
   validation through the shared catalog, including the app-only inventory;
   launches alongside an active Desktop retain its ownership handoff. A rejected
-  local launch never retries under a more privileged identity. Terminals and X11
+  local launch never retries under a more privileged identity. Terminals and Linux graphics
   share the same own-task reactivation through `ActivityManager.getAppTasks()`;
   a missing own task is distinct from one that needs privileged placement.
   The Android integration gateway uses the same placement selection for
@@ -576,8 +576,10 @@ component.
 | Fullscreen topology | `ShellFullscreenTaskArea` | Owns per-task fullscreen planes on every desktop target |
 | Hidden API stubs | `hidden-api-stubs/` | Compile-time signatures only; never packaged |
 | Terminal emulator | `terminal-emulator/` | Local byte-stream parser, screen buffers and terminal graphics |
+| Shared graphical runtime | `hosted-runtime/` | Server lifecycle, Vulkan/software composition, buffer transport and Android frame presentation |
 | X11 Android runtime | `x11-runtime/` | Server entry point, Binder connection, JNI and Android renderer adapters |
-| X11 native engine | `vendor/magicdesk-x11/lorie/src/main/cpp/` | X server, protocol and multi-output renderer |
+| X11 native engine | `vendor/magicdesk-x11/lorie/src/main/cpp/` | X server, protocol and adapters to shared multi-output graphics |
+| Wayland runtime | `wayland-runtime/` | wlroots compositor, protocol state, client admission and Android adapters |
 | Mouse helper | `native/magicdesk_uinput_bridge.c` | Binder-owned relative phone pointer |
 | Kernel Fixes add-on | `io.github.mekhontsev.magicdesk.kernel` | Independent, manually launched, firmware-specific root fixes |
 
@@ -1180,7 +1182,7 @@ merge repeated default Android launches and equivalent command recipes;
 presentation, labels and file copies do not create duplicate history items.
 One IO queue atomically replaces records and prunes each history beyond 24.
 `RecentApplications` records successful launches and observed focus changes;
-X11 publishes the original recipe when its session becomes usable. No additional
+Graphical sessions publish the original recipe when they become usable. No additional
 observer, timer or synchronous focus-time disk write is introduced.
 Bounds callbacks carry `FrameworkTaskSnapshot`, so shell
 observation does not need application-storage keys or profile serial lookup.
@@ -1188,7 +1190,7 @@ observation does not need application-storage keys or profile serial lookup.
 validated against the destination tool and Android profile. The live host publishes
 the same reference through `BuiltInWindowRegistry.ApplicationSource`; existing
 typed task callbacks resolve it for the common `AppWindowStateStore`. Recipe-less
-X11 windows have no durable geometry key, rather than overwriting another program.
+graphical windows have no durable geometry key, rather than overwriting another program.
 X11 dialogs (including those without a transient parent) and protocol-declared
 child toplevels do not inherit the application's launch or geometry identity.
 Live task/window identifiers and document titles are never persistent identities.
@@ -1765,7 +1767,13 @@ selected privileged identity stays unchanged. Termux-owned processes can use
 the already authorized RUN_COMMAND endpoint under their own UID. No Desktop,
 root requirement, new daemon, or automatic privilege escalation is introduced.
 
-## Embedded X11
+## Embedded Linux Graphics
+
+X11 and Wayland use a shared launch model, retained-session controls, Android
+hosts and graphics backend. `GraphicalSessions` supplies the common catalog and
+commands; protocol owners retain their native window identities and lifetimes.
+The [X11](x11.md), [Wayland](wayland.md), [graphics](graphics.md) and
+[shell-layout](shell-layout.md) documents define their focused contracts.
 
 `X11Sessions` retains independently owned X servers and lazy
 native renderers. Ordinary `X11Activity` windows borrow outputs. A whole-session
@@ -1783,6 +1791,12 @@ used by MCP consoles, rather than starting untracked background processes.
 `OperationResources` handles completion-before-registration and cancellation;
 completed resources are removed, and dependents close before their server.
 Android placement goes through `ToolApplications`.
+`WaylandSessions` owns the corresponding compositor admission, client transports
+and toplevel catalog. Termux clients connect to a private named socket; Shell
+clients receive a connection FD, and prepared root guests use a session-owned
+named-socket broker. The server's event loop owns wlroots state, while borrowed
+outputs and their Android presenters have independent lifetimes. Nested-desktop
+viewers retain their compositor after closing, like X11 whole-screen viewers.
 The read-only Termux `.desktop` catalog feeds shared Start content and MCP/CLI
 application discovery. `DesktopEntrySource` separates its authority from shell
 file access: Termux launches resolve an exact freshly queried catalog path.
@@ -1822,7 +1836,8 @@ descriptors, file staging and the authenticated guest-file bridge. These host
 contracts do not impose X11's session-global density or root-window model on
 Wayland. `HostedWindowOwners` qualifies per-native-window command responders;
 each protocol confirms requests through its own revision/acknowledgement rules.
-Protocol execution and rendering remain separate implementations.
+Protocol execution remains separate from the common graphics backend and frame
+presentation; X11 wire state and Wayland protocol objects do not enter Android policy.
 `HostedWindowLayout` carries client size limits and parent identity in protocol
 units. `HostedContentLayout` fits constrained content inside Android's inset-safe
 area; `ToolApplications` computes managed placement with Android decorations.
@@ -1857,8 +1872,10 @@ units. The original host offer and requested density remain independent of the
 constrained size and presentation scale. Fixed-size content remains aspect-fitted;
 the policy has no per-frame allocation or Java callback. Wayland bounds its buffer
 allocation by uniform rendering scale, shared with input and caret mapping.
-Protocol adapters own hint decoding. Transients are constrained
-where they fit; larger dialogs extend a single aspect-fitted family canvas shared
+Protocol adapters own hint decoding. Managed individual hosts lend supported
+dependent families to `HostedFamilyWindows` outside the parent task crop; placement,
+scale and exact input admission use the shared shell host. Independent hosts and
+unavailable external presentation retain one aspect-fitted family canvas shared
 by rendering and input. Startup roles from the X catalog allow a splash-to-main
 handoff within the same Android host, releasing the old output's input/content
 leases without closing the client or server. Root outputs leave Linux
@@ -1879,22 +1896,27 @@ immersive presentation, and `BuiltInWindowRegistry.ImmersiveSource` supplies
 explicit local intent to the existing Desktop reconciler independently of
 firmware insets-observation support. Only Desktop-owned tasks participate in
 that reconciliation; no host opens a Desktop or directly manipulates task areas.
-See [Embedded X11](x11.md) for lifecycle, build and current integration scope.
+Both protocols publish client fullscreen requests through the same host contract;
+native acknowledgement and close semantics remain protocol-specific.
 
 `HostedUiScale` selects a shared X11/Wayland application scale from Android
 density and current window metrics. The fractional ratio density/160 is bounded
 to 1-8 and to a minimum logical offer of 600 on the short side and 800 on the long
 side. Stable system-bar/cutout insets are excluded; IME, rendered buffers and client
 size constraints are not inputs. This is an initial toolkit policy, independent
-of aspect-fit presentation. Wayland uses the result for output scale, client limits
-and child placement. Integer toolkit/buffer scales are selected at each protocol
+of aspect-fit presentation. `HostedUiScale.adjust` applies the shared 50-200%
+launcher preference after this automatic calculation. Wayland uses the adjusted
+result for output scale, client limits and child placement. Integer toolkit/buffer scales are selected at each protocol
 boundary without replacing the logical scale. Integrated shell surfaces retain the layout scope's scale.
 `X11Density` selects one scale owner among a session's Android hosts and converts
-scale to X11 DPI at 96 per unit, applying the separately stored Linux application
-percentage afterward. Activity configuration and focus callbacks update it;
-there is no display/task polling. `X11PresentationPreferences` uses profile-private
+the adjusted scale to X11 DPI at 96 per unit. Activity configuration and focus callbacks update it;
+there is no display/task polling. `GraphicalPresentationPreferences` uses profile-private
 storage keyed by executor identity and desktop-entry path (Termux package or
-captured Shell service UID), without Desktop's state-store prerequisite.
+captured Shell service UID), without Desktop's state-store prerequisite. Start,
+the session manager and `graphics.set_scale` use the same store and propagate
+changes to matching live X11 and Wayland sessions. An empty launcher identity
+keeps the override local to that ad-hoc session. The manager does not become a
+host density owner when changing the preference.
 The fork owns XSettings serialization, selection
 lifetime and RandR publication on the X server thread. Whole Linux desktops keep
 their own toolkit settings manager; Android focus/topology is unchanged.
@@ -3250,14 +3272,14 @@ Returning to an already active desktop is display-scoped and does not restart
 the session. `PRESENT_WORKSPACE` orders every managed fullscreen plane below
 the HOME host and raises every live managed freeform task above it. On a phone
 desktop, the control panel's **Show desktop** uses this operation. Android's
-HOME intent only reveals the taskbar; a foreign fullscreen phone task is left
-to Android's normal HOME transition. The external-session touchpad exposes
+HOME navigation reveals the taskbar over managed or independent applications,
+without changing their focus or ownership. The external-session touchpad exposes
 the same operation for its target display, so its own phone task and every other display remain
 untouched. `PRESENT_DESKTOP` remains the separate command that conceals all
 application windows to expose bare wallpaper.
 
 `DesktopLaunchPolicy` resolves managed launch presentation uniformly for apps,
-Intents, published shortcuts and built-in hosts (including X11). The opt-in
+Intents, published shortcuts and built-in hosts (including Linux graphics). The opt-in
 phone fullscreen default is only a fallback for new windows on display 0.
 Explicit requests, a reused task's mode, and saved per-application mode/bounds
 take precedence. It does not change independent launch policy or existing
@@ -4501,10 +4523,11 @@ The Gradle project has seven modules:
 - `hidden-api-stubs`: compile-only framework signatures;
 - `kernel-fixes`: independent optional APK;
 - `terminal-emulator`: locally maintained terminal parser and screen model;
-- `hosted-runtime`: shared graphical-process context and lifecycle support;
+- `hosted-runtime`: shared graphical-process context, retained-server lifecycle,
+  Vulkan/software graphics, frame transport and Android presentation;
 - `x11-runtime`: MagicDesk's Android X11 runtime and JNI adapter, linking the
   fork's native engine. No upstream Java or compile-only X11 stubs are used;
-- `wayland-runtime`: the experimental wlroots compositor, immutable frame
+- `wayland-runtime`: the embedded wlroots compositor, immutable frame
   transport, Android presenter and authenticated client-FD handoff. wlroots and
   its non-system dependencies are pinned source builds, not a fork.
 
@@ -4518,12 +4541,14 @@ also builds its server/renderer library. CI verifies
 that the main APK contains the required helpers and no `.ko`, and that the Kernel
 Fixes APK contains exactly the reviewed module and no main-app native helper.
 
-The APK, main-app helpers and X11 library currently cover ARM64 only. Linux
+The APK, main-app helpers and graphical runtimes cover ARM64 only. Linux
 and Windows CI both target Android ARM64; package checks reject other native ABIs.
-Both helper compiler paths target the APK's API 34 minimum, as does embedded X11.
-The Wayland stack is built and checked in Termux for that same minimum;
-non-Termux build hosts currently require a prepared runtime prefix. Its NDK
-dependency cross-build and CI integration remain pending; see [Wayland](wayland.md).
+Both helper compiler paths and graphical runtimes target the APK's API 34 minimum.
+Wayland dependencies are pinned source builds through the Android NDK on Linux
+and the Android toolchain in Termux. Linux CI exports the verified dependency
+prefix for Windows CI; Windows consumes it through `magicDeskWaylandRuntime`.
+The build does not require an installed Termux runtime on the target device.
+See [Wayland build instructions](wayland.md#build).
 Compilation does not establish native compatibility. Device coverage is documented in
 [Runtime API levels](runtime-api-levels.md).
 

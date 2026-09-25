@@ -43,6 +43,10 @@ explains the requirements and opens setup only when requested. It does not
 require an already started session, and an app restart
 does not undo completed device setup. A missing privileged service or Desktop
 setup does not invalidate a ready Termux integration.
+**Limited** means the framework does not advertise its Desktop provider;
+MagicDesk can still use supported freeform operations, but system captions and
+window controls may be incomplete. The dialog and Diagnostics explain that
+capability separately from missing setup.
 
 ## Open Tools
 
@@ -95,19 +99,29 @@ pkg install xkeyboard-config gimp
 Open Start and search for GIMP. MagicDesk discovers installed Termux `.desktop`
 launchers when Start opens. The X server is embedded; no separate Termux:X11 APK
 is required. Choose the display and window mode with Start's normal controls.
-Interactive X11 launches and reopening an existing window on its current display
-do not require Desktop or shell access, including Android-allowed secondary
-displays. Display resource management, existing-task transfers and background
+Interactive Linux graphics launches and reopening an existing window on its
+current display do not require Desktop or shell access, including Android-allowed
+secondary displays. Display resource management, existing-task transfers and background
 placement require the privileged service.
 
-The **X11** tool manages retained sessions and can open a whole Linux desktop
-or individual clients from that session. In **New command app**, choose
+**Linux graphics** manages retained X11 and Wayland sessions. Choose **New
+graphical session**, select the protocol and executor, and enter an optional
+startup command. **Application windows** opens an individual client; the desktop
+viewer opens a whole X11 screen or a Wayland session created with **Nested Linux
+desktop**. A Wayland desktop command must run a nested compositor with its
+Wayland backend, not start another display server on Android hardware.
+
+Installed Termux graphical launchers default to X11. For a Wayland application,
+use **New command app > Termux graphics**, select Wayland and enter its command.
+See [Wayland session controls](wayland.md#session-controls) for examples.
+In **New command app**, choose
 **Linux (Termux)** for an installed proot-distro environment or a custom entry
 script. Choose **Linux (Shell / root)** for a prepared chroot without Termux.
 Chroot entry requires actual root access; graphical Shell launchers also need
-an Android-visible XKB data directory. MagicDesk supplies the terminal and X
-server, while your Linux environment supplies its programs. See
-[Embedded X11](x11.md) for setup, launchers, content exchange and container examples.
+an Android-visible XKB data directory. MagicDesk supplies the terminal, X11 server
+and Wayland compositor, while your Linux environment supplies its programs.
+See [Embedded X11](x11.md), [Embedded Wayland](wayland.md) and
+[Desktop Entry files](desktop-entries.md) for launch and file-exchange requirements.
 
 ## Choose Or Create A Display
 
@@ -198,17 +212,18 @@ freeform tasks and demoting managed fullscreen tasks on that display.
 
 MagicDesk temporarily acquires Android's HOME role for the first Desktop and
 retains it until the last one closes. Without a phone Desktop, phone Start
-defaults to independent fullscreen launches. With a phone Desktop, HOME shows
-that workspace. Each Start's Recent history follows its selected destination
-and launch mode; Running applications lists live tasks when access is available.
+defaults to independent fullscreen launches. With a phone Desktop, HOME reveals
+its taskbar without replacing the foreground application. Each Start's Recent
+history follows its selected destination and launch mode; Running applications
+lists live tasks when access is available.
 Start on each display is independent.
 The control panel's **Apps** opens fullscreen Start, even without Desktop. Its
 **Running applications** tab can move a specific task to the selected destination.
 Every Start has its own launch-display choice; changing it does not switch input
 or start a Desktop.
 
-On phone Desktop, Home shows the hidden taskbar. An outside touch or taskbar
-action dismisses it.
+The revealed taskbar remains available while its Start or another panel is open.
+An outside touch dismisses the temporary reveal.
 
 **Settings > Desktop > New windows fullscreen on phone** makes fullscreen the
 default for new phone Desktop windows. Explicit launch choices and saved window
@@ -221,6 +236,12 @@ Screen retention does not override explicit screen-off or lock. Disabling adapti
 brightness preserves the current brightness and still allows manual adjustment;
 automatic mode is restored after the last Desktop closes unless the user changed
 the mode meanwhile. These options are off by default.
+
+**System theme during Desktop** in the same section offers **Do not change**,
+**Light** and **Dark**. It applies immediately to the whole Android system while
+any Desktop is running. The previous theme returns after the last session closes,
+unless it was changed in Android settings meanwhile. This is a session override,
+not a separate theme for each display.
 
 Notification-listener access is optional. Grant it only when MagicDesk's
 notification center and popups are wanted.
@@ -236,7 +257,7 @@ and owned displays available. Other Desktops keep running; only closing the last
 one returns HOME to its previous role state.
 
 **Exit MagicDesk** also clears that live workspace record, closes built-in
-windows, ends retained terminal and X11 sessions, removes owned displays and
+windows, ends retained terminal and graphical sessions, removes owned displays and
 stops the app process after cleanup. Neither action deletes Desktop files.
 Reopening applies pending integration-package and privilege settings; Close
 Desktop does not restart the app or apply those startup choices.

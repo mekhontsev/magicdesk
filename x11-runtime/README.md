@@ -7,8 +7,9 @@ in [vendor/magicdesk-x11](../vendor/magicdesk-x11).
 ## Scope
 
 The module owns the X server entry point, authenticated Binder connection,
-renderer outputs, protocol input and content-transfer adapters. The application
-owns command execution, session retention, Android placement, clipboard focus
+borrowed outputs, protocol input and content-transfer adapters. Shared graphics,
+buffer transport and Android frame presentation belong to `hosted-runtime`.
+The application owns command execution, session retention, Android placement, clipboard focus
 and URI grants. Neither Desktop nor HOME is a module prerequisite.
 
 The server runs under the selected Termux UID or MagicDesk's app UID; client

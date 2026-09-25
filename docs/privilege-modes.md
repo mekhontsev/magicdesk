@@ -27,7 +27,7 @@ Display enumeration and interactive Activity launches on Android-accessible
 secondary displays also work with App-only access. They use the caller's app UID
 and ordinary display-launch checks, not an automatically elevated retry. Stable
 monitor profiles, trusted virtual resources, global task placement and system
-input routing remain privileged operations. Linux input delivered inside our X11
+input routing remain privileged operations. Linux input delivered inside a graphical
 host is distinct from Android-wide input injection.
 
 ## Shell Service
@@ -43,10 +43,10 @@ is no libsu dependency, automatic backend fallback, or root requirement.
 - **Shell** (default) reduces an initial UID 0 to 2000 before the working Java
   process starts. A Shizuku server already running as UID 2000 needs no extra bootstrap.
 - **App only** does not construct, initialize or request either privilege transport.
-  Ordinary app services remain available; Termux terminals and X11 use their own authorization.
+  Ordinary app services remain available; Termux terminals and Linux graphics use their own authorization.
 
 Independent **Termux integration** and **Managed Desktop** switches default to on.
-Disabling Termux blocks its RUN_COMMAND execution, PTYs and X11 executor, not shell-backed sessions or
+Disabling Termux blocks its RUN_COMMAND execution, PTYs and graphical executors, not shell-backed sessions or
 the installed Termux app itself. Disabling Desktop blocks setup, workspace startup
 and self-tests without blocking independent display resources or input control.
 Desktop still requires privileged access, API 35 and completed device setup.
@@ -133,18 +133,19 @@ replacement and process death do not preserve those terminals.
 Managed tmux windows instead release their client PTY when closed; tmux owns
 the server session and its programs.
 
-X11 clipboard and copy drag-and-drop use MIME offers and bounded content streams.
+X11 and Wayland clipboard and copy drag-and-drop use MIME offers and bounded content streams.
 Android recipients receive read-only URI grants, not privileged filesystem
 authority. Native Termux clients use the retained server's Termux UID for files.
 Linux recipes declare a guest file environment: its session-scoped helper opens
 exported files inside the guest with the selected Linux user's credentials and
 passes read-only descriptors over an authenticated Unix socket. This works for
-PRoot and chroot without elevating the X11 server. Shell-hosted servers retain
+PRoot and chroot without elevating either display server. Shell-hosted servers retain
 their app UID; imported files use the session's shared content directory,
-exposed by the entry script at `/tmp/magicdesk-x11/content`.
+exposed by the entry script at `/tmp/magicdesk-x11/content` or
+`/tmp/magicdesk-wayland/content` for the selected protocol.
 Guest paths are never guessed as host paths or retried under another identity.
 An unavailable guest helper fails the transfer, without a host-filesystem fallback.
-Clipboard observation is scoped to a focused X11 host, not a global history.
+Clipboard observation is scoped to a focused graphical host, not a global history.
 
 ## Input And HOME Ownership
 

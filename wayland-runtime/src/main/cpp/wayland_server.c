@@ -663,7 +663,7 @@ static void surface_scale(struct wlr_surface *surface, int sx, int sy, void *dat
 
 bool mdw_output_scale(MdwOutput *output, double scale) {
     if (!output || output->parent || !output->view || !output->view->configure ||
-            !isfinite(scale) || scale < 0.25 || scale > 8) return false;
+            !isfinite(scale) || scale < 0.25 || scale > 16) return false;
     if (output->scale == scale) return true;
     double previous = output->scale;
     output->scale = scale;

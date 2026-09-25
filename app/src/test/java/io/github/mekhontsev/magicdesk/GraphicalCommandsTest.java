@@ -14,6 +14,8 @@ public final class GraphicalCommandsTest {
         assertFalse(observation.allows("graphics.start"));
         var control = new McpAccessPolicy(Set.of("control"));
         assertTrue(control.allows("graphics.open_window"));
+        assertTrue(control.allows("graphics.set_scale"));
+        assertFalse(observation.allows("graphics.set_scale"));
         assertFalse(control.allows("graphics.execute"));
         var execution = new McpAccessPolicy(Set.of("shell"));
         assertTrue(execution.allows("graphics.start"));
@@ -62,6 +64,22 @@ public final class GraphicalCommandsTest {
 
     private static String source(String name) throws Exception {
         return Files.readString(Path.of(RuntimeSourceFixture.MAIN + name + ".java"));
+    }
+
+    @Test public void scaleSchemaAndManagerAreSharedAndNeedNoDesktopOrShell() throws Exception {
+        var tool = AutomationCommandArguments.command("graphics.set_scale");
+        var schema = tool.getJSONObject("inputSchema");
+        assertEquals(Set.of("sessionId", "scalePercent"), strings(schema.getJSONArray("required")));
+        var percent = schema.getJSONObject("properties").getJSONObject("scalePercent");
+        assertEquals(50, percent.getInt("minimum"));
+        assertEquals(200, percent.getInt("maximum"));
+        AutomationCommandArguments.check("graphics.set_scale", new JSONObject().put("sessionId", "test").put("scalePercent", 150));
+        assertThrows(IllegalArgumentException.class, () -> AutomationCommandArguments.check("graphics.set_scale",
+                new JSONObject().put("sessionId", "test")));
+        assertTrue(source("GraphicalSessionsActivity").contains("GraphicalScaleDialog.show(this, session)"));
+        assertFalse(source("StartMenuContent").contains("graphics.protocol() == GraphicalProtocol.X11"));
+        for (String name : new String[]{"X11Sessions", "WaylandSessions"})
+            assertTrue(source(name).contains("GraphicalPresentationPreferences.load(context, presentationKey)"));
     }
 
     private static Set<String> strings(org.json.JSONArray values) throws Exception {

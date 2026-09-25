@@ -8,6 +8,12 @@ import android.view.WindowManager;
 final class HostedUiScale {
     private HostedUiScale() { }
 
+    static double adjust(double automatic, int percent) {
+        if (!Double.isFinite(automatic) || automatic <= 0 || !AppPresentationProfile.isValidScale(percent))
+            throw new IllegalArgumentException("Invalid hosted interface scale");
+        return Math.max(0.25, Math.min(16, automatic * percent / 100.0));
+    }
+
     static float resolve(Context context) {
         var resources = context.getResources();
         int density = resources.getConfiguration().densityDpi;

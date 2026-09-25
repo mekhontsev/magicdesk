@@ -119,7 +119,7 @@ on an individual recipe's behalf. Both PRoot and chroot use this guest file
 contract; ordinary Termux applications do not need it.
 
 Fixed-purpose scripts can be used directly as ordinary Shell or Termux command
-entries, with optional X11 presentation. They need the option/argv contract only
+entries, with optional X11 or Wayland presentation. They need the option/argv contract only
 to use the Linux editor's shared user, directory and command fields.
 
 `Exec` is limited to 4096 characters and cannot contain a NUL character. `%%`
@@ -162,7 +162,7 @@ association.
 
 Non-graphical commands without field codes use raw shell syntax by default,
 including pipes, redirections and command separators. `X-MagicDesk-ExecSyntax=argv`
-selects literal arguments; X11 presentation always uses that argument mode.
+selects literal arguments; graphical presentation always uses that argument mode.
 A literal percent must be written as `%%` in either mode.
 
 `Terminal` selects how the command is presented:
@@ -170,7 +170,7 @@ A literal percent must be written as `%%` in either mode.
 - `Terminal=true` opens a command window for the selected backend. The shell
   and Termux backends both use MagicDesk Console with their respective PTY
   transports.
-- Missing or false `Terminal` starts X11 presentation when configured, otherwise
+- Missing or false `Terminal` starts graphical presentation when configured, otherwise
   runs the command in the background. Launch completion or failure is reported
   through the calling UI or automation result.
 
@@ -230,7 +230,7 @@ Termux `.desktop` entries automatically. The standalone Termux:X11 APK is not
 required. Graphical recipes follow desktop-entry argument expansion even without
 field codes; shell constructs require explicit `sh -c`. Non-graphical entries
 may also select literal argv with `X-MagicDesk-ExecSyntax=argv`. `Terminal=true`
-omits graphical options and selects the executor's Console path. Shell X11 recipes
+omits graphical options and selects the executor's Console path. Shell graphical recipes
 also set `X-MagicDesk-KeyboardDirectory=/host/path/to/X11/xkb`. See
 [Embedded X11](x11.md) for retention, multiple windows and container commands.
 
@@ -241,10 +241,10 @@ the command must select its Wayland backend and a supported renderer. Both modes
 retain the server after the Android viewer closes.
 The PRoot editor generates this recipe for installed `proot-distro` environments.
 For custom proot/chroot setups, use an explicit `Exec` script exposing the
-supplied X socket and authorization to the guest. MagicDesk does not infer
+supplied protocol endpoint and, for X11, authorization to the guest. MagicDesk does not infer
 which guest application or desktop command to start.
 
-`X-MagicDesk-Graphics=wayland` selects the experimental Wayland compositor.
+`X-MagicDesk-Graphics=wayland` selects the embedded Wayland compositor.
 `application` is the default graphical mode. Start,
 Recent, recipe identity and Android placement use the same owners as X11;
 ordinary installed Termux graphical entries default to X11 unless they explicitly
@@ -262,7 +262,7 @@ managed and ordinary launches, respectively. The selected destination and launch
 mode determine which is shown: Auto uses Desktop history only if that destination
 has a Desktop; Independent always uses ordinary history. The host window, shell
 availability and a Desktop running on another display do not select the history.
-Android applications, built-in tools, commands and X11 desktops use this same
+Android applications, built-in tools, commands and X11/Wayland recipes use this same
 Desktop Entry format, plus `X-MagicDesk-LastUsed` (Unix milliseconds),
 `X-MagicDesk-Source` (the original entry path for field expansion), and
 `X-MagicDesk-TermuxPackage` when a Termux execution environment is required.
@@ -272,11 +272,11 @@ profile identity, not an unqualified package name.
 Each history keeps the latest 24 distinct recipes, one file per semantic launch identity.
 Repeated use updates that file and ordering; renamed/copied launchers do not
 create duplicates unless they change the effective command. Runtime task IDs,
-X session IDs, display selection and New window requests are not history keys.
+graphical session IDs, display selection and New window requests are not history keys.
 Search also includes remembered recipes from the selected history absent from
 the installed catalogs. Built-in tools retain reusable launches; Shell Console
 and Termux Console are distinct. Session attachments do not retain transient
-terminal IDs, and X11 hosts remember the actual command/application, not a generic
+terminal IDs, and graphical hosts remember the actual command/application, not a generic
 viewer. One-shot prompts and shell infrastructure are excluded.
 Fullscreen Start's separate Running section remains based on live Android tasks,
 not persisted history, and reports unavailable access explicitly.
@@ -373,7 +373,7 @@ desktop window placement matters.
 - `fullscreen`: request a true fullscreen task.
 
 Unknown or missing values use `auto`. Window modes apply to an Android target
-or to the Android host created for an X11 recipe. They require managed Desktop
+or to the Android host created for a graphical recipe. They require managed Desktop
 placement for windowed mode; independent placement remains fullscreen.
 They do not alter a generic background shell process. Start's explicit mode
 selection can override the recipe's default for that launch.

@@ -393,10 +393,10 @@ Windows report title, app identity, role, parent, dimensions, constraints,
 fullscreen and maximization requests. `actual=null` means unavailable, not false.
 Requested state is not proof of a completed Android transition.
 `protocolDetails` preserves protocol-specific information: X11 session display,
-DPI, scale and file environment, and each X window's instance/class and host
+DPI and file environment, and each X window's instance/class and host
 management. Tokens, Xauthority cookies and startup commands are omitted.
 `executor`, `executorUid` and `serverUid` distinguish command identity from
-the server: Shell/root sessions run their X server as the ordinary app UID.
+the server: Shell/root sessions run their display server as the ordinary app UID.
 Launch a Shell Linux `.desktop` recipe with `launch_desktop_entry`, or pass an
 entry script as `terminal.open`'s shell command for a terminal-only chroot.
 Neither route requires Desktop or a separate container-management MCP API.
@@ -409,6 +409,16 @@ availability; individual protocols still validate their launch requirements.
 command. `launch_desktop_entry` uses that selection through Start's shared launch
 coordinator, including recipe reuse and `instance=new`. Acceptance is not a mapped
 client window; observe the graphical catalog and Android task separately.
+
+`graphics.set_scale(sessionId, scalePercent)` sets the Linux interface scale
+for either protocol, from 50 to 200; 100 restores automatic host scaling.
+It requires `control`, not Desktop or shell access. The common session fields
+`scalePercent` and `scalePersistent` report the selected percentage and whether
+the session has a launcher profile. Saved changes apply to matching live sessions
+and subsequent launches. Ad-hoc sessions are adjusted independently without
+saving a profile. X11 publishes settings/DPI; Wayland updates host output scale,
+constraints and dependent placement. Client settings can override toolkit behavior
+or require a restart; command acceptance is not proof of client relayout.
 
 `graphics.inspect_window` reads one live window family by `sessionId` and native
 `windowId` from that catalog. It requires `content`, not Desktop or shell access.
@@ -1074,7 +1084,7 @@ ownership, or a task observed across conflicting displays cannot prove absence.
 No match falls back to another application. Task-addressed inspection relies on
 the hidden AOSP `AccessibilityWindowInfo.getTaskId` accessor already present in
 Android 14; if mapping is unavailable, ordinary display inspection remains usable.
-An X11 host task still exposes only its Android accessibility tree, not Linux widgets.
+A Linux host task exposes only its Android accessibility tree, not toolkit widgets.
 
 Both inspect and wait accept `windowId` or `rootElementId` (mutually exclusive)
 within the selected display or task. A subtree handle is refreshed and its window

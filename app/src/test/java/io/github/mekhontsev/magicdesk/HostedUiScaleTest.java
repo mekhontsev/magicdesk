@@ -4,6 +4,21 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public final class HostedUiScaleTest {
+    @Test public void manualAdjustmentIsFractionalAndSeparateFromAutomaticGeometryBudget() {
+        assertEquals(1.95, HostedUiScale.adjust(1.3, 150), 0.00001);
+        assertEquals(0.5, HostedUiScale.adjust(1, 50), 0);
+        assertEquals(16, HostedUiScale.adjust(8, 200), 0);
+        assertEquals(2, HostedUiScale.adjust(2, 100), 0);
+        assertEquals(0.25, HostedUiScale.adjust(0.1, 50), 0);
+        assertEquals(16, HostedUiScale.adjust(100, 200), 0);
+        for (int percent : new int[]{50, 100, 125, 150, 200})
+            assertEquals(Math.round(96 * HostedUiScale.adjust(1.3, percent)), X11Density.resolve(1.3, percent));
+        assertThrows(IllegalArgumentException.class, () -> HostedUiScale.adjust(Double.NaN, 100));
+        assertThrows(IllegalArgumentException.class, () -> HostedUiScale.adjust(0, 100));
+        assertThrows(IllegalArgumentException.class, () -> HostedUiScale.adjust(1, 49));
+        assertThrows(IllegalArgumentException.class, () -> HostedUiScale.adjust(1, 201));
+    }
+
     @Test public void phonePreservesUsefulLogicalSpaceInEitherOrientation() {
         assertEquals(1216 / 600f, HostedUiScale.resolve(520, 1216, 2498), 0.00001f);
         assertEquals(1216 / 600f, HostedUiScale.resolve(520, 2498, 1216), 0.00001f);

@@ -812,7 +812,6 @@
     <string name="settings_keep_desktop_awake">Keep session active</string>
     <string name="settings_keep_screen_on">Keep phone screen on</string>
     <string name="settings_phone_fullscreen_default">New windows fullscreen on phone</string>
-    <string name="settings_external_linux_child_windows">Linux child windows outside parent</string>
     <string name="settings_disable_adaptive_brightness">Disable adaptive brightness</string>
     <string name="settings_system_theme">System theme during Desktop</string>
     <string name="settings_system_theme_unchanged">Do not change</string>

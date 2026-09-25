@@ -860,12 +860,14 @@ final class StartMenuContent {
                             && mCatalog.snapshot().termux().entries().stream().anyMatch(current -> current.userShortcut
                                     && current.desktopFilePath.equals(application.desktopFilePath));
                     final boolean scale = application.shortcut.graphics != null
-                            && application.shortcut.graphics.protocol() == GraphicalProtocol.X11;
+                            && !application.desktopFilePath.isBlank();
                     if (!userShortcut && !scale) return false;
                     final android.widget.PopupMenu menu = new android.widget.PopupMenu(mActivity, anchor);
                     if (scale) menu.getMenu().add(R.string.app_presentation_scale)
                             .setOnMenuItemClickListener(item -> {
-                                X11ScaleDialog.show(mActivity, entry.label, application.desktopFilePath);
+                                GraphicalScaleDialog.show(mActivity, entry.label, entry.recent == null
+                                        ? IntegrationPackage.TERMUX.selected() : entry.recent.termuxPackage(),
+                                        application.desktopFilePath);
                                 return true;
                             });
                     if (userShortcut) menu.getMenu().add(R.string.action_delete_shortcut)

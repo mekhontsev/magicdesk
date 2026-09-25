@@ -120,7 +120,7 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
         }
         if (session.stopped() || window <= 0 || !session.containsWindow(window)) { finishAndRemoveTask(); return; }
         var current = session.windows().stream().filter(item -> item.id() == window).findFirst().orElseThrow();
-        content.constraints(current.constraints(), HostedUiScale.resolve(this));
+        content.constraints(current.constraints(), session.unitScale(this));
         String title = current.title().isBlank() ? session.name : current.title();
         present(title);
         status.setText(session.error());

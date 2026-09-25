@@ -244,11 +244,12 @@ in-APK catalog recognition must not use its reused stock fingerprint alone.
   released to independent fullscreen. Release-time synthetic inset repair is
   disabled because it caused content/caption overlap after reopening Desktop.
   The existing caption repair for transitions within an active Desktop is separate.
-- WMShell's native close control can remove an X11 Android host directly, without
+- WMShell's native close control can remove a Linux application's Android host directly, without
   a cancellable Activity callback. MagicDesk reopens a surviving client on its
   verified destination, so a save dialog remains accessible; the Android task ID
   changes and the window may briefly disappear. MagicDesk Close/Alt+F4/MCP requests
-  retain the original host; see [X11 applications](x11.md#applications).
+  retain the original host; see [X11 applications](x11.md#applications) and
+  [Wayland host ownership](wayland.md#boundaries).
 - Custom-caption mouse handling depends on WMShell preserving the application's
   display-specific gesture-exclusion regions. MagicDesk does not replace
   native captions or replay intercepted clicks.
@@ -258,17 +259,23 @@ in-APK catalog recognition must not use its reused stock fingerprint alone.
 - Full work-profile/Private Space support and additional built-in screens on
   dual-screen devices are not implemented/verified by the current identity
   and display infrastructure.
-- Embedded X11 needs an authorized Termux or Shell executor and XKB data.
-  Shell-hosted chroot entry needs actual UID 0; the X server itself uses the app
-  UID. The standalone Termux:X11 APK is not required. Graphics acceleration is
-  capability-based; unsupported Vulkan
-  imports retain CPU fallback. Oversized
-  dialogs are aspect-fitted with their parent rather than drawn outside Android
-  host bounds. See [X11 graphics and limits](x11.md#graphics-and-limits).
-- X11 clipboard and copy drag-and-drop require compatible formats at both ends.
-  Termux clients need server-accessible paths; Shell-hosted guests use the
-  explicit per-session shared directory. Other container-private paths are not
-  translated, and denied file access is not retried through root.
+- Embedded X11 and Wayland need an authorized Termux or Shell executor and XKB
+  data. Shell-hosted chroot entry needs actual UID 0; the display server itself
+  uses the app UID. No companion display-server APK is required. Both protocols
+  use the [shared graphics backend](graphics.md); client GPU acceleration requires
+  a compatible driver and buffer format. A software-rendered client remains
+  supported without GPU import. Wayland currently admits linear RGB DMA-BUFs,
+  not arbitrary modifiers; XWayland is not enabled.
+- In managed Desktop, supported Linux child windows extend beyond the parent's
+  task crop. Independent hosts and unavailable external presentation use the
+  in-window fallback. Whole Linux desktop viewers keep their children inside
+  the guest desktop. See [dependent surfaces](shell-layout.md#application-relative-surfaces).
+- Linux clipboard and copy drag-and-drop require compatible formats at both
+  ends. Guest file recipes need the authenticated helper and shared paths exposed
+  by their entry adapter. Other container-private paths are not guessed as host
+  paths, and denied access is not retried through root. See
+  [X11 transfers](x11.md#clipboard-and-drag-and-drop) and
+  [Wayland transfers](wayland.md#host-interaction).
 
 Native system shadows are expected. Self-test fixture-color comparisons account
 for their dimming; a literal source RGB match is not required on the composed

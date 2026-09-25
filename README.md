@@ -8,7 +8,7 @@ real file-based desktop, per-app interface scaling and programmable automation,
 and your phone becomes a workstation. Work on its own screen, on external
 displays, or from a computer through scrcpy.
 
-Run Android apps, Termux X11 applications and command-line tools side by side.
+Run Android apps, X11 and Wayland applications and command-line tools side by side.
 Move content between Files, terminals and Android apps. Let an authorized AI
 client use the same services you use interactively. Desktop is one way to work
 with these tools, not a requirement for using them.
@@ -17,7 +17,7 @@ The APK requires **Android 14+**. Managed **Desktop requires Android 15+**.
 For privileged features, use [Shizuku](https://github.com/RikkaApps/Shizuku) on an unrooted device, or
 **direct root without Shizuku** on a rooted one. Both start the same privileged
 service. Root is optional, and root users can limit that service to Android's
-shell UID 2000. **Termux terminals and X11 applications also work without Shizuku,
+shell UID 2000. **Termux terminals and Linux graphical applications also work without Shizuku,
 root or a Desktop session**, on the phone or an Android-allowed secondary display.
 MagicDesk can also complement your [existing desktop mode](#using-your-existing-desktop-mode),
 including Samsung DeX, with Linux graphical applications and Termux terminals.
@@ -51,7 +51,8 @@ MagicDesk's strength is how its parts work together:
 - **Linux graphical apps join the workspace.** Launch installed Termux apps
   such as GIMP and Firefox from Start into separate windows alongside Android
   apps. Or open a complete Linux desktop from a configured proot/chroot
-  environment. The X11 server is built in; no separate Termux:X11 APK is needed.
+  environment. X11 and Wayland are built in; no separate Termux:X11 APK or
+  companion display server is needed.
 - **A terminal worth using on its own.** Run Android shell, root shell or
   Termux tools in independent windows with a bundled Nerd Font, clickable
   links, Sixel/Kitty images, touch scrolling and a unified terminal/tmux picker.
@@ -121,6 +122,13 @@ independent fullscreen app; request a new window where the app supports it.
 Independent apps stay outside Desktop's taskbar and Alt+Tab, even on a screen
 with an active Desktop. Opening an app does not redirect the keyboard or mouse;
 input routing has its own control.
+
+On phone Desktop, Android Home reveals a hidden taskbar while leaving the
+current application in place. **New windows fullscreen on phone** can make
+fullscreen the default, while explicit choices and saved window layouts take
+precedence. **Settings > Session** controls phone screen retention, CPU wake
+lock, adaptive brightness and a temporary system-wide light/dark theme. These
+options apply while Desktop is running and release their overrides when it ends.
 
 Close records the selected workspace and releases its surviving applications
 as independent fullscreen tasks on the same live display, leaving other
@@ -246,11 +254,12 @@ details and actions depend on the connected service's permissions.
 ## Linux Applications
 
 **Run Linux graphical applications beside Android apps, not just inside one
-large Linux desktop window.** MagicDesk embeds its own Termux:X11 fork and
-presents individual X11 application windows as Android tasks. GIMP and the
+large Linux desktop window.** MagicDesk embeds an X11 server and a Wayland
+compositor, with common Android hosting and session controls. GIMP and the
 Termux version of Firefox can run simultaneously, each with its own window,
-taskbar entry and X session. No separate Termux:X11 APK or Linux window manager
-is needed for this mode.
+taskbar entry and graphical session. Programs can come from native Termux
+packages, proot or a prepared chroot. Individual application mode does not need
+a guest desktop environment or a separate display-server APK.
 
 ![GIMP and Termux Firefox in separate MagicDesk windows, with Task Manager showing their X11 sessions](docs/images/magicdesk-x11.png)
 
@@ -292,51 +301,79 @@ Choose the destination display and window mode using the same Start controls
 as Android apps. Mouse, keyboard, clipboard, app titles and icons are
 integrated. Launching again returns to the existing window; **New window** requests
 another session, subject to the application's own instance/profile rules.
-Recent remembers Android and X11 launch recipes without accumulating duplicate
-entries, and can relaunch an X11 command after its previous session ends.
+Recent remembers Android, X11 and Wayland launch recipes without accumulating
+duplicate entries, and can relaunch a command after its previous session ends.
+Installed Termux graphical entries default to X11. To select Wayland, use
+**New command app > Termux graphics**, choose the protocol and supply a
+Wayland-capable command. Linux environment launchers offer the same choice.
 
-Copy text, HTML, PNG images and files between Android and X11 applications.
-Drag-and-drop supports copying between compatible Android/X11 windows and
-between separate X11 sessions. The receiving application must support the
-offered format; container-private file paths need shared storage or bindings.
-See [clipboard and drag-and-drop](docs/x11.md#clipboard-and-drag-and-drop) for
-the supported formats and limits.
+Copy text, HTML, PNG images and files between Android and Linux applications.
+Clipboard and copy drag-and-drop use the same Android content exchange for X11
+and Wayland, including separate sessions. The receiving application must support
+the offered format. Generated Linux launchers include the guest file bridge;
+custom container entry scripts must expose its shared paths. See
+[X11 content exchange](docs/x11.md#clipboard-and-drag-and-drop) and
+[Wayland content exchange](docs/wayland.md#host-interaction) for format and transport limits.
 
-X11 scale follows the host display's density. Adjust an app's **Interface scale**
-from **50% to 200%** in its Start context menu, or adjust a session in the X11
-manager. Linux toolkits retain their own scaling behavior; some applications
-need a restart to pick up a density change.
+Linux interface scale follows the Android host's density and window size through
+a shared X11/Wayland policy. **Interface scale** adds a **50% to 200%**
+adjustment in the installed app's Start context menu or for a session in
+**Linux graphics**, for either protocol. Launcher preferences are saved; ad-hoc
+sessions keep their setting until stopped. Linux
+toolkits retain their own behavior; some applications need a restart to pick up
+a density change.
+
+In managed Desktop, supported menus, dialogs and popups can extend beyond their
+parent window through shared dependent-window hosting. Independent windows and
+whole-desktop viewers keep their content inside the Android host. Normal close
+honors the Linux application's save confirmation; force close remains a separate action.
 
 ### Whole Linux Desktops Too
 
-Use the **X11** tool to create and manage multiple retained sessions, run a
-window manager or launch a configured proot/chroot Linux desktop. Open the whole
-desktop in one window, or choose individual clients through **X11 windows**.
+Use **Linux graphics** to create and manage retained X11 and Wayland sessions.
+Open a whole desktop in one window, or select clients through **Application
+windows**. X11 hosts a guest window manager and its screen; Wayland hosts a
+nested compositor using its Wayland backend. The desktop command must support
+the selected protocol.
 A custom `.desktop` launcher can bring that environment into Start as well.
 In **New command app**, choose **Linux (Termux)** and an installed `proot-distro`
 environment or a custom entry script for prepared chroot/other environments.
-Create a terminal, X11 application or Linux-desktop launcher, optionally choosing
+Create a terminal, graphical application or Linux-desktop launcher, optionally choosing
 the Linux user and working directory. User shortcuts can be deleted from Start.
 Leave the terminal command empty for a Linux login shell in MagicDesk Console.
-MagicDesk supplies the X server and windows; Termux and your container setup
+MagicDesk supplies the display server and windows; Termux and your container setup
 supply the programs. It does not install or configure a Linux distribution for you.
 
 With authorized **Root** access, **Linux (Shell / root)** launchers can use a
-prepared chroot without Termux at all: the same Console, individual X11 windows
+prepared chroot without Termux at all: the same Console, individual Linux windows
 or whole Linux desktop. Provide an entry script and, for graphics, the guest's
 XKB data path. See [chroot setup](docs/x11.md#chroot-without-termux).
 
-Closing a whole-session viewer keeps its Linux session running; **Stop X11
-session** ends it. Closing an individual app window requests the app's normal
+Closing a whole-session viewer keeps its Linux session running; the manager's
+Stop action ends it. Closing an individual app window requests the app's normal
 close action, including any save confirmation. **Close Desktop** ends neither
-kind of X11 session: its surviving windows become independent fullscreen tasks.
+kind of graphical session: its surviving windows become independent fullscreen tasks.
 
-Termux applications and proot do not require root, and X11 can run on the phone
+Termux applications and proot do not require root, and both protocols run on the phone
 without managed Desktop. A chroot environment needs its own privileged setup.
 X11 and Wayland share a Vulkan/software compositor with Android HardwareBuffer
 transport. Client GPU acceleration depends on the application's graphics driver
 and compatible buffer formats; software clients remain supported.
-See [Embedded X11](docs/x11.md) for setup, container launchers and current limits.
+See [Embedded X11](docs/x11.md), [Embedded Wayland](docs/wayland.md) and
+[shared graphics](docs/graphics.md) for setup, container launchers and rendering.
+
+### Linux Shell Components
+
+A graphical session can also contribute panels and backgrounds to a MagicDesk
+Desktop instead of containing them inside a Linux desktop window. Select an
+active Desktop in **Linux graphics > Shell workspace**. Wayland layer-shell
+surfaces and X11 dock/desktop windows share MagicDesk's layout and reserved work
+area. Compatible Wayland panels can list and control managed Android and Linux
+tasks through foreign-toplevel management.
+
+This binding is explicit and does not start Desktop. **Separate** releases the
+shell contribution without ending the session. Whole Linux desktops keep their
+own panels inside their viewer. See [shell layout](docs/shell-layout.md).
 
 ## Shizuku Or Direct Root
 
@@ -355,7 +392,7 @@ operations allowed to that identity; Termux sessions still run as Termux.
 (default, UID 2000) or **App only**. Root allows the selected launcher's identity
 but never elevates a shell launcher; Shell also restricts root-backed Shizuku and
 direct root. App only never requests privileged access, while authorized Termux
-terminals and X11 remain usable. Independent switches can disable **Termux
+terminals and Linux graphics remain usable. Independent switches can disable **Termux
 integration** or **Managed Desktop** without changing installed apps or permissions.
 Limits and backend changes apply after Exit and reopen, never halfway through a session. See
 [Privilege boundaries](docs/privilege-modes.md).
@@ -467,8 +504,10 @@ The optional MCP server exposes the same services used by the UI:
 - Device, runtime, display and task state, events and exact-operation waits.
 - Desktop lifecycle, task focus, window transitions and semantic UI actions.
 - Independent tool placement and retained terminal control.
-- Discovery and launch of Desktop and Termux `.desktop` entries, including X11
+- Discovery and launch of Desktop and Termux `.desktop` entries, including X11 and Wayland
   applications, with or without a managed Desktop.
+- Shared `graphics.*` commands for graphical sessions, windows, native families,
+  geometry, input and capture, plus shell-workspace inspection and binding.
 - Android intents, handlers, shortcuts, Activity results and App Functions.
 - Screen capture, clipboard and notification operations.
 - Rectangular screenshots and scoped Android UI inspection with element bounds,
@@ -540,10 +579,11 @@ and the [API-level contract](docs/runtime-api-levels.md).
 | Managed Desktop | Android 15+, an authorized privileged service, Desktop setup, working framework windowing |
 | Wired/wireless output | Hardware and firmware that expose a usable Android secondary display |
 
-The integrations are independent: **Termux only** provides terminals, tmux and
-X11 on the phone or an Android-allowed secondary display; **shell/root only** provides Files, Android-shell terminals,
-device automation and display control; **root** can additionally enter prepared
-chroots in Console or X11 without Termux. Enable both integrations to combine them. Managed
+The integrations are independent: **Termux only** provides terminals, tmux,
+X11 and Wayland on the phone or an Android-allowed secondary display;
+**shell/root only** provides Files, Android-shell terminals, device automation
+and display control; **root** can additionally enter prepared chroots in Console
+or Linux graphics without Termux. Enable both integrations to combine them. Managed
 Desktop adds window management on Android 15+; it is not a prerequisite for
 the independent tools. Android 14 device coverage remains pending.
 
@@ -574,7 +614,7 @@ selects where phone-attached mice and keyboards operate independently.
 session. **Close desktop** closes only that workspace while keeping other
 Desktops, the tools runtime and owned displays available. Its applications remain
 on that display as independent fullscreen tasks; if the display disappears, they
-return to the phone. **Exit MagicDesk** also ends retained terminals and X11
+return to the phone. **Exit MagicDesk** also ends retained terminals and graphical
 sessions, releases owned displays, closes built-in windows and stops the
 runtime. Neither action deletes the Desktop folder.
 
@@ -723,7 +763,7 @@ Self-tests are explicit, interactive checks, not background monitoring or a
 universal firmware guarantee.
 
 The project uses JDK 17+, Android SDK/build-tools 37 and NDK
-`27.3.13750724`, plus the embedded X11 build tools listed in
+`27.3.13750724`, plus the native graphics build tools listed in
 [Contributing](CONTRIBUTING.md#build-environment):
 
 ```sh
@@ -746,6 +786,9 @@ API 34 native validation and other ABIs remain in the
 - [Workstation tools](docs/workstation-tools.md)
 - [Terminal integration](docs/terminal-integration.md)
 - [Embedded X11 and Linux applications](docs/x11.md)
+- [Embedded Wayland](docs/wayland.md)
+- [Shared graphics](docs/graphics.md)
+- [Shell layout and Linux panels](docs/shell-layout.md)
 - [Architecture](docs/architecture.md)
 - [Automation and MCP](docs/automation.md)
 - [Runtime API levels](docs/runtime-api-levels.md)

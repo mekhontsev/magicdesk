@@ -190,8 +190,8 @@ final class X11Sessions {
             this.application = application;
             this.recipe = recipe;
             presentation = new HostedWindowPresentation(context, this);
-            presentationKey = X11PresentationPreferences.key(execution.commands.scope, desktopFile);
-            scalePercent = X11PresentationPreferences.load(context, presentationKey);
+            presentationKey = GraphicalPresentationPreferences.key(execution.commands.scope, desktopFile);
+            scalePercent = GraphicalPresentationPreferences.load(context, presentationKey);
             density = new X11Density(uiScale);
             startupCommand = command;
             startupDirectory = directory;
@@ -281,7 +281,8 @@ final class X11Sessions {
             publishDensity();
         }
         synchronized void setScale(int scale) {
-            if (!AppPresentationProfile.isValidScale(scale)) throw new IllegalArgumentException("Invalid X11 scale");
+            if (!AppPresentationProfile.isValidScale(scale)) throw new IllegalArgumentException("Invalid Linux scale");
+            if (scalePercent == scale) return;
             scalePercent = scale;
             publishDensity();
             changed();

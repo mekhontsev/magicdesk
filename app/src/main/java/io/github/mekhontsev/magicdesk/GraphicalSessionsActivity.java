@@ -60,7 +60,7 @@ public final class GraphicalSessionsActivity extends Activity {
         windows = addAction(toolbar, R.drawable.ic_file_new_window, R.string.graphics_windows, this::chooseWindow);
         execute = addAction(toolbar, R.drawable.ic_play, R.string.x11_run_command, this::command);
         scale = addAction(toolbar, R.drawable.ic_quick_controls, R.string.app_presentation_scale,
-                () -> { if (session != null) session.scale(this); });
+                () -> { if (session != null) GraphicalScaleDialog.show(this, session); });
         stop = addAction(toolbar, R.drawable.ic_close, R.string.graphics_stop_session, () -> {
             GraphicalSessions.Session selected = session;
             if (selected != null) new AlertDialog.Builder(this).setTitle(R.string.graphics_stop_session)
@@ -91,7 +91,7 @@ public final class GraphicalSessionsActivity extends Activity {
         open.setEnabled(ready && session.desktop());
         windows.setEnabled(ready);
         execute.setEnabled(ready && session.canExecute());
-        scale.setEnabled(ready && session.canScale());
+        scale.setEnabled(ready);
         stop.setEnabled(session != null && !session.stopped());
         shellWorkspace.setEnabled(ready && session.canIntegrateShell());
         var shell = session == null ? null : GraphicalShells.state(session.id());

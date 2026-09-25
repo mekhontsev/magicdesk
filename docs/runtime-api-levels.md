@@ -58,9 +58,9 @@ separate from these feature requirements.
 
 Termux-only operation does not need the privileged display catalog. The panel
 and Start can select any display exposed to the app. Interactive launches without
-shell use ordinary Activity options, including for terminal and X11 windows;
+shell use ordinary Activity options, including for terminal and Linux windows;
 Android can reject destinations such as untrusted outputs. Reopening a live own
-terminal or X11 task on its current display uses Android's own-task API.
+terminal or graphical task on its current display uses Android's own-task API.
 App-only display addresses are connection-scoped and expire on disconnect or
 process restart; public APIs do not expose stable physical identities or transport
 types. Unknown metadata and unavailable persistent profiles stay explicit.
@@ -136,12 +136,14 @@ separately pending.
 
 ### Native Build Boundary
 
-The APK, native helpers and embedded X11 library currently target only
+The APK, native helpers and X11/Wayland graphical runtimes target only
 `arm64-v8a`. CI checks the packaged APK for unsupported native ABIs.
 Both helper compiler paths in `gradle/native-helpers.gradle` derive their Android
 target from the APK's minimum SDK (currently API 34), not the Desktop minimum.
 The embedded X11 NDK build also uses its module's API 34 minimum; the Termux X11
-build explicitly targets API 34 with the installed toolchain. Compilation does not establish API 34 native
+build explicitly targets API 34 with the installed toolchain. Shared graphics
+and Wayland dependencies use the same floor with either the NDK or the Termux
+toolchain. Compilation does not establish API 34 native
 compatibility by itself: that release's shell/Termux/pointer workflows still need
 device execution coverage.
 
@@ -172,8 +174,8 @@ hidden Binder ABI compatibility, reflective members, dependency/native behavior,
 SELinux grants or firmware policy.
 
 The remaining API 34 device matrix is: cold app/MCP startup, privileged-service reconnect,
-file operations and transfers, retained shell/Termux and embedded X11 sessions,
-X11 input/clipboard/drag-and-drop, CLI commands with
+file operations and transfers, retained shell/Termux and X11/Wayland sessions,
+Linux input/IME/clipboard/drag-and-drop, CLI commands with
 MCP disabled, private/shared
 drag boundaries, APK replacement with reconnect, virtual-display creation,
 fullscreen tool launch/capture/removal, ordinary task transfer, independent

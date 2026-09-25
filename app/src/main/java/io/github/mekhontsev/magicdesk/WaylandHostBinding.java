@@ -71,7 +71,7 @@ final class WaylandHostBinding implements AutoCloseable {
 
     void refresh() { if (!closed) { updateDensity(); family.refresh(); geometryChanged(); updateFullscreen(); } }
     private void updateDensity() {
-        float next = HostedUiScale.resolve(activity);
+        float next = session.unitScale(activity);
         if (scale == next) return;
         scale = next;
         output.scale(scale);
