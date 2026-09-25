@@ -112,6 +112,11 @@ pending reboot. It does not use process-local runtime authorization. Checks run
 on access events, panel resume and explicit refresh/setup actions, not periodically;
 the panel and MCP consume the same cached result. Opening the status dialog does
 not configure settings, authorize Desktop, acquire HOME or start a session.
+The same audit refreshes WMShell's advertised desktop provider independently
+of the supported task-entry command signature. A configured device without that
+provider is **Limited**; an unreadable probe is **Unverified**. These observations
+do not disable independent tools or the explicit freeform fallback. A refreshed
+audit replaces the command cache, including after SystemUI restarts.
 Settings leaves independent preferences editable while
 unavailable privileged settings remain disabled, without reading their shell store.
 Selecting a row does not claim input or change a session. Commands capture the

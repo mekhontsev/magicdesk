@@ -67,7 +67,8 @@ public final class DeviceSetupWindowingPolicyTest {
                 "", "", "", "", "boot-id",
                 freeform ? "1" : "0", resizable ? "1" : "0", restrictions, corners,
                 freeform, resizable, "false".equals(restrictions), "false".equals(corners),
-                DeviceSetupManager.hasRequiredWindowingSettings(freeform, resizable), reboot);
+                DeviceSetupManager.hasRequiredWindowingSettings(freeform, resizable), reboot,
+                FrameworkDesktopShellApi.fromHelp(null));
     }
 
     @Test

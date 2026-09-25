@@ -7,6 +7,54 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public final class NativeDesktopControllerTest {
+    @Test public void desktopShellModeIsIndependentFromTaskCommandSignature() {
+        assertEquals(FrameworkDesktopShellApi.Mode.NATIVE,
+                FrameworkDesktopShellApi.fromHelp("desktopmode\n moveTaskToDesk <taskId> <deskId>\n").mode());
+        assertEquals(FrameworkDesktopShellApi.Mode.BASIC,
+                FrameworkDesktopShellApi.fromHelp("  Window Manager Shell commands:\n    splitscreen\n    help\n").mode());
+        for (String help : new String[]{null, "", "Permission denied", "unknown desktopmode command"}) {
+            assertEquals(FrameworkDesktopShellApi.Mode.UNKNOWN, FrameworkDesktopShellApi.fromHelp(help).mode());
+        }
+    }
+
+    @Test public void explicitRefreshReplacesCachedBackendAfterSystemUiRestart() throws Exception {
+        final String controller = RuntimeSourceFixture.nestedClass("NativeDesktopController", "NativeDesktopController")
+                .replace("final class NativeDesktopController", "static final class NativeDesktopController");
+        final String api = RuntimeSourceFixture.nestedClass("FrameworkDesktopShellApi", "FrameworkDesktopShellApi")
+                .replace("final class FrameworkDesktopShellApi", "static final class FrameworkDesktopShellApi")
+                .replace("Pattern.", "java.util.regex.Pattern.");
+        RuntimeSourceFixture.verify("""
+                static class Log {
+                    static void w(String tag, String message, Throwable error) { }
+                    static void i(String tag, String message) { }
+                }
+                static class ShellAccess {
+                    static String help = "desktopmode moveTaskToDesk <taskId>";
+                    static boolean fail;
+                    static int reads;
+                    static boolean isReady() { return true; }
+                    static String run(String command) throws IOException {
+                        reads++;
+                        if (fail) throw new IOException("offline");
+                        return help;
+                    }
+                }
+                """ + api + controller + """
+                public static void verify() {
+                    check(NativeDesktopController.isAvailable(), "initial native backend unavailable");
+                    check(NativeDesktopController.isAvailable() && ShellAccess.reads == 1, "cached calls reprobe");
+                    ShellAccess.help = "Window Manager Shell commands:\\n splitscreen\\n";
+                    check(NativeDesktopController.refresh().mode() == FrameworkDesktopShellApi.Mode.BASIC, "stale mode after restart");
+                    check(!NativeDesktopController.isAvailable() && ShellAccess.reads == 2, "stale entry command");
+                    ShellAccess.fail = true;
+                    check(NativeDesktopController.refresh().mode() == FrameworkDesktopShellApi.Mode.UNKNOWN, "failure inferred basic mode");
+                    ShellAccess.fail = false;
+                    ShellAccess.help = "desktopmode moveToDesktop <taskId>";
+                    check(NativeDesktopController.isAvailable(), "failed probe prevented recovery");
+                }
+                """);
+    }
+
     @Test
     public void nativeDesktopRequiresPrivilegedBackendAndSuccessfulProbe() {
         assertFalse(NativeDesktopController.shouldUse(false, true));

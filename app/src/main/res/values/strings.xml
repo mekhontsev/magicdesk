@@ -649,6 +649,10 @@
     <string name="control_desktop_resizable">Resizable activities: %1$s</string>
     <string name="control_desktop_no_restart">No Android restart is pending.</string>
     <string name="control_desktop_ready_details">Device setup is complete. No Desktop session needs to be running.</string>
+    <string name="control_desktop_limited">Limited</string>
+    <string name="control_desktop_unverified">Unverified</string>
+    <string name="control_desktop_limited_details">Android does not advertise its desktop shell. Basic freeform windows remain available, but title-bar buttons and desktop panels may behave incorrectly or crash System UI. Device Setup may enable full desktop support on compatible firmware. Independent tools remain available.</string>
+    <string name="control_desktop_unverified_details">Device setup is complete, but Android desktop shell support could not be verified. Refresh to check again. This does not disable independent tools.</string>
     <string name="control_access_backend">Startup method: %1$s</string>
     <string name="control_access_uid">Service UID: %1$d</string>
     <string name="control_access_setup">Set up access</string>

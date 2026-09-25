@@ -4,6 +4,8 @@ import java.util.regex.Pattern;
 
 /** Advertised WMShell command signatures, not Android desk ownership. */
 final class FrameworkDesktopShellApi {
+    enum Mode { NATIVE, BASIC, UNKNOWN }
+
     enum Transport {
         STATUS_BAR("/system/bin/cmd statusbar wmshell-passthrough"),
         WINDOW("/system/bin/cmd window shell");
@@ -14,16 +16,27 @@ final class FrameworkDesktopShellApi {
 
     private final String mMoveAction;
     private final boolean mCanExit;
+    private final Mode mMode;
 
-    private FrameworkDesktopShellApi(String moveAction, boolean canExit) {
+    private FrameworkDesktopShellApi(String moveAction, boolean canExit, Mode mode) {
         mMoveAction = moveAction;
         mCanExit = canExit;
+        mMode = mode;
     }
 
     static FrameworkDesktopShellApi fromHelp(String help) {
         return new FrameworkDesktopShellApi(moveAction(help),
-                hasCommand(help, "moveTaskOutOfDesk", "<taskId>"));
+                hasCommand(help, "moveTaskOutOfDesk", "<taskId>"), mode(help));
     }
+
+    private static Mode mode(String help) {
+        if (help == null) return Mode.UNKNOWN;
+        if (Pattern.compile("(?m)^\\h*desktopmode(?:\\h|$)").matcher(help).find()) return Mode.NATIVE;
+        return Pattern.compile("(?m)^\\h*Window Manager Shell commands:\\h*$").matcher(help).find()
+                ? Mode.BASIC : Mode.UNKNOWN;
+    }
+
+    Mode mode() { return mMode; }
 
     static String helpCommand() { return Transport.STATUS_BAR.command + " help"; }
 

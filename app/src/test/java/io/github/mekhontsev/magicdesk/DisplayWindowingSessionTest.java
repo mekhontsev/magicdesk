@@ -14,10 +14,63 @@ import java.util.Map;
 import java.util.Set;
 
 public final class DisplayWindowingSessionTest {
+    @Test public void basicShellKeepsStandardTasksOutOfLegacyDecoration() {
+        assertEquals(5, SecondaryDisplayWindowing.defaultMode(FrameworkDesktopShellApi.Mode.NATIVE));
+        assertEquals(1, SecondaryDisplayWindowing.defaultMode(FrameworkDesktopShellApi.Mode.BASIC));
+        assertEquals(1, SecondaryDisplayWindowing.defaultMode(FrameworkDesktopShellApi.Mode.UNKNOWN));
+    }
+
+    @Test public void fullscreenPolicyRetainsAndRestoresPreviousFreeformDefault() throws Exception {
+        final Fixture f = new Fixture();
+        f.display(2, "monitor", 5, false);
+        f.session.prepare(2, 1);
+        assertEquals(5, f.pending.get("monitor").previous().mode);
+        assertEquals(1, f.pending.get("monitor").appliedMode());
+        f.session.recover();
+        assertEquals(1, f.displays.get(2).mode);
+        f.session.release(2);
+        assertEquals(List.of("2=1", "2=5"), f.writes);
+        assertTrue(f.pending.isEmpty());
+    }
+
+    @Test public void interruptedFullscreenPolicyRestoresOnReconnect() throws Exception {
+        final Fixture f = new Fixture();
+        f.display(2, "monitor", 5, false);
+        f.session.prepare(2, 1);
+        f.displays.remove(2);
+        f.session.release(2);
+        f.display(7, "monitor", 1, false);
+        new DisplayWindowingSession(f, f).recover();
+        assertEquals(List.of("2=1", "7=5"), f.writes);
+        assertTrue(f.pending.isEmpty());
+    }
+
+    @Test public void mixedPoliciesHaveIndependentRestoration() throws Exception {
+        final Fixture f = new Fixture();
+        f.display(3, "virtual", 5, true);
+        f.session.prepare(2, 5);
+        f.session.prepare(3, 1);
+        f.session.release(2);
+        assertEquals(1, f.displays.get(2).mode);
+        assertEquals(1, f.displays.get(3).mode);
+        f.session.release(3);
+        assertEquals(List.of("2=5", "3=1", "2=1", "3=5"), f.writes);
+    }
+
+    @Test public void basicPolicyDoesNotOverwriteAnotherOwner() throws Exception {
+        final Fixture f = new Fixture();
+        f.display(2, "monitor", 5, false);
+        f.session.prepare(2, 1);
+        f.display(2, "monitor", 6, false);
+        f.session.release(2);
+        assertEquals(List.of("2=1"), f.writes);
+        assertEquals(6, f.displays.get(2).mode);
+    }
+
     @Test
     public void phoneDoesNotReadOrWriteDisplayDefaults() throws Exception {
         final Fixture f = new Fixture();
-        f.session.prepare(0);
+        f.session.prepare(0, 5);
         f.session.release(0);
         assertEquals(0, f.reads);
         assertTrue(f.writes.isEmpty());
@@ -28,9 +81,9 @@ public final class DisplayWindowingSessionTest {
     public void alreadyFreeformDoesNotAcquireAnOverride() throws Exception {
         final Fixture f = new Fixture();
         f.display(2, "monitor", 5, false);
-        f.session.prepare(2);
+        f.session.prepare(2, 5);
         final int reads = f.reads;
-        f.session.prepare(2);
+        f.session.prepare(2, 5);
         f.session.release(2);
         assertEquals(reads, f.reads);
         assertTrue(f.writes.isEmpty());
@@ -40,11 +93,11 @@ public final class DisplayWindowingSessionTest {
     @Test
     public void capturesOnceAndRestoresOnClose() throws Exception {
         final Fixture f = new Fixture();
-        f.session.prepare(2);
+        f.session.prepare(2, 5);
         final int reads = f.reads;
-        f.session.prepare(2);
+        f.session.prepare(2, 5);
         assertEquals(reads, f.reads);
-        assertEquals(1, f.pending.get("monitor").mode);
+        assertEquals(1, f.pending.get("monitor").previous().mode);
         f.session.release(2);
         f.session.release(2);
         assertEquals(List.of("2=5", "2=1"), f.writes);
@@ -55,17 +108,17 @@ public final class DisplayWindowingSessionTest {
     @Test
     public void recoveryDoesNotUndoAnActiveSession() throws Exception {
         final Fixture f = new Fixture();
-        f.session.prepare(2);
+        f.session.prepare(2, 5);
         f.session.recover();
         assertEquals(List.of("2=5"), f.writes);
         assertEquals(1, f.pending.size());
-        assertThrows(IOException.class, () -> f.session.prepare(3));
+        assertThrows(IOException.class, () -> f.session.prepare(3, 5));
     }
 
     @Test
     public void anotherOwnersModeIsPreserved() throws Exception {
         final Fixture f = new Fixture();
-        f.session.prepare(2);
+        f.session.prepare(2, 5);
         f.display(2, "monitor", 6, false);
         f.session.release(2);
         assertEquals(List.of("2=5"), f.writes);
@@ -77,7 +130,7 @@ public final class DisplayWindowingSessionTest {
     public void storageFailurePreventsMutation() {
         final Fixture f = new Fixture();
         f.failStorage = true;
-        assertThrows(IOException.class, () -> f.session.prepare(2));
+        assertThrows(IOException.class, () -> f.session.prepare(2, 5));
         assertTrue(f.writes.isEmpty());
     }
 
@@ -85,7 +138,7 @@ public final class DisplayWindowingSessionTest {
     public void failedWriteAcknowledgementCanBeRolledBack() throws Exception {
         final Fixture f = new Fixture();
         f.failAfterWrite = true;
-        assertThrows(IOException.class, () -> f.session.prepare(2));
+        assertThrows(IOException.class, () -> f.session.prepare(2, 5));
         f.session.release(2);
         assertEquals(List.of("2=5", "2=1"), f.writes);
         assertTrue(f.pending.isEmpty());
@@ -95,7 +148,7 @@ public final class DisplayWindowingSessionTest {
     public void refusedWriteDoesNotTurnIntoSuccessfulPreparation() throws Exception {
         final Fixture f = new Fixture();
         f.failBeforeWrite = true;
-        assertThrows(IOException.class, () -> f.session.prepare(2));
+        assertThrows(IOException.class, () -> f.session.prepare(2, 5));
         f.session.release(2);
         assertTrue(f.writes.isEmpty());
         assertTrue(f.pending.isEmpty());
@@ -104,7 +157,7 @@ public final class DisplayWindowingSessionTest {
     @Test
     public void restorationFailureRemainsRecoverable() throws Exception {
         final Fixture f = new Fixture();
-        f.session.prepare(2);
+        f.session.prepare(2, 5);
         f.failBeforeWrite = true;
         assertThrows(IOException.class, () -> f.session.release(2));
         assertEquals(1, f.pending.size());
@@ -116,7 +169,7 @@ public final class DisplayWindowingSessionTest {
     @Test
     public void processRestartRestoresPersistedEffectiveMode() throws Exception {
         final Fixture f = new Fixture();
-        f.session.prepare(2);
+        f.session.prepare(2, 5);
         new DisplayWindowingSession(f, f).recover();
         assertEquals(List.of("2=5", "2=1"), f.writes);
         assertTrue(f.pending.isEmpty());
@@ -125,7 +178,7 @@ public final class DisplayWindowingSessionTest {
     @Test
     public void reconnectUsesStableIdentityNotOldDisplayId() throws Exception {
         final Fixture f = new Fixture();
-        f.session.prepare(2);
+        f.session.prepare(2, 5);
         f.displays.remove(2);
         f.session.release(2);
         f.session.recover();
@@ -141,9 +194,9 @@ public final class DisplayWindowingSessionTest {
     @Test
     public void newSessionFirstRestoresInterruptedSessionBaseline() throws Exception {
         final Fixture f = new Fixture();
-        f.session.prepare(2);
+        f.session.prepare(2, 5);
         final DisplayWindowingSession restarted = new DisplayWindowingSession(f, f);
-        restarted.prepare(2);
+        restarted.prepare(2, 5);
         restarted.release(2);
         assertEquals(List.of("2=5", "2=1", "2=5", "2=1"), f.writes);
     }
@@ -152,7 +205,7 @@ public final class DisplayWindowingSessionTest {
     public void removedVirtualDisplayNeedsNoDeferredRestoration() throws Exception {
         final Fixture f = new Fixture();
         f.display(2, "virtual", 1, true);
-        f.session.prepare(2);
+        f.session.prepare(2, 5);
         f.displays.remove(2);
         f.session.release(2);
         assertTrue(f.pending.isEmpty());
@@ -163,7 +216,7 @@ public final class DisplayWindowingSessionTest {
     public void survivingVirtualDisplayIsRestoredAfterProcessRestart() throws Exception {
         final Fixture f = new Fixture();
         f.display(2, "virtual", 1, true);
-        f.session.prepare(2);
+        f.session.prepare(2, 5);
         new DisplayWindowingSession(f, f).recover();
         assertEquals(List.of("2=5", "2=1"), f.writes);
         assertTrue(f.pending.isEmpty());
@@ -173,7 +226,7 @@ public final class DisplayWindowingSessionTest {
     public void missingVirtualDisplayIsForgottenAfterProcessRestart() throws Exception {
         final Fixture f = new Fixture();
         f.display(2, "virtual", 1, true);
-        f.session.prepare(2);
+        f.session.prepare(2, 5);
         f.displays.remove(2);
         new DisplayWindowingSession(f, f).recover();
         assertTrue(f.pending.isEmpty());
@@ -182,9 +235,9 @@ public final class DisplayWindowingSessionTest {
     @Test
     public void missingOrUnknownDisplayIsNotAssumedFullscreen() {
         final Fixture f = new Fixture();
-        assertThrows(IOException.class, () -> f.session.prepare(7));
+        assertThrows(IOException.class, () -> f.session.prepare(7, 5));
         f.display(2, "monitor", 0, false);
-        assertThrows(IOException.class, () -> f.session.prepare(2));
+        assertThrows(IOException.class, () -> f.session.prepare(2, 5));
         assertTrue(f.writes.isEmpty());
     }
 
@@ -192,7 +245,7 @@ public final class DisplayWindowingSessionTest {
             implements DisplayWindowingSession.Api, DisplayWindowingSession.Storage {
         final Map<Integer, DisplayWindowingSnapshot> displays = new LinkedHashMap<>();
         final List<String> writes = new ArrayList<>();
-        Map<String, DisplayWindowingSnapshot> pending = new LinkedHashMap<>();
+        Map<String, DisplayWindowingSession.Override> pending = new LinkedHashMap<>();
         final DisplayWindowingSession session = new DisplayWindowingSession(this, this);
         int reads;
         int storageWrites;
@@ -240,12 +293,12 @@ public final class DisplayWindowingSessionTest {
         }
 
         @Override
-        public Map<String, DisplayWindowingSnapshot> read() {
+        public Map<String, DisplayWindowingSession.Override> read() {
             return new LinkedHashMap<>(pending);
         }
 
         @Override
-        public void write(final Map<String, DisplayWindowingSnapshot> value) throws IOException {
+        public void write(final Map<String, DisplayWindowingSession.Override> value) throws IOException {
             if (failStorage) {
                 throw new IOException("storage unavailable");
             }
@@ -257,8 +310,8 @@ public final class DisplayWindowingSessionTest {
     @Test public void concurrentDisplayDefaultsAreReleasedIndependently() throws Exception {
         final var f = new Fixture();
         f.display(3, "virtual", 6, true);
-        f.session.prepare(2);
-        f.session.prepare(3);
+        f.session.prepare(2, 5);
+        f.session.prepare(3, 5);
         f.session.recover();
         assertEquals(List.of("2=5", "3=5"), f.writes);
         f.session.release(2);

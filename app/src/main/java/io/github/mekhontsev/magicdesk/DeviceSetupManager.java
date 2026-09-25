@@ -122,7 +122,9 @@ public final class DeviceSetupManager {
                 restrictionsDisabled,
                 roundedCornersDisabled,
                 configurationReady,
-                rebootRequired);
+                rebootRequired,
+                shellReady && RuntimeCapabilities.allowsDesktop(Build.VERSION.SDK_INT)
+                        ? NativeDesktopController.refresh() : FrameworkDesktopShellApi.fromHelp(null));
     }
 
     static Audit configure(
@@ -399,6 +401,7 @@ public final class DeviceSetupManager {
         final boolean roundedCornersDisabled;
         final boolean configurationReady;
         final boolean rebootRequired;
+        final FrameworkDesktopShellApi desktopShell;
 
         Audit(
                 final String runtimeError,
@@ -423,7 +426,8 @@ public final class DeviceSetupManager {
                 final boolean restrictionsDisabled,
                 final boolean roundedCornersDisabled,
                 final boolean configurationReady,
-                final boolean rebootRequired) {
+                final boolean rebootRequired,
+                final FrameworkDesktopShellApi desktopShell) {
             this.runtimeError = runtimeError;
             this.shellState = shellState;
             this.sessionProfile = sessionProfile;
@@ -447,6 +451,7 @@ public final class DeviceSetupManager {
             this.roundedCornersDisabled = roundedCornersDisabled;
             this.configurationReady = configurationReady;
             this.rebootRequired = rebootRequired;
+            this.desktopShell = desktopShell;
         }
 
         boolean canEnterMagicDesk() {

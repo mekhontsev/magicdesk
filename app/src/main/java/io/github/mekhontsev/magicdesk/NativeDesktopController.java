@@ -23,18 +23,21 @@ final class NativeDesktopController {
     }
 
     static synchronized boolean isAvailable() {
-        if (sProbed) {
-            return sProtocol.canEnterDesktop();
-        }
+        if (!sProbed) refresh();
+        return sProtocol.canEnterDesktop();
+    }
+
+    static synchronized FrameworkDesktopShellApi refresh() {
         try {
             final String output = runCommand(FrameworkDesktopShellApi.helpCommand());
             sProtocol = FrameworkDesktopShellApi.fromHelp(output);
-            sProbed = true;
+            sProbed = sProtocol.mode() != FrameworkDesktopShellApi.Mode.UNKNOWN;
         } catch (IOException e) {
             Log.w(TAG, "WMShell desktop-mode probe failed", e);
             sProtocol = FrameworkDesktopShellApi.fromHelp(null);
+            sProbed = false;
         }
-        return sProtocol.canEnterDesktop();
+        return sProtocol;
     }
 
     static void requireAvailable() throws IOException {

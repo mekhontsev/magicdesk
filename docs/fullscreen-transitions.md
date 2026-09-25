@@ -212,6 +212,14 @@ blocking input to another UID underneath, including WMShell captions. Child
 application windows keep their own opacity and touch regions. This uses the
 standard window transparency contract, not a trusted-overlay exemption.
 
+`CaptionWindowDecorViewModel` also treats a freeform display default as a reason
+to decorate STANDARD tasks in other modes. Without WMShell's desktop provider,
+secondary-session preparation uses a fullscreen default before creating chrome;
+individual applications still explicitly request freeform. This keeps native
+caption controls off the organizer-owned chrome task without changing its area,
+activity type, focus policy or MULTI_WINDOW mode. Existing captions are not
+reliably removed by changing a live display default.
+
 Chrome must not be nested among application root tasks. Android 15+
 `ActivityStarter` calls `TaskDisplayArea.getRootTaskAbove`, which casts the
 next sibling to `Task`. A chrome area there can abort a child Activity/result

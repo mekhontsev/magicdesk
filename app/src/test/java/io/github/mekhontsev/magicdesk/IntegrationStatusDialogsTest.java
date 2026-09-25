@@ -58,13 +58,25 @@ public class IntegrationStatusDialogsTest {
         assertEquals(R.string.control_desktop_restart, desktopStatus(DesktopSetupStatus.State.RESTART_REQUIRED));
         assertEquals(R.string.control_desktop_unavailable, desktopStatus(DesktopSetupStatus.State.UNKNOWN));
         assertEquals(R.string.control_desktop_unavailable, IntegrationStatusDialogs.desktopStatus(
-                new RuntimeCapabilities(34, true, true, true, DesktopSetupStatus.State.READY, RuntimeLimits.DEFAULT)));
+                new RuntimeCapabilities(34, true, true, true, DesktopSetupStatus.State.READY, FrameworkDesktopShellApi.Mode.NATIVE, RuntimeLimits.DEFAULT)));
         assertEquals(R.string.control_desktop_unavailable, IntegrationStatusDialogs.desktopStatus(
-                new RuntimeCapabilities(35, false, true, true, DesktopSetupStatus.State.READY, RuntimeLimits.DEFAULT)));
+                new RuntimeCapabilities(35, false, true, true, DesktopSetupStatus.State.READY, FrameworkDesktopShellApi.Mode.NATIVE, RuntimeLimits.DEFAULT)));
     }
 
     private static int desktopStatus(DesktopSetupStatus.State state) {
-        return IntegrationStatusDialogs.desktopStatus(new RuntimeCapabilities(35, true, true, true, state, RuntimeLimits.DEFAULT));
+        return IntegrationStatusDialogs.desktopStatus(new RuntimeCapabilities(35, true, true, true, state, FrameworkDesktopShellApi.Mode.NATIVE, RuntimeLimits.DEFAULT));
+    }
+
+    @Test public void limitedAndUnknownShellDoNotMasqueradeAsReady() {
+        assertEquals(R.string.control_desktop_limited, IntegrationStatusDialogs.desktopStatus(
+                new RuntimeCapabilities(35, true, true, true, DesktopSetupStatus.State.READY,
+                        FrameworkDesktopShellApi.Mode.BASIC, RuntimeLimits.DEFAULT)));
+        assertEquals(R.string.control_desktop_unverified, IntegrationStatusDialogs.desktopStatus(
+                new RuntimeCapabilities(35, true, true, true, DesktopSetupStatus.State.READY,
+                        FrameworkDesktopShellApi.Mode.UNKNOWN, RuntimeLimits.DEFAULT)));
+        assertEquals(R.string.control_desktop_restart, IntegrationStatusDialogs.desktopStatus(
+                new RuntimeCapabilities(35, true, true, true, DesktopSetupStatus.State.RESTART_REQUIRED,
+                        FrameworkDesktopShellApi.Mode.BASIC, RuntimeLimits.DEFAULT)));
     }
 
     private static TermuxIntegration.Endpoint endpoint(boolean installed, boolean permissionRequired, String error) {

@@ -37,23 +37,32 @@ final class RuntimeCapabilities {
     private final boolean mTermuxInstalled;
     private final boolean mTermuxAuthorized;
     private final DesktopSetupStatus.State mDesktopSetup;
+    private final FrameworkDesktopShellApi.Mode mDesktopShellMode;
     private final RuntimeLimits.Values mLimits;
 
     RuntimeCapabilities(final int sdk, final boolean shell, final boolean termuxInstalled,
-            final boolean termuxAuthorized, final DesktopSetupStatus.State desktopSetup, final RuntimeLimits.Values limits) {
+            final boolean termuxAuthorized, final DesktopSetupStatus.State desktopSetup,
+            final FrameworkDesktopShellApi.Mode desktopShellMode, final RuntimeLimits.Values limits) {
         mSdk = sdk;
         mShell = shell;
         mTermuxInstalled = termuxInstalled;
         mTermuxAuthorized = termuxAuthorized;
         mDesktopSetup = desktopSetup;
+        mDesktopShellMode = supportsDesktop(sdk) && limits.desktopAllowed() && shell
+                ? desktopShellMode : FrameworkDesktopShellApi.Mode.UNKNOWN;
         mLimits = limits;
     }
 
     static RuntimeCapabilities current(final android.content.Context context) {
         final TermuxIntegration.Endpoint termux = TermuxIntegration.inspect(context);
+        final DesktopSetupStatus.Snapshot setup = DesktopSetupStatus.current();
         return new RuntimeCapabilities(android.os.Build.VERSION.SDK_INT, ShellAccess.isReady(),
-                termux.installed, termux.available(), DesktopSetupStatus.current().state(), RuntimeLimits.active());
+                termux.installed, termux.available(), setup.state(),
+                setup.audit() == null ? FrameworkDesktopShellApi.Mode.UNKNOWN : setup.audit().desktopShell.mode(),
+                RuntimeLimits.active());
     }
+
+    FrameworkDesktopShellApi.Mode desktopShellMode() { return mDesktopShellMode; }
 
     String missing(final Service service) {
         return switch (service) {
@@ -106,7 +115,10 @@ final class RuntimeCapabilities {
         for (final Service service : Service.values()) {
             final JSONObject state = new JSONObject().put("ready", missing(service).isEmpty())
                     .put("missing", missing(service)).put("requiresDesktopSession", false);
-            if (service == Service.DESKTOP) { state.put("minimumSdk", DESKTOP_MIN_SDK); }
+            if (service == Service.DESKTOP) {
+                state.put("minimumSdk", DESKTOP_MIN_SDK);
+                state.put("shellMode", mDesktopShellMode.name().toLowerCase(java.util.Locale.ROOT));
+            }
             result.put(service.name().toLowerCase(java.util.Locale.ROOT), state);
         }
         return result;

@@ -330,6 +330,10 @@ Desktop readiness uses the shared read-only setup observation, not process-local
 startup authorization. Its missing reasons distinguish `desktop_setup_checking`,
 `desktop_setup_unknown`, `desktop_setup` and `device_restart`. These are not
 client grants or successful windowing probes; the normal start path still checks setup.
+`desktop.shellMode` separately reports `native` (WMShell advertises desktopmode),
+`basic` (valid WMShell help without that provider), or `unknown` (not observed).
+This is the same observation used for the panel's Limited/Unverified status,
+not an additional service prerequisite or a guarantee of native caption behavior.
 X11 startup additionally validates the selected executor and its keyboard data.
 Local interactive launch without shell does not imply that background
 MCP placement or global task observation is available.

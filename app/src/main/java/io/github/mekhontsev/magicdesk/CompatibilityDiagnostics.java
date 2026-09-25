@@ -246,7 +246,7 @@ public final class CompatibilityDiagnostics {
                 .append("Platform selection: ")
                 .append(PlatformDrivers.selectionDetail()).append('\n')
                 .append("Windowing policy: focusVerification=shared")
-                .append(", secondaryDisplayFreeformDefault=shared")
+                .append(", secondaryDisplayDefault=system-desktop-aware")
                 .append('\n')
                 .append("Secondary display windowing: ")
                 .append(SecondaryDisplayWindowing.diagnostics()).append('\n')
@@ -349,14 +349,21 @@ public final class CompatibilityDiagnostics {
         final boolean privilegedTransactions =
                 ShellAccess.isReady();
         final boolean nativeDesktopAvailable =
-                nativeDesktopRequired && NativeDesktopController.isAvailable();
+                nativeDesktopRequired && audit.desktopShell.canEnterDesktop();
+        appendCheck(report, "DESKTOP-SHELL-001",
+                audit.desktopShell.mode() == FrameworkDesktopShellApi.Mode.NATIVE,
+                "System desktop shell", switch (audit.desktopShell.mode()) {
+                    case NATIVE -> "advertised by WMShell; window compatibility requires device verification";
+                    case BASIC -> "limited: WMShell advertises no desktopmode provider; freeform fallback only";
+                    case UNKNOWN -> "unknown: WMShell desktop support could not be verified";
+                });
         appendCheck(report, "NATIVE-DESKTOP-001",
                 !nativeDesktopRequired
                         || nativeDesktopAvailable
                         || privilegedTransactions,
                 "Desktop task transition backend",
                 nativeDesktopAvailable
-                        ? NativeDesktopController.backendDescription()
+                        ? audit.desktopShell.entryDescription()
                         : privilegedTransactions
                                 ? "direct WindowContainerTransaction fallback"
                         : taskControl

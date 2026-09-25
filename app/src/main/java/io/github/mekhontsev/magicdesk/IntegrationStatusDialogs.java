@@ -28,7 +28,11 @@ final class IntegrationStatusDialogs {
 
     static int desktopStatus(RuntimeCapabilities capabilities) {
         return switch (capabilities.missing(RuntimeCapabilities.Service.DESKTOP)) {
-            case "" -> R.string.control_status_ready;
+            case "" -> switch (capabilities.desktopShellMode()) {
+                case NATIVE -> R.string.control_status_ready;
+                case BASIC -> R.string.control_desktop_limited;
+                case UNKNOWN -> R.string.control_desktop_unverified;
+            };
             case "desktop_setup_checking" -> R.string.control_desktop_checking;
             case "desktop_setup" -> R.string.control_desktop_setup;
             case "device_restart" -> R.string.control_desktop_restart;
@@ -62,7 +66,11 @@ final class IntegrationStatusDialogs {
             }
             final int requirement = capabilities.unavailableMessage(RuntimeCapabilities.Service.DESKTOP);
             if (requirement != 0) message.append("\n\n").append(activity.getString(requirement));
-            else message.append("\n\n").append(activity.getString(R.string.control_desktop_ready_details));
+            else message.append("\n\n").append(activity.getString(switch (capabilities.desktopShellMode()) {
+                case NATIVE -> R.string.control_desktop_ready_details;
+                case BASIC -> R.string.control_desktop_limited_details;
+                case UNKNOWN -> R.string.control_desktop_unverified_details;
+            }));
             if (ShellAccess.isReady() && !snapshot.error().isEmpty()) message.append("\n\n").append(snapshot.error());
             dialog.setMessage(message);
             final var setup = dialog.getButton(AlertDialog.BUTTON_POSITIVE);

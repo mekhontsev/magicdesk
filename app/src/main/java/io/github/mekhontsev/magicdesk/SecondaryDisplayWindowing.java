@@ -20,7 +20,15 @@ final class SecondaryDisplayWindowing {
     }
 
     static void prepare(final int displayId) throws IOException {
-        Holder.SESSION.prepare(displayId);
+        if (displayId <= 0) return;
+        // Legacy CaptionWindowDecorViewModel decorates every STANDARD task when
+        // the display default is freeform, including our MULTI_WINDOW chrome.
+        // Keep that default fullscreen; application tasks explicitly select freeform.
+        Holder.SESSION.prepare(displayId, defaultMode(NativeDesktopController.refresh().mode()));
+    }
+
+    static int defaultMode(FrameworkDesktopShellApi.Mode mode) {
+        return mode == FrameworkDesktopShellApi.Mode.NATIVE ? 5 : 1;
     }
 
     static void release(final int displayId) throws IOException {
@@ -54,7 +62,7 @@ final class SecondaryDisplayWindowing {
         try {
             return Holder.SESSION.diagnostics();
         } catch (IOException error) {
-            return "policy=freeform, restoration=unavailable: " + error.getMessage();
+            return "policy=system-desktop-aware, restoration=unavailable: " + error.getMessage();
         }
     }
 
@@ -102,8 +110,8 @@ final class SecondaryDisplayWindowing {
         }
 
         @Override
-        public Map<String, DisplayWindowingSnapshot> read() throws IOException {
-            final Map<String, DisplayWindowingSnapshot> pending = new LinkedHashMap<>();
+        public Map<String, DisplayWindowingSession.Override> read() throws IOException {
+            final Map<String, DisplayWindowingSession.Override> pending = new LinkedHashMap<>();
             try {
                 final JSONArray entries = new JSONArray(preferences().getString("pending", "[]"));
                 for (int i = 0; i < entries.length(); i++) {
@@ -111,12 +119,16 @@ final class SecondaryDisplayWindowing {
                     final DisplayWindowingSnapshot previous = new DisplayWindowingSnapshot(
                             entry.getInt("displayId"), entry.getString("uniqueId"),
                             entry.getInt("mode"), entry.getBoolean("virtual"));
+                    // Recovery receipts may outlive the APK and disconnected outputs.
+                    // Receipts without an explicit applied mode own the freeform override.
+                    final int appliedMode = entry.optInt("appliedMode", 5);
                     if (previous.displayId <= 0 || previous.uniqueId.isEmpty()
                             || previous.mode <= 0
-                            || previous.mode == 5) {
+                            || (appliedMode != 1 && appliedMode != 5)
+                            || previous.mode == appliedMode) {
                         throw new IOException("invalid saved display default mode");
                     }
-                    pending.put(previous.uniqueId, previous);
+                    pending.put(previous.uniqueId, new DisplayWindowingSession.Override(previous, appliedMode));
                 }
             } catch (JSONException | ClassCastException error) {
                 throw new IOException("cannot read display mode restoration state", error);
@@ -126,13 +138,14 @@ final class SecondaryDisplayWindowing {
 
         @Override
         @SuppressLint("ApplySharedPref")
-        public void write(final Map<String, DisplayWindowingSnapshot> pending) throws IOException {
+        public void write(final Map<String, DisplayWindowingSession.Override> pending) throws IOException {
             final JSONArray entries = new JSONArray();
             try {
-                for (DisplayWindowingSnapshot previous : pending.values()) {
+                for (DisplayWindowingSession.Override entry : pending.values()) {
+                    final DisplayWindowingSnapshot previous = entry.previous();
                     entries.put(new JSONObject().put("displayId", previous.displayId)
                             .put("uniqueId", previous.uniqueId).put("mode", previous.mode)
-                            .put("virtual", previous.virtual));
+                            .put("virtual", previous.virtual).put("appliedMode", entry.appliedMode()));
                 }
             } catch (JSONException error) {
                 throw new IOException("cannot encode display mode restoration state", error);
