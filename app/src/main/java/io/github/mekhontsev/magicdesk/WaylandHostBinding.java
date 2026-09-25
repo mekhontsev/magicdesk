@@ -24,7 +24,7 @@ final class WaylandHostBinding implements AutoCloseable {
     private volatile HostedFullscreen fullscreen;
     private HostedWindowCommands commands;
     private long fullscreenSerial = -1;
-    private int scale;
+    private float scale;
 
     WaylandHostBinding(Activity activity, HostedSurfaceView surface, WaylandSessions.Session session, long window) {
         this.surface = surface;
@@ -71,7 +71,7 @@ final class WaylandHostBinding implements AutoCloseable {
 
     void refresh() { if (!closed) { updateDensity(); family.refresh(); geometryChanged(); updateFullscreen(); } }
     private void updateDensity() {
-        int next = HostedUiScale.resolve(activity);
+        float next = HostedUiScale.resolve(activity);
         if (scale == next) return;
         scale = next;
         output.scale(scale);

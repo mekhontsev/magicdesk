@@ -5,26 +5,28 @@ import static org.junit.Assert.*;
 
 public final class HostedUiScaleTest {
     @Test public void phonePreservesUsefulLogicalSpaceInEitherOrientation() {
-        assertEquals(2, HostedUiScale.resolve(520, 1216, 2498));
-        assertEquals(2, HostedUiScale.resolve(520, 2498, 1216));
-        assertEquals(1, HostedUiScale.resolve(480, 1080, 2200));
+        assertEquals(1216 / 600f, HostedUiScale.resolve(520, 1216, 2498), 0.00001f);
+        assertEquals(1216 / 600f, HostedUiScale.resolve(520, 2498, 1216), 0.00001f);
+        assertEquals(1.8f, HostedUiScale.resolve(480, 1080, 2200), 0.00001f);
     }
 
     @Test public void densityChoosesScaleWithinGeometryBudget() {
-        assertEquals(1, HostedUiScale.resolve(160, 3840, 2160));
-        assertEquals(2, HostedUiScale.resolve(320, 3840, 2160));
-        assertEquals(3, HostedUiScale.resolve(520, 3840, 2160));
-        assertEquals(1, HostedUiScale.resolve(239, 1600, 1200));
-        assertEquals(2, HostedUiScale.resolve(240, 1600, 1200));
-        assertEquals(1, HostedUiScale.resolve(520, 1599, 1200));
-        assertEquals(1, HostedUiScale.resolve(520, 1600, 1199));
-        assertEquals(2, HostedUiScale.resolve(520, 1600, 1200));
+        assertEquals(1, HostedUiScale.resolve(160, 3840, 2160), 0);
+        assertEquals(2, HostedUiScale.resolve(320, 3840, 2160), 0);
+        assertEquals(3.25f, HostedUiScale.resolve(520, 3840, 2160), 0);
+        assertEquals(1.3f, HostedUiScale.resolve(208, 1541, 797), 0.00001f);
+        assertEquals(1.3f, HostedUiScale.resolve(208, 1920, 1080), 0.00001f);
+        assertEquals(239 / 160f, HostedUiScale.resolve(239, 1600, 1200), 0.00001f);
+        assertEquals(1.5f, HostedUiScale.resolve(240, 1600, 1200), 0);
+        assertEquals(1599 / 800f, HostedUiScale.resolve(520, 1599, 1200), 0.00001f);
+        assertEquals(1199 / 600f, HostedUiScale.resolve(520, 1600, 1199), 0.00001f);
+        assertEquals(2, HostedUiScale.resolve(520, 1600, 1200), 0);
     }
 
     @Test public void neverRequestsSubunitOrUnboundedAutomaticScale() {
-        assertEquals(1, HostedUiScale.resolve(520, 1, 1));
-        assertEquals(1, HostedUiScale.resolve(1, 3840, 2160));
-        assertEquals(8, HostedUiScale.resolve(Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE));
+        assertEquals(1, HostedUiScale.resolve(520, 1, 1), 0);
+        assertEquals(1, HostedUiScale.resolve(1, 3840, 2160), 0);
+        assertEquals(8, HostedUiScale.resolve(Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE), 0);
         assertThrows(IllegalArgumentException.class, () -> HostedUiScale.resolve(0, 800, 600));
         assertThrows(IllegalArgumentException.class, () -> HostedUiScale.resolve(160, 0, 600));
         assertThrows(IllegalArgumentException.class, () -> HostedUiScale.resolve(160, 800, -1));
@@ -78,17 +80,17 @@ public final class HostedUiScaleTest {
             }
             public static void verify() {
                 var context = new Context();
-                check(HostedUiScale.resolve(context) == 2, "phone offer");
+                check(HostedUiScale.resolve(context) == 1216 / 600f, "phone offer");
                 context.windows.metrics.insets.imeHeight = 1200;
                 context.resources.display.heightPixels = 1298;
-                check(HostedUiScale.resolve(context) == 2, "IME cannot select a new scale");
+                check(HostedUiScale.resolve(context) == 1216 / 600f, "IME cannot select a new scale");
                 context.windows.metrics.bounds = new Rect(1000, 1500);
-                check(HostedUiScale.resolve(context) == 1, "real window resize updates scale");
+                check(HostedUiScale.resolve(context) == 1310 / 800f, "real window resize updates scale");
                 context.windows.metrics.bounds = new Rect(1216, 2688);
-                check(HostedUiScale.resolve(context) == 2, "restored window offer");
+                check(HostedUiScale.resolve(context) == 1216 / 600f, "restored window offer");
                 context.ui = false;
                 context.resources.display.heightPixels = 2688;
-                check(HostedUiScale.resolve(context) == 2, "launch without an Android host");
+                check(HostedUiScale.resolve(context) == 1216 / 600f, "launch without an Android host");
             }
             """);
     }

@@ -10,6 +10,8 @@ public final class X11DensityTest {
         assertEquals(288, X11Density.resolve(2, 150));
         assertEquals(96, X11Density.resolve(2, 50));
         assertEquals(144, X11Density.resolve(1.5, 100));
+        assertEquals(125, X11Density.resolve(HostedUiScale.resolve(208, 1541, 797), 100));
+        assertEquals(187, X11Density.resolve(HostedUiScale.resolve(208, 1541, 797), 150));
         assertEquals(24, X11Density.resolve(0.1, 100));
         assertEquals(1536, X11Density.resolve(Double.MAX_VALUE, 200));
         assertThrows(IllegalArgumentException.class, () -> new X11Density(0));
@@ -38,10 +40,10 @@ public final class X11DensityTest {
     @Test public void focusedHostResizeChangesTheCommonScale() {
         Object phone = new Object();
         X11Density density = new X11Density(HostedUiScale.resolve(520, 1216, 2498));
-        assertEquals(192, density.resolve(100));
+        assertEquals(195, density.resolve(100));
         density.update(phone, HostedUiScale.resolve(520, 1000, 1500), true);
-        assertEquals(96, density.resolve(100));
+        assertEquals(160, density.resolve(100));
         density.update(phone, HostedUiScale.resolve(520, 1216, 2498), true);
-        assertEquals(192, density.resolve(100));
+        assertEquals(195, density.resolve(100));
     }
 }

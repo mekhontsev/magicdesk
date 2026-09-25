@@ -183,7 +183,7 @@ final class X11Sessions {
         private final HostedWindowOwners windowControlOwners = new HostedWindowOwners();
 
         Session(Context context, X11Execution execution, String name, String command,
-                String directory, boolean application, int uiScale, String desktopFile, RecentApplicationStore.Entry recipe) {
+                String directory, boolean application, float uiScale, String desktopFile, RecentApplicationStore.Entry recipe) {
             this.context = context;
             this.execution = execution;
             this.name = name;

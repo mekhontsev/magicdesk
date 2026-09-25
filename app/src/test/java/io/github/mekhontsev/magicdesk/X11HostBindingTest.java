@@ -6,7 +6,7 @@ public final class X11HostBindingTest {
     @Test public void borrowedResourcesAndWindowIntentRetainTheirLifetimes() throws Exception {
         RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", "static " + RuntimeSourceFixture.nestedClass("X11HostBinding", "X11HostBinding") + """
             static final List<String> events = new ArrayList<>();
-            static class HostedUiScale { static int resolve(Activity activity) { return 2; } }
+            static class HostedUiScale { static float resolve(Activity activity) { return 1.3f; } }
             static class Configuration { int densityDpi = 320; }
             static class Resources {
                 final Configuration configuration = new Configuration();
@@ -76,7 +76,10 @@ public final class X11HostBindingTest {
                     void unlisten(Listener value) { listeners.remove(value); events.add("unlisten"); }
                     void host(int task, long window, boolean focused) { hosts.add(task); }
                     void releaseHost(int task) { hosts.remove(task); events.add("host"); }
-                    void hostDensity(Object host, double scale, boolean focused) { densities.add(host); }
+                    void hostDensity(Object host, double scale, boolean focused) {
+                        check(Math.abs(scale - 1.3) < 0.00001, "host density lost fractional scale");
+                        densities.add(host);
+                    }
                     void releaseDensity(Object host) { densities.remove(host); events.add("density"); }
                     X11Session.Output openOutput(long id) { opens++; return output = new X11Session.Output(); }
                     List<X11Session.Window> windows() { return windows; }

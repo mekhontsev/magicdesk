@@ -202,11 +202,12 @@ New commits, focus changes and surface destruction cancel obsolete requests and
 release their producer leases. Cursor storage is bounded to 256 by 256 pixels.
 
 Each application output uses the shared `HostedUiScale` policy: Android density
-divided by 160, rounded to an integer from 1 to 8 and limited by a logical window
+divided by 160, retaining the fractional scale from 1 to 8 and limited by a logical window
 offer of at least 600 on the short side and 800 on the long side where possible.
 The offer excludes stable system bars and cutouts, not IME insets or client
 constraints. Output scale, Android client limits and child placement use the
-same result. Preferred buffer scale and fractional scale expose it to clients.
+same result. Fractional scale exposes it to clients; preferred integer buffer
+scale rounds upward independently of the logical interface scale.
 Surface coordinates remain logical. Output rendering uses a uniform scale bounded
 by the 4096-pixel buffer limit, also reported through `wl_output`; it does not clip
 client geometry independently on each axis. Rendering, pointer input and IME caret

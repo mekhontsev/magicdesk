@@ -4,11 +4,11 @@ import android.content.Context;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 
-/** Initial toolkit scale, independent of client size hints and rendered buffers. */
+/** Logical UI scale, independent of toolkit quantization, client hints and rendered buffers. */
 final class HostedUiScale {
     private HostedUiScale() { }
 
-    static int resolve(Context context) {
+    static float resolve(Context context) {
         var resources = context.getResources();
         int density = resources.getConfiguration().densityDpi;
         if (context.isUiContext()) {
@@ -24,11 +24,11 @@ final class HostedUiScale {
         return resolve(density, Math.max(1, display.widthPixels), Math.max(1, display.heightPixels));
     }
 
-    static int resolve(int density, int width, int height) {
+    static float resolve(int density, int width, int height) {
         if (density <= 0 || width <= 0 || height <= 0)
             throw new IllegalArgumentException("Invalid hosted display geometry");
-        int desired = Math.max(1, Math.min(8, Math.round(density / 160f)));
-        int fitting = Math.min(Math.min(width, height) / 600, Math.max(width, height) / 800);
+        float desired = Math.max(1, Math.min(8, density / 160f));
+        float fitting = Math.min(Math.min(width, height) / 600f, Math.max(width, height) / 800f);
         return Math.max(1, Math.min(desired, fitting));
     }
 }
