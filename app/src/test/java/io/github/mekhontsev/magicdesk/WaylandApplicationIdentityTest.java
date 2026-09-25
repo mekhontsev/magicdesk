@@ -63,7 +63,9 @@ public final class WaylandApplicationIdentityTest {
     @Test public void pendingAndHostlessApplicationsKeepOneRecipeAndDeletedLaunchersStayDeleted() throws Exception {
         RuntimeSourceFixture.verify("""
             static class WaylandSession {
-                record Window(long id, boolean mapped) { }
+                record Window(long id, boolean mapped, long parent) {
+                    Window(long id, boolean mapped) { this(id, mapped, 0); }
+                }
             }
             record Recipe(String key, String termuxPackage, String sourcePath) { }
             static class Presentation { Set<Long> claimed=new HashSet<>(); void claim(long id) { claimed.add(id); } }
@@ -83,6 +85,10 @@ public final class WaylandApplicationIdentityTest {
                 f.catalog=List.of(new WaylandSession.Window(1,true),new WaylandSession.Window(2,true));
                 f.hadWindows=true; f.host(100,1); f.host(200,2);
                 check(f.recipeWindow("editor")==1 && f.hostTaskId(1)==100,"application identity lost");
+                f.catalog=List.of(new WaylandSession.Window(3,true,1), new WaylandSession.Window(1,true), new WaylandSession.Window(2,true));
+                check(f.windowRecipe(3)==null && f.windowRecipe(1)==f.recipe && f.windowRecipe(99)==null,
+                        "child or unknown window acquired application geometry identity");
+                check(f.recipeWindow("editor")==1,"launcher selected a child instead of the application");
                 f.releaseHost(100);
                 check(f.recipeWindow("editor")==1 && f.hostTaskId(1)==-1,"hostless client cannot reopen");
                 f.forgetRecipe("other.termux","/editor.desktop");
@@ -96,6 +102,7 @@ public final class WaylandApplicationIdentityTest {
                 f.closed=true; f.hadWindows=false;
                 check(f.recipeWindow("editor")==-1,"closed session reused");
             }
-            """ + RuntimeSourceFixture.methods("WaylandSessions", "recipeWindow", "host", "hostTaskId", "releaseHost", "forgetRecipe"));
+            """ + RuntimeSourceFixture.methods("WaylandSessions", "recipeWindow", "windowRecipe", "host", "hostTaskId", "releaseHost", "forgetRecipe")
+                    .replace("RecentApplicationStore.Entry", "Recipe"));
     }
 }

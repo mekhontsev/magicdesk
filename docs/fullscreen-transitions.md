@@ -287,6 +287,22 @@ controller Handler, with no worker or timer. Taskbar, Alt+Tab, overview, MCP,
 and desktop presentation share it; Win+D has no separate queue. Pending focus
 does not become observed focus when an operation is enqueued. Session stop
 cancels pending callbacks and ignores acknowledgements from the old session.
+Observed focus is owned by framework focus events and acknowledged workspace
+commands, not by asynchronous task snapshots. Shortcut selection uses that
+identity; a missing, hidden or ineligible target does not redirect the command
+to another application. Snapshot-based selection is used only while no focus
+identity is known. A `shortcut_target` event records the resolved command target.
+Observation-driven input repair carries the revision of the focus event that
+authorized it. Focus loss, replacement, chrome focus and explicit transfers
+invalidate that revision. Launch and workspace-command scopes drain in-flight
+repair before submitting their transition. A launch releases its scope after
+OPEN submission; first draw and input readiness remain asynchronous observations,
+not launch-failure conditions. Workspace selection retains its scope through
+input commit verification. Task removal cancels that verification and wakes its
+event waits without attempting input repair for the departing task.
+Outside explicit transfers, repair checks current framework focus before changing
+hierarchy. Snapshots cannot revive an invalidated repair. No timer delays a new
+transfer or grants a stale observation permission to change the foreground.
 The app-side order is built only from the shell-published desktop ownership
 snapshot, and the shell rejects a target outside that ownership before any raw
 focus fallback. This is significant on display 0, where phone tasks and the

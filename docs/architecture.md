@@ -1185,6 +1185,8 @@ validated against the destination tool and Android profile. The live host publis
 the same reference through `BuiltInWindowRegistry.ApplicationSource`; existing
 typed task callbacks resolve it for the common `AppWindowStateStore`. Recipe-less
 X11 windows have no durable geometry key, rather than overwriting another program.
+X11 dialogs (including those without a transient parent) and protocol-declared
+child toplevels do not inherit the application's launch or geometry identity.
 Live task/window identifiers and document titles are never persistent identities.
 Unknown and unsupported task users cannot overwrite current-profile geometry
 or receive its DPI. Application details, shortcuts and force-stop resolve the
@@ -1819,8 +1821,17 @@ each protocol confirms requests through its own revision/acknowledgement rules.
 Protocol execution and rendering remain separate implementations.
 `HostedWindowLayout` carries client size limits and parent identity in protocol
 units. `HostedContentLayout` fits constrained content inside Android's inset-safe
-area; `ToolApplications` computes parent-relative managed placement with Android
-decorations. `HostedWindowCommands` routes supported client maximize and pointer
+area; `ToolApplications` computes managed placement with Android decorations.
+Transient windows center on their parent; size-limited windows without a parent
+center in the work area. Unbounded parentless windows retain normal launch placement.
+`HostedWindowSizing` fits a new managed host once its own caption insets arrive,
+including when launched from a fullscreen host, and reconciles subsequent client
+size-limit publications. Layout/catalog events and one outstanding bounds command
+drive this policy; no timer or guessed settling interval is used. A manual size
+change relinquishes automatic fitting, while movement preserves the new center.
+Both protocol Activities allow sizes below Android's default freeform minimum.
+Independent Android placement is unchanged.
+`HostedWindowCommands` routes supported client maximize and pointer
 move/resize requests through `DesktopTaskController`, with one outstanding bounds
 command and latest-motion coalescing. It never creates Desktop or changes task
 area ownership. Bounds changes use the persistent privileged service's typed

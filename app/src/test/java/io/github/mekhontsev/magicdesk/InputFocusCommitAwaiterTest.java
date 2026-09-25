@@ -7,6 +7,8 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 
 public final class InputFocusCommitAwaiterTest {
     @Test
@@ -15,7 +17,7 @@ public final class InputFocusCommitAwaiterTest {
         final AtomicInteger probes = new AtomicInteger();
 
         assertTrue(InputFocusCommitAwaiter.await(
-                events, 0L, 100L,
+                events, 0L, 100L, () -> false,
                 () -> probes.incrementAndGet() == 1));
         assertEquals(1, probes.get());
         assertEquals(0, events.waits);
@@ -28,7 +30,7 @@ public final class InputFocusCommitAwaiterTest {
         final AtomicInteger probes = new AtomicInteger();
 
         assertTrue(InputFocusCommitAwaiter.await(
-                events, 0L, 100L,
+                events, 0L, 100L, () -> false,
                 () -> probes.incrementAndGet() >= 3));
         assertEquals(3, probes.get());
         assertEquals(2, events.waits);
@@ -40,7 +42,7 @@ public final class InputFocusCommitAwaiterTest {
         final AtomicInteger probes = new AtomicInteger();
 
         assertFalse(InputFocusCommitAwaiter.await(
-                events, 0L, 100L,
+                events, 0L, 100L, () -> false,
                 () -> {
                     probes.incrementAndGet();
                     return false;
@@ -55,10 +57,47 @@ public final class InputFocusCommitAwaiterTest {
         final AtomicInteger probes = new AtomicInteger();
 
         assertTrue(InputFocusCommitAwaiter.await(
-                events, 0L, 100L,
+                events, 0L, 100L, () -> false,
                 () -> probes.incrementAndGet() == 2));
         assertEquals(2, probes.get());
         assertEquals(1, events.waits);
+    }
+
+    @Test
+    public void removedTargetDoesNotProbeOrWait() throws Exception {
+        final FakeEvents events = new FakeEvents(true, 1);
+        final AtomicInteger probes = new AtomicInteger();
+        assertFalse(InputFocusCommitAwaiter.await(events, 0L, 10_000L,
+                () -> true, () -> probes.incrementAndGet() > 0));
+        assertEquals(0, probes.get());
+        assertEquals(0, events.waits);
+    }
+
+    @Test
+    public void removalDuringWaitIsNotAnExpiryOrFinalFocusSuccess() throws Exception {
+        final FakeEvents events = new FakeEvents(true, 0);
+        final AtomicBoolean cancelled = new AtomicBoolean();
+        final AtomicInteger probes = new AtomicInteger();
+        events.onWait = () -> cancelled.set(true);
+        assertFalse(InputFocusCommitAwaiter.await(events, 0L, 10_000L,
+                cancelled::get, () -> probes.incrementAndGet() > 1));
+        assertEquals(1, events.waits);
+        assertEquals(1, probes.get());
+    }
+
+    @Test
+    public void removalRacingACommitCannotConfirmTheTask() throws Exception {
+        final FakeEvents events = new FakeEvents(true, 1);
+        final AtomicBoolean cancelled = new AtomicBoolean();
+        final AtomicInteger probes = new AtomicInteger();
+        assertFalse(InputFocusCommitAwaiter.await(events, 0L, 10_000L,
+                cancelled::get, () -> {
+                    if (probes.incrementAndGet() == 1) return false;
+                    cancelled.set(true);
+                    return true;
+                }));
+        assertEquals(1, events.waits);
+        assertEquals(2, probes.get());
     }
 
     private static final class FakeEvents
@@ -67,6 +106,7 @@ public final class InputFocusCommitAwaiterTest {
         private int remainingAdvances;
         private long generation;
         int waits;
+        Runnable onWait = () -> {};
 
         FakeEvents(final boolean available, final int remainingAdvances) {
             this.available = available;
@@ -86,8 +126,10 @@ public final class InputFocusCommitAwaiterTest {
         @Override
         public boolean awaitChangeAfter(
                 final long checkpoint,
-                final long timeoutMillis) {
+                final long timeoutMillis,
+                final BooleanSupplier cancelled) {
             waits++;
+            onWait.run();
             if (remainingAdvances <= 0) {
                 return false;
             }

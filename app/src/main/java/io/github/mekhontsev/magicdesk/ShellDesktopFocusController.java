@@ -49,6 +49,15 @@ final class ShellDesktopFocusController implements AutoCloseable {
             });
 
     private final Object mPendingLock = new Object();
+    private final java.util.Set<Integer> mRemovingTasks = new java.util.HashSet<>();
+    private final java.util.Set<CommitTarget> mCommitTargets = new java.util.HashSet<>();
+
+    private static final class CommitTarget {
+        final int taskId;
+        volatile boolean cancelled;
+
+        CommitTarget(final int taskId) { this.taskId = taskId; }
+    }
 
     private int mDisplayId = Display.INVALID_DISPLAY;
     private int mPendingFocusedTaskId = -1;
@@ -57,6 +66,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
     private int mMissingWindowRepairTaskId = -1;
     private boolean mDrainScheduled;
     private boolean mAcceptingEvents = true;
+    private final FocusObservation mFocusObservation = new FocusObservation();
     private final java.util.function.BooleanSupplier mRepairEnabled;
     private long mTaskSampleGeneration;
     private long mInputFocusRefreshGeneration;
@@ -82,14 +92,105 @@ final class ShellDesktopFocusController implements AutoCloseable {
     }
 
     void onTaskFocusChanged(final int taskId, final boolean focused) {
-        if (!focused || taskId < 0) {
+        if (taskId < 0) {
             return;
         }
-        requestFocusReconciliation(taskId);
+        synchronized (mPendingLock) {
+            if (!focused) {
+                mFocusObservation.lost(taskId);
+                if (mPendingFocusedTaskId == taskId) {
+                    mPendingFocusedTaskId = -1;
+                }
+                if (mFocusConfirmationTaskId == taskId) {
+                    mFocusConfirmationTaskId = -1;
+                }
+                return;
+            }
+            requestFocusReconciliation(taskId);
+        }
+    }
+
+    void onInfrastructureFocused() {
+        synchronized (mPendingLock) {
+            mFocusObservation.clear();
+            mPendingFocusedTaskId = -1;
+            mFocusConfirmationTaskId = -1;
+        }
     }
 
     void requestFocusReconciliation(final int taskId) {
         enqueueFocusReconciliation(taskId, true);
+    }
+
+    void onTaskRemoval(final int taskId, final boolean finished) {
+        synchronized (mPendingLock) {
+            if (finished) mRemovingTasks.remove(taskId);
+            else mRemovingTasks.add(taskId);
+            mFocusObservation.lost(taskId);
+            if (mPendingFocusedTaskId == taskId) mPendingFocusedTaskId = -1;
+            if (mFocusConfirmationTaskId == taskId) mFocusConfirmationTaskId = -1;
+            for (final CommitTarget target : mCommitTargets) {
+                if (target.taskId == taskId) target.cancelled = true;
+            }
+            mPendingLock.notifyAll();
+        }
+        // Wake the existing event source without manufacturing a surface commit.
+        if (mInputWindowObservations != null) mInputWindowObservations.wakeWaiters();
+    }
+
+    private CommitTarget watchCommitTarget(final int taskId) {
+        synchronized (mPendingLock) {
+            final CommitTarget target = new CommitTarget(taskId);
+            target.cancelled = !mAcceptingEvents || mRemovingTasks.contains(taskId);
+            mCommitTargets.add(target);
+            return target;
+        }
+    }
+
+    private void releaseCommitTarget(final CommitTarget target) {
+        synchronized (mPendingLock) { mCommitTargets.remove(target); }
+    }
+
+    /** Explicit transitions supersede observation-driven repair until they finish. */
+    FocusTransfer beginFocusTransfer() {
+        synchronized (mPendingLock) {
+            if (!mAcceptingEvents) {
+                throw new IllegalStateException("focus controller is closed");
+            }
+            mFocusObservation.beginTransfer();
+            mPendingFocusedTaskId = -1;
+            mFocusConfirmationTaskId = -1;
+        }
+        try {
+            // Drain any already executing repair before the caller submits its
+            // transition. No state lock is held over Binder or the worker wait.
+            call(() -> null);
+            return new FocusTransfer(captureCommitBarrier());
+        } catch (RuntimeException error) {
+            synchronized (mPendingLock) {
+                mFocusObservation.endTransfer();
+            }
+            throw error;
+        }
+    }
+
+    final class FocusTransfer implements AutoCloseable {
+        final CommitBarrier barrier;
+        private boolean closed;
+
+        private FocusTransfer(final CommitBarrier barrier) {
+            this.barrier = barrier;
+        }
+
+        @Override
+        public void close() {
+            synchronized (mPendingLock) {
+                if (!closed) {
+                    closed = true;
+                    mFocusObservation.endTransfer();
+                }
+            }
+        }
     }
 
     CommitBarrier captureCommitBarrier() {
@@ -117,8 +218,13 @@ final class ShellDesktopFocusController implements AutoCloseable {
         if (taskId < 0 || barrier == null || sampleRequester == null) {
             return false;
         }
-        return call(() -> convergeAfterCommitOnWorker(
-                taskId, barrier, sampleRequester));
+        final CommitTarget target = watchCommitTarget(taskId);
+        try {
+            return call(() -> convergeAfterCommitOnWorker(
+                    target, barrier, sampleRequester));
+        } finally {
+            releaseCommitTarget(target);
+        }
     }
 
     /** Completes a structural task commit without claiming input focus. */
@@ -128,15 +234,22 @@ final class ShellDesktopFocusController implements AutoCloseable {
         if (taskId < 0 || barrier == null) {
             return false;
         }
-        return call(() -> convergeTaskAfterCommitOnWorker(taskId, barrier));
+        final CommitTarget target = watchCommitTarget(taskId);
+        try {
+            return call(() -> convergeTaskAfterCommitOnWorker(target, barrier));
+        } finally {
+            releaseCommitTarget(target);
+        }
     }
 
     void onTasksSampled(final List<FrameworkTaskSnapshot> tasks) {
         final int confirmationTaskId;
+        final long confirmationGeneration;
         synchronized (mPendingLock) {
             mTaskSampleGeneration++;
             mPendingLock.notifyAll();
             confirmationTaskId = mFocusConfirmationTaskId;
+            confirmationGeneration = mFocusObservation.generation;
         }
         if (confirmationTaskId < 0 || tasks == null) {
             return;
@@ -145,16 +258,16 @@ final class ShellDesktopFocusController implements AutoCloseable {
             return;
         }
         synchronized (mPendingLock) {
-            if (mFocusConfirmationTaskId != confirmationTaskId) {
+            if (mFocusConfirmationTaskId != confirmationTaskId
+                    || !mFocusObservation.isCurrent(
+                            confirmationTaskId, confirmationGeneration)) {
                 return;
             }
             mFocusConfirmationTaskId = -1;
+            // Retain this revision while enqueueing; a later focus event must
+            // not revive confirmation of an earlier visit to the same task.
+            enqueueFocusReconciliation(confirmationTaskId, false);
         }
-        // Organizer children do not always expose isFocused=true, and sibling
-        // organizer planes have no reliable child order in RootTaskInfo. The
-        // requested task already identifies the owner; a visible typed sample
-        // is only the commit barrier before the strict InputDispatcher check.
-        enqueueFocusReconciliation(confirmationTaskId, false);
     }
 
     void onInputFocusRefreshCompleted(final int taskId) {
@@ -208,12 +321,16 @@ final class ShellDesktopFocusController implements AutoCloseable {
             return;
         }
         synchronized (mPendingLock) {
-            if (!mAcceptingEvents) {
+            if (!mAcceptingEvents || mRemovingTasks.contains(taskId)) {
+                return;
+            }
+            if (mFocusObservation.transfers > 0) {
                 return;
             }
             mPendingFocusedTaskId = taskId;
             mPendingConfirmationRequested = requestConfirmation;
             if (requestConfirmation) {
+                mFocusObservation.observed(taskId);
                 mFocusConfirmationTaskId = -1;
             }
             if (mDrainScheduled) {
@@ -233,10 +350,14 @@ final class ShellDesktopFocusController implements AutoCloseable {
                 return;
             }
             mAcceptingEvents = false;
+            mFocusObservation.clear();
             mPendingFocusedTaskId = -1;
             mPendingConfirmationRequested = false;
             mFocusConfirmationTaskId = -1;
+            for (final CommitTarget target : mCommitTargets) target.cancelled = true;
+            mPendingLock.notifyAll();
         }
+        if (mInputWindowObservations != null) mInputWindowObservations.wakeWaiters();
         try {
             call(() -> {
                 clearConfigurationOnWorker();
@@ -263,10 +384,12 @@ final class ShellDesktopFocusController implements AutoCloseable {
     private void clearConfigurationOnWorker() {
         mDisplayId = Display.INVALID_DISPLAY;
         synchronized (mPendingLock) {
+            mFocusObservation.clear();
             mPendingFocusedTaskId = -1;
             mPendingConfirmationRequested = false;
             mFocusConfirmationTaskId = -1;
             mMissingWindowRepairTaskId = -1;
+            mRemovingTasks.clear();
         }
     }
 
@@ -274,8 +397,10 @@ final class ShellDesktopFocusController implements AutoCloseable {
         while (true) {
             final int taskId;
             final boolean requestConfirmation;
+            final long generation;
             synchronized (mPendingLock) {
                 taskId = mPendingFocusedTaskId;
+                generation = mFocusObservation.generation;
                 requestConfirmation = mPendingConfirmationRequested;
                 mPendingFocusedTaskId = -1;
                 mPendingConfirmationRequested = false;
@@ -284,7 +409,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
                     return;
                 }
             }
-            repairFocus(taskId, requestConfirmation);
+            repairFocus(taskId, requestConfirmation, generation);
             synchronized (mPendingLock) {
                 if (mPendingFocusedTaskId < 0 || !mAcceptingEvents) {
                     mDrainScheduled = false;
@@ -296,16 +421,23 @@ final class ShellDesktopFocusController implements AutoCloseable {
 
     private void repairFocus(
             final int focusedTaskId,
-            final boolean requestConfirmation) {
+            final boolean requestConfirmation,
+            final long generation) {
         final int displayId = mDisplayId;
         if (displayId == Display.INVALID_DISPLAY) {
             return;
         }
         boolean taskObserved = false;
         try {
+            if (!isObservationCurrent(focusedTaskId, generation)) {
+                return;
+            }
             final Object focusedTask = HiddenTaskApi.findTask(
                     mTaskService, displayId, focusedTaskId);
-            if (focusedTask == null) {
+            // An old callback is not authority to restore a task which WM no
+            // longer considers focused. Explicit workspace commits have their
+            // own convergence path and do not depend on this observation.
+            if (focusedTask == null || !HiddenTaskApi.isTaskFocused(focusedTask)) {
                 return;
             }
             final String inputState =
@@ -330,10 +462,8 @@ final class ShellDesktopFocusController implements AutoCloseable {
             }
             final int inputTaskId = TaskInputWindowParser.findFocusedTaskId(
                     inputState, displayId);
-            synchronized (mPendingLock) {
-                if (mPendingFocusedTaskId >= 0 || !mAcceptingEvents) {
-                    return;
-                }
+            if (!isObservationCurrent(focusedTaskId, generation)) {
+                return;
             }
             if (!requiresInputFocusRefresh(
                     displayId, focusedDisplayId,
@@ -373,7 +503,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
                             new int[] {focusedTaskId});
                 }
             }
-            if (mListener != null) {
+            if (mListener != null && isObservationCurrent(focusedTaskId, generation)) {
                 mListener.onInputFocusRefreshRequired(focusedTaskId);
             }
             Log.i(TAG, "reported stale desktop input focus display=" + displayId
@@ -391,26 +521,28 @@ final class ShellDesktopFocusController implements AutoCloseable {
             Thread.currentThread().interrupt();
         } finally {
             if (requestConfirmation && taskObserved) {
-                armFocusConfirmation(focusedTaskId);
+                armFocusConfirmation(focusedTaskId, generation);
             }
         }
     }
 
     private boolean convergeAfterCommitOnWorker(
-            final int taskId,
+            final CommitTarget target,
             final CommitBarrier barrier,
             final Runnable sampleRequester) {
+        final int taskId = target.taskId;
         final int displayId = mDisplayId;
-        if (displayId == Display.INVALID_DISPLAY) {
+        if (displayId == Display.INVALID_DISPLAY || target.cancelled) {
             return false;
         }
         try {
-            final Object task = HiddenTaskApi.findTask(
+            Object task = HiddenTaskApi.findTask(
                     mTaskService, displayId, taskId);
             if (task == null) {
                 return false;
             }
-            if (!awaitTaskSample(barrier.taskSampleGeneration)) {
+            if (!awaitTaskSample(barrier.taskSampleGeneration, target)) {
+                if (target.cancelled) return false;
                 Log.w(TAG, "desktop task commit sample expired display="
                         + displayId + " task=" + taskId);
                 return false;
@@ -432,13 +564,18 @@ final class ShellDesktopFocusController implements AutoCloseable {
                             displayId,
                             taskId,
                             barrier.inputWindowGeneration,
-                            barrier.inputWindowEventsAvailable);
+                            barrier.inputWindowEventsAvailable, target);
+            if (target.cancelled) return false;
             if (initiallyFocused) {
                 synchronized (mPendingLock) {
                     mMissingWindowRepairTaskId = -1;
                 }
                 return true;
             }
+            // The task may have exited during the input wait. Never repair a
+            // stale TaskInfo or keep the command queue waiting for a dead host.
+            task = HiddenTaskApi.findTask(mTaskService, displayId, taskId);
+            if (task == null || target.cancelled) return false;
             if (!mRepairEnabled.getAsBoolean()) {
                 final String inputState = FrameworkInputSnapshotSource.readLocal();
                 Log.w(TAG, "desktop focus convergence expired without repair"
@@ -450,9 +587,10 @@ final class ShellDesktopFocusController implements AutoCloseable {
                     inputWindowGeneration();
             final long refreshGeneration = inputFocusRefreshGeneration();
             final boolean refreshRequested = repairMissingInputTarget(
-                    displayId, taskId, task);
+                    displayId, taskId, task, target);
             if (refreshRequested) {
-                awaitInputFocusRefresh(taskId, refreshGeneration);
+                awaitInputFocusRefresh(taskId, refreshGeneration, target);
+                if (target.cancelled) return false;
                 if (!isInputFocused(displayId, taskId)
                         && HiddenTaskApi.getTaskWindowingMode(task)
                                 == FrameworkTaskSnapshot
@@ -464,15 +602,18 @@ final class ShellDesktopFocusController implements AutoCloseable {
                             mTaskService, displayId, new int[]{taskId});
                 }
             }
+            if (target.cancelled) return false;
             final long repairedSampleGeneration = taskSampleGeneration();
             sampleRequester.run();
-            awaitTaskSample(repairedSampleGeneration);
+            awaitTaskSample(repairedSampleGeneration, target);
+            if (target.cancelled) return false;
             final boolean converged = awaitCommittedInputFocus(
                     displayId,
                     taskId,
                     repairInputWindowGeneration,
                     mInputWindowObservations != null
-                            && mInputWindowObservations.isAvailable());
+                            && mInputWindowObservations.isAvailable(), target);
+            if (target.cancelled) return false;
             if (converged) {
                 synchronized (mPendingLock) {
                     mMissingWindowRepairTaskId = -1;
@@ -497,21 +638,23 @@ final class ShellDesktopFocusController implements AutoCloseable {
     }
 
     private boolean convergeTaskAfterCommitOnWorker(
-            final int taskId,
+            final CommitTarget target,
             final CommitBarrier barrier) {
+        final int taskId = target.taskId;
         final int displayId = mDisplayId;
-        if (displayId == Display.INVALID_DISPLAY) {
+        if (displayId == Display.INVALID_DISPLAY || target.cancelled) {
             return false;
         }
         try {
-            if (!awaitTaskSample(barrier.taskSampleGeneration)) {
+            if (!awaitTaskSample(barrier.taskSampleGeneration, target)) {
+                if (target.cancelled) return false;
                 Log.w(TAG, "desktop task commit sample expired display="
                         + displayId + " task=" + taskId);
                 return false;
             }
             final Object task = HiddenTaskApi.findTask(
                     mTaskService, displayId, taskId);
-            return task != null && HiddenTaskApi.isTaskVisible(task);
+            return !target.cancelled && task != null && HiddenTaskApi.isTaskVisible(task);
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "could not confirm committed desktop task", error);
             return false;
@@ -530,22 +673,28 @@ final class ShellDesktopFocusController implements AutoCloseable {
             final int displayId,
             final int taskId,
             final long initialGeneration,
-            final boolean eventsAvailable)
+            final boolean eventsAvailable,
+            final CommitTarget target)
             throws IOException, InterruptedException {
+        // EVENT_WAIT: SurfaceFlinger input-window publication or task removal;
+        // expiry permits a live-target repair, cancellation never does.
         return InputFocusCommitAwaiter.await(
                 eventsAvailable ? mInputWindowObservations : null,
                 initialGeneration,
                 INPUT_FOCUS_COMMIT_TIMEOUT_MILLIS,
+                () -> target.cancelled,
                 () -> isInputFocused(displayId, taskId));
     }
 
-    private boolean awaitTaskSample(final long previousGeneration)
+    private boolean awaitTaskSample(final long previousGeneration, final CommitTarget target)
             throws InterruptedException {
         final long deadlineNanos = System.nanoTime()
                 + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(
                         TASK_COMMIT_TIMEOUT_MILLIS);
         synchronized (mPendingLock) {
-            while (mAcceptingEvents
+            // EVENT_WAIT: shared task observer sample or task removal; expiry
+            // leaves the task commit unconfirmed.
+            while (mAcceptingEvents && !target.cancelled
                     && mTaskSampleGeneration <= previousGeneration) {
                 final long remainingNanos = deadlineNanos - System.nanoTime();
                 if (remainingNanos <= 0L) {
@@ -558,7 +707,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
                                 java.util.concurrent.TimeUnit.NANOSECONDS
                                         .toMillis(remainingNanos)));
             }
-            return mTaskSampleGeneration > previousGeneration;
+            return !target.cancelled && mTaskSampleGeneration > previousGeneration;
         }
     }
 
@@ -579,12 +728,14 @@ final class ShellDesktopFocusController implements AutoCloseable {
 
     private boolean awaitInputFocusRefresh(
             final int taskId,
-            final long previousGeneration) throws InterruptedException {
+            final long previousGeneration, final CommitTarget target) throws InterruptedException {
         final long deadlineNanos = System.nanoTime()
                 + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(
                         TASK_COMMIT_TIMEOUT_MILLIS);
         synchronized (mPendingLock) {
-            while (mAcceptingEvents
+            // EVENT_WAIT: desktop host relayout acknowledgement or task removal;
+            // expiry does not confirm input focus.
+            while (mAcceptingEvents && !target.cancelled
                     && (mInputFocusRefreshGeneration <= previousGeneration
                             || mInputFocusRefreshTaskId != taskId)) {
                 final long remainingNanos = deadlineNanos - System.nanoTime();
@@ -598,7 +749,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
                                 java.util.concurrent.TimeUnit.NANOSECONDS
                                         .toMillis(remainingNanos)));
             }
-            return mInputFocusRefreshGeneration > previousGeneration
+            return !target.cancelled && mInputFocusRefreshGeneration > previousGeneration
                     && mInputFocusRefreshTaskId == taskId;
         }
     }
@@ -606,7 +757,8 @@ final class ShellDesktopFocusController implements AutoCloseable {
     private boolean repairMissingInputTarget(
             final int displayId,
             final int taskId,
-            final Object task)
+            final Object task,
+            final CommitTarget target)
             throws IOException, ReflectiveOperationException,
             InterruptedException {
         final String inputState = FrameworkInputSnapshotSource.readLocal();
@@ -621,6 +773,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
             return false;
         }
         synchronized (mPendingLock) {
+            if (target.cancelled) return false;
             mMissingWindowRepairTaskId = taskId;
         }
         if (mListener != null) {
@@ -632,11 +785,58 @@ final class ShellDesktopFocusController implements AutoCloseable {
         return mListener != null;
     }
 
-    private void armFocusConfirmation(final int taskId) {
+    private boolean isObservationCurrent(final int taskId, final long generation) {
         synchronized (mPendingLock) {
-            if (mAcceptingEvents && mPendingFocusedTaskId < 0) {
+            return mAcceptingEvents && mFocusObservation.isCurrent(taskId, generation);
+        }
+    }
+
+    private void armFocusConfirmation(final int taskId, final long generation) {
+        synchronized (mPendingLock) {
+            if (isObservationCurrent(taskId, generation)
+                    && mPendingFocusedTaskId < 0) {
                 mFocusConfirmationTaskId = taskId;
             }
+        }
+    }
+
+    /** Guarded by mPendingLock; loss and same-task reactivation invalidate old work. */
+    static final class FocusObservation {
+        private int taskId = -1;
+        private long generation;
+        private int transfers;
+
+        long observed(final int id) {
+            taskId = id;
+            return ++generation;
+        }
+
+        void lost(final int id) {
+            if (taskId == id) {
+                clear();
+            }
+        }
+
+        void clear() {
+            taskId = -1;
+            generation++;
+        }
+
+        void beginTransfer() {
+            clear();
+            transfers++;
+        }
+
+        void endTransfer() {
+            if (transfers <= 0) {
+                throw new IllegalStateException("no focus transfer to finish");
+            }
+            transfers--;
+            clear();
+        }
+
+        boolean isCurrent(final int id, final long revision) {
+            return transfers == 0 && id >= 0 && taskId == id && generation == revision;
         }
     }
 

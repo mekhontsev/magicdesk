@@ -40,10 +40,11 @@ public final class X11Session implements AutoCloseable {
         public static final Cursor HIDDEN = new Cursor(null, 0, 0, true);
     }
 
-    public enum WindowRole { APPLICATION, SPLASH, UNCLASSIFIED }
+    public enum WindowRole { APPLICATION, SPLASH, UNCLASSIFIED, DIALOG }
     public record Window(long id, String title, boolean mapped, Bitmap icon, WindowRole role, X11WindowManagement management,
             String instance, String className, HostedWindowLayout layout) {
-        public boolean provisional() { return role != WindowRole.APPLICATION; }
+        public boolean provisional() { return role == WindowRole.SPLASH || role == WindowRole.UNCLASSIFIED; }
+        public boolean applicationWindow() { return role == WindowRole.APPLICATION && layout.parent() == 0; }
         public boolean matchesClass(String expected) {
             return !expected.isEmpty() && (expected.equals(instance) || expected.equals(className));
         }
@@ -174,7 +175,8 @@ public final class X11Session implements AutoCloseable {
         }
         windows.put(id, new Window(Integer.toUnsignedLong(id),
                 new String(title, java.nio.charset.StandardCharsets.UTF_8), mapped, icon,
-                switch (role) { case 0 -> WindowRole.APPLICATION; case 1 -> WindowRole.SPLASH; default -> WindowRole.UNCLASSIFIED; }, management,
+                switch (role) { case 0 -> WindowRole.APPLICATION; case 1 -> WindowRole.SPLASH;
+                    case 3 -> WindowRole.DIALOG; default -> WindowRole.UNCLASSIFIED; }, management,
                 new String(instance, java.nio.charset.StandardCharsets.ISO_8859_1),
                 new String(className, java.nio.charset.StandardCharsets.ISO_8859_1),
                 new HostedWindowLayout(Integer.toUnsignedLong(parent), width, height,

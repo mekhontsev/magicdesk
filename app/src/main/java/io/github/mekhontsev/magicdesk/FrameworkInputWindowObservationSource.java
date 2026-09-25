@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.BooleanSupplier;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -120,7 +121,8 @@ final class FrameworkInputWindowObservationSource implements Closeable,
     @Override
     public boolean awaitChangeAfter(
             final long checkpoint,
-            final long timeoutMillis) throws InterruptedException {
+            final long timeoutMillis,
+            final BooleanSupplier cancelled) throws InterruptedException {
         if (timeoutMillis <= 0L) {
             throw new IllegalArgumentException(
                     "input-window event timeout must be positive");
@@ -132,7 +134,10 @@ final class FrameworkInputWindowObservationSource implements Closeable,
                 return false;
             }
             WAITS.incrementAndGet();
-            while (mRegistered && !mClosed && mGeneration <= checkpoint) {
+            // EVENT_WAIT: input-window commit or caller cancellation; expiry
+            // leaves focus unconfirmed. Cancellation never advances generation.
+            while (mRegistered && !mClosed && !cancelled.getAsBoolean()
+                    && mGeneration <= checkpoint) {
                 final long remainingNanos = deadlineNanos - System.nanoTime();
                 if (remainingNanos <= 0L) {
                     TIMEOUTS.incrementAndGet();
@@ -145,7 +150,13 @@ final class FrameworkInputWindowObservationSource implements Closeable,
                                 TimeUnit.NANOSECONDS.toMillis(
                                         remainingNanos)));
             }
-            return mGeneration > checkpoint;
+            return !cancelled.getAsBoolean() && mGeneration > checkpoint;
+        }
+    }
+
+    void wakeWaiters() {
+        synchronized (mLock) {
+            mLock.notifyAll();
         }
     }
 

@@ -98,26 +98,27 @@ final class ShellDesktopWorkspaceCoordinator {
                         "task " + command.targetTaskId
                                 + " is outside the desktop workspace");
             }
-            final ShellDesktopFocusController.CommitBarrier commitBarrier =
-                    mFocusController.captureCommitBarrier();
-            applyPhysicalOrder(command, physicalOrder);
-            mTaskSampleRequester.run();
-            final boolean requiresInputFocus =
-                    command.requiresInputFocusCommit();
-            final boolean converged = requiresInputFocus
-                    ? mFocusController.convergeAfterCommit(
-                            command.targetTaskId,
-                            commitBarrier,
-                            mTaskSampleRequester)
-                    : mFocusController.convergeTaskAfterCommit(
-                            command.targetTaskId, commitBarrier);
-            if (!converged) {
-                return Result.failure(
-                        appliedTaskCount,
-                        (requiresInputFocus
-                                ? "input focus did not converge for task "
-                                : "task commit did not converge for task ")
-                                + command.targetTaskId);
+            try (ShellDesktopFocusController.FocusTransfer transfer =
+                    mFocusController.beginFocusTransfer()) {
+                applyPhysicalOrder(command, physicalOrder);
+                mTaskSampleRequester.run();
+                final boolean requiresInputFocus =
+                        command.requiresInputFocusCommit();
+                final boolean converged = requiresInputFocus
+                        ? mFocusController.convergeAfterCommit(
+                                command.targetTaskId,
+                                transfer.barrier,
+                                mTaskSampleRequester)
+                        : mFocusController.convergeTaskAfterCommit(
+                                command.targetTaskId, transfer.barrier);
+                if (!converged) {
+                    return Result.failure(
+                            appliedTaskCount,
+                            (requiresInputFocus
+                                    ? "input focus did not converge for task "
+                                    : "task commit did not converge for task ")
+                                    + command.targetTaskId);
+                }
             }
             Log.d(TAG, "completed " + command.operationName()
                     + " display=" + command.displayId

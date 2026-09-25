@@ -129,27 +129,26 @@ public final class DesktopTaskControllerTest {
     }
 
     @Test
-    public void keepsKnownFocusedTaskAcrossSyntheticActiveSnapshots() {
+    public void shortcutKeepsKnownFocusedTaskAcrossSyntheticActiveSnapshots() {
         final TaskRepository.TaskEntry syntheticActive = task(
                 10, "com.example.previous/.MainActivity", true, true);
         final TaskRepository.TaskEntry knownFocused = task(
                 11, "com.example.console/.MainActivity", true, false);
 
         assertEquals(knownFocused,
-                DesktopTaskController.selectKnownOrTopVisibleTask(
-                        Arrays.asList(syntheticActive, knownFocused), 11));
+                DesktopTaskController.selectShortcutTask(
+                        Arrays.asList(syntheticActive, knownFocused), 11, false));
     }
 
     @Test
-    public void replacesKnownFocusedTaskAfterItBecomesHidden() {
+    public void shortcutDoesNotRetargetFromHiddenFocusedTask() {
         final TaskRepository.TaskEntry visible = task(
                 10, "com.example.visible/.MainActivity", true, true);
         final TaskRepository.TaskEntry hidden = task(
                 11, "com.example.hidden/.MainActivity", false, false);
 
-        assertEquals(visible,
-                DesktopTaskController.selectKnownOrTopVisibleTask(
-                        Arrays.asList(visible, hidden), 11));
+        assertNull(DesktopTaskController.selectShortcutTask(
+                Arrays.asList(visible, hidden), 11, false));
     }
 
     @Test
@@ -164,12 +163,36 @@ public final class DesktopTaskControllerTest {
     }
 
     @Test
-    public void shortcutFallsBackWhenFocusedTaskDisappeared() {
+    public void shortcutDoesNotRetargetWhenFocusedTaskDisappeared() {
+        final TaskRepository.TaskEntry active = task(
+                10, "com.example.active/.MainActivity", true, true);
+
+        assertNull(DesktopTaskController.selectShortcutTask(
+                Arrays.asList(active), 11, true));
+    }
+
+    @Test
+    public void shortcutFallsBackOnlyBeforeFocusIsObserved() {
         final TaskRepository.TaskEntry active = task(
                 10, "com.example.active/.MainActivity", true, true);
 
         assertEquals(active, DesktopTaskController.selectShortcutTask(
-                Arrays.asList(active), 11, true));
+                Collections.singletonList(active), -1, true));
+    }
+
+    @Test
+    public void launchedTaskRemainsShortcutTargetAfterDelayedHiddenSnapshot() {
+        final TaskRepository.TaskEntry previous = task(
+                10, "com.example.previous/.MainActivity", true, true);
+        final TaskRepository.TaskEntry beforeLaunch = task(
+                11, "net.sf.golly/.MainActivity", false, false);
+        final TaskRepository.TaskEntry afterLaunch = task(
+                11, "net.sf.golly/.MainActivity", true, true);
+
+        assertNull(DesktopTaskController.selectShortcutTask(
+                Arrays.asList(previous, beforeLaunch), 11, false));
+        assertEquals(afterLaunch, DesktopTaskController.selectShortcutTask(
+                Arrays.asList(afterLaunch, previous), 11, false));
     }
 
     @Test
@@ -192,7 +215,7 @@ public final class DesktopTaskControllerTest {
                 true,
                 true);
 
-        assertEquals(fallback, DesktopTaskController.selectShortcutTask(
+        assertNull(DesktopTaskController.selectShortcutTask(
                 Arrays.asList(fallback, fullscreen), 11, true));
     }
 

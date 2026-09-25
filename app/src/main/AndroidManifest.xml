@@ -398,7 +398,10 @@
             android:resizeableActivity="true"
             android:taskAffinity="${applicationId}.x11"
             android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
-            android:windowSoftInputMode="adjustResize" />
+            android:windowSoftInputMode="adjustResize">
+            <!-- Native clients own size limits, including dialogs smaller than Android's default. -->
+            <layout android:minWidth="1dp" android:minHeight="1dp" />
+        </activity>
         <activity
             android:name=".WaylandActivity"
             android:exported="true"
@@ -408,7 +411,9 @@
             android:resizeableActivity="true"
             android:taskAffinity="${applicationId}.wayland"
             android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
-            android:windowSoftInputMode="adjustResize" />
+            android:windowSoftInputMode="adjustResize">
+            <layout android:minWidth="1dp" android:minHeight="1dp" />
+        </activity>
         <activity
             android:name=".CommandConsoleActivity"
             android:configChanges="density|fontScale|keyboard|keyboardHidden|layoutDirection|locale|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"

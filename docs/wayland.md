@@ -227,8 +227,14 @@ This also applies after mapping; the original offered Android viewport is retain
 for later density changes. `HostedContentLayout` centers a
 size-limited client without enlarging it to fill the host. A transient toplevel
 opens relative to its actual parent's Android host; managed windowed placement
-includes Android decorations and is clamped to the workspace. Independent hosts
+includes Android decorations and is clamped to the workspace. Size-limited
+toplevels without a parent also use their client limits for initial placement,
+centered in the work area. Independent hosts
 retain ordinary Android placement.
+Both graphical Activities declare a minimal host size; client limits, rather than
+Android's default freeform minimum, determine the size of small managed dialogs.
+The shared host reconciles later client size limits until a manual resize.
+Child toplevels do not own the application's saved placement or launch-reuse identity.
 
 `HostedWindowCommands` handles shared maximization state and validated pointer
 move/resize requests. It uses the existing Desktop task gateway, preserving

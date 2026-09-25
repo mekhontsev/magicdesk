@@ -11,6 +11,63 @@ import java.util.Arrays;
 
 public final class ShellDesktopFocusControllerTest {
     @Test
+    public void launchSupersedesRepairFromStartDismissal() {
+        final ShellDesktopFocusController.FocusObservation focus =
+                new ShellDesktopFocusController.FocusObservation();
+        final long editor = focus.observed(41);
+        focus.beginTransfer();
+        assertFalse(focus.isCurrent(41, editor));
+        final long launching = focus.observed(42);
+        assertFalse(focus.isCurrent(42, launching));
+        focus.endTransfer();
+        assertFalse(focus.isCurrent(41, editor));
+        assertFalse(focus.isCurrent(42, launching));
+        final long committed = focus.observed(42);
+        assertTrue(focus.isCurrent(42, committed));
+    }
+
+    @Test
+    public void lossAndReactivationDoNotReviveAnOldRepair() {
+        final ShellDesktopFocusController.FocusObservation focus =
+                new ShellDesktopFocusController.FocusObservation();
+        final long first = focus.observed(41);
+        focus.lost(41);
+        assertFalse(focus.isCurrent(41, first));
+        final long second = focus.observed(41);
+        assertFalse(focus.isCurrent(41, first));
+        assertTrue(focus.isCurrent(41, second));
+        focus.lost(42);
+        assertTrue(focus.isCurrent(41, second));
+    }
+
+    @Test
+    public void replacementAndInfrastructureCancelPendingConfirmation() {
+        final ShellDesktopFocusController.FocusObservation focus =
+                new ShellDesktopFocusController.FocusObservation();
+        final long first = focus.observed(41);
+        final long second = focus.observed(42);
+        assertFalse(focus.isCurrent(41, first));
+        assertTrue(focus.isCurrent(42, second));
+        focus.clear();
+        assertFalse(focus.isCurrent(42, second));
+    }
+
+    @Test
+    public void overlappingTransfersCannotReleaseEachOthersFence() {
+        final ShellDesktopFocusController.FocusObservation focus =
+                new ShellDesktopFocusController.FocusObservation();
+        focus.beginTransfer();
+        focus.beginTransfer();
+        focus.endTransfer();
+        final long intermediate = focus.observed(42);
+        assertFalse(focus.isCurrent(42, intermediate));
+        focus.endTransfer();
+        assertFalse(focus.isCurrent(42, intermediate));
+        final long current = focus.observed(42);
+        assertTrue(focus.isCurrent(42, current));
+    }
+
+    @Test
     public void homeTargetUsesImmediateFocusRepairPath() {
         assertTrue(ShellDesktopFocusController.isDesktopHostTarget(
                 2,

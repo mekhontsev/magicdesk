@@ -6,6 +6,20 @@ import io.github.mekhontsev.magicdesk.x11.X11Session;
 import static org.junit.Assert.*;
 
 public final class X11WindowSelectionTest {
+    @Test public void dialogRetainsItsHostButDoesNotOwnApplicationGeometry() {
+        var dialog = window(2, X11Session.WindowRole.DIALOG);
+        var main = window(1, X11Session.WindowRole.APPLICATION);
+        assertFalse(dialog.provisional());
+        assertFalse(dialog.applicationWindow());
+        assertTrue(main.applicationWindow());
+        assertEquals(2, X11WindowSelection.select(2, true, List.of(main, dialog)));
+        assertEquals(-1, X11WindowSelection.select(2, false, List.of(main)));
+        var transientWindow = new X11Session.Window(3, "", true, null, X11Session.WindowRole.APPLICATION,
+                null, "", "", new io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout(1, 100, 100,
+                        io.github.mekhontsev.magicdesk.hosted.HostedWindowConstraints.NONE));
+        assertFalse(transientWindow.applicationWindow());
+    }
+
     private static X11Session.Window window(long id, X11Session.WindowRole role) {
         return new X11Session.Window(id, "", true, null, role, null, "", "", io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout.NONE);
     }

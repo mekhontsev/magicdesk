@@ -225,11 +225,12 @@ final class X11Sessions {
         Application redirect() { return redirect; }
 
         private synchronized void associateRecipes(List<X11Session.Window> snapshot) {
-            windowRecipes.keySet().retainAll(snapshot.stream().map(X11Session.Window::id).toList());
+            windowRecipes.keySet().retainAll(snapshot.stream().filter(X11Session.Window::applicationWindow)
+                    .map(X11Session.Window::id).toList());
             if (recipe == null) return;
             String expected = recipe.shortcut().graphics == null ? "" : recipe.shortcut().graphics.startupClass();
             boolean initial = !hadApplicationWindow;
-            for (var item : snapshot) if (!item.provisional()) {
+            for (var item : snapshot) if (item.applicationWindow()) {
                 if (initial || item.matchesClass(expected)) windowRecipes.putIfAbsent(item.id(), recipe);
                 initial = false;
             }
@@ -491,9 +492,9 @@ final class X11Sessions {
                         if (!snapshot.isEmpty()) {
                             boolean first = !hadWindows;
                             hadWindows = true;
-                            hadApplicationWindow |= snapshot.stream().anyMatch(item -> !item.provisional());
+                            hadApplicationWindow |= snapshot.stream().anyMatch(X11Session.Window::applicationWindow);
                             if (first) recordUse();
-                            if (hadApplicationWindow) MAIN.removeCallbacks(windowTimeout);
+                            if (snapshot.stream().anyMatch(item -> !item.provisional())) MAIN.removeCallbacks(windowTimeout);
                         } else if (application && hadWindows && (hadApplicationWindow || startupFinished)) {
                             DesktopAutomationEventJournal.record("x11", "application_windows_gone", true, "session=" + id());
                             close(); return;

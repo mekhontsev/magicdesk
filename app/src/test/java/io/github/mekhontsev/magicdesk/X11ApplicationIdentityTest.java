@@ -10,8 +10,8 @@ public final class X11ApplicationIdentityTest {
             static class Shortcut { Options graphics = new Options(); }
             static class Options { String startupClass() { return "writer"; } }
             static class X11Session {
-                record Window(long id, String cls) {
-                    boolean provisional() { return false; }
+                record Window(long id, String cls, boolean applicationWindow) {
+                    Window(long id, String cls) { this(id, cls, true); }
                     boolean matchesClass(String expected) { return cls.equals(expected); }
                 }
             }
@@ -51,6 +51,17 @@ public final class X11ApplicationIdentityTest {
                 f.associateRecipes(List.of(new X11Session.Window(2, "calc"), new X11Session.Window(3, "writer")));
                 check(f.findApplication("writer").window() == 3, "main document after recovery keeps launch identity");
                 check(f.findApplication("calc").window() == 2, "catalog does not overwrite a forwarded recipe");
+                f.associateRecipes(List.of(new X11Session.Window(2, "calc"), new X11Session.Window(3, "writer"),
+                        new X11Session.Window(4, "writer", false)));
+                check(!f.windowRecipes.containsKey(4L) && f.findApplication("writer").window() == 3,
+                        "a dialog with the same class must not inherit launch/geometry identity");
+                f.windowRecipes.put(4L, f.recipe);
+                f.associateRecipes(List.of(new X11Session.Window(3, "writer"), new X11Session.Window(4, "writer", false)));
+                check(!f.windowRecipes.containsKey(4L), "later dialog classification must remove an earlier association");
+                var pending = new Fixture();
+                pending.associateRecipes(List.of(new X11Session.Window(5, "writer", false), new X11Session.Window(6, "document")));
+                check(!pending.windowRecipes.containsKey(5L) && pending.windowRecipes.containsKey(6L),
+                        "startup dialog must not consume the initial application recipe");
             }
             """ + RuntimeSourceFixture.methods("X11Sessions", "findApplication", "associateRecipes", "host", "hostTaskId", "releaseHost", "recordTaskUse"));
     }

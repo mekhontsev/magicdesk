@@ -647,8 +647,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
-        return mFullscreenTaskArea.restoreTask(
-                mService, displayId, taskId, bounds, densityDpi);
+        try (ShellDesktopFocusController.FocusTransfer ignored =
+                mFocusController.beginFocusTransfer()) {
+            return mFullscreenTaskArea.restoreTask(
+                    mService, displayId, taskId, bounds, densityDpi);
+        }
     }
 
     boolean beginAppFullscreenTask(
@@ -659,16 +662,19 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed || displayId != mConfiguredDisplayId) {
             return false;
         }
-        mDesktopOwnership.markDesktop(taskId);
-        final boolean entered = mFullscreenTaskArea.beginAppFullscreen(
-                mService,
-                displayId,
-                taskId,
-                restoreBounds,
-                refreshFullscreenCaption(),
-                densityDpi);
-        reportDesktopTaskOwnership();
-        return entered;
+        try (ShellDesktopFocusController.FocusTransfer ignored =
+                mFocusController.beginFocusTransfer()) {
+            mDesktopOwnership.markDesktop(taskId);
+            final boolean entered = mFullscreenTaskArea.beginAppFullscreen(
+                    mService,
+                    displayId,
+                    taskId,
+                    restoreBounds,
+                    refreshFullscreenCaption(),
+                    densityDpi);
+            reportDesktopTaskOwnership();
+            return entered;
+        }
     }
 
     boolean beginFullscreenTask(
@@ -678,15 +684,18 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed || displayId != mConfiguredDisplayId) {
             return false;
         }
-        mDesktopOwnership.markDesktop(taskId);
-        final boolean entered = mFullscreenTaskArea.beginFullscreen(
-                mService,
-                displayId,
-                taskId,
-                refreshFullscreenCaption(),
-                densityDpi);
-        reportDesktopTaskOwnership();
-        return entered;
+        try (ShellDesktopFocusController.FocusTransfer ignored =
+                mFocusController.beginFocusTransfer()) {
+            mDesktopOwnership.markDesktop(taskId);
+            final boolean entered = mFullscreenTaskArea.beginFullscreen(
+                    mService,
+                    displayId,
+                    taskId,
+                    refreshFullscreenCaption(),
+                    densityDpi);
+            reportDesktopTaskOwnership();
+            return entered;
+        }
     }
 
     boolean beginWindowedTask(
@@ -698,7 +707,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 || taskId < 0 || bounds == null || bounds.isEmpty()) {
             return false;
         }
-        try {
+        try (ShellDesktopFocusController.FocusTransfer ignored =
+                mFocusController.beginFocusTransfer()) {
             HiddenTaskApi.requireTask(mService, displayId, taskId);
             // Claim before submitting the transition. On display 0 the same
             // observer otherwise treats a previously fullscreen phone task as
@@ -745,10 +755,13 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
-        final ShellFullscreenTaskArea.CloseResult result =
-                mFullscreenTaskArea.closeTask(
-                        mService, displayId, taskId, focusTaskId);
-        return result == ShellFullscreenTaskArea.CloseResult.SUCCEEDED;
+        try (ShellDesktopFocusController.FocusTransfer ignored =
+                mFocusController.beginFocusTransfer()) {
+            final ShellFullscreenTaskArea.CloseResult result =
+                    mFullscreenTaskArea.closeTask(
+                            mService, displayId, taskId, focusTaskId);
+            return result == ShellFullscreenTaskArea.CloseResult.SUCCEEDED;
+        }
     }
 
     int launchWindowedTask(
@@ -763,10 +776,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             throw new IllegalArgumentException(
                     "display is not configured: " + displayId);
         }
-        try {
+        try (ShellDesktopFocusController.FocusTransfer transfer =
+                mFocusController.beginFocusTransfer()) {
             final int taskId = mTaskLauncher.launchWindowed(
                     displayId, intent, bounds, null, true, densityDpi);
-            return finishTaskLaunch(displayId, taskId);
+            return finishTaskLaunch(taskId);
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
                     "cannot launch windowed task: "
@@ -786,14 +800,15 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             throw new IllegalArgumentException(
                     "display is not configured: " + displayId);
         }
-        try {
+        try (ShellDesktopFocusController.FocusTransfer transfer =
+                mFocusController.beginFocusTransfer()) {
             final int taskId = mFullscreenTaskArea.launchFullscreen(
                     mService,
                     displayId,
                     taskAreaToken -> mTaskLauncher.launchFullscreen(
                             displayId, intent, taskAreaToken),
                     densityDpi);
-            return finishTaskLaunch(displayId, taskId);
+            return finishTaskLaunch(taskId);
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
                     "cannot launch fullscreen task: "
@@ -818,7 +833,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             throw new IllegalArgumentException(
                     "display is not configured: " + displayId);
         }
-        try {
+        try (ShellDesktopFocusController.FocusTransfer transfer =
+                mFocusController.beginFocusTransfer()) {
             final int taskId;
             if (existingTaskId >= 0) {
                 mTaskLauncher.launchShortcutInTask(
@@ -859,7 +875,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 throw new IllegalArgumentException(
                         "unsupported shortcut windowing mode: " + windowingMode);
             }
-            return finishTaskLaunch(displayId, taskId);
+            return finishTaskLaunch(taskId);
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
                     "cannot launch app shortcut: " + usefulMessage(error), error);
@@ -882,7 +898,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             throw new IllegalArgumentException(
                     "display is not configured: " + displayId);
         }
-        try {
+        try (ShellDesktopFocusController.FocusTransfer transfer =
+                mFocusController.beginFocusTransfer()) {
             final int taskId;
             if (existingTaskId >= 0) {
                 mTaskLauncher.launchPendingActivityInTask(
@@ -925,7 +942,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                         "unsupported pending Activity windowing mode: "
                                 + windowingMode);
             }
-            return finishTaskLaunch(displayId, taskId);
+            return finishTaskLaunch(taskId);
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
                     "cannot launch pending Activity: "
@@ -952,7 +969,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mTaskActivityModeGuard.onTaskRemoved(taskId);
             mFreeformCleanup.forget(taskId);
         }
-        try {
+        try (ShellDesktopFocusController.FocusTransfer ignored =
+                mFocusController.beginFocusTransfer()) {
             mFullscreenTaskArea.releaseToAndroid(mService, mConfiguredDisplayId, taskIds);
         } catch (ReflectiveOperationException | RuntimeException error) {
             for (final int taskId : taskIds) {
@@ -975,8 +993,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
     }
 
-    private int finishTaskLaunch(final int displayId, final int taskId) {
+    private int finishTaskLaunch(final int taskId) {
         reportDesktopTaskOwnership();
+        mTaskObservations.requestSample();
+        // OPEN is submitted; drawing and input focus arrive asynchronously.
+        // A slow first frame or a self-closing Activity is not a launch failure.
         return taskId;
     }
 
@@ -1154,6 +1175,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed || taskInfo == null) {
             return;
         }
+        mFocusController.onTaskRemoval(taskInfo.taskId, false);
         // onTaskRemoved is delivered after the native CLOSE finishes. Its
         // readiness can itself require a resumed successor on this display.
         // Arm the existing snapshot reconciliation before that boundary.
@@ -1167,6 +1189,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     @Override
     public void onTaskRemoved(final int taskId) {
         if (!mClosed) {
+            mFocusController.onTaskRemoval(taskId, true);
             rememberDesktopTaskRemoval(taskId);
             synchronized (this) {
                 if (mPhoneTouchpadTaskId == taskId) {
@@ -1351,10 +1374,18 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
         final FocusedTask focusedTask = focused
                 ? resolveFocusedTask(taskId) : null;
+        if (focused && (focusedTask == null
+                || focusedTask.displayId != mConfiguredDisplayId)) {
+            signalChange("other-display-focus-changed");
+            return;
+        }
         if (focusedTask != null && focusedTask.infrastructure) {
             // Infrastructure windows can legitimately own input while the
             // user operates desktop chrome. They are not application focus
             // targets and must not enter the application focus-repair path.
+            if (focusedTask.displayId == mConfiguredDisplayId) {
+                mFocusController.onInfrastructureFocused();
+            }
             signalChange("infrastructure-focus-changed");
             return;
         }

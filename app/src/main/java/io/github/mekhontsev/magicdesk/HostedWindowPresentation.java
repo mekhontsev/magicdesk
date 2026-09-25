@@ -36,6 +36,7 @@ final class HostedWindowPresentation {
     private final Session session;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Set<Long> presented = new HashSet<>();
+    private final Map<Long, HostedWindowSizing> clientSizes = new HashMap<>();
     private WeakReference<Activity> source = new WeakReference<>(null);
     private ToolApplications.WindowPlacement placement;
     private final Map<Integer, Host> hosts = new HashMap<>();
@@ -75,7 +76,10 @@ final class HostedWindowPresentation {
             host.releaseObservation();
             host.observed = content.hostedSurface();
             if (host.observed != null) {
-                host.layout = (v, l, t, r, b, ol, ot, or, ob) -> session.observationChanged();
+                host.layout = (v, l, t, r, b, ol, ot, or, ob) -> {
+                    applyClientSize(activity, host);
+                    session.observationChanged();
+                };
                 host.attachment = new android.view.View.OnAttachStateChangeListener() {
                     public void onViewAttachedToWindow(android.view.View view) { session.observationChanged(); }
                     public void onViewDetachedFromWindow(android.view.View view) { session.observationChanged(); }
@@ -92,6 +96,7 @@ final class HostedWindowPresentation {
                 main.post(() -> {
                     if (closed || hosts.get(task) != host || host.generation != version) return;
                     host.placement = captured;
+                    applyClientSize(activity, host);
                     if (generation == version) placement = captured;
                     session.presentationChanged();
                 });
@@ -125,9 +130,11 @@ final class HostedWindowPresentation {
         activity.finishAndRemoveTask();
     }
     boolean isClosed() { return closed; }
-    void retain(Set<Long> windows) { presented.retainAll(windows); recovering.retainAll(windows); }
+    void retain(Set<Long> windows) {
+        presented.retainAll(windows); recovering.retainAll(windows); clientSizes.keySet().retainAll(windows);
+    }
     void close() {
-        closed = true; generation++; presented.clear(); recovering.clear();
+        closed = true; generation++; presented.clear(); recovering.clear(); clientSizes.clear();
         hosts.values().forEach(Host::releaseObservation); hosts.clear(); source.clear();
         session.observationChanged();
     }
@@ -170,8 +177,25 @@ final class HostedWindowPresentation {
         return session.windowIntent(context, window);
     }
 
+    private void applyClientSize(Activity activity, Host host) {
+        if (closed || !(activity instanceof ContentHost content)) return;
+        long window = content.hostedWindowId();
+        var sizing = clientSizes.get(window);
+        if (sizing != null) sizing.apply(activity, host.placement, session.layout(window), session.unitScale(activity),
+                () -> main.post(() -> {
+                    if (hosts.get(activity.getTaskId()) == host && host.activity.get() == activity)
+                        applyClientSize(activity, host);
+                }));
+    }
+
     boolean present(long window) {
-        if (closed || presented.contains(window)) return false;
+        if (closed) return false;
+        if (presented.contains(window)) {
+            var host = hosts.get(session.hostTaskId(window));
+            var activity = host == null ? null : host.activity.get();
+            if (activity != null) applyClientSize(activity, host);
+            return false;
+        }
         Activity activity = source.get();
         var layout = session.layout(window);
         Host parent = layout.parent() == 0 ? null : hosts.get(session.hostTaskId(layout.parent()));
@@ -183,8 +207,12 @@ final class HostedWindowPresentation {
         var intent = intent(window);
         BuiltInWindowLauncher.Callback done = error -> presentationCompleted(window, error);
         try {
-            if (live) ToolApplications.openSibling(activity, intent,
-                    ToolApplications.childPresentation(activity, layout, session.unitScale(activity)), done);
+            if (live) {
+                float scale = session.unitScale(activity);
+                var bounds = ToolApplications.hostedWindowPresentation(activity, layout, scale);
+                if (bounds != null) clientSizes.put(window, new HostedWindowSizing());
+                ToolApplications.openSibling(activity, intent, bounds, done);
+            }
             else ToolApplications.open(context, intent, placement.target(), placement.uniqueId(), done);
         } catch (RuntimeException error) { done.onComplete(error); }
         return true;

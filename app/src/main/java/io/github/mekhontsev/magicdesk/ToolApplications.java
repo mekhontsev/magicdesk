@@ -58,22 +58,31 @@ final class ToolApplications {
             try {
                 final var placement = windowPlacement(display, taskId);
                 open(source, intent, placement.target(), placement.uniqueId(),
-                        placement.presentation().mode == DesktopLaunchMode.WINDOWED ? presentation : null, callback);
+                        placement.target().desktop ? presentation : null, callback);
             } catch (java.io.IOException | RuntimeException error) {
                 source.runOnUiThread(() -> { if (!source.isDestroyed() && !source.isFinishing()) callback.onComplete(error); });
             }
         });
     }
 
-    static DesktopLaunchPresentation childPresentation(android.app.Activity parent,
+    static DesktopLaunchPresentation hostedWindowPresentation(android.app.Activity source,
             io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout layout, float scale) {
-        if (layout.parent() == 0 || layout.width() < 1 || layout.height() < 1 || !parent.isInMultiWindowMode()) return null;
-        int display = parent.getDisplay() == null ? 0 : parent.getDisplay().getDisplayId();
+        boolean hasParent = layout.parent() != 0;
+        boolean sizeLimited = layout.constraints().maxWidth() > 0 || layout.constraints().maxHeight() > 0;
+        if ((!hasParent && !sizeLimited) || layout.width() < 1 || layout.height() < 1) return null;
+        int display = source.getDisplay() == null ? 0 : source.getDisplay().getDisplayId();
         var work = DesktopRuntimeBridge.getDesktopWorkAreaBounds(display);
         if (work == null || work.isEmpty()) return null;
-        var metrics = parent.getWindowManager().getCurrentWindowMetrics();
-        var origin = metrics.getBounds();
-        var decor = metrics.getWindowInsets().getInsets(android.view.WindowInsets.Type.systemBars());
+        var metrics = source.getWindowManager().getCurrentWindowMetrics();
+        // Parent identity selects placement, not whether client size limits apply.
+        var origin = hasParent ? metrics.getBounds() : work;
+        var decor = source.isInMultiWindowMode()
+                ? metrics.getWindowInsets().getInsets(android.view.WindowInsets.Type.systemBars())
+                : android.graphics.Insets.NONE;
+        var published = source.getWindow().getDecorView().getRootWindowInsets();
+        // WindowMetrics can omit the caption reported by the attached window.
+        if (source.isInMultiWindowMode() && published != null) decor = android.graphics.Insets.max(decor,
+                published.getInsets(android.view.WindowInsets.Type.captionBar()));
         int width = Math.min(work.width(), Math.round(layout.constraints().width(layout.width()) * scale) + decor.left + decor.right);
         int height = Math.min(work.height(), Math.round(layout.constraints().height(layout.height()) * scale) + decor.top + decor.bottom);
         int left = Math.max(work.left, Math.min(work.right - width, origin.centerX() - width / 2));

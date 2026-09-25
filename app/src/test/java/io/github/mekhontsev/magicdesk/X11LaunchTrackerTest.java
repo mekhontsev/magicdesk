@@ -6,6 +6,19 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public final class X11LaunchTrackerTest {
+    @Test public void parentlessDialogCannotConsumeAnApplicationLaunch() {
+        var tracker = new X11LaunchTracker();
+        tracker.begin("launch", "a", "gimp");
+        tracker.completed("launch");
+        var dialog = new X11Session.Window(1, "About", true, null, X11Session.WindowRole.DIALOG,
+                null, "gimp", "Gimp", io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout.NONE);
+        tracker.update("other", "a", List.of(dialog));
+        assertFalse(tracker.reserved("other", 1));
+        assertTrue(tracker.takeMatches().isEmpty());
+        tracker.update("other", "a", List.of(dialog, window(2, "gimp")));
+        assertEquals(2, tracker.takeMatches().get(0).window().id());
+    }
+
     @Test public void initialToolkitClassDoesNotRaceAutomaticPresentation() {
         var tracker = new X11LaunchTracker();
         tracker.begin("calc", "a", "libreoffice-calc");

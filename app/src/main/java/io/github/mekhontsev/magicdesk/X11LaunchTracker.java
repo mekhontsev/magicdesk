@@ -105,12 +105,13 @@ final class X11LaunchTracker {
     private boolean matches(String session, Pending launch, Window key) {
         if (!eligible(session, launch, key)) return false;
         var info = windows.get(key).info();
-        return info.mapped() && !info.provisional() && info.matchesClass(launch.expectedClass);
+        return info.mapped() && info.applicationWindow() && info.matchesClass(launch.expectedClass);
     }
 
     private boolean eligible(String session, Pending launch, Window key) {
         Observed value = windows.get(key);
         return value != null && !assigned.contains(key) && !key.session().equals(session)
+                && value.info().role() != X11Session.WindowRole.DIALOG && value.info().layout().parent() == 0
                 && value.generation() > launch.generation && value.scope().equals(launch.scope);
     }
 }

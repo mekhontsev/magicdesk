@@ -235,9 +235,13 @@ final class WaylandSessions {
                     .map(Map.Entry::getKey).findFirst().orElse(-1);
         }
         RecentApplicationStore.Entry recipe() { return recipe; }
+        RecentApplicationStore.Entry windowRecipe(long window) {
+            if (window == 0) return recipe;
+            return windows().stream().anyMatch(item -> item.id() == window && item.parent() == 0) ? recipe : null;
+        }
         long recipeWindow(String key) {
             if (stopped() || recipe == null || !recipe.key().equals(key)) return -1;
-            return windows().stream().filter(WaylandSession.Window::mapped).mapToLong(WaylandSession.Window::id)
+            return windows().stream().filter(item -> item.mapped() && item.parent() == 0).mapToLong(WaylandSession.Window::id)
                     .findFirst().orElse(hadWindows ? -1 : 0);
         }
         synchronized boolean recordTaskUse(int taskId, RecentLaunchScope scope) {

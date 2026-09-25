@@ -76,7 +76,9 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private int mGeneration;
     private volatile int mTaskWatcherGeneration;
     private volatile int mFocusingTaskId = -1;
-    private volatile int mActiveTaskId = -1;
+    // Only framework focus events and acknowledged focus requests write this
+    // identity. An asynchronous task snapshot may predate either observation.
+    private volatile int mObservedFocusedTaskId = -1;
     private long mRefreshDueUptimeMillis = -1;
     private boolean mRunning;
     private volatile boolean mTaskWatcherRunning;
@@ -361,6 +363,22 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                                 || displayId != mDisplayId) {
                             return;
                         }
+                        if (!mWorkspaceQueue.isRunning() && mFocusingTaskId >= 0
+                                && mFocusingTaskId != taskId) {
+                            mFocusingTaskId = -1;
+                        }
+                        mObservedFocusedTaskId = taskId;
+                        if (!mWorkspaceQueue.isRunning()) {
+                            confirmTrackedFocus(taskId);
+                        }
+                        recordFocusEvent(
+                                "focus_observed",
+                                displayId,
+                                taskId,
+                                true,
+                                "framework task focus");
+                        // Focus and managed ownership are independent facts;
+                        // adoption can publish ownership after the focus event.
                         if (mDesktopOwnershipReady
                                 && !mDesktopOwnedTaskIds.contains(
                                         Integer.valueOf(taskId))) {
@@ -372,21 +390,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         // with the framework callback before input repair runs.
                         DesktopRuntimeBridge.prepareTaskFocus(
                                 displayId, taskId);
-                        if (!mWorkspaceQueue.isRunning() && mFocusingTaskId >= 0
-                                && mFocusingTaskId != taskId) {
-                            mFocusingTaskId = -1;
-                        }
                         restoreTaskbarTask(taskId);
-                        mActiveTaskId = taskId;
-                        if (!mWorkspaceQueue.isRunning()) {
-                            confirmTrackedFocus(taskId);
-                        }
-                        recordFocusEvent(
-                                "focus_observed",
-                                displayId,
-                                taskId,
-                                true,
-                                "framework task focus");
                         scheduleRefresh(0);
                     }
 
@@ -498,7 +502,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         mWindowContext = null;
         mDisplayId = -1;
         mFocusingTaskId = -1;
-        mActiveTaskId = -1;
+        mObservedFocusedTaskId = -1;
         mLatestTasks = Collections.emptyList();
         synchronized (mTaskbarConcealedTaskIds) {
             mTaskbarConcealedTaskIds.clear();
@@ -1179,7 +1183,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 concealedTaskIds = new LinkedHashSet<>(mTaskbarConcealedTaskIds);
             }
             if (EffectiveTaskStack.shouldActivateTaskbarTarget(
-                    workspace, task, concealedTaskIds, mActiveTaskId)) {
+                    workspace, task, concealedTaskIds, mObservedFocusedTaskId)) {
                 activateThroughGateway(taskId, completion);
             } else {
                 demoteTask(workspace, taskId, completion);
@@ -1201,7 +1205,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 concealedTaskIds = new LinkedHashSet<>(mTaskbarConcealedTaskIds);
             }
             if (EffectiveTaskStack.shouldActivateTaskbarTarget(
-                    workspace, task, concealedTaskIds, mActiveTaskId)) {
+                    workspace, task, concealedTaskIds, mObservedFocusedTaskId)) {
                 completeActionCallback(completion, false, "task is not foreground");
                 return;
             }
@@ -1387,8 +1391,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         if (mFocusingTaskId == taskId) {
             mFocusingTaskId = -1;
         }
-        if (mActiveTaskId == taskId) {
-            mActiveTaskId = -1;
+        if (mObservedFocusedTaskId == taskId) {
+            mObservedFocusedTaskId = -1;
         }
     }
 
@@ -1396,7 +1400,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         if (mFocusingTaskId != taskId) {
             return;
         }
-        mActiveTaskId = taskId;
+        mObservedFocusedTaskId = taskId;
         mFocusingTaskId = -1;
     }
 
@@ -1482,7 +1486,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         if (!mRunning) {
             return false;
         }
-        final int activeTaskId = mActiveTaskId;
+        final int activeTaskId = mObservedFocusedTaskId;
         mHandler.post(() -> handleActiveTaskShortcutInternal(
                 shortcut, activeTaskId));
         return true;
@@ -1752,7 +1756,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     activeTaskId,
                     !supportsFullscreenTask);
             if (task == null) {
-                if (shortcut == SHORTCUT_RESTORE) {
+                if (activeTaskId < 0 && shortcut == SHORTCUT_RESTORE) {
                     mWindowTransitions.restoreTopFullscreenTask();
                 } else {
                     Log.w(TAG, "no active task for shortcut=" + shortcut
@@ -1767,37 +1771,19 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private void applyNativeTaskShortcut(
             final int shortcut,
             final TaskRepository.TaskEntry task) {
+        recordFocusEvent("shortcut_target", mDisplayId, task.taskId,
+                true, "shortcut=" + shortcut);
         mWindowTransitions.applyShortcut(task, shortcut);
-    }
-
-    private static TaskRepository.TaskEntry findTopVisibleAppTask(
-            final List<TaskRepository.TaskEntry> tasks) {
-        return selectTopVisibleTask(tasks, false);
-    }
-
-    static TaskRepository.TaskEntry selectKnownOrTopVisibleTask(
-            final List<TaskRepository.TaskEntry> tasks,
-            final int knownTaskId) {
-        final TaskRepository.TaskEntry known = findTask(tasks, knownTaskId);
-        if (known != null && known.visible && isFocusableTask(known)) {
-            return known;
-        }
-        return findTopVisibleAppTask(tasks);
-    }
-
-    private static TaskRepository.TaskEntry findTopVisibleFreeformTask(
-            final List<TaskRepository.TaskEntry> tasks) {
-        return selectTopVisibleTask(tasks, true);
     }
 
     static TaskRepository.TaskEntry selectShortcutTask(
             final List<TaskRepository.TaskEntry> tasks,
             final int activeTaskId,
             final boolean requireBoundedFreeform) {
-        final TaskRepository.TaskEntry known = findKnownShortcutTask(
-                tasks, activeTaskId, requireBoundedFreeform);
-        if (known != null) {
-            return known;
+        if (activeTaskId >= 0) {
+            // A missing/hidden target is not permission to act on another app.
+            return findKnownShortcutTask(
+                    tasks, activeTaskId, requireBoundedFreeform);
         }
         return selectTopVisibleTask(tasks, requireBoundedFreeform);
     }
@@ -2036,7 +2022,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             if (!mRunning || mDisplayId != displayId) {
                 return;
             }
-            if (!mWorkspaceQueue.isRunning()) {
+            if (!mWorkspaceQueue.isRunning()
+                    && mObservedFocusedTaskId != taskId) {
                 mFocusingTaskId = taskId;
             }
             recordFocusEvent(
@@ -2127,15 +2114,11 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final TaskRepository.TaskEntry focusingTask =
                     findTask(workspace.tasks, focusingTaskId);
             if (focusingTask == null) {
-                clearTrackedFocus(focusingTaskId);
+                mFocusingTaskId = -1;
             } else if (focusingTask.active && !mWorkspaceQueue.isRunning()) {
-                confirmTrackedFocus(focusingTaskId);
+                // A TaskInfo active flag is not an input-focus acknowledgement.
+                mFocusingTaskId = -1;
             }
-        } else {
-            final TaskRepository.TaskEntry activeTask =
-                    selectKnownOrTopVisibleTask(
-                            workspace.tasks, mActiveTaskId);
-            mActiveTaskId = activeTask == null ? -1 : activeTask.taskId;
         }
         mDisplayTaskState.publish(visibleTasks, hasVisibleAppTask);
         mWindowTransitions.reconcile(

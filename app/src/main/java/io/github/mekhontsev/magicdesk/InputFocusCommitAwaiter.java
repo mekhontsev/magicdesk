@@ -3,13 +3,15 @@ package io.github.mekhontsev.magicdesk;
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
 
 /** Confirms input focus only after committed input-window topology changes. */
 final class InputFocusCommitAwaiter {
     interface EventSource {
         long checkpoint();
         boolean isAvailable();
-        boolean awaitChangeAfter(long checkpoint, long timeoutMillis)
+        boolean awaitChangeAfter(long checkpoint, long timeoutMillis,
+                BooleanSupplier cancelled)
                 throws InterruptedException;
     }
 
@@ -22,6 +24,7 @@ final class InputFocusCommitAwaiter {
     private static final AtomicLong EVENT_ADVANCES = new AtomicLong();
     private static final AtomicLong CONVERGED = new AtomicLong();
     private static final AtomicLong EXPIRED = new AtomicLong();
+    private static final AtomicLong CANCELLED = new AtomicLong();
     private static final AtomicLong EVENT_SOURCE_UNAVAILABLE = new AtomicLong();
 
     private InputFocusCommitAwaiter() {
@@ -31,12 +34,16 @@ final class InputFocusCommitAwaiter {
             final EventSource events,
             final long initialGeneration,
             final long timeoutMillis,
+            final BooleanSupplier cancelled,
             final FocusProbe probe) throws IOException, InterruptedException {
-        if (probe == null || timeoutMillis <= 0L) {
+        if (probe == null || cancelled == null || timeoutMillis <= 0L) {
             throw new IllegalArgumentException("invalid focus commit wait");
         }
         ATTEMPTS.incrementAndGet();
-        if (probe(probe)) {
+        if (isCancelled(cancelled)) return false;
+        final boolean initiallyFocused = probe(probe);
+        if (isCancelled(cancelled)) return false;
+        if (initiallyFocused) {
             CONVERGED.incrementAndGet();
             return true;
         }
@@ -49,24 +56,29 @@ final class InputFocusCommitAwaiter {
                 + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
         long generation = initialGeneration;
         while (true) {
+            if (isCancelled(cancelled)) return false;
             final long remainingNanos = deadlineNanos - System.nanoTime();
             if (remainingNanos <= 0L) {
                 EXPIRED.incrementAndGet();
-                return probe(probe);
+                return probe(probe) && !isCancelled(cancelled);
             }
             final boolean changed = events.awaitChangeAfter(
                     generation,
                     Math.max(1L,
-                            TimeUnit.NANOSECONDS.toMillis(remainingNanos)));
+                            TimeUnit.NANOSECONDS.toMillis(remainingNanos)),
+                    cancelled);
+            if (isCancelled(cancelled)) return false;
             if (!changed) {
                 EXPIRED.incrementAndGet();
                 // Cover an event racing the event-source deadline without
                 // adding a timer or another hierarchy mutation.
-                return probe(probe);
+                return probe(probe) && !isCancelled(cancelled);
             }
             EVENT_ADVANCES.incrementAndGet();
             generation = events.checkpoint();
-            if (probe(probe)) {
+            final boolean focused = probe(probe);
+            if (isCancelled(cancelled)) return false;
+            if (focused) {
                 CONVERGED.incrementAndGet();
                 return true;
             }
@@ -79,8 +91,15 @@ final class InputFocusCommitAwaiter {
                 + ", eventAdvances=" + EVENT_ADVANCES.get()
                 + ", converged=" + CONVERGED.get()
                 + ", expired=" + EXPIRED.get()
+                + ", cancelled=" + CANCELLED.get()
                 + ", eventSourceUnavailable="
                 + EVENT_SOURCE_UNAVAILABLE.get();
+    }
+
+    private static boolean isCancelled(final BooleanSupplier cancelled) {
+        if (!cancelled.getAsBoolean()) return false;
+        CANCELLED.incrementAndGet();
+        return true;
     }
 
     private static boolean probe(final FocusProbe probe)

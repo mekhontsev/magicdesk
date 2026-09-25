@@ -35,7 +35,7 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
         return BuiltInWindowIdentity.bind(new Intent(context, WaylandActivity.class)
                 .putExtra(SESSION, session.id()).putExtra(WINDOW, window)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK),
-                GraphicalApplicationLaunch.reference(context, session.recipe()));
+                GraphicalApplicationLaunch.reference(context, session.windowRecipe(window)));
     }
 
     static Intent applicationIntent(Context context, DesktopLaunchRequest request, RecentLaunchScope scope) {
@@ -100,12 +100,6 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
         if (session == null || session.presentation.isClosed() && !session.state().equals("FAILED")) {
             finishAndRemoveTask(); return;
         }
-        var currentRecipe = session.recipe();
-        if (currentRecipe != identityRecipe) {
-            identityRecipe = currentRecipe;
-            application = GraphicalApplicationLaunch.reference(this, currentRecipe);
-            DesktopRuntimeBridge.refreshTaskPresentations();
-        }
         if (pendingLaunch) {
             window = session.windows().stream().filter(WaylandSession.Window::mapped)
                     .mapToLong(WaylandSession.Window::id).findFirst().orElse(0);
@@ -117,6 +111,12 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
             }
             pendingLaunch = false;
             session.host(getTaskId(), window);
+        }
+        var currentRecipe = session.windowRecipe(window);
+        if (currentRecipe != identityRecipe) {
+            identityRecipe = currentRecipe;
+            application = GraphicalApplicationLaunch.reference(this, currentRecipe);
+            DesktopRuntimeBridge.refreshTaskPresentations();
         }
         if (session.stopped() || window <= 0 || !session.containsWindow(window)) { finishAndRemoveTask(); return; }
         var current = session.windows().stream().filter(item -> item.id() == window).findFirst().orElseThrow();

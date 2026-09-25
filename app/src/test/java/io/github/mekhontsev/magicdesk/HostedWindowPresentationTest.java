@@ -65,6 +65,14 @@ public final class HostedWindowPresentationTest {
             }
             static class BuiltInWindowLauncher { interface Callback { void onComplete(Throwable error); } }
             static class SystemBarInsets { static void preserveCaption(Activity activity, Intent intent) { } }
+            static class HostedWindowSizing {
+                static int calls, instances;
+                HostedWindowSizing() { instances++; }
+                void apply(Activity activity, ToolApplications.WindowPlacement placement,
+                        HostedWindowLayout layout, float scale, Runnable changed) {
+                    if (placement != null) calls++;
+                }
+            }
             record DesktopLaunchPresentation(int geometry) { }
             static class ToolApplications {
                 record WindowPlacement(int target, String uniqueId, int presentation) { }
@@ -73,6 +81,7 @@ public final class HostedWindowPresentationTest {
                 static long restoredWindow;
                 static boolean fail;
                 static boolean defer;
+                static boolean constrained;
                 static BuiltInWindowLauncher.Callback pending;
                 static WindowPlacement windowPlacement(int display, int task) throws IOException {
                     return new WindowPlacement(display, "display-" + display, task);
@@ -80,7 +89,9 @@ public final class HostedWindowPresentationTest {
                 static DesktopLaunchPresentation replacementPresentation(Activity activity, WindowPlacement placement) {
                     return new DesktopLaunchPresentation(activity.geometry);
                 }
-                static DesktopLaunchPresentation childPresentation(Activity activity, HostedWindowLayout layout, float scale) { return null; }
+                static DesktopLaunchPresentation hostedWindowPresentation(Activity activity, HostedWindowLayout layout, float scale) {
+                    return constrained ? new DesktopLaunchPresentation(42) : null;
+                }
                 static void openSibling(Activity activity, Intent intent, DesktopLaunchPresentation presentation, BuiltInWindowLauncher.Callback done) {
                     opens++; siblingSource = activity.task; done.onComplete(fail ? new IOException("unavailable") : null);
                 }
@@ -229,8 +240,15 @@ public final class HostedWindowPresentationTest {
                         "child followed last-focused sibling instead of its actual parent");
 
                 var content = new ContentActivity(44, 7);
+                ToolApplications.constrained = true;
+                check(familyPresentation.present(1), "bounded client reserves initial sizing");
                 familyPresentation.host(content); Handler.drain();
                 familyPresentation.host(content); Handler.drain();
+                check(HostedWindowSizing.calls == 2 && HostedWindowSizing.instances == 1,
+                        "host callbacks reuse one client sizing state");
+                family.parentTask = 44;
+                check(!familyPresentation.present(1) && HostedWindowSizing.calls == 3,
+                        "new client metadata updates the existing host without reopening it");
                 check(content.surface.listeners == 2, "one observer per surface");
                 var observations = familyPresentation.observations();
                 check(observations.size() == 1 && observations.get(0).windowId() == 1
@@ -242,6 +260,10 @@ public final class HostedWindowPresentationTest {
                 check(content.finishing && familyPresentation.observations().isEmpty(), "viewer removal is immediately observable");
                 familyPresentation.hostRemoved(content, 0, false);
                 check(content.surface.listeners == 0, "surface observation released");
+                content = new ContentActivity(44, 7);
+                familyPresentation.host(content); Handler.drain();
+                check(HostedWindowSizing.instances == 1, "Activity recreation must retain client sizing state");
+                familyPresentation.hostRemoved(content, 1, false);
                 var retainedViewer = new ContentActivity(45, 7);
                 familyPresentation.host(retainedViewer); Handler.drain();
                 familyPresentation.close();
