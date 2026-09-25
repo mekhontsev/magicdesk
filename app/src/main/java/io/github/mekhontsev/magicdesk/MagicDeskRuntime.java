@@ -944,13 +944,6 @@ public final class MagicDeskRuntime {
         }
     }
 
-    static void restoreExternalTaskMigrationProtection(final int displayId) {
-        final DesktopTaskRuntime tasks = desktopTasks(displayId);
-        if (tasks != null) {
-            tasks.restoreExternalTaskMigrationProtection();
-        }
-    }
-
     static boolean dismissTransientActivity() {
         final DesktopTaskRuntime tasks = desktopTasks(inputDisplayId());
         return tasks != null && tasks.dismissTransientActivity();

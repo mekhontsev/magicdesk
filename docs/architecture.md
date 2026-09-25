@@ -1181,7 +1181,12 @@ by this foundation.
 
 - `TaskRepository` reads exact tasks and performs narrow shell operations.
 - `DesktopTaskWatcher` owns the application-side typed task-observer callback
-  and immediate focus acknowledgements.
+  and immediate focus acknowledgements. Observer configuration runs on its
+  existing worker, with copied geometry and latest-request cancellation shared
+  with cleanup. The UI thread never waits for topology configuration: shell
+  transitions can hold that topology while awaiting an application frame.
+  External-task protection is applied with the configuration; the background
+  close owner supersedes queued configuration before disabling protection.
 - `ShellTaskObserverManager` owns one Binder-scoped observer session inside the
   shell UserService. `ShellTaskObserver` registers the framework listener, and
   `FrameworkTaskObservationSource` centralizes the supplemental task snapshot

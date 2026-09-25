@@ -164,8 +164,6 @@ interface DesktopTaskRuntime {
 
     void disableExternalTaskMigrationProtection();
 
-    void restoreExternalTaskMigrationProtection();
-
     boolean dismissTransientActivity();
 
     boolean sendSystemBack();

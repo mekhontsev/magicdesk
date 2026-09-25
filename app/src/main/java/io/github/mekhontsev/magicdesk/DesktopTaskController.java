@@ -1619,16 +1619,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         if (!mRunning) {
             return;
         }
-        mTaskWatcher.setExternalTaskMigrationProtection(false);
-    }
-
-    @Override
-    public void restoreExternalTaskMigrationProtection() {
-        if (!mRunning) {
-            return;
-        }
-        mTaskWatcher.setExternalTaskMigrationProtection(
-                shouldProtectExternalSession());
+        mTaskWatcher.disableExternalTaskMigrationProtection();
     }
 
     @Override
@@ -1924,8 +1915,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 mDisplayId,
                 displayBounds,
                 workAreaBounds,
-                desktopHostTaskId);
-        mTaskWatcher.setExternalTaskMigrationProtection(
+                desktopHostTaskId,
                 shouldProtectExternalSession());
     }
 

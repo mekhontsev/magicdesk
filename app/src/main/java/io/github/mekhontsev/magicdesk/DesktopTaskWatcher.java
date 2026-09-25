@@ -137,7 +137,8 @@ final class DesktopTaskWatcher {
             final int displayId,
             final Rect displayBounds,
             final Rect workAreaBounds,
-            final int desktopHostTaskId) {
+            final int desktopHostTaskId,
+            final boolean protectExternalTasks) {
         final ShellTaskObserverHandle handle;
         final LatestOperationSerializer.Ticket ticket;
         synchronized (this) {
@@ -147,24 +148,31 @@ final class DesktopTaskWatcher {
             }
             ticket = mConfigurationOperations.supersede();
         }
+        final Rect requestedDisplayBounds = new Rect(displayBounds);
+        final Rect requestedWorkAreaBounds = new Rect(workAreaBounds);
+        final DesktopCompatibilityPolicy compatibility = DesktopCompatibilitySettings.current();
         try {
-            // clearConfiguration() is intentionally asynchronous. Serialize it
-            // with replacement configurations so cleanup from the previous
-            // display can never dismantle the newly registered task topology.
-            return mConfigurationOperations.executeIfCurrent(ticket, () ->
-                    handle.configure(
-                            displayId,
-                            displayBounds,
-                            workAreaBounds,
-                            desktopHostTaskId,
-                            DesktopCompatibilitySettings.current()));
-        } catch (IOException error) {
-            Log.w(TAG, "failed to configure task observer", error);
-            recordFailure(
-                    "TASK-OBSERVER-CONFIGURE-001",
-                    "Could not configure desktop task monitoring",
-                    "display=" + displayId,
-                    error);
+            // A transition can hold the shell topology lock while awaiting a
+            // frame from this process. Configuration must never block its UI.
+            mExecutor.execute(() -> {
+                try {
+                    mConfigurationOperations.executeIfCurrent(ticket, () -> {
+                        handle.configure(displayId, requestedDisplayBounds,
+                                requestedWorkAreaBounds, desktopHostTaskId, compatibility);
+                        handle.setExternalTaskMigrationProtection(protectExternalTasks);
+                    });
+                } catch (IOException | RuntimeException error) {
+                    Log.w(TAG, "failed to configure task observer", error);
+                    recordFailure(
+                            "TASK-OBSERVER-CONFIGURE-001",
+                            "Could not configure desktop task monitoring",
+                            "display=" + displayId,
+                            error);
+                }
+            });
+            return true;
+        } catch (RejectedExecutionException error) {
+            Log.w(TAG, "task observer configuration executor stopped", error);
             return false;
         }
     }
@@ -733,19 +741,24 @@ final class DesktopTaskWatcher {
         }
     }
 
-    boolean setExternalTaskMigrationProtection(
-            final boolean enabled) {
-        final ShellTaskObserverHandle handle = currentHandle();
-        if (handle == null) {
-            return false;
+    boolean disableExternalTaskMigrationProtection() {
+        final ShellTaskObserverHandle handle;
+        final LatestOperationSerializer.Ticket ticket;
+        synchronized (this) {
+            handle = mHandle;
+            if (handle == null) {
+                return false;
+            }
+            ticket = mConfigurationOperations.supersede();
         }
         try {
-            handle.setExternalTaskMigrationProtection(enabled);
-            return true;
+            // Called by the background session-close owner before parking.
+            // Cancel queued configurations and finish any already running one
+            // before releasing protection; none may re-enable it afterward.
+            return mConfigurationOperations.executeIfCurrent(ticket, () ->
+                    handle.setExternalTaskMigrationProtection(false));
         } catch (IOException error) {
-            Log.w(TAG, "failed to "
-                    + (enabled ? "enable" : "disable")
-                    + " external task migration protection", error);
+            Log.w(TAG, "failed to disable external task migration protection", error);
             return false;
         }
     }
