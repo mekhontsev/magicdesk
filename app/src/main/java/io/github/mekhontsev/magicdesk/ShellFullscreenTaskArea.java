@@ -224,12 +224,13 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             final int displayId,
             final int taskId,
             final int windowingMode,
-            final boolean focused) {
+            final boolean focused,
+            final java.util.List<FrameworkTaskSnapshot> previousTasks) {
         if (displayId != mDisplayId) {
             return false;
         }
         if (windowingMode == WINDOWING_MODE_FULLSCREEN) {
-            mPlanes.adoptFullscreenTask(service, displayId, taskId, mOwnership);
+            mPlanes.adoptFullscreenTask(service, displayId, taskId, mOwnership, previousTasks);
         }
         mPlanes.onWindowingModeChanged(displayId, taskId, windowingMode);
         final Integer taskKey = Integer.valueOf(taskId);

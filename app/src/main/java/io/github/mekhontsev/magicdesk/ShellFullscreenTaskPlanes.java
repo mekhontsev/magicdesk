@@ -176,7 +176,8 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             final Object service,
             final int displayId,
             final int taskId,
-            final ShellDesktopTaskOwnership ownership) {
+            final ShellDesktopTaskOwnership ownership,
+            final List<FrameworkTaskSnapshot> previousTasks) {
         if (displayId != mDisplayId || taskId < 0 || ownsTask(taskId)) {
             return;
         }
@@ -219,8 +220,8 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             for (final Map.Entry<Integer, TaskDisplayAreaHandle> entry : mPlanes.entrySet()) {
                 areaTasks.put(entry.getValue().featureId(), entry.getKey());
             }
-            final List<Integer> order = adoptionWorkspaceOrder(
-                    tasks, entering.displayAreaFeatureId, areaTasks);
+            final List<Integer> order = nativeFullscreenWorkspaceOrder(
+                    previousTasks, tasks, entering, hostRootTaskId, areaTasks);
             final int taskPosition = order.indexOf(Integer.valueOf(taskId));
             final int hostPosition = order.indexOf(Integer.valueOf(hostRootTaskId));
             if (taskPosition < 0 || hostPosition < 0) {
@@ -235,14 +236,13 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             windowing.setFocusable(transaction, acquired.token(), entering.focused);
             windowing.reparent(transaction,
                     HiddenTaskApi.getTaskToken(entering.task), acquired.token(), true);
-            // Replace just this root with its plane. Reassert the siblings
-            // above it in their existing order, without raising their parents.
-            windowing.reorder(transaction, acquired.token(), true);
-            for (int index = taskPosition + 1; index < order.size(); index++) {
-                final int aboveTaskId = order.get(index).intValue();
-                final TaskDisplayAreaHandle plane = mPlanes.get(Integer.valueOf(aboveTaskId));
+            // Replace the root with its plane in one ordered transaction.
+            // Native desktop exit may have raised HOME over freeform peers.
+            for (final int orderedTaskId : order) {
+                final TaskDisplayAreaHandle plane = orderedTaskId == taskId
+                        ? acquired : mPlanes.get(Integer.valueOf(orderedTaskId));
                 final Object token = plane == null
-                        ? HiddenTaskApi.requireRootTaskToken(service, displayId, aboveTaskId)
+                        ? HiddenTaskApi.requireRootTaskToken(service, displayId, orderedTaskId)
                         : plane.token();
                 windowing.reorder(transaction, token, true, false);
             }
@@ -291,6 +291,40 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         final List<Integer> order = new ArrayList<>(roots);
         Collections.reverse(order);
         return order;
+    }
+
+    static List<Integer> nativeFullscreenWorkspaceOrder(
+            final List<FrameworkTaskSnapshot> previousTasks,
+            final List<FrameworkTaskSnapshot> tasks,
+            final FrameworkTaskSnapshot entering,
+            final int homeRootTaskId,
+            final Map<Integer, Integer> planeTasksByArea) {
+        final List<Integer> current = adoptionWorkspaceOrder(
+                tasks, entering.displayAreaFeatureId, planeTasksByArea);
+        if (!entering.focused) return current;
+        FrameworkTaskSnapshot previous = null;
+        for (final FrameworkTaskSnapshot task : previousTasks) {
+            if (task.taskId == entering.taskId) previous = task;
+        }
+        if (previous == null || previous.windowingMode != WINDOWING_MODE_FREEFORM
+                || previous.displayAreaFeatureId != entering.displayAreaFeatureId) return current;
+        final List<Integer> before = adoptionWorkspaceOrder(
+                previousTasks, entering.displayAreaFeatureId, planeTasksByArea);
+        final Integer home = Integer.valueOf(homeRootTaskId);
+        final Integer target = Integer.valueOf(entering.taskId);
+        if (!before.contains(home) || !before.contains(target)) return current;
+        // Recognize only WMShell's exact HOME-then-target promotion. Different
+        // roots or a later user focus/order change must retain their live order.
+        final List<Integer> nativeExit = new ArrayList<>(before);
+        nativeExit.remove(home);
+        nativeExit.remove(target);
+        nativeExit.add(home);
+        nativeExit.add(target);
+        if (!nativeExit.equals(current)) return current;
+        final List<Integer> retained = new ArrayList<>(before);
+        retained.remove(target);
+        retained.add(target);
+        return retained;
     }
 
     static Map<Integer, Integer> adoptionSurfaceLayers(

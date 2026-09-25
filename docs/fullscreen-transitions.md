@@ -94,6 +94,12 @@ standard workspace before any MagicDesk command acquires an ordering plane.
 The existing mode-change observer passes this event to the plane owner. Native
 adoption waits at the framework transition barrier, rechecks the live task,
 and replaces its root with an owned plane at the same workspace position.
+The mode event carries the preceding typed workspace snapshot. If WMShell's
+fullscreen exit has only promoted HOME and the entering task, adoption retains
+HOME's preceding position in the same transaction, keeping visible freeform
+peers above it and concealed tasks below it. Different roots, reordered peers
+or changed foreground selection retain their live order; no later focus repair
+replays the snapshot.
 HOME's position comes from its typed root identity, which can differ from the
 registered HOME Activity's task ID. An ownership failure is reported without
 discarding the observed mode event or its captured caption source, so caption

@@ -260,7 +260,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                             final int previousMode,
                             final int currentMode,
                             final int previousCaptionSourceId,
-                            final boolean focused) {
+                            final boolean focused,
+                            final java.util.List<FrameworkTaskSnapshot> previousTasks) {
                         boolean released = false;
                         try {
                             released = mFullscreenTaskArea.onWindowingModeChanged(
@@ -268,7 +269,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                                     displayId,
                                     taskId,
                                     currentMode,
-                                    focused);
+                                    focused,
+                                    previousTasks);
                         } catch (RuntimeException error) {
                             // Ownership failure must not discard the observed
                             // mode or the caption source needed by UI policy.

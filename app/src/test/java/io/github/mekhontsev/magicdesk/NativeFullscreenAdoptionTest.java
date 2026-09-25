@@ -4,6 +4,56 @@ import org.junit.Test;
 
 public final class NativeFullscreenAdoptionTest {
     @Test
+    public void nativeHomePromotionDoesNotConcealVisiblePeers() throws Exception {
+        verify("""
+                FrameworkTaskSnapshot windowed = task(42, 1);
+                windowed.windowingMode = 5;
+                f.previousTasks = List.of(windowed, task(50, 1), task(10, 1), task(60, 1));
+                f.tasks = List.of(f.target, task(10, 1), task(50, 1), task(60, 1));
+                f.adopt();
+                check(f.order.equals(List.of(60, 10, 50, 100)),
+                        "native HOME promotion concealed a peer or revealed a hidden task");
+                """);
+    }
+
+    @Test
+    public void laterPeerReorderingIsNotOverwritten() throws Exception {
+        verify("""
+                FrameworkTaskSnapshot windowed = task(42, 1);
+                windowed.windowingMode = 5;
+                f.previousTasks = List.of(windowed, task(50, 1), task(60, 1), task(10, 1));
+                f.tasks = List.of(f.target, task(10, 1), task(60, 1), task(50, 1));
+                f.adopt();
+                check(f.order.equals(List.of(50, 60, 10, 100)), "new peer order was replayed over");
+                """);
+    }
+
+    @Test
+    public void laterHomeFocusIsNotUndone() throws Exception {
+        verify("""
+                FrameworkTaskSnapshot windowed = task(42, 1);
+                windowed.windowingMode = 5;
+                f.previousTasks = List.of(windowed, task(50, 1), task(10, 1));
+                f.target.focused = false;
+                f.tasks = List.of(task(10, 1), f.target, task(50, 1));
+                f.adopt();
+                check(f.order.equals(List.of(50, 100, 10)), "later HOME selection was undone");
+                """);
+    }
+
+    @Test
+    public void incompletePreviousWorkspaceDoesNotGuessHomePosition() throws Exception {
+        verify("""
+                FrameworkTaskSnapshot windowed = task(42, 1);
+                windowed.windowingMode = 5;
+                f.previousTasks = List.of(windowed, task(10, 1));
+                f.tasks = List.of(f.target, task(10, 1), task(50, 1));
+                f.adopt();
+                check(f.order.equals(List.of(50, 10, 100)), "incomplete history moved HOME");
+                """);
+    }
+
+    @Test
     public void homeLeafAndRootHaveDifferentIds() throws Exception {
         verify("""
                 FrameworkTaskSnapshot home = task(10, 1);
@@ -86,7 +136,7 @@ public final class NativeFullscreenAdoptionTest {
                 f.target.windowingMode = 5;
                 f.adopt();
                 f.target.windowingMode = 1;
-                f.adoptFullscreenTask(f, 99, 42, f.ownership);
+                f.adoptFullscreenTask(f, 99, 42, f.ownership, List.of());
                 check(f.acquired == 0 && barriers == 0 && f.moves == 0, "irrelevant task mutated");
                 """);
     }
@@ -166,6 +216,7 @@ public final class NativeFullscreenAdoptionTest {
         RuntimeSourceFixture.verify("""
                 static final String TAG = "fixture";
                 static final int WINDOWING_MODE_FULLSCREEN = 1;
+                static final int WINDOWING_MODE_FREEFORM = 5;
                 static Fixture current;
                 static int barriers;
                 static class FrameworkTaskSnapshot {
@@ -246,6 +297,7 @@ public final class NativeFullscreenAdoptionTest {
                 final ShellDesktopTaskOwnership ownership = new ShellDesktopTaskOwnership();
                 FrameworkTaskSnapshot target = task(42, 1);
                 List<FrameworkTaskSnapshot> tasks = List.of(target, task(10, 1));
+                List<FrameworkTaskSnapshot> previousTasks = List.of();
                 List<Integer> order = new ArrayList<>();
                 Runnable afterBarrier = () -> {};
                 boolean ownsTask(int id) { return mPlanes.containsKey(id); }
@@ -261,14 +313,14 @@ public final class NativeFullscreenAdoptionTest {
                 }
                 void adopt() {
                     order = adoptionWorkspaceOrder(tasks, 1, Map.of());
-                    adoptFullscreenTask(this, mDisplayId, 42, ownership);
+                    adoptFullscreenTask(this, mDisplayId, 42, ownership, previousTasks);
                 }
                 static int[] toIntArray(List<Integer> values) { return values.stream().mapToInt(Integer::intValue).toArray(); }
                 public static void verify() throws Exception {
                     Fixture f = current = new Fixture();
                 """ + scenario + "}\n" + RuntimeSourceFixture.methods(
                 "ShellFullscreenTaskPlanes", "adoptFullscreenTask",
-                "adoptionWorkspaceOrder", "adoptionSurfaceLayers",
+                "adoptionWorkspaceOrder", "nativeFullscreenWorkspaceOrder", "adoptionSurfaceLayers",
                 "applySurfaceLayers", "planesBelowWorkspace"));
     }
 }

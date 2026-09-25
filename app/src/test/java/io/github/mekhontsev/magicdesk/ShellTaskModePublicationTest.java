@@ -7,7 +7,7 @@ public final class ShellTaskModePublicationTest {
     public void failedAdoptionStillPublishesModeAndCaptionSource() throws Exception {
         verify("""
                 f.mFullscreenTaskArea.fail = true;
-                f.onWindowingModeChanged(66, 42, 5, 1, 123, true);
+                f.onWindowingModeChanged(66, 42, 5, 1, 123, true, List.of());
                 check(f.mCallback.errors == 1, "ownership error was swallowed");
                 check(f.mCallback.changes == 1 && f.mCallback.captionSource == 123,
                         "failed adoption suppressed caption refresh event");
@@ -20,7 +20,7 @@ public final class ShellTaskModePublicationTest {
     public void successfulReleaseKeepsItsPublication() throws Exception {
         verify("""
                 f.mFullscreenTaskArea.released = true;
-                f.onWindowingModeChanged(66, 42, 1, 5, -1, false);
+                f.onWindowingModeChanged(66, 42, 1, 5, -1, false, List.of());
                 check(f.mCallback.errors == 0 && f.mCallback.changes == 1 && f.mCallback.released,
                         "confirmed release was lost");
                 """);
@@ -30,7 +30,7 @@ public final class ShellTaskModePublicationTest {
     public void unrelatedTasksDoNotReachDesktopCaptionPolicy() throws Exception {
         verify("""
                 f.mDesktopOwnership.remembered = false;
-                f.onWindowingModeChanged(66, 42, 5, 1, 123, true);
+                f.onWindowingModeChanged(66, 42, 5, 1, 123, true, List.of());
                 check(f.mCallback.changes == 0, "unowned task reached desktop policy");
                 """);
     }
@@ -38,10 +38,12 @@ public final class ShellTaskModePublicationTest {
     private static void verify(final String scenario) throws Exception {
         RuntimeSourceFixture.verify("""
                 static final String TAG = "fixture";
+                static class FrameworkTaskSnapshot {}
                 static class Log { static void w(String tag, String message, Throwable error) {} }
                 static class Area {
                     boolean fail, released;
-                    boolean onWindowingModeChanged(Object service, int display, int task, int mode, boolean focused) {
+                    boolean onWindowingModeChanged(Object service, int display, int task, int mode,
+                            boolean focused, List<FrameworkTaskSnapshot> previousTasks) {
                         if (fail) throw new IllegalStateException("workspace incomplete");
                         return released;
                     }

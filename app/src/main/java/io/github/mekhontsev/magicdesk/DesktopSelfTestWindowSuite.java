@@ -187,6 +187,9 @@ final class DesktopSelfTestWindowSuite {
                 settledWindow.bounds);
         final DesktopSelfTestGeometry settledGeometry =
                 geometry.withObservedWindow(windowBounds);
+        runNativeFullscreenPeerPreflight(appContext, result, targetDisplayId,
+                desktopTask.taskId, targetFixtureTaskId, windowBounds,
+                settledGeometry);
         runFullscreenPlaneExitPreflight(
                 result,
                 targetDisplayId,
@@ -1857,6 +1860,127 @@ final class DesktopSelfTestWindowSuite {
         static SurfaceReferenceResult unavailable(final String error) {
             return new SurfaceReferenceResult(null, error);
         }
+    }
+
+    private static void runNativeFullscreenPeerPreflight(
+            final Context context,
+            final DesktopSelfTestResult result,
+            final int displayId,
+            final int hostTaskId,
+            final int peerTaskId,
+            final Rect peerBounds,
+            final DesktopSelfTestGeometry geometry) throws AbortSelfTest {
+        final int[] temporaryTask = {-1};
+        DesktopSelfTestSteps.scenario(result, "NATIVE-FULLSCREEN",
+                "Native fullscreen peer order", () -> {
+            final String token = "native-fullscreen-" + Long.toHexString(System.nanoTime());
+            final int taskId = require(result, "NATIVE-FULLSCREEN-001",
+                    "Prepare native fullscreen beside another window", () -> {
+                final DesktopTaskLaunchProbe.Observation launch =
+                        preservePhoneTouchpad(() -> launchFixtureAndObserve(
+                                displayId, token, geometry.rightWindow(),
+                                DesktopSelfTestFixtureAppearance.SECONDARY));
+                temporaryTask[0] = launch.taskId;
+                if (launch.taskId == peerTaskId) {
+                    throw new IOException("Android reused the peer task");
+                }
+                DesktopSelfTestFixtureState.awaitFirstFrame(context, token, displayId);
+                waitForFrontTask(displayId, launch.taskId);
+                awaitFreeformPeerOrder(displayId, hostTaskId, peerTaskId,
+                        launch.taskId, peerBounds);
+                return launch.taskId;
+            });
+            final int initialArea = require(result, "NATIVE-FULLSCREEN-AREA",
+                    "Capture native task's original parent", () ->
+                    DesktopSelfTestTaskHierarchy.inspect(displayId, taskId).featureId);
+            for (int attempt = 1; attempt <= 2; attempt++) {
+                final String prefix = "NATIVE-FULLSCREEN-" + (attempt == 1 ? "FRESH" : "REUSED");
+                require(result, prefix + "-ENTER",
+                        "Adopt a system fullscreen task", () -> {
+                    // Enter outside MagicDesk's semantic gateway, as native
+                    // captions do. Only the production observer may adopt it.
+                    ShellAccess.run(AppProcessCommand.run(
+                            DesktopSelfTestNativeFullscreenCommand.class.getName(),
+                            displayId + " " + taskId + " " + hostTaskId));
+                    final DesktopSelfTestTaskHierarchy.Snapshot observed =
+                            BoundedStateAwaiter.awaitIo(
+                                    BoundedStateAwaiter.Reason.TASK_HIERARCHY,
+                                    STEP_TIMEOUT_MILLIS, POLL_MILLIS,
+                                    () -> DesktopSelfTestTaskHierarchy.inspect(displayId, taskId),
+                                    task -> task.windowingMode == WINDOWING_MODE_FULLSCREEN
+                                            && task.featureId != initialArea && task.visible);
+                    if (observed.windowingMode != WINDOWING_MODE_FULLSCREEN
+                            || observed.featureId == initialArea || !observed.visible) {
+                        throw new IOException("native fullscreen was not adopted: " + observed);
+                    }
+                    DesktopSelfTestInputSuite.waitForTaskInputFocus(displayId, taskId);
+                    return observed;
+                });
+                require(result, prefix + "-RESTORE",
+                        "Restore native fullscreen through Win+Down", () ->
+                        arrangeTaskAndWaitForHierarchy(displayId, taskId,
+                                DesktopTaskController.SHORTCUT_RESTORE,
+                                WINDOWING_MODE_FREEFORM, null, initialArea));
+                require(result, prefix + "-PEER",
+                        "Keep the neighboring window above HOME after restore", () ->
+                        awaitFreeformPeerOrder(displayId, hostTaskId, peerTaskId,
+                                taskId, peerBounds));
+            }
+        }, () -> {
+            if (temporaryTask[0] >= 0 && temporaryTask[0] != peerTaskId) {
+                closeTaskThroughDesktop(displayId, temporaryTask[0]);
+                waitForTaskAbsent(temporaryTask[0]);
+            }
+            DesktopSelfTestInputSuite.focusTaskThroughDesktop(displayId, peerTaskId);
+            waitForFrontTask(displayId, peerTaskId);
+            return "temporary window closed; original window retained";
+        });
+    }
+
+    private static String awaitFreeformPeerOrder(
+            final int displayId, final int hostTaskId, final int peerTaskId,
+            final int foregroundTaskId, final Rect peerBounds) throws IOException {
+        final TaskRepository.Snapshot snapshot = BoundedStateAwaiter.awaitIo(
+                BoundedStateAwaiter.Reason.TASK_HIERARCHY,
+                STEP_TIMEOUT_MILLIS, POLL_MILLIS,
+                () -> TaskRepository.loadNow(displayId),
+                tasks -> freeformPeerOrderMatches(tasks, hostTaskId, peerTaskId,
+                        foregroundTaskId, peerBounds));
+        final StringBuilder order = new StringBuilder("top-first=");
+        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
+            order.append(task.taskId).append('/').append(task.windowingMode)
+                    .append(task.visible ? "/visible " : "/covered ");
+        }
+        if (!freeformPeerOrderMatches(snapshot, hostTaskId, peerTaskId,
+                foregroundTaskId, peerBounds)) {
+            throw new IOException("peer=" + peerTaskId + " must remain freeform above HOME="
+                    + hostTaskId + " and below restored task=" + foregroundTaskId
+                    + "; " + order + "; snapshot=" + snapshot.error);
+        }
+        return order.toString();
+    }
+
+    private static boolean freeformPeerOrderMatches(
+            final TaskRepository.Snapshot snapshot, final int hostTaskId,
+            final int peerTaskId, final int foregroundTaskId, final Rect peerBounds) {
+        if (!snapshot.available) return false;
+        int host = -1;
+        int peer = -1;
+        int foreground = -1;
+        boolean unchangedPeer = false;
+        for (int index = 0; index < snapshot.tasks.size(); index++) {
+            final TaskRepository.TaskEntry task = snapshot.tasks.get(index);
+            if (task.taskId == hostTaskId) host = index;
+            if (task.taskId == foregroundTaskId && task.visible && task.isFreeform()) {
+                foreground = index;
+            }
+            if (task.taskId == peerTaskId) {
+                peer = index;
+                unchangedPeer = task.visible && task.isFreeform()
+                        && peerBounds.equals(task.bounds);
+            }
+        }
+        return foreground >= 0 && foreground < peer && peer < host && unchangedPeer;
     }
 
     private static void runFullscreenPlaneExitPreflight(

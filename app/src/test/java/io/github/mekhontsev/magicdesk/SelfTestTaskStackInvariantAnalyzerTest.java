@@ -30,6 +30,44 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
     }
 
     @Test
+    public void nativeFullscreenResidencyStartsAfterAdoption() {
+        final var analyzer = analyzer();
+        analyzer.begin("NATIVE-FULLSCREEN-FRESH-ENTER", windowed(0, true));
+        analyzer.sample("native-mode", nativeFullscreen(1, false), true);
+        analyzer.sample("adopted", nativeFullscreen(2, true), true);
+        assertEquals(0, analyzer.finish(nativeFullscreen(3, true)).anomalies.length);
+    }
+
+    @Test
+    public void nativeFullscreenMustFinishWithAnOwnedPlane() {
+        final var analyzer = analyzer();
+        analyzer.begin("NATIVE-FULLSCREEN-FRESH-ENTER", windowed(0, true));
+        assertContains(analyzer.finish(nativeFullscreen(1, false)),
+                "expected exactly one anchor");
+    }
+
+    @Test
+    public void adoptedNativeFullscreenCannotReturnToTheOrdinaryParent() {
+        final var analyzer = analyzer();
+        analyzer.begin("NATIVE-FULLSCREEN-FRESH-ENTER", windowed(0, true));
+        analyzer.sample("native-mode", nativeFullscreen(1, false), true);
+        analyzer.sample("adopted", nativeFullscreen(2, true), true);
+        analyzer.sample("unowned-again", nativeFullscreen(3, false), true);
+        assertContains(analyzer.finish(nativeFullscreen(4, true)), "parent changed");
+    }
+
+    private static SelfTestTaskStackInvariantAnalyzer.Snapshot nativeFullscreen(
+            final long time, final boolean adopted) {
+        final var home = taskInArea(HOST_TASK_ID, DISPLAY_ID, 1,
+                true, false, false, HOST_FEATURE_ID);
+        final var app = taskInArea(FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                true, true, false, adopted ? FULLSCREEN_FEATURE_ID : HOST_FEATURE_ID);
+        return adopted ? snapshot(time, home, app,
+                backstop(BACKSTOP_TASK_ID, FULLSCREEN_FEATURE_ID, false))
+                : snapshot(time, home, app);
+    }
+
+    @Test
     public void acceptsSingleModeTransition() {
         final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
         analyzer.begin("FULLSCREEN", windowed(0, true));

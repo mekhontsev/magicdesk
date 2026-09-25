@@ -84,7 +84,8 @@ final class FrameworkTaskObservationSource implements Closeable {
                 int previousMode,
                 int currentMode,
                 int previousCaptionSourceId,
-                boolean focused);
+                boolean focused,
+                List<FrameworkTaskSnapshot> previousTasks);
         void onFreeformBoundsChanged(
                 FrameworkTaskSnapshot task);
         void onError(String error);
@@ -106,6 +107,7 @@ final class FrameworkTaskObservationSource implements Closeable {
     private final Map<Integer, FreeformBoundsState> mLastFreeformBounds =
             new HashMap<>();
     private final Map<Integer, Integer> mLastWindowingModes = new HashMap<>();
+    private List<FrameworkTaskSnapshot> mPreviousWindowTasks = List.of();
     // InsetsSource IDs contain an owner identity and cannot be reconstructed
     // after WindowManager removes the source during fullscreen entry.
     private final Map<Integer, Integer> mCaptionSourceIds = new HashMap<>();
@@ -181,6 +183,7 @@ final class FrameworkTaskObservationSource implements Closeable {
             mLastProcessIds.clear();
             mLastFreeformBounds.clear();
             mLastWindowingModes.clear();
+            mPreviousWindowTasks = List.of();
             mCaptionSourceIds.clear();
             mCaptionCaptureAttempted.clear();
             mLastTaskStackFingerprint.clear();
@@ -203,6 +206,7 @@ final class FrameworkTaskObservationSource implements Closeable {
             mLastProcessIds.clear();
             mLastFreeformBounds.clear();
             mLastWindowingModes.clear();
+            mPreviousWindowTasks = List.of();
             mCaptionSourceIds.clear();
             mCaptionCaptureAttempted.clear();
             mLastTaskStackFingerprint.clear();
@@ -229,6 +233,7 @@ final class FrameworkTaskObservationSource implements Closeable {
             mLastProcessIds.clear();
             mLastFreeformBounds.clear();
             mLastWindowingModes.clear();
+            mPreviousWindowTasks = List.of();
             mCaptionSourceIds.clear();
             mCaptionCaptureAttempted.clear();
             mLastTaskStackFingerprint.clear();
@@ -544,15 +549,12 @@ final class FrameworkTaskObservationSource implements Closeable {
                             && !state.packageName.equals(state.topPackage))) {
                 continue;
             }
-            if (!BuiltInDesktopAppCatalog.isUserApplication(state.packageName,
-                    state.rootComponent == null ? null : state.rootComponent.flattenToString())) {
+            if (!isObservedApplication(state)) {
                 continue;
             }
             final Integer taskKey = Integer.valueOf(state.taskId);
-            // A valid built-in key identifies a user-facing MagicDesk window.
-            // Infrastructure activities returned no key and were rejected
-            // above, so native caption transitions must observe these tasks
-            // just like applications from another package.
+            // User-facing built-ins and test fixtures share the application
+            // mode path; infrastructure never participates in it.
             liveTaskIds.add(taskKey);
             windowingModes.put(
                     taskKey, Integer.valueOf(state.windowingMode));
@@ -583,7 +585,8 @@ final class FrameworkTaskObservationSource implements Closeable {
                             sourceId == null
                                     ? TaskLocalInsetsSourceParser.NO_SOURCE_ID
                                     : sourceId.intValue(),
-                            findFocusedState(states, taskId.intValue())));
+                                    findFocusedState(states, taskId.intValue()),
+                                    mPreviousWindowTasks));
                 }
                 if (currentMode == WINDOWING_MODE_FREEFORM) {
                     if (previous == null
@@ -614,6 +617,8 @@ final class FrameworkTaskObservationSource implements Closeable {
             }
             mLastWindowingModes.clear();
             mLastWindowingModes.putAll(windowingModes);
+            // Sample.snapshots is already immutable; retain one sample only.
+            mPreviousWindowTasks = states;
             mLastFreeformBounds.clear();
             mLastFreeformBounds.putAll(freeformBounds);
             mCaptionSourceIds.keySet().retainAll(liveTaskIds);
@@ -654,7 +659,8 @@ final class FrameworkTaskObservationSource implements Closeable {
                     event.previousMode,
                     event.currentMode,
                     event.previousCaptionSourceId,
-                    event.focused));
+                    event.focused,
+                    event.previousTasks));
         }
     }
 
@@ -674,14 +680,7 @@ final class FrameworkTaskObservationSource implements Closeable {
                     || !PackageNameValidator.isSafe(state.packageName)) {
                 continue;
             }
-            final boolean application = BuiltInDesktopAppCatalog.isUserApplication(
-                    state.packageName, state.rootComponent == null ? null
-                            : state.rootComponent.flattenToString());
-            final boolean fixture = DesktopSelfTestComponents
-                    .isFixtureComponent(state.componentName)
-                    || DesktopSelfTestComponents
-                            .isFixtureComponent(state.topActivityName);
-            if (!application && !fixture) {
+            if (!isObservedApplication(state)) {
                 continue;
             }
             result.put(
@@ -689,6 +688,14 @@ final class FrameworkTaskObservationSource implements Closeable {
                     new FreeformBoundsState(state));
         }
         return result;
+    }
+
+    static boolean isObservedApplication(final FrameworkTaskSnapshot state) {
+        return BuiltInDesktopAppCatalog.isUserApplication(
+                state.packageName, state.rootComponent == null ? null
+                        : state.rootComponent.flattenToString())
+                || DesktopSelfTestComponents.isFixtureComponent(state.componentName)
+                || DesktopSelfTestComponents.isFixtureComponent(state.topActivityName);
     }
 
     static boolean isRequestingImmersive(
@@ -763,18 +770,21 @@ final class FrameworkTaskObservationSource implements Closeable {
         final int currentMode;
         final int previousCaptionSourceId;
         final boolean focused;
+        final List<FrameworkTaskSnapshot> previousTasks;
 
         WindowingModeEvent(
                 final int taskId,
                 final int previousMode,
                 final int currentMode,
                 final int previousCaptionSourceId,
-                final boolean focused) {
+                final boolean focused,
+                final List<FrameworkTaskSnapshot> previousTasks) {
             this.taskId = taskId;
             this.previousMode = previousMode;
             this.currentMode = currentMode;
             this.previousCaptionSourceId = previousCaptionSourceId;
             this.focused = focused;
+            this.previousTasks = previousTasks;
         }
     }
 

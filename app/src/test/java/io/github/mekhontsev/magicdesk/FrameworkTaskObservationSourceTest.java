@@ -103,6 +103,21 @@ public final class FrameworkTaskObservationSourceTest {
         assertFalse(FrameworkTaskObservationSource.collectFreeformBounds(
                 Collections.singletonList(task)).containsKey(
                         Integer.valueOf(10)));
+        assertFalse(FrameworkTaskObservationSource.isObservedApplication(task));
+    }
+
+    @Test
+    public void fixturesShareApplicationModeAndBoundsObservation() {
+        for (final String component : List.of(
+                DesktopSelfTestComponents.FIXTURE_CLASS,
+                DesktopSelfTestComponents.BROWSER_FIXTURE_CLASS)) {
+            final FrameworkTaskSnapshot fixture = task(10,
+                    BuildConfig.APPLICATION_ID, BuildConfig.APPLICATION_ID,
+                    BuildConfig.APPLICATION_ID + "/" + component);
+            assertTrue(FrameworkTaskObservationSource.isObservedApplication(fixture));
+            assertTrue(FrameworkTaskObservationSource.collectFreeformBounds(
+                    List.of(fixture)).containsKey(10));
+        }
     }
 
     private static FrameworkTaskSnapshot task(

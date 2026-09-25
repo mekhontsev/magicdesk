@@ -360,6 +360,8 @@ final class SelfTestTaskStackInvariantAnalyzer {
 
     private static boolean isFullscreenHierarchyStage(final String stage) {
         return stage.startsWith("FULLSCREEN-LIFECYCLE-")
+                || (stage.startsWith("NATIVE-FULLSCREEN-") && stage.endsWith("-ENTER"))
+                || "WINDOW-003".equals(stage)
                 || "WINDOW-020-PREPARE".equals(stage)
                 || "WINDOW-020".equals(stage)
                 || stage.startsWith("WINDOW-020-PEER-")
@@ -385,12 +387,17 @@ final class SelfTestTaskStackInvariantAnalyzer {
 
     private void observeFullscreenParents(final Snapshot snapshot) {
         final Set<Integer> currentFullscreenTasks = new LinkedHashSet<>();
+        final TaskState host = snapshot.find(mHostTaskId);
         for (final TaskState task : snapshot.tasks) {
             if (!isDesktopFullscreenFixture(task)) {
                 continue;
             }
             currentFullscreenTasks.add(task.taskId);
-            if (task.displayAreaFeatureId != DISPLAY_AREA_FEATURE_UNKNOWN) {
+            // A native fullscreen task is initially still in the ordinary
+            // workspace. Stable residency starts when the observer adopts it.
+            // An already-owned task moving back there is still a violation.
+            if (task.displayAreaFeatureId != DISPLAY_AREA_FEATURE_UNKNOWN
+                    && (host == null || task.displayAreaFeatureId != host.displayAreaFeatureId)) {
                 mFullscreenParents.putIfAbsent(
                         task.taskId, task.displayAreaFeatureId);
             }
