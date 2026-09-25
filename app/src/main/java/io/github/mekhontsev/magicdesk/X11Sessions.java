@@ -430,15 +430,12 @@ final class X11Sessions {
                 try {
                     resource.attach(execution.commands.start(script, directory, name, null, (code, output, failure) -> {
                         resource.close();
-                        if (!stopped() && (failure != null || code != 0)) {
-                            error = failure == null ? output : ShellAccess.usefulMessage(failure);
-                            changed();
-                        }
+                        if (failure != null || code != 0) commandFailed(failure != null ? failure
+                                : new IllegalStateException("X11 command exited (" + code + "): " + output), false);
                     }));
                 } catch (RuntimeException failure) {
                     resource.close();
-                    error = ShellAccess.usefulMessage(failure);
-                    changed();
+                    commandFailed(failure, false);
                 }
             });
         }
@@ -451,8 +448,8 @@ final class X11Sessions {
                         (code, output, failure) -> {
                             resource.close();
                             if (stopped()) return;
-                            if (failure != null) fail(failure);
-                            else if (code != 0) fail(new IllegalStateException("X11 command exited (" + code + "): " + output));
+                            if (failure != null || code != 0) commandFailed(failure != null ? failure
+                                    : new IllegalStateException("X11 command exited (" + code + "): " + output), true);
                             else MAIN.post(() -> {
                                 if (stopped()) return;
                                 startupFinished = true;
@@ -463,7 +460,18 @@ final class X11Sessions {
                                 if (application && hadWindows && windows.isEmpty() && !stopped()) close();
                             });
                         }));
-            } catch (RuntimeException failure) { resource.close(); throw failure; }
+            } catch (RuntimeException failure) { resource.close(); commandFailed(failure, true); }
+        }
+
+        private void commandFailed(Throwable failure, boolean startup) {
+            MAIN.post(() -> {
+                if (stopped()) return;
+                if (startup && application) { fail(failure); return; }
+                // A retained server owns multiple clients; a command exit does not own its lifetime.
+                error = ShellAccess.usefulMessage(failure);
+                DesktopAutomationEventJournal.record("x11", "command_failed", false, "session=" + id() + " detail=" + error);
+                changed();
+            });
         }
 
         private void connect() {
