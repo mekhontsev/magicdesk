@@ -167,6 +167,7 @@ mapping. XWayland is not enabled.
 
 `HostedSurfaceView` owns Android input and IME lifecycle. The Wayland adapter
 bridges `text-input-v3` preedit and committed UTF-8 text to the focused client.
+Other text-input protocols are not implemented.
 `HostedTextState` carries immutable surrounding text, cursor/selection and field
 purpose/hints to the shared Android InputConnection. UTF-8 byte offsets are
 converted at the Wayland boundary; Android receives UTF-16 offsets and appropriate
@@ -264,6 +265,13 @@ same guest file environment; the renderer remains under the app UID.
 
 ## Native Shell Surfaces
 
+Integrated Linux shell components use the shared
+[shell layout model](shell-layout.md). A session explicitly binds to a MagicDesk
+workspace to contribute its panels and reservations. A nested Linux desktop
+retains its own scope and cannot reserve space on its containing Android Desktop.
+Native wlroots owns protocol validation, configure/ack, scene nodes and seat
+state; the geometry model does not replace Android task planes.
+
 The native API admits layer-shell only after its owner provides a shell event
 consumer and explicitly creates a logical shell output. This output is distinct
 from the borrowed render outputs. Shell and dependent render targets do not
@@ -348,29 +356,6 @@ trusted-overlay capability of the existing chrome host addresses that separate
 boundary; see [shell layout](shell-layout.md#android-adapter). Linux surface
 admission must request it explicitly and retain the frame/region checks above.
 Ordinary application hosts retain their existing viewport policy.
-
-## Remaining Work
-
-**Linux GPU client compatibility.** Broaden driver/toolkit coverage beyond the
-verified Mesa/Turnip Vulkan and patched Zink linear DMA-BUF paths. Nonlinear/multi-plane allocations require a
-separate capability-backed image importer; implicit layouts must not be guessed.
-Keep client GPU capabilities separate from startup and Android compositor
-acceleration. Broaden coverage beyond the tested Ubuntu PRoot and Alpine chroot
-recipes and the Magisk root provider;
-successful shared-memory admission does not establish GPU driver compatibility
-inside a guest distribution.
-
-Integrated Linux shell components use the shared
-[shell layout model](shell-layout.md). A session must explicitly
-bind to a MagicDesk workspace to contribute its panels and reservations. A nested
-Linux desktop retains its own scope and cannot reserve space on its containing
-Android Desktop. Native wlroots owns protocol validation, configure/ack, scene
-nodes and seat state; the geometry model does not replace Android task planes.
-
-Further toolkit and IME coverage must use real Android hosts as well as focused
-protocol tests. Toolkit protocols other than text-input-v3 are not implemented.
-General desktop-environment
-compatibility is separate from successfully hosting a nested compositor.
 
 ## Session Controls
 
@@ -622,8 +607,8 @@ fields, clipboard actions, file drag endpoints and a dependent dialog for these
 checks. Same-session
 drags between Android hosts insert once. The X11 regression covers clipboard and
 files in both directions through the shared adapters. GTK menus accept pointer
-input after a density change. These checks use RM11/API 36; API 34 device coverage
-is still pending.
+input after a density change. These checks use RM11/API 36 and do not establish
+API 34 device compatibility.
 
 Weston with its Wayland backend, Pixman renderer and desktop shell presents a
 nested desktop and terminal in Termux (16), PRoot Ubuntu (13) and Alpine chroot
@@ -637,8 +622,8 @@ scale, stale fullscreen acknowledgements, bidirectional selections, native drag
 delivery and bounded content-stream cancellation. `HostedInputInstrumentation`
 exercises Android InputConnection composition/commit, UTF-16 surrounding text and
 selection, field-purpose/privacy flags, overlapping Android connections and stale
-editors alongside the shared pointer and cursor tests. Other text-input protocols
-need separate device/toolkit coverage.
+editors alongside the shared pointer and cursor tests. This IME coverage is limited
+to text-input-v3.
 
 `HostedGuestEditorInstrumentation` exercises a real GTK3 or Qt guest through its Android
 host: composition, Unicode correction, field switching, private PINs, caret geometry,
@@ -690,8 +675,9 @@ during startup and forced broker death release the owned processes and sockets;
 broker loss produces an explicit session failure. The transport fixtures verify
 partial writes, backpressure, descriptor ordering, EOF draining, ancillary
 truncation and rejected-buffer cleanup. Anonymous-buffer fixtures check label
-admission and rejection without modifying global policy. Other root providers,
-chroot GPU drivers and API-34 devices need separate coverage.
+admission and rejection without modifying global policy. The tested root provider
+is Magisk; other root providers, chroot GPU drivers and API-34 devices are outside
+this coverage.
 
 The API-36 shell runtime fixture passed with a Termux-UID compositor and an
 app-UID Android presenter: typed catalog/configure exchange, alpha pixels,
