@@ -22,6 +22,11 @@ final class MagicDeskSettings {
                 state -> state.settings.keepDesktopAwake = enabled);
     }
 
+    static boolean setSystemTheme(final DesktopSystemThemeSession.Preference theme) {
+        if (theme == null) throw new IllegalArgumentException("system theme is required");
+        return DesktopStateStore.update(state -> state.settings.systemTheme = theme);
+    }
+
     static boolean setKeepScreenOn(final boolean enabled) {
         return DesktopStateStore.update(state -> state.settings.keepScreenOn = enabled);
     }
@@ -82,6 +87,7 @@ final class MagicDeskSettings {
 
         boolean taskbarAutoHide;
         boolean keepDesktopAwake;
+        DesktopSystemThemeSession.Preference systemTheme = DesktopSystemThemeSession.Preference.UNCHANGED;
         boolean keepScreenOn;
         boolean phoneFullscreenByDefault;
         boolean externalLinuxChildWindows;
@@ -106,6 +112,7 @@ final class MagicDeskSettings {
                         TASKBAR_AUTO_HIDE, false);
                 values.keepDesktopAwake = json.optBoolean(
                         KEEP_DESKTOP_AWAKE, false);
+                values.systemTheme = DesktopSystemThemeSession.Preference.parse(json.optString("systemTheme", ""));
                 values.keepScreenOn = json.optBoolean(KEEP_SCREEN_ON, false);
                 values.phoneFullscreenByDefault = json.optBoolean(PHONE_FULLSCREEN_BY_DEFAULT, false);
                 values.externalLinuxChildWindows = json.optBoolean(EXTERNAL_LINUX_CHILD_WINDOWS, false);
@@ -133,6 +140,7 @@ final class MagicDeskSettings {
             final Values copy = new Values();
             copy.taskbarAutoHide = taskbarAutoHide;
             copy.keepDesktopAwake = keepDesktopAwake;
+            copy.systemTheme = systemTheme;
             copy.keepScreenOn = keepScreenOn;
             copy.phoneFullscreenByDefault = phoneFullscreenByDefault;
             copy.externalLinuxChildWindows = externalLinuxChildWindows;
@@ -150,6 +158,7 @@ final class MagicDeskSettings {
             json.put(TASKBAR_AUTO_HIDE, taskbarAutoHide);
             json.put(KEYBOARD_ON_APP_DISPLAY, keyboardOnAppDisplay);
             json.put(KEEP_DESKTOP_AWAKE, keepDesktopAwake);
+            json.put("systemTheme", systemTheme.name());
             json.put(KEEP_SCREEN_ON, keepScreenOn);
             json.put(PHONE_FULLSCREEN_BY_DEFAULT, phoneFullscreenByDefault);
             json.put(EXTERNAL_LINUX_CHILD_WINDOWS, externalLinuxChildWindows);

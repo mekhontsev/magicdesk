@@ -90,6 +90,20 @@ public final class SettingsActivity extends Activity
                 .setDisableAdaptiveBrightness(enabled));
     }
 
+    @Override public void configureSystemTheme() {
+        final DesktopSystemThemeSession.Preference[] values = DesktopSystemThemeSession.Preference.values();
+        final String[] labels = new String[values.length];
+        for (int index = 0; index < values.length; index++) labels[index] = getString(SettingsView.systemThemeLabel(values[index]));
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.settings_system_theme)
+                .setSingleChoiceItems(labels, MagicDeskSettings.load().systemTheme.ordinal(), (dialog, index) -> {
+                    dialog.dismiss();
+                    saveSetting(MagicDeskSettings.setSystemTheme(values[index]));
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
     @Override
     public void setOpenTouchpadAutomatically(final boolean enabled) {
         saveSetting(

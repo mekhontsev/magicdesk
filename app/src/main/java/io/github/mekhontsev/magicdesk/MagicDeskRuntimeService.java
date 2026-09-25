@@ -711,6 +711,7 @@ public final class MagicDeskRuntimeService extends Service
 
     private void handleDesktopOwnershipRefreshed(
             final boolean changed) {
+        DesktopSystemTheme.refresh();
         mDisplayInput.reconcileRuntime();
         updateAdaptiveBrightness();
         if (!changed) {
@@ -738,6 +739,7 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     private void refreshRuntimeSettings(final Runnable completion) {
+        DesktopSystemTheme.refresh();
         final MagicDeskSettings.Values settings = MagicDeskSettings.load();
         mKeepDesktopAwake = settings.keepDesktopAwake;
         mKeepScreenOn = settings.keepScreenOn;

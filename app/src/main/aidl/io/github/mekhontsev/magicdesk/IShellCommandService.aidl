@@ -494,4 +494,6 @@ interface IShellCommandService {
     void orderHostedSurface(in android.view.SurfaceControl surface,
         in android.view.SurfaceControl relative) = 149;
     void resizeTaskBounds(int displayId, int taskId, in Rect bounds) = 150;
+    String getSystemNightMode(int userId) = 151;
+    void setSystemNightMode(int userId, String mode) = 152;
 }

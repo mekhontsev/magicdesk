@@ -78,6 +78,22 @@ public final class ShellCommandService extends IShellCommandService.Stub {
 
     @Override public String sourceId() { return BuildConfig.SOURCE_ID; }
 
+    @Override public String getSystemNightMode(final int userId) {
+        final long identity = Binder.clearCallingIdentity();
+        try { return FrameworkRuntime.current().systemTheme().read(userId).name(); }
+        catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("Cannot read system theme", error);
+        } finally { Binder.restoreCallingIdentity(identity); }
+    }
+
+    @Override public void setSystemNightMode(final int userId, final String mode) {
+        final long identity = Binder.clearCallingIdentity();
+        try { FrameworkRuntime.current().systemTheme().write(userId, SystemNightMode.valueOf(mode)); }
+        catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("Cannot change system theme", error);
+        } finally { Binder.restoreCallingIdentity(identity); }
+    }
+
     @Override public void preserveDisplayBrightness(final int displayId) {
         final long identity = Binder.clearCallingIdentity();
         try { FrameworkRuntime.current().displayBrightness().preserveCurrentBrightness(displayId); }

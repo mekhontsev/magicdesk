@@ -1304,6 +1304,22 @@ public final class ShellAccess {
         }
     }
 
+    static SystemNightMode readSystemNightMode() throws IOException {
+        try { return SystemNightMode.valueOf(requireService().getSystemNightMode(android.os.Process.myUid() / 100_000)); }
+        catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("could not read system theme: " + usefulMessage(error), error);
+        }
+    }
+
+    static void setSystemNightMode(final SystemNightMode mode) throws IOException {
+        try { requireService().setSystemNightMode(android.os.Process.myUid() / 100_000, mode.name()); }
+        catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("could not change system theme: " + usefulMessage(error), error);
+        }
+    }
+
     static boolean canCreateAlwaysUnlockedDisplay() throws IOException {
         try { return requireService().canCreateAlwaysUnlockedDisplay(); }
         catch (RemoteException | RuntimeException error) {

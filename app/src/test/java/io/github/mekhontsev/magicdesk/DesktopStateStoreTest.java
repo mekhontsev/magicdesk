@@ -38,12 +38,14 @@ public final class DesktopStateStoreTest {
             state.appPresentations.put(app("example.application").application,
                     new AppPresentationProfile(125));
             state.settings.keepDesktopAwake = true;
+            state.settings.systemTheme = DesktopSystemThemeSession.Preference.LIGHT;
             state.settings.compatibility.put(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR, false);
         }));
         assertTrue(MagicDeskSettings.resetCompatibilityOptions());
         DesktopStateStore.useStorageForTests(storage);
         assertTrue(MagicDeskSettings.load().compatibility.isEmpty());
         assertTrue(MagicDeskSettings.load().keepDesktopAwake);
+        assertEquals(DesktopSystemThemeSession.Preference.LIGHT, MagicDeskSettings.load().systemTheme);
         assertTrue(DesktopStateStore.read(state -> state.taskbarApps.contains(app("example.application")), false));
         assertTrue(DesktopStateStore.read(state -> state.appPresentations.containsKey(
                 app("example.application").application), false));

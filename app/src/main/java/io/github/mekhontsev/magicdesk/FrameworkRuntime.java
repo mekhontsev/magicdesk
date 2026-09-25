@@ -4,6 +4,7 @@ package io.github.mekhontsev.magicdesk;
 final class FrameworkRuntime {
     private FrameworkDisplayWindowingApi mDisplayWindowingApi;
     private FrameworkDisplayBrightnessApi mDisplayBrightnessApi;
+    private FrameworkSystemThemeApi mSystemThemeApi;
     private FrameworkInputRoutingApi mInputRoutingApi;
     private FrameworkInputInjectionApi mInputInjectionApi;
     private FrameworkInputMethodApi mInputMethodApi;
@@ -50,6 +51,11 @@ final class FrameworkRuntime {
     synchronized FrameworkDisplayBrightnessApi displayBrightness() throws ReflectiveOperationException {
         if (mDisplayBrightnessApi == null) mDisplayBrightnessApi = new FrameworkDisplayBrightnessApi();
         return mDisplayBrightnessApi;
+    }
+
+    synchronized FrameworkSystemThemeApi systemTheme() throws ReflectiveOperationException {
+        if (mSystemThemeApi == null) mSystemThemeApi = new FrameworkSystemThemeApi();
+        return mSystemThemeApi;
     }
 
     synchronized FrameworkVirtualDisplayApi virtualDisplays()

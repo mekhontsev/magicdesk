@@ -25,6 +25,7 @@ final class SettingsView {
         void setExternalLinuxChildWindows(boolean enabled);
 
         void setDisableAdaptiveBrightness(boolean enabled);
+        void configureSystemTheme();
 
         void setOpenTouchpadAutomatically(boolean enabled);
         void setKeyboardOnAppDisplay(boolean enabled);
@@ -85,6 +86,8 @@ final class SettingsView {
     private Switch mPhoneFullscreenByDefault;
     private Switch mExternalLinuxChildWindows;
     private Switch mDisableAdaptiveBrightness;
+    private View mSystemThemeAction;
+    private TextView mSystemTheme;
     private Switch mOpenTouchpadAutomatically;
     private Switch mKeyboardOnAppDisplay;
     private final java.util.EnumMap<DesktopCompatibilityPolicy.Option, Switch> mCompatibility =
@@ -206,6 +209,18 @@ final class SettingsView {
                                 checked);
                     }
                 });
+
+        mSystemTheme = new TextView(mActivity);
+        mSystemTheme.setTextColor(DesktopUiFactory.COLOR_MUTED);
+        mSystemTheme.setTextSize(12);
+        mSystemThemeAction = addAction(content, R.drawable.ic_settings,
+                R.string.settings_system_theme, mActions::configureSystemTheme, mSystemTheme);
+        final TextView themeDescription = new TextView(mActivity);
+        themeDescription.setText(R.string.settings_system_theme_summary);
+        themeDescription.setTextColor(DesktopUiFactory.COLOR_MUTED);
+        themeDescription.setTextSize(12);
+        themeDescription.setPadding(dp(8), 0, dp(8), dp(7));
+        content.addView(themeDescription);
 
         addSection(content, R.string.settings_section_compatibility);
         mResetCompatibilityDefaults = addAction(content, R.drawable.ic_undo,
@@ -415,6 +430,8 @@ final class SettingsView {
             control.setEnabled(mDesktopSettingsAvailable);
         }
         mOpenFilesWithSingleClick.setEnabled(settings != null);
+        mSystemThemeAction.setEnabled(mDesktopSettingsAvailable);
+        mSystemThemeAction.setAlpha(mDesktopSettingsAvailable ? 1f : 0.5f);
         if (mProjectionDesktopOption != null) {
             mProjectionDesktopOption.setChecked(mProjectionOption.isEnabled());
             mProjectionDesktopOption.setEnabled(mDesktopSettingsAvailable);
@@ -434,6 +451,7 @@ final class SettingsView {
             mPhoneFullscreenByDefault.setChecked(settings.phoneFullscreenByDefault);
             mExternalLinuxChildWindows.setChecked(settings.externalLinuxChildWindows);
             mDisableAdaptiveBrightness.setChecked(settings.disableAdaptiveBrightness);
+            mSystemTheme.setText(systemThemeLabel(settings.systemTheme));
         }
         mMcpEnabled.setChecked(mcp.enabled);
         mMcpNetworkEnabled.setChecked(mcp.enabled && mcp.networkEnabled);
@@ -513,6 +531,14 @@ final class SettingsView {
         });
         header.addView(sections, new LinearLayout.LayoutParams(dp(48), dp(48)));
         return header;
+    }
+
+    static int systemThemeLabel(final DesktopSystemThemeSession.Preference theme) {
+        return switch (theme) {
+            case UNCHANGED -> R.string.settings_system_theme_unchanged;
+            case LIGHT -> R.string.settings_system_theme_light;
+            case DARK -> R.string.settings_system_theme_dark;
+        };
     }
 
     private static int compatibilityLabel(final DesktopCompatibilityPolicy.Option option) {

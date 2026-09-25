@@ -70,6 +70,14 @@ the provider probe could not be read, not that the provider is absent. These
 statuses do not change access grants or independent tool availability. Native
 provider detection is not a guarantee of correct captions on every firmware.
 
+**Settings > Session > System theme during Desktop** can temporarily select
+Light or Dark for the whole Android system, including the phone. The default is
+Do not change. Changes apply to running sessions; the last Desktop closing
+restores the previous policy unless a later system-theme change was observed.
+The Light option can help firmware whose fallback caption buttons disappear
+under force-dark rendering. This does not add a missing native desktop provider
+or its window-placement menu.
+
 **Compatibility (next session)** groups seven
 optional shared mechanisms: stalled-focus repair, stale fullscreen caption
 refresh, Activity handoff mode/bounds repair, wired/wireless phone-task

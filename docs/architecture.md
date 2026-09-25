@@ -664,6 +664,20 @@ runtime integration and are not distributed through the same release path.
   current float brightness before switching to manual mode. The controller
   restores automatic mode only when it owned the change and has not observed a
   subsequent user mode change. Manual brightness adjustments remain available.
+  **System theme during Desktop** in **Settings > Session** is a live, opt-in
+  system-wide override (Do not change / Light / Dark), shared by all workspaces.
+  `DesktopSystemThemeSession` journals the previous and applied policies before
+  writing through `FrameworkSystemThemeApi`; schedule and bedtime remain distinct
+  from automatic, light and dark modes. Switching the preference retains the
+  original policy. Do not change or the last workspace closing restores it only
+  while MagicDesk still owns the change. A settings observer relinquishes ownership
+  on an observed external change; ordinary workspace refreshes do not reapply it.
+  `DesktopSystemTheme` serializes setting events and workspace reconciliation on
+  the existing command queue. Privileged-service readiness recovers an interrupted
+  override without starting Desktop. Failed restoration retains the journal for
+  subsequent recovery. The framework adapter checks the current user and does
+  not redirect a profile's request to the privileged service's user. There is no
+  polling, global ViewDebug invocation or SystemUI modification.
   These session settings do not modify Android's screen timeout. There is
   no boot receiver; the user starts MagicDesk manually. The notification body
   is a stable display-0 entry

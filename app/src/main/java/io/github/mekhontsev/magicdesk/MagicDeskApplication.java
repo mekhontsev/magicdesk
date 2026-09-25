@@ -25,6 +25,7 @@ public final class MagicDeskApplication extends Application {
         ShellAccess.initialize();
         DesktopSetupStatus.initialize(this);
         CompatibilityDiagnostics.initialize(this);
+        DesktopSystemTheme.initialize(this);
         PlatformDesktopRecovery.initialize();
         DesktopAutomationEventJournal.record(
                 "process",

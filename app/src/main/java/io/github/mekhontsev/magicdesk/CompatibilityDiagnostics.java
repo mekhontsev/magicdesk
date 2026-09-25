@@ -429,10 +429,12 @@ public final class CompatibilityDiagnostics {
                 .append(", phoneFullscreenByDefault=").append(settings.phoneFullscreenByDefault)
                 .append(", disableAdaptiveBrightness=")
                 .append(settings.disableAdaptiveBrightness)
+                .append(", systemTheme=").append(settings.systemTheme)
                 .append(", openItemsWithSingleClick=")
                 .append(settings.openFilesWithSingleClick)
                 .append('\n');
         appendApplicationPresentationProfiles(report);
+        report.append("Desktop system theme: ").append(DesktopSystemTheme.diagnostics()).append('\n');
         for (final IntegrationPackage integration : IntegrationPackage.values()) {
             report.append("Integration ").append(integration.key)
                     .append(": active=").append(integration.selected())
