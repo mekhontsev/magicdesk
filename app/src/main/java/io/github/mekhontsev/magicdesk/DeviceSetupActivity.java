@@ -175,16 +175,12 @@ public final class DeviceSetupActivity extends Activity {
                     if (isActivityUnavailable()) {
                         return;
                     }
-                    DeviceSetupManager.activateRuntime(this, audit);
                     mAudit = audit;
                     DesktopSetupStatus.refresh(this);
                     if (!mManual && audit.canEnterMagicDesk()) {
                         mBusy = false;
                         startMagicDesk();
                         return;
-                    }
-                    if (!audit.canEnterMagicDesk()) {
-                        DeviceSetupManager.revokeRuntimeAuthorization(this);
                     }
                     ensureSetupContent();
                     setBusy(false, 0);
@@ -467,12 +463,8 @@ public final class DeviceSetupActivity extends Activity {
                     if (isActivityUnavailable()) {
                         return;
                     }
-                    DeviceSetupManager.activateRuntime(this, audit);
                     mAudit = audit;
                     setBusy(false, 0);
-                    if (!audit.canEnterMagicDesk()) {
-                        DeviceSetupManager.revokeRuntimeAuthorization(this);
-                    }
                     renderAudit(audit);
                     DesktopSetupStatus.refresh(this);
                 });
@@ -495,7 +487,6 @@ public final class DeviceSetupActivity extends Activity {
             if (isActivityUnavailable()) {
                 return;
             }
-            DeviceSetupManager.revokeRuntimeAuthorization(this);
             ensureSetupContent();
             setBusy(false, 0);
             showOperationError(error);

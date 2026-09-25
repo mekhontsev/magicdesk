@@ -120,7 +120,6 @@ public final class ControlActivity extends Activity
         }
         mStartupAuditRunning = false;
         mStartupRequest = null;
-        DeviceSetupManager.revokeRuntimeAuthorization(this);
         final Intent setupIntent = DeviceSetupActivity.createLaunchIntent(this);
         mSessionProfile.writeToIntent(setupIntent);
         startActivity(setupIntent);

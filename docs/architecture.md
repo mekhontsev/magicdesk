@@ -112,6 +112,10 @@ pending reboot. It does not use process-local runtime authorization. Checks run
 on access events, panel resume and explicit refresh/setup actions, not periodically;
 the panel and MCP consume the same cached result. Opening the status dialog does
 not configure settings, authorize Desktop, acquire HOME or start a session.
+Device Setup audits, including failed reads and startup prerequisite checks,
+only update their UI and readiness observations. They do not revoke runtime
+authorization or release existing Desktop services. Explicit setup actions own
+their changes independently of the audit result.
 The same audit refreshes WMShell's advertised desktop provider independently
 of the supported task-entry command signature. A configured device without that
 provider is **Limited**; an unreadable probe is **Unverified**. These observations

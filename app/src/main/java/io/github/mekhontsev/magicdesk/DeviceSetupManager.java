@@ -211,16 +211,8 @@ public final class DeviceSetupManager {
                 + " && /system/bin/wm scaling auto -d 0";
     }
 
-    static void activateRuntime(final Context context, final Audit audit) {
-        DeviceSetupRuntimeController.activate(context, audit);
-    }
-
     static void authorizeRuntime(final Context context) {
         DeviceSetupRuntimeController.authorize(context);
-    }
-
-    static void revokeRuntimeAuthorization(final Context context) {
-        DeviceSetupRuntimeController.revoke(context);
     }
 
     static boolean isRuntimeAuthorized() {

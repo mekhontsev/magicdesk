@@ -8,22 +8,11 @@ final class DeviceSetupRuntimeController {
     private DeviceSetupRuntimeController() {
     }
 
-    static void activate(
-            final Context context,
-            final DeviceSetupManager.Audit audit) {
-        if (audit == null) {
-            return;
-        }
-        if (audit.canEnterMagicDesk()) {
-            reconcileServices(context);
-        } else {
-            stopServices(context);
-        }
-    }
-
     static void authorize(final Context context) {
         sRuntimeAuthorized = true;
-        reconcileServices(context);
+        if (context != null && ShellAccess.isReady()) {
+            MagicDeskRuntime.startTools(context.getApplicationContext());
+        }
     }
 
     static void revoke(final Context context) {
@@ -33,18 +22,6 @@ final class DeviceSetupRuntimeController {
 
     static boolean isAuthorized() {
         return sRuntimeAuthorized;
-    }
-
-    private static void reconcileServices(final Context context) {
-        if (context == null) {
-            return;
-        }
-        if (sRuntimeAuthorized
-                && ShellAccess.isReady()) {
-            MagicDeskRuntime.startTools(context.getApplicationContext());
-        } else {
-            stopServices(context);
-        }
     }
 
     private static void stopServices(final Context context) {
