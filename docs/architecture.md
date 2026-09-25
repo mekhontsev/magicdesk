@@ -1843,10 +1843,17 @@ firmware insets-observation support. Only Desktop-owned tasks participate in
 that reconciliation; no host opens a Desktop or directly manipulates task areas.
 See [Embedded X11](x11.md) for lifecycle, build and current integration scope.
 
-`X11Density` selects one density owner among a session's Android hosts. Activity
-configuration and focus callbacks update it; there is no display/task polling.
-The Android 160-DPI baseline maps to X11's 96-DPI baseline, with a separately
-stored Linux application scale. `X11PresentationPreferences` uses profile-private
+`HostedUiScale` selects a shared X11/Wayland application scale from Android
+density and current window metrics. The nearest integer to density/160 is bounded
+to 1-8 and to a minimum logical offer of 600 on the short side and 800 on the long
+side. Stable system-bar/cutout insets are excluded; IME, rendered buffers and client
+size constraints are not inputs. This is an initial toolkit policy, independent
+of aspect-fit presentation. Wayland uses the result for output scale, client limits
+and child placement. Integrated shell surfaces retain the layout scope's scale.
+`X11Density` selects one scale owner among a session's Android hosts and converts
+scale to X11 DPI at 96 per unit, applying the separately stored Linux application
+percentage afterward. Activity configuration and focus callbacks update it;
+there is no display/task polling. `X11PresentationPreferences` uses profile-private
 storage keyed by executor identity and desktop-entry path (Termux package or
 captured Shell service UID), without Desktop's state-store prerequisite.
 The fork owns XSettings serialization, selection

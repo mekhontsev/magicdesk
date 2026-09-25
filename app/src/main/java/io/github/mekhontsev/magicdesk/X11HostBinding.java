@@ -127,7 +127,7 @@ final class X11HostBinding implements X11Sessions.Listener {
 
     void updateDensity() {
         if (!closed) session.hostDensity(this,
-                activity.getResources().getConfiguration().densityDpi, activity.hasWindowFocus());
+                HostedUiScale.resolve(activity), activity.hasWindowFocus());
     }
 
     void focusChanged(boolean focused) {

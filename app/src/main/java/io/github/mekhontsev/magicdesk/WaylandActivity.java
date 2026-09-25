@@ -120,7 +120,7 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
         }
         if (session.stopped() || window <= 0 || !session.containsWindow(window)) { finishAndRemoveTask(); return; }
         var current = session.windows().stream().filter(item -> item.id() == window).findFirst().orElseThrow();
-        content.constraints(current.constraints(), Math.max(0.25f, Math.min(8, getResources().getConfiguration().densityDpi / 160f)));
+        content.constraints(current.constraints(), HostedUiScale.resolve(this));
         String title = current.title().isBlank() ? session.name : current.title();
         present(title);
         status.setText(session.error());
@@ -176,8 +176,10 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
     }
     @Override public void onConfigurationChanged(android.content.res.Configuration configuration) {
         super.onConfigurationChanged(configuration);
-        if (session != null) session.presentation.host(this);
-        if (binding != null) binding.refresh();
+        if (session != null) {
+            session.presentation.host(this);
+            changed();
+        }
     }
     @Override public void requestClose(boolean force) {
         if (session != null && session.desktop) { finishAndRemoveTask(); return; }

@@ -24,7 +24,7 @@ final class WaylandHostBinding implements AutoCloseable {
     private volatile HostedFullscreen fullscreen;
     private HostedWindowCommands commands;
     private long fullscreenSerial = -1;
-    private int density;
+    private int scale;
 
     WaylandHostBinding(Activity activity, HostedSurfaceView surface, WaylandSessions.Session session, long window) {
         this.surface = surface;
@@ -71,10 +71,10 @@ final class WaylandHostBinding implements AutoCloseable {
 
     void refresh() { if (!closed) { updateDensity(); family.refresh(); geometryChanged(); updateFullscreen(); } }
     private void updateDensity() {
-        int next = activity.getResources().getConfiguration().densityDpi;
-        if (density == next) return;
-        density = next;
-        output.scale(Math.max(0.25, Math.min(8, next / 160.0)));
+        int next = HostedUiScale.resolve(activity);
+        if (scale == next) return;
+        scale = next;
+        output.scale(scale);
     }
     void focusChanged() {
         if (!closed) {
@@ -97,7 +97,7 @@ final class WaylandHostBinding implements AutoCloseable {
         if (commands == null) commands = new HostedWindowCommands(activity, surface,
                 (serial, actual) -> session.confirmMaximized(window, this, serial, actual == io.github.mekhontsev.magicdesk.hosted.HostedMaximization.BOTH));
         commands.update(info.maximizeSerial(), info.maximized() ? io.github.mekhontsev.magicdesk.hosted.HostedMaximization.BOTH
-                : io.github.mekhontsev.magicdesk.hosted.HostedMaximization.NONE, info.constraints(), Math.max(0.25f, Math.min(8, density / 160f)));
+                : io.github.mekhontsev.magicdesk.hosted.HostedMaximization.NONE, info.constraints(), scale);
         if (fullscreen == null) fullscreen = new HostedFullscreen(activity, surface,
                 actual -> session.confirmFullscreen(window, this, fullscreenSerial, actual));
         if (fullscreenSerial != info.requestSerial()) {

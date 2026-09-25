@@ -62,7 +62,7 @@ final class X11Sessions {
         if (name == null || name.isBlank() || name.length() > 128)
             throw new IllegalArgumentException("X11 session name must contain 1 to 128 characters");
         Session session = new Session(app, execution, name.trim(), command == null ? "" : command, directory, application,
-                context.getResources().getConfiguration().densityDpi, desktopFile, recipe);
+                HostedUiScale.resolve(context), desktopFile, recipe);
         synchronized (SESSIONS) { SESSIONS.put(session.id(), session); }
         try {
             MagicDeskRuntime.startTools(app, false);
@@ -183,7 +183,7 @@ final class X11Sessions {
         private final HostedWindowOwners windowControlOwners = new HostedWindowOwners();
 
         Session(Context context, X11Execution execution, String name, String command,
-                String directory, boolean application, int densityDpi, String desktopFile, RecentApplicationStore.Entry recipe) {
+                String directory, boolean application, int uiScale, String desktopFile, RecentApplicationStore.Entry recipe) {
             this.context = context;
             this.execution = execution;
             this.name = name;
@@ -192,7 +192,7 @@ final class X11Sessions {
             presentation = new HostedWindowPresentation(context, this);
             presentationKey = X11PresentationPreferences.key(execution.commands.scope, desktopFile);
             scalePercent = X11PresentationPreferences.load(context, presentationKey);
-            density = new X11Density(densityDpi);
+            density = new X11Density(uiScale);
             startupCommand = command;
             startupDirectory = directory;
             launch = execution.spec(density.resolve(scalePercent), application,
@@ -271,8 +271,8 @@ final class X11Sessions {
                 RecentApplications.record(context, recipe.usedAt(System.currentTimeMillis()), recentScope);
         }
         synchronized int dpi() { return density.resolve(scalePercent); }
-        synchronized void hostDensity(Object host, int dpi, boolean focused) {
-            density.update(host, dpi, focused);
+        synchronized void hostDensity(Object host, double scale, boolean focused) {
+            density.update(host, scale, focused);
             publishDensity();
         }
         synchronized void releaseDensity(Object host) {
@@ -382,7 +382,8 @@ final class X11Sessions {
                 releaseDensity(densityOwner);
                 ended.accept(reason);
             });
-            hostDensity(densityOwner, densityDpi, true);
+            // Integrated shell surfaces must match Android logical coordinates exactly.
+            hostDensity(densityOwner, densityDpi / 160.0, true);
             return binding;
         }
 

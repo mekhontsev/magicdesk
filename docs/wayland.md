@@ -200,8 +200,12 @@ SHM cursors use direct pixel access; GPU cursors use the shared asynchronous
 New commits, focus changes and surface destruction cancel obsolete requests and
 release their producer leases. Cursor storage is bounded to 256 by 256 pixels.
 
-Each application output derives its scale from its Android host's density.
-Preferred buffer scale and fractional scale expose that density to clients.
+Each application output uses the shared `HostedUiScale` policy: Android density
+divided by 160, rounded to an integer from 1 to 8 and limited by a logical window
+offer of at least 600 on the short side and 800 on the long side where possible.
+The offer excludes stable system bars and cutouts, not IME insets or client
+constraints. Output scale, Android client limits and child placement use the
+same result. Preferred buffer scale and fractional scale expose it to clients.
 Surface coordinates remain logical. Output rendering uses a uniform scale bounded
 by the 4096-pixel buffer limit, also reported through `wl_output`; it does not clip
 client geometry independently on each axis. Rendering, pointer input and IME caret
@@ -396,7 +400,7 @@ or Wayland and the client executor. Wayland startup commands open toplevels usin
 the manager's verified Android destination. The window picker can open an
 existing toplevel; closing the manager retains the session. Both protocols offer
 whole-desktop presentation. X11 also has a session-wide interface-scale control;
-Wayland derives application density from each Android host.
+Wayland derives application scale from each Android host's density and size.
 
 For a nested desktop, select **Nested Linux desktop** in the manager, or set
 `X-MagicDesk-GraphicsMode=desktop` in a Wayland recipe. Supply a compositor
@@ -661,7 +665,7 @@ fixture passes the editor workflow and managed maximize/restore, move, resize an
 parent-relative dialog placement/dismissal. The shared X11 host regression covers
 a centered size-constrained GTK dialog and pointer-driven closure without Desktop.
 The Qt fixture supplies two levels of transient dialogs; moving its nested dialog
-between DPI 160 and 240 displays verifies fractional-scale publication and input.
+between displays with different automatic scales verifies scale publication and input.
 
 Qt 6.11.2's text-input-v3 client can omit the final `commit` after surrounding-text
 deletion: its reselection handling clears `needsCommit`. The strict correction

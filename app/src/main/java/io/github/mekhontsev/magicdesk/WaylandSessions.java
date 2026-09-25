@@ -262,7 +262,7 @@ final class WaylandSessions {
                     : new io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout(info.parent(), info.width(), info.height(), info.constraints());
         }
         @Override public float unitScale(android.app.Activity activity) {
-            return Math.max(0.25f, Math.min(8, activity.getResources().getConfiguration().densityDpi / 160f));
+            return HostedUiScale.resolve(activity);
         }
         WaylandSession.Output openOutput(long window, int width, int height) {
             if (!ready()) throw new IllegalStateException("Wayland session is not ready");

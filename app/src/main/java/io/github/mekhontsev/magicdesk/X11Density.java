@@ -5,17 +5,20 @@ import java.util.Map;
 
 /** One logical X screen follows its most recently focused Android host. */
 final class X11Density {
-    private final Map<Object, Integer> hosts = new LinkedHashMap<>();
+    private final Map<Object, Double> hosts = new LinkedHashMap<>();
     private Object owner;
-    private int density;
+    private double scale;
 
-    X11Density(int density) { this.density = density; }
+    X11Density(double scale) {
+        resolve(scale, 100);
+        this.scale = scale;
+    }
 
-    void update(Object host, int density, boolean focused) {
-        if (density <= 0) throw new IllegalArgumentException("Invalid Android density");
-        hosts.put(host, density);
+    void update(Object host, double scale, boolean focused) {
+        resolve(scale, 100);
+        hosts.put(host, scale);
         if (owner == null || focused) owner = host;
-        if (owner == host) this.density = density;
+        if (owner == host) this.scale = scale;
     }
 
     void release(Object host) {
@@ -24,16 +27,15 @@ final class X11Density {
         owner = null;
         for (var entry : hosts.entrySet()) {
             owner = entry.getKey();
-            density = entry.getValue();
+            scale = entry.getValue();
         }
     }
 
-    int resolve(int scalePercent) { return resolve(density, scalePercent); }
+    int resolve(int scalePercent) { return resolve(scale, scalePercent); }
 
-    static int resolve(int density, int scalePercent) {
-        if (density <= 0 || !AppPresentationProfile.isValidScale(scalePercent))
+    static int resolve(double scale, int scalePercent) {
+        if (!Double.isFinite(scale) || scale <= 0 || !AppPresentationProfile.isValidScale(scalePercent))
             throw new IllegalArgumentException("Invalid X11 scale");
-        // Android's 160 dpi and X11's 96 dpi both mean 100%, not equal physical sizes.
-        return (int) Math.max(24, Math.min(1536, Math.round(density * 96.0 * scalePercent / 16000)));
+        return (int) Math.max(24, Math.min(1536, Math.round(96 * scale * (scalePercent / 100.0))));
     }
 }
