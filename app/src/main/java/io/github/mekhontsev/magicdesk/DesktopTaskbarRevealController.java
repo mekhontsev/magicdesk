@@ -9,7 +9,7 @@ import android.view.MotionEvent;
 import android.view.ViewConfiguration;
 import java.util.Set;
 
-/** Keeps a hidden taskbar reachable from a passive strip at the screen edge. */
+/** Resolves automatic chrome visibility and explicit edge/navigation reveals. */
 final class DesktopTaskbarRevealController {
     enum Presentation {
         UNAVAILABLE,
@@ -34,7 +34,8 @@ final class DesktopTaskbarRevealController {
     private boolean mPolicyVisible = true;
     private boolean mAvailable = true;
     private boolean mAutoHide;
-    private boolean mForcedVisible;
+    private boolean mAutomaticHold;
+    private boolean mInteractionHold;
     private boolean mStarted;
     private boolean mReleased;
 
@@ -112,11 +113,16 @@ final class DesktopTaskbarRevealController {
         }
     }
 
-    void setForcedVisible(final boolean visible) {
-        if (mReleased || mForcedVisible == visible) {
+    void setVisibilityHolds(final boolean automatic, final boolean interaction) {
+        if (mReleased || (mAutomaticHold == automatic && mInteractionHold == interaction)) {
             return;
         }
-        mForcedVisible = visible;
+        mAutomaticHold = automatic;
+        mInteractionHold = interaction;
+        // The open panel owns visibility until it closes, regardless of input source.
+        if (interaction) {
+            mTouchState.dismiss();
+        }
         cancelTimers();
         updateArmedState();
         if (mStarted) {
@@ -132,9 +138,7 @@ final class DesktopTaskbarRevealController {
 
     void reveal() {
         if (!mStarted || mReleased || !mTouchEdgeEnabled
-                || resolvePresentation(mAvailable, mPolicyVisible, mAutoHide, mForcedVisible,
-                        mPointerState.isRevealed() || mTouchState.isRevealed())
-                        != Presentation.EDGE) {
+                || currentPresentation() == Presentation.VISIBLE) {
             return;
         }
         applyTouchAction(mTouchState.reveal(), false);
@@ -199,17 +203,15 @@ final class DesktopTaskbarRevealController {
     }
 
     private void applyPresentation() {
-        final boolean revealed = mPointerState.isRevealed() || mTouchState.isRevealed();
         mActivity.shellPresentation().update(resolveShellLayers(
-                mAvailable, mPolicyVisible, mForcedVisible, revealed));
+                mAvailable, mPolicyVisible, mAutomaticHold,
+                mPointerState.isRevealed(), isExplicitlyRevealed()));
         final TaskbarController taskbar = mActivity.taskbar();
         final DesktopTaskbarHost taskbarHost = mActivity.taskbarHost();
         if (taskbar == null || taskbarHost == null) {
             return;
         }
-        final Presentation presentation = resolvePresentation(
-                mAvailable, mPolicyVisible, mAutoHide, mForcedVisible,
-                revealed);
+        final Presentation presentation = currentPresentation();
         if (presentation == Presentation.UNAVAILABLE) {
             taskbarHost.setPresented(false);
             taskbar.setEdgeHidden(false);
@@ -236,12 +238,22 @@ final class DesktopTaskbarRevealController {
         mHandler.removeCallbacks(mHideTimeout);
     }
 
+    private boolean isExplicitlyRevealed() {
+        return mInteractionHold || mTouchState.isRevealed();
+    }
+
+    private Presentation currentPresentation() {
+        return resolvePresentation(mAvailable, mPolicyVisible, mAutoHide, mAutomaticHold,
+                mPointerState.isRevealed(), isExplicitlyRevealed());
+    }
+
     static Set<ShellSurface.Layer> resolveShellLayers(boolean available, boolean policyVisible,
-            boolean forcedVisible, boolean revealed) {
+            boolean automaticHold, boolean pointerRevealed, boolean explicitlyRevealed) {
         // HOME layers remain naturally occluded by Android tasks. Taskbar auto-hide is a
         // preference for the native taskbar, not a request to hide every external panel.
+        if (explicitlyRevealed) return Set.of(ShellSurface.Layer.values());
         if (!available) return Set.of(ShellSurface.Layer.BACKGROUND, ShellSurface.Layer.BOTTOM);
-        if (policyVisible || forcedVisible || revealed) return Set.of(ShellSurface.Layer.values());
+        if (policyVisible || automaticHold || pointerRevealed) return Set.of(ShellSurface.Layer.values());
         return Set.of(ShellSurface.Layer.BACKGROUND, ShellSurface.Layer.BOTTOM, ShellSurface.Layer.OVERLAY);
     }
 
@@ -249,26 +261,27 @@ final class DesktopTaskbarRevealController {
             final boolean available,
             final boolean policyVisible,
             final boolean autoHide,
-            final boolean forcedVisible,
-            final boolean revealed) {
-        // Managed fullscreen conceals the panel, not its reveal edge. Only
-        // an unavailable desktop chrome surface disables edge input entirely.
+            final boolean automaticHold,
+            final boolean pointerRevealed,
+            final boolean explicitlyRevealed) {
+        // Foreground task ownership suppresses automatic chrome, not a user
+        // request to reveal it. The non-focusable host leaves that task alone.
+        if (explicitlyRevealed) {
+            return Presentation.VISIBLE;
+        }
         if (!available) {
             return Presentation.UNAVAILABLE;
         }
-        return forcedVisible || (policyVisible && !autoHide) || revealed
+        return automaticHold || (policyVisible && !autoHide) || pointerRevealed
                 ? Presentation.VISIBLE : Presentation.EDGE;
     }
 
     private void updateArmedState() {
         final boolean armed = resolvePresentation(
-                mAvailable, mPolicyVisible, mAutoHide, mForcedVisible,
-                false) == Presentation.EDGE;
+                mAvailable, mPolicyVisible, mAutoHide, mAutomaticHold,
+                false, mInteractionHold) == Presentation.EDGE;
         mPointerState.setArmed(armed);
         // A navigation reveal lasts until user input, across HOME visibility changes.
-        if (!mAvailable) {
-            mTouchState.onOutside();
-        }
         mTouchState.setArmed(mTouchEdgeEnabled && armed);
     }
 
@@ -276,7 +289,7 @@ final class DesktopTaskbarRevealController {
         final int action = event.getActionMasked();
         if (action == MotionEvent.ACTION_OUTSIDE) {
             final TouchEdgeRevealState.Action result =
-                    mTouchState.onOutside();
+                    mTouchState.dismiss();
             applyTouchAction(result, false);
             // Let the pointer state observe the same outside event so a
             // preceding mouse reveal cannot keep the taskbar open.

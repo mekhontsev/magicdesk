@@ -518,8 +518,8 @@ public abstract class DesktopShellActivity extends Activity
 
     private void updateTaskbarVisibilityHold() {
         if (mTaskbarRevealController != null) {
-            mTaskbarRevealController.setForcedVisible(
-                    mTaskbarImeHold || mTaskbarStartHold);
+            mTaskbarRevealController.setVisibilityHolds(
+                    mTaskbarImeHold, mTaskbarStartHold);
         }
     }
 

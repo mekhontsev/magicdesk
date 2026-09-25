@@ -213,7 +213,9 @@ system-bar inset. It paints that portion with the taskbar background, while the
 taskbar controls remain above the inset. When managed fullscreen policy conceals
 the taskbar, the child window collapses to its reveal edge with a transparent
 background; its window opacity and input handling remain unchanged. An unrelated
-foreground fullscreen task removes it entirely. Visible freeform windows retain
+foreground fullscreen task suppresses its automatic presentation. Phone Home
+can explicitly reveal it without changing that task's focus or ownership;
+outside touch or a taskbar action releases the reveal. Visible freeform windows retain
 the panel and reveal edge regardless of task ownership; this does not authorize
 window operations on those tasks. The transparent chrome host remains
 structurally stable without covering fullscreen content.

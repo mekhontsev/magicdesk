@@ -15,7 +15,7 @@ public final class TouchEdgeRevealStateTest {
         assertEquals(TouchEdgeRevealState.Action.REVEAL, state.reveal());
         assertEquals(TouchEdgeRevealState.Action.NONE, state.reveal());
         assertTrue(state.isRevealed());
-        assertEquals(TouchEdgeRevealState.Action.DISMISS, state.onOutside());
+        assertEquals(TouchEdgeRevealState.Action.DISMISS, state.dismiss());
         assertFalse(state.isRevealed());
     }
 
@@ -28,7 +28,7 @@ public final class TouchEdgeRevealStateTest {
         state.setArmed(true);
         assertTrue(state.isRevealed());
         assertEquals(TouchEdgeRevealState.Action.NONE, state.reveal());
-        assertEquals(TouchEdgeRevealState.Action.DISMISS, state.onOutside());
+        assertEquals(TouchEdgeRevealState.Action.DISMISS, state.dismiss());
     }
 
     @Test
@@ -81,7 +81,7 @@ public final class TouchEdgeRevealStateTest {
 
         assertEquals(
                 TouchEdgeRevealState.Action.DISMISS,
-                state.onOutside());
+                state.dismiss());
         assertFalse(state.isRevealed());
     }
 

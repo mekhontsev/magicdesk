@@ -75,7 +75,7 @@ final class TouchEdgeRevealState {
         return Action.NONE;
     }
 
-    Action onOutside() {
+    Action dismiss() {
         mTracking = false;
         mDismissOnUp = false;
         if (!mRevealed) {

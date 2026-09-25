@@ -321,15 +321,15 @@ public final class DesktopChromeActivity extends Activity {
                 mHiddenEdgeTouchSequence = true;
                 consumeHiddenSequence = true;
             }
+            // View may enqueue performClick on UP. Deliver to the controls before
+            // queuing reveal dismissal, which can detach them and cancel that click.
+            final boolean handled = consumeHiddenSequence || super.dispatchTouchEvent(event);
             DesktopTaskbarHost.dispatchEdgeInput(mDisplayId, event);
-            if (!consumeHiddenSequence) {
-                return super.dispatchTouchEvent(event);
-            }
             if (action == MotionEvent.ACTION_UP
                     || action == MotionEvent.ACTION_CANCEL) {
                 mHiddenEdgeTouchSequence = false;
             }
-            return true;
+            return handled;
         }
     }
 }

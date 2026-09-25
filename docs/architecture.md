@@ -2919,8 +2919,8 @@ or IME insets a second time. When managed fullscreen policy conceals the taskbar
 the bounded panel collapses to its transparent reveal edge. Only its background
 and taskbar content stop drawing; its window opacity and input region are
 unchanged, so hover and touch can still reveal the taskbar. The expanded panel
-restores its background, including the reserved navigation inset. An unrelated
-foreground fullscreen task removes the panel entirely. The transparent, non-input chrome host remains
+restores its background, including the reserved navigation inset. An independent
+foreground fullscreen task suppresses automatic panel presentation. The transparent, non-input chrome host remains
 structurally stable without leaving the taskbar backdrop over fullscreen content.
 There is no separate phone implementation of the desktop.
 IME visibility may keep an
@@ -2980,8 +2980,8 @@ desktop. Chrome policy reads the complete physical display snapshot before
 workspace ownership filtering, while task lists and window operations remain
 limited to session-owned tasks. Visible freeform windows keep the taskbar and
 its reveal edge available independently of permission to control their tasks.
-A foreign foreground fullscreen task disables both the panel and its reveal
-edge; managed fullscreen tasks retain edge reveal. Window visibility scans
+An independent foreground fullscreen task disables automatic presentation and
+the reveal edge; managed fullscreen tasks retain edge reveal. Window visibility scans
 stop at the first opaque fullscreen plane or desktop HOME, so a covered
 freeform window cannot reopen chrome. Its
 shared controller measures the actual task viewport on every display and
@@ -2992,8 +2992,13 @@ or task-switching behavior.
 The phone desktop also exposes the hidden taskbar through a touch edge gesture.
 It uses Android's configured edge and touch slop, is scoped to display 0, and
 feeds an explicit reveal state into the shared controller. Phone Home navigation
-uses the same state to reveal a hidden taskbar. The taskbar is
+uses the same state to reveal a hidden taskbar, including over an independent
+fullscreen application. Explicit reveal overrides automatic chrome suppression
+without changing application focus, bounds or ownership. The transient reveal is
 dismissed by the next taskbar action or outside touch rather than by a timeout.
+An open Start menu holds the taskbar visible independently of that reveal until
+the menu closes. IME visibility follows automatic chrome availability and cannot
+expose the taskbar over an independent fullscreen application on its own.
 When automatic hiding is enabled, the same existing pointer-edge state machine
 reveals it without introducing a second overlay or polling loop, and window
 placement uses the full viewport. IME and other forced-visible policy still

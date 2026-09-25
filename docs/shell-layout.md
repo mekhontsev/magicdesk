@@ -120,8 +120,11 @@ lease. A native focusable panel takes precedence. Pointer admission is independe
 separately from layout. `DesktopTaskbarRevealController` supplies the existing
 fullscreen, availability and temporary-reveal decisions. Managed fullscreen
 conceals external `TOP` panels; edge reveal or the native Start/IME visibility
-hold presents them again. An independent fullscreen foreground suppresses chrome
-layers even during a reveal. The native taskbar's auto-hide preference does not
+hold presents them again. An independent fullscreen foreground suppresses automatic
+chrome presentation; explicit phone Home reveal can present it without changing
+the application's focus or ownership. Start retains presentation for the menu's
+lifetime, while IME alone remains subject to automatic chrome availability.
+The native taskbar's auto-hide preference does not
 hide external panels. HOME layers remain in their existing Android view hierarchy
 and are naturally covered by application tasks. `OVERLAY` remains a separate
 policy intent, not an admitted host role or permission to cover system UI.
