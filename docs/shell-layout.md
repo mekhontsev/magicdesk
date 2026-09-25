@@ -242,6 +242,11 @@ borrow a host from the selected Desktop's panel controller; catalog and family
 geometry events then reconcile its windows automatically. **Linux graphics** and
 `graphics.set_workspace` select an existing workspace explicitly. Clearing the
 selection releases shell windows and reservations, not the graphical session.
+`inspect_workspace` reads this same layout, with binding-local surface IDs linked
+to their graphical session, resolved reservations and confirmed managed-task
+state. Native MagicDesk components have no Linux session identity. Layout and
+catalog changes feed event-driven automation waits; inspection adds no task
+poller and cannot grant a client admission or keyboard focus.
 The adapters preserve protocol lifetimes
 and coordinate conversion:
 

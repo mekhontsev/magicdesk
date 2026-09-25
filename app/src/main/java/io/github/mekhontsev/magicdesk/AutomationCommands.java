@@ -104,8 +104,10 @@ final class AutomationCommands implements AutoCloseable {
             }
         }
         switch (name) {
-            case "x11.inspect_window":
-                return AutomationX11.inspect(args);
+            case "inspect_workspace":
+                return AutomationWorkspace.inspect(args);
+            case "set_task_state":
+                return AutomationWorkspace.setTaskState(args);
             case "get_state":
                 data = mAutomation.stateReader().state();
                 data.put("automationAwake", mAndroidUi.awakeState());

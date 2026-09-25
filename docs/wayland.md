@@ -7,7 +7,7 @@ runtime module. The APK packages the compositor and a separate host renderer.
 **Linux graphics** manages X11 and Wayland sessions through the same controls;
 Wayland opens each toplevel in an ordinary Android host. A nested compositor can
 instead present a whole Linux desktop in a retained Android viewer. The shared
-`graphics.list/start/execute/stop/open_window` automation commands also generate
+`graphics.*` automation commands also generate
 the built-in CLI interface. Start and `.desktop` recipes select X11 or Wayland
 through the shared graphical launch model; ordinary installed Termux entries
 default to X11. A successful native test or APK build does
@@ -475,6 +475,13 @@ same workflow run. Missing or invalid runtime artifacts fail the build instead
 of producing an incomplete APK.
 
 ## Verification
+
+`graphics.inspect_window` reads a bounded native surface family on the compositor
+event loop, including popups and subsurfaces without opening a renderer output.
+Related toplevels retain their own coordinate origins. Android host geometry and
+workspace ownership come from the common session presentation registry. See the
+[automation contract](automation.md) for identifiers, state predicates and
+separate client, viewer and session close operations.
 
 ```sh
 ctest --test-dir wayland-runtime/build/dependencies --output-on-failure

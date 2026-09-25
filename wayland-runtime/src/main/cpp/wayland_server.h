@@ -46,6 +46,14 @@ typedef struct {
 } MdwShellSurface;
 
 typedef struct { int32_t left, top, right, bottom; } MdwRect;
+typedef struct {
+    uint64_t id, parent;
+    int role; /* 0 owner, 1 popup, 2 subsurface, 3 other surface. */
+    MdwRect bounds;
+    bool mapped, enabled, focused;
+} MdwSurfaceInspection;
+size_t mdw_view_inspect(MdwServer *server, uint64_t view, MdwSurfaceInspection *nodes,
+        size_t capacity, bool *found, bool *truncated);
 enum { MDW_MAX_INPUT_RECTS = 512 };
 typedef struct {
     uint64_t id, revision;

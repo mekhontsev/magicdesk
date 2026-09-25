@@ -62,6 +62,9 @@ public final class WaylandSession implements AutoCloseable {
     private final LongSparseArray<Connection> connections = new LongSparseArray<>();
     private volatile List<Window> windows = List.of();
     private long nextOutput, nextConnection, nextShell;
+    private long nextInspection;
+    private final java.util.Map<Long, Inspection> inspections = new java.util.LinkedHashMap<>();
+    private record Inspection(int limit, CompletableFuture<WaylandWindowInspection> result, Runnable timeout) { }
     private volatile ShellBinding shellBinding;
     private final IBinder.DeathRecipient serverDied = () -> {
         failed(0, "Wayland executor disconnected");
@@ -69,6 +72,16 @@ public final class WaylandSession implements AutoCloseable {
     };
 
     private final IWaylandEvents events = new IWaylandEvents.Stub() {
+        @Override public void inspection(long request, long[] nodes) {
+            checkCaller();
+            handler.post(() -> {
+                var pending = inspections.remove(request);
+                if (pending == null) return;
+                handler.removeCallbacks(pending.timeout());
+                try { pending.result().complete(WaylandWindowInspection.decode(nodes, pending.limit())); }
+                catch (RuntimeException error) { pending.result().completeExceptionally(error); }
+            });
+        }
         private void checkCaller() {
             if (Binder.getCallingUid() != executorUid) throw new SecurityException("Not the Wayland executor UID");
         }
@@ -310,6 +323,30 @@ public final class WaylandSession implements AutoCloseable {
     }
 
     public List<Window> windows() { return windows; }
+    public CompletableFuture<WaylandWindowInspection> inspectWindow(long window, int limit) {
+        if (window <= 0 || limit < 1 || limit > 256) throw new IllegalArgumentException("Invalid inspection target or limit");
+        var result = new CompletableFuture<WaylandWindowInspection>();
+        if (!handler.post(() -> {
+            if (closed.get() || inspections.size() >= 4) {
+                result.completeExceptionally(new IllegalStateException("Wayland closed or inspection queue full")); return;
+            }
+            if (result.isDone()) return;
+            long id = ++nextInspection;
+            Runnable timeout = () -> {
+                var pending = inspections.remove(id);
+                if (pending != null) pending.result().completeExceptionally(new TimeoutException("Wayland inspection expired"));
+            };
+            inspections.put(id, new Inspection(limit, result, timeout));
+            // EVENT_WAIT: qualified native inspection reply; expiry fails, never publishes a partial snapshot.
+            handler.postDelayed(timeout, 5000);
+            result.whenComplete((value, failure) -> handler.post(() -> {
+                var pending = inspections.remove(id);
+                if (pending != null) handler.removeCallbacks(pending.timeout());
+            }));
+            remote(() -> server.inspectWindow(id, window, limit));
+        })) result.completeExceptionally(new IllegalStateException("Wayland session closed"));
+        return result;
+    }
     public WaylandViewGeometry geometry(long window) { return closed.get() ? null : geometries.get(window); }
     public WaylandViewGeometry dependentGeometry(long window) { return closed.get() ? null : dependentGeometries.get(window); }
     public boolean isClosed() { return closed.get(); }
@@ -442,6 +479,11 @@ public final class WaylandSession implements AutoCloseable {
         if (binding != null) binding.release("Wayland session is closed");
         server.asBinder().unlinkToDeath(serverDied, 0);
         handler.post(() -> {
+            for (var pending : inspections.values()) {
+                handler.removeCallbacks(pending.timeout());
+                pending.result().completeExceptionally(new IOException("Wayland session is closed"));
+            }
+            inspections.clear();
             for (int index = 0; index < connections.size(); ++index) {
                 Connection connection = connections.valueAt(index);
                 handler.removeCallbacks(connection.deadline);

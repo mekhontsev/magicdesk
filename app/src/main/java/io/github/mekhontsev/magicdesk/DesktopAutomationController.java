@@ -1238,6 +1238,7 @@ final class DesktopAutomationController {
     private JSONObject observeCondition(
             final String condition,
             final JSONObject args) throws JSONException {
+        if (AutomationGraphicsObservation.supports(condition)) return AutomationGraphicsObservation.observe(condition, args);
         final JSONObject observation = new JSONObject()
                 .put("condition", condition);
         switch (condition) {

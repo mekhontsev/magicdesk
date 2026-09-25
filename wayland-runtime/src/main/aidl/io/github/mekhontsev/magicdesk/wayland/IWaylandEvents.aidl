@@ -5,6 +5,7 @@ import io.github.mekhontsev.magicdesk.wayland.WaylandShellSurface;
 import io.github.mekhontsev.magicdesk.wayland.WaylandViewGeometry;
 
 oneway interface IWaylandEvents {
+    void inspection(long request, in long[] nodes);
     void window(long id, long parent, String title, String appId, boolean mapped,
             int width, int height, int minWidth, int minHeight, int maxWidth, int maxHeight,
             long requestSerial, boolean fullscreen, long maximizeSerial, boolean maximized, boolean removed);

@@ -26,6 +26,8 @@ public final class WaylandApplicationIdentityTest {
             Object recentScope=new Object();
             int recorded;
             boolean application=true,hadWindows,closed;
+            String id() { return "session"; }
+            static class GraphicalSessions { static void changed(String id, String operation) { } }
             boolean ready() { return !closed; }
             void recordUse(Object scope) { recorded++; }
             void close() { closed=true; }

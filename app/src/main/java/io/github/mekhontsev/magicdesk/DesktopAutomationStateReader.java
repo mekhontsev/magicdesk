@@ -86,7 +86,6 @@ final class DesktopAutomationStateReader {
                         .put("error", shell.error))
                 .put("termux", TermuxIntegration.inspect(mContext).toJson())
                 .put("graphics", AutomationGraphics.snapshot())
-                .put("x11", x11Sessions())
                 .put("integrationPackages", integrationPackages())
                 .put("platform", new JSONObject()
                         .put("id", platform.id())
@@ -113,28 +112,6 @@ final class DesktopAutomationStateReader {
                 .put("mcp", MagicDeskMcpRuntime.snapshotJson())
                 .put("eventSequence",
                         DesktopAutomationEventJournal.latestId());
-        return result;
-    }
-
-    private static JSONArray x11Sessions() throws JSONException {
-        JSONArray result = new JSONArray();
-        for (X11Sessions.Session session : X11Sessions.list()) {
-            JSONArray windows = new JSONArray();
-            for (var window : session.windows()) windows.put(new JSONObject().put("id", window.id())
-                    .put("instance", window.instance()).put("className", window.className())
-                    .put("title", window.title()).put("mapped", window.mapped())
-                    .put("hostManaged", window.management().managed())
-                    .put("role", window.role().name().toLowerCase(java.util.Locale.ROOT))
-                    .put("fullscreen", new JSONObject().put("serial", Integer.toUnsignedLong(window.management().request().serial()))
-                            .put("requested", window.management().request().fullscreen()).put("actual", window.management().actual().fullscreen())));
-            result.put(new JSONObject().put("id", session.id()).put("name", session.name)
-                    .put("display", session.display()).put("state", session.state().name())
-                    .put("executor", session.execution.commands.backend.wireName)
-                    .put("executorUid", session.execution.commands.uid).put("serverUid", session.execution.serverUid)
-                    .put("fileEnvironment", session.fileEnvironment())
-                    .put("dpi", session.dpi()).put("scalePercent", session.scalePercent())
-                    .put("error", session.error()).put("application", session.application).put("windows", windows));
-        }
         return result;
     }
 
@@ -284,11 +261,13 @@ final class DesktopAutomationStateReader {
             }
         }
         final JSONArray tasks = new JSONArray();
+        final var graphicalTasks = AutomationGraphics.taskLinks();
         final int end = pageEnd(filtered.size(), offset, limit);
         for (int index = Math.min(offset, filtered.size());
                 index < end; index++) {
             final TaskRepository.TaskEntry task = filtered.get(index);
             tasks.put(taskJson(task, windows.health(task))
+                    .put("graphics", AutomationGraphics.nullable(graphicalTasks.get(task.taskId)))
                     .put("ownership", ApplicationTaskPlacement.ownership(task, snapshot)));
         }
         return new JSONObject()

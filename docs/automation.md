@@ -381,22 +381,22 @@ owned by each desktop host. Screenshot capture returns PNG bytes as MCP image co
 does not create a file. Pixel sampling reads up to 64 coordinates in one shell
 capture operation and returns exact ARGB and component values.
 
-`get_state.x11[]` exposes retained X session identities, names, allocated
-`display`, lifecycle `state`, `error`, application ownership and the current
-window catalog (`id`, `title`, `instance`/`className` from `WM_CLASS`, `mapped`, `role`, `hostManaged`, and `fullscreen` with
-`serial`, `requested`, `actual`). Requested fullscreen is not proof of a completed
-Android transition. These are X11 identities, not Android
-display/task IDs. `role` is `application`, `splash`, or `unclassified` from X
-properties; unclassified startup content is not assumed to be a permanent main
-window. Tokens, Xauthority cookies and startup commands are omitted.
-Each session also reports its resolved X11 `dpi` and relative `scalePercent`.
+`get_state.graphics[]` and `graphics.list` expose the same retained X11/Wayland
+sessions: identity, lifecycle, native windows, Android hosts and shell binding.
+Native `windowId` is scoped to `sessionId`; it is not an Android `taskId`,
+`displayId`, workspace residency ID or shell `surfaceId`.
+Windows report title, app identity, role, parent, dimensions, constraints,
+fullscreen and maximization requests. `actual=null` means unavailable, not false.
+Requested state is not proof of a completed Android transition.
+`protocolDetails` preserves protocol-specific information: X11 session display,
+DPI, scale and file environment, and each X window's instance/class and host
+management. Tokens, Xauthority cookies and startup commands are omitted.
 `executor`, `executorUid` and `serverUid` distinguish command identity from
 the server: Shell/root sessions run their X server as the ordinary app UID.
 Launch a Shell Linux `.desktop` recipe with `launch_desktop_entry`, or pass an
 entry script as `terminal.open`'s shell command for a terminal-only chroot.
 Neither route requires Desktop or a separate container-management MCP API.
-`get_state.graphics` and `graphics.list` share the X11/Wayland session catalog;
-`get_state.x11` adds X11-specific diagnostics. `runtime.graphicalSessions` counts
+`runtime.graphicalSessions` counts
 both protocols. The **Linux graphics** built-in uses ordinary tool placement and
 remains available without Desktop. `services.graphics` describes executor
 availability; individual protocols still validate their launch requirements.
@@ -406,35 +406,65 @@ command. `launch_desktop_entry` uses that selection through Start's shared launc
 coordinator, including recipe reuse and `instance=new`. Acceptance is not a mapped
 client window; observe the graphical catalog and Android task separately.
 
-`x11.inspect_window` reads one live window family by `sessionId` and X11
+`graphics.inspect_window` reads one live window family by `sessionId` and native
 `windowId` from that catalog. It requires `content`, not Desktop or shell access.
 `limit` is 1..256 (default 256). The selected window comes first, followed by
 related dialogs, popups and real children, including unmapped/InputOnly windows.
-Each entry exposes `parentId`, `transientFor`, `clientLeader`, title, type, bounds,
+For X11, each entry exposes `parentId`, `transientFor`, `clientLeader`, title, type, bounds,
 mapping flags and exact keyboard focus. `parentId` is actual X ancestry, not
 the dialog's transient relationship. This is not a toolkit accessibility tree:
 buttons and text fields need not have separate X windows.
 
-Bounds use X-root pixels, not Android pixels. `mapped` and `realized` do not
+X11 bounds use X-root pixels, not Android pixels. `mapped` and `realized` do not
 prove that a window is unobscured. The separate `focus` record retains an exact
 XID even outside the returned family, or reports `none`, `pointer_root` or
 `unknown`. Missing windows return `found=false`; bounded traversal reports
 `truncated=true`, never a silently complete tree. XIDs can be reused after a
 window is destroyed, so do not retain them as persistent identities.
 
-`hosts` identifies currently bound Android `taskId`/`displayId`, the selected XID
-(zero for a whole-screen view), frame dimensions and aspect-fit
-`contentBoundsOnDisplay`. Individual-view source pixels start at the selected
-main window's X-root origin; whole-screen source pixels start at zero. These
-host observations follow the native snapshot, and a later task screenshot is
-another observation, not an atomic capture. Display bounds are not task-local
-crop coordinates. Inspection never focuses, moves, resizes, acquires an output
+Wayland inspection reports owner surfaces, popups and subsurfaces, including
+related child toplevels. `ownerWindowId` identifies each toplevel's local origin;
+these bounds are not global desktop coordinates. Surface IDs last only for the
+session. `nativeAtomic` states whether the native family came from one event-loop
+snapshot; related Wayland toplevels can require separate snapshots.
+
+`hosts` identifies Android `taskId`/`displayId`, native `windowId` (zero for an
+X11 whole-desktop viewer; the nested compositor toplevel for Wayland), focus,
+attachment and aspect-fit `content.bounds` in
+Android display pixels. `managed` and `workspaceId` link hosts to managed tasks;
+an unavailable ownership observation reports `managed=null`. `state` is confirmed
+managed-task state or null, never a reconstruction from the client's request.
+Inspection also returns the session's current `catalog` of native toplevels.
+Host observations follow the native snapshot (`atomicWithHosts=false`); a task
+screenshot is another observation, not an atomic capture. Attachment does not
+prove rendered or unobscured pixels. Display bounds are not task-local crop
+coordinates. Inspection never focuses, moves, resizes, acquires an output
 or subscribes to polling. Connection closure and protocol reply deadlines fail
 pending reads; repeating a read has no window side effects.
 
 ```json
 {"sessionId":"session-from-get-state", "windowId":2097153, "limit":128}
 ```
+
+`inspect_workspace(workspaceId)` reads the existing shell model: output, work
+and panel areas, resolved surfaces, logical layers, keyboard policy, paint and
+layout input bounds, edge reservations and managed tasks. External surfaces
+carry their `sessionId` and binding-local `localId`; MagicDesk surfaces have no
+Linux session. `layerPresented` is shell policy, not proof of visible pixels.
+`tasksKnown=false` makes retained task state unavailable for assertions.
+Inspection never starts Desktop or adds another framework task observer.
+
+`wait_for_state` supports `graphics_ready`, `graphics_session_absent`,
+`graphics_window_present/absent`, `graphics_host_attached`,
+`graphics_window_state`, `shell_surface_present/absent` and `task_state`.
+They wait on existing catalog, host and workspace events, not periodic queries.
+Window absence means destruction or the end of its exact owning session, not
+unmapping. Session absence also has its own condition. Omit `windowId` from `graphics_window_present` to await the first
+mapped client without guessing its identity. For host/state conditions, zero
+selects a whole-desktop viewer. Shell-surface conditions require a live workspace and match mapped
+surfaces. State predicates require `state` and `enabled`; unknown state never
+satisfies a negative assertion. Select `taskId` when a native window has several
+hosts. A wait timeout does not cancel a dispatched mutation.
 
 `get_state.windows` distinguishes Android's focused application record from
 the actual focused input window on each display. This matters when a crash,
@@ -748,6 +778,19 @@ whole-desktop viewer; Wayland accepts it for a session explicitly started with
 `wholeDesktop=true`, borrowing the nested compositor's toplevel. Observation, shell execution and Android placement retain
 separate MCP grants. The [Wayland guide](wayland.md) records its current scope
 and input/client-launch limitations.
+
+`graphics.close_window` sends a protocol close request, allowing client save or
+cancel dialogs. `force=true` disconnects that client, potentially closing its
+other windows. An application-owned session can end when its last window closes;
+a retained server remains available even if its startup client exits with an
+error. `graphics.detach_viewer` closes only the selected whole-desktop
+Android viewer; the server and clients remain. `graphics.stop` stops the session.
+These operations do not require Desktop. Android focus, arrangement and closure
+continue to use `focus_task`, `arrange_task` and `close_task` with the host task ID.
+`set_task_state` explicitly sets fullscreen, work-area maximization or concealment
+on an existing managed task through the same catalog gateway as Linux panels.
+It returns acceptance; `wait_for_state` confirms actual state. No command starts
+Desktop implicitly, and CLI commands come from the same schema and executor.
 
 `magicdesk.set_app_presentation` accepts an `appIdentity` from `list_apps` and a scale from
 50 through 200 percent. The percentage is display-independent; MagicDesk

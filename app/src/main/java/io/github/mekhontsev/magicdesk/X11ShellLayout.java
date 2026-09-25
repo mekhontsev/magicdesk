@@ -15,6 +15,7 @@ final class X11ShellLayout implements AutoCloseable {
         mBinding = scope.bind();
     }
     boolean isClosed() { return mBinding.isClosed(); }
+    void origin(String sessionId) { mBinding.origin(sessionId); }
     ShellLayout.Surface surface(long id) { return mBinding.surface(Long.toString(id)); }
     void update(List<X11ShellSurface> surfaces) {
         var output = mScope.snapshot().output();

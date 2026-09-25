@@ -4,6 +4,7 @@ import android.os.ParcelFileDescriptor;
 
 interface IWaylandServer {
     void retain(IWaylandEvents owner);
+    oneway void inspectWindow(long request, long window, int limit);
     oneway void openOutput(long output, long window, long shellOwner, long parentOutput, int width, int height);
     oneway void viewport(long output, long generation, int x, int y, int width, int height, boolean configureClient);
     oneway void setVisible(long output, boolean visible);

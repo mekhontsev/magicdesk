@@ -194,6 +194,10 @@ final class WaylandSessions {
         boolean stopped() { return state.equals("CLOSED") || state.equals("FAILED"); }
         @Override public boolean ready() { return state.equals("READY") && renderer != null && !renderer.isClosed(); }
         List<WaylandSession.Window> windows() { var current = renderer; return current == null ? List.of() : current.windows(); }
+        java.util.concurrent.CompletableFuture<io.github.mekhontsev.magicdesk.wayland.WaylandWindowInspection> inspectWindow(long window, int limit) {
+            if (!ready()) throw new IllegalStateException("Wayland session is not ready");
+            return renderer.inspectWindow(window, limit);
+        }
         @Override public boolean containsWindow(long id) { return windows().stream().anyMatch(window -> window.id() == id); }
         void listen(Listener listener) { listeners.add(listener); }
         void unlisten(Listener listener) { listeners.remove(listener); }
@@ -366,6 +370,7 @@ final class WaylandSessions {
             windowControlOwners.retain(windows().stream().map(WaylandSession.Window::id).toList());
             for (var listener : listeners) listener.changed();
             if (ready()) for (var window : windows()) if (window.mapped()) presentation.present(window.id());
+            GraphicalSessions.changed(id(), "changed");
         }
         @Override public void frame(long output, int width, int height) {
             for (var listener : listeners) listener.frame(output, width, height);
@@ -378,9 +383,11 @@ final class WaylandSessions {
         }
         @Override public void geometryChanged(long window) {
             for (var listener : listeners) listener.geometryChanged(window);
+            GraphicalSessions.changed(id(), "geometry_changed");
         }
         @Override public void failed(long output, String message) { fail(new IOException(message)); }
         @Override public void presentationChanged() { changed(); }
+        @Override public void observationChanged() { GraphicalSessions.changed(id(), "hosts_changed"); }
         @Override public void presentationFailed(Throwable failure) {
             if (stopped()) return;
             error = ShellAccess.usefulMessage(failure);

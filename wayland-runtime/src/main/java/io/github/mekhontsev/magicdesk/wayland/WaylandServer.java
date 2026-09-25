@@ -150,6 +150,15 @@ public final class WaylandServer extends IWaylandServer.Stub {
         });
     }
 
+    private static native long[] nativeInspect(long handle, long window, int limit);
+    @Override public void inspectWindow(long request, long window, int limit) {
+        if (request <= 0 || window <= 0 || limit < 1 || limit > 256) throw new IllegalArgumentException("Invalid inspection");
+        command(() -> {
+            try { owner.inspection(request, nativeInspect(handle, window, limit)); }
+            catch (RemoteException error) { requestStop(); }
+        });
+    }
+
     private boolean dimensions(long id, int width, int height) {
         if (width < 1 || height < 1 || width > 4096 || height > 4096) return false;
         long pixels = (long)width * height;

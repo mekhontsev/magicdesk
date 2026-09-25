@@ -5,8 +5,23 @@ import org.junit.Test;
 public final class HostedWindowPresentationTest {
     @Test public void presentationAndRecoveryShareReservationsButRetainExactHostPlacement() throws Exception {
         RuntimeSourceFixture.verify("static " + RuntimeSourceFixture.nestedClass("HostedWindowPresentation", "HostedWindowPresentation")
-                .replace("WeakReference<", "java.lang.ref.WeakReference<") + """
+                .replace("WeakReference<", "java.lang.ref.WeakReference<")
+                .replace("android.view.View", "View") + """
             record HostedWindowLayout(long parent) { static final HostedWindowLayout NONE = new HostedWindowLayout(0); }
+            static class View {
+                interface OnLayoutChangeListener { void changed(View v, int l, int t, int r, int b, int ol, int ot, int or, int ob); }
+                interface OnAttachStateChangeListener { void onViewAttachedToWindow(View v); void onViewDetachedFromWindow(View v); }
+                int listeners;
+                void addOnLayoutChangeListener(OnLayoutChangeListener listener) { listeners++; }
+                void removeOnLayoutChangeListener(OnLayoutChangeListener listener) { listeners--; }
+                void addOnAttachStateChangeListener(OnAttachStateChangeListener listener) { listeners++; }
+                void removeOnAttachStateChangeListener(OnAttachStateChangeListener listener) { listeners--; }
+            }
+            static class HostedSurfaceView extends View {
+                record Geometry() { }
+                boolean isAttachedToWindow() { return true; }
+                Geometry geometry() { return new Geometry(); }
+            }
             static class Context { }
             static class Activity extends Context {
                 final int task, display;
@@ -15,8 +30,18 @@ public final class HostedWindowPresentationTest {
                 Activity(int task, int display) { this.task = task; this.display = display; this.geometry = task; }
                 boolean isDestroyed() { return destroyed; }
                 boolean isFinishing() { return finishing; }
+                boolean hasWindowFocus() { return true; }
+                void finishAndRemoveTask() { finishing = true; }
                 Display getDisplay() { return new Display(display); }
                 int getTaskId() { return task; }
+            }
+            static class ContentActivity extends Activity implements HostedWindowPresentation.ContentHost {
+                HostedSurfaceView surface = new HostedSurfaceView();
+                boolean desktop;
+                ContentActivity(int task, int display) { super(task, display); }
+                public HostedSurfaceView hostedSurface() { return surface; }
+                public long hostedWindowId() { return desktop ? 0 : 1; }
+                public boolean wholeDesktopViewer() { return desktop; }
             }
             record Display(int id) { int getDisplayId() { return id; } }
             static class Looper { static Object getMainLooper() { return null; } }
@@ -202,6 +227,25 @@ public final class HostedWindowPresentationTest {
                 familyPresentation.host(sibling); Handler.drain();
                 check(familyPresentation.present(2) && ToolApplications.siblingSource == 31,
                         "child followed last-focused sibling instead of its actual parent");
+
+                var content = new ContentActivity(44, 7);
+                familyPresentation.host(content); Handler.drain();
+                familyPresentation.host(content); Handler.drain();
+                check(content.surface.listeners == 2, "one observer per surface");
+                var observations = familyPresentation.observations();
+                check(observations.size() == 1 && observations.get(0).windowId() == 1
+                        && observations.get(0).attached(), "only live graphical content hosts are exposed");
+                try { familyPresentation.detachViewer(44); throw new AssertionError("individual client detached"); }
+                catch (IllegalArgumentException expected) { }
+                content.desktop = true;
+                familyPresentation.detachViewer(44);
+                check(content.finishing && familyPresentation.observations().isEmpty(), "viewer removal is immediately observable");
+                familyPresentation.hostRemoved(content, 0, false);
+                check(content.surface.listeners == 0, "surface observation released");
+                var retainedViewer = new ContentActivity(45, 7);
+                familyPresentation.host(retainedViewer); Handler.drain();
+                familyPresentation.close();
+                check(retainedViewer.surface.listeners == 0, "session close removes observers");
             }
             """);
     }

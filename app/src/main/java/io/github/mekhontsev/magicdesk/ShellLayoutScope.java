@@ -32,6 +32,13 @@ final class ShellLayoutScope {
     }
 
     ShellLayout.Snapshot snapshot() { return mLayout.snapshot(); }
+    record Origin(String sessionId, String localId) { }
+    Map<String, Origin> origins() {
+        var result = new LinkedHashMap<String, Origin>();
+        for (var binding : mBindings) binding.mSurfaces.forEach((id, surface) ->
+                result.put(surface.id(), new Origin(binding.mSessionId, id)));
+        return Map.copyOf(result);
+    }
     void listen(final Runnable listener) {
         if (!mListeners.contains(listener)) mListeners.add(Objects.requireNonNull(listener));
     }
@@ -87,6 +94,8 @@ final class ShellLayoutScope {
         private final long mIdentity;
         private Map<String, ShellSurface> mSurfaces = Map.of();
         private boolean mClosed;
+        private String mSessionId = "";
+        void origin(String sessionId) { mSessionId = Objects.requireNonNull(sessionId); }
 
         private Binding(final long identity) { mIdentity = identity; }
 

@@ -14,12 +14,20 @@ import io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout;
 
 /** Session-owned presentation reservations, independent of which viewer currently has focus. */
 final class HostedWindowPresentation {
+    interface ContentHost {
+        long hostedWindowId();
+        HostedSurfaceView hostedSurface();
+        boolean wholeDesktopViewer();
+    }
+    record Observation(int taskId, int displayId, long windowId, boolean focused,
+            boolean attached, boolean wholeDesktop, HostedSurfaceView.Geometry geometry) { }
     interface Session {
         boolean ready();
         boolean containsWindow(long window);
         int hostTaskId(long window);
         Intent windowIntent(Context context, long window);
         void presentationChanged();
+        default void observationChanged() { }
         void presentationFailed(Throwable error);
         default HostedWindowLayout layout(long window) { return HostedWindowLayout.NONE; }
         default float unitScale(Activity activity) { return 1; }
@@ -39,6 +47,16 @@ final class HostedWindowPresentation {
         long generation;
         ToolApplications.WindowPlacement placement;
         WeakReference<Activity> activity;
+        android.view.View observed;
+        android.view.View.OnLayoutChangeListener layout;
+        android.view.View.OnAttachStateChangeListener attachment;
+        void releaseObservation() {
+            if (observed != null) {
+                observed.removeOnLayoutChangeListener(layout);
+                observed.removeOnAttachStateChangeListener(attachment);
+                observed = null;
+            }
+        }
     }
 
     HostedWindowPresentation(Context context, Session session) {
@@ -53,6 +71,20 @@ final class HostedWindowPresentation {
         int task = activity.getTaskId();
         Host host = hosts.computeIfAbsent(task, key -> new Host());
         host.activity = new WeakReference<>(activity);
+        if (activity instanceof ContentHost content && host.observed != content.hostedSurface()) {
+            host.releaseObservation();
+            host.observed = content.hostedSurface();
+            if (host.observed != null) {
+                host.layout = (v, l, t, r, b, ol, ot, or, ob) -> session.observationChanged();
+                host.attachment = new android.view.View.OnAttachStateChangeListener() {
+                    public void onViewAttachedToWindow(android.view.View view) { session.observationChanged(); }
+                    public void onViewDetachedFromWindow(android.view.View view) { session.observationChanged(); }
+                };
+                host.observed.addOnLayoutChangeListener(host.layout);
+                host.observed.addOnAttachStateChangeListener(host.attachment);
+            }
+        }
+        session.observationChanged();
         host.generation = version;
         TaskCommandQueue.execute(() -> {
             try {
@@ -70,12 +102,40 @@ final class HostedWindowPresentation {
     }
 
     void claim(long window) { if (window != 0) presented.add(window); }
+    java.util.List<Observation> observations() {
+        var result = new java.util.ArrayList<Observation>();
+        for (var entry : hosts.entrySet()) {
+            Activity activity = entry.getValue().activity.get();
+            if (activity == null || activity.isDestroyed() || activity.isFinishing()
+                    || !(activity instanceof ContentHost content)) continue;
+            var surface = content.hostedSurface();
+            result.add(new Observation(entry.getKey(), activity.getDisplay() == null ? -1 : activity.getDisplay().getDisplayId(),
+                    content.hostedWindowId(), activity.hasWindowFocus(), surface != null && surface.isAttachedToWindow(),
+                    content.wholeDesktopViewer(), surface == null ? null : surface.geometry()));
+        }
+        return java.util.List.copyOf(result);
+    }
+
+    void detachViewer(int taskId) {
+        var host = hosts.get(taskId);
+        Activity activity = host == null ? null : host.activity.get();
+        if (activity == null || activity.isDestroyed() || activity.isFinishing()
+                || !(activity instanceof ContentHost content) || !content.wholeDesktopViewer())
+            throw new IllegalArgumentException("Select a live whole-desktop viewer task");
+        activity.finishAndRemoveTask();
+    }
     boolean isClosed() { return closed; }
     void retain(Set<Long> windows) { presented.retainAll(windows); recovering.retainAll(windows); }
-    void close() { closed = true; generation++; presented.clear(); recovering.clear(); hosts.clear(); source.clear(); }
+    void close() {
+        closed = true; generation++; presented.clear(); recovering.clear();
+        hosts.values().forEach(Host::releaseObservation); hosts.clear(); source.clear();
+        session.observationChanged();
+    }
 
     void hostRemoved(Activity activity, long window, boolean clientCloseRequested) {
         Host host = hosts.remove(activity.getTaskId());
+        if (host != null) host.releaseObservation();
+        session.observationChanged();
         if (closed || !clientCloseRequested || window == 0 || !recovering.add(window)) return;
         final DesktopLaunchPresentation replacement;
         final Intent replacementIntent = intent(window);

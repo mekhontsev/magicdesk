@@ -19,6 +19,7 @@ final class WaylandShellLayout implements AutoCloseable {
     }
 
     boolean isClosed() { return mBinding.isClosed(); }
+    void origin(String sessionId) { mBinding.origin(sessionId); }
 
     void update(final List<WaylandShellSurface> surfaces, final int densityDpi) {
         if (densityDpi <= 0) throw new IllegalArgumentException("Shell output density must be positive");

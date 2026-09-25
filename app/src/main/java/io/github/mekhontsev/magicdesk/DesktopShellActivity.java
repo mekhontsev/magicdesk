@@ -87,6 +87,7 @@ public abstract class DesktopShellActivity extends Activity
     private DesktopTaskbarRevealController mTaskbarRevealController;
     private ShellPresentationScope mShellPresentation;
     private DesktopShellTasks mShellTasks;
+    private Runnable mShellObservation;
     private AltTabController mAltTabController;
     private DesktopWorkspaceController mDesktopWorkspaceController;
     private AppTaskController mAppTasks;
@@ -379,6 +380,9 @@ public abstract class DesktopShellActivity extends Activity
 
     void releaseDesktopUiWindows() {
         GraphicalShells.releaseHost(this);
+        if (mShellObservation != null && mDesktopPanelWindowController != null)
+            mDesktopPanelWindowController.shellScope().unlisten(mShellObservation);
+        mShellObservation = null;
         if (mShellTasks != null) { mShellTasks.close(); mShellTasks = null; }
         if (mTaskbarRevealController != null) {
             mTaskbarRevealController.release();
@@ -913,6 +917,13 @@ public abstract class DesktopShellActivity extends Activity
         }
     }
 
+    private void publishShellObservation() {
+        try {
+            DesktopAutomationEventJournal.record("workspace", "shell_changed", true, "",
+                    new org.json.JSONObject().put("displayId", getCurrentDisplayId()));
+        } catch (org.json.JSONException error) { throw new IllegalStateException(error); }
+    }
+
     ShellPresentationScope shellPresentation() {
         if (mShellPresentation == null) throw new IllegalStateException("Desktop shell presentation is unavailable");
         return mShellPresentation;
@@ -959,6 +970,10 @@ public abstract class DesktopShellActivity extends Activity
                 getCurrentDisplayId(),
                 mDesktopLayout.shellLayout(),
                 this::onPanelVisibilityChanged);
+        mShellObservation = this::publishShellObservation;
+        mDesktopPanelWindowController.shellScope().listen(mShellObservation);
+        mShellPresentation.listen(mShellObservation);
+        mShellTasks.catalog.listen(mShellObservation);
         root.setBackgroundColor(COLOR_BACKGROUND);
 
         final FrameLayout desktopViewport = new FrameLayout(this);

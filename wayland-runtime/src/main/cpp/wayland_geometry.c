@@ -2,9 +2,13 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <wlr/types/wlr_compositor.h>
+#include <wlr/types/wlr_subcompositor.h>
+#include <wlr/types/wlr_xdg_shell.h>
+#include <wlr/types/wlr_seat.h>
 #include <wlr/util/addon.h>
 
 struct Watch {
+    uint64_t id;
     struct wl_list link;
     struct wlr_addon addon;
     struct MdwView *view;
@@ -180,6 +184,7 @@ static void observe(struct MdwView *view, struct wlr_scene_node *node) {
         struct Watch *watch = calloc(1, sizeof(*watch));
         if (!watch) { wl_client_post_no_memory(wl_resource_get_client(scene->surface->resource)); return; }
         watch->view = view;
+        watch->id = scene->surface == view->surface ? view->id : ++view->server->next_id;
         watch->scene = scene;
         pixman_region32_init(&watch->input);
         wlr_addon_init(&watch->addon, &node->addons, view, &watch_impl);
@@ -211,4 +216,48 @@ void mdw_view_geometry_finish(struct MdwView *view) {
     pixman_region32_fini(&view->input);
     pixman_region32_fini(&view->geometry_scratch);
     pixman_region32_fini(&view->dependent_input);
+}
+
+static uint64_t inspected_id(struct MdwView *view, struct wlr_surface *surface) {
+    struct Watch *watch;
+    wl_list_for_each(watch, &view->watches, link)
+        if (watch->scene->surface == surface) return watch->id;
+    return 0;
+}
+
+size_t mdw_view_inspect(MdwServer *server, uint64_t id, MdwSurfaceInspection *nodes,
+        size_t capacity, bool *found, bool *truncated) {
+    *found = false; *truncated = false;
+    struct MdwView *view;
+    wl_list_for_each(view, &server->views, link) {
+        if (view->id != id) continue;
+        *found = true;
+        size_t count = 0, visited = 0;
+        // Owner first; inspection borrows the existing scene watches without acquiring an output.
+        for (int pass = 0; pass < 2; ++pass) {
+            struct Watch *watch;
+            wl_list_for_each(watch, &view->watches, link) {
+                if (++visited > 4096) { *truncated = true; return count; }
+                struct wlr_surface *surface = watch->scene->surface;
+                if ((surface == view->surface) != (pass == 0)) continue;
+                if (count == capacity) { *truncated = true; return count; }
+                struct wlr_xdg_popup *popup = wlr_xdg_popup_try_from_wlr_surface(surface);
+                struct wlr_subsurface *sub = wlr_subsurface_try_from_wlr_surface(surface);
+                struct wlr_surface *parent = popup ? popup->parent : sub ? sub->parent : NULL;
+                int x = 0, y = 0;
+                bool enabled = wlr_scene_node_coords(&watch->scene->buffer->node, &x, &y);
+                int64_t right = (int64_t)x + surface->current.width, bottom = (int64_t)y + surface->current.height;
+                if (right > INT_MAX || bottom > INT_MAX) { *truncated = true; continue; }
+                nodes[count++] = (MdwSurfaceInspection){
+                    .id = watch->id, .parent = inspected_id(view, parent),
+                    .role = surface == view->surface ? 0 : popup ? 1 : sub ? 2 : 3,
+                    .bounds = {x, y, (int)right, (int)bottom},
+                    .mapped = surface->mapped, .enabled = enabled,
+                    .focused = server->seat->keyboard_state.focused_surface == surface,
+                };
+            }
+        }
+        return count;
+    }
+    return 0;
 }

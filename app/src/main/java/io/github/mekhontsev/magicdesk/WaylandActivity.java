@@ -12,7 +12,10 @@ import io.github.mekhontsev.magicdesk.wayland.WaylandSession;
 /** An Android host borrows one Wayland toplevel; it does not own the compositor. */
 public final class WaylandActivity extends Activity implements WaylandSessions.Listener,
         BuiltInWindowRegistry.PresentationSource, BuiltInWindowRegistry.CloseHandler, BuiltInWindowRegistry.ImmersiveSource,
-        BuiltInWindowRegistry.ApplicationSource, BuiltInWindowRegistry.DesktopPresentationListener {
+        BuiltInWindowRegistry.ApplicationSource, BuiltInWindowRegistry.DesktopPresentationListener, HostedWindowPresentation.ContentHost {
+    @Override public long hostedWindowId() { return window; }
+    @Override public HostedSurfaceView hostedSurface() { return surface; }
+    @Override public boolean wholeDesktopViewer() { return session != null && session.desktop; }
     static final String SESSION = "wayland_session";
     private static final String WINDOW = "wayland_window", COMMAND = "wayland_command", NAME = "wayland_name",
             DIRECTORY = "wayland_directory", BACKEND = "wayland_backend", KEYBOARD = "wayland_keyboard",

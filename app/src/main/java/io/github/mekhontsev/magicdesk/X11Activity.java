@@ -15,7 +15,10 @@ import io.github.mekhontsev.magicdesk.x11.X11Session;
 public final class X11Activity extends Activity implements
         BuiltInWindowRegistry.PresentationSource, BuiltInWindowRegistry.ImmersiveSource,
         BuiltInWindowRegistry.CloseHandler, BuiltInWindowRegistry.ApplicationSource,
-        BuiltInWindowRegistry.DesktopPresentationListener {
+        BuiltInWindowRegistry.DesktopPresentationListener, HostedWindowPresentation.ContentHost {
+    @Override public long hostedWindowId() { return window; }
+    @Override public HostedSurfaceView hostedSurface() { return surface; }
+    @Override public boolean wholeDesktopViewer() { return !application && window == 0; }
     static final String SESSION = "x11_session";
     static final String WINDOW = "x11_window";
     static final String DESKTOP_FILE = "x11_desktop_file";

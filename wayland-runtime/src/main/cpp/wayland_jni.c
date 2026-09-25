@@ -368,6 +368,26 @@ JNIEXPORT jint JNICALL JNI(nativeDispatch)(JNIEnv *env, jclass type, jlong handl
     return mdw_server_dispatch(bridge->server, 0);
 }
 
+JNIEXPORT jlongArray JNICALL JNI(nativeInspect)(JNIEnv *env, jclass type, jlong handle, jlong window, jint limit) {
+    (void)type;
+    if (limit < 1 || limit > 256 || window <= 0) return NULL;
+    struct Bridge *bridge = (void *)(intptr_t)handle;
+    MdwSurfaceInspection nodes[256];
+    bool found, truncated;
+    size_t count = mdw_view_inspect(bridge->server, window, nodes, (size_t)limit, &found, &truncated);
+    jlong values[2 + 256 * 10] = {found, truncated};
+    for (size_t i = 0; i < count; ++i) {
+        size_t at = 2 + i * 10;
+        values[at] = nodes[i].id; values[at + 1] = nodes[i].parent; values[at + 2] = nodes[i].role;
+        values[at + 3] = nodes[i].bounds.left; values[at + 4] = nodes[i].bounds.top;
+        values[at + 5] = nodes[i].bounds.right; values[at + 6] = nodes[i].bounds.bottom;
+        values[at + 7] = nodes[i].mapped; values[at + 8] = nodes[i].enabled; values[at + 9] = nodes[i].focused;
+    }
+    jlongArray result = (*env)->NewLongArray(env, 2 + count * 10);
+    if (result) (*env)->SetLongArrayRegion(env, result, 0, 2 + count * 10, values);
+    return result;
+}
+
 JNIEXPORT jint JNICALL JNI(nativeConnect)(JNIEnv *env, jclass type, jlong handle) {
     (void)env; (void)type;
     struct Bridge *bridge = (void *)(intptr_t)handle;

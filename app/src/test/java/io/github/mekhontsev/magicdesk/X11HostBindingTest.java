@@ -46,10 +46,8 @@ public final class X11HostBindingTest {
                 }
             }
             static class X11Sessions {
-                record Host(int taskId, int displayId, long windowId, boolean focused, HostedSurfaceView.Geometry geometry) { }
                 interface Listener {
                     void onChanged();
-                    default Host inspectHost() { return null; }
                     default void onFrame(X11Session.Output output, int width, int height, boolean available) { }
                     default void onCursor(X11Session.Output output, X11Session.Cursor cursor) { }
                     default void onWindowGesture(long window, io.github.mekhontsev.magicdesk.hosted.HostedWindowGesture gesture) { }
@@ -179,10 +177,6 @@ public final class X11HostBindingTest {
                 check(surface.cursors == 0, "foreign cursor ignored");
                 host.onCursor(output, cursor);
                 check(surface.cursors == 1, "own cursor accepted");
-                var observed = host.inspectHost();
-                check(observed.taskId() == 10 && observed.displayId() == 7 && observed.windowId() == 31,
-                        "inspection identifies the exact host, not another session window");
-                check(observed.geometry().width() == 12 && session.opens == 1, "inspection borrows geometry without acquiring output");
                 host.onFrame(output, 12, 34, false);
                 check(surface.width == 0 && surface.height == 0, "unavailable frame clears geometry");
 
@@ -190,7 +184,6 @@ public final class X11HostBindingTest {
                 other.refresh(31, true);
                 check(other.immersiveRequest() == null && HostedFullscreen.created.size() == 1, "only one fullscreen responder per window");
                 events.clear(); host.close(false);
-                check(host.inspectHost() == null, "closed host is not inspectable");
                 check(events.equals(List.of("fullscreen", "owner", "exchange", "unlisten", "density", "host", "output")), "recreation release order: " + events);
                 check(output.closed && fullscreen.closed && session.clientCloses == 0 && session.serverCloses == 0, "recreation retains client and server");
                 check(!session.densities.contains(host) && session.densities.contains(other), "other host retains density registration");

@@ -47,6 +47,7 @@ final class WaylandShellBinding implements AutoCloseable, WaylandSession.ShellLi
     }
 
     java.util.concurrent.CompletableFuture<Void> ready() { return mNative.ready(); }
+    void origin(String sessionId) { mLayout.origin(sessionId); }
 
     void tasks(ShellTaskCatalog catalog) {
         checkThread();

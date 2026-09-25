@@ -6,6 +6,21 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public final class ShellTaskCatalogTest {
+    @Test public void observationAvailabilityPublishesWithoutInventingTaskChanges() {
+        var catalog = new ShellTaskCatalog((task, action) -> fail("No command expected"));
+        int[] changes = {0};
+        catalog.listen(() -> changes[0]++);
+        catalog.update(List.of(), true);
+        assertTrue(catalog.available());
+        catalog.update(List.of(), false);
+        assertFalse(catalog.available());
+        catalog.update(List.of(), false);
+        assertEquals(2, changes[0]);
+        catalog.update(List.of(), true);
+        assertEquals(3, changes[0]);
+        assertTrue(catalog.available());
+    }
+
     private static ShellTaskCatalog.Task task(int id, String identity, boolean active) {
         return new ShellTaskCatalog.Task(id, identity, "title", "application", active, false, false, false);
     }

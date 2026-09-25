@@ -22,13 +22,15 @@ final class ShellTaskCatalog implements AutoCloseable {
 
     ShellTaskCatalog(Actions actions) { this.actions = java.util.Objects.requireNonNull(actions); }
     List<Window> snapshot() { return snapshot; }
+    boolean available() { return available && !closed; }
     void listen(Runnable listener) { if (closed) throw new IllegalStateException("Workspace closed"); listeners.add(listener); }
     void unlisten(Runnable listener) { listeners.remove(listener); }
 
     void update(List<Task> tasks, boolean known) {
         if (closed) return;
+        boolean availabilityChanged = available != known;
         available = known;
-        if (!known) return;
+        if (!known) { if (availabilityChanged) changed(); return; }
         var next = new LinkedHashMap<Integer, Window>();
         for (var task : tasks) {
             if (next.containsKey(task.taskId())) throw new IllegalArgumentException("Duplicate task identity");
@@ -38,7 +40,7 @@ final class ShellTaskCatalog implements AutoCloseable {
         }
         windows.clear(); windows.putAll(next);
         var publication = List.copyOf(next.values());
-        if (snapshot.equals(publication)) return;
+        if (snapshot.equals(publication) && !availabilityChanged) return;
         snapshot = publication;
         changed();
     }

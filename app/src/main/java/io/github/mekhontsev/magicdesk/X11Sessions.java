@@ -30,12 +30,9 @@ final class X11Sessions {
     private static final long START_TIMEOUT_MILLIS = 60_000;
 
     enum State { STARTING, READY, CLOSED, FAILED }
-    record Host(int taskId, int displayId, long windowId, boolean focused, HostedSurfaceView.Geometry geometry) { }
-    record Inspection(io.github.mekhontsev.magicdesk.x11.X11WindowInspection family, List<Host> hosts) { }
     record Application(Session session, long window) { }
     interface Listener {
         void onChanged();
-        default Host inspectHost() { return null; }
         default void onFrame(X11Session.Output output, int width, int height, boolean available) { }
         default void onCursor(X11Session.Output output, X11Session.Cursor cursor) { }
         default void onWindowGesture(long window, io.github.mekhontsev.magicdesk.hosted.HostedWindowGesture gesture) { }
@@ -300,31 +297,10 @@ final class X11Sessions {
         void listen(Listener listener) { listeners.add(listener); }
         void unlisten(Listener listener) { listeners.remove(listener); }
         List<X11Session.Window> windows() { return windows; }
-        java.util.concurrent.CompletableFuture<Inspection> inspectWindow(long window, int limit) {
+        java.util.concurrent.CompletableFuture<io.github.mekhontsev.magicdesk.x11.X11WindowInspection> inspectWindow(long window, int limit) {
             X11Session current = renderer;
             if (current == null || state != State.READY) throw new IllegalStateException("X11 session is not ready");
-            var request = current.inspectWindow(window, limit);
-            var result = new java.util.concurrent.CompletableFuture<Inspection>();
-            request.whenComplete((family, failure) -> {
-                if (failure != null) { result.completeExceptionally(failure); return; }
-                MAIN.post(() -> {
-                    if (result.isDone()) return;
-                    if (renderer != current || state != State.READY) {
-                        result.completeExceptionally(new IllegalStateException("X11 session changed during inspection"));
-                        return;
-                    }
-                    try {
-                        List<Host> hosts = new ArrayList<>();
-                        for (Listener listener : listeners) {
-                            Host host = listener.inspectHost();
-                            if (host != null && (host.windowId() == window || host.windowId() == 0)) hosts.add(host);
-                        }
-                        result.complete(new Inspection(family, List.copyOf(hosts)));
-                    } catch (RuntimeException error) { result.completeExceptionally(error); }
-                });
-            });
-            result.whenComplete((value, error) -> { if (result.isCancelled()) request.cancel(false); });
-            return result;
+            return current.inspectWindow(window, limit);
         }
         void claimWindow(long id) { presentation.claim(id); LAUNCHES.presented(id(), id); }
         @Override public boolean ready() { return state == State.READY; }
@@ -337,6 +313,7 @@ final class X11Sessions {
                     .findFirst().orElse(io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout.NONE);
         }
         @Override public void presentationChanged() { changed(); }
+        @Override public void observationChanged() { GraphicalSessions.changed(id(), "hosts_changed"); }
         @Override public void presentationFailed(Throwable failure) {
             DesktopAutomationEventJournal.record("x11", "window_presentation_failed", false,
                     "session=" + id() + " detail=" + ShellAccess.usefulMessage(failure));
@@ -601,6 +578,7 @@ final class X11Sessions {
             MAIN.post(() -> {
                 for (Listener listener : listeners) listener.onChanged();
                 presentWindows();
+                GraphicalSessions.changed(id(), "changed");
             });
         }
     }

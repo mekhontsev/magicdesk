@@ -11,17 +11,28 @@ import java.util.Map;
 /** Protocol-neutral session controls; native catalogs and lifetimes remain with their backends. */
 final class GraphicalSessions {
     record Application(Session session, long window) { }
-    record Window(long id, String title, boolean mapped) { }
+    record Identity(DesktopExecBackend backend, int executorUid, int serverUid) { }
+    record Control(long serial, boolean requestedFullscreen, Boolean actualFullscreen,
+            long maximizeSerial, io.github.mekhontsev.magicdesk.hosted.HostedMaximization requestedMaximization,
+            io.github.mekhontsev.magicdesk.hosted.HostedMaximization actualMaximization) { }
+    record Window(long id, String title, boolean mapped, String appId, String role,
+            io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout layout, Control control) { }
     interface Session {
         String id();
         String name();
         GraphicalProtocol protocol();
+        Identity identity();
+        default Map<String, Object> details() { return Map.of(); }
+        default Map<String, Object> windowDetails(long window) { return Map.of(); }
         String state();
         String error();
         boolean ready();
         boolean stopped();
         boolean canExecute();
         List<Window> windows();
+        List<HostedWindowPresentation.Observation> hosts();
+        void closeWindow(long window, boolean force);
+        void detachViewer(int taskId);
         void listen(Runnable listener);
         void unlisten(Runnable listener);
         void execute(String command, String directory);
@@ -76,6 +87,11 @@ final class GraphicalSessions {
         return List.copyOf(result);
     }
     static int count() { return X11Sessions.count() + WaylandSessions.count(); }
+    static void changed(String sessionId, String operation) {
+        try {
+            DesktopAutomationEventJournal.record("graphics", operation, true, "", new org.json.JSONObject().put("sessionId", sessionId));
+        } catch (org.json.JSONException error) { throw new IllegalStateException(error); }
+    }
     static void closeAll() { X11Sessions.closeAll(); WaylandSessions.closeAll(); }
     static void prepareForExit() { X11Sessions.prepareForExit(); WaylandSessions.prepareForExit(); }
 
@@ -86,6 +102,16 @@ final class GraphicalSessions {
         public String id() { return session.id(); }
         public String name() { return session.name; }
         public GraphicalProtocol protocol() { return GraphicalProtocol.X11; }
+        public Identity identity() { return new Identity(session.execution.commands.backend, session.execution.commands.uid, session.execution.serverUid); }
+        public Map<String, Object> details() {
+            return Map.of("display", session.display(), "dpi", session.dpi(), "scalePercent", session.scalePercent(),
+                    "application", session.application, "fileEnvironment", session.fileEnvironment());
+        }
+        public Map<String, Object> windowDetails(long id) {
+            for (var window : session.windows()) if (window.id() == id) return Map.of("instance", window.instance(),
+                    "className", window.className(), "hostManaged", window.management().managed());
+            return Map.of();
+        }
         public String state() { return session.state().name(); }
         public String error() { return session.error(); }
         public boolean ready() { return session.ready(); }
@@ -95,6 +121,7 @@ final class GraphicalSessions {
         public boolean canIntegrateShell() { return !session.application; }
         public AutoCloseable bindShell(DesktopShellActivity host, java.util.function.Consumer<String> ended) {
             var binding = session.bindShell(host.panels().shellScope(), host.getResources().getDisplayMetrics().densityDpi, ended);
+            binding.origin(id());
             try {
                 binding.host(host.shellSurfaceHost(surface -> new X11SurfaceOutput(binding.openOutput(surface.id()))),
                         host.shellPresentation());
@@ -104,8 +131,17 @@ final class GraphicalSessions {
         public boolean canScale() { return true; }
         public void scale(Activity activity) { X11ScaleDialog.show(activity, session); }
         public List<Window> windows() {
-            return session.windows().stream().map(window -> new Window(window.id(), window.title(), window.mapped())).toList();
+            return session.windows().stream().map(window -> {
+                var control = window.management();
+                return new Window(window.id(), window.title(), window.mapped(), window.className(),
+                        window.role().name().toLowerCase(java.util.Locale.ROOT), session.layout(window.id()),
+                        new Control(Integer.toUnsignedLong(control.request().serial()), control.request().fullscreen(), control.actual().fullscreen(),
+                                Integer.toUnsignedLong(control.maximization().serial()), control.maximization().requested(), control.maximization().actual()));
+            }).toList();
         }
+        public List<HostedWindowPresentation.Observation> hosts() { return session.presentation.observations(); }
+        public void closeWindow(long window, boolean force) { session.closeWindow(window, force); }
+        public void detachViewer(int taskId) { session.presentation.detachViewer(taskId); }
         public void listen(Runnable listener) {
             if (listeners.containsKey(listener)) return;
             X11Sessions.Listener adapter = listener::run;
@@ -128,6 +164,7 @@ final class GraphicalSessions {
         public String id() { return session.id(); }
         public String name() { return session.name; }
         public GraphicalProtocol protocol() { return GraphicalProtocol.WAYLAND; }
+        public Identity identity() { return new Identity(session.execution.commands.backend, session.execution.commands.uid, session.execution.serverUid); }
         public String state() { return session.state(); }
         public String error() { return session.error(); }
         public boolean ready() { return session.ready(); }
@@ -145,13 +182,20 @@ final class GraphicalSessions {
                 binding.host(host.shellSurfaceHost(surface -> new WaylandSurfaceOutput(
                         binding.openOutput(surface.id(), surface.bounds().width(), surface.bounds().height()))),
                         host.shellPresentation());
+                binding.origin(id());
                 binding.tasks(host.shellTasks());
                 return binding;
             } catch (RuntimeException error) { binding.close(); throw error; }
         }
         public List<Window> windows() {
-            return session.windows().stream().map(window -> new Window(window.id(), window.title(), window.mapped())).toList();
+            return session.windows().stream().map(window -> new Window(window.id(), window.title(), window.mapped(),
+                    window.appId(), "application", session.layout(window.id()), new Control(window.requestSerial(), window.fullscreen(), null,
+                            window.maximizeSerial(), window.maximized() ? io.github.mekhontsev.magicdesk.hosted.HostedMaximization.BOTH
+                            : io.github.mekhontsev.magicdesk.hosted.HostedMaximization.NONE, null))).toList();
         }
+        public List<HostedWindowPresentation.Observation> hosts() { return session.presentation.observations(); }
+        public void closeWindow(long window, boolean force) { session.closeWindow(window, force); }
+        public void detachViewer(int taskId) { session.presentation.detachViewer(taskId); }
         public void listen(Runnable listener) {
             if (listeners.containsKey(listener)) return;
             WaylandSessions.Listener adapter = listener::run;

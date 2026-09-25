@@ -11,11 +11,16 @@ public final class ShellLayoutScopeTest {
         final ShellLayoutScope scope = scope();
         final var first = scope.bind();
         final var second = scope.bind();
+        first.origin("session-a");
+        second.origin("session-b");
         first.commit(List.of(panel("bar", 40)));
         second.commit(List.of(panel("bar", 60)));
         assertNotEquals(first.surface("bar").request().id(), second.surface("bar").request().id());
+        assertEquals(new ShellLayoutScope.Origin("session-a", "bar"), scope.origins().get(first.surface("bar").request().id()));
+        assertEquals(new ShellLayoutScope.Origin("session-b", "bar"), scope.origins().get(second.surface("bar").request().id()));
         assertEquals(100, scope.snapshot().workArea().top());
         first.close();
+        assertEquals(1, scope.origins().size());
         assertEquals(60, scope.snapshot().workArea().top());
         assertNull(first.surface("bar"));
         assertNotNull(second.surface("bar"));

@@ -259,6 +259,19 @@ int main(void) {
         MdwRect p = h.geometry.paint;
         if (h.stage == 0 && p.left == -5 && p.top == -6 && p.right == 64 && p.bottom == 44) {
             assert(!contains(&h, 30, 12) && contains(&h, -3, 30) && contains(&h, -3, -3));
+            MdwSurfaceInspection nodes[8];
+            bool found, truncated;
+            size_t count = mdw_view_inspect(h.server, h.panel, nodes, 8, &found, &truncated);
+            assert(found && !truncated && count == 3 && nodes[0].id == h.panel && nodes[0].role == 0);
+            bool popup = false, subsurface = false;
+            for (size_t i = 1; i < count; ++i) {
+                assert(nodes[i].parent == h.panel && nodes[i].mapped && nodes[i].enabled);
+                popup |= nodes[i].role == 1;
+                subsurface |= nodes[i].role == 2 && nodes[i].bounds.left == -5 && nodes[i].bounds.top == -6;
+            }
+            assert(popup && subsurface);
+            assert(mdw_view_inspect(h.server, h.panel, nodes, 1, &found, &truncated) == 1 && found && truncated);
+            assert(mdw_view_inspect(h.server, UINT64_MAX, nodes, 8, &found, &truncated) == 0 && !found && !truncated);
             h.output = mdw_output_create(h.server, h.panel, 74, 50);
             assert(h.output && mdw_output_viewport(h.output, -10, -6, 74, 50));
             assert(mdw_output_focus(h.output, true));

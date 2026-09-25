@@ -29,6 +29,7 @@ final class X11ShellBinding implements AutoCloseable, X11Session.ShellListener {
     }
 
     X11Session.Output openOutput(long id) { checkThread(); return mNative.openOutput(id); }
+    void origin(String sessionId) { mLayout.origin(sessionId); }
 
     void host(HostedShellWindows.Host host, ShellPresentationScope presentation) {
         checkThread();

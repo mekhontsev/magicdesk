@@ -16,14 +16,31 @@ final class AutomationCommandCatalog {
                         "Get desktop state",
                         "Read current MagicDesk runtime and desktop session state.",
                         emptySchema()))
-                .put(readTool("x11.inspect_window", "Inspect X11 window family",
-                        "Read one live X11 window family, including transient dialogs, popups and real children. Uses sessionId and X windowId from get_state.x11, not Android ids. No focus, layout, output creation or Desktop requirement. This is X window structure, not a widget/accessibility tree. Bounds use X root pixels; mapped/realized do not imply unobscured pixels. Hosts describe separate Android observations and aspect-fit content bounds; inspection and screenshot are not atomic. Missing XID returns found=false. Traversal is bounded and reports truncation.",
-                        objectSchema(new JSONObject().put("sessionId", stringProperty("Exact live X11 session id."))
-                                .put("windowId", integerProperty("Selected main X window id, 1 through 4294967295."))
+                .put(readTool("graphics.inspect_window", "Inspect graphical window family",
+                        "Read native X11/Wayland window structure, related dialogs, popups, surfaces and Android hosts. Not a widget tree. Bounds declare their coordinate space; Wayland ownerWindowId identifies each family's local origin. Does not open an output, focus or start Desktop. Mapping is not proof of unobscured pixels. Native and Android snapshots are not atomic. Missing window returns found=false; bounded traversal reports truncation.",
+                        objectSchema(new JSONObject().put("sessionId", stringProperty("Exact live graphical session id."))
+                                .put("windowId", integerProperty("Selected native window id from graphics.list, not Android taskId."))
                                 .put("limit", integerProperty("Maximum returned family windows, 1 through 256; default 256.")),
                                 "sessionId", "windowId")))
                 .put(readTool("graphics.list", "List graphical sessions",
                         "Read retained X11 and Wayland sessions and native window IDs. Does not create Android windows, claim input or start Desktop.", emptySchema()))
+                .put(readTool("inspect_workspace", "Inspect workspace layout",
+                        "Read the selected workspace's common shell model: native and Linux surfaces, layers, layout bounds, reservations, work area and managed tasks. Layout input bounds are not exact touch regions or proof of presented pixels. Does not start Desktop or create hosts.",
+                        objectSchema(new JSONObject().put("workspaceId", stringProperty("Exact live workspace residency ID.")), "workspaceId")))
+                .put(actionTool("set_task_state", "Set managed task state",
+                        "Set maximized, fullscreen or concealed state through the same gateway as Linux panels. Maximized fills the work area while remaining windowed; fullscreen uses the existing task plane. Concealment changes only ordering. Returns acceptance; observe task_state. Requires an existing managed task, never starts Desktop.",
+                        objectSchema(new JSONObject().put("taskId", integerProperty("Managed Android task id."))
+                                .put("state", enumProperty("State to set.", "maximized", "fullscreen", "concealed"))
+                                .put("enabled", booleanProperty("Explicit desired state, not a toggle.")), "taskId", "state", "enabled")))
+                .put(destructiveTool("graphics.close_window", "Close graphical client",
+                        "Send the native protocol close request, keeping any host for save/cancel confirmation. force disconnects that client and may close its other windows. Retained servers survive; application-owned sessions can end with their last window. Acceptance is not client destruction. Does not require an Android host or Desktop.",
+                        objectSchema(new JSONObject().put("sessionId", stringProperty("Live graphical session ID."))
+                                .put("windowId", integerProperty("Native client window id, never zero."))
+                                .put("force", booleanProperty("Disconnect the client instead of requesting close; default false.")), "sessionId", "windowId")))
+                .put(actionTool("graphics.detach_viewer", "Detach desktop viewer",
+                        "Close exactly one whole-desktop Android viewer while retaining its graphics session and clients. Rejects individual-client hosts; close those with close_task or graphics.close_window.",
+                        objectSchema(new JSONObject().put("sessionId", stringProperty("Live graphical session ID."))
+                                .put("taskId", integerProperty("Whole-desktop viewer task from graphics.list hosts.")), "sessionId", "taskId")))
                 .put(actionTool("graphics.set_workspace", "Select shell workspace",
                         "Explicitly bind a retained graphics session's shell components to an existing Desktop workspace. Use a live workspaceId from graphics.list, or an empty string to release. Closing the workspace revokes panels without stopping the graphics session. Does not start Desktop or acquire display input.",
                         objectSchema(new JSONObject().put("sessionId", stringProperty("Live graphical session ID."))
@@ -741,7 +758,14 @@ final class AutomationCommandCatalog {
                                 "input_ready", "pointer_ready", "ui_visible",
                                 "ui_element_state", "popup_state",
                                 "taskbar_visible",
-                                "wallpaper_rendered", "self_test_finished"))
+                                "wallpaper_rendered", "self_test_finished", "graphics_ready", "graphics_session_absent",
+                                "graphics_window_present", "graphics_window_absent", "graphics_host_attached", "graphics_window_state",
+                                "shell_surface_present", "shell_surface_absent", "task_state"))
+                        .put("sessionId", stringProperty("Exact graphical session ID for graphics conditions or shell surface filter."))
+                        .put("windowId", integerProperty("Native graphical window ID, not Android task id. Omit for graphics_window_present to await any mapped client; zero selects a whole-desktop viewer for host/state conditions."))
+                        .put("workspaceId", stringProperty("Workspace residency ID for shell-surface conditions or task_state."))
+                        .put("surfaceId", stringProperty("Optional exact shell surface identity from inspect_workspace."))
+                        .put("state", enumProperty("Confirmed state for task_state or graphics_window_state; enabled supplies the expected value.", "fullscreen", "maximized", "concealed"))
                         .put("taskId", integerProperty(
                                 "Task id for task or application conditions."))
                         .put("package", stringProperty(
@@ -1327,40 +1351,113 @@ final class AutomationCommandCatalog {
                 "success", "message", "data", "error");
     }
 
+    private static JSONObject graphicalSessionSchema() throws JSONException {
+        return openObjectProperty("Retained session; no startup credentials or commands.").put("properties", new JSONObject()
+                .put("sessionId", stringProperty("Process-local session identity."))
+                .put("protocol", enumProperty("Protocol.", "x11", "wayland"))
+                .put("name", stringProperty("Session title."))
+                .put("state", stringProperty("Lifecycle state."))
+                .put("ready", booleanProperty("Server is ready."))
+                .put("error", stringProperty("Last failure, empty otherwise."))
+                .put("executor", enumProperty("Captured command backend.", "termux", "shell"))
+                .put("executorUid", integerProperty("Command UID."))
+                .put("serverUid", integerProperty("Server UID; not implicitly elevated."))
+                .put("wholeDesktop", booleanProperty("Accepts windowId=0 for a retained whole-desktop viewer."))
+                .put("windows", graphicalWindowsSchema()).put("hosts", graphicalHostsSchema())
+                .put("shellIntegration", openObjectProperty("available, workspaceId, displayId and error."))
+                .put("protocolDetails", openObjectProperty("Protocol-specific diagnostics; X11 display, dpi, scalePercent, application and fileEnvironment.")));
+    }
+
+    private static JSONObject graphicalWindowsSchema() throws JSONException {
+        return arrayProperty("Native toplevel catalog, not Android tasks or semantic widgets.",
+                openObjectProperty("Native window.").put("properties", new JSONObject()
+                        .put("windowId", integerProperty("Session-scoped native identity."))
+                        .put("parentWindowId", integerProperty("Native parent, or zero."))
+                        .put("title", stringProperty("Client title."))
+                        .put("appId", stringProperty("Native application identity."))
+                        .put("mapped", booleanProperty("Native mapping, not proof of unobscured pixels."))
+                        .put("role", stringProperty("Client role."))
+                        .put("width", integerProperty("Client-published layout width; inspection returns current native bounds."))
+                        .put("height", integerProperty("Client-published layout height; inspection returns current native bounds."))
+                        .put("constraints", openObjectProperty("Native minWidth/minHeight/maxWidth/maxHeight."))
+                        .put("fullscreen", openObjectProperty("serial, requested boolean, actual boolean or null when unavailable."))
+                        .put("maximization", openObjectProperty("serial, requested and actual axes: none, horizontal, vertical, both; actual may be null."))
+                        .put("protocolDetails", openObjectProperty("Additional protocol-specific metadata."))));
+    }
+
+    private static JSONObject graphicalHostsSchema() throws JSONException {
+        return arrayProperty("Live Android hosts from the session-owned presentation registry.",
+                openObjectProperty("Host observation.").put("properties", new JSONObject()
+                        .put("taskId", integerProperty("Android task identity for focus, capture and placement."))
+                        .put("displayId", integerProperty("Android display."))
+                        .put("windowId", integerProperty("Borrowed native identity; X11 whole-desktop viewers use zero, Wayland desktop viewers expose the nested compositor toplevel."))
+                        .put("wholeDesktop", booleanProperty("Closure detaches viewer without closing clients."))
+                        .put("attached", booleanProperty("Content View attached; not pixel readiness."))
+                        .put("focused", booleanProperty("Android Activity window focus."))
+                        .put("managed", booleanProperty("Managed ownership, null when not observable.").put("type", new JSONArray().put("boolean").put("null")))
+                        .put("workspaceId", nullableStringProperty("Managed workspace residency, otherwise null."))
+                        .put("state", openObjectProperty("Confirmed managed fullscreen/maximized/concealed/active, or null when unavailable.").put("type", new JSONArray().put("object").put("null")))
+                        .put("content", openObjectProperty("Aspect-fit bounds in android_display_pixels and source width/height; null when unavailable.").put("type", new JSONArray().put("object").put("null")))));
+    }
+
     private static JSONObject dataSchema(final String toolName)
             throws JSONException {
         final JSONObject properties = new JSONObject();
         switch (toolName) {
             case "graphics.list":
-                properties.put("sessions", arrayProperty("Retained graphical sessions with sessionId, protocol, name, state, ready, error and native windows.", openObjectProperty("Graphical session.")));
+                properties.put("sessions", arrayProperty("Retained graphical sessions.", graphicalSessionSchema()))
+                        .put("workspaces", arrayProperty("Existing Desktop workspaceId/displayId pairs.", openObjectProperty("Workspace residency.")));
                 break;
             case "graphics.start":
             case "graphics.execute":
             case "graphics.stop":
             case "graphics.set_workspace":
+            case "graphics.close_window":
+            case "graphics.detach_viewer":
                 properties.put("sessionId", stringProperty("Exact retained session ID."))
                         .put("accepted", booleanProperty("Operation dispatched, not completed."))
                         .put("protocol", enumProperty("Display protocol.", "x11", "wayland"))
                         .put("state", stringProperty("Observed lifecycle state."))
                         .put("ready", booleanProperty("Server is ready."))
                         .put("error", stringProperty("Last operation error."))
-                        .put("windows", arrayProperty("Native windows.", openObjectProperty("Native window.")));
+                        .put("windows", graphicalWindowsSchema()).put("hosts", graphicalHostsSchema())
+                        .put("shellIntegration", openObjectProperty("available, workspaceId, displayId and error for the shell binding."));
                 break;
             case "graphics.open_window":
                 properties.put("accepted", booleanProperty("Android launch accepted."))
                         .put("displayId", integerProperty("Android display ID."))
                         .put("placement", enumProperty("Android ownership.", "desktop", "display"));
                 break;
-            case "x11.inspect_window":
-                properties.put("sessionId", stringProperty("Exact X11 session id."))
-                        .put("windowId", integerProperty("Selected X window id."))
+            case "graphics.inspect_window":
+                properties.put("sessionId", stringProperty("Exact graphical session id."))
+                        .put("windowId", integerProperty("Selected native window id."))
                         .put("found", booleanProperty("Selected window existed in the native observation."))
                         .put("truncated", booleanProperty("Window count or traversal budget was exceeded."))
-                        .put("coordinateSpace", enumProperty("Native bounds coordinates.", "x11_root"))
+                        .put("protocol", enumProperty("Native protocol.", "x11", "wayland"))
+                        .put("nativeAtomic", booleanProperty("Native nodes came from one event-loop snapshot."))
+                        .put("atomicWithHosts", booleanProperty("Whether native and host observations are atomic; false."))
+                        .put("coordinateSpace", enumProperty("Native bounds coordinates.", "x11_root", "wayland_surface_family"))
                         .put("screenBounds", openObjectProperty("X screen rectangle."))
                         .put("focus", openObjectProperty("X keyboard focus: kind (window, none, pointer_root, unknown) and windowId."))
-                        .put("windows", arrayProperty("Family windows: actual parentId, transientFor, clientLeader, title, type, bounds and flags.", openObjectProperty("X window, not a semantic widget.")))
-                        .put("hosts", arrayProperty("Matching individual and whole-screen hosts: taskId, displayId, windowId, focused, contentWidth/Height and contentBoundsOnDisplay. No host activation.", openObjectProperty("Android host observation, collected after native inspection.")));
+                        .put("windows", arrayProperty("Native family windows/surfaces with IDs, relationships, type, bounds and flags.", openObjectProperty("Native node, not a semantic widget.")))
+                        .put("catalog", graphicalWindowsSchema()).put("hosts", graphicalHostsSchema());
+                break;
+            case "inspect_workspace":
+                properties.put("workspaceId", stringProperty("Workspace residency ID.")).put("available", booleanProperty("A live shell layout is available."))
+                        .put("displayId", integerProperty("Workspace Android display."))
+                        .put("coordinateSpace", stringProperty("android_display_pixels."))
+                        .put("output", openObjectProperty("Output bounds."))
+                        .put("workArea", openObjectProperty("Resolved application work area."))
+                        .put("panelArea", openObjectProperty("Resolved panel area."))
+                        .put("surfaces", arrayProperty("Native and external shell surfaces.", openObjectProperty("Resolved surface.")))
+                        .put("exclusions", arrayProperty("Reserved edge regions, with surfaceId, edge, bounds and affectsWindows.", openObjectProperty("Reservation.")))
+                        .put("tasksKnown", booleanProperty("Task state is currently observable; false invalidates retained task state."))
+                        .put("tasks", arrayProperty("Managed tasks; consult tasksKnown.", openObjectProperty("Task state.")));
+                break;
+            case "set_task_state":
+                properties.put("accepted", booleanProperty("Intent accepted, not confirmed state."))
+                        .put("taskId", integerProperty("Android task ID.")).put("workspaceId", stringProperty("Owning workspace residency."))
+                        .put("state", stringProperty("Requested state.")).put("enabled", booleanProperty("Requested value."));
                 break;
             case "dialog.show":
             case "notification.post":
@@ -1426,11 +1523,11 @@ final class AutomationCommandCatalog {
                         .put("device", openObjectProperty("Device model and Android release."))
                         .put("readiness", openObjectProperty("Awake/lock state and required prerequisite actions."))
                         .put("connection", openObjectProperty("Listener scope and current granted permissions."))
-                        .put("session", openObjectProperty("Desktop session."))
+                        .put("workspaces", arrayProperty("Desktop workspace residencies and their local UI state.", openObjectProperty("Workspace.")))
+                        .put("graphics", arrayProperty("Same session catalog as graphics.list.", graphicalSessionSchema()))
                         .put("inputControl", openObjectProperty("Independent input target: requestedDisplayId, readyDisplayId, transitioning and error."))
                         .put("services", openObjectProperty("Service prerequisites, independent of MCP grants."))
                         .put("limits", openObjectProperty("Active and configured startup limits: maximumAccess (root/shell/app_only), termux, desktop; restartRequired."))
-                        .put("ui", openObjectProperty("Desktop UI state."))
                         .put("runtime", openObjectProperty("Runtime state."));
                 break;
             case "get_pointer_state":
@@ -1484,7 +1581,7 @@ final class AutomationCommandCatalog {
                 break;
             case "list_tasks":
                 properties.put("tasks", arrayProperty(
-                                "Task page.", openObjectProperty("Task.")))
+                                "Task page; graphics links a hosted task to sessionId, protocol, windowId and wholeDesktop, otherwise null.", openObjectProperty("Task.")))
                         .put("count", integerProperty("Returned count."))
                         .put("total", integerProperty("Matching count."))
                         .put("nextCursor", nullableStringProperty(
