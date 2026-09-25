@@ -255,7 +255,9 @@ same guest file environment; the renderer remains under the app UID.
 
 The native API admits layer-shell only after its owner provides a shell event
 consumer and explicitly creates a logical shell output. This output is distinct
-from the borrowed render outputs. Layer surfaces use a separate catalog and
+from the borrowed render outputs. Shell and dependent render targets do not
+advertise additional `wl_output` globals; application hosts publish their own
+output geometry and scale. Layer surfaces use a separate catalog and
 committed metadata callback, not `xdg_toplevel` application events. wlroots owns
 protocol validation and configure acknowledgements; the host owns placement and
 calls `mdw_shell_surface_configure`. Equal size configurations are suppressed;

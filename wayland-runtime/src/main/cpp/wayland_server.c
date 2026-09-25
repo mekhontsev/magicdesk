@@ -599,7 +599,10 @@ static MdwOutput *create_output(MdwServer *server, uint64_t id, int width, int h
     output->scale = 1;
     output->output = wlr_headless_add_output(server->backend, width, height);
     if (!output->output) { free(output); return NULL; }
-    wlr_output_create_global(output->output, server->display);
+    // Only application hosts are monitors. Shell and dependent render targets
+    // borrow their owner's coordinates; advertising them causes monitor churn.
+    if (configure && view->configure)
+        wlr_output_create_global(output->output, server->display);
     if (!wlr_output_init_render(output->output, server->allocator, server->renderer)) {
         wlr_output_destroy(output->output);
         free(output);

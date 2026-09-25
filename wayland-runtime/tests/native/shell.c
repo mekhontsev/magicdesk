@@ -212,6 +212,7 @@ static void keyboard_key(void *data, struct wl_keyboard *keyboard, uint32_t seri
     struct Client *client = data;
     if (key == KEY_A) {
         assert(client->keyboard_surface == client->app);
+        if (!client->workspace) assert(client->outputs == 2);
         client->app_keys++;
     } else {
         assert(key == KEY_B && client->keyboard_surface == client->panel);
@@ -380,6 +381,9 @@ int main(int argc, char **argv) {
             assert((host.panel_output = mdw_output_create(host.server, host.panel, 80, 40)));
         if (stage == 0 && host.app_output && host.panel_output && host.render_attempts >= 2) {
             assert(host.frames == 1);
+            MdwOutput *dependents = mdw_output_borrow_dependents(host.app_output);
+            assert(dependents);
+            mdw_output_destroy(dependents);
             assert(mdw_output_focus(host.app_output, true));
             assert(mdw_output_key(host.app_output, KEY_A, true));
             assert(mdw_output_pointer(host.panel_output, .1, .1));
