@@ -295,6 +295,17 @@ final class HiddenTaskApi {
         return getField(task, "token");
     }
 
+    static boolean hasTaskLaunchCookie(final Object task, final android.os.IBinder cookie)
+            throws ReflectiveOperationException {
+        return getField(task, "launchCookies") instanceof List<?> cookies
+                && cookies.contains(cookie);
+    }
+
+    static boolean isEmptyTask(final Object task) throws ReflectiveOperationException {
+        return getIntField(task, "numActivities") == 0
+                && getTaskBaseActivity(task) == null && getTaskTopActivity(task) == null;
+    }
+
     static Object getContainerToken(final Object containerInfo)
             throws ReflectiveOperationException {
         return getField(containerInfo, "token");

@@ -51,6 +51,36 @@ that would cover the desktop or disable the taskbar.
 
 ## Fullscreen Transactions
 
+Each retained fullscreen plane also owns an empty, non-focusable separator
+Task in the standard workspace. `FrameworkRootTaskApi` creates that persistent
+root without registering a task organizer or taking surfaces away from WMShell.
+It has no Activity, input window or Recents entry. The separator is distinct
+from the internal anchor: it protects Android's Task-only next-sibling lookup
+where ordinary roots meet an organizer task area. It persists with an idle
+reusable plane and is removed after that plane. Removal verifies its Binder
+launch cookie, task identity and absence of children.
+The internal anchor is launched behind the foreground task before its plane
+is created, then reparented into that plane in one atomic preparation. Boundary
+registration follows population; Activity-start callbacks never need to launch
+an anchor into an empty plane while rearranging existing roots.
+
+`ShellFullscreenLaunchGuard` participates in the existing activity-start
+controller. Before an admitted Activity launch, it reads the complete typed
+root order and restores each separator immediately below its plane with one
+atomic hierarchy transaction, only when adjacency differs. It preserves the
+relative order, geometry, parent and mode of application roots. The callback
+has no destination options, so every configured observer protects its own
+display without guessing from the target package. Selection and focus remain
+owned by the workspace gateway, not this launch guard.
+
+The guard uses an immutable published boundary snapshot. It never acquires the
+plane owner's monitor, starts an animation, or waits for a frame/transition:
+Android can call it synchronously while the owner is awaiting its Binder launch.
+A missing separator or failed repair rejects the original launch with a
+diagnostic; it does not replay an Intent or watch for a framework exception.
+This is a launch-time query, not a second periodic task observer. Teardown
+retains the controller until plane cleanup has finished.
+
 At the application-process boundary, window policy emits a typed
 `DesktopWindowTransitionRequest` through `DesktopWindowTransitionGateway`.
 The gateway maps semantic enter and restore operations to the existing

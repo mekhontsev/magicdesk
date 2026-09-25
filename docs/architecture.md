@@ -457,6 +457,14 @@ plane and retains that plane for its complete fullscreen residency, so focus
 never reparents it during a fullscreen peer switch. The topology does not
 branch on display kind or vendor.
 
+Each plane retains an empty, non-focusable separator Task in the ordinary
+workspace as well as its internal anchor. The separator has no Activity or
+Recents entry and leaves WMShell task organization intact. The activity-start controller restores
+safe Task/TDA adjacency before a launch, preserving application order and using
+a callback-safe immutable ownership snapshot. Separators follow plane lifetime,
+including idle reuse and display-loss cleanup; see
+[fullscreen launch boundaries](fullscreen-transitions.md#fullscreen-transactions).
+
 Native freeform-to-fullscreen events are adopted by the existing shell plane
 owner without waiting for a user selection command. After the framework's
 transition barrier, the live root is replaced at its current workspace

@@ -15,6 +15,81 @@ import java.util.Set;
 
 public final class ShellFullscreenTaskPlanesTest {
     @Test
+    public void createsAnchorBeforePublishingAnOrganizerPlane() throws Exception {
+        final String source = RuntimeSourceFixture.methods("ShellFullscreenTaskPlanes", "acquirePlane");
+        final int launch = source.indexOf(".launchFullscreenTaskBehind(");
+        final int create = source.indexOf("TaskDisplayAreaHandle.createWithSurface(");
+        final int populate = source.indexOf("windowing.reparent(populate, anchorToken, plane.token()");
+        final int commit = source.indexOf("windowing.transactionClass(), populate)");
+        final int publish = source.indexOf("mLaunchGuard.add(");
+        org.junit.Assert.assertTrue(launch >= 0 && launch < create && create < populate
+                && populate < commit && commit < publish);
+    }
+
+    @Test
+    public void staleAnchorFocusCannotUndoALaterApplicationSelection() throws Exception {
+        verifyAnchorRecovery("""
+                snapshot = new FrameworkTaskSnapshot(false);
+                check(recoverAnchorFocus(new Object(), 10, null), "owned anchor not recognized");
+                check(recoveries == 0, "stale callback changed selection");
+                snapshot = null;
+                check(recoverAnchorFocus(new Object(), 10, null), "removed anchor not recognized");
+                check(recoveries == 0, "removed anchor changed selection");
+                """);
+    }
+
+    @Test
+    public void currentAnchorFocusStillRecoversThroughThePlaneOwner() throws Exception {
+        verifyAnchorRecovery("""
+                snapshot = new FrameworkTaskSnapshot(true);
+                check(recoverAnchorFocus(new Object(), 10, null), "owned anchor not recognized");
+                check(recoveries == 1, "current anchor did not recover");
+                check(!recoverAnchorFocus(new Object(), 11, null), "unowned anchor accepted");
+                check(recoveries == 1, "unowned anchor changed selection");
+                """);
+    }
+
+    private static void verifyAnchorRecovery(final String scenario) throws Exception {
+        RuntimeSourceFixture.verify("""
+                static final String TAG = "test";
+                static int mDisplayId = 4, recoveries;
+                static FrameworkTaskSnapshot snapshot;
+                static class TaskDisplayAreaHandle {}
+                static class ShellDesktopTaskOwnership {}
+                static class FrameworkTaskSnapshot {
+                    final boolean focused;
+                    FrameworkTaskSnapshot(boolean focused) { this.focused = focused; }
+                }
+                static class FrameworkTaskSnapshotSource {
+                    static FrameworkTaskSnapshot findTask(Object service, int displayId, int taskId)
+                            throws ReflectiveOperationException {
+                        check(displayId == 4 && taskId == 10, "wrong observation identity");
+                        return snapshot;
+                    }
+                }
+                static class Log {
+                    static void w(String tag, String message) {}
+                    static void w(String tag, String message, Throwable error) {
+                        throw new AssertionError(error);
+                    }
+                }
+                TaskDisplayAreaHandle findAnchorPlane(int taskId) {
+                    return taskId == 10 ? new TaskDisplayAreaHandle() : null;
+                }
+                int findPlaneTaskId(TaskDisplayAreaHandle plane) { return 20; }
+                int findRemovalFocusTarget(Object service, int display, int task,
+                        ShellDesktopTaskOwnership ownership) { return 30; }
+                void applyPlaneExitFocus(Object service, int display,
+                        TaskDisplayAreaHandle plane, int successor) {
+                    check(successor == 30, "wrong successor"); recoveries++;
+                }
+                public static void verify() throws Exception { new Fixture().scenario(); }
+                void scenario() throws Exception {
+                """ + scenario + "}\n" + RuntimeSourceFixture.methods(
+                        "ShellFullscreenTaskPlanes", "recoverAnchorFocus"));
+    }
+
+    @Test
     public void closingForemostPlaneRecoversPrematureHomeSelection() {
         assertEquals(true, ShellFullscreenTaskPlanes.shouldRecoverRemovalFromHome(
                 11, 99, 4, Map.of(10, 1, 11, 2), planeIds(10, 11), false,

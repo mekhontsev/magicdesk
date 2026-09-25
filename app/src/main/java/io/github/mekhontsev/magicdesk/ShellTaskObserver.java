@@ -191,7 +191,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mPhoneOverviewRouter,
                 mPhoneWallpaperPolicy,
                 mMigrationGuard,
-                mTaskActivityModeGuard);
+                mTaskActivityModeGuard,
+                mFullscreenTaskArea.launchGuard());
         mFreeformCleanup = new ShellFreeformTaskCleanup(
                 mService,
                 error -> callCallback(() -> mCallback.onObserverError(error)));
@@ -366,7 +367,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mPhoneOverviewRouter.stop();
             mSecondaryHomeStartPolicy.configure(Display.INVALID_DISPLAY);
             mPhoneWallpaperPolicy.configure(Display.INVALID_DISPLAY);
-            mActivityStartController.close();
             mConfiguredDisplayId = Display.INVALID_DISPLAY;
             clearPendingPostRemovalFocus();
             mFocusController.configure(-1);
@@ -380,6 +380,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mTaskObservations.clearConfiguration();
             mDesktopChromeHost.close();
             mFullscreenTaskArea.configure(Display.INVALID_DISPLAY);
+            mActivityStartController.close();
             mDesktopOwnership.configure(Display.INVALID_DISPLAY);
             reportDesktopTaskOwnership();
             return;
@@ -1438,14 +1439,13 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         closeSafely("process failure tracker", () ->
                 mProcessFailureTracker.configure(Display.INVALID_DISPLAY));
         mPhoneOverviewRouter.stop();
-        closeSafely("activity start controller",
-                mActivityStartController::close);
         closeSafely("phone Overview router", mPhoneOverviewRouter::close);
         closeSafely("migration guard", mMigrationGuard::close);
         closeSafely("freeform cleanup", mFreeformCleanup::close);
         closeSafely("framework task observations", mTaskObservations::close);
         closeSafely("desktop chrome host", mDesktopChromeHost::close);
         closeSafely("fullscreen task area", mFullscreenTaskArea::close);
+        closeSafely("activity start controller", mActivityStartController::close);
         closeSafely("self-test task stack guard",
                 mSelfTestTaskStackGuard::close);
         if (registered) {

@@ -22,6 +22,9 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             new LinkedHashMap<>();
     private final Map<TaskDisplayAreaHandle, Integer> mPlaneAnchorTaskIds =
             new LinkedHashMap<>();
+    private final Map<TaskDisplayAreaHandle, FrameworkRootTaskApi.Root> mPlaneSeparators =
+            new LinkedHashMap<>();
+    private final ShellFullscreenLaunchGuard mLaunchGuard = new ShellFullscreenLaunchGuard();
     private final List<TaskDisplayAreaHandle> mAvailablePlanes =
             new ArrayList<>();
     private final Set<TaskDisplayAreaHandle> mUnconfirmedPlanes =
@@ -36,6 +39,10 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
 
     ShellFullscreenTaskPlanes(final ShellDesktopSurfaceOrder surfaceOrder) {
         mSurfaceOrder = surfaceOrder;
+    }
+
+    ShellActivityStartController.Listener launchGuard() {
+        return mLaunchGuard;
     }
 
     synchronized void configure(final int displayId) {
@@ -489,27 +496,32 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             final TaskDisplayAreaHandle plane = mAvailablePlanes.remove(0);
             requirePlaneAnchor(service, displayId, plane);
             requireEmptyPlane(service, displayId, plane);
+            mLaunchGuard.protect();
             return plane;
         }
-        final TaskDisplayAreaHandle plane =
-                TaskDisplayAreaHandle.createWithSurface(
-                        displayId,
-                        TaskDisplayAreaHandle.Parent.DEFAULT_TASK_CONTAINER,
-                        "MagicDesk fullscreen slot " + mNextPlaneSlotId++);
+        final int slotId = mNextPlaneSlotId++;
+        final FrameworkRootTaskApi.Root separator = FrameworkRootTaskApi.create(service, displayId);
+        TaskDisplayAreaHandle plane = null;
         int anchorTaskId = -1;
         try {
-            // The desktop owns the viewport orientation. Applications may
-            // still rotate or letterbox their content inside this plane.
-            plane.setIgnoreOrientationRequest(service, true);
+            final FrameworkWindowingApi windowing = FrameworkRuntime.current().windowing();
+            final Object separatorToken = separator.token;
+            final Object preparation = windowing.newTransaction();
+            windowing.setFocusable(preparation, separatorToken, false);
+            windowing.setForceTranslucent(preparation, separatorToken, true);
+            windowing.reorder(preparation, separatorToken, false, false);
+            ShellWindowTransitionExecutor.applyAtomic(service, windowing.transactionClass(), preparation);
+            // Activity starts can reorder existing roots. Finish this launch
+            // before introducing a TDA whose priority is undefined while empty.
             anchorTaskId = TaskDisplayAreaLaunchCommand
                     .launchFullscreenTaskBehind(
                             service,
                             displayId,
                             TaskAreaBackstopActivity.createIntent(
                                     "fullscreen-slot:" + displayId + ':'
-                                            + plane.featureId()),
+                                            + slotId),
                             BuildConfig.APPLICATION_ID,
-                            plane.token(),
+                            null,
                             FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD);
             final Object anchor = HiddenTaskApi.requireTask(
                     service, displayId, anchorTaskId);
@@ -517,18 +529,31 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 throw new IllegalStateException(
                         "fullscreen slot anchor is not a standard task");
             }
+            final Object anchorToken = HiddenTaskApi.getTaskToken(anchor);
+            plane = TaskDisplayAreaHandle.createWithSurface(displayId,
+                    TaskDisplayAreaHandle.Parent.DEFAULT_TASK_CONTAINER,
+                    "MagicDesk fullscreen slot " + slotId);
+            mPlaneSeparators.put(plane, separator);
+            final Object populate = windowing.newTransaction();
+            windowing.reparent(populate, anchorToken, plane.token(), false);
+            windowing.setFocusable(populate, anchorToken, false);
+            windowing.setIgnoreOrientationRequest(populate, plane.token(), true);
+            ShellWindowTransitionExecutor.applyAtomic(service, windowing.transactionClass(), populate);
             waitForTaskInsidePlane(
                     service,
                     displayId,
                     anchorTaskId,
                     plane.featureId());
-            makeAnchorNonFocusable(service, displayId, anchorTaskId);
             mPlaneAnchorTaskIds.put(
                     plane, Integer.valueOf(anchorTaskId));
+            mLaunchGuard.add(service, displayId, new ShellFullscreenLaunchGuard.Boundary(
+                    plane.featureId(), plane.token(), separator.taskId, separatorToken));
+            mLaunchGuard.protect();
             return plane;
         } catch (ReflectiveOperationException | RuntimeException error) {
-            if (anchorTaskId >= 0) {
-                plane.closeIfOnlyOwnedChildren(
+            boolean removed = plane == null;
+            if (plane != null && anchorTaskId >= 0) {
+                removed = plane.closeIfOnlyOwnedChildren(
                         service,
                         displayId,
                         Collections.singleton(Integer.valueOf(anchorTaskId)));
@@ -537,8 +562,18 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                         Collections.singletonMap(
                                 Integer.valueOf(anchorTaskId),
                                 Integer.valueOf(plane.featureId())));
-            } else {
-                plane.closeIfEmpty(service, displayId);
+            } else if (plane != null) {
+                removed = plane.closeIfEmpty(service, displayId);
+            } else if (anchorTaskId >= 0) {
+                TaskControlCommand.removeTask(service, anchorTaskId);
+            }
+            if (removed) {
+                if (plane != null) {
+                    mLaunchGuard.remove(plane.featureId());
+                    mPlaneSeparators.remove(plane);
+                    mPlaneAnchorTaskIds.remove(plane);
+                }
+                removeSeparator(service, separator);
             }
             throw error;
         }
@@ -561,23 +596,6 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                             + plane.featureId());
         }
         return anchorTaskId.intValue();
-    }
-
-    private static void makeAnchorNonFocusable(
-            final Object service,
-            final int displayId,
-            final int anchorTaskId) throws ReflectiveOperationException {
-        final FrameworkWindowingApi windowing =
-                FrameworkRuntime.current().windowing();
-        final Class<?> transactionClass = windowing.transactionClass();
-        final Object transaction = windowing.newTransaction();
-        final Object anchorToken = HiddenTaskApi.requireTaskToken(
-                service, displayId, anchorTaskId);
-        // The anchor keeps the organizer area non-empty but must never become
-        // WindowManager's focused application when its plane is reordered.
-        windowing.setFocusable(transaction, anchorToken, false);
-        ShellWindowTransitionExecutor.applyAtomic(
-                service, transactionClass, transaction);
     }
 
     private static boolean isStandardBackstop(final Object task)
@@ -752,6 +770,13 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             return false;
         }
         try {
+            // The callback can wait behind plane creation/selection. Never undo
+            // a later application focus using the anchor's earlier focus event.
+            final FrameworkTaskSnapshot anchor = FrameworkTaskSnapshotSource.findTask(
+                    service, mDisplayId, anchorTaskId);
+            if (anchor == null || !anchor.focused) {
+                return true;
+            }
             final int planeTaskId = findPlaneTaskId(plane);
             final int focusTaskId = findRemovalFocusTarget(
                     service, mDisplayId, planeTaskId, ownership);
@@ -2084,13 +2109,19 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 }
             }
         }
-        for (final Map.Entry<TaskDisplayAreaHandle, Integer> entry
-                : new ArrayList<>(mPlaneAnchorTaskIds.entrySet())) {
+        for (final TaskDisplayAreaHandle plane
+                : new ArrayList<>(mPlaneSeparators.keySet())) {
             if (service != null && displayId >= 0) {
-                entry.getKey().closeIfOnlyOwnedChildren(
+                final Integer anchorId = mPlaneAnchorTaskIds.get(plane);
+                final boolean removed = plane.closeIfOnlyOwnedChildren(
                         service,
                         displayId,
-                        Collections.singleton(entry.getValue()));
+                        anchorId == null ? Collections.emptySet() : Collections.singleton(anchorId));
+                if (removed) {
+                    mLaunchGuard.remove(plane.featureId());
+                    final FrameworkRootTaskApi.Root separator = mPlaneSeparators.remove(plane);
+                    if (separator != null) { removeSeparator(service, separator); }
+                }
             }
         }
         // Android migrates standard tasks to the default display when a
@@ -2099,6 +2130,8 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         // survive as an ordinary phone task. Remove only anchors whose task
         // ids and components still match this owner.
         removeMigratedAnchorTasks(service, anchorFeatureIds);
+        mLaunchGuard.clear();
+        mPlaneSeparators.clear();
         mPlanes.clear();
         mPlaneAnchorTaskIds.clear();
         mAvailablePlanes.clear();
@@ -2108,6 +2141,16 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         mService = null;
         mNextPlaneSlotId = 0;
         mConcealedForShowDesktop = false;
+    }
+
+    private static void removeSeparator(final Object service, final FrameworkRootTaskApi.Root separator) {
+        try {
+            if (!separator.close(service)) {
+                throw new IllegalStateException("separator removal rejected task=" + separator.taskId);
+            }
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "could not remove fullscreen separator task=" + separator.taskId, error);
+        }
     }
 
     private static void removeMigratedAnchorTasks(

@@ -46,6 +46,12 @@ public final class DesktopTaskLaunchObserverCommand {
             final ComponentName expectedComponent =
                     new ComponentName(args[1], args[2]);
             service = HiddenTaskApi.getService();
+            final java.util.Set<Integer> existingTaskIds = new java.util.HashSet<>();
+            if (expectedTaskId < 0) {
+                for (final Object task : HiddenTaskApi.getAllTasks(service)) {
+                    existingTaskIds.add(HiddenTaskApi.getTaskId(task));
+                }
+            }
             final CountDownLatch observed = new CountDownLatch(1);
             final AtomicBoolean published = new AtomicBoolean();
             listener = new TaskStackListener() {
@@ -53,6 +59,7 @@ public final class DesktopTaskLaunchObserverCommand {
                 public void onTaskMovedToFront(
                         final ActivityManager.RunningTaskInfo taskInfo) {
                     if (taskInfo == null
+                            || !acceptsTaskId(taskInfo.taskId, expectedTaskId, existingTaskIds)
                             || !matches(taskInfo, expectedTaskId,
                                     expectedComponent, expectedDisplayId)
                             || !published.compareAndSet(false, true)) {
@@ -73,6 +80,7 @@ public final class DesktopTaskLaunchObserverCommand {
             HiddenTaskApi.registerTaskStackListener(service, listener);
             System.out.println(READY);
             System.out.flush();
+            // EVENT_WAIT: first matching task-front callback; timeout reports no observation.
             if (!observed.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 System.out.println(TIMEOUT);
                 System.out.flush();
@@ -109,6 +117,12 @@ public final class DesktopTaskLaunchObserverCommand {
         }
         return expectedComponent.equals(task.topActivity)
                 || expectedComponent.equals(task.baseActivity);
+    }
+
+    static boolean acceptsTaskId(final int taskId, final int expectedTaskId,
+            final java.util.Set<Integer> existingTaskIds) {
+        return expectedTaskId >= 0 ? taskId == expectedTaskId
+                : taskId >= 0 && !existingTaskIds.contains(taskId);
     }
 
     private static String format(

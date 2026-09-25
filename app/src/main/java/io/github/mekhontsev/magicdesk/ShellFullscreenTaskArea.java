@@ -73,6 +73,10 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                 service, displayId, desktopTaskIds, mOwnership);
     }
 
+    ShellActivityStartController.Listener launchGuard() {
+        return mPlanes.launchGuard();
+    }
+
     synchronized boolean ownsFocusTarget(
             final Object service,
             final int displayId,

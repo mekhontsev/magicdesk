@@ -256,8 +256,9 @@ final class DesktopSelfTestTasks {
                     || (launchedTaskId >= 0
                             && observation.taskId != launchedTaskId)) {
                 throw new IOException(
-                        "test window launched on the wrong display: "
-                                + observation);
+                        "test window launch identity mismatch: expected task="
+                                + launchedTaskId + "/display=" + displayId
+                                + ", observed=" + observation);
             }
             return observation;
         }

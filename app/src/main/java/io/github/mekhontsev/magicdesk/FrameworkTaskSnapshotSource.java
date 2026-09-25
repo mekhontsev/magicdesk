@@ -131,6 +131,17 @@ final class FrameworkTaskSnapshotSource {
                 false).snapshots;
     }
 
+    /** Complete root order for an explicit hierarchy operation, without a leaf-task limit. */
+    static List<FrameworkTaskSnapshot> readRoots(final Object service, final int displayId)
+            throws ReflectiveOperationException {
+        final List<FrameworkTaskSnapshot> result = new ArrayList<>();
+        final FrameworkWindowingCompat compat = FrameworkRuntime.current().windowingCompat();
+        for (final Object root : HiddenTaskApi.getRootTaskInfos(service, displayId)) {
+            result.add(readTask(root, HiddenTaskApi.getTaskId(root), compat, false, false));
+        }
+        return result;
+    }
+
     static FrameworkTaskSnapshot findTask(
             final Object service,
             final int displayId,

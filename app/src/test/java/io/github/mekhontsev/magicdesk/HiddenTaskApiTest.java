@@ -18,6 +18,26 @@ import org.junit.Test;
 
 public final class HiddenTaskApiTest {
     @Test
+    public void structuralRootIdentityAndEmptinessDoNotGuessMissingState() throws Exception {
+        final EmptyRoot task = new EmptyRoot();
+        final android.os.IBinder cookie = new android.os.Binder();
+        task.launchCookies = List.of(cookie);
+        assertTrue(HiddenTaskApi.hasTaskLaunchCookie(task, cookie));
+        assertFalse(HiddenTaskApi.hasTaskLaunchCookie(task, new android.os.Binder()));
+        assertTrue(HiddenTaskApi.isEmptyTask(task));
+        task.numActivities = 1;
+        assertFalse(HiddenTaskApi.isEmptyTask(task));
+        assertThrows(NoSuchFieldException.class, () -> HiddenTaskApi.isEmptyTask(new Object()));
+    }
+
+    public static final class EmptyRoot {
+        public List<android.os.IBinder> launchCookies;
+        public int numActivities;
+        public android.content.ComponentName baseActivity;
+        public android.content.ComponentName topActivity;
+    }
+
+    @Test
     public void taskQueriesOmitExtrasWithoutFilteringHiddenTasks() throws Exception {
         final TaskQueryService service = new TaskQueryService();
         assertSame(service.tasks, HiddenTaskApi.getTasks(service, 3, 16));
