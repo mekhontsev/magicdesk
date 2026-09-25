@@ -23,6 +23,7 @@
 #include <wayland-client.h>
 
 static bool fixed_client_size;
+static bool minimum_client_size, bounded_client_size;
 static bool interaction;
 static bool dma_client;
 static bool dma_cursor;
@@ -106,8 +107,8 @@ static void pointer_enter(void *data, struct wl_pointer *pointer, uint32_t seria
     (void)pointer; (void)serial;
     struct Client *client = data;
     assert(surface == client->surface);
-    assert(wl_fixed_to_double(x) == (interaction ? 10 : fixed_client_size ? 40 : 20)
-        && wl_fixed_to_double(y) == (interaction ? 7.5 : fixed_client_size ? 30 : 15));
+    assert(fabs(wl_fixed_to_double(x) - (bounded_client_size ? 300 : minimum_client_size ? 40 : interaction ? 10 : fixed_client_size ? 40 : 20)) < .01
+        && fabs(wl_fixed_to_double(y) - (bounded_client_size ? 75 : minimum_client_size ? 60 : interaction ? 7.5 : fixed_client_size ? 30 : 15)) < .01);
     if (interaction) {
         client->cursor = wl_compositor_create_surface(client->compositor);
         wl_pointer_set_cursor(pointer, serial, client->cursor, 1, 2);
@@ -358,6 +359,8 @@ static void run_client(const char *socket) {
         xdg_toplevel_set_min_size(client.toplevel, 160, 120);
         xdg_toplevel_set_max_size(client.toplevel, 160, 120);
     }
+    if (minimum_client_size || bounded_client_size)
+        xdg_toplevel_set_min_size(client.toplevel, bounded_client_size ? 1200 : 160, 60);
     xdg_toplevel_set_title(client.toplevel, "MagicDesk Wayland fixture");
     xdg_toplevel_set_app_id(client.toplevel, "io.magicdesk.fixture");
     wl_surface_commit(client.surface);
@@ -417,11 +420,14 @@ static void frame_event(void *data, MdwOutput *output, const MdwFrame *frame) {
     (void)output;
     struct Host *host = data;
     if (!frame) return;
-    int width = fixed_client_size ? 160 : 80, height = fixed_client_size ? 120 : 60;
+    int width = bounded_client_size ? 4096 : minimum_client_size || fixed_client_size ? 160 : 80;
+    int height = bounded_client_size ? 1024 : minimum_client_size ? 240 : fixed_client_size ? 120 : 60;
     assert(frame->width == width && frame->height == height);
-    uint32_t pixels[160 * 120];
+    uint32_t *pixels = malloc((size_t)width * height * 4);
+    assert(pixels);
     assert(mdg_image_read(frame->image, pixels, width * 4));
     assert((pixels[20 * width + 20] & 0x00ffffff) == 0x00ab6712);
+    free(pixels);
     int descriptor = mdw_frame_export(frame);
     assert(descriptor >= 0);
     int seals = fcntl(descriptor, F_GET_SEALS);
@@ -488,6 +494,9 @@ int main(int argc, char **argv) {
     if (argc == 2 && !strcmp(argv[1], "--dma-client")) { dma_client = true; run_client(NULL); return 0; }
     if (argc == 2 && !strcmp(argv[1], "--client")) { run_client(NULL); return 0; }
     fixed_client_size = argc == 2 && !strcmp(argv[1], "--fixed-size");
+    minimum_client_size = argc == 2 && !strcmp(argv[1], "--minimum-size");
+    bounded_client_size = argc == 2 && !strcmp(argv[1], "--bounded-size");
+    int offered_height = bounded_client_size ? 20 : minimum_client_size ? 120 : 60;
     dma_cursor = argc == 2 && !strcmp(argv[1], "--dma-cursor");
     interaction = dma_cursor || (argc == 2 && !strcmp(argv[1], "--interaction"));
     const char *temporary = getenv("TMPDIR");
@@ -503,7 +512,7 @@ int main(int argc, char **argv) {
         .error = error_event, .text_input = text_input_event, .cursor = cursor_event, .context = &host};
     mdw_server_set_events(server, &events);
     int connection = argc == 2 && !strcmp(argv[1], "--fd") ? mdw_server_connect(server) : -1;
-    assert(argc == 1 || connection >= 0 || fixed_client_size || interaction);
+    assert(argc == 1 || connection >= 0 || fixed_client_size || minimum_client_size || bounded_client_size || interaction);
     pid_t child = fork();
     assert(child >= 0);
     if (child == 0) {
@@ -524,9 +533,10 @@ int main(int argc, char **argv) {
     while (!host.destroyed) {
         assert(mdw_server_dispatch(server, -1) >= 0);
         if (host.mapped && !output) {
-            output = mdw_output_create(server, host.window, 80, 60);
+            output = mdw_output_create(server, host.window, 80, offered_height);
             assert(output);
             if (interaction) assert(mdw_output_scale(output, 2));
+            if (bounded_client_size) assert(mdw_output_scale(output, 4));
             assert(!mdw_output_resize(output, 0, 60));
         }
         if (host.frames >= 1 && !detached) {
@@ -538,9 +548,10 @@ int main(int argc, char **argv) {
             assert(mdw_output_set_visible(dependents, true));
             mdw_output_destroy(dependents);
             mdw_output_destroy(output);
-            output = mdw_output_create(server, host.window, 80, 60);
+            output = mdw_output_create(server, host.window, 80, offered_height);
             assert(output && !host.destroyed);
             if (interaction) assert(mdw_output_scale(output, 2));
+            if (bounded_client_size) assert(mdw_output_scale(output, 4));
             detached = true;
         } else if (host.frames >= 2 && !deferred) {
             host.allow_render = false;
@@ -550,7 +561,11 @@ int main(int argc, char **argv) {
             int frames = host.frames;
             assert(mdw_output_set_visible(output, false));
             assert(!mdw_output_focus(output, true));
-            assert(mdw_output_resize(output, 80, 60));
+            assert(mdw_output_resize(output, 80, offered_height));
+            if (bounded_client_size) {
+                assert(mdw_output_scale(output, 2));
+                assert(mdw_output_scale(output, 4));
+            }
             assert(mdw_output_refresh(output));
             assert(mdw_server_dispatch(server, 0) >= 0);
             assert(host.frames == frames);

@@ -1812,10 +1812,14 @@ destructive edits independently of caret geometry. Protocol-declared IME
 acknowledgements do not invalidate queued keyboard commands; external text changes
 can refresh Android's context. Private guest text is excluded from Android
 surrounding-text snapshots.
-Individual outputs constrain Android Surface geometry by the client's X11
-minimum/maximum size hints; fixed-size content is aspect-fitted, not stretched
-by changing its X window. The native window model owns hint decoding, with no
-application-specific or Java-side geometry policy. Transients are constrained
+Individual outputs use `hosted_window_size` for aspect-compatible client geometry
+within minimum/maximum limits. X11 supplies validated pixel hints through the
+native server's host sizing callback; Wayland applies the same policy in logical
+units. The original host offer and requested density remain independent of the
+constrained size and presentation scale. Fixed-size content remains aspect-fitted;
+the policy has no per-frame allocation or Java callback. Wayland bounds its buffer
+allocation by uniform rendering scale, shared with input and caret mapping.
+Protocol adapters own hint decoding. Transients are constrained
 where they fit; larger dialogs extend a single aspect-fitted family canvas shared
 by rendering and input. Startup roles from the X catalog allow a splash-to-main
 handoff within the same Android host, releasing the old output's input/content

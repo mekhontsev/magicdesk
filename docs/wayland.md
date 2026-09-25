@@ -201,17 +201,24 @@ New commits, focus changes and surface destruction cancel obsolete requests and
 release their producer leases. Cursor storage is bounded to 256 by 256 pixels.
 
 Each application output derives its scale from its Android host's density.
-`wl_output`, preferred buffer scale, fractional scale and viewporter expose that
-scale to clients. Surface coordinates remain logical; rendering and hit-testing
-use the same transform. Fullscreen requests carry a native revision through
+Preferred buffer scale and fractional scale expose that density to clients.
+Surface coordinates remain logical. Output rendering uses a uniform scale bounded
+by the 4096-pixel buffer limit, also reported through `wl_output`; it does not clip
+client geometry independently on each axis. Rendering, pointer input and IME caret
+coordinates use this same output transform. The requested density is retained
+independently, so resizing does not feed the presentation scale back into layout.
+Fullscreen requests carry a native revision through
 `HostedFullscreen` and the existing Android presentation gateway. A stale host
 or acknowledgement cannot confirm a newer request. Neither feature changes
 Android task-area ownership.
 
 Client minimum/maximum dimensions and parent identity use the shared
 `HostedWindowLayout` contract. Zero limits are unspecified. Native configure
-respects the limits, including changes after mapping, and retains the offered
-Android viewport for later density changes. `HostedContentLayout` centers a
+uses the shared native `hosted_window_size` policy: preserve the host aspect ratio
+within client limits, expanding the other axis when a minimum requires shrinking
+the presented content. Incompatible limits retain aspect-fitted letterboxing.
+This also applies after mapping; the original offered Android viewport is retained
+for later density changes. `HostedContentLayout` centers a
 size-limited client without enlarging it to fill the host. A transient toplevel
 opens relative to its actual parent's Android host; managed windowed placement
 includes Android decorations and is clamped to the workspace. Independent hosts

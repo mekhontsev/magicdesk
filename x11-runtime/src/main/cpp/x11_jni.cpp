@@ -8,6 +8,7 @@
 #include "embedded.h"
 #include "x11_graphics.h"
 #include "android_keycodes.h"
+#include "hosted_window_size.h"
 
 #define JNI(name) Java_io_github_mekhontsev_magicdesk_x11_##name
 
@@ -394,7 +395,8 @@ extern "C" JNIEXPORT jboolean JNICALL JNI(X11Server_nativeStart)(JNIEnv* env, jo
         jclass cls = env->GetObjectClass(owner);
         readyMethod = env->GetMethodID(cls, "onNativeReady", "(Ljava/lang/String;)V");
         env->DeleteLocalRef(cls);
-        ok = server && readyMethod && lorieServerStart(count, arguments, serverReady, nullptr);
+        const LorieServerCallbacks host = {.ready = serverReady, .windowSize = hosted_window_size};
+        ok = server && readyMethod && lorieServerStart(count, arguments, &host, nullptr);
         if (!ok && server) { env->DeleteGlobalRef(server); server = nullptr; }
     }
     for (int i = 0; i < count; ++i) free(arguments[i]);

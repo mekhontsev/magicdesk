@@ -1,4 +1,5 @@
 #include "wayland_internal.h"
+#include "hosted_window_size.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -48,7 +49,7 @@ struct MdwOutput {
     bool visible;
     int viewport_width, viewport_height;
     int requested_width, requested_height;
-    double scale;
+    double scale, render_scale;
     MdwOutput *parent, *dependents;
     bool keys[KEY_MAX + 1];
     bool buttons[3];
@@ -419,7 +420,7 @@ static void toplevel_configure(struct MdwView *view, int width, int height) {
 }
 
 static int constrain_axis(int offered, uint32_t minimum, uint32_t maximum) {
-    int min = minimum > 4096 ? 4096 : (int)minimum;
+    int min = minimum > 4096 ? 4096 : minimum ? (int)minimum : 1;
     int max = !maximum || maximum > 4096 ? 4096 : (int)maximum;
     if (max < min) max = min;
     return offered < min ? min : offered > max ? max : offered;
@@ -427,8 +428,11 @@ static int constrain_axis(int offered, uint32_t minimum, uint32_t maximum) {
 
 static void toplevel_constrain(struct MdwView *view, int *width, int *height) {
     struct MdwToplevel *window = wl_container_of(view, window, view);
-    *width = constrain_axis(*width, window->xdg->current.min_width, window->xdg->current.max_width);
-    *height = constrain_axis(*height, window->xdg->current.min_height, window->xdg->current.max_height);
+    const struct wlr_xdg_toplevel_state *state = &window->xdg->current;
+    hosted_window_size(constrain_axis(1, state->min_width, state->max_width),
+        constrain_axis(1, state->min_height, state->max_height),
+        constrain_axis(4096, state->min_width, state->max_width),
+        constrain_axis(4096, state->min_height, state->max_height), width, height);
 }
 
 static void toplevel_activate(struct MdwView *view, bool active) {
@@ -596,7 +600,7 @@ static MdwOutput *create_output(MdwServer *server, uint64_t id, int width, int h
     output->server = server;
     output->view = view;
     output->visible = true;
-    output->scale = 1;
+    output->scale = output->render_scale = 1;
     output->output = wlr_headless_add_output(server->backend, width, height);
     if (!output->output) { free(output); return NULL; }
     // Only application hosts are monitors. Shell and dependent render targets
@@ -638,8 +642,13 @@ bool mdw_output_resize(MdwOutput *output, int width, int height) {
     int logical_width = (int)fmax(1, round(width / output->scale));
     int logical_height = (int)fmax(1, round(height / output->scale));
     if (output->view->constrain) output->view->constrain(output->view, &logical_width, &logical_height);
-    if (!mdw_output_viewport(output, 0, 0, (int)fmin(4096, round(logical_width * output->scale)),
-            (int)fmin(4096, round(logical_height * output->scale)))) return false;
+    double previous = output->render_scale;
+    output->render_scale = hosted_buffer_scale(logical_width, logical_height, output->scale, 4096);
+    if (!mdw_output_viewport(output, 0, 0, (int)fmax(1, round(logical_width * output->render_scale)),
+            (int)fmax(1, round(logical_height * output->render_scale)))) {
+        output->render_scale = previous;
+        return false;
+    }
     output->requested_width = width; output->requested_height = height;
     if (output->view->configure) output->view->configure(output->view, logical_width, logical_height);
     return true;
@@ -678,7 +687,7 @@ bool mdw_output_viewport(MdwOutput *output, int x, int y, int width, int height)
         wlr_output_state_init(&state);
         wlr_output_state_set_render_format(&state, DRM_FORMAT_ABGR8888);
         wlr_output_state_set_enabled(&state, true);
-        wlr_output_state_set_scale(&state, output->scale);
+        wlr_output_state_set_scale(&state, output->render_scale);
         wlr_output_state_set_custom_mode(&state, width, height, 60000);
         committed = wlr_output_commit_state(output->output, &state);
         wlr_output_state_finish(&state);
@@ -700,7 +709,7 @@ bool mdw_output_set_visible(MdwOutput *output, bool visible) {
     wlr_output_state_set_enabled(&state, visible);
     if (visible) {
         wlr_output_state_set_render_format(&state, DRM_FORMAT_ABGR8888);
-        wlr_output_state_set_scale(&state, output->scale);
+        wlr_output_state_set_scale(&state, output->render_scale);
         wlr_output_state_set_custom_mode(&state, output->viewport_width, output->viewport_height, 60000);
     }
     bool committed = wlr_output_commit_state(output->output, &state);
@@ -823,8 +832,8 @@ bool mdw_output_pointer(MdwOutput *output, double x, double y) {
     double local_x, local_y;
     // Hit-test the rendered scene, not the client's asynchronously acknowledged size.
     struct wlr_scene_node *node = wlr_scene_node_at(&output->view->scene->tree.node,
-        output->scene_output->x + x * output->output->width / output->scale,
-        output->scene_output->y + y * output->output->height / output->scale, &local_x, &local_y);
+        output->scene_output->x + x * output->output->width / output->render_scale,
+        output->scene_output->y + y * output->output->height / output->render_scale, &local_x, &local_y);
     struct wlr_scene_surface *scene_surface = node && node->type == WLR_SCENE_NODE_BUFFER
         ? wlr_scene_surface_try_from_buffer(wlr_scene_buffer_from_node(node)) : NULL;
     struct wlr_surface *surface = scene_surface ? scene_surface->surface : NULL;
@@ -857,10 +866,10 @@ bool mdw_output_caret(MdwOutput *output, struct wlr_surface *surface, const stru
     if (!geometry.found || output->viewport_width <= 0 || output->viewport_height <= 0) return false;
     double x = (double)geometry.x + rect->x - output->scene_output->x;
     double y = (double)geometry.y + rect->y - output->scene_output->y;
-    caret[0] = x * output->scale / output->viewport_width;
-    caret[1] = y * output->scale / output->viewport_height;
-    caret[2] = (x + rect->width) * output->scale / output->viewport_width;
-    caret[3] = (y + rect->height) * output->scale / output->viewport_height;
+    caret[0] = x * output->render_scale / output->viewport_width;
+    caret[1] = y * output->render_scale / output->viewport_height;
+    caret[2] = (x + rect->width) * output->render_scale / output->viewport_width;
+    caret[3] = (y + rect->height) * output->render_scale / output->viewport_height;
     return true;
 }
 

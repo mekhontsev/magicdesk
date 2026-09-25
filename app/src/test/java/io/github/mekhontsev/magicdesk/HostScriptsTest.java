@@ -132,8 +132,9 @@ public final class HostScriptsTest {
         expected.add("x11_density_settings_test:cwd");
         expected.add("hosted_graphics_test:--software");
         expected.add("hosted_fd_stream_test:cwd");
+        expected.add("hosted_window_size_test:cwd");
         assertEquals(expected, Files.readAllLines(fixture.log));
-        assertTrue(result.output.contains("verified (20 runs)"));
+        assertTrue(result.output.contains("verified (21 runs)"));
         assertEmptyDirectory(fixture.output);
     }
 
@@ -150,7 +151,7 @@ public final class HostScriptsTest {
         final var testResult = nativeVerifier(testFailure, "fragmented", false);
         assertEquals(testResult.output, 9, testResult.exitCode);
         assertEquals(6, Files.readAllLines(testFailure.log).size());
-        assertTrue(!testResult.output.contains("verified (20 runs)"));
+        assertTrue(!testResult.output.contains("verified (21 runs)"));
         assertEmptyDirectory(testFailure.output);
 
         final var inputFailure = nativeVerifierFixture();

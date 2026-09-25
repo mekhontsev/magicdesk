@@ -50,6 +50,9 @@ done
 graphics="$project_dir/hosted-runtime/src/main/cpp/graphics"
 "$compiler" -std=c17 -O2 -Wall -Wextra -Werror -UNDEBUG \
     -I"$project_dir/hosted-runtime/src/main/cpp" \
+    "$project_dir/hosted-runtime/tests/native/window_size.c" -lm -o "$work/hosted_window_size_test"
+"$compiler" -std=c17 -O2 -Wall -Wextra -Werror -UNDEBUG \
+    -I"$project_dir/hosted-runtime/src/main/cpp" \
     "$project_dir/hosted-runtime/tests/native/fd_stream.c" \
     "$project_dir/hosted-runtime/src/main/cpp/fd_stream.c" -o "$work/hosted_fd_stream_test"
 "$compiler" -std=c17 -D_GNU_SOURCE -DMDG_PORTABLE_TEST -O2 -Wall -Wextra -Werror -UNDEBUG \
@@ -76,4 +79,5 @@ timeout --kill-after=2s 15s ./x11_window_icon_test
 timeout --kill-after=2s 15s ./x11_density_settings_test
 timeout --kill-after=2s 15s ./hosted_graphics_test --software
 timeout --kill-after=2s 15s ./hosted_fd_stream_test
-printf 'Native host fixtures verified (20 runs).\n'
+timeout --kill-after=2s 15s ./hosted_window_size_test
+printf 'Native host fixtures verified (21 runs).\n'
