@@ -15,6 +15,64 @@ import java.util.Set;
 
 public final class ShellFullscreenTaskPlanesTest {
     @Test
+    public void visibleFullscreenBackgroundRemainsEligibleBelowFreeform() throws Exception {
+        verifyPlaneFocusability("""
+                addPlaneFocusabilityOperations(api, transaction, planes, 30,
+                        new MixedStackOrder(30, 99, 20, new int[] {30}, false));
+                check(api.calls.equals(List.of("20:true", "10:false")),
+                        "freeform activation disabled its visible fullscreen background");
+                """);
+    }
+
+    @Test
+    public void homeBackedFreeformDoesNotEnableConcealedFullscreenPeers() throws Exception {
+        verifyPlaneFocusability("""
+                addPlaneFocusabilityOperations(api, transaction, planes, 30,
+                        new MixedStackOrder(30, 99, -1, new int[] {30}, false));
+                check(api.calls.equals(List.of("10:false", "20:false")),
+                        "freeform above HOME enabled a concealed fullscreen task");
+                """);
+    }
+
+    @Test
+    public void fullscreenSelectionEnablesDestinationBeforeDisablingPeers() throws Exception {
+        verifyPlaneFocusability("""
+                addPlaneFocusabilityOperations(api, transaction, planes, 20, null);
+                check(api.calls.equals(List.of("20:true", "10:false")),
+                        "fullscreen selection lost destination-first eligibility");
+                api.calls.clear();
+                addPlaneFocusabilityOperations(api, transaction, planes, 10,
+                        new MixedStackOrder(10, 99, 10, new int[] {30}, true));
+                check(api.calls.equals(List.of("10:true", "20:false")),
+                        "mixed activation enabled a covered fullscreen peer");
+                """);
+    }
+
+    private static void verifyPlaneFocusability(final String scenario) throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class TaskDisplayAreaHandle {
+                    final int id;
+                    TaskDisplayAreaHandle(int id) { this.id = id; }
+                    Object token() { return id; }
+                }
+                static class FrameworkWindowingApi {
+                    final List<String> calls = new ArrayList<>();
+                    void setFocusable(Object transaction, Object token, boolean value) {
+                        calls.add(token + ":" + value);
+                    }
+                }
+                public static void verify() throws Exception {
+                    final FrameworkWindowingApi api = new FrameworkWindowingApi();
+                    final Object transaction = new Object();
+                    final Map<Integer, TaskDisplayAreaHandle> planes = new LinkedHashMap<>();
+                    planes.put(10, new TaskDisplayAreaHandle(10));
+                    planes.put(20, new TaskDisplayAreaHandle(20));
+                """ + scenario + "}\n"
+                + RuntimeSourceFixture.nestedClass("ShellFullscreenTaskPlanes", "MixedStackOrder")
+                + RuntimeSourceFixture.methods("ShellFullscreenTaskPlanes", "addPlaneFocusabilityOperations"));
+    }
+
+    @Test
     public void createsAnchorBeforePublishingAnOrganizerPlane() throws Exception {
         final String source = RuntimeSourceFixture.methods("ShellFullscreenTaskPlanes", "acquirePlane");
         final int launch = source.indexOf(".launchFullscreenTaskBehind(");

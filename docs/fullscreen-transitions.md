@@ -197,6 +197,13 @@ its complete fullscreen residency. The plane's organizer leash retains a
 stable surface-order identity, so selection can change z-order without an
 application-visible lifecycle, mode, bounds, or parent change.
 
+The visible fullscreen background remains focusable beneath freeform windows.
+Focusability controls Android Activity resume eligibility, not the selected
+keyboard target; the foreground freeform task still owns input. Covered
+fullscreen peers, idle slots and planes concealed by desktop presentation remain
+non-focusable. Native caption minimize/close can therefore return to the exposed
+application without an additional MagicDesk activation command.
+
 The same topology is used on phone, simulated, wired, and wireless targets.
 `PhoneHomeActivity` remains primary HOME in Android's default task area;
 ordinary freeform tasks share the standard root workspace, while fullscreen

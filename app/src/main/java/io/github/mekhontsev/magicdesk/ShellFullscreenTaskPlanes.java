@@ -929,30 +929,10 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 windowing.reparent(
                         transaction, taskToken, planeToken, true);
             }
-            final boolean workspaceForeground = mixedOrder != null
-                    && !mixedOrder.fullscreenForeground;
             final int focusTargetTaskId = requestedTaskIds[
                     requestedTaskIds.length - 1];
-            // Exactly one fullscreen plane participates in focus selection;
-            // covered planes remain visible and retain their fullscreen mode.
-            final TaskDisplayAreaHandle focusPlane = effectivePlanes.get(
-                    Integer.valueOf(focusTargetTaskId));
-            if (!workspaceForeground && focusPlane != null) {
-                // Make the destination eligible before suppressing the old
-                // plane, so focus never has to fall through to desktop HOME.
-                windowing.setFocusable(
-                        transaction, focusPlane.token(), true);
-            }
-            for (final Map.Entry<Integer, TaskDisplayAreaHandle> entry
-                    : effectivePlanes.entrySet()) {
-                if (entry.getKey().intValue() == focusTargetTaskId) {
-                    continue;
-                }
-                windowing.setFocusable(
-                        transaction,
-                        entry.getValue().token(),
-                        false);
-            }
+            addPlaneFocusabilityOperations(windowing, transaction, effectivePlanes,
+                    focusTargetTaskId, mixedOrder);
             if (forceEnteringFullscreen && !launchEnteringTask) {
                 final Object taskToken = HiddenTaskApi.requireTaskToken(
                         service, displayId, enteringTaskId);
@@ -1404,6 +1384,29 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         // A freeform focus or plane release does not demote that background.
         return planesBelowWorkspace || committedPlaneOrder.isEmpty()
                 ? -1 : committedPlaneOrder.get(committedPlaneOrder.size() - 1);
+    }
+
+    private static void addPlaneFocusabilityOperations(
+            final FrameworkWindowingApi windowing,
+            final Object transaction,
+            final Map<Integer, TaskDisplayAreaHandle> planes,
+            final int targetTaskId,
+            final MixedStackOrder mixedOrder) throws ReflectiveOperationException {
+        // Eligibility is not selection: the visible fullscreen background must
+        // remain resumable beneath freeform windows, including native caption
+        // minimize/close paths which do not issue a MagicDesk workspace command.
+        final int eligibleTaskId = mixedOrder == null
+                ? targetTaskId : mixedOrder.fullscreenTaskId;
+        final TaskDisplayAreaHandle eligiblePlane = planes.get(eligibleTaskId);
+        if (eligiblePlane != null) {
+            // Enable the destination before suppressing covered peers.
+            windowing.setFocusable(transaction, eligiblePlane.token(), true);
+        }
+        for (final Map.Entry<Integer, TaskDisplayAreaHandle> entry : planes.entrySet()) {
+            if (entry.getKey().intValue() != eligibleTaskId) {
+                windowing.setFocusable(transaction, entry.getValue().token(), false);
+            }
+        }
     }
 
     private static void addOrderOperations(
