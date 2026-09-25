@@ -1323,6 +1323,10 @@ by this foundation.
   resizes replace it instead of triggering a resize back to the work area.
   A bounds-command completion releases its pending state even if Android
   constrained the requested rectangle or the next observation missed it.
+  Confirmed geometry is distinct from requested arrangement. The task retains
+  its last observation with the display, native stable area and shell work area;
+  a new command invalidates confirmation without forgetting the consumed sample.
+  Repeated samples do not replay a native correction or undo a restoration.
 - `PhoneTouchpadReconciler` keeps the requested phone touchpad visible after
   display changes without overriding visible phone tasks. It raises an existing
   touchpad task before starting a replacement and treats restoration as pending
@@ -3987,10 +3991,15 @@ MagicDesk operates on exact task IDs. Windowed launches and restores use native
 WMShell desktop transitions when available. Snap and maximize reserve the
 MagicDesk taskbar; true fullscreen does not.
 
-Native caption controls remain opaque: observing full-height freeform bounds
-can trigger vertical work-area correction, but does not identify a button press
-or imply a maximize/restore toggle. Ordinary move and resize observations do
-not submit a corrective transaction. Win+Down restores fullscreen first, then
+Native caption controls remain opaque. A new full-height freeform observation
+can trigger vertical work-area correction. A transition from confirmed full
+work-area bounds to full native stable bounds, with both areas unchanged, is
+adapted to restore the shared pre-maximize rectangle. This is a geometry policy,
+not a caption-click callback; another external resize with identical geometry
+is indistinguishable. Own pending commands, half snaps, visibility/mode changes
+and changes of display or work area do not establish this restore sequence.
+Explicit MCP and Linux maximize requests remain idempotent. Ordinary move and
+resize observations do not submit a corrective transaction. Win+Down restores fullscreen first, then
 the saved freeform geometry for an arranged window, and demotes an ordinary
 window with no remaining restore history.
 

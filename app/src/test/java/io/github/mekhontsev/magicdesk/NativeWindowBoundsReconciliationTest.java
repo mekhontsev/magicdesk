@@ -44,7 +44,7 @@ public final class NativeWindowBoundsReconciliationTest {
                 Dispatch d = new Dispatch(f);
                 for (int row : new int[]{0, -1, 0, 1}) {
                     d.snap(f.task, true, row);
-                    check(f.state().manualImmersiveOverride, "snap did not retain windowed preference");
+                    check(f.state().hasManualImmersiveOverride(), "snap did not retain windowed preference");
                     Rect target = f.getSnappedBounds(true, row);
                     f.sample(target);
                     f.complete(true);
@@ -53,7 +53,7 @@ public final class NativeWindowBoundsReconciliationTest {
                     check(f.state().lastWindowBounds().equals(ordinary), "snap became ordinary geometry");
                 }
                 d.applyRestoreShortcut(f.task);
-                check(f.state().manualImmersiveOverride, "restore did not retain windowed preference");
+                check(f.state().hasManualImmersiveOverride(), "restore did not retain windowed preference");
                 check(f.requests.get(4).equals(ordinary), "restore did not use pre-snap geometry");
                 f.complete(true);
                 f.sample(ordinary);
@@ -160,6 +160,134 @@ public final class NativeWindowBoundsReconciliationTest {
                 f.sample(ordinary);
                 d.applyRestoreShortcut(f.task);
                 check(f.mRuntimeState.demotions == 1, "second Win+Down should demote");
+                """);
+    }
+
+    @Test
+    public void nativeMaximizeTogglesOnlyAfterWorkAreaWasObserved() throws Exception {
+        verify("""
+                f.sample(ordinary);
+                f.sample(display);
+                f.sample(display);
+                f.complete(true);
+                f.sample(display);
+                f.sample(display);
+                check(f.requests.size() == 1, "completion or duplicate sample toggled maximize");
+                f.sample(work);
+                f.sample(display);
+                check(f.requests.size() == 2 && f.requests.get(1).equals(ordinary), "confirmed maximize did not restore");
+                f.sample(display);
+                f.complete(true);
+                f.sample(display);
+                f.sample(display);
+                check(f.requests.size() == 2, "stale native geometry undid restore");
+                f.sample(ordinary);
+                f.sample(display);
+                check(f.requests.size() == 3 && f.requests.get(2).equals(work), "next maximize did not expand");
+                f.sample(work);
+                f.complete(true);
+                f.sample(display);
+                check(f.requests.get(3).equals(ordinary), "observation before callback failed to arm restore");
+                """);
+    }
+
+    @Test
+    public void restoredOrExplicitlyMaximizedWindowUsesTheSameNativeRestore() throws Exception {
+        verify("""
+                f.sample(ordinary);
+                Dispatch d = new Dispatch(f);
+                d.setMaximized(f.task, io.github.mekhontsev.magicdesk.hosted.HostedMaximization.BOTH, null);
+                f.complete(true); f.sample(work);
+                f.sample(display);
+                check(f.requests.get(1).equals(ordinary), "native restore lost explicit maximize history");
+                f.complete(true); f.sample(ordinary);
+                f.mTaskStates.states.clear();
+                f.sample(work);
+                Rect fallback = f.state().windowRestoreBounds();
+                f.sample(display);
+                check(f.requests.get(2).equals(fallback), "maximized launch cannot restore");
+                """);
+    }
+
+    @Test
+    public void areaChangesDoNotToggleAndManualResizeReplacesHistory() throws Exception {
+        verify("""
+                f.sample(ordinary); f.sample(work);
+                f.workArea = new Rect(0, 0, 1920, 980);
+                f.sample(display);
+                check(f.requests.get(0).equals(f.workArea), "work-area change was mistaken for restore");
+                f.complete(true); f.sample(f.workArea);
+                f.nativeArea = new Rect(0, 0, 1920, 1100);
+                f.sample(f.nativeArea);
+                check(f.requests.get(1).equals(f.workArea), "stable-area change was mistaken for restore");
+                f.complete(true); f.sample(f.workArea);
+                Rect resized = new Rect(100, 70, 1500, 850);
+                f.sample(resized); f.sample(f.nativeArea);
+                check(f.requests.get(2).equals(f.workArea), "manual resize was mistaken for restore");
+                f.complete(true); f.sample(f.workArea); f.sample(f.nativeArea);
+                check(f.requests.get(3).equals(resized), "manual resize did not replace restore history");
+                """);
+    }
+
+    @Test
+    public void observationsDoNotCrossVisibilityModeOrDisplayBoundaries() throws Exception {
+        verify("""
+                f.sample(ordinary); f.sample(work);
+                for (int boundary = 0; boundary < 4; boundary++) {
+                    f.task.visible = boundary != 0;
+                    f.task.fullscreen = boundary == 1;
+                    f.task.displayId = boundary == 2 ? 67 : 66;
+                    f.task.crossPackage = boundary == 3;
+                    f.sample(work);
+                    f.task.visible = true; f.task.fullscreen = false;
+                    f.task.displayId = 66; f.task.crossPackage = false;
+                    f.sample(display);
+                    check(f.requests.get(boundary).equals(work), "stale context toggled restore");
+                    f.complete(true); f.sample(work);
+                }
+                """);
+    }
+
+    @Test
+    public void explicitResizeAndFailedCorrectionDoNotBecomeNativeToggleLoops() throws Exception {
+        verify("""
+                f.sample(ordinary); f.sample(work);
+                f.requestBounds(f.task, display, false);
+                f.complete(true); f.sample(display);
+                check(f.requests.get(1).equals(work), "own resize was mistaken for restore");
+                f.complete(false);
+                f.sample(display); f.sample(display);
+                check(f.requests.size() == 2, "failed correction retried unchanged geometry");
+                f.sample(ordinary); f.sample(display);
+                check(f.requests.get(2).equals(work), "fresh external change cannot retry correction");
+                """);
+    }
+
+    @Test
+    public void observedCommandTargetAndCompletionUseTheSameCorrectionPath() throws Exception {
+        verify("""
+                f.sample(ordinary); f.sample(work);
+                f.requestBounds(f.task, display, false);
+                f.sample(display);
+                check(f.requests.size() == 2 && f.requests.get(1).equals(work), "early target observation bypassed correction");
+                f.complete(true);
+                check(f.state().boundsTransition() != null, "older completion cleared corrective request");
+                f.sample(work); f.complete(true); f.sample(display);
+                check(f.requests.get(2).equals(ordinary), "shared correction lost restore history");
+                """);
+    }
+
+    @Test
+    public void nativeHalfSnapFromMaximizedWindowDoesNotRestore() throws Exception {
+        verify("""
+                f.sample(ordinary); f.sample(work);
+                f.sample(new Rect(0, 0, 960, 1080));
+                check(f.requests.get(0).equals(new Rect(0, 0, 960, 1016)), "half snap became restore");
+                f.complete(true); f.sample(new Rect(0, 0, 960, 1016));
+                f.sample(display);
+                check(f.requests.get(1).equals(work), "half-to-maximize became restore");
+                f.complete(true); f.sample(work); f.sample(display);
+                check(f.requests.get(2).equals(ordinary), "snap/maximize chain lost original window");
                 """);
     }
 
@@ -280,35 +408,11 @@ public final class NativeWindowBoundsReconciliationTest {
                     boolean isEmpty() { return width() <= 0 || height() <= 0; }
                     public boolean equals(Object o) { return o instanceof Rect r && left==r.left && top==r.top && right==r.right && bottom==r.bottom; }
                 }
-                static class DesktopTaskRuntimeState {
-                    Rect mLastWindowBounds, mWindowRestoreBounds, mArrangedWindowBounds;
-                    Rect mPendingSnapBounds, mFullscreenRestoreBounds;
-                    enum FullscreenTransition { NONE, ENTERING, RESTORING }
-                    FullscreenTransition mFullscreenTransition = FullscreenTransition.NONE;
-                    BoundsTransition mBoundsTransition;
-                    static class BoundsTransition {
-                        final Rect target;
-                        final boolean preservesRestoreBounds;
-                        BoundsTransition(Rect target, boolean preserve) { this.target=copy(target); preservesRestoreBounds=preserve; }
-                        Rect targetBounds() { return copy(target); }
-                    }
-                    boolean manualImmersiveOverride;
-                    void setManualImmersiveOverride(boolean value) { manualImmersiveOverride = value; }
-                    void setAppRequestedFullscreen(boolean value) {}
-                """ + RuntimeSourceFixture.methods("DesktopTaskRuntimeState",
-                "lastWindowBounds", "setLastWindowBounds", "windowRestoreBounds",
-                "setWindowRestoreBounds", "clearWindowRestoreBounds", "beginBoundsTransition",
-                "boundsTransition", "isBoundsTransition", "clearBoundsTransition",
-                "arrangedWindowBounds", "setArrangedWindowBounds",
-                "pendingSnapBounds", "setPendingSnapBounds",
-                "fullscreenRestoreBounds", "setFullscreenRestoreBounds", "clearFullscreenRestoreBounds",
-                "beginFullscreenRestoreTransition", "beginFullscreenTransition",
-                "isFullscreenTransition", "finishFullscreenTransition",
-                "clearNativeBoundsState", "copy") + """
-                }
+                static class ActivityInfo { static final int SCREEN_ORIENTATION_UNSPECIFIED = -1; }
+                """ + "static " + RuntimeSourceFixture.nestedClass("DesktopTaskRuntimeState", "DesktopTaskRuntimeState") + """
                 static class States {
                     final Map<Integer, DesktopTaskRuntimeState> states = new HashMap<>();
-                    DesktopTaskRuntimeState state(int id) { return states.computeIfAbsent(id, k -> new DesktopTaskRuntimeState()); }
+                    DesktopTaskRuntimeState state(int id) { return states.computeIfAbsent(id, DesktopTaskRuntimeState::new); }
                     DesktopTaskRuntimeState find(int id) { return states.get(id); }
                     boolean isCurrent(int id, DesktopTaskRuntimeState state) { return states.get(id)==state; }
                 }
@@ -326,11 +430,12 @@ public final class NativeWindowBoundsReconciliationTest {
                         int taskId=50350, displayId=66;
                         boolean visible=true;
                         boolean fullscreen;
+                        boolean crossPackage;
                         Rect bounds;
-                        boolean isBoundedFreeform() { return true; }
+                        boolean isBoundedFreeform() { return !fullscreen; }
                         boolean isFullscreen() { return fullscreen; }
                         boolean isFreeform() { return !fullscreen; }
-                        boolean hasCrossPackageTopActivity() { return false; }
+                        boolean hasCrossPackageTopActivity() { return crossPackage; }
                     }
                     record ActionResult(boolean success, String message) {}
                     interface ActionCallback { void onComplete(ActionResult result); }

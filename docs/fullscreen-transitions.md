@@ -365,7 +365,22 @@ update that native notion of maximization. On RM11 Android 16 HDMI, a native
 double-click expands a 1920x1016 freeform task to 1920x1080, then our correction
 returns it to 1920x1016. The next double-click maximizes again instead of
 restoring. This is a work-area disagreement, not a fullscreen-plane or focus
-failure. Do not infer a restore request from an otherwise ordinary bounds event.
+failure.
+
+`NativeWindowBoundsController` adapts this sequence using the task's confirmed
+geometry and shared restore history. Only a new full-native-area observation
+following confirmed full-work-area bounds can restore, with the same display,
+stable area and work area. Own commands invalidate prior confirmation; their
+completion alone cannot re-arm the sequence. Repeated geometry is consumed once,
+including late samples of the native rectangle during restore. Half snaps retain
+their horizontal geometry, and ordinary moves/resizes replace restore history.
+Visibility loss, mode changes and cross-package Activity handoff invalidate the
+observation. Explicit maximize requests remain idempotent.
+
+This policy does not identify the caption action or prevent the native resize
+animation. An unrelated external resize with the same geometry is
+indistinguishable. It neither changes Android's own maximized state nor replaces
+the caption, transition handler or fullscreen-plane topology.
 
 A 2026-09-17 experiment inside the actual MagicDesk APK successfully published
 a visible global 64px bottom `navigationBars` source through `providedInsets`
@@ -381,9 +396,9 @@ only include navigation-bar insets when `hasNavigationBar` is true. That check
 uses display flags and the global force-desktop setting for external displays,
 not simply the presence of an inset provider. The tested HDMI display did not
 pass it. The experimental publisher was removed; enabling global system
-Desktop or changing application geometry is not an established fix. A future
-solution must reconcile native and MagicDesk work areas, including ordinary
-resize, taskbar visibility, and fullscreen, without guessing caption intent.
+Desktop is not an established way to reconcile the work areas. Publishing a
+native work area must also account for ordinary resize, taskbar visibility and
+fullscreen; the geometry adaptation above does not depend on that mechanism.
 
 ## Submission Constraints
 

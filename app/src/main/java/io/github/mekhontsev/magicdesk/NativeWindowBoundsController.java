@@ -181,10 +181,15 @@ final class NativeWindowBoundsController {
         final Rect nativeCaptionSnapArea = getNativeCaptionSnapArea();
         final Rect maximizedBounds = getTaskbarMaximizedBounds();
         for (final TaskRepository.TaskEntry task : tasks) {
-            if (task == null || task.displayId != displayId
+            if (task == null) {
+                continue;
+            }
+            if (task.displayId != displayId
                     || !DesktopManagedTaskPolicy
                             .isControllableApplicationTask(task)
                     || !task.isBoundedFreeform()) {
+                final DesktopTaskRuntimeState state = mTaskStates.find(task.taskId);
+                if (state != null) state.clearBoundsObservation();
                 continue;
             }
             final DesktopTaskRuntimeState state =
@@ -194,30 +199,48 @@ final class NativeWindowBoundsController {
                 state.clearNativeBoundsState();
                 continue;
             }
+            if (!task.visible || task.hasCrossPackageTopActivity()) {
+                state.clearBoundsObservation();
+                continue;
+            }
 
             final DesktopTaskRuntimeState.BoundsTransition transition =
                     state.boundsTransition();
             if (transition != null) {
-                if (task.bounds.equals(transition.targetBounds())) {
-                    state.clearBoundsTransition(transition);
-                    if (!transition.preservesRestoreBounds) {
-                        state.clearWindowRestoreBounds();
-                    }
-                    observeBounds(state, task.bounds,
-                            nativeCaptionSnapArea, maximizedBounds);
+                if (!task.bounds.equals(transition.targetBounds())) {
+                    continue;
                 }
-                continue;
-            }
-            if (!task.visible) {
-                continue;
+                state.clearBoundsTransition(transition);
+                if (!transition.preservesRestoreBounds) {
+                    state.clearWindowRestoreBounds();
+                }
             }
 
+            final DesktopTaskRuntimeState.BoundsObservation previous =
+                    state.observeBounds(displayId, task.bounds,
+                            nativeCaptionSnapArea, maximizedBounds);
             final Rect correctedSnapBounds =
                     correctNativeCaptionSnapBounds(
                             task.bounds,
                             nativeCaptionSnapArea,
                             maximizedBounds);
             if (correctedSnapBounds != null) {
+                // Consume geometry changes once, including samples queued before
+                // a resize completion. Command completion is not an observation.
+                if (previous != null && previous.matches(displayId, task.bounds,
+                        nativeCaptionSnapArea, maximizedBounds)) {
+                    continue;
+                }
+                final Rect restore = state.windowRestoreBounds();
+                if (restore != null && task.bounds.equals(nativeCaptionSnapArea)
+                        && previous != null && previous.confirms(displayId,
+                                maximizedBounds, nativeCaptionSnapArea, maximizedBounds)) {
+                    // Native captions compare against Android's stable area, not
+                    // our work area. Only a confirmed full maximize can toggle;
+                    // half snaps and changes of work area remain ordinary resizes.
+                    requestBounds(task, restore, false);
+                    continue;
+                }
                 // Some native caption menus divide Android's stable area and
                 // ignore the MagicDesk taskbar. Preserve Android's horizontal
                 // result, including application minimum width, and reserve
@@ -225,9 +248,6 @@ final class NativeWindowBoundsController {
                 rememberRestoreBounds(state, task.bounds,
                         nativeCaptionSnapArea, maximizedBounds);
                 requestBounds(task, correctedSnapBounds, true);
-                continue;
-            }
-            if (task.hasCrossPackageTopActivity()) {
                 continue;
             }
             observeBounds(state, task.bounds,

@@ -27,10 +27,52 @@ final class DesktopTaskRuntimeState {
         }
     }
 
+    static final class BoundsObservation {
+        private final int mDisplayId;
+        private final Rect mBounds;
+        private final Rect mNativeArea;
+        private final Rect mWorkArea;
+        private final boolean mConfirmed;
+
+        BoundsObservation(final int displayId, final Rect bounds,
+                final Rect nativeArea, final Rect workArea) {
+            mDisplayId = displayId;
+            mBounds = copy(bounds);
+            mNativeArea = copy(nativeArea);
+            mWorkArea = copy(workArea);
+            mConfirmed = true;
+        }
+
+        private BoundsObservation(final BoundsObservation source) {
+            // Geometry is immutable and can be retained across a command boundary.
+            mDisplayId = source.mDisplayId;
+            mBounds = source.mBounds;
+            mNativeArea = source.mNativeArea;
+            mWorkArea = source.mWorkArea;
+            mConfirmed = false;
+        }
+
+        boolean matches(final int displayId, final Rect bounds,
+                final Rect nativeArea, final Rect workArea) {
+            return mDisplayId == displayId && mBounds.equals(bounds)
+                    && mNativeArea.equals(nativeArea) && mWorkArea.equals(workArea);
+        }
+
+        boolean confirms(final int displayId, final Rect bounds,
+                final Rect nativeArea, final Rect workArea) {
+            return mConfirmed && matches(displayId, bounds, nativeArea, workArea);
+        }
+
+        BoundsObservation invalidated() {
+            return mConfirmed ? new BoundsObservation(this) : this;
+        }
+    }
+
     private final int mTaskId;
 
     private Rect mLastWindowBounds;
     private BoundsTransition mBoundsTransition;
+    private BoundsObservation mBoundsObservation;
     private Rect mWindowRestoreBounds;
     private Rect mArrangedWindowBounds;
     private Rect mPendingSnapBounds;
@@ -67,6 +109,9 @@ final class DesktopTaskRuntimeState {
             final boolean preservesRestoreBounds) {
         mBoundsTransition = new BoundsTransition(
                 targetBounds, preservesRestoreBounds);
+        if (mBoundsObservation != null) {
+            mBoundsObservation = mBoundsObservation.invalidated();
+        }
         return mBoundsTransition;
     }
 
@@ -89,6 +134,20 @@ final class DesktopTaskRuntimeState {
     synchronized void clearNativeBoundsState() {
         mLastWindowBounds = null;
         mBoundsTransition = null;
+        clearBoundsObservation();
+    }
+
+    synchronized BoundsObservation observeBounds(final int displayId,
+            final Rect bounds, final Rect nativeArea, final Rect workArea) {
+        final BoundsObservation previous = mBoundsObservation;
+        if (previous == null || !previous.confirms(displayId, bounds, nativeArea, workArea)) {
+            mBoundsObservation = new BoundsObservation(displayId, bounds, nativeArea, workArea);
+        }
+        return previous;
+    }
+
+    synchronized void clearBoundsObservation() {
+        mBoundsObservation = null;
     }
 
     synchronized Rect windowRestoreBounds() {
