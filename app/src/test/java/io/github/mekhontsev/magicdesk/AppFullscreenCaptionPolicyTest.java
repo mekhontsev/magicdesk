@@ -23,6 +23,13 @@ public final class AppFullscreenCaptionPolicyTest {
     private static void verifyObserver(boolean enabled) throws Exception {
         RuntimeSourceFixture.verify("""
                 static class Rect {}
+                static class ShellDesktopFocusController {
+                    int begun, closed, active;
+                    final class FocusTransfer implements AutoCloseable {
+                        public void close() { closed++; active--; }
+                    }
+                    FocusTransfer beginFocusTransfer() { begun++; active++; return new FocusTransfer(); }
+                }
                 static class Ownership { void markDesktop(int task) { check(task == 42, "wrong task"); } }
                 class Area {
                     boolean beginAppFullscreen(Object service, int display, int task, Rect bounds,
@@ -30,18 +37,22 @@ public final class AppFullscreenCaptionPolicyTest {
                         check(service == mService && display == 4 && task == 42, "entry identity changed");
                         check(bounds == restore && density == 240, "entry geometry changed");
                         check(refresh == policy, "application entry bypassed session caption policy");
+                        check(mFocusController.active == 1, "entry escaped focus transfer");
                         calls++;
                         return true;
                     }
                 }
                 final Object mService = new Object();
                 final Ownership mDesktopOwnership = new Ownership();
+                final ShellDesktopFocusController mFocusController = new ShellDesktopFocusController();
                 final Area mFullscreenTaskArea = new Area();
                 final Rect restore = new Rect();
                 int mConfiguredDisplayId = 4, calls;
                 boolean mClosed, policy;
                 boolean refreshFullscreenCaption() { return policy; }
-                void reportDesktopTaskOwnership() {}
+                void reportDesktopTaskOwnership() {
+                    check(mFocusController.active == 1, "ownership published outside focus transfer");
+                }
                 public static void verify() {
                     Fixture f = new Fixture();
                 """ + "f.policy = " + enabled + ";\n" + """
@@ -51,6 +62,8 @@ public final class AppFullscreenCaptionPolicyTest {
                     f.mClosed = true;
                     check(!f.beginAppFullscreenTask(4, 42, f.restore, 240), "closed observer accepted");
                     check(f.calls == 1, "rejected entry mutated task");
+                    check(f.mFocusController.begun == 1 && f.mFocusController.closed == 1
+                            && f.mFocusController.active == 0, "entry leaked or repeated focus transfer");
                 }
                 """ + RuntimeSourceFixture.methods("ShellTaskObserver", "beginAppFullscreenTask"));
     }

@@ -14,7 +14,7 @@ public final class OwnedFocusFailureTest {
                     static Object requireTask(Object service, int display, int task) throws ReflectiveOperationException { return task; }
                     static int getTaskWindowingMode(Object task) { return 1; }
                 }
-                static int ownedSubmissions, rawSubmissions, samples;
+                static int ownedSubmissions, rawSubmissions, samples, transfers, releases;
                 static class FrameworkWindowCommitBarrier {
                     static void awaitSystemTransitions() { throw new AssertionError("barrier after failed submission"); }
                 }
@@ -42,7 +42,11 @@ public final class OwnedFocusFailureTest {
                 }
                 static class ShellDesktopFocusController {
                     static class CommitBarrier {}
-                    CommitBarrier captureCommitBarrier() { return new CommitBarrier(); }
+                    static class FocusTransfer implements AutoCloseable {
+                        final CommitBarrier barrier = new CommitBarrier();
+                        public void close() { releases++; }
+                    }
+                    FocusTransfer beginFocusTransfer() { transfers++; return new FocusTransfer(); }
                     boolean convergeAfterCommit(int task, CommitBarrier barrier, Runnable requester) { throw new AssertionError("convergence after failed submission"); }
                     boolean convergeTaskAfterCommit(int task, CommitBarrier barrier) { throw new AssertionError("convergence after failed submission"); }
                 }
@@ -61,6 +65,7 @@ public final class OwnedFocusFailureTest {
                     check(ownedSubmissions == 1, "owned transaction count changed");
                     check(rawSubmissions == 0, "failed owner authorized raw fallback");
                     check(samples == 0, "failed owner requested convergence");
+                    check(transfers == 1 && releases == 1, "failed owner leaked focus transfer");
                     check(result.error.contains("owned submission failed"), "owner failure was replaced");
                 }
                 """ + RuntimeSourceFixture.methods("ShellDesktopWorkspaceCoordinator",

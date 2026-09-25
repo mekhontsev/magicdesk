@@ -19,6 +19,8 @@ public final class DesktopFocusVerificationTest {
                         boolean inputWindowEventsAvailable) {}
                 static class ShellDesktopFocusController {
                     final Object mPendingLock = new Object();
+                    final Set<Integer> mRemovingTasks = new HashSet<>();
+                    final FocusObservation mFocusObservation = new FocusObservation();
                     java.util.function.BooleanSupplier mRepairEnabled = () -> false;
                     final FrameworkInputWindowObservationSource mInputWindowObservations =
                             new FrameworkInputWindowObservationSource();
@@ -27,7 +29,8 @@ public final class DesktopFocusVerificationTest {
                     int mPendingFocusedTaskId = -1, mFocusConfirmationTaskId = -1;
                     boolean mAcceptingEvents = true, mPendingConfirmationRequested, mDrainScheduled;
                     void drainFocusChanges() {}
-                """ + RuntimeSourceFixture.methods("ShellDesktopFocusController",
+                """ + RuntimeSourceFixture.nestedClass("ShellDesktopFocusController", "FocusObservation")
+                + RuntimeSourceFixture.methods("ShellDesktopFocusController",
                 "captureCommitBarrier", "enqueueFocusReconciliation") + """
                 }
                 public static void verify() {
@@ -38,6 +41,14 @@ public final class DesktopFocusVerificationTest {
                         check(barrier.taskSampleGeneration == 11, "task checkpoint lost");
                         check(barrier.inputWindowGeneration == 17 && barrier.inputWindowEventsAvailable,
                                 "repair policy disconnected input commit events");
+                        controller.mFocusObservation.beginTransfer();
+                        controller.enqueueFocusReconciliation(42, true);
+                        check(controller.mExecutor.submissions == 0, "repair raced explicit transfer");
+                        controller.mFocusObservation.endTransfer();
+                        controller.mRemovingTasks.add(42);
+                        controller.enqueueFocusReconciliation(42, true);
+                        check(controller.mExecutor.submissions == 0, "removing task scheduled repair");
+                        controller.mRemovingTasks.clear();
                         controller.enqueueFocusReconciliation(42, true);
                         check(controller.mExecutor.submissions == (repair ? 1 : 0),
                                 "disabled repair scheduled background work");
@@ -89,8 +100,8 @@ public final class DesktopFocusVerificationTest {
                         homeTarget, repairSucceeds;
                 static int probes, repairs, reorders, samples;
                 void clearConfigurationOnWorker() { mDisplayId = -1; }
-                boolean awaitTaskSample(long generation) throws InterruptedException { return sampleReady; }
-                boolean awaitCommittedInputFocus(int display, int task, long generation, boolean events)
+                boolean awaitTaskSample(long generation, CommitTarget target) throws InterruptedException { return sampleReady; }
+                boolean awaitCommittedInputFocus(int display, int task, long generation, boolean events, CommitTarget target)
                         throws IOException, InterruptedException {
                     probes++; return focused;
                 }
@@ -99,13 +110,14 @@ public final class DesktopFocusVerificationTest {
                 long inputWindowGeneration() { return 1; }
                 long inputFocusRefreshGeneration() { return 1; }
                 long taskSampleGeneration() { return 1; }
-                boolean awaitInputFocusRefresh(int task, long generation) { return true; }
-                boolean repairMissingInputTarget(int display, int task, Object raw) {
+                boolean awaitInputFocusRefresh(int task, long generation, CommitTarget target) { return true; }
+                boolean repairMissingInputTarget(int display, int task, Object raw, CommitTarget target) {
                     repairs++; focused = repairSucceeds; return true;
                 }
                 public static void verify() {
                     final Fixture fixture = new Fixture();
                     final CommitBarrier barrier = new CommitBarrier(0, 0, true);
+                    final CommitTarget target = new CommitTarget(42);
                     final Runnable requestSample = () -> samples++;
                     for (boolean repair : new boolean[]{false, true}) {
                         fixture.mRepairEnabled = () -> repair;
@@ -115,45 +127,55 @@ public final class DesktopFocusVerificationTest {
                             homeTarget = home;
                             focused = true;
                             probes = repairs = reorders = samples = 0;
-                            check(fixture.convergeAfterCommitOnWorker(42, barrier, requestSample),
+                            check(fixture.convergeAfterCommitOnWorker(target, barrier, requestSample),
                                     "confirmed input rejected");
                             check(probes == 1 && repairs == 0 && samples == 0,
                                     "consistent focus needs only verification");
                             focused = false;
                             repairSucceeds = true;
-                            check(fixture.convergeAfterCommitOnWorker(42, barrier, requestSample) == repair,
+                            check(fixture.convergeAfterCommitOnWorker(target, barrier, requestSample) == repair,
                                     "missing input acknowledged without repair");
                             check(repairs == (repair ? 1 : 0), "repair ignored its policy");
                             check(samples == (repair ? 1 : 0), "verification-only path resampled");
                             check(reorders == 0, "unnecessary hierarchy repair");
                         }
                         taskExists = false;
-                        check(!fixture.convergeAfterCommitOnWorker(42, barrier, requestSample),
+                        check(!fixture.convergeAfterCommitOnWorker(target, barrier, requestSample),
                                 "missing task acknowledged");
                         taskExists = true;
                         focused = true;
                         sampleReady = false;
                         probes = 0;
-                        check(!fixture.convergeAfterCommitOnWorker(42, barrier, requestSample),
+                        check(!fixture.convergeAfterCommitOnWorker(target, barrier, requestSample),
                                 "unobserved task commit acknowledged");
                         check(probes == 0, "input checked before task commit");
-                        check(!fixture.convergeTaskAfterCommitOnWorker(42, barrier),
+                        check(!fixture.convergeTaskAfterCommitOnWorker(target, barrier),
                                 "unobserved structural commit acknowledged");
                         sampleReady = true;
                         taskVisible = false;
-                        check(!fixture.convergeTaskAfterCommitOnWorker(42, barrier),
+                        check(!fixture.convergeTaskAfterCommitOnWorker(target, barrier),
                                 "invisible structural target acknowledged");
                         taskVisible = true;
-                        check(fixture.convergeTaskAfterCommitOnWorker(42, barrier),
+                        check(fixture.convergeTaskAfterCommitOnWorker(target, barrier),
                                 "visible committed structural target rejected");
+                        target.cancelled = true;
+                        probes = repairs = reorders = samples = 0;
+                        check(!fixture.convergeAfterCommitOnWorker(target, barrier, requestSample),
+                                "cancelled input target acknowledged");
+                        check(!fixture.convergeTaskAfterCommitOnWorker(target, barrier),
+                                "cancelled structural target acknowledged");
+                        check(probes == 0 && repairs == 0 && reorders == 0 && samples == 0,
+                                "cancelled target performed convergence work");
+                        target.cancelled = false;
                         fixture.configureOnWorker(-1);
-                        check(!fixture.convergeAfterCommitOnWorker(42, barrier, requestSample),
+                        check(!fixture.convergeAfterCommitOnWorker(target, barrier, requestSample),
                                 "inactive focus controller acknowledged success");
-                        check(!fixture.convergeTaskAfterCommitOnWorker(42, barrier),
+                        check(!fixture.convergeTaskAfterCommitOnWorker(target, barrier),
                                 "inactive structural controller acknowledged success");
                     }
                 }
-                """ + RuntimeSourceFixture.methods("ShellDesktopFocusController",
+                """ + RuntimeSourceFixture.nestedClass("ShellDesktopFocusController", "CommitTarget")
+                + RuntimeSourceFixture.methods("ShellDesktopFocusController",
                 "configureOnWorker", "convergeAfterCommitOnWorker",
                 "convergeTaskAfterCommitOnWorker"));
     }

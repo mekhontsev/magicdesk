@@ -110,6 +110,6 @@ public final class FullscreenSubmissionRegressionTest {
                 public static void verify() throws Exception {
                     Fixture f = new Fixture();
                 """ + scenario + "}\n" + RuntimeSourceFixture.methods(
-                "ShellFullscreenTaskPlanes", "applyStableOrder"));
+                "ShellFullscreenTaskPlanes", "applyStableOrder", "addPlaneFocusabilityOperations"));
     }
 }
