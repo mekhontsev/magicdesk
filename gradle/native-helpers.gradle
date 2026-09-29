@@ -115,6 +115,38 @@ def processSignalTask = registerNativeHelper(
 def guestFilesTask = registerNativeHelper(
         'buildMagicDeskGuestFiles', 'magicdesk_guest_files.c', 'libmagicdesk_guest_files.so', true)
 
+def cmakeAndroidTarget = {
+    def compiler = resolveNativeCompilerCommand()
+    termuxCompiler?.isFile() ? [
+            "-DCMAKE_C_COMPILER=${compiler[0]}", "-DCMAKE_ASM_COMPILER=${compiler[0]}",
+            "-DCMAKE_C_FLAGS=${compiler[1]}", "-DCMAKE_ASM_FLAGS=${compiler[1]}",
+            '-DCMAKE_EXE_LINKER_FLAGS=-fno-termux-rpath'
+    ] : [
+            "-DCMAKE_TOOLCHAIN_FILE=${findNdkHomes()[0]}/build/cmake/android.toolchain.cmake",
+            '-DANDROID_ABI=arm64-v8a', "-DANDROID_PLATFORM=android-${android.defaultConfig.minSdk}"
+    ]
+}
+
+def guestBuild = layout.buildDirectory.dir('guestRuntime').get().asFile
+def configureGuest = tasks.register('configureGuestRuntime', Exec) {
+    inputs.file rootProject.file('native/guest-runtime/CMakeLists.txt')
+    inputs.property 'nativeTarget', nativeTarget
+    outputs.file new File(guestBuild, 'build.ninja')
+    doFirst {
+        commandLine(['cmake', '-S', rootProject.file('native/guest-runtime'), '-B', guestBuild,
+                '-G', 'Ninja'] + cmakeAndroidTarget())
+    }
+}
+def buildGuest = tasks.register('buildGuestRuntime', Exec) {
+    dependsOn configureGuest
+    commandLine 'cmake', '--build', guestBuild, '--parallel', '2'
+}
+def packageGuest = tasks.register('packageGuestRuntime', Copy) {
+    dependsOn buildGuest
+    from(guestBuild) { include 'libmagicdesk_guest_bootstrap.so', 'libmagicdesk_guest_run.so', 'libmagicdesk_guest_service.so' }
+    into new File(nativeOutputRoot, 'arm64-v8a')
+}
+
 def settingsBuild = layout.buildDirectory.dir('linuxSettings').get().asFile
 def settingsLicenses = layout.buildDirectory.dir('linuxSettingsLicenses').get().asFile
 android.sourceSets.main.assets.srcDir settingsLicenses
@@ -122,18 +154,10 @@ def configureSettings = tasks.register('configureLinuxSettings', Exec) {
     inputs.files rootProject.fileTree('native/linux-settings')
     outputs.file new File(settingsBuild, 'build.ninja')
     doFirst {
-        def compiler = resolveNativeCompilerCommand()
         def localMeson = rootProject.file('build/wayland-tools/bin/meson')
         def meson = providers.gradleProperty('magicDeskMeson').orElse(localMeson.isFile() ? localMeson.path : 'meson').get()
-        def target = termuxCompiler?.isFile() ? [
-                "-DCMAKE_C_COMPILER=${compiler[0]}", "-DCMAKE_C_FLAGS=${compiler[1]}",
-                '-DCMAKE_EXE_LINKER_FLAGS=-fno-termux-rpath'
-        ] : [
-                "-DCMAKE_TOOLCHAIN_FILE=${findNdkHomes()[0]}/build/cmake/android.toolchain.cmake",
-                '-DANDROID_ABI=arm64-v8a', "-DANDROID_PLATFORM=android-${android.defaultConfig.minSdk}"
-        ]
         commandLine(['cmake', '-S', rootProject.file('native/linux-settings'), '-B', settingsBuild,
-                '-G', 'Ninja', "-DMESON=${meson}"] + target)
+                '-G', 'Ninja', "-DMESON=${meson}"] + cmakeAndroidTarget())
     }
 }
 def buildSettings = tasks.register('buildLinuxSettings', Exec) {
@@ -152,5 +176,5 @@ def packageSettingsLicenses = tasks.register('packageLinuxSettingsLicenses', Syn
 }
 
 tasks.named('preBuild').configure {
-    dependsOn uinputTask, ptyTask, serviceTask, processSignalTask, guestFilesTask, packageSettings, packageSettingsLicenses
+    dependsOn uinputTask, ptyTask, serviceTask, processSignalTask, guestFilesTask, packageGuest, packageSettings, packageSettingsLicenses
 }

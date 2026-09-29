@@ -16,6 +16,7 @@ final class LinuxEnvironmentPicker extends LinearLayout {
     private final LinearLayout prootFields;
     private final LinearLayout scriptFields;
     private final EditText script;
+    private final TextView scriptTitle;
     private final EditText keyboard;
     private final LinearLayout keyboardFields;
     private final Spinner choices;
@@ -25,6 +26,8 @@ final class LinuxEnvironmentPicker extends LinearLayout {
     private int generation;
     private boolean active;
     private DesktopExecBackend backend = DesktopExecBackend.TERMUX;
+    private List<LinuxLaunchRecipe.Kind> kinds = List.of(LinuxLaunchRecipe.Kind.PROOT, LinuxLaunchRecipe.Kind.SCRIPT);
+    private java.util.function.Consumer<LinuxLaunchRecipe.Kind> selectionChanged = kind -> { };
 
     LinuxEnvironmentPicker(Context context) {
         super(context);
@@ -34,10 +37,7 @@ final class LinuxEnvironmentPicker extends LinearLayout {
         methodTitle.setTextSize(12);
         addView(methodTitle);
         method = new Spinner(context);
-        var methods = ArrayAdapter.createFromResource(context, R.array.command_app_linux_methods,
-                android.R.layout.simple_spinner_item);
-        methods.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        method.setAdapter(methods);
+        updateMethods();
         addView(method, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
         prootFields = new LinearLayout(context);
         prootFields.setOrientation(VERTICAL);
@@ -53,7 +53,7 @@ final class LinuxEnvironmentPicker extends LinearLayout {
         prootFields.addView(status);
         scriptFields = new LinearLayout(context);
         scriptFields.setOrientation(VERTICAL);
-        TextView scriptTitle = new TextView(context);
+        scriptTitle = new TextView(context);
         scriptTitle.setText(R.string.command_app_linux_script);
         scriptTitle.setTextSize(12);
         scriptFields.addView(scriptTitle);
@@ -91,9 +91,23 @@ final class LinuxEnvironmentPicker extends LinearLayout {
     void setBackend(DesktopExecBackend value) {
         if (backend == value) return;
         backend = value;
-        if (value == DesktopExecBackend.SHELL) method.setSelection(1);
-        method.setEnabled(value == DesktopExecBackend.TERMUX);
+        kinds = value == DesktopExecBackend.SHELL
+                ? List.of(LinuxLaunchRecipe.Kind.SCRIPT, LinuxLaunchRecipe.Kind.GUEST)
+                : List.of(LinuxLaunchRecipe.Kind.PROOT, LinuxLaunchRecipe.Kind.SCRIPT);
+        updateMethods();
         if (active) load();
+    }
+
+    void onSelectionChanged(java.util.function.Consumer<LinuxLaunchRecipe.Kind> listener) {
+        selectionChanged = listener;
+    }
+
+    private void updateMethods() {
+        String[] labels = getResources().getStringArray(R.array.command_app_linux_methods);
+        var adapter = new ArrayAdapter<>(getContext(), android.R.layout.simple_spinner_item,
+                kinds.stream().map(kind -> labels[kind.ordinal()]).toList());
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        method.setAdapter(adapter);
     }
 
     void setGraphical(boolean graphical) {
@@ -102,9 +116,12 @@ final class LinuxEnvironmentPicker extends LinearLayout {
 
     private void load() {
         cancel();
-        boolean proot = method.getSelectedItemPosition() == 0;
+        var kind = kinds.get(Math.max(0, method.getSelectedItemPosition()));
+        boolean proot = kind == LinuxLaunchRecipe.Kind.PROOT;
         prootFields.setVisibility(proot ? View.VISIBLE : View.GONE);
         scriptFields.setVisibility(proot ? View.GONE : View.VISIBLE);
+        scriptTitle.setText(kind == LinuxLaunchRecipe.Kind.GUEST ? R.string.command_app_guest_store : R.string.command_app_linux_script);
+        selectionChanged.accept(kind);
         endpoint = backend == DesktopExecBackend.TERMUX ? TermuxIntegration.inspect(getContext()) : null;
         if (!proot) return;
         final int expected = generation;
@@ -134,8 +151,9 @@ final class LinuxEnvironmentPicker extends LinearLayout {
     }
 
     LinuxLaunchRecipe.Environment selected() {
-        if (method.getSelectedItemPosition() == 1)
-            return new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.SCRIPT, script.getText().toString(),
+        var kind = kinds.get(Math.max(0, method.getSelectedItemPosition()));
+        if (kind != LinuxLaunchRecipe.Kind.PROOT)
+            return new LinuxLaunchRecipe.Environment(kind, script.getText().toString(),
                     backend, keyboard.getText().toString());
         Object selected = choices.getSelectedItem();
         if (selected == null) throw new IllegalArgumentException(

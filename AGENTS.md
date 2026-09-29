@@ -33,6 +33,13 @@ An explicitly managed tmux window releases only its client PTY; tmux owns the
 server session and programs. MCP is an authorized adapter to these services, not their owner.
 Keep profile-scoped application identities and storage boundaries intact.
 
+Experimental guest execution lives in native-only `native/guest-runtime`;
+app-side launch adapters use the existing shell, PTY and graphics services.
+Read `docs/guest-runtime.md` before changing that boundary. Never load its
+syscall adapter into ART or make its kernel capabilities a shared-startup
+requirement. Each launch retains its selected identity and environment;
+there is no global current distribution or implicit privilege switch.
+
 Embedded X11 and Wayland are shared services. An explicitly selected Termux or
 shell executor supplies programs; protocol runtimes own the X server or Wayland
 compositor, while `hosted-runtime` owns shared graphics and frame presentation.

@@ -215,7 +215,9 @@
     <string-array name="command_app_linux_methods">
         <item>PRoot (proot-distro)</item>
         <item>Свой скрипт (chroot или другой)</item>
+        <item>Гостевая среда MagicDesk (экспериментальная)</item>
     </string-array>
+    <string name="command_app_guest_store">Подготовленное хранилище гостя (путь на хосте)</string>
     <string name="command_app_guest_directory">Рабочая папка внутри Linux</string>
     <string name="command_app_linux_user">Пользователь Linux (необязательно)</string>
     <string name="command_app_linux_user_hint">По умолчанию для скрипта запуска</string>

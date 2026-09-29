@@ -212,7 +212,9 @@
     <string-array name="command_app_linux_methods">
         <item>PRoot (proot-distro)</item>
         <item>自定义脚本（chroot 或其他）</item>
+        <item>MagicDesk 客体运行环境（实验性）</item>
     </string-array>
+    <string name="command_app_guest_store">已准备的客体存储（宿主路径）</string>
     <string name="command_app_guest_directory">Linux 内的工作目录</string>
     <string name="command_app_linux_user">Linux 用户（可选）</string>
     <string name="command_app_linux_user_hint">启动器默认值</string>

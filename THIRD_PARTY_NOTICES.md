@@ -52,6 +52,16 @@ MagicDesk's local `x11-runtime` module. X11 and Wayland use MagicDesk's shared
 - Corresponding source archives include the fork, recursively pinned native
   dependencies, modifications and build scripts; see [licensing](docs/licensing.md).
 
+## Guest Runtime SQLite
+
+The experimental native guest filesystem service statically links unmodified
+SQLite 3.50.4. The amalgamation archive and SHA-256 are pinned in
+[`native/guest-runtime/CMakeLists.txt`](native/guest-runtime/CMakeLists.txt).
+SQLite is public domain; its dedication is packaged under
+`assets/licenses/guest-runtime/sqlite.txt`. It is not linked into the bootstrap
+or syscall handler. Debian fixture packages are development inputs and are not
+included in the APK.
+
 ## Embedded Wayland
 
 The `wayland-runtime` module builds pinned upstream wlroots, Wayland,

@@ -110,6 +110,7 @@ final class DesktopEntryFile {
         // Installed Linux entries are commands, never Android launch descriptors.
         values.keySet().removeIf(key -> key.startsWith("X-MagicDesk-")
                 && !key.equals("X-MagicDesk-Graphics") && !key.equals("X-MagicDesk-GraphicsMode")
+                && !key.equals("X-MagicDesk-WaylandConnection")
                 && !key.equals("X-MagicDesk-KeyboardDirectory") && !key.equals("X-MagicDesk-FileEnvironment"));
         values.put("X-MagicDesk-ExecBackend", "termux");
         values.put("X-MagicDesk-ExecSyntax", "argv");
@@ -188,6 +189,8 @@ final class DesktopEntryFile {
             append(encoded, "X-MagicDesk-GraphicsMode", shortcut.graphics.desktop() ? "desktop" : "application");
             append(encoded, "X-MagicDesk-KeyboardDirectory", shortcut.graphics.keyboardDirectory());
             append(encoded, "X-MagicDesk-FileEnvironment", shortcut.graphics.fileEnvironment());
+            if (shortcut.graphics.connectionMode() != WaylandConnectionMode.AUTO)
+                append(encoded, "X-MagicDesk-WaylandConnection", shortcut.graphics.connectionMode().wireName);
         }
         return checkedEncoding(encoded.toString());
     }
@@ -342,7 +345,8 @@ final class DesktopEntryFile {
             final String graphicsMode = value(values, "X-MagicDesk-GraphicsMode");
             if (!graphicsMode.isEmpty() && !graphicsMode.equals("application") && !graphicsMode.equals("desktop")) return null;
             if (protocol.isEmpty() && (!graphicsMode.isEmpty() || !value(values, "X-MagicDesk-KeyboardDirectory").isEmpty()
-                    || !value(values, "X-MagicDesk-FileEnvironment").isEmpty())) return null;
+                    || !value(values, "X-MagicDesk-FileEnvironment").isEmpty()
+                    || !value(values, "X-MagicDesk-WaylandConnection").isEmpty())) return null;
             final String syntax = value(values, "X-MagicDesk-ExecSyntax");
             if (!syntax.isEmpty() && !syntax.equals("argv")) return null;
             if (!packageName.isEmpty()) {
@@ -373,7 +377,8 @@ final class DesktopEntryFile {
                                             values, "X-MagicDesk-AppIdentity"))
                                     : null).withGraphics(protocol.isEmpty() ? null : new GraphicalLaunchOptions(
                                             GraphicalProtocol.parse(protocol), graphicsMode.equals("desktop"), value(values, "X-MagicDesk-KeyboardDirectory"),
-                                            value(values, "StartupWMClass"), value(values, "X-MagicDesk-FileEnvironment")))
+                                            value(values, "StartupWMClass"), value(values, "X-MagicDesk-FileEnvironment"),
+                                            WaylandConnectionMode.parse(value(values, "X-MagicDesk-WaylandConnection"))))
                                     .withLiteralExec(!protocol.isEmpty() || syntax.equals("argv"));
         } catch (IllegalArgumentException error) {
             return null;

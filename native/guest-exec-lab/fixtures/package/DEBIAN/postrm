@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+if [ "$1" = remove ] || [ "$1" = purge ]; then
+    rm -f /usr/share/md-package-fixture/configured
+    if [ -d /usr/share/md-package-fixture ]; then
+        rmdir /usr/share/md-package-fixture
+    fi
+fi

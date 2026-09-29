@@ -27,8 +27,13 @@ while their compositor runs under MagicDesk's app UID, never an elevated rendere
 UID. Termux clients use the compositor's private named socket, allowing each
 program and its children to establish independent connections. UID-2000 shell
 clients instead receive one connection FD. That FD belongs to one Wayland
-connection, not a shareable endpoint for unrelated clients. Root clients use a
-session-owned named endpoint with descriptor admission, described below.
+connection, not a shareable endpoint for unrelated clients. Root clients normally
+use a session-owned named endpoint with descriptor admission, described below.
+The launch recipe can explicitly select an inherited FD through
+`X-MagicDesk-WaylandConnection=inherited`, independently of executor UID. The
+experimental [guest runtime](guest-runtime.md) uses this transport because its
+filesystem namespace does not expose the host's named endpoint. This choice
+does not change process authority or provide additional client connections.
 Desktop, HOME and root are not prerequisites for the Termux path.
 
 An app-UID compositor's private socket directory is not a shell-client launch
@@ -59,7 +64,8 @@ describe its creator and must not be mistaken for the launched client's identity
 
 ### Root Guest Connections
 
-An explicitly selected root executor owns one native broker for the session.
+An explicitly selected root executor using the named-endpoint transport owns
+one native broker for the session.
 It publishes a named socket in the selected session directory; independent
 chroot programs and child processes connect normally through `WAYLAND_DISPLAY`.
 The app-private enclosing directory remains mode 0700. The session directory

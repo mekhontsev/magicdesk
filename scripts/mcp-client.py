@@ -45,6 +45,10 @@ class Client:
         self.opener = urllib.request.build_opener(NoRedirect())
 
     def call(self, name, arguments=None, retry=False, deadline=None):
+        return self.call_result(name, arguments, retry, deadline)["structuredContent"]["data"]
+
+    def call_result(self, name, arguments=None, retry=False, deadline=None):
+        """Validated MCP result including image/resource content, without replay by default."""
         deadline = deadline or time.monotonic() + self.timeout
         backoff = 0.25
         while True:
@@ -69,7 +73,7 @@ class Client:
                 if not result.get("success"):
                     error = result.get("error") or {}
                     raise ToolError(json.dumps({"message": result.get("message"), "error": error}, ensure_ascii=False))
-                return result["data"]
+                return rpc["result"]
             except urllib.error.HTTPError as error:
                 if not retry or error.code < 500:
                     raise ToolError("MCP HTTP error " + str(error.code)) from error

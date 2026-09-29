@@ -135,6 +135,12 @@ final class DesktopCommandApplicationDialog {
         final EditText linuxUser = field(activity, presentationFields, R.string.command_app_linux_user, "");
         linuxUser.setHint(R.string.command_app_linux_user_hint);
         linuxUser.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        linux.onSelectionChanged(kind -> {
+            boolean guest = kind == LinuxLaunchRecipe.Kind.GUEST;
+            linuxUser.setEnabled(!guest);
+            if (guest) { linuxUser.setText(""); protocol.setSelection(GraphicalProtocol.WAYLAND.ordinal()); }
+            protocol.setEnabled(!guest);
+        });
         form.addView(presentationFields, matchWrap());
 
         final EditText command = field(
@@ -171,6 +177,7 @@ final class DesktopCommandApplicationDialog {
                 wholeDesktop.setVisibility(position == 2 ? View.VISIBLE : View.GONE);
                 linux.setBackend(position == 4 ? DesktopExecBackend.SHELL : DesktopExecBackend.TERMUX);
                 linux.setActive(isLinux);
+                if (!isLinux) protocol.setEnabled(true);
                 linux.setGraphical(presentation.getSelectedItemPosition() != 0);
                 presentationFields.setVisibility(isLinux ? View.VISIBLE : View.GONE);
                 fileFields.setVisibility(isLinux ? View.GONE : View.VISIBLE);

@@ -1,0 +1,19 @@
+package io.github.mekhontsev.magicdesk;
+
+/** Lazy CLI adapter. Preparation is a child command, never the owner of application FDs. */
+public final class GuestRuntimeCommand {
+    public static final String LIBRARIES_ENV = "MAGICDESK_GUEST_LIBRARIES";
+    public static final String SCRIPT = "#!/system/bin/sh\n"
+            + "unset LD_PRELOAD LD_LIBRARY_PATH\n"
+            + "md_guest=$(CLASSPATH=\"${MAGICDESK_COMMAND_APK:?Open a new MagicDesk console}\" "
+            + "/system/bin/app_process / io.github.mekhontsev.magicdesk.GuestRuntimeMain "
+            + "\"${" + LIBRARIES_ENV + ":?Guest runtime is unavailable}\" "
+            + "\"${MAGICDESK_RUNTIME:?Missing shell runtime}/guest-runtime\") || exit $?\n"
+            + "case \"${1-}\" in\n"
+            + "  --import) exec \"$md_guest/libmagicdesk_guest_service.so\" \"$@\" ;;\n"
+            + "  --probe) exec \"$md_guest/libmagicdesk_guest_bootstrap.so\" \"$@\" ;;\n"
+            + "  *) \"$md_guest/libmagicdesk_guest_bootstrap.so\" --probe >/dev/null || exit $?\n"
+            + "     exec \"$md_guest/libmagicdesk_guest_run.so\" \"$@\" ;;\n"
+            + "esac\n";
+    private GuestRuntimeCommand() { }
+}

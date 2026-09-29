@@ -212,7 +212,9 @@
     <string-array name="command_app_linux_methods">
         <item>PRoot (proot-distro)</item>
         <item>Custom script (chroot or other)</item>
+        <item>MagicDesk guest runtime (experimental)</item>
     </string-array>
+    <string name="command_app_guest_store">Prepared guest store (host path)</string>
     <string name="command_app_guest_directory">Working directory inside Linux</string>
     <string name="command_app_linux_user">Linux user (optional)</string>
     <string name="command_app_linux_user_hint">Launcher default</string>

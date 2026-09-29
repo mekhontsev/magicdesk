@@ -47,7 +47,8 @@ final class RecentApplicationStore {
                     shortcut.workingDirectory, shortcut.graphics == null ? "" : shortcut.graphics.protocol().name(),
                     shortcut.graphics == null ? "" : shortcut.graphics.desktop() ? "desktop" : "application",
                     shortcut.graphics == null ? "" : shortcut.graphics.keyboardDirectory(),
-                    shortcut.graphics == null ? "" : shortcut.graphics.fileEnvironment());
+                    shortcut.graphics == null ? "" : shortcut.graphics.fileEnvironment(),
+                    shortcut.graphics == null ? "" : shortcut.graphics.connectionMode().wireName);
         }
 
         Entry usedAt(long time) { return new Entry(shortcut, sourcePath, termuxPackage, time); }

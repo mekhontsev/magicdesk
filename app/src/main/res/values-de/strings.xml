@@ -213,7 +213,9 @@
     <string-array name="command_app_linux_methods">
         <item>PRoot (proot-distro)</item>
         <item>Eigenes Skript (chroot oder anderes)</item>
+        <item>MagicDesk-Gastlaufzeit (experimentell)</item>
     </string-array>
+    <string name="command_app_guest_store">Vorbereiteter Gastspeicher (Host-Pfad)</string>
     <string name="command_app_guest_directory">Arbeitsverzeichnis in Linux</string>
     <string name="command_app_linux_user">Linux-Benutzer (optional)</string>
     <string name="command_app_linux_user_hint">Starter-Standard</string>

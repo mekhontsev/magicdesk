@@ -3503,10 +3503,10 @@ second application registry or execution path. Its `%f`/`%F` and `MimeType`
 fields consequently drive Start launches, Open With, and drag-and-drop without
 surface-specific command logic.
 
-`LinuxEnvironmentPicker` selects an installed PRoot environment or a user-owned
-entry script. Only PRoot selection makes a dialog-scoped `proot-distro list --quiet`
+`LinuxEnvironmentPicker` selects an installed PRoot environment, a user-owned
+entry script or an experimental prepared guest store. Only PRoot selection makes a dialog-scoped `proot-distro list --quiet`
 request through the captured Termux endpoint. `LinuxLaunchRecipe` shares user,
-working-directory and terminal/application/desktop presentation across both
+working-directory and terminal/application/desktop presentation across these
 adapters and builds a normal `.desktop` command, not a runtime/container registry.
 Entry scripts can also use the existing shell executor without Termux. Graphical
 shell recipes specify an explicit host-visible XKB directory; terminal recipes
@@ -3524,6 +3524,14 @@ location, never from untrusted file metadata. Deletion uses the captured Termux
 endpoint, refuses package-owned files and symbolic links, and removes matching
 source/package recipes from both Recent scopes. Retained graphical sessions forget
 that launch recipe without stopping their clients or server.
+
+The [guest runtime](guest-runtime.md) is a native-only component under
+`native/guest-runtime`. App-side immutable launch plans select a store without
+creating a global distribution owner. Several environments can use the same
+or different methods concurrently. Lazy content-addressed executable staging
+and explicit child-process capability probes keep new kernel requirements out
+of shared startup. Wayland connection mode belongs to the recipe, not its UID;
+an inherited FD works independently of whether the selected executor is root.
 
 `DesktopExecRunner` owns the execution-backend boundary. Android shell is the
 default backend;

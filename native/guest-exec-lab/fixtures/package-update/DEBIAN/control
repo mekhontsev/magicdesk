@@ -1,0 +1,6 @@
+Package: md-package-fixture
+Version: 2.0
+Architecture: all
+Maintainer: MagicDesk laboratory <mekhontsev@gmail.com>
+Description: Explicit package transaction fixture for the shell execution lab
+ This package exercises a real upgrade and maintainer-script transaction.

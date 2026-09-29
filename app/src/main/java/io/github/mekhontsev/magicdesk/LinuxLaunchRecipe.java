@@ -6,7 +6,7 @@ import java.util.TreeSet;
 /** Linux entry adapters produce ordinary Exec recipes, never own containers or privilege startup. */
 final class LinuxLaunchRecipe {
     enum Presentation { TERMINAL, APPLICATION, DESKTOP }
-    enum Kind { PROOT, SCRIPT }
+    enum Kind { PROOT, SCRIPT, GUEST }
 
     record Environment(Kind kind, String target, DesktopExecBackend backend, String keyboardDirectory) {
         Environment(Kind kind, String target) { this(kind, target, DesktopExecBackend.TERMUX, ""); }
@@ -19,6 +19,8 @@ final class LinuxLaunchRecipe {
             if (backend == null) throw new IllegalArgumentException("Select an executor");
             if (kind == Kind.PROOT && backend != DesktopExecBackend.TERMUX)
                 throw new IllegalArgumentException("proot-distro requires Termux");
+            if (kind == Kind.GUEST && backend != DesktopExecBackend.SHELL)
+                throw new IllegalArgumentException("Guest runtime requires the Shell executor");
             keyboardDirectory = DesktopExecWorkingDirectory.normalize(keyboardDirectory);
         }
     }
@@ -52,6 +54,8 @@ final class LinuxLaunchRecipe {
         directory = DesktopExecWorkingDirectory.normalize(directory);
         if (command.isEmpty() && presentation != Presentation.TERMINAL)
             throw new IllegalArgumentException("Enter a Linux command");
+        if (environment.kind() == Kind.GUEST)
+            return guest(name, environment, command, directory, user, presentation, protocol);
 
         boolean graphical = presentation != Presentation.TERMINAL;
         StringBuilder host = new StringBuilder("set -eu; ");
@@ -81,12 +85,9 @@ final class LinuxLaunchRecipe {
             String guest = command;
             if (graphical) {
                 // Each graphical launch owns its D-Bus session and private runtime directory.
-                guest = "set -eu; umask 077; XDG_RUNTIME_DIR=$(mktemp -d /tmp/magicdesk-runtime.XXXXXX); "
-                        + "export XDG_RUNTIME_DIR XDG_SESSION_TYPE=" + protocol.wireName + "; "
-                        + "trap 'rm -rf -- \"$XDG_RUNTIME_DIR\"' EXIT; "
-                        + "dbus-run-session -- "
+                guest = graphicalEnvironment(protocol, "dbus-run-session -- "
                         + (presentation == Presentation.APPLICATION ? "/tmp/magicdesk-linux-settings -- " : "")
-                        + "/bin/sh -lc " + q(command);
+                        + "/bin/sh -lc " + q(command));
             }
             host.append(graphical ? " -- /tmp/magicdesk-guest-files -- /bin/sh -lc " : " -- /bin/sh -lc ").append(q(guest));
         }
@@ -105,6 +106,33 @@ final class LinuxLaunchRecipe {
     private static void requireName(String name) {
         if (name == null || !name.matches("[A-Za-z0-9][A-Za-z0-9_.-]{0,127}"))
             throw new IllegalArgumentException("Invalid PRoot environment name");
+    }
+
+    private static DesktopApplicationShortcut guest(String name, Environment environment, String command,
+            String directory, String user, Presentation presentation, GraphicalProtocol protocol) {
+        if (!user.isEmpty()) throw new IllegalArgumentException("Guest runtime retains the executor identity; user switching is unavailable");
+        boolean graphical = presentation != Presentation.TERMINAL;
+        if (graphical && protocol != GraphicalProtocol.WAYLAND)
+            throw new IllegalArgumentException("Guest runtime currently requires a Wayland client connection");
+        if (graphical && environment.keyboardDirectory().isEmpty())
+            throw new IllegalArgumentException("Enter the host XKB data directory");
+        var plan = new GuestLaunchPlan(new GuestEnvironment(environment.target(), "/tmp"),
+                directory.isEmpty() ? "/" : directory,
+                command.isEmpty() ? List.of("/bin/sh", "-l") : List.of("/bin/sh", "-lc",
+                        graphical ? graphicalEnvironment(protocol, "/bin/sh -lc " + q(command)) : command));
+        String exec = DesktopExecTemplate.encodeArguments(plan.arguments());
+        DesktopExecTemplate.expandArguments(exec, DesktopLaunchArguments.empty(), name, "", "");
+        return new DesktopApplicationShortcut(name, graphical ? "computer" : "utilities-terminal",
+                exec, null, "", DesktopLaunchMode.AUTO, false, DesktopExecBackend.SHELL, !graphical)
+                .withLiteralExec(true).withGraphics(graphical ? new GraphicalLaunchOptions(protocol,
+                        presentation == Presentation.DESKTOP, environment.keyboardDirectory(), "",
+                        "GUEST:" + environment.target().length() + ":" + environment.target(), WaylandConnectionMode.INHERITED) : null);
+    }
+
+    private static String graphicalEnvironment(GraphicalProtocol protocol, String command) {
+        return "set -eu; umask 077; XDG_RUNTIME_DIR=$(mktemp -d /tmp/magicdesk-runtime.XXXXXX); "
+                + "export XDG_RUNTIME_DIR XDG_SESSION_TYPE=" + protocol.wireName + "; "
+                + "trap 'rm -rf -- \"$XDG_RUNTIME_DIR\"' EXIT; " + command;
     }
 
     private static String q(String value) { return ShellCommandLine.quote(value); }

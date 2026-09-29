@@ -11,6 +11,7 @@ boundaries. A missing Desktop capability does not disable an independent tool.
 | Ordinary UI and Android content integration | MagicDesk app UID and its Android permissions |
 | Privileged files, shell, display, task and input operations | One authorized command service, normally shell UID 2000; started through Shizuku or optional `su` |
 | Termux commands and PTYs | Termux UID, with its external-command configuration and MagicDesk's `RUN_COMMAND` grant |
+| Experimental guest execution | Already-selected actual shell UID 2000 or root UID 0; no identity switch, fake root or renderer elevation. Trusted programs retain host authority. Missing kernel capabilities reject only the guest launch; see [Guest runtime](guest-runtime.md). |
 | Embedded X11 servers and clients | Termux route: selected Termux UID. Shell route: server under MagicDesk's app UID, commands under the captured authorized service UID. Per-session Xauthority and Binder lifetime; renderer always uses the app UID. No per-command elevation or fallback. |
 | Embedded Wayland servers and clients | Termux route: selected Termux UID and private named socket. Shell route: app-UID compositor and one inherited client connection. Root chroot route: app-UID compositor and a session-owned broker under the already-selected root executor, with verified anonymous-buffer admission. No renderer elevation or global SELinux changes. |
 | MCP request | Listener token and grants, followed by the operation's service and Android permission checks |

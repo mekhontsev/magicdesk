@@ -212,7 +212,9 @@
     <string-array name="command_app_linux_methods">
         <item>PRoot (proot-distro)</item>
         <item>カスタムスクリプト（chroot など）</item>
+        <item>MagicDesk ゲスト実行環境（試験的）</item>
     </string-array>
+    <string name="command_app_guest_store">準備済みゲストストア（ホストのパス）</string>
     <string name="command_app_guest_directory">Linux 内の作業ディレクトリ</string>
     <string name="command_app_linux_user">Linux ユーザー（省略可）</string>
     <string name="command_app_linux_user_hint">ランチャーの既定</string>

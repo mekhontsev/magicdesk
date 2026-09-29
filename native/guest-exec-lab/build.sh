@@ -1,0 +1,173 @@
+#!/usr/bin/env sh
+set -eu
+if [ "$#" -ne 1 ]; then
+    printf 'Usage: %s PREPARED_DIRECTORY\n' "$0" >&2
+    exit 2
+fi
+src=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+runtime="$src/../guest-runtime/src"
+work=$(CDPATH= cd -- "$1" && pwd)
+sysroot=$work/sysroot
+cc=${CC:-clang}
+node "$src/test_signature.mjs" "$work"
+mkdir -p "$work/bundle/rootfs" "$work/path-test"
+"$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -UNDEBUG -fno-builtin -DMD_NO_START \
+    "$src/test_paths.c" "$runtime/fs.c" "$runtime/proc_paths.c" "$runtime/raw.c" "$runtime/raw.S" -o "$work/test-paths"
+testroot=$(mktemp -d "$work/path-test/run.XXXXXX")
+"$work/test-paths" "$testroot"
+"$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -DMD_INODE_TESTING \
+    "$runtime/inode_store.c" "$runtime/inode_db.c" "$runtime/inode_path.c" "$src/test_inodes.c" -lsqlite3 -o "$work/test-inodes"
+inoderoot=$(mktemp -d "$work/path-test/inodes.XXXXXX")
+timeout 45 "$work/test-inodes" "$inoderoot/store"
+"$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -DMD_INODE_TESTING \
+    "$runtime/inode_store.c" "$runtime/inode_db.c" "$runtime/inode_path.c" "$runtime/inode_import.c" \
+    "$src/test_import.c" -lsqlite3 -o "$work/test-import"
+importroot=$(mktemp -d "$work/path-test/import.XXXXXX")
+timeout 45 "$work/test-import" "$importroot/tests"
+"$cc" -iquote "$runtime" -std=c17 -O2 -Wall -Wextra -Werror -Wframe-larger-than=16384 \
+    -ffreestanding -fno-builtin -fno-stack-protector -DMD_NO_START -nostdlib -r \
+    "$runtime/fs_client.c" "$runtime/fs_wire.c" "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/raw.S" \
+    -o "$work/fs-client-freestanding.o"
+if [ -n "$(llvm-nm -u "$work/fs-client-freestanding.o")" ]; then
+    printf 'Filesystem RPC client has unresolved runtime dependencies\n' >&2
+    exit 1
+fi
+printf 'PASS freestanding RPC client: no unresolved libc/SQLite/runtime dependencies\n'
+"$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -fno-builtin -DMD_NO_START \
+    -DMD_INODE_TESTING -DMD_FS_TESTING "$src/test_rpc.c" "$runtime/fs_client.c" \
+    "$runtime/fs_wire.c" "$runtime/event_wait.c" "$runtime/fs_service.c" "$runtime/inode_store.c" "$runtime/inode_db.c" \
+    "$runtime/inode_path.c" "$runtime/inode_directory.c" "$runtime/raw.c" "$runtime/raw.S" -lsqlite3 -o "$work/test-rpc"
+rpcroot=$(mktemp -d "$work/path-test/rpc.XXXXXX")
+timeout 60 "$work/test-rpc" "$rpcroot/store"
+"$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -UNDEBUG -fno-builtin -DMD_NO_START \
+    "$src/test_xattrs.c" "$runtime/fd_metadata.c" "$runtime/raw.c" "$runtime/raw.S" -o "$work/test-xattrs"
+xattrroot=$(mktemp -d "$work/path-test/xattrs.XXXXXX")
+timeout 20 "$work/test-xattrs" "$xattrroot/files" native
+spawn_lib=
+case "$($cc -dumpmachine)" in *android*) spawn_lib=-landroid-spawn ;; esac
+"$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -UNDEBUG "$src/test_proc.c" $spawn_lib -o "$work/test-proc"
+procroot=$(mktemp -d "$work/path-test/proc.XXXXXX")
+timeout 30 "$work/test-proc" "$procroot/files" native
+"$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -fno-builtin -DMD_NO_START -DMD_SOCKET_DRIVER \
+    "$src/test_sockets.c" "$runtime/socket_calls.c" "$runtime/file_calls.c" "$runtime/fs.c" "$runtime/proc_paths.c" \
+    "$runtime/namespace.c" "$runtime/namespace_proc.c" "$runtime/fd_metadata.c" "$runtime/fs_client.c" "$runtime/fs_wire.c" \
+    "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/raw.S" -o "$work/bundle/md-sockets-test"
+socketroot=$(mktemp -d "$work/path-test/sockets.XXXXXX")
+timeout 45 "$work/bundle/md-sockets-test" native "$socketroot"
+timeout 45 "$work/bundle/md-sockets-test" adapter "$socketroot"
+guest_cc() {
+    "$cc" -iquote "$runtime" --target=aarch64-linux-gnu --sysroot="$sysroot" -isystem "$sysroot/usr/include/aarch64-linux-gnu" \
+        -fuse-ld=lld -std=c17 -O2 -g -Wall -Wextra -Werror -fPIC -nostdlib "$@" \
+        -L"$sysroot/lib/aarch64-linux-gnu" -l:libc.so.6
+}
+cmake -S "$src/../guest-runtime" -B "$work/native-runtime" -G Ninja \
+    -DCMAKE_C_COMPILER="$cc" -DCMAKE_ASM_COMPILER="$cc" \
+    -DCMAKE_C_FLAGS=--target=aarch64-linux-android34 \
+    -DCMAKE_ASM_FLAGS=--target=aarch64-linux-android34 \
+    -DCMAKE_EXE_LINKER_FLAGS=-fno-termux-rpath
+cmake --build "$work/native-runtime" --parallel 2
+cp "$work/native-runtime"/libmagicdesk_guest_*.so "$work/bundle/"
+"$cc" -iquote "$runtime" --target=aarch64-linux-android34 -fno-termux-rpath -static \
+    -std=c17 -O2 -Wall -Wextra -Werror -UNDEBUG "$src/test_capabilities.c" -o "$work/bundle/md-capabilities-test"
+guest_cc -shared "$src/test_plugin.c" -Wl,-z,defs -o "$work/md-fixture.so"
+guest_cc -pie "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" \
+    "$src/test_sockets.c" "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" \
+    -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 -o "$work/md-socket-fixture"
+guest_cc -pie "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" \
+    "$src/test_proc.c" "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" \
+    -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 -o "$work/md-proc-fixture"
+"$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -UNDEBUG -fno-builtin -DMD_NO_START \
+    "$src/test_lifecycle.c" "$runtime/process_owner.c" "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/raw.S" \
+    -o "$work/bundle/md-lifecycle-test"
+guest_cc -pie -fno-builtin -DMD_NO_START -DMD_GUEST_LIFECYCLE \
+    "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" \
+    "$src/test_lifecycle.c" "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/raw.S" \
+    "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 \
+    -o "$work/md-lifecycle-fixture"
+guest_cc -pie -fno-builtin -DMD_NO_START "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" \
+    "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" "$src/test_xattrs.c" "$runtime/fd_metadata.c" "$runtime/raw.c" "$runtime/raw.S" \
+    "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 -o "$work/md-xattrs-fixture"
+guest_cc -pie "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" \
+    "$src/test_guest.c" "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" \
+    -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 -o "$work/md-fixture"
+guest_cc -pie "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" \
+    "$src/test_exec.c" "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" \
+    -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 -o "$work/md-exec-fixture"
+guest_cc -pie "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" \
+    "$src/test_files.c" "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" \
+    -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 -o "$work/md-files-fixture"
+guest_cc -pie "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" \
+    "$src/test_namespace.c" "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" \
+    -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 -o "$work/md-namespace-fixture"
+guest_cc -pie -DMD_INODE_TESTING "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" \
+    "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" "$runtime/inode_store.c" "$runtime/inode_db.c" \
+    "$runtime/inode_path.c" "$src/test_inodes.c" \
+    "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 \
+    -L"$sysroot/usr/lib/aarch64-linux-gnu" -l:libsqlite3.so.0 -l:libm.so.6 \
+    -o "$work/md-inodes-fixture"
+guest_cc -pie -DMD_INODE_TESTING "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" \
+    "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" "$runtime/inode_store.c" "$runtime/inode_db.c" \
+    "$runtime/inode_path.c" "$runtime/inode_import.c" "$src/test_import.c" \
+    "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 \
+    -L"$sysroot/usr/lib/aarch64-linux-gnu" -l:libsqlite3.so.0 -l:libm.so.6 \
+    -o "$work/md-import-fixture"
+guest_cc -pie -fno-builtin -DMD_NO_START -DMD_INODE_TESTING -DMD_FS_TESTING \
+    "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" \
+    "$src/test_rpc.c" "$runtime/fs_client.c" "$runtime/fs_wire.c" "$runtime/event_wait.c" "$runtime/fs_service.c" \
+    "$runtime/inode_store.c" "$runtime/inode_db.c" "$runtime/inode_path.c" "$runtime/inode_directory.c" "$runtime/raw.c" "$runtime/raw.S" \
+    "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 \
+    -L"$sysroot/usr/lib/aarch64-linux-gnu" -l:libsqlite3.so.0 -l:libm.so.6 \
+    -o "$work/md-rpc-fixture"
+cp -a "$sysroot/lib" "$sysroot/bin" "$work/bundle/rootfs/"
+for directory in etc sbin usr/share usr/sbin var; do
+    if [ -d "$sysroot/$directory" ]; then
+        mkdir -p "$work/bundle/rootfs/$directory"
+        cp -a "$sysroot/$directory/." "$work/bundle/rootfs/$directory/"
+    fi
+done
+mkdir -p "$work/bundle/rootfs/usr/lib" "$work/bundle/rootfs/usr/bin" \
+    "$work/bundle/rootfs/etc" "$work/bundle/rootfs/tmp" "$work/bundle/rootfs/var/log"
+cp -a "$sysroot/usr/lib/aarch64-linux-gnu" "$work/bundle/rootfs/usr/lib/"
+cp -a "$sysroot/usr/bin/." "$work/bundle/rootfs/usr/bin/"
+cp "$work/md-fixture" "$work/bundle/rootfs/usr/bin/"
+cp "$work/md-xattrs-fixture" "$work/bundle/rootfs/usr/bin/"
+cp "$work/md-lifecycle-fixture" "$work/bundle/rootfs/usr/bin/"
+cp "$work/md-proc-fixture" "$work/bundle/rootfs/usr/bin/"
+cp "$work/md-socket-fixture" "$work/bundle/rootfs/usr/bin/"
+cp "$work/md-exec-fixture" "$work/bundle/rootfs/usr/bin/"
+cp "$work/md-files-fixture" "$work/bundle/rootfs/usr/bin/"
+cp "$work/md-inodes-fixture" "$work/bundle/rootfs/usr/bin/"
+cp "$work/md-import-fixture" "$work/bundle/rootfs/usr/bin/"
+cp "$work/md-namespace-fixture" "$work/bundle/rootfs/usr/bin/"
+cp "$work/md-rpc-fixture" "$work/bundle/rootfs/usr/bin/"
+cp "$work/md-fixture.so" "$work/bundle/rootfs/usr/lib/"
+if [ -f "$sysroot/usr/include/wayland-client.h" ]; then
+    protocol="$sysroot/usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml"
+    wayland-scanner client-header "$protocol" "$work/xdg-shell-client-protocol.h"
+    wayland-scanner private-code "$protocol" "$work/xdg-shell-protocol.c"
+    guest_cc -pie -I"$work" "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" \
+        "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" "$src/test_wayland.c" "$work/xdg-shell-protocol.c" \
+        "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 \
+        -L"$sysroot/usr/lib/aarch64-linux-gnu" -l:libwayland-client.so.0 \
+        -o "$work/bundle/rootfs/usr/bin/md-wayland-fixture"
+fi
+cp "$src/fixtures/md-guest-fixture" "$work/bundle/rootfs/etc/"
+cp "$src/fixtures/md-script" "$work/bundle/rootfs/usr/bin/"
+chmod 755 "$work/bundle/rootfs/usr/bin/md-script"
+if [ -f "$sysroot/usr/bin/dpkg" ]; then
+    mkdir -p "$work/package-fixture"
+    cp -a "$src/fixtures/package/." "$work/package-fixture/"
+    chmod 755 "$work/package-fixture/DEBIAN" "$work/package-fixture/DEBIAN/postinst" "$work/package-fixture/DEBIAN/postrm"
+    dpkg-deb --root-owner-group -Zxz --build "$work/package-fixture" \
+        "$work/bundle/rootfs/tmp/md-package-fixture.deb"
+    mkdir -p "$work/package-update"
+    cp -a "$src/fixtures/package-update/." "$work/package-update/"
+    cp "$src/fixtures/package/DEBIAN/postrm" "$work/package-update/DEBIAN/"
+    chmod 755 "$work/package-update/DEBIAN" "$work/package-update/DEBIAN/postinst" "$work/package-update/DEBIAN/postrm"
+    dpkg-deb --root-owner-group -Zxz --build "$work/package-update" \
+        "$work/bundle/rootfs/tmp/md-package-update.deb"
+    cp "$work"/gzip_*.deb "$work/bundle/rootfs/tmp/md-hardlinks.deb"
+fi
+cp "$work/manifest.json" "$work/bundle/"
+tar -C "$work/bundle" -czf "$work/bundle.tar.gz" .
+printf 'Built %s\n' "$work/bundle.tar.gz"

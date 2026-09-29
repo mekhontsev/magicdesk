@@ -214,7 +214,9 @@
     <string-array name="command_app_linux_methods">
         <item>PRoot (proot-distro)</item>
         <item>Script personnalisé (chroot ou autre)</item>
+        <item>Environnement invité MagicDesk (expérimental)</item>
     </string-array>
+    <string name="command_app_guest_store">Stockage invité préparé (chemin hôte)</string>
     <string name="command_app_guest_directory">Répertoire de travail dans Linux</string>
     <string name="command_app_linux_user">Utilisateur Linux (facultatif)</string>
     <string name="command_app_linux_user_hint">Valeur par défaut du lanceur</string>

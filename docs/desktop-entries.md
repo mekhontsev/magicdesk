@@ -102,6 +102,14 @@ directory. The Linux editor emits `X-MagicDesk-FileEnvironment`, an explicit
 environment/user identity retained in Recent and used to isolate launch correlation.
 This is a MagicDesk desktop-entry extension, not a freedesktop standard key.
 
+The experimental [guest runtime](guest-runtime.md) uses normal Shell entries
+with a prepared store. Its Wayland recipes declare
+`X-MagicDesk-WaylandConnection=inherited`: the app transfers an existing client
+connection instead of requiring a host socket path inside that namespace.
+The default `auto` mode retains the selected executor's ordinary transport.
+Connection choice, file-environment identity and executor authority are separate;
+neither key requests root or starts a Desktop session.
+
 Individual-application recipes also use the [Linux appearance](linux-appearance.md)
 helper. When `MAGICDESK_APPEARANCE_HELPER` is present, bind it at
 `/tmp/magicdesk-linux-settings` and forward `MAGICDESK_APPEARANCE_SOCKET` and

@@ -17,22 +17,27 @@ final class CommandShellEnvironment {
 
     private CommandShellEnvironment() { }
 
-    static void configure(String endpoint, String apk) throws IOException {
+    static void configure(String endpoint, String apk, String libraries) throws IOException {
         if (endpoint == null || !endpoint.contains(":") || apk == null || !apk.startsWith("/")) {
             throw new IllegalArgumentException("Invalid command environment");
         }
         final Path directory = Path.of(ShellExecutionEnvironment.prepareToolsDirectory());
-        final Path script = directory.resolve("magicdesk");
+        install(directory.resolve("magicdesk"), SCRIPT);
+        install(directory.resolve(GuestLaunchPlan.TOOL), GuestRuntimeCommand.SCRIPT);
+        sValues = new Values(endpoint, apk, libraries);
+    }
+
+    private static void install(Path script, String contents) throws IOException {
+        final Path directory = script.getParent();
         final Path temporary = Files.createTempFile(directory, ".magicdesk-", ".tmp");
         try {
-            Files.write(temporary, SCRIPT.getBytes(StandardCharsets.UTF_8));
+            Files.write(temporary, contents.getBytes(StandardCharsets.UTF_8));
             android.system.Os.chmod(temporary.toString(), 0700);
             Files.move(temporary, script, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
                     java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         } catch (android.system.ErrnoException error) {
             throw new IOException("Cannot install CLI entry point", error);
         } finally { Files.deleteIfExists(temporary); }
-        sValues = new Values(endpoint, apk);
     }
 
     static void apply(Map<String, String> environment) {
@@ -40,9 +45,11 @@ final class CommandShellEnvironment {
         // Never retain a channel inherited from an unrelated launcher or an older process.
         environment.remove(MagicDeskCli.ENDPOINT_ENV);
         environment.remove(APK_ENV);
+        environment.remove(GuestRuntimeCommand.LIBRARIES_ENV);
         if (values == null) return;
         environment.put(MagicDeskCli.ENDPOINT_ENV, values.endpoint);
         environment.put(APK_ENV, values.apk);
+        environment.put(GuestRuntimeCommand.LIBRARIES_ENV, values.libraries);
     }
 
     static String termuxSetup(String endpoint, String apk) {
@@ -59,5 +66,5 @@ final class CommandShellEnvironment {
                 + "export PATH=\"$md_bin:$PATH\"\n";
     }
 
-    private record Values(String endpoint, String apk) { }
+    private record Values(String endpoint, String apk, String libraries) { }
 }

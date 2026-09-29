@@ -1,0 +1,107 @@
+package io.github.mekhontsev.magicdesk;
+
+import static org.junit.Assert.*;
+import static org.junit.Assume.assumeFalse;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.io.IOException;
+import java.util.List;
+import java.util.concurrent.Executors;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
+
+public class GuestRuntimeTest {
+    @Rule public TemporaryFolder temporary = new TemporaryFolder();
+
+    @Test public void launchPlanKeepsHostAndGuestPathsAndArgumentsSeparate() {
+        var plan = new GuestLaunchPlan(new GuestEnvironment("/host/a ' b", "/home/shell"),
+                "/guest/c d", List.of("/bin/sh", "-c", "echo '$HOME'"));
+        assertEquals(List.of("magicdesk-guest", "--store", "/host/a ' b", "--home", "/home/shell",
+                "--cwd", "/guest/c d", "--", "/bin/sh", "-c", "echo '$HOME'"), plan.arguments());
+        GuestLaunchPlan.requireIdentity(2000);
+        GuestLaunchPlan.requireIdentity(0);
+        for (int uid : List.of(10000, -1)) assertThrows(IllegalStateException.class, () -> GuestLaunchPlan.requireIdentity(uid));
+    }
+
+    @Test public void rejectsIncompleteAndAmbiguousPlans() {
+        for (String invalid : List.of("", "relative", "/", "/a\0b"))
+            assertThrows(IllegalArgumentException.class, () -> new GuestEnvironment(invalid, "/tmp"));
+        var environment = new GuestEnvironment("/guest/store", "/tmp");
+        assertThrows(IllegalArgumentException.class, () -> new GuestLaunchPlan(environment, "relative", List.of("/bin/sh")));
+        assertThrows(IllegalArgumentException.class, () -> new GuestLaunchPlan(environment, "/", List.of("sh")));
+        assertThrows(IllegalArgumentException.class, () -> new GuestLaunchPlan(environment, "/", List.of("/bin/sh", "\0")));
+    }
+
+    private Path source() throws Exception {
+        assumeFalse(System.getProperty("os.name").startsWith("Windows"));
+        Path source = temporary.newFolder().toPath();
+        for (String name : GuestRuntimeArtifacts.FILES) {
+            Path file = Files.writeString(source.resolve(name), "original " + name);
+            assertTrue(file.toFile().setExecutable(true));
+        }
+        return source;
+    }
+
+    @Test public void updatingArtifactsNeverReplacesAnActiveVersion() throws Exception {
+        Path source = source(), root = temporary.newFolder().toPath();
+        Path first = GuestRuntimeArtifacts.prepare(source, root);
+        assertEquals(first, GuestRuntimeArtifacts.prepare(source, root));
+        Files.writeString(source.resolve(GuestRuntimeArtifacts.FILES.get(0)), "replacement");
+        Path second = GuestRuntimeArtifacts.prepare(source, root);
+        assertNotEquals(first, second);
+        assertTrue(Files.readString(first.resolve(GuestRuntimeArtifacts.FILES.get(0))).startsWith("original "));
+        assertEquals("replacement", Files.readString(second.resolve(GuestRuntimeArtifacts.FILES.get(0))));
+    }
+
+    @Test public void concurrentPreparationPublishesOneCompleteBundle() throws Exception {
+        Path source = source(), root = temporary.newFolder().toPath();
+        var executor = Executors.newFixedThreadPool(4);
+        try {
+            var tasks = java.util.stream.IntStream.range(0, 8)
+                    .mapToObj(i -> (java.util.concurrent.Callable<Path>) () -> GuestRuntimeArtifacts.prepare(source, root)).toList();
+            var results = executor.invokeAll(tasks);
+            Path target = results.get(0).get();
+            for (var result : results) assertEquals(target, result.get());
+            try (var paths = Files.list(root)) { assertEquals(1, paths.count()); }
+        } finally { executor.shutdownNow(); }
+    }
+
+    @Test public void corruptBundleIsRejectedWithoutRepairingItUnderRunningProcesses() throws Exception {
+        Path source = source(), root = temporary.newFolder().toPath();
+        Path target = GuestRuntimeArtifacts.prepare(source, root);
+        Path file = target.resolve(GuestRuntimeArtifacts.FILES.get(0));
+        assertTrue(file.toFile().setWritable(true));
+        Files.writeString(file, "modified");
+        assertThrows(IOException.class, () -> GuestRuntimeArtifacts.prepare(source, root));
+        assertEquals("modified", Files.readString(file));
+    }
+
+    @Test public void rejectsSymlinksAndMissingArtifacts() throws Exception {
+        Path source = source(), root = temporary.newFolder().toPath();
+        Path file = source.resolve(GuestRuntimeArtifacts.FILES.get(0));
+        Files.delete(file);
+        assertThrows(IOException.class, () -> GuestRuntimeArtifacts.prepare(source, root));
+        Files.createSymbolicLink(file, source.resolve(GuestRuntimeArtifacts.FILES.get(1)));
+        assertThrows(IOException.class, () -> GuestRuntimeArtifacts.prepare(source, root));
+    }
+
+    @Test public void preparationDoesNotConsumeInheritedGraphicsConnection() {
+        assertTrue(GuestRuntimeCommand.SCRIPT.contains("md_guest=$(CLASSPATH="));
+        assertTrue(GuestRuntimeCommand.SCRIPT.contains("exec \"$md_guest/libmagicdesk_guest_run.so\" \"$@\""));
+        assertFalse(GuestRuntimeCommand.SCRIPT.contains("exec /system/bin/app_process"));
+        assertTrue(GuestRuntimeCommand.SCRIPT.contains("--probe >/dev/null || exit $?"));
+    }
+
+    @Test public void graphicalConnectionBelongsToRecipeNotIdentityOrFileEnvironment() {
+        assertTrue(WaylandConnectionMode.AUTO.namedEndpoint(0, 10001));
+        assertTrue(WaylandConnectionMode.AUTO.namedEndpoint(10001, 10001));
+        assertFalse(WaylandConnectionMode.AUTO.namedEndpoint(2000, 10001));
+        assertFalse(WaylandConnectionMode.INHERITED.namedEndpoint(0, 10001));
+        assertFalse(WaylandConnectionMode.INHERITED.namedEndpoint(2000, 10001));
+        assertThrows(IllegalArgumentException.class, () -> new GraphicalLaunchOptions(
+                GraphicalProtocol.X11, false, "", "", "", WaylandConnectionMode.INHERITED));
+        assertNull(DesktopEntryFile.parse("[Desktop Entry]\nType=Application\nName=Invalid\nExec=app\n"
+                + "X-MagicDesk-WaylandConnection=inherited\n"));
+    }
+}

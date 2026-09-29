@@ -1,8 +1,11 @@
 import base64
 import importlib.util
+import io
+import json
 import pathlib
 import tempfile
 import unittest
+from unittest.mock import Mock
 
 spec = importlib.util.spec_from_file_location("mcp_client", pathlib.Path(__file__).parents[1] / "mcp-client.py")
 mcp = importlib.util.module_from_spec(spec)
@@ -10,6 +13,26 @@ spec.loader.exec_module(mcp)
 
 
 class ClientTest(unittest.TestCase):
+    def test_validated_result_retains_images_and_data_call_stays_compatible(self):
+        result = {"structuredContent": {"success": True, "data": {"width": 3}},
+                  "content": [{"type": "image", "mimeType": "image/png", "data": "AQID"}]}
+        client = mcp.Client("http://127.0.0.1:8765/mcp", "token")
+        client.opener = Mock()
+        client.opener.open.side_effect = lambda *args, **kwargs: io.BytesIO(json.dumps({"result": result}).encode())
+        self.assertEqual(result, client.call_result("capture_screenshot", {"taskId": 7}))
+        self.assertEqual({"width": 3}, client.call("capture_screenshot", {"taskId": 7}))
+        self.assertEqual(2, client.opener.open.call_count)
+
+    def test_content_call_still_rejects_tool_errors_without_replay(self):
+        client = mcp.Client("http://127.0.0.1:8765/mcp", "token")
+        client.opener = Mock()
+        failed = {"result": {"structuredContent": {"success": False,
+                  "message": "denied", "error": {"code": "PERMISSION_DENIED"}}, "content": []}}
+        client.opener.open.return_value = io.BytesIO(json.dumps(failed).encode())
+        with self.assertRaisesRegex(mcp.ToolError, "PERMISSION_DENIED"):
+            client.call_result("capture_screenshot", {"taskId": 7})
+        self.assertEqual(1, client.opener.open.call_count)
+
     def test_network_requires_explicit_plaintext_consent(self):
         with self.assertRaises(mcp.ToolError):
             mcp.Client("http://192.168.1.9:8765/mcp", "token")

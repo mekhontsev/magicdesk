@@ -195,6 +195,56 @@ public final class LinuxLaunchRecipeTest {
                 LinuxLaunchRecipe.Kind.PROOT, "ubuntu", DesktopExecBackend.SHELL, ""));
     }
 
+    @Test public void guestRuntimeSharesNormalEntriesWithoutTermuxOrAnInventedExecutor() {
+        var environment = new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.GUEST,
+                "/prepared/store ' one", DesktopExecBackend.SHELL, "/prepared/xkb");
+        for (var mode : LinuxLaunchRecipe.Presentation.values()) {
+            var app = LinuxLaunchRecipe.build("Guest", environment, "printf '%s' \"$HOME\"", "/tmp", "", mode,
+                    GraphicalProtocol.WAYLAND);
+            assertEquals(DesktopExecBackend.SHELL, app.execBackend);
+            assertEquals(mode == LinuxLaunchRecipe.Presentation.TERMINAL, app.terminal);
+            assertFalse(app.exec.contains("proot"));
+            assertFalse(app.exec.contains("dbus-run-session"));
+            assertTrue(app.exec.contains("magicdesk-guest"));
+            var parsed = (DesktopApplicationShortcut) DesktopEntryFile.parse(DesktopEntryFile.encodeApplication(app));
+            assertEquals(app.exec, parsed.exec);
+            assertEquals(app.graphics, parsed.graphics);
+            if (!app.terminal) assertFalse(app.graphics.fileEnvironment().isEmpty());
+        }
+        assertThrows(IllegalArgumentException.class, () -> LinuxLaunchRecipe.build("Guest", environment,
+                "app", "", "root", LinuxLaunchRecipe.Presentation.TERMINAL));
+        assertThrows(IllegalArgumentException.class, () -> LinuxLaunchRecipe.build("Guest", environment,
+                "app", "", "", LinuxLaunchRecipe.Presentation.APPLICATION, GraphicalProtocol.X11));
+    }
+
+    @Test public void separateEnvironmentsKeepTheirMethodRootAndPresentation() throws Exception {
+        var environments = List.of(
+                new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.PROOT, "ubuntu"),
+                new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.PROOT, "debian"),
+                new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.SCRIPT, "/chroot/debian/enter", DesktopExecBackend.SHELL, "/xkb"),
+                new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.SCRIPT, "/chroot/alpine/enter", DesktopExecBackend.SHELL, "/xkb"),
+                new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.GUEST, "/guest/debian", DesktopExecBackend.SHELL, "/xkb"),
+                new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.GUEST, "/guest/ubuntu", DesktopExecBackend.SHELL, "/xkb"));
+        var executor = java.util.concurrent.Executors.newFixedThreadPool(environments.size());
+        try {
+            var results = executor.invokeAll(environments.stream().map(environment ->
+                    (java.util.concurrent.Callable<DesktopApplicationShortcut>) () -> LinuxLaunchRecipe.build(
+                            "Linux", environment, "app", "/tmp", "", LinuxLaunchRecipe.Presentation.APPLICATION,
+                            GraphicalProtocol.WAYLAND)).toList());
+            var identities = new java.util.HashSet<String>();
+            for (int i = 0; i < environments.size(); ++i) {
+                var environment = environments.get(i);
+                var shortcut = results.get(i).get();
+                assertEquals(environment.backend(), shortcut.execBackend);
+                assertTrue(shortcut.exec.contains(environment.target()));
+                assertTrue(identities.add(shortcut.graphics.fileEnvironment()));
+                assertEquals(shortcut.graphics, DesktopEntryFile.parseTermuxApplication(
+                        DesktopEntryFile.encodeApplication(shortcut)).graphics);
+                assertFalse(shortcut.exec.contains("su -c"));
+            }
+        } finally { executor.shutdownNow(); }
+    }
+
     private Path unixHome() {
         assumeTrue(!System.getProperty("os.name").startsWith("Windows"));
         return temporary.getRoot().toPath();

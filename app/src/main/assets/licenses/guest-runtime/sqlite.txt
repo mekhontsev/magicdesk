@@ -1,0 +1,7 @@
+SQLite 3.50.4
+https://www.sqlite.org/copyright.html
+https://www.sqlite.org/2025/sqlite-amalgamation-3500400.zip
+
+The SQLite authors dedicate the deliverable source and documentation to the
+public domain. MagicDesk uses the unmodified amalgamation, statically linked
+only into the guest filesystem service. Loadable extensions are disabled.

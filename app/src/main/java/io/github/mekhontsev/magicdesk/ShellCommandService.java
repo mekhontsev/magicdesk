@@ -103,7 +103,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     }
 
     @Override public void configureCommandEnvironment(String endpoint, String apk) {
-        try { CommandShellEnvironment.configure(endpoint, apk); }
+        try { CommandShellEnvironment.configure(endpoint, apk, mContext.getApplicationInfo().nativeLibraryDir); }
         catch (IOException error) { throw new IllegalStateException("Cannot prepare shell commands", error); }
     }
 

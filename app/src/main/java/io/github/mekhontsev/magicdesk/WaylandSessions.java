@@ -53,8 +53,10 @@ final class WaylandSessions {
             DesktopExecBackend backend, String keyboard, RecentApplicationStore.Entry recipe, boolean desktop) {
         if (name == null || name.isBlank() || name.length() > 128)
             throw new IllegalArgumentException("Session name must contain 1 to 128 characters");
+        var graphics = recipe == null ? null : recipe.shortcut().graphics;
         Session session = new Session(context.getApplicationContext(), name.trim(), new WaylandExecution(context, backend, keyboard,
-                recipe == null || recipe.shortcut().graphics == null ? "" : recipe.shortcut().graphics.fileEnvironment(), desktop), recipe, desktop);
+                graphics == null ? "" : graphics.fileEnvironment(), desktop,
+                graphics == null ? WaylandConnectionMode.AUTO : graphics.connectionMode()), recipe, desktop);
         synchronized (SESSIONS) { SESSIONS.put(session.id(), session); }
         MAIN.post(() -> session.start(command, directory));
         return session;
@@ -116,7 +118,7 @@ final class WaylandSessions {
                         if (socket == null || !socket.matches("wayland-[0-9]+"))
                             throw new SecurityException("Invalid Wayland socket name");
                         unregister();
-                        if (execution.commands.uid == 0) startBroker(intent.getStringExtra("memoryLabel"));
+                        if (execution.needsBroker()) startBroker(intent.getStringExtra("memoryLabel"));
                         else clientEndpointReady(socket);
                     }
                 } catch (android.os.RemoteException | RuntimeException failure) { fail(failure); }

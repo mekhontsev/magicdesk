@@ -26,11 +26,14 @@ final class WaylandExecution {
     private final HostedGuestFiles guestFiles;
     private final String fileEnvironment;
     private final LinuxAppearanceLaunch appearance;
+    private final WaylandConnectionMode connectionMode;
 
     private String shell() { return commands.termux == null ? "/system/bin/sh" : new java.io.File(commands.home).getParent() + "/usr/bin/sh"; }
 
-    WaylandExecution(Context context, DesktopExecBackend backend, String keyboardDirectory, String fileEnvironment, boolean desktop) {
+    WaylandExecution(Context context, DesktopExecBackend backend, String keyboardDirectory, String fileEnvironment,
+            boolean desktop, WaylandConnectionMode connectionMode) {
         this.context = context.getApplicationContext();
+        this.connectionMode = connectionMode;
         commands = new CommandExecution(context, backend);
         this.fileEnvironment = fileEnvironment;
         guestFiles = new HostedGuestFiles(context.getApplicationInfo().nativeLibraryDir, !fileEnvironment.isEmpty());
@@ -46,7 +49,7 @@ final class WaylandExecution {
         token = java.util.HexFormat.of().formatHex(secret);
         String parent = commands.termux == null ? context.getCacheDir() + "/w" : commands.home + "/.cache/w";
         directory = parent + "/" + UUID.randomUUID().toString().replace("-", "");
-        String endpoint = commands.uid == 0 ? "/wayland-2147483647" : "/wayland-0";
+        String endpoint = needsBroker() ? "/wayland-2147483647" : "/wayland-0";
         if ((directory + endpoint).getBytes(java.nio.charset.StandardCharsets.UTF_8).length >= 108)
             throw new IllegalArgumentException("Wayland runtime directory exceeds Unix socket path limit");
     }
@@ -61,7 +64,7 @@ final class WaylandExecution {
         environment.put("MAGICDESK_WAYLAND_TOKEN", token);
         environment.put("MAGICDESK_WAYLAND_LIBRARY", info.nativeLibraryDir + "/libmagicdesk_wayland_executor.so");
         environment.put("XDG_RUNTIME_DIR", directory);
-        if (commands.uid == 0) environment.put("MAGICDESK_WAYLAND_GUEST_SOCKET", "1");
+        if (needsBroker()) environment.put("MAGICDESK_WAYLAND_GUEST_SOCKET", "1");
         guestFiles.configure(environment);
         appearance.configure(environment);
         if (!fileEnvironment.isEmpty()) environment.put("MAGICDESK_WAYLAND_GUEST_CONTENT", "/tmp/magicdesk-wayland/content");
@@ -106,7 +109,8 @@ final class WaylandExecution {
         return commands.start(invocation, workingDirectory, id + "-client", null, completion);
     }
 
-    boolean hasNamedEndpoint() { return commands.uid == serverUid || commands.uid == 0; }
+    boolean hasNamedEndpoint() { return connectionMode.namedEndpoint(commands.uid, serverUid); }
+    boolean needsBroker() { return commands.uid == 0 && hasNamedEndpoint(); }
 
     Closeable startBroker(WaylandBroker broker, String socket, String memoryLabel, CommandExecution.Completion completion) {
         if (commands.uid != 0 || socket == null || !socket.matches("wayland-[0-9]+"))
