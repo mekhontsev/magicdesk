@@ -125,6 +125,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                 + " MAGICDESK_WAYLAND_PACKAGE=" + q(context.getPackageName())
                 + " MAGICDESK_WAYLAND_EXECUTOR=" + q(execution.termux.packageName)
                 + " MAGICDESK_WAYLAND_SESSION=" + q(id) + " MAGICDESK_WAYLAND_TOKEN=" + q(token)
+                + " MAGICDESK_WAYLAND_WIDTH=900 MAGICDESK_WAYLAND_HEIGHT=700 MAGICDESK_WAYLAND_SCALE=1"
                 + " MAGICDESK_WAYLAND_LIBRARY=" + q(library + "/libmagicdesk_wayland_executor.so")
                 + " XDG_RUNTIME_DIR=" + q(directory) + " XKB_CONFIG_ROOT=" + q(prefix + "/share/X11/xkb")
                 + " /system/bin/app_process -Xnoimage-dex2oat / --nice-name=" + id + " " + WaylandServer.class.getName();

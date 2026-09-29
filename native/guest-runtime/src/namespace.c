@@ -398,11 +398,12 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
     case SYS_lremovexattr:
         return md_namespace_xattr(fs, nr, base, first, a);
     case SYS_fchmodat:
+    case SYS_fchmodat2:
     case SYS_fchownat:
     case SYS_utimensat:
     case SYS_truncate:
     case SYS_statfs: {
-        int flags = nr == SYS_fchownat ? (int)a[4] : nr == SYS_utimensat ? (int)a[3] : 0;
+        int flags = nr == SYS_fchownat ? (int)a[4] : nr == SYS_utimensat || nr == SYS_fchmodat2 ? (int)a[3] : 0;
         if (flags & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH))
             return -EINVAL;
         int borrowed = !*first && (flags & AT_EMPTY_PATH);
@@ -423,6 +424,9 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
             r = md_fd_chmod((int)fd, (unsigned)a[2]);
             break;
         }
+        case SYS_fchmodat2:
+            r = RAW4(fchmodat2, fd, "", a[2], flags | AT_EMPTY_PATH);
+            break;
         case SYS_fchownat:
             r = RAW5(fchownat, fd, "", a[2], a[3], flags | AT_EMPTY_PATH);
             break;

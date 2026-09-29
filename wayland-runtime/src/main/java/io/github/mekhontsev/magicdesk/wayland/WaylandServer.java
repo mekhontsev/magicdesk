@@ -97,7 +97,9 @@ public final class WaylandServer extends IWaylandServer.Stub {
     private void start() {
         if (!lifecycle.beginStart()) return;
         try {
-            handle = nativeStart();
+            handle = nativeStart(Integer.parseInt(required("MAGICDESK_WAYLAND_WIDTH")),
+                    Integer.parseInt(required("MAGICDESK_WAYLAND_HEIGHT")),
+                    Double.parseDouble(required("MAGICDESK_WAYLAND_SCALE")));
             if (handle == 0) throw new IllegalStateException("Cannot start Wayland compositor");
             if ("1".equals(System.getenv("MAGICDESK_WAYLAND_GUEST_SOCKET"))) exportGuestSocket();
             eventDescriptor = ParcelFileDescriptor.fromFd(nativeEventFd(handle));
@@ -562,7 +564,7 @@ public final class WaylandServer extends IWaylandServer.Stub {
         return value;
     }
 
-    private native long nativeStart();
+    private native long nativeStart(int width, int height, double scale);
     private static native String nativeMemoryLabel();
     private static native int nativeEventFd(long server);
     private static native int nativeDispatch(long server);

@@ -56,7 +56,7 @@ static void complete_tree(const char *source_path,const char *destination) {
     struct md_inode_store *s; CHECK(md_inode_store_open(destination,1,&s)==0);
     struct md_inode_import_result result;
     /* Prepared toolkit assets need a larger budget than the small fault fixtures. */
-    const struct md_inode_import_limits rootfs_limits={512*1024*1024,50000};
+    const struct md_inode_import_limits rootfs_limits={1024ULL*1024*1024,50000};
     int r=md_inode_import_tree(s,fd,&rootfs_limits,&result);
     if(r) fprintf(stderr,"complete rootfs import: %d (%s)\n",r,strerror(-r));
     CHECK(!r && result.entries>100 && result.bytes>1024*1024);

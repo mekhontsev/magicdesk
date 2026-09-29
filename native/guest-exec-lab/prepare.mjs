@@ -5,16 +5,21 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {parseArgs} from 'node:util';
-import {archiveFingerprint, verifyRelease} from './verify-release.mjs';
+import {archiveSuites, verifyRelease} from './verify-release.mjs';
 import {packagePlan} from './package-plan.mjs';
 
 const {values, positionals} = parseArgs({allowPositionals: true, options: {
   graphics: {type: 'boolean', default: false}, gtk: {type: 'boolean', default: false},
   applications: {type: 'boolean', default: false}, cache: {type: 'string'},
+  qt: {type: 'boolean', default: false}, suite: {type: 'string', default: 'bookworm'},
 }});
 const [output] = positionals;
 if (!output || positionals.length !== 1)
-  throw new Error('Usage: node prepare.mjs OUTPUT_DIRECTORY [--graphics|--gtk|--applications] [--cache PREPARED_DIRECTORY]');
+  throw new Error('Usage: node prepare.mjs OUTPUT_DIRECTORY [--graphics|--gtk|--applications|--qt] [--suite bookworm|trixie] [--cache PREPARED_DIRECTORY]');
+const suite = values.suite;
+const signingKey = archiveSuites[suite];
+if (!signingKey) throw new Error('Expected bookworm or trixie');
+if (values.qt) values.applications = true;
 if (values.applications) values.gtk = true;
 if (fs.existsSync(path.join(output, 'sysroot')))
   throw new Error('Use a fresh output directory; do not mix sysroot package versions');
@@ -43,26 +48,26 @@ async function download(relative) {
   return Buffer.from(await response.arrayBuffer());
 }
 function hash(bytes) { return crypto.createHash('sha256').update(bytes).digest('hex'); }
-const release = await download('dists/bookworm/Release');
+const release = await download(`dists/${suite}/Release`);
 const releaseFile = path.resolve(output, 'Release');
 fs.writeFileSync(releaseFile, release);
 // The archive key fingerprint is pinned, not trusted merely because HTTPS served a key.
 // https://ftp-master.debian.org/keys.html
-const keyFile = path.resolve(output, 'archive-key-12.asc');
-fs.writeFileSync(keyFile, await download('https://ftp-master.debian.org/keys/archive-key-12.asc'));
-const keyring = path.resolve(output, 'archive-key-12.gpg');
+const keyFile = path.resolve(output, `archive-key-${signingKey.version}.asc`);
+fs.writeFileSync(keyFile, await download(`https://ftp-master.debian.org/keys/archive-key-${signingKey.version}.asc`));
+const keyring = path.resolve(output, `archive-key-${signingKey.version}.gpg`);
 const keyHome = path.resolve(output, 'gnupg');
 fs.mkdirSync(keyHome, {recursive: true, mode: 0o700});
 run('gpg', ['--no-options', '--batch', '--yes', '--homedir', keyHome, '--dearmor', '--output', keyring, keyFile]);
 const signatureFile = path.resolve(output, 'Release.gpg');
-fs.writeFileSync(signatureFile, await download('dists/bookworm/Release.gpg'));
-verifyRelease(keyring, keyHome, signatureFile, releaseFile);
+fs.writeFileSync(signatureFile, await download(`dists/${suite}/Release.gpg`));
+verifyRelease(keyring, keyHome, signatureFile, releaseFile, suite);
 const indexName = 'main/binary-arm64/Packages.xz';
 const hashes = release.toString().split('SHA256:\n')[1]?.split('\nSHA')[0];
 const indexRecord = hashes?.split('\n').map(line => line.trim().split(/\s+/))
   .find(fields => fields[2] === indexName);
 if (!indexRecord) throw new Error('Release has no SHA256 for ARM64 package index');
-const index = await download(`dists/bookworm/${indexName}`);
+const index = await download(`dists/${suite}/${indexName}`);
 if (hash(index) !== indexRecord[0] || index.length !== Number(indexRecord[1]))
   throw new Error('Package index integrity mismatch');
 const archive = path.join(output, 'Packages.xz');
@@ -85,14 +90,17 @@ const records = indexText.toString().split('\n\n').map(record => {
 if (values.gtk) {
   const selected = packagePlan(output, indexText, records,
     ['gtk-3-examples', 'fontconfig', 'fonts-dejavu-core', 'libglib2.0-bin', 'dbus-x11',
-      ...(values.applications ? ['mousepad', 'galculator', 'curl', 'ca-certificates'] : [])]);
+      ...(values.applications ? ['mousepad', 'galculator', 'curl', 'ca-certificates'] : []),
+      ...(values.qt ? ['qml-qt6', 'qt6-wayland', 'qml6-module-qtquick-controls',
+        'qml6-module-qtquick-layouts', 'qml6-module-qtquick-window',
+        'qml6-module-qtqml-workerscript', 'qml6-module-qtquick-templates'] : [])], suite);
   for (const name of selected) if (!packages.includes(name)) packages.push(name);
 }
 const root = path.join(output, 'sysroot');
 fs.mkdirSync(root, {recursive: true});
-const manifest = {suite: 'bookworm', architecture: 'arm64', profile: values.applications ? 'applications' : values.gtk ? 'gtk' : values.graphics ? 'graphics' : 'base', base,
+const manifest = {suite, architecture: 'arm64', profile: values.applications ? 'applications' : values.gtk ? 'gtk' : values.graphics ? 'graphics' : 'base', base,
   trust: 'Pinned Debian archive OpenPGP signature and Release -> Packages -> deb SHA256 chain',
-  signingKeyFingerprint: archiveFingerprint,
+  signingKeyFingerprint: signingKey.fingerprint,
   releaseSha256: hash(release), indexSha256: hash(index), packages: []};
 for (const name of packages) {
   const p = records.find(p => p.get('Package') === name && ['arm64', 'all'].includes(p.get('Architecture')));
@@ -108,3 +116,7 @@ for (const name of packages) {
   process.stdout.write(`${name} ${p.get('Version')} verified${archiveOnly.has(name) ? ' (archive only)' : ' and extracted'}\n`);
 }
 fs.writeFileSync(path.join(output, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+// Debian's merged-/usr packages rely on these distribution aliases.
+for (const directory of ['bin', 'sbin', 'lib']) {
+  if (!fs.existsSync(path.join(root, directory))) fs.symlinkSync('usr/' + directory, path.join(root, directory));
+}

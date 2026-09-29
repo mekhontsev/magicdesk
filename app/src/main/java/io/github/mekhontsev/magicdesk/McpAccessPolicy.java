@@ -39,6 +39,17 @@ final class McpAccessPolicy {
 
     boolean has(final Permission permission) { return mPermissions.contains(permission); }
 
+    boolean allows(String name, org.json.JSONObject arguments) {
+        return allows(name) && (required(name, arguments) != Permission.CONTENT || has(Permission.CONTENT));
+    }
+
+    static Permission required(String name, org.json.JSONObject arguments) {
+        if (name.equals("wait_for_state") && arguments != null
+                && java.util.Set.of("graphics_family_present", "graphics_family_absent")
+                        .contains(arguments.optString("condition", ""))) return Permission.CONTENT;
+        return required(name);
+    }
+
     boolean allows(final String name) {
         if ("appearance.import".equals(name)) return has(Permission.CONTROL) && has(Permission.FILES_READ);
         if (OBSERVATIONS.contains(name)) return true;

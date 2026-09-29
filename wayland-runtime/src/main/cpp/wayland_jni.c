@@ -274,7 +274,7 @@ static bool can_render(void *context, MdwOutput *output) {
     return !(*env)->ExceptionCheck(env) && ready;
 }
 
-JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner) {
+JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner, jint width, jint height, jdouble scale) {
     struct Bridge *bridge = calloc(1, sizeof(*bridge));
     if (!bridge) return 0;
     bridge->env = env;
@@ -298,6 +298,10 @@ JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner) {
     if (!(*env)->ExceptionCheck(env)) bridge->drag_event = (*env)->GetMethodID(env, type, "onDragEvent", "(JJZZ)V");
     (*env)->DeleteLocalRef(env, type);
     if (!(*env)->ExceptionCheck(env)) bridge->server = mdw_server_create();
+    if (bridge->server && !mdw_server_initial_output(bridge->server, width, height, scale)) {
+        mdw_server_destroy(bridge->server);
+        bridge->server = NULL;
+    }
     if (!bridge->server) {
         (*env)->DeleteGlobalRef(env, bridge->owner);
         free(bridge);

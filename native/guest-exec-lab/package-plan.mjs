@@ -3,15 +3,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 
-export function packagePlan(output, index, records, seeds) {
+export function packagePlan(output, index, records, seeds, suite = 'bookworm') {
+  if (!['bookworm', 'trixie'].includes(suite)) throw new Error('Unsupported suite');
   const root = path.resolve(output, 'apt-plan');
   const lists = path.join(root, 'lists');
   fs.mkdirSync(path.join(lists, 'partial'), {recursive: true});
   fs.mkdirSync(path.join(root, 'archives/partial'), {recursive: true});
   fs.mkdirSync(path.join(root, 'empty'), {recursive: true});
   fs.writeFileSync(path.join(root, 'status'), '');
-  fs.writeFileSync(path.join(root, 'sources.list'), 'deb https://deb.debian.org/debian bookworm main\n');
-  fs.writeFileSync(path.join(lists, 'deb.debian.org_debian_dists_bookworm_main_binary-arm64_Packages'), index);
+  fs.writeFileSync(path.join(root, 'sources.list'), `deb https://deb.debian.org/debian ${suite} main\n`);
+  fs.writeFileSync(path.join(lists, `deb.debian.org_debian_dists_${suite}_main_binary-arm64_Packages`), index);
   const config = path.join(root, 'apt.conf');
   fs.writeFileSync(config, `Dir "${root}";
 Dir::Etc::main "-";

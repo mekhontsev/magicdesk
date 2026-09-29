@@ -1,12 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import {verifyRelease} from './verify-release.mjs';
+import {archiveSuites, verifyRelease as verify} from './verify-release.mjs';
 
 const work = path.resolve(process.argv[2]);
-const key = path.join(work, 'archive-key-12.gpg'), home = path.join(work, 'gnupg');
+const suite = JSON.parse(fs.readFileSync(path.join(work, 'manifest.json'))).suite;
+const verifyRelease = (...args) => verify(...args, suite);
+const key = path.join(work, `archive-key-${archiveSuites[suite].version}.gpg`), home = path.join(work, 'gnupg');
 const signature = path.join(work, 'Release.gpg'), release = path.join(work, 'Release');
 verifyRelease(key, home, signature, release);
+assert.throws(() => verify(key, home, signature, release, suite === 'bookworm' ? 'trixie' : 'bookworm'));
 const temp = fs.mkdtempSync(path.join(work, 'signature-test-'));
 try {
   const changedRelease = path.join(temp, 'Release');

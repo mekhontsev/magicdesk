@@ -52,10 +52,10 @@ public final class McpAccessPolicyTest {
                         new JSONObject().put("text", "private-test-value")));
             }
         };
-        for (String name : Set.of("ui.inspect", "ui.wait", "ui.read_text", "graphics.inspect_window")) {
+        for (String name : Set.of("ui.inspect", "ui.wait", "ui.read_text", "graphics.inspect_window", "wait_for_state")) {
             access.set(new McpAccessPolicy(Set.of("content")));
             final JSONObject result = new McpAuthorizedBackend(raw, "network", access::get)
-                    .callTool(name, new JSONObject());
+                    .callTool(name, new JSONObject().put("condition", "graphics_family_present"));
             assertFalse(result.getJSONObject("structuredContent").getBoolean("success"));
             assertFalse(result.toString().contains("private-test-value"));
         }

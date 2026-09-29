@@ -28,6 +28,7 @@ public final class X11Session implements AutoCloseable {
         void onFrame(Output output, int width, int height, boolean available);
         void onDisconnected();
         default void onWindowsChanged(java.util.List<Window> windows) { }
+        default void onFamilyChanged() { }
         default void onDataOffer(X11DataExchange.Offer offer) { }
         default void onDragEvent(int operation, int output, boolean accepted) { }
         default void onCursor(Output output, Cursor cursor) { }
@@ -222,6 +223,7 @@ public final class X11Session implements AutoCloseable {
 
     private void onNativeWindowsCommitted() {
         if (shell != null) shell.publish();
+        callbacks.execute(() -> { if (!closed) listener.onFamilyChanged(); });
         if (!windowsChanged) return;
         windowsChanged = false;
         java.util.List<Window> snapshot = java.util.List.copyOf(windows.values());

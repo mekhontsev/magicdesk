@@ -2,9 +2,12 @@
 """Run the opt-in guest executor fixture through existing authorized MCP services."""
 import argparse
 import importlib.util
+import io
 import json
 from pathlib import Path
 import shlex
+import subprocess
+import tarfile
 import tomllib
 import uuid
 
@@ -17,6 +20,11 @@ def main():
     parser.add_argument("--packages", action="store_true", help="Observe actual dpkg transactions and known shell limits")
     args = parser.parse_args()
     manifest = json.loads((args.build / "manifest.json").read_text())
+    archive = args.build / Path(next(p["file"] for p in manifest["packages"] if p["name"] == "gzip")).name
+    with tarfile.open(fileobj=io.BytesIO(subprocess.check_output(["dpkg-deb", "--fsys-tarfile", str(archive)]))) as package:
+        package_links = [member for member in package.getmembers() if member.islnk()]
+        uncompress = next(member for member in package.getmembers() if member.name.endswith("/uncompress"))
+        gunzip = next(member for member in package.getmembers() if member.name.endswith("/gunzip"))
     repo = Path(__file__).resolve().parents[2]
     spec = importlib.util.spec_from_file_location("md_mcp", repo / "scripts/mcp-client.py")
     transport = importlib.util.module_from_spec(spec)
@@ -161,11 +169,15 @@ def main():
                   contains="is not installed")
             check("namespace removed payload and postrm marker", "timeout 30 " + namespace
                   + "/bin/dash -c " + shlex.quote("test ! -e /usr/share/md-package-fixture"))
-            check("namespace official gzip archive with hard links", "timeout 60 " + namespace
+            check("namespace official gzip archive extraction", "timeout 60 " + namespace
                   + "/usr/bin/dpkg-deb --extract /tmp/md-hardlinks.deb /tmp/md-gzip")
-            check("namespace archive hard-link inode identity", "timeout 30 " + namespace + "/bin/dash -c "
-                  + shlex.quote('test "$(/usr/bin/stat -c %d:%i /tmp/md-gzip/bin/gunzip)" = '
-                                '"$(/usr/bin/stat -c %d:%i /tmp/md-gzip/bin/uncompress)"'))
+            one = shlex.quote("/tmp/md-gzip/" + gunzip.name.removeprefix("./"))
+            two = shlex.quote("/tmp/md-gzip/" + uncompress.name.removeprefix("./"))
+            identity = ('a=$(/usr/bin/stat -c %d:%i ' + one + '); b=$(/usr/bin/stat -c %d:%i ' + two + '); test "$a" = "$b"'
+                if uncompress.islnk() else 'test -L ' + two + '; test "$(readlink ' + two + ')" = ' + shlex.quote(uncompress.linkname))
+            assert uncompress.islnk() or uncompress.issym()
+            check("namespace archive preserves declared link type", "timeout 30 " + namespace + "/bin/dash -c "
+                  + shlex.quote("set -eu; test -f " + one + "; " + identity))
         check("Debian identity", "timeout 20 " + launch + "/usr/bin/id -u", contains="2000\n")
         check("Debian shell and child cat", "timeout 20 " + launch + "/bin/dash -c "
               + shlex.quote("/bin/cat /etc/md-guest-fixture"), contains="guest-value\n")
@@ -210,9 +222,10 @@ def main():
                   + "/bin/cat /usr/share/md-package-fixture/configured", contains="configured\n", limitation=True)
             check("dpkg transaction remains uncommitted", "timeout 20 " + launch + "/bin/dash -c "
                   + shlex.quote("test ! -s /tmp/md-dpkg/status && test -s /tmp/md-dpkg/status-new"), limitation=True)
-            check("official gzip archive retains hard-link semantics", "timeout 20 " + launch
+            check("official gzip archive retains declared link semantics", "timeout 20 " + launch
                   + "/usr/bin/dpkg-deb --extract /tmp/md-hardlinks.deb /tmp/md-hardlinks",
-                  code=2, contains="Cannot hard link", limitation=True)
+                  code=2 if package_links else 0, contains="Cannot hard link" if package_links else None,
+                  limitation=bool(package_links))
         check("missing executable", "timeout 20 " + launch + "/usr/bin/not-installed", code=127)
         check("child exit status", "timeout 20 " + launch + "/bin/dash -c 'exit 42'", code=42)
         # Cancellation bound for a deliberately nonterminating guest, not a settling delay.

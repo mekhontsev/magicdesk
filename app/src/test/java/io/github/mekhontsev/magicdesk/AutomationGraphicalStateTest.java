@@ -8,6 +8,26 @@ import io.github.mekhontsev.magicdesk.hosted.HostedMaximization;
 import io.github.mekhontsev.magicdesk.hosted.HostedWindowInteraction;
 
 public final class AutomationGraphicalStateTest {
+    @Test public void familyWaitRequiresContentAndNeverAcceptsUnmappedMembers() throws Exception {
+        var args = new JSONObject().put("condition", "graphics_family_present").put("sessionId", "s")
+                .put("windowId", 5).put("memberType", "dialog");
+        AutomationCommandArguments.check("wait_for_state", args);
+        AutomationGraphicsObservation.validate("graphics_family_present", args);
+        assertFalse(new McpAccessPolicy(java.util.Set.of()).allows("wait_for_state", args));
+        assertTrue(new McpAccessPolicy(java.util.Set.of("content")).allows("wait_for_state", args));
+        assertEquals(McpAccessPolicy.Permission.CONTENT, McpAccessPolicy.required("wait_for_state", args));
+        assertEquals(5000, DesktopAutomationController.waitInterval("graphics_family_present", 5000, false));
+        var nodes = new org.json.JSONArray().put(new JSONObject().put("id", 6).put("mapped", false).put("type", "dialog"))
+                .put(new JSONObject().put("id", 7).put("mapped", true).put("type", "dialog"))
+                .put(new JSONObject().put("id", 8).put("mapped", true).put("type", "normal"));
+        var family = new JSONObject().put("windows", nodes);
+        assertEquals(7, AutomationGraphicsFamilyObservation.matching(family, args).getJSONObject(0).getLong("id"));
+        args.put("memberId", 6);
+        assertEquals(0, AutomationGraphicsFamilyObservation.matching(family, args).length());
+        assertThrows(IllegalArgumentException.class, () -> AutomationGraphicsObservation.validate("display_present", args));
+        args.put("memberId", -1);
+        assertThrows(IllegalArgumentException.class, () -> AutomationGraphicsObservation.validate("graphics_family_present", args));
+    }
     @Test public void requestsAreNotObservedStates() throws Exception {
         var control = new GraphicalSessions.Control(7, true, null, 8, HostedMaximization.HORIZONTAL, null,
                 new HostedWindowInteraction(9, HostedWindowInteraction.Action.MINIMIZE, true));
@@ -22,6 +42,22 @@ public final class AutomationGraphicalStateTest {
         assertTrue(window.getJSONObject("interaction").getBoolean("attention"));
         assertFalse(window.getJSONObject("interaction").has("minimized"));
         assertEquals(1, window.getJSONObject("constraints").getJSONObject("resize").getInt("widthIncrement"));
+    }
+    @Test public void familyAbsenceRequiresCompleteInspectionAndExactParent() throws Exception {
+        var family = new JSONObject().put("windows", new org.json.JSONArray()
+                .put(new JSONObject().put("id", 6).put("mapped", true).put("type", "dialog").put("transientFor", 5))
+                .put(new JSONObject().put("id", 7).put("mapped", true).put("type", "dialog").put("transientFor", 6))
+                .put(new JSONObject().put("id", 8).put("mapped", true).put("type", "popup").put("parentId", 6)));
+        var args = new JSONObject().put("memberType", "dialog").put("memberParentId", 6);
+        assertEquals(7, AutomationGraphicsFamilyObservation.matching(family, args).getJSONObject(0).getLong("id"));
+        args.put("memberType", "popup");
+        assertEquals(8, AutomationGraphicsFamilyObservation.matching(family, args).getJSONObject(0).getLong("id"));
+        var empty = new org.json.JSONArray();
+        assertFalse(AutomationGraphicsFamilyObservation.matches(family, empty, true));
+        family.put("truncated", true);
+        assertFalse(AutomationGraphicsFamilyObservation.matches(family, empty, true));
+        family.put("truncated", false);
+        assertTrue(AutomationGraphicsFamilyObservation.matches(family, empty, true));
     }
     @Test public void unknownDoesNotProveDisabled() throws Exception {
         var args = new JSONObject().put("state", "fullscreen").put("enabled", false);

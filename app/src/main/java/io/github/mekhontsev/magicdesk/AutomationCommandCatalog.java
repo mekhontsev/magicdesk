@@ -387,7 +387,7 @@ final class AutomationCommandCatalog {
                 .put(readTool(
                         "wait_for_state",
                         "Wait for state",
-                        "Wait for an observable desktop, task, application health, system dialog, UI, or self-test condition.",
+                        "Wait for an observable desktop, task, application health, system dialog, UI, or self-test condition. Native graphics_family conditions additionally require content permission.",
                         waitSchema()));
         tools.put(readTool(
                         "sample_pixels",
@@ -806,11 +806,15 @@ final class AutomationCommandCatalog {
                                 "taskbar_visible",
                                 "wallpaper_rendered", "self_test_finished", "graphics_ready", "graphics_session_absent",
                                 "graphics_window_present", "graphics_window_absent", "graphics_host_attached", "graphics_window_state",
+                                "graphics_family_present", "graphics_family_absent",
                                 "shell_surface_present", "shell_surface_absent", "task_state"))
                         .put("sessionId", stringProperty("Exact graphical session ID for graphics conditions or shell surface filter."))
                         .put("windowId", integerProperty("Native graphical window ID, not Android task id. Omit for graphics_window_present to await any mapped client; zero selects a whole-desktop viewer for host/state conditions."))
                         .put("parentWindowId", integerProperty("Optional positive native parent ID for graphics_window_present, scoped to sessionId. Matches direct dependent catalog windows, not toolkit widgets or all descendants."))
                         .put("windowTitle", stringProperty("Optional exact client title for graphics_window_present, at most 4096 characters. Catalog observation, not proof of rendered pixels or document contents."))
+                        .put("memberId", integerProperty("Native family-member ID from graphics.inspect_window for graphics_family_present/absent; windowId selects the inspected owner. Absence means no mapped match in a complete family."))
+                        .put("memberType", stringProperty("Native member type from graphics.inspect_window for graphics_family_present/absent, such as dialog (X11) or popup (Wayland). Exact match; may be combined with memberId."))
+                        .put("memberParentId", integerProperty("Optional direct native transient parent (X11) or surface parent (Wayland) for graphics_family conditions. Combine with memberId or memberType."))
                         .put("workspaceId", stringProperty("Workspace residency ID for shell-surface conditions or task_state."))
                         .put("surfaceId", stringProperty("Optional exact shell surface identity from inspect_workspace."))
                         .put("state", enumProperty("Confirmed state for task_state or graphics_window_state; enabled supplies the expected value.", "fullscreen", "maximized", "concealed"))

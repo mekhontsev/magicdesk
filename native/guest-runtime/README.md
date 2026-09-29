@@ -112,7 +112,7 @@ loader does not establish compatibility with future loaders or Android kernels.
 
 Verified on Nubia NX809J, Android 16 / API 36, Linux 6.12.23 with 4 KiB pages,
 through MagicDesk's Shevery-backed shell service, UID 2000 in `u:r:shell:s0`.
-The guest uses Debian bookworm glibc 2.36-9+deb12u14, dash and coreutils.
+Fixtures cover Debian bookworm glibc 2.36 and trixie glibc 2.41, dash and coreutils.
 
 The following checks cover the direct backend. The namespace backend's supported
 operations and tests are listed in [its contract](namespace-execution.md).
@@ -120,7 +120,7 @@ operations and tests are listed in [its contract](namespace-execution.md).
 - Debian shell, child cat, pipelines, numeric identity and exit status.
 - File reads/writes, stat/statx, directory enumeration, cwd/dirfd, symlinks including
   absolute targets, O_NOFOLLOW/O_EXCL, rename and unlink.
-- chmod/fchmodat, actual chown permission failures, nanosecond timestamps through
+- chmod/fchmodat/fchmodat2, actual chown permission failures, nanosecond timestamps through
   paths and descriptors, no-follow symlink timestamps, truncate, statfs, xattrs,
   atomic rename flags and inotify. Ownership stays UID 2000; changing it to root
   fails rather than manufacturing success or silently changing execution identity.
@@ -128,6 +128,10 @@ operations and tests are listed in [its contract](namespace-execution.md).
   signals under the unmodified Debian dynamic linker.
 - fork/exec, vfork, posix_spawn with file actions/cwd/signal masks, an explicit
   child environment, argv0, PATH, shebang and inherited Unix socket IO.
+  `clone3` returns ENOSYS so libc uses ordinary clone: its
+  `CLONE_CLEAR_SIGHAND` path would discard the runtime's SIGSYS adapter and needs
+  a dedicated child-return gate. This is an explicit ABI limitation, not a
+  successful emulation of clone3. Both tested libc versions pass posix_spawn.
 - 64 consecutive execs preserve PID, no-new-privileges and the number of seccomp
   filters. Failed exec/spawn return to the caller. `/proc/self/exe` readlink/open
   and the supplied AT_EXECFN identify the guest executable. Each exec updates the
@@ -160,7 +164,7 @@ Negative controls are required, not hidden or counted as compatibility passes:
   shared-inode links. No package maintainer scripts are run by preparation.
 - `/proc/self/cmdline` and `/proc/self/auxv` retain the kernel's bootstrap view;
   they are not a complete guest procfs. Locales, metadata/ownership
-  emulation, Qt and client GPU buffers are not validated. NSS/DNS and GTK coverage is bounded
+  emulation and client GPU buffers are not validated. NSS/DNS and toolkit coverage is bounded
   by the software GUI checks below.
 - Guest-installed seccomp filters, application-owned SIGSYS handlers, alternate
   signal stacks with nested file calls and arbitrary tiny stacks are not covered.
@@ -290,12 +294,15 @@ the distribution's standard D-Bus configuration with a unique abstract address,
 not the demonstration's keyfile-only settings backend. Namespace inotify is
 still unsupported, including D-Bus's session-config directory watch.
 
-Known gaps: GTK emits monitor-scale critical warnings during initial output
-discovery; the compositor publishes application outputs when Android hosts attach.
+The compositor publishes an initial logical monitor before accepting clients,
+then replaces it with application-host output geometry. Initial GTK
+monitor-scale warnings are absent in the installed application checks.
 Tools reading the unvirtualized kernel command line can still identify the
 bootstrap even though the kernel process name follows the guest. These are recorded limitations, not hidden by
 log suppression or application-specific environment overrides. GUI success does
-not establish complete procfs, Qt, IME, clipboard or GPU compatibility.
+not establish complete procfs or GPU compatibility. Installed GTK file-dialog
+and Qt/IME/clipboard coverage, including the strict Qt correction failure, is
+listed in the [application contract](../../docs/guest-runtime.md#coverage-and-limits).
 
 ## Package Transactions
 

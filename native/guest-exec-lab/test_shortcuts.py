@@ -117,6 +117,31 @@ def main():
             wait("app_ready", taskId=task, displayId=display["id"])
             return task
 
+        def dialog(case, parent=None):
+            if args.protocol == "wayland":
+                observed = wait("graphics_window_present", sessionId=case["sessionId"],
+                    parentWindowId=parent or case["windowId"])
+                items = [w for w in observed["session"]["windows"] if w["mapped"]
+                    and w["parentWindowId"] == (parent or case["windowId"])]
+                assert len(items) == 1, observed
+                selected = items[0]["windowId"]
+                return selected, focused_host(case["sessionId"], selected)
+            observed = wait("graphics_family_present", sessionId=case["sessionId"],
+                windowId=case["windowId"], memberType="dialog", memberParentId=parent or case["windowId"])
+            items = [w for w in observed["matchingMembers"] if w["transientFor"] == (parent or case["windowId"])]
+            assert len(items) == 1, observed
+            return items[0]["id"], focused_host(case["sessionId"], case["windowId"])
+
+        def dialog_gone(case, native):
+            if args.protocol == "wayland":
+                wait("graphics_window_absent", sessionId=case["sessionId"], windowId=native)
+            else:
+                wait("graphics_family_absent", sessionId=case["sessionId"], windowId=case["windowId"], memberId=native)
+
+        def open_dialog(case, *chord):
+            keys(*chord)
+            return dialog(case)
+
         def launch(application, command_line):
             name = "Guest recipe " + tag + " " + application
             path = root + "/" + tag + "-" + application + ".desktop"
@@ -173,43 +198,115 @@ def main():
         clipboard_text("g22" + text)
         print("PASS bidirectional Unicode clipboard, repeated keys and guest file save", flush=True)
 
-        if args.protocol == "wayland":
-            keys("CTRL_LEFT", "O")
-            wait("graphics_window_present", sessionId=editor["sessionId"], parentWindowId=editor["windowId"])
-            family = client.call("graphics.inspect_window", {"sessionId": editor["sessionId"], "windowId": editor["windowId"]})
-            dialogs = [w for w in family["catalog"] if w["parentWindowId"] == editor["windowId"] and w["mapped"]]
-            assert len(dialogs) == 1, family
-            editor["fileDialog"] = dialogs[0]
-            dialog_task = focused_host(editor["sessionId"], dialogs[0]["windowId"])
-            editor["dialogCapture"] = capture(dialog_task, "file-dialog")
-            keys("ESCAPE")
-            wait("graphics_window_absent", sessionId=editor["sessionId"], windowId=dialogs[0]["windowId"])
-            focused_host(editor["sessionId"], editor["windowId"])
-            print("PASS guest file dialog mapping and keyboard dismissal", flush=True)
+        native, task = open_dialog(editor, "CTRL_LEFT", "O")
+        editor["dialogCapture"] = capture(task, "file-dialog")
+        keys("ESCAPE")
+        dialog_gone(editor, native)
+        focused_host(editor["sessionId"], editor["windowId"])
+        print("PASS guest file dialog mapping and keyboard dismissal", flush=True)
 
-            keys("CTRL_LEFT", "O")
-            opened = wait("graphics_window_present", sessionId=editor["sessionId"], parentWindowId=editor["windowId"])
-            dialogs = [w for w in opened["session"]["windows"] if w["parentWindowId"] == editor["windowId"] and w["mapped"]]
-            assert len(dialogs) == 1, opened
-            dialog_task = focused_host(editor["sessionId"], dialogs[0]["windowId"])
-            keys("CTRL_LEFT", "L")
-            keys("CTRL_LEFT", "A")
-            type_path(opened_document)
-            editor["locationCapture"] = capture(dialog_task, "file-location")
-            keys("ENTER")
-            wait("graphics_window_absent", sessionId=editor["sessionId"], windowId=dialogs[0]["windowId"])
-            assert editor["title"].count(Path(document).name) == 1, editor["title"]
-            expected_title = editor["title"].replace(Path(document).name, Path(opened_document).name)
-            wait("graphics_window_present", sessionId=editor["sessionId"], windowId=editor["windowId"], windowTitle=expected_title)
-            focused_host(editor["sessionId"], editor["windowId"])
-            keys("CTRL_LEFT", "A")
-            keys("CTRL_LEFT", "C")
-            editor["openedText"] = clipboard_text(opened_text)
-            editor["openedCapture"] = capture(editor["taskId"], "opened-document")
-            print("PASS file picker open, document title publication and actual content", flush=True)
-        else:
-            # X11 transients belong to native inspection, not the observed toplevel catalog.
-            editor["fileDialogCoverage"] = "not tested: native-family event observation required"
+        native, task = open_dialog(editor, "CTRL_LEFT", "O")
+        keys("CTRL_LEFT", "L")
+        keys("CTRL_LEFT", "A")
+        type_path(opened_document)
+        editor["locationCapture"] = capture(task, "file-location")
+        keys("ENTER")
+        dialog_gone(editor, native)
+        assert editor["title"].count(Path(document).name) == 1, editor["title"]
+        expected_title = editor["title"].replace(Path(document).name, Path(opened_document).name)
+        wait("graphics_window_present", sessionId=editor["sessionId"], windowId=editor["windowId"], windowTitle=expected_title)
+        focused_host(editor["sessionId"], editor["windowId"])
+        keys("CTRL_LEFT", "A")
+        keys("CTRL_LEFT", "C")
+        editor["openedText"] = clipboard_text(opened_text)
+        editor["openedCapture"] = capture(editor["taskId"], "opened-document")
+        print("PASS file picker open, document title publication and actual content", flush=True)
+
+        saved_as = "/tmp/md-save-" + tag + ".txt"
+        native, task = open_dialog(editor, "CTRL_LEFT", "SHIFT_LEFT", "S")
+        keys("CTRL_LEFT", "A")
+        type_path(saved_as)
+        keys("CTRL_LEFT", "TAB")
+        editor["saveAsCapture"] = capture(task, "save-as")
+        keys("ALT_LEFT", "S")
+        dialog_gone(editor, native)
+        focused_host(editor["sessionId"], editor["windowId"])
+        editor["savedAsText"] = guest("cat " + shlex.quote(saved_as))
+        assert editor["savedAsText"] == opened_text, editor
+        print("PASS Save As with fresh-process readback", flush=True)
+
+        native, task = open_dialog(editor, "CTRL_LEFT", "SHIFT_LEFT", "S")
+        keys("CTRL_LEFT", "A")
+        type_path(document)
+        # An existing pathname offers GTK completion; dismiss that observed popup,
+        # not the file dialog. Its keyboard grab otherwise consumes Save's mnemonic.
+        if args.protocol == "wayland":
+            offered = wait("graphics_family_present", sessionId=editor["sessionId"], windowId=native, memberType="subsurface")
+            completion = offered["matchingMembers"][-1]["id"]
+            keys("ESCAPE")
+            wait("graphics_family_absent", sessionId=editor["sessionId"], windowId=native, memberId=completion)
+        keys("ALT_LEFT", "S")
+        confirmation, task = dialog(editor, native)
+        editor["overwriteCapture"] = capture(task, "overwrite")
+        keys("ALT_LEFT", "R")
+        dialog_gone(editor, confirmation)
+        dialog_gone(editor, native)
+        focused_host(editor["sessionId"], editor["windowId"])
+        editor["overwrittenText"] = guest("cat " + shlex.quote(document))
+        assert editor["overwrittenText"] == opened_text
+        print("PASS overwrite confirmation and fresh-process readback", flush=True)
+
+        blocked = "/tmp/md-blocked-" + tag
+        guest("mkdir " + shlex.quote(blocked) + "; chmod 000 " + shlex.quote(blocked))
+        native, task = open_dialog(editor, "CTRL_LEFT", "SHIFT_LEFT", "S")
+        keys("CTRL_LEFT", "A")
+        type_path(blocked + "/forbidden.txt")
+        keys("CTRL_LEFT", "TAB")
+        keys("ALT_LEFT", "S")
+        denied, task = dialog(editor, native)
+        editor["deniedCapture"] = capture(task, "denied")
+        keys("ESCAPE")
+        dialog_gone(editor, denied)
+        if args.protocol == "wayland": focused_host(editor["sessionId"], native)
+        keys("ESCAPE")
+        dialog_gone(editor, native)
+        focused_host(editor["sessionId"], editor["windowId"])
+        guest("chmod 700 " + shlex.quote(blocked) + "; test ! -e " + shlex.quote(blocked + "/forbidden.txt"))
+        print("PASS inaccessible path, error dismissal and cancellation without mutation", flush=True)
+
+        native, task = open_dialog(editor, "CTRL_LEFT", "SHIFT_LEFT", "S")
+        # Fixture-only points in the captured 1000x700 GTK chooser, not production UI policy.
+        keys("CTRL_LEFT", "A")
+        type_path("/tmp/placeholder.txt")
+        keys("CTRL_LEFT", "TAB")
+        client.call("input.gesture", {"displayId": display["id"], "type": "tap",
+            "points": [{"x": 976, "y": 114 if args.protocol == "wayland" else 95}]})
+        folder_popup = None
+        if args.protocol == "wayland":
+            offered = wait("graphics_family_present", sessionId=editor["sessionId"],
+                windowId=native, memberType="subsurface")
+            folder_popup = offered["matchingMembers"][-1]["id"]
+        # X11 GTK paints this popover inside its existing dialog, without a new XID.
+        client.call("input.gesture", {"displayId": display["id"], "type": "tap",
+            "points": [{"x": 760, "y": 196 if args.protocol == "wayland" else 177}]})
+        editor["newFolderCapture"] = capture(task, "new-folder")
+        folder = "md-folder-" + tag
+        keys("CTRL_LEFT", "A")
+        type_path(folder)
+        keys("CTRL_LEFT", "A")
+        keys("CTRL_LEFT", "C")
+        clipboard_text(folder)
+        editor["folderNameCapture"] = capture(task, "folder-name")
+        keys("ENTER")
+        if folder_popup is not None:
+            wait("graphics_family_absent", sessionId=editor["sessionId"], windowId=native, memberId=folder_popup)
+        guest("test -d /tmp/" + folder)
+        keys("ESCAPE")
+        dialog_gone(editor, native)
+        focused_host(editor["sessionId"], editor["windowId"])
+        guest("test -d /tmp/" + folder)
+        editor["createdFolder"] = "/tmp/" + folder
+        print("PASS file chooser creates a directory, cancellation retains only that directory", flush=True)
 
         # A unique application config keeps another run's notation/preferences out of this case.
         calculator_command = shlex.join(["env", "GALCULATOR_CONFIG=/tmp/md-galculator-" + tag,
@@ -246,6 +343,10 @@ def main():
         completed = True
     except Exception as error:
         report["failure"] = str(error)
+        report["failureState"] = client.call("get_state")
+        report["failureLog"] = command("logcat -d -t 12000 | grep -E 'InputDispatcher|ClipboardService|HostedContent|MagicDeskClipboard' | tail -100")
+        if display:
+            report["failureCapture"] = capture(None, "failure")
         raise
     finally:
         errors = []

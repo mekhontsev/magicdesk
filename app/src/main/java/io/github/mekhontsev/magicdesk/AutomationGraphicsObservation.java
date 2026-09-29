@@ -11,9 +11,12 @@ final class AutomationGraphicsObservation {
     }
     static JSONObject observe(String condition, JSONObject args) {
         validate(condition, args);
+        if (condition.equals("graphics_family_present") || condition.equals("graphics_family_absent"))
+            return AutomationGraphicsFamilyObservation.observe(condition, args);
         return AutomationMainThread.read(() -> current(condition, args));
     }
     static void validate(String condition, JSONObject args) {
+        AutomationGraphicsFamilyObservation.validate(condition, args);
         boolean workspace = condition.equals("task_state") || condition.startsWith("shell_surface_");
         String identity = workspace ? "workspaceId" : "sessionId";
         if (args.optString(identity, "").isBlank()) throw new IllegalArgumentException("Expected " + identity);
@@ -70,14 +73,15 @@ final class AutomationGraphicsObservation {
         if (condition.equals("graphics_window_absent") && (session == null || session.stopped()))
             return result.put("matched", true);
         if (session == null) return result;
-        var snapshot = AutomationGraphics.describe(session);
+        var catalog = session.windows();
+        var snapshot = AutomationGraphics.describe(session, catalog);
         result.put("session", snapshot);
         if (condition.equals("graphics_ready")) return result.put("matched", session.ready());
         if (!session.ready()) return result;
         if (condition.equals("graphics_window_present"))
-            return result.put("matched", session.windows().stream().anyMatch(window -> presentMatches(window, args)));
+            return result.put("matched", catalog.stream().anyMatch(window -> presentMatches(window, args)));
         long window = AutomationJsonArguments.requiredLong(args, "windowId");
-        var selected = session.windows().stream().filter(item -> item.id() == window).findFirst().orElse(null);
+        var selected = catalog.stream().filter(item -> item.id() == window).findFirst().orElse(null);
         switch (condition) {
             case "graphics_window_absent" -> { return result.put("matched", selected == null); }
             case "graphics_host_attached", "graphics_window_state" -> {

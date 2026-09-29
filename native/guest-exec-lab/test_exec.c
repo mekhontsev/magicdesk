@@ -71,6 +71,7 @@ static void *send_signals(void *ignored) {
     return NULL;
 }
 int main(int argc, char **argv) {
+    assert(syscall(SYS_clone3, NULL, 0) == -1 && errno == ENOSYS);
     setvbuf(stdout, NULL, _IONBF, 0);
     char comm[16] = {0};
     assert(!prctl(PR_GET_NAME, comm));

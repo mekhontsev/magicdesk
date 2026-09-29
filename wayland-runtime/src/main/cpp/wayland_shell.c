@@ -159,9 +159,11 @@ bool mdw_server_shell_output(MdwServer *server, int width, int height) {
         wl_list_for_each_safe(layer, next, &server->layers, link)
             wlr_layer_surface_v1_destroy(layer->layer);
         mdw_toplevels_clear(server);
-        if (server->shell_output) wlr_output_destroy(server->shell_output);
+        struct wlr_output *output = server->shell_output;
         server->shell_output = NULL;
-        return true;
+        bool restored = mdw_initial_output_refresh(server);
+        if (output) wlr_output_destroy(output);
+        return restored;
     }
     if (width < 1 || height < 1 || width > 16384 || height > 16384 || !server->events.shell)
         return false;
@@ -186,7 +188,7 @@ bool mdw_server_shell_output(MdwServer *server, int width, int height) {
         return false;
     }
     if (!wlr_output_layout_add(server->output_layout, server->shell_output, 0, 0) ||
-            !mdw_toplevels_prepare(server)) {
+            !mdw_toplevels_prepare(server) || !mdw_initial_output_refresh(server)) {
         mdw_server_shell_output(server, 0, 0);
         return false;
     }

@@ -27,12 +27,18 @@ final class WaylandExecution {
     private final String fileEnvironment;
     private final LinuxAppearanceLaunch appearance;
     private final GraphicalConnectionMode connectionMode;
+    private final int initialWidth, initialHeight;
+    private final double initialScale;
 
     private String shell() { return commands.termux == null ? "/system/bin/sh" : new java.io.File(commands.home).getParent() + "/usr/bin/sh"; }
 
     WaylandExecution(Context context, DesktopExecBackend backend, String keyboardDirectory, String fileEnvironment,
             boolean desktop, GraphicalConnectionMode connectionMode) {
         this.context = context.getApplicationContext();
+        var metrics = context.getResources().getDisplayMetrics();
+        initialWidth = Math.max(1, Math.min(16384, metrics.widthPixels));
+        initialHeight = Math.max(1, Math.min(16384, metrics.heightPixels));
+        initialScale = Math.max(.25, Math.min(16, metrics.density));
         this.connectionMode = connectionMode;
         commands = new CommandExecution(context, backend);
         if (connectionMode == GraphicalConnectionMode.ROUTED && commands.termux != null)
@@ -64,6 +70,9 @@ final class WaylandExecution {
         environment.put("MAGICDESK_WAYLAND_EXECUTOR", executorPackage);
         environment.put("MAGICDESK_WAYLAND_SESSION", id);
         environment.put("MAGICDESK_WAYLAND_TOKEN", token);
+        environment.put("MAGICDESK_WAYLAND_WIDTH", Integer.toString(initialWidth));
+        environment.put("MAGICDESK_WAYLAND_HEIGHT", Integer.toString(initialHeight));
+        environment.put("MAGICDESK_WAYLAND_SCALE", Double.toString(initialScale));
         environment.put("MAGICDESK_WAYLAND_LIBRARY", info.nativeLibraryDir + "/libmagicdesk_wayland_executor.so");
         environment.put("XDG_RUNTIME_DIR", directory);
         if (needsBroker()) environment.put("MAGICDESK_WAYLAND_GUEST_SOCKET", "1");

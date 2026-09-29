@@ -522,6 +522,16 @@ published parent relationship, not toolkit widgets or recursive descendants;
 an optional `windowId` further restricts the match. It observes only the shared
 toplevel catalog: X11 transients exposed solely by `graphics.inspect_window`
 family inspection are outside this wait's coverage.
+`graphics_family_present/absent` instead inspect the selected native family on
+its protocol event loop, triggered by existing family-change notifications.
+They require `sessionId`, positive owner `windowId`, and `memberId` or
+`memberType` (or both). Optional `memberParentId` matches the direct native
+transient/surface parent. Types are those returned by `graphics.inspect_window`,
+including X11 `dialog` and Wayland `popup`/`subsurface`; they are not widget roles.
+Presence requires a mapped match. Absence requires no mapped match in a complete,
+non-truncated inspection, or the end of the exact session. Inspection failures
+are errors, not absence. These conditions additionally require `content`
+permission, checked again before returning a potentially long-running result.
 An optional `windowTitle` filters mapped catalog entries by their exact client
 title (at most 4096 characters), together with the other selectors. Title changes
 use existing catalog events; they do not certify document contents or rendered

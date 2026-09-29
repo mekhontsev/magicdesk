@@ -23,8 +23,8 @@ final class McpAuthorizedBackend implements McpBackend {
 
     @Override public JSONObject callTool(String name, JSONObject arguments) throws JSONException {
         final McpAccessPolicy access = mAccess.get();
-        if (!access.allows(name)) {
-            final var permission = McpAccessPolicy.required(name);
+        if (!access.allows(name, arguments)) {
+            final var permission = McpAccessPolicy.required(name, arguments);
             return MagicDeskMcpBackend.actionResult(DesktopAutomationResult.failure(
                     DesktopAutomationErrorCode.TOOL_DISABLED, "Permission is not granted: " + name,
                     false, new JSONObject()
@@ -33,8 +33,8 @@ final class McpAuthorizedBackend implements McpBackend {
         }
         final JSONObject result = mBackend.callTool(name, arguments);
         // A content wait may outlive a permission change. Never return its captured UI after revocation.
-        if (McpAccessPolicy.required(name) == McpAccessPolicy.Permission.CONTENT
-                && !mAccess.get().allows(name)) {
+        if (McpAccessPolicy.required(name, arguments) == McpAccessPolicy.Permission.CONTENT
+                && !mAccess.get().allows(name, arguments)) {
             return MagicDeskMcpBackend.actionResult(DesktopAutomationResult.failure(
                     DesktopAutomationErrorCode.TOOL_DISABLED, "Content permission was revoked", false));
         }

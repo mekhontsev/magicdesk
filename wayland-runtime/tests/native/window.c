@@ -48,6 +48,8 @@ struct Client {
     int key_down, key_up, button_down, button_up;
     int width, height, frames;
     bool closed;
+    uint32_t initial_monitor;
+    int monitors;
 };
 
 static void ping(void *data, struct xdg_wm_base *shell, uint32_t serial) {
@@ -222,6 +224,10 @@ static void global(void *data, struct wl_registry *registry, uint32_t name,
         const char *interface, uint32_t version) {
     (void)version;
     struct Client *client = data;
+    if (!strcmp(interface, "wl_output")) {
+        if (!client->initial_monitor) client->initial_monitor = name;
+        client->monitors++;
+    }
     if (!strcmp(interface, "wl_compositor"))
         client->compositor = wl_registry_bind(registry, name, &wl_compositor_interface, 4);
     else if (!strcmp(interface, "wl_shm"))
@@ -243,7 +249,12 @@ static void global(void *data, struct wl_registry *registry, uint32_t name,
     }
 }
 static void global_remove(void *data, struct wl_registry *registry, uint32_t name) {
-    (void)data; (void)registry; (void)name;
+    (void)registry;
+    struct Client *client = data;
+    if (name == client->initial_monitor) {
+        assert(client->monitors >= 2); // Replacement is published before removal.
+        client->monitors--;
+    }
 }
 static const struct wl_registry_listener registry_listener = {global, global_remove};
 
@@ -341,6 +352,7 @@ static void run_client(const char *socket) {
     assert(wl_display_roundtrip(client.display) >= 0);
     assert(client.compositor && client.shm && client.shell && client.keyboard && client.pointer);
     assert(client.data_device_manager);
+    assert(client.initial_monitor && client.monitors == 1);
 #ifdef __ANDROID__
     if (dma_client) assert(client.dma);
 #else
@@ -508,6 +520,7 @@ int main(int argc, char **argv) {
     assert(setenv("XDG_RUNTIME_DIR", directory, 1) == 0);
     MdwServer *server = mdw_server_create();
     assert(server);
+    assert(mdw_server_initial_output(server, 900, 700, 1));
     assert(mdw_server_fd(server) >= 0);
     struct Host host = {.allow_render = true};
     MdwEvents events = {.window = window_event, .window_gesture = window_gesture, .frame = frame_event, .can_render = can_render,

@@ -117,7 +117,7 @@ Device coverage is RM11/NX809J, API 36, Linux 6.12.23, 4 KiB pages, actual
 UID 2000. Build and injected missing-syscall checks do not emulate old kernels,
 API 34, root execution or 16 KiB devices. Those remain separate validation needs.
 
-The native fixtures exercise Debian bookworm glibc, shell/exec, threads/signals,
+The native fixtures exercise Debian bookworm and trixie glibc, shell/exec, threads/signals,
 namespace hard links and package transactions, process-tree cancellation and
 software Wayland/GTK rendering with input. The installed runtime also runs
 unchanged Debian Mousepad and Galculator on a private virtual display without
@@ -134,18 +134,25 @@ Both protocols pass bidirectional Unicode clipboard exchange, Mousepad saving
 with fresh-process readback, simultaneous Mousepad/Galculator launches sharing
 one store, recipe reuse, and protocol close followed by actual zero-status
 process exit. Window destruction alone does not end a still-running launch
-command. The Wayland workflow checks child file-dialog cancellation and keyboard
-selection of another guest file, then verifies the new document's title and
-actual text through clipboard readback. It waits for the dialog's Android host
-and input focus, not merely its native map. Captures verify the dialog and
-opened document on the tested device. X11 transient dialogs still need
-native-family observation beyond the toplevel catalog.
+command. File workflows check child-dialog cancellation, opening another guest
+file, Save As, overwrite confirmation, directory creation and inaccessible paths.
+Document titles and actual contents are checked independently. Input awaits the
+dialog's Android host and focus, not merely its native map; X11 transients use
+native-family events rather than assuming entries in the toplevel catalog.
 The separate rapid repeated-digit Galculator check exposes the application's
 100 ms toggle-button reset: a second accelerator can toggle the digit off and
 be ignored by its handler. Client-side Wayland tracing confirms both key
 press/release pairs; repeated digits work in Mousepad. No input pacing or
 application-specific runtime workaround is applied. These checks do not
-establish Qt, IME or GPU compatibility.
+establish compatibility with arbitrary toolkits or GPU clients.
+
+The Debian trixie Qt 6.8.2 software fixture passes real Android IME composition,
+Unicode commit, append, field switching, private PINs, caret geometry and IME
+insets, plus bidirectional Unicode clipboard exchange, a dependent dialog and
+zero-status protocol closure. The strict surrounding-text correction check
+fails: Qt can omit text-input-v3's final commit after deletion. A separate run
+explicitly omits that stage; it is not counted as a correction pass. The same
+client behavior and protocol boundary are documented in [Wayland IME coverage](wayland.md).
 
 This is not certification of a full
 Debian base, arbitrary package maintainer scripts, APT, a Linux desktop or GPU
@@ -155,9 +162,9 @@ Static/non-PIE executables and non-glibc interpreters are rejected. Unsupported
 syscalls and kernel permission denials remain explicit.
 
 Namespace inotify remains unsupported; D-Bus reports that its session-config
-directory cannot be watched. GTK reports monitor-scale warnings before the
-Android host publishes an application output. These diagnostics are retained,
-not suppressed. The kernel process name identifies the guest executable after
+directory cannot be watched. Wayland publishes a logical monitor before client
+startup and replaces it when an Android host attaches; GTK's initial
+monitor-scale warnings are absent in these checks. The kernel process name identifies the guest executable after
 each exec, but `/proc/self/cmdline` and `/proc/self/auxv` still describe the
 bootstrap, not a fully virtualized guest process.
 

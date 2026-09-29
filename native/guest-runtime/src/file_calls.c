@@ -38,6 +38,7 @@ long md_file_call(const struct md_fs *fs, const char *exe, long nr, const unsign
     case SYS_statx:
     case SYS_faccessat:
     case SYS_faccessat2:
+    case SYS_fchmodat2:
         flags = nr == SYS_statx ? (int)a[2] : nr == SYS_faccessat ? 0 : (int)a[3];
         r = path_at(fs, exe, (int)a[0], a[1], !(flags & AT_SYMLINK_NOFOLLOW), flags & AT_EMPTY_PATH, first);
         return r < 0 ? r : md_raw(nr, first[0] ? AT_FDCWD : a[0], (long)first, a[2], a[3], a[4], 0);

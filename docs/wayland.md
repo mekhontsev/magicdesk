@@ -131,6 +131,11 @@ remains explicit, without a different UID or system-policy fallback.
   Looper, without a polling timer. Startup announcements still require host-side
   UID, nonce, session and Binder validation before use.
 - Hosts borrow outputs. Releasing an output does not close its Wayland client.
+- Before accepting clients, the runtime publishes an initial logical monitor
+  with the launch context's geometry and scale. It has no renderer, swapchain,
+  frame loop or input owner. A real application or shell output replaces it;
+  releasing the last such output restores it before removing that output's
+  global, so a retained session never temporarily loses all monitors.
   Closing a window sends `xdg_toplevel.close`; client destruction is a separate
   observation. Closing the retained session stops the server.
 - Frames cross Binder as retained HardwareBuffers and acquire fences, or sealed
@@ -699,6 +704,10 @@ Android's real keyboard connection and visible IME insets. Restore the previousl
 selected keyboard afterwards. Without that argument it exercises controlled inset
 delivery. The Qt fixture is `tests/toolkits/editor.qml` (`-e entryY 95`), launched
 with `QT_QPA_PLATFORM=wayland` and `QT_WAYLAND_TEXT_INPUT_PROTOCOL=zwp_text_input_v3`.
+Optional `-e guestStore STORE -e keyboard XKB_DIRECTORY` selects the packaged
+guest runtime through the existing shell launch recipe instead of Termux.
+`native/guest-exec-lab/test_qt.py` prepares that invocation on an independent
+display, preserves the selected Android IME and records its protocol trace.
 
 The caller needs instrumentation permission. `--no-restart` retains the running
 application and its display resources. The fixture closes its guest session and
@@ -710,12 +719,15 @@ a centered size-constrained GTK dialog and pointer-driven closure without Deskto
 The Qt fixture supplies two levels of transient dialogs; moving its nested dialog
 between displays with different automatic scales verifies scale publication and input.
 
-Qt 6.11.2's text-input-v3 client can omit the final `commit` after surrounding-text
+Qt 6.8.2 and 6.11.2 text-input-v3 clients can omit the final `commit` after surrounding-text
 deletion: its reselection handling clears `needsCommit`. The strict correction
 stage exposes this limitation; MagicDesk does not consume uncommitted client state.
 `-e correction false` runs the other editor stages and explicitly reports correction
 as `NOT_TESTED`, not passed. See Qt's
 [text-input-v3 client](https://github.com/qt/qtbase/blob/v6.11.2/src/plugins/platforms/wayland/qwaylandtextinputv3.cpp).
+The Debian 6.8.2 guest fixture exercises real Android IME composition, Unicode,
+caret geometry, privacy and dialogs with this one omission reported separately;
+its clipboard and clean-close workflow also passes without Desktop or Termux.
 
 `tests/toolkits/interaction.qml` exercises Qt Quick through its Vulkan renderer:
 animation, pointer input, text entry, menus and separate popup windows. On RM11/API

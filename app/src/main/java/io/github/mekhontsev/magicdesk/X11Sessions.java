@@ -517,6 +517,9 @@ final class X11Sessions {
                         reconcileLaunches();
                         changed();
                     }
+                    @Override public void onFamilyChanged() {
+                        if (!stopped()) GraphicalSessions.changed(id(), "geometry_changed");
+                    }
                 });
                 pending.connect(process.openConnection());
                 if (recipe != null && recipe.shortcut().graphics != null

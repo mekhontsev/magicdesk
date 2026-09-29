@@ -466,6 +466,7 @@ int main(int argc, char **argv) {
     assert(mkdtemp(directory) && setenv("XDG_RUNTIME_DIR", directory, 1) == 0);
     struct Host host = {.server = mdw_server_create(), .deferred_layout = deferred_layout};
     assert(host.server);
+    assert(mdw_server_initial_output(host.server, 900, 700, 1));
     assert(!mdw_server_shell_output(host.server, 800, 600));
     MdwEvents events = {.window = window_event, .shell = shell_event, .frame = frame_event,
         .can_render = can_render, .error = error_event, .context = &host};

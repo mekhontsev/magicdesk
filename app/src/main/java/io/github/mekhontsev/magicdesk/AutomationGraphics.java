@@ -88,8 +88,11 @@ final class AutomationGraphics {
     }
 
     static JSONObject describe(GraphicalSessions.Session session) throws org.json.JSONException {
+        return describe(session, session.windows());
+    }
+    static JSONObject describe(GraphicalSessions.Session session, java.util.List<GraphicalSessions.Window> catalog) throws org.json.JSONException {
         JSONArray windows = new JSONArray();
-        for (var window : session.windows()) {
+        for (var window : catalog) {
             var item = window(window).put("protocolDetails", new JSONObject(session.windowDetails(window.id())));
             windows.put(item);
         }

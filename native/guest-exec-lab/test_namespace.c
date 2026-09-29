@@ -15,6 +15,11 @@
 #include <sys/xattr.h>
 #include <unistd.h>
 
+// ARM64 Linux ABI; bookworm's userspace headers predate fchmodat2.
+#if defined(__aarch64__) && !defined(SYS_fchmodat2)
+#define SYS_fchmodat2 452
+#endif
+
 #define CHECK(expr)                                                                                          \
     do {                                                                                                     \
         if (!(expr)) {                                                                                       \
@@ -161,6 +166,23 @@ int main(int argc, char **argv) {
     close(fd);
     close(other);
     CHECK(chmod("target", 0644) == 0 && stat("target", &b) == 0 && (b.st_mode & 0777) == 0644);
+    long mode_result = syscall(SYS_fchmodat2, AT_FDCWD, "target", 0600, 0);
+    if (mode_result == -1 && errno == ENOSYS) {
+        puts("LIMIT kernel fchmodat2 unavailable; legacy chmod checked");
+    } else {
+        CHECK(mode_result == 0 && stat("target", &b) == 0 && (b.st_mode & 0777) == 0600);
+        int mode_fd = open("target", O_PATH | O_CLOEXEC);
+        CHECK(mode_fd >= 0);
+        CHECK(syscall(SYS_fchmodat2, mode_fd, "", 0640, AT_EMPTY_PATH) == 0);
+        CHECK(fstat(mode_fd, &b) == 0 && (b.st_mode & 0777) == 0640);
+        CHECK(syscall(SYS_fchmodat2, AT_FDCWD, "target", 0600, 0x40000000) == -1 && errno == EINVAL);
+        CHECK(syscall(SYS_fchmodat2, AT_FDCWD, (void *)1, 0600, 0) == -1 && errno == EFAULT);
+        CHECK(symlink("target", "mode-link") == 0);
+        CHECK(syscall(SYS_fchmodat2, AT_FDCWD, "mode-link", 0600, AT_SYMLINK_NOFOLLOW) == -1 && errno == EOPNOTSUPP);
+        CHECK(stat("target", &b) == 0 && (b.st_mode & 0777) == 0640);
+        close(mode_fd);
+        puts("PASS namespace fchmodat2: path, O_PATH, flags, pointers and nofollow symlink");
+    }
     CHECK(truncate("target", 42) == 0 && stat("target", &b) == 0 && b.st_size == 42);
     struct timespec times[2] = {{1000000000, 123}, {1000000001, 456}};
     CHECK(utimensat(AT_FDCWD, "target", times, 0) == 0 && stat("target", &b) == 0 &&

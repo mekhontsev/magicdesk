@@ -53,6 +53,9 @@ seccomp filter and the real kernel cwd/descriptors.
   then use kernel operations under the caller's real identity. Permission failures
   remain failures. Namespace mutations do not yet update every POSIX ctime or
   emit translated inotify events.
+  `fchmodat2` retains `AT_EMPTY_PATH` and `AT_SYMLINK_NOFOLLOW`, using the
+  selected backing FD under the same identity. An unavailable kernel syscall
+  returns ENOSYS for libc's fallback; permissions are never emulated as success.
 - Path xattrs use the retained inode through `fd_metadata.c`, shared with chmod.
   The proc magic link selects that FD's object, including an O_PATH/no-follow
   symlink inode; it does not resolve the guest symlink text a second time.

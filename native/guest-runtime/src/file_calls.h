@@ -6,7 +6,7 @@
 #define MD_FILE_CALLS(X) \
     X(openat) X(newfstatat) X(statx) X(faccessat) X(faccessat2) X(fstat) X(getdents64) X(lseek) \
     X(mkdirat) X(unlinkat) X(symlinkat) X(renameat) X(renameat2) X(linkat) \
-    X(chdir) X(getcwd) X(readlinkat) X(fchmodat) X(fchownat) X(utimensat) \
+    X(chdir) X(getcwd) X(readlinkat) X(fchmodat) X(fchmodat2) X(fchownat) X(utimensat) \
     X(truncate) X(statfs) X(mknodat) X(inotify_add_watch) \
     X(setxattr) X(lsetxattr) X(getxattr) X(lgetxattr) X(listxattr) X(llistxattr) \
     X(removexattr) X(lremovexattr) X(fsetxattr)

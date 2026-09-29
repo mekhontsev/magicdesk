@@ -43,6 +43,7 @@ struct MdwServer {
     struct wlr_xdg_shell *shell;
     struct wlr_layer_shell_v1 *layer_shell;
     struct wlr_output *shell_output;
+    struct wlr_output *initial_output;
     struct wlr_foreign_toplevel_manager_v1 *foreign_manager;
     struct wl_list foreign_windows;
     struct wlr_seat *seat;
@@ -73,6 +74,7 @@ void mdw_view_dismiss_popups(struct MdwView *view);
 void mdw_shell_finish(MdwServer *server);
 void mdw_toplevels_clear(MdwServer *server);
 bool mdw_toplevels_prepare(MdwServer *server);
+bool mdw_initial_output_refresh(MdwServer *server);
 bool mdw_scene_render_transparent(struct wlr_scene_output *output);
 bool mdw_scene_render_family(struct wlr_scene_output *output, struct wlr_surface *owner, bool dependents);
 bool mdw_input_init(MdwServer *server);

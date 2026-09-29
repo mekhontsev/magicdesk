@@ -184,7 +184,10 @@ int main(int argc, char **argv) {
     CHECK(posix_spawn(&spawned, spawn_args[0], &actions, NULL, spawn_args, environ) == 0);
     int spawn_status;
     /* EVENT_WAIT: descriptor-path file action on libc's small spawn stack, bounded by runner. */
-    CHECK(waitpid(spawned, &spawn_status, 0) == spawned && WIFEXITED(spawn_status) && !WEXITSTATUS(spawn_status));
+    CHECK(waitpid(spawned, &spawn_status, 0) == spawned);
+    if (!WIFEXITED(spawn_status) || WEXITSTATUS(spawn_status))
+        fprintf(stderr, "posix_spawn child status=%#x\n", spawn_status);
+    CHECK(WIFEXITED(spawn_status) && !WEXITSTATUS(spawn_status));
     CHECK(posix_spawn_file_actions_destroy(&actions) == 0);
     puts("PASS proc: posix_spawn opens a virtual-directory descriptor suffix without scratch allocation");
     close(dir);

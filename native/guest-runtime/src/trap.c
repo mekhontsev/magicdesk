@@ -25,6 +25,10 @@ static long dispatch(long nr, unsigned long *a, ucontext_t *uc) {
         return md_socket_call(&md_files, md_executable, nr, a);
     case SYS_execve:
         return md_guest_exec((const char *)a[0], (char *const *)a[1], (char *const *)a[2]);
+    case SYS_clone3:
+        // CLONE_CLEAR_SIGHAND would discard our inherited syscall handler. clone3
+        // needs a native child-return gate; ENOSYS selects libc's ordinary clone path.
+        return -ENOSYS;
     case SYS_execveat:
     case SYS_openat2:
         return -ENOTSUP;
@@ -88,7 +92,7 @@ int md_install_trap(int inherited) {
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
         MD_FILE_CALLS(TRAP)
         MD_SOCKET_CALLS(TRAP)
-        TRAP(execve) TRAP(execveat) TRAP(openat2) TRAP(rt_sigaction) TRAP(rt_sigprocmask)
+        TRAP(execve) TRAP(execveat) TRAP(openat2) TRAP(clone3) TRAP(rt_sigaction) TRAP(rt_sigprocmask)
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
     };
 #undef TRAP

@@ -19,6 +19,8 @@ import java.util.function.BooleanSupplier;
 /** Guest text-input-v3 through the production Activity on an explicitly prepared test display. */
 public final class HostedGuestEditorInstrumentation extends Instrumentation implements WaylandSessions.Listener {
     private String command;
+    private String guestStore;
+    private String keyboard;
     private int displayId;
     private int entryY;
     private boolean actualIme;
@@ -34,6 +36,8 @@ public final class HostedGuestEditorInstrumentation extends Instrumentation impl
     @Override public void onCreate(Bundle args) {
         super.onCreate(args);
         command = args == null ? null : args.getString("command");
+        guestStore = args == null ? null : args.getString("guestStore");
+        keyboard = args == null ? "" : args.getString("keyboard", "");
         displayId = args == null ? -1 : Integer.parseInt(args.getString("display", "-1"));
         actualIme = args != null && Boolean.parseBoolean(args.getString("ime", "false"));
         correction = args == null || Boolean.parseBoolean(args.getString("correction", "true"));
@@ -74,7 +78,18 @@ public final class HostedGuestEditorInstrumentation extends Instrumentation impl
             }
             try {
                 runOnMainSync(() -> {
-                    session = WaylandSessions.start(context, "GTK editor fixture", command, "", DesktopExecBackend.TERMUX, "");
+                    if (guestStore == null) {
+                        session = WaylandSessions.start(context, "Guest editor fixture", command, "", DesktopExecBackend.TERMUX, "");
+                    } else {
+                        var environment = new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.GUEST,
+                                guestStore, DesktopExecBackend.SHELL, keyboard);
+                        var recipe = LinuxLaunchRecipe.build("Guest editor fixture", environment, command, "/", "",
+                                LinuxLaunchRecipe.Presentation.APPLICATION, GraphicalProtocol.WAYLAND);
+                        String launch = DesktopExecTemplate.expandArguments(recipe.exec, DesktopLaunchArguments.empty(),
+                                recipe.name, recipe.icon, "");
+                        session = WaylandSessions.start(context.createDisplayContext(display), "Guest editor fixture", launch,
+                                "", recipe.execBackend, keyboard, null, false, recipe.graphics.connectionMode());
+                    }
                     session.listen(this);
                 });
                 await("GTK toplevel", () -> session.windows().stream().anyMatch(item -> item.mapped()));

@@ -245,9 +245,12 @@ static void release_output(MdwOutput *output) {
     wl_list_remove(&output->frame.link);
     wl_list_remove(&output->commit.link);
     if (output->scene_output) wlr_scene_output_destroy(output->scene_output);
-    wlr_output_destroy(output->output);
+    struct wlr_output *native = output->output;
     output->output = NULL;
     output->scene_output = NULL;
+    if (!mdw_initial_output_refresh(output->server))
+        report_error(output->server, "Cannot restore initial Wayland output");
+    wlr_output_destroy(native);
 }
 
 bool mdw_view_init(MdwServer *server, struct MdwView *view, struct wlr_surface *surface) {
@@ -598,6 +601,40 @@ const char *mdw_server_socket(const MdwServer *server) {
     return server->socket;
 }
 
+bool mdw_initial_output_refresh(MdwServer *server) {
+    if (!server->initial_output) return true;
+    bool hosted = server->shell_output != NULL;
+    MdwOutput *output;
+    wl_list_for_each(output, &server->outputs, link) {
+        if (output->output && wlr_output_layout_get(server->output_layout, output->output)) hosted = true;
+    }
+    if (hosted) wlr_output_layout_remove(server->output_layout, server->initial_output);
+    else if (!wlr_output_layout_add(server->output_layout, server->initial_output, 0, 0)) return false;
+    return true;
+}
+
+bool mdw_server_initial_output(MdwServer *server, int width, int height, double scale) {
+    if (!server || width < 1 || height < 1 || width > 16384 || height > 16384 ||
+            !isfinite(scale) || scale < .25 || scale > 16 || server->initial_output) return false;
+    struct wlr_output *output = wlr_headless_add_output(server->backend, width, height);
+    if (!output) return false;
+    wlr_output_set_name(output, "MagicDesk-initial");
+    wlr_output_set_description(output, "MagicDesk initial application geometry");
+    struct wlr_output_state state;
+    wlr_output_state_init(&state);
+    wlr_output_state_set_enabled(&state, true);
+    wlr_output_state_set_scale(&state, scale);
+    wlr_output_state_set_custom_mode(&state, width, height, 60000);
+    bool committed = wlr_output_commit_state(output, &state);
+    wlr_output_state_finish(&state);
+    if (!committed) { wlr_output_destroy(output); return false; }
+    server->initial_output = output;
+    if (mdw_initial_output_refresh(server)) return true;
+    server->initial_output = NULL;
+    wlr_output_destroy(output);
+    return false;
+}
+
 int mdw_server_fd(MdwServer *server) {
     return wl_event_loop_get_fd(wl_display_get_event_loop(server->display));
 }
@@ -661,6 +698,7 @@ static MdwOutput *create_output(MdwServer *server, uint64_t id, int width, int h
     if (!(configure ? mdw_output_resize(output, width, height) : mdw_output_viewport(output, 0, 0, width, height))) {
         mdw_output_destroy(output); return NULL;
     }
+    if (!mdw_initial_output_refresh(server)) { mdw_output_destroy(output); return NULL; }
     return output;
 }
 
@@ -1015,6 +1053,8 @@ int mdw_server_dispatch(MdwServer *server, int timeout_ms) {
 
 void mdw_server_destroy(MdwServer *server) {
     if (!server) return;
+    if (server->initial_output) wlr_output_destroy(server->initial_output);
+    server->initial_output = NULL;
     MdwOutput *output, *next;
     wl_list_for_each_safe(output, next, &server->outputs, link) mdw_output_destroy(output);
     if (server->display) wl_display_destroy_clients(server->display);

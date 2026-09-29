@@ -32,6 +32,22 @@ python native/guest-exec-lab/test_shortcuts.py build/guest-applications --protoc
 python native/guest-exec-lab/test_shortcuts.py build/guest-applications --protocol x11
 ```
 
+For Qt text-input-v3, prepare the newer Debian userspace separately:
+
+```sh
+node native/guest-exec-lab/prepare.mjs build/guest-qt --qt --suite trixie
+sh native/guest-exec-lab/build.sh build/guest-qt
+python native/guest-exec-lab/test_device.py build/guest-qt --packages
+python native/guest-exec-lab/test_qt.py build/guest-qt
+```
+
+Bookworm is the default suite; trixie uses the same pinned signature and package
+hash verification, including the signed Release's exact codename. Qt packages
+belong only to the prepared fixture store, not the APK. The Qt driver temporarily
+selects the debug Android IME and restores the prior keyboard on completion or
+failure. It retains a protocol trace and separate strict-correction and
+`--skip-correction` reports; the latter cannot establish correction support.
+
 Application checks require a current debug APK with the guest CLI installed.
 Routed checks use the production guest connection/session wrappers and keep one
 protocol session across successive clients. The X11 case also verifies rejection
@@ -49,11 +65,12 @@ keyfile backend. Application logs and hashed screenshots accompany the JSON repo
 `test_shortcuts.py` encodes the shortcut editor's real `LinuxLaunchRecipe` through
 a debug-only Java fixture and launches the resulting `.desktop` files through
 the ordinary launch service. It checks bidirectional Unicode clipboard exchange,
-guest file saving, Wayland file-dialog cancellation and opening another file, concurrent applications in
-one store, recipe reuse and actual process exit after protocol close. Catalog
-events identify Wayland dependent windows without guessed IDs. X11 transient
-dialogs require native-family observation and are not covered by this fixture;
-they are not entries in the observed toplevel catalog. Inotify receipts identify
+guest file saving, file-dialog cancellation, opening another file, Save As,
+overwrite confirmation, directory creation and inaccessible paths. It also checks
+concurrent applications in one store, recipe reuse and actual process exit after
+protocol close. Catalog events identify Wayland dependent windows; native-family
+events identify X11 transient dialogs and Wayland subsurfaces without guessed IDs.
+Inotify receipts identify
 the exact command's start and exit. Screenshots are point-in-time observations,
 not synchronization barriers. Input requires the selected native window's
 Android host and focus acknowledgement. Opening a file awaits the exact client
