@@ -8,7 +8,7 @@
 
 static int create_node(struct md_inode_store *s, int dirfd, const char *path,
         mode_t kind, mode_t mode, const char *target) {
-    if (mode & ~0777) return -ENOTSUP;
+    if (mode & ~01777) return -ENOTSUP;
     int r = mdi_begin(s, 1);
     if (r) return r;
     struct mdi_location loc;
@@ -61,7 +61,7 @@ int md_inode_open(struct md_inode_store *s, int dirfd, const char *path, int fla
     if ((flags & O_TRUNC) && !(flags & (O_WRONLY | O_RDWR))) return -EINVAL;
     int create = flags & O_CREAT;
     if (create && (flags & O_DIRECTORY)) return -EINVAL;
-    if (create && (mode & ~0777)) return -ENOTSUP;
+    if (create && (mode & ~01777)) return -ENOTSUP;
     int r = mdi_begin(s, !!create);
     if (r) return r;
     struct mdi_location loc;
@@ -81,6 +81,7 @@ int md_inode_open(struct md_inode_store *s, int dirfd, const char *path, int fla
     }
     if (!r && (flags & O_DIRECTORY) && loc.node.kind != S_IFDIR) r = -ENOTDIR;
     if (!r && loc.node.kind == S_IFLNK && !(flags & O_PATH)) r = -ELOOP;
+    if (!r && loc.node.kind == S_IFSOCK && !(flags & O_PATH)) r = -ENXIO;
     if (!r && loc.node.kind == S_IFDIR && (flags & (O_WRONLY | O_RDWR | O_TRUNC | O_CREAT))) r = -EISDIR;
     struct stat st;
     if (!r) r = mdi_stat(s, &loc.node, &st);

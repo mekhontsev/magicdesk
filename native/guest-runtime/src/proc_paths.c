@@ -2,10 +2,6 @@
 #include "raw.h"
 #include <limits.h>
 
-int md_host_path(const char *p) {
-    return (md_prefix(p, "/dev") && (!p[4] || p[4] == '/')) ||
-           (md_prefix(p, "/proc") && (!p[5] || p[5] == '/'));
-}
 static const char *component(const char *p) {
     for (;;) {
         while (*p == '/') ++p;
@@ -19,6 +15,11 @@ static int word(const char **p, const char *name) {
     if (!md_prefix(s, name) || (s[n] && s[n] != '/')) return 0;
     *p = s + n;
     return 1;
+}
+int md_host_path(const char *p) {
+    if (*p != '/') return 0;
+    if (word(&p, "dev")) return !word(&p, "shm");
+    return word(&p, "proc");
 }
 static long number(const char **p) {
     const char *s = component(*p);

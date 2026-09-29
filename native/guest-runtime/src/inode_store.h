@@ -30,6 +30,11 @@ int md_inode_rename(struct md_inode_store *, int sourcefd, const char *source,
 int md_inode_stat(struct md_inode_store *, int dirfd, const char *path, int flags, struct stat *);
 int md_inode_fstat(struct md_inode_store *, int fd, struct stat *);
 int md_inode_path(struct md_inode_store *, int dirfd, char *, size_t);
+/* Pathname socket identity belongs to the namespace; data, credentials, buffer
+ * passing and listener lifetime remain kernel Unix-socket operations. */
+int md_inode_socket_bind(struct md_inode_store *, int dirfd, const char *path, mode_t, int socket);
+int md_inode_socket_address(struct md_inode_store *, int dirfd, const char *path, char *, size_t);
+int md_inode_socket_name(struct md_inode_store *, const char *endpoint, char *, size_t);
 
 /* Linux getdents64 records. Directory offsets belong to the native open file
  * description, shared by dup/fork/SCM_RIGHTS. Serialize directory read/seek

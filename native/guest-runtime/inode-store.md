@@ -14,7 +14,9 @@ Descriptors opened before and after linking share the actual kernel device/inode
 data, mappings and file locks. Data IO, mmap and descriptor duplication stay native.
 
 `md_inode_stat/fstat` combine native metadata with the namespace's indexed link
-count, including zero for an open, unlinked object. Raw host fstat still sees the
+count, including zero for an open, unlinked object. Socket inodes expose S_IFSOCK
+while their transport is an abstract kernel endpoint; their backing regular file
+supplies permission and identity metadata. Raw host fstat still sees the
 backing object's native links and directory contents. Concealing that distinction
 from arbitrary guest code
 would require a complete filesystem adapter; this prototype does not do that.
@@ -30,10 +32,12 @@ a timeout is not cancellation of a committed operation.
 `inode_db.c` owns transactions, allocation, identities and metadata queries;
 `inode_path.c` resolves paths and reconstructs directory paths;
 `inode_store.c` defines namespace operations, `inode_directory.c` implements
-directory cursors, and `inode_import.c` imports prepared trees. Their private contract is in
+directory cursors, `inode_socket.c` implements socket publication and address
+lookup, and `inode_import.c` imports prepared trees. Their private contract is in
 `inode_internal.h`. Callers use the explicit dirfd-based `inode_store.h` API.
 The internal database format is versioned and incompatible formats are rejected,
-not migrated.
+not migrated. Format 4 includes socket addresses. Bind retains a name until
+unlink, including stale listeners; existing connections survive unlink/rebind.
 
 ## Paths And Directories
 
@@ -92,7 +96,7 @@ immutable: these checks are not an atomic snapshot of a live filesystem.
 
 Ownership remains the actual execution identity; source UID/GID, ctime, sparse
 extents and physical layout are not reproduced. The destination root retains its
-own mode/metadata. Special files, special permission bits, cross-device traversal
+own mode/metadata. Special files, set-ID bits, cross-device traversal
 and xattrs other than the kernel-assigned SELinux label are rejected explicitly.
 SELinux labels are not copied or changed. Overlapping source/storage trees and
 nonempty destination namespaces are rejected. No fallback clears unsupported
@@ -204,4 +208,4 @@ The namespace executor covers selected path/FD operations, cwd, directory
 cursors and program mapping. It passes a fixture package lifecycle and the gzip
 hard-link extraction; direct-backend controls still fail independently. Complete
 the remaining ABI and lifetime contracts before treating this as an installed
-Debian environment or deciding to ship SQLite.
+Debian environment. SQLite is packaged only in the dedicated native service.

@@ -205,7 +205,7 @@ public final class LinuxLaunchRecipeTest {
             assertEquals(mode == LinuxLaunchRecipe.Presentation.TERMINAL, app.terminal);
             assertFalse(app.exec.contains("proot"));
             assertEquals(!app.terminal, app.exec.contains("dbus-run-session"));
-            assertEquals(!app.terminal, app.exec.contains("unix:abstract="));
+            assertFalse(app.exec.contains("unix:abstract="));
             assertTrue(app.exec.contains("magicdesk-guest"));
             var parsed = (DesktopApplicationShortcut) DesktopEntryFile.parse(DesktopEntryFile.encodeApplication(app));
             assertEquals(app.exec, parsed.exec);

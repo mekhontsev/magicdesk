@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <linux/stat.h>
 #include <sys/stat.h>
+#include <sys/inotify.h>
 #include <sys/sysmacros.h>
 
 long md_namespace_request(const struct md_fs *fs, struct md_fs_request *q, struct md_fs_result *out) {
@@ -37,7 +38,7 @@ long md_namespace_request(const struct md_fs *fs, struct md_fs_request *q, struc
     /* Never replay an unconfirmed request, including a read that advanced a cursor. */
     return r < 0 ? r : out->error;
 }
-static long creation_mode(unsigned mode) {
+long md_namespace_creation_mode(unsigned mode) {
     /* Read the kernel's current fs_struct mask without temporarily changing shared process state. */
     long fd = RAW4(openat, AT_FDCWD, "/proc/thread-self/status", O_RDONLY | O_CLOEXEC, 0);
     if (fd < 0)
@@ -61,7 +62,7 @@ static long creation_mode(unsigned mode) {
             }
             if (!digits || *p != '\n' || mask > 0777)
                 return -EIO;
-            return mode & ~mask;
+            return (mode & 07777) & ~mask;
         }
     return -ENOTSUP;
 }
@@ -69,7 +70,7 @@ long md_namespace_open(const struct md_fs *fs, int base, const char *path, int f
     if (md_host_path(path))
         return RAW4(openat, base, path, flags, mode);
     if ((flags & O_CREAT) && !(flags & O_PATH)) {
-        long masked = creation_mode(mode);
+        long masked = md_namespace_creation_mode(mode);
         if (masked < 0)
             return masked;
         mode = (unsigned)masked;
@@ -227,6 +228,9 @@ long md_namespace_call(const struct md_fs *fs, const char *exe, long nr, const u
     unsigned path_index = 1;
     uintptr_t pointer = a[1];
     switch (nr) {
+    case SYS_inotify_add_watch:
+        base = AT_FDCWD;
+        break;
     case SYS_chdir:
     case SYS_truncate:
     case SYS_statfs:
@@ -249,6 +253,9 @@ long md_namespace_call(const struct md_fs *fs, const char *exe, long nr, const u
         break;
     }
     long r = md_read_string(first, sizeof(first), (const char *)pointer);
+    if (r < 0)
+        return r;
+    r = md_namespace_relative_mount(base, first);
     if (r < 0)
         return r;
     /* Explicit host mappings only. Symlinks crossing these mounts are not implemented. */
@@ -292,6 +299,23 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
     struct md_fs_request q = {.directory = {base, -1}, .path = {first, NULL}};
     struct md_fs_result out;
     switch (nr) {
+    case SYS_inotify_add_watch: {
+        long fd = md_namespace_open(fs, base, first, O_PATH | O_CLOEXEC |
+            ((a[2] & IN_DONT_FOLLOW) ? O_NOFOLLOW : 0), 0);
+        if (fd < 0) return fd;
+        struct md_fs_result identity;
+        r = md_namespace_inspect(fs, (int)fd, NULL, 0, &identity);
+        // Directory entries live in the namespace, not in its backing directory.
+        // Do not advertise a watch which would silently miss logical changes.
+        if (!r && S_ISDIR(identity.info.mode)) r = -ENOTSUP;
+        if (!r) {
+            char path[64] = "/proc/thread-self/fd/";
+            md_decimal(path + md_length(path), (unsigned)fd);
+            r = RAW3(inotify_add_watch, a[0], path, a[2] & ~IN_DONT_FOLLOW);
+        }
+        RAW1(close, fd);
+        return r;
+    }
     case SYS_newfstatat:
     case SYS_statx: {
         int flags = nr == SYS_statx ? (int)a[2] : (int)a[3];
@@ -333,7 +357,7 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
         return md_write_memory((void *)a[4], &st, sizeof(st));
     }
     case SYS_mkdirat:
-        r = creation_mode((unsigned)a[2]);
+        r = md_namespace_creation_mode((unsigned)a[2]);
         if (r < 0)
             return r;
         q.operation = MD_FS_MKDIR;
@@ -365,6 +389,9 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
     case SYS_renameat2:
     case SYS_linkat:
         r = md_read_string(second, sizeof(second), (const char *)a[3]);
+        if (r < 0)
+            return r;
+        r = md_namespace_relative_mount((int)a[2], second);
         if (r < 0)
             return r;
         if (md_host_path(second))

@@ -1,7 +1,7 @@
 # Namespace Execution Experiment
 
 The internal `libmagicdesk_guest_bootstrap.so --namespace ENDPOINT PROGRAM [ARGS]` mode executes
-Debian/glibc programs from the imported inode namespace. It does not fall back
+ARM64 glibc/musl programs from the imported inode namespace. It does not fall back
 to the direct rootfs for unsupported virtual paths. This is an experimental
 executor, not a mount namespace, security sandbox or complete Linux ABI.
 
@@ -28,7 +28,7 @@ no SQLite, libc, mutable process-global cwd, FD cache or shared client lock.
 
 `program_files.c` supplies the same program-open/identity boundary to initial
 launch and exec preparation. Both the stock loader and target program are opened
-from the selected backend. Glibc still owns linking/TLS/dlopen. Exec carries the
+from the selected backend. The stock interpreter owns linking/TLS/dlopen. Exec carries the
 endpoint in bootstrap arguments, not environment variables, and retains one
 seccomp filter and the real kernel cwd/descriptors.
 
@@ -65,23 +65,25 @@ seccomp filter and the real kernel cwd/descriptors.
   Installing a default ACL through either a path or FD returns ENOTSUP until
   virtual-parent inheritance exists. Import still rejects source xattrs other
   than the kernel-assigned SELinux label; ACL/ownership emulation is not provided.
-- Explicit absolute `/proc` and `/dev` mappings use the host with the selected
-  current-process/thread magic links described below. Cross-mount symlinks,
-  arbitrary proc aliases, relative host-directory traversal and socket path
-  translation are not complete. This is not a complete virtual procfs.
-- Inotify projection and special-file creation remain unsupported.
+- `/proc` and `/dev` map to the host, except `/dev/shm`, which belongs to the
+  guest store. Relative operations based at a host directory recognize these
+  boundaries too. Selected current-process/thread magic links are described below.
+  Cross-mount symlinks and arbitrary proc aliases remain incomplete.
+- File-data inotify watches retain the backing inode and use kernel events.
+  Directory/name event projection and general special-file creation remain unsupported.
   Unsupported operations return errors, not a direct-rootfs retry. Descriptor
   exec/openat2 and guest-owned SIGSYS remain unsupported in both executors.
 
 Unix client destination paths reuse this same file contract through
 `socket_calls.c`, including explicitly inherited host-directory aliases.
-The namespace does not yet create socket nodes or import live sockets; its
-device transport fixture uses abstract endpoints instead. Explicit launch routes
+The namespace creates socket inodes backed by unique abstract kernel endpoints;
+bind and pathname publication belong to its filesystem service. Offline import
+does not import live sockets. Explicit launch routes
 translate selected connect addresses to executor-owned abstract endpoints without
 creating filesystem nodes; independent X11 and Wayland GTK clients use this path.
 Native credentials
-and SCM_RIGHTS are retained. Pathname bind and Unix sendmmsg return ENOTSUP;
-returned peer/source addresses are not virtualized. See the
+and SCM_RIGHTS are retained. Returned addresses restore the original bound name;
+Unix sendmmsg remains unsupported. See the
 [transport coverage and native shell restriction](README.md#unix-client-transport).
 
 RPC deadlines bound failure, not kernel IO duration or remote cancellation.
@@ -186,10 +188,10 @@ are distinguished in the main README. No inode-service or syscall changes are
 needed specifically for GTK.
 
 The application profile additionally runs stock Mousepad and Galculator through
-the installed APK's namespace CLI. D-Bus uses an abstract address with the
+the installed APK's namespace CLI. D-Bus uses its ordinary pathname address with the
 distribution's session policy, activates dconf and retains settings across fresh
 sessions. Mousepad saves edited text that a separate guest launch reads back.
-File watches still return ENOTSUP; network checks cover prepared NSS, DNS and
+Directory watches still return ENOTSUP; network checks cover prepared NSS, DNS and
 authenticated HTTPS, not an installed APT environment.
 
 References: [O_PATH and proc descriptor paths](https://man7.org/linux/man-pages/man2/open.2.html),

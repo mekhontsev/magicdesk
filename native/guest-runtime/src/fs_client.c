@@ -43,10 +43,12 @@ static long receive_reply(int socket, int64_t deadline, const struct md_fs_reque
             || reply->size > sizeof(reply->data) || (size_t)r != offsetof(struct md_fs_reply, data) + reply->size
             || reply->descriptors != rights.count || rights.count != (unsigned)(opens && !reply->error)
             || (reply->error && reply->size)
-            || (reply->size && operation != MD_FS_READLINK && operation != MD_FS_PATH && operation != MD_FS_GETDENTS)
+            || (reply->size && operation != MD_FS_READLINK && operation != MD_FS_PATH && operation != MD_FS_GETDENTS
+                && operation != MD_FS_SOCKET_ADDRESS && operation != MD_FS_SOCKET_NAME)
             || (reply->position && (operation != MD_FS_SEEKDIR || reply->error)) || reply->position < 0
             || (operation == MD_FS_GETDENTS && (reply->size > request->capacity || !valid_entries(reply->data, reply->size)))
-            || (!reply->error && operation == MD_FS_PATH && (!reply->size || reply->data[reply->size-1]))) {
+            || (!reply->error && (operation == MD_FS_PATH || operation == MD_FS_SOCKET_ADDRESS || operation == MD_FS_SOCKET_NAME)
+                && (!reply->size || reply->data[reply->size-1]))) {
         md_fs_close_rights(&rights); return -EPROTO;
     }
     out->delivery = MD_FS_REPLIED; out->error = reply->error;

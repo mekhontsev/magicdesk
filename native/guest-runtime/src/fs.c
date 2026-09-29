@@ -80,7 +80,8 @@ int md_fs_resolve(const struct md_fs *fs, int dirfd, const char *path, int follo
         if ((r = md_append(resolved, sizeof(resolved), component))) return (int)r;
         if (md_host_path(resolved)) {
             if ((r = md_copy(out, PATH_MAX, resolved))) return (int)r;
-            return md_append(out, PATH_MAX, todo);
+            if ((r = md_append(out, PATH_MAX, todo))) return (int)r;
+            if (md_host_path(out)) return 0;
         }
         if ((r = host_path(fs, resolved, out))) return (int)r;
         if (!directory && !follow) break;

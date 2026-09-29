@@ -118,7 +118,7 @@ static int read_node(sqlite3_stmt *q, struct mdi_node *node) {
     value.device = (dev_t)sqlite3_column_int64(q, 2);
     value.inode = (ino_t)sqlite3_column_int64(q, 3);
     if (!r && value.kind == S_IFDIR) r = read_id(q, 4, value.parent);
-    if (!r && value.kind != S_IFDIR && value.kind != S_IFREG && value.kind != S_IFLNK) r = -EIO;
+    if (!r && value.kind != S_IFDIR && value.kind != S_IFREG && value.kind != S_IFLNK && value.kind != S_IFSOCK) r = -EIO;
     if (!r) *node = value;
     return r;
 }
@@ -187,7 +187,9 @@ int mdi_empty(struct md_inode_store *s, const struct mdi_node *node) {
 }
 int mdi_stat(struct md_inode_store *s, const struct mdi_node *node, struct stat *st) {
     if (fstatat(s->objects, node->id, st, AT_SYMLINK_NOFOLLOW)) return -errno;
-    if (st->st_dev != node->device || st->st_ino != node->inode || (st->st_mode & S_IFMT) != node->kind) return -EIO;
+    mode_t backing = node->kind == S_IFSOCK ? S_IFREG : node->kind;
+    if (st->st_dev != node->device || st->st_ino != node->inode || (st->st_mode & S_IFMT) != backing) return -EIO;
+    st->st_mode = (st->st_mode & ~S_IFMT) | node->kind;
     sqlite3_stmt *q = NULL;
     int r = mdi_prepare(s, "SELECT count(*), (SELECT count(*) FROM names n JOIN objects o ON n.object=o.object "
         "WHERE n.parent=?1 AND o.kind=?2) FROM names WHERE object=?1", &q);
@@ -218,7 +220,7 @@ int mdi_parent_writable(struct md_inode_store *s, const struct mdi_node *node) {
 static int make_object(struct md_inode_store *s, const char *id, mode_t kind, mode_t mode, int flags,
         const char *target, const char *parent, struct mdi_node *node, int *fd) {
     *fd = -1;
-    if (kind == S_IFREG) {
+    if (kind == S_IFREG || kind == S_IFSOCK) {
         *fd = openat(s->objects, id, O_CREAT | O_EXCL | flags | O_CLOEXEC | O_NOFOLLOW, mode);
         if (*fd < 0) return -errno;
     } else if (kind == S_IFDIR) {
@@ -279,14 +281,16 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
         r = mdi_sql(s, "PRAGMA journal_mode=DELETE; BEGIN IMMEDIATE;"
             "CREATE TABLE objects(object TEXT PRIMARY KEY CHECK(length(object)=32),kind INTEGER NOT NULL,"
                 "device INTEGER NOT NULL,inode INTEGER NOT NULL,parent TEXT REFERENCES objects,"
-                "UNIQUE(device,inode),CHECK(kind IN (32768,16384,40960)),"
+                "UNIQUE(device,inode),CHECK(kind IN (32768,16384,40960,49152)),"
                 "CHECK((kind=16384)=(parent IS NOT NULL))) STRICT;"
             "CREATE TABLE names(cookie INTEGER PRIMARY KEY AUTOINCREMENT,"
                 "parent TEXT NOT NULL REFERENCES objects,name BLOB NOT NULL,"
                 "object TEXT NOT NULL REFERENCES objects,UNIQUE(parent,name),"
                 "CHECK(cookie>0 AND cookie<9223372036854775805)) STRICT;"
             "CREATE INDEX names_object ON names(object);"
-            "CREATE INDEX names_cursor ON names(parent,cookie); PRAGMA user_version=3;");
+            "CREATE INDEX names_cursor ON names(parent,cookie);"
+            "CREATE TABLE sockets(object TEXT PRIMARY KEY REFERENCES objects, address TEXT NOT NULL) STRICT;"
+            "PRAGMA user_version=4;");
         struct mdi_node node; int fd;
         if (!r) r = make_object(s, MDI_ROOT, S_IFDIR, 0700, 0, NULL, MDI_ROOT, &node, &fd);
         if (!r) r = mdi_sql(s, "COMMIT");
@@ -297,7 +301,7 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
     if (!r) {
         int rc = sqlite3_step(q);
         if (rc != SQLITE_ROW) r = mdi_sql_failure(rc);
-        else if (sqlite3_column_int(q, 0) != 3) r = -EPROTONOSUPPORT;
+        else if (sqlite3_column_int(q, 0) != 4) r = -EPROTONOSUPPORT;
     }
     sqlite3_finalize(q); q = NULL;
     if (!r) r = mdi_prepare(s, "PRAGMA journal_mode", &q);

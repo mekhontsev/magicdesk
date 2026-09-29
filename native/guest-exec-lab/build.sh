@@ -48,7 +48,7 @@ printf 'PASS freestanding RPC client: no unresolved libc/SQLite/runtime dependen
 "$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -fno-builtin -DMD_NO_START \
     -DMD_INODE_TESTING -DMD_FS_TESTING "$src/test_rpc.c" "$runtime/fs_client.c" \
     "$runtime/fs_wire.c" "$runtime/event_wait.c" "$runtime/fs_service.c" "$runtime/inode_store.c" "$runtime/inode_db.c" \
-    "$runtime/inode_path.c" "$runtime/inode_directory.c" "$runtime/raw.c" "$runtime/raw.S" -lsqlite3 -o "$work/test-rpc"
+    "$runtime/inode_path.c" "$runtime/inode_directory.c" "$runtime/inode_socket.c" "$runtime/raw.c" "$runtime/raw.S" -lsqlite3 -o "$work/test-rpc"
 rpcroot=$(mktemp -d "$work/path-test/rpc.XXXXXX")
 timeout 60 "$work/test-rpc" "$rpcroot/store"
 "$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -UNDEBUG -fno-builtin -DMD_NO_START \
@@ -61,7 +61,7 @@ case "$($cc -dumpmachine)" in *android*) spawn_lib=-landroid-spawn ;; esac
 procroot=$(mktemp -d "$work/path-test/proc.XXXXXX")
 timeout 30 "$work/test-proc" "$procroot/files" native
 "$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -fno-builtin -DMD_NO_START -DMD_SOCKET_DRIVER \
-    "$src/test_sockets.c" "$runtime/socket_calls.c" "$runtime/socket_routes.c" "$runtime/file_calls.c" "$runtime/fs.c" "$runtime/proc_paths.c" \
+    "$src/test_sockets.c" "$runtime/socket_calls.c" "$runtime/socket_namespace.c" "$runtime/socket_routes.c" "$runtime/file_calls.c" "$runtime/fs.c" "$runtime/proc_paths.c" \
     "$runtime/namespace.c" "$runtime/namespace_proc.c" "$runtime/fd_metadata.c" "$runtime/fs_client.c" "$runtime/fs_wire.c" \
     "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/raw.S" -o "$work/bundle/md-sockets-test"
 socketroot=$(mktemp -d "$work/path-test/sockets.XXXXXX")
@@ -81,7 +81,9 @@ cmake --build "$work/native-runtime" --parallel 2
 cp "$work/native-runtime"/libmagicdesk_guest_*.so "$work/bundle/"
 "$cc" -iquote "$runtime" --target=aarch64-linux-android34 -fno-termux-rpath -static \
     -std=c17 -O2 -Wall -Wextra -Werror -UNDEBUG "$src/test_capabilities.c" -o "$work/bundle/md-capabilities-test"
-guest_cc -shared "$src/test_plugin.c" -Wl,-z,defs -o "$work/md-fixture.so"
+sh "$src/build-libc-fixtures.sh" glibc "$sysroot" "$work"
+"$cc" --target=aarch64-linux-android34 -fno-termux-rpath -static \
+    -std=c17 -O2 -Wall -Wextra -Werror -UNDEBUG "$src/test_ipc_launch.c" -o "$work/bundle/md-ipc-launch"
 guest_cc -pie "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" \
     "$src/test_sockets.c" "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" \
     -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 -o "$work/md-socket-fixture"
@@ -99,12 +101,6 @@ guest_cc -pie -fno-builtin -DMD_NO_START -DMD_GUEST_LIFECYCLE \
 guest_cc -pie -fno-builtin -DMD_NO_START "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" \
     "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" "$src/test_xattrs.c" "$runtime/fd_metadata.c" "$runtime/raw.c" "$runtime/raw.S" \
     "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 -o "$work/md-xattrs-fixture"
-guest_cc -pie "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" \
-    "$src/test_guest.c" "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" \
-    -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 -o "$work/md-fixture"
-guest_cc -pie "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" \
-    "$src/test_exec.c" "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" \
-    -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 -o "$work/md-exec-fixture"
 guest_cc -pie "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" \
     "$src/test_files.c" "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" \
     -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 -o "$work/md-files-fixture"
@@ -126,7 +122,7 @@ guest_cc -pie -DMD_INODE_TESTING "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" \
 guest_cc -pie -fno-builtin -DMD_NO_START -DMD_INODE_TESTING -DMD_FS_TESTING \
     "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" \
     "$src/test_rpc.c" "$runtime/fs_client.c" "$runtime/fs_wire.c" "$runtime/event_wait.c" "$runtime/fs_service.c" \
-    "$runtime/inode_store.c" "$runtime/inode_db.c" "$runtime/inode_path.c" "$runtime/inode_directory.c" "$runtime/raw.c" "$runtime/raw.S" \
+    "$runtime/inode_store.c" "$runtime/inode_db.c" "$runtime/inode_path.c" "$runtime/inode_directory.c" "$runtime/inode_socket.c" "$runtime/raw.c" "$runtime/raw.S" \
     "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 \
     -L"$sysroot/usr/lib/aarch64-linux-gnu" -l:libsqlite3.so.0 -l:libm.so.6 \
     -o "$work/md-rpc-fixture"
@@ -138,7 +134,8 @@ for directory in etc sbin usr/share usr/sbin usr/libexec var; do
     fi
 done
 mkdir -p "$work/bundle/rootfs/usr/lib" "$work/bundle/rootfs/usr/bin" \
-    "$work/bundle/rootfs/etc" "$work/bundle/rootfs/tmp" "$work/bundle/rootfs/var/log"
+    "$work/bundle/rootfs/etc" "$work/bundle/rootfs/tmp" "$work/bundle/rootfs/var/log" \
+    "$work/bundle/rootfs/dev/shm"
 cp -a "$sysroot/usr/lib/." "$work/bundle/rootfs/usr/lib/"
 cp -a "$sysroot/usr/bin/." "$work/bundle/rootfs/usr/bin/"
 cp "$work/md-fixture" "$work/bundle/rootfs/usr/bin/"
@@ -147,6 +144,7 @@ cp "$work/md-lifecycle-fixture" "$work/bundle/rootfs/usr/bin/"
 cp "$work/md-proc-fixture" "$work/bundle/rootfs/usr/bin/"
 cp "$work/md-socket-fixture" "$work/bundle/rootfs/usr/bin/"
 cp "$work/md-exec-fixture" "$work/bundle/rootfs/usr/bin/"
+cp "$work/md-ipc-fixture" "$work/bundle/rootfs/usr/bin/"
 cp "$work/md-files-fixture" "$work/bundle/rootfs/usr/bin/"
 cp "$work/md-inodes-fixture" "$work/bundle/rootfs/usr/bin/"
 cp "$work/md-import-fixture" "$work/bundle/rootfs/usr/bin/"

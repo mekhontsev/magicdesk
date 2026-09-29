@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "fs.h"
+#include "proc_paths.h"
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -21,6 +22,12 @@ int main(int argc, char **argv) {
     struct md_fs g = {0};
     assert(realpath(argv[1], g.root));
     assert(!chdir(g.root));
+    assert(md_host_path("/dev/null") && md_host_path("//./dev/./null"));
+    assert(md_host_path("/dev/shmallow") && !md_host_path("/dev/shm"));
+    assert(!md_host_path("//dev/./shm/file") && md_host_path("/proc/self"));
+    assert(!md_host_path("/process") && !md_host_path("relative"));
+    assert(!mkdir("dev", 0700) && !mkdir("dev/shm", 0700));
+    expect(&g, "/dev/shm/value", 1, "/dev/shm/value");
     assert(!mkdir("etc", 0700));
     assert(!mkdir("etc/sub", 0700));
     int fd = open("etc/value", O_CREAT | O_WRONLY, 0600);

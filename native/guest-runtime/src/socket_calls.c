@@ -2,6 +2,8 @@
 #include "socket_calls.h"
 #include "file_calls.h"
 #include "socket_routes.h"
+#include "socket_namespace.h"
+#include "proc_paths.h"
 #include "raw.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -18,6 +20,12 @@ static long invoke(long nr, const unsigned long *a) {
     return md_raw(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
 }
 long md_socket_call(const struct md_fs *fs, const char *exe, long nr, const unsigned long *a) {
+    if (nr == SYS_getsockname || nr == SYS_getpeername || nr == SYS_accept || nr == SYS_accept4
+            || nr == SYS_recvfrom || nr == SYS_recvmsg) {
+        long family = domain((int)a[0]);
+        if (family < 0) return family;
+        return fs->endpoint[0] && family == AF_UNIX ? md_namespace_socket_output(fs, nr, a) : invoke(nr, a);
+    }
     if (nr == SYS_sendmmsg) {
         long family = domain((int)a[0]);
         if (family < 0) return family;
@@ -58,21 +66,27 @@ long md_socket_call(const struct md_fs *fs, const char *exe, long nr, const unsi
     r = domain((int)a[0]);
     if (r < 0) return r;
     if (r != AF_UNIX) return invoke(nr, a);
-    /* Named creation needs a namespace transaction, not a kernel write outside it. */
-    if (nr == SYS_bind) return -ENOTSUP;
     char path[sizeof(address.sun_path) + 1];
     size_t size = length - offsetof(struct sockaddr_un, sun_path);
     memcpy(path, address.sun_path, size);
     path[size] = 0;
+    if (nr == SYS_bind)
+        return fs->endpoint[0] && !md_host_path(path) ? md_namespace_socket_bind(fs, (int)a[0], path) : -ENOTSUP;
+    long fd = -1;
+    if (fs->endpoint[0] && !md_host_path(path)) {
+        r = md_namespace_socket_address(fs, path, &address, &length);
+        if (r < 0) return r;
+    } else {
     unsigned long open_args[6] = {(unsigned long)AT_FDCWD, (unsigned long)path,
                                   O_PATH | O_CLOEXEC, 0, 0, 0};
-    long fd = md_file_call(fs, exe, SYS_openat, open_args);
+    fd = md_file_call(fs, exe, SYS_openat, open_args);
     if (fd < 0) return fd;
     /* Keep the inode alive for the entire kernel call. Path permissions were
      * checked by the file adapter; the kernel still checks socket access/type. */
     md_copy(address.sun_path, sizeof(address.sun_path), "/proc/thread-self/fd/");
     md_decimal(address.sun_path + md_length(address.sun_path), (unsigned)fd);
     length = (unsigned)(offsetof(struct sockaddr_un, sun_path) + md_length(address.sun_path) + 1);
+    }
     unsigned long args[6];
     memcpy(args, a, sizeof(args));
     if (nr == SYS_sendmsg) {
@@ -84,6 +98,6 @@ long md_socket_call(const struct md_fs *fs, const char *exe, long nr, const unsi
         args[length_index] = length;
     }
     r = invoke(nr, args);
-    RAW1(close, fd);
+    if (fd >= 0) RAW1(close, fd);
     return r;
 }

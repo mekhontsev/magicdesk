@@ -6,7 +6,7 @@
 enum md_fs_operation {
     MD_FS_CREATE = 1, MD_FS_OPEN, MD_FS_MKDIR, MD_FS_SYMLINK, MD_FS_READLINK,
     MD_FS_LINK, MD_FS_UNLINK, MD_FS_RENAME, MD_FS_STAT, MD_FS_FSTAT, MD_FS_PATH,
-    MD_FS_GETDENTS, MD_FS_SEEKDIR
+    MD_FS_GETDENTS, MD_FS_SEEKDIR, MD_FS_SOCKET_BIND, MD_FS_SOCKET_ADDRESS, MD_FS_SOCKET_NAME
 };
 /* Explicit root (-1), never an implicit broker cwd. Other values are borrowed FDs. */
 struct md_fs_request {

@@ -17,7 +17,7 @@ set(src ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(raw ${src}/raw.c ${src}/raw.S)
 set(wire ${src}/fs_wire.c ${src}/event_wait.c)
 set(inodes ${src}/inode_store.c ${src}/inode_db.c ${src}/inode_path.c
-    ${src}/inode_directory.c ${src}/inode_import.c)
+    ${src}/inode_directory.c ${src}/inode_import.c ${src}/inode_socket.c)
 
 function(guest_executable name)
     add_executable(${name} ${ARGN})
@@ -33,7 +33,7 @@ endfunction()
 guest_executable(bootstrap ${src}/bootstrap.c ${src}/elf.c ${src}/exec.c ${src}/trap.c
     ${src}/thread_context.c ${src}/thread_context.S
     ${src}/file_calls.c ${src}/fs.c ${src}/proc_paths.c ${src}/program_files.c
-    ${src}/namespace.c ${src}/namespace_proc.c ${src}/socket_calls.c ${src}/socket_routes.c ${src}/fd_metadata.c
+    ${src}/namespace.c ${src}/namespace_proc.c ${src}/socket_calls.c ${src}/socket_namespace.c ${src}/socket_routes.c ${src}/fd_metadata.c
     ${src}/fs_client.c ${wire} ${raw})
 guest_freestanding(bootstrap)
 target_link_options(bootstrap PRIVATE -Wl,--image-base=0x2000000000)

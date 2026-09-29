@@ -45,7 +45,7 @@ static int attributes(int fd, const char *symlink_path) {
 }
 static int metadata(int fd, const struct stat *source) {
     struct timespec times[2] = {source->st_atim, source->st_mtim};
-    if (fchmod(fd, source->st_mode & 0777) || futimens(fd, times) || fsync(fd)) return -errno;
+    if (fchmod(fd, source->st_mode & 01777) || futimens(fd, times) || fsync(fd)) return -errno;
     return 0;
 }
 static int overlap(int descendant, const struct stat *ancestor) {
@@ -214,7 +214,7 @@ int md_inode_import_tree(struct md_inode_store *s, int source_fd,
         struct stat st;
         if (fstatat(stack->source_fd, entry->d_name, &st, AT_SYMLINK_NOFOLLOW)) { r = -errno; break; }
         if (st.st_dev != root.st_dev) { r = -EXDEV; break; }
-        if ((st.st_mode & 07000) || (!S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode))) {
+        if ((st.st_mode & 06000) || (!S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode))) {
             r = -ENOTSUP; break;
         }
         if (!S_ISDIR(st.st_mode)) { r = leaf(i, stack, entry->d_name, &st); continue; }

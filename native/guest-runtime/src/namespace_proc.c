@@ -7,6 +7,32 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 
+long md_namespace_relative_mount(int base, char *path) {
+    if (!*path || *path == '/') return 0;
+    char host[PATH_MAX];
+    long n;
+    if (base == AT_FDCWD) {
+        n = RAW2(getcwd, host, sizeof(host));
+        if (n < 0) return n;
+    } else {
+        if (base < 0) return -EBADF;
+        char link[64] = "/proc/thread-self/fd/";
+        md_decimal(link + md_length(link), (unsigned)base);
+        n = RAW4(readlinkat, AT_FDCWD, link, host, sizeof(host) - 1);
+        if (n < 0) return n;
+        if (n == sizeof(host) - 1) return -ENAMETOOLONG;
+        host[n] = 0;
+    }
+    if (!md_host_path(host)) return 0;
+    struct stat info;
+    n = base == AT_FDCWD ? RAW4(newfstatat, base, ".", &info, 0) : RAW2(fstat, base, &info);
+    if (n < 0) return n;
+    if (!S_ISDIR(info.st_mode)) return -ENOTDIR;
+    n = md_append(host, sizeof(host), "/");
+    if (!n) n = md_append(host, sizeof(host), path);
+    return n ? n : md_copy(path, PATH_MAX, host);
+}
+
 static long link_result(const char *text, const unsigned long *a) {
     if (!a[3]) return -EINVAL;
     size_t n = md_length(text);

@@ -39,7 +39,7 @@ static int valid(const struct md_fs_packet *q, size_t size, const struct md_fs_r
     const char *a = q->data, *b = a + q->length[0];
     if (a[q->length[0]-1] || b[q->length[1]-1]
             || memchr(a, 0, q->length[0]-1) || memchr(b, 0, q->length[1]-1)) return -EPROTO;
-    if (q->operation < MD_FS_CREATE || q->operation > MD_FS_SEEKDIR) return -ENOTSUP;
+    if (q->operation < MD_FS_CREATE || q->operation > MD_FS_SOCKET_NAME) return -ENOTSUP;
     if ((q->capacity && q->operation != MD_FS_GETDENTS) || q->capacity > PATH_MAX
             || (q->offset && q->operation != MD_FS_SEEKDIR)) return -EINVAL;
     if (q->operation == MD_FS_GETDENTS || q->operation == MD_FS_SEEKDIR) {
@@ -47,6 +47,11 @@ static int valid(const struct md_fs_packet *q, size_t size, const struct md_fs_r
         return q->operation == MD_FS_GETDENTS ? (q->flags ? -EINVAL : 0)
             : (q->flags == SEEK_SET || q->flags == SEEK_CUR ? 0 : -EINVAL);
     }
+    if (q->operation == MD_FS_SOCKET_BIND)
+        return !(q->descriptors & 2) || !*a || *b || q->flags || (q->mode & ~0777) ? -EINVAL : 0;
+    if (q->operation == MD_FS_SOCKET_ADDRESS || q->operation == MD_FS_SOCKET_NAME)
+        return (q->descriptors & 2) || !*a || *b || q->flags || q->mode
+            || (q->operation == MD_FS_SOCKET_NAME && q->descriptors) ? -EINVAL : 0;
     int binary = q->operation == MD_FS_LINK || q->operation == MD_FS_RENAME;
     if ((!binary && (q->descriptors & 2))
             || (!binary && q->operation != MD_FS_SYMLINK && *b)
@@ -72,6 +77,13 @@ static int dispatch(struct md_inode_store *s, const struct md_fs_packet *q,
     const char *a = q->data, *b = a + q->length[0];
     int r; struct stat st;
     switch (q->operation) {
+    case MD_FS_SOCKET_BIND: return md_inode_socket_bind(s, fd[0], a, q->mode, fd[1]);
+    case MD_FS_SOCKET_ADDRESS: case MD_FS_SOCKET_NAME:
+        r = q->operation == MD_FS_SOCKET_ADDRESS
+            ? md_inode_socket_address(s, fd[0], a, out->data, sizeof(out->data))
+            : md_inode_socket_name(s, a, out->data, sizeof(out->data));
+        if (!r) out->size = (uint32_t)strlen(out->data) + 1;
+        return r;
     case MD_FS_CREATE: r = md_inode_create(s, fd[0], a, q->mode); break;
     case MD_FS_OPEN: r = md_inode_open(s, fd[0], a, (int)q->flags, q->mode); break;
     case MD_FS_MKDIR: return md_inode_mkdir(s, fd[0], a, q->mode);

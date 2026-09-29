@@ -85,7 +85,7 @@ final class LinuxLaunchRecipe {
             String guest = command;
             if (graphical) {
                 // Each graphical launch owns its D-Bus session and private runtime directory.
-                guest = LinuxGraphicalEnvironment.wrap(protocol, LinuxGraphicalEnvironment.BusTransport.STANDARD,
+                guest = LinuxGraphicalEnvironment.wrap(protocol,
                         (presentation == Presentation.APPLICATION ? "/tmp/magicdesk-linux-settings -- " : "")
                         + "/bin/sh -lc " + q(command));
             }
@@ -117,7 +117,7 @@ final class LinuxLaunchRecipe {
         var plan = new GuestLaunchPlan(new GuestEnvironment(environment.target(), "/tmp"),
                 directory.isEmpty() ? "/" : directory,
                 command.isEmpty() ? List.of("/bin/sh", "-l") : List.of("/bin/sh", "-lc",
-                        graphical ? LinuxGraphicalEnvironment.wrap(protocol, LinuxGraphicalEnvironment.BusTransport.ABSTRACT,
+                        graphical ? LinuxGraphicalEnvironment.wrap(protocol,
                                 "/bin/sh -c " + q(GuestGraphicalConnection.client(protocol, "/bin/sh -lc " + q(command)))) : command));
         String exec = DesktopExecTemplate.encodeArguments(graphical
                 ? List.of("sh", "-c", GuestGraphicalConnection.invocation(plan, protocol)) : plan.arguments());

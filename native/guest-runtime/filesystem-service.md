@@ -42,7 +42,9 @@ can deadlock. Socket creation per request is an explicit cost of this initial
 correctness boundary; production throughput is not established.
 
 The service exposes create/open, mkdir, symlink/readlink, link/unlink/rename,
-path stat, FD stat, directory-path reconstruction and paged directory read/seek.
+path stat, FD stat, directory-path reconstruction, paged directory read/seek and
+socket bind/address/name operations. Bind borrows the caller's socket via
+SCM_RIGHTS, preserving its open-file description; data traffic never uses RPC.
 A request carries at most
 two borrowed base FDs via SCM_RIGHTS; -1 explicitly denotes the namespace root.
 There is no implicit service cwd. Create/open replies transfer a native file
