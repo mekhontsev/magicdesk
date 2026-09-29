@@ -9,11 +9,13 @@ import {archiveFingerprint, verifyRelease} from './verify-release.mjs';
 import {packagePlan} from './package-plan.mjs';
 
 const {values, positionals} = parseArgs({allowPositionals: true, options: {
-  graphics: {type: 'boolean', default: false}, gtk: {type: 'boolean', default: false}, cache: {type: 'string'},
+  graphics: {type: 'boolean', default: false}, gtk: {type: 'boolean', default: false},
+  applications: {type: 'boolean', default: false}, cache: {type: 'string'},
 }});
 const [output] = positionals;
 if (!output || positionals.length !== 1)
-  throw new Error('Usage: node prepare.mjs OUTPUT_DIRECTORY [--graphics|--gtk] [--cache PREPARED_DIRECTORY]');
+  throw new Error('Usage: node prepare.mjs OUTPUT_DIRECTORY [--graphics|--gtk|--applications] [--cache PREPARED_DIRECTORY]');
+if (values.applications) values.gtk = true;
 if (fs.existsSync(path.join(output, 'sysroot')))
   throw new Error('Use a fresh output directory; do not mix sysroot package versions');
 const base = 'https://deb.debian.org/debian/';
@@ -82,12 +84,13 @@ const records = indexText.toString().split('\n\n').map(record => {
 });
 if (values.gtk) {
   const selected = packagePlan(output, indexText, records,
-    ['gtk-3-examples', 'fontconfig', 'fonts-dejavu-core', 'libglib2.0-bin', 'dbus-x11']);
+    ['gtk-3-examples', 'fontconfig', 'fonts-dejavu-core', 'libglib2.0-bin', 'dbus-x11',
+      ...(values.applications ? ['mousepad', 'galculator', 'curl', 'ca-certificates'] : [])]);
   for (const name of selected) if (!packages.includes(name)) packages.push(name);
 }
 const root = path.join(output, 'sysroot');
 fs.mkdirSync(root, {recursive: true});
-const manifest = {suite: 'bookworm', architecture: 'arm64', profile: values.gtk ? 'gtk' : values.graphics ? 'graphics' : 'base', base,
+const manifest = {suite: 'bookworm', architecture: 'arm64', profile: values.applications ? 'applications' : values.gtk ? 'gtk' : values.graphics ? 'graphics' : 'base', base,
   trust: 'Pinned Debian archive OpenPGP signature and Release -> Packages -> deb SHA256 chain',
   signingKeyFingerprint: archiveFingerprint,
   releaseSha256: hash(release), indexSha256: hash(index), packages: []};

@@ -130,7 +130,8 @@ operations and tests are listed in [its contract](namespace-execution.md).
   child environment, argv0, PATH, shebang and inherited Unix socket IO.
 - 64 consecutive execs preserve PID, no-new-privileges and the number of seccomp
   filters. Failed exec/spawn return to the caller. `/proc/self/exe` readlink/open
-  and the supplied AT_EXECFN identify the guest executable.
+  and the supplied AT_EXECFN identify the guest executable. Each exec updates the
+  kernel `comm` name to its basename, subject to Linux's 15-byte name limit.
 - Concurrent file reads, file calls on libc's minimum 128 KiB thread stack,
   file calls from asynchronous guest signal handlers, invalid pointers returning
   EFAULT and a pathname ending at a protected page boundary.
@@ -158,8 +159,8 @@ Negative controls are required, not hidden or counted as compatibility passes:
   These are controls for the direct backend; the namespace backend supplies
   shared-inode links. No package maintainer scripts are run by preparation.
 - `/proc/self/cmdline` and `/proc/self/auxv` retain the kernel's bootstrap view;
-  they are not a complete guest procfs. NSS/DNS, locales, metadata/ownership
-  emulation, Qt and client GPU buffers are not validated. GTK coverage is bounded
+  they are not a complete guest procfs. Locales, metadata/ownership
+  emulation, Qt and client GPU buffers are not validated. NSS/DNS and GTK coverage is bounded
   by the software GUI checks below.
 - Guest-installed seccomp filters, application-owned SIGSYS handlers, alternate
   signal stacks with nested file calls and arbitrary tiny stacks are not covered.
@@ -254,10 +255,30 @@ not replayed: acceptance requires both native window disappearance and an actual
 zero process exit. Separate pointer/text/dialog checks remain manual, not implied
 by the automated smoke test.
 
+The `--applications` profile includes authenticated Debian Mousepad, Galculator,
+curl and CA certificates with their selected dependencies. Its guarded test-only
+setup supplies NSS entries for real UID 2000, a resolver, CA bundle, machine ID
+and toolkit caches. It neither configures a user's distribution nor fabricates
+package installation records. The GUI runner uses the installed APK's guest
+CLI and compiles the actual app-side `LinuxGraphicalEnvironment` wrapper for
+its session commands, rather than maintaining a second D-Bus policy.
+
+`test_graphics.py --application mousepad --network` verifies NSS, DNS and
+certificate-checked HTTPS; session-bus activation of dconf and persistent
+GSettings; document editing, saving and readback through a fresh guest process;
+rendered pixels and keyboard quit. `--application galculator` checks a second
+unchanged application with keyboard input, pixels and graceful process exit.
+The host-side receipt watcher uses inotify and an event deadline: window removal
+alone cannot pass the exit assertion. Complete logs are downloaded with SHA-256
+verification, separately from bounded console output. Graphical checks use
+the distribution's standard D-Bus configuration with a unique abstract address,
+not the demonstration's keyfile-only settings backend. Namespace inotify is
+still unsupported, including D-Bus's session-config directory watch.
+
 Known gaps: GTK emits monitor-scale critical warnings during initial output
 discovery; the compositor publishes application outputs when Android hosts attach.
-GLib's process name can identify the bootstrap, consistent with the
-unvirtualized kernel command line. These are recorded limitations, not hidden by
+Tools reading the unvirtualized kernel command line can still identify the
+bootstrap even though the kernel process name follows the guest. These are recorded limitations, not hidden by
 log suppression or application-specific environment overrides. GUI success does
 not establish complete procfs, Qt, IME, clipboard or GPU compatibility.
 

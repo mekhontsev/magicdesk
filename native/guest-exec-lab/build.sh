@@ -6,11 +6,16 @@ if [ "$#" -ne 1 ]; then
 fi
 src=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 runtime="$src/../guest-runtime/src"
+app="$src/../../app/src/main/java/io/github/mekhontsev/magicdesk"
 work=$(CDPATH= cd -- "$1" && pwd)
 sysroot=$work/sysroot
 cc=${CC:-clang}
 node "$src/test_signature.mjs" "$work"
 mkdir -p "$work/bundle/rootfs" "$work/path-test"
+javac -d "$work/recipe-classes" "$src/GraphicalRecipe.java" "$app/LinuxGraphicalEnvironment.java" \
+    "$app/GraphicalProtocol.java" "$app/ShellCommandLine.java"
+"$cc" -iquote "$runtime" -std=c17 -O2 -Wall -Wextra -Werror -DMD_NO_START -DMD_USE_LIBC \
+    "$src/test_completion.c" "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/raw.S" -o "$work/bundle/md-await-exit"
 "$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -UNDEBUG -fno-builtin -DMD_NO_START \
     "$src/test_paths.c" "$runtime/fs.c" "$runtime/proc_paths.c" "$runtime/raw.c" "$runtime/raw.S" -o "$work/test-paths"
 testroot=$(mktemp -d "$work/path-test/run.XXXXXX")
@@ -119,7 +124,7 @@ guest_cc -pie -fno-builtin -DMD_NO_START -DMD_INODE_TESTING -DMD_FS_TESTING \
     -L"$sysroot/usr/lib/aarch64-linux-gnu" -l:libsqlite3.so.0 -l:libm.so.6 \
     -o "$work/md-rpc-fixture"
 cp -a "$sysroot/lib" "$sysroot/bin" "$work/bundle/rootfs/"
-for directory in etc sbin usr/share usr/sbin var; do
+for directory in etc sbin usr/share usr/sbin usr/libexec var; do
     if [ -d "$sysroot/$directory" ]; then
         mkdir -p "$work/bundle/rootfs/$directory"
         cp -a "$sysroot/$directory/." "$work/bundle/rootfs/$directory/"
@@ -127,7 +132,7 @@ for directory in etc sbin usr/share usr/sbin var; do
 done
 mkdir -p "$work/bundle/rootfs/usr/lib" "$work/bundle/rootfs/usr/bin" \
     "$work/bundle/rootfs/etc" "$work/bundle/rootfs/tmp" "$work/bundle/rootfs/var/log"
-cp -a "$sysroot/usr/lib/aarch64-linux-gnu" "$work/bundle/rootfs/usr/lib/"
+cp -a "$sysroot/usr/lib/." "$work/bundle/rootfs/usr/lib/"
 cp -a "$sysroot/usr/bin/." "$work/bundle/rootfs/usr/bin/"
 cp "$work/md-fixture" "$work/bundle/rootfs/usr/bin/"
 cp "$work/md-xattrs-fixture" "$work/bundle/rootfs/usr/bin/"
@@ -154,6 +159,8 @@ fi
 cp "$src/fixtures/md-guest-fixture" "$work/bundle/rootfs/etc/"
 cp "$src/fixtures/md-script" "$work/bundle/rootfs/usr/bin/"
 chmod 755 "$work/bundle/rootfs/usr/bin/md-script"
+cp "$src/fixtures/md-prepare-applications" "$work/bundle/rootfs/usr/bin/"
+chmod 755 "$work/bundle/rootfs/usr/bin/md-prepare-applications"
 if [ -f "$sysroot/usr/bin/dpkg" ]; then
     mkdir -p "$work/package-fixture"
     cp -a "$src/fixtures/package/." "$work/package-fixture/"

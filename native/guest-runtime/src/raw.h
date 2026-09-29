@@ -26,6 +26,7 @@ int md_prefix(const char *, const char *);
 int md_copy(char *, size_t, const char *);
 int md_append(char *, size_t, const char *);
 void md_decimal(char *, unsigned long);
+void md_error(const char *, long);
 __attribute__((noreturn)) void md_die(const char *, long);
 long md_read_memory(void *, const void *, size_t);
 long md_write_memory(void *, const void *, size_t);

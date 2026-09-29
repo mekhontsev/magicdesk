@@ -48,8 +48,27 @@ Terminal commands use the shared retained PTY. Graphical recipes currently use
 Wayland, an explicit host-visible XKB directory and an inherited connection FD.
 `X-MagicDesk-WaylandConnection=inherited` records that transport independently
 of executor UID; ordinary recipes select `auto`. Each graphical launch prepares
-its own guest `XDG_RUNTIME_DIR`. File-environment identity remains distinct from
+its own guest `XDG_RUNTIME_DIR` and D-Bus session. File-environment identity remains distinct from
 host paths; an unavailable guest-file helper is an error, never host fallback.
+
+## Prepared Userspace
+
+The store must contain the application's complete matching libraries, data and
+configuration. The runtime does not invent a Linux user, package records, DNS
+servers, certificates or a machine ID. In particular, D-Bus needs an NSS entry
+for the actual executor UID in the prepared system. Network clients need its
+resolver configuration and CA trust store. GUI toolkits need fonts, icons and
+their normal GSettings/GdkPixbuf/MIME caches.
+
+`LinuxGraphicalEnvironment` owns the shared graphical-session wrapper. Guest
+recipes require the distribution's `dbus-run-session`, `dbus-daemon` and
+`dbus-uuidgen`. They select a unique abstract Unix listen address, avoiding a
+pathname socket that the guest namespace cannot create. The distribution's
+standard session configuration, credential authentication, activation and
+limits are preserved; only the [listen address](https://dbus.freedesktop.org/doc/dbus-daemon.1.html)
+is overridden. `dbus-run-session` owns readiness and shutdown. MagicDesk ships
+no D-Bus daemon and does not reuse Android's or Termux's session bus. Ordinary
+PRoot/chroot graphical recipes keep their standard D-Bus transport.
 
 ## Optional Kernel Support
 
@@ -73,12 +92,26 @@ API 34, root execution or 16 KiB devices. Those remain separate validation needs
 
 The native fixtures exercise Debian bookworm glibc, shell/exec, threads/signals,
 namespace hard links and package transactions, process-tree cancellation and
-software Wayland/GTK rendering with input. This is not certification of a full
+software Wayland/GTK rendering with input. The installed runtime also runs
+unchanged Debian Mousepad and Galculator on a private virtual display without
+Desktop. Checks cover Mousepad editing and saving, fresh-process file readback,
+keyboard quit with actual zero process exit, D-Bus activation of dconf and
+settings persistence across independent sessions. Prepared NSS lookup, DNS and
+HTTPS with certificate verification work on the tested device.
+
+This is not certification of a full
 Debian base, arbitrary package maintainer scripts, APT, a Linux desktop or GPU
 clients. X11 transport, arbitrary pathname socket creation, guest file sharing
 and live appearance helpers are not integrated for this launch method.
 Static/non-PIE executables and non-glibc interpreters are rejected. Unsupported
 syscalls and kernel permission denials remain explicit.
+
+Namespace inotify remains unsupported; D-Bus reports that its session-config
+directory cannot be watched. GTK reports monitor-scale warnings before the
+Android host publishes an application output. These diagnostics are retained,
+not suppressed. The kernel process name identifies the guest executable after
+each exec, but `/proc/self/cmdline` and `/proc/self/auxv` still describe the
+bootstrap, not a fully virtualized guest process.
 
 The installed CLI also retains the shared terminal's controlling PTY: interactive
 dash job control, Ctrl+Z/fg/Ctrl+C, detachment and return to the Android shell

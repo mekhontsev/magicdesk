@@ -17,21 +17,27 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("build", type=Path)
     parser.add_argument("--gtk", action="store_true", help="Run the unchanged Debian GTK application")
+    parser.add_argument("--application", choices=["mousepad", "galculator"], help="Exercise a real application through the installed runtime")
+    parser.add_argument("--network", action="store_true", help="Check DNS and authenticated HTTPS inside the application fixture")
     parser.add_argument("--backend", choices=["direct", "namespace"])
     parser.add_argument("--installed", action="store_true", help="Use the installed APK's guest CLI")
     parser.add_argument("--config", type=Path, default=Path.home() / ".codex/config.toml")
     parser.add_argument("--server", default="magicdesk")
     args = parser.parse_args()
+    if args.application:
+        args.gtk = args.installed = True
     if args.installed:
         if args.backend == "direct":
             parser.error("The installed CLI uses the namespace backend")
         args.backend = "namespace"
     previous = json.loads((args.build / "device-results.json").read_text())
     manifest = json.loads((args.build / "manifest.json").read_text())
-    if manifest.get("profile") not in ("graphics", "gtk") or manifest != previous["manifest"]:
+    if manifest.get("profile") not in ("graphics", "gtk", "applications") or manifest != previous["manifest"]:
         raise RuntimeError("Run the graphics-profile device fixture from this exact build first")
-    if args.gtk and manifest["profile"] != "gtk":
+    if args.gtk and manifest["profile"] not in ("gtk", "applications"):
         raise RuntimeError("GTK requires its authenticated toolkit profile")
+    if args.application and manifest["profile"] != "applications":
+        raise RuntimeError("Prepare the authenticated application profile first")
     if not previous["checks"] or not all(item["passed"] for item in previous["checks"]):
         raise RuntimeError("The prepared device fixture must have passed")
     root = previous["directory"]
@@ -70,6 +76,11 @@ def main():
             raise RuntimeError("Condition did not match: " + condition)
         return result
 
+    def read_log(remote):
+        local = args.build / Path(remote).name
+        transport.download(client, remote, local, overwrite=True)
+        return local.read_text()
+
     def check_pixels(samples):
         rgb = [(p["red"], p["green"], p["blue"]) for p in samples]
         # Android composition/color management may transform exact channel values.
@@ -83,15 +94,46 @@ def main():
         assert r > b + 60 and g > b + 60, rgb
 
     try:
-        executable = "gtk3-demo-application" if args.gtk else "md-wayland-fixture"
+        executable = args.application or ("gtk3-demo-application" if args.gtk else "md-wayland-fixture")
         for name in ["libmagicdesk_guest_bootstrap.so", "libmagicdesk_guest_run.so", "rootfs/usr/bin/" + executable]:
             expected = hashlib.sha256((args.build / "bundle" / name).read_bytes()).hexdigest()
             assert command("sha256sum " + shlex.quote(root + "/" + name)).split()[0] == expected, name
             results["binaries"][name] = expected
+        awaiter = root + "/md-await-" + tag
+        transport.upload(client, args.build / "bundle/md-await-exit", awaiter)
+        command("chmod 700 " + shlex.quote(awaiter))
+        cli = command("command -v magicdesk-guest").strip() if args.installed else ""
+        home = " --home /home/shell" if args.application else ""
+        installed = shlex.quote(cli) + " --store " + root + "/rootfs/tmp/imported-rootfs" + home + " -- "
+
+        def session_script(program):
+            return subprocess.check_output(["java", "-cp", str(args.build / "recipe-classes"),
+                "io.github.mekhontsev.magicdesk.GraphicalRecipe", program], text=True, timeout=20)
+
+        if args.application:
+            results["preparation"] = command("timeout 60 " + installed + "/bin/sh -c " + shlex.quote(
+                "set -eu; if test ! -e /etc/passwd; then /bin/sh /usr/bin/md-prepare-applications; fi; "
+                "getent passwd 2000; getent group 2000; cat /proc/self/comm"))
+            assert "shell:x:2000:" in results["preparation"] and "\ncat\n" in results["preparation"], results["preparation"]
+            for operation in ["gsettings set org.xfce.mousepad.preferences.view show-line-numbers true",
+                              "gsettings get org.xfce.mousepad.preferences.view show-line-numbers"]:
+                result = command("timeout 30 " + installed + "/bin/sh -c " + shlex.quote(session_script(operation)))
+                results.setdefault("settings", []).append(result)
+            assert results["settings"][-1].rstrip().endswith("true"), results["settings"]
+            if args.network:
+                results["network"] = command("timeout 30 " + installed + "/bin/sh -c " + shlex.quote(
+                    "set -eu; getent hosts deb.debian.org; "
+                    "curl --silent --show-error --fail --connect-timeout 8 --max-time 15 --head https://deb.debian.org/debian/README"))
+                assert "200" in results["network"], results["network"]
+            document = "/home/shell/md-" + tag + ".txt"
+            if args.application == "mousepad":
+                command("timeout 15 " + installed + "/bin/sh -c " + shlex.quote("printf 'seed\\n' > " + document))
         display = client.call("create_display", {"type": "virtual", "width": 1000, "height": 700, "densityDpi": 160})
+        modes = ([("gtk", False), ("gtk", True)] if args.application == "mousepad" else
+                 [("gtk", False)] if args.gtk else [("memfd", False), ("file", False)])
         for backend in ([args.backend] if args.backend else ["direct", "namespace"]):
-            for buffer in (["gtk"] if args.gtk else ["memfd", "file"]):
-                case = {"backend": backend, "buffer": buffer, "passed": False}
+            for buffer, reopen in modes:
+                case = {"backend": backend, "buffer": buffer, "reopen": reopen, "passed": False}
                 results["cases"].append(case)
                 session = client.call("graphics.start", {"protocol": "wayland", "backend": "shell",
                     "name": "Debian lab " + backend + " " + buffer,
@@ -103,10 +145,9 @@ def main():
                 prefix = (root + "/libmagicdesk_guest_bootstrap.so " + root + "/rootfs " if backend == "direct"
                           else root + "/libmagicdesk_guest_run.so --store " + root + "/rootfs/tmp/imported-rootfs -- ")
                 if args.installed:
-                    cli = command("command -v magicdesk-guest").strip()
                     if not cli.startswith("/") or "\n" in cli:
                         raise RuntimeError("Installed guest CLI is unavailable")
-                    prefix = shlex.quote(cli) + " --store " + root + "/rootfs/tmp/imported-rootfs -- "
+                    prefix = installed
                 if args.gtk:
                     case["preparation"] = []
                     for prepare in [
@@ -118,18 +159,23 @@ def main():
                         output = command("timeout 60 env PATH=/usr/bin:/bin HOME=/tmp LC_ALL=C " + prefix + prepare)
                         case["preparation"].append({"command": prepare, "output": output})
                     assert "DejaVu Sans" in case["preparation"][-1]["output"], case["preparation"]
-                logfile = root + "/gui-" + tag + "-" + backend + "-" + buffer + ".log"
+                suffix = "-reopen" if reopen else ""
+                logfile = root + "/gui-" + tag + "-" + backend + "-" + buffer + suffix + ".log"
+                receipt = logfile + ".exit"
                 case["logfile"] = logfile
                 program = ("/usr/bin/gtk3-demo-application" if args.gtk else
                            "/usr/bin/md-wayland-fixture " + shlex.quote("Debian " + backend + " " + buffer) + " " + buffer)
-                if backend == "namespace":
+                if args.application:
+                    program = "/bin/sh -c " + shlex.quote(session_script(
+                        "/usr/bin/" + args.application + (" " + document if args.application == "mousepad" else "")))
+                elif backend == "namespace":
                     program = "/bin/sh -c " + shlex.quote(
                         "set -eu; umask 077; XDG_RUNTIME_DIR=$(mktemp -d /tmp/magicdesk-runtime.XXXXXX); "
                         "export XDG_RUNTIME_DIR; trap 'rm -rf -- \"$XDG_RUNTIME_DIR\"' EXIT; " + program)
                 script = ("timeout 90 env PATH=/usr/bin:/bin HOME=/tmp TMPDIR=/tmp XDG_RUNTIME_DIR=/tmp LC_ALL=C "
-                          + ("GSETTINGS_BACKEND=keyfile " if args.gtk else "") + prefix + program)
+                          + ("GSETTINGS_BACKEND=keyfile " if args.gtk and not args.application else "") + prefix + program)
                 if args.gtk:
-                    script = "{\n" + script + '\nresult=$?\nprintf "MD_GTK_EXIT=%s\\n" "$result"\nexit "$result"\n}'
+                    script = "{\n" + script + '\nresult=$?\nprintf "%s\\n" "$result" > ' + shlex.quote(receipt) + '\nprintf "MD_GTK_EXIT=%s\\n" "$result"\nexit "$result"\n}'
                 script += " >" + shlex.quote(logfile) + " 2>&1"
                 client.call("graphics.execute", {"sessionId": session, "command": script})
                 try:
@@ -147,7 +193,19 @@ def main():
                         "displayId": display["id"], "timeoutMillis": 10000})
                     assert ready["matched"], ready
                     if args.gtk:
-                        assert present["windows"][0]["title"] == "Application Class", present
+                        if args.application:
+                            case["window"] = present["windows"][0]
+                            if args.application == "mousepad":
+                                assert tag in case["window"]["title"], case
+                                if not reopen:
+                                    for keys in [["CTRL_LEFT", "A"], ["M"], ["A"], ["G"], ["I"], ["C"],
+                                                 ["D"], ["E"], ["S"], ["K"], ["ENTER"], ["CTRL_LEFT", "S"]]:
+                                        client.call("input.key_chord", {"displayId": display["id"], "keys": keys})
+                            else:
+                                for keys in [["2"], ["PLUS"], ["2"], ["ENTER"]]:
+                                    client.call("input.key_chord", {"displayId": display["id"], "keys": keys})
+                        else:
+                            assert present["windows"][0]["title"] == "Application Class", present
                         # Task-surface capture excludes Android display transition transforms.
                         capture = client.call_result("capture_screenshot", {"taskId": task})
                         png = base64.b64decode(next(item["data"] for item in capture["content"]
@@ -157,13 +215,16 @@ def main():
                         rgb = subprocess.check_output(["magick", "png:-", "-depth", "8", "rgb:-"], input=png, timeout=20)
                         width, height = metadata["width"], metadata["height"]
                         assert len(rgb) == width * height * 3 and width > 220 and height > 105, metadata
-                        evidence = args.build / ("gtk-" + tag + "-" + backend + ".png")
+                        evidence = args.build / ("gtk-" + tag + "-" + backend + suffix + ".png")
                         evidence.write_bytes(png)
                         colors = [tuple(rgb[(y * width + x) * 3:(y * width + x) * 3 + 3])
                                   for y in [75, 85, 95, 105] for x in range(170, 221, 5)]
                         case["capture"] = {"file": evidence.name, "sha256": hashlib.sha256(png).hexdigest(),
                                            "metadata": metadata, "samples": colors}
-                        assert len(set(colors)) > 12 and any(max(c) - min(c) > 60 for c in colors), colors
+                        if args.application:
+                            assert len(set(zip(rgb[0::3], rgb[1::3], rgb[2::3]))) > 100, metadata
+                        else:
+                            assert len(set(colors)) > 12 and any(max(c) - min(c) > 60 for c in colors), colors
                         try:
                             client.call("input.key_chord", {"displayId": display["id"], "keys": ["CTRL_LEFT", "Q"]})
                         except transport.ToolError as error:
@@ -174,10 +235,14 @@ def main():
                                 raise
                             case["inputDeliveryError"] = detail
                         wait("graphics_window_absent", session, windowId=window)
-                        case["log"] = command("cat " + shlex.quote(logfile))
+                        case["completion"] = command("timeout 20 " + shlex.quote(awaiter) + " " + shlex.quote(receipt))
+                        case["log"] = read_log(logfile)
                         assert "MD_GTK_EXIT=0\n" in case["log"], case["log"][-2000:]
                         assert "Bail out!" not in case["log"] and "ERROR **" not in case["log"], case["log"][-2000:]
                         case["monitorWarnings"] = case["log"].count("gdk_monitor_get_scale_factor")
+                        if args.application == "mousepad":
+                            case["savedText"] = command("timeout 20 " + installed + "/bin/cat " + document)
+                            assert case["savedText"] == "magicdesk\n", case
                         case["passed"] = True
                         print("PASS " + backend + ": stock GTK pixels and keyboard application exit", flush=True)
                         continue
@@ -189,7 +254,7 @@ def main():
                     client.call("input.key_chord", {"displayId": display["id"], "keys": ["A"]})
                     client.call("graphics.close_window", {"sessionId": session, "windowId": window})
                     wait("graphics_window_absent", session, windowId=window)
-                    case["log"] = command("cat " + shlex.quote(logfile))
+                    case["log"] = read_log(logfile)
                     for marker in ["CONNECTED clientUid=2000 peerUid=" + str(info["serverUid"]),
                                    "EVENT server keymap FD readable", "EVENT pointer button 272 1",
                                    "EVENT pointer button 272 0", "EVENT key 30 1", "EVENT key 30 0",
@@ -198,7 +263,7 @@ def main():
                     case["passed"] = True
                     print("PASS " + backend + " " + buffer + ": cross-UID pixels, pointer/key input and protocol close", flush=True)
                 finally:
-                    case["log"] = command("cat " + shlex.quote(logfile))
+                    case["log"] = read_log(logfile)
                     client.call("graphics.stop", {"sessionId": session})
                     wait("graphics_session_absent", session)
                     sessions.remove(session)
@@ -224,7 +289,8 @@ def main():
         except Exception as error:
             errors.append(str(error))
         results["cleanupErrors"] = errors
-        (args.build / ("gtk-results.json" if args.gtk else "graphics-results.json")).write_text(json.dumps(results, indent=2) + "\n")
+        report = args.application + "-results.json" if args.application else "gtk-results.json" if args.gtk else "graphics-results.json"
+        (args.build / report).write_text(json.dumps(results, indent=2) + "\n")
         if errors:
             raise RuntimeError("Incomplete cleanup: " + repr(errors))
 

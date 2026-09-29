@@ -85,8 +85,8 @@ final class LinuxLaunchRecipe {
             String guest = command;
             if (graphical) {
                 // Each graphical launch owns its D-Bus session and private runtime directory.
-                guest = graphicalEnvironment(protocol, "dbus-run-session -- "
-                        + (presentation == Presentation.APPLICATION ? "/tmp/magicdesk-linux-settings -- " : "")
+                guest = LinuxGraphicalEnvironment.wrap(protocol, LinuxGraphicalEnvironment.BusTransport.STANDARD,
+                        (presentation == Presentation.APPLICATION ? "/tmp/magicdesk-linux-settings -- " : "")
                         + "/bin/sh -lc " + q(command));
             }
             host.append(graphical ? " -- /tmp/magicdesk-guest-files -- /bin/sh -lc " : " -- /bin/sh -lc ").append(q(guest));
@@ -119,7 +119,8 @@ final class LinuxLaunchRecipe {
         var plan = new GuestLaunchPlan(new GuestEnvironment(environment.target(), "/tmp"),
                 directory.isEmpty() ? "/" : directory,
                 command.isEmpty() ? List.of("/bin/sh", "-l") : List.of("/bin/sh", "-lc",
-                        graphical ? graphicalEnvironment(protocol, "/bin/sh -lc " + q(command)) : command));
+                        graphical ? LinuxGraphicalEnvironment.wrap(protocol, LinuxGraphicalEnvironment.BusTransport.ABSTRACT,
+                                "/bin/sh -lc " + q(command)) : command));
         String exec = DesktopExecTemplate.encodeArguments(plan.arguments());
         DesktopExecTemplate.expandArguments(exec, DesktopLaunchArguments.empty(), name, "", "");
         return new DesktopApplicationShortcut(name, graphical ? "computer" : "utilities-terminal",
@@ -127,12 +128,6 @@ final class LinuxLaunchRecipe {
                 .withLiteralExec(true).withGraphics(graphical ? new GraphicalLaunchOptions(protocol,
                         presentation == Presentation.DESKTOP, environment.keyboardDirectory(), "",
                         "GUEST:" + environment.target().length() + ":" + environment.target(), WaylandConnectionMode.INHERITED) : null);
-    }
-
-    private static String graphicalEnvironment(GraphicalProtocol protocol, String command) {
-        return "set -eu; umask 077; XDG_RUNTIME_DIR=$(mktemp -d /tmp/magicdesk-runtime.XXXXXX); "
-                + "export XDG_RUNTIME_DIR XDG_SESSION_TYPE=" + protocol.wireName + "; "
-                + "trap 'rm -rf -- \"$XDG_RUNTIME_DIR\"' EXIT; " + command;
     }
 
     private static String q(String value) { return ShellCommandLine.quote(value); }

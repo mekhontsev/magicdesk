@@ -72,6 +72,9 @@ static void *send_signals(void *ignored) {
 }
 int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
+    char comm[16] = {0};
+    assert(!prctl(PR_GET_NAME, comm));
+    assert(!strcmp(comm, "md-exec-fixture"));
     if (argc == 5 && !strcmp(argv[1], "chain")) {
         int remaining = atoi(argv[2]), count = atoi(argv[3]), pid = atoi(argv[4]);
         assert(filters() == count && getpid() == pid);

@@ -3518,7 +3518,10 @@ Termux's user XDG applications directory, using RUN_COMMAND rather than shell
 filesystem access. The existing catalog, launch coordinator, PTY/X11 owners
 and Recent storage then handle the entry. Guest working directories never become
 host `Path` fields; graphical wrappers retain dynamic X11 authorization and own
-their D-Bus/runtime-directory lifetime. No startup scan or Desktop prerequisite
+their D-Bus/runtime-directory lifetime through `LinuxGraphicalEnvironment`.
+Guest recipes use the distribution's standard D-Bus session policy with an
+abstract listen address; ordinary Linux entry recipes retain the standard
+transport. No daemon is embedded in the APK. No startup scan or Desktop prerequisite
 is introduced. The catalog marks deletable user shortcuts from their storage
 location, never from untrusted file metadata. Deletion uses the captured Termux
 endpoint, refuses package-owned files and symbolic links, and removes matching

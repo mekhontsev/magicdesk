@@ -90,6 +90,10 @@ void md_boot(uintptr_t *kernel_stack) {
     if (r < 0) md_die("prepare guest program", r);
     r = md_program_identity(&md_files, command.path, md_executable);
     if (r < 0) md_die("guest identity", r);
+    const char *name = md_executable;
+    for (const char *p = name; *p; ++p) if (*p == '/') name = p + 1;
+    r = RAW2(prctl, PR_SET_NAME, name);
+    if (r < 0) md_die("guest process name", r);
     long fd = md_program_open(&md_files, "/lib/ld-linux-aarch64.so.1", 1);
     if (fd < 0) md_die("open stock loader", fd);
     struct md_image image;

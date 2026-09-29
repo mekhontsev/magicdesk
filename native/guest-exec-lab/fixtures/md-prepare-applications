@@ -1,0 +1,21 @@
+#!/bin/sh
+# Fixture-only userspace configuration, never run against a user's distribution.
+set -eu
+test "$(cat /etc/md-guest-fixture)" = guest-value
+test "$(id -u)" = 2000
+test ! -e /etc/passwd
+umask 022
+mkdir -p /home/shell /etc/ssl/certs /var/lib/dbus
+printf 'root:x:0:0:root:/root:/bin/sh\nshell:x:2000:2000:Guest fixture:/home/shell:/bin/sh\n' > /etc/passwd
+printf 'root:x:0:\nshell:x:2000:\n' > /etc/group
+printf 'passwd: files\ngroup: files\nhosts: files dns\n' > /etc/nsswitch.conf
+printf '127.0.0.1 localhost\n::1 localhost\n' > /etc/hosts
+# Explicit public resolver for this opt-in network fixture, not a runtime default.
+printf 'nameserver 1.1.1.1\noptions timeout:3 attempts:1\n' > /etc/resolv.conf
+cat /usr/share/ca-certificates/mozilla/*.crt > /etc/ssl/certs/ca-certificates.crt
+dbus-uuidgen --ensure=/etc/machine-id
+/usr/lib/aarch64-linux-gnu/glib-2.0/glib-compile-schemas /usr/share/glib-2.0/schemas
+/usr/lib/aarch64-linux-gnu/gdk-pixbuf-2.0/gdk-pixbuf-query-loaders --update-cache
+update-mime-database /usr/share/mime
+fc-cache
+printf 'Prepared application fixture for actual UID 2000\n'

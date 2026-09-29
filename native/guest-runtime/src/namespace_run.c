@@ -112,6 +112,7 @@ void md_boot(uintptr_t *stack) {
         if (startup[2].revents) { r = -EIO; break; }
     }
     RAW1(close, ready[0]);
+    if (r < 0) md_error("start guest filesystem service", r);
     if (!r) {
         long owner = RAW0(getpid);
         long guard = RAW5(clone, SIGCHLD, 0, 0, 0, 0);
@@ -143,7 +144,10 @@ void md_boot(uintptr_t *stack) {
             if (guard_fd >= 0) RAW1(close, guard_fd);
         }
     }
-    if (finish_service(server, service, signals.fd, stop[1])) result = 125;
+    if (finish_service(server, service, signals.fd, stop[1])) {
+        if (!r) md_error("guest filesystem service shutdown", -EIO);
+        result = 125;
+    }
     RAW1(close, service);
     RAW1(exit_group, result);
 }

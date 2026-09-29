@@ -14,7 +14,7 @@ Cancellation, frontend death and service failure use signalfd/pidfd observation
 and bounded termination/reaping. See the [process lifetime contract](process-lifetime.md)
 for ownership, exact guarantees, coverage and remaining limits.
 
-`service_main.c` runs the dedicated SQLite owner under the direct bootstrap.
+`service_main.c` runs the dedicated SQLite owner as a static Bionic executable.
 Its private storage never depends on the namespace service it supplies. The
 service retains the already-selected real UID and uses umask zero; creation
 requests contain modes masked using the requesting process's kernel umask.
@@ -178,6 +178,13 @@ stock `gtk3-demo-application` with actual fonts, icons, keyboard input and clean
 exit. Manual menu/text/child-dialog checks and the bounded automated smoke test
 are distinguished in the main README. No inode-service or syscall changes are
 needed specifically for GTK.
+
+The application profile additionally runs stock Mousepad and Galculator through
+the installed APK's namespace CLI. D-Bus uses an abstract address with the
+distribution's session policy, activates dconf and retains settings across fresh
+sessions. Mousepad saves edited text that a separate guest launch reads back.
+File watches still return ENOTSUP; network checks cover prepared NSS, DNS and
+authenticated HTTPS, not an installed APT environment.
 
 References: [O_PATH and proc descriptor paths](https://man7.org/linux/man-pages/man2/open.2.html),
 [proc descriptor semantics](https://man7.org/linux/man-pages/man5/proc_pid_fd.5.html),

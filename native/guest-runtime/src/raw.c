@@ -47,13 +47,16 @@ void md_decimal(char *out, unsigned long value) {
     size_t i = 0; while (n) out[i++] = digits[--n];
     out[i] = 0;
 }
-void md_die(const char *reason, long error) {
+void md_error(const char *reason, long error) {
     char code[32]; md_decimal(code, (unsigned long)(error < 0 ? -error : error));
     RAW3(write, 2, "md-bootstrap: ", 14);
     RAW3(write, 2, reason, md_length(reason));
     RAW3(write, 2, " errno=", 7);
     RAW3(write, 2, code, md_length(code));
     RAW3(write, 2, "\n", 1);
+}
+void md_die(const char *reason, long error) {
+    md_error(reason, error);
     RAW1(exit_group, error == -ENOENT ? 127 : 126);
     __builtin_unreachable();
 }
