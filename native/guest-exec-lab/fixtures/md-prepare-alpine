@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+# Fixture data only. Runtime startup never invents accounts or toolkit caches.
+mkdir -p /home/shell
+if ! getent passwd 2000 >/dev/null; then
+    printf 'shell:x:2000:2000:Shell:/home/shell:/bin/sh\n' >> /etc/passwd
+fi
+if ! getent group 2000 >/dev/null; then
+    printf 'shell:x:2000:\n' >> /etc/group
+fi
+glib-compile-schemas /usr/share/glib-2.0/schemas
+gdk-pixbuf-query-loaders --update-cache
+update-mime-database /usr/share/mime
+fc-cache
+fc-match

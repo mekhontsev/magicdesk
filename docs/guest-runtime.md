@@ -1,7 +1,7 @@
 # Guest Execution Runtime
 
 MagicDesk includes an experimental native ARM64 Linux execution adapter.
-It runs prepared glibc programs through the explicitly selected shell or root
+It runs prepared ARM64 PIE programs with glibc or musl through the explicitly selected shell or root
 executor, without PRoot, chroot, Termux or a distribution manager. It is not a
 security sandbox: guest programs retain the caller's authority and unadapted
 syscalls can access Android resources. Use trusted programs and prepared stores.
@@ -70,7 +70,8 @@ arguments map exact guest connect addresses to that endpoint. Routes survive
 fork/exec and environment replacement. The syscall adapter preserves the original
 socket descriptor and kernel open-file description; no socket-node fabrication,
 per-syscall allocation or descriptor registry is involved. Other destinations
-retain their normal permission checks. Pathname socket creation is not implied.
+retain their normal permission checks. General guest pathname sockets use the
+inode namespace described below, independently of graphical routes.
 
 Wayland clients receive an absolute `WAYLAND_DISPLAY` and may establish separate
 connections, rather than share one inherited stream. X11 maps both the pathname
@@ -87,15 +88,36 @@ for the actual executor UID in the prepared system. Network clients need its
 resolver configuration and CA trust store. GUI toolkits need fonts, icons and
 their normal GSettings/GdkPixbuf/MIME caches.
 
-`LinuxGraphicalEnvironment` owns the shared graphical-session wrapper. Guest
-recipes require the distribution's `dbus-run-session`, `dbus-daemon` and
-`dbus-uuidgen`. They select a unique abstract Unix listen address, avoiding a
-pathname socket that the guest namespace cannot create. The distribution's
-standard session configuration, credential authentication, activation and
-limits are preserved; only the [listen address](https://dbus.freedesktop.org/doc/dbus-daemon.1.html)
-is overridden. `dbus-run-session` owns readiness and shutdown. MagicDesk ships
-no D-Bus daemon and does not reuse Android's or Termux's session bus. Ordinary
-PRoot/chroot graphical recipes keep their standard D-Bus transport.
+`LinuxGraphicalEnvironment` owns one graphical-session wrapper for guest,
+PRoot and chroot recipes. The distribution supplies `dbus-run-session` and
+`dbus-daemon`, with its standard session configuration, listen address,
+credential authentication, activation and limits. `dbus-run-session` owns
+readiness and shutdown; the wrapper owns a private `XDG_RUNTIME_DIR`.
+MagicDesk ships no D-Bus daemon and does not reuse Android's or Termux's bus.
+
+## ELF And IPC
+
+The bootstrap maps the main ELF and its absolute `PT_INTERP`, validates their
+load segments before exec and supplies a kernel-style initial stack and auxv.
+There is no distribution or loader-name allowlist. The selected stock dynamic
+linker owns relocations, dependencies, TLS and `dlopen`. Runtime-owned guarded
+signal stacks isolate syscall adaptation from libc thread-stack sizes; ordinary
+file calls allocate no heap or temporary mappings. Fork, vfork and thread clone
+retain kernel lifetimes. SIGSYS remains reserved.
+
+Pathname Unix sockets are namespace inodes whose native transport is an
+abstract kernel socket. The filesystem service commits bind and name publication;
+ordinary traffic, credentials and SCM_RIGHTS then bypass it. Names, permissions,
+relative addresses, returned addresses, rename, stale listeners and unlink/rebind
+are tested. Unlinking a name does not invalidate existing connections. Different
+stores have independent names; explicitly abstract sockets retain the host's
+shared abstract namespace and are not isolated.
+
+`/dev/shm` belongs to the guest store, including access relative to a `/dev`
+descriptor or cwd. POSIX shared memory, mmap, descriptor passing and unlinked
+data work across independent launches. Native file-data inotify works on retained
+backing inodes; directory/name events are not synthesized. Directory watches
+return ENOTSUP instead of silently missing logical namespace changes.
 
 ## Optional Kernel Support
 
@@ -117,7 +139,7 @@ Device coverage is RM11/NX809J, API 36, Linux 6.12.23, 4 KiB pages, actual
 UID 2000. Build and injected missing-syscall checks do not emulate old kernels,
 API 34, root execution or 16 KiB devices. Those remain separate validation needs.
 
-The native fixtures exercise Debian bookworm and trixie glibc, shell/exec, threads/signals,
+The native fixtures exercise Debian bookworm/trixie glibc and Alpine 3.23 musl, shell/exec, threads/signals,
 namespace hard links and package transactions, process-tree cancellation and
 software Wayland/GTK rendering with input. The installed runtime also runs
 unchanged Debian Mousepad and Galculator on a private virtual display without
@@ -154,15 +176,35 @@ fails: Qt can omit text-input-v3's final commit after deletion. A separate run
 explicitly omits that stage; it is not counted as a correction pass. The same
 client behavior and protocol boundary are documented in [Wayland IME coverage](wayland.md).
 
-This is not certification of a full
-Debian base, arbitrary package maintainer scripts, APT, a Linux desktop or GPU
-clients. Arbitrary pathname socket creation, guest file sharing
-and live appearance helpers are not integrated for this launch method.
-Static/non-PIE executables and non-glibc interpreters are rejected. Unsupported
-syscalls and kernel permission denials remain explicit.
+Alpine's stock Mousepad passes the same X11 and Wayland window, pixel, keyboard,
+save/readback and zero-exit checks. Both libc fixtures cover tiny thread stacks,
+nested signal file calls, failed exec, vfork, spawn file actions/masks and 64 execs
+without accumulating seccomp filters. Independent launchers share pathname IPC,
+POSIX SHM, file-data notifications and open-unlinked lifetimes; another store
+does not resolve their names.
 
-Namespace inotify remains unsupported; D-Bus reports that its session-config
-directory cannot be watched. Wayland publishes a logical monitor before client
+The prepared Debian Xfce session runs in one retained X11 viewer without
+MagicDesk Desktop: xfwm4, panel, desktop, terminal and Mousepad. Tests check
+editing, saving, WM resize, viewer detachment/reopening and zero-status logout.
+Readiness awaits both shell surfaces and Xfce's D-Bus Idle state, not a delay.
+This fixture selects software rendering and lacks optional system-bus services;
+it is not a complete booted Linux system or a GNOME certification.
+
+A separate Linux Mesa 26.2.3 Turnip/KGSL fixture runs `vkcube` on Adreno 840
+under UID 2000 through both Wayland and X11. It checks changing Android pixels, 600 submitted
+frames and zero process exit. The driver is built from unmodified Mesa sources
+and installed only in the test store, not Android or the APK. Device enumeration
+alone is not this check. Other GPUs, drivers, zero-copy presentation and performance
+comparisons remain unverified.
+
+This is not certification of arbitrary package maintainer scripts, APT or all
+Linux desktops. Guest file sharing and live appearance helpers are not integrated
+for this launch method. Static/non-PIE executables, application-owned alternate
+signal stacks, openat2, descriptor exec and Unix sendmmsg remain unsupported.
+Shared-VM non-thread clone requires vfork ownership; other such clones fail
+explicitly. Kernel permission denials remain failures.
+
+D-Bus reports that its session-config directory cannot be watched. Wayland publishes a logical monitor before client
 startup and replaces it when an Android host attaches; GTK's initial
 monitor-scale warnings are absent in these checks. The kernel process name identifies the guest executable after
 each exec, but `/proc/self/cmdline` and `/proc/self/auxv` still describe the

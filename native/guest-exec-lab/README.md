@@ -102,3 +102,78 @@ Capability fault injection checks that missing kernel calls reject only guest
 execution. Process fixtures cover concurrent distinct stores, cancellation and
 orphan ownership. These checks do not emulate an old kernel or prove compatibility
 with every distribution. See the native component's coverage and limits.
+
+## Libc, IPC And Desktop Checks
+
+`build-libc-fixtures.sh glibc|musl SYSROOT OUTPUT` builds the same execution,
+thread/signal and IPC tests against the selected libc, without libc-specific
+runtime branches. The musl fixture uses the official Alpine 3.23 ARM64 minirootfs
+and its matching `musl-dev` headers/CRT. Prepare the distribution's ordinary
+dependencies and toolkit caches before importing the tree; the ELF loader does
+not install packages or create accounts. `fixtures/md-prepare-alpine` configures
+only disposable GUI-test data for the real shell identity. The socket-aware
+store requires schema 4; incompatible stores are rejected without modification.
+
+`test_ipc.c local NEW_DIRECTORY` checks namespace socket names, permissions,
+SCM_RIGHTS, unlink/rebind, rename and stale listeners. `paths` checks `/dev/shm`
+through absolute paths, dirfd and a host-directory cwd. The separate static
+Bionic `md-ipc-launch RUNNER STORE [OTHER_STORE]` starts independent supervisors
+and filesystem services, checks shared memory, file-data inotify and unlinked
+lifetimes, and optionally verifies name isolation from another store.
+These are not directory-inotify or abstract-socket isolation tests.
+
+For a prepared GUI store:
+
+```sh
+python native/guest-exec-lab/test_userspace.py BUILD \
+  --store HOST_STORE --runtime STAGED_HELPERS --recipes BUILD/recipe-classes \
+  --keyboard-directory HOST_XKB --protocol wayland --installed
+```
+
+Run again with `--protocol x11`. `--installed` selects the APK's lazy
+`magicdesk-guest` command; omitting it selects immutable staged test binaries.
+`STAGED_HELPERS` also supplies the exact-process exit watcher. Checks require
+real pixels, keyboard editing, saved-file readback and process exit, not only a
+mapped native window. Host/user HOME and Desktop ownership must remain unchanged.
+
+The whole-desktop fixture uses the same connection and execution contracts:
+
+```sh
+node native/guest-exec-lab/prepare.mjs build/guest-desktop --desktop --suite trixie
+sh native/guest-exec-lab/build.sh build/guest-desktop
+python native/guest-exec-lab/test_desktop.py BUILD \
+  --store HOST_STORE --runtime STAGED_HELPERS --keyboard-directory HOST_XKB --installed
+```
+
+Import and prepare the generated rootfs explicitly before running. Xfce readiness
+has separate X11 WM/panel/desktop and D-Bus Idle acknowledgements.
+`test_x11_desktop.c` checks WM activation/resize; `test_xfce_session.c` subscribes
+before querying state. No sleep substitutes for readiness. Xfce uses an isolated
+configuration, software GL and a retained root viewer; logout must return zero.
+The fixture does not boot systemd, logind or a complete GNOME session.
+
+## Linux GPU Fixture
+
+`build-mesa.py SOURCE SYSROOT OUTPUT` builds an unmodified Linux Mesa Turnip ICD
+with KGSL and DRM WSI, not an Android driver. The sysroot needs matching C/C++,
+libdrm, Vulkan, Wayland, X11/XCB, xshmfence, expat, zstd, zlib and libelf development
+packages. Supply them with repeated `prepare.mjs --package NAME`; signatures and
+hashes are checked as for the base profile. Host Meson, Ninja, Python generators
+and a `wayland-scanner` matching the target libwayland are build tools only.
+Use a fresh output directory when changing Mesa/configuration.
+
+Install `libvulkan_freedreno.so` at `/opt/md-gpu/lib/` and
+`fixtures/turnip.json` at `/opt/md-gpu/turnip.json` in the owned test store;
+its distribution supplies `vulkan-tools`. Do not replace Android libraries.
+`test_gpu.py BUILD --store HOST_STORE --runtime STAGED_HELPERS
+--keyboard-directory HOST_XKB --protocol wayland --installed` checks the hardware
+ICD, changing Android pixels, 600 frames and zero exit. X11 is a separate
+`--protocol x11` run with Xfce's window manager: the unmodified XCB cube does not
+publish an ICCCM name/class, and the manager supplies its `WM_STATE`.
+A software compositor or successful `vulkaninfo` alone
+does not establish guest GPU rendering. `--trace` accepts the optional static
+`md-trace-fault` observer; normal execution does not use ptrace.
+
+Exact successful device coverage and unsupported ABI surfaces belong in
+[Guest runtime](../../docs/guest-runtime.md#coverage-and-limits), not a general
+claim of distribution or driver compatibility.

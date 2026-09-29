@@ -84,6 +84,8 @@ cp "$work/native-runtime"/libmagicdesk_guest_*.so "$work/bundle/"
 sh "$src/build-libc-fixtures.sh" glibc "$sysroot" "$work"
 "$cc" --target=aarch64-linux-android34 -fno-termux-rpath -static \
     -std=c17 -O2 -Wall -Wextra -Werror -UNDEBUG "$src/test_ipc_launch.c" -o "$work/bundle/md-ipc-launch"
+"$cc" --target=aarch64-linux-android34 -fno-termux-rpath -static \
+    -std=c17 -O2 -Wall -Wextra -Werror "$src/trace_fault.c" -o "$work/bundle/md-trace-fault"
 guest_cc -pie "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" \
     "$src/test_sockets.c" "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" \
     -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 -o "$work/md-socket-fixture"
@@ -151,6 +153,22 @@ cp "$work/md-import-fixture" "$work/bundle/rootfs/usr/bin/"
 cp "$work/md-namespace-fixture" "$work/bundle/rootfs/usr/bin/"
 cp "$work/md-rpc-fixture" "$work/bundle/rootfs/usr/bin/"
 cp "$work/md-fixture.so" "$work/bundle/rootfs/usr/lib/"
+if [ -f "$sysroot/usr/include/X11/Xlib.h" ]; then
+    guest_cc -pie "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" \
+        "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" "$src/test_x11_desktop.c" \
+        "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 \
+        -L"$sysroot/usr/lib/aarch64-linux-gnu" -l:libX11.so.6 \
+        -o "$work/bundle/rootfs/usr/bin/md-x11-desktop"
+fi
+if [ -f "$sysroot/usr/include/dbus-1.0/dbus/dbus.h" ]; then
+    guest_cc -pie -I"$sysroot/usr/include/dbus-1.0" \
+        -I"$sysroot/usr/lib/aarch64-linux-gnu/dbus-1.0/include" \
+        "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" \
+        "$src/test_xfce_session.c" "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" \
+        -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 \
+        -L"$sysroot/usr/lib/aarch64-linux-gnu" -l:libdbus-1.so.3 \
+        -o "$work/bundle/rootfs/usr/bin/md-xfce-session"
+fi
 if [ -f "$sysroot/usr/include/wayland-client.h" ]; then
     protocol="$sysroot/usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml"
     wayland-scanner client-header "$protocol" "$work/xdg-shell-client-protocol.h"

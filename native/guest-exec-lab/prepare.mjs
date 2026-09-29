@@ -12,14 +12,16 @@ const {values, positionals} = parseArgs({allowPositionals: true, options: {
   graphics: {type: 'boolean', default: false}, gtk: {type: 'boolean', default: false},
   applications: {type: 'boolean', default: false}, cache: {type: 'string'},
   qt: {type: 'boolean', default: false}, suite: {type: 'string', default: 'bookworm'},
+  desktop: {type: 'boolean', default: false},
+  package: {type: 'string', multiple: true, default: []},
 }});
 const [output] = positionals;
 if (!output || positionals.length !== 1)
-  throw new Error('Usage: node prepare.mjs OUTPUT_DIRECTORY [--graphics|--gtk|--applications|--qt] [--suite bookworm|trixie] [--cache PREPARED_DIRECTORY]');
+  throw new Error('Usage: node prepare.mjs OUTPUT_DIRECTORY [--graphics|--gtk|--applications|--qt|--desktop] [--suite bookworm|trixie] [--package NAME ...] [--cache PREPARED_DIRECTORY]');
 const suite = values.suite;
 const signingKey = archiveSuites[suite];
 if (!signingKey) throw new Error('Expected bookworm or trixie');
-if (values.qt) values.applications = true;
+if (values.qt || values.desktop) values.applications = true;
 if (values.applications) values.gtk = true;
 if (fs.existsSync(path.join(output, 'sysroot')))
   throw new Error('Use a fresh output directory; do not mix sysroot package versions');
@@ -43,7 +45,15 @@ async function download(relative) {
   const cached = values.cache && path.join(values.cache, path.basename(relative));
   // Cached bytes pass exactly the same signature/hash checks as downloaded bytes.
   if (cached && fs.existsSync(cached)) return fs.readFileSync(cached);
-  const response = await fetch(new URL(relative, base), {signal: AbortSignal.timeout(120000)});
+  let response;
+  for (let attempt = 0; attempt < 3; ++attempt) {
+    try {
+      response = await fetch(new URL(relative, base), {signal: AbortSignal.timeout(120000)});
+      break;
+    } catch (error) {
+      if (attempt === 2) throw error;
+    }
+  }
   if (!response.ok) throw new Error(`${relative}: HTTP ${response.status}`);
   return Buffer.from(await response.arrayBuffer());
 }
@@ -87,18 +97,21 @@ const records = indexText.toString().split('\n\n').map(record => {
   }
   return fields;
 });
-if (values.gtk) {
+if (values.gtk || values.package.length) {
   const selected = packagePlan(output, indexText, records,
-    ['gtk-3-examples', 'fontconfig', 'fonts-dejavu-core', 'libglib2.0-bin', 'dbus-x11',
+    [...(values.gtk ? ['gtk-3-examples', 'fontconfig', 'fonts-dejavu-core', 'libglib2.0-bin', 'dbus-x11'] : []),
       ...(values.applications ? ['mousepad', 'galculator', 'curl', 'ca-certificates'] : []),
+      ...(values.desktop ? ['xfwm4', 'xfce4-panel', 'xfdesktop4', 'xfce4-session',
+        'xfce4-settings', 'xfce4-terminal', 'thunar', 'libx11-dev', 'libdbus-1-dev'] : []),
       ...(values.qt ? ['qml-qt6', 'qt6-wayland', 'qml6-module-qtquick-controls',
         'qml6-module-qtquick-layouts', 'qml6-module-qtquick-window',
-        'qml6-module-qtqml-workerscript', 'qml6-module-qtquick-templates'] : [])], suite);
+        'qml6-module-qtqml-workerscript', 'qml6-module-qtquick-templates'] : []), ...values.package], suite);
   for (const name of selected) if (!packages.includes(name)) packages.push(name);
 }
 const root = path.join(output, 'sysroot');
 fs.mkdirSync(root, {recursive: true});
-const manifest = {suite, architecture: 'arm64', profile: values.applications ? 'applications' : values.gtk ? 'gtk' : values.graphics ? 'graphics' : 'base', base,
+const manifest = {suite, architecture: 'arm64', profile: values.desktop ? 'desktop' : values.applications ? 'applications' : values.gtk ? 'gtk' : values.graphics ? 'graphics' : 'base', base,
+  additionalPackages: values.package,
   trust: 'Pinned Debian archive OpenPGP signature and Release -> Packages -> deb SHA256 chain',
   signingKeyFingerprint: signingKey.fingerprint,
   releaseSha256: hash(release), indexSha256: hash(index), packages: []};

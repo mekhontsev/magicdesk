@@ -14,11 +14,15 @@ custom glibc linker, root transition or SELinux change is used.
   or glibc dependencies. It accepts the already-selected UID 2000 or UID 0, enables
   no-new-privileges and retains one syscall gate at a stable virtual address.
   It does not acquire Desktop, input or HOME.
-- `elf.c` maps only the rootfs's stock `ld-linux` PT_LOAD segments and supplies
-  its initial stack and auxiliary vector. It reserves its own mapping before
+- `elf.c` maps the main ARM64 PIE executable and its absolute `PT_INTERP`, and supplies
+  a kernel-style initial stack and auxiliary vector. It reserves its own mapping before
   applying MAP_FIXED, validates bounds and rejects writable executable segments.
-  The Debian loader owns dependencies, relocations, TLS and dlopen. This code
-  does not implement a glibc dynamic linker or patch executable instructions.
+  The selected stock glibc or musl loader owns dependencies, relocations, TLS and
+  dlopen. This code does not implement a libc dynamic linker or patch instructions.
+- `thread_context.c` owns guarded per-thread syscall stacks and AArch64 signal-frame
+  return for clone. It preserves extension records, including SVE/SME extra contexts.
+  Allocation is per thread, not per syscall. Kernel thread/vfork lifetimes govern
+  reclamation; application-owned alternate stacks remain explicitly unsupported.
 - `trap.c` installs one seccomp filter, forwards selected file and socket syscalls
   through SIGSYS, and admits the bootstrap's raw syscall gate to avoid recursion.
   It covers raw SVC and libc-internal calls equally. `raw.c` / `raw.S` provide
@@ -26,10 +30,12 @@ custom glibc linker, root transition or SELinux change is used.
 - `file_calls.c` owns file syscall argument translation, separately from signal
   delivery. Its single catalog in `file_calls.h` drives dispatch and filtering,
   so a supported file operation cannot accidentally bypass the adapter.
-- `socket_calls.c` owns client-side Unix address translation. Its syscall catalog
+- `socket_calls.c` owns Unix address translation. Its syscall catalog
   likewise feeds dispatch and filtering. Path destinations reuse the file adapter
-  and retain an O_PATH FD throughout connect/send; no second path resolver,
-  payload proxy, heap allocation or socket registry is introduced.
+  and retain an O_PATH FD throughout direct-backend connect/send.
+  `socket_namespace.c` translates namespace socket inodes and returned names;
+  `inode_socket.c` owns bind/publication transactions. No payload proxy or
+  per-process socket registry is introduced.
 - `fs.c` owns direct-backend path resolution: rootfs, cwd/dirfd, symlinks,
   intermediate components and explicit host `/proc` and `/dev` mappings. It
   does not use libc, heap allocation, locks, a mutable cache or thread-local
@@ -67,20 +73,22 @@ custom glibc linker, root transition or SELinux change is used.
   inode under the caller's real identity. Attribute values do not enter SQLite
   or the RPC protocol; ordinary data and FD operations remain kernel-owned.
 
-The stock loader receives `--inhibit-cache --library-path ... --argv0 ...`;
-there is no preload library. Rootfs/bootstrap configuration is carried in exec
+The stock loader receives the program's ordinary initial ELF state;
+there is no preload library or private loader command-line convention. Rootfs/bootstrap configuration is carried in exec
 arguments, not dependent on the guest preserving environment variables. Guest
 argv0, supplied environment, PATH lookup and shebangs are covered by fixtures.
-Only dynamic AArch64 PIE executables using `/lib/ld-linux-aarch64.so.1` are
-accepted. Static, non-PIE, non-glibc-interpreter and setid targets are rejected.
+Dynamic AArch64 PIE executables with an absolute `PT_INTERP` are accepted.
+Static, non-PIE and setid targets are rejected; malformed ELF layouts fail before
+destructive exec. Libc and distribution names are not part of admission policy.
 
 SIGSYS is reserved by the adapter: replacing its disposition returns ENOTSUP,
 and it is excluded from guest signal masks. The handler permits nested SIGSYS
 when a guest signal handler interrupts translation and accesses a file. All
-translation scratch is invocation-local. Exec alone allocates a guarded 256 KiB
-temporary stack because libc's posix_spawn child has a small stack. Kernel exec
-discards it on success; an error unmaps it. Normal file calls allocate no heap
-or scratch mappings. clone/vfork remain kernel operations, not C-handler emulation.
+translation scratch is invocation-local on a guarded 512 KiB runtime signal stack
+per thread. Clone returns through a copied kernel signal frame onto the requested
+guest stack. Thread exit releases its mapping; the parent owns a vfork child's
+mapping until the kernel reports exec/exit. File calls and exec preparation do
+not allocate scratch mappings. Shared-VM non-thread clone without vfork is rejected.
 
 The bootstrap's fixed-address mapping and exact binary remain unchanged
 for a running process tree. The app stages immutable content-addressed bundles;
@@ -112,7 +120,8 @@ loader does not establish compatibility with future loaders or Android kernels.
 
 Verified on Nubia NX809J, Android 16 / API 36, Linux 6.12.23 with 4 KiB pages,
 through MagicDesk's Shevery-backed shell service, UID 2000 in `u:r:shell:s0`.
-Fixtures cover Debian bookworm glibc 2.36 and trixie glibc 2.41, dash and coreutils.
+Fixtures cover Debian bookworm glibc 2.36, trixie glibc 2.41 and Alpine 3.23 musl,
+including dash/coreutils and BusyBox respectively.
 
 The following checks cover the direct backend. The namespace backend's supported
 operations and tests are listed in [its contract](namespace-execution.md).
@@ -154,7 +163,7 @@ operations and tests are listed in [its contract](namespace-execution.md).
 Negative controls are required, not hidden or counted as compatibility passes:
 
 - execveat/fexecve and openat2 return ENOTSUP. The selected filesystem calls are
-  not the complete Linux syscall surface: guest ownership emulation, socket creation/returned addresses,
+  not the complete Linux syscall surface: guest ownership emulation,
   arbitrary proc aliases, io_uring and other entry points are not comprehensively
   virtualized. Unselected syscalls retain host semantics. Run trusted fixtures
   only; arbitrary programs can access host resources with the selected executor's authority.
@@ -164,10 +173,11 @@ Negative controls are required, not hidden or counted as compatibility passes:
   shared-inode links. No package maintainer scripts are run by preparation.
 - `/proc/self/cmdline` and `/proc/self/auxv` retain the kernel's bootstrap view;
   they are not a complete guest procfs. Locales, metadata/ownership
-  emulation and client GPU buffers are not validated. NSS/DNS and toolkit coverage is bounded
+  emulation are not complete. NSS/DNS, toolkit and GPU coverage is bounded
   by the software GUI checks below.
-- Guest-installed seccomp filters, application-owned SIGSYS handlers, alternate
-  signal stacks with nested file calls and arbitrary tiny stacks are not covered.
+- Guest-installed seccomp filters and application-owned SIGSYS handlers are unsupported.
+  Guest alternate signal stacks return ENOTSUP. Tested libc minimum thread stacks
+  include musl's 2 KiB and glibc's 128 KiB; arbitrary clone/stack semantics are not implied.
 - API 34, ordinary app UID at MagicDesk's targetSdk, other firmware and 16 KiB
   pages need actual coverage; a successful build is not that coverage.
 
@@ -197,12 +207,16 @@ Connected data IO, ancillary messages, SO_PEERCRED, descriptor flags, shared
 offsets and mmap stay kernel-owned. Addressed sendmsg copies only its header and
 address; payload, iovecs and control data are passed to the kernel unchanged.
 
-Pathname bind returns ENOTSUP until socket-object creation can be committed by
-the namespace owner. Unix sendmmsg is also explicitly unsupported, including
-connected batches, rather than accidentally sending unconverted paths. Returned
-addresses from getpeername/recvmsg/etc. retain host spelling; reverse namespace
-mapping is not implemented. These are client-transport checks, not a complete
-Unix socket namespace or permission to create listeners in the guest filesystem.
+Namespace pathname bind transfers the original socket FD to the filesystem
+service and commits a socket inode with a unique abstract kernel address.
+The original descriptor/open-file description is retained. Names and permissions
+use the common namespace; data and credentials stay kernel-native.
+getpeername/getsockname/accept/recvfrom/recvmsg restore the original bound address,
+including relative and full-length names. Unlink/rebind, rename, stale listeners,
+SCM_RIGHTS and independent launchers are covered by `test_ipc.c`.
+Bind and commit cannot be atomically undone after an uncertain reply; never retry
+that bind on the same socket. Unix sendmmsg and direct-backend pathname bind remain
+unsupported. Abstract sockets are shared host resources, not isolated guest names.
 
 `test_sockets.c` has separate native-reference, explicit-adapter and intercepted
 guest modes. The Termux host tests successful pathname connections, including a
@@ -290,9 +304,10 @@ unchanged application with keyboard input, pixels and graceful process exit.
 The host-side receipt watcher uses inotify and an event deadline: window removal
 alone cannot pass the exit assertion. Complete logs are downloaded with SHA-256
 verification, separately from bounded console output. Graphical checks use
-the distribution's standard D-Bus configuration with a unique abstract address,
-not the demonstration's keyfile-only settings backend. Namespace inotify is
-still unsupported, including D-Bus's session-config directory watch.
+the distribution's standard D-Bus session configuration and pathname transport,
+not the demonstration's keyfile-only settings backend. Namespace file-data
+inotify uses the native backing inode; directory watches remain unsupported,
+including D-Bus's session-config directory watch.
 
 The compositor publishes an initial logical monitor before accepting clients,
 then replaces it with application-host output geometry. Initial GTK
@@ -303,6 +318,14 @@ log suppression or application-specific environment overrides. GUI success does
 not establish complete procfs or GPU compatibility. Installed GTK file-dialog
 and Qt/IME/clipboard coverage, including the strict Qt correction failure, is
 listed in the [application contract](../../docs/guest-runtime.md#coverage-and-limits).
+
+`test_userspace.py` applies one X11/Wayland editor workflow to prepared glibc and
+musl stores. `test_desktop.py` exercises a complete Xfce shell in a retained X11
+viewer, including manager readiness, WM resize, editing and logout.
+`test_gpu.py` separately checks real Linux Vulkan WSI and changing Android pixels
+with a guest-owned Turnip driver. These are separate from compositor acceleration;
+their exact device coverage and remaining limits are recorded in the application
+contract. No driver or desktop package is embedded in the APK.
 
 ## Package Transactions
 
