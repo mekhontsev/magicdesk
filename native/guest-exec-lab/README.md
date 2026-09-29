@@ -49,13 +49,16 @@ keyfile backend. Application logs and hashed screenshots accompany the JSON repo
 `test_shortcuts.py` encodes the shortcut editor's real `LinuxLaunchRecipe` through
 a debug-only Java fixture and launches the resulting `.desktop` files through
 the ordinary launch service. It checks bidirectional Unicode clipboard exchange,
-guest file saving, Wayland file-dialog mapping and dismissal, concurrent applications in
+guest file saving, Wayland file-dialog cancellation and opening another file, concurrent applications in
 one store, recipe reuse and actual process exit after protocol close. Catalog
 events identify Wayland dependent windows without guessed IDs. X11 transient
 dialogs require native-family observation and are not covered by this fixture;
 they are not entries in the observed toplevel catalog. Inotify receipts identify
 the exact command's start and exit. Screenshots are point-in-time observations,
-not synchronization barriers. The test restores an existing plain-text clipboard
+not synchronization barriers. Input requires the selected native window's
+Android host and focus acknowledgement. Opening a file awaits the exact client
+title and verifies the document contents independently through the clipboard.
+The test restores an existing plain-text clipboard
 and refuses to replace non-text contents. Launchers and their receipts remain in
 the prepared test directory for inspection; their launches participate in Recent.
 
@@ -63,8 +66,14 @@ The default calculator workflow checks `7+8=15`. An additional
 `--repeat-digit` check sends `2+2` without a pacing delay and requires `4`.
 It currently reads `2` on the tested Wayland stack and retains a separate failing
 `*-shortcuts-repeat-digit-results.json`; it must not be treated as passing
-input coverage or hidden by a sleep. Whether GTK activation, application handling
-or input delivery owns this failure is not yet established.
+input coverage or hidden by a sleep. `--trace-wayland` retains the calculator's
+client-side protocol log. Both key press/release pairs arrive before Galculator's
+[100 ms toggle reset](https://github.com/galculator/galculator/blob/v2.1.4/src/ui.c#L748-L760):
+the second click deactivates the button and its
+[digit handler](https://github.com/galculator/galculator/blob/v2.1.4/src/callbacks.c#L95-L107)
+ignores it. The Debian binary has the same logic. Mousepad's repeated-digit
+control passes; production input is unchanged. Calculator configurations are
+unique to each run, so another run's saved notation cannot affect the result.
 
 Device checks use the configured MagicDesk MCP connection and require selected
 shell UID 2000. They do not change identity, install an APK or start Desktop.

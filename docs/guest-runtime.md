@@ -134,12 +134,18 @@ Both protocols pass bidirectional Unicode clipboard exchange, Mousepad saving
 with fresh-process readback, simultaneous Mousepad/Galculator launches sharing
 one store, recipe reuse, and protocol close followed by actual zero-status
 process exit. Window destruction alone does not end a still-running launch
-command. The Wayland workflow also observes a child file dialog's map and
-dismissal; this is not full file-picker interaction or visual coverage. X11
-transient dialogs need native-family observation beyond the toplevel catalog.
-The separate rapid repeated-digit Galculator input check remains failing;
-its cause is not established. These checks do not establish Qt, IME or GPU
-compatibility.
+command. The Wayland workflow checks child file-dialog cancellation and keyboard
+selection of another guest file, then verifies the new document's title and
+actual text through clipboard readback. It waits for the dialog's Android host
+and input focus, not merely its native map. Captures verify the dialog and
+opened document on the tested device. X11 transient dialogs still need
+native-family observation beyond the toplevel catalog.
+The separate rapid repeated-digit Galculator check exposes the application's
+100 ms toggle-button reset: a second accelerator can toggle the digit off and
+be ignored by its handler. Client-side Wayland tracing confirms both key
+press/release pairs; repeated digits work in Mousepad. No input pacing or
+application-specific runtime workaround is applied. These checks do not
+establish Qt, IME or GPU compatibility.
 
 This is not certification of a full
 Debian base, arbitrary package maintainer scripts, APT, a Linux desktop or GPU

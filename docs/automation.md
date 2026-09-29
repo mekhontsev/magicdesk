@@ -522,6 +522,10 @@ published parent relationship, not toolkit widgets or recursive descendants;
 an optional `windowId` further restricts the match. It observes only the shared
 toplevel catalog: X11 transients exposed solely by `graphics.inspect_window`
 family inspection are outside this wait's coverage.
+An optional `windowTitle` filters mapped catalog entries by their exact client
+title (at most 4096 characters), together with the other selectors. Title changes
+use existing catalog events; they do not certify document contents or rendered
+pixels. These require their own observations.
 For host/state conditions, zero
 selects a whole-desktop viewer. Shell-surface conditions require a live workspace and match mapped
 surfaces. State predicates require `state` and `enabled`; unknown state never

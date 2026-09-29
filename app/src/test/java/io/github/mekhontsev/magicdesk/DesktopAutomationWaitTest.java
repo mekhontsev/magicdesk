@@ -96,6 +96,7 @@ public final class DesktopAutomationWaitTest {
                 static class JSONException extends Exception {}
                 static class JSONObject {
                     Map<String, Object> values = new HashMap<>();
+                    boolean has(String key) { return values.containsKey(key); }
                     JSONObject put(String key, Object value) throws JSONException {
                         values.put(key, value); return this;
                     }
@@ -110,6 +111,14 @@ public final class DesktopAutomationWaitTest {
                     return (String) args.values.get(key);
                 }
                 static class SystemClock { static long uptimeMillis() { return now; } }
+                static class AutomationGraphicsObservation {
+                    static int validations;
+                    static IllegalArgumentException failure;
+                    static void validate(String condition, JSONObject args) {
+                        validations++;
+                        if (failure != null) throw failure;
+                    }
+                }
                 static class DesktopAutomationEventJournal {
                     static long latestId() { return 0; }
                     static long awaitChange(long cursor, long timeout) throws InterruptedException {
@@ -172,6 +181,23 @@ public final class DesktopAutomationWaitTest {
                     check(finished.data.optBoolean("matched", false), "later completion lost");
                     check(!finished.data.optBoolean("waitExpired", true), "matched wait expired");
                     check(now == 400L, "expiration changed the observed operation");
+                    check(AutomationGraphicsObservation.validations == 0, "ordinary waits acquired graphics prerequisites");
+                    int before = observations;
+                    var rejected = new IllegalArgumentException("invalid presence filter");
+                    AutomationGraphicsObservation.failure = rejected;
+                    for (String selector : List.of("windowTitle", "parentWindowId")) {
+                        try {
+                            fixture.waitFor(new JSONObject().put("condition", "display_present").put(selector, "value"));
+                            throw new AssertionError("inapplicable selector was ignored");
+                        } catch (IllegalArgumentException error) { check(error == rejected, "validation failure lost"); }
+                    }
+                    check(observations == before, "invalid selector reached an observation");
+                    now = 0; observations = 0; waits.clear();
+                    AutomationGraphicsObservation.failure = null;
+                    fixture.waitFor(new JSONObject().put("condition", "graphics_window_present")
+                            .put("sessionId", "fixture").put("windowTitle", "Document").put("timeoutMillis", 1000L));
+                    check(AutomationGraphicsObservation.validations == 3, "presence validation was repeated or omitted");
+                    check(waits.equals(List.of(1000L)) && observations == 2, "graphical title wait introduced polling");
                 }
                 """ + RuntimeSourceFixture.methods("DesktopAutomationController",
                 "waitFor", "waitInterval"));

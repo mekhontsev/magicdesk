@@ -16,8 +16,11 @@ def main():
     parser.add_argument("build", type=Path)
     parser.add_argument("--protocol", choices=["x11", "wayland"], required=True)
     parser.add_argument("--repeat-digit", action="store_true", help="Investigate rapid repeated GTK accelerator input with 2+2")
+    parser.add_argument("--trace-wayland", action="store_true", help="Retain client-side Wayland protocol events for the calculator")
     parser.add_argument("--config", type=Path, default=Path.home() / ".codex/config.toml")
     args = parser.parse_args()
+    if args.trace_wayland and args.protocol != "wayland":
+        parser.error("--trace-wayland requires --protocol wayland")
     prepared = json.loads((args.build / "device-results.json").read_text())
     manifest = json.loads((args.build / "manifest.json").read_text())
     assert manifest == prepared["manifest"] and manifest["profile"] == "applications"
@@ -34,7 +37,8 @@ def main():
     assert not state["readiness"]["deviceLocked"] and not state["readiness"]["keyguardLocked"]
     console = client.call("console.open", {"directory": root})["sessionId"]
     tag = uuid.uuid4().hex
-    report = {"runId": tag, "protocol": args.protocol, "app": state["app"], "cases": []}
+    report = {"runId": tag, "protocol": args.protocol, "app": state["app"], "cases": [],
+              "waylandTrace": args.trace_wayland}
     display = None
     sessions = []
     recipes = []
@@ -56,6 +60,11 @@ def main():
     def keys(*values):
         return client.call("input.key_chord", {"displayId": display["id"], "keys": list(values)})
 
+    def type_path(value):
+        assert re.fullmatch(r"[a-z0-9/.-]+", value), value
+        for character in value:
+            keys({"/": "SLASH", ".": "PERIOD", "-": "MINUS"}.get(character, character.upper()))
+
     def clipboard_text(expected):
         # EVENT_WAIT: asynchronous native selection transfer publishes Android's primary clip.
         result = client.call("clipboard.read_text", {"expectedText": expected, "timeoutMillis": 10000})
@@ -70,6 +79,16 @@ def main():
         return path.name
 
     try:
+        report["rejectedFilters"] = []
+        for name, value in [("windowTitle", "Document"), ("parentWindowId", 1)]:
+            try:
+                client.call("wait_for_state", {"condition": "display_present", "displayId": 0,
+                    "sessionId": "fixture", name: value, "timeoutMillis": 1})
+                raise AssertionError("Inapplicable presence filter was ignored: " + name)
+            except transport.ToolError as error:
+                rejected = json.loads(str(error))
+                assert rejected["error"]["code"] == "INVALID_ARGUMENT", rejected
+                report["rejectedFilters"].append(name)
         cli = command("command -v magicdesk-guest").strip()
         assert cli.startswith("/") and "\n" not in cli
         installed = shlex.join([cli, "--store", root + "/rootfs/tmp/imported-rootfs", "--", "/bin/sh", "-c"])
@@ -80,12 +99,23 @@ def main():
         guest("set -eu; if test ! -e /etc/passwd; then /bin/sh /usr/bin/md-prepare-applications; fi")
         document = "/tmp/md-shortcut-" + tag + ".txt"
         guest("printf 'seed\\n' > " + shlex.quote(document))
+        opened_document = "/tmp/md-open-" + tag + ".txt"
+        opened_text = "File picker content: " + tag
+        guest("printf %s " + shlex.quote(opened_text) + " > " + shlex.quote(opened_document))
         apk = command("pm path io.github.mekhontsev.magicdesk").strip().removeprefix("package:")
         assert apk.startswith("/") and "\n" not in apk
         awaiter = root + "/md-shortcut-await-" + tag
         transport.upload(client, args.build / "bundle/md-await-exit", awaiter)
         command("chmod 700 " + shlex.quote(awaiter))
         display = client.call("create_display", {"type": "virtual", "width": 1000, "height": 700, "densityDpi": 160})
+
+        def focused_host(session, window):
+            host = wait("graphics_host_attached", sessionId=session, windowId=window)["matchingHosts"]
+            assert len(host) == 1 and host[0]["displayId"] == display["id"] and not host[0]["managed"], host
+            task = host[0]["taskId"]
+            wait("task_focused", taskId=task, displayId=display["id"])
+            wait("app_ready", taskId=task, displayId=display["id"])
+            return task
 
         def launch(application, command_line):
             name = "Guest recipe " + tag + " " + application
@@ -110,13 +140,9 @@ def main():
             windows = [w for w in ready["windows"] if w["mapped"] and not w["parentWindowId"]]
             assert len(windows) == 1, windows
             window = windows[0]["windowId"]
-            host = wait("graphics_host_attached", sessionId=session, windowId=window)["matchingHosts"]
-            assert len(host) == 1 and host[0]["displayId"] == display["id"] and not host[0]["managed"], host
-            task = host[0]["taskId"]
-            wait("task_focused", taskId=task, displayId=display["id"])
-            wait("app_ready", taskId=task, displayId=display["id"])
+            task = focused_host(session, window)
             case = {"application": application, "path": path, "sessionId": session,
-                    "taskId": task, "windowId": window, "serverUid": ready["serverUid"]}
+                    "taskId": task, "windowId": window, "serverUid": ready["serverUid"], "title": windows[0]["title"]}
             report["cases"].append(case)
             print("PASS recipe launch " + application, flush=True)
             return case
@@ -137,13 +163,15 @@ def main():
         # Change text in the guest, so a stale Android clipboard cannot satisfy the assertion.
         keys("CTRL_LEFT", "MOVE_HOME")
         keys("G")
+        keys("2")
+        keys("2")
         keys("CTRL_LEFT", "A")
         keys("CTRL_LEFT", "C")
         keys("CTRL_LEFT", "S")
         editor["savedText"] = guest("cat " + shlex.quote(document))
-        assert editor["savedText"] == "g" + text, editor["savedText"]
-        clipboard_text("g" + text)
-        print("PASS bidirectional Unicode clipboard and guest file save", flush=True)
+        assert editor["savedText"] == "g22" + text, editor["savedText"]
+        clipboard_text("g22" + text)
+        print("PASS bidirectional Unicode clipboard, repeated keys and guest file save", flush=True)
 
         if args.protocol == "wayland":
             keys("CTRL_LEFT", "O")
@@ -152,15 +180,41 @@ def main():
             dialogs = [w for w in family["catalog"] if w["parentWindowId"] == editor["windowId"] and w["mapped"]]
             assert len(dialogs) == 1, family
             editor["fileDialog"] = dialogs[0]
-            editor["dialogCapture"] = capture(None, "file-dialog")
+            dialog_task = focused_host(editor["sessionId"], dialogs[0]["windowId"])
+            editor["dialogCapture"] = capture(dialog_task, "file-dialog")
             keys("ESCAPE")
             wait("graphics_window_absent", sessionId=editor["sessionId"], windowId=dialogs[0]["windowId"])
+            focused_host(editor["sessionId"], editor["windowId"])
             print("PASS guest file dialog mapping and keyboard dismissal", flush=True)
+
+            keys("CTRL_LEFT", "O")
+            opened = wait("graphics_window_present", sessionId=editor["sessionId"], parentWindowId=editor["windowId"])
+            dialogs = [w for w in opened["session"]["windows"] if w["parentWindowId"] == editor["windowId"] and w["mapped"]]
+            assert len(dialogs) == 1, opened
+            dialog_task = focused_host(editor["sessionId"], dialogs[0]["windowId"])
+            keys("CTRL_LEFT", "L")
+            keys("CTRL_LEFT", "A")
+            type_path(opened_document)
+            editor["locationCapture"] = capture(dialog_task, "file-location")
+            keys("ENTER")
+            wait("graphics_window_absent", sessionId=editor["sessionId"], windowId=dialogs[0]["windowId"])
+            assert editor["title"].count(Path(document).name) == 1, editor["title"]
+            expected_title = editor["title"].replace(Path(document).name, Path(opened_document).name)
+            wait("graphics_window_present", sessionId=editor["sessionId"], windowId=editor["windowId"], windowTitle=expected_title)
+            focused_host(editor["sessionId"], editor["windowId"])
+            keys("CTRL_LEFT", "A")
+            keys("CTRL_LEFT", "C")
+            editor["openedText"] = clipboard_text(opened_text)
+            editor["openedCapture"] = capture(editor["taskId"], "opened-document")
+            print("PASS file picker open, document title publication and actual content", flush=True)
         else:
             # X11 transients belong to native inspection, not the observed toplevel catalog.
             editor["fileDialogCoverage"] = "not tested: native-family event observation required"
 
-        calculator = launch("galculator", "/usr/bin/galculator")
+        # A unique application config keeps another run's notation/preferences out of this case.
+        calculator_command = shlex.join(["env", "GALCULATOR_CONFIG=/tmp/md-galculator-" + tag,
+            *(["WAYLAND_DEBUG=client"] if args.trace_wayland else []), "/usr/bin/galculator"])
+        calculator = launch("galculator", calculator_command)
         first, second, expected = ("2", "2", "4") if args.repeat_digit else ("7", "8", "15")
         calculator["expression"] = first + "+" + second
         keys(first)
@@ -168,8 +222,10 @@ def main():
         keys(second)
         keys("NUMPAD_ENTER")
         keys("CTRL_LEFT", "C")
-        calculator["result"] = clipboard_text(expected)
+        calculator["clipboard"] = client.call("clipboard.read_text", {"expectedText": expected, "timeoutMillis": 10000})
         calculator["capture"] = capture(calculator["taskId"], "calculator")
+        assert calculator["clipboard"].get("matched") and calculator["clipboard"].get("text") == expected, calculator["clipboard"]
+        calculator["result"] = calculator["clipboard"]["text"]
         active = client.call("graphics.list")["sessions"]
         assert all(any(s["sessionId"] == case["sessionId"] and any(w["windowId"] == case["windowId"]
             for w in s["windows"]) for s in active) for case in [editor, calculator])
@@ -188,6 +244,9 @@ def main():
         final = client.call("get_state")
         assert not final["workspaces"] and final["homeLease"] is None
         completed = True
+    except Exception as error:
+        report["failure"] = str(error)
+        raise
     finally:
         errors = []
         report["logs"] = {}

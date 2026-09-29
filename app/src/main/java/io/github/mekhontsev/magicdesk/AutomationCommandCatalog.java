@@ -810,6 +810,7 @@ final class AutomationCommandCatalog {
                         .put("sessionId", stringProperty("Exact graphical session ID for graphics conditions or shell surface filter."))
                         .put("windowId", integerProperty("Native graphical window ID, not Android task id. Omit for graphics_window_present to await any mapped client; zero selects a whole-desktop viewer for host/state conditions."))
                         .put("parentWindowId", integerProperty("Optional positive native parent ID for graphics_window_present, scoped to sessionId. Matches direct dependent catalog windows, not toolkit widgets or all descendants."))
+                        .put("windowTitle", stringProperty("Optional exact client title for graphics_window_present, at most 4096 characters. Catalog observation, not proof of rendered pixels or document contents."))
                         .put("workspaceId", stringProperty("Workspace residency ID for shell-surface conditions or task_state."))
                         .put("surfaceId", stringProperty("Optional exact shell surface identity from inspect_workspace."))
                         .put("state", enumProperty("Confirmed state for task_state or graphics_window_state; enabled supplies the expected value.", "fullscreen", "maximized", "concealed"))

@@ -303,6 +303,8 @@ final class DesktopAutomationController {
         final JSONObject args = arguments == null
                 ? new JSONObject() : arguments;
         final String condition = requiredString(args, "condition");
+        if (args.has("windowTitle") || args.has("parentWindowId"))
+            AutomationGraphicsObservation.validate(condition, args);
         final long timeoutMillis = Math.max(
                 1L,
                 Math.min(

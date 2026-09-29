@@ -77,4 +77,33 @@ public final class AutomationGraphicalStateTest {
         args.put("parentWindowId", -1);
         assertThrows(IllegalArgumentException.class, () -> AutomationGraphicsObservation.validate("graphics_window_present", args));
     }
+    @Test public void titlePresenceIsExactMappedAndIdentityQualified() throws Exception {
+        var args = new JSONObject().put("condition", "graphics_window_present").put("sessionId", "session")
+                .put("windowTitle", "Document - Editor").put("windowId", 30).put("parentWindowId", 10);
+        AutomationCommandArguments.check("wait_for_state", args);
+        AutomationGraphicsObservation.validate("graphics_window_present", args);
+        var layout = new HostedWindowLayout(10, 100, 100,
+                io.github.mekhontsev.magicdesk.hosted.HostedWindowConstraints.NONE);
+        var window = new GraphicalSessions.Window(30, "Document - Editor", true, "editor", "dialog", layout, null);
+        assertTrue(AutomationGraphicsObservation.presentMatches(window, args));
+        assertFalse(AutomationGraphicsObservation.presentMatches(new GraphicalSessions.Window(
+                30, "Document - Editor", false, "editor", "dialog", layout, null), args));
+        args.put("windowTitle", "Document");
+        assertFalse(AutomationGraphicsObservation.presentMatches(window, args));
+        args.put("windowTitle", "Document - Editor").put("windowId", 31);
+        assertFalse(AutomationGraphicsObservation.presentMatches(window, args));
+        args.put("windowId", 30).put("parentWindowId", 11);
+        assertFalse(AutomationGraphicsObservation.presentMatches(window, args));
+    }
+    @Test public void titleFilterCannotBeSilentlyIgnoredOrCoerced() throws Exception {
+        var args = new JSONObject().put("sessionId", "session").put("windowTitle", "Document");
+        for (String condition : new String[]{"graphics_ready", "graphics_window_absent", "graphics_host_attached", "display_present", "task_focused"})
+            assertThrows(IllegalArgumentException.class, () -> AutomationGraphicsObservation.validate(condition, args));
+        for (Object title : new Object[]{JSONObject.NULL, 42, "x".repeat(4097)}) {
+            args.put("windowTitle", title);
+            assertThrows(IllegalArgumentException.class, () -> AutomationGraphicsObservation.validate("graphics_window_present", args));
+        }
+        args.put("windowTitle", "");
+        AutomationGraphicsObservation.validate("graphics_window_present", args);
+    }
 }

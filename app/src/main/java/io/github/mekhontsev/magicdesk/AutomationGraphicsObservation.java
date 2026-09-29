@@ -20,6 +20,9 @@ final class AutomationGraphicsObservation {
         if (args.has("parentWindowId") && (!condition.equals("graphics_window_present")
                 || AutomationJsonArguments.requiredLong(args, "parentWindowId") <= 0))
             throw new IllegalArgumentException("parentWindowId requires graphics_window_present and a positive native ID");
+        if (args.has("windowTitle") && (!condition.equals("graphics_window_present")
+                || !(args.opt("windowTitle") instanceof String title) || title.length() > 4096))
+            throw new IllegalArgumentException("windowTitle requires graphics_window_present and a string of at most 4096 characters");
         if (condition.equals("task_state") && AutomationJsonArguments.requiredInt(args, "taskId") < 0)
             throw new IllegalArgumentException("Expected taskId");
         if (condition.startsWith("shell_surface_") && args.optString("surfaceId", "").isBlank()
@@ -100,7 +103,8 @@ final class AutomationGraphicsObservation {
     }
     static boolean presentMatches(GraphicalSessions.Window window, JSONObject args) {
         return window.mapped() && (!args.has("windowId") || window.id() == args.optLong("windowId"))
-                && (!args.has("parentWindowId") || window.layout().parent() == args.optLong("parentWindowId"));
+                && (!args.has("parentWindowId") || window.layout().parent() == args.optLong("parentWindowId"))
+                && (!args.has("windowTitle") || args.optString("windowTitle").equals(window.title()));
     }
     static boolean stateMatches(JSONObject state, JSONObject args) throws JSONException {
         String name = args.getString("state");
