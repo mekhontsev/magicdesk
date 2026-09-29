@@ -452,4 +452,5 @@ extern "C" JNIEXPORT jboolean JNICALL JNI(X11Server_nativeStart)(JNIEnv* env, jo
 }
 
 extern "C" JNIEXPORT jint JNICALL JNI(X11Server_nativeConnect)(JNIEnv*, jclass) { return lorieServerConnect(); }
+extern "C" JNIEXPORT void JNICALL JNI(X11Server_nativeAcceptClient)(JNIEnv*, jclass, jint fd) { lorieServerAcceptClient(fd); }
 extern "C" JNIEXPORT void JNICALL JNI(X11Server_nativeStop)(JNIEnv*, jclass) { lorieServerStop(); }

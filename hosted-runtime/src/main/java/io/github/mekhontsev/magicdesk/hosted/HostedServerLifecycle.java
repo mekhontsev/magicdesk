@@ -15,6 +15,7 @@ public final class HostedServerLifecycle {
         if (state != State.READY) throw new IllegalStateException("Hosted server is not ready");
     }
     public synchronized boolean retained() { return state != State.WAITING; }
+    public synchronized boolean isReady() { return state == State.READY; }
     public synchronized void retain() {
         if (state != State.WAITING) throw new IllegalStateException("Hosted server owner already resolved");
         state = State.RETAINED;

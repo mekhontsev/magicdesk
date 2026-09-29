@@ -45,11 +45,34 @@ It runs no package scripts, downloads nothing and does not manage mounts.
 
 The shortcut editor's Shell Linux method accepts a prepared guest store.
 Terminal commands use the shared retained PTY. Graphical recipes currently use
-Wayland, an explicit host-visible XKB directory and an inherited connection FD.
-`X-MagicDesk-WaylandConnection=inherited` records that transport independently
-of executor UID; ordinary recipes select `auto`. Each graphical launch prepares
+X11 or Wayland and an explicit host-visible XKB directory.
+`X-MagicDesk-GraphicsConnection=routed` selects independent guest connections;
+ordinary recipes select `auto`. Each graphical launch prepares
 its own guest `XDG_RUNTIME_DIR` and D-Bus session. File-environment identity remains distinct from
 host paths; an unavailable guest-file helper is an error, never host fallback.
+
+## Graphical Connections
+
+The selected command service owns a session-scoped abstract Unix endpoint and
+admits only that executor's actual UID. It transfers each accepted connection
+over Binder to the app-UID protocol server. Binder carries admission and FD
+ownership only; protocol bytes and SCM_RIGHTS buffers travel directly through
+the connected Unix socket. There is no stream proxy or privileged renderer.
+Closing the session or losing its owner closes admission; outstanding FD handoff
+has a bounded acknowledgement deadline.
+
+Explicit `--socket-path SOURCE ENDPOINT` and `--socket-abstract SOURCE ENDPOINT`
+arguments map exact guest connect addresses to that endpoint. Routes survive
+fork/exec and environment replacement. The syscall adapter preserves the original
+socket descriptor and kernel open-file description; no socket-node fabrication,
+per-syscall allocation or descriptor registry is involved. Other destinations
+retain their normal permission checks. Pathname socket creation is not implied.
+
+Wayland clients receive an absolute `WAYLAND_DISPLAY` and may establish separate
+connections, rather than share one inherited stream. X11 maps both the pathname
+and abstract display address. Its normal MIT-MAGIC-COOKIE-1 handshake remains
+mandatory. Each guest launch writes the supplied authority into its private
+runtime directory; session cookies are not persisted in `.desktop` recipes.
 
 ## Prepared Userspace
 
@@ -98,10 +121,13 @@ Desktop. Checks cover Mousepad editing and saving, fresh-process file readback,
 keyboard quit with actual zero process exit, D-Bus activation of dconf and
 settings persistence across independent sessions. Prepared NSS lookup, DNS and
 HTTPS with certificate verification work on the tested device.
+Routed X11 and Wayland both run Mousepad and Galculator, including repeated
+independent clients in one retained session. The X11 negative check rejects an
+incorrect cookie before a window is mapped.
 
 This is not certification of a full
 Debian base, arbitrary package maintainer scripts, APT, a Linux desktop or GPU
-clients. X11 transport, arbitrary pathname socket creation, guest file sharing
+clients. Arbitrary pathname socket creation, guest file sharing
 and live appearance helpers are not integrated for this launch method.
 Static/non-PIE executables and non-glibc interpreters are rejected. Unsupported
 syscalls and kernel permission denials remain explicit.

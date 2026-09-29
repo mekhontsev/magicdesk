@@ -26,14 +26,18 @@ client executor; shell clients use the explicitly authorized command identity,
 while their compositor runs under MagicDesk's app UID, never an elevated renderer
 UID. Termux clients use the compositor's private named socket, allowing each
 program and its children to establish independent connections. UID-2000 shell
-clients instead receive one connection FD. That FD belongs to one Wayland
+clients receive one connection FD by default. That FD belongs to one Wayland
 connection, not a shareable endpoint for unrelated clients. Root clients normally
 use a session-owned named endpoint with descriptor admission, described below.
-The launch recipe can explicitly select an inherited FD through
-`X-MagicDesk-WaylandConnection=inherited`, independently of executor UID. The
-experimental [guest runtime](guest-runtime.md) uses this transport because its
-filesystem namespace does not expose the host's named endpoint. This choice
-does not change process authority or provide additional client connections.
+The launch recipe selects the connection contract through
+`X-MagicDesk-GraphicsConnection`, independently of executor UID. `inherited`
+selects one existing FD; `routed` selects the experimental
+[guest runtime's admission endpoint](guest-runtime.md#graphical-connections).
+That endpoint supports independent guest clients under UID 2000: the shell
+service accepts connections, checks peer UID and transfers connected descriptors
+to the compositor. `mdw_server_accept` consumes each FD on the protocol event
+loop, including on failure. Protocol traffic and shared buffers do not go through
+Binder or a stream proxy. The server lifecycle closes pending admission FDs.
 Desktop, HOME and root are not prerequisites for the Termux path.
 
 An app-UID compositor's private socket directory is not a shell-client launch

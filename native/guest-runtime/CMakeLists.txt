@@ -32,12 +32,12 @@ endfunction()
 
 guest_executable(bootstrap ${src}/bootstrap.c ${src}/elf.c ${src}/exec.c ${src}/trap.c
     ${src}/file_calls.c ${src}/fs.c ${src}/proc_paths.c ${src}/program_files.c
-    ${src}/namespace.c ${src}/namespace_proc.c ${src}/socket_calls.c ${src}/fd_metadata.c
+    ${src}/namespace.c ${src}/namespace_proc.c ${src}/socket_calls.c ${src}/socket_routes.c ${src}/fd_metadata.c
     ${src}/fs_client.c ${wire} ${raw})
 guest_freestanding(bootstrap)
 target_link_options(bootstrap PRIVATE -Wl,--image-base=0x2000000000)
 
-guest_executable(run ${src}/namespace_run.c ${src}/process_owner.c ${src}/launch_environment.c ${src}/event_wait.c ${raw})
+guest_executable(run ${src}/namespace_run.c ${src}/process_owner.c ${src}/launch_environment.c ${src}/socket_routes.c ${src}/event_wait.c ${raw})
 guest_freestanding(run)
 
 guest_executable(service ${src}/service_main.c ${src}/fs_service.c ${inodes} ${wire} ${raw})

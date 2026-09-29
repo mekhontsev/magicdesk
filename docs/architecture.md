@@ -1892,8 +1892,14 @@ completed resources are removed, and dependents close before their server.
 Android placement goes through `ToolApplications`.
 `WaylandSessions` owns the corresponding compositor admission, client transports
 and toplevel catalog. Termux clients connect to a private named socket; Shell
-clients receive a connection FD, and prepared root guests use a session-owned
-named-socket broker. The server's event loop owns wlroots state, while borrowed
+clients default to a connection FD, and prepared root guests use a session-owned
+named-socket broker. Explicit guest-runtime recipes select routed admission for
+either protocol: `ShellUnixEndpoint` accepts connections under the captured
+executor UID, `GraphicalSocketEndpoint` transfers owned descriptors, and
+`HostedSocketAdmission` delivers them to the protocol loop. Binder carries FD
+admission, not protocol bytes or shared buffers. X11 still requires its cookie.
+These owners neither elevate renderers nor proxy socket IO.
+The server's event loop owns wlroots state, while borrowed
 outputs and their Android presenters have independent lifetimes. Nested-desktop
 viewers retain their compositor after closing, like X11 whole-screen viewers.
 The read-only Termux `.desktop` catalog feeds shared Start content and MCP/CLI

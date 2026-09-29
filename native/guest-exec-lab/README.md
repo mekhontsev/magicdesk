@@ -26,9 +26,15 @@ sh native/guest-exec-lab/build.sh build/guest-applications
 python native/guest-exec-lab/test_device.py build/guest-applications --packages
 python native/guest-exec-lab/test_graphics.py build/guest-applications --application mousepad --network
 python native/guest-exec-lab/test_graphics.py build/guest-applications --application galculator
+python native/guest-exec-lab/test_graphics.py build/guest-applications --application mousepad --routed
+python native/guest-exec-lab/test_graphics.py build/guest-applications --application mousepad --routed --protocol x11
 ```
 
 Application checks require a current debug APK with the guest CLI installed.
+Routed checks use the production guest connection/session wrappers and keep one
+protocol session across successive clients. The X11 case also verifies rejection
+of an incorrect MIT cookie. Receipts retain protocol and connection mode; pixel
+capture, input, process exit and cleanup remain separate assertions.
 They use its runtime and the production Java graphical-session wrapper.
 The fixture-only `md-prepare-applications` configures real shell NSS identity,
 toolkit caches, CA certificates and an explicit public DNS resolver in the owned

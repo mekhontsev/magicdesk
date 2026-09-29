@@ -103,9 +103,10 @@ environment/user identity retained in Recent and used to isolate launch correlat
 This is a MagicDesk desktop-entry extension, not a freedesktop standard key.
 
 The experimental [guest runtime](guest-runtime.md) uses normal Shell entries
-with a prepared store. Its Wayland recipes declare
-`X-MagicDesk-WaylandConnection=inherited`: the app transfers an existing client
-connection instead of requiring a host socket path inside that namespace.
+with a prepared store. Its X11 and Wayland recipes declare
+`X-MagicDesk-GraphicsConnection=routed`: explicit guest addresses connect through
+the captured executor's admission endpoint, without requiring an app-private
+host path inside that namespace. `inherited` selects a single Wayland connection.
 The default `auto` mode retains the selected executor's ordinary transport.
 Connection choice, file-environment identity and executor authority are separate;
 neither key requests root or starts a Desktop session.
@@ -120,7 +121,8 @@ Wayland scripts inherit `WAYLAND_DISPLAY` and `MAGICDESK_WAYLAND_RUNTIME` and
 must expose the corresponding socket at the absolute guest `WAYLAND_DISPLAY`.
 Named sockets are available through Termux or the explicitly selected root
 executor's [Wayland broker](wayland.md#root-guest-connections). UID-2000 shell
-clients retain the single-connection FD path. The chroot example below supports
+clients use the single-connection FD path unless the recipe selects the explicit
+guest-runtime routes described above. The chroot example below supports
 both X11 and Wayland, without changing the compositor's app UID.
 
 MagicDesk does not implicitly switch its privileged backend, mount a rootfs,

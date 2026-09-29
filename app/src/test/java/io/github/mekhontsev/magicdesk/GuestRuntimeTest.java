@@ -94,14 +94,44 @@ public class GuestRuntimeTest {
     }
 
     @Test public void graphicalConnectionBelongsToRecipeNotIdentityOrFileEnvironment() {
-        assertTrue(WaylandConnectionMode.AUTO.namedEndpoint(0, 10001));
-        assertTrue(WaylandConnectionMode.AUTO.namedEndpoint(10001, 10001));
-        assertFalse(WaylandConnectionMode.AUTO.namedEndpoint(2000, 10001));
-        assertFalse(WaylandConnectionMode.INHERITED.namedEndpoint(0, 10001));
-        assertFalse(WaylandConnectionMode.INHERITED.namedEndpoint(2000, 10001));
+        assertTrue(GraphicalConnectionMode.AUTO.namedEndpoint(0, 10001));
+        assertTrue(GraphicalConnectionMode.AUTO.namedEndpoint(10001, 10001));
+        assertFalse(GraphicalConnectionMode.AUTO.namedEndpoint(2000, 10001));
+        assertFalse(GraphicalConnectionMode.INHERITED.namedEndpoint(0, 10001));
+        assertFalse(GraphicalConnectionMode.INHERITED.namedEndpoint(2000, 10001));
+        assertFalse(GraphicalConnectionMode.ROUTED.namedEndpoint(2000, 10001));
+        assertFalse(GraphicalConnectionMode.ROUTED.namedEndpoint(0, 10001));
+        assertEquals(GraphicalConnectionMode.ROUTED, GraphicalConnectionMode.parse("routed"));
+        for (var protocol : GraphicalProtocol.values())
+            assertEquals(GraphicalConnectionMode.ROUTED, new GraphicalLaunchOptions(
+                    protocol, false, "", "", "", GraphicalConnectionMode.ROUTED).connectionMode());
         assertThrows(IllegalArgumentException.class, () -> new GraphicalLaunchOptions(
-                GraphicalProtocol.X11, false, "", "", "", WaylandConnectionMode.INHERITED));
+                GraphicalProtocol.X11, false, "", "", "", GraphicalConnectionMode.INHERITED));
         assertNull(DesktopEntryFile.parse("[Desktop Entry]\nType=Application\nName=Invalid\nExec=app\n"
-                + "X-MagicDesk-WaylandConnection=inherited\n"));
+                + "X-MagicDesk-GraphicsConnection=inherited\n"));
+    }
+
+    @Test public void routedInvocationPreservesLiteralGuestArgumentsAndDynamicEndpoint() throws Exception {
+        assumeFalse(System.getProperty("os.name").startsWith("Windows"));
+        Path tools = temporary.newFolder().toPath();
+        Path stub = Files.writeString(tools.resolve("magicdesk-guest"), "#!/bin/sh\nprintf '%s\\n' \"$@\"\n");
+        assertTrue(stub.toFile().setExecutable(true));
+        var plan = new GuestLaunchPlan(new GuestEnvironment("/host/a ' b", "/home/shell"), "/guest dir",
+                List.of("/bin/sh", "-c", "echo '$HOME'"));
+        for (var protocol : GraphicalProtocol.values()) {
+            var builder = new ProcessBuilder("sh", "-c", GuestGraphicalConnection.invocation(plan, protocol));
+            builder.environment().put("PATH", tools + ":" + System.getenv("PATH"));
+            builder.environment().put("MAGICDESK_GRAPHICS_ENDPOINT", "opaque ' endpoint");
+            builder.environment().put("DISPLAY", ":37");
+            var process = builder.start();
+            String[] arguments = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).split("\n");
+            assertEquals(0, process.waitFor());
+            var expected = new java.util.ArrayList<>(plan.launcherArguments().subList(1, plan.launcherArguments().size()));
+            String source = protocol == GraphicalProtocol.X11 ? "/tmp/.X11-unix/X37" : GuestGraphicalConnection.WAYLAND_PATH;
+            expected.addAll(List.of("--socket-path", source, "opaque ' endpoint"));
+            if (protocol == GraphicalProtocol.X11) expected.addAll(List.of("--socket-abstract", source, "opaque ' endpoint"));
+            expected.add("--"); expected.addAll(plan.command());
+            assertEquals(expected, List.of(arguments));
+        }
     }
 }

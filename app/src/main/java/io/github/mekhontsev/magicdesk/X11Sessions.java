@@ -41,10 +41,16 @@ final class X11Sessions {
     }
 
     static Session start(Context context, String name, String command, DesktopExecBackend backend, String keyboardDirectory) {
+        return start(context, name, command, backend, keyboardDirectory, GraphicalConnectionMode.AUTO);
+    }
+
+    static Session start(Context context, String name, String command, DesktopExecBackend backend, String keyboardDirectory,
+            GraphicalConnectionMode connection) {
         String script = command == null || command.isBlank() ? "true" : command;
         String exec = "sh -c " + ShellCommandLine.quote(script).replace("%", "%%");
         var shortcut = new DesktopApplicationShortcut(name, "", exec, null, "", DesktopLaunchMode.AUTO,
-                false, backend, false).withGraphics(new GraphicalLaunchOptions(true, keyboardDirectory));
+                false, backend, false).withGraphics(new GraphicalLaunchOptions(GraphicalProtocol.X11, true,
+                        keyboardDirectory, "", "", connection));
         return start(context, name, command, "", false, "", RecentApplications.describe(context, shortcut, ""), backend, keyboardDirectory);
     }
 
@@ -57,6 +63,9 @@ final class X11Sessions {
 
     private static Session start(Context context, String name, String command, String directory, boolean application, String desktopFile,
             RecentApplicationStore.Entry recipe, DesktopExecBackend backend, String keyboardDirectory) {
+        if (recipe != null && recipe.shortcut().graphics != null
+                && recipe.shortcut().graphics.connectionMode() == GraphicalConnectionMode.ROUTED && backend != DesktopExecBackend.SHELL)
+            throw new IllegalArgumentException("Routed connections require the selected Shell executor");
         Context app = context.getApplicationContext();
         X11Execution execution = new X11Execution(app, backend, keyboardDirectory);
         if (name == null || name.isBlank() || name.length() > 128)
@@ -177,6 +186,7 @@ final class X11Sessions {
         private volatile State state = State.STARTING;
         private volatile String error = "";
         private volatile String display = "";
+        private String clientEndpoint = "";
         private volatile List<X11Session.Window> windows = List.of();
         private Listener clipboardOwner;
         final HostedWindowPresentation presentation;
@@ -408,7 +418,7 @@ final class X11Sessions {
 
         private void execute(String command, String directory) {
             if (state != State.READY) throw new IllegalStateException("X11 session is not ready");
-            String script = launch.clientCommand(display, command);
+            String script = launch.clientCommand(display, command, clientEndpoint);
             WORK.execute(() -> {
                 if (state != State.READY) return;
                 var resource = resources.reserve();
@@ -429,7 +439,7 @@ final class X11Sessions {
             if (state != State.READY) return;
             var resource = resources.reserve();
             try {
-                resource.attach(execution.commands.start(launch.clientCommand(display, startupCommand), startupDirectory, name, null,
+                resource.attach(execution.commands.start(launch.clientCommand(display, startupCommand, clientEndpoint), startupDirectory, name, null,
                         (code, output, failure) -> {
                             resource.close();
                             if (stopped()) return;
@@ -510,6 +520,15 @@ final class X11Sessions {
                     }
                 });
                 pending.connect(process.openConnection());
+                if (recipe != null && recipe.shortcut().graphics != null
+                        && recipe.shortcut().graphics.connectionMode() == GraphicalConnectionMode.ROUTED) {
+                    var resource = resources.reserve();
+                    try {
+                        var endpoint = new GraphicalSocketEndpoint(execution.commands.uid, process::acceptClient, this::fail);
+                        resource.attach(endpoint);
+                        clientEndpoint = endpoint.name;
+                    } catch (java.io.IOException | RuntimeException failure) { resource.close(); throw failure; }
+                }
                 synchronized (this) {
                     if (stopped()) return;
                     renderer = pending;
@@ -541,7 +560,7 @@ final class X11Sessions {
                     }
                     WORK.execute(() -> { try { executeStartup(); } catch (RuntimeException failure) { fail(failure); } });
                 });
-            } catch (RemoteException | RuntimeException failure) { fail(failure); }
+            } catch (RemoteException | java.io.IOException | RuntimeException failure) { fail(failure); }
             finally { if (pending != null) pending.close(); }
         }
 

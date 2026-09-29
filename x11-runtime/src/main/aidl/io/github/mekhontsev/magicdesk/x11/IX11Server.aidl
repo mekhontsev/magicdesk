@@ -5,6 +5,7 @@ import android.os.IBinder;
 interface IX11Server {
     void retain(IBinder owner);
     ParcelFileDescriptor openConnection();
+    oneway void acceptClient(in ParcelFileDescriptor socket);
     oneway void stop();
     oneway void setColorScheme(int value);
     ParcelFileDescriptor openContentFile(String uri);

@@ -78,6 +78,11 @@ public final class ShellCommandService extends IShellCommandService.Stub {
 
     @Override public String sourceId() { return BuildConfig.SOURCE_ID; }
 
+    @Override public IShellUnixEndpoint openUnixEndpoint(String name, int expectedUid, IUnixConnectionReceiver receiver) {
+        try { return new ShellUnixEndpoint(name, expectedUid, receiver); }
+        catch (IOException error) { throw new IllegalStateException("Cannot create Unix endpoint", error); }
+    }
+
     @Override public String getSystemNightMode(final int userId) {
         final long identity = Binder.clearCallingIdentity();
         try { return FrameworkRuntime.current().systemTheme().read(userId).name(); }

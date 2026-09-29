@@ -4,6 +4,7 @@
 #include "namespace.h"
 #include "raw.h"
 #include "launch_identity.h"
+#include "socket_routes.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -60,6 +61,12 @@ void md_boot(uintptr_t *kernel_stack) {
         cwd = argv[root_arg + 1];
         root_arg += 2;
         if (cwd[0] != '/') md_die("guest cwd must be absolute", -EINVAL);
+    }
+    while (root_arg < argc && (md_equal(argv[root_arg], "--socket-path") || md_equal(argv[root_arg], "--socket-abstract"))) {
+        if (root_arg + 2 >= argc) md_die("missing socket route", -EINVAL);
+        long result = md_socket_route_add(&md_connections, argv[root_arg], argv[root_arg + 1], argv[root_arg + 2]);
+        if (result < 0) md_die("invalid socket route", result);
+        root_arg += 3;
     }
     int namespace = argc > root_arg && md_equal(argv[root_arg], "--namespace");
     if (namespace) ++root_arg;

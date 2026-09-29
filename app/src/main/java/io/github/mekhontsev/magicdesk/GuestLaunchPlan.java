@@ -22,10 +22,14 @@ public record GuestLaunchPlan(GuestEnvironment environment, String directory, Li
     }
 
     public List<String> arguments() {
-        var result = new ArrayList<>(List.of(TOOL, "--store", environment.store(),
-                "--home", environment.home(), "--cwd", directory, "--"));
+        var result = new ArrayList<>(launcherArguments());
+        result.add("--");
         result.addAll(command);
         return List.copyOf(result);
+    }
+
+    List<String> launcherArguments() {
+        return List.of(TOOL, "--store", environment.store(), "--home", environment.home(), "--cwd", directory);
     }
 
     public static void requireIdentity(int uid) {

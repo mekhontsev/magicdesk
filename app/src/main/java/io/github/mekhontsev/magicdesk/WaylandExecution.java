@@ -26,15 +26,17 @@ final class WaylandExecution {
     private final HostedGuestFiles guestFiles;
     private final String fileEnvironment;
     private final LinuxAppearanceLaunch appearance;
-    private final WaylandConnectionMode connectionMode;
+    private final GraphicalConnectionMode connectionMode;
 
     private String shell() { return commands.termux == null ? "/system/bin/sh" : new java.io.File(commands.home).getParent() + "/usr/bin/sh"; }
 
     WaylandExecution(Context context, DesktopExecBackend backend, String keyboardDirectory, String fileEnvironment,
-            boolean desktop, WaylandConnectionMode connectionMode) {
+            boolean desktop, GraphicalConnectionMode connectionMode) {
         this.context = context.getApplicationContext();
         this.connectionMode = connectionMode;
         commands = new CommandExecution(context, backend);
+        if (connectionMode == GraphicalConnectionMode.ROUTED && commands.termux != null)
+            throw new IllegalArgumentException("Routed connections require the selected Shell executor");
         this.fileEnvironment = fileEnvironment;
         guestFiles = new HostedGuestFiles(context.getApplicationInfo().nativeLibraryDir, !fileEnvironment.isEmpty());
         appearance = new LinuxAppearanceLaunch(context.getApplicationInfo().nativeLibraryDir, !desktop,
@@ -110,6 +112,7 @@ final class WaylandExecution {
     }
 
     boolean hasNamedEndpoint() { return connectionMode.namedEndpoint(commands.uid, serverUid); }
+    boolean hasRoutedEndpoint() { return connectionMode == GraphicalConnectionMode.ROUTED; }
     boolean needsBroker() { return commands.uid == 0 && hasNamedEndpoint(); }
 
     Closeable startBroker(WaylandBroker broker, String socket, String memoryLabel, CommandExecution.Completion completion) {
@@ -122,7 +125,13 @@ final class WaylandExecution {
         return commands.start(command, "", id + "-broker", null, completion);
     }
 
-    Closeable startNamedClient(String socket, String command, String workingDirectory, CommandExecution.Completion completion) {
+    Closeable startEndpointClient(String socket, String command, String workingDirectory, CommandExecution.Completion completion) {
+        if (hasRoutedEndpoint()) {
+            String script = "unset DISPLAY WAYLAND_SOCKET\nexport XDG_SESSION_TYPE=wayland WAYLAND_DISPLAY="
+                    + q(GuestGraphicalConnection.WAYLAND_PATH) + " MAGICDESK_GRAPHICS_ENDPOINT=" + q(socket)
+                    + appearance.exports() + "\n" + appearance.command(command, shell());
+            return commands.start(script, workingDirectory, id + "-client", null, completion);
+        }
         if (!hasNamedEndpoint() || socket == null || !socket.matches("wayland-[0-9]+"))
             throw new IllegalArgumentException("No accessible Wayland socket");
         String script = "unset DISPLAY WAYLAND_SOCKET\nexport XDG_SESSION_TYPE=wayland XDG_RUNTIME_DIR=" + q(directory)

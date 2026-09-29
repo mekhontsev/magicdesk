@@ -118,6 +118,8 @@ void mdw_server_set_events(MdwServer *server, const MdwEvents *events);
 const char *mdw_server_socket(const MdwServer *server);
 int mdw_server_fd(MdwServer *server);
 int mdw_server_connect(MdwServer *server);
+// Consumes a connected Unix FD, including on rejection. Serialized with protocol dispatch.
+void mdw_server_accept(MdwServer *server, int fd);
 int mdw_server_dispatch(MdwServer *server, int timeout_ms);
 void mdw_server_destroy(MdwServer *server);
 /* Explicit shell admission. Removing the output closes its shell surfaces, not applications. */

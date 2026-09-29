@@ -138,8 +138,7 @@ final class DesktopCommandApplicationDialog {
         linux.onSelectionChanged(kind -> {
             boolean guest = kind == LinuxLaunchRecipe.Kind.GUEST;
             linuxUser.setEnabled(!guest);
-            if (guest) { linuxUser.setText(""); protocol.setSelection(GraphicalProtocol.WAYLAND.ordinal()); }
-            protocol.setEnabled(!guest);
+            if (guest) linuxUser.setText("");
         });
         form.addView(presentationFields, matchWrap());
 

@@ -90,7 +90,8 @@ final class AutomationCommandCatalog {
                                 .put("command", stringProperty("Optional startup shell command."))
                                 .put("directory", stringProperty("Optional absolute client working directory."))
                                 .put("wholeDesktop", booleanProperty("For Wayland, the command launches a nested desktop compositor; closing its Android viewer retains the client. X11 always provides a whole-desktop viewer. Default false."))
-                                .put("keyboardDirectory", stringProperty("XKB data path; required for shell, optional for Termux.")),
+                                .put("keyboardDirectory", stringProperty("XKB data path; required for shell, optional for Termux."))
+                                .put("connection", enumProperty("Default auto. inherited is Wayland-only. routed requires Shell and an explicit guest socket-route recipe; exports MAGICDESK_GRAPHICS_ENDPOINT for independent guest connections.", "auto", "inherited", "routed")),
                                 "protocol", "backend", "name")))
                 .put(actionTool("graphics.execute", "Run graphical command",
                         "Run a command in a ready retained graphical session using its captured executor. Acceptance is not client completion. No Desktop or Android placement changes.",

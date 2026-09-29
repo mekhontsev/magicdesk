@@ -176,7 +176,18 @@ The kernel still checks socket type, socket permissions and peer policy. This
 does not turn readable files or accessible directories into permission to connect.
 Relative paths and symlinks use the selected file backend's existing semantics.
 
-Abstract addresses, including embedded zero bytes, family-only autobind,
+Launch options `--socket-path SOURCE ENDPOINT` and `--socket-abstract SOURCE ENDPOINT`
+declare at most eight exact connect routes to abstract Unix endpoints. Route
+configuration is immutable per process and copied into bootstrap exec arguments,
+not retained through environment variables. `socket_routes.c` performs bounded
+stack-only address translation on the original socket; it does not replace an
+FD or its open-file description. Binary abstract suffixes do not match textual
+aliases. Duplicate routes, oversized addresses and invalid options are rejected.
+The app's [graphical admission service](../../docs/guest-runtime.md#graphical-connections)
+owns endpoint creation, peer authorization and transfer to X11/Wayland servers;
+the native runtime owns none of that Android policy.
+
+Unrouted abstract addresses, including embedded zero bytes, family-only autobind,
 AF_UNSPEC disconnection and other address families retain native behavior.
 Connected data IO, ancillary messages, SO_PEERCRED, descriptor flags, shared
 offsets and mmap stay kernel-owned. Addressed sendmsg copies only its header and
@@ -187,7 +198,7 @@ the namespace owner. Unix sendmmsg is also explicitly unsupported, including
 connected batches, rather than accidentally sending unconverted paths. Returned
 addresses from getpeername/recvmsg/etc. retain host spelling; reverse namespace
 mapping is not implemented. These are client-transport checks, not a complete
-Unix socket namespace, a broker or a graphical-session launch contract.
+Unix socket namespace or permission to create listeners in the guest filesystem.
 
 `test_sockets.c` has separate native-reference, explicit-adapter and intercepted
 guest modes. The Termux host tests successful pathname connections, including a
@@ -200,10 +211,14 @@ and FD cleanup. The host adapter test is not a seccomp integration test.
 On the tested shell domain, native pathname bind fails with EACCES on both an
 ordinary shell-owned path and its proc-directory alias, while ordinary file
 creation succeeds. This is recorded as a separate LIMIT control, not a passed
-pathname transport test and not suppressed or retried as root. Actual shell
-connections to externally owned pathname servers and X11 clients remain to be
-validated. Inherited Wayland connections have the bounded coverage below; that
-does not supply a named endpoint for independently connecting child processes.
+pathname transport test and not suppressed or retried as root. Generic shell
+connections to externally owned pathname servers remain unverified. Explicit
+routes instead pass independent X11 and Wayland GTK clients through the installed
+namespace runtime, including reopening Mousepad in the same retained server and
+rejecting an incorrect X11 cookie. The route fixture also verifies fork/exec,
+environment replacement, SCM_RIGHTS, mmap and unchanged descriptor identity.
+An inherited Wayland FD still represents only one connection, not an endpoint
+for independently connecting child processes.
 
 ## Software GUI
 

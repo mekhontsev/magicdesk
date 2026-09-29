@@ -14,6 +14,7 @@ public final class ShellProbeInstrumentation extends Instrumentation {
     private static final long OPERATION_TIMEOUT_SECONDS = 10;
     private boolean mProbePhoneScreen;
     private boolean mProbeWaylandFd;
+    private boolean mProbeUnixListener;
     private DesktopExecBackend mWaylandBackend;
 
     @Override
@@ -23,6 +24,8 @@ public final class ShellProbeInstrumentation extends Instrumentation {
                 && "true".equals(arguments.getString("phone_screen"));
         mProbeWaylandFd = arguments != null
             && "true".equals(arguments.getString("wayland_fd"));
+        mProbeUnixListener = arguments != null
+            && "true".equals(arguments.getString("unix_listener"));
         mWaylandBackend = DesktopExecBackend.parse(arguments == null ? "shell" : arguments.getString("wayland_executor", "shell"));
         start();
     }
@@ -36,7 +39,8 @@ public final class ShellProbeInstrumentation extends Instrumentation {
                     ShellAccess.initialize();
                     awaitShellService();
                 }
-                if (mProbeWaylandFd) result.putString("wayland_fd_probe", probeWaylandFd());
+                if (mProbeUnixListener) result.putString("unix_listener_probe", probeUnixListener());
+                else if (mProbeWaylandFd) result.putString("wayland_fd_probe", probeWaylandFd());
                 else {
                     result.putString("shell_probe", ShellAccess.probeCapabilities());
                 }
@@ -77,6 +81,68 @@ public final class ShellProbeInstrumentation extends Instrumentation {
             }
         } finally {
             ShellAccess.removeStateListener(listener);
+        }
+    }
+
+    private String probeUnixListener() throws IOException {
+        var execution = new CommandExecution(getTargetContext(), DesktopExecBackend.SHELL);
+        if (execution.uid == android.os.Process.myUid()) throw new IOException("Cross-UID listener test required");
+        var completed = new java.util.concurrent.CompletableFuture<String>();
+        var count = new java.util.concurrent.atomic.AtomicInteger();
+        try (var endpoint = new GraphicalSocketEndpoint(execution.uid, descriptor -> {
+            int i = count.getAndIncrement();
+            var peer = descriptor.getFileDescriptor();
+            try {
+                // EVENT_WAIT: fixture request bytes; the socket receive deadline fails this probe.
+                var poll = new android.system.StructPollfd();
+                poll.fd = peer;
+                poll.events = (short) android.system.OsConstants.POLLIN;
+                if (android.system.Os.poll(new android.system.StructPollfd[]{poll}, 10000) != 1)
+                    throw new IOException("Client request timeout");
+                byte[] data = new byte[1];
+                if (android.system.Os.read(peer, data, 0, 1) != 1 || data[0] != 'A' + i)
+                    throw new IOException("Incorrect client bytes");
+                data[0] = (byte) ('a' + i);
+                if (android.system.Os.write(peer, data, 0, 1) != 1) throw new IOException("Incorrect server write");
+                android.system.Os.getsockoptTimeval(peer, android.system.OsConstants.SOL_SOCKET,
+                        android.system.OsConstants.SO_RCVTIMEO);
+                int flags = android.system.Os.fcntlInt(peer, android.system.OsConstants.F_GETFL, 0);
+                android.system.Os.fcntlInt(peer, android.system.OsConstants.F_SETFL,
+                        flags | android.system.OsConstants.O_NONBLOCK);
+            } catch (android.system.ErrnoException error) { throw new IOException(error); }
+        }, completed::completeExceptionally)) {
+            String command = "env -u LD_PRELOAD -u LD_LIBRARY_PATH CLASSPATH="
+                    + ShellCommandLine.quote(getTargetContext().getApplicationInfo().sourceDir)
+                    + " /system/bin/app_process -Xnoimage-dex2oat / " + ShellCommandLine.quote(ListenerPeer.class.getName())
+                    + " " + endpoint.name + " " + execution.uid;
+            try (var process = execution.start(command, "", "Unix listener probe", null, (code, output, error) -> {
+                if (error != null) completed.completeExceptionally(error);
+                else if (code != 0) completed.completeExceptionally(new IOException("Client exit " + code + ": " + output));
+                else completed.complete(output);
+            })) {
+                // EVENT_WAIT: exact client process completion; timeout cancels this probe's process.
+                completed.get(15, TimeUnit.SECONDS);
+                if (count.get() != 2) throw new IOException("Expected two independent connections");
+            } catch (java.util.concurrent.ExecutionException
+                    | java.util.concurrent.TimeoutException | InterruptedException error) {
+                if (error instanceof InterruptedException) Thread.currentThread().interrupt();
+                throw new IOException("Unix listener transfer failed: " + error, error);
+            }
+        }
+        return "passed | appUid=" + android.os.Process.myUid() + " | executorUid=" + execution.uid;
+    }
+
+    public static final class ListenerPeer {
+        public static void main(String[] arguments) throws IOException {
+            if (android.os.Process.myUid() != Integer.parseInt(arguments[1])) throw new IOException("Wrong executor UID");
+            for (int i = 0; i < 2; i++) {
+                try (var socket = new android.net.LocalSocket()) {
+                    socket.connect(new android.net.LocalSocketAddress(arguments[0]));
+                    socket.setSoTimeout(10000);
+                    socket.getOutputStream().write('A' + i);
+                    if (socket.getInputStream().read() != 'a' + i) throw new IOException("Incorrect server bytes");
+                }
+            }
         }
     }
 

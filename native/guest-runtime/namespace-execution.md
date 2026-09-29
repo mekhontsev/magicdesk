@@ -73,7 +73,10 @@ seccomp filter and the real kernel cwd/descriptors.
 Unix client destination paths reuse this same file contract through
 `socket_calls.c`, including explicitly inherited host-directory aliases.
 The namespace does not yet create socket nodes or import live sockets; its
-device transport fixture uses abstract endpoints instead. Native credentials
+device transport fixture uses abstract endpoints instead. Explicit launch routes
+translate selected connect addresses to executor-owned abstract endpoints without
+creating filesystem nodes; independent X11 and Wayland GTK clients use this path.
+Native credentials
 and SCM_RIGHTS are retained. Pathname bind and Unix sendmmsg return ENOTSUP;
 returned peer/source addresses are not virtualized. See the
 [transport coverage and native shell restriction](README.md#unix-client-transport).

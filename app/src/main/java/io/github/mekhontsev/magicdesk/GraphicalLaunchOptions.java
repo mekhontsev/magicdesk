@@ -2,10 +2,10 @@ package io.github.mekhontsev.magicdesk;
 
 /** Graphical presentation and keyboard data, independent of command execution identity. */
 record GraphicalLaunchOptions(GraphicalProtocol protocol, boolean desktop, String keyboardDirectory,
-        String startupClass, String fileEnvironment, WaylandConnectionMode connectionMode) {
+        String startupClass, String fileEnvironment, GraphicalConnectionMode connectionMode) {
     GraphicalLaunchOptions(GraphicalProtocol protocol, boolean desktop, String keyboardDirectory,
             String startupClass, String fileEnvironment) {
-        this(protocol, desktop, keyboardDirectory, startupClass, fileEnvironment, WaylandConnectionMode.AUTO);
+        this(protocol, desktop, keyboardDirectory, startupClass, fileEnvironment, GraphicalConnectionMode.AUTO);
     }
     GraphicalLaunchOptions(boolean desktop, String keyboardDirectory, String startupClass, String fileEnvironment) {
         this(GraphicalProtocol.X11, desktop, keyboardDirectory, startupClass, fileEnvironment);
@@ -16,8 +16,8 @@ record GraphicalLaunchOptions(GraphicalProtocol protocol, boolean desktop, Strin
     }
     GraphicalLaunchOptions {
         if (protocol == null) throw new IllegalArgumentException("Missing graphical protocol");
-        if (connectionMode == null || (protocol != GraphicalProtocol.WAYLAND && connectionMode != WaylandConnectionMode.AUTO))
-            throw new IllegalArgumentException("Connection mode requires Wayland");
+        if (connectionMode == null || (protocol != GraphicalProtocol.WAYLAND && connectionMode == GraphicalConnectionMode.INHERITED))
+            throw new IllegalArgumentException("Inherited connection requires Wayland");
         keyboardDirectory = DesktopExecWorkingDirectory.normalize(keyboardDirectory);
         startupClass = startupClass == null ? "" : startupClass;
         if (startupClass.indexOf('\0') >= 0)

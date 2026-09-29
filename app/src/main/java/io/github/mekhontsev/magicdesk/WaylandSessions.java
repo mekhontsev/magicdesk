@@ -51,12 +51,18 @@ final class WaylandSessions {
 
     static Session start(Context context, String name, String command, String directory,
             DesktopExecBackend backend, String keyboard, RecentApplicationStore.Entry recipe, boolean desktop) {
+        return start(context, name, command, directory, backend, keyboard, recipe, desktop,
+                recipe == null ? GraphicalConnectionMode.AUTO : recipe.shortcut().graphics.connectionMode());
+    }
+
+    static Session start(Context context, String name, String command, String directory,
+            DesktopExecBackend backend, String keyboard, RecentApplicationStore.Entry recipe, boolean desktop, GraphicalConnectionMode connection) {
         if (name == null || name.isBlank() || name.length() > 128)
             throw new IllegalArgumentException("Session name must contain 1 to 128 characters");
         var graphics = recipe == null ? null : recipe.shortcut().graphics;
         Session session = new Session(context.getApplicationContext(), name.trim(), new WaylandExecution(context, backend, keyboard,
                 graphics == null ? "" : graphics.fileEnvironment(), desktop,
-                graphics == null ? WaylandConnectionMode.AUTO : graphics.connectionMode()), recipe, desktop);
+                connection), recipe, desktop);
         synchronized (SESSIONS) { SESSIONS.put(session.id(), session); }
         MAIN.post(() -> session.start(command, directory));
         return session;
@@ -118,7 +124,8 @@ final class WaylandSessions {
                         if (socket == null || !socket.matches("wayland-[0-9]+"))
                             throw new SecurityException("Invalid Wayland socket name");
                         unregister();
-                        if (execution.needsBroker()) startBroker(intent.getStringExtra("memoryLabel"));
+                        if (execution.hasRoutedEndpoint()) startRoutedEndpoint();
+                        else if (execution.needsBroker()) startBroker(intent.getStringExtra("memoryLabel"));
                         else clientEndpointReady(socket);
                     }
                 } catch (android.os.RemoteException | RuntimeException failure) { fail(failure); }
@@ -165,6 +172,22 @@ final class WaylandSessions {
                     } catch (RuntimeException failure) { process.close(); MAIN.post(() -> fail(failure)); }
                 });
             } catch (IOException | RuntimeException failure) { channel.close(); process.close(); fail(failure); }
+        }
+
+        private void startRoutedEndpoint() {
+            var resource = resources.reserve();
+            var current = renderer;
+            WORK.execute(() -> {
+                try {
+                    if (stopped()) { resource.close(); return; }
+                    var endpoint = new GraphicalSocketEndpoint(execution.commands.uid, current::acceptClient,
+                            error -> MAIN.post(() -> fail(error)));
+                    resource.attach(endpoint);
+                    MAIN.post(() -> clientEndpointReady(endpoint.name));
+                } catch (java.io.IOException | RuntimeException error) {
+                    resource.close(); MAIN.post(() -> fail(error));
+                }
+            });
         }
 
         Session(Context context, String name, WaylandExecution execution, RecentApplicationStore.Entry recipe, boolean desktop) {
@@ -329,12 +352,12 @@ final class WaylandSessions {
             if (command == null || command.isBlank()) throw new IllegalArgumentException("Missing Wayland command");
             if (!ready()) throw new IllegalStateException("Wayland session is not ready");
             String cwd = DesktopExecWorkingDirectory.normalize(directory);
-            if (execution.hasNamedEndpoint()) {
+            if (execution.hasNamedEndpoint() || execution.hasRoutedEndpoint()) {
                 var commandSlot = resources.reserve();
                 WORK.execute(() -> {
                     try {
                         if (stopped()) { commandSlot.close(); return; }
-                        commandSlot.attach(execution.startNamedClient(socket, command, cwd, (code, output, clientError) -> {
+                        commandSlot.attach(execution.startEndpointClient(socket, command, cwd, (code, output, clientError) -> {
                             commandSlot.close();
                             if (!stopped() && (clientError != null || code != 0)) MAIN.post(() -> presentationFailed(
                                     clientError != null ? clientError : new IOException("Wayland command exited (" + code + "): " + output)));

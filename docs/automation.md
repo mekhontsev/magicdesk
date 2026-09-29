@@ -835,7 +835,11 @@ Use `tools/list` as the authoritative command and argument catalog.
 `graphics.open_window` address retained X11/Wayland sessions through the same
 service used by **Linux graphics**. Starting selects an explicit protocol and
 executor and returns a session ID before readiness; it does not open an Android
-host. `graphics.list` supplies native window IDs; `graphics.open_window` uses the
+host. Its optional `connection` selects `auto`, Wayland-only `inherited`, or
+Shell-only `routed` admission for independent guest connections. The latter
+requires explicit address routes supplied by the guest launch adapter; it is
+not a general cross-UID pathname socket. See [guest connections](guest-runtime.md#graphical-connections).
+`graphics.list` supplies native window IDs; `graphics.open_window` uses the
 ordinary tool placement options. X11 accepts window ID zero for its
 whole-desktop viewer; Wayland accepts it for a session explicitly started with
 `wholeDesktop=true`, borrowing the nested compositor's toplevel. Observation, shell execution and Android placement retain

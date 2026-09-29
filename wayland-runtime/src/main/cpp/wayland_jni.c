@@ -400,6 +400,12 @@ JNIEXPORT jint JNICALL JNI(nativeConnect)(JNIEnv *env, jclass type, jlong handle
     return mdw_server_connect(bridge->server);
 }
 
+JNIEXPORT void JNICALL JNI(nativeAcceptClient)(JNIEnv *env, jclass type, jlong handle, jint fd) {
+    (void)env; (void)type;
+    struct Bridge *bridge = (void *)(intptr_t)handle;
+    mdw_server_accept(bridge->server, fd);
+}
+
 JNIEXPORT jstring JNICALL JNI(nativeSocket)(JNIEnv *env, jclass type, jlong handle) {
     (void)type;
     struct Bridge *bridge = (void *)(intptr_t)handle;

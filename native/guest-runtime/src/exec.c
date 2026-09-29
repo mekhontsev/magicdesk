@@ -3,6 +3,7 @@
 #include "elf.h"
 #include "namespace.h"
 #include "raw.h"
+#include "socket_routes.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -63,10 +64,16 @@ static long execute(void *argument) {
     struct md_command c;
     int r = md_command_prepare(&c, args->program, args->argv);
     if (r < 0) return r;
-    char *next[MD_ARG_MAX + 24];
+    char *next[MD_ARG_MAX + 24 + MD_SOCKET_ROUTES_MAX * 3];
     next[0] = md_bootstrap;
     next[1] = "--resume";
     unsigned n=2;
+    for (unsigned i = 0; i < md_connections.count; i++) {
+        struct md_socket_route *route = &md_connections.entries[i];
+        next[n++] = route->abstract ? "--socket-abstract" : "--socket-path";
+        next[n++] = route->source;
+        next[n++] = route->destination;
+    }
     if(md_files.endpoint[0]) { next[n++]="--namespace"; next[n++]=md_files.endpoint; }
     else next[n++]=md_files.root;
     next[n++]=c.path;

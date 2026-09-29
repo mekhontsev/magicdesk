@@ -30,6 +30,10 @@ public final class X11Server extends IX11Server.Stub {
     private IBinder owner;
     private final IBinder.DeathRecipient ownerDied = this::requestStop;
     private final Runnable deadline = this::expireAdmission;
+    private final io.github.mekhontsev.magicdesk.hosted.HostedSocketAdmission incoming =
+            new io.github.mekhontsev.magicdesk.hosted.HostedSocketAdmission(handler,
+                    this::acceptingClients, X11Server::nativeAcceptClient);
+    private boolean acceptingClients() { return lifecycle.isReady(); }
 
     private X11Server(String[] arguments) throws Exception {
         this.arguments = arguments.clone();
@@ -80,7 +84,16 @@ public final class X11Server extends IX11Server.Stub {
         requestStop();
     }
 
+    @Override public void acceptClient(ParcelFileDescriptor socket) {
+        try { lifecycle.checkReady(Binder.getCallingUid()); incoming.offer(socket); }
+        catch (RuntimeException error) {
+            io.github.mekhontsev.magicdesk.hosted.HostedSocketAdmission.discard(socket);
+            throw error;
+        }
+    }
+
     private void requestStop() {
+        incoming.close();
         if (appearance != null) appearance.close();
         files.close();
         handler.post(() -> {
@@ -140,5 +153,6 @@ public final class X11Server extends IX11Server.Stub {
 
     private native boolean nativeStart(String[] arguments);
     private static native int nativeConnect();
+    private static native void nativeAcceptClient(int fd);
     private static native void nativeStop();
 }

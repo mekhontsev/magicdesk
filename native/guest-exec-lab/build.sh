@@ -12,7 +12,11 @@ sysroot=$work/sysroot
 cc=${CC:-clang}
 node "$src/test_signature.mjs" "$work"
 mkdir -p "$work/bundle/rootfs" "$work/path-test"
+"$cc" -iquote "$runtime" -std=c17 -O2 -Wall -Wextra -Werror -UNDEBUG -fno-builtin -DMD_NO_START \
+    "$src/test_socket_routes.c" "$runtime/socket_routes.c" "$runtime/raw.c" "$runtime/raw.S" -o "$work/test-socket-routes"
+"$work/test-socket-routes"
 javac -d "$work/recipe-classes" "$src/GraphicalRecipe.java" "$app/LinuxGraphicalEnvironment.java" \
+    "$app/GuestGraphicalConnection.java" "$app/GuestLaunchPlan.java" "$app/GuestEnvironment.java" \
     "$app/GraphicalProtocol.java" "$app/ShellCommandLine.java"
 "$cc" -iquote "$runtime" -std=c17 -O2 -Wall -Wextra -Werror -DMD_NO_START -DMD_USE_LIBC \
     "$src/test_completion.c" "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/raw.S" -o "$work/bundle/md-await-exit"
@@ -54,7 +58,7 @@ case "$($cc -dumpmachine)" in *android*) spawn_lib=-landroid-spawn ;; esac
 procroot=$(mktemp -d "$work/path-test/proc.XXXXXX")
 timeout 30 "$work/test-proc" "$procroot/files" native
 "$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -fno-builtin -DMD_NO_START -DMD_SOCKET_DRIVER \
-    "$src/test_sockets.c" "$runtime/socket_calls.c" "$runtime/file_calls.c" "$runtime/fs.c" "$runtime/proc_paths.c" \
+    "$src/test_sockets.c" "$runtime/socket_calls.c" "$runtime/socket_routes.c" "$runtime/file_calls.c" "$runtime/fs.c" "$runtime/proc_paths.c" \
     "$runtime/namespace.c" "$runtime/namespace_proc.c" "$runtime/fd_metadata.c" "$runtime/fs_client.c" "$runtime/fs_wire.c" \
     "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/raw.S" -o "$work/bundle/md-sockets-test"
 socketroot=$(mktemp -d "$work/path-test/sockets.XXXXXX")

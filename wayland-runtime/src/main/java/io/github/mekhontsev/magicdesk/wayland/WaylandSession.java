@@ -47,6 +47,12 @@ public final class WaylandSession implements AutoCloseable {
     }
     private interface Command { void run() throws RemoteException; }
 
+    /** The caller retains its descriptor; Binder transfers a separate owned copy to the server. */
+    public void acceptClient(ParcelFileDescriptor socket) throws RemoteException, IOException {
+        if (closed.get()) throw new IOException("Wayland session is closed");
+        server.acceptClient(socket);
+    }
+
     private final IWaylandServer server;
     private final int executorUid;
     private final Listener listener;

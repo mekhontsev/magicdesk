@@ -76,6 +76,10 @@ final class X11LaunchSpec {
     }
 
     String clientCommand(String display, String command) {
+        return clientCommand(display, command, "");
+    }
+
+    String clientCommand(String display, String command, String endpoint) {
         if (!display.matches("[0-9]{1,5}") || Integer.parseInt(display) > 65535)
             throw new IllegalArgumentException("Invalid X11 display number");
         if (command == null || command.isBlank()) throw new IllegalArgumentException("X11 command is empty");
@@ -84,6 +88,8 @@ final class X11LaunchSpec {
                 + " MAGICDESK_X11_TMPDIR=" + q(temporaryDirectory)
                 + guestFiles.exports()
                 + appearance.exports()
+                + (endpoint.isEmpty() ? "" : " MAGICDESK_GRAPHICS_ENDPOINT=" + q(endpoint)
+                        + " MAGICDESK_X11_AUTHORITY=" + q(stdin.trim()))
                 + "\n" + appearance.command(command, shell);
     }
 

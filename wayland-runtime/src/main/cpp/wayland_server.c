@@ -613,6 +613,10 @@ int mdw_server_connect(MdwServer *server) {
     return descriptors[1];
 }
 
+void mdw_server_accept(MdwServer *server, int fd) {
+    if (!server || !wl_client_create(server->display, fd)) close(fd);
+}
+
 bool mdw_output_refresh(MdwOutput *output) {
     if (!output || !output->output || !output->scene_output) return false;
     wlr_damage_ring_add_whole(&output->scene_output->damage_ring);

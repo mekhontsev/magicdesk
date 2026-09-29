@@ -4,6 +4,7 @@
 #include "process_owner.h"
 #include "launch_environment.h"
 #include "launch_identity.h"
+#include "socket_routes.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -42,6 +43,13 @@ void md_boot(uintptr_t *stack) {
     size_t program = 1;
     while (program < argc && !md_equal(argv[program], "--")) {
         if (program + 1 >= argc) md_die("missing launch option value", -EINVAL);
+        if (md_equal(argv[program], "--socket-path") || md_equal(argv[program], "--socket-abstract")) {
+            if (program + 2 >= argc) md_die("missing socket route", -EINVAL);
+            long r = md_socket_route_add(&md_connections, argv[program], argv[program + 1], argv[program + 2]);
+            if (r < 0) md_die("invalid socket route", r);
+            program += 3;
+            continue;
+        }
         if (md_equal(argv[program], "--store") && !store) store = argv[program + 1];
         else if (md_equal(argv[program], "--cwd")) cwd = argv[program + 1];
         else if (md_equal(argv[program], "--home")) home = argv[program + 1];
@@ -117,8 +125,17 @@ void md_boot(uintptr_t *stack) {
         long owner = RAW0(getpid);
         long guard = RAW5(clone, SIGCHLD, 0, 0, 0, 0);
         if (!guard) {
-            char *args[1024] = {bootstrap, "--cwd", (char *)cwd, "--namespace", endpoint};
-            for (size_t i = program; i <= argc; ++i) args[5 + i - program] = argv[i];
+            char *args[1024 + MD_SOCKET_ROUTES_MAX * 3] = {bootstrap, "--cwd", (char *)cwd};
+            unsigned n = 3;
+            for (unsigned i = 0; i < md_connections.count; i++) {
+                struct md_socket_route *route = &md_connections.entries[i];
+                args[n++] = route->abstract ? "--socket-abstract" : "--socket-path";
+                args[n++] = route->source;
+                args[n++] = route->destination;
+            }
+            args[n++] = "--namespace";
+            args[n++] = endpoint;
+            for (size_t i = program; i <= argc; ++i) args[n + i - program] = argv[i];
             long status = md_process_guard(owner, service, stop[1], bootstrap, args, guest_environment.values, &signals);
             RAW1(exit_group, status);
         }

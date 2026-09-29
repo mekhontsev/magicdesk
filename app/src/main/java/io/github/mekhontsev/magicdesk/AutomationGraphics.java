@@ -31,7 +31,7 @@ final class AutomationGraphics {
                     var session = GraphicalSessions.start(context, GraphicalProtocol.parse(args.getString("protocol")),
                             args.getString("name"), command, args.optString("directory", ""),
                             DesktopExecBackend.parse(args.getString("backend")), args.optString("keyboardDirectory", ""),
-                            args.optBoolean("wholeDesktop", false));
+                            args.optBoolean("wholeDesktop", false), GraphicalConnectionMode.parse(args.optString("connection", "auto")));
                     result[0] = describe(session).put("accepted", true);
                 } else {
                     var session = GraphicalSessions.find(args.getString("sessionId"));

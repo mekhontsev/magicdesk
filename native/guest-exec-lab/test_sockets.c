@@ -191,9 +191,28 @@ static int client(const char *base, const char *files, int stream, int packet, i
     return 0;
 }
 #ifdef MD_SOCKET_DRIVER
+static int routed_driver(const char *root) {
+    struct sockaddr_un addr;
+    char endpoint[64], launcher[4096], store[4096], fd_text[32], pid_text[32];
+    snprintf(endpoint, sizeof(endpoint), "@md-route-%d", getpid());
+    socklen_t length = address(&addr, endpoint, "s");
+    int server = socket(AF_UNIX, SOCK_STREAM, 0);
+    CHECK(server >= 0 && bind(server, (struct sockaddr *)&addr, length) == 0 && listen(server, 8) == 0);
+    snprintf(fd_text, sizeof(fd_text), "%d", server);
+    snprintf(pid_text, sizeof(pid_text), "%d", getpid());
+    CHECK(snprintf(launcher, sizeof(launcher), "%s/../libmagicdesk_guest_run.so", root) < (int)sizeof(launcher));
+    CHECK(snprintf(store, sizeof(store), "%s/tmp/imported-rootfs", root) < (int)sizeof(store));
+    char *args[] = {launcher, "--store", store,
+        "--socket-path", "/tmp/virtual-display/s", addr.sun_path + 1,
+        "--socket-abstract", "/tmp/virtual-display/s", addr.sun_path + 1,
+        "--", "/bin/sh", "-c", "exec /usr/bin/env -i /usr/bin/md-socket-fixture routed-client \"$@\"", "fixture",
+        fd_text, pid_text, NULL};
+    execv(launcher, args); CHECK(0); return 1;
+}
 static int driver(int argc, char **argv) {
     CHECK(argc == 3 || argc == 4);
     const char *mode = argv[1], *root = argv[2];
+    if (!strcmp(mode, "routes")) return routed_driver(root);
     int native = !strcmp(mode, "native") || !strcmp(mode, "adapter");
     int probe = !strcmp(mode, "probe"), abstract = argc == 4 && !strcmp(argv[3], "abstract");
     CHECK(native || probe || !strcmp(mode, "direct") || !strcmp(mode, "namespace"));
@@ -257,6 +276,19 @@ static int driver(int argc, char **argv) {
 }
 #endif
 int main(int argc, char **argv) {
+    if (argc == 4 && !strcmp(argv[1], "routed-client")) {
+        unsigned before = descriptors();
+        int listener = atoi(argv[2]); pid_t creator = (pid_t)atoi(argv[3]);
+        for (unsigned i = 0; i < 2; i++) {
+            connection("/tmp/virtual-display", "s", listener, SOCK_STREAM, creator);
+            connection("@/tmp/virtual-display", "s", listener, SOCK_STREAM, creator);
+        }
+        struct stat st;
+        CHECK(stat("/tmp/virtual-display/s", &st) == -1 && errno == ENOENT);
+        CHECK(descriptors() == before);
+        puts("PASS socket routes: independent connections, shell/exec/env-i, credentials, SCM_RIGHTS and shared mmap");
+        return 0;
+    }
     if (argc == 8 && !strcmp(argv[1], "client"))
         return client(argv[2], argv[3], atoi(argv[4]), atoi(argv[5]), atoi(argv[6]), (pid_t)atoi(argv[7]), 1);
 #ifdef MD_SOCKET_DRIVER

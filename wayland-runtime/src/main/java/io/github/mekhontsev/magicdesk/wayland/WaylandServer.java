@@ -392,6 +392,20 @@ public final class WaylandServer extends IWaylandServer.Stub {
         });
     }
 
+    private final io.github.mekhontsev.magicdesk.hosted.HostedSocketAdmission incoming =
+            new io.github.mekhontsev.magicdesk.hosted.HostedSocketAdmission(handler,
+                    this::acceptingClients, this::acceptClientFd);
+    private boolean acceptingClients() { return lifecycle.isReady() && handle != 0; }
+    private void acceptClientFd(int fd) { nativeAcceptClient(handle, fd); nativeDispatch(handle); }
+
+    @Override public void acceptClient(ParcelFileDescriptor socket) {
+        try { lifecycle.checkReady(Binder.getCallingUid()); incoming.offer(socket); }
+        catch (RuntimeException error) {
+            io.github.mekhontsev.magicdesk.hosted.HostedSocketAdmission.discard(socket);
+            throw error;
+        }
+    }
+
     @Override public void frameConsumed(long id, long serial) {
         command(() -> {
             Output output = outputs.get(id);
@@ -506,6 +520,7 @@ public final class WaylandServer extends IWaylandServer.Stub {
     }
 
     private void requestStop() {
+        incoming.close();
         if (appearance != null) appearance.close();
         handler.post(() -> {
             HostedServerLifecycle.Stop action = lifecycle.stop();
@@ -552,6 +567,7 @@ public final class WaylandServer extends IWaylandServer.Stub {
     private static native int nativeEventFd(long server);
     private static native int nativeDispatch(long server);
     private static native int nativeConnect(long server);
+    private static native void nativeAcceptClient(long server, int fd);
     private static native String nativeSocket(long server);
     private static native void nativeStop(long server);
     private static native long nativeOpenOutput(long server, long window, int width, int height);

@@ -107,6 +107,9 @@ def main():
                             "PASS sockets: descriptor counts unchanged"])
         check("namespace state survives a fresh service", "timeout 30 " + namespace
               + "/usr/bin/stat /tmp/ns-moved/child", contains="Size: 0")
+        check("explicit Unix routes survive exec and environment replacement", "timeout 60 " + root
+              + "/md-sockets-test routes " + root + "/rootfs",
+              contains="PASS socket routes: independent connections, shell/exec/env-i, credentials, SCM_RIGHTS and shared mmap")
         check("namespace signal, stack and exec regressions", "timeout 90 " + namespace
               + "/usr/bin/md-exec-fixture", contains=["PASS posix_spawn file actions, cwd and full signal mask", "PASS 64 execs"])
         check("namespace path and descriptor extended attributes", "timeout 45 " + namespace

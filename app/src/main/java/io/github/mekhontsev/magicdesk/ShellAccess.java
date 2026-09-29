@@ -758,6 +758,19 @@ public final class ShellAccess {
         }
     }
 
+    static IShellUnixEndpoint openUnixEndpoint(String name, int expectedUid, IUnixConnectionReceiver receiver) throws IOException {
+        try {
+            var endpoint = requireService().openUnixEndpoint(name, expectedUid, receiver);
+            if (endpoint == null) throw new IOException("Shell service returned no Unix endpoint");
+            return endpoint;
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw new IOException("Unix endpoint service failed", error);
+        } catch (RuntimeException error) {
+            throw new IOException("Cannot open Unix endpoint", error);
+        }
+    }
+
     static ParcelFileDescriptor openShellFile(
             final String absolutePath, final String mode) throws IOException {
         try {

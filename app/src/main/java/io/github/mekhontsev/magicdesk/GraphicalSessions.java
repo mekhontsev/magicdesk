@@ -64,6 +64,11 @@ final class GraphicalSessions {
     }
     static Session start(Context context, GraphicalProtocol protocol, String name, String command, String directory,
             DesktopExecBackend backend, String keyboard, boolean desktop) {
+        return start(context, protocol, name, command, directory, backend, keyboard, desktop, GraphicalConnectionMode.AUTO);
+    }
+    static Session start(Context context, GraphicalProtocol protocol, String name, String command, String directory,
+            DesktopExecBackend backend, String keyboard, boolean desktop, GraphicalConnectionMode connection) {
+        new GraphicalLaunchOptions(protocol, desktop, keyboard, "", "", connection);
         RuntimeCapabilities.current(context).require(context, backend == DesktopExecBackend.TERMUX
                 ? RuntimeCapabilities.Service.TERMUX : RuntimeCapabilities.Service.SHELL);
         return switch (protocol) {
@@ -71,9 +76,9 @@ final class GraphicalSessions {
                 String cwd = DesktopExecWorkingDirectory.normalize(directory);
                 String script = command == null || command.isBlank() ? "true" : command;
                 if (!cwd.isEmpty()) script = "cd -- " + ShellCommandLine.quote(cwd) + " || exit\n" + script;
-                yield new X11(X11Sessions.start(context, name, script, backend, keyboard));
+                yield new X11(X11Sessions.start(context, name, script, backend, keyboard, connection));
             }
-            case WAYLAND -> new Wayland(WaylandSessions.start(context, name, command, directory, backend, keyboard, null, desktop));
+            case WAYLAND -> new Wayland(WaylandSessions.start(context, name, command, directory, backend, keyboard, null, desktop, connection));
         };
     }
     static Session find(String id) {

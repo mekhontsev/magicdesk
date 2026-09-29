@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "socket_calls.h"
 #include "file_calls.h"
+#include "socket_routes.h"
 #include "raw.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -44,6 +45,12 @@ long md_socket_call(const struct md_fs *fs, const char *exe, long nr, const unsi
     struct sockaddr_un address;
     r = md_read_memory(&address, pointer, length);
     if (r < 0) return r;
+    if (nr == SYS_connect && md_socket_route_apply(&md_connections, &address, &length)) {
+        r = domain((int)a[0]);
+        if (r < 0) return r;
+        if (r != AF_UNIX) return invoke(nr, a);
+        return RAW3(connect, a[0], &address, length);
+    }
     /* Abstract addresses are binary names, including every supplied zero byte.
      * Family-only bind is the kernel's autobind request. Neither is a pathname. */
     if (length == offsetof(struct sockaddr_un, sun_path) || !address.sun_path[0])

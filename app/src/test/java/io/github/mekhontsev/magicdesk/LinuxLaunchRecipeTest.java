@@ -198,9 +198,9 @@ public final class LinuxLaunchRecipeTest {
     @Test public void guestRuntimeSharesNormalEntriesWithoutTermuxOrAnInventedExecutor() {
         var environment = new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.GUEST,
                 "/prepared/store ' one", DesktopExecBackend.SHELL, "/prepared/xkb");
-        for (var mode : LinuxLaunchRecipe.Presentation.values()) {
+        for (var protocol : GraphicalProtocol.values()) for (var mode : LinuxLaunchRecipe.Presentation.values()) {
             var app = LinuxLaunchRecipe.build("Guest", environment, "printf '%s' \"$HOME\"", "/tmp", "", mode,
-                    GraphicalProtocol.WAYLAND);
+                    protocol);
             assertEquals(DesktopExecBackend.SHELL, app.execBackend);
             assertEquals(mode == LinuxLaunchRecipe.Presentation.TERMINAL, app.terminal);
             assertFalse(app.exec.contains("proot"));
@@ -210,12 +210,15 @@ public final class LinuxLaunchRecipeTest {
             var parsed = (DesktopApplicationShortcut) DesktopEntryFile.parse(DesktopEntryFile.encodeApplication(app));
             assertEquals(app.exec, parsed.exec);
             assertEquals(app.graphics, parsed.graphics);
-            if (!app.terminal) assertFalse(app.graphics.fileEnvironment().isEmpty());
+            if (!app.terminal) {
+                assertFalse(app.graphics.fileEnvironment().isEmpty());
+                assertEquals(GraphicalConnectionMode.ROUTED, app.graphics.connectionMode());
+                assertTrue(app.exec.contains("--socket-path"));
+                assertEquals(protocol == GraphicalProtocol.X11, app.exec.contains("--socket-abstract"));
+            }
         }
         assertThrows(IllegalArgumentException.class, () -> LinuxLaunchRecipe.build("Guest", environment,
                 "app", "", "root", LinuxLaunchRecipe.Presentation.TERMINAL));
-        assertThrows(IllegalArgumentException.class, () -> LinuxLaunchRecipe.build("Guest", environment,
-                "app", "", "", LinuxLaunchRecipe.Presentation.APPLICATION, GraphicalProtocol.X11));
     }
 
     @Test public void separateEnvironmentsKeepTheirMethodRootAndPresentation() throws Exception {

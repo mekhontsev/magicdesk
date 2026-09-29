@@ -19,11 +19,17 @@ def main():
     parser.add_argument("--gtk", action="store_true", help="Run the unchanged Debian GTK application")
     parser.add_argument("--application", choices=["mousepad", "galculator"], help="Exercise a real application through the installed runtime")
     parser.add_argument("--network", action="store_true", help="Check DNS and authenticated HTTPS inside the application fixture")
+    parser.add_argument("--routed", action="store_true", help="Use independent guest connections through executor-owned admission")
+    parser.add_argument("--protocol", choices=["wayland", "x11"], default="wayland")
     parser.add_argument("--backend", choices=["direct", "namespace"])
     parser.add_argument("--installed", action="store_true", help="Use the installed APK's guest CLI")
     parser.add_argument("--config", type=Path, default=Path.home() / ".codex/config.toml")
     parser.add_argument("--server", default="magicdesk")
     args = parser.parse_args()
+    if args.protocol == "x11" and (not args.routed or not args.application):
+        parser.error("X11 fixture requires --routed and --application")
+    if args.routed:
+        args.installed = True
     if args.application:
         args.gtk = args.installed = True
     if args.installed:
@@ -61,6 +67,8 @@ def main():
     results = {"directory": root, "runId": tag, "app": state["app"], "device": state["device"],
                "manifest": manifest, "binaries": {}, "cases": []}
     results["installedRuntime"] = args.installed
+    results["connection"] = "routed" if args.routed else "auto"
+    results["protocol"] = args.protocol
 
     def command(value):
         result = client.call("console.execute", {"sessionId": console, "command": value})
@@ -131,17 +139,43 @@ def main():
         display = client.call("create_display", {"type": "virtual", "width": 1000, "height": 700, "densityDpi": 160})
         modes = ([("gtk", False), ("gtk", True)] if args.application == "mousepad" else
                  [("gtk", False)] if args.gtk else [("memfd", False), ("file", False)])
+        retained_session = None
         for backend in ([args.backend] if args.backend else ["direct", "namespace"]):
             for buffer, reopen in modes:
                 case = {"backend": backend, "buffer": buffer, "reopen": reopen, "passed": False}
                 results["cases"].append(case)
-                session = client.call("graphics.start", {"protocol": "wayland", "backend": "shell",
-                    "name": "Debian lab " + backend + " " + buffer,
-                    "keyboardDirectory": root + "/rootfs/usr/share/X11/xkb"})["sessionId"]
-                sessions.append(session)
+                session = retained_session
+                if session is None:
+                    session = client.call("graphics.start", {"protocol": args.protocol, "backend": "shell",
+                        "name": "Debian lab " + backend + " " + buffer,
+                        "connection": "routed" if args.routed else "auto",
+                        "keyboardDirectory": root + "/rootfs/usr/share/X11/xkb"})["sessionId"]
+                    sessions.append(session)
+                    if args.routed:
+                        retained_session = session
                 info = wait("graphics_ready", session)["session"]
                 assert info["executorUid"] == 2000 and info["serverUid"] not in (0, 2000), info
                 case["sessionId"], case["serverUid"] = session, info["serverUid"]
+                if args.protocol == "x11" and not reopen:
+                    negative_log = root + "/auth-" + tag + ".log"
+                    negative_exit = negative_log + ".exit"
+                    negative = subprocess.check_output(["java", "-cp", str(args.build / "recipe-classes"),
+                        "io.github.mekhontsev.magicdesk.GraphicalRecipe", "routed", "x11",
+                        root + "/rootfs/tmp/imported-rootfs", "/home/shell", "/usr/bin/galculator"], text=True, timeout=20)
+                    cookie = b"MIT-MAGIC-COOKIE-1"
+                    authority = b"\xff\xff\x00\x00\x00\x00" + len(cookie).to_bytes(2, "big") + cookie + b"\x00\x10" + bytes(16)
+                    script = ("{ export MAGICDESK_X11_AUTHORITY=" + shlex.quote(base64.b64encode(authority).decode())
+                              + "; timeout 15 sh -c " + shlex.quote(negative)
+                              + "; result=$?; printf '%s\\n' \"$result\" > " + shlex.quote(negative_exit) + "; } >"
+                              + shlex.quote(negative_log) + " 2>&1")
+                    client.call("graphics.execute", {"sessionId": session, "command": script})
+                    receipt = client.call("console.execute", {"sessionId": console,
+                        "command": "timeout 20 " + shlex.quote(awaiter) + " " + shlex.quote(negative_exit)})
+                    negative_text = command("cat " + shlex.quote(negative_exit)).strip()
+                    case["authorization"] = {"exit": negative_text, "log": read_log(negative_log)}
+                    assert negative_text == "1" and "cannot open display" in case["authorization"]["log"], case["authorization"]
+                    assert not next(s for s in client.call("graphics.list")["sessions"] if s["sessionId"] == session)["windows"]
+                    print("PASS X11 rejects an incorrect MIT cookie before mapping a client", flush=True)
                 prefix = (root + "/libmagicdesk_guest_bootstrap.so " + root + "/rootfs " if backend == "direct"
                           else root + "/libmagicdesk_guest_run.so --store " + root + "/rootfs/tmp/imported-rootfs -- ")
                 if args.installed:
@@ -174,6 +208,12 @@ def main():
                         "export XDG_RUNTIME_DIR; trap 'rm -rf -- \"$XDG_RUNTIME_DIR\"' EXIT; " + program)
                 script = ("timeout 90 env PATH=/usr/bin:/bin HOME=/tmp TMPDIR=/tmp XDG_RUNTIME_DIR=/tmp LC_ALL=C "
                           + ("GSETTINGS_BACKEND=keyfile " if args.gtk and not args.application else "") + prefix + program)
+                if args.routed:
+                    program = ("/usr/bin/" + args.application + (" " + document if args.application == "mousepad" else "")) if args.application else program
+                    routed = subprocess.check_output(["java", "-cp", str(args.build / "recipe-classes"),
+                        "io.github.mekhontsev.magicdesk.GraphicalRecipe", "routed", args.protocol,
+                        root + "/rootfs/tmp/imported-rootfs", "/home/shell" if args.application else "/tmp", program], text=True, timeout=20)
+                    script = "timeout 90 sh -c " + shlex.quote(routed)
                 if args.gtk:
                     script = "{\n" + script + '\nresult=$?\nprintf "%s\\n" "$result" > ' + shlex.quote(receipt) + '\nprintf "MD_GTK_EXIT=%s\\n" "$result"\nexit "$result"\n}'
                 script += " >" + shlex.quote(logfile) + " 2>&1"
@@ -182,12 +222,18 @@ def main():
                     present = wait("graphics_window_present", session)["session"]
                     assert len(present["windows"]) == 1, present
                     window = present["windows"][0]["windowId"]
-                    client.call("graphics.open_window", {"sessionId": session, "windowId": window,
-                        "placement": "display", "displayId": display["id"], "uniqueId": display["uniqueId"]})
+                    case["mappedWindows"] = present["windows"]
+                    # Wayland retains the first host's destination for subsequent toplevels.
+                    if not (args.routed and reopen and args.protocol == "wayland"):
+                        client.call("graphics.open_window", {"sessionId": session, "windowId": window,
+                            "placement": "display", "displayId": display["id"], "uniqueId": display["uniqueId"]})
                     attached = wait("graphics_host_attached", session, windowId=window, displayId=display["id"])
+                    case["host"] = attached
+                    assert len(attached["matchingHosts"]) == 1, attached
                     task = attached["matchingHosts"][0]["taskId"]
                     focused = client.call("wait_for_state", {"condition": "task_focused", "taskId": task,
                         "displayId": display["id"], "timeoutMillis": 10000})
+                    case["focus"] = focused
                     assert focused["matched"], focused
                     ready = client.call("wait_for_state", {"condition": "app_ready", "taskId": task,
                         "displayId": display["id"], "timeoutMillis": 10000})
@@ -264,9 +310,10 @@ def main():
                     print("PASS " + backend + " " + buffer + ": cross-UID pixels, pointer/key input and protocol close", flush=True)
                 finally:
                     case["log"] = read_log(logfile)
-                    client.call("graphics.stop", {"sessionId": session})
-                    wait("graphics_session_absent", session)
-                    sessions.remove(session)
+                    if not args.routed:
+                        client.call("graphics.stop", {"sessionId": session})
+                        wait("graphics_session_absent", session)
+                        sessions.remove(session)
     finally:
         errors = []
         for session in sessions:
@@ -290,6 +337,8 @@ def main():
             errors.append(str(error))
         results["cleanupErrors"] = errors
         report = args.application + "-results.json" if args.application else "gtk-results.json" if args.gtk else "graphics-results.json"
+        if args.routed:
+            report = args.protocol + "-routed-" + report
         (args.build / report).write_text(json.dumps(results, indent=2) + "\n")
         if errors:
             raise RuntimeError("Incomplete cleanup: " + repr(errors))

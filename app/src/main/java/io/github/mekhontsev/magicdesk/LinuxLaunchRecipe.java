@@ -112,22 +112,21 @@ final class LinuxLaunchRecipe {
             String directory, String user, Presentation presentation, GraphicalProtocol protocol) {
         if (!user.isEmpty()) throw new IllegalArgumentException("Guest runtime retains the executor identity; user switching is unavailable");
         boolean graphical = presentation != Presentation.TERMINAL;
-        if (graphical && protocol != GraphicalProtocol.WAYLAND)
-            throw new IllegalArgumentException("Guest runtime currently requires a Wayland client connection");
         if (graphical && environment.keyboardDirectory().isEmpty())
             throw new IllegalArgumentException("Enter the host XKB data directory");
         var plan = new GuestLaunchPlan(new GuestEnvironment(environment.target(), "/tmp"),
                 directory.isEmpty() ? "/" : directory,
                 command.isEmpty() ? List.of("/bin/sh", "-l") : List.of("/bin/sh", "-lc",
                         graphical ? LinuxGraphicalEnvironment.wrap(protocol, LinuxGraphicalEnvironment.BusTransport.ABSTRACT,
-                                "/bin/sh -lc " + q(command)) : command));
-        String exec = DesktopExecTemplate.encodeArguments(plan.arguments());
+                                "/bin/sh -c " + q(GuestGraphicalConnection.client(protocol, "/bin/sh -lc " + q(command)))) : command));
+        String exec = DesktopExecTemplate.encodeArguments(graphical
+                ? List.of("sh", "-c", GuestGraphicalConnection.invocation(plan, protocol)) : plan.arguments());
         DesktopExecTemplate.expandArguments(exec, DesktopLaunchArguments.empty(), name, "", "");
         return new DesktopApplicationShortcut(name, graphical ? "computer" : "utilities-terminal",
                 exec, null, "", DesktopLaunchMode.AUTO, false, DesktopExecBackend.SHELL, !graphical)
                 .withLiteralExec(true).withGraphics(graphical ? new GraphicalLaunchOptions(protocol,
                         presentation == Presentation.DESKTOP, environment.keyboardDirectory(), "",
-                        "GUEST:" + environment.target().length() + ":" + environment.target(), WaylandConnectionMode.INHERITED) : null);
+                        "GUEST:" + environment.target().length() + ":" + environment.target(), GraphicalConnectionMode.ROUTED) : null);
     }
 
     private static String q(String value) { return ShellCommandLine.quote(value); }
