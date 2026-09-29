@@ -105,12 +105,15 @@ int main(int argc, char **argv) {
     assert(syscall(SYS_getcwd, memory + page, page) == -1 && errno == EFAULT);
     assert(!munmap(memory, page * 2));
     puts("PASS bad pointers return EFAULT; page-boundary NUL is readable");
+    assert(!faccessat(AT_FDCWD, "/etc/md-guest-fixture", R_OK, AT_EACCESS));
+    assert(!syscall(SYS_faccessat2, AT_FDCWD, "/etc/md-guest-fixture", R_OK, 0x200));
+    puts("PASS effective-identity access uses Linux flags, not build-libc aliases");
 
     char *bad_args[] = {"missing", NULL};
     assert(execve("/not-installed", bad_args, environ) == -1 && errno == ENOENT);
     pid_t pid;
     assert(posix_spawn(&pid, "/not-installed", NULL, NULL, bad_args, environ) == ENOENT);
-    // Repeated failed preparation must unmap its private scratch stack every time.
+    // Failed preparation must retain neither descriptors nor mappings.
     int before = mappings();
     for (int i = 0; i < 64; ++i)
         assert(execve("/not-installed", bad_args, environ) == -1 && errno == ENOENT);
@@ -120,6 +123,25 @@ int main(int argc, char **argv) {
     struct sigaction reserved = {.sa_handler = SIG_DFL};
     assert(sigaction(SIGSYS, &reserved, NULL) == -1 && errno == ENOTSUP);
     puts("PASS failed exec/spawn preserve caller/errno/mappings; unsupported entry points are explicit");
+
+    before = mappings();
+    for (int i = 0; i < 8; ++i) {
+        pid = vfork();
+        assert(pid >= 0);
+        if (!pid) {
+            execve("/not-installed", bad_args, environ);
+            _exit(errno == ENOENT ? 37 : 38);
+        }
+        wait_child(pid, 37);
+        assert(mappings() == before);
+    }
+    char *true_args[] = {"true", NULL};
+    pid = vfork();
+    assert(pid >= 0);
+    if (!pid) { execve("/bin/true", true_args, environ); _exit(39); }
+    wait_child(pid, 0);
+    assert(mappings() == before);
+    puts("PASS vfork with inherited guest stack: failed exec, exit and successful exec");
 
     pthread_attr_t attr;
     assert(!pthread_attr_init(&attr));
@@ -132,6 +154,26 @@ int main(int argc, char **argv) {
     assert(!pthread_join(thread, NULL));
     assert(!pthread_attr_destroy(&attr));
     printf("PASS file interception on libc's minimum thread stack (%ld bytes)\n", minimum_stack);
+
+    assert(!pthread_attr_init(&attr));
+    assert(!pthread_attr_setstacksize(&attr, (size_t)minimum_stack));
+    before = mappings();
+    for (int i = 0; i < 32; ++i) {
+        assert(!pthread_create(&thread, &attr, small_stack, NULL));
+        // EVENT_WAIT: exact thread termination; the runner's deadline fails a hang.
+        assert(!pthread_join(thread, NULL));
+        assert(mappings() == before);
+        assert(posix_spawn(&pid, "/not-installed", NULL, NULL, bad_args, environ) == ENOENT);
+        assert(mappings() == before);
+    }
+    assert(!pthread_attr_destroy(&attr));
+    puts("PASS thread and failed-spawn syscall stacks have bounded lifetimes");
+
+    stack_t alternate = {0};
+    assert(!sigaltstack(NULL, &alternate) && (alternate.ss_flags & SS_DISABLE));
+    alternate = (stack_t){.ss_sp = memory, .ss_size = 32768};
+    assert(sigaltstack(&alternate, NULL) == -1 && errno == ENOTSUP);
+    puts("LIMIT application-owned signal stacks are explicitly unsupported");
 
     struct sigaction action = {.sa_handler = file_signal, .sa_flags = SA_RESTART};
     assert(!sigemptyset(&action.sa_mask) && !sigaction(SIGUSR2, &action, NULL));

@@ -74,7 +74,7 @@ int main(int argc, char **argv) {
     assert(fd >= 0);
     close(fd);
     close(dirfd);
-    puts("PASS glibc, identity, file APIs, cwd and dirfd");
+    puts("PASS libc, identity, file APIs, cwd and dirfd");
 
     assert(!mkdir("/tmp/files", 0700));
     assert(!mkdir("/tmp/files/dir/", 0700));
@@ -117,7 +117,7 @@ int main(int argc, char **argv) {
     assert(!dlclose(plugin));
     assert(signal(SIGUSR1, signal_handler) != SIG_ERR);
     assert(!raise(SIGUSR1) && interrupted == SIGUSR1);
-    puts("PASS dlopen, glibc TLS, threads and signals without a custom linker");
+    puts("PASS dlopen, libc TLS, threads and signals without a custom linker");
 
     pid_t pid = fork();
     assert(pid >= 0);

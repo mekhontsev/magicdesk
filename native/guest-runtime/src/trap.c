@@ -2,6 +2,7 @@
 #include "bootstrap.h"
 #include "file_calls.h"
 #include "socket_calls.h"
+#include "thread_context.h"
 #include "raw.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -25,6 +26,12 @@ static long dispatch(long nr, unsigned long *a, ucontext_t *uc) {
         return md_socket_call(&md_files, md_executable, nr, a);
     case SYS_execve:
         return md_guest_exec((const char *)a[0], (char *const *)a[1], (char *const *)a[2]);
+    case SYS_clone:
+        return md_thread_clone(a, uc);
+    case SYS_sigaltstack:
+        return md_thread_altstack(a);
+    case SYS_exit:
+        md_thread_exit((int)a[0], uc);
     case SYS_clone3:
         // CLONE_CLEAR_SIGHAND would discard our inherited syscall handler. clone3
         // needs a native child-return gate; ENOSYS selects libc's ordinary clone path.
@@ -65,9 +72,11 @@ static void handle(int signal, siginfo_t *info, void *context) {
 }
 
 int md_install_trap(int inherited) {
+    int initialized = md_thread_initialize();
+    if (initialized < 0) return initialized;
     struct kernel_action { void (*handler)(int, siginfo_t *, void *); unsigned long flags;
         void (*restorer)(void); uint64_t mask; } action = {
-            handle, SA_SIGINFO | SA_NODEFER | 0x04000000, md_signal_return, 0};
+            handle, SA_SIGINFO | SA_NODEFER | SA_ONSTACK | 0x04000000, md_signal_return, 0};
     // Guest signal handlers may interrupt translation and make file syscalls themselves.
     // No mutable scratch state is shared; do not block their nested synchronous SIGSYS.
     _Static_assert(sizeof(action) == 32, "AArch64 kernel sigaction ABI");
@@ -79,6 +88,7 @@ int md_install_trap(int inherited) {
     if (r < 0) return (int)r;
     if (inherited) return RAW1(prctl, PR_GET_SECCOMP) == SECCOMP_MODE_FILTER ? 0 : -EINVAL;
     uintptr_t gate = (uintptr_t)md_raw_return;
+    uintptr_t clone_gate = (uintptr_t)md_clone_return;
 #define TRAP(n) BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_##n, 0, 1), BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP),
     struct sock_filter filter[] = {
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
@@ -89,10 +99,16 @@ int md_install_trap(int inherited) {
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, instruction_pointer)),
         BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)gate, 0, 1),
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, instruction_pointer) + 4),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)(clone_gate >> 32), 0, 3),
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, instruction_pointer)),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)clone_gate, 0, 1),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
         MD_FILE_CALLS(TRAP)
         MD_SOCKET_CALLS(TRAP)
-        TRAP(execve) TRAP(execveat) TRAP(openat2) TRAP(clone3) TRAP(rt_sigaction) TRAP(rt_sigprocmask)
+        TRAP(execve) TRAP(execveat) TRAP(openat2) TRAP(clone) TRAP(clone3)
+        TRAP(exit) TRAP(sigaltstack) TRAP(rt_sigaction) TRAP(rt_sigprocmask)
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
     };
 #undef TRAP

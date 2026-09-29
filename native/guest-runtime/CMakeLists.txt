@@ -31,6 +31,7 @@ function(guest_freestanding name)
 endfunction()
 
 guest_executable(bootstrap ${src}/bootstrap.c ${src}/elf.c ${src}/exec.c ${src}/trap.c
+    ${src}/thread_context.c ${src}/thread_context.S
     ${src}/file_calls.c ${src}/fs.c ${src}/proc_paths.c ${src}/program_files.c
     ${src}/namespace.c ${src}/namespace_proc.c ${src}/socket_calls.c ${src}/socket_routes.c ${src}/fd_metadata.c
     ${src}/fs_client.c ${wire} ${raw})

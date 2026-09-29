@@ -24,6 +24,9 @@ javac -d "$work/recipe-classes" "$src/GraphicalRecipe.java" "$app/LinuxGraphical
     "$src/test_paths.c" "$runtime/fs.c" "$runtime/proc_paths.c" "$runtime/raw.c" "$runtime/raw.S" -o "$work/test-paths"
 testroot=$(mktemp -d "$work/path-test/run.XXXXXX")
 "$work/test-paths" "$testroot"
+"$cc" -iquote "$runtime" -std=c17 -O2 -Wall -Wextra -Werror -UNDEBUG -fno-builtin -DMD_NO_START \
+    "$src/test_elf.c" "$runtime/elf.c" "$runtime/raw.c" "$runtime/raw.S" -o "$work/test-elf"
+"$work/test-elf" "$testroot/elf"
 "$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -DMD_INODE_TESTING \
     "$runtime/inode_store.c" "$runtime/inode_db.c" "$runtime/inode_path.c" "$src/test_inodes.c" -lsqlite3 -o "$work/test-inodes"
 inoderoot=$(mktemp -d "$work/path-test/inodes.XXXXXX")

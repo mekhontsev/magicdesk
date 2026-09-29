@@ -41,16 +41,4 @@ md_enter:
     mov x0, xzr
     br x9
 .size md_enter, .-md_enter
-.global md_on_stack
-.type md_on_stack,%function
-md_on_stack:
-    stp x19, x30, [sp, #-16]!
-    mov x19, sp
-    mov x9, x0
-    mov x0, x1
-    mov sp, x2
-    blr x9
-    mov sp, x19
-    ldp x19, x30, [sp], #16
-    ret
 .section .note.GNU-stack,"",%progbits

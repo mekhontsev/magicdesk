@@ -3,6 +3,7 @@
 #include "proc_paths.h"
 #include "fs_rpc.h"
 #include "fd_metadata.h"
+#include "linux_abi.h"
 #include "raw.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -376,7 +377,7 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
     case SYS_faccessat:
     case SYS_faccessat2: {
         int flags = nr == SYS_faccessat2 ? (int)a[3] : 0;
-        if (flags & ~(AT_EACCESS | AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH))
+        if (flags & ~(MD_AT_EACCESS | AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH))
             return -EINVAL;
         if (!*first && (flags & AT_EMPTY_PATH))
             return RAW4(faccessat2, base, "", a[2], flags);

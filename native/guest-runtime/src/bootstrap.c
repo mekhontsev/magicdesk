@@ -5,6 +5,7 @@
 #include "raw.h"
 #include "launch_identity.h"
 #include "socket_routes.h"
+#include "linux_abi.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -37,7 +38,7 @@ void md_boot(uintptr_t *kernel_stack) {
         if (check < 0) md_die("probe pidfd_send_signal", check);
         check = RAW2(prctl, PR_SET_CHILD_SUBREAPER, 1);
         if (check < 0) md_die("probe child subreaper", check);
-        check = RAW4(faccessat2, AT_FDCWD, "/proc/self/exe", 1, AT_EACCESS);
+        check = RAW4(faccessat2, AT_FDCWD, "/proc/self/exe", 1, MD_AT_EACCESS);
         if (check < 0) md_die("probe faccessat2", check);
         long memory = RAW6(mmap, 0, md_page_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (memory < 0) md_die("probe memory", memory);
@@ -101,10 +102,16 @@ void md_boot(uintptr_t *kernel_stack) {
     for (const char *p = name; *p; ++p) if (*p == '/') name = p + 1;
     r = RAW2(prctl, PR_SET_NAME, name);
     if (r < 0) md_die("guest process name", r);
-    long fd = md_program_open(&md_files, "/lib/ld-linux-aarch64.so.1", 1);
+    long fd = md_program_open(&md_files, command.path, 1);
+    if (fd < 0) md_die("open guest program", fd);
+    struct md_image program;
+    r = md_elf_load((int)fd, 0, &program);
+    RAW1(close, fd);
+    if (r < 0) md_die("map guest program", r);
+    fd = md_program_open(&md_files, command.interpreter, 1);
     if (fd < 0) md_die("open stock loader", fd);
     struct md_image image;
-    r = md_elf_load((int)fd, &image);
+    r = md_elf_load((int)fd, 1, &image);
     RAW1(close, fd);
     if (r < 0) md_die("map stock loader", r);
 
@@ -113,20 +120,13 @@ void md_boot(uintptr_t *kernel_stack) {
     if (stack < 0) md_die("reserve guest stack", stack);
     r = RAW3(mprotect, stack + md_page_size, stack_size, PROT_READ | PROT_WRITE);
     if (r < 0) md_die("map guest stack", r);
-    size_t guest_argc = command.argc + 6;
+    size_t guest_argc = command.argc;
     size_t words = 1 + guest_argc + 1 + envc + 1 + 2 * (auxc + 1);
     if (words * sizeof(uintptr_t) > stack_size / 2) md_die("guest arguments", -E2BIG);
     uintptr_t *sp = (uintptr_t *)(((uintptr_t)stack + md_page_size + stack_size - words * sizeof(uintptr_t)) & ~15UL);
     uintptr_t *p = sp;
     *p++ = guest_argc;
-    *p++ = (uintptr_t)"/lib/ld-linux-aarch64.so.1";
-    *p++ = (uintptr_t)"--inhibit-cache";
-    *p++ = (uintptr_t)"--library-path";
-    *p++ = (uintptr_t)"/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu:/lib:/usr/lib";
-    *p++ = (uintptr_t)"--argv0";
-    *p++ = (uintptr_t)command.argv[0];
-    *p++ = (uintptr_t)command.path;
-    for (unsigned i = 1; i < command.argc; ++i) *p++ = (uintptr_t)command.argv[i];
+    for (unsigned i = 0; i < command.argc; ++i) *p++ = (uintptr_t)command.argv[i];
     *p++ = 0;
     for (size_t i = 0; i < envc; ++i) *p++ = (uintptr_t)env[i];
     *p++ = 0;
@@ -134,11 +134,11 @@ void md_boot(uintptr_t *kernel_stack) {
     memcpy(guest_aux, aux, (auxc + 1) * sizeof(*aux));
     for (size_t i = 0; i < auxc; ++i) {
         switch (guest_aux[i].a_type) {
-        case AT_PHDR: guest_aux[i].a_un.a_val = image.phdr; break;
-        case AT_PHNUM: guest_aux[i].a_un.a_val = image.phnum; break;
+        case AT_PHDR: guest_aux[i].a_un.a_val = program.phdr; break;
+        case AT_PHNUM: guest_aux[i].a_un.a_val = program.phnum; break;
         case AT_PHENT: guest_aux[i].a_un.a_val = sizeof(Elf64_Phdr); break;
-        case AT_ENTRY: guest_aux[i].a_un.a_val = image.entry; break;
-        case AT_BASE: guest_aux[i].a_un.a_val = 0; break;
+        case AT_ENTRY: guest_aux[i].a_un.a_val = program.entry; break;
+        case AT_BASE: guest_aux[i].a_un.a_val = image.base; break;
         case AT_EXECFN: guest_aux[i].a_un.a_val = (uintptr_t)md_executable; break;
         }
     }

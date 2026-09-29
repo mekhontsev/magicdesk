@@ -8,7 +8,6 @@ long md_raw(long, long, long, long, long, long, long);
 extern void md_raw_return(void);
 extern void md_signal_return(void);
 __attribute__((noreturn)) void md_enter(uintptr_t entry, uintptr_t stack);
-long md_on_stack(long (*callback)(void *), void *argument, uintptr_t stack);
 #define RAW0(n) md_raw(SYS_##n, 0, 0, 0, 0, 0, 0)
 #define RAW1(n,a) md_raw(SYS_##n, (long)(a), 0, 0, 0, 0, 0)
 #define RAW2(n,a,b) md_raw(SYS_##n, (long)(a), (long)(b), 0, 0, 0, 0)

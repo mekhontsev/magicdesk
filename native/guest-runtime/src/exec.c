@@ -7,7 +7,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
-#include <sys/mman.h>
 
 int md_command_prepare(struct md_command *c, const char *program, char *const argv[]) {
     long r = md_read_string(c->path, sizeof(c->path), program);
@@ -30,8 +29,14 @@ int md_command_prepare(struct md_command *c, const char *program, char *const ar
         if (!r) r = RAW3(read, fd, header, sizeof(header) - 1);
         if (r < 0) { RAW1(close, fd); return (int)r; }
         if (r < 2 || header[0] != '#' || header[1] != '!') {
-            r = md_elf_check((int)fd, 0);
+            r = md_elf_interpreter((int)fd, c->interpreter);
             RAW1(close, fd);
+            if (!r) {
+                fd = md_program_open(&md_files, c->interpreter, 1);
+                if (fd < 0) return (int)fd;
+                r = md_elf_validate((int)fd, 1);
+                RAW1(close, fd);
+            }
             return (int)r;
         }
         RAW1(close, fd);
@@ -58,11 +63,9 @@ int md_command_prepare(struct md_command *c, const char *program, char *const ar
         md_copy(c->path, sizeof(c->path), line);
     }
 }
-struct exec_args { const char *program; char *const *argv; char *const *env; };
-static long execute(void *argument) {
-    struct exec_args *args = argument;
+long md_guest_exec(const char *program, char *const argv[], char *const env[]) {
     struct md_command c;
-    int r = md_command_prepare(&c, args->program, args->argv);
+    int r = md_command_prepare(&c, program, argv);
     if (r < 0) return r;
     char *next[MD_ARG_MAX + 24 + MD_SOCKET_ROUTES_MAX * 3];
     next[0] = md_bootstrap;
@@ -78,19 +81,5 @@ static long execute(void *argument) {
     else next[n++]=md_files.root;
     next[n++]=c.path;
     for (unsigned i = 0; i <= c.argc; ++i) next[n+i] = c.argv[i];
-    return RAW3(execve, md_bootstrap, next, args->env);
-}
-long md_guest_exec(const char *program, char *const argv[], char *const env[]) {
-    // Only exec preparation allocates scratch space: posix_spawn's child stack is small.
-    // Kernel exec discards it on success; every failure releases the exact mapping.
-    const size_t size = 256 * 1024;
-    long memory = RAW6(mmap, 0, size + 2 * md_page_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (memory < 0) return memory;
-    long r = RAW3(mprotect, memory + md_page_size, size, PROT_READ | PROT_WRITE);
-    if (!r) {
-        struct exec_args args = {program, argv, env};
-        r = md_on_stack(execute, &args, (uintptr_t)memory + md_page_size + size);
-    }
-    RAW2(munmap, memory, size + 2 * md_page_size);
-    return r;
+    return RAW3(execve, md_bootstrap, next, env);
 }
