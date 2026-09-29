@@ -91,7 +91,7 @@ int mdi_ancestor(struct md_inode_store *s, const char *ancestor, const char *chi
 int md_inode_path(struct md_inode_store *s, int dirfd, char *out, size_t size) {
     if (!out) return -EFAULT;
     if (!size) return -ERANGE;
-    int r = mdi_sql(s, "BEGIN");
+    int r = mdi_begin(s, 0);
     if (r) return r;
     struct mdi_node node;
     r = dirfd == MD_INODE_ROOT ? mdi_node(s, MDI_ROOT, &node) : mdi_fd(s, dirfd, &node);

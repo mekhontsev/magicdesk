@@ -561,8 +561,10 @@ final class AutomationCommandCatalog {
                 .put(readTool(
                         "clipboard.read_text",
                         "Read clipboard text",
-                        "Read text from Android's system clipboard. Sensitive operation because clipboard contents may contain secrets; Android may require a focused MagicDesk window.",
-                        emptySchema()))
+                        "Read text from Android's system clipboard. Optional expectedText waits on clipboard-change events for an exact match; timeout returns matched=false, not copy completion. Requires content permission and may require a focused MagicDesk window.",
+                        objectSchema(new JSONObject()
+                                .put("expectedText", stringProperty("Optional exact text to await, at most 262144 characters."))
+                                .put("timeoutMillis", integerProperty("Only with expectedText: 0 to 30000 ms; default 5000.")))))
                 .put(actionTool(
                         "clipboard.write_text",
                         "Write clipboard text",
@@ -807,6 +809,7 @@ final class AutomationCommandCatalog {
                                 "shell_surface_present", "shell_surface_absent", "task_state"))
                         .put("sessionId", stringProperty("Exact graphical session ID for graphics conditions or shell surface filter."))
                         .put("windowId", integerProperty("Native graphical window ID, not Android task id. Omit for graphics_window_present to await any mapped client; zero selects a whole-desktop viewer for host/state conditions."))
+                        .put("parentWindowId", integerProperty("Optional positive native parent ID for graphics_window_present, scoped to sessionId. Matches direct dependent catalog windows, not toolkit widgets or all descendants."))
                         .put("workspaceId", stringProperty("Workspace residency ID for shell-surface conditions or task_state."))
                         .put("surfaceId", stringProperty("Optional exact shell surface identity from inspect_workspace."))
                         .put("state", enumProperty("Confirmed state for task_state or graphics_window_state; enabled supplies the expected value.", "fullscreen", "maximized", "concealed"))
@@ -1928,6 +1931,7 @@ final class AutomationCommandCatalog {
                         .put("textLength", integerProperty(
                                 "Text length when text was read or written."));
                 if ("clipboard.read_text".equals(toolName)) {
+                    properties.put("matched", booleanProperty("Present with expectedText; false means the observation deadline expired."));
                     properties.put("text", stringProperty(
                                     "Bounded clipboard text returned by the explicit read."))
                             .put("truncated", booleanProperty(

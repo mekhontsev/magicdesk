@@ -12,6 +12,7 @@ public final class EventDrivenWaits {
         APPLICATION_CATALOG,
         PTY_RESPONSE,
         AUTOMATION_EVENT,
+        CLIPBOARD_CHANGE,
         USER_INTERACTION,
         UI_AUTOMATION_CONNECTION,
         UI_AUTOMATION_CHANGE,

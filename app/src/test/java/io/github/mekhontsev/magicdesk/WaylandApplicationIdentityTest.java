@@ -4,7 +4,7 @@ import org.junit.Test;
 
 public final class WaylandApplicationIdentityTest {
     @Test public void applicationLifetimeFollowsWindowsWhileManagerSessionsRemainRetained() throws Exception {
-        RuntimeSourceFixture.verify("""
+        RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", """
             static class WaylandSession { record Window(long id, boolean mapped) { } }
             static class Looper {
                 static Object getMainLooper() { return null; }
@@ -25,7 +25,8 @@ public final class WaylandApplicationIdentityTest {
             Runnable applicationTimeout=()->{};
             Object recentScope=new Object();
             int recorded;
-            boolean application=true,hadWindows,closed;
+            boolean application=true,closed;
+            HostedApplicationLifetime applicationLifetime=new HostedApplicationLifetime();
             String id() { return "session"; }
             static class GraphicalSessions { static void changed(String id, String operation) { } }
             boolean ready() { return !closed; }
@@ -43,9 +44,9 @@ public final class WaylandApplicationIdentityTest {
             public static void verify() {
                 Fixture f=new Fixture();
                 f.changed();
-                check(!f.closed && !f.hadWindows && f.recorded==0,"pending launch closed or recorded too early");
+                check(!f.closed && !f.applicationLifetime.hadWindows() && f.recorded==0,"pending launch closed or recorded too early");
                 f.catalog=List.of(new WaylandSession.Window(1,true)); f.changed();
-                check(f.hadWindows && f.recorded==1 && f.MAIN.cancellations==1,"first window did not complete launch");
+                check(f.applicationLifetime.hadWindows() && f.recorded==1 && f.MAIN.cancellations==1,"first window did not complete launch");
                 f.catalog=List.of(new WaylandSession.Window(1,true),new WaylandSession.Window(2,true)); f.changed();
                 check(f.recorded==1 && f.presentation.presented.equals(List.of(1L,2L)),"child window restarted launch");
                 f.catalog=List.of(new WaylandSession.Window(1,false)); f.changed();
@@ -53,15 +54,19 @@ public final class WaylandApplicationIdentityTest {
                         "unmapping destroyed an existing client");
                 check(f.windowControlOwners.retained.equals(List.of(1L)),"unmapped client lost its window control owner");
                 f.catalog=List.of(); f.changed();
+                check(!f.closed,"window destruction interrupted command cleanup");
+                f.applicationLifetime.completeLaunch(); f.changed();
                 check(f.closed,"last destroyed window left an application session running");
-                Fixture manager=new Fixture(); manager.application=false; manager.hadWindows=true; manager.changed();
+                Fixture manager=new Fixture(); manager.application=false;
+                manager.applicationLifetime.windows(true,true); manager.applicationLifetime.completeLaunch(); manager.changed();
                 check(!manager.closed,"empty manager session was stopped");
             }
-            """ + RuntimeSourceFixture.methods("WaylandSessions", "changed"));
+            """ + RuntimeSourceFixture.methods("WaylandSessions", "changed"),
+                "HostedApplicationLifetime");
     }
 
     @Test public void pendingAndHostlessApplicationsKeepOneRecipeAndDeletedLaunchersStayDeleted() throws Exception {
-        RuntimeSourceFixture.verify("""
+        RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", """
             static class WaylandSession {
                 record Window(long id, boolean mapped, long parent) {
                     Window(long id, boolean mapped) { this(id, mapped, 0); }
@@ -72,7 +77,8 @@ public final class WaylandApplicationIdentityTest {
             Recipe recipe=new Recipe("editor", "com.termux", "/editor.desktop");
             Map<Integer,Long> hosts=new LinkedHashMap<>();
             Presentation presentation=new Presentation();
-            boolean closed,hadWindows;
+            boolean closed;
+            HostedApplicationLifetime applicationLifetime=new HostedApplicationLifetime();
             boolean stopped() { return closed; }
             List<WaylandSession.Window> catalog=List.of();
             List<WaylandSession.Window> windows() { return catalog; }
@@ -83,7 +89,7 @@ public final class WaylandApplicationIdentityTest {
                 f.host(100,0);
                 check(f.hostTaskId(0)==100,"pending task not reused");
                 f.catalog=List.of(new WaylandSession.Window(1,true),new WaylandSession.Window(2,true));
-                f.hadWindows=true; f.host(100,1); f.host(200,2);
+                f.applicationLifetime.windows(true,true); f.host(100,1); f.host(200,2);
                 check(f.recipeWindow("editor")==1 && f.hostTaskId(1)==100,"application identity lost");
                 f.catalog=List.of(new WaylandSession.Window(3,true,1), new WaylandSession.Window(1,true), new WaylandSession.Window(2,true));
                 check(f.windowRecipe(3)==null && f.windowRecipe(1)==f.recipe && f.windowRecipe(99)==null,
@@ -99,10 +105,11 @@ public final class WaylandApplicationIdentityTest {
                 f.recipe=new Recipe("editor","com.termux","/editor.desktop");
                 f.catalog=List.of();
                 check(f.recipeWindow("editor")==-1,"finished application became pending");
-                f.closed=true; f.hadWindows=false;
+                f.closed=true;
                 check(f.recipeWindow("editor")==-1,"closed session reused");
             }
             """ + RuntimeSourceFixture.methods("WaylandSessions", "recipeWindow", "windowRecipe", "host", "hostTaskId", "releaseHost", "forgetRecipe")
-                    .replace("RecentApplicationStore.Entry", "Recipe"));
+                    .replace("RecentApplicationStore.Entry", "Recipe"),
+                "HostedApplicationLifetime");
     }
 }

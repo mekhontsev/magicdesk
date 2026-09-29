@@ -19,8 +19,12 @@ connection. There is no current distribution, global guest root or singleton
 per launch method. Separate guest stores and independent PRoot/chroot entry
 scripts can be used concurrently. Each guest launch owns a filesystem service
 and a supervised process tree; cancelling it does not cancel another launch.
-Stores persist independently of those processes. Shared-store contention is
-reported explicitly, without automatic transaction retries.
+Stores persist independently of those processes. Metadata operations on the
+same store acquire a kernel file lock before entering SQLite and release it
+after commit or rollback. Separate launches can share a store without exposing
+ordinary internal transaction contention to guest syscalls. There is no polling
+or transaction replay; data IO through opened descriptors stays native. An
+external database writer that bypasses this gate still produces an explicit error.
 
 Actual UID 2000 and UID 0 are accepted without switching identity. Root is a
 user choice, not a fallback or prerequisite. Neither the renderer nor a failed
@@ -124,6 +128,18 @@ HTTPS with certificate verification work on the tested device.
 Routed X11 and Wayland both run Mousepad and Galculator, including repeated
 independent clients in one retained session. The X11 negative check rejects an
 incorrect cookie before a window is mapped.
+
+Installed `.desktop` recipes use the shortcut editor's actual launch builder.
+Both protocols pass bidirectional Unicode clipboard exchange, Mousepad saving
+with fresh-process readback, simultaneous Mousepad/Galculator launches sharing
+one store, recipe reuse, and protocol close followed by actual zero-status
+process exit. Window destruction alone does not end a still-running launch
+command. The Wayland workflow also observes a child file dialog's map and
+dismissal; this is not full file-picker interaction or visual coverage. X11
+transient dialogs need native-family observation beyond the toplevel catalog.
+The separate rapid repeated-digit Galculator input check remains failing;
+its cause is not established. These checks do not establish Qt, IME or GPU
+compatibility.
 
 This is not certification of a full
 Debian base, arbitrary package maintainer scripts, APT, a Linux desktop or GPU

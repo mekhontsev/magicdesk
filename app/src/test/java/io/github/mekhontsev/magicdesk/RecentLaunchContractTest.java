@@ -47,7 +47,7 @@ public final class RecentLaunchContractTest {
     }
 
     @Test public void x11WaitsForUsabilityAndRecordsOnlyExplicitLaunchScope() throws Exception {
-        RuntimeSourceFixture.verify("""
+        RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", """
                 enum State { STARTING, READY }
                 enum RecentLaunchScope { DESKTOP, INDEPENDENT }
                 static class RecentApplicationStore {
@@ -63,13 +63,14 @@ public final class RecentLaunchContractTest {
                 Map<Long, RecentApplicationStore.Entry> windowRecipes = new HashMap<>();
                 RecentLaunchScope recentScope;
                 State state = State.STARTING;
-                boolean application = true, hadWindows;
+                boolean application = true;
+                HostedApplicationLifetime applicationLifetime = new HostedApplicationLifetime();
                 public static void verify() {
                     Fixture f = new Fixture();
                     f.recordUse(RecentLaunchScope.INDEPENDENT);
                     f.state = State.READY; f.recordUse();
                     check(RecentApplications.scopes.isEmpty(), "unusable application entered history");
-                    f.hadWindows = true; f.recordUse();
+                    f.applicationLifetime.windows(true, true); f.recordUse();
                     f.recordUse(RecentLaunchScope.DESKTOP);
                     check(RecentApplications.scopes.equals(List.of(RecentLaunchScope.INDEPENDENT, RecentLaunchScope.DESKTOP)),
                             "reuse did not record the new destination scope");
@@ -85,7 +86,8 @@ public final class RecentLaunchContractTest {
                     f.recordUse(42, RecentLaunchScope.INDEPENDENT);
                     check(RecentApplications.scopes.size() == 4, "unready alias entered history");
                 }
-                """ + RuntimeSourceFixture.methods("X11Sessions", "recordUse"));
+                """ + RuntimeSourceFixture.methods("X11Sessions", "recordUse"),
+                "HostedApplicationLifetime");
     }
 
     @Test public void recentAndRunningHaveDifferentSourcesRegardlessOfAccess() throws Exception {

@@ -171,9 +171,8 @@ final class X11Sessions {
         private final X11LaunchSpec launch;
         private final String startupCommand;
         private final String startupDirectory;
-        private boolean hadWindows;
+        private final HostedApplicationLifetime applicationLifetime = new HostedApplicationLifetime();
         private boolean hadApplicationWindow;
-        private boolean startupFinished;
         private final Runnable windowTimeout = this::windowReadinessExpired;
         private final IBinder lifetime = new Binder();
         private final List<Listener> listeners = new CopyOnWriteArrayList<>();
@@ -278,7 +277,7 @@ final class X11Sessions {
             recordUse();
         }
         private synchronized void recordUse() {
-            if (recipe != null && recentScope != null && state == State.READY && (!application || hadWindows))
+            if (recipe != null && recentScope != null && state == State.READY && (!application || applicationLifetime.hadWindows()))
                 RecentApplications.record(context, recipe.usedAt(System.currentTimeMillis()), recentScope);
         }
         synchronized int dpi() { return density.resolve(scalePercent); }
@@ -447,12 +446,12 @@ final class X11Sessions {
                                     : new IllegalStateException("X11 command exited (" + code + "): " + output), true);
                             else MAIN.post(() -> {
                                 if (stopped()) return;
-                                startupFinished = true;
+                                applicationLifetime.completeLaunch();
                                 LAUNCHES.completed(id());
                                 reconcileLaunches();
                                 for (Session session : list()) session.changed();
                                 DesktopAutomationEventJournal.record("x11", "command_finished", true, "session=" + id() + " exit=0");
-                                if (application && hadWindows && windows.isEmpty() && !stopped()) close();
+                                if (application && applicationLifetime.quiescent() && !stopped()) close();
                             });
                         }));
             } catch (RuntimeException failure) { resource.close(); commandFailed(failure, true); }
@@ -505,13 +504,13 @@ final class X11Sessions {
                         associateRecipes(snapshot);
                         if (application) LAUNCHES.update(id(), launchScope(), snapshot);
                         windowControlOwners.retain(snapshot.stream().map(X11Session.Window::id).toList());
+                        boolean first = !applicationLifetime.hadWindows();
+                        applicationLifetime.windows(!snapshot.isEmpty(), !snapshot.isEmpty());
                         if (!snapshot.isEmpty()) {
-                            boolean first = !hadWindows;
-                            hadWindows = true;
                             hadApplicationWindow |= snapshot.stream().anyMatch(X11Session.Window::applicationWindow);
                             if (first) recordUse();
                             if (snapshot.stream().anyMatch(item -> !item.provisional())) MAIN.removeCallbacks(windowTimeout);
-                        } else if (application && hadWindows && (hadApplicationWindow || startupFinished)) {
+                        } else if (application && applicationLifetime.quiescent()) {
                             DesktopAutomationEventJournal.record("x11", "application_windows_gone", true, "session=" + id());
                             close(); return;
                         }
@@ -570,7 +569,7 @@ final class X11Sessions {
 
         private void windowReadinessExpired() {
             if (application && windows.isEmpty() && !stopped())
-                fail(new IllegalStateException(startupFinished
+                fail(new IllegalStateException(applicationLifetime.launchFinished()
                         ? "The command finished without a window on this X server. It may have reused an application already running on another server."
                         : "X11 application did not create a window"));
         }

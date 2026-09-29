@@ -28,6 +28,8 @@ python native/guest-exec-lab/test_graphics.py build/guest-applications --applica
 python native/guest-exec-lab/test_graphics.py build/guest-applications --application galculator
 python native/guest-exec-lab/test_graphics.py build/guest-applications --application mousepad --routed
 python native/guest-exec-lab/test_graphics.py build/guest-applications --application mousepad --routed --protocol x11
+python native/guest-exec-lab/test_shortcuts.py build/guest-applications --protocol wayland
+python native/guest-exec-lab/test_shortcuts.py build/guest-applications --protocol x11
 ```
 
 Application checks require a current debug APK with the guest CLI installed.
@@ -43,6 +45,26 @@ Mousepad coverage includes editing, saving, fresh-process file readback and
 reopening; both applications must exit normally, not merely lose their window.
 Settings checks exercise real D-Bus activation and persistence, not a substituted
 keyfile backend. Application logs and hashed screenshots accompany the JSON report.
+
+`test_shortcuts.py` encodes the shortcut editor's real `LinuxLaunchRecipe` through
+a debug-only Java fixture and launches the resulting `.desktop` files through
+the ordinary launch service. It checks bidirectional Unicode clipboard exchange,
+guest file saving, Wayland file-dialog mapping and dismissal, concurrent applications in
+one store, recipe reuse and actual process exit after protocol close. Catalog
+events identify Wayland dependent windows without guessed IDs. X11 transient
+dialogs require native-family observation and are not covered by this fixture;
+they are not entries in the observed toplevel catalog. Inotify receipts identify
+the exact command's start and exit. Screenshots are point-in-time observations,
+not synchronization barriers. The test restores an existing plain-text clipboard
+and refuses to replace non-text contents. Launchers and their receipts remain in
+the prepared test directory for inspection; their launches participate in Recent.
+
+The default calculator workflow checks `7+8=15`. An additional
+`--repeat-digit` check sends `2+2` without a pacing delay and requires `4`.
+It currently reads `2` on the tested Wayland stack and retains a separate failing
+`*-shortcuts-repeat-digit-results.json`; it must not be treated as passing
+input coverage or hidden by a sleep. Whether GTK activation, application handling
+or input delivery owns this failure is not yet established.
 
 Device checks use the configured MagicDesk MCP connection and require selected
 shell UID 2000. They do not change identity, install an APK or start Desktop.

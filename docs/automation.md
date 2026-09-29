@@ -515,7 +515,14 @@ Inspection never starts Desktop or adds another framework task observer.
 They wait on existing catalog, host and workspace events, not periodic queries.
 Window absence means destruction or the end of its exact owning session, not
 unmapping. Session absence also has its own condition. Omit `windowId` from `graphics_window_present` to await the first
-mapped client without guessing its identity. For host/state conditions, zero
+mapped client without guessing its identity. An optional positive `parentWindowId`
+restricts this presence wait to directly related catalog windows in the same
+session, for example a file dialog whose ID is not yet known. It uses the shared
+published parent relationship, not toolkit widgets or recursive descendants;
+an optional `windowId` further restricts the match. It observes only the shared
+toplevel catalog: X11 transients exposed solely by `graphics.inspect_window`
+family inspection are outside this wait's coverage.
+For host/state conditions, zero
 selects a whole-desktop viewer. Shell-surface conditions require a live workspace and match mapped
 surfaces. State predicates require `state` and `enabled`; unknown state never
 satisfies a negative assertion. Select `taskId` when a native window has several
@@ -911,6 +918,13 @@ Android clipboard privacy rules. Writing supports Android's sensitive-content
 marker. These commands require the content permission; clipboard contents are
 never exposed as an MCP resource, included in diagnostics, or declared as App
 Functions.
+`clipboard.read_text` optionally accepts `expectedText` and `timeoutMillis`
+(0-30,000 ms, default 5,000 with expected text). It subscribes to Android's
+primary-clip events before reading, then waits without polling. `matched=false`
+means the observation deadline expired, not that Ctrl+C completed. Truncated
+text cannot satisfy a match. Access denial still fails immediately; the listener
+is released on match, expiry, interruption or error. This is an explicit
+content-authorized operation, not a background clipboard monitor.
 The text limit is 262,144 UTF-16 code units. Read results retain the original
 `textLength` and report `truncated`; the returned prefix never splits a valid
 surrogate pair and may therefore be one code unit shorter than the limit.

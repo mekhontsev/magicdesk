@@ -117,7 +117,10 @@ remains explicit, without a different UID or system-policy fallback.
   identity, Recent and Android placement between X11 and Wayland. The pending
   application host claims the first mapped toplevel; additional toplevels use
   `HostedWindowPresentation`. A recipe launch owns a dedicated session, which
-  ends when its last window is destroyed. Whole-desktop recipes and sessions
+  ends when its last window is destroyed and its launch command has completed.
+  The shared `HostedApplicationLifetime` observes both events independently,
+  allowing client cleanup after window destruction without a settling delay.
+  A command that stays headless requires explicit Stop. Whole-desktop recipes and sessions
   explicitly created in the manager remain retained until stopped. Deleting a shortcut forgets its launch
   history without closing live clients.
 - The native compositor API knows no Java classes, packages, Binder authorization,

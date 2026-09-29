@@ -17,6 +17,9 @@ final class AutomationGraphicsObservation {
         boolean workspace = condition.equals("task_state") || condition.startsWith("shell_surface_");
         String identity = workspace ? "workspaceId" : "sessionId";
         if (args.optString(identity, "").isBlank()) throw new IllegalArgumentException("Expected " + identity);
+        if (args.has("parentWindowId") && (!condition.equals("graphics_window_present")
+                || AutomationJsonArguments.requiredLong(args, "parentWindowId") <= 0))
+            throw new IllegalArgumentException("parentWindowId requires graphics_window_present and a positive native ID");
         if (condition.equals("task_state") && AutomationJsonArguments.requiredInt(args, "taskId") < 0)
             throw new IllegalArgumentException("Expected taskId");
         if (condition.startsWith("shell_surface_") && args.optString("surfaceId", "").isBlank()
@@ -68,12 +71,11 @@ final class AutomationGraphicsObservation {
         result.put("session", snapshot);
         if (condition.equals("graphics_ready")) return result.put("matched", session.ready());
         if (!session.ready()) return result;
-        if (condition.equals("graphics_window_present") && !args.has("windowId"))
-            return result.put("matched", session.windows().stream().anyMatch(GraphicalSessions.Window::mapped));
+        if (condition.equals("graphics_window_present"))
+            return result.put("matched", session.windows().stream().anyMatch(window -> presentMatches(window, args)));
         long window = AutomationJsonArguments.requiredLong(args, "windowId");
         var selected = session.windows().stream().filter(item -> item.id() == window).findFirst().orElse(null);
         switch (condition) {
-            case "graphics_window_present" -> { return result.put("matched", selected != null && selected.mapped()); }
             case "graphics_window_absent" -> { return result.put("matched", selected == null); }
             case "graphics_host_attached", "graphics_window_state" -> {
                 var matching = new JSONArray();
@@ -95,6 +97,10 @@ final class AutomationGraphicsObservation {
             }
             default -> throw new IllegalArgumentException("Unknown graphical condition");
         }
+    }
+    static boolean presentMatches(GraphicalSessions.Window window, JSONObject args) {
+        return window.mapped() && (!args.has("windowId") || window.id() == args.optLong("windowId"))
+                && (!args.has("parentWindowId") || window.layout().parent() == args.optLong("parentWindowId"));
     }
     static boolean stateMatches(JSONObject state, JSONObject args) throws JSONException {
         String name = args.getString("state");

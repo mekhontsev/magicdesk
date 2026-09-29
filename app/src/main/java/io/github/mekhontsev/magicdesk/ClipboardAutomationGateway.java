@@ -20,8 +20,51 @@ final class ClipboardAutomationGateway {
         mClipboard = AndroidClipboardGateway.get(mContext);
     }
 
-    DesktopAutomationResult readText() throws JSONException {
-        return describeText(mClipboard.readText());
+    DesktopAutomationResult readText(JSONObject args) throws JSONException, java.io.IOException, InterruptedException {
+        if (!args.has("expectedText")) {
+            if (args.has("timeoutMillis")) throw new IllegalArgumentException("timeoutMillis requires expectedText");
+            return describeText(mClipboard.readText());
+        }
+        if (!(args.opt("expectedText") instanceof String expected) || expected.length() > MAX_TEXT_CHARS)
+            throw new IllegalArgumentException("expectedText must be bounded plain text");
+        int timeout = args.has("timeoutMillis") ? AutomationJsonArguments.requiredInt(args, "timeoutMillis") : 5000;
+        if (timeout < 0 || timeout > 30_000) throw new IllegalArgumentException("timeoutMillis must be 0 to 30000");
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper())
+            throw new IllegalStateException("Clipboard observation must not block the main thread");
+        return awaitText(mClipboard::readText, mClipboard::observe, expected, timeout);
+    }
+
+    static DesktopAutomationResult awaitText(
+            java.util.function.Supplier<AndroidClipboardGateway.TextReadResult> read,
+            java.util.function.Function<Runnable, AutoCloseable> observe,
+            String expected, int timeoutMillis) throws JSONException, java.io.IOException, InterruptedException {
+        Object gate = new Object();
+        long[] revision = {0};
+        long deadline = System.nanoTime() + timeoutMillis * 1_000_000L;
+        AutoCloseable listener = observe.apply(() -> {
+            synchronized (gate) { revision[0]++; gate.notifyAll(); }
+        });
+        try {
+            for (;;) {
+                long before;
+                synchronized (gate) { before = revision[0]; }
+                var result = describeText(read.get());
+                if (!result.success) return result;
+                boolean matched = !result.data.getBoolean("truncated") && expected.equals(result.data.getString("text"));
+                result.data.put("matched", matched);
+                long remaining = deadline - System.nanoTime();
+                if (matched || remaining <= 0) return result;
+                synchronized (gate) {
+                    if (before != revision[0]) continue;
+                    // EVENT_WAIT: Android primary-clip change; expiry returns matched=false, not copy completion.
+                    EventDrivenWaits.await(gate, EventDrivenWaits.Reason.CLIPBOARD_CHANGE,
+                            Math.max(1, (remaining + 999_999) / 1_000_000));
+                }
+            }
+        } finally {
+            try { listener.close(); }
+            catch (Exception error) { throw new java.io.IOException("Could not release clipboard observation", error); }
+        }
     }
 
     static DesktopAutomationResult describeText(

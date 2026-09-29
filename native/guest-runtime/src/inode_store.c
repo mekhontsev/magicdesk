@@ -9,7 +9,7 @@
 static int create_node(struct md_inode_store *s, int dirfd, const char *path,
         mode_t kind, mode_t mode, const char *target) {
     if (mode & ~0777) return -ENOTSUP;
-    int r = mdi_sql(s, "BEGIN IMMEDIATE");
+    int r = mdi_begin(s, 1);
     if (r) return r;
     struct mdi_location loc;
     r = mdi_walk(s, dirfd, path, MDI_ENTRY, 1, &loc);
@@ -43,7 +43,7 @@ int md_inode_symlink(struct md_inode_store *s, const char *target, int dirfd, co
 ssize_t md_inode_readlink(struct md_inode_store *s, int dirfd, const char *path, char *out, size_t size) {
     if (!out) return -EFAULT;
     if (!size) return -EINVAL;
-    int r = mdi_sql(s, "BEGIN");
+    int r = mdi_begin(s, 0);
     if (r) return r;
     struct mdi_location loc;
     r = mdi_walk(s, dirfd, path, MDI_NOFOLLOW, 0, &loc);
@@ -62,7 +62,7 @@ int md_inode_open(struct md_inode_store *s, int dirfd, const char *path, int fla
     int create = flags & O_CREAT;
     if (create && (flags & O_DIRECTORY)) return -EINVAL;
     if (create && (mode & ~0777)) return -ENOTSUP;
-    int r = mdi_sql(s, create ? "BEGIN IMMEDIATE" : "BEGIN");
+    int r = mdi_begin(s, !!create);
     if (r) return r;
     struct mdi_location loc;
     r = mdi_walk(s, dirfd, path, create && (flags & O_EXCL) ? MDI_ENTRY
@@ -92,7 +92,7 @@ int md_inode_open(struct md_inode_store *s, int dirfd, const char *path, int fla
 int md_inode_link(struct md_inode_store *s, int sourcefd, const char *source,
         int targetfd, const char *target, int flags) {
     if (flags & ~AT_SYMLINK_FOLLOW) return -EINVAL;
-    int r = mdi_sql(s, "BEGIN IMMEDIATE");
+    int r = mdi_begin(s, 1);
     if (r) return r;
     struct mdi_location a, b;
     r = mdi_walk(s, sourcefd, source, flags & AT_SYMLINK_FOLLOW ? MDI_FOLLOW : MDI_NOFOLLOW, 0, &a);
@@ -106,7 +106,7 @@ int md_inode_link(struct md_inode_store *s, int sourcefd, const char *source,
 }
 int md_inode_unlink(struct md_inode_store *s, int dirfd, const char *path, int flags) {
     if (flags & ~AT_REMOVEDIR) return -EINVAL;
-    int r = mdi_sql(s, "BEGIN IMMEDIATE");
+    int r = mdi_begin(s, 1);
     if (r) return r;
     struct mdi_location loc;
     r = mdi_walk(s, dirfd, path, MDI_ENTRY, 0, &loc);
@@ -129,7 +129,7 @@ int md_inode_unlink(struct md_inode_store *s, int dirfd, const char *path, int f
 int md_inode_rename(struct md_inode_store *s, int sourcefd, const char *source,
         int targetfd, const char *target, unsigned flags) {
     if (flags != 0 && flags != RENAME_NOREPLACE && flags != RENAME_EXCHANGE) return -EINVAL;
-    int r = mdi_sql(s, "BEGIN IMMEDIATE");
+    int r = mdi_begin(s, 1);
     if (r) return r;
     struct mdi_location a, b;
     r = mdi_walk(s, sourcefd, source, MDI_ENTRY, 0, &a);
@@ -171,7 +171,7 @@ int md_inode_rename(struct md_inode_store *s, int sourcefd, const char *source,
 int md_inode_stat(struct md_inode_store *s, int dirfd, const char *path, int flags, struct stat *st) {
     if (!st) return -EFAULT;
     if (flags & ~AT_SYMLINK_NOFOLLOW) return -EINVAL;
-    int r = mdi_sql(s, "BEGIN");
+    int r = mdi_begin(s, 0);
     if (r) return r;
     struct mdi_location loc;
     r = mdi_walk(s, dirfd, path, flags & AT_SYMLINK_NOFOLLOW ? MDI_NOFOLLOW : MDI_FOLLOW, 0, &loc);
@@ -180,7 +180,7 @@ int md_inode_stat(struct md_inode_store *s, int dirfd, const char *path, int fla
 }
 int md_inode_fstat(struct md_inode_store *s, int fd, struct stat *st) {
     if (!st) return -EFAULT;
-    int r = mdi_sql(s, "BEGIN");
+    int r = mdi_begin(s, 0);
     if (r) return r;
     struct mdi_node node;
     r = mdi_fd(s, fd, &node);
@@ -190,7 +190,7 @@ int md_inode_fstat(struct md_inode_store *s, int fd, struct stat *st) {
 int md_inode_list(struct md_inode_store *s, int dirfd, const char *path,
         int (*visit)(const char *, void *), void *context) {
     if (!visit) return -EINVAL;
-    int r = mdi_sql(s, "BEGIN");
+    int r = mdi_begin(s, 0);
     if (r) return r;
     struct mdi_location loc;
     r = mdi_walk(s, dirfd, path, MDI_FOLLOW, 0, &loc);

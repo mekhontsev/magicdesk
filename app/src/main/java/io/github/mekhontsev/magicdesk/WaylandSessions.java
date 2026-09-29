@@ -99,7 +99,7 @@ final class WaylandSessions {
         private RecentLaunchScope recentScope;
         private final boolean application;
         final boolean desktop;
-        private boolean hadWindows;
+        private final HostedApplicationLifetime applicationLifetime = new HostedApplicationLifetime();
         private final Runnable applicationTimeout = () -> fail(new IOException("Wayland application did not open a window"));
         private final BroadcastReceiver admission = new BroadcastReceiver() {
             @Override public void onReceive(Context source, Intent intent) {
@@ -143,7 +143,7 @@ final class WaylandSessions {
             MAIN.removeCallbacks(timeout);
             // EVENT_WAIT: first client map after a recipe launch; expiry fails the launch.
             if (recipe != null) MAIN.postDelayed(applicationTimeout, 60_000);
-            if (startupCommand != null && !startupCommand.isBlank()) launchCommand(startupCommand, startupDirectory);
+            if (startupCommand != null && !startupCommand.isBlank()) launchCommand(startupCommand, startupDirectory, true);
             changed();
         }
 
@@ -283,7 +283,7 @@ final class WaylandSessions {
         long recipeWindow(String key) {
             if (stopped() || recipe == null || !recipe.key().equals(key)) return -1;
             return windows().stream().filter(item -> item.mapped() && item.parent() == 0).mapToLong(WaylandSession.Window::id)
-                    .findFirst().orElse(hadWindows ? -1 : 0);
+                    .findFirst().orElse(applicationLifetime.hadWindows() ? -1 : 0);
         }
         synchronized boolean recordTaskUse(int taskId, RecentLaunchScope scope) {
             if (!hosts.containsKey(taskId)) return false;
@@ -293,7 +293,7 @@ final class WaylandSessions {
             if (Looper.myLooper() != Looper.getMainLooper()) { MAIN.post(() -> recordUse(scope)); return; }
             recentScope = scope;
             var entry = recipe;
-            if (entry != null && hadWindows && ready() && scope != null)
+            if (entry != null && applicationLifetime.hadWindows() && ready() && scope != null)
                 RecentApplications.record(context, entry.usedAt(System.currentTimeMillis()), scope);
         }
         private void forgetRecipe(String termuxPackage, String path) {
@@ -345,10 +345,20 @@ final class WaylandSessions {
         void execute(String command, String directory) {
             if (!execution.canExecuteHostCommand())
                 throw new IllegalStateException("Open another application through the selected Linux environment");
-            launchCommand(command, directory);
+            launchCommand(command, directory, false);
         }
 
-        private void launchCommand(String command, String directory) {
+        private void commandFinished(boolean startup, int code, String output, Throwable failure) {
+            MAIN.post(() -> {
+                if (stopped()) return;
+                if (startup) applicationLifetime.completeLaunch();
+                if (failure != null || code != 0) presentationFailed(failure != null ? failure
+                        : new IOException("Wayland command exited (" + code + "): " + output));
+                else changed();
+            });
+        }
+
+        private void launchCommand(String command, String directory, boolean startup) {
             if (command == null || command.isBlank()) throw new IllegalArgumentException("Missing Wayland command");
             if (!ready()) throw new IllegalStateException("Wayland session is not ready");
             String cwd = DesktopExecWorkingDirectory.normalize(directory);
@@ -359,10 +369,9 @@ final class WaylandSessions {
                         if (stopped()) { commandSlot.close(); return; }
                         commandSlot.attach(execution.startEndpointClient(socket, command, cwd, (code, output, clientError) -> {
                             commandSlot.close();
-                            if (!stopped() && (clientError != null || code != 0)) MAIN.post(() -> presentationFailed(
-                                    clientError != null ? clientError : new IOException("Wayland command exited (" + code + "): " + output)));
+                            commandFinished(startup, code, output, clientError);
                         }));
-                    } catch (RuntimeException startError) { commandSlot.close(); MAIN.post(() -> presentationFailed(startError)); }
+                    } catch (RuntimeException startError) { commandSlot.close(); commandFinished(startup, -1, "", startError); }
                 });
                 return;
             }
@@ -392,11 +401,10 @@ final class WaylandSessions {
                             commandSlot.attach(execution.startClient(handoff, command, cwd, (code, output, clientError) -> {
                                 commandSlot.close();
                                 handoffSlot.close();
-                                if (!stopped() && (clientError != null || code != 0)) MAIN.post(() -> presentationFailed(
-                                        clientError != null ? clientError : new IOException("Wayland command exited (" + code + "): " + output)));
+                                commandFinished(startup, code, output, clientError);
                             }));
                         } catch (RuntimeException startError) {
-                            commandSlot.close(); handoffSlot.close(); MAIN.post(() -> presentationFailed(startError));
+                            commandSlot.close(); handoffSlot.close(); commandFinished(startup, -1, "", startError);
                         }
                     });
                 } catch (IOException | RuntimeException startError) {
@@ -408,12 +416,14 @@ final class WaylandSessions {
 
         @Override public void changed() {
             if (Looper.myLooper() != Looper.getMainLooper()) { MAIN.post(this::changed); return; }
-            if (ready() && windows().stream().anyMatch(WaylandSession.Window::mapped) && !hadWindows) {
-                hadWindows = true;
+            var snapshot = windows();
+            boolean first = !applicationLifetime.hadWindows();
+            applicationLifetime.windows(!snapshot.isEmpty(), snapshot.stream().anyMatch(WaylandSession.Window::mapped));
+            if (ready() && applicationLifetime.hadWindows() && first) {
                 MAIN.removeCallbacks(applicationTimeout);
                 recordUse(recentScope);
             }
-            if (ready() && application && hadWindows && windows().isEmpty()) { close(); return; }
+            if (ready() && application && applicationLifetime.quiescent()) { close(); return; }
             presentation.retain(windows().stream().map(WaylandSession.Window::id).collect(java.util.stream.Collectors.toSet()));
             windowControlOwners.retain(windows().stream().map(WaylandSession.Window::id).toList());
             for (var listener : listeners) listener.changed();

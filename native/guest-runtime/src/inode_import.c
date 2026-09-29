@@ -185,7 +185,7 @@ int md_inode_import_tree(struct md_inode_store *s, int source_fd,
     if (r) return r;
     struct importer *i = calloc(1, sizeof(*i)); if (!i) return -ENOMEM;
     i->store = s; i->limits = limits;
-    r = mdi_sql(s, "BEGIN IMMEDIATE"); if (r) { free(i); return r; }
+    r = mdi_begin(s, 1); if (r) { free(i); return r; }
     struct mdi_node node; r = mdi_node(s, MDI_ROOT, &node);
     if (!r) { int empty = mdi_empty(s, &node); if (empty != 1) r = empty < 0 ? empty : -ENOTEMPTY; }
     if (!r) r = mdi_sql(s, "CREATE TEMP TABLE imported(device INTEGER,inode INTEGER,object TEXT,snapshot BLOB,"

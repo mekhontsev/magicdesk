@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
@@ -44,10 +45,38 @@ int mdi_bind_name(sqlite3_stmt *q, int slot, const char *name) {
 int mdi_bind_id(sqlite3_stmt *q, int slot, const char *id) {
     return mdi_sql_error(sqlite3_bind_text(q, slot, id, -1, SQLITE_TRANSIENT));
 }
+static int store_lock(struct md_inode_store *s) {
+    if (s->locked) return -EDEADLK;
+    if (flock(s->objects, LOCK_EX | LOCK_NB)) {
+        if (errno != EWOULDBLOCK) return -errno;
+#ifdef MD_INODE_TESTING
+        if (s->observe) s->observe(MD_STORE_CONTENDED, s->context);
+#endif
+        /* EVENT_WAIT: another store operation releases its kernel lock (also on
+         * owner death). Signal interruption fails before BEGIN, never replays IO.
+         * Client RPC deadlines remain cancellation bounds on observation only. */
+        if (flock(s->objects, LOCK_EX)) return -errno;
+    }
+    s->locked = 1;
+    return 0;
+}
+static int store_unlock(struct md_inode_store *s, int result) {
+    if (s->locked) {
+        if (flock(s->objects, LOCK_UN)) return result ? result : -errno;
+        s->locked = 0;
+    }
+    return result;
+}
+int mdi_begin(struct md_inode_store *s, int write) {
+    int r = store_lock(s);
+    if (r) return r;
+    r = mdi_sql(s, write ? "BEGIN IMMEDIATE" : "BEGIN");
+    return r ? store_unlock(s, r) : 0;
+}
 int mdi_finish(struct md_inode_store *s, int result) {
     if (!result) result = mdi_sql(s, "COMMIT");
     if (result) mdi_sql(s, "ROLLBACK");
-    return result;
+    return store_unlock(s, result);
 }
 #ifndef MD_INODE_TESTING
 enum { MD_OBJECT_SYNCED, MD_NAMESPACE_STAGED, MD_NAMESPACE_COMMITTED };
@@ -240,6 +269,7 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
     if (!s) { close(root); return -ENOMEM; }
     s->objects = -1;
     if (!r && (s->objects = openat(root, "objects", O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)) < 0) r = -errno;
+    if (!r) r = store_lock(s);
     if (!r) r = mdi_sql_error(sqlite3_open_v2(file, &s->db,
         SQLITE_OPEN_READWRITE | SQLITE_OPEN_NOMUTEX | SQLITE_OPEN_NOFOLLOW
             | (create ? SQLITE_OPEN_CREATE : 0), NULL));
@@ -259,7 +289,8 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
             "CREATE INDEX names_cursor ON names(parent,cookie); PRAGMA user_version=3;");
         struct mdi_node node; int fd;
         if (!r) r = make_object(s, MDI_ROOT, S_IFDIR, 0700, 0, NULL, MDI_ROOT, &node, &fd);
-        r = mdi_finish(s, r);
+        if (!r) r = mdi_sql(s, "COMMIT");
+        if (r) mdi_sql(s, "ROLLBACK");
     }
     sqlite3_stmt *q = NULL;
     if (!r) r = mdi_prepare(s, "PRAGMA user_version", &q);
@@ -277,6 +308,7 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
     }
     sqlite3_finalize(q);
     if (!r && create && fsync(root)) r = -errno;
+    r = store_unlock(s, r);
     close(root);
     if (r) md_inode_store_close(s); else *out = s;
     return r;
@@ -293,7 +325,7 @@ void md_inode_observe(struct md_inode_store *s, void (*observer)(enum md_inode_c
 }
 int md_inode_audit(struct md_inode_store *s, struct md_inode_audit *audit) {
     memset(audit, 0, sizeof(*audit));
-    int r = mdi_sql(s, "BEGIN");
+    int r = mdi_begin(s, 0);
     if (r) return r;
     sqlite3_stmt *q = NULL;
     r = mdi_prepare(s, "PRAGMA integrity_check", &q);

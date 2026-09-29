@@ -242,6 +242,13 @@ static void recovery(enum operation op, enum md_inode_checkpoint point, unsigned
     md_inode_store_close(s);
 }
 
+struct release_writer { int fd, calls; };
+static void release_on_contention(enum md_inode_checkpoint point, void *context) {
+    if (point != MD_STORE_CONTENDED) return;
+    struct release_writer *release = context;
+    CHECK(++release->calls == 1);
+    byte(release->fd, 'C');
+}
 static void contention(void) {
     struct md_inode_store *s = store("concurrent", 1);
     int retained = md_inode_create(s, MD_INODE_ROOT, "a", 0600); CHECK(retained >= 0);
@@ -259,16 +266,15 @@ static void contention(void) {
     close(ready[1]); close(resume[0]); CHECK(event(ready[0]) == 'O');
     s = store("concurrent", 0);
     byte(resume[1], 'G'); CHECK(event(ready[0]) == 'R');
-    /* An exclusive writer has spilled real DB pages. Another connection must
-     * report contention rather than exposing the uncommitted namespace. */
-    char p[PATH_MAX]; path(p, "concurrent");
-    struct md_inode_store *blocked = NULL;
-    CHECK(md_inode_store_open(p, 0, &blocked) == -EAGAIN && blocked == NULL);
+    /* Release the writer only after a real kernel-lock conflict. The read
+     * enters SQLite after commit; it cannot expose staged names or EAGAIN. */
+    struct release_writer release = {resume[1], 0};
+    md_inode_observe(s, release_on_contention, &release);
     struct stat st;
-    CHECK(md_inode_link(s, MD_INODE_ROOT, "a", MD_INODE_ROOT, "parent", 0) == -EAGAIN);
-    CHECK(md_inode_stat(s, MD_INODE_ROOT, "a", 0, &st) == -EAGAIN);
-    CHECK(md_inode_open(s, MD_INODE_ROOT, "a", O_RDONLY, 0) == -EAGAIN);
-    byte(resume[1], 'C'); joined(child, 0);
+    CHECK(md_inode_fstat(s, retained, &st) == 0 && st.st_nlink == 2);
+    CHECK(release.calls == 1);
+    md_inode_observe(s, NULL, NULL);
+    joined(child, 0);
     close(ready[0]); close(resume[1]);
     CHECK(md_inode_fstat(s, retained, &st) == 0 && st.st_nlink == 2);
     CHECK(md_inode_link(s, MD_INODE_ROOT, "a", MD_INODE_ROOT, "parent", 0) == 0);
@@ -279,7 +285,43 @@ static void contention(void) {
     CHECK(md_inode_unlink(s, MD_INODE_ROOT, "parent", 0) == 0);
     CHECK(md_inode_fstat(s, retained, &st) == 0 && st.st_nlink == 0);
     close(other); close(retained); md_inode_store_close(s);
-    puts("PASS cross-process commit visibility and explicit contention without polling");
+    puts("PASS cross-process commit visibility and event-driven store admission without replay");
+}
+
+static void multiple_stores(void) {
+    struct md_inode_store *s = store("multiple", 1);
+    int retained = md_inode_create(s, MD_INODE_ROOT, "base", 0600); CHECK(retained >= 0);
+    md_inode_store_close(s);
+    int start[2]; CHECK(pipe(start) == 0);
+    pid_t children[4];
+    for (unsigned i = 0; i < 4; ++i) {
+        children[i] = fork(); CHECK(children[i] >= 0);
+        if (!children[i]) {
+            close(start[1]); CHECK(event(start[0]) == 'G'); close(start[0]);
+            s = store("multiple", 0);
+            for (unsigned n = 0; n < 24; ++n) {
+                char name[64], alias[64];
+                snprintf(name, sizeof(name), "file-%u-%u", i, n);
+                snprintf(alias, sizeof(alias), "alias-%u-%u", i, n);
+                int fd = md_inode_create(s, MD_INODE_ROOT, name, 0600); CHECK(fd >= 0);
+                CHECK(md_inode_link(s, MD_INODE_ROOT, name, MD_INODE_ROOT, alias, 0) == 0);
+                struct stat st; CHECK(md_inode_fstat(s, fd, &st) == 0 && st.st_nlink == 2);
+                CHECK(md_inode_unlink(s, MD_INODE_ROOT, name, 0) == 0);
+                CHECK(md_inode_unlink(s, MD_INODE_ROOT, alias, 0) == 0);
+                CHECK(md_inode_fstat(s, fd, &st) == 0 && st.st_nlink == 0);
+                CHECK(md_inode_fstat(s, retained, &st) == 0 && st.st_nlink == 1);
+                close(fd);
+            }
+            md_inode_store_close(s); close(retained); _exit(0);
+        }
+    }
+    close(start[0]); for (unsigned i = 0; i < 4; ++i) byte(start[1], 'G'); close(start[1]);
+    for (unsigned i = 0; i < 4; ++i) joined(children[i], 0);
+    s = store("multiple", 0);
+    struct md_inode_audit audit; CHECK(md_inode_audit(s, &audit) == 0);
+    CHECK(audit.names == 1 && audit.detached == 96 && audit.untracked == 0);
+    close(retained); md_inode_store_close(s);
+    puts("PASS four independent store owners: concurrent open/stat/link/unlink without transient errors");
 }
 
 static void exec_child(const char *name) {
@@ -571,7 +613,7 @@ int main(int argc, char **argv) {
     CHECK(argv[1][0] == '/' && strlen(argv[1]) < sizeof(root)); strcpy(root, argv[1]);
     if (argc == 3) { CHECK(!strcmp(argv[2], "exec-child")); exec_child("exec"); return 0; }
     CHECK(mkdir(root, 0700) == 0);
-    descriptors(); namespace(); contention(); across_exec(argv[0]);
+    descriptors(); namespace(); contention(); multiple_stores(); across_exec(argv[0]);
     hierarchy(); symlinks(); permissions(); kernel_reference();
     unsigned serial = 0;
     recovery(CREATE, MD_OBJECT_SYNCED, serial++);

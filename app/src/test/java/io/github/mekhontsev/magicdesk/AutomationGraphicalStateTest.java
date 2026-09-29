@@ -54,4 +54,27 @@ public final class AutomationGraphicalStateTest {
         assertTrue(control.allows("graphics.close_window"));
         assertFalse(control.allows("graphics.stop"));
     }
+    @Test public void dependentPresenceUsesSharedCatalogAndDoesNotAcceptOtherFamilies() throws Exception {
+        var args = new JSONObject().put("condition", "graphics_window_present").put("sessionId", "session")
+                .put("parentWindowId", 4294967295L);
+        AutomationCommandArguments.check("wait_for_state", args);
+        AutomationGraphicsObservation.validate("graphics_window_present", args);
+        var layout = new HostedWindowLayout(4294967295L, 100, 100,
+                io.github.mekhontsev.magicdesk.hosted.HostedWindowConstraints.NONE);
+        var child = new GraphicalSessions.Window(30, "Open", true, "editor", "dialog", layout, null);
+        assertTrue(AutomationGraphicsObservation.presentMatches(child, args));
+        assertFalse(AutomationGraphicsObservation.presentMatches(new GraphicalSessions.Window(
+                31, "Hidden", false, "editor", "dialog", layout, null), args));
+        assertFalse(AutomationGraphicsObservation.presentMatches(new GraphicalSessions.Window(
+                32, "Other", true, "editor", "application", HostedWindowLayout.NONE, null), args));
+        args.put("windowId", 31);
+        assertFalse(AutomationGraphicsObservation.presentMatches(child, args));
+        args.put("windowId", 30);
+        assertTrue(AutomationGraphicsObservation.presentMatches(child, args));
+        assertThrows(IllegalArgumentException.class, () -> AutomationGraphicsObservation.validate("graphics_window_absent", args));
+        args.put("parentWindowId", 0);
+        assertThrows(IllegalArgumentException.class, () -> AutomationGraphicsObservation.validate("graphics_window_present", args));
+        args.put("parentWindowId", -1);
+        assertThrows(IllegalArgumentException.class, () -> AutomationGraphicsObservation.validate("graphics_window_present", args));
+    }
 }

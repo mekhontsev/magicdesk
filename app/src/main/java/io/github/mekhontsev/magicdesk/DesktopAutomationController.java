@@ -181,7 +181,7 @@ final class DesktopAutomationController {
                     result = mAndroid.executeAppFunction(args);
                     break;
                 case READ_CLIPBOARD_TEXT:
-                    result = mClipboard.readText();
+                    result = mClipboard.readText(args);
                     break;
                 case WRITE_CLIPBOARD_TEXT:
                     result = mClipboard.writeText(args);

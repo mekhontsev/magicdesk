@@ -8,6 +8,7 @@
 #include <poll.h>
 #include <pthread.h>
 #include <signal.h>
+#include <sqlite3.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -145,21 +146,18 @@ static void *worker(void *context) {
     }
     return NULL;
 }
-struct gate { int ready, release; };
-static void hold_write(enum md_inode_checkpoint point, void *context) {
-    if (point != MD_NAMESPACE_STAGED) return;
-    struct gate *gate = context; byte(gate->ready); event(gate->release);
-}
 static void contention(void) {
     struct service s; start(&s, NORMAL, NULL, 5000);
     int ready[2], release[2]; CHECK(pipe2(ready, O_CLOEXEC) == 0 && pipe2(release, O_CLOEXEC) == 0);
     pid_t locker = fork(); CHECK(locker >= 0);
     if (!locker) {
         close(ready[0]); close(release[1]);
-        struct md_inode_store *store; CHECK(md_inode_store_open(s.directory, 0, &store) == 0);
-        struct gate gate = {ready[1], release[0]}; md_inode_observe(store, hold_write, &gate);
-        int fd = md_inode_create(store, MD_INODE_ROOT, "external", 0600); CHECK(fd >= 0); close(fd);
-        md_inode_store_close(store); _exit(0);
+        char path[PATH_MAX]; CHECK(snprintf(path, sizeof(path), "%s/namespace.db", s.directory) < PATH_MAX);
+        sqlite3 *db; CHECK(sqlite3_open(path, &db) == SQLITE_OK);
+        CHECK(sqlite3_exec(db, "BEGIN EXCLUSIVE", NULL, NULL, NULL) == SQLITE_OK);
+        byte(ready[1]); event(release[0]);
+        CHECK(sqlite3_exec(db, "COMMIT", NULL, NULL, NULL) == SQLITE_OK);
+        CHECK(sqlite3_close(db) == SQLITE_OK); _exit(0);
     }
     close(ready[1]); close(release[0]); event(ready[0]);
     call(s.endpoint, MD_FS_CREATE, -1, "blocked", -1, NULL, 0, 0600, -EAGAIN);
@@ -167,7 +165,7 @@ static void contention(void) {
     call(s.endpoint, MD_FS_STAT, -1, "blocked", -1, NULL, 0, 0, -ENOENT);
     int fd = call(s.endpoint, MD_FS_CREATE, -1, "blocked", -1, NULL, 0, 0600, 0).fd;
     close(fd); stop(&s, 0);
-    puts("PASS database contention is an explicit remote error, no waiting or implicit retry");
+    puts("PASS external SQLite contention bypassing store admission remains explicit, without replay");
 }
 static void concurrent(void) {
     struct service s; start(&s, NORMAL, NULL, 5000);

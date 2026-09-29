@@ -26,7 +26,7 @@ static size_t record(void *out, size_t space, const char *name, size_t length,
 }
 int64_t md_inode_seekdir(struct md_inode_store *s, int fd, int64_t offset, int whence) {
     if (whence != SEEK_SET && whence != SEEK_CUR) return -EINVAL;
-    int r = mdi_sql(s, "BEGIN"); if (r) return r;
+    int r = mdi_begin(s, 0); if (r) return r;
     struct mdi_node node; r = directory(s, fd, &node);
     r = mdi_finish(s, r);
     if (r) return r;
@@ -36,7 +36,7 @@ int64_t md_inode_seekdir(struct md_inode_store *s, int fd, int64_t offset, int w
 ssize_t md_inode_getdents(struct md_inode_store *s, int fd, void *out, size_t capacity) {
     if (!out) return -EFAULT;
     if (capacity > INT_MAX) return -EINVAL;
-    int r = mdi_sql(s, "BEGIN"); if (r) return r;
+    int r = mdi_begin(s, 0); if (r) return r;
     struct mdi_node node; r = directory(s, fd, &node);
     struct stat st;
     if (!r) r = mdi_stat(s, &node, &st);

@@ -68,9 +68,12 @@ or closed, including error and malformed-message paths.
 
 The service accepts a bounded batch into at most 32 active connections. An idle
 peer cannot block other peers: readiness is event-driven, and each accepted
-connection has a failure deadline. Database contention is returned as EAGAIN,
-without busy waiting. Synchronous filesystem IO can still stall the service
-thread; this experiment does not promise bounded kernel IO completion.
+connection has a failure deadline. Store metadata operations serialize through
+the inode model's kernel-lock gate before entering SQLite, including when
+independent launches use the same store. External SQLite contention bypassing
+that gate is returned as EAGAIN, without automatic replay. Kernel lock admission
+and synchronous filesystem IO can still stall the service thread; the client
+deadline does not cancel a sent request or promise bounded kernel IO completion.
 
 ## Outcomes And Cancellation
 
@@ -114,7 +117,7 @@ requires zero undefined symbols. Host and actual shell-UID Debian fixtures cover
   is unconfirmed, and reopening the service observes the retained position.
 - 256 calls from eight threads and eight deterministic nested signal-handler
   calls while the outer RPC is pending; client errno remains unchanged.
-- An external writer holding a real transaction: an RPC reports EAGAIN without
+- An external SQLite writer bypassing the store gate and holding a real transaction: an RPC reports EAGAIN without
   changing the requested name, and remains usable after the writer commits.
 - Invalid lengths, versions, strings, FD masks, oversized messages and excess
   SCM_RIGHTS. Namespace and service FD counts are checked after rejection.

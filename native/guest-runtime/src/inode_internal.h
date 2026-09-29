@@ -7,7 +7,7 @@
 #define MDI_ROOT "00000000000000000000000000000000"
 struct md_inode_store {
     sqlite3 *db;
-    int objects;
+    int objects, locked;
 #ifdef MD_INODE_TESTING
     void (*observe)(enum md_inode_checkpoint, void *);
     void *context;
@@ -30,6 +30,7 @@ enum mdi_follow { MDI_FOLLOW, MDI_NOFOLLOW, MDI_ENTRY };
 int mdi_sql_error(int);
 int mdi_sql_failure(int);
 int mdi_sql(struct md_inode_store *, const char *);
+int mdi_begin(struct md_inode_store *, int write);
 int mdi_prepare(struct md_inode_store *, const char *, sqlite3_stmt **);
 int mdi_bind_id(sqlite3_stmt *, int, const char *);
 int mdi_bind_name(sqlite3_stmt *, int, const char *);

@@ -7,7 +7,8 @@
 
 /* Experimental inode namespace, not a syscall adapter. Each connection
  * has one owner; never use it from SIGSYS, a signal handler, or after fork.
- * Errors are negative errno. EAGAIN means lock contention, with no busy retry.
+ * Errors are negative errno. Store operations serialize before their transaction.
+ * EAGAIN still reports an external SQLite writer bypassing that gate; no replay.
  * EIO during commit has an unknown outcome; reopen and inspect before replay.
  * Files are native descriptors. No object is reclaimed while clients may exist. */
 struct md_inode_store;
@@ -49,7 +50,7 @@ int md_inode_list(struct md_inode_store *, int dirfd, const char *path,
         int (*visit)(const char *, void *), void *);
 
 #ifdef MD_INODE_TESTING
-enum md_inode_checkpoint { MD_OBJECT_SYNCED, MD_NAMESPACE_STAGED, MD_NAMESPACE_COMMITTED };
+enum md_inode_checkpoint { MD_OBJECT_SYNCED, MD_NAMESPACE_STAGED, MD_NAMESPACE_COMMITTED, MD_STORE_CONTENDED };
 void md_inode_observe(struct md_inode_store *, void (*)(enum md_inode_checkpoint, void *), void *);
 struct md_inode_audit { unsigned objects, names, detached, untracked; };
 int md_inode_audit(struct md_inode_store *, struct md_inode_audit *);

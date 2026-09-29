@@ -116,9 +116,23 @@ Import is not execution from the new namespace or successful package installatio
   Directory moves/exchanges change parent edges in the same transaction as names.
 - Reads resolve names in a snapshot. They cannot see half an exchange. Contents
   are not transactional: writes through returned FDs follow kernel IO semantics.
-- The rollback journal uses `synchronous=EXTRA`. No busy timeout or polling loop
-  is installed. Contention returns EAGAIN for caller coordination. An IO error
-  during commit can have an unknown outcome: inspect before replaying a mutation.
+- Store opening and each metadata operation take an exclusive kernel `flock`
+  on their private object-directory description before entering SQLite.
+  Independent services for one store therefore serialize metadata, including
+  reads; separate stores do not share a lock. The gate is released after commit
+  or rollback and by the kernel when its owner dies. It adds no per-request heap
+  allocation and is not held during RPC delivery, guest execution or ordinary
+  IO through returned file descriptors. Connections must still be reopened after
+  fork; an inherited description would share the lock owner.
+- Lock admission waits for kernel release, without polling or a settling delay.
+  A caught signal can fail admission before the transaction starts. Kernel IO
+  and lock waiting do not promise bounded service completion; the caller's RPC
+  deadline bounds observation, not cancellation of an accepted request. Offline
+  import must not contend with live clients.
+- The rollback journal uses `synchronous=EXTRA`. No SQLite busy timeout or
+  automatic replay is installed. An external SQLite writer bypassing the store
+  gate still returns EAGAIN. An IO error during commit can have an unknown
+  outcome: inspect before replaying a mutation.
 - Detached objects and uncommitted allocations are retained and audited separately.
   There is no live garbage collector. Removing metadata while another process
   holds an FD would break descriptor lookup. This bounded experiment is not
@@ -126,7 +140,8 @@ Import is not execution from the new namespace or successful package installatio
 
 SQLite supplies database transactions, not Linux filesystem semantics. References:
 [atomic commit](https://www.sqlite.org/atomiccommit.html),
-[isolation](https://www.sqlite.org/isolation.html), and
+[isolation](https://www.sqlite.org/isolation.html),
+[kernel lock ownership](https://man7.org/linux/man-pages/man2/flock.2.html), and
 [Linux rename](https://man7.org/linux/man-pages/man2/rename.2.html).
 
 ## Checks
@@ -138,8 +153,10 @@ real shell UID 2000 in `u:r:shell:s0` on NX809J / API 36 / Linux 6.12.23 / 4 KiB
   zero, name reuse and retained descriptors after reopening the namespace.
 - Replacement/exchange, same-inode rename, enumeration, non-UTF-8 names,
   truncation and explicit rejection of unsupported API requests.
-- Independent connections across fork/exec, invisible uncommitted changes,
-  contention on an already-open connection and its subsequent reuse.
+- Independent connections across fork/exec and commit visibility after a
+  deterministic kernel-lock conflict. Four independent store owners concurrently
+  open/create, link, stat and unlink without transient SQLite errors; the final
+  audit verifies names, detached objects and absence of untracked allocations.
 - Directory moves/replacement/exchange with retained FDs, cycle rejection,
   detached directories, directory link counts and real search/write permissions.
 - Relative/absolute/dangling/cyclic symlinks, hard-linked symlink inodes, follow
