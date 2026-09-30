@@ -10,6 +10,12 @@
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/resource.h>
+
+static void cost(const char *name, const struct md_cost *value) {
+    fprintf(stderr, "MD_STORE phase=%s calls=%llu ns=%llu\n", name,
+        (unsigned long long)value->calls, (unsigned long long)value->nanoseconds);
+}
 
 static int import(const char *source, const char *destination) {
     if (source[0] != '/' || destination[0] != '/' || !strcmp(source, "/") || !strcmp(destination, "/")) return 2;
@@ -33,6 +39,8 @@ int main(int argc, char **argv) {
         return 2;
     md_page_size = (size_t)sysconf(_SC_PAGESIZE);
     if (md_page_size < 4096 || md_page_size > 65536 || (md_page_size & (md_page_size - 1))) return 2;
+    int statistics = argc > 1 && !strcmp(argv[1], "--statistics");
+    if (statistics) { argc--; argv++; }
     if (argc == 4 && !strcmp(argv[1], "--import")) return import(argv[2], argv[3]);
     if (argc != 5 && argc != 6) return 2;
     char *end;
@@ -44,6 +52,8 @@ int main(int argc, char **argv) {
     umask(0);
     struct md_inode_store *store = NULL;
     struct md_image_catalogue *images = NULL;
+    struct md_inode_statistics database = {0};
+    struct md_fs_statistics filesystem = {0};
     int error = md_inode_store_open(argv[1], 0, &store), listener = -1;
     if (!error && argc == 6) error = md_image_catalogue_open(store, argv[5], &images);
     if (!error) {
@@ -54,8 +64,22 @@ int main(int argc, char **argv) {
     if (write(ready, &error, sizeof(error)) != sizeof(error))
         error = -EPIPE;
     close(ready);
+    if (!error && statistics) md_inode_measure(store, &database);
     if (!error)
-        error = md_fs_serve(store, images, listener, stop, 5000);
+        error = md_fs_serve(store, images, listener, stop, 5000, statistics ? &filesystem : NULL);
+    if (statistics) {
+        cost("prepare", &database.prepare); cost("step", &database.step);
+        cost("transaction", &database.transaction); cost("lock", &database.lock);
+        fprintf(stderr, "MD_STORE queryReuses=%llu\n", (unsigned long long)database.query_reuses);
+        for (unsigned i = 0; i <= MD_FS_OPEN_OBJECT; i++) if (filesystem.operation[i].calls)
+            fprintf(stderr, "MD_FS operation=%u calls=%llu ns=%llu\n", i,
+                (unsigned long long)filesystem.operation[i].calls,
+                (unsigned long long)filesystem.operation[i].nanoseconds);
+        struct rusage usage;
+        if (!getrusage(RUSAGE_SELF, &usage)) fprintf(stderr, "MD_CPU service userUs=%llu systemUs=%llu\n",
+            (unsigned long long)usage.ru_utime.tv_sec * 1000000 + usage.ru_utime.tv_usec,
+            (unsigned long long)usage.ru_stime.tv_sec * 1000000 + usage.ru_stime.tv_usec);
+    }
     if (listener >= 0)
         close(listener);
     md_image_catalogue_close(images);

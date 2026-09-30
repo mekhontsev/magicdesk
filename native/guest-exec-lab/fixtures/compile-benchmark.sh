@@ -14,6 +14,19 @@ case "${1:-build}" in
         gcc --version
         make --version
         sha256sum sqlite3.c shell.c sqlite3.h /usr/bin/aarch64-linux-gnu-gcc-14
+        sha256sum run.sh runtime-workloads.c
+        exit 0
+        ;;
+    prepare)
+        rm -f runtime-workloads
+        gcc -O2 -UNDEBUG -Wall -Wextra -Werror -o runtime-workloads runtime-workloads.c
+        ./runtime-workloads prepare
+        exit 0
+        ;;
+    metadata|spawn)
+        rm -f timing.txt
+        /usr/bin/time -f 'MD_TIMING %e %U %S %M %c %w' -o timing.txt ./runtime-workloads "$1"
+        cat timing.txt
         exit 0
         ;;
     build) ;;

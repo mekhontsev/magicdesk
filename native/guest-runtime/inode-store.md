@@ -110,6 +110,11 @@ Import is not execution from the new namespace or successful package installatio
 
 ## Transactions
 
+- Each connection reuses four compiled read queries for inode, descriptor, name
+  and link-count lookup. Every use resets the statement and clears all bindings
+  before leaving the operation. No rows, paths or read snapshots are cached;
+  other writers and native file-data changes remain visible in the next operation.
+  Statements are finalized with their owning connection.
 - Create allocates a randomly named native object, syncs regular-file data and
   its containing directory before publishing a reference. A collision fails
   without truncation. Symlink data and directory metadata retain filesystem
@@ -161,6 +166,9 @@ real shell UID 2000 in `u:r:shell:s0` on NX809J / API 36 / Linux 6.12.23 / 4 KiB
   deterministic kernel-lock conflict. Four independent store owners concurrently
   open/create, link, stat and unlink without transient SQLite errors; the final
   audit verifies names, detached objects and absence of untracked allocations.
+- Reused queries observe another connection's link/unlink and name replacement,
+  missing-name lookups, native truncation and open-unlinked FD identity without
+  recompiling the warmed read programs.
 - Directory moves/replacement/exchange with retained FDs, cycle rejection,
   detached directories, directory link counts and real search/write permissions.
 - Relative/absolute/dangling/cyclic symlinks, hard-linked symlink inodes, follow

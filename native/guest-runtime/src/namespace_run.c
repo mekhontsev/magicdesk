@@ -98,8 +98,11 @@ void md_boot(uintptr_t *stack) {
         if (md_process_close_fds(keep, 2) < 0) RAW1(exit_group, 125);
         RAW3(fcntl, ready[1], F_SETFD, 0);
         RAW3(fcntl, stop[0], F_SETFD, 0);
-        char *args[] = {service_path, (char *)store, endpoint, ready_text,
-                        stop_text, (char *)admit, NULL};
+        char *args[8] = {service_path};
+        unsigned n = 1;
+        if (statistics) args[n++] = "--statistics";
+        args[n++] = (char *)store; args[n++] = endpoint; args[n++] = ready_text;
+        args[n++] = stop_text; args[n++] = (char *)admit; args[n] = NULL;
         md_die("execute filesystem service", RAW3(execve, service_path, args, env));
     }
     RAW1(close, ready[1]);

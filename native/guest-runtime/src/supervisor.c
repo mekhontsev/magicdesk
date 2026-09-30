@@ -8,6 +8,7 @@
 #include "launch_identity.h"
 #include "process_owner.h"
 #include "raw.h"
+#include "profile.h"
 #include <elf.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -30,6 +31,7 @@
 #include <sys/uio.h>
 #include <sys/user.h>
 #include <sys/wait.h>
+#include <sys/resource.h>
 #include <unistd.h>
 
 /* One supervisor owns one launched tree. It never attaches to Android tasks. */
@@ -53,7 +55,8 @@ static struct md_interception_abi abi;
 #define COPY_END abi.copy_end
 static int diagnostics;
 struct interception_statistics {
-    uint64_t ptrace_requests, unknown, native_seeks;
+    uint64_t ptrace_requests, unknown, native_seeks, stops;
+    struct md_cost rpc;
     struct { uint64_t trace, notification; } calls[512];
 };
 static struct interception_statistics *statistics;
@@ -237,7 +240,9 @@ static int descriptor_stat(struct thread *t, int fd, struct stat *st, int native
     if (native || !t->endpoint[0]) return fstat(fd, st) ? -errno : 0;
     struct md_fs_request request = {.operation = MD_FS_FSTAT, .directory = {fd, -1}};
     struct md_fs_result response;
+    int64_t begin = md_cost_begin(statistics ? &statistics->rpc : NULL);
     int error = md_fs_call(t->endpoint, 5000, &request, &response);
+    md_cost_end(statistics ? &statistics->rpc : NULL, begin);
     if (!error) error = response.error;
     if (!error || error == -EXDEV) {
         if (fstat(fd, st)) error = -errno;
@@ -839,6 +844,7 @@ int main(int argc, char **argv) {
             release_thread(t); continue;
         }
         CHECK(WIFSTOPPED(status));
+        if (statistics) statistics->stops++;
         unsigned event = (unsigned)status >> 16;
         CHECK(!t->resume_lost || event == PTRACE_EVENT_EXEC);
         int sig = WSTOPSIG(status);
@@ -1135,6 +1141,13 @@ int main(int argc, char **argv) {
     TRACE("PROBE identity admittedImages=%u changes=%u hostUid=%u\n",
         admitted_images, identity_changes, getuid());
     if (statistics) {
+        struct rusage usage;
+        if (!getrusage(RUSAGE_SELF, &usage)) fprintf(stderr, "MD_CPU supervisor userUs=%llu systemUs=%llu\n",
+            (unsigned long long)usage.ru_utime.tv_sec * 1000000 + usage.ru_utime.tv_usec,
+            (unsigned long long)usage.ru_stime.tv_sec * 1000000 + usage.ru_stime.tv_usec);
+        fprintf(stderr, "MD_SUPERVISOR stops=%llu rpcCalls=%llu rpcNs=%llu\n",
+            (unsigned long long)statistics->stops, (unsigned long long)statistics->rpc.calls,
+            (unsigned long long)statistics->rpc.nanoseconds);
         fprintf(stderr, "MD_INTERCEPTION ptraceRequests=%llu unknown=%llu nativeSeeks=%llu\n",
             (unsigned long long)statistics->ptrace_requests, (unsigned long long)statistics->unknown,
             (unsigned long long)statistics->native_seeks);

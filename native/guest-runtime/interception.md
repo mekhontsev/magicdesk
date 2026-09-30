@@ -28,10 +28,18 @@ reuse retain kernel semantics. Directories and unavailable remote descriptor
 access use the ordinary adapter, including nondumpable processes.
 
 `magicdesk-guest --statistics --store STORE -- PROGRAM` enables aggregate
-syscall and ptrace counters, printed once when the owned tree completes. This
-allocates its counter table only when explicitly requested and produces no
-per-call logs. Detailed `--diagnostics` is a separate mode; neither is enabled
-for ordinary launches or comparative timing runs.
+syscall/ptrace/stop counters, filesystem operation times, SQLite costs and each
+service's own CPU usage, printed once on completion. Collection and clock
+sampling are opt-in; there are no per-call logs. Operation times include kernel
+waiting and descheduling; nested filesystem/SQLite totals must not be added as
+independent CPU costs. Detailed `--diagnostics` is a separate mode; neither is
+enabled for ordinary launches or comparative timing runs.
+
+Internal sendmsg/recvmsg at the immutable raw-syscall gate go directly to the
+kernel. These calls are already unconditional native operations in every guest
+domain; the domain policy and gate share the explicit list. External calls still
+enter their adapters. This removes redundant supervisor stops, not application
+filter evaluation: ERRNO, TRAP and KILL also apply to the internal transport.
 
 The guest owns SIGSYS, signal masks and alternate stacks. Native clone and signal
 return retain their register/extension ABI. Application filters are not removed:

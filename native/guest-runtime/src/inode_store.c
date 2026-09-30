@@ -239,7 +239,7 @@ int md_inode_list(struct md_inode_store *s, int dirfd, const char *path,
     if (!r) r = mdi_prepare(s, "SELECT name FROM names WHERE parent=?1 ORDER BY name", &q);
     if (!r) r = mdi_bind_id(q, 1, loc.node.id);
     while (!r) {
-        int rc = sqlite3_step(q);
+        int rc = mdi_step(s, q);
         if (rc != SQLITE_ROW) { r = mdi_sql_error(rc); break; }
         int size = sqlite3_column_bytes(q, 0);
         if (size <= 0 || size > NAME_MAX) { r = -EIO; break; }

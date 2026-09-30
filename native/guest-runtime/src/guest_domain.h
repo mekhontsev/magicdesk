@@ -2,6 +2,10 @@
 #define MD_GUEST_DOMAIN_H
 #include <sys/types.h>
 
+/* Kernel-only adapter transport in every domain. This shared list must not
+ * include pathname, credential or argument-dependent policy operations. */
+#define MD_GATE_TRANSPORT_CALLS(X) X(sendmsg) X(recvmsg)
+
 /* Shared, irrevocably restricted proc-root views. This is
  * not a general guest chroot or a credential implementation. */
 struct md_guest_domain;

@@ -86,9 +86,12 @@ int md_domain_path_error(const struct md_guest_domain *d) {
 }
 int md_domain_native_call(long nr, const unsigned long a[6]) {
     switch (nr) {
+#define NATIVE_CASE(name) case SYS_##name:
+    MD_GATE_TRANSPORT_CALLS(NATIVE_CASE)
+#undef NATIVE_CASE
     case SYS_lseek: case SYS_getdents64: case SYS_fstatfs:
     case SYS_getsockname: case SYS_getpeername: case SYS_pipe2:
-    case SYS_recvmsg: case SYS_recvfrom: case SYS_sendmsg: case SYS_sendmmsg:
+    case SYS_recvfrom: case SYS_sendmmsg:
     case SYS_shutdown: case SYS_socketpair: case SYS_wait4: case SYS_waitid:
     case SYS_seccomp: case SYS_getresuid: case SYS_getresgid:
     /* These run in the kernel under the unchanged shell credentials. */

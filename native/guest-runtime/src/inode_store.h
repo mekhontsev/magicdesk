@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include "profile.h"
 
 /* Experimental inode namespace, not a syscall adapter. Each connection
  * has one owner; never use it from SIGSYS, a signal handler, or after fork.
@@ -12,6 +13,12 @@
  * EIO during commit has an unknown outcome; reopen and inspect before replay.
  * Files are native descriptors. No object is reclaimed while clients may exist. */
 struct md_inode_store;
+struct md_inode_statistics {
+    struct md_cost prepare, step, transaction, lock;
+    uint64_t query_reuses;
+};
+/* Caller-owned diagnostic counters; NULL disables clock sampling. */
+void md_inode_measure(struct md_inode_store *, struct md_inode_statistics *);
 /* No implicit process cwd: pass the root sentinel or a directory FD from this
  * store. Absolute paths ignore dirfd. Data/directory FDs are real kernel FDs. */
 #define MD_INODE_ROOT (-1)

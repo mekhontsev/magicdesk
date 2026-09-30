@@ -4,6 +4,7 @@
 #include "socket_calls.h"
 #include "raw.h"
 #include "interception.h"
+#include "guest_domain.h"
 #include <errno.h>
 #include <linux/audit.h>
 #include <linux/filter.h>
@@ -86,6 +87,9 @@ int md_interception_install(int inherited) {
     int listener = -1;
     if (!inherited) {
         uintptr_t gate = (uintptr_t)md_raw_return;
+#define COUNT(name) + 1
+        enum { transport_instructions = 2 * (0 MD_GATE_TRANSPORT_CALLS(COUNT)) };
+#undef COUNT
 #define TRACE(n) BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_##n, 0, 1), \
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRACE | MD_INTERCEPT_DISPATCH),
 #define OBSERVE(n) BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_##n, 0, 1), \
@@ -120,10 +124,14 @@ int md_interception_install(int inherited) {
             NATIVE(eventfd2) NATIVE(timerfd_create) NATIVE(timerfd_settime) NATIVE(timerfd_gettime)
             NATIVE(exit) NATIVE(exit_group) NATIVE(set_tid_address)
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, instruction_pointer) + 4),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)(gate >> 32), 0, 8),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)(gate >> 32), 0, 8 + transport_instructions),
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, instruction_pointer)),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)gate, 0, 6),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)gate, 0, 6 + transport_instructions),
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+            /* Already unconditional kernel operations in every domain. The
+             * original application call still enters its adapter, and every
+             * application filter still evaluates these internal syscalls. */
+            MD_GATE_TRANSPORT_CALLS(NATIVE)
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_execve, 0, 1),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRACE | MD_INTERCEPT_EXEC),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_execveat, 0, 1),

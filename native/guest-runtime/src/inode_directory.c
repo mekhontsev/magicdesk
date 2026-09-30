@@ -60,7 +60,7 @@ ssize_t md_inode_getdents(struct md_inode_store *s, int fd, void *out, size_t ca
     if (!r && q) r = mdi_bind_id(q, 1, node.id);
     if (!r && q) r = mdi_sql_error(sqlite3_bind_int64(q, 2, offset-2));
     while (!r && q) {
-        int rc = sqlite3_step(q);
+        int rc = mdi_step(s, q);
         if (rc == SQLITE_DONE) break;
         if (rc != SQLITE_ROW) { r = mdi_sql_failure(rc); break; }
         int length = sqlite3_column_bytes(q, 1);

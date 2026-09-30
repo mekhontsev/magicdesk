@@ -29,6 +29,10 @@ The supervisor handles regular-file seeks through retained kernel descriptors
 without namespace RPC; directory cursors remain namespace-owned. Filesystem
 replies retain their connection until client release, with event-driven progress
 and a bounded peer lifetime.
+The namespace service reuses compiled read queries, never cached metadata or
+transaction snapshots. Optional `--statistics` profiles syscall stops, filesystem
+operations, SQLite and service CPU costs without per-call logs or clock sampling
+on ordinary launches.
 
 Actual UID 2000 and UID 0 are accepted without switching identity. Root is a
 user choice, not a fallback or prerequisite. Neither the renderer nor a failed
@@ -250,6 +254,10 @@ entries individually, retaining valid text offers from the same source.
 Writer also passes the edit/save/readback workflow in an X11 viewer with xfwm4.
 The X11 checks use WM_CLASS rather than assuming a Wayland app_id. Without the
 window manager, Writer does not publish a window within the test deadline.
+GIMP's individual X11 host without a window manager opens its new-image dialog,
+but the keyboard-close fixture times out with native focus still on its parent.
+This fixture does not establish successful dialog interaction; host/client focus
+and event readiness need separate investigation.
 The Calc X11 insertion check fails: the cell contains the typed text instead of
 that text followed by the original content. Neither observation is classified
 as a guest-runtime defect without isolating client, input and window-manager behavior.

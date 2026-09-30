@@ -49,7 +49,8 @@ requires a successful exit and expectations. `sandboxSupportEstablished` and
   denied real credentials and retained descriptors.
 - `test_retained.py`: protected metadata and exec, nonleader exec, descriptor
   offsets, regular/directory/O_PATH/pipe FD reuse, shared dup/fork/thread seeks,
-  seek ERRNO/TRAP/KILL precedence, signals, group death, job control, sockets, three stock zygote/renderer
+  seek and internal-transport ERRNO/TRAP/KILL precedence, signals, group death,
+  job control, sockets, three stock zygote/renderer
   starts and rejection of a helper not explicitly admitted.
 - `test_renderer.py`: a separately labelled layer-two experiment. Its parent
   uses `--no-sandbox`, while `renderer-prefix.py` removes that flag from
@@ -61,7 +62,7 @@ python native/guest-exec-lab/browser/test_credentials.py --build BUILD --store D
 python native/guest-exec-lab/browser/test_retained.py --build BUILD --store DEVICE_GUEST_STORE
 ```
 
-`build-controls.sh` builds `control.c` for the prepared guest libc.
+`build-control.sh` builds `control.c` for the prepared guest libc.
 `build-identity.sh` tests the production logical-credential model.
 `zygote_stage.py` exercises helper IPC, renderer fork, real filter installation
 and nonempty Mojo startup independently of a displayed page. Prepared stores

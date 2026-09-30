@@ -104,7 +104,7 @@ int mdi_ancestor(struct md_inode_store *s, const char *ancestor, const char *chi
     if (!r) r = mdi_bind_id(q, 1, child);
     if (!r) r = mdi_bind_id(q, 2, ancestor);
     if (!r) {
-        int rc = sqlite3_step(q);
+        int rc = mdi_step(s, q);
         r = rc == SQLITE_ROW ? sqlite3_column_int(q, 0) : mdi_sql_failure(rc);
     }
     sqlite3_finalize(q);
@@ -120,7 +120,7 @@ static int directory_path(struct md_inode_store *s, struct mdi_node node, char *
         if (!r) r = mdi_bind_id(q, 1, node.parent);
         if (!r) r = mdi_bind_id(q, 2, node.id);
         if (!r) {
-            int rc = sqlite3_step(q);
+            int rc = mdi_step(s, q);
             if (rc != SQLITE_ROW) r = rc == SQLITE_DONE ? -ENOENT : mdi_sql_error(rc);
             else {
                 int n = sqlite3_column_bytes(q, 0);

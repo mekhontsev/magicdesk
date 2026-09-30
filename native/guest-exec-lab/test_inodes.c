@@ -660,13 +660,42 @@ static void scoped_paths(void) {
     close(dir); md_inode_store_close(s);
     puts("PASS scoped open paths: beneath, in-root, symlinks, cache-only and creation");
 }
+static void reused_queries(void) {
+    struct md_inode_store *s = store("queries", 1), *writer = store("queries", 0);
+    int fd = md_inode_create(writer, MD_INODE_ROOT, "value", 0600); CHECK(fd >= 0);
+    struct stat original = state(s, "value", 1), st;
+    CHECK(!md_inode_fstat(s, fd, &st));
+    struct md_inode_statistics statistics = {0};
+    md_inode_measure(s, &statistics);
+    for (unsigned i = 0; i < 16; i++) {
+        CHECK(md_inode_stat(s, MD_INODE_ROOT, "absent", 0, &st) == -ENOENT);
+        CHECK(!md_inode_link(writer, MD_INODE_ROOT, "value", MD_INODE_ROOT, "alias", 0));
+        state(s, "value", 2); state(s, "alias", 2);
+        CHECK(!md_inode_fstat(s, fd, &st) && st.st_nlink == 2);
+        CHECK(!md_inode_unlink(writer, MD_INODE_ROOT, "alias", 0));
+        state(s, "value", 1);
+        CHECK(!ftruncate(fd, i) && !md_inode_fstat(s, fd, &st) && st.st_size == i);
+    }
+    CHECK(!md_inode_unlink(writer, MD_INODE_ROOT, "value", 0));
+    int next = md_inode_create(writer, MD_INODE_ROOT, "value", 0600); CHECK(next >= 0);
+    CHECK(state(s, "value", 1).st_ino != original.st_ino);
+    CHECK(!md_inode_fstat(s, fd, &st) && st.st_nlink == 0 && st.st_ino == original.st_ino);
+    CHECK(statistics.query_reuses > 100 && statistics.prepare.calls == 0);
+    CHECK(statistics.step.calls && statistics.transaction.calls && statistics.lock.calls);
+    md_inode_measure(s, NULL);
+    struct md_inode_statistics snapshot = statistics;
+    state(s, "value", 1);
+    CHECK(!memcmp(&snapshot, &statistics, sizeof(snapshot)));
+    close(next); close(fd); md_inode_store_close(writer); md_inode_store_close(s);
+    puts("PASS query reuse: fresh snapshots across writers, missing names, path reuse and unlinked FDs");
+}
 int main(int argc, char **argv) {
     CHECK(argc == 2 || argc == 3);
     CHECK(argv[1][0] == '/' && strlen(argv[1]) < sizeof(root)); strcpy(root, argv[1]);
     if (argc == 3) { CHECK(!strcmp(argv[2], "exec-child")); exec_child("exec"); return 0; }
     CHECK(mkdir(root, 0700) == 0);
     descriptors(); namespace(); contention(); multiple_stores(); across_exec(argv[0]);
-    hierarchy(); symlinks(); permissions(); kernel_reference(); scoped_paths();
+    hierarchy(); symlinks(); permissions(); kernel_reference(); scoped_paths(); reused_queries();
     unsigned serial = 0;
     recovery(CREATE, MD_OBJECT_SYNCED, serial++);
     for (enum operation op = CREATE; op <= EXCHANGE; ++op) {

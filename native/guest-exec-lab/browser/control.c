@@ -494,6 +494,41 @@ static void exec_offset(const char *self, int child) {
     syscall(SYS_execveat, fd, "", args, environ, AT_EMPTY_PATH);
     assert(0);
 }
+static void transport_signal(int signal, siginfo_t *info, void *context) {
+    assert(signal == SIGSYS && (info->si_syscall == SYS_sendmsg || info->si_syscall == SYS_recvmsg));
+    ((ucontext_t *)context)->uc_mcontext.regs[0] = (unsigned long)-EKEYREJECTED;
+}
+static void transport_policy(void) {
+    unsigned actions[] = {SECCOMP_RET_ERRNO | EKEYREJECTED, SECCOMP_RET_TRAP, SECCOMP_RET_KILL_PROCESS};
+    int calls[] = {SYS_sendmsg, SYS_recvmsg};
+    for (unsigned n = 0; n < 2; n++) for (unsigned a = 0; a < 3; a++) {
+        pid_t child = fork(); assert(child >= 0);
+        if (!child) {
+            struct sigaction handler = {.sa_sigaction = transport_signal, .sa_flags = SA_SIGINFO};
+            sigemptyset(&handler.sa_mask); assert(!sigaction(SIGSYS, &handler, NULL));
+            struct sock_filter filter[] = {
+                BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+                BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, calls[n], 0, 1),
+                BPF_STMT(BPF_RET | BPF_K, actions[a]),
+                BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+            };
+            struct sock_fprog policy = {sizeof(filter) / sizeof(*filter), filter};
+            assert(!prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0));
+            assert(!syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &policy));
+            /* openat enters the adapter: the filter must still apply to its
+             * internal RPC transport, not only external sendmsg/recvmsg. */
+            assert(open("/etc/passwd", O_RDONLY) == -1 && errno == EKEYREJECTED);
+            _exit(0);
+        }
+        int status;
+        /* EVENT_WAIT: exact policy child, bounded by the runner's tree deadline. */
+        assert(waitpid(child, &status, 0) == child);
+        if (actions[a] == SECCOMP_RET_KILL_PROCESS) assert(WIFSIGNALED(status) && WTERMSIG(status) == SIGSYS);
+        else assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    }
+    memory();
+    puts("PASS adapter transport retains application ERRNO/TRAP/KILL filters");
+}
 static void seek_signal(int signal, siginfo_t *info, void *context) {
     assert(signal == SIGSYS && info->si_syscall == SYS_lseek && info->si_errno == 73);
     ((ucontext_t *)context)->uc_mcontext.regs[0] = 711;
@@ -591,6 +626,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[1], "catalogue")) catalogue();
     else if (!strcmp(argv[1], "seek")) seek_descriptors(0);
     else if (!strcmp(argv[1], "seek-protected")) seek_descriptors(1);
+    else if (!strcmp(argv[1], "transport-policy")) transport_policy();
     else if (!strcmp(argv[1], "exec-offset") || !strcmp(argv[1], "exec-offset-child"))
         exec_offset(argv[0], !strcmp(argv[1], "exec-offset-child"));
     else if (!strncmp(argv[1], "identity-", 9)) identity_control(argv[0], argv[1]);

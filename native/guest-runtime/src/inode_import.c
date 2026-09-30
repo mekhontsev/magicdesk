@@ -74,7 +74,7 @@ static int origin(struct md_inode_store *s, const struct stat *st, struct mdi_no
     if (!r && insert) r = mdi_bind_id(q, 3, node->id);
     if (!r && insert) r = mdi_sql_error(sqlite3_bind_blob(q, 4, st, sizeof(*st), SQLITE_TRANSIENT));
     if (!r) {
-        int rc = sqlite3_step(q);
+        int rc = mdi_step(s, q);
         if (insert) r = rc == SQLITE_DONE ? 0 : mdi_sql_failure(rc);
         else if (rc == SQLITE_DONE) r = -ENOENT;
         else if (rc != SQLITE_ROW) r = mdi_sql_failure(rc);

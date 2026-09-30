@@ -33,7 +33,7 @@ int md_inode_socket_bind(struct md_inode_store *s, int dirfd, const char *path, 
     if (!r) r = mdi_prepare(s, "INSERT INTO sockets(object,address) VALUES(?1,?2)", &query);
     if (!r) r = mdi_bind_id(query, 1, node.id);
     if (!r) r = mdi_sql_error(sqlite3_bind_text(query, 2, path, -1, SQLITE_TRANSIENT));
-    if (!r) r = mdi_sql_error(sqlite3_step(query));
+    if (!r) r = mdi_sql_error(mdi_step(s, query));
     sqlite3_finalize(query);
     if (!r) r = mdi_add_name(s, loc.parent.id, loc.name, node.id);
     struct sockaddr_un address = {.sun_family = AF_UNIX};
@@ -66,7 +66,7 @@ int md_inode_socket_name(struct md_inode_store *s, const char *address, char *ou
     r = mdi_prepare(s, "SELECT address FROM sockets WHERE object=?1", &query);
     if (!r) r = mdi_bind_id(query, 1, address + prefix);
     if (!r) {
-        int rc = sqlite3_step(query);
+        int rc = mdi_step(s, query);
         if (rc != SQLITE_ROW) r = rc == SQLITE_DONE ? -ENOENT : mdi_sql_failure(rc);
         else {
             const char *name = (const char *)sqlite3_column_text(query, 0);

@@ -5,9 +5,12 @@
 #include <sqlite3.h>
 
 #define MDI_ROOT "00000000000000000000000000000000"
+enum mdi_query { MDI_NODE, MDI_FD, MDI_LOOKUP, MDI_LINK_COUNT, MDI_QUERY_COUNT };
 struct md_inode_store {
     sqlite3 *db;
     int objects, locked;
+    struct md_inode_statistics *statistics;
+    sqlite3_stmt *queries[MDI_QUERY_COUNT];
 #ifdef MD_INODE_TESTING
     void (*observe)(enum md_inode_checkpoint, void *);
     void *context;
@@ -32,6 +35,7 @@ int mdi_sql_failure(int);
 int mdi_sql(struct md_inode_store *, const char *);
 int mdi_begin(struct md_inode_store *, int write);
 int mdi_prepare(struct md_inode_store *, const char *, sqlite3_stmt **);
+int mdi_step(struct md_inode_store *, sqlite3_stmt *);
 int mdi_bind_id(sqlite3_stmt *, int, const char *);
 int mdi_bind_name(sqlite3_stmt *, int, const char *);
 int mdi_finish(struct md_inode_store *, int);

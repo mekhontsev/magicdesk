@@ -150,7 +150,7 @@ struct peer {
     struct md_fs_rights output;
 };
 static int service_request(struct md_inode_store *s, struct md_image_catalogue *images, int socket,
-        struct peer *peer) {
+        struct peer *peer, struct md_fs_statistics *statistics) {
     struct md_fs_packet packet;
     struct md_fs_rights input = {0};
     long n = md_fs_receive(socket, &packet, sizeof(packet), &input);
@@ -162,7 +162,10 @@ static int service_request(struct md_inode_store *s, struct md_image_catalogue *
         reply->error = valid(&packet, (size_t)n, &input);
         if (!reply->error) {
             OBSERVE(MD_FS_BEFORE_DISPATCH, &packet);
+            struct md_cost *cost = statistics ? &statistics->operation[packet.operation] : NULL;
+            int64_t begin = md_cost_begin(cost);
             reply->error = dispatch(s, images, &packet, &input, reply, &peer->output);
+            md_cost_end(cost, begin);
             OBSERVE(MD_FS_AFTER_DISPATCH, &packet);
         }
     } else reply->error = -EPROTO;
@@ -172,9 +175,9 @@ static int service_request(struct md_inode_store *s, struct md_image_catalogue *
     return 0;
 }
 static int service_peer(struct md_inode_store *s, struct md_image_catalogue *images,
-        struct pollfd *fd, struct peer *peer) {
+        struct pollfd *fd, struct peer *peer, struct md_fs_statistics *statistics) {
     if (peer->phase == RELEASE) return 1;
-    if (peer->phase == REQUEST && service_request(s, images, fd->fd, peer)) return 1;
+    if (peer->phase == REQUEST && service_request(s, images, fd->fd, peer, statistics)) return 1;
     if (peer->phase != REPLY) return 0;
     size_t size = offsetof(struct md_fs_reply, data) + peer->reply.size;
     long sent = md_fs_send(fd->fd, &peer->reply, size, &peer->output);
@@ -193,7 +196,8 @@ static void close_peer(struct pollfd *fd, struct peer *peer) {
     close(fd->fd); fd->fd = -1;
     OBSERVE(MD_FS_CONNECTION_CLOSED, NULL);
 }
-int md_fs_serve(struct md_inode_store *s, struct md_image_catalogue *images, int listener, int stop_fd, unsigned timeout_ms) {
+int md_fs_serve(struct md_inode_store *s, struct md_image_catalogue *images, int listener, int stop_fd,
+        unsigned timeout_ms, struct md_fs_statistics *statistics) {
     if (!s || listener < 0 || stop_fd < 0 || !timeout_ms || timeout_ms > 60000) return -EINVAL;
     enum { SLOTS = 32, BASE = 2 };
     struct pollfd fds[BASE+SLOTS] = {{.fd = listener, .events = POLLIN}, {.fd = stop_fd, .events = POLLIN}};
@@ -221,7 +225,7 @@ int md_fs_serve(struct md_inode_store *s, struct md_image_catalogue *images, int
         if (fds[1].revents) break;
         if (fds[0].revents & (POLLNVAL | POLLERR | POLLHUP)) { error = -EIO; break; }
         for (unsigned i = BASE; i < BASE+SLOTS; ++i) if (fds[i].fd >= 0 && fds[i].revents) {
-            if (service_peer(s, images, &fds[i], &peers[i-BASE])) close_peer(&fds[i], &peers[i-BASE]);
+            if (service_peer(s, images, &fds[i], &peers[i-BASE], statistics)) close_peer(&fds[i], &peers[i-BASE]);
         }
         if (fds[0].revents & POLLIN) {
             /* Bound each accept batch so a connecting peer cannot starve shutdown or requests. */

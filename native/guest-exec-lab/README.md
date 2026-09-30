@@ -332,7 +332,7 @@ Exact successful device coverage and unsupported ABI surfaces belong in
 [Guest runtime](../../docs/guest-runtime.md#coverage-and-limits), not a general
 claim of distribution or driver compatibility.
 
-## Compilation Benchmark
+## Runtime Benchmarks
 
 `benchmark_compile.py` compares the same Debian GCC toolchain and SQLite
 amalgamation under native chroot, Termux PRoot and the installed guest runtime.
@@ -341,6 +341,15 @@ It builds the standalone CLI and PIC shared library with `-O3 -flto`, serial
 runs inside each environment around make, excluding rootfs preparation,
 transport, environment startup and subsequent SQL validation. Both generated
 program/library paths must execute successfully; output hashes are recorded.
+
+`--workload metadata` checks 4,096 stat/open/fstat/read operations over a prepared
+tree, including actual inode identity, link count and bytes. `--workload spawn`
+checks 128 fork/exec/wait cycles of the same `/bin/true`. Fixture compilation and
+tree preparation remain outside timing. The native tree is prepared as the Termux
+owner so sequential chroot and PRoot runs can reuse it without ownership changes.
+Use `--modes guest-baseline guest --baseline-runtime REFERENCE_BUNDLE` for an
+interleaved comparison of two immutable guest bundles under the same shell UID.
+The reference bundle must support the same store and command contract.
 
 Prepare a new build-only sysroot with the authenticated package helper:
 
@@ -366,11 +375,15 @@ change leaves the report incomplete rather than mixing power conditions.
 Caches are warmed, not globally dropped; governors and CPU affinity are not
 changed. Wall time is the comparable end-to-end build metric. GNU time's child
 CPU accounting does not include every external supervisor/filesystem service.
-This CPU-heavy workload does not establish metadata-intensive performance,
-ptrace call counts, GUI latency or cross-device speed claims.
+The compile workload does not establish metadata-intensive performance; use
+the separate workloads rather than generalizing one result. None establishes
+GUI latency or cross-device speed claims. Very short native runs can reach
+GNU time's output resolution; do not infer precise ratios from those values.
 
 Use `--guest-statistics --modes guest` for a separately labelled diagnostic run
-with aggregate syscall/ptrace counters. Keep it separate from ordinary timing
-series. Frequency caps and scheduling groups can differ between these executor
+with aggregate syscall/ptrace/stop counters, filesystem/SQLite elapsed costs and
+separate supervisor/service CPU totals. Clock sampling is enabled only in that
+diagnostic mode. Keep it separate from ordinary timing series. Frequency caps
+and scheduling groups can differ between these executor
 identities even without changing the power source; retain the individual samples
 and ranges rather than attributing every wall-time difference to interception.
