@@ -43,8 +43,17 @@ namespace service it is starting.
 Each request owns a fresh CLOEXEC, nonblocking connection, one packet and one
 reply. There is no inherited persistent client connection to repair after fork
 or exec, no cross-thread reply matching and no client lock that a nested signal
-can deadlock. Socket creation per request is an explicit cost of this initial
-correctness boundary; production throughput is not established.
+can deadlock. Per-call connection setup is an explicit cost of this ownership
+model; data IO and regular-file seeks do not need a filesystem RPC.
+
+The server retains a successfully sent reply's connection until the client
+closes it. Request, pending-reply and client-release are distinct event-loop
+states. A nonblocking send interrupted or backpressured before delivery retries
+the retained reply, never dispatches the operation again. Reply buffers and FD
+ownership occupy one fixed-capacity pool allocated at service startup; no
+per-request heap allocation is required. Shutdown, peer failure and deadline
+expiry release retained FDs. A client that never reads or closes cannot retain
+a slot indefinitely or block unrelated requests.
 
 The service exposes create/open, mkdir, symlink/readlink, link/unlink/rename,
 path stat, FD stat, directory-path reconstruction, paged directory read/seek and
@@ -102,7 +111,7 @@ process-tree supervision separately from this transport.
 
 Client waits use the shared freestanding `event_wait.c` monotonic absolute
 deadline primitive, including EINTR handling. Server
-waits observe listener, peer and stop-FD readiness, with idle-peer expiry. These
+waits observe listener, request/reply, client-close and stop-FD readiness, with peer expiry. These
 are event waits with failure bounds, not readiness polling or settling delays.
 
 In namespace execution, a separate subreaper owns the service's stop pipe until
@@ -130,6 +139,9 @@ requires zero undefined symbols. Host and actual shell-UID Debian fixtures cover
   SCM_RIGHTS. Namespace and service FD counts are checked after rejection.
 - An idle peer alongside a working client; reply timeout; malformed-reply FD
   cleanup; failure before sending; and service death exactly after commit.
+- A delayed reader receives its reply and FD while other clients make progress;
+  the server does not close the connection ahead of the reader. Repeated FD
+  metadata exchanges exercise response lifetime under load.
 - Reopening the namespace after service death verifies the already-committed
   operation. The lost reply remains unconfirmed rather than being replayed.
 

@@ -48,7 +48,8 @@ requires a successful exit and expectations. `sandboxSupportEstablished` and
   logical credentials, secure auxv/loader, irreversible drops, no_new_privs,
   denied real credentials and retained descriptors.
 - `test_retained.py`: protected metadata and exec, nonleader exec, descriptor
-  offsets, signals, group death, job control, sockets, three stock zygote/renderer
+  offsets, regular/directory/O_PATH/pipe FD reuse, shared dup/fork/thread seeks,
+  seek ERRNO/TRAP/KILL precedence, signals, group death, job control, sockets, three stock zygote/renderer
   starts and rejection of a helper not explicitly admitted.
 - `test_renderer.py`: a separately labelled layer-two experiment. Its parent
   uses `--no-sandbox`, while `renderer-prefix.py` removes that flag from

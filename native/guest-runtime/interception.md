@@ -20,6 +20,19 @@ exec replaces it. Completed calls return their lease. Thread records are reused
 without a fixed thread-count ceiling. Heap work is confined to ownership changes
 and new concurrency, not each ordinary intercepted call.
 
+Regular-file seeks use a supervisor fast path after the original syscall's
+seccomp admission and domain checks. A task-affine duplicated FD retains the
+actual open-file description throughout inspection and seek; no FD-number
+cache or namespace metadata RPC is involved. Shared positions and descriptor
+reuse retain kernel semantics. Directories and unavailable remote descriptor
+access use the ordinary adapter, including nondumpable processes.
+
+`magicdesk-guest --statistics --store STORE -- PROGRAM` enables aggregate
+syscall and ptrace counters, printed once when the owned tree completes. This
+allocates its counter table only when explicitly requested and produces no
+per-call logs. Detailed `--diagnostics` is a separate mode; neither is enabled
+for ordinary launches or comparative timing runs.
+
 The guest owns SIGSYS, signal masks and alternate stacks. Native clone and signal
 return retain their register/extension ABI. Application filters are not removed:
 ERRNO, TRAP and KILL retain kernel precedence over runtime TRACE/USER_NOTIF.

@@ -5,6 +5,7 @@ import base64
 import hashlib
 import ipaddress
 import json
+import math
 import os
 import shutil
 from pathlib import Path
@@ -26,7 +27,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class Client:
-    def __init__(self, endpoint, token, timeout=300, allow_plaintext=False):
+    def __init__(self, endpoint, token, timeout=300, allow_plaintext=False, request_timeout=120):
         url = urllib.parse.urlsplit(endpoint)
         if url.scheme not in ("http", "https") or not url.hostname or url.username or url.password:
             raise ToolError("Expected an HTTP(S) endpoint without embedded credentials")
@@ -38,9 +39,12 @@ class Client:
             raise ToolError("Unencrypted network transport requires --allow-plaintext-network (use a trusted test LAN or protected VPN)")
         if not token or "\n" in token or "\r" in token:
             raise ToolError("A valid MCP bearer token is required")
+        if not math.isfinite(request_timeout) or request_timeout <= 0:
+            raise ToolError("Request timeout must be finite and positive")
         self.endpoint = endpoint
         self.token = token
         self.timeout = timeout
+        self.request_timeout = request_timeout
         self.sequence = 0
         self.opener = urllib.request.build_opener(NoRedirect())
 
@@ -62,7 +66,7 @@ class Client:
             if remaining <= 0:
                 raise TimeoutError("MCP reconnect deadline expired; operation outcome may still be pending")
             try:
-                with self.opener.open(request, timeout=min(120, remaining)) as response:
+                with self.opener.open(request, timeout=min(self.request_timeout, remaining)) as response:
                     payload = response.read(2 * 1024 * 1024 + 1)
                 if len(payload) > 2 * 1024 * 1024:
                     raise ToolError("MCP response exceeds client limit")

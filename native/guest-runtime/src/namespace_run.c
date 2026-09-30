@@ -42,10 +42,11 @@ void md_boot(uintptr_t *stack) {
     if (argc < 5 || argc > 1000)
         md_die("usage: guest-run --store HOST_PATH [--cwd GUEST_PATH] -- PROGRAM [ARGS]", -EINVAL);
     const char *store = NULL, *cwd = "/", *home = "/tmp", *admit = NULL, *run_deadline = NULL;
-    int diagnostics = 0;
+    int diagnostics = 0, statistics = 0;
     size_t program = 1;
     while (program < argc && !md_equal(argv[program], "--")) {
         if (md_equal(argv[program], "--diagnostics")) { diagnostics = 1; program++; continue; }
+        if (md_equal(argv[program], "--statistics")) { statistics = 1; program++; continue; }
         if (program + 1 >= argc) md_die("missing launch option value", -EINVAL);
         if (md_equal(argv[program], "--socket-path") || md_equal(argv[program], "--socket-abstract")) {
             if (program + 2 >= argc) md_die("missing socket route", -EINVAL);
@@ -137,6 +138,7 @@ void md_boot(uintptr_t *stack) {
             char *args[1040 + MD_SOCKET_ROUTES_MAX * 3] = {supervisor};
             unsigned n = 1;
             if (diagnostics) args[n++] = "--diagnostics";
+            if (statistics) args[n++] = "--statistics";
             if (run_deadline) { args[n++] = "--deadline-seconds"; args[n++] = (char *)run_deadline; }
             if (admit) { args[n++] = "--admit-elf"; args[n++] = (char *)admit; }
             args[n++] = bootstrap;

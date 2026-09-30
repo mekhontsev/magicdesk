@@ -23,7 +23,7 @@
 } } while (0)
 static char root[PATH_MAX];
 static unsigned serial;
-enum fault { NORMAL, SIGNAL, HOLD_AFTER, COUNT_CLOSE, HOLD_DIRECTORY };
+enum fault { NORMAL, SIGNAL, HOLD_AFTER, COUNT_CLOSE, HOLD_DIRECTORY, COUNT_REPLY };
 struct service { pid_t pid; int stop, events, control; char endpoint[96], directory[PATH_MAX]; };
 struct hooks { enum fault fault; int notify, control; pid_t client; };
 static void byte(int fd) { CHECK(write(fd, "x", 1) == 1); }
@@ -41,6 +41,10 @@ static void joined(pid_t pid, int expected_signal) {
 }
 static void observe(enum md_fs_checkpoint point, const struct md_fs_packet *packet, void *context) {
     struct hooks *h = context;
+    if (point == MD_FS_REPLY_SENT) {
+        if (h->fault == COUNT_REPLY) byte(h->notify);
+        return;
+    }
     if (point == MD_FS_CONNECTION_CLOSED) {
         if (h->fault == COUNT_CLOSE) byte(h->notify);
         return;
@@ -286,6 +290,28 @@ static void idle(void) {
     stop(&s, 0);
     puts("PASS idle peer does not block other requests and is closed at its failure deadline");
 }
+static void reply_lifetime(void) {
+    struct service s; start(&s, COUNT_REPLY, NULL, 5000);
+    int socket = connect_peer(s.endpoint);
+    struct md_fs_packet q = {.magic = MD_FS_MAGIC, .version = MD_FS_VERSION,
+        .operation = MD_FS_CREATE, .mode = 0600, .length = {5,1}, .data = "held"};
+    struct md_fs_rights rights = {0};
+    CHECK(md_fs_send(socket, &q, offsetof(struct md_fs_packet, data) + 6, &rights) > 0);
+    event(s.events);
+    /* Another completed request makes the service advance beyond the first send. */
+    call(s.endpoint, MD_FS_STAT, -1, "held", -1, NULL, 0, 0, 0); event(s.events);
+    struct md_fs_reply reply;
+    CHECK(md_fs_receive(socket, &reply, sizeof(reply), &rights) == (long)offsetof(struct md_fs_reply, data));
+    CHECK(!reply.error && rights.count == 1);
+    CHECK(write(rights.fd[0], "once", 4) == 4);
+    md_fs_close_rights(&rights);
+    CHECK(md_fs_receive(socket, &reply, sizeof(reply), &rights) == -EAGAIN);
+    close(socket);
+    struct md_fs_result out = call(s.endpoint, MD_FS_STAT, -1, "held", -1, NULL, 0, 0, 0); event(s.events);
+    CHECK(out.info.size == 4 && out.info.links == 1);
+    stop(&s, 0);
+    puts("PASS reply survives until client close; another request progresses without replay");
+}
 static void lost_reply(void) {
     struct service s; start(&s, HOLD_AFTER, NULL, 5000);
     pid_t killer = fork(); CHECK(killer >= 0);
@@ -444,7 +470,23 @@ static void lost_directory_reply(void) {
     close(fd); stop(&s,0);
     puts("PASS lost getdents reply: shared cursor already advanced, UNCONFIRMED and no replay");
 }
+static void descriptor_stress(unsigned count) {
+    struct service s; start(&s, NORMAL, NULL, 5000);
+    int fd = call(s.endpoint, MD_FS_CREATE, -1, "payload", -1, NULL, 0, 0600, 0).fd;
+    CHECK(write(fd, "test", 4) == 4);
+    for (unsigned i = 0; i < count; i++) {
+        struct md_fs_result out = call(s.endpoint, MD_FS_FSTAT, fd, NULL, -1, NULL, 0, 0, 0);
+        CHECK(out.info.size == 4 && S_ISREG(out.info.mode));
+    }
+    close(fd); stop(&s, 0);
+    printf("PASS %u descriptor RPC exchanges without response loss\n", count);
+}
 int main(int argc, char **argv) {
+    if (argc == 3 && !strcmp(argv[1], "stress")) {
+        CHECK(argv[2][0] == '/' && strlen(argv[2]) < sizeof(root)); strcpy(root, argv[2]);
+        CHECK(mkdir(root, 0700) == 0);
+        descriptor_stress(100000); return 0;
+    }
     if (argc==4 && !strcmp(argv[1],"directory-child")) {
         struct md_fs_result r=directory_call(argv[2],atoi(argv[3]),MD_FS_GETDENTS,24,0,0,0);
         entry(&r,"f",DT_REG); return 0;
@@ -458,6 +500,7 @@ int main(int argc, char **argv) {
     CHECK(argc == 2 && argv[1][0] == '/' && strlen(argv[1]) < sizeof(root)); strcpy(root, argv[1]);
     CHECK(mkdir(root, 0700) == 0);
     semantics(argv[0]); directories(argv[0]); lost_directory_reply(); concurrent(); contention(); reentrant(); malformed(); idle(); lost_reply();
+    reply_lifetime(); descriptor_stress(10000);
     faulty_reply(0); faulty_reply(1);
     struct md_fs_request q = {.operation=MD_FS_STAT, .directory={-1,-1}, .path={"/",NULL}};
     struct md_fs_result result;

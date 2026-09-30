@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -141,56 +142,86 @@ static int dispatch(struct md_inode_store *s, struct md_image_catalogue *images,
     output->fd[output->count++] = r;
     return 0;
 }
-static int service_request(struct md_inode_store *s, struct md_image_catalogue *images, int socket) {
+enum peer_phase { REQUEST, REPLY, RELEASE };
+struct peer {
+    enum peer_phase phase;
+    int64_t deadline;
+    struct md_fs_reply reply;
+    struct md_fs_rights output;
+};
+static int service_request(struct md_inode_store *s, struct md_image_catalogue *images, int socket,
+        struct peer *peer) {
     struct md_fs_packet packet;
-    struct md_fs_reply reply = {.magic = MD_FS_MAGIC, .version = MD_FS_VERSION};
-    struct md_fs_rights input = {0}, output = {0};
+    struct md_fs_rights input = {0};
     long n = md_fs_receive(socket, &packet, sizeof(packet), &input);
     if (n == -EAGAIN || n == -EINTR) return 0;
+    if (!n) { md_fs_close_rights(&input); return 1; }
+    struct md_fs_reply *reply = &peer->reply;
+    *reply = (struct md_fs_reply){.magic = MD_FS_MAGIC, .version = MD_FS_VERSION};
     if (n > 0) {
-        reply.error = valid(&packet, (size_t)n, &input);
-        if (!reply.error) {
+        reply->error = valid(&packet, (size_t)n, &input);
+        if (!reply->error) {
             OBSERVE(MD_FS_BEFORE_DISPATCH, &packet);
-            reply.error = dispatch(s, images, &packet, &input, &reply, &output);
+            reply->error = dispatch(s, images, &packet, &input, reply, &peer->output);
             OBSERVE(MD_FS_AFTER_DISPATCH, &packet);
         }
-    } else reply.error = -EPROTO;
+    } else reply->error = -EPROTO;
     md_fs_close_rights(&input);
-    reply.descriptors = output.count;
-    /* A lost reply cannot roll back a completed mutation. Never replay it. */
-    md_fs_send(socket, &reply, offsetof(struct md_fs_reply, data) + reply.size, &output);
-    md_fs_close_rights(&output);
-    return 1;
+    reply->descriptors = peer->output.count;
+    peer->phase = REPLY;
+    return 0;
+}
+static int service_peer(struct md_inode_store *s, struct md_image_catalogue *images,
+        struct pollfd *fd, struct peer *peer) {
+    if (peer->phase == RELEASE) return 1;
+    if (peer->phase == REQUEST && service_request(s, images, fd->fd, peer)) return 1;
+    if (peer->phase != REPLY) return 0;
+    size_t size = offsetof(struct md_fs_reply, data) + peer->reply.size;
+    long sent = md_fs_send(fd->fd, &peer->reply, size, &peer->output);
+    if (sent == -EAGAIN || sent == -EINTR) { fd->events = POLLOUT; return 0; }
+    if (sent != (long)size) return 1;
+    md_fs_close_rights(&peer->output);
+    /* Client close acknowledges receipt. Do not race a nonblocking SEQPACKET
+     * receive with server shutdown; never redispatch a completed mutation. */
+    peer->phase = RELEASE;
+    fd->events = POLLIN;
+    OBSERVE(MD_FS_REPLY_SENT, NULL);
+    return 0;
+}
+static void close_peer(struct pollfd *fd, struct peer *peer) {
+    md_fs_close_rights(&peer->output);
+    close(fd->fd); fd->fd = -1;
+    OBSERVE(MD_FS_CONNECTION_CLOSED, NULL);
 }
 int md_fs_serve(struct md_inode_store *s, struct md_image_catalogue *images, int listener, int stop_fd, unsigned timeout_ms) {
     if (!s || listener < 0 || stop_fd < 0 || !timeout_ms || timeout_ms > 60000) return -EINVAL;
     enum { SLOTS = 32, BASE = 2 };
     struct pollfd fds[BASE+SLOTS] = {{.fd = listener, .events = POLLIN}, {.fd = stop_fd, .events = POLLIN}};
-    int64_t deadlines[SLOTS] = {0};
+    /* Fixed capacity, allocated once per service, never per request. */
+    struct peer *peers = calloc(SLOTS, sizeof(*peers));
+    if (!peers) return -ENOMEM;
     for (unsigned i = BASE; i < BASE+SLOTS; ++i) fds[i].fd = -1;
     int error = 0;
     for (;;) {
         long now = md_event_now(); if (now < 0) { error = (int)now; break; }
         int64_t nearest = INT64_MAX;
         for (unsigned i = 0; i < SLOTS; ++i) if (fds[BASE+i].fd >= 0) {
-            if (deadlines[i] <= now) { close(fds[BASE+i].fd); fds[BASE+i].fd = -1; }
-            else if (deadlines[i] < nearest) nearest = deadlines[i];
+            if (peers[i].deadline <= now) close_peer(&fds[BASE+i], &peers[i]);
+            else if (peers[i].deadline < nearest) nearest = peers[i].deadline;
         }
         struct timespec timeout = {0};
         if (nearest != INT64_MAX) {
             int64_t left = nearest-now;
             timeout.tv_sec = left / 1000000000LL; timeout.tv_nsec = left % 1000000000LL;
         }
-        /* EVENT_WAIT: listener/peer/stop readiness; idle peer deadline drops only that connection. */
+        /* EVENT_WAIT: request/reply/client-close/stop readiness; the absolute
+         * peer deadline drops only that connection, without replaying work. */
         int r = ppoll(fds, BASE+SLOTS, nearest == INT64_MAX ? NULL : &timeout, NULL);
         if (r < 0) { if (errno == EINTR) continue; error = -errno; break; }
         if (fds[1].revents) break;
         if (fds[0].revents & (POLLNVAL | POLLERR | POLLHUP)) { error = -EIO; break; }
         for (unsigned i = BASE; i < BASE+SLOTS; ++i) if (fds[i].fd >= 0 && fds[i].revents) {
-            if (service_request(s, images, fds[i].fd)) {
-                close(fds[i].fd); fds[i].fd = -1;
-                OBSERVE(MD_FS_CONNECTION_CLOSED, NULL);
-            }
+            if (service_peer(s, images, &fds[i], &peers[i-BASE])) close_peer(&fds[i], &peers[i-BASE]);
         }
         if (fds[0].revents & POLLIN) {
             /* Bound each accept batch so a connecting peer cannot starve shutdown or requests. */
@@ -203,11 +234,14 @@ int md_fs_serve(struct md_inode_store *s, struct md_image_catalogue *images, int
                 now = md_event_now();
                 if (now < 0) { close(fd); error = (int)now; break; }
                 fds[BASE+slot] = (struct pollfd){.fd = fd, .events = POLLIN};
-                deadlines[slot] = now + (int64_t)timeout_ms * 1000000;
+                peers[slot].phase = REQUEST;
+                peers[slot].deadline = now + (int64_t)timeout_ms * 1000000;
             }
             if (error) break;
         }
     }
-    for (unsigned i = BASE; i < BASE+SLOTS; ++i) if (fds[i].fd >= 0) close(fds[i].fd);
+    for (unsigned i = BASE; i < BASE+SLOTS; ++i)
+        if (fds[i].fd >= 0) close_peer(&fds[i], &peers[i-BASE]);
+    free(peers);
     return error;
 }

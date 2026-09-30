@@ -20,6 +20,7 @@
 #include <sys/mman.h>
 #include <sys/uio.h>
 #include <sys/ptrace.h>
+#include <ucontext.h>
 #include <unistd.h>
 
 static void memory(void) {
@@ -493,6 +494,84 @@ static void exec_offset(const char *self, int child) {
     syscall(SYS_execveat, fd, "", args, environ, AT_EMPTY_PATH);
     assert(0);
 }
+static void seek_signal(int signal, siginfo_t *info, void *context) {
+    assert(signal == SIGSYS && info->si_syscall == SYS_lseek && info->si_errno == 73);
+    ((ucontext_t *)context)->uc_mcontext.regs[0] = 711;
+}
+static void seek_policy(int fd, unsigned action) {
+    assert(lseek(fd, 37, SEEK_SET) == 37);
+    pid_t child = fork(); assert(child >= 0);
+    if (!child) {
+        struct sigaction handler = {.sa_sigaction = seek_signal, .sa_flags = SA_SIGINFO};
+        sigemptyset(&handler.sa_mask); assert(!sigaction(SIGSYS, &handler, NULL));
+        struct sock_filter filter[] = {
+            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_lseek, 0, 1),
+            BPF_STMT(BPF_RET | BPF_K, action),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+        };
+        struct sock_fprog policy = {sizeof(filter) / sizeof(*filter), filter};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0));
+        assert(!syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &policy));
+        off_t result = lseek(fd, 1000, SEEK_SET);
+        if ((action & SECCOMP_RET_ACTION_FULL) == SECCOMP_RET_ERRNO)
+            assert((action & SECCOMP_RET_DATA) ? result == -1 && errno == EKEYREJECTED : result == 0);
+        else assert((action & SECCOMP_RET_ACTION_FULL) == SECCOMP_RET_TRAP && result == 711);
+        _exit(0);
+    }
+    int status;
+    /* EVENT_WAIT: this exact filtered child exits; the runner bounds a stuck tracee. */
+    assert(waitpid(child, &status, 0) == child);
+    if (action == SECCOMP_RET_KILL_PROCESS) assert(WIFSIGNALED(status) && WTERMSIG(status) == SIGSYS);
+    else assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    assert(lseek(fd, 0, SEEK_CUR) == 37);
+}
+static void *seek_worker(void *data) {
+    int fd = *(int *)data;
+    for (unsigned i = 0; i < 128; i++) assert(lseek(fd, 1, SEEK_CUR) >= 0);
+    return NULL;
+}
+static void seek_descriptors(int protected) {
+    char path[128]; snprintf(path, sizeof(path), "/tmp/md-seek-%d", getpid());
+    int fd = open(path, O_CREAT | O_EXCL | O_RDWR, 0600); assert(fd >= 0);
+    int opaque = open(path, O_PATH); assert(opaque >= 0 && !unlink(path));
+    if (protected) assert(!prctl(PR_SET_DUMPABLE, 0, 0, 0, 0));
+    off_t size = (1ULL << 33) + 64;
+    assert(!ftruncate(fd, size) && lseek(fd, -64, SEEK_END) == size - 64);
+    assert(lseek(fd, -1, SEEK_SET) == -1 && errno == EINVAL);
+    assert(lseek(fd, 0, 99) == -1 && errno == EINVAL);
+    assert(lseek(-1, 0, SEEK_CUR) == -1 && errno == EBADF);
+    assert(lseek(opaque, 0, SEEK_CUR) == -1 && errno == EBADF);
+    int held = dup(fd); assert(held >= 0 && lseek(held, 19, SEEK_SET) == 19);
+    pid_t child = fork(); assert(child >= 0);
+    if (!child) { assert(lseek(fd, 1, SEEK_CUR) == 20); _exit(0); }
+    int status;
+    /* EVENT_WAIT: shared file-position update by the child, bounded by the runner. */
+    assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && !WEXITSTATUS(status));
+    assert(lseek(held, 0, SEEK_CUR) == 20);
+    pthread_t threads[4];
+    for (unsigned i = 0; i < 4; i++) assert(!pthread_create(&threads[i], NULL, seek_worker, &held));
+    /* EVENT_WAIT: worker completion; no sampling or fixed settling delay. */
+    for (unsigned i = 0; i < 4; i++) assert(!pthread_join(threads[i], NULL));
+    assert(lseek(fd, 0, SEEK_CUR) == 20 + 4 * 128);
+    int dir = open("/", O_RDONLY | O_DIRECTORY); assert(dir >= 0);
+    assert(dup3(dir, fd, 0) == fd && lseek(fd, 0, SEEK_SET) == 0);
+    char data[512]; assert(syscall(SYS_getdents64, fd, data, sizeof(data)) > 0);
+    assert(lseek(fd, 0, SEEK_CUR) > 0 && lseek(fd, 0, SEEK_SET) == 0);
+    assert(dup3(opaque, fd, 0) == fd && lseek(fd, 0, SEEK_SET) == -1 && errno == EBADF);
+    int pipefd[2]; assert(!pipe(pipefd));
+    assert(dup3(pipefd[0], fd, 0) == fd && lseek(fd, 0, SEEK_CUR) == -1 && errno == ESPIPE);
+    assert(dup3(held, fd, 0) == fd && lseek(fd, 0, SEEK_CUR) == 20 + 4 * 128);
+    if (!protected) {
+        seek_policy(fd, SECCOMP_RET_ERRNO | EKEYREJECTED);
+        seek_policy(fd, SECCOMP_RET_ERRNO);
+        seek_policy(fd, SECCOMP_RET_TRAP | 73);
+        seek_policy(fd, SECCOMP_RET_KILL_PROCESS);
+    } else assert(prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) == 0);
+    assert(!close(dir) && !close(opaque) && !close(pipefd[0]) && !close(pipefd[1]));
+    assert(!close(fd) && !close(held));
+    puts("PASS seek: offsets, dup/fork/threads, unlinked files, FD reuse, directories and policy");
+}
 int main(int argc, char **argv) {
     assert(argc == 2);
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -510,6 +589,8 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[1], "helper-client")) helper_client(0);
     else if (!strcmp(argv[1], "helper-retained")) helper_client(1);
     else if (!strcmp(argv[1], "catalogue")) catalogue();
+    else if (!strcmp(argv[1], "seek")) seek_descriptors(0);
+    else if (!strcmp(argv[1], "seek-protected")) seek_descriptors(1);
     else if (!strcmp(argv[1], "exec-offset") || !strcmp(argv[1], "exec-offset-child"))
         exec_offset(argv[0], !strcmp(argv[1], "exec-offset-child"));
     else if (!strncmp(argv[1], "identity-", 9)) identity_control(argv[0], argv[1]);

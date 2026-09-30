@@ -25,6 +25,10 @@ after commit or rollback. Separate launches can share a store without exposing
 ordinary internal transaction contention to guest syscalls. There is no polling
 or transaction replay; data IO through opened descriptors stays native. An
 external database writer that bypasses this gate still produces an explicit error.
+The supervisor handles regular-file seeks through retained kernel descriptors
+without namespace RPC; directory cursors remain namespace-owned. Filesystem
+replies retain their connection until client release, with event-driven progress
+and a bounded peer lifetime.
 
 Actual UID 2000 and UID 0 are accepted without switching identity. Root is a
 user choice, not a fallback or prerequisite. Neither the renderer nor a failed

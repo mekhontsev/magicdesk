@@ -52,6 +52,11 @@ static struct md_interception_abi abi;
 #define COPY_BEGIN abi.copy_begin
 #define COPY_END abi.copy_end
 static int diagnostics;
+struct interception_statistics {
+    uint64_t ptrace_requests, unknown, native_seeks;
+    struct { uint64_t trace, notification; } calls[512];
+};
+static struct interception_statistics *statistics;
 #define TRACE(...) do { if (diagnostics) fprintf(stderr, __VA_ARGS__); } while (0)
 enum phase { IDLE, ALLOCATING, DISPATCHING, EXECUTING, OBSERVING,
     EXPORT_CANCEL, EXPORTING, EXPORT_ENTRY, EXPORT_NOTIFY, EXPORT_RETURN, STORING,
@@ -159,15 +164,20 @@ static void cleanup(void) {
         free(threads); threads = next;
     }
     md_admission_close(&admission);
+    free(statistics);
 }
 static void fail(const char *what, int line) {
     fprintf(stderr, "guest-runtime: supervisor failure line=%d %s errno=%d\n", line, what, errno);
     exit(125);
 }
 #define CHECK(x) do { if (!(x)) fail(#x, __LINE__); } while (0)
+static long native_trace(int request, pid_t pid, void *address, void *data) {
+    if (statistics) statistics->ptrace_requests++;
+    return ptrace(request, pid, address, data);
+}
 static int tracee_request(struct thread *t, int request, void *address, void *data, const char *operation) {
     if (t->resume_lost) return 0;
-    if (!ptrace(request, t->pid, address, data)) return 1;
+    if (!native_trace(request, t->pid, address, data)) return 1;
     CHECK(errno == ESRCH);
     /* EVENT_WAIT: concurrent group death/exec may invalidate a reported stop.
      * Keep ownership until its exact exit/exec event; the tree deadline bounds
@@ -490,6 +500,10 @@ static void external_stat(void) {
     if (ioctl(listener, SECCOMP_IOCTL_NOTIF_RECV, &q)) {
         CHECK(errno == ENOENT || errno == EINTR); return;
     }
+    if (statistics) {
+        if ((unsigned)q.data.nr < 512) statistics->calls[q.data.nr].notification++;
+        else statistics->unknown++;
+    }
     CHECK(q.data.nr == SYS_fstat || q.data.nr == SYS_openat || q.data.nr == SYS_newfstatat || q.data.nr == SYS_prctl);
     struct thread *t = find_thread((pid_t)q.pid);
     CHECK(t && t->born);
@@ -680,12 +694,29 @@ static int domain_call(struct thread *t, struct user_pt_regs *r, unsigned long c
         TRACE("PROBE restricted pid=%d nr=%ld result=%d\n", t->pid, nr, error);
     return_value(t, r, error); return 1;
 }
+static int descriptor_call(struct thread *t, struct user_pt_regs *r, unsigned long cookie) {
+    if (cookie != MD_INTERCEPT_DISPATCH || r->regs[8] != SYS_lseek) return 0;
+    CHECK(t->ready && t->phase == IDLE);
+    int fd = duplicate_fd(t->pid, (int)r->regs[0]);
+    if (fd < 0) return 0;
+    struct stat st;
+    if (fstat(fd, &st) || !S_ISREG(st.st_mode)) { close(fd); return 0; }
+    /* A retained open-file description needs no namespace lookup or guest
+     * memory access. Never cache FD numbers or resume against a replaceable FD.
+     * Original seccomp admission and domain checks precede this operation. */
+    off_t result = lseek(fd, (off_t)r->regs[1], (int)r->regs[2]);
+    long value = result < 0 ? -errno : result;
+    close(fd);
+    if (statistics) statistics->native_seeks++;
+    return_value(t, r, value); return 1;
+}
 static void resume(pid_t pid, int sig) {
     struct thread *t = thread(pid);
     if (t->resume_lost) return;
     enum phase phase = t->phase;
-    if (!ptrace(phase == OBSERVING || phase == EXPORT_ENTRY || phase == EXPORT_NOTIFY
-            || phase == EXPORT_RETURN || phase == EXECUTING ? PTRACE_SYSCALL : PTRACE_CONT, pid, 0, sig)) return;
+    if (!native_trace(phase == OBSERVING || phase == EXPORT_ENTRY || phase == EXPORT_NOTIFY
+            || phase == EXPORT_RETURN || phase == EXECUTING ? PTRACE_SYSCALL : PTRACE_CONT,
+            pid, NULL, (void *)(uintptr_t)sig)) return;
     CHECK(errno == ESRCH);
     /* EVENT_WAIT: thread-group exit or exec may win a stopped-thread resume.
      * Only the exact waitpid exit/exec event releases ownership. A later stop
@@ -749,7 +780,15 @@ int main(int argc, char **argv) {
     CHECK(md_page_size >= 4096 && md_page_size <= 65536 && !(md_page_size & (md_page_size - 1)));
     int argument = 1;
     long seconds = 0;
-    if (argument < argc && !strcmp(argv[argument], "--diagnostics")) { diagnostics = 1; argument++; }
+    while (argument < argc) {
+        if (!strcmp(argv[argument], "--diagnostics")) diagnostics = 1;
+        else if (!strcmp(argv[argument], "--statistics")) {
+            CHECK(!statistics);
+            statistics = calloc(1, sizeof(*statistics));
+            CHECK(statistics);
+        } else break;
+        argument++;
+    }
     if (argument < argc && !strcmp(argv[argument], "--deadline-seconds")) {
         CHECK(argument + 2 < argc);
         char *end;
@@ -786,8 +825,8 @@ int main(int argc, char **argv) {
     /* EVENT_WAIT: child readiness precedes attaching; timeout cancels this tree. */
     CHECK(md_event_wait_fd(channel[0], POLLIN, md_event_now() + 5000000000LL) >= 0);
     char byte; CHECK(read(channel[0], &byte, 1) == 1 && byte == 'r');
-    CHECK(!ptrace(PTRACE_SEIZE, leader, 0, PTRACE_O_TRACESECCOMP | PTRACE_O_TRACEEXEC
-        | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK | PTRACE_O_TRACECLONE | PTRACE_O_EXITKILL | PTRACE_O_TRACESYSGOOD));
+    CHECK(!native_trace(PTRACE_SEIZE, leader, NULL, (void *)(uintptr_t)(PTRACE_O_TRACESECCOMP | PTRACE_O_TRACEEXEC
+        | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK | PTRACE_O_TRACECLONE | PTRACE_O_EXITKILL | PTRACE_O_TRACESYSGOOD)));
     byte = 'g'; CHECK(write(channel[0], &byte, 1) == 1); close(channel[0]);
     int64_t deadline = seconds ? md_event_now() + seconds * 1000000000LL : INT64_MAX;
     while (live) {
@@ -804,7 +843,7 @@ int main(int argc, char **argv) {
         CHECK(!t->resume_lost || event == PTRACE_EVENT_EXEC);
         int sig = WSTOPSIG(status);
         if (event == PTRACE_EVENT_EXEC) {
-            unsigned long old; CHECK(!ptrace(PTRACE_GETEVENTMSG, pid, 0, &old));
+            unsigned long old; CHECK(!native_trace(PTRACE_GETEVENTMSG, pid, NULL, &old));
             if (old && old != (unsigned)pid) {
                 struct thread *former = find_thread((pid_t)old);
                 if (former) {
@@ -844,7 +883,7 @@ int main(int argc, char **argv) {
                  * exit. CONT here would silently discard the application's stop.
                  * Keep the operation phase intact across the listening state. */
                 t->listening = 1; group_stops++;
-                if (ptrace(PTRACE_LISTEN, pid, 0, 0)) {
+                if (native_trace(PTRACE_LISTEN, pid, NULL, NULL)) {
                     CHECK(errno == ESRCH); t->resume_lost = 1;
                 }
                 continue;
@@ -890,8 +929,13 @@ int main(int argc, char **argv) {
             if (!tracee_request(t, PTRACE_GETEVENTMSG, NULL, &cookie, "seccomp-event")) continue;
             struct user_pt_regs regs;
             if (!registers(pid, &regs)) continue;
+            if (statistics) {
+                if (regs.regs[8] < 512) statistics->calls[regs.regs[8]].trace++;
+                else statistics->unknown++;
+            }
             if (identity_call(t, &regs, cookie)) continue;
             if (domain_call(t, &regs, cookie)) continue;
+            if (descriptor_call(t, &regs, cookie)) continue;
             if (cookie == MD_INTERCEPT_NATIVE) { resume(pid, 0); continue; }
             if (cookie == MD_INTERCEPT_EXEC) {
                 CHECK(t->phase == DISPATCHING);
@@ -1090,6 +1134,16 @@ int main(int argc, char **argv) {
         group_stops, group_wakes, raced_wakes);
     TRACE("PROBE identity admittedImages=%u changes=%u hostUid=%u\n",
         admitted_images, identity_changes, getuid());
+    if (statistics) {
+        fprintf(stderr, "MD_INTERCEPTION ptraceRequests=%llu unknown=%llu nativeSeeks=%llu\n",
+            (unsigned long long)statistics->ptrace_requests, (unsigned long long)statistics->unknown,
+            (unsigned long long)statistics->native_seeks);
+        for (unsigned nr = 0; nr < 512; nr++)
+            if (statistics->calls[nr].trace || statistics->calls[nr].notification)
+                fprintf(stderr, "MD_SYSCALL nr=%u trace=%llu notification=%llu\n", nr,
+                    (unsigned long long)statistics->calls[nr].trace,
+                    (unsigned long long)statistics->calls[nr].notification);
+    }
     if (listener >= 0) close(listener);
     close(signal_fd); return result;
 }

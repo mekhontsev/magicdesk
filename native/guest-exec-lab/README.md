@@ -331,3 +331,46 @@ failure distinct from the guest syscall mechanism or Android frame transport.
 Exact successful device coverage and unsupported ABI surfaces belong in
 [Guest runtime](../../docs/guest-runtime.md#coverage-and-limits), not a general
 claim of distribution or driver compatibility.
+
+## Compilation Benchmark
+
+`benchmark_compile.py` compares the same Debian GCC toolchain and SQLite
+amalgamation under native chroot, Termux PRoot and the installed guest runtime.
+It builds the standalone CLI and PIC shared library with `-O3 -flto`, serial
+`make -B -j1`, no compiler cache and a fixed compiler random seed. GNU time
+runs inside each environment around make, excluding rootfs preparation,
+transport, environment startup and subsequent SQL validation. Both generated
+program/library paths must execute successfully; output hashes are recorded.
+
+Prepare a new build-only sysroot with the authenticated package helper:
+
+```sh
+node native/guest-exec-lab/prepare.mjs build/guest-compile \
+    --suite trixie --package gcc --package make --package time --package coreutils
+python native/guest-exec-lab/benchmark_compile.py build/guest-compile \
+    --sqlite PATH_TO_SQLITE_AMALGAMATION --runtime INSTALLED_GUEST_BUNDLE
+```
+
+The default is one excluded warmup and three measured builds per mode, with
+rotating order. Root is explicitly used only for chroot; its bind mounts live
+in a private mount namespace and disappear on exit. PRoot uses the current
+Termux UID with seccomp acceleration enabled and no fake-root extension. Guest
+requires the existing MCP command service to be UID 2000 and imports its own
+store from identical source bytes. Neither the APK nor its access setting is
+changed. The phone must remain awake throughout the comparison.
+
+The JSON report retains tool/package/source/runtime identities, process CPU
+affinity, wall/CPU times, thermal and CPU-frequency samples, power source,
+all outputs and artifact hashes. Keep charging state unchanged; a detected
+change leaves the report incomplete rather than mixing power conditions.
+Caches are warmed, not globally dropped; governors and CPU affinity are not
+changed. Wall time is the comparable end-to-end build metric. GNU time's child
+CPU accounting does not include every external supervisor/filesystem service.
+This CPU-heavy workload does not establish metadata-intensive performance,
+ptrace call counts, GUI latency or cross-device speed claims.
+
+Use `--guest-statistics --modes guest` for a separately labelled diagnostic run
+with aggregate syscall/ptrace counters. Keep it separate from ordinary timing
+series. Frequency caps and scheduling groups can differ between these executor
+identities even without changing the power source; retain the individual samples
+and ranges rather than attributing every wall-time difference to interception.
