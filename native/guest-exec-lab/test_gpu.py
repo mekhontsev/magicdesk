@@ -33,7 +33,9 @@ def main():
     assert before["shell"]["uid"] == 2000 and before["readiness"]["interactive"]
     assert not before["readiness"]["deviceLocked"]
     tag = uuid.uuid4().hex
-    report = {"id": tag, "protocol": args.protocol, "frames": args.frames, "passed": False, "app": before["app"]}
+    report = {"id": tag, "protocol": args.protocol, "frames": args.frames,
+              "store": args.store, "runtime": args.runtime, "installed": args.installed,
+              "passed": False, "app": before["app"]}
     console = client.call("console.open", {"directory": "/data/local/tmp"})["sessionId"]
     display = session = None
     log = args.runtime + "/gpu-" + tag + ".log"
@@ -53,6 +55,9 @@ def main():
     try:
         if not args.installed:
             command("ln -sf libmagicdesk_guest_run.so " + shlex.quote(args.runtime + "/magicdesk-guest"))
+        runner = "magicdesk-guest" if args.installed else args.runtime + "/libmagicdesk_guest_run.so"
+        report["preflight"] = command(shlex.join([runner, "--store", args.store, "--",
+            "/bin/sh", "-ec", "command -v vulkaninfo; command -v vkcube; test -r /opt/md-gpu/turnip.json"]))
         display = client.call("create_display", {"type": "virtual", "width": 1000, "height": 700, "densityDpi": 160})
         session = client.call("graphics.start", {"protocol": args.protocol, "backend": "shell", "connection": "routed",
             "name": "Guest Vulkan " + tag, "keyboardDirectory": args.keyboard_directory})["sessionId"]

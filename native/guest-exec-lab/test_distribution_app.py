@@ -115,6 +115,7 @@ def main():
         "gtkgl": "exec python3 " + shlex.quote(gl_fixture),
     }
     try:
+        command("ln -sf libmagicdesk_guest_run.so " + shlex.quote(args.runtime + "/magicdesk-guest"))
         if args.application == "gtkgl":
             source = args.runtime + "/" + Path(gl_fixture).name
             result["fixture"] = transport.upload(client, str(repo / "native/guest-exec-lab/fixtures/md-gtk-gl.py"), source)

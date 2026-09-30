@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "event_wait.h"
 #include "fs_service.h"
+#include "image_catalogue.h"
 #include "raw.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -77,7 +78,7 @@ static void info(const struct stat *s, struct md_fs_info *out) {
         .change_seconds = s->st_ctim.tv_sec, .access_nanos = (uint32_t)s->st_atim.tv_nsec,
         .modify_nanos = (uint32_t)s->st_mtim.tv_nsec, .change_nanos = (uint32_t)s->st_ctim.tv_nsec};
 }
-static int dispatch(struct md_inode_store *s, const struct md_fs_packet *q,
+static int dispatch(struct md_inode_store *s, struct md_image_catalogue *images, const struct md_fs_packet *q,
         const struct md_fs_rights *input, struct md_fs_reply *out, struct md_fs_rights *output) {
     int fd[2] = {MD_INODE_ROOT, MD_INODE_ROOT}; unsigned index = 0;
     for (unsigned i = 0; i < 2; ++i) if (q->descriptors & (1U << i)) fd[i] = input->fd[index++];
@@ -85,10 +86,10 @@ static int dispatch(struct md_inode_store *s, const struct md_fs_packet *q,
     int r; struct stat st;
     switch (q->operation) {
     case MD_FS_OBJECT_ID:
-        r = md_inode_object_id(s, fd[0], out->data);
+        r = md_catalogue_object_id(images, s, fd[0], out->data);
         if (!r) out->size = 33;
         return r;
-    case MD_FS_OPEN_OBJECT: r = md_inode_open_object(s, a, (int)q->flags); break;
+    case MD_FS_OPEN_OBJECT: r = md_catalogue_open_object(images, s, a, (int)q->flags); break;
     case MD_FS_SOCKET_BIND: return md_inode_socket_bind(s, fd[0], a, q->mode, fd[1]);
     case MD_FS_SOCKET_ADDRESS: case MD_FS_SOCKET_NAME:
         r = q->operation == MD_FS_SOCKET_ADDRESS
@@ -97,19 +98,19 @@ static int dispatch(struct md_inode_store *s, const struct md_fs_packet *q,
         if (!r) out->size = (uint32_t)strlen(out->data) + 1;
         return r;
     case MD_FS_CREATE: r = md_inode_create(s, fd[0], a, q->mode); break;
-    case MD_FS_OPEN: r = md_inode_open_resolved(s, fd[0], a, (int)q->flags, q->mode, q->resolve); break;
+    case MD_FS_OPEN: r = md_catalogue_open(images, s, fd[0], a, (int)q->flags, q->mode, q->resolve); break;
     case MD_FS_MKDIR: return md_inode_mkdir(s, fd[0], a, q->mode);
     case MD_FS_SYMLINK: return md_inode_symlink(s, b, fd[0], a);
     case MD_FS_LINK: return md_inode_link(s, fd[0], a, fd[1], b, (int)q->flags);
     case MD_FS_UNLINK: return md_inode_unlink(s, fd[0], a, (int)q->flags);
     case MD_FS_RENAME: return md_inode_rename(s, fd[0], a, fd[1], b, q->flags);
     case MD_FS_STAT: case MD_FS_FSTAT:
-        r = q->operation == MD_FS_STAT ? md_inode_stat(s, fd[0], a, (int)q->flags, &st)
-            : md_inode_fstat(s, fd[0], &st);
+        r = q->operation == MD_FS_STAT ? md_catalogue_stat(images, s, fd[0], a, (int)q->flags, &st)
+            : md_catalogue_fstat(images, s, fd[0], &st);
         if (!r) info(&st, &out->info);
         return r;
     case MD_FS_PATH:
-        r = md_inode_path(s, fd[0], out->data, sizeof(out->data));
+        r = md_catalogue_path(images, s, fd[0], out->data, sizeof(out->data));
         if (!r) out->size = (uint32_t)strlen(out->data)+1;
         return r;
     case MD_FS_REALPATH:
@@ -140,7 +141,7 @@ static int dispatch(struct md_inode_store *s, const struct md_fs_packet *q,
     output->fd[output->count++] = r;
     return 0;
 }
-static int service_request(struct md_inode_store *s, int socket) {
+static int service_request(struct md_inode_store *s, struct md_image_catalogue *images, int socket) {
     struct md_fs_packet packet;
     struct md_fs_reply reply = {.magic = MD_FS_MAGIC, .version = MD_FS_VERSION};
     struct md_fs_rights input = {0}, output = {0};
@@ -150,7 +151,7 @@ static int service_request(struct md_inode_store *s, int socket) {
         reply.error = valid(&packet, (size_t)n, &input);
         if (!reply.error) {
             OBSERVE(MD_FS_BEFORE_DISPATCH, &packet);
-            reply.error = dispatch(s, &packet, &input, &reply, &output);
+            reply.error = dispatch(s, images, &packet, &input, &reply, &output);
             OBSERVE(MD_FS_AFTER_DISPATCH, &packet);
         }
     } else reply.error = -EPROTO;
@@ -161,7 +162,7 @@ static int service_request(struct md_inode_store *s, int socket) {
     md_fs_close_rights(&output);
     return 1;
 }
-int md_fs_serve(struct md_inode_store *s, int listener, int stop_fd, unsigned timeout_ms) {
+int md_fs_serve(struct md_inode_store *s, struct md_image_catalogue *images, int listener, int stop_fd, unsigned timeout_ms) {
     if (!s || listener < 0 || stop_fd < 0 || !timeout_ms || timeout_ms > 60000) return -EINVAL;
     enum { SLOTS = 32, BASE = 2 };
     struct pollfd fds[BASE+SLOTS] = {{.fd = listener, .events = POLLIN}, {.fd = stop_fd, .events = POLLIN}};
@@ -186,7 +187,7 @@ int md_fs_serve(struct md_inode_store *s, int listener, int stop_fd, unsigned ti
         if (fds[1].revents) break;
         if (fds[0].revents & (POLLNVAL | POLLERR | POLLHUP)) { error = -EIO; break; }
         for (unsigned i = BASE; i < BASE+SLOTS; ++i) if (fds[i].fd >= 0 && fds[i].revents) {
-            if (service_request(s, fds[i].fd)) {
+            if (service_request(s, images, fds[i].fd)) {
                 close(fds[i].fd); fds[i].fd = -1;
                 OBSERVE(MD_FS_CONNECTION_CLOSED, NULL);
             }

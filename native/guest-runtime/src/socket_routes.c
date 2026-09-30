@@ -4,8 +4,6 @@
 #include <stddef.h>
 #include <sys/socket.h>
 
-struct md_socket_routes md_connections;
-
 int md_socket_route_add(struct md_socket_routes *routes, const char *option,
                         const char *source, const char *destination) {
     int abstract = md_equal(option, "--socket-abstract");
@@ -23,6 +21,7 @@ int md_socket_route_add(struct md_socket_routes *routes, const char *option,
 }
 
 int md_socket_route_apply(const struct md_socket_routes *routes, struct sockaddr_un *address, unsigned *length) {
+    if (!routes) return 0;
     size_t prefix = offsetof(struct sockaddr_un, sun_path);
     if (address->sun_family != AF_UNIX || *length <= prefix || *length > sizeof(*address)) return 0;
     int abstract = address->sun_path[0] == 0;

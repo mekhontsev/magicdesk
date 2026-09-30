@@ -91,6 +91,9 @@ public class GuestRuntimeTest {
         assertTrue(GuestRuntimeCommand.SCRIPT.contains("exec \"$md_guest/libmagicdesk_guest_run.so\" \"$@\""));
         assertFalse(GuestRuntimeCommand.SCRIPT.contains("exec /system/bin/app_process"));
         assertTrue(GuestRuntimeCommand.SCRIPT.contains("--probe >/dev/null || exit $?"));
+        assertTrue(GuestRuntimeArtifacts.FILES.contains("libmagicdesk_guest_supervisor.so"));
+        assertTrue(GuestRuntimeCommand.SCRIPT.contains("\"$md_guest/libmagicdesk_guest_supervisor.so\" \"$md_guest/libmagicdesk_guest_bootstrap.so\""));
+        assertFalse(GuestRuntimeCommand.SCRIPT.contains("--probe) exec \"$md_guest/libmagicdesk_guest_bootstrap.so\""));
     }
 
     @Test public void graphicalConnectionBelongsToRecipeNotIdentityOrFileEnvironment() {

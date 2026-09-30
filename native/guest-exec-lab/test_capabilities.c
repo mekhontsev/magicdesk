@@ -12,7 +12,7 @@
 #include <unistd.h>
 #include "launch_identity.h"
 
-static int execute(const char *bootstrap, int denied) {
+static int execute(const char *supervisor, const char *bootstrap, int denied) {
     pid_t pid = fork();
     assert(pid >= 0);
     if (!pid) {
@@ -27,7 +27,7 @@ static int execute(const char *bootstrap, int denied) {
             assert(prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0);
             assert(syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &program) == 0);
         }
-        if (bootstrap) execl(bootstrap, bootstrap, "--probe", NULL);
+        if (bootstrap) execl(supervisor, supervisor, "--deadline-seconds", "10", bootstrap, "--probe", NULL);
         else execl("/system/bin/sh", "sh", "-c", "printf 'independent shell works\\n'", NULL);
         _exit(126);
     }
@@ -38,17 +38,19 @@ static int execute(const char *bootstrap, int denied) {
 }
 
 int main(int argc, char **argv) {
-    assert(argc == 2 && md_launch_identity(getuid(), geteuid(), getgid(), getegid()));
+    assert(argc == 3 && md_launch_identity(getuid(), geteuid(), getgid(), getegid()));
     assert(md_launch_identity(0, 0, 0, 0));
     assert(md_launch_identity(2000, 2000, 2000, 2000));
     assert(!md_launch_identity(2000, 0, 2000, 0));
     assert(!md_launch_identity(10000, 10000, 10000, 10000));
     for (unsigned i = 0; i < 3; ++i) {
         const int missing[] = {SYS_pidfd_open, SYS_faccessat2, SYS_seccomp};
-        assert(execute(argv[1], missing[i]) == 126);
-        assert(execute(NULL, missing[i]) == 0);
+        assert(execute(argv[1], argv[2], missing[i]) == 126);
+        assert(execute(NULL, NULL, missing[i]) == 0);
     }
-    assert(execute(argv[1], 0) == 0);
+    assert(execute(argv[1], argv[2], SYS_ptrace) == 125);
+    assert(execute(NULL, NULL, SYS_ptrace) == 0);
+    assert(execute(argv[1], argv[2], 0) == 0);
     puts("PASS capability isolation: unavailable kernel calls reject guest only; parent and shell unaffected");
     return 0;
 }

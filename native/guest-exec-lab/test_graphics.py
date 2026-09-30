@@ -103,7 +103,7 @@ def main():
 
     try:
         executable = args.application or ("gtk3-demo-application" if args.gtk else "md-wayland-fixture")
-        for name in ["libmagicdesk_guest_bootstrap.so", "libmagicdesk_guest_run.so", "rootfs/usr/bin/" + executable]:
+        for name in ["libmagicdesk_guest_bootstrap.so", "libmagicdesk_guest_supervisor.so", "libmagicdesk_guest_run.so", "rootfs/usr/bin/" + executable]:
             expected = hashlib.sha256((args.build / "bundle" / name).read_bytes()).hexdigest()
             assert command("sha256sum " + shlex.quote(root + "/" + name)).split()[0] == expected, name
             results["binaries"][name] = expected
@@ -176,7 +176,7 @@ def main():
                     assert negative_text == "1" and "cannot open display" in case["authorization"]["log"], case["authorization"]
                     assert not next(s for s in client.call("graphics.list")["sessions"] if s["sessionId"] == session)["windows"]
                     print("PASS X11 rejects an incorrect MIT cookie before mapping a client", flush=True)
-                prefix = (root + "/libmagicdesk_guest_bootstrap.so " + root + "/rootfs " if backend == "direct"
+                prefix = (root + "/libmagicdesk_guest_supervisor.so " + root + "/libmagicdesk_guest_bootstrap.so " + root + "/rootfs " if backend == "direct"
                           else root + "/libmagicdesk_guest_run.so --store " + root + "/rootfs/tmp/imported-rootfs -- ")
                 if args.installed:
                     if not cli.startswith("/") or "\n" in cli:

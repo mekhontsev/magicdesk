@@ -17,11 +17,18 @@ def main():
     parser.add_argument("--store", required=True)
     parser.add_argument("--runtime", required=True, help="Staged native bundle directory, not an APK replacement")
     parser.add_argument("--installed", action="store_true", help="Use the installed APK's guest CLI instead of staged executables")
+    parser.add_argument("--software", action="store_true", help="Select the distribution's software renderer explicitly")
+    parser.add_argument("--environment", action="append", default=[], metavar="NAME=VALUE",
+                        help="Explicit guest-client environment for driver controls")
     parser.add_argument("--keyboard-directory", required=True)
     parser.add_argument("--protocol", choices=["x11", "wayland"], required=True)
     parser.add_argument("--recipes", type=Path, required=True)
     parser.add_argument("--trace", help="Optional native test observer executable")
     args = parser.parse_args()
+    for value in args.environment:
+        name, separator, _ = value.partition("=")
+        if not separator or not name.isascii() or not name.isidentifier() or "\0" in value:
+            parser.error("--environment requires NAME=VALUE with a shell variable name")
     repo = Path(__file__).resolve().parents[2]
     spec = importlib.util.spec_from_file_location("transport", repo / "scripts/mcp-client.py")
     transport = importlib.util.module_from_spec(spec)
@@ -32,7 +39,9 @@ def main():
     assert state["shell"]["uid"] == 2000 and state["readiness"]["interactive"]
     assert not state["readiness"]["deviceLocked"] and not state["readiness"]["keyguardLocked"]
     tag = uuid.uuid4().hex
-    result = {"id": tag, "store": args.store, "protocol": args.protocol, "app": state["app"], "passed": False}
+    result = {"id": tag, "store": args.store, "protocol": args.protocol,
+              "software": args.software, "environment": args.environment,
+              "app": state["app"], "passed": False}
     console = client.call("console.open", {"directory": "/data/local/tmp"})["sessionId"]
     display = session = None
     log = args.runtime + "/gui-" + tag + ".log"
@@ -67,9 +76,12 @@ def main():
         info = wait("graphics_ready", sessionId=session)["session"]
         assert info["executorUid"] == 2000 and info["serverUid"] not in (0, 2000)
         result["serverUid"] = info["serverUid"]
+        prefix = "export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe; " if args.software else ""
+        if args.environment:
+            prefix += "export " + shlex.join(args.environment) + "; "
         recipe = subprocess.check_output(["java", "-cp", str(args.recipes),
             "io.github.mekhontsev.magicdesk.GraphicalRecipe", "routed", args.protocol,
-            args.store, "/home/shell", "/usr/bin/mousepad " + document], text=True, timeout=20)
+            args.store, "/home/shell", prefix + "/usr/bin/mousepad " + document], text=True, timeout=20)
         script = ("{ timeout 180 " + ("" if args.installed else "env PATH=" + shlex.quote(args.runtime + ":/system/bin"))
             + " " + (shlex.quote(args.trace) + " " if args.trace else "") + "/system/bin/sh -c " + shlex.quote(recipe)
             + "; r=$?; printf '%s\\n' \"$r\" > " + shlex.quote(receipt)

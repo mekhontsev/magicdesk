@@ -143,7 +143,7 @@ def buildGuest = tasks.register('buildGuestRuntime', Exec) {
 }
 def packageGuest = tasks.register('packageGuestRuntime', Copy) {
     dependsOn buildGuest
-    from(guestBuild) { include 'libmagicdesk_guest_bootstrap.so', 'libmagicdesk_guest_run.so', 'libmagicdesk_guest_service.so' }
+    from(guestBuild) { include 'libmagicdesk_guest_bootstrap.so', 'libmagicdesk_guest_supervisor.so', 'libmagicdesk_guest_run.so', 'libmagicdesk_guest_service.so' }
     into new File(nativeOutputRoot, 'arm64-v8a')
 }
 

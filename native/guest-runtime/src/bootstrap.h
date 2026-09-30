@@ -6,7 +6,6 @@
 extern struct md_fs md_files;
 extern char md_bootstrap[PATH_MAX];
 extern char md_executable[PATH_MAX];
-int md_install_trap(int inherited);
 long md_guest_exec(const char *, char *const [], char *const []);
 long md_guest_execat(int, const char *, char *const [], char *const [], int);
 // Storage remains live until the loader takes ownership of argv strings.
@@ -20,5 +19,6 @@ struct md_command {
     int fd;
 };
 /* Borrows input_fd (-1 selects the path); success transfers an opened ELF fd. */
-int md_command_prepare(struct md_command *, const char *, char *const [], int input_fd, int inaccessible);
+int md_command_prepare(const struct md_fs *, struct md_command *, const char *, char *const [],
+    int input_fd, int inaccessible);
 #endif

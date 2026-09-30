@@ -50,7 +50,7 @@ def main():
         command("mkdir " + shlex.quote(directory))
         result["bundle"] = transport.upload(client, str(archive), directory + "/fixtures.tar")
         result["runtimeHashes"] = command("sha256sum " + shlex.join(
-            [args.runtime + "/libmagicdesk_guest_" + name + ".so" for name in ["run", "bootstrap", "service"]]))
+            [args.runtime + "/libmagicdesk_guest_" + name + ".so" for name in ["run", "supervisor", "bootstrap", "service"]]))
         command("cat " + shlex.quote(directory + "/fixtures.tar") + " | " + runner + " /bin/tar -xf - -C /usr/bin")
         for path in files:
             # EVENT_WAIT: console command completion; timeout terminates a hung fixture tree.

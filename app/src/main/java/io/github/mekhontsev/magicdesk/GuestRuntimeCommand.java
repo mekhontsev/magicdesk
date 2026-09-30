@@ -11,8 +11,8 @@ public final class GuestRuntimeCommand {
             + "\"${MAGICDESK_RUNTIME:?Missing shell runtime}/guest-runtime\") || exit $?\n"
             + "case \"${1-}\" in\n"
             + "  --import) exec \"$md_guest/libmagicdesk_guest_service.so\" \"$@\" ;;\n"
-            + "  --probe) exec \"$md_guest/libmagicdesk_guest_bootstrap.so\" \"$@\" ;;\n"
-            + "  *) \"$md_guest/libmagicdesk_guest_bootstrap.so\" --probe >/dev/null || exit $?\n"
+            + "  --probe) exec \"$md_guest/libmagicdesk_guest_supervisor.so\" \"$md_guest/libmagicdesk_guest_bootstrap.so\" \"$@\" ;;\n"
+            + "  *) \"$md_guest/libmagicdesk_guest_supervisor.so\" \"$md_guest/libmagicdesk_guest_bootstrap.so\" --probe >/dev/null || exit $?\n"
             + "     exec \"$md_guest/libmagicdesk_guest_run.so\" \"$@\" ;;\n"
             + "esac\n";
     private GuestRuntimeCommand() { }

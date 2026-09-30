@@ -255,9 +255,9 @@ static int driver(int argc, char **argv) {
         for (unsigned i = 0; i < 3; ++i) close(fds[i]);
         close(dir); return r;
     }
-    char launcher[4096], store[4096], base[96], numbers[4][32];
+    char launcher[4096], bootstrap[4096], store[4096], base[96], numbers[4][32];
     CHECK(snprintf(launcher, sizeof(launcher), "%s/../%s", root,
-        !strcmp(mode, "direct") ? "libmagicdesk_guest_bootstrap.so" : "libmagicdesk_guest_run.so") < (int)sizeof(launcher));
+        !strcmp(mode, "direct") ? "libmagicdesk_guest_supervisor.so" : "libmagicdesk_guest_run.so") < (int)sizeof(launcher));
     if (abstract) snprintf(base, sizeof(base), "%s", endpoints);
     else if (!strcmp(mode, "direct")) snprintf(base, sizeof(base), "/tmp/md-sockets-direct");
     else snprintf(base, sizeof(base), "%s", host);
@@ -267,7 +267,10 @@ static int driver(int argc, char **argv) {
     if (!strcmp(mode, "namespace")) {
         CHECK(snprintf(store, sizeof(store), "%s/tmp/imported-rootfs", root) < (int)sizeof(store));
         args[n++] = "--store"; args[n++] = store; args[n++] = "--";
-    } else args[n++] = (char *)root;
+    } else {
+        CHECK(snprintf(bootstrap, sizeof(bootstrap), "%s/../libmagicdesk_guest_bootstrap.so", root) < (int)sizeof(bootstrap));
+        args[n++] = bootstrap; args[n++] = (char *)root;
+    }
     args[n++] = "/usr/bin/md-socket-fixture"; args[n++] = "client"; args[n++] = base; args[n++] = host;
     for (unsigned i = 0; i < 4; ++i) args[n++] = numbers[i];
     args[n] = NULL; execv(launcher, args); CHECK(0); return 1;

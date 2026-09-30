@@ -1,6 +1,8 @@
 #define _GNU_SOURCE
 #include "fs_service.h"
+#include "image_catalogue.h"
 #include "launch_identity.h"
+#include "raw.h"
 #include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -29,8 +31,10 @@ static int import(const char *source, const char *destination) {
 int main(int argc, char **argv) {
     if (!md_launch_identity(getuid(), geteuid(), getgid(), getegid()))
         return 2;
+    md_page_size = (size_t)sysconf(_SC_PAGESIZE);
+    if (md_page_size < 4096 || md_page_size > 65536 || (md_page_size & (md_page_size - 1))) return 2;
     if (argc == 4 && !strcmp(argv[1], "--import")) return import(argv[2], argv[3]);
-    if (argc != 5) return 2;
+    if (argc != 5 && argc != 6) return 2;
     char *end;
     long ready = strtol(argv[3], &end, 10);
     if (*end || ready < 3 || ready > INT32_MAX) return 2;
@@ -39,7 +43,9 @@ int main(int argc, char **argv) {
     /* Dedicated service process. Every creation request carries its already-masked mode. */
     umask(0);
     struct md_inode_store *store = NULL;
+    struct md_image_catalogue *images = NULL;
     int error = md_inode_store_open(argv[1], 0, &store), listener = -1;
+    if (!error && argc == 6) error = md_image_catalogue_open(store, argv[5], &images);
     if (!error) {
         listener = md_fs_listen(argv[2]);
         if (listener < 0)
@@ -49,9 +55,10 @@ int main(int argc, char **argv) {
         error = -EPIPE;
     close(ready);
     if (!error)
-        error = md_fs_serve(store, listener, stop, 5000);
+        error = md_fs_serve(store, images, listener, stop, 5000);
     if (listener >= 0)
         close(listener);
+    md_image_catalogue_close(images);
     md_inode_store_close(store);
     close(stop);
     return error ? 1 : 0;

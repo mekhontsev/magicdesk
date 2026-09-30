@@ -12,21 +12,24 @@ sysroot=$work/sysroot
 cc=${CC:-clang}
 node "$src/test_signature.mjs" "$work"
 mkdir -p "$work/bundle/rootfs" "$work/path-test"
+"$cc" -iquote "$runtime" -std=c17 -O2 -Wall -Wextra -Werror -UNDEBUG \
+    "$src/test_interception_stacks.c" "$runtime/interception_stacks.c" -o "$work/test-interception-stacks"
+"$work/test-interception-stacks"
 "$cc" -iquote "$runtime" -std=c17 -O2 -Wall -Wextra -Werror -UNDEBUG -fno-builtin -DMD_NO_START \
-    "$src/test_socket_routes.c" "$runtime/socket_routes.c" "$runtime/raw.c" "$runtime/raw.S" -o "$work/test-socket-routes"
+    "$src/test_socket_routes.c" "$runtime/socket_routes.c" "$runtime/raw.c" "$runtime/memory.c" "$runtime/raw.S" -o "$work/test-socket-routes"
 "$work/test-socket-routes"
 javac -d "$work/recipe-classes" "$src/GraphicalRecipe.java" "$app/LinuxGraphicalEnvironment.java" \
     "$app/GuestGraphicalConnection.java" "$app/GuestLaunchPlan.java" "$app/GuestEnvironment.java" \
     "$app/GraphicalProtocol.java" "$app/ShellCommandLine.java"
 "$cc" --target=aarch64-linux-android34 -fno-termux-rpath -static \
     -iquote "$runtime" -std=c17 -O2 -Wall -Wextra -Werror -DMD_NO_START -DMD_USE_LIBC \
-    "$src/test_completion.c" "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/raw.S" -o "$work/bundle/md-await-exit"
+    "$src/test_completion.c" "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/memory.c" "$runtime/raw.S" -o "$work/bundle/md-await-exit"
 "$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -UNDEBUG -fno-builtin -DMD_NO_START \
-    "$src/test_paths.c" "$runtime/fs.c" "$runtime/proc_paths.c" "$runtime/raw.c" "$runtime/raw.S" -o "$work/test-paths"
+    "$src/test_paths.c" "$runtime/fs.c" "$runtime/proc_paths.c" "$runtime/raw.c" "$runtime/memory.c" "$runtime/raw.S" -o "$work/test-paths"
 testroot=$(mktemp -d "$work/path-test/run.XXXXXX")
 "$work/test-paths" "$testroot"
 "$cc" -iquote "$runtime" -std=c17 -O2 -Wall -Wextra -Werror -UNDEBUG -fno-builtin -DMD_NO_START \
-    "$src/test_elf.c" "$runtime/elf.c" "$runtime/raw.c" "$runtime/raw.S" -o "$work/test-elf"
+    "$src/test_elf.c" "$runtime/elf.c" "$runtime/raw.c" "$runtime/memory.c" "$runtime/raw.S" -o "$work/test-elf"
 "$work/test-elf" "$testroot/elf"
 "$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -DMD_INODE_TESTING \
     "$runtime/inode_store.c" "$runtime/inode_db.c" "$runtime/inode_path.c" "$src/test_inodes.c" -lsqlite3 -o "$work/test-inodes"
@@ -39,7 +42,7 @@ importroot=$(mktemp -d "$work/path-test/import.XXXXXX")
 timeout 45 "$work/test-import" "$importroot/tests"
 "$cc" -iquote "$runtime" -std=c17 -O2 -Wall -Wextra -Werror -Wframe-larger-than=16384 \
     -ffreestanding -fno-builtin -fno-stack-protector -DMD_NO_START -nostdlib -r \
-    "$runtime/fs_client.c" "$runtime/fs_wire.c" "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/raw.S" \
+    "$runtime/fs_client.c" "$runtime/fs_wire.c" "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/memory.c" "$runtime/raw.S" \
     -o "$work/fs-client-freestanding.o"
 if [ -n "$(llvm-nm -u "$work/fs-client-freestanding.o")" ]; then
     printf 'Filesystem RPC client has unresolved runtime dependencies\n' >&2
@@ -48,12 +51,13 @@ fi
 printf 'PASS freestanding RPC client: no unresolved libc/SQLite/runtime dependencies\n'
 "$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -fno-builtin -DMD_NO_START \
     -DMD_INODE_TESTING -DMD_FS_TESTING "$src/test_rpc.c" "$runtime/fs_client.c" \
+    "$runtime/image_catalogue.c" "$runtime/elf_admission.c" "$runtime/guest_identity.c" "$runtime/elf.c" \
     "$runtime/fs_wire.c" "$runtime/event_wait.c" "$runtime/fs_service.c" "$runtime/inode_store.c" "$runtime/inode_db.c" \
-    "$runtime/inode_path.c" "$runtime/inode_directory.c" "$runtime/inode_socket.c" "$runtime/raw.c" "$runtime/raw.S" -lsqlite3 -o "$work/test-rpc"
+    "$runtime/inode_path.c" "$runtime/inode_directory.c" "$runtime/inode_socket.c" "$runtime/raw.c" "$runtime/memory.c" "$runtime/raw.S" -lsqlite3 -o "$work/test-rpc"
 rpcroot=$(mktemp -d "$work/path-test/rpc.XXXXXX")
 timeout 60 "$work/test-rpc" "$rpcroot/store"
 "$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -UNDEBUG -fno-builtin -DMD_NO_START \
-    "$src/test_xattrs.c" "$runtime/fd_metadata.c" "$runtime/raw.c" "$runtime/raw.S" -o "$work/test-xattrs"
+    "$src/test_xattrs.c" "$runtime/fd_metadata.c" "$runtime/raw.c" "$runtime/memory.c" "$runtime/raw.S" -o "$work/test-xattrs"
 xattrroot=$(mktemp -d "$work/path-test/xattrs.XXXXXX")
 timeout 20 "$work/test-xattrs" "$xattrroot/files" native
 spawn_lib=
@@ -65,7 +69,7 @@ adapter_fixture() {
 "$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -UNDEBUG -fno-builtin -DMD_NO_START "$@" \
     "$runtime/socket_calls.c" "$runtime/socket_namespace.c" "$runtime/socket_routes.c" "$runtime/file_calls.c" "$runtime/fs.c" "$runtime/proc_paths.c" \
     "$runtime/namespace.c" "$runtime/namespace_proc.c" "$runtime/proc_image.c" "$runtime/fd_metadata.c" "$runtime/fs_client.c" "$runtime/fs_wire.c" \
-    "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/raw.S"
+    "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/memory.c" "$runtime/raw.S"
 }
 adapter_fixture -DMD_SOCKET_DRIVER "$src/test_sockets.c" -o "$work/bundle/md-sockets-test"
 socketroot=$(mktemp -d "$work/path-test/sockets.XXXXXX")
@@ -74,6 +78,9 @@ timeout 45 "$work/bundle/md-sockets-test" adapter "$socketroot"
 adapter_fixture "$src/test_openat2.c" -o "$work/test-openat2"
 openroot=$(mktemp -d "$work/path-test/openat2.XXXXXX")
 timeout 20 "$work/test-openat2" "$openroot"
+adapter_fixture "$src/test_process_context.c" -o "$work/test-process-context"
+contextroot=$(mktemp -d "$work/path-test/context.XXXXXX")
+timeout 20 "$work/test-process-context" "$contextroot/files"
 guest_cc() {
     "$cc" -iquote "$runtime" --target=aarch64-linux-gnu --sysroot="$sysroot" -isystem "$sysroot/usr/include/aarch64-linux-gnu" \
         -fuse-ld=lld -std=c17 -O2 -g -Wall -Wextra -Werror -fPIC -nostdlib "$@" \
@@ -90,6 +97,9 @@ cp "$work/native-runtime"/libmagicdesk_guest_*.so "$work/bundle/"
     -std=c17 -O2 -Wall -Wextra -Werror -UNDEBUG "$src/test_capabilities.c" -o "$work/bundle/md-capabilities-test"
 "$cc" --target=aarch64-linux-android34 -fno-termux-rpath -static \
     -std=c17 -O2 -Wall -Wextra -Werror "$src/test_notification.c" -o "$work/bundle/md-notification-test"
+"$cc" --target=aarch64-linux-android34 -fno-termux-rpath -static -DMD_NO_START -DMD_USE_LIBC \
+    -std=c17 -O2 -Wall -Wextra -Werror "$src/test_notification_lifecycle.c" \
+    "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/memory.c" "$runtime/raw.S" -o "$work/bundle/md-notification-lifecycle-test"
 "$cc" --target=aarch64-linux-android34 -fno-termux-rpath -static \
     -std=c17 -O2 -Wall -Wextra -Werror "$src/test_exec_policy.c" -o "$work/bundle/md-exec-policy-test"
 sh "$src/build-libc-fixtures.sh" glibc "$sysroot" "$work"
@@ -106,15 +116,15 @@ guest_cc -pie "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aar
     "$src/test_proc.c" "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" \
     -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 -o "$work/md-proc-fixture"
 "$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -UNDEBUG -fno-builtin -DMD_NO_START \
-    "$src/test_lifecycle.c" "$runtime/process_owner.c" "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/raw.S" \
+    "$src/test_lifecycle.c" "$runtime/process_owner.c" "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/memory.c" "$runtime/raw.S" \
     -o "$work/bundle/md-lifecycle-test"
 guest_cc -pie -fno-builtin -DMD_NO_START -DMD_GUEST_LIFECYCLE \
     "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" \
-    "$src/test_lifecycle.c" "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/raw.S" \
+    "$src/test_lifecycle.c" "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/memory.c" "$runtime/raw.S" \
     "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 \
     -o "$work/md-lifecycle-fixture"
 guest_cc -pie -fno-builtin -DMD_NO_START "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" \
-    "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" "$src/test_xattrs.c" "$runtime/fd_metadata.c" "$runtime/raw.c" "$runtime/raw.S" \
+    "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" "$src/test_xattrs.c" "$runtime/fd_metadata.c" "$runtime/raw.c" "$runtime/memory.c" "$runtime/raw.S" \
     "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 -o "$work/md-xattrs-fixture"
 guest_cc -pie "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" \
     "$src/test_files.c" "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" \
@@ -137,7 +147,8 @@ guest_cc -pie -DMD_INODE_TESTING "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" \
 guest_cc -pie -fno-builtin -DMD_NO_START -DMD_INODE_TESTING -DMD_FS_TESTING \
     "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" \
     "$src/test_rpc.c" "$runtime/fs_client.c" "$runtime/fs_wire.c" "$runtime/event_wait.c" "$runtime/fs_service.c" \
-    "$runtime/inode_store.c" "$runtime/inode_db.c" "$runtime/inode_path.c" "$runtime/inode_directory.c" "$runtime/inode_socket.c" "$runtime/raw.c" "$runtime/raw.S" \
+    "$runtime/image_catalogue.c" "$runtime/elf_admission.c" "$runtime/guest_identity.c" "$runtime/elf.c" \
+    "$runtime/inode_store.c" "$runtime/inode_db.c" "$runtime/inode_path.c" "$runtime/inode_directory.c" "$runtime/inode_socket.c" "$runtime/raw.c" "$runtime/memory.c" "$runtime/raw.S" \
     "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 \
     -L"$sysroot/usr/lib/aarch64-linux-gnu" -l:libsqlite3.so.0 -l:libm.so.6 \
     -o "$work/md-rpc-fixture"

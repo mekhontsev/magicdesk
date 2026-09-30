@@ -170,11 +170,86 @@ driver directory. Reports retain build identity, output, screenshots, process
 status and cleanup. A trace/event acknowledgement is required where a client
 publishes readiness; a screenshot or delay is not a readiness barrier.
 
-`firefox` and `chromium` are negative startup checks at present. Their SIGSYS,
-alternate-stack and sandbox requirements are not satisfied by the production
-adapter; no `--no-sandbox` flag turns them into a pass. `md-notification-test` is
+Browser acceptance uses the [production browser fixtures](browser/README.md),
+including stock Chromium JavaScript/PNG output without sandbox-disabling flags.
+No completed workload establishes full isolation. `md-notification-test` is
 a separate USER_NOTIF/remote-memory/FD-injection feasibility probe, including
 guest signals and longjmp. It is not an alternative installed runtime.
+`md-notification-lifecycle-test` adds native mask/altstack/TRAP/ERRNO/TSYNC,
+thread/fork/exec, listener lifetime and cancelled-request checks without ptrace.
+It deliberately asserts the shell's protected-process denials as boundary
+checks, not successful access: pre-opened memory is not a capability for a fork
+child or replacement image. ADDFD and explicit SCM_RIGHTS still work after
+dumpable is disabled. The fixture never enables it again. Execute these native
+controls separately from the guest runtime:
+
+```sh
+python native/guest-exec-lab/test_notifications.py BUILD
+```
+
+The runner checks the selected UID, stages fresh binaries, retains hashes,
+kernel/build identity and exact results, and closes its console. It does not
+install an APK or start Desktop. `test_process_context.c` separately checks
+independent command-line/auxv snapshots and identical socket names routed by
+different explicit contexts, without a process-global route fallback.
+
+The separate [sandbox boundary fixtures](sandbox-research.md) compare native
+seccomp precedence, cooperative signals and direct filesystem RPC with the
+current guest adapter. They deliberately reproduce policy failures: a completed
+run is not successful browser sandboxing. Build and execute them independently:
+
+```sh
+sh native/guest-exec-lab/build-sandbox-fixtures.sh BUILD
+python native/guest-exec-lab/test_sandbox.py BUILD \
+  --runtime IMMUTABLE_STAGED_HELPERS --store DISPOSABLE_GLIBC_STORE
+```
+
+`test_hybrid.py` separately exercises selective TRACE plus USER_NOTIF, protected
+processes, register-only exec, guest-side bounded memory copying and fresh
+same-site notification replay. It traces only its native fixture children and
+does not alter the installed adapter. The same research note records positive
+controls and unresolved security/lifecycle requirements.
+
+```sh
+sh native/guest-exec-lab/build-hybrid-fixture.sh BUILD
+python native/guest-exec-lab/test_hybrid.py BUILD
+```
+
+The [browser fixtures](browser/README.md) build the production runtime, including
+its supervisor, and distinguish startup from a rendered artifact. The separately
+labelled renderer-only experiment uses an unsandboxed parent/zygote; it cannot
+replace the stock-browser check. Filesystem broker authorization and full
+isolation remain separate from application compatibility.
+The [native isolation fixture](chromium-isolation.md#measured-boundary) tests
+namespace, chroot, credential and Landlock availability without loading a guest
+or enabling ptrace/seccomp mediation. Unsupported capabilities are observations,
+not passing browser tests.
+
+The [external domain fixture](chromium-isolation.md#external-domain-fixture)
+checks read-only file admission for two independent roots, default-deny syscall
+confinement, inherited-FD leakage, application seccomp precedence and fail-closed
+memory/listener errors. It uses no ptrace and is not virtual chroot or browser
+support:
+
+```sh
+sh native/guest-exec-lab/build-domain-fixture.sh BUILD
+python native/guest-exec-lab/test_domain.py BUILD --repeat 10
+```
+
+The [helper/context control](chromium-isolation.md#helper-and-protected-memory-control)
+combines shared root/cwd state with protected-memory copying and original-site
+kernel replay. It compiles the matching Chromium helper source without edits;
+the optional full-main mode executes the stock entry point and a native fixture
+client, not the browser. Source hashes and license are retained under BUILD.
+The explicit namespace fallback, fixed-image exec scope and remaining set-ID/
+guest-ELF gates are documented with the results:
+
+```sh
+python native/guest-exec-lab/build-suid-context.py BUILD
+python native/guest-exec-lab/test_domain.py BUILD --fixture suid-context --repeat 10
+python native/guest-exec-lab/test_domain.py BUILD --fixture suid-context --suid-main --repeat 10
+```
+
 `md-exec-policy-test INTERPRETER` compares executable memfd scripts under the
 native shell and guest. X_OK succeeding does not override a kernel exec denial.
 
@@ -235,7 +310,23 @@ ICD, changing Android pixels, 600 frames and zero exit. X11 is a separate
 publish an ICCCM name/class, and the manager supplies its `WM_STATE`.
 A software compositor or successful `vulkaninfo` alone
 does not establish guest GPU rendering. `--trace` accepts the optional static
-`md-trace-fault` observer; normal execution does not use ptrace.
+`md-trace-fault` observer. The production supervisor already owns ptrace for its
+guest tree; a second observer cannot attach concurrently.
+
+`test_userspace.py --environment NAME=VALUE` records explicit guest-client
+driver controls; `--software` selects llvmpipe. For an isolated Turnip prefix,
+use `--environment VK_DRIVER_FILES=/opt/md-gpu/turnip.json`. Installing that
+manifest in the test store's `/usr/share/vulkan/icd.d` exercises ordinary loader
+discovery without a driver override. These controls do not change Android or
+APK drivers.
+
+The Debian Mesa 25.0.7 fixture can block in GTK's initial GLX probe when there
+is no discoverable Vulkan ICD. Its [Zink initialization](https://sources.debian.org/src/mesa/25.0.7-2%2Bdeb13u1/src/gallium/drivers/zink/zink_screen.c/)
+jumps to `zink_destroy_screen` after a failed `zink_create_instance` while
+holding `instance_lock`; destruction locks it again. The native stack waits in
+that mutex, and `VK_LOADER_DEBUG=error,driver` reports no drivers. Supplying the
+prepared Turnip manifest passes the same workflow. Keep this distribution
+failure distinct from the guest syscall mechanism or Android frame transport.
 
 Exact successful device coverage and unsupported ABI surfaces belong in
 [Guest runtime](../../docs/guest-runtime.md#coverage-and-limits), not a general

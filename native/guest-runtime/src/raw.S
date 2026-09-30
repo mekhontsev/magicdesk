@@ -25,14 +25,6 @@ md_raw_return:
     ret
 .size md_raw, .-md_raw
 
-.global md_signal_return
-.type md_signal_return, %function
-md_signal_return:
-    mov x8, #139
-    svc #0
-    brk #0
-.size md_signal_return, .-md_signal_return
-
 .global md_enter
 .type md_enter, %function
 md_enter:

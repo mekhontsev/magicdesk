@@ -7,6 +7,7 @@
 #include "socket_routes.h"
 #include "linux_abi.h"
 #include "proc_paths.h"
+#include "interception.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -16,6 +17,8 @@
 struct md_fs md_files;
 char md_bootstrap[PATH_MAX];
 char md_executable[PATH_MAX];
+static struct md_process_image process_image;
+static struct md_socket_routes connections;
 
 void md_boot(uintptr_t *kernel_stack) {
     size_t argc = *kernel_stack;
@@ -46,12 +49,13 @@ void md_boot(uintptr_t *kernel_stack) {
         check = RAW3(mprotect, memory, md_page_size, PROT_READ | PROT_EXEC);
         RAW2(munmap, memory, md_page_size);
         if (check < 0) md_die("probe executable mappings", check);
-        check = md_install_trap(0);
+        check = md_interception_install(0);
         if (check < 0) md_die("probe syscall adapter", check);
-        register long number __asm__("x8") = SYS_clone3;
-        register long result __asm__("x0") = 0;
-        __asm__ volatile("svc #0" : "+r"(result) : "r"(number) : "memory", "cc");
-        if (result != -ENOSYS) md_die("probe SIGSYS dispatch", -EIO);
+        register long number __asm__("x8") = SYS_fstat;
+        register long result __asm__("x0") = -1;
+        register long output __asm__("x1") = 0;
+        __asm__ volatile("svc #0" : "+r"(result) : "r"(number), "r"(output) : "memory", "cc");
+        if (result != -EBADF) md_die("probe external syscall dispatch", -EIO);
         const char message[] = "guest-runtime: aarch64 shell syscall adapter ready\n";
         RAW3(write, 1, message, sizeof(message) - 1);
         RAW1(exit_group, 0);
@@ -86,7 +90,7 @@ void md_boot(uintptr_t *kernel_stack) {
     }
     while (root_arg < argc && (md_equal(argv[root_arg], "--socket-path") || md_equal(argv[root_arg], "--socket-abstract"))) {
         if (root_arg + 2 >= argc) md_die("missing socket route", -EINVAL);
-        long result = md_socket_route_add(&md_connections, argv[root_arg], argv[root_arg + 1], argv[root_arg + 2]);
+        long result = md_socket_route_add(&connections, argv[root_arg], argv[root_arg + 1], argv[root_arg + 2]);
         if (result < 0) md_die("invalid socket route", result);
         root_arg += 3;
     }
@@ -114,9 +118,11 @@ void md_boot(uintptr_t *kernel_stack) {
     if (root_len == 1) md_die("host root is not a guest rootfs", -EINVAL);
     if (!inherited && (r = RAW1(chdir, md_files.root)) < 0) md_die("enter rootfs", r);
     }
+    r = md_interception_install(inherited);
+    if (r < 0) md_die("install syscall adapter", r);
     struct md_command command;
     if (!execfn) execfn = argv[root_arg + 1];
-    r = md_command_prepare(&command, argv[root_arg + 1], argv + root_arg + (inherited ? 2 : 1), program_fd, 0);
+    r = md_command_prepare(&md_files, &command, argv[root_arg + 1], argv + root_arg + (inherited ? 2 : 1), program_fd, 0);
     if (program_fd >= 0) RAW1(close, program_fd);
     if (r < 0) md_die("prepare guest program", r);
     r = md_program_identity(&md_files, command.path, md_executable);
@@ -126,17 +132,21 @@ void md_boot(uintptr_t *kernel_stack) {
     r = RAW2(prctl, PR_SET_NAME, name);
     if (r < 0) md_die("guest process name", r);
     long fd = command.fd;
-    r = md_proc_executable_init(&md_files, (int)fd);
+    md_files.image = &process_image;
+    md_files.connections = &connections;
+    r = md_proc_executable_init(&md_files, &process_image, (int)fd);
     if (r < 0) md_die("retain executable object identity", r);
     struct md_image program;
-    r = md_elf_load((int)fd, 0, &program);
+    r = md_interception_map_image((int)fd, 0);
+    if (!r) r = md_elf_load((int)fd, 0, &program);
     RAW1(close, fd);
     if (r < 0) md_die("map guest program", r);
     struct md_image image = {.entry = program.entry};
     if (command.interpreter[0]) {
         fd = md_program_open(&md_files, command.interpreter, 1);
         if (fd < 0) md_die("open stock loader", fd);
-        r = md_elf_load((int)fd, 1, &image);
+        r = md_interception_map_image((int)fd, 1);
+        if (!r) r = md_elf_load((int)fd, 1, &image);
         RAW1(close, fd);
         if (r < 0) md_die("map stock loader", r);
     }
@@ -168,8 +178,8 @@ void md_boot(uintptr_t *kernel_stack) {
         case AT_EXECFN: guest_aux[i].a_un.a_val = (uintptr_t)execfn; break;
         }
     }
-    r = md_install_trap(inherited);
-    md_proc_image(command.argc, command.argv, guest_aux, (auxc + 1) * sizeof(*guest_aux));
-    if (r < 0) md_die("install syscall adapter", r);
+    r = md_interception_enter_image(guest_aux, (unsigned)auxc);
+    if (r < 0) md_die("enter guest image", r);
+    md_proc_image_init(&process_image, command.argc, command.argv, guest_aux, (auxc + 1) * sizeof(*guest_aux));
     md_enter(image.entry, (uintptr_t)sp);
 }

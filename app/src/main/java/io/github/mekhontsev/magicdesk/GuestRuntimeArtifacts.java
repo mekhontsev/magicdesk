@@ -19,7 +19,7 @@ import java.util.List;
 /** Immutable content-addressed helpers; no collection while guest processes may still exec. */
 public final class GuestRuntimeArtifacts {
     public static final List<String> FILES = List.of("libmagicdesk_guest_bootstrap.so",
-            "libmagicdesk_guest_run.so", "libmagicdesk_guest_service.so");
+            "libmagicdesk_guest_supervisor.so", "libmagicdesk_guest_run.so", "libmagicdesk_guest_service.so");
 
     public static Path prepare(Path source, Path root) throws IOException {
         if (!source.isAbsolute() || !root.isAbsolute()) throw new IOException("Absolute runtime paths required");

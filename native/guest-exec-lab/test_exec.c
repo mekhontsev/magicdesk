@@ -120,8 +120,9 @@ int main(int argc, char **argv) {
     assert(mappings() == before);
     assert(syscall(SYS_execveat, -1, "", bad_args, environ, 0) == -1 && errno == ENOENT);
     assert(syscall(SYS_openat2, AT_FDCWD, "/etc/md-guest-fixture", NULL, 0) == -1 && errno == EINVAL);
-    struct sigaction reserved = {.sa_handler = SIG_DFL};
-    assert(sigaction(SIGSYS, &reserved, NULL) == -1 && errno == ENOTSUP);
+    struct sigaction application = {.sa_handler = SIG_DFL}, previous;
+    assert(!sigaction(SIGSYS, &application, &previous));
+    assert(!sigaction(SIGSYS, &previous, NULL));
     puts("PASS failed exec/spawn preserve caller/errno/mappings; unsupported entry points are explicit");
 
     before = mappings();
@@ -172,8 +173,12 @@ int main(int argc, char **argv) {
     stack_t alternate = {0};
     assert(!sigaltstack(NULL, &alternate) && (alternate.ss_flags & SS_DISABLE));
     alternate = (stack_t){.ss_sp = memory, .ss_size = 32768};
-    assert(sigaltstack(&alternate, NULL) == -1 && errno == ENOTSUP);
-    puts("LIMIT application-owned signal stacks are explicitly unsupported");
+    stack_t observed;
+    assert(!sigaltstack(&alternate, NULL) && !sigaltstack(NULL, &observed));
+    assert(observed.ss_sp == memory && observed.ss_size == 32768 && !observed.ss_flags);
+    alternate = (stack_t){.ss_flags = SS_DISABLE};
+    assert(!sigaltstack(&alternate, NULL));
+    puts("PASS application owns SIGSYS and its alternate signal stack");
 
     struct sigaction action = {.sa_handler = file_signal, .sa_flags = SA_RESTART};
     assert(!sigemptyset(&action.sa_mask) && !sigaction(SIGUSR2, &action, NULL));

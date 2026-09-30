@@ -1,6 +1,6 @@
 # Namespace Execution Experiment
 
-The internal `libmagicdesk_guest_bootstrap.so --namespace ENDPOINT PROGRAM [ARGS]` mode executes
+The internal supervisor/bootstrap pair's `--namespace ENDPOINT PROGRAM [ARGS]` mode executes
 ARM64 glibc/musl programs from the imported inode namespace. It does not fall back
 to the direct rootfs for unsupported virtual paths. This is an experimental
 executor, not a mount namespace, security sandbox or complete Linux ABI.
@@ -18,7 +18,9 @@ for ownership, exact guarantees, coverage and remaining limits.
 Its private storage never depends on the namespace service it supplies. The
 service retains the already-selected real UID and uses umask zero; creation
 requests contain modes masked using the requesting process's kernel umask.
-There is no emulated root or automatic identity change after a denied operation.
+There is no automatic identity change after a denied operation. Explicit image
+admission can publish logical credentials for a selected sealed ELF without
+changing the real UID; see [interception](interception.md).
 
 `namespace.c` is the freestanding syscall adapter. `namespace_proc.c` owns
 host/proc object selection, using the shared `proc_paths.c` classifier. Paths, FD stat, directory
@@ -41,8 +43,8 @@ seccomp filter and the real kernel cwd/descriptors.
   Regular-file `mknodat` uses the same exclusive creation boundary.
 - The caller reads `Umask` from `/proc/thread-self/status`, without temporarily
   mutating a shared fs_struct. Forked clients with different masks share one
-  service without using its mask as their policy. Other guest credential contexts
-  are not implemented; the tested identity is unchanged shell UID 2000.
+  service without using its mask as their policy. Filesystem authorization uses
+  the real executor identity, not the admitted image's logical IDs.
 - Cwd is a real backing-directory FD retained by the kernel. Relative requests
   capture it with openat; getcwd reconstructs the current virtual parent path.
   Renaming the directory preserves cwd and inherited dirfd identity.
@@ -71,8 +73,7 @@ seccomp filter and the real kernel cwd/descriptors.
   Cross-mount symlinks and arbitrary proc aliases remain incomplete.
 - File-data inotify watches retain the backing inode and use kernel events.
   Directory/name event projection and general special-file creation remain unsupported.
-  Unsupported operations return errors, not a direct-rootfs retry. Guest-owned
-  SIGSYS and alternate signal stacks remain unsupported.
+  Unsupported operations return errors, not a direct-rootfs retry.
 - `openat2` uses the same transactional walker with explicit beneath/in-root,
   no-symlink, no-magic-link and mount constraints. Contradictory or unknown flags
   fail; cache-only returns EAGAIN. Native host-directory resolution is validated

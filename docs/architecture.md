@@ -3539,7 +3539,11 @@ The [guest runtime](guest-runtime.md) is a native-only component under
 creating a global distribution owner. Several environments can use the same
 or different methods concurrently. Lazy content-addressed executable staging
 and explicit child-process capability probes keep new kernel requirements out
-of shared startup. Wayland connection mode belongs to the recipe, not its UID;
+of shared startup. A launch-owned native supervisor mediates selective seccomp
+TRACE/USER_NOTIF operations; the filesystem service owns inode metadata and
+explicit sealed-image admission. Guest signal handlers remain application-owned.
+These executables are never loaded into ART and do not own Android windows.
+Wayland connection mode belongs to the recipe, not its UID;
 an inherited FD works independently of whether the selected executor is root.
 
 `DesktopExecRunner` owns the execution-backend boundary. Android shell is the

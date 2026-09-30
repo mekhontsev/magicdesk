@@ -125,7 +125,14 @@ static void failure(const char *what, int line) {
 static void wait_failure(void) { failure("event wait", __LINE__); }
 #undef assert
 #define assert(x) ((x) ? (void)0 : failure(#x, __LINE__))
-struct run { pid_t pid; int fd, socket, guard, service, root, middle, leaf; };
+struct run { pid_t pid; int fd, socket, guard, supervisor, service, root, middle, leaf; };
+static pid_t parent_of(pid_t pid) {
+    char path[64], line[512]; int parent = 0;
+    snprintf(path, sizeof(path), "/proc/%d/status", pid);
+    FILE *file = fopen(path, "re"); assert(file);
+    while (fgets(line, sizeof(line), file)) if (sscanf(line, "PPid: %d", &parent) == 1) break;
+    fclose(file); assert(parent > 0); return parent;
+}
 static struct message receive(int socket, int *pidfd) {
     ready(socket, POLLIN);
     struct message data;
@@ -191,8 +198,11 @@ static struct run start(const char *runner, const char *store, int mode, const c
     struct run run = {.pid = pid, .fd = track(RAW2(pidfd_open, pid, 0)), .socket = sockets[0]};
     struct message data = receive(run.socket, &run.root);
     assert(data.kind == 'R');
-    run.guard = track(RAW2(pidfd_open, data.guard, 0));
-    run.service = service_fd(pid, data.guard);
+    run.supervisor = track(RAW2(pidfd_open, data.guard, 0));
+    pid_t guard = parent_of(data.guard);
+    assert(parent_of(guard) == pid);
+    run.guard = track(RAW2(pidfd_open, guard, 0));
+    run.service = service_fd(pid, guard);
     assert(send(run.socket, "s", 1, MSG_NOSIGNAL) == 1);
     data = receive(run.socket, &run.middle);
     assert(data.kind == 'C');
@@ -204,7 +214,7 @@ static struct run start(const char *runner, const char *store, int mode, const c
         assert(data.kind == 'S');
     }
     ready(run.root, POLLIN);
-    alive(run.fd); alive(run.guard); alive(run.service); alive(run.leaf);
+    alive(run.fd); alive(run.guard); alive(run.supervisor); alive(run.service); alive(run.leaf);
     return run;
 }
 static void finished(struct run *run, int expected) {
@@ -213,7 +223,7 @@ static void finished(struct run *run, int expected) {
     assert(waitpid(run->pid, &status, 0) == run->pid);
     assert(md_process_status(status) == expected);
     ready(run->root, POLLIN); ready(run->middle, POLLIN); ready(run->leaf, POLLIN);
-    ready(run->guard, POLLIN); ready(run->service, POLLIN);
+    ready(run->guard, POLLIN); ready(run->supervisor, POLLIN); ready(run->service, POLLIN);
     ready(run->socket, POLLIN);
     char extra;
     assert(read(run->socket, &extra, 1) == 0); /* No supervisor retained guest endpoint. */

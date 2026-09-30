@@ -21,7 +21,7 @@ public final class HostScriptsTest {
     private static final List<String> NATIVE_LIBRARIES = List.of(
             "uinput_bridge", "pty_bridge", "service_launcher", "process_signal", "guest_files",
             "wayland_executor", "wayland_client", "graphics_host",
-            "guest_bootstrap", "guest_run", "guest_service");
+            "guest_bootstrap", "guest_supervisor", "guest_run", "guest_service");
     @Rule
     public final TemporaryFolder temporary = new TemporaryFolder();
 

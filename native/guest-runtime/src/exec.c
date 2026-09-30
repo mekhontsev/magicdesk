@@ -2,6 +2,7 @@
 #include "bootstrap.h"
 #include "elf.h"
 #include "namespace.h"
+#include "proc_paths.h"
 #include "file_calls.h"
 #include "linux_abi.h"
 #include "raw.h"
@@ -11,7 +12,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-int md_command_prepare(struct md_command *c, const char *program, char *const argv[],
+int md_command_prepare(const struct md_fs *fs, struct md_command *c, const char *program, char *const argv[],
         int input_fd, int inaccessible) {
     c->fd = -1;
     long r = md_read_string(c->path, sizeof(c->path), program);
@@ -33,25 +34,33 @@ int md_command_prepare(struct md_command *c, const char *program, char *const ar
             r = RAW2(fstat, input_fd, &st);
             if (r < 0) return (int)r;
             if (S_ISLNK(st.st_mode)) return -ELOOP;
-            char reference[64] = "/proc/thread-self/fd/";
-            md_decimal(reference + md_length(reference), (unsigned)input_fd);
-            fd = RAW4(openat, AT_FDCWD, reference, O_RDONLY | O_CLOEXEC, 0);
+            long access = RAW2(fcntl, input_fd, F_GETFL);
+            if (access < 0) return (int)access;
+            /* ELF inspection uses positional IO. Retain a readable capability
+             * directly: reopening via proc can be denied for a sealed memfd. */
+            if (!(access & O_PATH) && (access & O_ACCMODE) != O_WRONLY)
+                fd = RAW3(fcntl, input_fd, F_DUPFD_CLOEXEC, 0);
+            else {
+                char reference[64] = "/proc/thread-self/fd/";
+                md_decimal(reference + md_length(reference), (unsigned)input_fd);
+                fd = RAW4(openat, AT_FDCWD, reference, O_RDONLY | O_CLOEXEC, 0);
+            }
             if (fd >= 0) {
                 r = RAW4(faccessat2, fd, "", X_OK, AT_EMPTY_PATH | MD_AT_EACCESS);
                 if (r < 0) { RAW1(close, fd); return (int)r; }
             }
-        } else fd = md_program_open(&md_files, c->path, 1);
+        } else fd = md_program_open(fs, c->path, 1);
         if (fd < 0) return (int)fd;
         struct stat st;
         r = RAW2(fstat, fd, &st);
         if (!r && (!S_ISREG(st.st_mode) || (st.st_mode & (S_ISUID | S_ISGID)))) r = -EACCES;
         char header[256] = {0};
-        if (!r) r = RAW3(read, fd, header, sizeof(header));
+        if (!r) r = RAW4(pread64, fd, header, sizeof(header), 0);
         if (r < 0) { RAW1(close, fd); return (int)r; }
         if (r < 2 || header[0] != '#' || header[1] != '!') {
             r = md_elf_interpreter((int)fd, c->interpreter);
             if (!r && c->interpreter[0]) {
-                long loader = md_program_open(&md_files, c->interpreter, 1);
+                long loader = md_program_open(fs, c->interpreter, 1);
                 if (loader < 0) r = loader;
                 else { r = md_elf_validate((int)loader, 1); RAW1(close, loader); }
             }
@@ -125,11 +134,16 @@ long md_guest_execat(int base, const char *program, char *const argv[], char *co
     }
     if (*path && (*path == '/' || base == AT_FDCWD)) {
         // Resolve identity after opening: NOFOLLOW must also reject dangling links.
-        r = md_program_identity(&md_files, path, identity);
+        struct md_proc_path ref = md_proc_path(path);
+        /* Re-executing the pinned current image keeps its guest identity.
+         * AT_EXECFN below still records the caller's /proc spelling. */
+        r = ref.kind == MD_PROC_EXE && !*ref.tail
+            ? md_copy(identity, sizeof(identity), md_executable)
+            : md_program_identity(&md_files, path, identity);
         if (r < 0) { RAW1(close, fd); return r; }
     }
     struct md_command c;
-    r = md_command_prepare(&c, identity, argv, fd, inaccessible);
+    r = md_command_prepare(&md_files, &c, identity, argv, fd, inaccessible);
     if (*path) RAW1(close, fd);
     if (r < 0) return r;
     /* One inherited descriptor pins the validated ELF across bootstrap exec.
@@ -147,11 +161,12 @@ long md_guest_execat(int base, const char *program, char *const argv[], char *co
     // final shebang interpreter. Linux uses /dev/fd/N for descriptor exec.
     next[n++] = "--execfn";
     next[n++] = *path && (*path == '/' || base == AT_FDCWD) ? path : identity;
-    for (unsigned i = 0; i < md_connections.count; i++) {
-        struct md_socket_route *route = &md_connections.entries[i];
+    const struct md_socket_routes *routes = md_files.connections;
+    for (unsigned i = 0; routes && i < routes->count; i++) {
+        const struct md_socket_route *route = &routes->entries[i];
         next[n++] = route->abstract ? "--socket-abstract" : "--socket-path";
-        next[n++] = route->source;
-        next[n++] = route->destination;
+        next[n++] = (char *)route->source;
+        next[n++] = (char *)route->destination;
     }
     if(md_files.endpoint[0]) { next[n++]="--namespace"; next[n++]=md_files.endpoint; }
     else next[n++]=md_files.root;

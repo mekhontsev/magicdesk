@@ -24,14 +24,21 @@ custom glibc linker, root transition or SELinux change is used.
   freestanding programs use the same path; an absent mapped header table is not
   grounds for rejection. Large images retain overflow and mapping checks without
   an arbitrary byte limit.
-- `thread_context.c` owns guarded per-thread syscall stacks and AArch64 signal-frame
-  return for clone. It preserves extension records, including SVE/SME extra contexts.
-  Allocation is per thread, not per syscall. Kernel thread/vfork lifetimes govern
-  reclamation; application-owned alternate stacks remain explicitly unsupported.
-- `trap.c` installs one seccomp filter, forwards selected file and socket syscalls
-  through SIGSYS, and admits the bootstrap's raw syscall gate to avoid recursion.
-  It covers raw SVC and libc-internal calls equally. `raw.c` / `raw.S` provide
-  freestanding primitives, kernel error returns and bounded self-memory copies.
+- `interception.c` installs one seccomp filter using selective TRACE and USER_NOTIF.
+  `supervisor.c` owns the launched process tree, syscall stops, notifications and
+  exec transitions. Hot data IO, memory, futex and signal operations stay native.
+  `interception.h` publishes a private bootstrap ABI at readiness; the build does
+  not extract instruction addresses. Raw SVC and libc-internal calls share this path.
+- `interception_stacks.c` owns guarded adaptation-stack leases by address space.
+  Concurrent calls get separate stacks; completed calls return their lease for
+  reuse. CLONE_VM shares the pool, fork copies its mappings and exec replaces it.
+  Application signal stacks and dispositions remain kernel-owned.
+- `raw.c` / `raw.S` supply freestanding primitives and kernel error returns.
+  Bootstrap copies use fault-guarded instructions; ordinary native tools use
+  `memory.c` for process_vm-based checked copies. No adapter is loaded into ART.
+- `guest_domain.c`, `guest_identity.c`, `elf_admission.c` and `image_catalogue.c`
+  separate proc-root references, logical credentials and explicit sealed-image
+  admission from syscall scheduling. See the [interception contract](interception.md).
 - `file_calls.c` owns file syscall argument translation, separately from signal
   delivery. Its single catalog in `file_calls.h` drives dispatch and filtering,
   so a supported file operation cannot accidentally bypass the adapter.
@@ -55,9 +62,14 @@ custom glibc linker, root transition or SELinux change is used.
   owns temporary backing allocation separately from published guest names.
   Namespace executable reopening uses an immutable object ID, preserving the
   executing inode after unlink/path reuse and close_range without a hidden FD.
+  Image metadata belongs to an explicit address-space context referenced by
+  `md_fs`; it is not implicit state in the proc adapter. Socket routes are also
+  supplied by that context, with no process-global default. Both contexts can
+  coexist in one adapter owner without exchanging argv, auxv or destinations.
 - `exec.c` validates the target and handles shebangs before re-executing the
-  bootstrap. Kernel exec retains PID, descriptors and the installed filter.
-  The bootstrap restores its SIGSYS handler before entering the stock loader,
+  bootstrap. Preparation receives the filesystem context explicitly. Kernel
+  exec retains PID, descriptors and the installed filter.
+  The bootstrap republishes its adapter ABI before entering the stock loader,
   without adding another filter. Missing executables return errors to the caller.
 - `inode_store.c`, `inode_db.c`, `inode_path.c`, `inode_directory.c` and
   `inode_import.c` form a separate
@@ -65,7 +77,7 @@ custom glibc linker, root transition or SELinux change is used.
   transactions for names/parent edges and ordinary kernel objects/descriptors
   for shared data and stable identity, paged directory cursors and atomic offline
   import. SQLite is linked only into the dedicated Bionic service and test
-  fixtures, never the bootstrap or signal handler. The APK build pins the
+  fixtures, never the bootstrap or syscall dispatcher. The APK build pins the
   unmodified SQLite amalgamation by version and SHA-256.
 - `fs_service.c` exposes the model through a separate
   [filesystem service](filesystem-service.md). Its event-loop thread
@@ -92,14 +104,14 @@ Dynamic and static AArch64 PIE and fixed-address executables are accepted.
 Setid targets are rejected; malformed ELF layouts fail before
 destructive exec. Libc and distribution names are not part of admission policy.
 
-SIGSYS is reserved by the adapter: replacing its disposition returns ENOTSUP,
-and it is excluded from guest signal masks. The handler permits nested SIGSYS
-when a guest signal handler interrupts translation and accesses a file. All
-translation scratch is invocation-local on a guarded 512 KiB runtime signal stack
-per thread. Clone returns through a copied kernel signal frame onto the requested
-guest stack. Thread exit releases its mapping; the parent owns a vfork child's
-mapping until the kernel reports exec/exit. File calls and exec preparation do
-not allocate scratch mappings. Shared-VM non-thread clone without vfork is rejected.
+The application owns SIGSYS, its masks and alternate signal stack. Translation
+scratch uses guarded 512 KiB runtime stacks, independent of libc thread-stack size.
+Stack leases are recycled; file calls and exec preparation do not allocate a new
+mapping per syscall. Kernel clone and signal return preserve the native register
+and extension state. The supervisor uses events, not a timer, to observe their
+lifetimes. Application seccomp filters remain installed and their ERRNO/TRAP/KILL
+actions retain kernel precedence. This does not certify complete isolation of
+the filesystem broker or the in-process adapter.
 
 The bootstrap's fixed-address mapping and exact binary remain unchanged
 for a running process tree. The app stages immutable content-addressed bundles;
@@ -149,10 +161,9 @@ operations and tests are listed in [its contract](namespace-execution.md).
   signals under the unmodified Debian dynamic linker.
 - fork/exec, vfork, posix_spawn with file actions/cwd/signal masks, an explicit
   child environment, argv0, PATH, shebang and inherited Unix socket IO.
-  `clone3` returns ENOSYS so libc uses ordinary clone: its
-  `CLONE_CLEAR_SIGHAND` path would discard the runtime's SIGSYS adapter and needs
-  a dedicated child-return gate. This is an explicit ABI limitation, not a
-  successful emulation of clone3. Both tested libc versions pass posix_spawn.
+  `clone3` returns ENOSYS until its extensible argument and ownership semantics
+  are implemented; libc can use ordinary clone. This is an explicit ABI limitation,
+  not successful emulation. Both tested libc versions pass posix_spawn.
 - 64 consecutive execs preserve PID, no-new-privileges and the number of seccomp
   filters. Failed exec/spawn return to the caller. `/proc/self/exe` readlink/open
   and the supplied AT_EXECFN identify the guest executable. Each exec updates the
@@ -195,9 +206,11 @@ Negative controls are required, not hidden or counted as compatibility passes:
   close_range; direct-backend reopening remains path-based. Locales, metadata/ownership
   emulation are not complete. NSS/DNS, toolkit and GPU coverage is bounded
   by the software GUI checks below.
-- Guest-installed seccomp filters and application-owned SIGSYS handlers are unsupported.
-  Guest alternate signal stacks return ENOTSUP. Tested libc minimum thread stacks
-  include musl's 2 KiB and glibc's 128 KiB; arbitrary clone/stack semantics are not implied.
+- Guest-installed filters, application SIGSYS handlers and alternate signal stacks
+  have focused tests. A second tracer cannot attach to an already supervised
+  process; crash reporters requiring that capability are not supported.
+  Tested libc minimum thread stacks include musl's 2 KiB and glibc's 128 KiB;
+  arbitrary clone/stack semantics are not implied.
 - API 34, ordinary app UID at MagicDesk's targetSdk, other firmware and 16 KiB
   pages need actual coverage; a successful build is not that coverage.
 

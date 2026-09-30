@@ -68,7 +68,7 @@ static void start(struct service *s, enum fault fault, const char *existing, uns
         CHECK(md_inode_store_open(s->directory, 0, &store) == 0);
         struct hooks hooks = {fault, notice[1], control[0], parent};
         md_fs_observe(observe, &hooks); byte(ready[1]); close(ready[1]);
-        CHECK(md_fs_serve(store, listener, stop[0], timeout) == 0);
+        CHECK(md_fs_serve(store, NULL, listener, stop[0], timeout) == 0);
         md_inode_store_close(store); close(listener); close(stop[0]); close(notice[1]); close(control[0]);
         _exit(0);
     }

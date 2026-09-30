@@ -27,6 +27,11 @@ the already-selected shell UID 2000; build-host tests use the host UID. This is
 not authorization between mutually hostile processes sharing a UID, and the
 executor remains unsuitable as a security sandbox.
 
+A client's seccomp filter does not restrict operations performed by this
+separate service. A same-UID caller able to reach the endpoint can request an
+open even if its own openat is denied. There is no per-caller browser policy
+enforcement; see the [sandbox boundary controls](../guest-exec-lab/sandbox-research.md).
+
 The service is a static Android/Bionic executable whose own storage IO uses
 the host filesystem directly. Its infrastructure is not
 served through its own RPC endpoint. Preserve that nonrecursive boundary when
@@ -141,7 +146,7 @@ normal calling-process umask semantics. Real identity is unchanged; this is not
 an implementation of arbitrary guest credentials. The offline prepared-rootfs
 import does not implement live promotion, object reclamation or notifications.
 
-Keep SQLite and its locks outside SIGSYS. Preserve the direct kernel data path
+Keep SQLite and its locks outside the guest process. Preserve the direct kernel data path
 and truthful failure/commit outcomes as syscall coverage expands. A real fixture
 install/update/purge workflow passes; APT and full-distribution compatibility,
 remaining ABI coverage and production resource ownership still require validation.

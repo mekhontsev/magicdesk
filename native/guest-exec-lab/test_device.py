@@ -58,12 +58,13 @@ def main():
         check("create isolated shell-owned directory", "mkdir -m 700 " + shlex.quote(root))
         transport.upload(client, args.build / "bundle.tar.gz", root + "/bundle.tar.gz")
         check("extract without package installation", "tar -xzf " + root + "/bundle.tar.gz -C " + root)
-        launch = "env PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME=/tmp TMPDIR=/tmp LANG=C " + root + "/libmagicdesk_guest_bootstrap.so " + root + "/rootfs "
+        launch = ("env PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME=/tmp TMPDIR=/tmp LANG=C "
+                  + root + "/libmagicdesk_guest_supervisor.so " + root + "/libmagicdesk_guest_bootstrap.so " + root + "/rootfs ")
         check("Android shell identity", "id", contains=["uid=2000(shell)", "context=u:r:shell:s0"])
         check("kernel identity", "uname -a", contains="aarch64")
         check("page size observation", "getconf PAGE_SIZE")
         check("optional kernel capabilities do not disable ordinary shell", "timeout 30 " + root
-              + "/md-capabilities-test " + root + "/libmagicdesk_guest_bootstrap.so",
+              + "/md-capabilities-test " + root + "/libmagicdesk_guest_supervisor.so " + root + "/libmagicdesk_guest_bootstrap.so",
               contains="PASS capability isolation")
         # Copy outside the source first, then move inside the executor's root.
         # Relative dirfd operations outside that root remain deliberately rejected.

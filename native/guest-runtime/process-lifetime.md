@@ -12,7 +12,8 @@ cancellation and service death; its 30-second limit is a failure bound, not a de
 
 `process_owner.c` implements the guardian as a Linux child subreaper. Headless
 launches create a separate session; an inherited controlling PTY is retained so
-the guest shell can own foreground job control. Only guest processes are its children. The filesystem service is a
+the guest shell can own foreground job control. It starts the native syscall
+supervisor, which traces and reaps its own guest tree. The filesystem service is a
 sibling in a separate session, so its continued existence does not interfere
 with the guardian's `wait4(..., __WALL)` quiescence check. The root guest's exit
 status is retained, but returned only after `ECHILD` proves that the entire tree
@@ -33,7 +34,9 @@ service death, observed through its pidfd, cancels the tree and reports failure.
 
 Supervisors use signalfd, pidfds and ppoll. The caller's original signal mask and
 watched dispositions are restored in the guest before exec. There are no
-signal-handler locks, heap allocations, fork/exec hooks or periodic process scans.
+signal-handler locks or periodic process scans. The syscall supervisor maintains
+explicit thread/address-space records on clone/exec/exit events; waiting itself
+does not allocate per poll iteration.
 `event_wait.c` shares freestanding monotonic descriptor waits with filesystem RPC;
 deadlines remain absolute across EINTR.
 

@@ -12,6 +12,8 @@
 #include <signal.h>
 #include <sys/wait.h>
 
+static struct md_socket_routes md_connections;
+
 static int finish_service(long server, int fd, int signals, int stop) {
     if (stop >= 0) RAW1(close, stop);
     /* EVENT_WAIT: service shutdown after lifetime pipe EOF; timeout escalates and fails. */
@@ -39,9 +41,11 @@ void md_boot(uintptr_t *stack) {
         md_die("guest runtime requires the selected shell or root identity", -EACCES);
     if (argc < 5 || argc > 1000)
         md_die("usage: guest-run --store HOST_PATH [--cwd GUEST_PATH] -- PROGRAM [ARGS]", -EINVAL);
-    const char *store = NULL, *cwd = "/", *home = "/tmp";
+    const char *store = NULL, *cwd = "/", *home = "/tmp", *admit = NULL, *run_deadline = NULL;
+    int diagnostics = 0;
     size_t program = 1;
     while (program < argc && !md_equal(argv[program], "--")) {
+        if (md_equal(argv[program], "--diagnostics")) { diagnostics = 1; program++; continue; }
         if (program + 1 >= argc) md_die("missing launch option value", -EINVAL);
         if (md_equal(argv[program], "--socket-path") || md_equal(argv[program], "--socket-abstract")) {
             if (program + 2 >= argc) md_die("missing socket route", -EINVAL);
@@ -53,6 +57,8 @@ void md_boot(uintptr_t *stack) {
         if (md_equal(argv[program], "--store") && !store) store = argv[program + 1];
         else if (md_equal(argv[program], "--cwd")) cwd = argv[program + 1];
         else if (md_equal(argv[program], "--home")) home = argv[program + 1];
+        else if (md_equal(argv[program], "--admit-elf") && !admit) admit = argv[program + 1];
+        else if (md_equal(argv[program], "--deadline-seconds") && !run_deadline) run_deadline = argv[program + 1];
         else md_die("unknown launch option", -EINVAL);
         program += 2;
     }
@@ -61,13 +67,16 @@ void md_boot(uintptr_t *stack) {
     struct md_launch_environment guest_environment;
     long environment_result = md_launch_environment(&guest_environment, home, env);
     if (environment_result < 0) md_die("guest environment", environment_result);
-    char bootstrap[PATH_MAX], service_path[PATH_MAX], endpoint[96] = "md-namespace-", ready_text[32], stop_text[32];
+    if (admit && admit[0] != '/') md_die("admitted ELF must be absolute", -EINVAL);
+    char bootstrap[PATH_MAX], supervisor[PATH_MAX], service_path[PATH_MAX], endpoint[96] = "md-namespace-", ready_text[32], stop_text[32];
     long executable = RAW4(readlinkat, AT_FDCWD, "/proc/self/exe", bootstrap, sizeof(bootstrap) - 1);
     if (executable <= 0 || executable == sizeof(bootstrap) - 1) md_die("runner identity", -EIO);
     bootstrap[executable] = 0;
     while (executable && bootstrap[executable - 1] != '/') --executable;
     bootstrap[executable] = 0;
     if (!executable || md_copy(service_path, sizeof(service_path), bootstrap) ||
+        md_copy(supervisor, sizeof(supervisor), bootstrap) ||
+        md_append(supervisor, sizeof(supervisor), "libmagicdesk_guest_supervisor.so") ||
         md_append(bootstrap, sizeof(bootstrap), "libmagicdesk_guest_bootstrap.so") ||
         md_append(service_path, sizeof(service_path), "libmagicdesk_guest_service.so"))
         md_die("runtime path", -ENAMETOOLONG);
@@ -89,7 +98,7 @@ void md_boot(uintptr_t *stack) {
         RAW3(fcntl, ready[1], F_SETFD, 0);
         RAW3(fcntl, stop[0], F_SETFD, 0);
         char *args[] = {service_path, (char *)store, endpoint, ready_text,
-                        stop_text, NULL};
+                        stop_text, (char *)admit, NULL};
         md_die("execute filesystem service", RAW3(execve, service_path, args, env));
     }
     RAW1(close, ready[1]);
@@ -125,8 +134,14 @@ void md_boot(uintptr_t *stack) {
         long owner = RAW0(getpid);
         long guard = RAW5(clone, SIGCHLD, 0, 0, 0, 0);
         if (!guard) {
-            char *args[1024 + MD_SOCKET_ROUTES_MAX * 3] = {bootstrap, "--cwd", (char *)cwd};
-            unsigned n = 3;
+            char *args[1040 + MD_SOCKET_ROUTES_MAX * 3] = {supervisor};
+            unsigned n = 1;
+            if (diagnostics) args[n++] = "--diagnostics";
+            if (run_deadline) { args[n++] = "--deadline-seconds"; args[n++] = (char *)run_deadline; }
+            if (admit) { args[n++] = "--admit-elf"; args[n++] = (char *)admit; }
+            args[n++] = bootstrap;
+            args[n++] = "--cwd";
+            args[n++] = (char *)cwd;
             for (unsigned i = 0; i < md_connections.count; i++) {
                 struct md_socket_route *route = &md_connections.entries[i];
                 args[n++] = route->abstract ? "--socket-abstract" : "--socket-path";
@@ -136,7 +151,7 @@ void md_boot(uintptr_t *stack) {
             args[n++] = "--namespace";
             args[n++] = endpoint;
             for (size_t i = program; i <= argc; ++i) args[n + i - program] = argv[i];
-            long status = md_process_guard(owner, service, stop[1], bootstrap, args, guest_environment.values, &signals);
+            long status = md_process_guard(owner, service, stop[1], supervisor, args, guest_environment.values, &signals);
             RAW1(exit_group, status);
         }
         if (guard > 0) {

@@ -100,10 +100,11 @@ MagicDesk ships no D-Bus daemon and does not reuse Android's or Termux's bus.
 The bootstrap maps the main ELF and its optional absolute `PT_INTERP`, validates their
 load segments before exec and supplies a kernel-style initial stack and auxv.
 There is no distribution or loader-name allowlist. The selected stock dynamic
-linker owns relocations, dependencies, TLS and `dlopen`. Runtime-owned guarded
-signal stacks isolate syscall adaptation from libc thread-stack sizes; ordinary
-file calls allocate no heap or temporary mappings. Fork, vfork and thread clone
-retain kernel lifetimes. SIGSYS remains reserved.
+linker owns relocations, dependencies, TLS and `dlopen`. A native supervisor uses
+selective seccomp TRACE and USER_NOTIF for adaptation; hot data IO, memory, futex
+and signal operations stay native. Guarded scratch-stack leases are recycled per
+address space, independently of libc thread-stack size. Fork, vfork and thread
+clone retain kernel lifetimes. The application owns SIGSYS and alternate stacks.
 
 Static PIE and fixed-address ET_EXEC use the same loader. ELF load alignment is
 retained, including 2 MiB alignment; an occupied fixed-address range fails without
@@ -144,7 +145,7 @@ return ENOTSUP instead of silently missing logical namespace changes.
 Guest executables are never loaded into the app or shell service with
 `System.loadLibrary`. `magicdesk-guest` stages a content-addressed immutable
 version only when invoked. A launch first probes pidfds, subreapers, faccessat2,
-executable mappings and seccomp/SIGSYS in a child process. Probe failure reports
+executable mappings, selective ptrace and seccomp notifications in a child process. Probe failure reports
 the failed operation and errno. Other tools, Desktop, Termux and prepared chroot
 remain independent; the APK and Desktop SDK floors remain API 34 and API 35.
 
@@ -257,20 +258,51 @@ It passes with llvmpipe and with a test-owned Zink build using the explicit
 The unmodified Zink Wayland control produces blank frames despite reporting the
 hardware renderer. Patched sources and libraries stay in isolated fixture paths;
 neither Android nor APK drivers are replaced. These checks are not complete
-Blender editing, arbitrary OpenGL application or browser certification. Firefox content
-processes fail when installing their SIGSYS handler. Debian ARM64 Chromium also
-fails startup with Crashpad signal-stack/SIGSYS errors; its sandbox is not disabled
-to classify that test as passing.
+Blender editing or arbitrary OpenGL application certification.
 
-Guest file sharing and live appearance helpers are not integrated
-for this launch method. Application-owned alternate signal stacks, guest SIGSYS
-handlers and nested application sandbox compatibility remain unsupported.
-Shared-VM non-thread clone requires vfork ownership; other such clones fail
-explicitly. Kernel permission denials remain failures.
-An isolated USER_NOTIF probe verifies remote memory, pidfd descriptor duplication,
-descriptor injection and coexistence with guest SIGSYS/altstack/longjmp on this
-device. It is not the production syscall adapter. Unprivileged user-namespace
-creation also fails in a native shell control, independently of the guest runtime.
+Linux driver discovery belongs to the prepared userspace. A Turnip library in
+`/opt` is not discovered without a Vulkan ICD manifest in a standard guest
+directory or an explicit `VK_DRIVER_FILES`. Debian Mesa 25.0.7's automatic X11
+Zink probe deadlocks when `vkCreateInstance` fails: its error cleanup reacquires
+the still-held instance lock. This can block GTK before window creation, even
+for a text editor. Selecting the prepared Turnip manifest, or registering that
+same manifest under `/usr/share/vulkan/icd.d`, passes the Mousepad edit/save/close
+workflow without forcing software rendering. An explicit llvmpipe run is a
+separate control, not the runtime's default or an automatic fallback.
+
+## Application Filters And Browsers
+
+The production supervisor preserves application signal handlers, alternate stacks
+and installed seccomp filters. Focused tests cover ERRNO/TRAP/KILL precedence,
+protected descriptor metadata, nondumpable exec, non-leader exec, job control and
+retained descriptors. Protected access uses task-affine export and same-site replay
+without restoring dumpability. A second tracer cannot attach concurrently; crash
+reporters requiring it remain unsupported.
+
+`--admit-elf /absolute/guest/path` explicitly selects an ordinary ELF for a
+launch-scoped sealed snapshot with logical set-ID metadata and credentials.
+Initial entry and reexec use the same contract. Real credentials remain UID 2000
+in the tested shell scenario; the source file is not modified, and actual set-ID
+files remain rejected. Logical credential drops and no_new_privs are enforced
+by the supervisor. Other operations retain real permission denials.
+
+The [production browser fixtures](../native/guest-exec-lab/browser/README.md)
+run stock Debian Chromium with its selected ordinary helper, three fresh profiles,
+calculated JavaScript/DOM results and PNG output, without sandbox-disabling flags.
+They observe real installed application filters and require process completion.
+Firefox has a separate headless screenshot workflow.
+
+These results establish application execution, not complete security isolation.
+The limited proc-root model is not general chroot. Interpreter/library admission,
+mapped-code protection, complete descriptor/root confinement and authenticated
+filesystem authorization remain unfinished. The same-UID filesystem service does
+not automatically enforce a caller's seccomp domain. Unadapted syscalls retain
+host semantics, and Chromium child SIGTRAP exits are recorded separately from
+successful page execution. See the [interception contract](../native/guest-runtime/interception.md).
+
+Guest file sharing and live appearance helpers are not integrated for this launch
+method. Kernel permission denials remain failures. Unprivileged user namespaces
+are unavailable in the tested native shell control as well as the guest.
 
 D-Bus reports that its session-config directory cannot be watched. Wayland publishes a logical monitor before client
 startup and replaces it when an Android host attaches; GTK's initial

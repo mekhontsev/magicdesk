@@ -22,8 +22,8 @@ from arbitrary guest code
 would require a complete filesystem adapter; this prototype does not do that.
 
 Each connection has one owner and is reopened after fork/exec. SQLite is linked
-only into lab fixtures and the dedicated service, not the freestanding bootstrap or SIGSYS adapter. Its
-heap use and locks make calling it from SIGSYS unacceptable. The separate
+only into lab fixtures and the dedicated service, not the freestanding bootstrap
+or syscall adapter. Its heap use and locks belong to the service owner. The separate
 [filesystem service experiment](filesystem-service.md) supplies explicit RPC,
 native FD transfer and bounded reentrant client waits. The explicit
 [namespace executor](namespace-execution.md) routes selected guest syscalls here;
@@ -85,7 +85,7 @@ multiple batches or promise a particular ordering after concurrent rename.
 `md_inode_import_tree` copies an immutable prepared tree into an empty namespace
 in one transaction. The source is not modified apart from normal read atime.
 Callers supply byte/entry limits. Traversal uses a heap-owned stack, one copy
-buffer and open directory FDs; no recursive C stack or SQLite work enters SIGSYS.
+buffer and open directory FDs; no recursive import stack or SQLite work enters the guest.
 This offline operation is deliberately not exposed as a long-running RPC request.
 
 Regular data, permission bits, access/modification timestamps, directories and
