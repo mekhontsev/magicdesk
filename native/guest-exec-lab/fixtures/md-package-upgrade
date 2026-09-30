@@ -1,0 +1,26 @@
+#!/bin/sh
+# A selected package must actually change version, not merely return success.
+set -eu
+test "$(id -u)" = 2000
+test "$#" = 2
+case "$1" in
+    debian)
+        before=$(dpkg-query -W -f='${Version}' "$2")
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get -y --only-upgrade install "$2"
+        after=$(dpkg-query -W -f='${Version}' "$2")
+        dpkg --compare-versions "$after" gt "$before"
+        test -z "$(dpkg --audit)"
+        ;;
+    alpine)
+        before=$(apk list --installed "$2")
+        test -n "$before"
+        apk --force-no-chroot update
+        apk --force-no-chroot upgrade --preupgrade=no "$2"
+        after=$(apk list --installed "$2")
+        test -n "$after"
+        test "$before" != "$after"
+        ;;
+    *) exit 2 ;;
+esac
+printf 'PASS signed package upgrade: %s -> %s\n' "$before" "$after"

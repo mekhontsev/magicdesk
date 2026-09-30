@@ -111,6 +111,7 @@ static void connection(const char *base, const char *name, int listener, int typ
     close(peer); close(client);
 }
 static void datagrams(const char *base, int server, int guest) {
+    (void)guest;
     struct sockaddr_un addr; socklen_t length = address(&addr, base, "d");
     int client = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0); CHECK(client >= 0);
     CHECK(sendto(client, "to", 2, 0, (struct sockaddr *)&addr, length) == 2);
@@ -126,11 +127,8 @@ static void datagrams(const char *base, int server, int guest) {
     CHECK(connect(client, &disconnect, sizeof(disconnect)) == 0);
     CHECK(send(client, "x", 1, 0) == -1 && errno == ENOTCONN);
     struct mmsghdr batch = {.msg_hdr = message};
-    if (guest) CHECK(sendmmsg(client, &batch, 1, 0) == -1 && errno == ENOTSUP);
-    else {
-        CHECK(sendmmsg(client, &batch, 1, 0) == 1 && batch.msg_len == 7);
-        readable(server); CHECK(recv(server, data, sizeof(data), 0) == 7);
-    }
+    CHECK(sendmmsg(client, &batch, 1, 0) == 1 && batch.msg_len == 7);
+    readable(server); CHECK(recv(server, data, sizeof(data), 0) == 7);
     CHECK(recv(server, data, sizeof(data), MSG_DONTWAIT) == -1 && errno == EAGAIN);
     close(client);
 }

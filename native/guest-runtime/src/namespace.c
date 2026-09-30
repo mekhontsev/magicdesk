@@ -16,7 +16,7 @@ long md_namespace_request(const struct md_fs *fs, struct md_fs_request *q, struc
     int cwd = -1;
     unsigned bases = q->operation == MD_FS_LINK || q->operation == MD_FS_RENAME ? 2 : 1;
     for (unsigned i = 0; i < bases; ++i) {
-        if (q->path[i] && q->path[i][0] == '/')
+        if (q->path[i] && q->path[i][0] == '/' && !(q->resolve & RESOLVE_IN_ROOT))
             q->directory[i] = -1;
         else if (q->directory[i] < 0 && q->directory[i] != AT_FDCWD)
             return -EBADF;
@@ -69,6 +69,13 @@ long md_namespace_creation_mode(unsigned mode) {
 long md_namespace_open(const struct md_fs *fs, int base, const char *path, int flags, unsigned mode) {
     if (md_host_path(path))
         return RAW4(openat, base, path, flags, mode);
+    struct open_how how = {.flags = (unsigned)flags, .mode = mode};
+    return md_namespace_open_resolved(fs, base, path, &how);
+}
+long md_namespace_open_resolved(const struct md_fs *fs, int base, const char *path,
+        const struct open_how *how) {
+    int flags = (int)how->flags;
+    unsigned mode = (unsigned)how->mode;
     if ((flags & O_CREAT) && !(flags & O_PATH)) {
         long masked = md_namespace_creation_mode(mode);
         if (masked < 0)
@@ -79,7 +86,7 @@ long md_namespace_open(const struct md_fs *fs, int base, const char *path, int f
                               .directory = {base, -1},
                               .path = {path, NULL},
                               .flags = (uint32_t)flags,
-                              .mode = mode};
+                              .mode = mode, .resolve = how->resolve};
     struct md_fs_result out;
     long r = md_namespace_request(fs, &q, &out);
     if (r < 0)
@@ -94,17 +101,13 @@ long md_namespace_open(const struct md_fs *fs, int base, const char *path, int f
     return out.fd;
 }
 long md_namespace_identity(const struct md_fs *fs, const char *path, char *out) {
-    if (path[0] == '/')
-        return md_copy(out, PATH_MAX, path);
-    struct md_fs_request q = {.operation = MD_FS_PATH, .directory = {AT_FDCWD, -1}};
+    if (md_host_path(path)) return md_copy(out, PATH_MAX, path);
+    struct md_fs_request q = {.operation = MD_FS_REALPATH, .directory = {AT_FDCWD, -1}, .path = {path, NULL}};
     struct md_fs_result result;
     long r = md_namespace_request(fs, &q, &result);
     if (r < 0)
         return r;
-    r = md_copy(out, PATH_MAX, result.data);
-    if (!r)
-        r = md_append(out, PATH_MAX, "/");
-    return r ? r : md_append(out, PATH_MAX, path);
+    return md_copy(out, PATH_MAX, result.data);
 }
 static void stat_info(const struct md_fs_info *i, struct stat *s) {
     memset(s, 0, sizeof(*s));

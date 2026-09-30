@@ -6,6 +6,41 @@
 #include <string.h>
 #include <unistd.h>
 
+int md_inode_temporary(struct md_inode_store *s) {
+    int fd = openat(s->objects, ".", O_TMPFILE | O_RDWR | O_CLOEXEC, 0600);
+    return fd < 0 ? -errno : fd;
+}
+
+int md_inode_object_id(struct md_inode_store *s, int fd, char out[33]) {
+    if (!out) return -EFAULT;
+    int r = mdi_begin(s, 0);
+    if (r) return r;
+    struct mdi_node node;
+    r = mdi_fd(s, fd, &node);
+    if (!r) memcpy(out, node.id, sizeof(node.id));
+    return mdi_finish(s, r);
+}
+int md_inode_open_object(struct md_inode_store *s, const char *id, int flags) {
+    if (!id) return -EFAULT;
+    if (strnlen(id, 33) != 32) return -EINVAL;
+    for (unsigned i = 0; i < 32; ++i)
+        if (!((id[i] >= '0' && id[i] <= '9') || (id[i] >= 'a' && id[i] <= 'f'))) return -EINVAL;
+    if (flags & O_PATH) flags &= O_PATH | O_CLOEXEC | O_DIRECTORY;
+    if (flags & ~(O_PATH | O_RDONLY | O_CLOEXEC | O_DIRECTORY | O_NONBLOCK | O_LARGEFILE)) return -EINVAL;
+    int r = mdi_begin(s, 0);
+    if (r) return r;
+    struct mdi_node node;
+    r = mdi_node(s, id, &node);
+    struct stat st;
+    if (!r) r = mdi_stat(s, &node, &st);
+    if (!r && node.kind != S_IFREG) r = -EINVAL;
+    int fd = -1;
+    if (!r && (fd = openat(s->objects, id, flags | O_NOFOLLOW | O_CLOEXEC)) < 0) r = -errno;
+    r = mdi_finish(s, r);
+    if (r && fd >= 0) close(fd);
+    return r ? r : fd;
+}
+
 static int create_node(struct md_inode_store *s, int dirfd, const char *path,
         mode_t kind, mode_t mode, const char *target) {
     if (mode & ~01777) return -ENOTSUP;
@@ -54,6 +89,10 @@ ssize_t md_inode_readlink(struct md_inode_store *s, int dirfd, const char *path,
     return r ? r : n;
 }
 int md_inode_open(struct md_inode_store *s, int dirfd, const char *path, int flags, mode_t mode) {
+    return md_inode_open_resolved(s, dirfd, path, flags, mode, 0);
+}
+int md_inode_open_resolved(struct md_inode_store *s, int dirfd, const char *path, int flags, mode_t mode,
+        uint64_t resolve) {
     if (flags & ~(O_ACCMODE | O_CLOEXEC | O_APPEND | O_TRUNC | O_NOFOLLOW | O_DIRECTORY | O_PATH
             | O_CREAT | O_EXCL | O_NONBLOCK | O_NOCTTY | O_LARGEFILE | O_SYNC | O_DSYNC)) return -ENOTSUP;
     if ((flags & O_ACCMODE) == O_ACCMODE) return -EINVAL;
@@ -65,8 +104,8 @@ int md_inode_open(struct md_inode_store *s, int dirfd, const char *path, int fla
     int r = mdi_begin(s, !!create);
     if (r) return r;
     struct mdi_location loc;
-    r = mdi_walk(s, dirfd, path, create && (flags & O_EXCL) ? MDI_ENTRY
-        : flags & O_NOFOLLOW ? MDI_NOFOLLOW : MDI_FOLLOW, !!create, &loc);
+    r = mdi_walk_resolved(s, dirfd, path, create && (flags & O_EXCL) ? MDI_ENTRY
+        : flags & O_NOFOLLOW ? MDI_NOFOLLOW : MDI_FOLLOW, !!create, resolve, &loc);
     int fd = -1;
     if (!r && create && loc.trailing) r = -EISDIR;
     if (!r && create && (flags & O_EXCL) && loc.exists) r = -EEXIST;

@@ -42,6 +42,8 @@ int mdi_lookup(struct md_inode_store *, const char *parent, const char *, struct
 int mdi_stat(struct md_inode_store *, const struct mdi_node *, struct stat *);
 int mdi_access(struct md_inode_store *, const struct mdi_node *, int);
 int mdi_walk(struct md_inode_store *, int, const char *, enum mdi_follow, int missing, struct mdi_location *);
+int mdi_walk_resolved(struct md_inode_store *, int, const char *, enum mdi_follow, int missing,
+        uint64_t resolve, struct mdi_location *);
 int mdi_parent_writable(struct md_inode_store *, const struct mdi_node *);
 int mdi_ancestor(struct md_inode_store *, const char *ancestor, const char *child);
 int mdi_add_name(struct md_inode_store *, const char *parent, const char *name, const char *object);

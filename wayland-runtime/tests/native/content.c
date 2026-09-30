@@ -51,6 +51,13 @@ static const struct wl_data_source_listener source_listener = {
 static struct wl_data_source *source(struct Client *c, const char *text) {
     struct wl_data_source *s = wl_data_device_manager_create_data_source(c->manager);
     wl_data_source_add_listener(s, &source_listener, (void *)text);
+    // Toolkit-private descriptors may exceed the Android bridge's format bound.
+    // They must not suppress a later portable text format (LibreOffice Calc).
+    char descriptor[256]; memset(descriptor, 'x', sizeof(descriptor) - 1);
+    descriptor[sizeof(descriptor) - 1] = 0;
+    wl_data_source_offer(s, descriptor);
+    for (int i = 0; i < 65; ++i) wl_data_source_offer(s, "");
+    wl_data_source_offer(s, "text/plain\ninjected-format");
     wl_data_source_offer(s, mime); return s;
 }
 static void read_offer(struct Client *c, struct wl_data_offer *offer, const char *expected) {
@@ -65,7 +72,7 @@ static void read_offer(struct Client *c, struct wl_data_offer *offer, const char
     }
     close(fds[0]); assert(!strcmp(text, expected));
 }
-static void offer_mime(void *data, struct wl_data_offer *offer, const char *type) { (void)data; (void)offer; assert(!strcmp(type, mime)); }
+static void offer_mime(void *data, struct wl_data_offer *offer, const char *type) { (void)data; (void)offer; (void)type; }
 static void offer_source_actions(void *data, struct wl_data_offer *offer, uint32_t actions) { (void)data; (void)offer; assert(actions & WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY); }
 static void offer_action(void *data, struct wl_data_offer *offer, uint32_t action) { (void)data; (void)offer; (void)action; }
 static const struct wl_data_offer_listener offer_listener = {offer_mime, offer_source_actions, offer_action};

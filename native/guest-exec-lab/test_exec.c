@@ -118,8 +118,8 @@ int main(int argc, char **argv) {
     for (int i = 0; i < 64; ++i)
         assert(execve("/not-installed", bad_args, environ) == -1 && errno == ENOENT);
     assert(mappings() == before);
-    assert(syscall(SYS_execveat, -1, "", bad_args, environ, 0) == -1 && errno == ENOTSUP);
-    assert(syscall(SYS_openat2, AT_FDCWD, "/etc/md-guest-fixture", NULL, 0) == -1 && errno == ENOTSUP);
+    assert(syscall(SYS_execveat, -1, "", bad_args, environ, 0) == -1 && errno == ENOENT);
+    assert(syscall(SYS_openat2, AT_FDCWD, "/etc/md-guest-fixture", NULL, 0) == -1 && errno == EINVAL);
     struct sigaction reserved = {.sa_handler = SIG_DFL};
     assert(sigaction(SIGSYS, &reserved, NULL) == -1 && errno == ENOTSUP);
     puts("PASS failed exec/spawn preserve caller/errno/mappings; unsupported entry points are explicit");

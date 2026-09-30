@@ -18,7 +18,8 @@ mkdir -p "$work/bundle/rootfs" "$work/path-test"
 javac -d "$work/recipe-classes" "$src/GraphicalRecipe.java" "$app/LinuxGraphicalEnvironment.java" \
     "$app/GuestGraphicalConnection.java" "$app/GuestLaunchPlan.java" "$app/GuestEnvironment.java" \
     "$app/GraphicalProtocol.java" "$app/ShellCommandLine.java"
-"$cc" -iquote "$runtime" -std=c17 -O2 -Wall -Wextra -Werror -DMD_NO_START -DMD_USE_LIBC \
+"$cc" --target=aarch64-linux-android34 -fno-termux-rpath -static \
+    -iquote "$runtime" -std=c17 -O2 -Wall -Wextra -Werror -DMD_NO_START -DMD_USE_LIBC \
     "$src/test_completion.c" "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/raw.S" -o "$work/bundle/md-await-exit"
 "$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -UNDEBUG -fno-builtin -DMD_NO_START \
     "$src/test_paths.c" "$runtime/fs.c" "$runtime/proc_paths.c" "$runtime/raw.c" "$runtime/raw.S" -o "$work/test-paths"
@@ -60,13 +61,19 @@ case "$($cc -dumpmachine)" in *android*) spawn_lib=-landroid-spawn ;; esac
 "$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -UNDEBUG "$src/test_proc.c" $spawn_lib -o "$work/test-proc"
 procroot=$(mktemp -d "$work/path-test/proc.XXXXXX")
 timeout 30 "$work/test-proc" "$procroot/files" native
-"$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -fno-builtin -DMD_NO_START -DMD_SOCKET_DRIVER \
-    "$src/test_sockets.c" "$runtime/socket_calls.c" "$runtime/socket_namespace.c" "$runtime/socket_routes.c" "$runtime/file_calls.c" "$runtime/fs.c" "$runtime/proc_paths.c" \
-    "$runtime/namespace.c" "$runtime/namespace_proc.c" "$runtime/fd_metadata.c" "$runtime/fs_client.c" "$runtime/fs_wire.c" \
-    "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/raw.S" -o "$work/bundle/md-sockets-test"
+adapter_fixture() {
+"$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -UNDEBUG -fno-builtin -DMD_NO_START "$@" \
+    "$runtime/socket_calls.c" "$runtime/socket_namespace.c" "$runtime/socket_routes.c" "$runtime/file_calls.c" "$runtime/fs.c" "$runtime/proc_paths.c" \
+    "$runtime/namespace.c" "$runtime/namespace_proc.c" "$runtime/proc_image.c" "$runtime/fd_metadata.c" "$runtime/fs_client.c" "$runtime/fs_wire.c" \
+    "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/raw.S"
+}
+adapter_fixture -DMD_SOCKET_DRIVER "$src/test_sockets.c" -o "$work/bundle/md-sockets-test"
 socketroot=$(mktemp -d "$work/path-test/sockets.XXXXXX")
 timeout 45 "$work/bundle/md-sockets-test" native "$socketroot"
 timeout 45 "$work/bundle/md-sockets-test" adapter "$socketroot"
+adapter_fixture "$src/test_openat2.c" -o "$work/test-openat2"
+openroot=$(mktemp -d "$work/path-test/openat2.XXXXXX")
+timeout 20 "$work/test-openat2" "$openroot"
 guest_cc() {
     "$cc" -iquote "$runtime" --target=aarch64-linux-gnu --sysroot="$sysroot" -isystem "$sysroot/usr/include/aarch64-linux-gnu" \
         -fuse-ld=lld -std=c17 -O2 -g -Wall -Wextra -Werror -fPIC -nostdlib "$@" \
@@ -81,7 +88,13 @@ cmake --build "$work/native-runtime" --parallel 2
 cp "$work/native-runtime"/libmagicdesk_guest_*.so "$work/bundle/"
 "$cc" -iquote "$runtime" --target=aarch64-linux-android34 -fno-termux-rpath -static \
     -std=c17 -O2 -Wall -Wextra -Werror -UNDEBUG "$src/test_capabilities.c" -o "$work/bundle/md-capabilities-test"
+"$cc" --target=aarch64-linux-android34 -fno-termux-rpath -static \
+    -std=c17 -O2 -Wall -Wextra -Werror "$src/test_notification.c" -o "$work/bundle/md-notification-test"
+"$cc" --target=aarch64-linux-android34 -fno-termux-rpath -static \
+    -std=c17 -O2 -Wall -Wextra -Werror "$src/test_exec_policy.c" -o "$work/bundle/md-exec-policy-test"
 sh "$src/build-libc-fixtures.sh" glibc "$sysroot" "$work"
+"$cc" --target=aarch64-linux-gnu -fuse-ld=lld -nostdlib -static \
+    -Wl,-T,"$src/freestanding.ld" "$src/test_freestanding.S" -o "$work/md-freestanding-fixture"
 "$cc" --target=aarch64-linux-android34 -fno-termux-rpath -static \
     -std=c17 -O2 -Wall -Wextra -Werror -UNDEBUG "$src/test_ipc_launch.c" -o "$work/bundle/md-ipc-launch"
 "$cc" --target=aarch64-linux-android34 -fno-termux-rpath -static \
@@ -146,6 +159,7 @@ cp "$work/md-lifecycle-fixture" "$work/bundle/rootfs/usr/bin/"
 cp "$work/md-proc-fixture" "$work/bundle/rootfs/usr/bin/"
 cp "$work/md-socket-fixture" "$work/bundle/rootfs/usr/bin/"
 cp "$work/md-exec-fixture" "$work/bundle/rootfs/usr/bin/"
+cp "$work/md-execfd-fixture" "$work/bundle/rootfs/usr/bin/"
 cp "$work/md-ipc-fixture" "$work/bundle/rootfs/usr/bin/"
 cp "$work/md-files-fixture" "$work/bundle/rootfs/usr/bin/"
 cp "$work/md-inodes-fixture" "$work/bundle/rootfs/usr/bin/"

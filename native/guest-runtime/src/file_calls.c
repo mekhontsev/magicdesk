@@ -6,6 +6,74 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/inotify.h>
+#include "namespace_internal.h"
+
+static long open_extended(const struct md_fs *fs, const char *exe, const unsigned long *a) {
+    struct open_how how;
+    if (a[3] < sizeof(how)) return -EINVAL;
+    if (a[3] > md_page_size) return -E2BIG;
+    long r = md_read_memory(&how, (void *)a[2], sizeof(how));
+    if (r < 0) return r;
+    for (size_t i = sizeof(how); i < a[3];) {
+        unsigned char bytes[64];
+        size_t n = a[3] - i;
+        if (n > sizeof(bytes)) n = sizeof(bytes);
+        r = md_read_memory(bytes, (void *)(a[2] + i), n);
+        if (r < 0) return r;
+        for (size_t j = 0; j < n; ++j) if (bytes[j]) return -E2BIG;
+        i += n;
+    }
+    const uint64_t allowed = O_ACCMODE | O_CREAT | O_EXCL | O_NOCTTY | O_TRUNC | O_APPEND |
+        O_NONBLOCK | O_DSYNC | O_ASYNC | O_DIRECT | O_LARGEFILE | O_DIRECTORY | O_NOFOLLOW |
+        O_NOATIME | O_CLOEXEC | O_SYNC | O_PATH | O_TMPFILE;
+    if ((how.flags & ~allowed) || (how.mode & ~07777UL)) return -EINVAL;
+    if (how.mode && !(how.flags & O_CREAT) && (how.flags & O_TMPFILE) != O_TMPFILE) return -EINVAL;
+    if ((how.flags & O_PATH) && (how.flags & ~(O_PATH | O_CLOEXEC | O_DIRECTORY | O_NOFOLLOW)))
+        return -EINVAL;
+    if ((how.flags & (O_CREAT | O_DIRECTORY)) == (O_CREAT | O_DIRECTORY)) return -EINVAL;
+    if ((how.flags & O_TMPFILE) == O_TMPFILE && !(how.flags & (O_WRONLY | O_RDWR))) return -EINVAL;
+    if (how.resolve & ~(RESOLVE_BENEATH | RESOLVE_IN_ROOT | RESOLVE_NO_SYMLINKS |
+            RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV | RESOLVE_CACHED)) return -EINVAL;
+    if ((how.resolve & (RESOLVE_IN_ROOT | RESOLVE_BENEATH)) == (RESOLVE_IN_ROOT | RESOLVE_BENEATH))
+        return -EINVAL;
+    if (!how.resolve) {
+        unsigned long args[6] = {a[0], a[1], how.flags, how.mode};
+        return md_file_call(fs, exe, SYS_openat, args);
+    }
+    char path[PATH_MAX];
+    r = md_read_string(path, sizeof(path), (const char *)a[1]);
+    if (r < 0) return r;
+    if (!*path) return -ENOENT;
+    if (*path == '/' && (how.resolve & RESOLVE_BENEATH)) return -EXDEV;
+    if (how.resolve & RESOLVE_CACHED) return -EAGAIN;
+    if (!fs->endpoint[0]) return -ENOTSUP;
+    /* Host mount paths keep the kernel's walk. Never apply IN_ROOT against
+     * Android's root when the supplied descriptor belongs to the guest. */
+    char mounted[PATH_MAX];
+    md_copy(mounted, sizeof(mounted), path);
+    r = md_namespace_relative_mount((int)a[0], mounted);
+    if (r < 0) return r;
+    if (md_host_path(mounted) && !(how.resolve & RESOLVE_IN_ROOT)) {
+        struct md_proc_path ref = md_proc_path(mounted);
+        if (ref.kind == MD_PROC_FOREIGN) return -ENOTSUP;
+        if (ref.kind == MD_PROC_CMDLINE || ref.kind == MD_PROC_AUXV) {
+            /* Let the real proc walk validate relative scoping/symlinks before
+             * supplying guest image bytes. These entries are not magic links. */
+            long checked = RAW4(openat2, a[0], path, &how, sizeof(how));
+            if (checked < 0) return checked;
+            RAW1(close, checked);
+            return *ref.tail ? -ENOTDIR : md_proc_image_open(fs, ref.kind, (int)how.flags);
+        }
+        if (ref.kind && (how.resolve & (RESOLVE_NO_MAGICLINKS | RESOLVE_NO_SYMLINKS))) {
+            if ((how.flags & (O_PATH | O_NOFOLLOW)) == (O_PATH | O_NOFOLLOW) && !*ref.tail)
+                return RAW4(openat2, a[0], path, &how, sizeof(how));
+            return -ELOOP;
+        }
+        if (ref.kind == MD_PROC_EXE || ref.kind == MD_PROC_ROOT) return -ENOTSUP;
+        return RAW4(openat2, a[0], path, &how, sizeof(how));
+    }
+    return md_namespace_open_resolved(fs, (int)a[0], path, &how);
+}
 
 static long path_at(const struct md_fs *fs, const char *exe, int fd,
         uintptr_t pointer, int follow, int empty, char *out) {
@@ -22,6 +90,7 @@ static long path_at(const struct md_fs *fs, const char *exe, int fd,
 }
 
 long md_file_call(const struct md_fs *fs, const char *exe, long nr, const unsigned long *a) {
+    if (nr == SYS_openat2) return open_extended(fs, exe, a);
     if (fs->endpoint[0]) return md_namespace_call(fs,exe,nr,a);
     char first[PATH_MAX], second[PATH_MAX];
     long r;
@@ -33,7 +102,11 @@ long md_file_call(const struct md_fs *fs, const char *exe, long nr, const unsign
         flags = (int)a[2];
         r = path_at(fs, exe, (int)a[0], a[1], (flags & O_CREAT) && (flags & O_EXCL)
                 ? MD_PATH_ENTRY : !(flags & O_NOFOLLOW), 0, first);
-        return r < 0 ? r : RAW4(openat, AT_FDCWD, first, flags, a[3]);
+        if (r < 0) return r;
+        struct md_proc_path image = md_proc_path(first);
+        if (image.kind == MD_PROC_CMDLINE || image.kind == MD_PROC_AUXV)
+            return *image.tail ? -ENOTDIR : md_proc_image_open(fs, image.kind, flags);
+        return RAW4(openat, AT_FDCWD, first, flags, a[3]);
     case SYS_newfstatat:
     case SYS_statx:
     case SYS_faccessat:

@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 static unsigned char bytes[32768];
@@ -47,7 +48,7 @@ int main(int argc, char **argv) {
         char path[MD_INTERPRETER_MAX]; assert(!md_elf_interpreter(descriptor, path));
         assert(!strcmp(path, "/opt/another-libc/loader.so"));
         check(-ENOEXEC, 1);
-        seed(); header->e_phnum = 1; check(0, 1); check(-ENOTSUP, 0);
+        seed(); header->e_phnum = 1; check(0, 1); check(0, 0);
         seed(); bytes[512] = 'x'; check(-ENOEXEC, 0);
         seed(); bytes[513] = 0; check(-ENOEXEC, 0);
         seed(); segments[1].p_filesz = PATH_MAX + 1; check(-ENOEXEC, 0);
@@ -56,12 +57,40 @@ int main(int argc, char **argv) {
         seed(); segments[2].p_filesz++; check(-ENOEXEC, 0);
         seed(); segments[2].p_offset++; check(-ENOEXEC, 0);
         seed(); header->e_entry = page; check(-ENOEXEC, 0);
-        seed(); header->e_type = ET_EXEC; check(-ENOEXEC, 0);
+        seed(); header->e_type = ET_EXEC; check(0, 0); check(-ENOEXEC, 1);
+        seed(); header->e_type = ET_EXEC; header->e_entry += 0x40000000;
+        segments[0].p_vaddr += 0x40000000; segments[2].p_vaddr += 0x40000000;
+        check(0, 0);
+        seed(); segments[2].p_vaddr = UINT64_MAX - page + 1; check(-ENOEXEC, 0);
         seed(); header->e_machine = EM_X86_64; check(-ENOEXEC, 0);
         seed(); header->e_phnum = 129; check(-ENOEXEC, 0);
         seed(); header->e_phoff = UINT64_MAX; check(-ENOEXEC, 0);
         seed(); segments[2].p_memsz = UINT64_MAX; check(-ENOEXEC, 0);
+        seed(); segments[0].p_align = 3 * page; check(-ENOEXEC, 0);
+        seed(); segments[2].p_align = 2 * page;
+        segments[2].p_vaddr += page; check(-ENOEXEC, 0);
+        seed(); segments[0].p_align = 2 * 1024 * 1024; check(0, 0);
+        seed(); segments[2].p_memsz = 512UL * 1024 * 1024; check(0, 0);
+        seed(); header->e_phnum = 1; segments[0].p_offset = page;
+        check(0, 0);
     }
+    md_page_size = (size_t)sysconf(_SC_PAGESIZE);
+    seed(); segments[0].p_align = 2 * 1024 * 1024; check(0, 0);
+    struct md_image aligned;
+    assert(!md_elf_load(descriptor, 0, &aligned));
+    assert(aligned.base % segments[0].p_align == 0);
+    assert(!memcmp((void *)aligned.base, bytes, md_page_size));
+    assert(!munmap((void *)aligned.base, 2 * md_page_size));
+    unsigned char *owned = mmap(NULL, 2 * md_page_size, PROT_READ | PROT_WRITE,
+        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    assert(owned != MAP_FAILED); owned[0] = 0x5a; owned[md_page_size] = 0xa5;
+    seed(); header->e_type = ET_EXEC; header->e_entry += (uintptr_t)owned;
+    segments[0].p_vaddr += (uintptr_t)owned; segments[2].p_vaddr += (uintptr_t)owned;
+    check(0, 0);
+    struct md_image image;
+    assert(md_elf_load(descriptor, 0, &image) == -EEXIST);
+    assert(owned[0] == 0x5a && owned[md_page_size] == 0xa5);
+    assert(!munmap(owned, 2 * md_page_size));
     close(descriptor); assert(!unlink(argv[1]));
     puts("PASS ELF preflight: generic interpreter, ABI, segments, entry and malformed ranges at 4/16 KiB alignment");
     return 0;

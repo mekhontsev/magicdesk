@@ -14,11 +14,16 @@ custom glibc linker, root transition or SELinux change is used.
   or glibc dependencies. It accepts the already-selected UID 2000 or UID 0, enables
   no-new-privileges and retains one syscall gate at a stable virtual address.
   It does not acquire Desktop, input or HOME.
-- `elf.c` maps the main ARM64 PIE executable and its absolute `PT_INTERP`, and supplies
+- `elf.c` maps ARM64 ET_EXEC/ET_DYN and their optional absolute `PT_INTERP`, and supplies
   a kernel-style initial stack and auxiliary vector. It reserves its own mapping before
   applying MAP_FIXED, validates bounds and rejects writable executable segments.
   The selected stock glibc or musl loader owns dependencies, relocations, TLS and
   dlopen. This code does not implement a libc dynamic linker or patch instructions.
+  Fixed images use MAP_FIXED_NOREPLACE and verify the returned address for kernels
+  that ignore that flag. PIE load bias respects segment alignment. Static libc and
+  freestanding programs use the same path; an absent mapped header table is not
+  grounds for rejection. Large images retain overflow and mapping checks without
+  an arbitrary byte limit.
 - `thread_context.c` owns guarded per-thread syscall stacks and AArch64 signal-frame
   return for clone. It preserves extension records, including SVE/SME extra contexts.
   Allocation is per thread, not per syscall. Kernel thread/vfork lifetimes govern
@@ -44,6 +49,12 @@ custom glibc linker, root transition or SELinux change is used.
   `/dev/fd`/standard streams for both backends. `namespace_proc.c` pins referenced
   objects and routes namespace directory suffixes through the ordinary syscall
   adapter. Proc file opens retain native reopen semantics, not dup semantics.
+- `proc_image.c` snapshots guest cmdline/auxv on explicit proc opens using a
+  read-only reopened O_TMPFILE. Subsequent read/seek stays native; ordinary IO
+  acquires no permanent descriptor or per-read adapter. The namespace service
+  owns temporary backing allocation separately from published guest names.
+  Namespace executable reopening uses an immutable object ID, preserving the
+  executing inode after unlink/path reuse and close_range without a hidden FD.
 - `exec.c` validates the target and handles shebangs before re-executing the
   bootstrap. Kernel exec retains PID, descriptors and the installed filter.
   The bootstrap restores its SIGSYS handler before entering the stock loader,
@@ -77,8 +88,8 @@ The stock loader receives the program's ordinary initial ELF state;
 there is no preload library or private loader command-line convention. Rootfs/bootstrap configuration is carried in exec
 arguments, not dependent on the guest preserving environment variables. Guest
 argv0, supplied environment, PATH lookup and shebangs are covered by fixtures.
-Dynamic AArch64 PIE executables with an absolute `PT_INTERP` are accepted.
-Static, non-PIE and setid targets are rejected; malformed ELF layouts fail before
+Dynamic and static AArch64 PIE and fixed-address executables are accepted.
+Setid targets are rejected; malformed ELF layouts fail before
 destructive exec. Libc and distribution names are not part of admission policy.
 
 SIGSYS is reserved by the adapter: replacing its disposition returns ENOTSUP,
@@ -109,7 +120,8 @@ Guest command preparation checks X_OK and rejects setid targets. X_OK is not a
 substitute for the kernel's full execution/LSM checks. O_MAYEXEC-style checks,
 documented upstream through [AT_EXECVE_CHECK](https://kernel.org/doc/html/next/userspace-api/check_exec.html),
 must be assessed separately from readable files and executable memory mappings.
-The adapter does not implement that check: intercepted execveat returns ENOTSUP.
+The adapter does not implement that security flag: it is rejected, not stripped
+from an otherwise successful execveat request. Ordinary descriptor exec is supported.
 Before supporting an interpreter/linker that uses the interface, validate the
 actual kernel ABI and securebits policy, then route checks to the real backing
 FD under the existing identity. Never fake a successful check, strip a security
@@ -162,8 +174,12 @@ operations and tests are listed in [its contract](namespace-execution.md).
 
 Negative controls are required, not hidden or counted as compatibility passes:
 
-- execveat/fexecve and openat2 return ENOTSUP. The selected filesystem calls are
-  not the complete Linux syscall surface: guest ownership emulation,
+- Descriptor exec pins the validated target across bootstrap exec. Tests cover
+  O_PATH, CLOEXEC, unlinked ELF, relative dirfds, scripts and nofollow (including
+  dangling symlinks). Namespace openat2 supports beneath/in-root, symlink and
+  mount constraints; cache-only returns EAGAIN. The direct backend rejects scoped
+  resolution. The selected filesystem calls are not the complete Linux syscall
+  surface: guest ownership emulation,
   arbitrary proc aliases, io_uring and other entry points are not comprehensively
   virtualized. Unselected syscalls retain host semantics. Run trusted fixtures
   only; arbitrary programs can access host resources with the selected executor's authority.
@@ -171,8 +187,12 @@ Negative controls are required, not hidden or counted as compatibility passes:
   control on this device. They are not replaced with copies or fake success.
   These are controls for the direct backend; the namespace backend supplies
   shared-inode links. No package maintainer scripts are run by preparation.
-- `/proc/self/cmdline` and `/proc/self/auxv` retain the kernel's bootstrap view;
-  they are not a complete guest procfs. Locales, metadata/ownership
+- Current-process/thread `cmdline` and `auxv` expose guest-image snapshots, not
+  the bootstrap argv/auxv. Foreign-process views, snapshot stat metadata and
+  descriptor-exec readlink's original dentry identity are not complete.
+  `AT_EXECFN` preserves caller spelling, including scripts and descriptor exec.
+  Namespace `exe` open/stat retains the actual executable object after unlink and
+  close_range; direct-backend reopening remains path-based. Locales, metadata/ownership
   emulation are not complete. NSS/DNS, toolkit and GPU coverage is bounded
   by the software GUI checks below.
 - Guest-installed seccomp filters and application-owned SIGSYS handlers are unsupported.
@@ -215,7 +235,9 @@ getpeername/getsockname/accept/recvfrom/recvmsg restore the original bound addre
 including relative and full-length names. Unlink/rebind, rename, stale listeners,
 SCM_RIGHTS and independent launchers are covered by `test_ipc.c`.
 Bind and commit cannot be atomically undone after an uncertain reply; never retry
-that bind on the same socket. Unix sendmmsg and direct-backend pathname bind remain
+that bind on the same socket. Unix sendmmsg uses the same address adapter, preserving
+partial completion, short stream writes, result-pointer faults and SCM_RIGHTS,
+without payload copies or heap allocation. Direct-backend pathname bind remains
 unsupported. Abstract sockets are shared host resources, not isolated guest names.
 
 `test_sockets.c` has separate native-reference, explicit-adapter and intercepted
@@ -312,8 +334,8 @@ including D-Bus's session-config directory watch.
 The compositor publishes an initial logical monitor before accepting clients,
 then replaces it with application-host output geometry. Initial GTK
 monitor-scale warnings are absent in the installed application checks.
-Tools reading the unvirtualized kernel command line can still identify the
-bootstrap even though the kernel process name follows the guest. These are recorded limitations, not hidden by
+External Android tools can still see the kernel's bootstrap command line;
+the guest's current-process proc adapter does not rewrite kernel memory. These are recorded limitations, not hidden by
 log suppression or application-specific environment overrides. GUI success does
 not establish complete procfs or GPU compatibility. Installed GTK file-dialog
 and Qt/IME/clipboard coverage, including the strict Qt correction failure, is
@@ -326,6 +348,10 @@ viewer, including manager readiness, WM resize, editing and logout.
 with a guest-owned Turnip driver. These are separate from compositor acceleration;
 their exact device coverage and remaining limits are recorded in the application
 contract. No driver or desktop package is embedded in the APK.
+`test_distribution_app.py` adds Writer/Calc document save/readback, GIMP dialogs,
+Blender GLX viewport rendering and GTK GLArea Wayland pixels/input. Its optional
+patched Zink build is an isolated client-driver experiment, not a runtime workaround.
+Firefox and Chromium remain failing controls with their sandbox configuration intact.
 
 ## Package Transactions
 
@@ -370,9 +396,12 @@ xattrs. Debian `cp -a` and tar user-attribute archive round trips pass. Strict
 `cp --preserve=xattr` retains the native SELinux label-write denial, in both
 backends; a partially copied file is not a successful strict copy. Default-ACL
 installation is explicitly rejected until virtual-parent inheritance is modeled.
-Before exposing APT,
-complete ABI coverage and lifetime semantics. Do not replace links with copies,
-add dpkg-specific exceptions, manufacture success or fall back to root.
+Fresh official Debian and Alpine image fixtures additionally exercise signed
+APT/APK install/reinstall/remove cycles, HTTPS and selected real upgrades. Their
+rootless package-manager configuration belongs to the disposable userspace, not
+the syscall adapter. The [application contract](../../docs/guest-runtime.md#coverage-and-limits)
+records package-script policy limits separately. Do not replace links with copies,
+add package-specific syscall exceptions, manufacture success or fall back to root.
 
 ## Build And Run
 

@@ -71,8 +71,12 @@ seccomp filter and the real kernel cwd/descriptors.
   Cross-mount symlinks and arbitrary proc aliases remain incomplete.
 - File-data inotify watches retain the backing inode and use kernel events.
   Directory/name event projection and general special-file creation remain unsupported.
-  Unsupported operations return errors, not a direct-rootfs retry. Descriptor
-  exec/openat2 and guest-owned SIGSYS remain unsupported in both executors.
+  Unsupported operations return errors, not a direct-rootfs retry. Guest-owned
+  SIGSYS and alternate signal stacks remain unsupported.
+- `openat2` uses the same transactional walker with explicit beneath/in-root,
+  no-symlink, no-magic-link and mount constraints. Contradictory or unknown flags
+  fail; cache-only returns EAGAIN. Native host-directory resolution is validated
+  before adapting proc image opens. Unsupported crossing semantics return errors.
 
 Unix client destination paths reuse this same file contract through
 `socket_calls.c`, including explicitly inherited host-directory aliases.
@@ -83,7 +87,7 @@ translate selected connect addresses to executor-owned abstract endpoints withou
 creating filesystem nodes; independent X11 and Wayland GTK clients use this path.
 Native credentials
 and SCM_RIGHTS are retained. Returned addresses restore the original bound name;
-Unix sendmmsg remains unsupported. See the
+Unix sendmmsg shares this translation with partial-batch and short-stream semantics. See the
 [transport coverage and native shell restriction](README.md#unix-client-transport).
 
 RPC deadlines bound failure, not kernel IO duration or remote cancellation.
@@ -120,6 +124,14 @@ dentry: readlink returns ENOTSUP, even for a single current name. It must not
 guess a hard-link name or expose a backing-store filename. Native pipe/socket
 link text and unowned host links retain kernel behavior. Detached directory
 paths are not fabricated. Link/rename through host path aliases remain unsupported.
+
+Explicit current-process/thread cmdline and auxv opens return a guest-image
+snapshot backed by an unlinked temporary file. Reads and seek use the ordinary
+native descriptor, without a data proxy. Foreign-process snapshots and proc-like
+stat metadata remain unsupported. Executable object IDs support later `exe` open/stat
+without a retained guest FD, even after unlink, name reuse and close_range.
+The original dentry for descriptor-exec readlink is not retained. `AT_EXECFN`
+preserves the invocation spelling independently of executable inode identity.
 
 All temporary state is invocation-local. The syscall dispatcher keeps metadata
 payloads out of the ordinary open/chdir path; RPC request and reply phases reuse
@@ -169,8 +181,10 @@ remains unchanged. Unmodified dpkg-deb also extracts the official gzip archive;
 the extracted hard-link pair shares device/inode identity. The direct executor
 retains the same failing hard-link controls as a separate comparison.
 
-This is one real package lifecycle, not APT/full-distribution compatibility.
-Guest APT, arbitrary maintainer scripts, root ownership requirements,
+This is one fixture lifecycle, not full-distribution compatibility. Separate
+fresh-image APT/APK checks and selected upgrades are documented in the
+[application coverage](../../docs/guest-runtime.md#coverage-and-limits).
+Arbitrary maintainer scripts, root ownership requirements,
 broader GTK/Qt workflows, notifications, object reclamation, power loss, performance and API 34/16 KiB
 coverage remain separate gates. Execution-policy checks described in the main
 README still apply; X_OK is not a replacement for full kernel execution policy.
@@ -191,8 +205,9 @@ The application profile additionally runs stock Mousepad and Galculator through
 the installed APK's namespace CLI. D-Bus uses its ordinary pathname address with the
 distribution's session policy, activates dconf and retains settings across fresh
 sessions. Mousepad saves edited text that a separate guest launch reads back.
-Directory watches still return ENOTSUP; network checks cover prepared NSS, DNS and
-authenticated HTTPS, not an installed APT environment.
+Directory watches still return ENOTSUP; this GUI fixture's network checks cover
+prepared NSS, DNS and authenticated HTTPS. The real package-manager workflows
+use separate officially prepared images.
 
 References: [O_PATH and proc descriptor paths](https://man7.org/linux/man-pages/man2/open.2.html),
 [proc descriptor semantics](https://man7.org/linux/man-pages/man5/proc_pid_fd.5.html),

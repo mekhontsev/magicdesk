@@ -29,7 +29,9 @@ int main(int argc, char **argv) {
             continue;
         }
         int signal = WSTOPSIG(status);
-        if (signal == SIGSEGV || signal == SIGBUS || signal == SIGILL || signal == SIGABRT) {
+        unsigned event = (unsigned)status >> 16;
+        if (!event && (signal == SIGSEGV || signal == SIGBUS || signal == SIGILL
+                || signal == SIGABRT || signal == SIGTRAP)) {
             struct user_pt_regs regs; struct iovec io = {&regs, sizeof(regs)};
             siginfo_t info;
             assert(!ptrace(PTRACE_GETREGSET, pid, (void *)NT_PRSTATUS, &io));
@@ -41,7 +43,7 @@ int main(int argc, char **argv) {
             FILE *maps = fopen(path, "r");
             if (maps) { while (fgets(line, sizeof(line), maps)) fputs(line, stderr); fclose(maps); }
         }
-        assert(!ptrace(PTRACE_CONT, pid, 0, signal == SIGTRAP || signal == SIGSTOP ? 0 : signal));
+        assert(!ptrace(PTRACE_CONT, pid, 0, event || signal == SIGSTOP ? 0 : signal));
     }
     return result;
 }

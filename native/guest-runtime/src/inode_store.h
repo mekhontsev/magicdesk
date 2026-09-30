@@ -22,6 +22,7 @@ int md_inode_mkdir(struct md_inode_store *, int dirfd, const char *path, mode_t 
 int md_inode_symlink(struct md_inode_store *, const char *target, int dirfd, const char *path);
 ssize_t md_inode_readlink(struct md_inode_store *, int dirfd, const char *path, char *, size_t);
 int md_inode_open(struct md_inode_store *, int dirfd, const char *path, int flags, mode_t mode);
+int md_inode_open_resolved(struct md_inode_store *, int, const char *, int, mode_t, uint64_t);
 int md_inode_link(struct md_inode_store *, int sourcefd, const char *source,
         int targetfd, const char *target, int flags);
 int md_inode_unlink(struct md_inode_store *, int dirfd, const char *path, int flags);
@@ -30,6 +31,12 @@ int md_inode_rename(struct md_inode_store *, int sourcefd, const char *source,
 int md_inode_stat(struct md_inode_store *, int dirfd, const char *path, int flags, struct stat *);
 int md_inode_fstat(struct md_inode_store *, int fd, struct stat *);
 int md_inode_path(struct md_inode_store *, int dirfd, char *, size_t);
+int md_inode_realpath(struct md_inode_store *, int dirfd, const char *, char *, size_t);
+/* Unlinked native storage, outside the logical namespace and its metadata. */
+int md_inode_temporary(struct md_inode_store *);
+/* Stable store-local identity. Retained objects outlive names and open FDs. */
+int md_inode_object_id(struct md_inode_store *, int fd, char out[33]);
+int md_inode_open_object(struct md_inode_store *, const char *id, int flags);
 /* Pathname socket identity belongs to the namespace; data, credentials, buffer
  * passing and listener lifetime remain kernel Unix-socket operations. */
 int md_inode_socket_bind(struct md_inode_store *, int dirfd, const char *path, mode_t, int socket);

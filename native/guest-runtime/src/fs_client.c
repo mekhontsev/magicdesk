@@ -36,7 +36,8 @@ static long receive_reply(int socket, int64_t deadline, const struct md_fs_reque
     }
     if (r < 0) return r;
     uint32_t operation = request->operation;
-    int opens = operation == MD_FS_OPEN || operation == MD_FS_CREATE;
+    int opens = operation == MD_FS_OPEN || operation == MD_FS_CREATE || operation == MD_FS_TEMPORARY
+        || operation == MD_FS_OPEN_OBJECT;
     if (r < (long)offsetof(struct md_fs_reply, data)
             || reply->magic != MD_FS_MAGIC || reply->version != MD_FS_VERSION
             || reply->error > 0 || reply->error < -4095 || reply->reserved
@@ -44,10 +45,12 @@ static long receive_reply(int socket, int64_t deadline, const struct md_fs_reque
             || reply->descriptors != rights.count || rights.count != (unsigned)(opens && !reply->error)
             || (reply->error && reply->size)
             || (reply->size && operation != MD_FS_READLINK && operation != MD_FS_PATH && operation != MD_FS_GETDENTS
-                && operation != MD_FS_SOCKET_ADDRESS && operation != MD_FS_SOCKET_NAME)
+                && operation != MD_FS_SOCKET_ADDRESS && operation != MD_FS_SOCKET_NAME && operation != MD_FS_REALPATH
+                && operation != MD_FS_OBJECT_ID)
+            || (!reply->error && operation == MD_FS_OBJECT_ID && (reply->size != 33 || reply->data[32]))
             || (reply->position && (operation != MD_FS_SEEKDIR || reply->error)) || reply->position < 0
             || (operation == MD_FS_GETDENTS && (reply->size > request->capacity || !valid_entries(reply->data, reply->size)))
-            || (!reply->error && (operation == MD_FS_PATH || operation == MD_FS_SOCKET_ADDRESS || operation == MD_FS_SOCKET_NAME)
+            || (!reply->error && (operation == MD_FS_PATH || operation == MD_FS_SOCKET_ADDRESS || operation == MD_FS_SOCKET_NAME || operation == MD_FS_REALPATH)
                 && (!reply->size || reply->data[reply->size-1]))) {
         md_fs_close_rights(&rights); return -EPROTO;
     }
@@ -67,7 +70,7 @@ long md_fs_call(const char *name, unsigned timeout_ms,
     /* The request is no longer needed after send: reuse its storage for the reply. */
     union { struct md_fs_packet packet; struct md_fs_reply reply; } wire = {.packet = {.magic = MD_FS_MAGIC, .version = MD_FS_VERSION,
         .operation = request->operation, .flags = request->flags, .mode = request->mode,
-        .capacity = request->capacity, .offset = request->offset}};
+        .capacity = request->capacity, .offset = request->offset, .resolve = request->resolve}};
     struct md_fs_rights rights = {0};
     size_t length = 0;
     for (unsigned i = 0; i < 2; ++i) {

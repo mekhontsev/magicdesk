@@ -120,6 +120,15 @@ static void semantics(const char *exe) {
     call(e, MD_FS_UNLINK, dir, "a", -1, NULL, 0, 0, 0);
     call(e, MD_FS_UNLINK, dir, "b", -1, NULL, 0, 0, 0);
     result = call(e, MD_FS_FSTAT, b, NULL, -1, NULL, 0, 0, 0); CHECK(result.info.links == 0);
+    result = call(e, MD_FS_OBJECT_ID, b, NULL, -1, NULL, 0, 0, 0);
+    CHECK(result.size == 33);
+    char object[33]; memcpy(object, result.data, sizeof(object));
+    int reopened = call(e, MD_FS_OPEN_OBJECT, -1, object, -1, NULL, O_RDONLY, 0, 0).fd;
+    CHECK(fstat(reopened, &sb) == 0 && sa.st_ino == sb.st_ino);
+    close(reopened);
+    call(e, MD_FS_OPEN_OBJECT, -1, "../namespace.db", -1, NULL, O_RDONLY, 0, -EINVAL);
+    call(e, MD_FS_OPEN_OBJECT, -1, object, -1, NULL, O_WRONLY, 0, -EINVAL);
+    call(e, MD_FS_OPEN_OBJECT, -1, object, -1, NULL, O_RDONLY | O_DIRECTORY, 0, -ENOTDIR);
     CHECK(!memcmp(mb, "mapped", 6));
     pid_t child = fork(); CHECK(child >= 0);
     if (!child) {

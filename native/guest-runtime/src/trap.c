@@ -37,8 +37,7 @@ static long dispatch(long nr, unsigned long *a, ucontext_t *uc) {
         // needs a native child-return gate; ENOSYS selects libc's ordinary clone path.
         return -ENOSYS;
     case SYS_execveat:
-    case SYS_openat2:
-        return -ENOTSUP;
+        return md_guest_execat((int)a[0], (const char *)a[1], (char *const *)a[2], (char *const *)a[3], (int)a[4]);
     case SYS_rt_sigaction:
         if (a[0] == SIGSYS) return -ENOTSUP;
         return RAW4(rt_sigaction, a[0], a[1], a[2], a[3]);
@@ -107,7 +106,7 @@ int md_install_trap(int inherited) {
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
         MD_FILE_CALLS(TRAP)
         MD_SOCKET_CALLS(TRAP)
-        TRAP(execve) TRAP(execveat) TRAP(openat2) TRAP(clone) TRAP(clone3)
+        TRAP(execve) TRAP(execveat) TRAP(clone) TRAP(clone3)
         TRAP(exit) TRAP(sigaltstack) TRAP(rt_sigaction) TRAP(rt_sigprocmask)
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
     };

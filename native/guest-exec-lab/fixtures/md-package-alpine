@@ -1,0 +1,19 @@
+#!/bin/sh
+# Opt-in fixture for a fresh official Alpine minirootfs, never a user's store.
+set -eu
+test "$(id -u)" = 2000
+test -f /etc/alpine-release
+test ! -e /tmp/md-package-lifecycle
+printf 'nameserver 1.1.1.1\noptions timeout:3 attempts:1\n' > /etc/resolv.conf
+apk --force-no-chroot update
+apk --force-no-chroot add ca-certificates curl jq
+curl --fail --silent --show-error https://www.debian.org/ -o /tmp/md-package-https
+test -s /tmp/md-package-https
+test "$(printf '{"value":42}' | jq .value)" = 42
+apk --force-no-chroot fix --reinstall jq
+apk --force-no-chroot del jq
+test ! -e /usr/bin/jq
+apk --force-no-chroot add jq
+test "$(jq --version)" != ''
+printf 'PASS Alpine APK install, scripts, TLS, reinstall, remove, reinstall\n'
+touch /tmp/md-package-lifecycle

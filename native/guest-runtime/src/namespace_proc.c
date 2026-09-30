@@ -83,6 +83,11 @@ long md_namespace_host_call(const struct md_fs *fs, const char *exe, long nr, co
     if (nr == SYS_renameat || nr == SYS_renameat2 || nr == SYS_linkat) return -ENOTSUP;
     struct md_proc_path ref = md_proc_path(path);
     if (ref.kind == MD_PROC_FOREIGN) return -ENOTSUP;
+    if (ref.kind == MD_PROC_CMDLINE || ref.kind == MD_PROC_AUXV) {
+        if (*ref.tail) return -ENOTDIR;
+        if (nr == SYS_openat) return md_proc_image_open(fs, ref.kind, (int)a[2]);
+        ref.kind = MD_PROC_NONE;
+    }
     unsigned long args[6];
     memcpy(args, a, sizeof(args));
     args[path_index] = (unsigned long)path;
@@ -97,8 +102,9 @@ long md_namespace_host_call(const struct md_fs *fs, const char *exe, long nr, co
     if (native && nr != SYS_newfstatat && nr != SYS_statx)
         return md_raw(nr, args[0], args[1], args[2], args[3], args[4], args[5]);
     if (!tail && nr == SYS_openat) {
-        if (ref.kind == MD_PROC_ROOT || ref.kind == MD_PROC_EXE)
-            return md_namespace_open(fs, AT_FDCWD, ref.kind == MD_PROC_ROOT ? "/" : exe,
+        if (ref.kind == MD_PROC_EXE) return md_proc_executable_open(fs, exe, (int)a[2]);
+        if (ref.kind == MD_PROC_ROOT)
+            return md_namespace_open(fs, AT_FDCWD, "/",
                                      (int)a[2], (unsigned)a[3]);
         return RAW4(openat, AT_FDCWD, path, a[2], a[3]);
     }
@@ -106,8 +112,10 @@ long md_namespace_host_call(const struct md_fs *fs, const char *exe, long nr, co
     size_t length = tail ? ref.anchor_length : md_length(path);
     memcpy(anchor, path, length); anchor[length] = 0;
     long fd;
-    if (!native && (ref.kind == MD_PROC_ROOT || ref.kind == MD_PROC_EXE))
-        fd = md_namespace_open(fs, AT_FDCWD, ref.kind == MD_PROC_ROOT ? "/" : exe,
+    if (!native && ref.kind == MD_PROC_EXE)
+        fd = md_proc_executable_open(fs, exe, O_PATH | O_CLOEXEC | (tail ? O_DIRECTORY : 0));
+    else if (!native && ref.kind == MD_PROC_ROOT)
+        fd = md_namespace_open(fs, AT_FDCWD, "/",
                                O_PATH | O_CLOEXEC | (tail ? O_DIRECTORY : 0), 0);
     else
         fd = RAW4(openat, AT_FDCWD, anchor, O_PATH | O_CLOEXEC | (tail ? O_DIRECTORY : 0) |

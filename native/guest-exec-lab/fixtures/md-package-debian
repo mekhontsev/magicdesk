@@ -1,0 +1,32 @@
+#!/bin/sh
+# Opt-in fixture for the separate rootless Debian image, not runtime defaults.
+set -eu
+test "$(id -u)" = 2000
+test -f /etc/debian_version
+test ! -e /tmp/md-package-lifecycle
+if ! getent passwd 2000 >/dev/null; then
+    printf 'shell:x:2000:2000:Guest fixture:/home/shell:/bin/sh\n' >> /etc/passwd
+fi
+if ! getent group 2000 >/dev/null; then
+    printf 'shell:x:2000:\n' >> /etc/group
+fi
+mkdir -p /home/shell
+printf 'nameserver 1.1.1.1\noptions timeout:3 attempts:1\n' > /etc/resolv.conf
+printf '%s\n' 'APT::Sandbox::User "shell";' \
+    'DPkg::Options { "--force-not-root"; "--force-script-chrootless"; };' \
+    > /etc/apt/apt.conf.d/99guest-fixture
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get -y --no-install-recommends install hello ca-certificates curl jq
+hello
+curl --fail --silent --show-error https://www.debian.org/ -o /tmp/md-package-https
+test -s /tmp/md-package-https
+test "$(printf '{"value":42}' | jq .value)" = 42
+apt-get -y --reinstall install hello
+apt-get -y purge hello
+test ! -e /usr/bin/hello
+apt-get -y install hello
+test "$(dpkg-query -W -f='${Status}' hello)" = 'install ok installed'
+test -z "$(dpkg --audit)"
+printf 'PASS Debian APT signed indexes, install, scripts, TLS, reinstall, purge and reinstall\n'
+touch /tmp/md-package-lifecycle

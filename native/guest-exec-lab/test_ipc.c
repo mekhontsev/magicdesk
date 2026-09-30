@@ -10,6 +10,7 @@
 #include <sys/inotify.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/un.h>
 #include <unistd.h>
 
@@ -81,8 +82,92 @@ static void connection(const char *path, int listener, const char *bound) {
     transfer(client, peer); transfer(peer, client);
     close(peer); close(client);
 }
+static int batch_send(int fd, struct mmsghdr *messages, unsigned count, unsigned flags) {
+    // Exercise the ABI directly: libc may return zero before checking fd for
+    // an empty vector, or implement batching as individual sendmsg calls.
+    return (int)syscall(SYS_sendmmsg, fd, messages, count, flags);
+}
+static void stream_batch(void) {
+    int pair[2]; CHECK(!socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, pair));
+    int capacity = 4096;
+    CHECK(!setsockopt(pair[0], SOL_SOCKET, SO_SNDBUF, &capacity, sizeof(capacity)));
+    char payload[65536] = {0};
+    struct iovec vectors[] = {{payload, sizeof(payload)}, {NULL, 0}};
+    struct mmsghdr messages[2] = {
+        {.msg_hdr = {.msg_iov = vectors, .msg_iovlen = 1}, .msg_len = 99},
+        {.msg_hdr = {.msg_iov = vectors + 1, .msg_iovlen = 1}, .msg_len = 99},
+    };
+    CHECK(batch_send(pair[0], messages, 2, MSG_DONTWAIT | MSG_NOSIGNAL) == 1);
+    CHECK(messages[0].msg_len > 0 && messages[0].msg_len < sizeof(payload));
+    CHECK(messages[1].msg_len == 99);
+    CHECK(recv(pair[1], payload, sizeof(payload), MSG_DONTWAIT) == messages[0].msg_len);
+    close(pair[0]); close(pair[1]);
+}
+static void batch(void) {
+    stream_batch();
+    int first = bind_at("batch-first", SOCK_DGRAM);
+    int second = bind_at("batch-second", SOCK_DGRAM);
+    int client = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0); CHECK(client >= 0);
+    CHECK(!symlink("batch-first", "batch-alias"));
+    struct sockaddr_un addresses[3];
+    struct iovec vectors[3] = {{"first", 5}, {"second", 6}, {"missing", 7}};
+    struct mmsghdr messages[3] = {0};
+    const char *paths[] = {"batch-alias", "batch-second", "batch-absent"};
+    for (unsigned i = 0; i < 3; ++i) {
+        messages[i].msg_hdr.msg_name = addresses + i;
+        messages[i].msg_hdr.msg_namelen = address(addresses + i, paths[i]);
+        messages[i].msg_hdr.msg_iov = vectors + i;
+        messages[i].msg_hdr.msg_iovlen = 1;
+        messages[i].msg_len = 99;
+    }
+    CHECK(batch_send(client, messages, 3, MSG_NOSIGNAL) == 2);
+    CHECK(messages[0].msg_len == 5 && messages[1].msg_len == 6 && messages[2].msg_len == 99);
+    char bytes[16];
+    ready(first); CHECK(recv(first, bytes, sizeof(bytes), 0) == 5 && !memcmp(bytes, "first", 5));
+    ready(second); CHECK(recv(second, bytes, sizeof(bytes), 0) == 6 && !memcmp(bytes, "second", 6));
+    CHECK(batch_send(client, messages + 2, 1, 0) == -1 && errno == ENOENT);
+    CHECK(batch_send(client, NULL, 0, 0) == 0);
+    CHECK(batch_send(-1, NULL, 0, 0) == -1 && errno == EBADF);
+    CHECK(batch_send(client, (void *)1, 1, 0) == -1 && errno == EFAULT);
+
+    // Kernel sends first, then writes msg_len: a read-only vector fails without
+    // reporting a completed element, but its datagram must not be duplicated.
+    size_t page = (size_t)sysconf(_SC_PAGESIZE);
+    struct mmsghdr *readonly = mmap(NULL, page, PROT_READ | PROT_WRITE,
+        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    CHECK(readonly != MAP_FAILED); *readonly = messages[0];
+    CHECK(!mprotect(readonly, page, PROT_READ));
+    CHECK(batch_send(client, readonly, 1, 0) == -1 && errno == EFAULT);
+    ready(first); CHECK(recv(first, bytes, sizeof(bytes), 0) == 5);
+    CHECK(recv(first, bytes, sizeof(bytes), MSG_DONTWAIT) == -1 && errno == EAGAIN);
+    CHECK(!munmap(readonly, page));
+
+    CHECK(!connect(client, (struct sockaddr *)&addresses[0], messages[0].msg_hdr.msg_namelen));
+    int memory = memfd_create("batch-fd", MFD_CLOEXEC); CHECK(memory >= 0);
+    CHECK(write(memory, "shared", 6) == 6);
+    union { struct cmsghdr align; char bytes[CMSG_SPACE(sizeof(int))]; } control = {0};
+    messages[0].msg_hdr.msg_name = NULL; messages[0].msg_hdr.msg_namelen = 0;
+    messages[0].msg_hdr.msg_control = &control; messages[0].msg_hdr.msg_controllen = sizeof(control);
+    struct cmsghdr *cmsg = CMSG_FIRSTHDR(&messages[0].msg_hdr);
+    cmsg->cmsg_level = SOL_SOCKET; cmsg->cmsg_type = SCM_RIGHTS; cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+    memcpy(CMSG_DATA(cmsg), &memory, sizeof(memory));
+    CHECK(batch_send(client, messages, 1, 0) == 1 && messages[0].msg_len == 5);
+    memset(&control, 0, sizeof(control));
+    struct iovec input = {bytes, sizeof(bytes)};
+    struct msghdr received = {.msg_iov = &input, .msg_iovlen = 1,
+        .msg_control = &control, .msg_controllen = sizeof(control)};
+    ready(first); CHECK(recvmsg(first, &received, MSG_CMSG_CLOEXEC) == 5);
+    cmsg = CMSG_FIRSTHDR(&received); CHECK(cmsg && cmsg->cmsg_type == SCM_RIGHTS);
+    int fd; memcpy(&fd, CMSG_DATA(cmsg), sizeof(fd));
+    CHECK(fcntl(fd, F_GETFD) == FD_CLOEXEC);
+    CHECK(pread(fd, bytes, sizeof(bytes), 0) == 6 && !memcmp(bytes, "shared", 6));
+    close(fd); close(memory); close(client); close(first); close(second);
+    CHECK(!unlink("batch-first") && !unlink("batch-second") && !unlink("batch-alias"));
+    puts("PASS Unix sendmmsg: pathname/connected batches, partial errors, faulted result and SCM_RIGHTS");
+}
 static void local(const char *directory) {
     CHECK(!mkdir(directory, 0700) && !chdir(directory));
+    batch();
     mode_t old = umask(0027);
     int server = bind_at("stream", SOCK_STREAM);
     umask(old);

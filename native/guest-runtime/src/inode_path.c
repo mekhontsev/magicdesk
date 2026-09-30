@@ -2,21 +2,34 @@
 #include "inode_internal.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/openat2.h>
 #include <string.h>
 #include <unistd.h>
 
 int mdi_walk(struct md_inode_store *s, int dirfd, const char *path,
         enum mdi_follow follow, int missing, struct mdi_location *out) {
+    return mdi_walk_resolved(s, dirfd, path, follow, missing, 0, out);
+}
+int mdi_walk_resolved(struct md_inode_store *s, int dirfd, const char *path,
+        enum mdi_follow follow, int missing, uint64_t resolve, struct mdi_location *out) {
+    if (resolve & ~(RESOLVE_BENEATH | RESOLVE_IN_ROOT | RESOLVE_NO_SYMLINKS |
+            RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV | RESOLVE_CACHED)) return -EINVAL;
+    if ((resolve & (RESOLVE_BENEATH | RESOLVE_IN_ROOT)) == (RESOLVE_BENEATH | RESOLVE_IN_ROOT))
+        return -EINVAL;
+    /* The metadata service performs IO; it cannot promise a cache-only walk. */
+    if (resolve & RESOLVE_CACHED) return -EAGAIN;
     if (!path) return -EFAULT;
     if (!*path) return -ENOENT;
+    if (*path == '/' && (resolve & RESOLVE_BENEATH)) return -EXDEV;
     size_t length = strnlen(path, PATH_MAX);
     if (length == PATH_MAX) return -ENAMETOOLONG;
     char todo[PATH_MAX]; memcpy(todo, path, length+1);
     struct mdi_node current;
-    int r = path[0] == '/' || dirfd == MD_INODE_ROOT
+    int r = (path[0] == '/' && !(resolve & RESOLVE_IN_ROOT)) || dirfd == MD_INODE_ROOT
         ? mdi_node(s, MDI_ROOT, &current) : mdi_fd(s, dirfd, &current);
     if (r) return r;
     if (current.kind != S_IFDIR) return -ENOTDIR;
+    struct mdi_node boundary = current;
     unsigned links = 0;
     memset(out, 0, sizeof(*out));
     for (;;) {
@@ -39,7 +52,12 @@ int mdi_walk(struct md_inode_store *s, int dirfd, const char *path,
         struct mdi_node next;
         int special = !strcmp(name, ".") || !strcmp(name, "..");
         if (!strcmp(name, ".")) { next = current; r = 0; }
-        else if (!strcmp(name, "..")) r = mdi_node(s, current.parent, &next);
+        else if (!strcmp(name, "..")) {
+            if ((resolve & (RESOLVE_BENEATH | RESOLVE_IN_ROOT)) && !strcmp(current.id, boundary.id)) {
+                if (resolve & RESOLVE_BENEATH) return -EXDEV;
+                next = current; r = 0;
+            } else r = mdi_node(s, current.parent, &next);
+        }
         else r = mdi_lookup(s, current.id, name, &next);
         if (r == -ENOENT && last && missing && !special) {
             out->parent = current; strcpy(out->name, name);
@@ -49,6 +67,7 @@ int mdi_walk(struct md_inode_store *s, int dirfd, const char *path,
         if (r) return r;
         if (next.kind == S_IFLNK && (!last || follow == MDI_FOLLOW
                 || (follow == MDI_NOFOLLOW && slash))) {
+            if (resolve & RESOLVE_NO_SYMLINKS) return -ELOOP;
             if (++links > 40) return -ELOOP;
             char target[PATH_MAX];
             ssize_t n = readlinkat(s->objects, next.id, target, sizeof(target));
@@ -58,7 +77,11 @@ int mdi_walk(struct md_inode_store *s, int dirfd, const char *path,
             if ((size_t)n + rest_length >= sizeof(target)) return -ENAMETOOLONG;
             memcpy(target+n, todo, rest_length+1);
             strcpy(todo, target);
-            if (target[0] == '/' && (r = mdi_node(s, MDI_ROOT, &current))) return r;
+            if (target[0] == '/') {
+                if (resolve & RESOLVE_BENEATH) return -EXDEV;
+                if (resolve & RESOLVE_IN_ROOT) current = boundary;
+                else if ((r = mdi_node(s, MDI_ROOT, &current))) return r;
+            }
             continue;
         }
         if ((!last || (slash && follow != MDI_ENTRY)) && next.kind != S_IFDIR) return -ENOTDIR;
@@ -88,14 +111,8 @@ int mdi_ancestor(struct md_inode_store *s, const char *ancestor, const char *chi
     return r;
 }
 
-int md_inode_path(struct md_inode_store *s, int dirfd, char *out, size_t size) {
-    if (!out) return -EFAULT;
-    if (!size) return -ERANGE;
-    int r = mdi_begin(s, 0);
-    if (r) return r;
-    struct mdi_node node;
-    r = dirfd == MD_INODE_ROOT ? mdi_node(s, MDI_ROOT, &node) : mdi_fd(s, dirfd, &node);
-    if (!r && node.kind != S_IFDIR) r = -ENOTDIR;
+static int directory_path(struct md_inode_store *s, struct mdi_node node, char *out, size_t size) {
+    int r = node.kind == S_IFDIR ? 0 : -ENOTDIR;
     char path[PATH_MAX] = "";
     while (!r && strcmp(node.id, MDI_ROOT)) {
         sqlite3_stmt *q = NULL;
@@ -124,6 +141,35 @@ int md_inode_path(struct md_inode_store *s, int dirfd, char *out, size_t size) {
         if (!*path) strcpy(path, "/");
         if (strlen(path) >= size) r = -ERANGE;
         else strcpy(out, path);
+    }
+    return r;
+}
+int md_inode_path(struct md_inode_store *s, int dirfd, char *out, size_t size) {
+    if (!out) return -EFAULT;
+    if (!size) return -ERANGE;
+    int r = mdi_begin(s, 0);
+    if (r) return r;
+    struct mdi_node node;
+    r = dirfd == MD_INODE_ROOT ? mdi_node(s, MDI_ROOT, &node) : mdi_fd(s, dirfd, &node);
+    if (!r) r = directory_path(s, node, out, size);
+    return mdi_finish(s, r);
+}
+int md_inode_realpath(struct md_inode_store *s, int base, const char *path, char *out, size_t size) {
+    if (!out) return -EFAULT;
+    if (!size) return -ERANGE;
+    int r = mdi_begin(s, 0);
+    if (r) return r;
+    struct mdi_location location;
+    r = mdi_walk(s, base, path, MDI_FOLLOW, 0, &location);
+    if (!r && location.node.kind == S_IFDIR) r = directory_path(s, location.node, out, size);
+    else if (!r) {
+        r = directory_path(s, location.parent, out, size);
+        if (!r) {
+            size_t n = strlen(out), name = strlen(location.name);
+            if (n == 1) n = 0;
+            if (n + 1 + name >= size) r = -ERANGE;
+            else { out[n++] = '/'; memcpy(out + n, location.name, name + 1); }
+        }
     }
     return mdi_finish(s, r);
 }

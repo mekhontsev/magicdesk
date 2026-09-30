@@ -39,9 +39,16 @@ static int valid(const struct md_fs_packet *q, size_t size, const struct md_fs_r
     const char *a = q->data, *b = a + q->length[0];
     if (a[q->length[0]-1] || b[q->length[1]-1]
             || memchr(a, 0, q->length[0]-1) || memchr(b, 0, q->length[1]-1)) return -EPROTO;
-    if (q->operation < MD_FS_CREATE || q->operation > MD_FS_SOCKET_NAME) return -ENOTSUP;
+    if (q->operation < MD_FS_CREATE || q->operation > MD_FS_OPEN_OBJECT) return -ENOTSUP;
+    if (q->resolve && q->operation != MD_FS_OPEN) return -EINVAL;
     if ((q->capacity && q->operation != MD_FS_GETDENTS) || q->capacity > PATH_MAX
             || (q->offset && q->operation != MD_FS_SEEKDIR)) return -EINVAL;
+    if (q->operation == MD_FS_TEMPORARY)
+        return q->descriptors || *a || *b || q->flags || q->mode ? -EINVAL : 0;
+    if (q->operation == MD_FS_OBJECT_ID)
+        return q->descriptors != 1 || *a || *b || q->flags || q->mode ? -EINVAL : 0;
+    if (q->operation == MD_FS_OPEN_OBJECT)
+        return q->descriptors || !*a || *b || q->mode ? -EINVAL : 0;
     if (q->operation == MD_FS_GETDENTS || q->operation == MD_FS_SEEKDIR) {
         if (q->descriptors != 1 || *a || *b || q->mode) return -EINVAL;
         return q->operation == MD_FS_GETDENTS ? (q->flags ? -EINVAL : 0)
@@ -77,6 +84,11 @@ static int dispatch(struct md_inode_store *s, const struct md_fs_packet *q,
     const char *a = q->data, *b = a + q->length[0];
     int r; struct stat st;
     switch (q->operation) {
+    case MD_FS_OBJECT_ID:
+        r = md_inode_object_id(s, fd[0], out->data);
+        if (!r) out->size = 33;
+        return r;
+    case MD_FS_OPEN_OBJECT: r = md_inode_open_object(s, a, (int)q->flags); break;
     case MD_FS_SOCKET_BIND: return md_inode_socket_bind(s, fd[0], a, q->mode, fd[1]);
     case MD_FS_SOCKET_ADDRESS: case MD_FS_SOCKET_NAME:
         r = q->operation == MD_FS_SOCKET_ADDRESS
@@ -85,7 +97,7 @@ static int dispatch(struct md_inode_store *s, const struct md_fs_packet *q,
         if (!r) out->size = (uint32_t)strlen(out->data) + 1;
         return r;
     case MD_FS_CREATE: r = md_inode_create(s, fd[0], a, q->mode); break;
-    case MD_FS_OPEN: r = md_inode_open(s, fd[0], a, (int)q->flags, q->mode); break;
+    case MD_FS_OPEN: r = md_inode_open_resolved(s, fd[0], a, (int)q->flags, q->mode, q->resolve); break;
     case MD_FS_MKDIR: return md_inode_mkdir(s, fd[0], a, q->mode);
     case MD_FS_SYMLINK: return md_inode_symlink(s, b, fd[0], a);
     case MD_FS_LINK: return md_inode_link(s, fd[0], a, fd[1], b, (int)q->flags);
@@ -100,6 +112,15 @@ static int dispatch(struct md_inode_store *s, const struct md_fs_packet *q,
         r = md_inode_path(s, fd[0], out->data, sizeof(out->data));
         if (!r) out->size = (uint32_t)strlen(out->data)+1;
         return r;
+    case MD_FS_REALPATH:
+        r = md_inode_realpath(s, fd[0], a, out->data, sizeof(out->data));
+        if (!r) out->size = (uint32_t)strlen(out->data)+1;
+        return r;
+    case MD_FS_TEMPORARY:
+        r = md_inode_temporary(s);
+        if (r < 0) return r;
+        output->fd[output->count++] = r;
+        return 0;
     case MD_FS_READLINK:
         r = (int)md_inode_readlink(s, fd[0], a, out->data, sizeof(out->data));
         if (r >= 0) { out->size = (uint32_t)r; return 0; }

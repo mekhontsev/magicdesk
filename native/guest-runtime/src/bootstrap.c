@@ -6,6 +6,7 @@
 #include "launch_identity.h"
 #include "socket_routes.h"
 #include "linux_abi.h"
+#include "proc_paths.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -47,16 +48,36 @@ void md_boot(uintptr_t *kernel_stack) {
         if (check < 0) md_die("probe executable mappings", check);
         check = md_install_trap(0);
         if (check < 0) md_die("probe syscall adapter", check);
-        register long number __asm__("x8") = SYS_openat2;
-        register long result __asm__("x0") = -1;
+        register long number __asm__("x8") = SYS_clone3;
+        register long result __asm__("x0") = 0;
         __asm__ volatile("svc #0" : "+r"(result) : "r"(number) : "memory", "cc");
-        if (result != -ENOTSUP) md_die("probe SIGSYS dispatch", -EIO);
+        if (result != -ENOSYS) md_die("probe SIGSYS dispatch", -EIO);
         const char message[] = "guest-runtime: aarch64 shell syscall adapter ready\n";
         RAW3(write, 1, message, sizeof(message) - 1);
         RAW1(exit_group, 0);
     }
     int inherited = argc > 1 && md_equal(argv[1], "--resume");
     unsigned root_arg = inherited ? 2 : 1;
+    int program_fd = -1;
+    const char *execfn = NULL;
+    if (inherited && root_arg + 1 < argc && md_equal(argv[root_arg], "--program-fd")) {
+        const char *number = argv[root_arg + 1];
+        if (!*number) md_die("missing program descriptor", -EINVAL);
+        unsigned long value = 0;
+        for (; *number; ++number) {
+            if (*number < '0' || *number > '9' || value > 214748364UL)
+                md_die("invalid program descriptor", -EINVAL);
+            value = value * 10 + (unsigned)(*number - '0');
+        }
+        if (value > 2147483647UL) md_die("invalid program descriptor", -EINVAL);
+        program_fd = (int)value;
+        root_arg += 2;
+    }
+    if (inherited && root_arg + 1 < argc && md_equal(argv[root_arg], "--execfn")) {
+        execfn = argv[root_arg + 1];
+        if (!*execfn) md_die("missing executable invocation", -EINVAL);
+        root_arg += 2;
+    }
     const char *cwd = NULL;
     if (!inherited && argc > 3 && md_equal(argv[root_arg], "--cwd")) {
         cwd = argv[root_arg + 1];
@@ -94,7 +115,9 @@ void md_boot(uintptr_t *kernel_stack) {
     if (!inherited && (r = RAW1(chdir, md_files.root)) < 0) md_die("enter rootfs", r);
     }
     struct md_command command;
-    r = md_command_prepare(&command, argv[root_arg + 1], argv + root_arg + (inherited ? 2 : 1));
+    if (!execfn) execfn = argv[root_arg + 1];
+    r = md_command_prepare(&command, argv[root_arg + 1], argv + root_arg + (inherited ? 2 : 1), program_fd, 0);
+    if (program_fd >= 0) RAW1(close, program_fd);
     if (r < 0) md_die("prepare guest program", r);
     r = md_program_identity(&md_files, command.path, md_executable);
     if (r < 0) md_die("guest identity", r);
@@ -102,18 +125,21 @@ void md_boot(uintptr_t *kernel_stack) {
     for (const char *p = name; *p; ++p) if (*p == '/') name = p + 1;
     r = RAW2(prctl, PR_SET_NAME, name);
     if (r < 0) md_die("guest process name", r);
-    long fd = md_program_open(&md_files, command.path, 1);
-    if (fd < 0) md_die("open guest program", fd);
+    long fd = command.fd;
+    r = md_proc_executable_init(&md_files, (int)fd);
+    if (r < 0) md_die("retain executable object identity", r);
     struct md_image program;
     r = md_elf_load((int)fd, 0, &program);
     RAW1(close, fd);
     if (r < 0) md_die("map guest program", r);
-    fd = md_program_open(&md_files, command.interpreter, 1);
-    if (fd < 0) md_die("open stock loader", fd);
-    struct md_image image;
-    r = md_elf_load((int)fd, 1, &image);
-    RAW1(close, fd);
-    if (r < 0) md_die("map stock loader", r);
+    struct md_image image = {.entry = program.entry};
+    if (command.interpreter[0]) {
+        fd = md_program_open(&md_files, command.interpreter, 1);
+        if (fd < 0) md_die("open stock loader", fd);
+        r = md_elf_load((int)fd, 1, &image);
+        RAW1(close, fd);
+        if (r < 0) md_die("map stock loader", r);
+    }
 
     const size_t stack_size = 8 * 1024 * 1024;
     long stack = RAW6(mmap, 0, stack_size + 2 * md_page_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -139,10 +165,11 @@ void md_boot(uintptr_t *kernel_stack) {
         case AT_PHENT: guest_aux[i].a_un.a_val = sizeof(Elf64_Phdr); break;
         case AT_ENTRY: guest_aux[i].a_un.a_val = program.entry; break;
         case AT_BASE: guest_aux[i].a_un.a_val = image.base; break;
-        case AT_EXECFN: guest_aux[i].a_un.a_val = (uintptr_t)md_executable; break;
+        case AT_EXECFN: guest_aux[i].a_un.a_val = (uintptr_t)execfn; break;
         }
     }
     r = md_install_trap(inherited);
+    md_proc_image(command.argc, command.argv, guest_aux, (auxc + 1) * sizeof(*guest_aux));
     if (r < 0) md_die("install syscall adapter", r);
     md_enter(image.entry, (uintptr_t)sp);
 }

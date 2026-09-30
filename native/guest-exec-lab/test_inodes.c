@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <linux/fs.h>
+#include <linux/openat2.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -608,13 +609,64 @@ static void tree_recovery(enum operation op, enum md_inode_checkpoint point, uns
     CHECK(audit.untracked == (unsigned)(!committed && (op == MKDIR || op == SYMLINK)));
     close(sub); close(dst); md_inode_store_close(s);
 }
+static void scoped_paths(void) {
+    struct md_inode_store *s = store("scoped", 1);
+    CHECK(md_inode_mkdir(s, MD_INODE_ROOT, "d", 0700) == 0);
+    CHECK(md_inode_mkdir(s, MD_INODE_ROOT, "d/sub", 0700) == 0);
+    int file = md_inode_create(s, MD_INODE_ROOT, "d/value", 0600);
+    CHECK(file >= 0); put(file, "scoped"); close(file);
+    CHECK(md_inode_symlink(s, "/value", MD_INODE_ROOT, "d/absolute") == 0);
+    CHECK(md_inode_symlink(s, "../value", MD_INODE_ROOT, "d/sub/relative") == 0);
+    int dir = directory(s, "d");
+    struct { const char *path; uint64_t resolve; int error; } cases[] = {
+        {"value", RESOLVE_BENEATH, 0}, {"sub/../value", RESOLVE_BENEATH, 0},
+        {"../d/value", RESOLVE_BENEATH, -EXDEV}, {"/value", RESOLVE_BENEATH, -EXDEV},
+        {"absolute", RESOLVE_BENEATH, -EXDEV}, {"/value", RESOLVE_IN_ROOT, 0},
+        {"../value", RESOLVE_IN_ROOT, 0}, {"absolute", RESOLVE_IN_ROOT, 0},
+        {"sub/relative", RESOLVE_BENEATH, 0},
+        {"sub/relative", RESOLVE_NO_SYMLINKS, -ELOOP},
+        {"value", RESOLVE_NO_XDEV | RESOLVE_NO_MAGICLINKS, 0},
+        {"value", RESOLVE_CACHED, -EAGAIN},
+        {"value", RESOLVE_BENEATH | RESOLVE_IN_ROOT, -EINVAL},
+        {"value", 1UL << 63, -EINVAL}
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(*cases); ++i) {
+        int fd = md_inode_open_resolved(s, dir, cases[i].path, O_RDONLY, 0, cases[i].resolve);
+        CHECK((fd < 0 ? fd : 0) == cases[i].error);
+        if (fd >= 0) { content(fd, "scoped"); close(fd); }
+    }
+    int fd = md_inode_open_resolved(s, dir, "absolute", O_PATH | O_NOFOLLOW, 0, RESOLVE_NO_SYMLINKS);
+    struct stat st;
+    CHECK(fd >= 0 && fstat(fd, &st) == 0 && S_ISLNK(st.st_mode)); close(fd);
+    CHECK(md_inode_open_resolved(s, dir, "../forbidden", O_CREAT | O_RDWR, 0600, RESOLVE_BENEATH) == -EXDEV);
+    CHECK(md_inode_stat(s, MD_INODE_ROOT, "forbidden", 0, &st) == -ENOENT);
+    fd = md_inode_open_resolved(s, dir, "/created", O_CREAT | O_RDWR, 0600, RESOLVE_IN_ROOT);
+    CHECK(fd >= 0); close(fd);
+    CHECK(md_inode_stat(s, MD_INODE_ROOT, "d/created", 0, &st) == 0);
+    char resolved[PATH_MAX];
+    CHECK(!md_inode_realpath(s, dir, "sub/relative", resolved, sizeof(resolved)));
+    CHECK(!strcmp(resolved, "/d/value"));
+    CHECK(!md_inode_link(s, dir, "value", dir, "alias", 0));
+    CHECK(!md_inode_realpath(s, dir, "alias", resolved, sizeof(resolved)));
+    CHECK(!strcmp(resolved, "/d/alias"));
+    CHECK(md_inode_realpath(s, dir, "absolute", resolved, sizeof(resolved)) == -ENOENT);
+    CHECK(md_inode_realpath(s, dir, "value", resolved, 2) == -ERANGE);
+    struct md_inode_audit before, after;
+    CHECK(!md_inode_audit(s, &before));
+    fd = md_inode_temporary(s); CHECK(fd >= 0);
+    CHECK(!fstat(fd, &st) && st.st_nlink == 0);
+    put(fd, "snapshot"); content(fd, "snapshot"); close(fd);
+    CHECK(!md_inode_audit(s, &after) && !memcmp(&before, &after, sizeof(before)));
+    close(dir); md_inode_store_close(s);
+    puts("PASS scoped open paths: beneath, in-root, symlinks, cache-only and creation");
+}
 int main(int argc, char **argv) {
     CHECK(argc == 2 || argc == 3);
     CHECK(argv[1][0] == '/' && strlen(argv[1]) < sizeof(root)); strcpy(root, argv[1]);
     if (argc == 3) { CHECK(!strcmp(argv[2], "exec-child")); exec_child("exec"); return 0; }
     CHECK(mkdir(root, 0700) == 0);
     descriptors(); namespace(); contention(); multiple_stores(); across_exec(argv[0]);
-    hierarchy(); symlinks(); permissions(); kernel_reference();
+    hierarchy(); symlinks(); permissions(); kernel_reference(); scoped_paths();
     unsigned serial = 0;
     recovery(CREATE, MD_OBJECT_SYNCED, serial++);
     for (enum operation op = CREATE; op <= EXCHANGE; ++op) {

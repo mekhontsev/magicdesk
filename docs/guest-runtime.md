@@ -1,7 +1,7 @@
 # Guest Execution Runtime
 
 MagicDesk includes an experimental native ARM64 Linux execution adapter.
-It runs prepared ARM64 PIE programs with glibc or musl through the explicitly selected shell or root
+It runs prepared ARM64 ELF programs with glibc or musl through the explicitly selected shell or root
 executor, without PRoot, chroot, Termux or a distribution manager. It is not a
 security sandbox: guest programs retain the caller's authority and unadapted
 syscalls can access Android resources. Use trusted programs and prepared stores.
@@ -97,13 +97,30 @@ MagicDesk ships no D-Bus daemon and does not reuse Android's or Termux's bus.
 
 ## ELF And IPC
 
-The bootstrap maps the main ELF and its absolute `PT_INTERP`, validates their
+The bootstrap maps the main ELF and its optional absolute `PT_INTERP`, validates their
 load segments before exec and supplies a kernel-style initial stack and auxv.
 There is no distribution or loader-name allowlist. The selected stock dynamic
 linker owns relocations, dependencies, TLS and `dlopen`. Runtime-owned guarded
 signal stacks isolate syscall adaptation from libc thread-stack sizes; ordinary
 file calls allocate no heap or temporary mappings. Fork, vfork and thread clone
 retain kernel lifetimes. SIGSYS remains reserved.
+
+Static PIE and fixed-address ET_EXEC use the same loader. ELF load alignment is
+retained, including 2 MiB alignment; an occupied fixed-address range fails without
+replacing existing mappings. Large valid images are bounded by address arithmetic
+and the kernel's mapping limits, not a separate image-size cap. Freestanding ELF
+without an interpreter or mapped program-header table is also supported. This
+does not admit set-ID or writable/executable load segments.
+
+Descriptor and relative-dirfd exec pin the validated ELF across bootstrap exec,
+including open-unlinked programs. CLOEXEC scripts fail rather than losing their
+interpreter input. Bounded shebang parsing accepts relative interpreters and a
+short header without a newline, preserves the optional argument as one string,
+and rejects a truncated interpreter name. `AT_EXECFN` retains the caller's spelling; descriptor exec uses
+the Linux `/dev/fd/N[/suffix]` form. Namespace `openat2` validates its extensible argument structure
+and supports scoped beneath/in-root resolution, symlink restrictions and mount
+boundaries. Cache-only resolution returns EAGAIN; unavailable host-crossing
+semantics fail explicitly. The direct backend does not implement scoped resolution.
 
 Pathname Unix sockets are namespace inodes whose native transport is an
 abstract kernel socket. The filesystem service commits bind and name publication;
@@ -112,6 +129,9 @@ relative addresses, returned addresses, rename, stale listeners and unlink/rebin
 are tested. Unlinking a name does not invalidate existing connections. Different
 stores have independent names; explicitly abstract sockets retain the host's
 shared abstract namespace and are not isolated.
+Unix `sendmmsg` reuses address translation without copying payloads or allocating
+per-message buffers. Tests cover partial batches, short stream writes, failed
+result writes and SCM_RIGHTS. Unadapted socket operations are not thereby certified.
 
 `/dev/shm` belongs to the guest store, including access relative to a `/dev`
 descriptor or cwd. POSIX shared memory, mmap, descriptor passing and unlinked
@@ -197,18 +217,71 @@ and installed only in the test store, not Android or the APK. Device enumeration
 alone is not this check. Other GPUs, drivers, zero-copy presentation and performance
 comparisons remain unverified.
 
-This is not certification of arbitrary package maintainer scripts, APT or all
-Linux desktops. Guest file sharing and live appearance helpers are not integrated
-for this launch method. Static/non-PIE executables, application-owned alternate
-signal stacks, openat2, descriptor exec and Unix sendmmsg remain unsupported.
+Separate fresh-image checks use real Debian APT and Alpine APK with signed
+repositories, dependency installation, scripts/triggers, HTTPS verification,
+reinstallation, removal and subsequent installation. Selected real upgrades cover
+Debian's PCRE2 package and Alpine's musl. The prepared userspace explicitly selects
+the package managers' unprivileged/chrootless options and real UID 2000. Debian's
+ucf fixture additionally opts into file updates in its disposable image; its normal
+non-root dry run must not be mistaken for configured LibreOffice registry files.
+An unrestricted Alpine base upgrade is not certified. APK 3.0.1 attempts executable
+memfd scripts that this device denies even in the native shell control; its fallback
+reports ENOENT for an absent script path. APK 3.0.8 runs those triggers and the
+Alpine 3.23.0-to-3.23.6 upgrade returns zero. Its base-system script nevertheless
+reports an unapplied ownership change for `etc/shadow` and continues. The runtime
+preserves that denial; the package manager's exit code does not certify every
+configuration action. These are bounded package workflows, not arbitrary maintainer-script
+or complete-distribution compatibility.
+
+Static glibc and musl fixtures cover ET_EXEC/static PIE, 64 KiB/2 MiB alignment,
+constructors, TLS, pthreads, heap, fork and descriptor exec. A separate
+freestanding assembly program verifies raw SVC without libc or mapped ELF headers.
+GIMP's Wayland fixture checks rendering, a keyboard-opened dialog and zero exit.
+LibreOffice Writer/Calc Wayland checks edit an ODT/ODS document, verify client text through
+the clipboard, save it, close with zero process exit and read the saved XML through
+a fresh guest process. Writer readiness uses its actual text-input publication,
+not a settling delay. The Wayland clipboard filters unsupported private MIME
+entries individually, retaining valid text offers from the same source.
+Writer also passes the edit/save/readback workflow in an X11 viewer with xfwm4.
+The X11 checks use WM_CLASS rather than assuming a Wayland app_id. Without the
+window manager, Writer does not publish a window within the test deadline.
+The Calc X11 insertion check fails: the cell contains the typed text instead of
+that text followed by the original content. Neither observation is classified
+as a guest-runtime defect without isolating client, input and window-manager behavior.
+
+Debian Blender 4.3.2 renders its viewport through X11/GLX with Linux Mesa 26.2.3
+Zink/Turnip on Adreno 840 and exits normally. A GTK GLArea fixture separately
+checks four colored regions and an input-driven frame through Wayland/EGL.
+It passes with llvmpipe and with a test-owned Zink build using the explicit
+[non-DRM Wayland patch](../wayland-runtime/tests/mesa-wayland-zink.patch).
+The unmodified Zink Wayland control produces blank frames despite reporting the
+hardware renderer. Patched sources and libraries stay in isolated fixture paths;
+neither Android nor APK drivers are replaced. These checks are not complete
+Blender editing, arbitrary OpenGL application or browser certification. Firefox content
+processes fail when installing their SIGSYS handler. Debian ARM64 Chromium also
+fails startup with Crashpad signal-stack/SIGSYS errors; its sandbox is not disabled
+to classify that test as passing.
+
+Guest file sharing and live appearance helpers are not integrated
+for this launch method. Application-owned alternate signal stacks, guest SIGSYS
+handlers and nested application sandbox compatibility remain unsupported.
 Shared-VM non-thread clone requires vfork ownership; other such clones fail
 explicitly. Kernel permission denials remain failures.
+An isolated USER_NOTIF probe verifies remote memory, pidfd descriptor duplication,
+descriptor injection and coexistence with guest SIGSYS/altstack/longjmp on this
+device. It is not the production syscall adapter. Unprivileged user-namespace
+creation also fails in a native shell control, independently of the guest runtime.
 
 D-Bus reports that its session-config directory cannot be watched. Wayland publishes a logical monitor before client
 startup and replaces it when an Android host attaches; GTK's initial
 monitor-scale warnings are absent in these checks. The kernel process name identifies the guest executable after
-each exec, but `/proc/self/cmdline` and `/proc/self/auxv` still describe the
-bootstrap, not a fully virtualized guest process.
+each exec. Current-process/thread `cmdline` and `auxv` opens produce guest-image
+snapshots with native read/seek afterwards; they allocate an unlinked temporary
+file only on those explicit opens, not on ordinary IO. Namespace `/proc/self/exe`
+open/stat retains executable inode identity after unlink, path reuse and close_range,
+without a permanent hidden FD. Foreign-process aliases, snapshot stat metadata and
+descriptor-exec readlink's original dentry identity remain incomplete. The direct
+backend retains path-based executable reopening. This is not a fully virtualized procfs.
 
 The installed CLI also retains the shared terminal's controlling PTY: interactive
 dash job control, Ctrl+Z/fg/Ctrl+C, detachment and return to the Android shell

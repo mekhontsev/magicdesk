@@ -5,13 +5,14 @@
 #include <sys/un.h>
 
 #define MD_FS_MAGIC 0x4d444653U
-#define MD_FS_VERSION 2U
+#define MD_FS_VERSION 4U
 #define MD_FS_MAX_FDS 2
 struct md_fs_packet {
     /* descriptors is a bitmask of the two base-FD slots, in slot order. */
     uint32_t magic, version, operation, flags, mode, descriptors, length[2];
     uint32_t capacity, reserved;
     int64_t offset;
+    uint64_t resolve;
     char data[2 * PATH_MAX];
 };
 struct md_fs_reply {

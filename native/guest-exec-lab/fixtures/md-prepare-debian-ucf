@@ -1,0 +1,20 @@
+#!/bin/sh
+# Explicit disposable-image policy, not a runtime UID or permission override.
+set -eu
+test "$(id -u)" = 2000
+test -w /etc/ucf.conf
+if ! grep -q 'MD_UCF_ROOTLESS_FIXTURE' /etc/ucf.conf; then
+    cat >> /etc/ucf.conf <<'CONFIG'
+
+# Site policy for this caller-owned test distribution. ucf/ucfr source this
+# after their root-only default; all actual file permissions remain enforced.
+if [ "${UCF_ROOTLESS_FIXTURE:-}" = 1 ]; then # MD_UCF_ROOTLESS_FIXTURE
+    action=
+    docmd=YES
+fi
+CONFIG
+fi
+UCF_ROOTLESS_FIXTURE=1 DEBIAN_FRONTEND=noninteractive apt-get -y --reinstall install libreoffice-common
+test -s /etc/libreoffice/registry/main.xcd
+cmp /usr/lib/libreoffice/share/.registry/main.xcd /etc/libreoffice/registry/main.xcd
+libreoffice --version

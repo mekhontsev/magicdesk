@@ -5,7 +5,6 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 
-#define IMAGE_LIMIT (128UL * 1024 * 1024)
 struct elf_data { Elf64_Ehdr header; Elf64_Phdr ph[128]; struct stat st; char interpreter[MD_INTERPRETER_MAX]; };
 static uintptr_t down(uintptr_t n) { return n & ~(md_page_size - 1); }
 static uintptr_t up(uintptr_t n) { return (n + md_page_size - 1) & ~(md_page_size - 1); }
@@ -21,7 +20,8 @@ static int read_elf(int fd, struct elf_data *data, int loader) {
             || h->e_ident[EI_VERSION] != EV_CURRENT
             || h->e_machine != EM_AARCH64 || h->e_version != EV_CURRENT
             || h->e_ehsize != sizeof(*h) || h->e_phentsize != sizeof(Elf64_Phdr)
-            || !h->e_phnum || h->e_phnum > 128 || h->e_type != ET_DYN) return -ENOEXEC;
+            || !h->e_phnum || h->e_phnum > 128
+            || (h->e_type != ET_DYN && (loader || h->e_type != ET_EXEC))) return -ENOEXEC;
     size_t size = h->e_phnum * sizeof(Elf64_Phdr);
     if (data->st.st_size < 0 || h->e_phoff > (uint64_t)data->st.st_size
             || size > (uint64_t)data->st.st_size - h->e_phoff
@@ -40,21 +40,25 @@ static int read_elf(int fd, struct elf_data *data, int loader) {
                     || interpreter[0] != '/') return -ENOEXEC;
         }
     }
-    return loader || interpreted ? 0 : -ENOTSUP;
+    return 0;
 }
-struct elf_layout { uintptr_t low, high, phdr; };
+struct elf_layout { uintptr_t low, high, phdr, alignment; };
 static int layout(const struct elf_data *data, struct elf_layout *out) {
     uintptr_t low = UINTPTR_MAX, high = 0, previous = 0;
     int executable_entry = 0;
     size_t phsize = data->header.e_phnum * sizeof(Elf64_Phdr);
     uintptr_t phdr = 0;
+    uintptr_t alignment = md_page_size;
     for (unsigned i = 0; i < data->header.e_phnum; ++i) {
         const Elf64_Phdr *p = data->ph + i;
         if (p->p_type != PT_LOAD || !p->p_memsz) continue;
-        if (p->p_filesz > p->p_memsz || p->p_vaddr > IMAGE_LIMIT
-                || p->p_memsz > IMAGE_LIMIT - p->p_vaddr
+        if (p->p_filesz > p->p_memsz || p->p_memsz > UINTPTR_MAX - (md_page_size - 1)
+                || p->p_vaddr > UINTPTR_MAX - (md_page_size - 1) - p->p_memsz
                 || (p->p_vaddr % md_page_size != p->p_offset % md_page_size)
                 || ((p->p_flags & (PF_W | PF_X)) == (PF_W | PF_X))) return -ENOEXEC;
+        if (p->p_align > 1 && ((p->p_align & (p->p_align - 1))
+                || (p->p_vaddr % p->p_align != p->p_offset % p->p_align))) return -ENOEXEC;
+        if (p->p_align > alignment) alignment = p->p_align;
         uintptr_t start = down(p->p_vaddr), end = up(p->p_vaddr + p->p_memsz);
         if (start < previous) return -ENOEXEC;
         previous = end;
@@ -66,8 +70,9 @@ static int layout(const struct elf_data *data, struct elf_layout *out) {
                 && phsize <= p->p_filesz - (data->header.e_phoff - p->p_offset))
             phdr = p->p_vaddr + data->header.e_phoff - p->p_offset;
     }
-    if (!executable_entry || !phdr || high <= low || high - low > IMAGE_LIMIT) return -ENOEXEC;
-    *out = (struct elf_layout){low, high, phdr};
+    if (!executable_entry || high <= low) return -ENOEXEC;
+    if (alignment - md_page_size > SIZE_MAX - (high - low)) return -ENOEXEC;
+    *out = (struct elf_layout){low, high, phdr, alignment};
     return 0;
 }
 int md_elf_interpreter(int fd, char interpreter[MD_INTERPRETER_MAX]) {
@@ -91,8 +96,24 @@ int md_elf_load(int fd, int loader, struct md_image *image) {
     if (!r) r = layout(&data, &range);
     if (r) return r;
     uintptr_t low = range.low, high = range.high, phdr = range.phdr;
-    long allocation = RAW6(mmap, 0, high - low, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    int fixed = data.header.e_type == ET_EXEC;
+    size_t span = high - low;
+    size_t reserved = span + (fixed ? 0 : range.alignment - md_page_size);
+    long allocation = RAW6(mmap, fixed ? low : 0, reserved, PROT_NONE,
+        MAP_PRIVATE | MAP_ANONYMOUS | (fixed ? MAP_FIXED_NOREPLACE : 0), -1, 0);
     if (allocation < 0) return (int)allocation;
+    if (fixed && (uintptr_t)allocation != low) {
+        RAW2(munmap, allocation, reserved);
+        return -EEXIST;
+    }
+    if (!fixed) {
+        // ELF alignment applies to the load bias, not just each mapped page.
+        size_t prefix = (low - (uintptr_t)allocation) & (range.alignment - 1);
+        size_t suffix = reserved - prefix - span;
+        if (prefix) RAW2(munmap, allocation, prefix);
+        allocation += prefix;
+        if (suffix) RAW2(munmap, allocation + span, suffix);
+    }
     uintptr_t base = (uintptr_t)allocation - low;
     for (unsigned i = 0; i < data.header.e_phnum; ++i) {
         Elf64_Phdr *p = data.ph + i;

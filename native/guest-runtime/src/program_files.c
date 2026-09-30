@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "namespace.h"
 #include "raw.h"
+#include "linux_abi.h"
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -18,7 +19,7 @@ long md_program_open(const struct md_fs *fs, const char *path, int executable) {
     if (fd < 0)
         return fd;
     if (executable) {
-        long r = RAW4(faccessat2, fd, "", X_OK, AT_EMPTY_PATH | AT_EACCESS);
+        long r = RAW4(faccessat2, fd, "", X_OK, AT_EMPTY_PATH | MD_AT_EACCESS);
         if (r < 0) {
             RAW1(close, fd);
             return r;

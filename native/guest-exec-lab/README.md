@@ -122,6 +122,62 @@ and filesystem services, checks shared memory, file-data inotify and unlinked
 lifetimes, and optionally verifies name isolation from another store.
 These are not directory-inotify or abstract-socket isolation tests.
 
+`build-static-fixtures.sh glibc|musl SYSROOT OUTPUT` additionally builds static
+ET_EXEC and PIE programs at 64 KiB and 2 MiB alignment. The glibc sysroot requires
+its matching `libc6-dev` and GCC 14 static support libraries; musl requires its
+matching development archive and compiler builtins. `build.sh` also builds a
+freestanding raw-SVC ELF without libc or mapped program headers.
+
+```sh
+python native/guest-exec-lab/test_abi.py BUILD \
+  --libc glibc --libc-build BUILD --static-build STATIC_BUILD \
+  --store DISPOSABLE_HOST_STORE --runtime IMMUTABLE_STAGED_HELPERS
+```
+
+Repeat with the musl outputs and Alpine store. These checks include descriptor
+and dirfd exec, open-unlinked/name-reused executable identity, bounded shebang
+parsing, process-image snapshots, Unix sendmmsg partial batches and SCM_RIGHTS.
+They install fixture programs only into the explicitly selected disposable store.
+
+## Distribution Packages And Applications
+
+`fixtures/md-import-debian-rootless` prepares a copied official Debian rootfs
+for the real shell UID before import. It does not fabricate package records.
+`md-package-debian`, `md-package-alpine` and `md-package-upgrade` exercise real
+signed repositories, dependencies, scripts, HTTPS, removal and updates in
+disposable stores. Preserve the official image hash and package-manager logs.
+The Debian ucf preparation explicitly enables real configuration-file updates
+in that fixture; the normal non-root dry run is not a configuration pass.
+These scripts are not a product distribution installer or a container manager.
+
+```sh
+python native/guest-exec-lab/test_distribution_app.py BUILD \
+  --store DISPOSABLE_HOST_STORE --runtime IMMUTABLE_STAGED_HELPERS \
+  --keyboard-directory HOST_XKB --protocol wayland --application writer
+```
+
+The prepared store supplies its normal packages and caches. `writer` and `calc`
+edit/save ODF documents, check clipboard text, close normally and read saved XML
+in a new guest process. Both pass on Wayland; Writer also passes on X11 with
+`--x11-manager`. Calc's X11 insertion check remains failing, and Writer startup
+without the manager remains unverified. The fixture retains these failures,
+including the expected cell contents, rather than weakening its assertions.
+`gimp` checks a dialog and closure. `blender` uses its
+viewport fixture; the tested Debian build requires `--protocol x11 --x11-manager`.
+`gtkgl` checks actual colored pixels and an input-driven frame; `--software`
+selects the llvmpipe control. `--gpu-prefix` selects an explicitly staged test
+driver directory. Reports retain build identity, output, screenshots, process
+status and cleanup. A trace/event acknowledgement is required where a client
+publishes readiness; a screenshot or delay is not a readiness barrier.
+
+`firefox` and `chromium` are negative startup checks at present. Their SIGSYS,
+alternate-stack and sandbox requirements are not satisfied by the production
+adapter; no `--no-sandbox` flag turns them into a pass. `md-notification-test` is
+a separate USER_NOTIF/remote-memory/FD-injection feasibility probe, including
+guest signals and longjmp. It is not an alternative installed runtime.
+`md-exec-policy-test INTERPRETER` compares executable memfd scripts under the
+native shell and guest. X_OK succeeding does not override a kernel exec denial.
+
 For a prepared GUI store:
 
 ```sh
@@ -161,6 +217,13 @@ packages. Supply them with repeated `prepare.mjs --package NAME`; signatures and
 hashes are checked as for the base profile. Host Meson, Ninja, Python generators
 and a `wayland-scanner` matching the target libwayland are build tools only.
 Use a fresh output directory when changing Mesa/configuration.
+
+Zink additionally needs `libwayland-egl-backend-dev`, `libxcb-glx0-dev` and
+`libxxf86vm-dev` in the authenticated SDK. Build it with `--driver zink`.
+`--wayland-zink` explicitly applies the repository's Mesa 26.2.3 non-DRM
+Wayland patch to a private source copy and records its hash; the original source
+tree remains unchanged. Keep patched and unmodified prefixes separate, and run
+the unmodified control. A patched fixture result is not upstream compatibility.
 
 Install `libvulkan_freedreno.so` at `/opt/md-gpu/lib/` and
 `fixtures/turnip.json` at `/opt/md-gpu/turnip.json` in the owned test store;

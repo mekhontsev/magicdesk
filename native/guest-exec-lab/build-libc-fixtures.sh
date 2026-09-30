@@ -31,7 +31,7 @@ guest_cc() {
         -fuse-ld=lld -std=c17 -O2 -g -Wall -Wextra -Werror -fPIC -nostdlib \
         "$@" -L"$lib" -l:"$libc"
 }
-for source in guest exec ipc; do
+for source in guest exec execfd exec_policy ipc process_image; do
     name=md-$source-fixture
     if [ "$source" = guest ]; then name=md-fixture; fi
     guest_cc -pie "$crt/Scrt1.o" "$crt/crti.o" "$src/test_$source.c" \

@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "proc_paths.h"
 #include "raw.h"
 #include <limits.h>
@@ -62,6 +63,8 @@ struct md_proc_path md_proc_path(const char *path) {
         } else if (word(&p, "cwd")) out.kind = MD_PROC_CWD;
         else if (word(&p, "root")) out.kind = MD_PROC_ROOT;
         else if (word(&p, "exe")) out.kind = MD_PROC_EXE;
+        else if (word(&p, "cmdline")) out.kind = MD_PROC_CMDLINE;
+        else if (word(&p, "auxv")) out.kind = MD_PROC_AUXV;
         else return out;
         if (foreign) out.kind = MD_PROC_FOREIGN;
     } else return out;

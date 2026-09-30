@@ -1,0 +1,19 @@
+#!/system/bin/sh
+# Test-only preparation of a verified official Debian image for actual UID 2000.
+set -eu
+test "$(id -u)" = 2000
+base=$1
+test ! -e "$base/debian-source"
+mkdir "$base/debian-source"
+# Android denies physical hard links. Extract the pinned image's alias through
+# the guest namespace after import instead of replacing it with a copy.
+tar -xzf "$base/debian.tar.gz" --exclude=usr/bin/perl5.40.1 -C "$base/debian-source"
+# This is an explicitly unprivileged image, not emulated ownership or set-ID.
+find "$base/debian-source" -perm /6000 -print -exec chmod a-s {} \;
+mkdir -p "$base/debian-source/dev/shm"
+chmod 1777 "$base/debian-source/dev/shm"
+magicdesk-guest --import "$base/debian-source" "$base/debian-store"
+magicdesk-guest --store "$base/debian-store" -- /bin/tar --no-same-owner \
+    -xzf - -C / usr/bin/perl5.40.1 < "$base/debian.tar.gz"
+magicdesk-guest --store "$base/debian-store" -- /bin/sh -c \
+    'test /usr/bin/perl -ef /usr/bin/perl5.40.1'

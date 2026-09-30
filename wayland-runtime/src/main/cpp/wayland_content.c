@@ -168,11 +168,16 @@ static void offer(struct Selection *s) {
     size_t used = 0, count = 0;
     char **type;
     if (s->source) wl_array_for_each(type, &s->source->mime_types) {
-        size_t length = strlen(*type);
-        if (!length || length >= 128 || count++ >= 64 || used + length + 1 >= sizeof(types)) return;
-        for (size_t i = 0; i < length; ++i) if ((*type)[i] < 32 || (*type)[i] > 126) return;
+        size_t length = strnlen(*type, 128);
+        if (!length || length == 128) continue;
+        bool printable = true;
+        for (size_t i = 0; i < length; ++i)
+            if ((*type)[i] < 32 || (*type)[i] > 126) { printable = false; break; }
+        // An unsupported private format must not discard other usable offers.
+        if (!printable) continue;
+        if (count == 64 || used + length + 1 >= sizeof(types)) break;
         if (used) types[used++] = '\n';
-        memcpy(types + used, *type, length); used += length;
+        memcpy(types + used, *type, length); used += length; ++count;
     }
     c->server->events.content_offer(c->server->events.context, s->channel, s->id,
         s->channel == MDW_CONTENT_DRAG ? c->server->pointer_owner : NULL, types);
