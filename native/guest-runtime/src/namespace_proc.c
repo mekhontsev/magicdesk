@@ -61,18 +61,10 @@ static long host_readlink(const struct md_fs *fs, const char *path, const unsign
     text[n] = 0;
     long fd = RAW4(openat, AT_FDCWD, path, O_PATH | O_CLOEXEC, 0);
     if (fd >= 0) {
+        struct md_fs_request q = {.operation = MD_FS_PATH, .directory = {(int)fd, -1}};
         struct md_fs_response out;
-        long r = md_namespace_inspect(fs, (int)fd, NULL, 0, &out);
-        if (!r) {
-            /* A directory has one virtual parent. A file FD has inode identity,
-             * but no retained virtual dentry: do not invent a hard-link name. */
-            if (!S_ISDIR(out.result.info.mode)) r = -ENOTSUP;
-            else {
-                struct md_fs_request q = {.operation = MD_FS_PATH, .directory = {(int)fd, -1}};
-                r = md_namespace_request(fs, &q, &out);
-                if (!r) r = md_copy(text, sizeof(text), out.data);
-            }
-        }
+        long r = md_namespace_request(fs, &q, &out);
+        if (!r) r = md_copy(text, sizeof(text), out.data);
         RAW1(close, fd);
         if (r < 0 && r != -EXDEV) return r;
     }
@@ -108,7 +100,11 @@ long md_namespace_host_call(const struct md_fs *fs, const char *exe, long nr, co
                                      (int)a[2], (unsigned)a[3]);
         long original = RAW4(openat, AT_FDCWD, path, O_PATH | O_CLOEXEC, 0);
         if (original < 0) return original;
-        long reopened = md_namespace_reopen(fs, (int)original, (int)a[2], 0);
+        /* The followed magic link already selected an existing object. Creation
+         * and exclusive-link semantics were handled above, not by its backing. */
+        int flags = (int)a[2];
+        long reopened = (flags & O_CREAT) && (flags & O_DIRECTORY) ? -EINVAL
+            : md_namespace_reopen(fs, (int)original, flags & ~(O_CREAT | O_EXCL), 0);
         RAW1(close, original);
         return reopened == -EXDEV ? RAW4(openat, AT_FDCWD, path, a[2], a[3]) : reopened;
     }
@@ -125,11 +121,6 @@ long md_namespace_host_call(const struct md_fs *fs, const char *exe, long nr, co
         fd = RAW4(openat, AT_FDCWD, anchor, O_PATH | O_CLOEXEC | (tail ? O_DIRECTORY : 0) |
                   (native && link_operation(nr, a) ? O_NOFOLLOW : 0), 0);
     if (fd < 0) return fd;
-    if (!tail && (nr == SYS_fchmodat || nr == SYS_fchmodat2 || nr == SYS_fchownat || nr == SYS_utimensat)) {
-        long next = md_namespace_mutable(fs, (int)fd);
-        RAW1(close, fd); fd = next;
-        if (fd < 0) return fd;
-    }
     long r;
     if (tail) {
         const char *relative = ref.tail;
@@ -154,14 +145,22 @@ long md_namespace_host_call(const struct md_fs *fs, const char *exe, long nr, co
         args[nr == SYS_statx ? 2 : 3] |= AT_EMPTY_PATH;
         r = md_namespace_path_call(fs, nr, args, (int)fd, "");
         break;
-    case SYS_chdir: r = RAW1(fchdir, fd); break;
-    case SYS_faccessat: case SYS_faccessat2:
-        r = RAW4(faccessat2, fd, "", a[2], (nr == SYS_faccessat2 ? a[3] : 0) | AT_EMPTY_PATH);
+    case SYS_chdir:
+        args[0] = (unsigned long)fd;
+        r = md_namespace_call(fs, exe, SYS_fchdir, args);
         break;
-    case SYS_fchmodat: r = md_fd_chmod((int)fd, (unsigned)a[2]); break;
-    case SYS_fchmodat2: r = RAW4(fchmodat2, fd, "", a[2], a[3] | AT_EMPTY_PATH); break;
-    case SYS_fchownat: r = RAW5(fchownat, fd, "", a[2], a[3], a[4] | AT_EMPTY_PATH); break;
-    case SYS_utimensat: r = RAW4(utimensat, fd, "", a[2], a[3] | AT_EMPTY_PATH); break;
+    case SYS_faccessat: case SYS_faccessat2:
+    case SYS_fchmodat: case SYS_fchmodat2:
+    case SYS_fchownat: case SYS_utimensat: {
+        /* A magic link selects an inode, not a second metadata authority.
+         * The ordinary empty-path operation owns permissions, ACLs and copy-up. */
+        long operation = nr == SYS_faccessat ? SYS_faccessat2 : nr == SYS_fchmodat ? SYS_fchmodat2 : nr;
+        unsigned flags_index = nr == SYS_fchownat ? 4 : 3;
+        args[0] = (unsigned long)fd; args[1] = (unsigned long)"";
+        args[flags_index] = (nr == SYS_faccessat || nr == SYS_fchmodat ? 0 : args[flags_index]) | AT_EMPTY_PATH;
+        r = md_namespace_path_call(fs, operation, args, (int)fd, "");
+        break;
+    }
     case SYS_statfs: r = RAW2(fstatfs, fd, a[1]); break;
     case SYS_setxattr: case SYS_getxattr: case SYS_listxattr: case SYS_removexattr: {
         struct md_fs_response out;

@@ -42,11 +42,15 @@ void md_fs_execute(struct md_filesystem *fs,
     if (fs->credentials || previous) {
         if (q->operation == MD_FS_ACCESS && !(q->flags & MD_AT_EACCESS)) {
             identity.uid.fs = identity.uid.real; identity.gid.fs = identity.gid.real;
+            identity.caps.effective = identity.uid.real ? 0 : identity.caps.permitted;
         }
         fs->store->identity = &identity;
     }
+    unsigned previous_mask=fs->store->creation_mask;
+    fs->store->creation_mask=q->attributes.creation_mask;
     if (fs->mounts) md_fs_mounts_execute(fs, q, out, output);
     else md_fs_inode_execute(fs, q, out, output);
+    fs->store->creation_mask=previous_mask;
     fs->store->identity = previous;
     md_identity_release(&identity);
 }
@@ -61,8 +65,19 @@ void md_fs_inode_execute(struct md_filesystem *fs,
     int first = q->directory[0], second = q->directory[1];
     int r = -ENOTSUP; struct stat st;
     switch (q->operation) {
+    case MD_FS_GETACL: case MD_FS_SETACL: case MD_FS_REMOVEACL:
+        md_inode_acl(s,q,out); return;
+    case MD_FS_LISTATTR:
+        r=md_inode_attributes(s,first,data,capacity);
+        if(r>=0) { out->size=(size_t)r; r=0; }
+        break;
+    case MD_FS_GETCAP: case MD_FS_SETCAP: case MD_FS_REMOVECAP:
+        r = md_inode_capability(s, q, data, capacity);
+        if (r >= 0) { out->size = (size_t)r; r = 0; }
+        break;
     case MD_FS_CHMOD: case MD_FS_CHOWN: case MD_FS_ACCESS: case MD_FS_UTIMENS:
         r = md_inode_metadata(s, q); break;
+    case MD_FS_XATTR_OPEN: r = md_inode_xattr_open(s, first, a, (int)q->mode); goto opened;
     case MD_FS_REOPEN: r = md_catalogue_reopen(images, s, first, (int)q->flags, (int)q->mode); goto opened;
     case MD_FS_WATCH_CREATE: r = md_inode_watch_create(s, (int)q->flags); goto opened;
     case MD_FS_WATCH_ADD:

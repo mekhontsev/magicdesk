@@ -61,6 +61,7 @@ int main(int argc, char **argv) {
     struct md_inode_statistics database = {0};
     struct md_fs_statistics filesystem = {0};
     int error = md_inode_store_open(argv[1], 0, &store), listener = -1;
+    if (!error) error = md_inode_runtime_prepare(store);
     if (!error && argc == 6) error = md_image_catalogue_open(store, argv[5], &images);
     if (!error) {
         listener = md_fs_listen(argv[2]);

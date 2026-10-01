@@ -11,6 +11,7 @@
 
 struct md_fs md_files;
 char md_bootstrap[PATH_MAX], md_executable[PATH_MAX];
+char md_hostname[MD_HOSTNAME_SIZE];
 
 static void image(int directory, const char *name, int interpreted) {
     unsigned char bytes[4096] = {0};

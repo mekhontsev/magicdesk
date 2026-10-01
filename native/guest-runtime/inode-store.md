@@ -36,12 +36,14 @@ a timeout is not cancellation of a committed operation.
 `inode_store.c` defines namespace operations, `inode_directory.c` implements
 directory cursors, `inode_socket.c` implements socket publication and address
 lookup, `inode_metadata.c` owns guest permissions and metadata mutations, and
+`inode_acl.c` and `inode_capability.c` own logical security attributes;
 `inode_import.c` imports prepared trees. `inode_snapshot.c` owns
 immutable-source snapshots; `inode_backing.c` owns source validation and copy-up.
 Their private contract is in
 `inode_internal.h`. Callers use the explicit dirfd-based `inode_store.h` API.
 The internal database format is versioned and incompatible formats are rejected,
-not migrated. Format 8 includes logical owners/modes, stable identities, backing history,
+not migrated. Format 11 includes logical owners/modes, POSIX ACLs, file capabilities,
+unambiguous file-path history, stable identities, backing history,
 immutable sources, socket addresses, transactional namespace
 counters and the [watch event journal](watches.md). Incompatible stores require a separately prepared store; opening
 one never rewrites or deletes it. Bind retains a name until
@@ -71,6 +73,28 @@ supplementary groups, sticky-directory ownership and root's execute-bit rule.
 the filesystem UID/GID and a setgid parent's group; chmod/chown and timestamps
 share this model. The native backing remains caller-owned, without kernel set-ID.
 Trusted offline operations without a credential context use native authority.
+
+`file_paths` retains the parent/name of files that have never had multiple names.
+Descriptor readlink follows parent renames and marks deleted names without
+substituting a newly created object. Once an object has had hardlink aliases,
+the original descriptor dentry is ambiguous even after all but one alias is removed;
+readlink returns ENOTSUP instead of guessing. Data and descriptor operations still work.
+
+POSIX access/default ACLs are canonical Linux xattr values in `inode_acls`, shared
+by every alias and copied with image metadata. A transactional `acl_mask` on the
+object avoids extra lookups for ordinary mode-only access. Named users/groups,
+the ACL mask, chmod and default inheritance use the caller's guest credentials.
+Creation carries both the requested mode and kernel umask: a default ACL is
+clamped by the requested mode; otherwise the umask applies. This includes socket
+nodes and child-directory default ACLs. ACL mutations copy up before native
+metadata changes, preserving sealed lower bodies. The backing filesystem never
+receives guest-user ACLs or executable kernel file capabilities.
+
+Ordinary xattr bytes remain on the backing inode. Their preparation uses the
+same logical permission authority, including ACL masks and sticky-directory
+ownership, and returns a retained descriptor after any required copy-up.
+Kernel/LSM restrictions still apply; virtual root cannot bypass Android's
+attribute restrictions. Attribute listing does not require file-read access.
 
 ## Directory Cursors
 
@@ -250,7 +274,7 @@ and service restart are covered in `test_rpc.c`.
 
 ## Remaining Boundary
 
-Namespace-induced ctime updates, ACL inheritance, complete set-ID clearing on
+Namespace-induced ctime updates, complete set-ID/file-capability clearing on
 native data writes,
 exact hardlink-dentry data notifications, live import/promotion, FD
 reclamation, out-of-space recovery and production throughput are not implemented

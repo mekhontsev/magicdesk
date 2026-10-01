@@ -6,6 +6,7 @@
 #include "inode_watch.h"
 #include "ipc_credentials.h"
 #include "raw.h"
+#include "posix_acl.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -45,10 +46,28 @@ static int valid(const struct md_fs_packet *q, size_t size, const struct md_fs_r
     if (a[q->length[0]-1] || b[q->length[1]-1]
             || memchr(a, 0, q->length[0]-1) || memchr(b, 0, q->length[1]-1)) return -EPROTO;
     if (q->operation < MD_FS_CREATE || q->operation > MD_FS_LAST) return -ENOTSUP;
+    if (q->attributes.creation_mask & ~0777U) return -EINVAL;
+    if (q->operation == MD_FS_XATTR_OPEN)
+        return q->descriptors != 1 || q->length[0] > 256 || *b || q->flags
+            || (q->mode != F_OK && q->mode != R_OK && q->mode != W_OK)
+            || (q->mode == F_OK ? *a != 0 : *a == 0) || q->capacity || q->offset || q->resolve ? -EINVAL : 0;
+    if (q->operation == MD_FS_LISTATTR)
+        return q->descriptors!=1 || *a || *b || q->mode || q->flags || q->capacity || q->offset ? -EINVAL : 0;
+    if (q->operation>=MD_FS_GETACL && q->operation<=MD_FS_REMOVEACL) {
+        int set=q->operation==MD_FS_SETACL;
+        return q->descriptors!=(set ? 3U : 1U) || *a || *b || q->offset
+            || (q->mode!=MD_ACL_ACCESS && q->mode!=MD_ACL_DEFAULT)
+            || (set ? (q->capacity && q->capacity<4) || q->capacity>MD_ACL_MAX || (q->flags&~3U)
+                : q->capacity || q->flags) ? -EINVAL : 0;
+    }
     if (q->resolve && q->operation != MD_FS_OPEN) return -EINVAL;
     if (q->operation == MD_FS_IPC)
         return (q->descriptors != 1 && !((q->flags == MD_IPC_PAIR || q->flags == MD_IPC_MESSAGE_READ) && q->descriptors == 3))
             || *b || q->mode || q->capacity || q->flags < MD_IPC_LISTEN_BEGIN || q->flags > MD_IPC_MESSAGE_READ ? -EINVAL : 0;
+    if (q->operation == MD_FS_GETCAP || q->operation == MD_FS_SETCAP || q->operation == MD_FS_REMOVECAP)
+        return q->descriptors != 1 || *a || *b || q->mode || q->offset
+            || (q->operation != MD_FS_SETCAP && (q->capacity || q->flags))
+            || q->capacity > MD_FILE_CAPABILITY_MAX ? -EINVAL : 0;
     if ((q->capacity && q->operation != MD_FS_GETDENTS && q->operation != MD_FS_WATCH_READ) || q->capacity > PATH_MAX
             || (q->offset && q->operation != MD_FS_SEEKDIR)) return -EINVAL;
     if (q->operation == MD_FS_REOPEN)

@@ -15,6 +15,7 @@
 #include <sched.h>
 #include <sys/prctl.h>
 #include <sys/socket.h>
+#include <sys/utsname.h>
 
 long md_guest_export(int channel, int descriptor) {
     union { struct cmsghdr align; char bytes[CMSG_SPACE(sizeof(int))]; } control = {0};
@@ -53,6 +54,14 @@ extern char md_guest_watch_gate[], md_guest_watch_return[];
 long md_guest_dispatch(long nr, unsigned long a0, unsigned long a1, unsigned long a2,
         unsigned long a3, unsigned long a4, unsigned long a5) {
     unsigned long args[] = {a0, a1, a2, a3, a4, a5};
+    if (nr==SYS_uname) {
+        struct utsname identity;
+        long r=RAW1(uname,&identity);
+        if (!r && md_hostname[0]) md_copy(identity.nodename,sizeof(identity.nodename),md_hostname);
+        return r ? r : md_write_memory((void *)a0,&identity,sizeof(identity));
+    }
+    if (nr == SYS_shmget || nr == SYS_shmat || nr == SYS_shmdt || nr == SYS_shmctl)
+        return md_shm_dispatch(nr,args);
     if (nr == SYS_read || nr == SYS_readv || nr == SYS_ioctl || nr == SYS_splice
             || nr == SYS_tee || nr == SYS_sendfile) return md_watch_read_local(&md_files, nr, args);
     if (nr == SYS_inotify_init1 || nr == SYS_inotify_rm_watch
@@ -140,8 +149,9 @@ int md_interception_install(int inherited) {
             /* Descriptor metadata must remain serviceable after an application
              * installs a higher-precedence filter or becomes nondumpable. */
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_prctl, 0, 5),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_prctl, 0, 6),
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_SHM, 2, 0),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_MAP_IMAGE, 1, 0),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_ENTER_IMAGE, 0, 1),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_USER_NOTIF),
@@ -189,6 +199,8 @@ int md_interception_install(int inherited) {
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRACE | MD_INTERCEPT_EXEC),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRACE | MD_INTERCEPT_NATIVE),
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_uname, 0, 1),
+            BPF_STMT(BPF_RET | BPF_K, md_hostname[0] ? SECCOMP_RET_TRACE | MD_INTERCEPT_DISPATCH : SECCOMP_RET_ALLOW),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_fstat, 0, 1),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_USER_NOTIF),
 #define IDENTITY(n) BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_##n, 0, 1), \
@@ -197,6 +209,8 @@ int md_interception_install(int inherited) {
             IDENTITY(getresuid) IDENTITY(getresgid) IDENTITY(setresuid) IDENTITY(setresgid)
             IDENTITY(setuid) IDENTITY(setgid) IDENTITY(setreuid) IDENTITY(setregid)
             IDENTITY(setfsuid) IDENTITY(setfsgid) IDENTITY(setgroups) IDENTITY(getgroups)
+            IDENTITY(capget) IDENTITY(capset)
+            TRACE(shmget) TRACE(shmat) TRACE(shmdt) TRACE(shmctl)
 #undef IDENTITY
             OBSERVE(unshare) OBSERVE(setns)
             OBSERVE(seccomp)

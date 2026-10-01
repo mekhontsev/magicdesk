@@ -19,16 +19,16 @@ long md_fd_xattr(int fd, long operation, const unsigned long *arguments) {
     char path[64];
     fd_path(fd, path);
     switch (operation) {
-    case SYS_lsetxattr:
+    case SYS_lsetxattr: case SYS_fsetxattr:
         operation = SYS_setxattr;
         break;
-    case SYS_lgetxattr:
+    case SYS_lgetxattr: case SYS_fgetxattr:
         operation = SYS_getxattr;
         break;
-    case SYS_llistxattr:
+    case SYS_llistxattr: case SYS_flistxattr:
         operation = SYS_listxattr;
         break;
-    case SYS_lremovexattr:
+    case SYS_lremovexattr: case SYS_fremovexattr:
         operation = SYS_removexattr;
         break;
     case SYS_setxattr:

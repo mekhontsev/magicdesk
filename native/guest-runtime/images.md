@@ -31,6 +31,9 @@ come from the image's account files. `--user current` retains the executor's IDs
 A mapped-ownership image with nonempty User requires an explicit user override.
 The actual selected executor remains UID 2000 or UID 0. Kernel permissions and
 network namespace do not change. `inspect` includes the `guestUsers` policy.
+Each instance gets a stable launch hostname derived from its storage identity;
+`--hostname NAME` overrides it. The ordinary runner accepts the same option.
+This changes guest uname's nodename, not Android's hostname or network namespace.
 
 An instance is a normal guest store. Existing shell, PTY and graphical recipes
 can use it through `--store`, including their explicit graphics routes and
@@ -66,8 +69,13 @@ Import requires exactly one ownership policy. `--preserve-ownership` retains
 archive UID/GID and permission bits in logical inode metadata, including set-ID
 bits, without changing host credentials or making backing files set-ID.
 `--map-current-user` explicitly maps ownership to the caller and removes set-ID
-bits. Xattrs, ACLs and special nodes are rejected, not silently imported with
-different meaning. General set-ID metadata does not grant execution admission.
+bits. Preserved-ownership imports retain POSIX access/default ACLs and
+`security.capability` as logical inode metadata. Neither is installed on host
+backings or grants Android privileges. Identical duplicate xattr encodings are
+accepted; conflicting values are rejected. Other xattrs, NFSv4 ACLs and special
+nodes are rejected rather than silently imported with different meaning.
+ACL/capability-bearing inputs require preserved ownership.
+General set-ID metadata does not grant execution admission.
 The prepared userspace remains responsible for NSS, DNS and CA certificates.
 Image Volumes, ExposedPorts,
 Healthcheck and StopSignal do not provision host resources or change supervision.
@@ -150,5 +158,68 @@ cross-boundary resolution, readonly retained FDs and cursor publication.
 `test_oci_runtime.py` imports real Alpine and Debian OCI layouts and runs both
 through the production guest runtime under actual UID 2000, without Desktop.
 Reports retain image digests, command output and the selected device/build.
+
+`test_oci_services.py` exercises stock ARM64 application images through
+the selected UID 2000 shell service. It runs image entrypoints and checks loopback
+network requests, shutdown and persistent data across separate launches. Service
+log events establish readiness; timeouts fail the check. This suite exposes
+application requirements beyond base-image shell execution. Passed workflows:
+
+- Nginx 1.30.5 Alpine: default entrypoint, `/dev/stderr` logging, HTTP and
+  graceful worker/master shutdown.
+- Redis 7.4.11 bookworm: default root entrypoint including setpriv's capability
+  sequence, PING, SET/GET, SAVE, shutdown and saved-data reload.
+- PostgreSQL 17.11 Alpine 3.23: stock initdb/entrypoint, System V shared memory,
+  SQL writes, shutdown and data readback after restart.
+- Python 3.13.15 Alpine 3.23: spawned process pool, POSIX shared memory across
+  processes, SQLite persistence and HTTP.
+- Node 22.23.3 bookworm: worker threads, child exec, file persistence,
+  fs.watch and HTTP.
+- Apache 2.4.68 trixie: event workers, repeated HTTP requests and graceful stop.
+- Memcached 1.6.45 Alpine 3.24: configured non-root image user, TCP set/get,
+  atomic increment, deletion and protocol shutdown.
+- Eclipse Temurin 21 noble: source compilation, worker threads, mapped-file
+  persistence, child process, WatchService and HTTP across independent launches.
+- Caddy 2.11.4 Alpine: original file-capability metadata, HTTP serving and
+  shutdown through its local admin endpoint.
+- MariaDB 11.8.9 noble: stock entrypoint, user/database setup, InnoDB with native
+  O_DIRECT, SQL writes and readback after restart using the instance hostname.
+- PHP 8.5.11 Alpine: SQLite WAL, commit/rollback, persistence, subprocess locks
+  and compression; Ruby 3.4.11 trixie: threads, fork/exec, persistent JSON and HTTP.
+- .NET SDK 10.0 Alpine: C# compilation/JIT, async IO, mapped-file persistence,
+  subprocesses, filesystem watching and TCP across separate launches.
+
+`test_distribution_runtime.py` covers signed Ubuntu 24.04 APT and CentOS Stream
+10 DNF installation/reinstallation, accounts, non-root permission denial,
+session D-Bus and a Python multiprocess service. The Arch Linux ARM fixture uses
+an unchanged signature-verified official rootfs archive wrapped as an OCI layer;
+its imported POSIX ACLs remain visible through getfacl. Package checks explicitly
+own and terminate any GnuPG agents; launch completion never abandons descendants.
+DNS configuration belongs to the private test instance, not the runtime.
+Arch's base userspace and ACL import pass, but its default pacman download
+sandbox requires Landlock. On this device the native UID 2000 control returns
+ENOSYS for Landlock as well; default package synchronization fails. The runtime
+does not turn that missing kernel isolation into a successful no-op.
+
+Ubuntu Mousepad is checked through both graphical protocols with keyboard input,
+save/readback and clean exit. `test_qemu_runtime.py` runs a freestanding x86-64
+ELF under the distribution's QEMU user-mode emulator, checking file data,
+fork/wait and status. It does not test KVM or full-system emulation.
+
+`test_development_runtime.py` installs stock Debian trixie GCC/G++ and GDB,
+compiles/runs C and C++ programs with a shared library, worker thread and file
+IO, then separately tests a debugger breakpoint, stepping and backtrace.
+Compilation/execution pass; GDB reads symbols but live debugging fails because
+its inferior already has the runtime supervisor as tracer. No virtual nested
+ptrace implementation or debugger-specific exception is provided.
+
+These observations are from the RM11/API 36 device identified in
+[guest coverage](../../docs/guest-runtime.md), not cross-device guarantees.
+`test_service_runtime.c` checks descriptor reopening and path identity, native
+O_DIRECT, capability/securebits transitions, file capabilities, POSIX ACLs,
+initial stack boundaries, protected copies, application seccomp precedence and
+the [shared-memory contract](shared-memory.md). Passing a suite
+with staged native helpers does not establish APK packaging; `--build` records
+that distinction and verifies uploaded binary hashes in its report.
 
 The image format contract is [OCI image-spec](https://github.com/opencontainers/image-spec).

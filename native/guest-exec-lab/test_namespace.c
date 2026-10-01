@@ -75,10 +75,10 @@ int main(int argc, char **argv) {
     CHECK(mknodat(AT_FDCWD, "regular-node/child", 0600, 0) == -1 && errno == ENOTDIR);
     CHECK(mknodat(AT_FDCWD, "fifo-node", S_IFIFO | 0600, 0) == -1 && errno == ENOTSUP);
     CHECK(unlink("regular-node") == 0);
-    CHECK(setxattr(".", "system.posix_acl_default", "", 0, 0) == -1 && errno == ENOTSUP);
+    CHECK(setxattr(".", "system.posix_acl_default", "", 1, 0) == -1 && errno == EINVAL);
     int directory = open(".", O_RDONLY | O_DIRECTORY);
     CHECK(directory >= 0);
-    CHECK(fsetxattr(directory, "system.posix_acl_default", "", 0, 0) == -1 && errno == ENOTSUP);
+    CHECK(fsetxattr(directory, "system.posix_acl_default", "", 1, 0) == -1 && errno == EINVAL);
     close(directory);
     CHECK(openat(-1, "a", O_RDONLY) == -1 && errno == EBADF);
     CHECK(fstat(-1, &b) == -1 && errno == EBADF);
@@ -201,8 +201,8 @@ int main(int argc, char **argv) {
     close(notifications);
     puts("PASS namespace syscalls: atomic open, hard links, stat/statx, mmap/flock, symlinks and directory "
          "cursors");
-    puts("PASS namespace hard-link xattrs, descriptor access checks and explicit default-ACL rejection");
+    puts("PASS namespace hard-link xattrs, descriptor access checks and malformed ACL rejection");
     puts("PASS namespace directory notifications through the guest syscall adapter");
-    puts("LIMIT default-ACL inheritance and cross-mount symlinks are not implemented");
+    puts("LIMIT cross-mount symlinks are not implemented");
     return 0;
 }

@@ -367,8 +367,10 @@ static void hierarchy(void) {
     CHECK(md_inode_fstat(s, left, &st) == 0 && st.st_nlink == 3);
     CHECK(md_inode_stat(s, MD_INODE_ROOT, "/", 0, &st) == 0 && st.st_nlink == 4);
     expected_path(s, sub, "/left/sub");
+    expected_path(s, file, "/left/sub/value");
     CHECK(md_inode_rename(s, left, "sub", right, "moved", 0) == 0);
     expected_path(s, sub, "/right/moved");
+    expected_path(s, file, "/right/moved/value");
     CHECK(md_inode_fstat(s, sub, &st) == 0 && st.st_ino == initial.st_ino);
     CHECK(md_inode_fstat(s, left, &st) == 0 && st.st_nlink == 2);
     CHECK(md_inode_fstat(s, right, &st) == 0 && st.st_nlink == 3);
@@ -390,6 +392,16 @@ static void hierarchy(void) {
     CHECK(md_inode_stat(s, empty, ".", 0, &st) == 0 && st.st_nlink == 0);
     CHECK(md_inode_stat(s, empty, "..", 0, &st) == 0);
     CHECK(md_inode_unlink(s, sub, "value", 0) == 0);
+    expected_path(s, file, "/left/empty/value (deleted)");
+    int replacement = md_inode_create(s, sub, "value", 0600); CHECK(replacement >= 0);
+    expected_path(s, file, "/left/empty/value (deleted)");
+    expected_path(s, replacement, "/left/empty/value");
+    CHECK(md_inode_link(s, sub, "value", left, "alias", 0) == 0);
+    CHECK(md_inode_path(s, replacement, value, sizeof(value)) == -ENOTSUP);
+    CHECK(md_inode_unlink(s, sub, "value", 0) == 0);
+    CHECK(md_inode_path(s, replacement, value, sizeof(value)) == -ENOTSUP);
+    CHECK(md_inode_unlink(s, left, "alias", 0) == 0);
+    close(replacement);
     CHECK(md_inode_unlink(s, left, "empty", AT_REMOVEDIR) == 0);
     CHECK(md_inode_fstat(s, sub, &st) == 0 && st.st_nlink == 0);
     CHECK(md_inode_path(s, sub, value, sizeof(value)) == -ENOENT);

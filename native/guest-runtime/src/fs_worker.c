@@ -60,6 +60,7 @@ static void *run(void *context) {
     struct md_inode_store *store = NULL;
     struct md_image_catalogue *images = NULL;
     int listener = -1, error = md_inode_store_open(w->store, 0, &store);
+    if (!error) error = md_inode_runtime_prepare(store);
     if (!error && w->admit) error = md_image_catalogue_open(store, w->admit, &images);
     struct md_filesystem fs = {.store=store, .images=images, .credentials=w->credentials, .ipc_store=w->store};
     if (!error) error = md_fs_mounts_open(&fs, w->attachments, w->attachment_count);

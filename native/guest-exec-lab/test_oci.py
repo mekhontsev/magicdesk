@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Offline image boundary checks. No Desktop, network or kernel adaptation."""
 import argparse
+import base64
+import ctypes
+import errno
 import gzip
 import hashlib
 import io
@@ -34,6 +37,11 @@ def tar(entries):
             if len(item) > 4:
                 entry.uid, entry.gid = item[4:6]
             entry.mtime = 123456
+            if len(item) > 6:
+                entry.pax_headers = {'LIBARCHIVE.xattr.' + name: base64.b64encode(value).decode()
+                                     for name, value in item[6].items()}
+            if len(item) > 7:
+                entry.pax_headers.update(item[7])
             if kind == 'file':
                 entry.size = len(value)
                 archive.addfile(entry, io.BytesIO(value))
@@ -160,6 +168,68 @@ class Images(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(self.destination.exists())
 
+    def test_capability_inode_metadata(self):
+        value = bytes.fromhex('0100000200040000000000000000000000000000')
+        layout = self.layout([[('program', 'file', b'ELF fixture', 0o755, 0, 0,
+                               {'security.capability': value}), ('alias', 'hard', 'program')]])
+        self.run_import(layout, preserve=True)
+        backing = self.object('program')
+        self.assertEqual(backing, self.object('alias'))
+        libc = ctypes.CDLL(None, use_errno=True)
+        libc.getxattr.restype = ctypes.c_ssize_t
+        self.assertEqual(libc.getxattr(os.fsencode(backing), b'security.capability', None, 0), -1)
+        self.assertEqual(ctypes.get_errno(), errno.ENODATA)
+        with sqlite3.connect(self.destination / 'namespace.db') as db:
+            self.assertEqual(db.execute('SELECT value FROM file_capabilities WHERE object=?',
+                                        (backing.name,)).fetchone(), (value,))
+        instance = self.root / 'instance'
+        subprocess.run([BINARY, 'create', str(self.destination), str(instance)], check=True, capture_output=True)
+        with sqlite3.connect(instance / 'namespace.db') as db:
+            self.assertEqual(db.execute('SELECT value FROM file_capabilities WHERE object=?',
+                                        (backing.name,)).fetchone(), (value,))
+
+    def test_malformed_capability(self):
+        self.run_import(self.layout([[('bad', 'file', b'x', 0o755, 0, 0,
+                                       {'security.capability': b'broken'})]]), success=False)
+
+    def test_capability_dual_tar_encoding(self):
+        value = bytes.fromhex('0100000200040000000000000000000000000000')
+        layout = self.layout([[('program', 'file', b'code', 0o755, 0, 0,
+                              {'security.capability': value},
+                              {'SCHILY.xattr.security.capability': value.decode('ascii')})]])
+        self.run_import(layout, preserve=True)
+        with sqlite3.connect(self.destination / 'namespace.db') as db:
+            self.assertEqual(db.execute('SELECT value FROM file_capabilities').fetchone(), (value,))
+
+    def test_acl_import_snapshot_and_replacement(self):
+        acl = 'user::rwx,user:fixture:r-x:1234,group::---,mask::r-x,other::---'
+        layout = self.layout([
+            [('folder', 'dir', '', 0o750, 0, 0, {},
+              {'SCHILY.acl.access': acl, 'SCHILY.acl.default': acl}),
+             ('program', 'file', b'old', 0o750, 0, 0, {}, {'SCHILY.acl.access': acl}),
+             ('alias', 'hard', 'program')], [('program', 'file', b'new')]])
+        self.run_import(layout, preserve=True)
+        with sqlite3.connect(self.destination / 'namespace.db') as db:
+            self.assertEqual(db.execute('SELECT acl_mask FROM objects WHERE object=?',
+                                        (self.object('folder').name,)).fetchone(), (3,))
+            self.assertEqual(db.execute('SELECT acl_mask FROM objects WHERE object=?',
+                                        (self.object('alias').name,)).fetchone(), (1,))
+            self.assertEqual(db.execute('SELECT acl_mask FROM objects WHERE object=?',
+                                        (self.object('program').name,)).fetchone(), (0,))
+            expected = db.execute('SELECT object,type,value FROM inode_acls ORDER BY object,type').fetchall()
+        instance = self.root / 'instance'
+        subprocess.run([BINARY, 'create', self.destination, instance], check=True, capture_output=True)
+        with sqlite3.connect(instance / 'namespace.db') as db:
+            self.assertEqual(db.execute('SELECT object,type,value FROM inode_acls ORDER BY object,type').fetchall(), expected)
+
+    def test_acl_requires_ownership_policy(self):
+        self.run_import(self.layout([[('folder', 'dir', '', 0o750, 0, 0, {},
+            {'SCHILY.acl.default': 'user::rwx,group::r-x,other::---'})]]), success=False)
+
+    def test_unknown_attribute(self):
+        self.run_import(self.layout([[('bad', 'file', b'x', 0o755, 0, 0,
+                                       {'security.unknown': b'value'})]]), success=False)
+
     def test_tar(self):
         self.run_import(self.layout(compression=''))
         self.assertEqual(self.object('hello').read_bytes(), b'world')
@@ -189,6 +259,54 @@ class Images(unittest.TestCase):
 
     def test_hardlink_cycle(self):
         self.run_import(self.layout([[('a', 'hard', 'b'), ('b', 'hard', 'a')]]), False)
+
+    def test_replacement_does_not_modify_lower_alias(self):
+        layout = self.layout([[('a', 'file', b'lower'), ('alias', 'hard', 'a')],
+                              [('a', 'file', b'upper')]])
+        self.run_import(layout)
+        self.assertEqual(self.object('a').read_bytes(), b'upper')
+        self.assertEqual(self.object('alias').read_bytes(), b'lower')
+        self.assertNotEqual(self.object('a'), self.object('alias'))
+
+    def test_upper_hardlink_to_lower_object(self):
+        self.run_import(self.layout([[('a', 'file', b'lower')], [('alias', 'hard', 'a')]]))
+        self.assertEqual(self.object('a'), self.object('alias'))
+
+    def test_whiteout_preserves_other_hardlink(self):
+        self.run_import(self.layout([[('a', 'file', b'value'), ('alias', 'hard', 'a')],
+                                     [('.wh.a', 'file', b'')]]))
+        self.assertIsNone(self.object('a'))
+        self.assertEqual(self.object('alias').read_bytes(), b'value')
+
+    def test_layer_type_replacements(self):
+        self.run_import(self.layout([
+            [('dir/old', 'file', b'old'), ('file', 'file', b'old'), ('sym', 'sym', 'dir')],
+            [('dir', 'file', b'new'), ('file', 'dir', ''), ('file/new', 'file', b'child'),
+             ('sym', 'file', b'regular')]]))
+        self.assertIsNone(self.object('dir/old'))
+        self.assertEqual(self.object('dir').read_bytes(), b'new')
+        self.assertEqual(self.object('file/new').read_bytes(), b'child')
+        self.assertEqual(self.object('sym').read_bytes(), b'regular')
+
+    def test_opaque_root_and_later_recreation(self):
+        self.run_import(self.layout([
+            [('a/old', 'file', b'old'), ('b', 'file', b'old')],
+            [('a/current', 'file', b'current'), ('.wh..wh..opq', 'file', b'')],
+            [('b', 'file', b'recreated')]]))
+        self.assertIsNone(self.object('a/old'))
+        self.assertEqual(self.object('a/current').read_bytes(), b'current')
+        self.assertEqual(self.object('b').read_bytes(), b'recreated')
+
+    def test_replacement_drops_capability_not_alias_metadata(self):
+        capability = bytes.fromhex('0100000200040000000000000000000000000000')
+        self.run_import(self.layout([
+            [('app', 'file', b'old', 0o755, 0, 0, {'security.capability': capability}),
+             ('alias', 'hard', 'app')], [('app', 'file', b'new')]]), preserve=True)
+        with sqlite3.connect(self.destination / 'namespace.db') as db:
+            self.assertIsNone(db.execute('SELECT value FROM file_capabilities WHERE object=?',
+                                         (self.object('app').name,)).fetchone())
+            self.assertEqual(db.execute('SELECT value FROM file_capabilities WHERE object=?',
+                                        (self.object('alias').name,)).fetchone(), (capability,))
 
     def test_duplicate_paths(self):
         self.run_import(self.layout([[('a', 'file', b'1'), ('./a', 'file', b'2')]]), False)

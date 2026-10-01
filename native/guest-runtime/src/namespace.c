@@ -5,9 +5,11 @@
 #include "fd_metadata.h"
 #include "linux_abi.h"
 #include "raw.h"
+#include "posix_acl.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/stat.h>
+#include <linux/memfd.h>
 #include <sys/stat.h>
 #include <sys/inotify.h>
 #include <sys/sysmacros.h>
@@ -93,17 +95,18 @@ long md_namespace_open_resolved(const struct md_fs *fs, int base, const char *pa
         const struct open_how *how) {
     int flags = (int)how->flags;
     unsigned mode = (unsigned)how->mode;
+    unsigned mask=0;
     if ((flags & O_CREAT) && !(flags & O_PATH)) {
-        long masked = md_namespace_creation_mode(mode);
+        long masked = md_namespace_creation_mode(0777);
         if (masked < 0)
             return masked;
-        mode = (unsigned)masked;
+        mask = 0777U ^ (unsigned)masked;
     }
     struct md_fs_request q = {.operation = MD_FS_OPEN,
                               .directory = {base, -1},
                               .path = {path, NULL},
                               .flags = (uint32_t)flags,
-                              .mode = mode, .resolve = how->resolve};
+                              .mode = mode, .resolve = how->resolve, .attributes.creation_mask=mask};
     struct md_fs_response out;
     long r = md_namespace_request(fs, &q, &out);
     if (r < 0)
@@ -183,56 +186,123 @@ static long descriptor_call(const struct md_fs *fs, long nr, const unsigned long
         return r;
     return out.result.position;
 }
+static long namespace_acl(const struct md_fs *fs,int fd,unsigned type,int set,int remove,const unsigned long *a) {
+    struct md_fs_request q={.operation=set ? MD_FS_SETACL : remove ? MD_FS_REMOVEACL : MD_FS_GETACL,
+        .directory={fd,-1},.mode=type};
+    long r=0, payload=-1;
+    if(set) {
+        if((a[3] && a[3]<4) || a[3]>MD_ACL_MAX || (a[4]&~3UL)) return -EINVAL;
+        payload=RAW2(memfd_create,"guest-acl",MFD_CLOEXEC|MFD_ALLOW_SEALING);
+        if(payload<0) return payload;
+        unsigned char chunk[4096];
+        for(size_t copied=0;!r && copied<a[3];) {
+            size_t n=a[3]-copied; if(n>sizeof(chunk)) n=sizeof(chunk);
+            r=md_read_memory(chunk,(const char *)a[2]+copied,n);
+            if(!r) { long written=RAW4(pwrite64,payload,chunk,n,copied); if(written!=(long)n) r=written<0 ? written : -EIO; }
+            copied+=n;
+        }
+        if(!r) r=RAW3(fcntl,payload,F_ADD_SEALS,F_SEAL_WRITE|F_SEAL_GROW|F_SEAL_SHRINK|F_SEAL_SEAL);
+        q.directory[1]=(int)payload; q.capacity=(unsigned)a[3]; q.flags=(unsigned)a[4];
+    }
+    struct md_fs_response out;
+    if(!r) r=md_namespace_request(fs,&q,&out);
+    if(payload>=0) RAW1(close,payload);
+    if(!r && !set && !remove) {
+        if(out.result.position<4 || out.result.position>MD_ACL_MAX) r=-EPROTO;
+        else if(!a[3]) r=out.result.position;
+        else if(a[3]<(unsigned long)out.result.position) r=-ERANGE;
+        else r=RAW4(pread64,out.result.fd,a[2],out.result.position,0);
+        RAW1(close,out.result.fd);
+    }
+    return r;
+}
+static long namespace_xattr_backing(const struct md_fs *fs, int fd, const char *name, unsigned access) {
+    struct md_fs_request q = {.operation=MD_FS_XATTR_OPEN, .directory={fd,-1},
+        .path={name,NULL}, .mode=access};
+    struct md_fs_response out;
+    long r = md_namespace_request(fs,&q,&out);
+    if (!r) return out.result.fd;
+    if (r != -EXDEV) return r;
+    return access == W_OK ? md_namespace_mutable(fs,fd) : RAW3(fcntl,fd,F_DUPFD_CLOEXEC,3);
+}
 long md_namespace_xattr(const struct md_fs *fs, long nr, int base, const char *path, const unsigned long *a) {
     unsigned long args[6];
     memcpy(args, a, sizeof(args));
     char name[256];
-    int permission_acl = 0;
-    if (nr == SYS_setxattr || nr == SYS_lsetxattr || nr == SYS_fsetxattr) {
+    int list = nr == SYS_listxattr || nr == SYS_llistxattr || nr == SYS_flistxattr;
+    int set = nr == SYS_setxattr || nr == SYS_lsetxattr || nr == SYS_fsetxattr;
+    int remove = nr == SYS_removexattr || nr == SYS_lremovexattr || nr == SYS_fremovexattr;
+    int descriptor = nr == SYS_fgetxattr || nr == SYS_flistxattr || nr == SYS_fsetxattr || nr == SYS_fremovexattr;
+    if (!list) {
         long r = md_read_string(name, sizeof(name), (const char *)a[1]);
         if (r < 0)
             return r == -ENAMETOOLONG ? -ERANGE : r;
         args[1] = (unsigned long)name;
-        permission_acl = md_equal(name, "system.posix_acl_default") || md_equal(name, "system.posix_acl_access");
     }
-    if (nr == SYS_fsetxattr || nr == SYS_fremovexattr) {
-        if (permission_acl) {
-            if (base < 0)
-                return -EBADF;
-            struct md_fs_response out;
-            long r = md_namespace_inspect(fs, base, NULL, 0, &out);
-            if (!r)
-                return -ENOTSUP;
-            if (r != -EXDEV)
-                return r;
-        }
+    unsigned acl=!list && md_equal(name,MD_ACL_ACCESS_NAME) ? MD_ACL_ACCESS
+        : !list && md_equal(name,MD_ACL_DEFAULT_NAME) ? MD_ACL_DEFAULT : 0;
+    if (descriptor) {
         long flags = RAW3(fcntl, base, F_GETFL, 0);
         if (flags < 0) return flags;
         if (flags & O_PATH) return -EBADF;
-        long fd = md_namespace_mutable(fs, base);
-        if (fd < 0) return fd;
-        long r = md_fd_xattr((int)fd, nr == SYS_fsetxattr ? SYS_setxattr : SYS_removexattr, args);
-        RAW1(close, fd); return r;
     }
     int nofollow =
         nr == SYS_lsetxattr || nr == SYS_lgetxattr || nr == SYS_llistxattr || nr == SYS_lremovexattr;
-    long fd = md_namespace_open(fs, base, path, O_PATH | O_CLOEXEC | (nofollow ? O_NOFOLLOW : 0), 0);
+    long fd = descriptor ? RAW3(fcntl,base,F_DUPFD_CLOEXEC,3)
+        : md_namespace_open(fs, base, path, O_PATH | O_CLOEXEC | (nofollow ? O_NOFOLLOW : 0), 0);
     if (fd < 0)
         return fd;
-    if (!permission_acl && (nr == SYS_setxattr || nr == SYS_lsetxattr || nr == SYS_removexattr || nr == SYS_lremovexattr)) {
-        long next = md_namespace_mutable(fs, (int)fd);
-        RAW1(close, fd); fd = next;
+    if (list) {
+        long next = namespace_xattr_backing(fs,(int)fd,"",F_OK);
+        RAW1(close,fd); fd=next;
         if (fd < 0) return fd;
     }
-    /* Native ACLs refer to Android identities, not the guest's permission model.
-     * Attachments retain kernel authority; stored objects reject unsupported ACLs. */
-    long r = 0;
-    if (permission_acl) {
+    long r = -EXDEV;
+    if(acl) {
+        r=namespace_acl(fs,(int)fd,acl,set,remove,a);
+        if(r!=-EXDEV) { RAW1(close,fd); return r; }
+    }
+    if (list || md_equal(name, MD_FILE_CAPABILITY_NAME)) {
+        struct md_fs_request q = {.operation=list ? MD_FS_LISTATTR : set ? MD_FS_SETCAP : remove ? MD_FS_REMOVECAP : MD_FS_GETCAP,
+            .directory={(int)fd,-1}};
         struct md_fs_response out;
-        r = md_namespace_inspect(fs, (int)fd, NULL, 0, &out);
-        if (!r) r = -ENOTSUP;
-        else if (r == -EXDEV) r = md_fd_xattr((int)fd, nr, args);
-    } else r = md_fd_xattr((int)fd, nr, args);
+        if (set) {
+            if (a[3] > MD_FILE_CAPABILITY_MAX) { RAW1(close,fd); return -EINVAL; }
+            q.flags=(unsigned)a[4]; q.capacity=(unsigned)a[3];
+            r=md_read_memory(q.attributes.capability,(void *)a[2],a[3]);
+        } else r=0;
+        if (!r) r=md_namespace_request(fs,&q,&out);
+        if (list && (r == -ENODATA || r == -EXDEV)) r=-EXDEV;
+        else if (!r && list) {
+            /* Count native attributes without passing a reduced/zero guest
+             * capacity to the kernel; an undersized list must fail, not become
+             * a size query. A concurrent list change may report ERANGE. */
+            unsigned long probe[6]; memcpy(probe,args,sizeof(probe)); probe[1]=probe[2]=0;
+            long bytes=md_fd_xattr((int)fd,nr,probe);
+            size_t extra=out.result.size;
+            if (bytes<0) r=bytes;
+            else if (!a[2]) r=bytes+(long)extra;
+            else if ((size_t)bytes > a[2] || extra > a[2]-(size_t)bytes) r=-ERANGE;
+            else {
+                r=bytes ? md_fd_xattr((int)fd,nr,args) : 0;
+                if (r>=0 && (size_t)r<=a[2] && extra<=a[2]-(size_t)r) {
+                    long copied=md_write_memory((char *)a[1]+r,out.data,extra);
+                    r=copied<0 ? copied : r+(long)extra;
+                } else if (r>=0) r=-ERANGE;
+            }
+        } else if (!r && !set && !remove) {
+            if (!a[3]) r=(long)out.result.size;
+            else if (a[3]<out.result.size) r=-ERANGE;
+            else { r=md_write_memory((void *)a[2],out.data,out.result.size); if (!r) r=(long)out.result.size; }
+        }
+        if (r != -EXDEV) { RAW1(close,fd); return r; }
+    }
+    if (!list) {
+        long next = namespace_xattr_backing(fs,(int)fd,name,set || remove ? W_OK : R_OK);
+        RAW1(close,fd); fd=next;
+        if (fd < 0) return fd;
+    }
+    r = md_fd_xattr((int)fd, nr, args);
     RAW1(close, fd);
     return r;
 }
@@ -267,7 +337,7 @@ long md_namespace_call(const struct md_fs *fs, const char *exe, long nr, const u
     }
     if (nr == SYS_fstat || nr == SYS_getdents64 || nr == SYS_lseek)
         return descriptor_call(fs, nr, a);
-    if (nr == SYS_fsetxattr || nr == SYS_fremovexattr)
+    if (nr == SYS_fsetxattr || nr == SYS_fremovexattr || nr == SYS_fgetxattr || nr == SYS_flistxattr)
         return md_namespace_xattr(fs, nr, (int)a[0], NULL, a);
     if (nr == SYS_fchmod || nr == SYS_fchown || (nr == SYS_utimensat && !a[1])) {
         long flags = RAW3(fcntl, a[0], F_GETFL, 0);
@@ -423,11 +493,12 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
         return md_write_memory((void *)a[4], &st, sizeof(st));
     }
     case SYS_mkdirat:
-        r = md_namespace_creation_mode((unsigned)a[2]);
+        r = md_namespace_creation_mode(0777);
         if (r < 0)
             return r;
         q.operation = MD_FS_MKDIR;
-        q.mode = (uint32_t)r;
+        q.mode = (uint32_t)a[2];
+        q.attributes.creation_mask=0777U^(unsigned)r;
         break;
     case SYS_unlinkat:
         q.operation = MD_FS_UNLINK;
@@ -526,7 +597,9 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
             break;
         }
         case SYS_fchmodat2:
-            r = RAW4(fchmodat2, fd, "", a[2], flags | AT_EMPTY_PATH);
+            r = flags & AT_SYMLINK_NOFOLLOW
+                ? RAW4(fchmodat2, fd, "", a[2], flags | AT_EMPTY_PATH)
+                : md_fd_chmod((int)fd, (unsigned)a[2]);
             break;
         case SYS_fchownat:
             r = RAW5(fchownat, fd, "", a[2], a[3], flags | AT_EMPTY_PATH);

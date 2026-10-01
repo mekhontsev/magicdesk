@@ -98,7 +98,7 @@ int main(int argc, char **argv) {
     CHECK(!mkdir("/tmp/credential-calls",0755));
     int fd=open("/tmp/credential-calls/file",O_CREAT|O_RDWR,0600); CHECK(fd>=0);
     const unsigned acl_version=2;
-    errno=0; CHECK(fsetxattr(fd,"system.posix_acl_access",&acl_version,sizeof(acl_version),0)==-1 && errno==ENOTSUP);
+    CHECK(fsetxattr(fd,"system.posix_acl_access",&acl_version,sizeof(acl_version),0)==0);
     CHECK(!fchown(fd,1000,1000)); CHECK(write(fd,"x",1)==1);
     CHECK(!mkdir("/tmp/credential-calls/secret",0700));
     int readable=open("/tmp/credential-calls/secret/readable",O_CREAT|O_WRONLY,0644);

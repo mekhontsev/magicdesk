@@ -17,7 +17,8 @@ for ownership, exact guarantees, coverage and remaining limits.
 `fs_worker.c` owns SQLite on a supervisor thread, using native Bionic IO.
 Its private storage never depends on the namespace service it supplies. The
 owner retains the already-selected real UID and uses umask zero after guest fork; creation
-requests contain modes masked using the requesting process's kernel umask.
+requests contain both the requested mode and the requesting process's kernel
+umask, so default ACL inheritance and mode-only creation share one policy.
 There is no automatic identity change after a denied operation. Explicit guest
 users and sealed-image admission share the supervisor's per-task credential model
 without changing the real UID; see [interception](interception.md).
@@ -65,12 +66,21 @@ seccomp filter and the real kernel cwd/descriptors.
 - Path xattrs use the retained inode through `fd_metadata.c`, shared with chmod.
   The proc magic link selects that FD's object, including an O_PATH/no-follow
   symlink inode; it does not resolve the guest symlink text a second time.
-  Attribute values remain kernel-owned data, not SQLite rows or RPC payloads.
-  Reads, writes, lists and removals retain native permission checks, binary values
-  and descriptor/hard-link identity. No heap, mutable cache or client lock is added.
-  Installing access/default ACLs on stored objects through a path or FD returns
-  ENOTSUP until guest ACL semantics and inheritance exist. Import still rejects
-  source xattrs other than the kernel-assigned SELinux label.
+  Ordinary attributes retain kernel-owned binary values and native checks.
+  Stored objects additionally check guest ownership, mode and ACL permissions
+  before opening the selected backing for the attribute operation. `user.*`
+  follows regular-file/directory and sticky-directory rules; `trusted.*`
+  requires guest CAP_SYS_ADMIN before the kernel's own checks. Descriptor calls
+  recheck current permissions even when the file was opened before chmod.
+  Writes copy up in the same namespace transaction as the permission check.
+  Reads and listings resolve the current backing even through a retained lower
+  descriptor; listing itself does not impose read permission on file contents.
+  POSIX ACLs and file capabilities on stored objects instead belong to the shared
+  logical credential/metadata model; they never grant Android authority.
+  ACL transfers use a bounded, immutable descriptor payload only for explicit
+  ACL operations, without enlarging the common RPC frame or adding a mutable
+  client cache. Listing merges logical names with native attributes. Native
+  attachments retain kernel ACLs and launch-local readonly policy.
 - `/proc` and `/dev` map to the host, except `/dev/shm`, which belongs to the
   guest store. Relative operations based at a host directory recognize these
   boundaries too. Selected current-process/thread magic links are described below.
@@ -125,9 +135,10 @@ through its proc alias. The guest `root` and `exe` links select the virtual root
 and the supplied guest executable, rather than Android's root or the bootstrap.
 
 Readlink can reconstruct a namespace directory's current parent path, including
-renames. A regular-file descriptor has inode identity but no retained virtual
-dentry: readlink returns ENOTSUP, even for a single current name. It must not
-guess a hard-link name or expose a backing-store filename. Native pipe/socket
+renames. Regular files retain unambiguous parent/name history, including deleted
+names. Any hardlink history makes descriptor-dentry reconstruction ambiguous:
+readlink then returns ENOTSUP rather than guessing a surviving name or exposing
+a backing-store filename. Native pipe/socket
 link text and unowned host links retain kernel behavior. Detached directory
 paths are not fabricated. Link/rename through host path aliases remain unsupported.
 
@@ -141,7 +152,8 @@ preserves the invocation spelling independently of executable inode identity.
 
 All temporary state is invocation-local. The syscall dispatcher keeps metadata
 payloads out of the ordinary open/chdir path; RPC request and reply phases reuse
-one local wire buffer. File operations allocate no heap or scratch mappings.
+one local wire buffer. Ordinary file operations allocate no client heap or scratch
+mappings; explicit ACL values use a bounded descriptor payload.
 
 ## Verification
 
@@ -170,8 +182,10 @@ asserted rather than treated as supported behavior.
 compares retained-FD metadata with native file/symlink metadata, checks binary
 values, follow/no-follow behavior, permission and pointer errors, four concurrent
 workers on 128 KiB stacks and descriptor cleanup after failures. Namespace tests
-also check shared hard-link attributes, descriptor access checks and default-ACL
-rejection through both path and FD operations.
+also check shared hard-link attributes, descriptor access checks and malformed
+ACL rejection through both path and FD operations. `test_service_runtime.c`
+checks valid ACLs, named principals, chmod, umask/default inheritance, sockets,
+hardlinks and unlinked descriptors through actual intercepted syscalls.
 
 Unmodified Debian `cp -a` and `tar --xattrs --xattrs-include='user.*'` copy/archive
 and restore payload and user attributes, checked after fresh service starts.

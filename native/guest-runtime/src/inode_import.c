@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "inode_internal.h"
+#include "file_capability.h"
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -30,7 +31,7 @@ static int same(const struct stat *a, const struct stat *b) {
         && a->st_mtim.tv_nsec == b->st_mtim.tv_nsec && a->st_ctim.tv_sec == b->st_ctim.tv_sec
         && a->st_ctim.tv_nsec == b->st_ctim.tv_nsec;
 }
-static int attributes(int fd, const char *symlink_path) {
+static int attributes(int fd, const char *symlink_path, unsigned char *capability, size_t *capability_size) {
     char names[256];
     ssize_t n = symlink_path ? llistxattr(symlink_path, names, sizeof(names)) : flistxattr(fd, names, sizeof(names));
     if (n < 0) return errno == ERANGE ? -ENOTSUP : -errno;
@@ -38,7 +39,14 @@ static int attributes(int fd, const char *symlink_path) {
         size_t length = strnlen(names+offset, (size_t)n-offset);
         if (length == (size_t)n-offset) return -EIO;
         /* New objects retain their kernel-assigned SELinux label, never a copied policy label. */
-        if (strcmp(names+offset, "security.selinux")) return -ENOTSUP;
+        if (!strcmp(names+offset,MD_FILE_CAPABILITY_NAME) && capability && !symlink_path) {
+            ssize_t size=fgetxattr(fd,MD_FILE_CAPABILITY_NAME,capability,MD_FILE_CAPABILITY_MAX);
+            if (size<0) return -errno;
+            if (!md_file_capability_valid(capability,size)) return -EINVAL;
+            *capability_size=(size_t)size;
+        } else if (!symlink_path && (!strcmp(names+offset,MD_ACL_ACCESS_NAME) || !strcmp(names+offset,MD_ACL_DEFAULT_NAME))) {
+            /* Values are captured with ownership metadata and source revalidation. */
+        } else if (strcmp(names+offset, "security.selinux")) return -ENOTSUP;
         offset += length+1;
     }
     return 0;
@@ -50,6 +58,20 @@ static int metadata(struct importer *i, const struct mdi_node *node, int fd, con
         if (r) return r;
     } else if (fd >= 0 && fchmod(fd, source->st_mode & 01777)) return -errno;
     if (fd >= 0 && (futimens(fd, times) || fsync(fd))) return -errno;
+    return 0;
+}
+static int acls(struct importer *i,const struct mdi_node *node,int fd) {
+    const char *names[]={MD_ACL_ACCESS_NAME,MD_ACL_DEFAULT_NAME};
+    for(unsigned kind=MD_ACL_ACCESS;kind<=MD_ACL_DEFAULT;kind++) {
+        ssize_t size=fgetxattr(fd,names[kind-1],NULL,0);
+        if(size<0) { if(errno==ENODATA || errno==ENOTSUP) continue; return -errno; }
+        if(!i->limits->preserve_ownership) return -ENOTSUP;
+        if(size<4 || size>MD_ACL_MAX) return -EINVAL;
+        void *value=malloc((size_t)size);
+        if(!value) return -ENOMEM;
+        int r=fgetxattr(fd,names[kind-1],value,size)!=size ? -ESTALE : mdi_acl_store(i->store,node,kind,value,size);
+        free(value); if(r) return r;
+    }
     return 0;
 }
 static int overlap(int descendant, const struct stat *ancestor) {
@@ -136,9 +158,10 @@ static int leaf(struct importer *i, struct import_frame *frame, const char *name
     int parent = frame->source_fd, source = -1, destination = -1;
     int link = S_ISLNK(st->st_mode), r = 0;
     char target[PATH_MAX], proc[64+NAME_MAX];
+    unsigned char capability[MD_FILE_CAPABILITY_MAX]; size_t capability_size=0;
     if (link) {
         if (snprintf(proc, sizeof(proc), "/proc/self/fd/%d/%s", parent, name) >= (int)sizeof(proc)) return -ENAMETOOLONG;
-        r = attributes(-1, proc);
+        r = attributes(-1, proc, NULL, NULL);
         ssize_t n = r ? -1 : readlinkat(parent, name, target, sizeof(target));
         if (!r && n < 0) r = -errno;
         if (!r && (size_t)n >= sizeof(target)) r = -ENAMETOOLONG;
@@ -149,7 +172,7 @@ static int leaf(struct importer *i, struct import_frame *frame, const char *name
         struct stat actual;
         if (fstat(source, &actual)) r = -errno;
         else if (!same(st, &actual)) r = -ESTALE;
-        if (!r) r = attributes(source, NULL);
+        if (!r) r = attributes(source, NULL, capability, &capability_size);
     }
     struct mdi_node node = {0};
     int found = r ? r : origin(i->store, st, &node, 0);
@@ -161,6 +184,8 @@ static int leaf(struct importer *i, struct import_frame *frame, const char *name
         r = mdi_allocate(i->store, st->st_mode & S_IFMT, 0600, O_RDWR, link ? target : NULL, NULL, &node, &destination);
         if (!r && !link) r = copy_file(i, source, destination, st);
         if (!r) r = metadata(i, &node, destination, st);
+        if (!r && !link) r=acls(i,&node,source);
+        if (!r && capability_size) r=mdi_file_capability(i->store,&node,capability,capability_size);
         if (!r && link) {
             struct timespec times[2] = {st->st_atim, st->st_mtim};
             if (utimensat(i->store->objects, node.id, times, AT_SYMLINK_NOFOLLOW)
@@ -197,7 +222,7 @@ int md_inode_import_tree(struct md_inode_store *s, int source_fd,
     struct import_frame *stack = NULL;
     int fd = -1;
     if (!r && (fd = openat(source_fd, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC)) < 0) r = -errno;
-    if (!r) r = attributes(fd, NULL);
+    if (!r) r = attributes(fd, NULL, NULL, NULL);
     if (!r) r = push(&stack, fd, -1, &root, &node, 1);
     if (r && fd >= 0) close(fd);
     while (!r && stack) {
@@ -209,6 +234,7 @@ int md_inode_import_tree(struct md_inode_store *s, int source_fd,
             if (fstat(stack->source_fd, &actual)) r = -errno;
             if (!r && !same(&stack->initial, &actual)) r = -ESTALE;
             if (!r) r = metadata(i, &stack->target, stack->destination, &stack->initial);
+            if (!r) r=acls(i,&stack->target,stack->source_fd);
             pop(&stack); continue;
         }
         if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
@@ -228,7 +254,7 @@ int md_inode_import_tree(struct md_inode_store *s, int source_fd,
         struct stat actual;
         if (fstat(child, &actual)) r = -errno;
         else if (!same(&st, &actual)) r = -ESTALE;
-        if (!r) r = attributes(child, NULL);
+        if (!r) r = attributes(child, NULL, NULL, NULL);
         int destination = -1;
         if (!r) r = mdi_allocate(s, S_IFDIR, 0700, 0, NULL, stack->target.id, &node, &destination);
         if (!r && fchmodat(s->objects, node.id, 0700, 0)) r = -errno;

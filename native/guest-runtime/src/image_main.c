@@ -121,7 +121,7 @@ int main(int argc, char **argv) {
         "       image create IMAGE NEW_INSTANCE\n"
         "       image inspect IMAGE_OR_INSTANCE\n"
         "       image run INSTANCE [--user current|UID[:GID]|NAME[:GROUP]] [--cwd PATH] [--entrypoint PROGRAM] [--env KEY=VALUE]\n"
-        "             [--bind HOST GUEST] [--bind-ro HOST GUEST] [-- COMMAND...]\n");
+        "             [--hostname NAME] [--bind HOST GUEST] [--bind-ro HOST GUEST] [-- COMMAND...]\n");
     if (r) fprintf(stderr, "Guest image: %s (errno=%d)\n", strerror(-r), -r);
     return r ? 1 : 0;
 }

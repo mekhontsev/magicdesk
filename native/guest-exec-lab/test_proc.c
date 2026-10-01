@@ -115,8 +115,11 @@ int main(int argc, char **argv) {
     alias(path, sizeof(path), 0, fd);
     CHECK(fchmod(fd, 0) == 0);
     CHECK(open(path, O_RDONLY) == -1 && errno == EACCES);
+    CHECK(access(path, R_OK) == -1 && errno == EACCES);
     CHECK(pwrite(fd, "data", 4, 0) == 4); /* Existing FD still works; reopening rechecks permissions. */
     CHECK(chmod(path, 0600) == 0 && access(path, R_OK | W_OK) == 0);
+    struct stat mode_check;
+    CHECK(fstat(fd, &mode_check) == 0 && (mode_check.st_mode & 0777) == 0600);
     CHECK(setxattr(path, "user.md-proc", "value", 5, 0) == 0);
     CHECK(fgetxattr(fd, "user.md-proc", text, sizeof(text)) == 5 && !memcmp(text, "value", 5));
     CHECK(removexattr(path, "user.md-proc") == 0);
@@ -164,7 +167,7 @@ int main(int argc, char **argv) {
         close(child);
     }
     alias(path, sizeof(path), 0, dir);
-    if (namespace) CHECK(setxattr(path, "system.posix_acl_default", "", 0, 0) == -1 && errno == ENOTSUP);
+    if (namespace) CHECK(setxattr(path, "system.posix_acl_default", "", 1, 0) == -1 && errno == EINVAL);
     CHECK(chdir(path) == 0);
     text_link("/proc/self/cwd", other); text_link("/proc/thread-self/cwd", other);
     CHECK(getcwd(text, sizeof(text)) && !strcmp(text, other));

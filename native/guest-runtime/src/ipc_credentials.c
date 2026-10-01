@@ -298,9 +298,9 @@ static int message_identity(struct md_ipc_credentials *s, const struct md_identi
     int fd = -1;
     if (req->flags == MD_IPC_MESSAGE_CREATE) {
         if ((pid_t)req->offset != req->peer
-                || (id->uid.effective && req->attributes.uid != id->uid.real
+                || (!md_identity_capable(id, CAP_SETUID) && req->attributes.uid != id->uid.real
                     && req->attributes.uid != id->uid.effective && req->attributes.uid != id->uid.saved)
-                || (id->uid.effective && req->attributes.gid != id->gid.real
+                || (!md_identity_capable(id, CAP_SETGID) && req->attributes.gid != id->gid.real
                     && req->attributes.gid != id->gid.effective && req->attributes.gid != id->gid.saved)) return -EPERM;
         if (getrandom(token.nonce, sizeof(token.nonce), 0) != sizeof(token.nonce)) return -EIO;
         fd = (int)syscall(SYS_memfd_create, "guest-ipc-message", MFD_CLOEXEC | MFD_ALLOW_SEALING);

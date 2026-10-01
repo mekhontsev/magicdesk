@@ -3,10 +3,12 @@
 #include "fs.h"
 #include "elf.h"
 #include "program_files.h"
+#include "host_identity.h"
 #define MD_ARG_MAX 1024
 extern struct md_fs md_files;
 extern char md_bootstrap[PATH_MAX];
 extern char md_executable[PATH_MAX];
+extern char md_hostname[MD_HOSTNAME_SIZE];
 long md_guest_exec(const char *, char *const [], char *const []);
 long md_guest_execat(int, const char *, char *const [], char *const [], int);
 // Storage remains live until the loader takes ownership of argv strings.

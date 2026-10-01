@@ -136,7 +136,7 @@ int md_inode_store_seal(struct md_inode_store *s) {
 }
 int md_inode_reopen(struct md_inode_store *s, int original, int flags, int mutable) {
     if (flags & ~(O_PATH | O_CLOEXEC | O_NONBLOCK | O_DIRECTORY | O_LARGEFILE | O_ACCMODE
-            | O_APPEND | O_TRUNC | O_NOFOLLOW | O_SYNC | O_DSYNC)) return -EINVAL;
+            | O_APPEND | O_TRUNC | O_NOFOLLOW | O_SYNC | O_DSYNC | O_DIRECT)) return -EINVAL;
     if ((flags & O_ACCMODE) == O_ACCMODE) return -EINVAL;
     if ((flags & O_TRUNC) && !(flags & O_ACCMODE)) return -EINVAL;
     if (flags & O_PATH) flags &= O_PATH | O_CLOEXEC | O_DIRECTORY | O_NOFOLLOW;
@@ -147,7 +147,7 @@ int md_inode_reopen(struct md_inode_store *s, int original, int flags, int mutab
     r = mdi_fd(s, original, &node);
     if (!r && !(flags & O_PATH)) r = mdi_permission(s, &node,
         (flags & O_ACCMODE) == O_WRONLY ? W_OK : (flags & O_ACCMODE) == O_RDWR ? R_OK | W_OK : R_OK, 0);
-    if (!r && mutable && (flags & O_PATH) && s->identity && s->identity->uid.fs) {
+    if (!r && mutable && (flags & O_PATH) && s->identity && !md_identity_capable(s->identity, CAP_FOWNER)) {
         struct stat st;
         r = mdi_stat(s, &node, &st);
         if (!r && st.st_uid != s->identity->uid.fs) r = -EPERM;

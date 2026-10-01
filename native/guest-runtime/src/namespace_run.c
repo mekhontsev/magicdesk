@@ -6,6 +6,7 @@
 #include "launch_identity.h"
 #include "socket_routes.h"
 #include "fs_mounts.h"
+#include "host_identity.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -26,6 +27,7 @@ void md_boot(uintptr_t *stack) {
     int diagnostics = 0, statistics = 0;
     const char *user = NULL;
     const char *groups = NULL;
+    const char *hostname = NULL;
     char *overrides[128]; unsigned override_count = 0;
     struct md_fs_attachment attachments[MD_FS_MOUNTS_MAX]; unsigned attachment_count = 0;
     size_t program = 1;
@@ -49,6 +51,10 @@ void md_boot(uintptr_t *stack) {
         if (md_equal(argv[program], "--store") && !store) store = argv[program + 1];
         else if (md_equal(argv[program], "--cwd")) cwd = argv[program + 1];
         else if (md_equal(argv[program], "--home")) home = argv[program + 1];
+        else if (md_equal(argv[program], "--hostname") && !hostname) {
+            hostname=argv[program+1];
+            if (!md_hostname_valid(hostname)) md_die("invalid guest hostname",-EINVAL);
+        }
         else if (md_equal(argv[program], "--user") && !user) {
             user = argv[program + 1];
             if (!*user || md_length(user) > 1024) md_die("invalid guest user", -EINVAL);
@@ -109,6 +115,7 @@ void md_boot(uintptr_t *stack) {
         args[n++] = "--endpoint"; args[n++] = endpoint;
         args[n++] = bootstrap;
         args[n++] = "--cwd"; args[n++] = (char *)cwd;
+        if (hostname) { args[n++]="--hostname"; args[n++]=(char *)hostname; }
         for (unsigned i = 0; i < md_connections.count; i++) {
             struct md_socket_route *route = &md_connections.entries[i];
             args[n++] = route->abstract ? "--socket-abstract" : "--socket-path";

@@ -4,13 +4,13 @@
 
 /* Kernel-only adapter transport in every domain. This shared list must not
  * include pathname, credential or argument-dependent policy operations. */
-#define MD_GATE_TRANSPORT_CALLS(X) X(sendmsg) X(recvmsg)
+#define MD_GATE_TRANSPORT_CALLS(X) X(sendmsg) X(recvmsg) X(uname)
 
 /* No adaptation, observation or logical identity in any domain. Shared with
  * seccomp so these kernel operations need no userspace policy round trip. */
 #define MD_DOMAIN_KERNEL_CALLS(X) \
     X(fstatfs) X(pipe2) X(shutdown) X(wait4) X(waitid) \
-    X(capget) X(capset) X(uname) X(sysinfo) X(sched_yield) X(sched_getaffinity) \
+    X(sysinfo) X(sched_yield) X(sched_getaffinity) \
     X(getrusage) X(getrlimit) X(gettimeofday)
 #define MD_DOMAIN_KERNEL_ARGUMENTS(X) \
     X(fcntl, 1, F_GETFD) X(fcntl, 1, F_SETFD) X(fcntl, 1, F_GETFL) \

@@ -111,7 +111,7 @@ int md_inode_open_resolved(struct md_inode_store *s, int dirfd, const char *path
 static int open_resolved(struct md_inode_store *s, int dirfd, const char *path, int flags, mode_t mode,
         uint64_t resolve, struct md_image_identity *image) {
     if (flags & ~(O_ACCMODE | O_CLOEXEC | O_APPEND | O_TRUNC | O_NOFOLLOW | O_DIRECTORY | O_PATH
-            | O_CREAT | O_EXCL | O_NONBLOCK | O_NOCTTY | O_LARGEFILE | O_SYNC | O_DSYNC)) return -ENOTSUP;
+            | O_CREAT | O_EXCL | O_NONBLOCK | O_NOCTTY | O_LARGEFILE | O_SYNC | O_DSYNC | O_DIRECT)) return -ENOTSUP;
     if ((flags & O_ACCMODE) == O_ACCMODE) return -EINVAL;
     if (flags & O_PATH) flags &= O_PATH | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC;
     if ((flags & O_TRUNC) && !(flags & (O_WRONLY | O_RDWR))) return -EINVAL;

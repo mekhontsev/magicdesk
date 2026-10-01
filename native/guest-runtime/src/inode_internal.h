@@ -4,17 +4,20 @@
 #include <limits.h>
 #include <sqlite3.h>
 #include "guest_identity.h"
+#include "posix_acl.h"
+struct md_fs_result;
 
 #define MDI_ROOT "00000000000000000000000000000000"
 #define MDI_SOURCES 256
 enum mdi_query { MDI_NODE, MDI_FD, MDI_LOOKUP, MDI_DIRECTORY_NAME, MDI_READDIR,
     MDI_BEGIN, MDI_BEGIN_WRITE, MDI_COMMIT, MDI_ROLLBACK, MDI_EVENT, MDI_EVENT_TRIM,
-    MDI_EVENT_END, MDI_EVENT_SCAN, MDI_EVENT_NAMES, MDI_BACKING_OBJECT,
+    MDI_EVENT_END, MDI_EVENT_SCAN, MDI_EVENT_NAMES, MDI_BACKING_OBJECT, MDI_FILE_PATH, MDI_ACL,
     MDI_QUERY_COUNT };
 struct md_inode_store {
     sqlite3 *db;
     int objects, root, watch_presence, locked, recording, readonly, reflink_unavailable;
     const struct md_identity *identity;
+    unsigned creation_mask;
     int sources[MDI_SOURCES];
     struct md_inode_watches *watches;
     struct md_inode_statistics *statistics;
@@ -33,6 +36,7 @@ struct mdi_node {
     int attached, shared, source;
     int mode;
     uint32_t uid, gid;
+    unsigned acl_mask;
 };
 struct mdi_location {
     struct mdi_node node, parent;
@@ -65,6 +69,13 @@ int mdi_access(struct md_inode_store *, const struct mdi_node *, int);
 int mdi_permission(struct md_inode_store *, const struct mdi_node *, int, int real);
 int mdi_sticky(struct md_inode_store *, const struct mdi_location *);
 int mdi_metadata(struct md_inode_store *, const struct mdi_node *, uint32_t, uint32_t, mode_t);
+int mdi_file_capability(struct md_inode_store *, const struct mdi_node *, const void *, size_t);
+int mdi_acl_store(struct md_inode_store *, const struct mdi_node *, unsigned, const void *, size_t);
+int mdi_acl_permission(struct md_inode_store *, const struct mdi_node *, const struct md_identity *, unsigned);
+int mdi_acl_chmod(struct md_inode_store *, const struct mdi_node *, unsigned);
+int mdi_acl_inherit(struct md_inode_store *, const struct mdi_node *, const struct mdi_node *, unsigned);
+void md_inode_acl(struct md_inode_store *, const struct md_fs_request *, struct md_fs_result *);
+int md_inode_attributes(struct md_inode_store *, int, void *, size_t);
 int mdi_walk(struct md_inode_store *, int, const char *, enum mdi_follow, int missing, struct mdi_location *);
 int mdi_walk_resolved(struct md_inode_store *, int, const char *, enum mdi_follow, int missing,
         uint64_t resolve, struct mdi_location *);

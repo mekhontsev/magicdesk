@@ -74,6 +74,8 @@ int main(int argc, char **argv) {
     snprintf(path, sizeof(path), "%s/file", readonly);
     int external = open(path, O_CREAT | O_WRONLY | O_CLOEXEC, 0600); assert(external >= 0); close(external);
     int ro = opened(&fs, "/readonly/file", O_RDONLY);
+    result = call(&fs, MD_FS_XATTR_OPEN, ro, "user.test", 0, W_OK, NULL, 0); assert(result.error == -EROFS);
+    result = call(&fs, MD_FS_XATTR_OPEN, ro, "", 0, F_OK, NULL, 0); assert(result.error == -EXDEV);
     result = call(&fs, MD_FS_REOPEN, ro, NULL, O_PATH | O_CLOEXEC, 1, NULL, 0); assert(result.error == -EROFS);
     assert(!unlink(path));
     result = call(&fs, MD_FS_REOPEN, ro, NULL, O_RDWR, 0, NULL, 0); assert(result.error == -EROFS); close(ro);

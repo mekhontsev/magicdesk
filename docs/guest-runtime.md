@@ -85,6 +85,10 @@ ordinary `--store` commands. Import/staging does not probe guest-execution kerne
 capabilities; execution does. See [images and filesystem views](../native/guest-runtime/images.md)
 for formats, explicit ownership mapping, source lifetimes and limitations.
 This provides OCI image execution, not Docker Engine or a container isolation boundary.
+The [application-image checks](../native/guest-runtime/images.md#checks) exercise
+stock entrypoints, network requests and persistent data, separately from import
+and base-image shell execution. Unsupported image metadata and kernel interfaces
+remain explicit errors.
 
 The shortcut editor's Shell Linux method accepts a prepared guest store.
 Its optional User field accepts the same guest user/group selection as the CLI.
@@ -130,7 +134,7 @@ Preserved-ownership OCI images use their configured User, or guest root when it
 is empty. `image run --user current` explicitly retains the Android identity.
 
 `guest_identity` owns real/effective/saved/filesystem IDs, supplementary groups,
-credential drops and no_new_privs. The supervisor tracks them per task across
+credential drops, virtual capability sets/securebits and no_new_privs. The supervisor tracks them per task across
 fork, threads and exec. Libc's process-wide set-ID coordination remains libc's
 responsibility. Auxv and admitted-image transitions use this same model.
 `credential_registry` publishes immutable snapshots to the filesystem worker;
@@ -146,17 +150,23 @@ mmap and already-open descriptors retain native kernel semantics. Metadata is
 shared by hardlinks and retained across copy-up and independent launches.
 
 This is virtual guest root, not Android root or a security boundary. Native
-attachments, `/proc`, `/dev`, capabilities, resource limits and SELinux retain
-real kernel authority. Internal Unix connections publish captured guest peer IDs
+attachments, `/proc`, `/dev`, resource limits and SELinux retain real kernel
+authority. Virtual capabilities authorize only implemented guest operations;
+they do not become Android kernel capabilities. Guest capget/capset, KEEPCAPS,
+bounding/ambient sets and exec share the same credential model, including
+UID-before-GID service entrypoints. Internal Unix connections publish captured guest peer IDs
 and groups; explicit SCM_CREDENTIALS messages use the same identity model.
 External peers still see real Android credentials. Unmodified session D-Bus can
 run as guest root, including independent clients sharing the store, without
 disabling authentication. See the [IPC credential contract](../native/guest-runtime/ipc-credentials.md)
 for ownership, implicit credential messages and transport limits.
 General set-ID metadata is not executable admission: only explicitly admitted,
-sealed ELF helpers receive a set-ID transition. ACL installation on stored objects
-is rejected until the permission model supports it; native ACLs must not be
-mistaken for guest-user ACLs. No kernel permission denial is fabricated as success.
+sealed ELF helpers receive a set-ID transition. Stored file capabilities are
+logical metadata, not Android capabilities or ordinary-exec admission.
+POSIX access/default ACLs use the same guest identity model for named users,
+groups, masks, chmod and parent inheritance. Their numeric IDs never become
+ACLs on Android backing files. Objects without ACLs retain the ordinary mode
+check without an extra ACL query. No kernel permission denial is fabricated as success.
 
 Guest kernel audit is not implemented. `socket(AF_NETLINK, ..., NETLINK_AUDIT)`
 returns EPROTONOSUPPORT before reaching Android's global audit service, regardless
@@ -185,6 +195,8 @@ MagicDesk ships no D-Bus daemon and does not reuse Android's or Termux's bus.
 
 The bootstrap maps the main ELF and its optional absolute `PT_INTERP`, validates their
 load segments before exec and supplies a kernel-style initial stack and auxv.
+The initial stack has explicit inaccessible guards and a grow-down mapping,
+preserving the kernel's stack gap when applications reserve adjacent address space.
 There is no distribution or loader-name allowlist. The selected stock dynamic
 linker owns relocations, dependencies, TLS and `dlopen`. A native supervisor uses
 selective seccomp TRACE and USER_NOTIF for adaptation; hot data IO, memory, futex
@@ -228,8 +240,13 @@ Credential-free sends need no per-message buffers. Tests cover partial batches, 
 result writes and SCM_RIGHTS. Unadapted socket operations are not thereby certified.
 
 `/dev/shm` belongs to the guest store, including access relative to a `/dev`
-descriptor or cwd. POSIX shared memory, mmap, descriptor passing and unlinked
-data work across independent launches. Inotify combines native backing-inode
+descriptor or cwd. Execution preparation creates this directory with mode 01777
+and guest-root ownership when absent; it does not overwrite existing metadata
+or change the sealed image. POSIX shared memory, mmap, descriptor passing and unlinked
+data work across independent launches. Store-scoped System V shared memory uses
+native mapped backing files and a separate lazy IPC authority; it does not require
+kernel SysV IPC support. See [shared memory](../native/guest-runtime/shared-memory.md)
+for supported operations and lifecycle limits. Inotify combines native backing-inode
 data events with transactionally committed directory/name events. Independent
 watchers sharing a store receive create/link/unlink/rename events without polling.
 Subscriptions and bounded queues belong to the existing namespace worker; watch
@@ -237,7 +254,7 @@ reads use lazily armed descriptor classes and retained kernel-object identity.
 Protected readers copy in their own task without changing dumpability; queue
 delivery is acknowledged before consumption is confirmed. See the
 [watch contract](../native/guest-runtime/watches.md) for descriptor, hardlink,
-protected-copy and kernel limits. The current store format is 8;
+protected-copy and kernel limits. The current store format is 11;
 older stores are rejected, not migrated or deleted.
 
 ## Optional Kernel Support
@@ -329,6 +346,14 @@ These are bounded package workflows, not arbitrary maintainer-script or
 complete-distribution compatibility. Kernel mounts, device creation, capabilities
 and system-service startup may still fail. Executable-memfd scripts remain subject
 to the actual Android execution policy.
+
+Additional image checks cover Ubuntu 24.04 APT with systemd package configuration,
+CentOS Stream 10 DNF, logical account management and authenticated session D-Bus.
+Ubuntu Mousepad is checked through X11 and Wayland with editing, saved-file readback
+and clean exit; QEMU user-mode runs an x86-64 ELF with file IO and fork/wait.
+These are userspace workflows, not booted systemd or virtual-machine certification.
+The [image coverage](../native/guest-runtime/images.md#checks) also records server,
+language-runtime and compiler checks, with GDB live debugging kept separate.
 
 Virtual-root IPC checks run stock Debian and Alpine session D-Bus, independent
 root clients and a rejected different-user client. Debian additionally passes

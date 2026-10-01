@@ -2,14 +2,17 @@
 #define MD_GUEST_IDENTITY_H
 #include <stdint.h>
 #include <sys/types.h>
+#include <linux/capability.h>
 
 /* Guest credentials confer no Android/kernel authority. Copies retain the
  * immutable supplementary-group set; release each owning copy. */
 #define MD_IDENTITY_GROUPS_MAX 65536
 struct md_identity_groups;
 struct md_identity_ids { uint32_t real, effective, saved, fs; };
+struct md_capabilities { uint64_t permitted, effective, inheritable, bounding, ambient; unsigned securebits; };
 struct md_identity {
     struct md_identity_ids uid, gid;
+    struct md_capabilities caps;
     int no_new_privs;
     struct md_identity_groups *groups;
 };
@@ -33,6 +36,10 @@ int md_identity_setresuid(struct md_identity *, uint32_t, uint32_t, uint32_t);
 int md_identity_setresgid(struct md_identity *, uint32_t, uint32_t, uint32_t);
 int md_identity_no_new_privs(struct md_identity *, unsigned);
 int md_identity_may_chroot(const struct md_identity *);
+int md_identity_capable(const struct md_identity *, unsigned);
+int md_identity_capset(struct md_identity *, uint64_t, uint64_t, uint64_t);
+long md_identity_cap_prctl(struct md_identity *, unsigned long, const unsigned long *);
+void md_identity_exec(const struct md_identity *, struct md_identity *);
 
 /* Only a trusted importer/launcher supplies the logical owner and mode.
  * The retained image must already be sealed against write, shrink and growth;

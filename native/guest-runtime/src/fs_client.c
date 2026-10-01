@@ -39,7 +39,7 @@ static long receive_reply(int socket, int64_t deadline, const struct md_fs_reque
     uint32_t operation = request->operation;
     int opens = operation == MD_FS_OPEN || operation == MD_FS_CREATE || operation == MD_FS_TEMPORARY
         || operation == MD_FS_OPEN_OBJECT || operation == MD_FS_OPEN_IMAGE || operation == MD_FS_WATCH_CREATE
-        || operation == MD_FS_REOPEN || (operation == MD_FS_IPC && (request->flags == MD_IPC_PEER || request->flags == MD_IPC_MESSAGE_CREATE));
+        || operation == MD_FS_GETACL || operation == MD_FS_XATTR_OPEN || operation == MD_FS_REOPEN || (operation == MD_FS_IPC && (request->flags == MD_IPC_PEER || request->flags == MD_IPC_MESSAGE_CREATE));
     if (r < (long)offsetof(struct md_fs_reply, data)
             || reply->magic != MD_FS_MAGIC || reply->version != MD_FS_VERSION
             || reply->error > 0 || reply->error < -4095 || reply->reserved
@@ -48,11 +48,14 @@ static long receive_reply(int socket, int64_t deadline, const struct md_fs_reque
             || (reply->error && reply->size)
             || (reply->size && operation != MD_FS_READLINK && operation != MD_FS_PATH && operation != MD_FS_GETDENTS
                 && operation != MD_FS_SOCKET_ADDRESS && operation != MD_FS_SOCKET_NAME && operation != MD_FS_REALPATH
-                && operation != MD_FS_OBJECT_ID && operation != MD_FS_OPEN_IMAGE && operation != MD_FS_WATCH_READ)
+                && operation != MD_FS_OBJECT_ID && operation != MD_FS_OPEN_IMAGE && operation != MD_FS_WATCH_READ
+                && operation != MD_FS_GETCAP && operation != MD_FS_LISTATTR)
+            || (!reply->error && operation == MD_FS_GETCAP && !md_file_capability_valid(reply->data,reply->size))
             || (operation != MD_FS_OPEN_IMAGE && reply->size > PATH_MAX)
             || (!reply->error && operation == MD_FS_OBJECT_ID && (reply->size != 33 || reply->data[32]))
             || (reply->position && ((operation != MD_FS_SEEKDIR && operation != MD_FS_WATCH_ADD
-                && operation != MD_FS_WATCH_BYTES && operation != MD_FS_WATCH_CONTAINS && operation != MD_FS_IPC) || reply->error)) || reply->position < 0
+                && operation != MD_FS_WATCH_BYTES && operation != MD_FS_WATCH_CONTAINS && operation != MD_FS_IPC
+                && operation != MD_FS_GETACL) || reply->error)) || reply->position < 0
             || (operation == MD_FS_GETDENTS && (reply->size > request->capacity || !valid_entries(reply->data, reply->size)))
             || (operation == MD_FS_WATCH_READ && reply->size > request->capacity)
             || (!reply->error && (operation == MD_FS_PATH || operation == MD_FS_SOCKET_ADDRESS || operation == MD_FS_SOCKET_NAME || operation == MD_FS_REALPATH)

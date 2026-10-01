@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/inotify.h>
 #include <sys/mman.h>
+#include <sys/xattr.h>
 #include <unistd.h>
 
 static struct md_inode_store *store(const char *base, const char *name) {
@@ -75,6 +76,18 @@ int main(int argc, char **argv) {
     metadata = md_inode_reopen(a, lower, O_RDONLY | O_CLOEXEC, 0); assert(metadata >= 0);
     assert(pread(metadata, old, 5, 0) == 5 && !strcmp(old, "upper")); close(metadata);
     assert(!md_inode_fstat(a, lower, &stable) && stable.st_nlink == 0 && stable.st_ino == logical.st_ino);
+    int sibling = open_file(b, "/data/file", O_RDONLY);
+    metadata = md_inode_xattr_open(b,sibling,"user.md-copy",W_OK); assert(metadata >= 0);
+    char proc[64]; snprintf(proc,sizeof(proc),"/proc/self/fd/%d",metadata);
+    assert(!setxattr(proc,"user.md-copy","own",3,0)); close(metadata);
+    metadata = md_inode_xattr_open(b,sibling,"",F_OK); assert(metadata >= 0);
+    snprintf(proc,sizeof(proc),"/proc/self/fd/%d",metadata);
+    char names[256]; ssize_t bytes = listxattr(proc,names,sizeof(names)); assert(bytes > 0);
+    int found = 0;
+    for (ssize_t i=0;i<bytes;i+=strlen(names+i)+1) found |= !strcmp(names+i,"user.md-copy");
+    assert(found && getxattr(proc,"user.md-copy",old,sizeof(old))==3 && !memcmp(old,"own",3));
+    close(metadata); close(sibling);
+    errno=0; assert(fgetxattr(image,"user.md-copy",old,sizeof(old))==-1 && errno==ENODATA);
     fd = open_file(b, "/data/file", O_RDWR);
     void *map = mmap(NULL, 5, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0); assert(map != MAP_FAILED);
     memcpy(map, "mmaps", 5); assert(!msync(map, 5, MS_SYNC)); munmap(map, 5); close(fd);

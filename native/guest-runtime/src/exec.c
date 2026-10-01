@@ -181,6 +181,7 @@ long md_guest_execat(int base, const char *program, char *const argv[], char *co
     // final shebang interpreter. Linux uses /dev/fd/N for descriptor exec.
     next[n++] = "--execfn";
     next[n++] = (char *)invocation;
+    if (md_hostname[0]) { next[n++]="--hostname"; next[n++]=md_hostname; }
     const struct md_socket_routes *routes = md_files.connections;
     for (unsigned i = 0; routes && i < routes->count; i++) {
         const struct md_socket_route *route = &routes->entries[i];

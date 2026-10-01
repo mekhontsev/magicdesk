@@ -6,6 +6,8 @@
 #define MD_GUEST_MAP_IMAGE 0x4d440101
 #define MD_GUEST_ENTER_IMAGE 0x4d440102
 #define MD_GUEST_WATCH_FILTER 0x4d440103
+#define MD_GUEST_SHM 0x4d440104
+#define MD_GUEST_SHM_FILTER 0x4d440105
 #define MD_WATCH_TASK_AFFINE (-INT64_C(0x4000000000000000))
 #define MD_WATCH_WAIT (MD_WATCH_TASK_AFFINE + 1)
 #define MD_WATCH_NATIVE (MD_WATCH_TASK_AFFINE + 2)
@@ -16,7 +18,8 @@ enum md_interception_kind {
     MD_INTERCEPT_OBSERVE = 43,
     MD_INTERCEPT_NATIVE = 44,
     MD_INTERCEPT_IDENTITY = 45,
-    MD_INTERCEPT_WATCH = 46
+    MD_INTERCEPT_WATCH = 46,
+    MD_INTERCEPT_MEMORY = 47
 };
 
 /* Bootstrap-owned entry points, published before entering guest code. The
@@ -31,6 +34,7 @@ struct md_interception_abi {
 };
 
 int md_interception_install(int inherited);
+long md_shm_dispatch(long, const unsigned long *);
 int md_interception_map_image(int fd, int loader);
 int md_interception_enter_image(void *aux, unsigned count);
 #endif

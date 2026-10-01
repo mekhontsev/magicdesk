@@ -166,6 +166,7 @@ static int read_node(struct md_inode_store *s, sqlite3_stmt *q, struct mdi_node 
     value.mode = sqlite3_column_int(q, 12);
     value.uid = (uint32_t)sqlite3_column_int64(q, 13);
     value.gid = (uint32_t)sqlite3_column_int64(q, 14);
+    value.acl_mask = (unsigned)sqlite3_column_int(q, 15);
     if (value.source < 0 || value.source >= MDI_SOURCES) r = -EIO;
     if (!r && value.kind != S_IFDIR && value.kind != S_IFREG && value.kind != S_IFLNK && value.kind != S_IFSOCK) r = -EIO;
     sqlite3_int64 names = sqlite3_column_int64(q, 5), children = sqlite3_column_int64(q, 6);
@@ -178,7 +179,7 @@ static int read_node(struct md_inode_store *s, sqlite3_stmt *q, struct mdi_node 
 int mdi_query_acquire(struct md_inode_store *s, enum mdi_query slot, sqlite3_stmt **out) {
     /* Namespace and virtual ownership share one transaction snapshot. Sizes
      * and data timestamps remain properties of the native open description. */
-#define NODE_COLUMNS "o.object,o.kind,o.device,o.inode,o.parent,o.name_count,o.directory_count,o.backing,o.shared,o.logical_inode,o.source,o.logical_device,o.mode,o.uid,o.gid"
+#define NODE_COLUMNS "o.object,o.kind,o.device,o.inode,o.parent,o.name_count,o.directory_count,o.backing,o.shared,o.logical_inode,o.source,o.logical_device,o.mode,o.uid,o.gid,o.acl_mask"
     static const char *const sql[MDI_QUERY_COUNT] = {
         [MDI_NODE] = "SELECT " NODE_COLUMNS " FROM objects o WHERE o.object=?1",
         [MDI_FD] = "SELECT " NODE_COLUMNS " FROM objects o JOIN backings b ON b.object=o.object "
@@ -195,7 +196,9 @@ int mdi_query_acquire(struct md_inode_store *s, enum mdi_query slot, sqlite3_stm
         [MDI_EVENT_END] = "SELECT coalesce(max(sequence),0) FROM events",
         [MDI_EVENT_SCAN] = "SELECT sequence,parent,object,name,mask,cookie FROM events WHERE sequence>?1 ORDER BY sequence",
         [MDI_EVENT_NAMES] = "SELECT n.parent,n.name FROM names n JOIN backings b ON b.object=n.object WHERE b.backing=?1 AND b.source=?2",
-        [MDI_BACKING_OBJECT] = "SELECT object FROM backings WHERE backing=?1 AND source=?2"
+        [MDI_BACKING_OBJECT] = "SELECT object FROM backings WHERE backing=?1 AND source=?2",
+        [MDI_FILE_PATH] = "SELECT parent,name,ambiguous FROM file_paths WHERE object=?1",
+        [MDI_ACL] = "SELECT value FROM inode_acls WHERE object=?1 AND type=?2"
     };
 #undef NODE_COLUMNS
     int result = 0;
@@ -330,15 +333,18 @@ static int make_object(struct md_inode_store *s, const char *id, mode_t kind, mo
         const char *target, const char *parent, struct mdi_node *node, int *fd) {
     uint32_t uid = s->identity ? s->identity->uid.fs : (uint32_t)geteuid();
     uint32_t gid = s->identity ? s->identity->gid.fs : (uint32_t)getegid();
+    struct mdi_node p={0};
+    unsigned requested=mode;
     if (s->identity && parent && strcmp(parent, id)) {
-        struct mdi_node p; struct stat st;
+        struct stat st;
         int r = mdi_node(s, parent, &p);
         if (!r) r = mdi_stat(s, &p, &st);
         if (r) return r;
         if (st.st_mode & S_ISGID) { gid = st.st_gid; if (kind == S_IFDIR) mode |= S_ISGID; }
-        if (kind != S_IFDIR && (mode & S_ISGID) && s->identity->uid.fs
+        if (kind != S_IFDIR && (mode & S_ISGID) && !md_identity_capable(s->identity, CAP_FSETID)
                 && !md_identity_in_group(s->identity, gid)) mode &= ~S_ISGID;
     }
+    if (kind!=S_IFLNK && !(p.acl_mask&MD_ACL_DEFAULT)) mode&=~s->creation_mask;
     mode_t native = s->identity ? (kind == S_IFDIR ? 0700 : 0600 | ((mode & 0111) ? 0100 : 0)) : mode;
     *fd = -1;
     if (kind == S_IFREG || kind == S_IFSOCK) {
@@ -366,6 +372,10 @@ static int make_object(struct md_inode_store *s, const char *id, mode_t kind, mo
     if (!r) r = mdi_sql_error(mdi_step(s, q));
     sqlite3_finalize(q);
     if (!r) r = mdi_node(s, id, node);
+    if (!r && (p.acl_mask&MD_ACL_DEFAULT) && kind!=S_IFLNK) {
+        r=mdi_acl_inherit(s,&p,node,(mode&07000)|(requested&0777));
+        if (!r) r=mdi_node(s,id,node);
+    }
     return r;
 }
 int mdi_random_id(char id[33]) {
@@ -420,6 +430,7 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
                 "mode INTEGER NOT NULL DEFAULT -1 CHECK(mode>=-1 AND mode<=4095),"
                 "uid INTEGER NOT NULL DEFAULT 0 CHECK(uid>=0 AND uid<4294967295),"
                 "gid INTEGER NOT NULL DEFAULT 0 CHECK(gid>=0 AND gid<4294967295),"
+                "acl_mask INTEGER NOT NULL DEFAULT 0 CHECK(acl_mask>=0 AND acl_mask<=3),"
                 "UNIQUE(device,inode),CHECK(kind IN (32768,16384,40960,49152)),"
                 "CHECK((kind=16384)=(parent IS NOT NULL))) STRICT;"
             "CREATE TABLE sources(id INTEGER PRIMARY KEY,path TEXT NOT NULL,device INTEGER NOT NULL,inode INTEGER NOT NULL,"
@@ -439,8 +450,15 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
                 "CHECK(cookie>0 AND cookie<9223372036854775805)) STRICT;"
             "CREATE INDEX names_object ON names(object);"
             "CREATE INDEX names_cursor ON names(parent,cookie);"
+            "CREATE TABLE file_paths(object TEXT PRIMARY KEY REFERENCES objects,"
+                "parent TEXT NOT NULL REFERENCES objects,name BLOB NOT NULL,"
+                "ambiguous INTEGER NOT NULL CHECK(ambiguous IN (0,1))) STRICT;"
             "CREATE TRIGGER names_added AFTER INSERT ON names BEGIN "
                 "UPDATE objects SET name_count=name_count+1 WHERE object=NEW.object;"
+                "INSERT INTO file_paths SELECT NEW.object,NEW.parent,NEW.name,name_count>1 "
+                    "FROM objects WHERE object=NEW.object AND kind!=16384 "
+                    "ON CONFLICT(object) DO UPDATE SET parent=excluded.parent,name=excluded.name,"
+                    "ambiguous=max(file_paths.ambiguous,excluded.ambiguous);"
                 "UPDATE objects SET directory_count=directory_count+1 WHERE object=NEW.parent "
                     "AND (SELECT kind FROM objects WHERE object=NEW.object)=16384; END;"
             "CREATE TRIGGER names_removed AFTER DELETE ON names BEGIN "
@@ -450,9 +468,17 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
             "CREATE TRIGGER names_immutable BEFORE UPDATE ON names BEGIN "
                 "SELECT RAISE(ABORT,'replace namespace entries with delete and insert'); END;"
             "CREATE TABLE sockets(object TEXT PRIMARY KEY REFERENCES objects, address TEXT NOT NULL) STRICT;"
+            "CREATE TABLE file_capabilities(object TEXT PRIMARY KEY REFERENCES objects, value BLOB NOT NULL "
+                "CHECK(length(value) IN (12,20,24))) STRICT;"
+            "CREATE TABLE inode_acls(object TEXT NOT NULL REFERENCES objects,type INTEGER NOT NULL CHECK(type IN (1,2)),"
+                "value BLOB NOT NULL CHECK(length(value)>=28 AND length(value)<=65532),PRIMARY KEY(object,type)) STRICT;"
+            "CREATE TRIGGER acl_added AFTER INSERT ON inode_acls BEGIN "
+                "UPDATE objects SET acl_mask=acl_mask|NEW.type WHERE object=NEW.object; END;"
+            "CREATE TRIGGER acl_removed AFTER DELETE ON inode_acls BEGIN "
+                "UPDATE objects SET acl_mask=acl_mask&~OLD.type WHERE object=OLD.object; END;"
             "CREATE TABLE events(sequence INTEGER PRIMARY KEY AUTOINCREMENT, parent TEXT NOT NULL,"
                 "object TEXT NOT NULL,name BLOB NOT NULL,mask INTEGER NOT NULL,cookie INTEGER NOT NULL) STRICT;"
-            "PRAGMA user_version=8;");
+            "PRAGMA user_version=11;");
         struct mdi_node node; int fd;
         if (!r) r = make_object(s, MDI_ROOT, S_IFDIR, 0700, 0, NULL, MDI_ROOT, &node, &fd);
         if (!r) r = mdi_sql(s, "COMMIT");
@@ -463,7 +489,7 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
     if (!r) {
         int rc = mdi_step(s, q);
         if (rc != SQLITE_ROW) r = mdi_sql_failure(rc);
-        else if (sqlite3_column_int(q, 0) != 8) r = -EPROTONOSUPPORT;
+        else if (sqlite3_column_int(q, 0) != 11) r = -EPROTONOSUPPORT;
     }
     sqlite3_finalize(q); q = NULL;
     if (!r) r = mdi_prepare(s, "PRAGMA journal_mode", &q);
@@ -517,11 +543,18 @@ int md_inode_audit(struct md_inode_store *s, struct md_inode_audit *audit) {
     sqlite3_finalize(q); q = NULL;
     if (!r) r = mdi_prepare(s, "SELECT 1 FROM objects o WHERE "
         "name_count!=(SELECT count(*) FROM names WHERE object=o.object) OR "
+        "acl_mask!=(SELECT coalesce(sum(type),0) FROM inode_acls WHERE object=o.object) OR "
         "directory_count!=(SELECT count(*) FROM names n JOIN objects c ON c.object=n.object "
             "WHERE n.parent=o.object AND c.kind=16384) LIMIT 1", &q);
     if (!r && mdi_step(s, q) != SQLITE_DONE) r = -EIO;
     sqlite3_finalize(q); q = NULL;
-    if (!r) r = mdi_prepare(s, "SELECT object,kind,device,inode,parent,name_count,directory_count,backing,shared,logical_inode,source,logical_device,mode,uid,gid FROM objects", &q);
+    if (!r) r = mdi_prepare(s, "SELECT 1 FROM objects o LEFT JOIN file_paths p ON p.object=o.object "
+        "WHERE o.kind!=16384 AND o.name_count>0 AND (p.object IS NULL OR "
+        "(p.ambiguous=0 AND (o.name_count!=1 OR NOT EXISTS(SELECT 1 FROM names n "
+        "WHERE n.parent=p.parent AND n.name=p.name AND n.object=o.object)))) LIMIT 1", &q);
+    if (!r && mdi_step(s, q) != SQLITE_DONE) r = -EIO;
+    sqlite3_finalize(q); q = NULL;
+    if (!r) r = mdi_prepare(s, "SELECT object,kind,device,inode,parent,name_count,directory_count,backing,shared,logical_inode,source,logical_device,mode,uid,gid,acl_mask FROM objects", &q);
     while (!r) {
         struct mdi_node node;
         r = read_node(s, q, &node);

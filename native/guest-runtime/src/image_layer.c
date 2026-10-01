@@ -1,7 +1,9 @@
 #define _GNU_SOURCE
 #include "image_layer.h"
+#include "image_acl.h"
 #include "inode_internal.h"
 #include "image_io.h"
+#include "file_capability.h"
 #include <archive.h>
 #include <archive_entry.h>
 #include <errno.h>
@@ -100,11 +102,22 @@ static int entry_file(struct md_inode_store *s, struct archive *ar, struct archi
         char *path, uint64_t *bytes) {
     mode_t kind = archive_entry_filetype(entry);
     const char *link = archive_entry_hardlink(entry);
-    if (archive_entry_is_encrypted(entry) || archive_entry_xattr_count(entry)
-            || archive_entry_acl_count(entry, ARCHIVE_ENTRY_ACL_TYPE_ACCESS | ARCHIVE_ENTRY_ACL_TYPE_DEFAULT))
-        return -ENOTSUP;
+    const void *capability = NULL; size_t capability_size = 0;
+    const char *name = NULL; const void *value = NULL; size_t length = 0;
+    archive_entry_xattr_reset(entry);
+    while (!archive_entry_xattr_next(entry,&name,&value,&length)) {
+        if (strcmp(name, MD_FILE_CAPABILITY_NAME)) {
+            fprintf(stderr,"Guest image: unsupported extended attribute %s on %s\n",name,path);
+            return -ENOTSUP;
+        }
+        if (!md_file_capability_valid(value,length)) return -EINVAL;
+        /* Tar producers may publish both SCHILY and LIBARCHIVE encodings. */
+        if (capability && (capability_size != length || memcmp(capability,value,length))) return -EINVAL;
+        capability=value; capability_size=length;
+    }
+    if (archive_entry_is_encrypted(entry)) return -ENOTSUP;
     if (!link && kind != S_IFREG && kind != S_IFDIR && kind != S_IFLNK) return -ENOTSUP;
-    int r = 0;
+    int r = md_image_acl_record(s,entry,path);
     if (!r) r = parents(s, path);
     struct mdi_location loc;
     if (!r) r = mdi_walk(s, MD_INODE_ROOT, path, MDI_ENTRY, 1, &loc);
@@ -115,10 +128,11 @@ static int entry_file(struct md_inode_store *s, struct archive *ar, struct archi
         char target[PATH_MAX];
         r = path_name(link, target);
         sqlite3_stmt *q = NULL;
-        if (!r) r = mdi_prepare(s, "INSERT INTO temp.layer_links VALUES(?1,?2,?3)", &q);
+        if (!r) r = mdi_prepare(s, "INSERT INTO temp.layer_links VALUES(?1,?2,?3,?4)", &q);
         if (!r) r = mdi_bind_id(q, 1, loc.parent.id);
         if (!r) r = mdi_bind_name(q, 2, loc.name);
         if (!r) r = mdi_sql_error(sqlite3_bind_text(q, 3, target, -1, SQLITE_TRANSIENT));
+        if (!r && capability) r = mdi_sql_error(sqlite3_bind_blob(q,4,capability,capability_size,SQLITE_TRANSIENT));
         if (!r) r = mdi_sql_error(mdi_step(s, q));
         sqlite3_finalize(q); return r;
     }
@@ -149,13 +163,14 @@ static int entry_file(struct md_inode_store *s, struct archive *ar, struct archi
     }
     if (fd >= 0) close(fd);
     if (!r) r = record_metadata(s, entry, &node);
+    if (!r && capability) r = mdi_file_capability(s,&node,capability,capability_size);
     return r;
 }
 static int links(struct md_inode_store *s) {
     int r = 0;
     for (;;) {
         sqlite3_stmt *q = NULL;
-        r = mdi_prepare(s, "SELECT rowid,parent,name,target FROM temp.layer_links", &q);
+        r = mdi_prepare(s, "SELECT rowid,parent,name,target,capability FROM temp.layer_links", &q);
         unsigned remaining = 0, changed = 0;
         while (!r) {
             int rc = mdi_step(s, q);
@@ -172,6 +187,8 @@ static int links(struct md_inode_store *s) {
             if (size < 1 || size > NAME_MAX) { r = -EIO; break; }
             memcpy(name, sqlite3_column_blob(q, 2), (size_t)size); name[size] = 0;
             r = mdi_add_name(s, (const char *)sqlite3_column_text(q, 1), name, target.node.id);
+            if (!r && sqlite3_column_type(q,4)!=SQLITE_NULL)
+                r=mdi_file_capability(s,&target.node,sqlite3_column_blob(q,4),sqlite3_column_bytes(q,4));
             sqlite3_stmt *del = NULL;
             if (!r) r = mdi_prepare(s, "DELETE FROM temp.layer_links WHERE rowid=?1", &del);
             if (!r) r = mdi_sql_error(sqlite3_bind_int64(del, 1, sqlite3_column_int64(q, 0)));
@@ -207,6 +224,8 @@ static int metadata(struct md_inode_store *s, int preserve) {
         }
         if (!r && preserve) r = mdi_metadata(s, &node, (uint32_t)sqlite3_column_int64(q, 4),
             (uint32_t)sqlite3_column_int64(q, 5), (mode_t)sqlite3_column_int(q, 1));
+        if (!r && preserve) r=mdi_acl_chmod(s,&node,(mode_t)sqlite3_column_int(q,1));
+        if (!r && !preserve && node.acl_mask) r=-ENOTSUP;
     }
     sqlite3_finalize(q); return r;
 }
@@ -214,7 +233,8 @@ int md_image_layer(struct md_inode_store *s, int fd, uint64_t *bytes, uint64_t *
     int r = mdi_begin(s, 1);
     if (r) return r;
     r = mdi_sql(s, "CREATE TEMP TABLE IF NOT EXISTS image_metadata(object TEXT PRIMARY KEY,mode INTEGER,seconds INTEGER,nanos INTEGER,uid INTEGER,gid INTEGER);"
-        "CREATE TEMP TABLE layer_links(parent TEXT,name BLOB,target TEXT,UNIQUE(parent,name));"
+        "CREATE TEMP TABLE layer_links(parent TEXT,name BLOB,target TEXT,capability BLOB,UNIQUE(parent,name));"
+        "CREATE TEMP TABLE layer_acls(path TEXT,type INTEGER,value BLOB,PRIMARY KEY(path,type));"
         "CREATE TEMP TABLE layer_paths(path TEXT PRIMARY KEY);");
     /* OCI whiteouts only remove lower entries, regardless of tar ordering. */
     for (unsigned pass = 0; pass < 2 && !r; ++pass) {
@@ -239,12 +259,14 @@ int md_image_layer(struct md_inode_store *s, int fd, uint64_t *bytes, uint64_t *
                     || archive_entry_hardlink(entry))) { r = -EINVAL; break; }
             if (!pass && marker) { int removed = whiteout(s, path); if (removed < 0) r = removed; }
             if (pass && !marker) r = entry_file(s, ar, entry, path, bytes);
+            if (r) fprintf(stderr,"Guest image: entry %s: %s\n",path,strerror(-r));
         }
         if (archive_read_close(ar) != ARCHIVE_OK && !r) r = -EBADMSG;
         archive_read_free(ar);
     }
     if (!r) r = links(s);
-    if (!r) r = mdi_sql(s, "DROP TABLE temp.layer_links; DROP TABLE temp.layer_paths");
+    if (!r) r = md_image_acls_finish(s);
+    if (!r) r = mdi_sql(s, "DROP TABLE temp.layer_links; DROP TABLE temp.layer_paths; DROP TABLE temp.layer_acls");
     if (!r && fsync(s->objects)) r = -errno;
     return mdi_commit(s, r);
 }

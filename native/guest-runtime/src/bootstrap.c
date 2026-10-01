@@ -17,6 +17,7 @@
 struct md_fs md_files;
 char md_bootstrap[PATH_MAX];
 char md_executable[PATH_MAX];
+char md_hostname[MD_HOSTNAME_SIZE];
 static struct md_process_image process_image;
 static struct md_socket_routes connections;
 
@@ -103,6 +104,11 @@ void md_boot(uintptr_t *kernel_stack) {
         root_arg += 2;
         if (cwd[0] != '/') md_die("guest cwd must be absolute", -EINVAL);
     }
+    if (root_arg+1 < argc && md_equal(argv[root_arg], "--hostname")) {
+        if (!md_hostname_valid(argv[root_arg+1])) md_die("invalid guest hostname",-EINVAL);
+        md_copy(md_hostname,sizeof(md_hostname),argv[root_arg+1]);
+        root_arg+=2;
+    }
     while (root_arg < argc && (md_equal(argv[root_arg], "--socket-path") || md_equal(argv[root_arg], "--socket-abstract"))) {
         if (root_arg + 2 >= argc) md_die("missing socket route", -EINVAL);
         long result = md_socket_route_add(&connections, argv[root_arg], argv[root_arg + 1], argv[root_arg + 2]);
@@ -175,7 +181,10 @@ void md_boot(uintptr_t *kernel_stack) {
     }
 
     const size_t stack_size = 8 * 1024 * 1024;
-    long stack = RAW6(mmap, 0, stack_size + 2 * md_page_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    /* Preserve the kernel's stack guard gap. A plain anonymous mapping lets
+     * later reservations abut the stack, defeating libc's boundary discovery. */
+    long stack = RAW6(mmap, 0, stack_size + 2 * md_page_size, PROT_NONE,
+        MAP_PRIVATE | MAP_ANONYMOUS | MAP_GROWSDOWN, -1, 0);
     if (stack < 0) md_die("reserve guest stack", stack);
     r = RAW3(mprotect, stack + md_page_size, stack_size, PROT_READ | PROT_WRITE);
     if (r < 0) md_die("map guest stack", r);

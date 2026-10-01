@@ -10,6 +10,9 @@
 #include "interception_stacks.h"
 #include "watch_activation.h"
 #include "launch_identity.h"
+#include "sysv_shm.h"
+#include <linux/memfd.h>
+#include <sys/mman.h>
 #include "credential_registry.h"
 #include "guest_user.h"
 #include "guest_accounts.h"
@@ -105,6 +108,11 @@ struct thread {
     int watch_wait;
     uint32_t *identity_buffer;
     unsigned identity_count, identity_copied;
+    uintptr_t identity_address;
+    int identity_loading, identity_stage, identity_result;
+    struct md_shm_space *shm_space;
+    struct md_shm_mapping *shm_pending;
+    int shm_filter;
 };
 static struct thread *threads;
 static pid_t leader;
@@ -121,6 +129,8 @@ static unsigned root_changes, restricted_denials;
 static unsigned group_stops, group_wakes, raced_wakes;
 static const char *admitted_path;
 static struct md_fs_worker *filesystem;
+static struct md_shm *shm;
+static const char *shm_store;
 static struct md_namespace_broker *broker;
 static struct md_credentials *credentials;
 static struct md_identity launch_identity;
@@ -133,6 +143,7 @@ static void resume(pid_t pid, int sig);
 static int shield(struct thread *t);
 static int restore_mask(struct thread *t);
 static void dispatch(struct thread *t);
+static void report_statistics(void);
 static void release_operation(struct thread *t) {
     struct metadata_operation *op = &t->metadata;
     if (op->peer >= 0) { close(op->peer); op->peer = -1; }
@@ -171,6 +182,7 @@ static void describe_process(pid_t pid, uint64_t pc) {
     }
 }
 static void cleanup(void) {
+    report_statistics();
     for (struct thread *t = threads; t; t = t->next) if (t->pid) {
         kill(t->pid, SIGKILL); release_operation(t);
     }
@@ -182,9 +194,14 @@ static void cleanup(void) {
         md_domain_release(threads->domain);
         md_stacks_release(threads->stacks);
         md_watch_activation_release(threads->watch_activation);
+        md_shm_abort(shm,&threads->shm_pending);
+        md_shm_space_release(shm,threads->shm_space);
+        md_identity_release(&threads->identity);
+        free(threads->identity_buffer);
         free(threads); threads = next;
     }
     md_admission_close(&admission);
+    md_shm_close(shm); shm = NULL;
     if (md_fs_worker_stop(filesystem)) _Exit(125);
     filesystem = NULL;
     md_broker_destroy(broker); broker = NULL;
@@ -224,13 +241,16 @@ static struct thread *thread(pid_t pid) {
     *t = (struct thread){.pid = pid, .tgid = pid, .next = t->next,
         .metadata = {.peer = -1, .descriptor = -1, .prepared = -1},
         .identity = md_identity_copy(&launch_identity), .stacks = md_stacks_new(),
+        .shm_space = md_shm_space_new(),
         .watch_activation = md_watch_activation_new()};
-    CHECK(t->stacks && t->watch_activation);
+    CHECK(t->stacks && t->watch_activation && t->shm_space);
     live++; total++; return t;
 }
 static void release_thread(struct thread *t) {
     md_credentials_forget(credentials, t->pid);
     md_identity_release(&t->identity);
+    CHECK(!md_shm_abort(shm,&t->shm_pending));
+    CHECK(!md_shm_space_release(shm,t->shm_space)); t->shm_space = NULL;
     free(t->identity_buffer); t->identity_buffer = NULL;
     md_broker_forget(broker, t->pid);
     release_operation(t);
@@ -473,6 +493,7 @@ static void image_request(struct thread *t, const struct seccomp_notif *q) {
                 next.secure = next.value.uid.real != next.value.uid.effective
                     || next.value.gid.real != next.value.gid.effective;
                 if (matched) reply.error = md_identity_prepare_exec(&t->identity, admission.image, 0, &next);
+                else md_identity_exec(&t->identity, &next.value);
                 if (!reply.error && matched) {
                     fd = md_exec_image_dup(admission.image);
                     if (fd < 0) reply.error = fd;
@@ -533,13 +554,44 @@ static void image_request(struct thread *t, const struct seccomp_notif *q) {
     } else reply.error = -EPROTO;
     CHECK(!ioctl(listener, SECCOMP_IOCTL_NOTIF_SEND, &reply) || errno == ENOENT);
 }
+static void shm_request(struct thread *t, const struct seccomp_notif *q) {
+    struct seccomp_notif_resp reply = {.id=q->id};
+    int r = !shm_store ? -ENOTSUP : !shm ? md_shm_open(shm_store,&shm) : 0;
+    if (!r && (t->phase != DISPATCHING || q->data.instruction_pointer != RAW_GATE)) r = -EPERM;
+    unsigned op = q->data.args[1];
+    unsigned long a[4] = {q->data.args[2],q->data.args[3],q->data.args[4],q->data.args[5]};
+    struct shmid64_ds info;
+    long value = r ? r : md_shm_call(shm,t->shm_space,&t->shm_pending,&t->identity,t->tgid,op,a,&info);
+    int fd = -1;
+    if (value >= 0 && op == MD_SHM_OPEN) fd = (int)value;
+    if (value >= 0 && op == MD_SHM_STAT) {
+        fd = (int)syscall(SYS_memfd_create,"guest-shm-stat",MFD_CLOEXEC);
+        if (fd < 0) value = -errno;
+        else if (write(fd,&info,sizeof(info)) != sizeof(info) || lseek(fd,0,SEEK_SET)) value = -EIO;
+    }
+    if (fd >= 0 && value >= 0) {
+        struct seccomp_notif_addfd add = {.id=q->id,.srcfd=fd,.newfd_flags=O_CLOEXEC};
+        value = ioctl(listener,SECCOMP_IOCTL_NOTIF_ADDFD,&add);
+        if (value < 0) value = -errno;
+    }
+    if (fd >= 0) close(fd);
+    if (value < 0) {
+        reply.error = (int)value;
+        if (op == MD_SHM_OPEN) CHECK(!md_shm_abort(shm,&t->shm_pending));
+    } else reply.val = value;
+    CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno == ENOENT);
+}
 static void handle_notification(const struct seccomp_notif *request) {
     struct seccomp_notif q = *request;
     CHECK(q.data.nr == SYS_fstat || q.data.nr == SYS_openat || q.data.nr == SYS_newfstatat
         || q.data.nr == SYS_getdents64 || q.data.nr == SYS_prctl);
     struct thread *t = find_thread((pid_t)q.pid);
     CHECK(t && t->born);
-    if (q.data.nr == SYS_prctl) { image_request(t, &q); return; }
+    if (q.data.nr == SYS_prctl) {
+        if (q.data.args[0] == MD_GUEST_SHM) shm_request(t,&q);
+        else image_request(t, &q);
+        return;
+    }
     if (q.data.nr == SYS_getdents64 && md_domain_restricted(t->domain)) {
         CHECK(t->phase == IDLE);
         struct seccomp_notif_resp reply = {.id = q.id, .flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE};
@@ -623,8 +675,47 @@ static void return_value(struct thread *t, struct user_pt_regs *regs, long value
     regs->regs[0] = (uint64_t)value;
     if (set_registers(t->pid, regs)) resume(t->pid, 0);
 }
+enum { COPY_GROUPS, COPY_CAP_HEADER, COPY_CAP_DATA, COPY_CAP_VERSION };
+static void identity_copy_next(struct thread *t);
 static void identity_copy_finish(struct thread *t, int error) {
     struct user_pt_regs r = t->original;
+    if (!error && t->identity_stage == COPY_CAP_HEADER) {
+        uint32_t version = t->identity_buffer[0];
+        int pid = (int)t->identity_buffer[1];
+        unsigned words = version == _LINUX_CAPABILITY_VERSION_1 ? 1
+            : version == _LINUX_CAPABILITY_VERSION_2 || version == _LINUX_CAPABILITY_VERSION_3 ? 2 : 0;
+        if (!words) {
+            t->identity_buffer[0] = _LINUX_CAPABILITY_VERSION_3;
+            t->identity_stage = COPY_CAP_VERSION; t->identity_loading = 0;
+            t->identity_count = 1; t->identity_copied = 0;
+            t->identity_result = r.regs[8] == SYS_capget && !r.regs[1] ? 0 : -EINVAL;
+            identity_copy_next(t); return;
+        }
+        struct md_identity ids = md_identity_copy(&t->identity);
+        if (pid && pid != t->pid) {
+            md_identity_release(&ids);
+            error = r.regs[8] == SYS_capset ? -EPERM : md_credentials_read(credentials, pid, 0, &ids);
+            if (error) ids = (struct md_identity){0};
+        }
+        if (!error && r.regs[8] == SYS_capget && !r.regs[1]) {
+            md_identity_release(&ids); t->identity_stage = COPY_CAP_DATA;
+        } else if (!error) {
+            if (r.regs[8] == SYS_capget) for (unsigned i = 0; i < words; i++) {
+                t->identity_buffer[i*3] = ids.caps.effective >> (32*i);
+                t->identity_buffer[i*3+1] = ids.caps.permitted >> (32*i);
+                t->identity_buffer[i*3+2] = ids.caps.inheritable >> (32*i);
+            }
+            md_identity_release(&ids);
+            t->identity_stage = COPY_CAP_DATA; t->identity_loading = r.regs[8] == SYS_capset;
+            t->identity_address = r.regs[1]; t->identity_count = words*3; t->identity_copied = 0;
+            identity_copy_next(t); return;
+        } else md_identity_release(&ids);
+    } else if (!error && t->identity_stage == COPY_CAP_DATA && r.regs[8] == SYS_capset) {
+        uint32_t *v = t->identity_buffer;
+        error = md_identity_capset(&t->identity, v[1] | ((uint64_t)v[4] << 32),
+            v[0] | ((uint64_t)v[3] << 32), v[2] | ((uint64_t)v[5] << 32));
+    }
+    if (!error && t->identity_stage == COPY_CAP_VERSION) error = t->identity_result;
     if (!error && r.regs[8] == SYS_setgroups)
         error = md_identity_groups(&t->identity, t->identity_buffer, t->identity_count);
     r.regs[0] = (uint64_t)(error ? (long)error : r.regs[8] == SYS_getgroups ? (long)t->identity_count : 0);
@@ -637,9 +728,9 @@ static void identity_copy_next(struct thread *t) {
     struct user_pt_regs r = t->original;
     unsigned count = t->identity_count - t->identity_copied;
     if (count > 16) count = 16;
-    uintptr_t address = r.regs[1], offset = (uintptr_t)t->identity_copied * sizeof(uint32_t);
+    uintptr_t address = t->identity_address, offset = (uintptr_t)t->identity_copied * sizeof(uint32_t);
     if (address > UINTPTR_MAX - offset - count * sizeof(uint32_t)) { identity_copy_finish(t, -EFAULT); return; }
-    int loading = r.regs[8] == SYS_setgroups;
+    int loading = t->identity_loading;
     r.pc = loading ? abi.load_groups : abi.store_groups;
     r.regs[0] = address + offset; r.regs[1] = count;
     if (!loading) for (unsigned i = 0; i < count; i++) r.regs[i+3] = t->identity_buffer[t->identity_copied+i];
@@ -650,7 +741,7 @@ static void identity_groups_call(struct thread *t, struct user_pt_regs *r) {
     int setting = r->regs[8] == SYS_setgroups;
     unsigned count = setting ? (unsigned)r->regs[0] : md_identity_group_count(&t->identity);
     int error = 0;
-    if (setting && t->identity.uid.effective) error = -EPERM;
+    if (setting && !md_identity_capable(&t->identity, CAP_SETGID)) error = -EPERM;
     else if ((int)r->regs[0] < 0 || (setting && (unsigned)r->regs[0] > MD_IDENTITY_GROUPS_MAX)
             || (!setting && r->regs[0] && (unsigned)r->regs[0] < count)) error = -EINVAL;
     if (error || (!setting && !r->regs[0])) { return_value(t, r, error ? error : (long)count); return; }
@@ -668,6 +759,7 @@ static void identity_groups_call(struct thread *t, struct user_pt_regs *r) {
     /* Task-affine copies preserve protected-memory and EFAULT semantics without
      * relaxing dumpability. Identity publishes only after the complete read. */
     t->identity_buffer = buffer; t->identity_count = count; t->identity_copied = 0; t->original = *r;
+    t->identity_address = r->regs[1]; t->identity_loading = setting; t->identity_stage = COPY_GROUPS;
     if (!tracee_request(t, PTRACE_GETSIGMASK, (void *)sizeof(t->mask), &t->mask, "get-mask")
             || !shield(t) || !skip(t->pid)) return;
     identity_copy_next(t);
@@ -675,6 +767,11 @@ static void identity_groups_call(struct thread *t, struct user_pt_regs *r) {
 static int identity_call(struct thread *t, struct user_pt_regs *r, unsigned long cookie) {
     if (r->pc == RAW_GATE) return 0;
     long nr = r->regs[8], value;
+    if (nr == SYS_prctl) {
+        unsigned long args[4] = {r->regs[1], r->regs[2], r->regs[3], r->regs[4]};
+        value = md_identity_cap_prctl(&t->identity, r->regs[0], args);
+        if (value != -ENOTSUP) { return_value(t, r, value); return 1; }
+    }
     if (nr == SYS_prctl && (r->regs[0] == PR_GET_NO_NEW_PRIVS || r->regs[0] == PR_SET_NO_NEW_PRIVS)) {
         CHECK(t->phase == IDLE && t->ready);
         if (r->regs[2] || r->regs[3] || r->regs[4]) value = -EINVAL;
@@ -685,6 +782,14 @@ static int identity_call(struct thread *t, struct user_pt_regs *r, unsigned long
     if (cookie != MD_INTERCEPT_IDENTITY) return 0;
     CHECK(t->ready && t->phase == IDLE);
     switch (nr) {
+    case SYS_capget: case SYS_capset:
+        t->identity_buffer = calloc(6, sizeof(uint32_t));
+        if (!t->identity_buffer) { return_value(t, r, -ENOMEM); return 1; }
+        t->identity_stage = COPY_CAP_HEADER; t->identity_address = r->regs[0];
+        t->identity_loading = 1; t->identity_count = 2; t->identity_copied = 0; t->original = *r;
+        if (!tracee_request(t, PTRACE_GETSIGMASK, (void *)sizeof(t->mask), &t->mask, "get-mask")
+                || !shield(t) || !skip(t->pid)) return 1;
+        identity_copy_next(t); return 1;
     case SYS_getgroups: case SYS_setgroups: identity_groups_call(t, r); return 1;
     case SYS_getuid: value = t->identity.uid.real; break;
     case SYS_geteuid: value = t->identity.uid.effective; break;
@@ -784,6 +889,8 @@ static int domain_call(struct thread *t, struct user_pt_regs *r, unsigned long c
         return 1;
     }
     if (!md_domain_restricted(t->domain)) return 0;
+    /* Read-only launch identity is independent of the restricted filesystem. */
+    if (nr == SYS_uname && cookie == MD_INTERCEPT_DISPATCH) return 0;
     if (t->phase == PROC_OPENING && cookie == MD_INTERCEPT_NATIVE && nr == SYS_openat
             && (int)r->regs[0] == t->metadata.proc_directory
             && r->regs[2] == (O_RDONLY | O_DIRECTORY | O_CLOEXEC)) {
@@ -899,6 +1006,7 @@ static pid_t wait_event(int *status, int64_t deadline) {
             cancelling = 2; cancellation_deadline = md_event_now() + 10000000000LL;
             CHECK(!md_process_signal_children(SIGKILL)); continue;
         }
+        if (outcome < 0) errno = (int)-outcome;
         CHECK(outcome >= 0);
         if (events[0].revents) { drain(); continue; }
         if (events[2].revents) CHECK(!md_broker_complete(broker, delegated_notification));
@@ -965,6 +1073,7 @@ int main(int argc, char **argv) {
     if (argument < argc && !strcmp(argv[argument], "--store")) {
         CHECK(argument + 4 < argc && !strcmp(argv[argument + 2], "--endpoint"));
         store = argv[argument + 1]; endpoint = argv[argument + 3]; argument += 4;
+        shm_store = store;
     }
     if (selected_user) {
         uint32_t uid, gid;
@@ -1067,6 +1176,9 @@ int main(int argc, char **argv) {
                 }
             }
             md_stacks_return(t->stacks, t->stack);
+            CHECK(!md_shm_abort(shm,&t->shm_pending));
+            CHECK(!md_shm_space_release(shm,t->shm_space));
+            t->shm_space = md_shm_space_new(); CHECK(t->shm_space);
             md_stacks_release(t->stacks); t->stacks = md_stacks_new(); CHECK(t->stacks);
             t->phase = IDLE; t->stack = 0; t->ready = 0; t->resume_lost = 0; images++;
             t->mapped_image = 0; t->entered = 0;
@@ -1077,9 +1189,12 @@ int main(int argc, char **argv) {
             struct thread *c = thread(child);
             CHECK(!c->born);
             c->born = 1; c->ready = t->ready;
+            c->shm_filter = t->shm_filter;
             md_identity_release(&c->identity);
             c->identity = md_identity_copy(&t->identity);
             c->tgid = t->cloning & CLONE_THREAD ? t->tgid : c->pid;
+            CHECK(!md_shm_space_release(shm,c->shm_space));
+            c->shm_space = md_shm_space_fork(shm,t->shm_space,!!(t->cloning & CLONE_VM)); CHECK(c->shm_space);
             md_stacks_release(c->stacks);
             c->stacks = md_stacks_fork(t->stacks, !!(t->cloning & CLONE_VM)); CHECK(c->stacks);
             md_watch_activation_release(c->watch_activation);
@@ -1155,8 +1270,24 @@ int main(int argc, char **argv) {
                     : regs.regs[2] == 1 ? md_watch_activation_mark(t->watch_activation, (unsigned)regs.regs[1]) : -EINVAL;
                 return_value(t, &regs, value); continue;
             }
+            if (regs.regs[8] == SYS_prctl && regs.regs[0] == MD_GUEST_SHM_FILTER
+                    && regs.pc == RAW_GATE && t->phase == DISPATCHING) {
+                long value = regs.regs[1] == 0 ? t->shm_filter : regs.regs[1] == 1 ? 0 : -EINVAL;
+                if (regs.regs[1] == 1) for (struct thread *member = threads; member; member = member->next)
+                    if (member->pid && member->tgid == t->tgid) member->shm_filter = 1;
+                return_value(t,&regs,value); continue;
+            }
             if (identity_call(t, &regs, cookie)) continue;
             if (domain_call(t, &regs, cookie)) continue;
+            if (cookie == MD_INTERCEPT_MEMORY) {
+                CHECK(t->phase == IDLE);
+                int overlap = md_shm_intersects(t->shm_space,regs.regs[0],regs.regs[1]);
+                if (regs.regs[8] == SYS_mremap && (regs.regs[3] & MREMAP_FIXED))
+                    overlap |= md_shm_intersects(t->shm_space,regs.regs[4],regs.regs[2]);
+                if (!overlap) { resume(pid,0); continue; }
+                if (regs.regs[8] == SYS_mremap) { return_value(t,&regs,-ENOTSUP); continue; }
+                t->original = regs; t->phase = OBSERVING; resume(pid,0); continue;
+            }
             if (descriptor_call(t, &regs, cookie)) continue;
             if (cookie == MD_INTERCEPT_WATCH) {
                 CHECK(t->ready && t->phase == IDLE);
@@ -1166,7 +1297,15 @@ int main(int argc, char **argv) {
                         || !shield(t) || !skip(pid)) continue;
                 t->phase = WATCH_CANCEL; resume(pid, 0); continue;
             }
-            if (cookie == MD_INTERCEPT_NATIVE) { resume(pid, 0); continue; }
+            if (cookie == MD_INTERCEPT_NATIVE) {
+                if (diagnostics && statistics && t->phase == IDLE && regs.regs[8] < 512
+                        && statistics->calls[regs.regs[8]].trace <= 4) {
+                    TRACE("PROBE native arguments pid=%d nr=%llu args=%#llx,%#llx,%#llx,%#llx,%#llx,%#llx\n",
+                        pid,regs.regs[8],regs.regs[0],regs.regs[1],regs.regs[2],regs.regs[3],regs.regs[4],regs.regs[5]);
+                    t->original=regs; t->phase=OBSERVING;
+                }
+                resume(pid, 0); continue;
+            }
             if (cookie == MD_INTERCEPT_EXEC) {
                 CHECK(t->phase == DISPATCHING);
                 if (!restore_mask(t)) continue;
@@ -1235,6 +1374,11 @@ int main(int argc, char **argv) {
             if (t->phase == OBSERVING) {
                 struct user_pt_regs regs;
                 if (!registers(pid, &regs)) continue;
+                if ((long)regs.regs[0] >= 0 && (t->original.regs[8] == SYS_munmap || t->original.regs[8] == SYS_mmap)) {
+                    size_t length = t->original.regs[1], page = (size_t)getpagesize();
+                    CHECK(length <= SIZE_MAX-(page-1));
+                    CHECK(!md_shm_unmapped(shm,t->shm_space,t->original.regs[0],(length+page-1)&~(page-1),t->tgid));
+                }
                 TRACE("PROBE native syscall pid=%d nr=%llu arg0=%#llx arg1=%#llx result=%lld\n",
                     pid, t->original.regs[8], t->original.regs[0], t->original.regs[1], (long long)regs.regs[0]);
                 if (!regs.regs[0] && ((t->original.regs[8] == SYS_seccomp
@@ -1410,6 +1554,9 @@ int main(int argc, char **argv) {
         group_stops, group_wakes, raced_wakes);
     TRACE("PROBE identity admittedImages=%u changes=%u hostUid=%u\n",
         admitted_images, identity_changes, getuid());
+    close(signal_fd); return result;
+}
+static void report_statistics(void) {
     if (statistics) {
         struct rusage usage;
         if (!getrusage(RUSAGE_SELF, &usage)) fprintf(stderr, "MD_CPU supervisor userUs=%llu systemUs=%llu\n",
@@ -1427,5 +1574,4 @@ int main(int argc, char **argv) {
                     (unsigned long long)statistics->calls[nr].trace,
                     (unsigned long long)statistics->calls[nr].notification);
     }
-    close(signal_fd); return result;
 }

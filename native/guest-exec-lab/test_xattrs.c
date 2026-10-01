@@ -152,10 +152,14 @@ int main(int argc, char **argv) {
     assert(!removexattr("directory", key));
     assert(!chmod("moved", 0200));
     assert(getxattr("moved", key, value, sizeof(value)) == -1 && errno == EACCES);
+    assert(fgetxattr(fd, key, value, sizeof(value)) == -1 && errno == EACCES);
+    list_at("moved", 0, 1);
     assert(!setxattr("moved", key, payload, sizeof(payload), XATTR_REPLACE));
     assert(!chmod("moved", 0400));
     value_at("moved");
     assert(setxattr("moved", key, "x", 1, 0) == -1 && errno == EACCES);
+    assert(fsetxattr(fd, key, "x", 1, 0) == -1 && errno == EACCES);
+    assert(fremovexattr(fd, key) == -1 && errno == EACCES);
     assert(!chmod("moved", 0600));
     assert(!unlink("moved"));
     assert(fgetxattr(fd, key, value, sizeof(value)) == sizeof(payload));

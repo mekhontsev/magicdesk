@@ -151,7 +151,39 @@ int md_inode_path(struct md_inode_store *s, int dirfd, char *out, size_t size) {
     if (r) return r;
     struct mdi_node node;
     r = dirfd == MD_INODE_ROOT ? mdi_node(s, MDI_ROOT, &node) : mdi_fd(s, dirfd, &node);
-    if (!r) r = directory_path(s, node, out, size);
+    if (!r && node.kind == S_IFDIR) r = directory_path(s, node, out, size);
+    else if (!r) {
+        /* An inode which has ever had aliases cannot identify the dentry of an
+         * arbitrary inherited FD. Keep that uncertainty even after unlinking an
+         * alias; choosing the remaining name would misidentify old descriptors. */
+        sqlite3_stmt *q = NULL;
+        struct mdi_location location = {.node = node};
+        char parent[33];
+        r = mdi_query_acquire(s, MDI_FILE_PATH, &q);
+        if (!r) r = mdi_bind_id(q, 1, node.id);
+        if (!r) {
+            int rc = mdi_step(s, q);
+            if (rc != SQLITE_ROW) r = rc == SQLITE_DONE ? -ENOTSUP : mdi_sql_failure(rc);
+            else if (sqlite3_column_int(q, 2)) r = -ENOTSUP;
+            else {
+                int length = sqlite3_column_bytes(q, 1);
+                if (sqlite3_column_bytes(q, 0) != 32 || length < 1 || length > NAME_MAX) r = -EIO;
+                else {
+                    memcpy(parent, sqlite3_column_text(q, 0), 32); parent[32] = 0;
+                    memcpy(location.name, sqlite3_column_blob(q, 1), length); location.name[length] = 0;
+                    if (memchr(location.name, 0, length) || mdi_name_valid(location.name)) r = -EIO;
+                }
+            }
+        }
+        r = mdi_query_release(q, r);
+        if (!r) r = mdi_node(s, parent, &location.parent);
+        if (!r) r = mdi_location_path(s, &location, out, size);
+        if (!r && !node.links) {
+            size_t length = strlen(out);
+            if (length + sizeof(" (deleted)") > size) r = -ERANGE;
+            else memcpy(out + length, " (deleted)", sizeof(" (deleted)"));
+        }
+    }
     return mdi_finish(s, r);
 }
 int md_inode_realpath(struct md_inode_store *s, int base, const char *path, char *out, size_t size) {

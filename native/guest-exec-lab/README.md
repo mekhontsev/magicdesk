@@ -115,8 +115,8 @@ runtime branches. The musl fixture uses the official Alpine 3.23 ARM64 minirootf
 and its matching `musl-dev` headers/CRT. Prepare the distribution's ordinary
 dependencies and toolkit caches before importing the tree; the ELF loader does
 not install packages or create accounts. `fixtures/md-prepare-alpine` configures
-only disposable GUI-test data for the real shell identity. The socket-aware
-store requires schema 4; incompatible stores are rejected without modification.
+only disposable GUI-test data for the real shell identity. Fixtures require the
+current runtime's store schema; incompatible stores are rejected without modification.
 
 `test_ipc.c local NEW_DIRECTORY` checks namespace socket names, permissions,
 SCM_RIGHTS, unlink/rebind, rename and stale listeners. `paths` checks `/dev/shm`
@@ -365,6 +365,48 @@ It retains exact commands, results, digests and device/build identity, without
 starting Desktop or changing privileges. Uploaded layouts and stores remain for
 inspection. The installed CLI additionally needs ordinary Shell-console checks;
 standalone helper coverage alone does not verify APK packaging and dispatch.
+
+Stock service-image workflows and development tools:
+
+```sh
+python native/guest-exec-lab/test_oci_services.py BUILD --nginx NGINX_LAYOUT --redis REDIS_LAYOUT --postgres POSTGRES_LAYOUT
+python native/guest-exec-lab/test_oci_services.py BUILD --python PYTHON_LAYOUT --node NODE_LAYOUT --httpd HTTPD_LAYOUT --memcached MEMCACHED_LAYOUT --java TEMURIN_JDK_LAYOUT
+python native/guest-exec-lab/test_development_runtime.py BUILD --debian DEBIAN_LAYOUT --install
+python native/guest-exec-lab/test_service_runtime.py BUILD DEVICE_STORE OTHER_DEVICE_STORE --installed
+```
+
+The first two commands use packaged helpers by default; `--build BUILD` explicitly
+stages a native build. MariaDB and Caddy have corresponding image arguments.
+PHP, Ruby and .NET SDK images have separate arguments as well. Staged runs record
+each native helper's SHA-256 and verify it after upload.
+Each image gets a disposable writable instance, loopback ports and owned process
+trees. Readiness comes from service events and is followed by actual requests,
+shutdown and, where supported, restart/readback. `--NAME-instance` reuses an
+explicit disposable instance; PostgreSQL/MariaDB initialization checks require
+a fresh instance. Control overrides are never default-entrypoint passes.
+
+The development check installs packages only with explicit `--install`, in its
+selected disposable Debian store. Compiler and live-debugger results are separate;
+reading symbols is not a debugger pass. Reports preserve failures, image digests
+and exact commands. Current coverage and unsupported requirements are in
+[image checks](../guest-runtime/images.md#checks).
+
+Distribution and emulator workflows use the same runner and per-instance policy:
+
+```sh
+python native/guest-exec-lab/test_distribution_runtime.py BUILD --build BUILD ubuntu --layout UBUNTU_LAYOUT --install
+python native/guest-exec-lab/test_distribution_runtime.py BUILD --build BUILD centos --layout CENTOS_LAYOUT --install
+python native/guest-exec-lab/rootfs_oci_fixture.py --help
+python native/guest-exec-lab/test_qemu_runtime.py --help
+```
+
+The rootfs wrapper retains an unchanged official Arch Linux ARM tarball as one
+OCI layer. Verify its detached signature before importing; wrapping alone is not
+authentication. Arch package commands retain pacman's configured sandbox and
+signature checks. A kernel without Landlock cannot pass that default download
+workflow; `test_isolation.py` measures availability directly outside guest execution.
+The QEMU fixture checks an x86-64 program's file IO and fork/wait through the
+distribution's user-mode emulator, not KVM or full-system virtualization.
 
 ## Guest Credential Checks
 

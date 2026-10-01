@@ -213,6 +213,10 @@ int main(int argc, char **argv) {
     close(fd); assert(!unlink("/tmp/md-spawn-output"));
     puts("PASS posix_spawn file actions, cwd and full signal mask");
 
+    /* Assert inheritance of the application's own restriction, independently
+     * of the kernel flag used to install the runtime's interception filter. */
+    assert(!prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0));
+    assert(prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) == 1);
     char count[32], identity[32];
     snprintf(count, sizeof(count), "%d", filters());
     snprintf(identity, sizeof(identity), "%d", getpid());

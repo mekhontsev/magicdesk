@@ -27,6 +27,9 @@ void md_inode_measure(struct md_inode_store *, struct md_inode_statistics *);
 int md_inode_store_open(const char *directory, int create, struct md_inode_store **out);
 void md_inode_store_close(struct md_inode_store *);
 int md_inode_store_seal(struct md_inode_store *);
+/* Prepare store-owned runtime resources before accepting guest operations.
+ * Existing directories retain their owners and permissions. */
+int md_inode_runtime_prepare(struct md_inode_store *);
 int md_inode_snapshot(struct md_inode_store *source, struct md_inode_store *empty_destination);
 /* Retained FD identity selects its logical object, even after copy-up. Flags
  * select a new descriptor; the caller's original open description is untouched. */
@@ -48,9 +51,14 @@ int md_inode_stat(struct md_inode_store *, int dirfd, const char *path, int flag
 int md_inode_fstat(struct md_inode_store *, int fd, struct stat *);
 struct md_fs_request;
 int md_inode_metadata(struct md_inode_store *, const struct md_fs_request *);
+int md_inode_xattr_open(struct md_inode_store *, int fd, const char *name, int access);
+int md_inode_capability(struct md_inode_store *, const struct md_fs_request *, void *, size_t);
 /* Trusted offline import only; records logical ownership, never host chown. */
 int md_inode_import_metadata(struct md_inode_store *, int fd, uint32_t uid, uint32_t gid, mode_t);
-int md_inode_path(struct md_inode_store *, int dirfd, char *, size_t);
+/* A directory or unambiguous file dentry. Files with any hardlink history
+ * return ENOTSUP, never an arbitrary alias. Unlinked files retain a deleted
+ * suffix while their parent path is available. No per-open path cache. */
+int md_inode_path(struct md_inode_store *, int fd, char *, size_t);
 int md_inode_realpath(struct md_inode_store *, int dirfd, const char *, char *, size_t);
 /* Unlinked native storage, outside the logical namespace and its metadata. */
 int md_inode_temporary(struct md_inode_store *);

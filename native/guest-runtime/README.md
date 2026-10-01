@@ -47,6 +47,10 @@ custom glibc linker, root transition or SELinux change is used.
   `socket_identity.c` and `socket_ancillary.c` adapt peer queries and explicit
   credential messages without proxying payloads or changing kernel authority.
   See the [IPC credential contract](ipc-credentials.md).
+- `sysv_shm.c` owns store-scoped shared-memory metadata and attachment lifetime;
+  `shm_calls.c` maps native backing descriptors in the calling guest task.
+  [Shared-memory storage](shared-memory.md) is separate from filesystem names,
+  and launches that never use it allocate no shared-memory authority.
 - `file_calls.c` owns file syscall argument translation, separately from signal
   delivery. Its single catalog in `file_calls.h` drives dispatch and filtering,
   so a supported file operation cannot accidentally bypass the adapter.
@@ -199,9 +203,9 @@ operations and tests are listed in [its contract](namespace-execution.md).
   independent reopen offsets, real permission checks, no-follow behavior,
   open-unlinked files across exec and native pipe/socket descriptors. Both
   executors run the same `test_proc.c` fixture, including proc-directory suffixes
-  in posix_spawn file actions. Namespace regular-file readlink is explicitly
-  unsupported; its [contract](namespace-execution.md) separates inode identity
-  from the missing virtual dentry identity.
+  in posix_spawn file actions. Namespace regular-file readlink retains unambiguous
+  parent/name history; hardlink-dentry ambiguity remains explicit in the
+  [contract](namespace-execution.md).
 - A bounded direct-backend guest can be terminated, followed by another successful
   launch. The namespace runner separately tests whole-tree lifetime, double-fork,
   setsid, stopped/TERM-ignoring descendants, frontend/service death and concurrent
@@ -227,12 +231,14 @@ Negative controls are required, not hidden or counted as compatibility passes:
   descriptor-exec readlink's original dentry identity are not complete.
   `AT_EXECFN` preserves caller spelling, including scripts and descriptor exec.
   Namespace `exe` open/stat retains the actual executable object after unlink and
-  close_range; direct-backend reopening remains path-based. Locales, ACLs and
+  close_range; direct-backend reopening remains path-based. Locales and
   complete metadata semantics are not implemented. NSS/DNS, toolkit and GPU coverage is bounded
   by the software GUI checks below.
 - Guest-installed filters, application SIGSYS handlers and alternate signal stacks
   have focused tests. A second tracer cannot attach to an already supervised
-  process; crash reporters requiring that capability are not supported.
+  process; in-guest GDB live debugging and crash reporters requiring that
+  capability are not supported. Compiler and ordinary program execution do not
+  require a second tracer.
   Tested libc minimum thread stacks include musl's 2 KiB and glibc's 128 KiB;
   arbitrary clone/stack semantics are not implied.
 - API 34, ordinary app UID at MagicDesk's targetSdk, other firmware and 16 KiB
@@ -436,8 +442,9 @@ The namespace fixtures also test actual syscalls, shared FD/cwd across exec,
 atomic open/mknodat creation, client umask, metadata permissions and path/FD
 xattrs. Debian `cp -a` and tar user-attribute archive round trips pass. Strict
 `cp --preserve=xattr` retains the native SELinux label-write denial, in both
-backends; a partially copied file is not a successful strict copy. Default-ACL
-installation is explicitly rejected until virtual-parent inheritance is modeled.
+backends; a partially copied file is not a successful strict copy. POSIX ACLs
+use guest identities, masks, chmod and default-parent inheritance, with focused
+path/FD and image-import checks. NFSv4 ACLs are not supported.
 Fresh official Debian and Alpine image fixtures additionally exercise signed
 APT/APK install/reinstall/remove cycles, HTTPS and selected real upgrades. Their
 rootless package-manager configuration belongs to the disposable userspace, not

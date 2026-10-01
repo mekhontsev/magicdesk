@@ -6,6 +6,7 @@
 #include "inode_internal.h"
 #include "fs_mounts.h"
 #include "guest_accounts.h"
+#include "host_identity.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -94,6 +95,7 @@ int md_image_launch(int argc, char **argv) {
     char *overrides[128]; size_t override_count = 0;
     struct md_fs_attachment attachments[MD_FS_MOUNTS_MAX]; unsigned attachment_count = 0;
     const char *selected_user = NULL;
+    const char *hostname_override = NULL;
     int position = 1;
     while (position < argc && strcmp(argv[position], "--")) {
         if (!strcmp(argv[position], "--bind") || !strcmp(argv[position], "--bind-ro")) {
@@ -107,6 +109,7 @@ int md_image_launch(int argc, char **argv) {
         if (!strcmp(option, "--user") && !selected_user && *value) selected_user = value;
         else if (!strcmp(option, "--cwd") && value[0] == '/') cwd_override = value;
         else if (!strcmp(option, "--entrypoint")) entry_override = value;
+        else if (!strcmp(option, "--hostname") && !hostname_override && md_hostname_valid(value)) hostname_override = value;
         else if (!strcmp(option, "--env") && override_count < 128) overrides[override_count++] = value;
         else return -EINVAL;
     }
@@ -114,6 +117,11 @@ int md_image_launch(int argc, char **argv) {
     struct md_inode_store *s = NULL;
     int r = md_inode_store_open(path, 0, &s);
     if (!r && s->readonly) r = -EROFS;
+    char hostname[MD_HOSTNAME_SIZE];
+    struct stat instance;
+    if (!r && fstat(s->root, &instance)) r = -errno;
+    if (!r) snprintf(hostname, sizeof(hostname), "md-%llx-%llx",
+        (unsigned long long)instance.st_dev, (unsigned long long)instance.st_ino);
     struct md_filesystem fs = {.store=s};
     if (!r) r = md_fs_mounts_open(&fs, attachments, attachment_count);
     char *json = NULL, *cwd = NULL, *user = NULL;
@@ -156,7 +164,7 @@ int md_image_launch(int argc, char **argv) {
     char **command = position < argc ? argv+position : cmd;
     size_t command_count = position < argc ? (size_t)(argc-position) : cmd_count;
     size_t total = entry_count + explicit_count + command_count;
-    if (!r && (!total || total + 2*(env_count+override_count) + 3*attachment_count + 14 > 1000)) r = -E2BIG;
+    if (!r && (!total || total + 2*(env_count+override_count) + 3*attachment_count + 16 > 1000)) r = -E2BIG;
     const char *search = environment(overrides, override_count, "PATH");
     if (!search) search = environment(env, env_count, "PATH");
     char executable[PATH_MAX], runner[PATH_MAX];
@@ -177,6 +185,7 @@ int md_image_launch(int argc, char **argv) {
         size_t n = 0;
         launch[n++] = runner; launch[n++] = "--store"; launch[n++] = (char *)path;
         launch[n++] = "--cwd"; launch[n++] = (char *)working;
+        launch[n++] = "--hostname"; launch[n++] = (char *)(hostname_override ? hostname_override : hostname);
         if (guest_user) {
             launch[n++]="--user"; launch[n++]=identity_text;
             launch[n++]="--groups"; launch[n++]=group_text;

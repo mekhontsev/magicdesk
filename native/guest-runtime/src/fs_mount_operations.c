@@ -14,7 +14,7 @@ static int writable(unsigned flags) {
 }
 static int reopen(struct md_filesystem *fs, struct md_view_object *p, int flags, int mutable) {
     if (flags & ~(O_PATH | O_CLOEXEC | O_NONBLOCK | O_DIRECTORY | O_LARGEFILE | O_ACCMODE
-            | O_APPEND | O_TRUNC | O_NOFOLLOW | O_SYNC | O_DSYNC)) return -EINVAL;
+            | O_APPEND | O_TRUNC | O_NOFOLLOW | O_SYNC | O_DSYNC | O_DIRECT)) return -EINVAL;
     if ((flags & O_ACCMODE) == O_ACCMODE || ((flags & O_TRUNC) && !(flags & O_ACCMODE))) return -EINVAL;
     if (flags & O_PATH) flags &= O_PATH | O_CLOEXEC | O_DIRECTORY | O_NOFOLLOW;
     if (fs->mounts->mounts[p->mount].readonly && (mutable || writable(flags))) return -EROFS;
@@ -50,10 +50,12 @@ static int descriptor(struct md_filesystem *fs, const struct md_fs_request *q,
     void *data = output ? output->data : NULL;
     switch (q->operation) {
     case MD_FS_CHMOD: case MD_FS_CHOWN: case MD_FS_UTIMENS:
+    case MD_FS_SETCAP: case MD_FS_REMOVECAP: case MD_FS_SETACL: case MD_FS_REMOVEACL:
         /* Real directory attachments retain host ownership and kernel checks.
          * The adapter handles EXDEV through the same readonly-aware reopen. */
         r = fs->mounts->mounts[p->mount].readonly ? -EROFS : -EXDEV; break;
-    case MD_FS_ACCESS:
+    case MD_FS_GETCAP: case MD_FS_GETACL: case MD_FS_LISTATTR: r = -EXDEV; break;
+    case MD_FS_ACCESS: case MD_FS_XATTR_OPEN:
         r = fs->mounts->mounts[p->mount].readonly && (q->mode & W_OK) ? -EROFS : -EXDEV; break;
     case MD_FS_FSTAT: result_stat(out, q->directory[0]); break;
     case MD_FS_REOPEN:
@@ -67,10 +69,7 @@ static int descriptor(struct md_filesystem *fs, const struct md_fs_request *q,
     case MD_FS_PATH:
         if (!data || !capacity) r = -ERANGE;
         else {
-            struct stat st;
-            if (fstat(q->directory[0], &st)) r = -errno;
-            else if (!S_ISDIR(st.st_mode)) r = -ENOTDIR;
-            else r = md_view_path(fs, q->directory[0], p->mount, data, capacity);
+            r = md_view_path(fs, q->directory[0], p->mount, data, capacity);
             if (!r) out->size = strlen(data)+1;
         }
         break;
@@ -154,14 +153,14 @@ static void native(struct md_filesystem *fs, const struct md_fs_request *q,
         int flags = q->operation == MD_FS_CREATE ? O_RDWR | O_CREAT | O_EXCL
             : q->operation == MD_FS_OPEN_IMAGE ? O_RDONLY : (int)q->flags;
         if (flags & ~(O_ACCMODE | O_CLOEXEC | O_APPEND | O_TRUNC | O_NOFOLLOW | O_DIRECTORY | O_PATH
-                | O_CREAT | O_EXCL | O_NONBLOCK | O_NOCTTY | O_LARGEFILE | O_SYNC | O_DSYNC)) { r = -ENOTSUP; break; }
+                | O_CREAT | O_EXCL | O_NONBLOCK | O_NOCTTY | O_LARGEFILE | O_SYNC | O_DSYNC | O_DIRECT)) { r = -ENOTSUP; break; }
         if ((flags & O_ACCMODE) == O_ACCMODE) { r = -EINVAL; break; }
         if (q->operation == MD_FS_OPEN_IMAGE && (!data || capacity < sizeof(struct md_image_identity))) { r = -ERANGE; break; }
         if (flags & O_PATH) flags &= O_PATH | O_NOFOLLOW | O_DIRECTORY | O_CLOEXEC;
         if (((flags & O_TRUNC) && !(flags & O_ACCMODE))
                 || ((flags & O_CREAT) && (flags & O_DIRECTORY))) { r = -EINVAL; break; }
         if ((flags & O_CREAT) && (q->mode & ~01777)) { r = -ENOTSUP; break; }
-        int fd = openat(a->parent, a->name, flags | O_NOFOLLOW | O_CLOEXEC, q->mode);
+        int fd = openat(a->parent, a->name, flags | O_NOFOLLOW | O_CLOEXEC, q->mode&~q->attributes.creation_mask);
         r = record(fs, fd, a->mount, out);
         if (!r && q->operation == MD_FS_OPEN_IMAGE) {
             struct stat st;
@@ -189,7 +188,7 @@ static void native(struct md_filesystem *fs, const struct md_fs_request *q,
         if (n < 0) r = data && capacity ? -errno : -EINVAL; else out->size = (size_t)n;
         break;
     }
-    case MD_FS_MKDIR: if (mkdirat(a->parent, a->name, q->mode)) r = -errno; break;
+    case MD_FS_MKDIR: if (mkdirat(a->parent, a->name, q->mode&~q->attributes.creation_mask)) r = -errno; break;
     case MD_FS_SYMLINK: if (symlinkat(q->path[1], a->parent, a->name)) r = -errno; break;
     case MD_FS_UNLINK: if (unlinkat(a->parent, a->name, (int)q->flags)) r = -errno; break;
     case MD_FS_RENAME: if (syscall(SYS_renameat2, a->parent, a->name, b->parent, b->name, q->flags)) r = -errno; break;
@@ -217,6 +216,8 @@ void md_fs_mounts_execute(struct md_filesystem *fs, const struct md_fs_request *
         switch (q->operation) {
         case MD_FS_FSTAT: case MD_FS_PATH: case MD_FS_REOPEN: case MD_FS_GETDENTS:
         case MD_FS_CHMOD: case MD_FS_CHOWN: case MD_FS_ACCESS: case MD_FS_UTIMENS:
+        case MD_FS_GETCAP: case MD_FS_SETCAP: case MD_FS_REMOVECAP:
+        case MD_FS_GETACL: case MD_FS_SETACL: case MD_FS_REMOVEACL: case MD_FS_LISTATTR: case MD_FS_XATTR_OPEN:
         case MD_FS_SEEKDIR: case MD_FS_OBJECT_ID:
             if (descriptor(fs, q, out, output)) return;
         }

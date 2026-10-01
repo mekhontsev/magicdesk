@@ -20,7 +20,8 @@ inode_compile() {
         "$runtime/inode_watch.c" "$runtime/watch_queue.c" "$runtime/inode_path.c" \
         "$runtime/inode_directory.c" "$runtime/inode_import.c" "$runtime/inode_socket.c" \
         "$runtime/inode_backing.c" "$runtime/inode_snapshot.c" "$runtime/guest_identity.c" \
-        "$runtime/credential_registry.c" "$runtime/inode_metadata.c" "$@"
+        "$runtime/credential_registry.c" "$runtime/inode_metadata.c" \
+        "$runtime/inode_capability.c" "$runtime/inode_acl.c" "$runtime/posix_acl.c" "$@"
 }
 node "$src/test_signature.mjs" "$work"
 mkdir -p "$work/bundle/rootfs" "$work/path-test"
