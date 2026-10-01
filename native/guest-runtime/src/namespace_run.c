@@ -24,6 +24,8 @@ void md_boot(uintptr_t *stack) {
         md_die("usage: guest-run --store HOST_PATH [--cwd GUEST_PATH] -- PROGRAM [ARGS]", -EINVAL);
     const char *store = NULL, *cwd = "/", *home = "/tmp", *admit = NULL, *run_deadline = NULL;
     int diagnostics = 0, statistics = 0;
+    const char *user = NULL;
+    const char *groups = NULL;
     char *overrides[128]; unsigned override_count = 0;
     struct md_fs_attachment attachments[MD_FS_MOUNTS_MAX]; unsigned attachment_count = 0;
     size_t program = 1;
@@ -47,6 +49,11 @@ void md_boot(uintptr_t *stack) {
         if (md_equal(argv[program], "--store") && !store) store = argv[program + 1];
         else if (md_equal(argv[program], "--cwd")) cwd = argv[program + 1];
         else if (md_equal(argv[program], "--home")) home = argv[program + 1];
+        else if (md_equal(argv[program], "--user") && !user) {
+            user = argv[program + 1];
+            if (!*user || md_length(user) > 1024) md_die("invalid guest user", -EINVAL);
+        }
+        else if (md_equal(argv[program], "--groups") && !groups) groups = argv[program + 1];
         else if (md_equal(argv[program], "--env")) {
             if (override_count == sizeof(overrides)/sizeof(*overrides)) md_die("too many environment entries", -E2BIG);
             overrides[override_count++] = argv[program + 1];
@@ -58,9 +65,12 @@ void md_boot(uintptr_t *stack) {
     }
     if (++program >= argc || !store || store[0] != '/' || cwd[0] != '/' || home[0] != '/')
         md_die("invalid guest launch plan", -EINVAL);
+    if (groups && !user) md_die("guest groups require an explicit guest user", -EINVAL);
     struct md_launch_environment guest_environment;
     long environment_result = md_launch_environment(&guest_environment, home, env);
     if (environment_result < 0) md_die("guest environment", environment_result);
+    if (user && (environment_result = md_launch_environment_user(&guest_environment, user)) < 0)
+        md_die("guest user environment", environment_result);
     for (unsigned i = 0; i < override_count; ++i) {
         environment_result = md_launch_environment_set(&guest_environment, overrides[i]);
         if (environment_result < 0) md_die("invalid guest environment override", environment_result);
@@ -89,6 +99,8 @@ void md_boot(uintptr_t *stack) {
         if (statistics) args[n++] = "--statistics";
         if (run_deadline) { args[n++] = "--deadline-seconds"; args[n++] = (char *)run_deadline; }
         if (admit) { args[n++] = "--admit-elf"; args[n++] = (char *)admit; }
+        if (user) { args[n++] = "--user"; args[n++] = (char *)user; }
+        if (groups) { args[n++] = "--groups"; args[n++] = (char *)groups; }
         for (unsigned i = 0; i < attachment_count; ++i) {
             args[n++] = attachments[i].readonly ? "--bind-ro" : "--bind";
             args[n++] = (char *)attachments[i].source; args[n++] = (char *)attachments[i].target;

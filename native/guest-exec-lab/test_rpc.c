@@ -121,6 +121,8 @@ static void semantics(const char *exe) {
     result = call(e, MD_FS_READLINK, dir, "sym", -1, NULL, 0, 0, 0);
     CHECK(result.result.size == 1 && result.data[0] == 'b');
     result = call(e, MD_FS_STAT, dir, "sym", -1, NULL, 0, 0, 0); CHECK(result.result.info.inode == sa.st_ino);
+    call(e, MD_FS_OPEN_IMAGE, dir, "sym", -1, NULL, 0, 0, -EACCES);
+    CHECK(!fchmod(b, 0700));
     result = call(e, MD_FS_OPEN_IMAGE, dir, "sym", -1, NULL, 0, 0, 0);
     struct md_image_identity image;
     memcpy(&image, result.data, result.result.size);
@@ -271,7 +273,7 @@ static void watch_delivery(void) {
             CHECK(!md_fs_call(s.endpoint, 5000, &q, &out) && out.result.error == -EAGAIN);
             close(call(s.endpoint, MD_FS_CREATE, -1, "third", -1, NULL, 0, 0600, 0).result.fd);
             int peer = connect_peer(s.endpoint);
-            struct md_fs_packet packet = {.magic = MD_FS_MAGIC, .version = MD_FS_VERSION,
+            struct md_fs_packet packet = {.magic = MD_FS_MAGIC, .version = MD_FS_VERSION, .actor = getpid(),
                 .operation = MD_FS_WATCH_READ, .descriptors = 1, .length = {1, 1}, .capacity = 64};
             struct md_fs_rights rights = {.count = 1, .fd = {fd}};
             CHECK(md_fs_send(peer, &packet, offsetof(struct md_fs_packet, data) + 2, &rights) > 0);
@@ -301,7 +303,7 @@ static void malformed(void) {
     int before = fd_count(s.pid);
     int source = open("/dev/null", O_RDONLY); CHECK(source >= 0);
     for (unsigned i = 0; i < 96; ++i) {
-        struct md_fs_packet q = {.magic = MD_FS_MAGIC, .version = MD_FS_VERSION,
+        struct md_fs_packet q = {.magic = MD_FS_MAGIC, .version = MD_FS_VERSION, .actor = getpid(),
             .operation = MD_FS_MKDIR, .mode = 0700, .length = {5,1}, .data = "oops"};
         size_t n = offsetof(struct md_fs_packet, data) + 6;
         struct md_fs_rights rights = {0};
@@ -356,7 +358,7 @@ static void idle(void) {
 static void reply_lifetime(void) {
     struct service s; start(&s, COUNT_REPLY, NULL, 5000);
     int socket = connect_peer(s.endpoint);
-    struct md_fs_packet q = {.magic = MD_FS_MAGIC, .version = MD_FS_VERSION,
+    struct md_fs_packet q = {.magic = MD_FS_MAGIC, .version = MD_FS_VERSION, .actor = getpid(),
         .operation = MD_FS_CREATE, .mode = 0600, .length = {5,1}, .data = "held"};
     struct md_fs_rights rights = {0};
     CHECK(md_fs_send(socket, &q, offsetof(struct md_fs_packet, data) + 6, &rights) > 0);
@@ -623,6 +625,9 @@ static void engine_buffers(void) {
     output.capacity = sizeof(struct md_image_identity) - 1;
     md_fs_execute(&(struct md_filesystem){.store=s}, &q, &r, &output); CHECK(r.error == -ERANGE && r.fd < 0 && !r.size);
     output.capacity = sizeof(struct md_image_identity); memset(data, 0x5a, sizeof(data));
+    md_fs_execute(&(struct md_filesystem){.store=s}, &q, &r, &output);
+    CHECK(r.error == -EACCES && r.fd < 0);
+    CHECK(!fchmod(file, 0700));
     md_fs_execute(&(struct md_filesystem){.store=s}, &q, &r, &output);
     CHECK(!r.error && r.fd >= 0 && r.size == 41);
     CHECK(!strcmp(((struct md_image_identity *)data)->path, "/source"));

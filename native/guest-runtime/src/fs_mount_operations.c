@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "fs_mount_internal.h"
+#include "linux_abi.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/openat2.h>
@@ -48,6 +49,12 @@ static int descriptor(struct md_filesystem *fs, const struct md_fs_request *q,
     size_t capacity = output ? output->capacity : 0;
     void *data = output ? output->data : NULL;
     switch (q->operation) {
+    case MD_FS_CHMOD: case MD_FS_CHOWN: case MD_FS_UTIMENS:
+        /* Real directory attachments retain host ownership and kernel checks.
+         * The adapter handles EXDEV through the same readonly-aware reopen. */
+        r = fs->mounts->mounts[p->mount].readonly ? -EROFS : -EXDEV; break;
+    case MD_FS_ACCESS:
+        r = fs->mounts->mounts[p->mount].readonly && (q->mode & W_OK) ? -EROFS : -EXDEV; break;
     case MD_FS_FSTAT: result_stat(out, q->directory[0]); break;
     case MD_FS_REOPEN:
         r = reopen(fs, p, (int)q->flags, (int)q->mode);
@@ -105,7 +112,7 @@ static int follow(const struct md_fs_request *q) {
     switch (q->operation) {
     case MD_FS_OPEN: case MD_FS_OPEN_IMAGE:
         return (q->flags & (O_CREAT | O_EXCL)) == (O_CREAT | O_EXCL) ? -1 : !(q->flags & O_NOFOLLOW);
-    case MD_FS_STAT: return !(q->flags & AT_SYMLINK_NOFOLLOW);
+    case MD_FS_STAT: case MD_FS_ACCESS: return !(q->flags & AT_SYMLINK_NOFOLLOW);
     case MD_FS_LINK: return !!(q->flags & AT_SYMLINK_FOLLOW);
     case MD_FS_CREATE: case MD_FS_MKDIR: case MD_FS_SYMLINK:
     case MD_FS_UNLINK: case MD_FS_RENAME: case MD_FS_SOCKET_BIND: return -1;
@@ -138,6 +145,11 @@ static void native(struct md_filesystem *fs, const struct md_fs_request *q,
     void *data = output ? output->data : NULL;
     size_t capacity = output ? output->capacity : 0;
     switch (q->operation) {
+    case MD_FS_ACCESS:
+        if (q->flags & ~(AT_SYMLINK_NOFOLLOW | MD_AT_EACCESS) || q->mode & ~(R_OK | W_OK | X_OK)) r = -EINVAL;
+        else if ((q->mode & W_OK) && fs->mounts->mounts[a->mount].readonly) r = -EROFS;
+        else if (syscall(SYS_faccessat2, a->fd, "", q->mode, AT_EMPTY_PATH | q->flags)) r = -errno;
+        break;
     case MD_FS_CREATE: case MD_FS_OPEN: case MD_FS_OPEN_IMAGE: {
         int flags = q->operation == MD_FS_CREATE ? O_RDWR | O_CREAT | O_EXCL
             : q->operation == MD_FS_OPEN_IMAGE ? O_RDONLY : (int)q->flags;
@@ -201,9 +213,10 @@ void md_fs_mounts_execute(struct md_filesystem *fs, const struct md_fs_request *
             return;
         }
     }
-    if (!has_path(q->operation)) {
+    if (!has_path(q->operation) && !(q->operation == MD_FS_ACCESS && q->path[0] && *q->path[0])) {
         switch (q->operation) {
         case MD_FS_FSTAT: case MD_FS_PATH: case MD_FS_REOPEN: case MD_FS_GETDENTS:
+        case MD_FS_CHMOD: case MD_FS_CHOWN: case MD_FS_ACCESS: case MD_FS_UTIMENS:
         case MD_FS_SEEKDIR: case MD_FS_OBJECT_ID:
             if (descriptor(fs, q, out, output)) return;
         }

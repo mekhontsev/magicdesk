@@ -29,6 +29,22 @@ long md_launch_environment_set(struct md_launch_environment *out, char *entry) {
     out->values[n] = entry; out->values[n+1] = NULL; return 0;
 }
 
+long md_launch_environment_user(struct md_launch_environment *out, const char *selection) {
+    char name[1025];
+    size_t n = 0;
+    while (selection[n] && selection[n] != ':') {
+        if (n == sizeof(name)-1) return -E2BIG;
+        name[n] = selection[n]; ++n;
+    }
+    if (!n) return -EINVAL;
+    name[n] = 0;
+    const char *value = md_equal(name, "0") ? "root" : name;
+    if (md_copy(out->user, sizeof(out->user), "USER=") || md_append(out->user, sizeof(out->user), value)
+            || md_copy(out->logname, sizeof(out->logname), "LOGNAME=")
+            || md_append(out->logname, sizeof(out->logname), value)) return -E2BIG;
+    long r = md_launch_environment_set(out, out->user);
+    return r < 0 ? r : md_launch_environment_set(out, out->logname);
+}
 long md_launch_environment(struct md_launch_environment *out, const char *home, char **inherited) {
     if (md_copy(out->home, sizeof(out->home), "HOME=") || md_append(out->home, sizeof(out->home), home))
         return -ENAMETOOLONG;

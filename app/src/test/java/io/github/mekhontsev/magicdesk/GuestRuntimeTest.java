@@ -15,7 +15,7 @@ public class GuestRuntimeTest {
     @Rule public TemporaryFolder temporary = new TemporaryFolder();
 
     @Test public void launchPlanKeepsHostAndGuestPathsAndArgumentsSeparate() {
-        var plan = new GuestLaunchPlan(new GuestEnvironment("/host/a ' b", "/home/shell"),
+        var plan = new GuestLaunchPlan(new GuestEnvironment("/host/a ' b", "/home/shell", ""),
                 "/guest/c d", List.of("/bin/sh", "-c", "echo '$HOME'"));
         assertEquals(List.of("magicdesk-guest", "--store", "/host/a ' b", "--home", "/home/shell",
                 "--cwd", "/guest/c d", "--", "/bin/sh", "-c", "echo '$HOME'"), plan.arguments());
@@ -26,11 +26,20 @@ public class GuestRuntimeTest {
 
     @Test public void rejectsIncompleteAndAmbiguousPlans() {
         for (String invalid : List.of("", "relative", "/", "/a\0b"))
-            assertThrows(IllegalArgumentException.class, () -> new GuestEnvironment(invalid, "/tmp"));
-        var environment = new GuestEnvironment("/guest/store", "/tmp");
+            assertThrows(IllegalArgumentException.class, () -> new GuestEnvironment(invalid, "/tmp", ""));
+        var environment = new GuestEnvironment("/guest/store", "/tmp", "");
         assertThrows(IllegalArgumentException.class, () -> new GuestLaunchPlan(environment, "relative", List.of("/bin/sh")));
         assertThrows(IllegalArgumentException.class, () -> new GuestLaunchPlan(environment, "/", List.of("sh")));
         assertThrows(IllegalArgumentException.class, () -> new GuestLaunchPlan(environment, "/", List.of("/bin/sh", "\0")));
+    }
+
+    @Test public void guestUserIsAnExplicitLaunchArgumentNotAnExecutorSwitch() {
+        var plan = new GuestLaunchPlan(new GuestEnvironment("/store", "/tmp", " 1000:200 "),
+                "/", List.of("/bin/sh"));
+        assertEquals(List.of("magicdesk-guest", "--store", "/store", "--home", "/tmp",
+                "--cwd", "/", "--user", "1000:200", "--", "/bin/sh"), plan.arguments());
+        for (String invalid : List.of("root:bad:group", "-1", "root;id", "root:", "root\nother"))
+            assertThrows(IllegalArgumentException.class, () -> new GuestEnvironment("/store", "/tmp", invalid));
     }
 
     private Path source() throws Exception {
@@ -132,7 +141,7 @@ public class GuestRuntimeTest {
         Path tools = temporary.newFolder().toPath();
         Path stub = Files.writeString(tools.resolve("magicdesk-guest"), "#!/bin/sh\nprintf '%s\\n' \"$@\"\n");
         assertTrue(stub.toFile().setExecutable(true));
-        var plan = new GuestLaunchPlan(new GuestEnvironment("/host/a ' b", "/home/shell"), "/guest dir",
+        var plan = new GuestLaunchPlan(new GuestEnvironment("/host/a ' b", "/home/shell", ""), "/guest dir",
                 List.of("/bin/sh", "-c", "echo '$HOME'"));
         for (var protocol : GraphicalProtocol.values()) {
             var builder = new ProcessBuilder("sh", "-c", GuestGraphicalConnection.invocation(plan, protocol));

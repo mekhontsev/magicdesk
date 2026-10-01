@@ -5,6 +5,7 @@ import gzip
 import hashlib
 import io
 import json
+import os
 import pathlib
 import sqlite3
 import subprocess
@@ -30,6 +31,8 @@ def tar(entries):
             entry.mode = 0o755 if kind == 'dir' else 0o644
             if len(item) > 3:
                 entry.mode = item[3]
+            if len(item) > 4:
+                entry.uid, entry.gid = item[4:6]
             entry.mtime = 123456
             if kind == 'file':
                 entry.size = len(value)
@@ -95,9 +98,10 @@ class Images(unittest.TestCase):
     def layout(self, layers=None, **kwargs):
         return Layout(self.root / 'layout', layers or [[('hello', 'file', b'world')]], **kwargs)
 
-    def run_import(self, layout, success=True, args=()):
+    def run_import(self, layout, success=True, args=(), preserve=False):
         result = subprocess.run([BINARY, 'import', str(layout.path), str(self.destination),
-                                 '--map-current-user', *args], capture_output=True, text=True, timeout=60)
+                                 '--preserve-ownership' if preserve else '--map-current-user', *args],
+                                capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
         self.assertFalse(list(self.root.glob('.md-image-*')))
         if not success:
@@ -119,6 +123,42 @@ class Images(unittest.TestCase):
     def test_gzip(self):
         self.run_import(self.layout())
         self.assertEqual(self.object('hello').read_bytes(), b'world')
+
+    def test_preserved_owners_and_snapshot(self):
+        layout = self.layout([[('d', 'dir', '', 0o2750, 1000, 2000),
+                               ('d/a', 'file', b'value', 0o4755, 123, 456),
+                               ('d/link', 'sym', 'a', 0o777, 789, 987),
+                               ('d/alias', 'hard', 'd/a')]],
+                             config={'config': {'User': '123:456', 'Cmd': ['/d/a']}})
+        self.run_import(layout, preserve=True)
+        expected = {'d': (1000, 2000, 0o2750), 'd/a': (123, 456, 0o4755),
+                    'd/link': (789, 987, 0o777)}
+        for path, metadata in expected.items():
+            backing = self.object(path)
+            with sqlite3.connect(self.destination / 'namespace.db') as db:
+                actual = db.execute('SELECT uid,gid,mode FROM objects WHERE object=?',
+                                    (backing.name,)).fetchone()
+            self.assertEqual(actual, metadata)
+            self.assertEqual(backing.lstat().st_uid, os.getuid())
+            self.assertFalse(backing.lstat().st_mode & 0o6000)
+        self.assertEqual(self.object('d/a'), self.object('d/alias'))
+        instance = self.root / 'instance'
+        subprocess.run([BINARY, 'create', str(self.destination), str(instance)], check=True,
+                       capture_output=True, timeout=60)
+        with sqlite3.connect(instance / 'namespace.db') as db:
+            self.assertEqual(db.execute('SELECT uid,gid,mode FROM objects WHERE object=?',
+                                        (self.object('d/a').name,)).fetchone(), expected['d/a'])
+        info = json.loads(subprocess.check_output([BINARY, 'inspect', str(instance)]))
+        self.assertEqual(str(info['guestUsers']), '1')
+        self.assertEqual(info['config']['config']['User'], '123:456')
+
+    def test_ownership_policy_is_explicit(self):
+        layout = self.layout()
+        for flags in ([], ['--map-current-user', '--preserve-ownership']):
+            result = subprocess.run([BINARY, 'import', str(layout.path), str(self.destination), *flags],
+                                    capture_output=True, timeout=60)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(self.destination.exists())
 
     def test_tar(self):
         self.run_import(self.layout(compression=''))

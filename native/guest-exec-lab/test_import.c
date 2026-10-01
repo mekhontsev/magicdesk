@@ -16,7 +16,7 @@
 } } while (0)
 static char root[PATH_MAX];
 static unsigned serial;
-static const struct md_inode_import_limits limits={128*1024*1024,20000};
+static const struct md_inode_import_limits limits={128*1024*1024,20000,0};
 static void location(char *out,const char *suffix) {
     CHECK(snprintf(out,PATH_MAX,"%s/%s-%u",root,suffix,serial++)<PATH_MAX);
 }
@@ -56,7 +56,7 @@ static void complete_tree(const char *source_path,const char *destination) {
     struct md_inode_store *s; CHECK(md_inode_store_open(destination,1,&s)==0);
     struct md_inode_import_result result;
     /* Prepared toolkit assets need a larger budget than the small fault fixtures. */
-    const struct md_inode_import_limits rootfs_limits={1024ULL*1024*1024,50000};
+    const struct md_inode_import_limits rootfs_limits={1024ULL*1024*1024,50000,0};
     int r=md_inode_import_tree(s,fd,&rootfs_limits,&result);
     if(r) fprintf(stderr,"complete rootfs import: %d (%s)\n",r,strerror(-r));
     CHECK(!r && result.entries>100 && result.bytes>1024*1024);
@@ -124,6 +124,29 @@ static void failures(void) {
     }
     puts("PASS import rollback: unsupported metadata/types, quotas and overlapping source/storage");
 }
+static void preserved_ownership(void) {
+    char srcpath[PATH_MAX], dstpath[PATH_MAX]; int src=source(srcpath);
+    file(src,"program"); CHECK(fchmodat(src,"program",04755,0)==0);
+    CHECK(symlinkat("program",src,"link")==0 && fchmod(src,02750)==0);
+    struct md_inode_store *s=store(dstpath); struct md_inode_import_result result;
+    struct md_inode_import_limits preserved=limits; preserved.preserve_ownership=1;
+    CHECK(md_inode_import_tree(s,src,&preserved,&result)==0 && result.entries==2);
+    const char *paths[]={"/","program","link"};
+    for (unsigned i=0;i<3;i++) {
+        struct stat expected, actual;
+        CHECK(fstatat(src,i ? paths[i] : ".",&expected,AT_SYMLINK_NOFOLLOW)==0);
+        CHECK(md_inode_stat(s,-1,paths[i],AT_SYMLINK_NOFOLLOW,&actual)==0);
+        CHECK(actual.st_uid==expected.st_uid && actual.st_gid==expected.st_gid
+            && actual.st_mode==expected.st_mode);
+    }
+    int fd=md_inode_open(s,-1,"program",O_RDONLY,0); struct stat native;
+    CHECK(fd>=0 && fstat(fd,&native)==0 && !(native.st_mode&06000) && native.st_uid==getuid());
+    close(fd); md_inode_store_close(s);
+    CHECK(md_inode_store_open(dstpath,0,&s)==0);
+    CHECK(md_inode_stat(s,-1,"program",0,&native)==0 && (native.st_mode&07777)==04755);
+    md_inode_store_close(s); close(src);
+    puts("PASS preserved import: root, symlink, owner and set-ID metadata without kernel set-ID");
+}
 struct mutation { int fd; unsigned hits; };
 static void mutate(enum md_inode_checkpoint point,void *context) {
     struct mutation *m=context;
@@ -177,6 +200,6 @@ int main(int argc,char **argv) {
     CHECK((argc==2 || argc==4) && argv[1][0]=='/' && strlen(argv[1])<sizeof(root)); strcpy(root,argv[1]);
     if(argc==4) complete_tree(argv[2],argv[3]);
     CHECK(mkdir(root,0700)==0);
-    semantics(); failures(); changing_source(); recovery();
+    semantics(); failures(); preserved_ownership(); changing_source(); recovery();
     puts("PASS offline import fixture (not execution from the imported namespace)"); return 0;
 }

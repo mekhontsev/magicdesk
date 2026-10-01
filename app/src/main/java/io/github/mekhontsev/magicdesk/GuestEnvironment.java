@@ -1,10 +1,13 @@
 package io.github.mekhontsev.magicdesk;
 
 /** Prepared filesystem namespace. It neither installs a distribution nor selects privileges. */
-public record GuestEnvironment(String store, String home) {
+public record GuestEnvironment(String store, String home, String user) {
     public GuestEnvironment {
         store = absolute(store, "environment store");
         home = absolute(home, "guest home");
+        user = user == null ? "" : user.trim();
+        if (!user.isEmpty() && !user.matches("[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}\\$?(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}\\$?)?"))
+            throw new IllegalArgumentException("Invalid guest user or group");
     }
 
     static String absolute(String value, String label) {

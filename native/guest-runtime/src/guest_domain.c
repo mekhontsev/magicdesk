@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/magic.h>
+#include <linux/netlink.h>
 #include <linux/openat2.h>
 #include <linux/pidfd.h>
 #include <limits.h>
@@ -11,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
 #include <sys/statfs.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>
@@ -84,6 +86,12 @@ int md_domain_path_error(const struct md_guest_domain *d) {
     int error = root_alive(d);
     return error ? error : -EACCES;
 }
+int md_domain_socket_error(int family, int protocol) {
+    /* There is no guest audit subsystem. Do not connect guest account/security
+     * records to Android's global audit service, even under an actual root UID.
+     * Report protocol absence, never successful logging or a translated denial. */
+    return family == AF_NETLINK && protocol == NETLINK_AUDIT ? -EPROTONOSUPPORT : 0;
+}
 int md_domain_native_call(long nr, const unsigned long a[6]) {
 #define ARGUMENT(name, index, value) if (nr == SYS_##name && a[index] == (unsigned long)(value)) return 1;
     MD_DOMAIN_KERNEL_ARGUMENTS(ARGUMENT)
@@ -93,7 +101,7 @@ int md_domain_native_call(long nr, const unsigned long a[6]) {
     MD_GATE_TRANSPORT_CALLS(NATIVE_CASE)
     MD_DOMAIN_KERNEL_CALLS(NATIVE_CASE)
 #undef NATIVE_CASE
-    case SYS_lseek: case SYS_getdents64:
+    case SYS_lseek: case SYS_getdents64: case SYS_socketpair:
     case SYS_getsockname: case SYS_getpeername:
     case SYS_recvfrom: case SYS_sendmmsg:
     case SYS_seccomp: case SYS_getresuid: case SYS_getresgid: return 1;

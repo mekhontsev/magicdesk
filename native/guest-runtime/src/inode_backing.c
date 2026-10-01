@@ -145,6 +145,13 @@ int md_inode_reopen(struct md_inode_store *s, int original, int flags, int mutab
     if (r) return r;
     struct mdi_node node;
     r = mdi_fd(s, original, &node);
+    if (!r && !(flags & O_PATH)) r = mdi_permission(s, &node,
+        (flags & O_ACCMODE) == O_WRONLY ? W_OK : (flags & O_ACCMODE) == O_RDWR ? R_OK | W_OK : R_OK, 0);
+    if (!r && mutable && (flags & O_PATH) && s->identity && s->identity->uid.fs) {
+        struct stat st;
+        r = mdi_stat(s, &node, &st);
+        if (!r && st.st_uid != s->identity->uid.fs) r = -EPERM;
+    }
     if (!r && write) r = mdi_copy_up(s, &node);
     int fd = -1;
     int directory = r ? -1 : mdi_backing_directory(s, &node);

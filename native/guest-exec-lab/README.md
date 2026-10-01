@@ -366,6 +366,60 @@ starting Desktop or changing privileges. Uploaded layouts and stores remain for
 inspection. The installed CLI additionally needs ordinary Shell-console checks;
 standalone helper coverage alone does not verify APK packaging and dispatch.
 
+## Guest Credential Checks
+
+CMake's `MAGICDESK_GUEST_FIXTURES` builds `test_credentials` for the identity,
+account resolution, registry and inode contracts, plus `credentials_guest` for
+intercepted calls. The device runner accepts a prepared device-side OCI layout:
+
+```sh
+python native/guest-exec-lab/test_credentials_runtime.py BUILD DEVICE_LAYOUT --packages debian
+python native/guest-exec-lab/test_credentials_runtime.py BUILD DEVICE_LAYOUT --packages alpine
+```
+
+The runner requires actual UID 2000 and creates its own preserved-ownership image
+and instance. It checks independent root/non-root launches, chmod/chown/access,
+hardlinks, group copying and EFAULT, nondumpable processes, per-thread raw IDs,
+libc set-ID coordination, fork/exec, auxv and irreversible credential drops.
+Access checks include real/effective IDs across the whole path, empty-path
+descriptor/current-directory access, fchdir and inotify registration permissions.
+`--fixture ELF` additionally runs a glibc/musl build of `test_credentials_guest.c`
+against the matching image. Bionic's raw set-ID wrappers are intentionally
+thread-local; glibc/musl coordinate the same calls between threads.
+`--packages` exercises ordinary package install/reinstall/remove scripts without
+force-not-root flags. Kernel privilege remains separate from virtual guest root.
+Reports retain every command and exact image/build.
+
+`test_ipc_credentials_runtime.py BUILD DEVICE_STORE` stages the native helpers
+and exercises connection/group snapshots, queued SCM_CREDENTIALS, credential
+drops, forgery rejection, MSG_PEEK, recvmmsg, truncation, FD passing and an external
+native endpoint. The selected prepared store supplies stock D-Bus and a root NSS
+entry. Independent root clients share its bus; a different guest user is rejected.
+`--installed` uses the APK's CLI/bundle instead of staging execution helpers;
+only the test programs are uploaded. `--gdbus` adds a stock GIO client.
+For Debian's activation/FD workflow:
+
+```sh
+sh native/guest-exec-lab/build-ipc-dbus.sh PREPARED_SYSROOT BUILD/ipc-dbus
+python native/guest-exec-lab/test_ipc_credentials_runtime.py BUILD DEVICE_STORE --gdbus --activation BUILD/ipc-dbus
+```
+
+The activation fixture installs/removes only its own service file in the disposable
+store. It checks a stock daemon's GetConnectionUnixUser, service activation and
+usable descriptor delivery in both directions, under guest UID 0 and actual
+UID 2000. No Android Desktop, real elevation or authentication override is used.
+
+`test_guest_accounts_runtime.py BUILD DEVICE_STORE [--installed]` uses a disposable
+Debian store with the stock passwd and D-Bus packages. It creates, modifies and
+removes fixture-owned users/groups, verifies named-launch NSS/group resolution
+and home ownership, and checks that a denied non-root groupadd leaves group files
+unchanged. Pending package configuration must finish with both D-Bus packages
+installed, a messagebus account and a clean dpkg audit. Package service-start
+policy is not replaced. The runner's native/guest controls compare Unix, IP and
+other netlink results while audit is explicitly unavailable in the guest.
+CMake builds `guest_interfaces`; it checks raw calls, protected tasks and
+application ERRNO/TRAP/KILL precedence under root, nobody and shell guest IDs.
+
 ## Watch Transport Controls
 
 ```sh

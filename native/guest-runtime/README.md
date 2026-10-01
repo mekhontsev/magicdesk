@@ -37,8 +37,16 @@ custom glibc linker, root transition or SELinux change is used.
   Bootstrap copies use fault-guarded instructions; ordinary native tools use
   `memory.c` for process_vm-based checked copies. No adapter is loaded into ART.
 - `guest_domain.c`, `guest_identity.c`, `elf_admission.c` and `image_catalogue.c`
-  separate proc-root references, logical credentials and explicit sealed-image
+  separate guest-interface availability/proc-root references, logical credentials and explicit sealed-image
   admission from syscall scheduling. See the [interception contract](interception.md).
+- `guest_accounts.c` resolves launch users/groups from the selected filesystem.
+  `credential_registry.c` publishes retained per-task identities to the namespace
+  worker. `inode_metadata.c` owns guest DAC and logical owner/mode mutations;
+  host credentials and native attached-directory permissions remain unchanged.
+- `ipc_credentials.c` owns lazy store-scoped Unix connection/message identity.
+  `socket_identity.c` and `socket_ancillary.c` adapt peer queries and explicit
+  credential messages without proxying payloads or changing kernel authority.
+  See the [IPC credential contract](ipc-credentials.md).
 - `file_calls.c` owns file syscall argument translation, separately from signal
   delivery. Its single catalog in `file_calls.h` drives dispatch and filtering,
   so a supported file operation cannot accidentally bypass the adapter.
@@ -108,7 +116,7 @@ custom glibc linker, root transition or SELinux change is used.
   modules. Image launches use the existing runner and process guardian.
   See [images and filesystem views](images.md) for sharing, copy-on-write,
   attachments and supported image semantics.
-- `fd_metadata.c` applies namespace chmod and path xattrs to a retained native
+- `fd_metadata.c` applies direct-backend metadata and path xattrs to a retained native
   inode under the caller's real identity. Attribute values do not enter SQLite
   or the RPC protocol; ordinary data and FD operations remain kernel-owned.
 
@@ -206,7 +214,7 @@ Negative controls are required, not hidden or counted as compatibility passes:
   dangling symlinks). Namespace openat2 supports beneath/in-root, symlink and
   mount constraints; cache-only returns EAGAIN. The direct backend rejects scoped
   resolution. The selected filesystem calls are not the complete Linux syscall
-  surface: guest ownership emulation,
+  surface: native attachments and kernel credentials,
   arbitrary proc aliases, io_uring and other entry points are not comprehensively
   virtualized. Unselected syscalls retain host semantics. Run trusted fixtures
   only; arbitrary programs can access host resources with the selected executor's authority.
@@ -219,8 +227,8 @@ Negative controls are required, not hidden or counted as compatibility passes:
   descriptor-exec readlink's original dentry identity are not complete.
   `AT_EXECFN` preserves caller spelling, including scripts and descriptor exec.
   Namespace `exe` open/stat retains the actual executable object after unlink and
-  close_range; direct-backend reopening remains path-based. Locales, metadata/ownership
-  emulation are not complete. NSS/DNS, toolkit and GPU coverage is bounded
+  close_range; direct-backend reopening remains path-based. Locales, ACLs and
+  complete metadata semantics are not implemented. NSS/DNS, toolkit and GPU coverage is bounded
   by the software GUI checks below.
 - Guest-installed filters, application SIGSYS handlers and alternate signal stacks
   have focused tests. A second tracer cannot attach to an already supervised
@@ -252,21 +260,23 @@ the native runtime owns none of that Android policy.
 
 Unrouted abstract addresses, including embedded zero bytes, family-only autobind,
 AF_UNSPEC disconnection and other address families retain native behavior.
-Connected data IO, ancillary messages, SO_PEERCRED, descriptor flags, shared
-offsets and mmap stay kernel-owned. Addressed sendmsg copies only its header and
-address; payload, iovecs and control data are passed to the kernel unchanged.
+Connected data IO, descriptor flags, shared offsets and mmap stay kernel-owned.
+Addressed sendmsg copies its header and address, not payload or iovecs.
+Internal guest connections adapt SO_PEERCRED/SO_PEERGROUPS and explicit
+SCM_CREDENTIALS through the [IPC credential authority](ipc-credentials.md);
+external connections retain native credentials.
 
 Namespace pathname bind transfers the original socket FD to the filesystem
 service and commits a socket inode with a unique abstract kernel address.
 The original descriptor/open-file description is retained. Names and permissions
-use the common namespace; data and credentials stay kernel-native.
+use the common namespace; payload data stays kernel-native.
 getpeername/getsockname/accept/recvfrom/recvmsg restore the original bound address,
 including relative and full-length names. Unlink/rebind, rename, stale listeners,
 SCM_RIGHTS and independent launchers are covered by `test_ipc.c`.
 Bind and commit cannot be atomically undone after an uncertain reply; never retry
 that bind on the same socket. Unix sendmmsg uses the same address adapter, preserving
 partial completion, short stream writes, result-pointer faults and SCM_RIGHTS,
-without payload copies or heap allocation. Direct-backend pathname bind remains
+without payload copies; credential-free sends need no ancillary allocation. Direct-backend pathname bind remains
 unsupported. Abstract sockets are shared host resources, not isolated guest names.
 
 `test_sockets.c` has separate native-reference, explicit-adapter and intercepted

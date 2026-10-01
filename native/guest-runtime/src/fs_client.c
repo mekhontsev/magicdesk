@@ -2,6 +2,7 @@
 #include "fs_wire.h"
 #include "event_wait.h"
 #include "inode_store.h"
+#include "ipc_credentials.h"
 #include "raw.h"
 #include <errno.h>
 #include <poll.h>
@@ -38,7 +39,7 @@ static long receive_reply(int socket, int64_t deadline, const struct md_fs_reque
     uint32_t operation = request->operation;
     int opens = operation == MD_FS_OPEN || operation == MD_FS_CREATE || operation == MD_FS_TEMPORARY
         || operation == MD_FS_OPEN_OBJECT || operation == MD_FS_OPEN_IMAGE || operation == MD_FS_WATCH_CREATE
-        || operation == MD_FS_REOPEN;
+        || operation == MD_FS_REOPEN || (operation == MD_FS_IPC && (request->flags == MD_IPC_PEER || request->flags == MD_IPC_MESSAGE_CREATE));
     if (r < (long)offsetof(struct md_fs_reply, data)
             || reply->magic != MD_FS_MAGIC || reply->version != MD_FS_VERSION
             || reply->error > 0 || reply->error < -4095 || reply->reserved
@@ -51,7 +52,7 @@ static long receive_reply(int socket, int64_t deadline, const struct md_fs_reque
             || (operation != MD_FS_OPEN_IMAGE && reply->size > PATH_MAX)
             || (!reply->error && operation == MD_FS_OBJECT_ID && (reply->size != 33 || reply->data[32]))
             || (reply->position && ((operation != MD_FS_SEEKDIR && operation != MD_FS_WATCH_ADD
-                && operation != MD_FS_WATCH_BYTES && operation != MD_FS_WATCH_CONTAINS) || reply->error)) || reply->position < 0
+                && operation != MD_FS_WATCH_BYTES && operation != MD_FS_WATCH_CONTAINS && operation != MD_FS_IPC) || reply->error)) || reply->position < 0
             || (operation == MD_FS_GETDENTS && (reply->size > request->capacity || !valid_entries(reply->data, reply->size)))
             || (operation == MD_FS_WATCH_READ && reply->size > request->capacity)
             || (!reply->error && (operation == MD_FS_PATH || operation == MD_FS_SOCKET_ADDRESS || operation == MD_FS_SOCKET_NAME || operation == MD_FS_REALPATH)
@@ -87,7 +88,8 @@ long md_fs_call_deliver(const char *name, unsigned timeout_ms,
     /* The request is no longer needed after send: reuse its storage for the reply. */
     union { struct md_fs_packet packet; struct md_fs_reply reply; } wire = {.packet = {.magic = MD_FS_MAGIC, .version = MD_FS_VERSION,
         .operation = request->operation, .flags = request->flags, .mode = request->mode,
-        .capacity = request->capacity, .offset = request->offset, .resolve = request->resolve}};
+        .capacity = request->capacity, .offset = request->offset, .resolve = request->resolve,
+        .actor = request->actor ? request->actor : (int)RAW0(gettid), .attributes = request->attributes}};
     struct md_fs_rights rights = {0};
     size_t length = 0;
     for (unsigned i = 0; i < 2; ++i) {

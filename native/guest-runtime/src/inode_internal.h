@@ -3,6 +3,7 @@
 #include "inode_store.h"
 #include <limits.h>
 #include <sqlite3.h>
+#include "guest_identity.h"
 
 #define MDI_ROOT "00000000000000000000000000000000"
 #define MDI_SOURCES 256
@@ -13,6 +14,7 @@ enum mdi_query { MDI_NODE, MDI_FD, MDI_LOOKUP, MDI_DIRECTORY_NAME, MDI_READDIR,
 struct md_inode_store {
     sqlite3 *db;
     int objects, root, watch_presence, locked, recording, readonly, reflink_unavailable;
+    const struct md_identity *identity;
     int sources[MDI_SOURCES];
     struct md_inode_watches *watches;
     struct md_inode_statistics *statistics;
@@ -29,6 +31,8 @@ struct mdi_node {
     ino_t inode, logical_inode;
     nlink_t links;
     int attached, shared, source;
+    int mode;
+    uint32_t uid, gid;
 };
 struct mdi_location {
     struct mdi_node node, parent;
@@ -58,6 +62,9 @@ int mdi_stat(struct md_inode_store *, const struct mdi_node *, struct stat *);
 int mdi_backing_stat(struct md_inode_store *, const struct mdi_node *, struct stat *);
 int mdi_fstat(struct md_inode_store *, int, struct mdi_node *, struct stat *);
 int mdi_access(struct md_inode_store *, const struct mdi_node *, int);
+int mdi_permission(struct md_inode_store *, const struct mdi_node *, int, int real);
+int mdi_sticky(struct md_inode_store *, const struct mdi_location *);
+int mdi_metadata(struct md_inode_store *, const struct mdi_node *, uint32_t, uint32_t, mode_t);
 int mdi_walk(struct md_inode_store *, int, const char *, enum mdi_follow, int missing, struct mdi_location *);
 int mdi_walk_resolved(struct md_inode_store *, int, const char *, enum mdi_follow, int missing,
         uint64_t resolve, struct mdi_location *);

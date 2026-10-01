@@ -27,6 +27,7 @@ struct md_interception_abi {
     uintptr_t proc_export, store, stored, load_byte, loaded_byte;
     uintptr_t store_ids, stored_ids, raw_gate, copy_begin, copy_end;
     uintptr_t watch_gate;
+    uintptr_t load_groups, loaded_groups, store_groups, stored_groups;
 };
 
 int md_interception_install(int inherited);

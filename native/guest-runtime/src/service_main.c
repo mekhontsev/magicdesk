@@ -18,12 +18,12 @@ static void cost(const char *name, const struct md_cost *value) {
         (unsigned long long)value->calls, (unsigned long long)value->nanoseconds);
 }
 
-static int import(const char *source, const char *destination) {
+static int import(const char *source, const char *destination, int preserve_ownership) {
     if (source[0] != '/' || destination[0] != '/' || !strcmp(source, "/") || !strcmp(destination, "/")) return 2;
     int fd = open(source, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     if (fd < 0) { perror("open import source"); return 1; }
     struct md_inode_store *store = NULL;
-    struct md_inode_import_limits limits = {2ULL * 1024 * 1024 * 1024, 200000};
+    struct md_inode_import_limits limits = {2ULL * 1024 * 1024 * 1024, 200000, preserve_ownership};
     struct md_inode_import_result result = {0};
     int error = md_inode_store_open(destination, 1, &store);
     if (!error) error = md_inode_import_tree(store, fd, &limits, &result);
@@ -44,7 +44,10 @@ int main(int argc, char **argv) {
     if (md_page_size < 4096 || md_page_size > 65536 || (md_page_size & (md_page_size - 1))) return 2;
     int statistics = argc > 1 && !strcmp(argv[1], "--statistics");
     if (statistics) { argc--; argv++; }
-    if (argc == 4 && !strcmp(argv[1], "--import")) return import(argv[2], argv[3]);
+    if ((argc == 4 || argc == 5) && !strcmp(argv[1], "--import")) {
+        if (argc == 5 && strcmp(argv[4], "--preserve-ownership")) return 2;
+        return import(argv[2], argv[3], argc == 5);
+    }
     if (argc != 5 && argc != 6) return 2;
     char *end;
     long ready = strtol(argv[3], &end, 10);

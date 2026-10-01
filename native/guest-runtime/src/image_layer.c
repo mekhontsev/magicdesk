@@ -76,11 +76,15 @@ static int whiteout(struct md_inode_store *s, char *path) {
 }
 static int record_metadata(struct md_inode_store *s, struct archive_entry *entry, const struct mdi_node *node) {
     sqlite3_stmt *q = NULL;
-    int r = mdi_prepare(s, "INSERT OR REPLACE INTO temp.image_metadata VALUES(?1,?2,?3,?4)", &q);
+    la_int64_t uid = archive_entry_uid(entry), gid = archive_entry_gid(entry);
+    if (uid < 0 || gid < 0 || uid >= UINT32_MAX || gid >= UINT32_MAX) return -EINVAL;
+    int r = mdi_prepare(s, "INSERT OR REPLACE INTO temp.image_metadata VALUES(?1,?2,?3,?4,?5,?6)", &q);
     if (!r) r = mdi_bind_id(q, 1, node->id);
-    if (!r) r = mdi_sql_error(sqlite3_bind_int(q, 2, archive_entry_perm(entry) & 01777));
+    if (!r) r = mdi_sql_error(sqlite3_bind_int(q, 2, archive_entry_perm(entry) & 07777));
     if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 3, archive_entry_mtime(entry)));
     if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 4, archive_entry_mtime_nsec(entry)));
+    if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 5, uid));
+    if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 6, gid));
     if (!r) r = mdi_sql_error(mdi_step(s, q));
     sqlite3_finalize(q); return r;
 }
@@ -180,9 +184,9 @@ static int links(struct md_inode_store *s) {
     }
     return r;
 }
-static int metadata(struct md_inode_store *s) {
+static int metadata(struct md_inode_store *s, int preserve) {
     sqlite3_stmt *q = NULL;
-    int r = mdi_prepare(s, "SELECT object,mode,seconds,nanos FROM temp.image_metadata", &q);
+    int r = mdi_prepare(s, "SELECT object,mode,seconds,nanos,uid,gid FROM temp.image_metadata", &q);
     while (!r) {
         int rc = mdi_step(s, q);
         if (rc == SQLITE_DONE) break;
@@ -197,17 +201,19 @@ static int metadata(struct md_inode_store *s) {
             int fd = openat(s->objects, object, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
             if (fd < 0) r = -errno;
             else {
-                if (fchmod(fd, (mode_t)sqlite3_column_int(q, 1)) || futimens(fd, times) || fsync(fd)) r = -errno;
+                if (fchmod(fd, (mode_t)sqlite3_column_int(q, 1) & 01777) || futimens(fd, times) || fsync(fd)) r = -errno;
                 close(fd);
             }
         }
+        if (!r && preserve) r = mdi_metadata(s, &node, (uint32_t)sqlite3_column_int64(q, 4),
+            (uint32_t)sqlite3_column_int64(q, 5), (mode_t)sqlite3_column_int(q, 1));
     }
     sqlite3_finalize(q); return r;
 }
 int md_image_layer(struct md_inode_store *s, int fd, uint64_t *bytes, uint64_t *entries) {
     int r = mdi_begin(s, 1);
     if (r) return r;
-    r = mdi_sql(s, "CREATE TEMP TABLE IF NOT EXISTS image_metadata(object TEXT PRIMARY KEY,mode INTEGER,seconds INTEGER,nanos INTEGER);"
+    r = mdi_sql(s, "CREATE TEMP TABLE IF NOT EXISTS image_metadata(object TEXT PRIMARY KEY,mode INTEGER,seconds INTEGER,nanos INTEGER,uid INTEGER,gid INTEGER);"
         "CREATE TEMP TABLE layer_links(parent TEXT,name BLOB,target TEXT,UNIQUE(parent,name));"
         "CREATE TEMP TABLE layer_paths(path TEXT PRIMARY KEY);");
     /* OCI whiteouts only remove lower entries, regardless of tar ordering. */
@@ -242,12 +248,20 @@ int md_image_layer(struct md_inode_store *s, int fd, uint64_t *bytes, uint64_t *
     if (!r && fsync(s->objects)) r = -errno;
     return mdi_commit(s, r);
 }
-int md_image_layers_finish(struct md_inode_store *s) {
+int md_image_layers_finish(struct md_inode_store *s, int preserve) {
     int r = mdi_begin(s, 1);
     if (r) return r;
     /* The unpublished tree stays traversable while applying layers. Final
      * permissions belong to publication, not the importer's access rights. */
-    r = metadata(s);
+    r=mdi_sql(s,"CREATE TEMP TABLE IF NOT EXISTS image_metadata(object TEXT PRIMARY KEY,mode INTEGER,seconds INTEGER,nanos INTEGER,uid INTEGER,gid INTEGER)");
+    if (!r && preserve) {
+        struct mdi_node root;
+        r = mdi_node(s, MDI_ROOT, &root);
+        if (!r) r = mdi_metadata(s, &root, 0, 0, 0755);
+    }
+    if (!r) r = metadata(s, preserve);
+    if (!r) r = mdi_sql(s, preserve ? "INSERT INTO properties VALUES('image-users',1)"
+        : "INSERT INTO properties VALUES('image-users',0)");
     if (!r) r = mdi_sql(s, "DROP TABLE temp.image_metadata");
     return mdi_commit(s, r);
 }

@@ -39,6 +39,19 @@ the already-selected shell UID 2000; build-host tests use the host UID. This is
 not authorization between mutually hostile processes sharing a UID, and the
 executor remains unsuitable as a security sandbox.
 
+The supervisor's credential registry publishes guest IDs and immutable groups by
+TID. Direct requests use the kernel notification's TID; RPC includes an actor TID
+and verifies that the kernel peer owns its thread group. The supervisor can act
+on behalf of its tracee. The worker borrows one retained snapshot per operation
+and releases the registry lock before IO. It never accepts caller-supplied UID/GID
+as authorization. Offline fixture serving without a registry uses native authority.
+
+Unix IPC requests use that same authenticated actor and a separate lazy
+[credential authority](ipc-credentials.md). They borrow socket FDs, capture
+connection identities and issue/validate sealed explicit-message capabilities.
+The transient IPC database and its lock are separate from inode transactions;
+guest connect/accept/data IO never run while that lock is held.
+
 A client's seccomp filter does not restrict operations performed by this
 separate service. A same-UID caller able to reach the endpoint can request an
 open even if its own openat is denied. There is no per-caller browser policy
@@ -71,7 +84,7 @@ expiry release retained FDs. A client that never reads or closes cannot retain
 a slot indefinitely or block unrelated requests.
 
 The service exposes create/open, mkdir, symlink/readlink, link/unlink/rename,
-path stat, FD stat, directory-path reconstruction, paged directory read/seek and
+path stat, FD stat, guest chmod/chown/access/timestamps, directory-path reconstruction, paged directory read/seek and
 socket bind/address/name operations. Bind borrows the caller's socket via
 SCM_RIGHTS, preserving its open-file description; data traffic never uses RPC.
 A request carries at most
@@ -178,13 +191,13 @@ No APK install, root switch, SELinux change or Desktop self-test is involved.
 The namespace adapter covers cwd, directory read/seek, stat/statx, atomic
 open/create and exec. Its native owner uses umask zero after guest fork; requests
 carry the caller-masked creation mode. The underlying model API itself retains
-normal calling-process umask semantics. Real identity is unchanged; this is not
-an implementation of arbitrary guest credentials. The offline prepared-rootfs
+normal calling-process umask semantics. Real identity is unchanged; guest inode
+permissions use the supervisor's explicit credential model. The offline prepared-rootfs
 import does not implement live promotion, object reclamation or notifications.
 
 Keep SQLite and its locks outside the guest process. Preserve the direct kernel data path
 and truthful failure/commit outcomes as syscall coverage expands. A real fixture
-install/update/purge workflow passes; APT and full-distribution compatibility,
+install/update/purge workflow and bounded ordinary APT/APK checks pass; full-distribution compatibility,
 remaining ABI coverage and production resource ownership still require validation.
 
 References: [Unix sockets and SCM_RIGHTS](https://man7.org/linux/man-pages/man7/unix.7.html),

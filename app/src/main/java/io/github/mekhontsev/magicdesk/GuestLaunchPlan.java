@@ -29,7 +29,9 @@ public record GuestLaunchPlan(GuestEnvironment environment, String directory, Li
     }
 
     List<String> launcherArguments() {
-        return List.of(TOOL, "--store", environment.store(), "--home", environment.home(), "--cwd", directory);
+        var result = new ArrayList<>(List.of(TOOL, "--store", environment.store(), "--home", environment.home(), "--cwd", directory));
+        if (!environment.user().isEmpty()) result.addAll(List.of("--user", environment.user()));
+        return List.copyOf(result);
     }
 
     public static void requireIdentity(int uid) {

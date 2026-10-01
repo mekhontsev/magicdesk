@@ -27,7 +27,6 @@ final class LinuxEnvironmentPicker extends LinearLayout {
     private boolean active;
     private DesktopExecBackend backend = DesktopExecBackend.TERMUX;
     private List<LinuxLaunchRecipe.Kind> kinds = List.of(LinuxLaunchRecipe.Kind.PROOT, LinuxLaunchRecipe.Kind.SCRIPT);
-    private java.util.function.Consumer<LinuxLaunchRecipe.Kind> selectionChanged = kind -> { };
 
     LinuxEnvironmentPicker(Context context) {
         super(context);
@@ -98,10 +97,6 @@ final class LinuxEnvironmentPicker extends LinearLayout {
         if (active) load();
     }
 
-    void onSelectionChanged(java.util.function.Consumer<LinuxLaunchRecipe.Kind> listener) {
-        selectionChanged = listener;
-    }
-
     private void updateMethods() {
         String[] labels = getResources().getStringArray(R.array.command_app_linux_methods);
         var adapter = new ArrayAdapter<>(getContext(), android.R.layout.simple_spinner_item,
@@ -121,7 +116,6 @@ final class LinuxEnvironmentPicker extends LinearLayout {
         prootFields.setVisibility(proot ? View.VISIBLE : View.GONE);
         scriptFields.setVisibility(proot ? View.GONE : View.VISIBLE);
         scriptTitle.setText(kind == LinuxLaunchRecipe.Kind.GUEST ? R.string.command_app_guest_store : R.string.command_app_linux_script);
-        selectionChanged.accept(kind);
         endpoint = backend == DesktopExecBackend.TERMUX ? TermuxIntegration.inspect(getContext()) : null;
         if (!proot) return;
         final int expected = generation;

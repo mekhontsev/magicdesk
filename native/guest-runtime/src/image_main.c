@@ -21,7 +21,7 @@ static int save(int directory, const char *name, const char *json) {
     if (!r && fsync(fd)) r = -errno;
     close(fd); return r;
 }
-static int import(const char *source, const char *destination, const char *reference) {
+static int import(const char *source, const char *destination, const char *reference, int preserve) {
     int layout = open(source, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     if (layout < 0) return -errno;
     int blobs_root = openat(layout, "blobs", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
@@ -63,7 +63,7 @@ static int import(const char *source, const char *destination, const char *refer
     }
     sqlite3_finalize(q);
     if (!r && layers != diff_count) r = -EINVAL;
-    if (!r && layers) r = md_image_layers_finish(store);
+    if (!r) r = md_image_layers_finish(store, preserve);
     if (!r) r = save(store->root, "image-config.json", oci.config);
     if (!r) r = save(store->root, "image-manifest.json", oci.manifest);
     if (!r) r = md_inode_store_seal(store);
@@ -71,8 +71,8 @@ static int import(const char *source, const char *destination, const char *refer
     md_inode_store_close(store);
     if (json) sqlite3_close(json);
     if (!r) r = md_image_publish_commit(&publish);
-    if (!r) printf("Imported %s layers=%zu entries=%llu bytes=%llu identity=current\n", oci.identity.digest,
-        layers, (unsigned long long)entries, (unsigned long long)bytes);
+    if (!r) printf("Imported %s layers=%zu entries=%llu bytes=%llu identity=%s\n", oci.identity.digest,
+        layers, (unsigned long long)entries, (unsigned long long)bytes, preserve ? "guest" : "current");
     md_json_array_free(diffs, diff_count); md_image_oci_free(&oci);
     md_image_publish_close(&publish);
     if (blobs >= 0) close(blobs);
@@ -109,17 +109,18 @@ int main(int argc, char **argv) {
     umask(0);
     const char *reference = NULL;
     int r = -EINVAL;
-    if ((argc == 5 || argc == 7) && !strcmp(argv[1], "import") && !strcmp(argv[4], "--map-current-user")) {
+    if ((argc == 5 || argc == 7) && !strcmp(argv[1], "import")
+            && (!strcmp(argv[4], "--map-current-user") || !strcmp(argv[4], "--preserve-ownership"))) {
         if (argc == 7 && strcmp(argv[5], "--reference")) return 2;
         if (argc == 7) reference = argv[6];
-        r = import(argv[2], argv[3], reference);
+        r = import(argv[2], argv[3], reference, !strcmp(argv[4], "--preserve-ownership"));
     } else if (argc == 4 && !strcmp(argv[1], "create")) r = create(argv[2], argv[3]);
     else if (argc == 3 && !strcmp(argv[1], "inspect")) r = md_image_inspect(argv[2]);
     else if (argc >= 3 && !strcmp(argv[1], "run")) r = md_image_launch(argc-2, argv+2);
-    else fprintf(stderr, "Usage: image import OCI_LAYOUT NEW_IMAGE --map-current-user [--reference TAG]\n"
+    else fprintf(stderr, "Usage: image import OCI_LAYOUT NEW_IMAGE (--map-current-user|--preserve-ownership) [--reference TAG]\n"
         "       image create IMAGE NEW_INSTANCE\n"
         "       image inspect IMAGE_OR_INSTANCE\n"
-        "       image run INSTANCE [--user current] [--cwd PATH] [--entrypoint PROGRAM] [--env KEY=VALUE]\n"
+        "       image run INSTANCE [--user current|UID[:GID]|NAME[:GROUP]] [--cwd PATH] [--entrypoint PROGRAM] [--env KEY=VALUE]\n"
         "             [--bind HOST GUEST] [--bind-ro HOST GUEST] [-- COMMAND...]\n");
     if (r) fprintf(stderr, "Guest image: %s (errno=%d)\n", strerror(-r), -r);
     return r ? 1 : 0;

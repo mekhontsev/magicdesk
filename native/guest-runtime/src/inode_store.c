@@ -35,6 +35,7 @@ int md_inode_open_object(struct md_inode_store *s, const char *id, int flags) {
     struct stat st;
     if (!r) r = mdi_backing_stat(s, &node, &st);
     if (!r && node.kind != S_IFREG) r = -EINVAL;
+    if (!r && !(flags & O_PATH)) r = mdi_permission(s, &node, R_OK, 0);
     int fd = -1;
     int directory = r ? -1 : mdi_backing_directory(s, &node);
     if (!r && directory < 0) r = directory;
@@ -46,7 +47,7 @@ int md_inode_open_object(struct md_inode_store *s, const char *id, int flags) {
 
 static int create_node(struct md_inode_store *s, int dirfd, const char *path,
         mode_t kind, mode_t mode, const char *target) {
-    if (mode & ~01777) return -ENOTSUP;
+    if (mode & ~(s->identity ? 07777 : 01777)) return -ENOTSUP;
     int r = mdi_begin(s, 1);
     if (r) return r;
     struct mdi_location loc;
@@ -58,7 +59,7 @@ static int create_node(struct md_inode_store *s, int dirfd, const char *path,
     struct mdi_node node;
     int fd = -1;
     if (!r) r = mdi_allocate(s, kind, mode, O_RDWR, target,
-        kind == S_IFDIR ? loc.parent.id : NULL, &node, &fd);
+        loc.parent.id, &node, &fd);
     if (!r) r = mdi_add_name(s, loc.parent.id, loc.name, node.id);
     if (!r) r = mdi_event(s, loc.parent.id, &node, loc.name, IN_CREATE, NULL);
     r = mdi_commit(s, r);
@@ -116,7 +117,7 @@ static int open_resolved(struct md_inode_store *s, int dirfd, const char *path, 
     if ((flags & O_TRUNC) && !(flags & (O_WRONLY | O_RDWR))) return -EINVAL;
     int create = flags & O_CREAT;
     if (create && (flags & O_DIRECTORY)) return -EINVAL;
-    if (create && (mode & ~01777)) return -ENOTSUP;
+    if (create && (mode & ~(s->identity ? 07777 : 01777))) return -ENOTSUP;
     int write = create || (flags & (O_WRONLY | O_RDWR | O_TRUNC));
     int r = mdi_begin(s, !!write);
     if (r) return r;
@@ -129,7 +130,7 @@ static int open_resolved(struct md_inode_store *s, int dirfd, const char *path, 
     if (!r && !loc.exists) {
         if (loc.trailing) r = -EISDIR;
         if (!r) r = mdi_parent_writable(s, &loc.parent);
-        if (!r) r = mdi_allocate(s, S_IFREG, mode, flags, NULL, NULL, &loc.node, &fd);
+        if (!r) r = mdi_allocate(s, S_IFREG, mode, flags, NULL, loc.parent.id, &loc.node, &fd);
         if (!r) r = mdi_add_name(s, loc.parent.id, loc.name, loc.node.id);
         if (!r) r = mdi_event(s, loc.parent.id, &loc.node, loc.name, IN_CREATE, NULL);
         r = mdi_commit(s, r);
@@ -141,6 +142,9 @@ static int open_resolved(struct md_inode_store *s, int dirfd, const char *path, 
     if (!r && loc.node.kind == S_IFSOCK && !(flags & O_PATH)) r = -ENXIO;
     if (!r && loc.node.kind == S_IFDIR && (flags & (O_WRONLY | O_RDWR | O_TRUNC | O_CREAT))) r = -EISDIR;
     if (!r && image && loc.node.kind != S_IFREG) r = -EACCES;
+    if (!r && !(flags & O_PATH)) r = mdi_permission(s, &loc.node,
+        (flags & O_ACCMODE) == O_WRONLY ? W_OK : (flags & O_ACCMODE) == O_RDWR ? R_OK | W_OK : R_OK, 0);
+    if (!r && image) r = mdi_permission(s, &loc.node, X_OK, 0);
     if (!r && write) r = mdi_copy_up(s, &loc.node);
     struct stat st;
     if (!r) r = mdi_backing_stat(s, &loc.node, &st);
@@ -194,6 +198,7 @@ int md_inode_unlink(struct md_inode_store *s, int dirfd, const char *path, int f
         if (empty != 1) r = empty < 0 ? empty : -ENOTEMPTY;
     }
     if (!r) r = mdi_parent_writable(s, &loc.parent);
+    if (!r) r = mdi_sticky(s, &loc);
     if (!r) r = mdi_delete_name(s, loc.parent.id, loc.name);
     if (!r) r = mdi_removed_event(s, &loc, 1);
     return mdi_commit(s, r);
@@ -232,6 +237,8 @@ int md_inode_rename(struct md_inode_store *s, int sourcefd, const char *source,
     }
     if (!r) r = mdi_parent_writable(s, &a.parent);
     if (!r) r = mdi_parent_writable(s, &b.parent);
+    if (!r) r = mdi_sticky(s, &a);
+    if (!r && b.exists) r = mdi_sticky(s, &b);
     if (!r) r = mdi_delete_name(s, a.parent.id, a.name);
     if (!r && b.exists) r = mdi_delete_name(s, b.parent.id, b.name);
     if (!r) r = mdi_add_name(s, b.parent.id, b.name, a.node.id);

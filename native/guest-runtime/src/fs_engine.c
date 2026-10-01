@@ -3,6 +3,10 @@
 #include "image_catalogue.h"
 #include "inode_watch.h"
 #include "fs_mounts.h"
+#include "credential_registry.h"
+#include "ipc_credentials.h"
+#include "inode_internal.h"
+#include "linux_abi.h"
 #include <errno.h>
 #include <string.h>
 
@@ -16,8 +20,35 @@ void md_fs_stat_info(const struct stat *s, struct md_fs_info *out) {
 }
 void md_fs_execute(struct md_filesystem *fs,
         const struct md_fs_request *q, struct md_fs_result *out, const struct md_fs_output *output) {
+    struct md_identity identity = {0};
+    if (fs->credentials) {
+        int error = md_credentials_read(fs->credentials, q->actor, q->peer, &identity);
+        if (error) { *out = (struct md_fs_result){.fd = -1, .error = error}; return; }
+    }
+    const struct md_identity *previous = fs->store->identity;
+    if (!fs->credentials && previous) identity = md_identity_copy(previous);
+    if (q->operation == MD_FS_IPC) {
+        if (!fs->ipc && fs->ipc_store) {
+            int error = md_ipc_credentials_open(fs->ipc_store, &fs->ipc);
+            if (error) {
+                *out = (struct md_fs_result){.fd=-1,.error=error};
+                md_identity_release(&identity); return;
+            }
+        }
+        md_ipc_credentials_execute(fs->ipc, &identity, q, out, output);
+        md_identity_release(&identity);
+        return;
+    }
+    if (fs->credentials || previous) {
+        if (q->operation == MD_FS_ACCESS && !(q->flags & MD_AT_EACCESS)) {
+            identity.uid.fs = identity.uid.real; identity.gid.fs = identity.gid.real;
+        }
+        fs->store->identity = &identity;
+    }
     if (fs->mounts) md_fs_mounts_execute(fs, q, out, output);
     else md_fs_inode_execute(fs, q, out, output);
+    fs->store->identity = previous;
+    md_identity_release(&identity);
 }
 void md_fs_inode_execute(struct md_filesystem *fs,
         const struct md_fs_request *q, struct md_fs_result *out, const struct md_fs_output *output) {
@@ -30,6 +61,8 @@ void md_fs_inode_execute(struct md_filesystem *fs,
     int first = q->directory[0], second = q->directory[1];
     int r = -ENOTSUP; struct stat st;
     switch (q->operation) {
+    case MD_FS_CHMOD: case MD_FS_CHOWN: case MD_FS_ACCESS: case MD_FS_UTIMENS:
+        r = md_inode_metadata(s, q); break;
     case MD_FS_REOPEN: r = md_catalogue_reopen(images, s, first, (int)q->flags, (int)q->mode); goto opened;
     case MD_FS_WATCH_CREATE: r = md_inode_watch_create(s, (int)q->flags); goto opened;
     case MD_FS_WATCH_ADD:

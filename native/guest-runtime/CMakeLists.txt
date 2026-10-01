@@ -18,7 +18,9 @@ set(raw ${src}/raw.c ${src}/memory.c ${src}/raw.S)
 set(wire ${src}/fs_wire.c ${src}/event_wait.c)
 set(mounts ${src}/fs_mounts.c ${src}/fs_mount_path.c ${src}/fs_mount_operations.c)
 set(inodes ${src}/inode_store.c ${src}/inode_db.c ${src}/inode_events.c ${src}/inode_watch.c ${src}/watch_queue.c ${src}/inode_path.c
-    ${src}/inode_directory.c ${src}/inode_import.c ${src}/inode_socket.c ${src}/inode_backing.c ${src}/inode_snapshot.c)
+    ${src}/inode_directory.c ${src}/inode_import.c ${src}/inode_socket.c ${src}/inode_backing.c ${src}/inode_snapshot.c
+    ${src}/guest_identity.c ${src}/credential_registry.c ${src}/inode_metadata.c)
+set(namespace_engine ${src}/fs_engine.c ${src}/ipc_credentials.c)
 
 function(guest_executable name)
     add_executable(${name} ${ARGN})
@@ -34,7 +36,7 @@ endfunction()
 guest_executable(bootstrap ${src}/bootstrap.c ${src}/elf.c ${src}/exec.c
     ${src}/interception.c ${src}/interception_entry.S ${src}/watch_calls.c
     ${src}/file_calls.c ${src}/fs.c ${src}/proc_paths.c ${src}/proc_image.c ${src}/program_files.c
-    ${src}/namespace.c ${src}/namespace_proc.c ${src}/socket_calls.c ${src}/socket_namespace.c ${src}/socket_routes.c ${src}/fd_metadata.c
+    ${src}/namespace.c ${src}/namespace_proc.c ${src}/socket_calls.c ${src}/socket_namespace.c ${src}/socket_identity.c ${src}/socket_ancillary.c ${src}/socket_routes.c ${src}/fd_metadata.c
     ${src}/fs_client.c ${wire} ${src}/raw.c ${src}/raw.S)
 guest_freestanding(bootstrap)
 target_compile_options(bootstrap PRIVATE -mgeneral-regs-only)
@@ -42,8 +44,8 @@ target_link_options(bootstrap PRIVATE -Wl,--image-base=0x2000000000)
 
 guest_executable(supervisor ${src}/supervisor.c ${src}/process_owner.c ${src}/interception_stacks.c ${src}/guest_domain.c
     ${src}/watch_activation.c
-    ${src}/guest_identity.c ${src}/elf_admission.c ${src}/elf.c ${src}/fs_client.c ${wire} ${raw}
-    ${src}/fs_worker.c ${src}/fs_service.c ${src}/fs_engine.c ${src}/image_catalogue.c ${inodes} ${mounts}
+    ${src}/guest_identity.c ${src}/guest_accounts.c ${src}/elf_admission.c ${src}/elf.c ${src}/fs_client.c ${wire} ${raw}
+    ${src}/fs_worker.c ${src}/fs_service.c ${namespace_engine} ${src}/image_catalogue.c ${inodes} ${mounts}
     ${src}/namespace_broker.c ${src}/watch_broker.c ${src}/proc_paths.c)
 target_compile_definitions(supervisor PRIVATE MD_NO_START MD_USE_LIBC)
 target_link_libraries(supervisor PRIVATE guest-sqlite m)
@@ -51,15 +53,15 @@ target_link_libraries(supervisor PRIVATE guest-sqlite m)
 guest_executable(run ${src}/namespace_run.c ${src}/process_owner.c ${src}/launch_environment.c ${src}/socket_routes.c ${src}/event_wait.c ${raw})
 guest_freestanding(run)
 
-guest_executable(service ${src}/service_main.c ${src}/fs_service.c ${src}/fs_engine.c ${src}/image_catalogue.c
+guest_executable(service ${src}/service_main.c ${src}/fs_service.c ${namespace_engine} ${src}/image_catalogue.c
     ${src}/elf_admission.c ${src}/guest_identity.c ${src}/elf.c ${src}/fs_client.c ${inodes} ${wire} ${raw} ${mounts})
 target_compile_definitions(service PRIVATE MD_NO_START MD_USE_LIBC)
 target_link_libraries(service PRIVATE guest-sqlite m)
 
 include(image-dependencies.cmake)
 guest_executable(image ${src}/image_main.c ${src}/image_io.c ${src}/image_json.c
-    ${src}/image_oci.c ${src}/image_layer.c ${src}/image_publish.c ${src}/image_launch.c ${inodes}
-    ${src}/fs_engine.c ${mounts} ${src}/image_catalogue.c ${src}/elf_admission.c ${src}/guest_identity.c
+    ${src}/image_oci.c ${src}/image_layer.c ${src}/image_publish.c ${src}/image_launch.c ${src}/guest_accounts.c ${inodes}
+    ${namespace_engine} ${mounts} ${src}/image_catalogue.c ${src}/elf_admission.c ${src}/guest_identity.c
     ${src}/elf.c ${src}/fs_client.c ${wire} ${raw})
 target_compile_definitions(image PRIVATE MD_NO_START MD_USE_LIBC)
 target_compile_options(image PRIVATE -iquote ${src})
@@ -71,19 +73,26 @@ install(TARGETS bootstrap supervisor run service image RUNTIME DESTINATION lib)
 option(MAGICDESK_GUEST_FIXTURES "Build standalone native fixtures" OFF)
 if(MAGICDESK_GUEST_FIXTURES)
     target_compile_definitions(image PRIVATE MD_INODE_TESTING)
-    foreach(name inodes import rpc snapshot mounts)
+    foreach(name inodes import rpc snapshot mounts credentials)
         guest_executable(test_${name} ../guest-exec-lab/test_${name}.c ${inodes})
         target_compile_options(test_${name} PRIVATE -iquote ${src} -UNDEBUG)
         target_compile_definitions(test_${name} PRIVATE MD_INODE_TESTING)
         target_link_libraries(test_${name} PRIVATE guest-sqlite m)
     endforeach()
-    target_sources(test_rpc PRIVATE ${src}/fs_client.c ${src}/fs_service.c ${src}/fs_engine.c ${mounts}
+    target_sources(test_credentials PRIVATE ${src}/guest_accounts.c ${namespace_engine} ${mounts}
+        ${src}/image_catalogue.c ${src}/elf_admission.c ${src}/elf.c ${src}/fs_client.c ${wire} ${raw})
+    target_compile_definitions(test_credentials PRIVATE MD_NO_START MD_USE_LIBC)
+    target_sources(test_rpc PRIVATE ${src}/fs_client.c ${src}/fs_service.c ${namespace_engine} ${mounts}
         ${src}/image_catalogue.c ${src}/elf_admission.c ${src}/guest_identity.c ${src}/elf.c ${wire} ${raw})
     target_compile_definitions(test_rpc PRIVATE MD_FS_TESTING MD_NO_START MD_USE_LIBC)
-    target_sources(test_mounts PRIVATE ${src}/fs_engine.c ${mounts} ${src}/image_catalogue.c
+    target_sources(test_mounts PRIVATE ${namespace_engine} ${mounts} ${src}/image_catalogue.c
         ${src}/elf_admission.c ${src}/guest_identity.c ${src}/elf.c ${src}/fs_client.c ${wire} ${raw})
     target_compile_definitions(test_mounts PRIVATE MD_NO_START MD_USE_LIBC)
     guest_executable(watch_guest ../guest-exec-lab/test_watch_guest.c)
+    guest_executable(credentials_guest ../guest-exec-lab/test_credentials_guest.c)
+    guest_executable(guest_interfaces ../guest-exec-lab/test_guest_interfaces.c)
+    guest_executable(ipc_credentials_guest ../guest-exec-lab/test_ipc_credentials_guest.c)
+    guest_executable(ipc_credentials_launch ../guest-exec-lab/test_ipc_credentials_launch.c)
     target_compile_options(watch_guest PRIVATE -UNDEBUG)
     guest_executable(watch_launch ../guest-exec-lab/test_watch_launch.c)
     guest_executable(watch_store ../guest-exec-lab/test_watch_store.c ${inodes})
@@ -97,7 +106,7 @@ if(MAGICDESK_GUEST_FIXTURES)
     guest_executable(watch_activation ../guest-exec-lab/test_watch_activation.c ${src}/event_wait.c ${raw})
     target_compile_definitions(watch_activation PRIVATE MD_NO_START MD_USE_LIBC)
     guest_executable(benchmark_namespace ../guest-exec-lab/benchmark_namespace.c
-        ${src}/fs_engine.c ${src}/image_catalogue.c ${src}/elf_admission.c ${mounts}
+        ${namespace_engine} ${src}/image_catalogue.c ${src}/elf_admission.c ${mounts}
         ${src}/guest_identity.c ${src}/elf.c ${src}/fs_client.c ${inodes} ${wire} ${raw})
     target_compile_options(benchmark_namespace PRIVATE -iquote ${src})
     target_compile_definitions(benchmark_namespace PRIVATE MD_NO_START MD_USE_LIBC)

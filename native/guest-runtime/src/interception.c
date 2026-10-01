@@ -2,6 +2,7 @@
 #include "bootstrap.h"
 #include "file_calls.h"
 #include "socket_calls.h"
+#include "socket_ancillary.h"
 #include "raw.h"
 #include "interception.h"
 #include "guest_domain.h"
@@ -45,6 +46,8 @@ extern void md_guest_done(void), md_guest_allocate(void), md_guest_allocated(voi
 extern void md_guest_exported(void), md_guest_store(void), md_guest_stored(void);
 extern void md_guest_load_byte(void), md_guest_loaded_byte(void);
 extern void md_guest_store_ids(void), md_guest_stored_ids(void);
+extern void md_guest_load_groups(void), md_guest_loaded_groups(void);
+extern void md_guest_store_groups(void), md_guest_stored_groups(void);
 extern char md_guest_copy_begin[], md_guest_copy_end[];
 extern char md_guest_watch_gate[], md_guest_watch_return[];
 long md_guest_dispatch(long nr, unsigned long a0, unsigned long a1, unsigned long a2,
@@ -63,7 +66,7 @@ long md_guest_dispatch(long nr, unsigned long a0, unsigned long a1, unsigned lon
     if (nr == SYS_recvmmsg) {
         /* Keep the kernel's batching, timeout and partial-delivery semantics;
          * each returned SCM_RIGHTS capability still needs watch activation. */
-        long r = md_raw(nr, a0, a1, a2, a3, a4, a5);
+        long r = md_socket_ancillary_batch(&md_files, args);
         for (long i = 0; i < r; ++i) {
             int error = md_watch_received(&md_files, (struct mmsghdr *)a1 + i);
             if (error) return error;
@@ -93,7 +96,9 @@ static const struct md_interception_abi abi = {
     .store_ids = (uintptr_t)md_guest_store_ids, .stored_ids = (uintptr_t)md_guest_stored_ids,
     .raw_gate = (uintptr_t)md_raw_return,
     .copy_begin = (uintptr_t)md_guest_copy_begin, .copy_end = (uintptr_t)md_guest_copy_end,
-    .watch_gate = (uintptr_t)md_guest_watch_gate
+    .watch_gate = (uintptr_t)md_guest_watch_gate,
+    .load_groups = (uintptr_t)md_guest_load_groups, .loaded_groups = (uintptr_t)md_guest_loaded_groups,
+    .store_groups = (uintptr_t)md_guest_store_groups, .stored_groups = (uintptr_t)md_guest_stored_groups
 };
 
 int md_interception_map_image(int fd, int loader) {
@@ -191,7 +196,7 @@ int md_interception_install(int inherited) {
             IDENTITY(getuid) IDENTITY(geteuid) IDENTITY(getgid) IDENTITY(getegid)
             IDENTITY(getresuid) IDENTITY(getresgid) IDENTITY(setresuid) IDENTITY(setresgid)
             IDENTITY(setuid) IDENTITY(setgid) IDENTITY(setreuid) IDENTITY(setregid)
-            IDENTITY(setfsuid) IDENTITY(setfsgid) IDENTITY(setgroups)
+            IDENTITY(setfsuid) IDENTITY(setfsgid) IDENTITY(setgroups) IDENTITY(getgroups)
 #undef IDENTITY
             OBSERVE(unshare) OBSERVE(setns)
             OBSERVE(seccomp)

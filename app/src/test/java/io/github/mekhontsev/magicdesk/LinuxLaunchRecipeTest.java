@@ -217,8 +217,20 @@ public final class LinuxLaunchRecipeTest {
                 assertEquals(protocol == GraphicalProtocol.X11, app.exec.contains("--socket-abstract"));
             }
         }
-        assertThrows(IllegalArgumentException.class, () -> LinuxLaunchRecipe.build("Guest", environment,
-                "app", "", "root", LinuxLaunchRecipe.Presentation.TERMINAL));
+        for (String user : List.of("root", "1000:100", "nobody:nogroup")) {
+            var entry = LinuxLaunchRecipe.build("Guest", environment, "id", "", user,
+                    LinuxLaunchRecipe.Presentation.TERMINAL);
+            assertTrue(entry.exec.contains("--user"));
+            assertTrue(entry.exec.contains(user));
+        }
+        var root = LinuxLaunchRecipe.build("Guest", environment, "app", "", "root",
+                LinuxLaunchRecipe.Presentation.APPLICATION);
+        var nobody = LinuxLaunchRecipe.build("Guest", environment, "app", "", "nobody",
+                LinuxLaunchRecipe.Presentation.APPLICATION);
+        assertNotEquals(root.graphics.fileEnvironment(), nobody.graphics.fileEnvironment());
+        for (String user : List.of("-1", "root:", ":0", "a:b:c", "root --bind /"))
+            assertThrows(IllegalArgumentException.class, () -> LinuxLaunchRecipe.build("Guest", environment,
+                    "id", "", user, LinuxLaunchRecipe.Presentation.TERMINAL));
     }
 
     @Test public void separateEnvironmentsKeepTheirMethodRootAndPresentation() throws Exception {

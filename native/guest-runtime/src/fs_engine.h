@@ -10,6 +10,9 @@ struct md_filesystem {
     struct md_inode_store *store;
     struct md_image_catalogue *images;
     struct md_fs_mounts *mounts;
+    struct md_credentials *credentials;
+    struct md_ipc_credentials *ipc;
+    const char *ipc_store;
 };
 /* One namespace owner, independent of transport. Input descriptors are borrowed;
  * a successful open transfers result.fd. No guest pointers enter this API. */

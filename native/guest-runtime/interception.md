@@ -98,6 +98,23 @@ ERRNO, TRAP and KILL retain kernel precedence over runtime TRACE/USER_NOTIF.
 Register changes and same-site replay are rechecked by the kernel. Cancellation,
 group stops, concurrent TSYNC and non-leader exec have dedicated fixtures.
 
+## Guest Kernel Interfaces
+
+`guest_domain` owns the distinction between an unsupported guest interface and
+permission to access a host resource. Kernel audit has no guest implementation:
+AF_NETLINK/NETLINK_AUDIT creation returns EPROTONOSUPPORT before a kernel socket
+is created. The rule is independent of executable name, distribution, virtual
+root and actual root. It applies at the existing socket syscall stop, including
+raw SVC and nondumpable tasks, without additional ptrace stops or allocations.
+Other socket protocols retain their existing kernel/domain checks.
+
+No host denial is converted to success, no audit record is discarded after
+claiming delivery, and Android's global audit service is not reconfigured.
+Stock [shadow account tools](https://github.com/shadow-maint/shadow/blob/4.17.4/lib/audit_help.c)
+already accept an unavailable audit protocol. Software requiring audit must treat
+it as unsupported. Application seccomp ERRNO/TRAP/KILL still precedes runtime
+TRACE handling, including this interface rule.
+
 ## Protected Metadata
 
 The supervisor first attempts kernel remote-memory/descriptor access. A
@@ -121,8 +138,18 @@ on that admitted object. It does not chmod or replace the stored source.
 Initial launch and exec use the same admission contract. The supervisor tracks
 logical IDs, irreversible drops and no_new_privs, publishes auxv/AT_SECURE, and
 applies the corresponding nondumpable state before loader entry. Real kernel
-credentials remain those of the executor. Other files retain ordinary metadata
-and real permission failures; actual set-ID executable files are still rejected.
+credentials remain those of the executor. Ordinary stored files retain their
+logical ownership/mode without acquiring automatic set-ID admission; actual
+set-ID backing executables remain rejected.
+
+`--user` and OCI User share `guest_accounts` resolution and `guest_identity` with
+image admission. Each task retains real/effective/saved/filesystem UID/GID and
+immutable supplementary groups across fork and exec. Raw set-ID calls remain
+thread-local; libc may broadcast them. `getgroups/setgroups` use checked copies,
+with task-affine bounded batches for nondumpable/protected memory. An incomplete
+input does not commit a new group list. Initial no_new_privs is inherited from
+the executor and can only increase. Filesystem requests use the same identities
+through `credential_registry`; this is guest DAC, not seccomp-domain confinement.
 
 The proc-root model handles the restricted self/fd or fdinfo roots used by the
 tested helper, with CLONE_FS ownership and irreversible narrowing. It is not a

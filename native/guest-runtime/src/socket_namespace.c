@@ -2,6 +2,7 @@
 #include "socket_namespace.h"
 #include "namespace_internal.h"
 #include "raw.h"
+#include "socket_identity.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/socket.h>
@@ -78,7 +79,13 @@ long md_namespace_socket_output(const struct md_fs *fs, long nr, const unsigned 
     long result = md_raw(nr, args[0], args[1], args[2], args[3], args[4], args[5]);
     if (result < 0) return result;
     if (nr == SYS_recvmsg) length = message.msg_namelen;
-    long r = length > sizeof(buffer.bytes) ? -EPROTO : restore_address(fs, address, &length);
+    long r = length > sizeof(buffer.bytes) ? -EPROTO : 0;
+    if (!r) {
+        long hidden = md_socket_identity_hidden(fs, (int)((nr == SYS_accept || nr == SYS_accept4) ? result : a[0]), address, length);
+        if (hidden < 0) r = hidden;
+        else if (hidden) length = offsetof(struct sockaddr_un, sun_path);
+        else r = restore_address(fs, address, &length);
+    }
     if (!r) r = md_write_memory(target, address, capacity < length ? capacity : length);
     if (nr == SYS_recvmsg) {
         message.msg_name = target;

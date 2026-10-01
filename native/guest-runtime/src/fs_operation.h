@@ -9,17 +9,24 @@ enum md_fs_operation {
     MD_FS_GETDENTS, MD_FS_SEEKDIR, MD_FS_SOCKET_BIND, MD_FS_SOCKET_ADDRESS, MD_FS_SOCKET_NAME,
     MD_FS_REALPATH, MD_FS_TEMPORARY, MD_FS_OBJECT_ID, MD_FS_OPEN_OBJECT, MD_FS_OPEN_IMAGE,
     MD_FS_WATCH_CREATE, MD_FS_WATCH_ADD, MD_FS_WATCH_REMOVE, MD_FS_WATCH_BYTES,
-    MD_FS_WATCH_CONTAINS, MD_FS_WATCH_READ, MD_FS_REOPEN, MD_FS_LAST = MD_FS_REOPEN
+    MD_FS_WATCH_CONTAINS, MD_FS_WATCH_READ, MD_FS_REOPEN,
+    MD_FS_CHMOD, MD_FS_CHOWN, MD_FS_ACCESS, MD_FS_UTIMENS, MD_FS_IPC, MD_FS_LAST = MD_FS_IPC
+};
+struct md_fs_attributes {
+    uint32_t uid, gid;
+    int64_t seconds[2], nanos[2];
 };
 /* Paths and descriptors are borrowed, already captured by the caller. Root is
  * explicit (-1), never the namespace owner's cwd. No guest pointers enter here. */
 struct md_fs_request {
+    int actor, peer;
     uint32_t operation, flags, mode;
     int directory[2];
     const char *path[2];
     uint32_t capacity;
     uint64_t resolve;
     int64_t offset;
+    struct md_fs_attributes attributes;
 };
 struct md_fs_info {
     uint64_t device, inode, links, rdev;

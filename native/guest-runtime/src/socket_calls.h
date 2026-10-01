@@ -2,8 +2,9 @@
 #define MD_SOCKET_CALLS_H
 #include "fs.h"
 
-/* Only address metadata is translated. Payloads and received FDs remain native. */
+/* Address and identity metadata are adapted; payload and FD transport is native. */
 #define MD_SOCKET_CALLS(X) X(bind) X(connect) X(sendto) X(sendmsg) X(sendmmsg) \
-    X(getsockname) X(getpeername) X(accept) X(accept4) X(recvfrom) X(recvmsg)
+    X(getsockname) X(getpeername) X(accept) X(accept4) X(recvfrom) X(recvmsg) \
+    X(listen) X(socketpair) X(getsockopt)
 long md_socket_call(const struct md_fs *, const char *, long, const unsigned long *);
 #endif

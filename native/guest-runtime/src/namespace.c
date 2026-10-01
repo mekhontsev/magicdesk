@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <sys/inotify.h>
 #include <sys/sysmacros.h>
+#include <unistd.h>
 
 long md_namespace_request(const struct md_fs *fs, struct md_fs_request *q, struct md_fs_response *out) {
     int cwd = -1;
@@ -186,16 +187,16 @@ long md_namespace_xattr(const struct md_fs *fs, long nr, int base, const char *p
     unsigned long args[6];
     memcpy(args, a, sizeof(args));
     char name[256];
-    int default_acl = 0;
+    int permission_acl = 0;
     if (nr == SYS_setxattr || nr == SYS_lsetxattr || nr == SYS_fsetxattr) {
         long r = md_read_string(name, sizeof(name), (const char *)a[1]);
         if (r < 0)
             return r == -ENAMETOOLONG ? -ERANGE : r;
         args[1] = (unsigned long)name;
-        default_acl = md_equal(name, "system.posix_acl_default");
+        permission_acl = md_equal(name, "system.posix_acl_default") || md_equal(name, "system.posix_acl_access");
     }
     if (nr == SYS_fsetxattr || nr == SYS_fremovexattr) {
-        if (default_acl) {
+        if (permission_acl) {
             if (base < 0)
                 return -EBADF;
             struct md_fs_response out;
@@ -218,18 +219,52 @@ long md_namespace_xattr(const struct md_fs *fs, long nr, int base, const char *p
     long fd = md_namespace_open(fs, base, path, O_PATH | O_CLOEXEC | (nofollow ? O_NOFOLLOW : 0), 0);
     if (fd < 0)
         return fd;
-    if (!default_acl && (nr == SYS_setxattr || nr == SYS_lsetxattr || nr == SYS_removexattr || nr == SYS_lremovexattr)) {
+    if (!permission_acl && (nr == SYS_setxattr || nr == SYS_lsetxattr || nr == SYS_removexattr || nr == SYS_lremovexattr)) {
         long next = md_namespace_mutable(fs, (int)fd);
         RAW1(close, fd); fd = next;
         if (fd < 0) return fd;
     }
-    /* Object creation must implement virtual-parent ACL inheritance before a
-     * default ACL may be installed, by either a path or descriptor operation. */
-    long r = default_acl ? -ENOTSUP : md_fd_xattr((int)fd, nr, args);
+    /* Native ACLs refer to Android identities, not the guest's permission model.
+     * Attachments retain kernel authority; stored objects reject unsupported ACLs. */
+    long r = 0;
+    if (permission_acl) {
+        struct md_fs_response out;
+        r = md_namespace_inspect(fs, (int)fd, NULL, 0, &out);
+        if (!r) r = -ENOTSUP;
+        else if (r == -EXDEV) r = md_fd_xattr((int)fd, nr, args);
+    } else r = md_fd_xattr((int)fd, nr, args);
     RAW1(close, fd);
     return r;
 }
+static long metadata_request(const struct md_fs *fs, long nr, int fd,
+        unsigned long mode, unsigned long extra, int flags) {
+    struct md_fs_request q = {.directory = {fd, -1}, .flags = (unsigned)flags};
+    switch (nr) {
+    case SYS_fchmod: case SYS_fchmodat: case SYS_fchmodat2:
+        q.operation = MD_FS_CHMOD; q.mode = (unsigned)mode; break;
+    case SYS_fchown: case SYS_fchownat:
+        q.operation = MD_FS_CHOWN; q.attributes.uid = (uint32_t)mode; q.attributes.gid = (uint32_t)extra; break;
+    case SYS_faccessat: case SYS_faccessat2:
+        q.operation = MD_FS_ACCESS; q.mode = (unsigned)mode; break;
+    case SYS_utimensat: {
+        q.operation = MD_FS_UTIMENS;
+        struct timespec times[2] = {{0, UTIME_NOW}, {0, UTIME_NOW}};
+        if (mode) { long r = md_read_memory(times, (void *)mode, sizeof(times)); if (r < 0) return r; }
+        for (unsigned i = 0; i < 2; i++) {
+            q.attributes.seconds[i] = times[i].tv_sec; q.attributes.nanos[i] = times[i].tv_nsec;
+        }
+        break;
+    }
+    default: return -EXDEV;
+    }
+    struct md_fs_response out;
+    return md_namespace_request(fs, &q, &out);
+}
 long md_namespace_call(const struct md_fs *fs, const char *exe, long nr, const unsigned long *a) {
+    if (nr == SYS_fchdir) {
+        long r = metadata_request(fs, SYS_faccessat2, (int)a[0], X_OK, 0, MD_AT_EACCESS);
+        return !r || r == -EXDEV ? RAW1(fchdir, a[0]) : r;
+    }
     if (nr == SYS_fstat || nr == SYS_getdents64 || nr == SYS_lseek)
         return descriptor_call(fs, nr, a);
     if (nr == SYS_fsetxattr || nr == SYS_fremovexattr)
@@ -238,6 +273,8 @@ long md_namespace_call(const struct md_fs *fs, const char *exe, long nr, const u
         long flags = RAW3(fcntl, a[0], F_GETFL, 0);
         if (flags < 0) return flags;
         if (flags & O_PATH) return -EBADF;
+        long result = metadata_request(fs, nr, (int)a[0], nr == SYS_utimensat ? a[2] : a[1], a[2], 0);
+        if (result != -EXDEV) return result;
         long fd = md_namespace_mutable(fs, (int)a[0]);
         if (fd < 0) return fd;
         long r;
@@ -318,7 +355,8 @@ long md_namespace_path_call(const struct md_fs *fs, long nr, const unsigned long
         long fd = md_namespace_open(fs, base, first, O_PATH | O_DIRECTORY | O_CLOEXEC, 0);
         if (fd < 0)
             return fd;
-        long r = RAW1(fchdir, fd);
+        long r = metadata_request(fs, SYS_faccessat2, (int)fd, X_OK, 0, MD_AT_EACCESS);
+        if (!r || r == -EXDEV) r = RAW1(fchdir, fd);
         RAW1(close, fd);
         return r;
     }
@@ -434,14 +472,13 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
         int flags = nr == SYS_faccessat2 ? (int)a[3] : 0;
         if (flags & ~(MD_AT_EACCESS | AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH))
             return -EINVAL;
-        if (!*first && (flags & AT_EMPTY_PATH))
-            return RAW4(faccessat2, base, "", a[2], flags);
-        long fd = md_namespace_open(fs, base, first,
-                                    O_PATH | O_CLOEXEC | ((flags & AT_SYMLINK_NOFOLLOW) ? O_NOFOLLOW : 0), 0);
-        if (fd < 0)
-            return fd;
-        r = RAW4(faccessat2, fd, "", a[2], flags | AT_EMPTY_PATH);
-        RAW1(close, fd);
+        if (*first) {
+            q.operation = MD_FS_ACCESS; q.mode = (unsigned)a[2]; q.flags = flags & ~AT_EMPTY_PATH;
+            return md_namespace_request(fs, &q, &out);
+        }
+        if (!(flags & AT_EMPTY_PATH)) return -ENOENT;
+        r = metadata_request(fs, nr, base, a[2], 0, flags & ~AT_EMPTY_PATH);
+        if (r == -EXDEV) r = RAW4(faccessat2, base, "", a[2], flags);
         return r;
     }
     case SYS_setxattr:
@@ -476,6 +513,8 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
         if (fd < 0)
             return fd;
         if (nr != SYS_statfs && nr != SYS_truncate) {
+            r = metadata_request(fs, nr, (int)fd, a[2], a[3], flags & ~AT_EMPTY_PATH);
+            if (r != -EXDEV) { if (!borrowed) RAW1(close, fd); return r; }
             long next = md_namespace_mutable(fs, (int)fd);
             if (!borrowed) RAW1(close, fd);
             fd = next; borrowed = 0;

@@ -135,11 +135,6 @@ final class DesktopCommandApplicationDialog {
         final EditText linuxUser = field(activity, presentationFields, R.string.command_app_linux_user, "");
         linuxUser.setHint(R.string.command_app_linux_user_hint);
         linuxUser.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        linux.onSelectionChanged(kind -> {
-            boolean guest = kind == LinuxLaunchRecipe.Kind.GUEST;
-            linuxUser.setEnabled(!guest);
-            if (guest) linuxUser.setText("");
-        });
         form.addView(presentationFields, matchWrap());
 
         final EditText command = field(

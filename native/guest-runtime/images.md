@@ -9,10 +9,11 @@ This is image execution, not OCI runtime-spec or Docker Engine compatibility.
 ## Commands
 
 ```sh
-magicdesk-guest image import /host/layout /host/image --map-current-user
+magicdesk-guest image import /host/layout /host/image --preserve-ownership
 magicdesk-guest image create /host/image /host/instance
 magicdesk-guest image inspect /host/instance
-magicdesk-guest image run /host/instance --user current -- /bin/sh
+magicdesk-guest image run /host/instance -- /bin/sh
+magicdesk-guest image run /host/instance --user 1000:1000 -- /bin/sh
 magicdesk-guest image run /host/instance --bind /host/project /mnt -- /bin/sh
 ```
 
@@ -23,9 +24,13 @@ instance/image kind and retained immutable source directory identities.
 `--entrypoint PROGRAM` replaces Entrypoint, including an empty override to clear it.
 WorkingDir and Env come from the image; `--cwd` and repeated `--env KEY=VALUE`
 override them. PATH lookup uses the same filesystem view as execution, including
-explicit attachments. A nonempty image User requires `--user current` because the
-runtime does not impersonate that account. The actual selected executor remains
-UID 2000 or UID 0. Programs retain its permissions and network namespace.
+explicit attachments. Preserved-ownership images select their configured User,
+or guest root if it is empty. `--user NAME|UID[:GROUP|GID]` overrides it using the
+same credential model as ordinary guest launches; names and supplementary groups
+come from the image's account files. `--user current` retains the executor's IDs.
+A mapped-ownership image with nonempty User requires an explicit user override.
+The actual selected executor remains UID 2000 or UID 0. Kernel permissions and
+network namespace do not change. `inspect` includes the `guestUsers` policy.
 
 An instance is a normal guest store. Existing shell, PTY and graphical recipes
 can use it through `--store`, including their explicit graphics routes and
@@ -57,11 +62,14 @@ metadata is accumulated across layers and applied before publication, so final
 restrictive modes do not block later-layer extraction into the private staging
 tree. Import runs no image scripts.
 
+Import requires exactly one ownership policy. `--preserve-ownership` retains
+archive UID/GID and permission bits in logical inode metadata, including set-ID
+bits, without changing host credentials or making backing files set-ID.
 `--map-current-user` explicitly maps ownership to the caller and removes set-ID
 bits. Xattrs, ACLs and special nodes are rejected, not silently imported with
-different meaning. This is not faithful root-owned extraction of arbitrary images.
-The prepared userspace remains responsible for NSS, DNS, CA certificates and
-unprivileged package-manager configuration. Image Volumes, ExposedPorts,
+different meaning. General set-ID metadata does not grant execution admission.
+The prepared userspace remains responsible for NSS, DNS and CA certificates.
+Image Volumes, ExposedPorts,
 Healthcheck and StopSignal do not provision host resources or change supervision.
 
 `image_publish.c` owns private staging and no-replace atomic publication. Failure
@@ -116,7 +124,9 @@ EBUSY. Native permission/SELinux failures remain failures.
 
 Native metadata identity is retained across rename/unlink. Readonly policy also
 applies to descriptor-based metadata changes and writable reopens, not just
-pathname creation. Open files keep kernel offsets/data ownership; retained
+pathname creation. Guest root cannot bypass host access checks or readonly policy.
+Ownership on attached host paths remains native, not stored as guest inode metadata.
+Open files keep kernel offsets/data ownership; retained
 O_PATH references do not hold extra writable descriptions or file locks. Native
 directory reads share the publish-before-cursor-commit contract. Watches use the
 existing native-event path rather than a second watcher system.

@@ -14,7 +14,8 @@ SQLite. Adding a name does not copy or move the object.
 Within one current backing, descriptors opened before and after linking share the actual kernel device/inode,
 data, mappings and file locks. Data IO, mmap and descriptor duplication stay native.
 
-`md_inode_stat/fstat` combine native metadata with stable logical device/inode identity and the namespace's transactional link
+`md_inode_stat/fstat` combine native data attributes with logical UID/GID/mode,
+stable logical device/inode identity and the namespace's transactional link
 count, including zero for an open, unlinked object. Socket inodes expose S_IFSOCK
 while their transport is an abstract kernel endpoint; their backing regular file
 supplies permission and identity metadata. Raw host fstat still sees the
@@ -34,12 +35,13 @@ a timeout is not cancellation of a committed operation.
 `inode_path.c` resolves paths and reconstructs directory paths;
 `inode_store.c` defines namespace operations, `inode_directory.c` implements
 directory cursors, `inode_socket.c` implements socket publication and address
-lookup, and `inode_import.c` imports prepared trees. `inode_snapshot.c` owns
+lookup, `inode_metadata.c` owns guest permissions and metadata mutations, and
+`inode_import.c` imports prepared trees. `inode_snapshot.c` owns
 immutable-source snapshots; `inode_backing.c` owns source validation and copy-up.
 Their private contract is in
 `inode_internal.h`. Callers use the explicit dirfd-based `inode_store.h` API.
 The internal database format is versioned and incompatible formats are rejected,
-not migrated. Format 7 includes stable logical identities, backing history,
+not migrated. Format 8 includes logical owners/modes, stable identities, backing history,
 immutable sources, socket addresses, transactional namespace
 counters and the [watch event journal](watches.md). Incompatible stores require a separately prepared store; opening
 one never rewrites or deletes it. Bind retains a name until
@@ -63,8 +65,12 @@ Resolution handles relative and absolute targets, a 40-link bound, root-clamped
 `..`, trailing slashes and distinct follow/no-follow/entry-mutation semantics.
 `missing/..` and `file/..` cannot be collapsed lexically. O_PATH/no-follow can
 return a symlink FD without opening its target. Directory search and mutation
-permissions are checked on backing objects with the caller's real identity;
-there is no emulated root or manufactured permission success.
+permissions use the calling task's immutable guest credential snapshot, including
+supplementary groups, sticky-directory ownership and root's execute-bit rule.
+`access()` uses real IDs for traversal and the final object. New objects inherit
+the filesystem UID/GID and a setgid parent's group; chmod/chown and timestamps
+share this model. The native backing remains caller-owned, without kernel set-ID.
+Trusted offline operations without a credential context use native authority.
 
 ## Directory Cursors
 
@@ -107,9 +113,11 @@ aliases refer to one new backing object, never a copied file or a substitute
 symlink. Metadata snapshots detect observed source changes. The source must stay
 immutable: these checks are not an atomic snapshot of a live filesystem.
 
-Ownership remains the actual execution identity; source UID/GID, ctime, sparse
-extents and physical layout are not reproduced. The destination root retains its
-own mode/metadata. Special files, set-ID bits, cross-device traversal
+Default import maps ownership to the executor and keeps the destination root's
+metadata. Explicit `preserve_ownership` retains source UID/GID/mode, including
+root-directory and set-ID metadata, in the database; the host remains unchanged.
+Neither policy reproduces ctime, sparse extents or physical layout.
+Special files, set-ID bits without preservation, cross-device traversal
 and xattrs other than the kernel-assigned SELinux label are rejected explicitly.
 SELinux labels are not copied or changed. Overlapping source/storage trees and
 nonempty destination namespaces are rejected. No fallback clears unsupported
@@ -242,11 +250,12 @@ and service restart are covered in `test_rpc.c`.
 
 ## Remaining Boundary
 
-Namespace-induced ctime updates, full ownership/ACL/sticky/setid semantics,
+Namespace-induced ctime updates, ACL inheritance, complete set-ID clearing on
+native data writes,
 exact hardlink-dentry data notifications, live import/promotion, FD
 reclamation, out-of-space recovery and production throughput are not implemented
 or validated. RPC descriptor transfer does not supply lifetime/reclamation policy.
-Ownership stays the real shell identity, not an emulated root.
+Host ownership stays the real executor identity; guest ownership is logical.
 
 The namespace executor covers selected path/FD operations, cwd, directory
 cursors and program mapping. It passes a fixture package lifecycle and the gzip

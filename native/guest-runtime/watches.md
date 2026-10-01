@@ -13,6 +13,9 @@ Move pairs share a nonzero cookie; directory events retain `IN_ISDIR`. Rollback
 cannot expose a name event. Registration establishes its journal cursor while
 holding the store admission lock. A finite native backlog is drained before
 publishing a new subscription.
+Registration and watch updates require guest read permission on the logical
+inode; path traversal uses the same launch-local credentials as other filesystem
+operations. Native attached objects retain kernel permission checks.
 
 The store includes `events` and `watch.lock`. Each active watch owner
 holds a shared kernel lock; mutators check its presence inside store admission.

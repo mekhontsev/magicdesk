@@ -39,6 +39,28 @@ md_guest_store_ids:
 .global md_guest_stored_ids
 md_guest_stored_ids:
     brk #0x5b6
+/* Bounded task-affine credential transfer, including nondumpable programs.
+ * x0 points at 1..16 gids, x1 is their count, w3..w18 carry their values. */
+.global md_guest_load_groups
+md_guest_load_groups:
+.irp reg,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18
+    ldr w\reg, [x0], #4
+    subs x1, x1, #1
+    b.eq md_guest_loaded_groups
+.endr
+.global md_guest_loaded_groups
+md_guest_loaded_groups:
+    brk #0x5b8
+.global md_guest_store_groups
+md_guest_store_groups:
+.irp reg,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18
+    str w\reg, [x0], #4
+    subs x1, x1, #1
+    b.eq md_guest_stored_groups
+.endr
+.global md_guest_stored_groups
+md_guest_stored_groups:
+    brk #0x5b9
 .global md_guest_allocate
 .type md_guest_allocate, %function
 md_guest_allocate:

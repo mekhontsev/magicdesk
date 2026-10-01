@@ -1,9 +1,11 @@
 #define _GNU_SOURCE
+#include "linux_abi.h"
 #include "image_launch.h"
 #include "image_io.h"
 #include "image_json.h"
 #include "inode_internal.h"
 #include "fs_mounts.h"
+#include "guest_accounts.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -27,7 +29,8 @@ int md_image_inspect(const char *path) {
     if (!r) r = config(s, &json);
     sqlite3_stmt *q = NULL;
     if (!r) r = md_json_query(s->db, json, "SELECT json_object('kind',?2,'config',json(?1),'sources',"
-        "(SELECT json_group_array(json_object('path',path,'device',device,'inode',inode)) FROM sources))", &q);
+        "(SELECT json_group_array(json_object('path',path,'device',device,'inode',inode)) FROM sources),"
+        "'guestUsers',(SELECT value FROM properties WHERE key='image-users'))", &q);
     if (!r) sqlite3_bind_text(q, 2, s->readonly ? "image" : "instance", -1, SQLITE_STATIC);
     if (!r) {
         if (sqlite3_step(q) != SQLITE_ROW) r = -EIO;
@@ -68,7 +71,12 @@ static int program_path(struct md_filesystem *fs, const char *command, const cha
             struct stat st;
             int r = fstat(fd, &st) ? -errno : 0;
             if (!r && !S_ISREG(st.st_mode)) r = -EACCES;
-            if (!r && syscall(SYS_faccessat2, fd, "", X_OK, AT_EACCESS | AT_EMPTY_PATH)) r = -errno;
+            if (!r) {
+                struct md_fs_request access = {.operation=MD_FS_ACCESS,.directory={fd,-1},.mode=X_OK,.flags=MD_AT_EACCESS};
+                struct md_fs_result permission;
+                md_fs_execute(fs,&access,&permission,NULL); r=permission.error;
+                if (r == -EXDEV) r=syscall(SYS_faccessat2,fd,"",X_OK,MD_AT_EACCESS|AT_EMPTY_PATH) ? -errno : 0;
+            }
             close(fd);
             if (!r) return 0;
             if (r != -EACCES) return r;
@@ -85,7 +93,8 @@ int md_image_launch(int argc, char **argv) {
     const char *path = argv[0], *cwd_override = NULL, *entry_override = NULL;
     char *overrides[128]; size_t override_count = 0;
     struct md_fs_attachment attachments[MD_FS_MOUNTS_MAX]; unsigned attachment_count = 0;
-    int current = 0, position = 1;
+    const char *selected_user = NULL;
+    int position = 1;
     while (position < argc && strcmp(argv[position], "--")) {
         if (!strcmp(argv[position], "--bind") || !strcmp(argv[position], "--bind-ro")) {
             if (position+2 >= argc || attachment_count == MD_FS_MOUNTS_MAX) return -EINVAL;
@@ -95,7 +104,7 @@ int md_image_launch(int argc, char **argv) {
         }
         if (position+1 >= argc) return -EINVAL;
         const char *option = argv[position++]; char *value = argv[position++];
-        if (!strcmp(option, "--user") && !strcmp(value, "current")) current = 1;
+        if (!strcmp(option, "--user") && !selected_user && *value) selected_user = value;
         else if (!strcmp(option, "--cwd") && value[0] == '/') cwd_override = value;
         else if (!strcmp(option, "--entrypoint")) entry_override = value;
         else if (!strcmp(option, "--env") && override_count < 128) overrides[override_count++] = value;
@@ -113,9 +122,29 @@ int md_image_launch(int argc, char **argv) {
     if (!r) r = config(s, &json);
     if (!r) r = optional(s->db, json, "$.config.WorkingDir", &cwd);
     if (!r) r = optional(s->db, json, "$.config.User", &user);
-    if (!r && user && *user && !current) {
-        fprintf(stderr, "Image USER=%s requires an explicit --user current; the runtime does not impersonate image users.\n", user);
+    int preserve = 0;
+    sqlite3_stmt *policy = NULL;
+    if (!r) r = mdi_prepare(s,"SELECT value FROM properties WHERE key='image-users'",&policy);
+    if (!r) {
+        int rc=mdi_step(s,policy);
+        if (rc==SQLITE_ROW) preserve=sqlite3_column_int(policy,0)!=0;
+        else r=mdi_sql_failure(rc);
+    }
+    sqlite3_finalize(policy);
+    if (!r && user && *user && !selected_user && !preserve) {
+        fprintf(stderr, "Image USER=%s has mapped ownership; select --user current or an explicit guest user.\n", user);
         r = -ENOTSUP;
+    }
+    struct md_identity identity = {0};
+    char identity_text[32], *group_text = NULL;
+    int guest_user = selected_user ? strcmp(selected_user,"current")!=0 : preserve;
+    if (!r && guest_user) {
+        r=md_guest_user_resolve(&fs,selected_user ? selected_user : user,&identity);
+        if (!r) {
+            snprintf(identity_text,sizeof(identity_text),"%u:%u",identity.uid.real,identity.gid.real);
+            r=md_guest_group_argument(&identity,&group_text);
+            s->identity=&identity;
+        }
     }
     if (!r) r = md_json_array(s->db, json, "$.config.Entrypoint", &entries, &entry_count);
     if (!r) r = md_json_array(s->db, json, "$.config.Cmd", &cmd, &cmd_count);
@@ -127,7 +156,7 @@ int md_image_launch(int argc, char **argv) {
     char **command = position < argc ? argv+position : cmd;
     size_t command_count = position < argc ? (size_t)(argc-position) : cmd_count;
     size_t total = entry_count + explicit_count + command_count;
-    if (!r && (!total || total + 2*(env_count+override_count) + 3*attachment_count + 10 > 1000)) r = -E2BIG;
+    if (!r && (!total || total + 2*(env_count+override_count) + 3*attachment_count + 14 > 1000)) r = -E2BIG;
     const char *search = environment(overrides, override_count, "PATH");
     if (!search) search = environment(env, env_count, "PATH");
     char executable[PATH_MAX], runner[PATH_MAX];
@@ -148,6 +177,10 @@ int md_image_launch(int argc, char **argv) {
         size_t n = 0;
         launch[n++] = runner; launch[n++] = "--store"; launch[n++] = (char *)path;
         launch[n++] = "--cwd"; launch[n++] = (char *)working;
+        if (guest_user) {
+            launch[n++]="--user"; launch[n++]=identity_text;
+            launch[n++]="--groups"; launch[n++]=group_text;
+        }
         for (unsigned i = 0; i < attachment_count; ++i) {
             launch[n++] = attachments[i].readonly ? "--bind-ro" : "--bind";
             launch[n++] = (char *)attachments[i].source; launch[n++] = (char *)attachments[i].target;
@@ -164,6 +197,7 @@ int md_image_launch(int argc, char **argv) {
         execv(runner, launch); r = -errno;
     }
     free(launch); free(json); free(cwd); free(user);
+    free(group_text); md_identity_release(&identity);
     md_json_array_free(entries, entry_count); md_json_array_free(cmd, cmd_count); md_json_array_free(env, env_count);
     md_fs_mounts_close(&fs); md_inode_store_close(s); return r;
 }

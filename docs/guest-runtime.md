@@ -14,7 +14,7 @@ The app owns typed launch recipes, `.desktop` storage and lazy helper staging.
 The existing shell, PTY and graphical services own invocation and presentation.
 Renderer processes remain unprivileged.
 
-Each launch captures its store, guest home, guest cwd, argv and graphics
+Each launch captures its store, guest user, guest home, guest cwd, argv and graphics
 connection. There is no current distribution, global guest root or singleton
 per launch method. Separate guest stores and independent PRoot/chroot entry
 scripts can be used concurrently. Each guest launch owns a supervised process tree
@@ -58,6 +58,7 @@ In a newly opened MagicDesk Shell console or terminal:
 magicdesk-guest --probe
 magicdesk-guest --import /absolute/prepared-rootfs /absolute/new-store
 magicdesk-guest --store /absolute/store --home /tmp --cwd / -- /bin/sh -l
+magicdesk-guest --store /absolute/store --user root -- /bin/sh -l
 ```
 
 Import accepts an immutable prepared tree, not an archive or distribution name.
@@ -65,13 +66,16 @@ It publishes atomically into an empty store and retains real metadata checks.
 The default import bounds are 2 GiB and 200,000 entries. Unsupported objects,
 metadata, source mutation, overlap and an existing populated store are errors.
 It runs no package scripts, downloads nothing and does not manage mounts.
+`--preserve-ownership` on import retains source UID/GID, permission and set-ID
+metadata in the inode store, including the root directory. Physical backing
+files still belong to the executor and never acquire kernel set-ID bits.
 
 Local OCI layouts use the separate offline image command:
 
 ```sh
-magicdesk-guest image import /absolute/oci-layout /absolute/image --map-current-user
+magicdesk-guest image import /absolute/oci-layout /absolute/image --preserve-ownership
 magicdesk-guest image create /absolute/image /absolute/instance
-magicdesk-guest image run /absolute/instance --user current -- /bin/sh
+magicdesk-guest image run /absolute/instance -- /bin/sh
 ```
 
 Instances share immutable file bodies and copy up on mutation. Image Env,
@@ -83,6 +87,7 @@ for formats, explicit ownership mapping, source lifetimes and limitations.
 This provides OCI image execution, not Docker Engine or a container isolation boundary.
 
 The shortcut editor's Shell Linux method accepts a prepared guest store.
+Its optional User field accepts the same guest user/group selection as the CLI.
 Terminal commands use the shared retained PTY. Graphical recipes currently use
 X11 or Wayland and an explicit host-visible XKB directory.
 `X-MagicDesk-GraphicsConnection=routed` selects independent guest connections;
@@ -114,12 +119,58 @@ and abstract display address. Its normal MIT-MAGIC-COOKIE-1 handshake remains
 mandatory. Each guest launch writes the supplied authority into its private
 runtime directory; session cookies are not persisted in `.desktop` recipes.
 
+## Guest Credentials
+
+`--user NAME|UID[:GROUP|GID]` selects a launch-local guest identity. Names and
+supplementary groups are resolved from that store's `/etc/passwd` and `/etc/group`,
+not Android or another distribution. An explicit group suppresses automatic
+supplementary-group membership; numeric UID:GID needs no account entry. Ordinary
+launches without this option retain the executor's IDs and supplementary groups.
+Preserved-ownership OCI images use their configured User, or guest root when it
+is empty. `image run --user current` explicitly retains the Android identity.
+
+`guest_identity` owns real/effective/saved/filesystem IDs, supplementary groups,
+credential drops and no_new_privs. The supervisor tracks them per task across
+fork, threads and exec. Libc's process-wide set-ID coordination remains libc's
+responsibility. Auxv and admitted-image transitions use this same model.
+`credential_registry` publishes immutable snapshots to the filesystem worker;
+both USER_NOTIF and RPC use them. RPC checks the actor TID against the kernel
+peer TGID. The registry lock protects snapshots only, not filesystem IO, and
+ordinary requests allocate no group arrays.
+
+`inode_metadata` enforces directory search, file access, ownership changes,
+sticky directories, setgid-parent inheritance, watch registration and timestamp permissions against
+logical inode owners/modes. `access()` checks real credentials for the whole
+path; `faccessat2(AT_EACCESS)` uses effective filesystem credentials. File data,
+mmap and already-open descriptors retain native kernel semantics. Metadata is
+shared by hardlinks and retained across copy-up and independent launches.
+
+This is virtual guest root, not Android root or a security boundary. Native
+attachments, `/proc`, `/dev`, capabilities, resource limits and SELinux retain
+real kernel authority. Internal Unix connections publish captured guest peer IDs
+and groups; explicit SCM_CREDENTIALS messages use the same identity model.
+External peers still see real Android credentials. Unmodified session D-Bus can
+run as guest root, including independent clients sharing the store, without
+disabling authentication. See the [IPC credential contract](../native/guest-runtime/ipc-credentials.md)
+for ownership, implicit credential messages and transport limits.
+General set-ID metadata is not executable admission: only explicitly admitted,
+sealed ELF helpers receive a set-ID transition. ACL installation on stored objects
+is rejected until the permission model supports it; native ACLs must not be
+mistaken for guest-user ACLs. No kernel permission denial is fabricated as success.
+
+Guest kernel audit is not implemented. `socket(AF_NETLINK, ..., NETLINK_AUDIT)`
+returns EPROTONOSUPPORT before reaching Android's global audit service, regardless
+of the selected real or guest UID. Stock account tools use their normal no-audit
+path. This neither disables Android audit nor claims that a record was logged;
+other socket protocols and real kernel denials retain their normal behavior.
+Application seccomp ERRNO/TRAP/KILL actions still take precedence.
+
 ## Prepared Userspace
 
 The store must contain the application's complete matching libraries, data and
 configuration. The runtime does not invent a Linux user, package records, DNS
 servers, certificates or a machine ID. In particular, D-Bus needs an NSS entry
-for the actual executor UID in the prepared system. Network clients need its
+for the selected guest UID in the prepared system. Network clients need its
 resolver configuration and CA trust store. GUI toolkits need fonts, icons and
 their normal GSettings/GdkPixbuf/MIME caches.
 
@@ -166,13 +217,14 @@ semantics fail explicitly. The direct backend does not implement scoped resoluti
 
 Pathname Unix sockets are namespace inodes whose native transport is an
 abstract kernel socket. The filesystem service commits bind and name publication;
-ordinary traffic, credentials and SCM_RIGHTS then bypass it. Names, permissions,
+ordinary payload traffic and SCM_RIGHTS stay in the kernel. Connection identity
+and explicit credential messages use the separate IPC metadata authority. Names, permissions,
 relative addresses, returned addresses, rename, stale listeners and unlink/rebind
 are tested. Unlinking a name does not invalidate existing connections. Different
 stores have independent names; explicitly abstract sockets retain the host's
 shared abstract namespace and are not isolated.
-Unix `sendmmsg` reuses address translation without copying payloads or allocating
-per-message buffers. Tests cover partial batches, short stream writes, failed
+Unix `sendmmsg` reuses address and ancillary adapters without copying payloads.
+Credential-free sends need no per-message buffers. Tests cover partial batches, short stream writes, failed
 result writes and SCM_RIGHTS. Unadapted socket operations are not thereby certified.
 
 `/dev/shm` belongs to the guest store, including access relative to a `/dev`
@@ -185,7 +237,7 @@ reads use lazily armed descriptor classes and retained kernel-object identity.
 Protected readers copy in their own task without changing dumpability; queue
 delivery is acknowledged before consumption is confirmed. See the
 [watch contract](../native/guest-runtime/watches.md) for descriptor, hardlink,
-protected-copy and kernel limits. The current store format is 7;
+protected-copy and kernel limits. The current store format is 8;
 older stores are rejected, not migrated or deleted.
 
 ## Optional Kernel Support
@@ -266,21 +318,28 @@ and installed only in the test store, not Android or the APK. Device enumeration
 alone is not this check. Other GPUs, drivers, zero-copy presentation and performance
 comparisons remain unverified.
 
-Separate fresh-image checks use real Debian APT and Alpine APK with signed
-repositories, dependency installation, scripts/triggers, HTTPS verification,
-reinstallation, removal and subsequent installation. Selected real upgrades cover
-Debian's PCRE2 package and Alpine's musl. The prepared userspace explicitly selects
-the package managers' unprivileged/chrootless options and real UID 2000. Debian's
-ucf fixture additionally opts into file updates in its disposable image; its normal
-non-root dry run must not be mistaken for configured LibreOffice registry files.
-An unrestricted Alpine base upgrade is not certified. APK 3.0.1 attempts executable
-memfd scripts that this device denies even in the native shell control; its fallback
-reports ENOENT for an absent script path. APK 3.0.8 runs those triggers and the
-Alpine 3.23.0-to-3.23.6 upgrade returns zero. Its base-system script nevertheless
-reports an unapplied ownership change for `etc/shadow` and continues. The runtime
-preserves that denial; the package manager's exit code does not certify every
-configuration action. These are bounded package workflows, not arbitrary maintainer-script
-or complete-distribution compatibility.
+Fresh preserved-ownership images run ordinary Debian APT and Alpine APK as guest
+root under actual UID 2000. Focused checks cover signed repositories, dependency
+installation, scripts/triggers, reinstallation, removal and subsequent installation,
+without force-not-root or package-manager sandbox overrides. Debian installs
+hello, curl, jq and ca-certificates including certificate update triggers; Alpine
+installs curl, jq and D-Bus including its logical set-ID helper metadata.
+`test_credentials_runtime.py` records exact images, commands and build identity.
+These are bounded package workflows, not arbitrary maintainer-script or
+complete-distribution compatibility. Kernel mounts, device creation, capabilities
+and system-service startup may still fail. Executable-memfd scripts remain subject
+to the actual Android execution policy.
+
+Virtual-root IPC checks run stock Debian and Alpine session D-Bus, independent
+root clients and a rejected different-user client. Debian additionally passes
+GDBus service activation, caller-UID lookup and bidirectional FD delivery.
+Kernel-generated implicit credentials are not translated. Debian account-tool
+checks cover group/user creation, modification, supplementary membership, named
+launches, home ownership and deletion. A non-root guest is denied and leaves
+group files unchanged. D-Bus package configuration creates the messagebus account
+and completes with a clean dpkg audit. The prepared image's service-start policy
+remains in force; this is not system-bus or init-system certification. The daemon's
+FD-limit warning retains the real kernel denial.
 
 Static glibc and musl fixtures cover ET_EXEC/static PIE, 64 KiB/2 MiB alignment,
 constructors, TLS, pthreads, heap, fork and descriptor exec. A separate
@@ -365,9 +424,8 @@ Installed-APK Debian and Alpine workflows verify Mousepad's external-change
 notification and actual reloaded text, plus Thunar's live external file creation,
 selection/rename and reaction to moving the viewed directory. Both close with
 zero process status. These prepared images lack some optional desktop services;
-Debian dictionary installation requires root and Alpine rejects extraction of
-the set-ID D-Bus system-bus helper. Working session buses and GUI workflows do
-not certify those system-package configuration actions.
+working session buses and GUI workflows do not certify system-service startup
+or arbitrary package configuration actions under virtual root.
 Wayland publishes a logical monitor before client
 startup and replaces it when an Android host attaches; GTK's initial
 monitor-scale warnings are absent in these checks. The kernel process name identifies the guest executable after

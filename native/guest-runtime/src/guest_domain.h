@@ -9,7 +9,7 @@
 /* No adaptation, observation or logical identity in any domain. Shared with
  * seccomp so these kernel operations need no userspace policy round trip. */
 #define MD_DOMAIN_KERNEL_CALLS(X) \
-    X(fstatfs) X(pipe2) X(shutdown) X(socketpair) X(wait4) X(waitid) \
+    X(fstatfs) X(pipe2) X(shutdown) X(wait4) X(waitid) \
     X(capget) X(capset) X(uname) X(sysinfo) X(sched_yield) X(sched_getaffinity) \
     X(getrusage) X(getrlimit) X(gettimeofday)
 #define MD_DOMAIN_KERNEL_ARGUMENTS(X) \
@@ -29,6 +29,8 @@ int md_domain_restricted(const struct md_guest_domain *);
 int md_domain_restrict(struct md_guest_domain *, pid_t, const char *);
 int md_domain_chdir_root(struct md_guest_domain *);
 int md_domain_path_error(const struct md_guest_domain *);
+/* Unsupported guest interfaces fail before entering an unrelated host service. */
+int md_domain_socket_error(int family, int protocol);
 int md_domain_native_call(long nr, const unsigned long args[6]);
 /* Returns an owned descriptor or a negative errno. No pathname continuation in
  * the tracee: the copied request is resolved beneath the retained resource. */

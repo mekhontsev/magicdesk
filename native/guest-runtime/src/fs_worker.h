@@ -5,12 +5,13 @@ struct md_filesystem;
 struct md_fs_attachment;
 struct md_image_catalogue;
 struct md_fs_worker;
+struct md_credentials;
 struct md_fs_work {
     struct md_fs_work *next;
 };
 /* One worker owns the namespace, image catalogue and both request transports.
  * Published work transfers to the supervisor. Queue locks never cover IO. */
-int md_fs_worker_start(const char *store, const char *endpoint, const char *admit,
+int md_fs_worker_start(const char *store, const char *endpoint, const char *admit, struct md_credentials *,
         const struct md_fs_attachment *, unsigned attachment_count, int statistics, struct md_fs_worker **out);
 int md_fs_worker_fd(struct md_fs_worker *);
 void md_fs_worker_wake(struct md_fs_worker *);

@@ -125,7 +125,7 @@ static int prepare(struct operation *op, struct task *task, size_t capacity) {
     /* ADDFD uses fget(), which rejects O_PATH; SCM_RIGHTS preserves it. */
     if (q->data.nr == SYS_openat && (q->data.args[2] & (O_CREAT | O_TRUNC | __O_TMPFILE | O_PATH))) return 0;
     if (q->data.nr == SYS_newfstatat && (q->data.args[3] & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT))) return 0;
-    op->request = (struct md_fs_request){.operation = MD_FS_FSTAT, .directory = {-1, -1}};
+    op->request = (struct md_fs_request){.actor = (int)q->pid, .operation = MD_FS_FSTAT, .directory = {-1, -1}};
     op->path[0] = 0;
     if (q->data.nr == SYS_getdents64) {
         op->request.operation = MD_FS_GETDENTS;

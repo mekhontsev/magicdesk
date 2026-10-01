@@ -4,6 +4,7 @@
 #include "fs_mounts.h"
 #include "image_catalogue.h"
 #include "event_wait.h"
+#include "ipc_credentials.h"
 #include <errno.h>
 #include <pthread.h>
 #include <stdlib.h>
@@ -18,6 +19,7 @@ struct md_fs_worker {
     pthread_mutex_t lock;
     int wake, done, stop, ready, error, statistics;
     const char *store, *endpoint, *admit;
+    struct md_credentials *credentials;
     const struct md_fs_attachment *attachments;
     unsigned attachment_count;
     struct md_fs_work *completed, **completed_tail;
@@ -59,7 +61,7 @@ static void *run(void *context) {
     struct md_image_catalogue *images = NULL;
     int listener = -1, error = md_inode_store_open(w->store, 0, &store);
     if (!error && w->admit) error = md_image_catalogue_open(store, w->admit, &images);
-    struct md_filesystem fs = {.store=store, .images=images};
+    struct md_filesystem fs = {.store=store, .images=images, .credentials=w->credentials, .ipc_store=w->store};
     if (!error) error = md_fs_mounts_open(&fs, w->attachments, w->attachment_count);
     if (!error) { listener = md_fs_listen(w->endpoint); if (listener < 0) error = listener; }
     pthread_mutex_lock(&w->lock); w->error = error; pthread_mutex_unlock(&w->lock);
@@ -74,6 +76,7 @@ static void *run(void *context) {
     }
     if (listener >= 0) close(listener);
     md_fs_mounts_close(&fs);
+    md_ipc_credentials_close(fs.ipc);
     md_image_catalogue_close(images); md_inode_store_close(store);
     if (w->statistics) {
         const struct md_cost *costs[] = {&stats.prepare, &stats.step, &stats.transaction, &stats.lock};
@@ -99,13 +102,14 @@ static void *run(void *context) {
     wake(w->done);
     return NULL;
 }
-int md_fs_worker_start(const char *store, const char *endpoint, const char *admit,
+int md_fs_worker_start(const char *store, const char *endpoint, const char *admit, struct md_credentials *credentials,
         const struct md_fs_attachment *attachments, unsigned attachment_count, int statistics, struct md_fs_worker **out) {
     struct md_fs_worker *w = calloc(1, sizeof(*w));
     if (!w) return -ENOMEM;
     w->wake = w->done = w->stop = w->ready = -1;
     w->notification_fd = -1;
     w->store = store; w->endpoint = endpoint; w->admit = admit; w->statistics = statistics;
+    w->credentials = credentials;
     w->attachments = attachments; w->attachment_count = attachment_count;
     w->completed_tail = &w->completed;
     int error = pthread_mutex_init(&w->lock, NULL);

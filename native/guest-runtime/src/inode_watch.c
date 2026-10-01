@@ -325,7 +325,13 @@ int md_inode_watch_add(struct md_inode_store *s, int fd, int object, unsigned ma
     if (fstat(object, &st)) return -errno;
     if ((mask & IN_ONLYDIR) && !S_ISDIR(st.st_mode)) return -ENOTDIR;
     char identity[33] = {0};
-    r = md_inode_object_id(s, object, identity);
+    r = mdi_begin(s, 0);
+    if (r) return r;
+    struct mdi_node watched;
+    r = mdi_fd(s, object, &watched);
+    if (!r) r = mdi_permission(s, &watched, R_OK, 0);
+    if (!r) memcpy(identity, watched.id, sizeof(identity));
+    r = mdi_finish(s, r);
     if (r && r != -EXDEV) return r;
     struct subscription *p = i->subscriptions;
     while (p && (*identity ? strcmp(p->object, identity) != 0

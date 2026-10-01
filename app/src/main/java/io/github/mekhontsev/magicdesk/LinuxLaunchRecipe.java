@@ -48,7 +48,7 @@ final class LinuxLaunchRecipe {
             String directory, String user, Presentation presentation, GraphicalProtocol protocol) {
         if (protocol == null) throw new IllegalArgumentException("Select a graphical protocol");
         user = user == null ? "" : user.trim();
-        if (!user.isEmpty() && !user.matches("[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}\\$?"))
+        if (environment.kind() != Kind.GUEST && !user.isEmpty() && !user.matches("[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}\\$?"))
             throw new IllegalArgumentException("Invalid Linux user name");
         command = DesktopExecCommand.normalize(command);
         directory = DesktopExecWorkingDirectory.normalize(directory);
@@ -110,11 +110,10 @@ final class LinuxLaunchRecipe {
 
     private static DesktopApplicationShortcut guest(String name, Environment environment, String command,
             String directory, String user, Presentation presentation, GraphicalProtocol protocol) {
-        if (!user.isEmpty()) throw new IllegalArgumentException("Guest runtime retains the executor identity; user switching is unavailable");
         boolean graphical = presentation != Presentation.TERMINAL;
         if (graphical && environment.keyboardDirectory().isEmpty())
             throw new IllegalArgumentException("Enter the host XKB data directory");
-        var plan = new GuestLaunchPlan(new GuestEnvironment(environment.target(), "/tmp"),
+        var plan = new GuestLaunchPlan(new GuestEnvironment(environment.target(), "/tmp", user),
                 directory.isEmpty() ? "/" : directory,
                 command.isEmpty() ? List.of("/bin/sh", "-l") : List.of("/bin/sh", "-lc",
                         graphical ? LinuxGraphicalEnvironment.wrap(protocol,
@@ -126,7 +125,7 @@ final class LinuxLaunchRecipe {
                 exec, null, "", DesktopLaunchMode.AUTO, false, DesktopExecBackend.SHELL, !graphical)
                 .withLiteralExec(true).withGraphics(graphical ? new GraphicalLaunchOptions(protocol,
                         presentation == Presentation.DESKTOP, environment.keyboardDirectory(), "",
-                        "GUEST:" + environment.target().length() + ":" + environment.target(), GraphicalConnectionMode.ROUTED) : null);
+                        "GUEST:" + environment.target().length() + ":" + environment.target() + ":" + user, GraphicalConnectionMode.ROUTED) : null);
     }
 
     private static String q(String value) { return ShellCommandLine.quote(value); }

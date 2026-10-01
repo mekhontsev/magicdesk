@@ -46,6 +46,10 @@ int md_inode_rename(struct md_inode_store *, int sourcefd, const char *source,
         int targetfd, const char *target, unsigned flags);
 int md_inode_stat(struct md_inode_store *, int dirfd, const char *path, int flags, struct stat *);
 int md_inode_fstat(struct md_inode_store *, int fd, struct stat *);
+struct md_fs_request;
+int md_inode_metadata(struct md_inode_store *, const struct md_fs_request *);
+/* Trusted offline import only; records logical ownership, never host chown. */
+int md_inode_import_metadata(struct md_inode_store *, int fd, uint32_t uid, uint32_t gid, mode_t);
 int md_inode_path(struct md_inode_store *, int dirfd, char *, size_t);
 int md_inode_realpath(struct md_inode_store *, int dirfd, const char *, char *, size_t);
 /* Unlinked native storage, outside the logical namespace and its metadata. */
@@ -70,7 +74,7 @@ ssize_t md_inode_getdents_deliver(struct md_inode_store *, int fd, void *, size_
         int (*deliver)(void *, const void *, size_t), void *);
 int64_t md_inode_seekdir(struct md_inode_store *, int fd, int64_t offset, int whence);
 
-struct md_inode_import_limits { uint64_t bytes, entries; };
+struct md_inode_import_limits { uint64_t bytes, entries; int preserve_ownership; };
 struct md_inode_import_result { uint64_t bytes, entries, aliases; };
 /* Offline import of an immutable source into an empty namespace. Source stays
  * unchanged. A failed/uncertain commit must be inspected, never replayed blindly. */

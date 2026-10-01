@@ -4,10 +4,46 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
+#include <stdatomic.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
 struct md_exec_image { int fd; uint32_t uid, gid; mode_t mode; };
+struct md_identity_groups { atomic_uint references; unsigned count; uint32_t ids[]; };
+static int compare_gid(const void *a, const void *b) {
+    uint32_t x = *(const uint32_t *)a, y = *(const uint32_t *)b;
+    return (x > y) - (x < y);
+}
+
+struct md_identity md_identity_copy(const struct md_identity *v) {
+    if (v->groups) atomic_fetch_add_explicit(&v->groups->references, 1, memory_order_relaxed);
+    return *v;
+}
+void md_identity_release(struct md_identity *v) {
+    if (v->groups && atomic_fetch_sub_explicit(&v->groups->references, 1, memory_order_acq_rel) == 1)
+        free(v->groups);
+    v->groups = NULL;
+}
+int md_identity_groups(struct md_identity *v, const uint32_t *ids, unsigned count) {
+    if (count > MD_IDENTITY_GROUPS_MAX) return -EINVAL;
+    for (unsigned i = 0; i < count; i++) if (ids[i] == UINT32_MAX) return -EINVAL;
+    struct md_identity_groups *g = count ? malloc(sizeof(*g) + count * sizeof(*ids)) : NULL;
+    if (count && !g) return -ENOMEM;
+    if (g) {
+        atomic_init(&g->references, 1); g->count = count; memcpy(g->ids, ids, count * sizeof(*ids));
+        qsort(g->ids, count, sizeof(*ids), compare_gid);
+    }
+    md_identity_release(v); v->groups = g;
+    return 0;
+}
+unsigned md_identity_group_count(const struct md_identity *v) { return v->groups ? v->groups->count : 0; }
+const uint32_t *md_identity_group_data(const struct md_identity *v) { return v->groups ? v->groups->ids : NULL; }
+int md_identity_in_group(const struct md_identity *v, uint32_t gid) {
+    if (v->gid.fs == gid) return 1;
+    return v->groups && bsearch(&gid, v->groups->ids, v->groups->count,
+        sizeof(gid), compare_gid) != NULL;
+}
 
 struct md_identity md_identity_new(uint32_t uid, uint32_t gid) {
     return (struct md_identity){.uid = {uid, uid, uid, uid}, .gid = {gid, gid, gid, gid}};
@@ -29,6 +65,34 @@ int md_identity_setresuid(struct md_identity *value, uint32_t r, uint32_t e, uin
 int md_identity_setresgid(struct md_identity *value, uint32_t r, uint32_t e, uint32_t s) {
     return setres(&value->gid, value->uid.effective == 0, r, e, s);
 }
+static int setid(struct md_identity_ids *ids, int root, uint32_t id) {
+    if (id == UINT32_MAX) return -EINVAL;
+    if (root) *ids = (struct md_identity_ids){id, id, id, id};
+    else if (id == ids->real || id == ids->saved) ids->effective = ids->fs = id;
+    else return -EPERM;
+    return 0;
+}
+int md_identity_setuid(struct md_identity *v, uint32_t id) { return setid(&v->uid, !v->uid.effective, id); }
+int md_identity_setgid(struct md_identity *v, uint32_t id) { return setid(&v->gid, !v->uid.effective, id); }
+static int setre(struct md_identity_ids *ids, int root, uint32_t r, uint32_t e) {
+    if (!root && ((r != UINT32_MAX && r != ids->real && r != ids->effective) || !existing(ids, e)))
+        return -EPERM;
+    uint32_t old_real = ids->real;
+    if (r != UINT32_MAX) ids->real = r;
+    if (e != UINT32_MAX) ids->effective = e;
+    if (r != UINT32_MAX || (e != UINT32_MAX && e != old_real)) ids->saved = ids->effective;
+    ids->fs = ids->effective;
+    return 0;
+}
+int md_identity_setreuid(struct md_identity *v, uint32_t r, uint32_t e) { return setre(&v->uid, !v->uid.effective, r, e); }
+int md_identity_setregid(struct md_identity *v, uint32_t r, uint32_t e) { return setre(&v->gid, !v->uid.effective, r, e); }
+static uint32_t setfs(struct md_identity_ids *ids, int root, uint32_t id) {
+    uint32_t old = ids->fs;
+    if (id != UINT32_MAX && (root || existing(ids, id) || id == old)) ids->fs = id;
+    return old;
+}
+uint32_t md_identity_setfsuid(struct md_identity *v, uint32_t id) { return setfs(&v->uid, !v->uid.effective, id); }
+uint32_t md_identity_setfsgid(struct md_identity *v, uint32_t id) { return setfs(&v->gid, !v->uid.effective, id); }
 int md_identity_no_new_privs(struct md_identity *value, unsigned enable) {
     if (enable != 1) return -EINVAL;
     value->no_new_privs = 1;
@@ -77,7 +141,7 @@ int md_identity_prepare_exec(const struct md_identity *current, const struct md_
         int nosuid, struct md_exec_identity *out) {
     if (!image) return -EACCES;
     unsigned permission = current->uid.fs == image->uid ? S_IXUSR
-        : current->gid.fs == image->gid ? S_IXGRP : S_IXOTH;
+        : md_identity_in_group(current, image->gid) ? S_IXGRP : S_IXOTH;
     if (current->uid.fs == 0) permission = S_IXUSR | S_IXGRP | S_IXOTH;
     if (!(image->mode & permission)) return -EACCES;
     struct md_identity next = *current;

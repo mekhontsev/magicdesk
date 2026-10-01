@@ -43,9 +43,13 @@ static int attributes(int fd, const char *symlink_path) {
     }
     return 0;
 }
-static int metadata(int fd, const struct stat *source) {
+static int metadata(struct importer *i, const struct mdi_node *node, int fd, const struct stat *source) {
     struct timespec times[2] = {source->st_atim, source->st_mtim};
-    if (fchmod(fd, source->st_mode & 01777) || futimens(fd, times) || fsync(fd)) return -errno;
+    if (i->limits->preserve_ownership) {
+        int r = mdi_metadata(i->store, node, source->st_uid, source->st_gid, source->st_mode & 07777);
+        if (r) return r;
+    } else if (fd >= 0 && fchmod(fd, source->st_mode & 01777)) return -errno;
+    if (fd >= 0 && (futimens(fd, times) || fsync(fd))) return -errno;
     return 0;
 }
 static int overlap(int descendant, const struct stat *ancestor) {
@@ -156,7 +160,7 @@ static int leaf(struct importer *i, struct import_frame *frame, const char *name
     } else if (!r) {
         r = mdi_allocate(i->store, st->st_mode & S_IFMT, 0600, O_RDWR, link ? target : NULL, NULL, &node, &destination);
         if (!r && !link) r = copy_file(i, source, destination, st);
-        if (!r && !link) r = metadata(destination, st);
+        if (!r) r = metadata(i, &node, destination, st);
         if (!r && link) {
             struct timespec times[2] = {st->st_atim, st->st_mtim};
             if (utimensat(i->store->objects, node.id, times, AT_SYMLINK_NOFOLLOW)
@@ -204,7 +208,7 @@ int md_inode_import_tree(struct md_inode_store *s, int source_fd,
             struct stat actual;
             if (fstat(stack->source_fd, &actual)) r = -errno;
             if (!r && !same(&stack->initial, &actual)) r = -ESTALE;
-            if (!r && stack->destination >= 0) r = metadata(stack->destination, &stack->initial);
+            if (!r) r = metadata(i, &stack->target, stack->destination, &stack->initial);
             pop(&stack); continue;
         }
         if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
@@ -214,7 +218,8 @@ int md_inode_import_tree(struct md_inode_store *s, int source_fd,
         struct stat st;
         if (fstatat(stack->source_fd, entry->d_name, &st, AT_SYMLINK_NOFOLLOW)) { r = -errno; break; }
         if (st.st_dev != root.st_dev) { r = -EXDEV; break; }
-        if ((st.st_mode & 06000) || (!S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode))) {
+        if (((st.st_mode & 06000) && !limits->preserve_ownership)
+                || (!S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode))) {
             r = -ENOTSUP; break;
         }
         if (!S_ISDIR(st.st_mode)) { r = leaf(i, stack, entry->d_name, &st); continue; }

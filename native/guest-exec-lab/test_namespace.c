@@ -192,7 +192,7 @@ int main(int argc, char **argv) {
     CHECK(notifications >= 0);
     int watch = inotify_add_watch(notifications, ".", IN_CREATE);
     CHECK(watch > 0);
-    int created = open("notification-created", O_CREAT | O_EXCL | O_RDWR, 0600);
+    created = open("notification-created", O_CREAT | O_EXCL | O_RDWR, 0600);
     CHECK(created >= 0); close(created);
     char events[256];
     CHECK(read(notifications, events, sizeof(events)) > (ssize_t)sizeof(struct inotify_event));

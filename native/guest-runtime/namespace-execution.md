@@ -18,9 +18,9 @@ for ownership, exact guarantees, coverage and remaining limits.
 Its private storage never depends on the namespace service it supplies. The
 owner retains the already-selected real UID and uses umask zero after guest fork; creation
 requests contain modes masked using the requesting process's kernel umask.
-There is no automatic identity change after a denied operation. Explicit image
-admission can publish logical credentials for a selected sealed ELF without
-changing the real UID; see [interception](interception.md).
+There is no automatic identity change after a denied operation. Explicit guest
+users and sealed-image admission share the supervisor's per-task credential model
+without changing the real UID; see [interception](interception.md).
 
 `namespace.c` is the freestanding syscall adapter. `namespace_proc.c` owns
 host/proc object selection, using the shared `proc_paths.c` classifier. Paths, FD stat, directory
@@ -46,28 +46,31 @@ seccomp filter and the real kernel cwd/descriptors.
 - The caller reads `Umask` from `/proc/thread-self/status`, without temporarily
   mutating a shared fs_struct. Forked clients with different masks share one
   service without using its mask as their policy. Filesystem authorization uses
-  the real executor identity, not the admitted image's logical IDs.
+  the caller's guest filesystem IDs and supplementary groups from the supervisor's
+  registry; attached host objects retain real kernel permission checks.
 - Cwd is a real backing-directory FD retained by the kernel. Relative requests
   capture it with openat; getcwd reconstructs the current virtual parent path.
   Renaming the directory preserves cwd and inherited dirfd identity.
-- fstat/newfstatat/statx publish namespace link counts with native metadata.
+- fstat/newfstatat/statx publish namespace link counts and logical owners/modes
+  with native data attributes.
   Directory read/seek uses the shared open-file-description cursor. Host pipe,
   socket and other unowned descriptors retain native FD semantics.
-- chmod, chown, timestamps, truncate and statfs resolve a retained backing FD,
-  then use kernel operations under the caller's real identity. Permission failures
-  remain failures. Namespace mutations do not yet update every POSIX ctime.
+- chmod, chown and timestamps resolve a retained backing FD and use typed
+  filesystem operations with the requesting task's credential context. Truncate
+  and statfs retain native data operations after namespace access checks.
+  Namespace mutations do not yet update every POSIX ctime.
   `fchmodat2` retains `AT_EMPTY_PATH` and `AT_SYMLINK_NOFOLLOW`, using the
-  selected backing FD under the same identity. An unavailable kernel syscall
-  returns ENOSYS for libc's fallback; permissions are never emulated as success.
+  selected backing FD and the same guest metadata model. Native host fallbacks
+  keep kernel permission errors and syscall availability.
 - Path xattrs use the retained inode through `fd_metadata.c`, shared with chmod.
   The proc magic link selects that FD's object, including an O_PATH/no-follow
   symlink inode; it does not resolve the guest symlink text a second time.
   Attribute values remain kernel-owned data, not SQLite rows or RPC payloads.
   Reads, writes, lists and removals retain native permission checks, binary values
   and descriptor/hard-link identity. No heap, mutable cache or client lock is added.
-  Installing a default ACL through either a path or FD returns ENOTSUP until
-  virtual-parent inheritance exists. Import still rejects source xattrs other
-  than the kernel-assigned SELinux label; ACL/ownership emulation is not provided.
+  Installing access/default ACLs on stored objects through a path or FD returns
+  ENOTSUP until guest ACL semantics and inheritance exist. Import still rejects
+  source xattrs other than the kernel-assigned SELinux label.
 - `/proc` and `/dev` map to the host, except `/dev/shm`, which belongs to the
   guest store. Relative operations based at a host directory recognize these
   boundaries too. Selected current-process/thread magic links are described below.
@@ -187,7 +190,7 @@ retains the same failing hard-link controls as a separate comparison.
 This is one fixture lifecycle, not full-distribution compatibility. Separate
 fresh-image APT/APK checks and selected upgrades are documented in the
 [application coverage](../../docs/guest-runtime.md#coverage-and-limits).
-Arbitrary maintainer scripts, root ownership requirements,
+Arbitrary maintainer scripts, privileged kernel operations,
 broader GTK/Qt workflows, notifications, object reclamation, power loss, performance and API 34/16 KiB
 coverage remain separate gates. Execution-policy checks described in the main
 README still apply; X_OK is not a replacement for full kernel execution policy.
