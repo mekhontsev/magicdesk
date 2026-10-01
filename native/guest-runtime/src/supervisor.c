@@ -7,6 +7,7 @@
 #include "elf_admission.h"
 #include "interception.h"
 #include "interception_stacks.h"
+#include "watch_activation.h"
 #include "launch_identity.h"
 #include "process_owner.h"
 #include "raw.h"
@@ -65,7 +66,8 @@ static struct interception_statistics *statistics;
 #define TRACE(...) do { if (diagnostics) fprintf(stderr, __VA_ARGS__); } while (0)
 enum phase { IDLE, ALLOCATING, DISPATCHING, EXECUTING, OBSERVING,
     EXPORT_CANCEL, EXPORTING, EXPORT_ENTRY, EXPORT_NOTIFY, EXPORT_RETURN, STORING,
-    DELEGATE_CANCEL, LOADING_PATH, PROC_CANCEL, PROC_OPENING, STORING_IDS, DOMAIN_PATH };
+    DELEGATE_CANCEL, LOADING_PATH, PROC_CANCEL, PROC_OPENING, STORING_IDS, DOMAIN_PATH,
+    WATCH_CANCEL, WATCH_ENTRY, WATCH_READ };
 struct metadata_operation {
     enum phase previous;
     struct seccomp_notif request;
@@ -81,6 +83,7 @@ struct metadata_operation {
 struct thread {
     struct thread *next;
     struct md_interception_stacks *stacks;
+    struct md_watch_activation *watch_activation;
     pid_t pid;
     int ready, born, initial_stop, resume_lost, listening;
     enum phase phase;
@@ -168,6 +171,7 @@ static void cleanup(void) {
         struct thread *next = threads->next;
         md_domain_release(threads->domain);
         md_stacks_release(threads->stacks);
+        md_watch_activation_release(threads->watch_activation);
         free(threads); threads = next;
     }
     md_admission_close(&admission);
@@ -207,8 +211,9 @@ static struct thread *thread(pid_t pid) {
     if (!t) { t = calloc(1, sizeof(*t)); CHECK(t); t->next = threads; threads = t; }
     *t = (struct thread){.pid = pid, .next = t->next,
         .metadata = {.peer = -1, .descriptor = -1, .prepared = -1},
-        .identity = md_identity_new(getuid(), getgid()), .stacks = md_stacks_new()};
-    CHECK(t->stacks);
+        .identity = md_identity_new(getuid(), getgid()), .stacks = md_stacks_new(),
+        .watch_activation = md_watch_activation_new()};
+    CHECK(t->stacks && t->watch_activation);
     live++; total++; return t;
 }
 static void release_thread(struct thread *t) {
@@ -217,6 +222,7 @@ static void release_thread(struct thread *t) {
     md_domain_release(t->domain); t->domain = NULL;
     md_stacks_return(t->stacks, t->stack);
     md_stacks_release(t->stacks); t->stacks = NULL;
+    md_watch_activation_release(t->watch_activation); t->watch_activation = NULL;
     t->pid = 0; live--;
 }
 static int duplicate_fd(pid_t pid, int descriptor) {
@@ -650,7 +656,7 @@ static int domain_path_apply(struct thread *t, long nr, const char *path) {
          * published eligibility before acknowledging the shared restriction. */
         if (broker) for (struct thread *member = threads; member; member = member->next)
             if (member->pid && member->domain == t->domain)
-                CHECK(!md_broker_task(broker, member->pid, 0, RAW_GATE));
+                CHECK(!md_broker_task(broker, member->pid, 0, RAW_GATE, abi.watch_gate + 4));
     }
     TRACE("PROBE root-change pid=%d result=%d\n", t->pid, error);
     return error;
@@ -717,7 +723,7 @@ static int domain_call(struct thread *t, struct user_pt_regs *r, unsigned long c
     unsigned long args[6];
     for (unsigned i = 0; i < 6; i++) args[i] = r->regs[i];
     if (md_domain_native_call(nr, args)) {
-        if (cookie == MD_INTERCEPT_OBSERVE) return 0;
+        if (cookie == MD_INTERCEPT_OBSERVE || cookie == MD_INTERCEPT_WATCH) return 0;
         resume(t->pid, 0); return 1;
     }
     int error = cookie == MD_INTERCEPT_DISPATCH ? md_domain_path_error(t->domain) : -EPERM;
@@ -749,9 +755,10 @@ static void resume(pid_t pid, int sig) {
     if (t->resume_lost) return;
     enum phase phase = t->phase;
     if (broker) CHECK(!md_broker_task(broker, pid,
-        t->ready && phase == IDLE && t->endpoint[0] && !md_domain_restricted(t->domain), RAW_GATE));
+        t->ready && phase == IDLE && t->endpoint[0] && !md_domain_restricted(t->domain), RAW_GATE, abi.watch_gate + 4));
     if (!native_trace(phase == OBSERVING || phase == EXPORT_ENTRY || phase == EXPORT_NOTIFY
-            || phase == EXPORT_RETURN || phase == EXECUTING ? PTRACE_SYSCALL : PTRACE_CONT,
+            || phase == EXPORT_RETURN || phase == EXECUTING || phase == WATCH_CANCEL
+            || phase == WATCH_ENTRY || phase == WATCH_READ ? PTRACE_SYSCALL : PTRACE_CONT,
             pid, NULL, (void *)(uintptr_t)sig)) return;
     CHECK(errno == ESRCH);
     /* EVENT_WAIT: thread-group exit or exec may win a stopped-thread resume.
@@ -906,6 +913,8 @@ int main(int argc, char **argv) {
                     md_domain_release(t->domain);
                     t->domain = former->domain; former->domain = NULL;
                     t->identity = former->identity;
+                    md_watch_activation_release(t->watch_activation);
+                    t->watch_activation = former->watch_activation; former->watch_activation = NULL;
                     memcpy(t->endpoint, former->endpoint, sizeof(t->endpoint));
                     release_thread(former);
                 }
@@ -924,6 +933,9 @@ int main(int argc, char **argv) {
             c->identity = t->identity;
             md_stacks_release(c->stacks);
             c->stacks = md_stacks_fork(t->stacks, !!(t->cloning & CLONE_VM)); CHECK(c->stacks);
+            md_watch_activation_release(c->watch_activation);
+            c->watch_activation = md_watch_activation_fork(t->watch_activation, !!(t->cloning & CLONE_THREAD));
+            CHECK(c->watch_activation);
             c->domain = md_domain_fork(t->domain, !!(t->cloning & CLONE_FS));
             CHECK(!t->domain || c->domain); t->cloning = 0;
             memcpy(c->endpoint, t->endpoint, sizeof(c->endpoint));
@@ -988,9 +1000,22 @@ int main(int argc, char **argv) {
                 if (regs.regs[8] < 512) statistics->calls[regs.regs[8]].trace++;
                 else statistics->unknown++;
             }
+            if (regs.regs[8] == SYS_prctl && regs.regs[0] == MD_GUEST_WATCH_FILTER
+                    && regs.pc == RAW_GATE && t->phase == DISPATCHING) {
+                long value = regs.regs[2] == 0 ? md_watch_activation_has(t->watch_activation, (unsigned)regs.regs[1])
+                    : regs.regs[2] == 1 ? md_watch_activation_mark(t->watch_activation, (unsigned)regs.regs[1]) : -EINVAL;
+                return_value(t, &regs, value); continue;
+            }
             if (identity_call(t, &regs, cookie)) continue;
             if (domain_call(t, &regs, cookie)) continue;
             if (descriptor_call(t, &regs, cookie)) continue;
+            if (cookie == MD_INTERCEPT_WATCH) {
+                CHECK(t->ready && t->phase == IDLE);
+                t->original = regs;
+                if (!tracee_request(t, PTRACE_GETSIGMASK, (void *)sizeof(t->mask), &t->mask, "watch-mask")
+                        || !shield(t) || !skip(pid)) continue;
+                t->phase = WATCH_CANCEL; resume(pid, 0); continue;
+            }
             if (cookie == MD_INTERCEPT_NATIVE) { resume(pid, 0); continue; }
             if (cookie == MD_INTERCEPT_EXEC) {
                 CHECK(t->phase == DISPATCHING);
@@ -1018,6 +1043,24 @@ int main(int argc, char **argv) {
                 t->phase = ALLOCATING; resume(pid, 0);
             }
         } else if (!event && sig == (SIGTRAP | 0x80)) {
+            if (t->phase == WATCH_CANCEL) {
+                struct user_pt_regs regs = t->original; regs.pc = abi.watch_gate;
+                if (!set_registers(pid, &regs)) continue;
+                t->phase = WATCH_ENTRY; resume(pid, 0); continue;
+            }
+            if (t->phase == WATCH_ENTRY) {
+                /* Restore before the blocking syscall, not after readiness. */
+                if (!restore_mask(t)) continue;
+                t->phase = WATCH_READ; resume(pid, 0); continue;
+            }
+            if (t->phase == WATCH_READ) {
+                struct user_pt_regs returned;
+                if (!registers(pid, &returned)) continue;
+                struct user_pt_regs regs = t->original; regs.regs[0] = returned.regs[0];
+                if (!set_registers(pid, &regs)) continue;
+                md_fs_worker_wake(filesystem);
+                t->phase = IDLE; resume(pid, 0); continue;
+            }
             if (t->phase == PROC_CANCEL) {
                 /* EVENT_WAIT: PTRACE_INTERRUPT under PTRACE_SYSCALL reports a
                  * syscall-exit stop instead of EVENT_STOP. Require cancellation

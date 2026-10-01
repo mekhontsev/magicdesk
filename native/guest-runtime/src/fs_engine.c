@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "fs_engine.h"
 #include "image_catalogue.h"
+#include "inode_watch.h"
 #include <errno.h>
 #include <string.h>
 
@@ -21,6 +22,23 @@ void md_fs_execute(struct md_inode_store *s, struct md_image_catalogue *images,
     int first = q->directory[0], second = q->directory[1];
     int r = -ENOTSUP; struct stat st;
     switch (q->operation) {
+    case MD_FS_WATCH_CREATE: r = md_inode_watch_create(s, (int)q->flags); goto opened;
+    case MD_FS_WATCH_ADD:
+        r = md_inode_watch_add(s, first, second, q->flags);
+        if (r >= 0) { out->position = r; r = 0; }
+        break;
+    case MD_FS_WATCH_REMOVE: r = md_inode_watch_remove(s, first, (int)q->flags); break;
+    case MD_FS_WATCH_CONTAINS:
+        out->position = md_inode_watch_contains(s, first); r = 0; break;
+    case MD_FS_WATCH_BYTES:
+        r = (int)md_inode_watch_bytes(s, first);
+        if (r >= 0) { out->position = r; r = 0; }
+        break;
+    case MD_FS_WATCH_READ:
+        r = (int)md_inode_watch_read(s, first, data, q->capacity < capacity ? q->capacity : capacity,
+            output ? output->deliver : NULL, output ? output->context : NULL);
+        if (r >= 0) { out->size = (size_t)r; r = 0; }
+        break;
     case MD_FS_OPEN_IMAGE: {
         if (!data || capacity < sizeof(struct md_image_identity)) { r = -ERANGE; break; }
         struct md_image_identity *identity = data;

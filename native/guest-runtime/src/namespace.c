@@ -256,7 +256,7 @@ long md_namespace_call(const struct md_fs *fs, const char *exe, long nr, const u
     if (r < 0)
         return r;
     /* Explicit host mappings only. Symlinks crossing these mounts are not implemented. */
-    if (md_host_path(first))
+    if (md_host_path(first) && nr != SYS_inotify_add_watch)
         return md_namespace_host_call(fs, exe, nr, a, path_index, first);
     return md_namespace_path_call(fs, nr, a, base, first);
 }
@@ -300,16 +300,10 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
         long fd = md_namespace_open(fs, base, first, O_PATH | O_CLOEXEC |
             ((a[2] & IN_DONT_FOLLOW) ? O_NOFOLLOW : 0), 0);
         if (fd < 0) return fd;
-        struct md_fs_response identity;
-        r = md_namespace_inspect(fs, (int)fd, NULL, 0, &identity);
-        // Directory entries live in the namespace, not in its backing directory.
-        // Do not advertise a watch which would silently miss logical changes.
-        if (!r && S_ISDIR(identity.result.info.mode)) r = -ENOTSUP;
-        if (!r) {
-            char path[64] = "/proc/thread-self/fd/";
-            md_decimal(path + md_length(path), (unsigned)fd);
-            r = RAW3(inotify_add_watch, a[0], path, a[2] & ~IN_DONT_FOLLOW);
-        }
+        q = (struct md_fs_request){.operation = MD_FS_WATCH_ADD,
+            .directory = {(int)a[0], (int)fd}, .flags = (unsigned)a[2]};
+        r = md_fs_call(fs->endpoint, 5000, &q, &out);
+        if (!r) r = out.result.error ? out.result.error : out.result.position;
         RAW1(close, fd);
         return r;
     }

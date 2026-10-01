@@ -7,6 +7,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <signal.h>
 #include <sys/eventfd.h>
 #include <sys/resource.h>
 #include <unistd.h>
@@ -48,6 +49,9 @@ static int notification(void *context, struct md_inode_store *s, struct md_image
 }
 static void *run(void *context) {
     struct md_fs_worker *w = context;
+    sigset_t mask;
+    sigemptyset(&mask); sigaddset(&mask, SIGPIPE);
+    pthread_sigmask(SIG_BLOCK, &mask, NULL);
     struct md_inode_store *store = NULL;
     struct md_image_catalogue *images = NULL;
     int listener = -1, error = md_inode_store_open(w->store, 0, &store);
@@ -73,7 +77,7 @@ static void *run(void *context) {
         fprintf(stderr, "MD_STORE queryReuses=%llu\n", (unsigned long long)stats.query_reuses);
         fprintf(stderr, "MD_STORE linkCountQueries=%llu membershipQueries=%llu\n",
             (unsigned long long)stats.link_count_queries, (unsigned long long)stats.membership_queries);
-        for (unsigned i = 0; i <= MD_FS_OPEN_IMAGE; ++i) if (rpc.operation[i].calls)
+        for (unsigned i = 0; i <= MD_FS_LAST; ++i) if (rpc.operation[i].calls)
             fprintf(stderr, "MD_FS operation=%u calls=%llu ns=%llu\n", i,
                 (unsigned long long)rpc.operation[i].calls,
                 (unsigned long long)rpc.operation[i].nanoseconds);
@@ -120,6 +124,7 @@ failed:
     pthread_mutex_destroy(&w->lock); free(w); return error;
 }
 int md_fs_worker_fd(struct md_fs_worker *w) { return w ? w->done : -1; }
+void md_fs_worker_wake(struct md_fs_worker *w) { if (w) wake(w->wake); }
 int md_fs_worker_error(struct md_fs_worker *w) {
     pthread_mutex_lock(&w->lock); int error = w->error; pthread_mutex_unlock(&w->lock);
     return error;

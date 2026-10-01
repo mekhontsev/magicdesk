@@ -36,8 +36,8 @@ directory cursors, `inode_socket.c` implements socket publication and address
 lookup, and `inode_import.c` imports prepared trees. Their private contract is in
 `inode_internal.h`. Callers use the explicit dirfd-based `inode_store.h` API.
 The internal database format is versioned and incompatible formats are rejected,
-not migrated. Format 5 includes socket addresses and transactional namespace
-counters. Older experimental stores require a separately prepared store; opening
+not migrated. Format 6 includes socket addresses, transactional namespace
+counters and the [watch event journal](watches.md). Older experimental stores require a separately prepared store; opening
 one never rewrites or deletes it. Bind retains a name until
 unlink, including stale listeners; existing connections survive unlink/rebind.
 
@@ -235,7 +235,7 @@ and service restart are covered in `test_rpc.c`.
 ## Remaining Boundary
 
 Namespace-induced ctime updates, full ownership/ACL/sticky/setid semantics,
-inotify projection, live import/promotion, FD
+exact hardlink-dentry data notifications, live import/promotion, FD
 reclamation, out-of-space recovery and production throughput are not implemented
 or validated. RPC descriptor transfer does not supply lifetime/reclamation policy.
 Ownership stays the real shell identity, not an emulated root.

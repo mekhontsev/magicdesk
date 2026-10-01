@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/inotify.h>
 #include <sys/un.h>
 #include <unistd.h>
 
@@ -36,6 +37,7 @@ int md_inode_socket_bind(struct md_inode_store *s, int dirfd, const char *path, 
     if (!r) r = mdi_sql_error(mdi_step(s, query));
     sqlite3_finalize(query);
     if (!r) r = mdi_add_name(s, loc.parent.id, loc.name, node.id);
+    if (!r) r = mdi_event(s, loc.parent.id, &node, loc.name, IN_CREATE, NULL);
     struct sockaddr_un address = {.sun_family = AF_UNIX};
     if (!r) r = endpoint(&node, address.sun_path + 1, sizeof(address.sun_path) - 1);
     if (!r && bind(socket, (struct sockaddr *)&address,

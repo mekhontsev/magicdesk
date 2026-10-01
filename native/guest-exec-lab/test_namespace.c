@@ -190,11 +190,19 @@ int main(int argc, char **argv) {
     CHECK(chown("target", 0, 0) == -1 && (errno == EPERM || errno == EACCES));
     int notifications = inotify_init1(IN_CLOEXEC);
     CHECK(notifications >= 0);
-    CHECK(inotify_add_watch(notifications, ".", IN_CREATE) == -1 && errno == ENOTSUP);
+    int watch = inotify_add_watch(notifications, ".", IN_CREATE);
+    CHECK(watch > 0);
+    int created = open("notification-created", O_CREAT | O_EXCL | O_RDWR, 0600);
+    CHECK(created >= 0); close(created);
+    char events[256];
+    CHECK(read(notifications, events, sizeof(events)) > (ssize_t)sizeof(struct inotify_event));
+    const struct inotify_event *event = (const void *)events;
+    CHECK(event->wd == watch && event->mask == IN_CREATE && !strcmp(event->name, "notification-created"));
     close(notifications);
     puts("PASS namespace syscalls: atomic open, hard links, stat/statx, mmap/flock, symlinks and directory "
          "cursors");
     puts("PASS namespace hard-link xattrs, descriptor access checks and explicit default-ACL rejection");
-    puts("LIMIT namespace notifications, default-ACL inheritance and cross-mount symlinks are not implemented");
+    puts("PASS namespace directory notifications through the guest syscall adapter");
+    puts("LIMIT default-ACL inheritance and cross-mount symlinks are not implemented");
     return 0;
 }

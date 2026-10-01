@@ -5,6 +5,7 @@
 #include "raw.h"
 #include "interception.h"
 #include "guest_domain.h"
+#include "watch_calls.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/audit.h>
@@ -45,9 +46,28 @@ extern void md_guest_exported(void), md_guest_store(void), md_guest_stored(void)
 extern void md_guest_load_byte(void), md_guest_loaded_byte(void);
 extern void md_guest_store_ids(void), md_guest_stored_ids(void);
 extern char md_guest_copy_begin[], md_guest_copy_end[];
+extern char md_guest_watch_gate[], md_guest_watch_return[];
 long md_guest_dispatch(long nr, unsigned long a0, unsigned long a1, unsigned long a2,
         unsigned long a3, unsigned long a4, unsigned long a5) {
     unsigned long args[] = {a0, a1, a2, a3, a4, a5};
+    if (nr == SYS_inotify_init1 || nr == SYS_inotify_rm_watch
+            || nr == SYS_dup || nr == SYS_dup3 || nr == SYS_fcntl)
+        return md_watch_call(&md_files, nr, args);
+    if (nr == SYS_recvmsg) {
+        long r = md_socket_call(&md_files, md_executable, nr, args);
+        if (r >= 0) { int error = md_watch_received(&md_files, (void *)a1); if (error) return error; }
+        return r;
+    }
+    if (nr == SYS_recvmmsg) {
+        /* Keep the kernel's batching, timeout and partial-delivery semantics;
+         * each returned SCM_RIGHTS capability still needs watch activation. */
+        long r = md_raw(nr, a0, a1, a2, a3, a4, a5);
+        for (long i = 0; i < r; ++i) {
+            int error = md_watch_received(&md_files, (struct mmsghdr *)a1 + i);
+            if (error) return error;
+        }
+        return r;
+    }
     switch (nr) {
 #define CALL(name) case SYS_##name:
         MD_FILE_CALLS(CALL)
@@ -70,7 +90,8 @@ static const struct md_interception_abi abi = {
     .load_byte = (uintptr_t)md_guest_load_byte, .loaded_byte = (uintptr_t)md_guest_loaded_byte,
     .store_ids = (uintptr_t)md_guest_store_ids, .stored_ids = (uintptr_t)md_guest_stored_ids,
     .raw_gate = (uintptr_t)md_raw_return,
-    .copy_begin = (uintptr_t)md_guest_copy_begin, .copy_end = (uintptr_t)md_guest_copy_end
+    .copy_begin = (uintptr_t)md_guest_copy_begin, .copy_end = (uintptr_t)md_guest_copy_end,
+    .watch_gate = (uintptr_t)md_guest_watch_gate
 };
 
 int md_interception_map_image(int fd, int loader) {
@@ -88,6 +109,7 @@ int md_interception_install(int inherited) {
     int listener = -1;
     if (!inherited) {
         uintptr_t gate = (uintptr_t)md_raw_return;
+        uintptr_t watch = (uintptr_t)md_guest_watch_return;
 #define COUNT(name) + 1
         enum { transport_instructions = 2 * (1 MD_GATE_TRANSPORT_CALLS(COUNT)) };
 #undef COUNT
@@ -101,6 +123,13 @@ int md_interception_install(int inherited) {
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_AARCH64, 1, 0),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
+            /* Declared on the original listener; a later listenerless filter
+             * cannot acquire or inherit USER_NOTIF delivery. */
+            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, instruction_pointer) + 4),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)(watch >> 32), 0, 3),
+            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, instruction_pointer)),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)watch, 0, 1),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_USER_NOTIF),
             /* Descriptor metadata must remain serviceable after an application
              * installs a higher-precedence filter or becomes nondumpable. */
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
@@ -177,6 +206,8 @@ int md_interception_install(int inherited) {
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRACE | MD_INTERCEPT_OBSERVE),
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
             MD_FILE_CALLS(TRACE)
+            TRACE(inotify_init1) TRACE(inotify_rm_watch)
+            TRACE(recvmmsg)
             MD_SOCKET_CALLS(TRACE)
             TRACE(execve) TRACE(execveat)
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRACE | MD_INTERCEPT_NATIVE)

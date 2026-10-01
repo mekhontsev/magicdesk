@@ -337,6 +337,91 @@ Exact successful device coverage and unsupported ABI surfaces belong in
 [Guest runtime](../../docs/guest-runtime.md#coverage-and-limits), not a general
 claim of distribution or driver compatibility.
 
+## Watch Transport Controls
+
+```sh
+sh native/guest-exec-lab/build-watch-fixture.sh build/watch-fixture
+python native/guest-exec-lab/test_watch.py build/watch-fixture
+```
+
+These standalone Bionic controls require the already selected UID 2000. They do
+not install an APK or enable directory watching in the guest runtime. CMake's
+`MAGICDESK_GUEST_FIXTURES` also builds `watch_queue`, `watch_read` and
+`watch_activation`; none is installed into the APK.
+
+The single-owner queue retains whole inotify records, adjacent coalescing,
+bounded overflow and rejected-delivery state. Its pipe carries readiness only.
+Tests cover poll/edge-triggered epoll, short buffers, descriptor flags, dup,
+SCM_RIGHTS lifetime, and a stolen marker failing without blocking the owner.
+The owner does not retain a guest read end between operations. Record storage
+is recycled up to its high-water mark; reads use caller-owned scratch memory.
+
+The tracer fixture compares lazy process-wide and FD-selected read interception.
+It checks zero ordinary-read stops before activation, short-record errors,
+notification cancellation, EINTR, SA_RESTART and the application's signal context.
+The FD-selected control additionally checks zero stops on unrelated reads after
+activation, and validates the retained pipe identity after descriptor-number
+reuse. Its microtimings describe this native fixture only, not GUI latency or
+production-runtime overhead. Output memory is fixture-owned shared memory;
+protected memory transfer and concurrent buffer mutation are not certified.
+
+Two blocking transports have separate limits. A predeclared notification gate
+uses the existing listener, but a filter admitting only the original read site
+rejects it. The native same-site read control preserves that filter and signal
+context, but is single-reader only: it restores a consumed pipe marker before
+reading the queue. It does not implement production concurrent-reader ownership
+or empty zero-length reads. Native inotify controls establish that an empty
+nonblocking zero-length read returns EAGAIN, and that a record cannot span two
+short readv vectors on the tested kernel. The mediated readv fixture exercises
+only error/short-result completion within the first vector.
+
+Activation controls explicitly observe EBUSY for a second USER_NOTIF listener,
+ENOSYS rather than listener inheritance for a listenerless notification filter,
+and TSYNC rejection after a peer diverges its filter chain. These are verified
+limitations, not successful runtime workarounds. Production integration and
+its ownership limits are described in the [watch contract](../guest-runtime/watches.md).
+
+## Production Watch Checks
+
+Configure `native/guest-runtime` with `-DMAGICDESK_GUEST_FIXTURES=ON`, then build
+`bootstrap supervisor run service watch_guest watch_launch watch_store`.
+`test_watch_runtime.py BUILD_DIRECTORY` stages immutable production binaries
+through the configured MCP server, requires actual shell UID 2000, imports a
+fresh disposable format-6 store and checks real guest libc inotify calls.
+It neither installs an APK nor changes Desktop or access settings.
+
+The suite covers directory/name events, rename cookies, file-data events,
+read/readv/FIONREAD boundaries, concurrent readers, dup/fcntl, queued SCM_RIGHTS
+through recvmsg/recvmmsg, descriptor reuse, EINTR/SA_RESTART and 64 execs with
+constant filter count. An aggregate interception counter detects accidental
+process-wide read tracing. Two independent observers receive a third launch's
+mutations. Store controls verify rollback after SIGKILL, last-reader retirement
+and journal-overflow notification. Reports retain exact uploads, identities,
+commands and results; a timeout is a failure, not completion evidence.
+
+`build-watch-libc-fixture.sh glibc|musl SYSROOT OUTPUT` builds the same guest
+fixture with that userspace's libc. Pass its `rootfs.tar.gz` as `--rootfs`.
+Use `--contracts` with the additional CMake targets `test_inodes test_import
+test_rpc` for namespace/import/RPC regressions under the same shell identity.
+Host-policy exclusions in the import fixture remain reported as LIMIT.
+
+The GIO fixture links the stock Linux library and requires its inotify backend,
+not a fallback poller. Its readiness follows successful registration; a separate
+writer creates, renames and deletes the file. The D-Bus check registers ordinary
+session-config watches and completes a bus request. Build-only prepared inputs:
+
+```sh
+node native/guest-exec-lab/prepare.mjs build/watch-gio-sysroot --package libglib2.0-dev
+sh native/guest-exec-lab/build-watch-gio.sh build/watch-gio-sysroot/sysroot build/watch-gio
+python native/guest-exec-lab/prepare-watch-userspace.py PREPARED_DEBIAN_ROOTFS build/watch-userspace.tar.gz
+python native/guest-exec-lab/test_watch_runtime.py BUILD_DIRECTORY \
+    --userspace build/watch-userspace.tar.gz --gio build/watch-gio --contracts
+```
+
+Native fixtures and Linux libraries are not shipped in the APK. These focused
+checks do not certify arbitrary protected-process watches, cross-supervisor FD
+transfer, all GUI workflows or performance against PRoot.
+
 ## Runtime Benchmarks
 
 `benchmark_compile.py` compares the same Debian GCC toolchain and SQLite

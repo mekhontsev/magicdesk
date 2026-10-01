@@ -3,7 +3,7 @@
 #include "inode_store.h"
 #include "fs_wire.h"
 struct md_image_catalogue;
-struct md_fs_statistics { struct md_cost operation[MD_FS_OPEN_IMAGE + 1]; };
+struct md_fs_statistics { struct md_cost operation[MD_FS_LAST + 1]; };
 int md_fs_listen(const char *abstract_name);
 struct md_fs_work_source {
     int fd;

@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "inode_internal.h"
+#include "inode_watch.h"
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -101,7 +102,14 @@ static int transaction(struct md_inode_store *s, enum mdi_query slot) {
 int mdi_begin(struct md_inode_store *s, int write) {
     int r = store_lock(s);
     if (r) return r;
-    r = transaction(s, write ? MDI_BEGIN_WRITE : MDI_BEGIN);
+    s->recording = 0;
+    if (write) {
+        if (!flock(s->watch_presence, LOCK_EX | LOCK_NB)) {
+            if (flock(s->watch_presence, LOCK_UN)) r = -errno;
+        } else if (errno == EWOULDBLOCK) s->recording = 1;
+        else r = -errno;
+    }
+    if (!r) r = transaction(s, write ? MDI_BEGIN_WRITE : MDI_BEGIN);
     return r ? store_unlock(s, r) : 0;
 }
 int mdi_finish(struct md_inode_store *s, int result) {
@@ -170,7 +178,12 @@ int mdi_query_acquire(struct md_inode_store *s, enum mdi_query slot, sqlite3_stm
         [MDI_READDIR] = ("SELECT n.cookie,n.name,o.inode,o.kind FROM names n JOIN objects o ON o.object=n.object "
             "WHERE n.parent=?1 AND n.cookie>?2 ORDER BY n.cookie"),
         [MDI_BEGIN] = "BEGIN", [MDI_BEGIN_WRITE] = "BEGIN IMMEDIATE",
-        [MDI_COMMIT] = "COMMIT", [MDI_ROLLBACK] = "ROLLBACK"
+        [MDI_COMMIT] = "COMMIT", [MDI_ROLLBACK] = "ROLLBACK",
+        [MDI_EVENT] = "INSERT INTO events(parent,object,name,mask,cookie) VALUES(?1,?2,?3,?4,?5)",
+        [MDI_EVENT_TRIM] = "DELETE FROM events WHERE sequence<=?1-65536",
+        [MDI_EVENT_END] = "SELECT coalesce(max(sequence),0) FROM events",
+        [MDI_EVENT_SCAN] = "SELECT sequence,parent,object,name,mask,cookie FROM events WHERE sequence>?1 ORDER BY sequence",
+        [MDI_EVENT_NAMES] = "SELECT parent,name FROM names WHERE object=?1"
     };
 #undef NODE_COLUMNS
     int result = 0;
@@ -345,7 +358,8 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
     int r = create && mkdirat(root, "objects", 0700) ? -errno : 0;
     struct md_inode_store *s = calloc(1, sizeof(*s));
     if (!s) { close(root); return -ENOMEM; }
-    s->objects = -1;
+    s->objects = s->watch_presence = -1;
+    s->root = root;
     if (!r && (s->objects = openat(root, "objects", O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)) < 0) r = -errno;
     if (!r) r = store_lock(s);
     if (!r) r = mdi_sql_error(sqlite3_open_v2(file, &s->db,
@@ -378,7 +392,9 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
             "CREATE TRIGGER names_immutable BEFORE UPDATE ON names BEGIN "
                 "SELECT RAISE(ABORT,'replace namespace entries with delete and insert'); END;"
             "CREATE TABLE sockets(object TEXT PRIMARY KEY REFERENCES objects, address TEXT NOT NULL) STRICT;"
-            "PRAGMA user_version=5;");
+            "CREATE TABLE events(sequence INTEGER PRIMARY KEY AUTOINCREMENT, parent TEXT NOT NULL,"
+                "object TEXT NOT NULL,name BLOB NOT NULL,mask INTEGER NOT NULL,cookie INTEGER NOT NULL) STRICT;"
+            "PRAGMA user_version=6;");
         struct mdi_node node; int fd;
         if (!r) r = make_object(s, MDI_ROOT, S_IFDIR, 0700, 0, NULL, MDI_ROOT, &node, &fd);
         if (!r) r = mdi_sql(s, "COMMIT");
@@ -389,7 +405,7 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
     if (!r) {
         int rc = mdi_step(s, q);
         if (rc != SQLITE_ROW) r = mdi_sql_failure(rc);
-        else if (sqlite3_column_int(q, 0) != 5) r = -EPROTONOSUPPORT;
+        else if (sqlite3_column_int(q, 0) != 6) r = -EPROTONOSUPPORT;
     }
     sqlite3_finalize(q); q = NULL;
     if (!r) r = mdi_prepare(s, "PRAGMA journal_mode", &q);
@@ -399,17 +415,21 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
         else if (strcmp((const char *)sqlite3_column_text(q, 0), "delete")) r = -ENOTSUP;
     }
     sqlite3_finalize(q);
+    if (!r && (s->watch_presence = openat(root, "watch.lock",
+            O_RDWR | O_CLOEXEC | O_NOFOLLOW | (create ? O_CREAT | O_EXCL : 0), 0600)) < 0) r = -errno;
     if (!r && create && fsync(root)) r = -errno;
     r = store_unlock(s, r);
-    close(root);
     if (r) md_inode_store_close(s); else *out = s;
     return r;
 }
 void md_inode_store_close(struct md_inode_store *s) {
     if (!s) return;
+    md_inode_watch_close(s);
     for (unsigned i = 0; i < MDI_QUERY_COUNT; i++) sqlite3_finalize(s->queries[i]);
     if (s->db) sqlite3_close(s->db);
     if (s->objects >= 0) close(s->objects);
+    if (s->watch_presence >= 0) close(s->watch_presence);
+    if (s->root >= 0) close(s->root);
     free(s);
 }
 #ifdef MD_INODE_TESTING

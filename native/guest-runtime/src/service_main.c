@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/resource.h>
+#include <signal.h>
 
 static void cost(const char *name, const struct md_cost *value) {
     fprintf(stderr, "MD_STORE phase=%s calls=%llu ns=%llu\n", name,
@@ -37,6 +38,8 @@ static int import(const char *source, const char *destination) {
 int main(int argc, char **argv) {
     if (!md_launch_identity(getuid(), geteuid(), getgid(), getegid()))
         return 2;
+    sigset_t mask; sigemptyset(&mask); sigaddset(&mask, SIGPIPE);
+    if (sigprocmask(SIG_BLOCK, &mask, NULL)) return 2;
     md_page_size = (size_t)sysconf(_SC_PAGESIZE);
     if (md_page_size < 4096 || md_page_size > 65536 || (md_page_size & (md_page_size - 1))) return 2;
     int statistics = argc > 1 && !strcmp(argv[1], "--statistics");
@@ -71,7 +74,7 @@ int main(int argc, char **argv) {
         cost("prepare", &database.prepare); cost("step", &database.step);
         cost("transaction", &database.transaction); cost("lock", &database.lock);
         fprintf(stderr, "MD_STORE queryReuses=%llu\n", (unsigned long long)database.query_reuses);
-        for (unsigned i = 0; i <= MD_FS_OPEN_IMAGE; i++) if (filesystem.operation[i].calls)
+        for (unsigned i = 0; i <= MD_FS_LAST; i++) if (filesystem.operation[i].calls)
             fprintf(stderr, "MD_FS operation=%u calls=%llu ns=%llu\n", i,
                 (unsigned long long)filesystem.operation[i].calls,
                 (unsigned long long)filesystem.operation[i].nanoseconds);

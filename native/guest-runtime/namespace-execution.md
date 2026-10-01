@@ -55,8 +55,7 @@ seccomp filter and the real kernel cwd/descriptors.
   socket and other unowned descriptors retain native FD semantics.
 - chmod, chown, timestamps, truncate and statfs resolve a retained backing FD,
   then use kernel operations under the caller's real identity. Permission failures
-  remain failures. Namespace mutations do not yet update every POSIX ctime or
-  emit translated inotify events.
+  remain failures. Namespace mutations do not yet update every POSIX ctime.
   `fchmodat2` retains `AT_EMPTY_PATH` and `AT_SYMLINK_NOFOLLOW`, using the
   selected backing FD under the same identity. An unavailable kernel syscall
   returns ENOSYS for libc's fallback; permissions are never emulated as success.
@@ -73,8 +72,9 @@ seccomp filter and the real kernel cwd/descriptors.
   guest store. Relative operations based at a host directory recognize these
   boundaries too. Selected current-process/thread magic links are described below.
   Cross-mount symlinks and arbitrary proc aliases remain incomplete.
-- File-data inotify watches retain the backing inode and use kernel events.
-  Directory/name event projection and general special-file creation remain unsupported.
+- Inotify combines backing-inode data events and transactional directory/name
+  events through the [shared watch owner](watches.md). Exact hardlink-dentry data
+  attribution remains incomplete. General special-file creation is unsupported.
   Unsupported operations return errors, not a direct-rootfs retry.
 - `openat2` uses the same transactional walker with explicit beneath/in-root,
   no-symlink, no-magic-link and mount constraints. Contradictory or unknown flags
@@ -208,7 +208,8 @@ The application profile additionally runs stock Mousepad and Galculator through
 the installed APK's namespace CLI. D-Bus uses its ordinary pathname address with the
 distribution's session policy, activates dconf and retains settings across fresh
 sessions. Mousepad saves edited text that a separate guest launch reads back.
-Directory watches still return ENOTSUP; this GUI fixture's network checks cover
+Focused watch checks separately cover GIO monitoring and D-Bus registration;
+this GUI fixture's network checks cover
 prepared NSS, DNS and authenticated HTTPS. The real package-manager workflows
 use separate officially prepared images.
 

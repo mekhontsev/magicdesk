@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/fs.h>
+#include <sys/inotify.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -57,6 +58,7 @@ static int create_node(struct md_inode_store *s, int dirfd, const char *path,
     if (!r) r = mdi_allocate(s, kind, mode, O_RDWR, target,
         kind == S_IFDIR ? loc.parent.id : NULL, &node, &fd);
     if (!r) r = mdi_add_name(s, loc.parent.id, loc.name, node.id);
+    if (!r) r = mdi_event(s, loc.parent.id, &node, loc.name, IN_CREATE, NULL);
     r = mdi_commit(s, r);
     /* Retain unpublished objects on failure: commit IO errors can have an
      * unknown outcome. Reclamation requires a separate lifetime contract. */
@@ -126,6 +128,7 @@ static int open_resolved(struct md_inode_store *s, int dirfd, const char *path, 
         if (!r) r = mdi_parent_writable(s, &loc.parent);
         if (!r) r = mdi_allocate(s, S_IFREG, mode, flags, NULL, NULL, &loc.node, &fd);
         if (!r) r = mdi_add_name(s, loc.parent.id, loc.name, loc.node.id);
+        if (!r) r = mdi_event(s, loc.parent.id, &loc.node, loc.name, IN_CREATE, NULL);
         r = mdi_commit(s, r);
         if (r && fd >= 0) close(fd);
         return r ? r : fd;
@@ -162,6 +165,8 @@ int md_inode_link(struct md_inode_store *s, int sourcefd, const char *source,
     if (!r && b.trailing) r = -ENOENT;
     if (!r) r = mdi_parent_writable(s, &b.parent);
     if (!r) r = mdi_add_name(s, b.parent.id, b.name, a.node.id);
+    if (!r) r = mdi_event(s, b.parent.id, &a.node, b.name, IN_CREATE, NULL);
+    if (!r) r = mdi_event(s, NULL, &a.node, NULL, IN_ATTRIB, NULL);
     return mdi_commit(s, r);
 }
 int md_inode_unlink(struct md_inode_store *s, int dirfd, const char *path, int flags) {
@@ -184,6 +189,7 @@ int md_inode_unlink(struct md_inode_store *s, int dirfd, const char *path, int f
     }
     if (!r) r = mdi_parent_writable(s, &loc.parent);
     if (!r) r = mdi_delete_name(s, loc.parent.id, loc.name);
+    if (!r) r = mdi_removed_event(s, &loc, 1);
     return mdi_commit(s, r);
 }
 int md_inode_rename(struct md_inode_store *s, int sourcefd, const char *source,
@@ -226,6 +232,15 @@ int md_inode_rename(struct md_inode_store *s, int sourcefd, const char *source,
     if (!r) r = mdi_reparent(s, &a.node, b.parent.id);
     if (!r && flags == RENAME_EXCHANGE) r = mdi_add_name(s, a.parent.id, a.name, b.node.id);
     if (!r && flags == RENAME_EXCHANGE) r = mdi_reparent(s, &b.node, a.parent.id);
+    if (!r && b.exists && flags != RENAME_EXCHANGE) r = mdi_removed_event(s, &b, 0);
+    unsigned cookie = 0;
+    if (!r) r = mdi_event(s, a.parent.id, &a.node, a.name, IN_MOVED_FROM, &cookie);
+    if (!r) r = mdi_event(s, b.parent.id, &a.node, b.name, IN_MOVED_TO, &cookie);
+    if (!r) r = mdi_event(s, NULL, &a.node, NULL, IN_MOVE_SELF, NULL);
+    cookie = 0;
+    if (!r && flags == RENAME_EXCHANGE) r = mdi_event(s, b.parent.id, &b.node, b.name, IN_MOVED_FROM, &cookie);
+    if (!r && flags == RENAME_EXCHANGE) r = mdi_event(s, a.parent.id, &b.node, a.name, IN_MOVED_TO, &cookie);
+    if (!r && flags == RENAME_EXCHANGE) r = mdi_event(s, NULL, &b.node, NULL, IN_MOVE_SELF, NULL);
     return mdi_commit(s, r);
 }
 int md_inode_stat(struct md_inode_store *s, int dirfd, const char *path, int flags, struct stat *st) {

@@ -1,6 +1,12 @@
 #include <asm/unistd.h>
 .text
 .balign 4
+.global md_guest_watch_gate
+md_guest_watch_gate:
+    svc #0
+.global md_guest_watch_return
+md_guest_watch_return:
+    brk #0x5b7
 .global md_guest_ready
 .type md_guest_ready, %function
 md_guest_ready:

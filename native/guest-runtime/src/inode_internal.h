@@ -6,10 +6,13 @@
 
 #define MDI_ROOT "00000000000000000000000000000000"
 enum mdi_query { MDI_NODE, MDI_FD, MDI_LOOKUP, MDI_DIRECTORY_NAME, MDI_READDIR,
-    MDI_BEGIN, MDI_BEGIN_WRITE, MDI_COMMIT, MDI_ROLLBACK, MDI_QUERY_COUNT };
+    MDI_BEGIN, MDI_BEGIN_WRITE, MDI_COMMIT, MDI_ROLLBACK, MDI_EVENT, MDI_EVENT_TRIM,
+    MDI_EVENT_END, MDI_EVENT_SCAN, MDI_EVENT_NAMES,
+    MDI_QUERY_COUNT };
 struct md_inode_store {
     sqlite3 *db;
-    int objects, locked;
+    int objects, root, watch_presence, locked, recording;
+    struct md_inode_watches *watches;
     struct md_inode_statistics *statistics;
     sqlite3_stmt *queries[MDI_QUERY_COUNT];
 #ifdef MD_INODE_TESTING
@@ -66,4 +69,7 @@ int mdi_empty(struct md_inode_store *, const struct mdi_node *);
 int mdi_allocate(struct md_inode_store *, mode_t kind, mode_t mode, int flags, const char *target,
         const char *parent, struct mdi_node *, int *fd);
 int mdi_commit(struct md_inode_store *, int);
+int mdi_event(struct md_inode_store *, const char *parent, const struct mdi_node *,
+        const char *name, unsigned mask, unsigned *cookie);
+int mdi_removed_event(struct md_inode_store *, const struct mdi_location *, int parent_event);
 #endif

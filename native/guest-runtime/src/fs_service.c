@@ -3,6 +3,7 @@
 #include "fs_service.h"
 #include "fs_engine.h"
 #include "image_catalogue.h"
+#include "inode_watch.h"
 #include "raw.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -42,10 +43,17 @@ static int valid(const struct md_fs_packet *q, size_t size, const struct md_fs_r
     const char *a = q->data, *b = a + q->length[0];
     if (a[q->length[0]-1] || b[q->length[1]-1]
             || memchr(a, 0, q->length[0]-1) || memchr(b, 0, q->length[1]-1)) return -EPROTO;
-    if (q->operation < MD_FS_CREATE || q->operation > MD_FS_OPEN_IMAGE) return -ENOTSUP;
+    if (q->operation < MD_FS_CREATE || q->operation > MD_FS_LAST) return -ENOTSUP;
     if (q->resolve && q->operation != MD_FS_OPEN) return -EINVAL;
-    if ((q->capacity && q->operation != MD_FS_GETDENTS) || q->capacity > PATH_MAX
+    if ((q->capacity && q->operation != MD_FS_GETDENTS && q->operation != MD_FS_WATCH_READ) || q->capacity > PATH_MAX
             || (q->offset && q->operation != MD_FS_SEEKDIR)) return -EINVAL;
+    if (q->operation >= MD_FS_WATCH_CREATE) {
+        unsigned descriptors = q->operation == MD_FS_WATCH_CREATE ? 0 : q->operation == MD_FS_WATCH_ADD ? 3 : 1;
+        if (q->descriptors != descriptors || *a || *b || q->mode) return -EINVAL;
+        if (q->flags && q->operation != MD_FS_WATCH_CREATE && q->operation != MD_FS_WATCH_ADD
+                && q->operation != MD_FS_WATCH_REMOVE) return -EINVAL;
+        return 0;
+    }
     if (q->operation == MD_FS_TEMPORARY)
         return q->descriptors || *a || *b || q->flags || q->mode ? -EINVAL : 0;
     if (q->operation == MD_FS_OBJECT_ID)
@@ -146,7 +154,7 @@ static void close_peer(struct pollfd *fd, struct peer *peer) {
 int md_fs_serve(struct md_inode_store *s, struct md_image_catalogue *images, int listener, int stop_fd,
         unsigned timeout_ms, struct md_fs_statistics *statistics, const struct md_fs_work_source *work) {
     if (!s || listener < 0 || stop_fd < 0 || !timeout_ms || timeout_ms > 60000) return -EINVAL;
-    enum { SLOTS = 32, BASE = 4 };
+    enum { SLOTS = 32, BASE = 5 };
     struct pollfd fds[BASE+SLOTS] = {{.fd = listener, .events = POLLIN}, {.fd = stop_fd, .events = POLLIN},
         {.fd = work ? work->fd : -1, .events = POLLIN}, {.fd = -1, .events = POLLIN}};
     /* Fixed capacity, allocated once per service, never per request. */
@@ -169,9 +177,15 @@ int md_fs_serve(struct md_inode_store *s, struct md_image_catalogue *images, int
         /* EVENT_WAIT: request/reply/client-close/stop readiness; the absolute
          * peer deadline drops only that connection, without replaying work. */
         fds[3].fd = work && work->notification_fd ? work->notification_fd(work->context) : -1;
+        fds[4] = (struct pollfd){.fd = md_inode_watch_pollfd(s), .events = POLLIN};
         int r = ppoll(fds, BASE+SLOTS, nearest == INT64_MAX ? NULL : &timeout, NULL);
         if (r < 0) { if (errno == EINTR) continue; error = -errno; break; }
         if (fds[1].revents) break;
+        int serviced_request = 0;
+        if (fds[4].revents) {
+            error = md_inode_watch_pump(s);
+            if (error) break;
+        }
         if (work && fds[2].revents) work->ready(work->context);
         if (work && fds[3].revents) {
             error = work->notification(work->context, s, images, fds[3].revents);
@@ -179,6 +193,7 @@ int md_fs_serve(struct md_inode_store *s, struct md_image_catalogue *images, int
         }
         if (fds[0].revents & (POLLNVAL | POLLERR | POLLHUP)) { error = -EIO; break; }
         for (unsigned i = BASE; i < BASE+SLOTS; ++i) if (fds[i].fd >= 0 && fds[i].revents) {
+            serviced_request |= peers[i-BASE].phase == REQUEST;
             if (service_peer(s, images, &fds[i], &peers[i-BASE], statistics)) close_peer(&fds[i], &peers[i-BASE]);
         }
         if (fds[0].revents & POLLIN) {
@@ -195,6 +210,14 @@ int md_fs_serve(struct md_inode_store *s, struct md_image_catalogue *images, int
                 peers[slot].phase = REQUEST;
                 peers[slot].deadline = now + (int64_t)timeout_ms * 1000000;
             }
+            if (error) break;
+        }
+        /* Event-driven retry on watch readiness or cancellation. Namespace
+         * commits signal the native journal watch; unrelated stat/open traffic
+         * must not rescan every pending reader. */
+        if (work && work->notification && fds[3].fd >= 0
+                && (fds[4].revents || fds[2].revents || serviced_request)) {
+            error = work->notification(work->context, s, images, 0);
             if (error) break;
         }
     }

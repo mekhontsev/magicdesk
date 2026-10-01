@@ -5,13 +5,15 @@
 #define MD_INTERCEPTION_MAGIC UINT64_C(0x4d44494e54455231)
 #define MD_GUEST_MAP_IMAGE 0x4d440101
 #define MD_GUEST_ENTER_IMAGE 0x4d440102
+#define MD_GUEST_WATCH_FILTER 0x4d440103
 
 enum md_interception_kind {
     MD_INTERCEPT_DISPATCH = 41,
     MD_INTERCEPT_EXEC = 42,
     MD_INTERCEPT_OBSERVE = 43,
     MD_INTERCEPT_NATIVE = 44,
-    MD_INTERCEPT_IDENTITY = 45
+    MD_INTERCEPT_IDENTITY = 45,
+    MD_INTERCEPT_WATCH = 46
 };
 
 /* Bootstrap-owned entry points, published before entering guest code. The
@@ -21,6 +23,7 @@ struct md_interception_abi {
     uintptr_t ready, done, allocate, allocated, dispatch, export_fd, exported;
     uintptr_t proc_export, store, stored, load_byte, loaded_byte;
     uintptr_t store_ids, stored_ids, raw_gate, copy_begin, copy_end;
+    uintptr_t watch_gate;
 };
 
 int md_interception_install(int inherited);

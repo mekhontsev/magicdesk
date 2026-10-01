@@ -2,6 +2,7 @@
 #include "namespace_broker.h"
 #include "fs_engine.h"
 #include "proc_paths.h"
+#include "watch_broker.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/pidfd.h>
@@ -32,6 +33,7 @@ struct md_namespace_broker {
     int listener;
     struct counters { uint64_t received, handled, delegated; } *counts;
     int synchronous_wake;
+    struct md_watch_broker *watches;
     /* One synchronous worker owns this buffer; delegated operations retain no
      * bytes in it. Allocation is per broker, never per syscall or directory. */
     char output[64 * 1024];
@@ -39,7 +41,7 @@ struct md_namespace_broker {
 struct task {
     struct task *next;
     int pid, eligible, process, borrowed;
-    uintptr_t gate;
+    uintptr_t gate, watch_gate;
 };
 static int valid(struct operation *op) {
     return !ioctl(op->listener, SECCOMP_IOCTL_NOTIF_ID_VALID, &op->notification.id);
@@ -180,7 +182,7 @@ static int reply(struct operation *op, const void *data) {
     }
     return !ioctl(op->listener, SECCOMP_IOCTL_NOTIF_SEND, &response) || errno == ENOENT ? 1 : -errno;
 }
-int md_broker_task(struct md_namespace_broker *b, int pid, int eligible, uintptr_t raw_gate) {
+int md_broker_task(struct md_namespace_broker *b, int pid, int eligible, uintptr_t raw_gate, uintptr_t watch_gate) {
     pthread_mutex_lock(&b->lock);
     struct task *t = b->tasks, *vacant = NULL;
     while (t && t->pid != pid) { if (!t->pid && !t->borrowed) vacant = t; t = t->next; }
@@ -188,7 +190,7 @@ int md_broker_task(struct md_namespace_broker *b, int pid, int eligible, uintptr
         t = vacant;
         if (!t) { t = calloc(1, sizeof(*t)); if (t) { t->process = -1; t->next = b->tasks; b->tasks = t; } }
     }
-    if (t) { t->pid = pid; t->eligible = eligible; t->gate = raw_gate; }
+    if (t) { t->pid = pid; t->eligible = eligible; t->gate = raw_gate; t->watch_gate = watch_gate; }
     pthread_mutex_unlock(&b->lock);
     return t ? 0 : -ENOMEM;
 }
@@ -201,9 +203,11 @@ void md_broker_forget(struct md_namespace_broker *b, int pid) {
         break;
     }
     pthread_mutex_unlock(&b->lock);
+    md_fs_worker_wake(b->worker);
 }
 static int receive(void *context, struct md_inode_store *s, struct md_image_catalogue *images, short events) {
     struct md_namespace_broker *b = context;
+    if (!events) return b->watches ? md_watch_broker_progress(b->watches, s) : 0;
     if (events & (POLLERR | POLLNVAL)) return -EIO;
     if (!(events & POLLIN)) {
         if (events & POLLHUP) md_fs_worker_notifications(b->worker, -1, b, receive);
@@ -216,11 +220,23 @@ static int receive(void *context, struct md_inode_store *s, struct md_image_cata
     struct counters *count = b->counts && (unsigned)q.data.nr < 512 ? &b->counts[q.data.nr] : NULL;
     if (count) count->received++;
     pthread_mutex_lock(&b->lock);
-    int eligible = 0;
+    int eligible = 0, watch = 0;
     struct task *task = NULL;
     for (struct task *t = b->tasks; t; t = t->next) if (t->pid == (int)q.pid) {
         eligible = t->eligible && q.data.instruction_pointer != t->gate;
+        watch = q.data.instruction_pointer == t->watch_gate;
         task = t; t->borrowed++; break;
+    }
+    if (watch) {
+        pthread_mutex_unlock(&b->lock);
+        int fd = duplicate(task, q.pid, (int)q.data.args[q.data.nr == SYS_sendfile ? 1 : 0]);
+        pthread_mutex_lock(&b->lock);
+        task->borrowed--;
+        if (!task->pid && task->process >= 0) { close(task->process); task->process = -1; }
+        pthread_mutex_unlock(&b->lock);
+        if (!b->watches) b->watches = md_watch_broker_create();
+        if (!b->watches) { if (fd >= 0) close(fd); return -ENOMEM; }
+        return md_watch_broker_submit(b->watches, s, b->listener, &q, fd);
     }
     struct operation *op = b->free;
     if (op) b->free = op->free;
@@ -278,6 +294,7 @@ int md_broker_complete(struct md_namespace_broker *b, void (*delegate)(const str
 }
 void md_broker_destroy(struct md_namespace_broker *b) {
     if (!b) return;
+    md_watch_broker_destroy(b->watches);
     /* The worker must have joined before operation storage is released. */
     if (b->counts) {
         fprintf(stderr, "MD_BROKER synchronousWake=%d\n", b->synchronous_wake);

@@ -37,7 +37,7 @@ static long receive_reply(int socket, int64_t deadline, const struct md_fs_reque
     if (r < 0) return r;
     uint32_t operation = request->operation;
     int opens = operation == MD_FS_OPEN || operation == MD_FS_CREATE || operation == MD_FS_TEMPORARY
-        || operation == MD_FS_OPEN_OBJECT || operation == MD_FS_OPEN_IMAGE;
+        || operation == MD_FS_OPEN_OBJECT || operation == MD_FS_OPEN_IMAGE || operation == MD_FS_WATCH_CREATE;
     if (r < (long)offsetof(struct md_fs_reply, data)
             || reply->magic != MD_FS_MAGIC || reply->version != MD_FS_VERSION
             || reply->error > 0 || reply->error < -4095 || reply->reserved
@@ -46,10 +46,11 @@ static long receive_reply(int socket, int64_t deadline, const struct md_fs_reque
             || (reply->error && reply->size)
             || (reply->size && operation != MD_FS_READLINK && operation != MD_FS_PATH && operation != MD_FS_GETDENTS
                 && operation != MD_FS_SOCKET_ADDRESS && operation != MD_FS_SOCKET_NAME && operation != MD_FS_REALPATH
-                && operation != MD_FS_OBJECT_ID && operation != MD_FS_OPEN_IMAGE)
+                && operation != MD_FS_OBJECT_ID && operation != MD_FS_OPEN_IMAGE && operation != MD_FS_WATCH_READ)
             || (operation != MD_FS_OPEN_IMAGE && reply->size > PATH_MAX)
             || (!reply->error && operation == MD_FS_OBJECT_ID && (reply->size != 33 || reply->data[32]))
-            || (reply->position && (operation != MD_FS_SEEKDIR || reply->error)) || reply->position < 0
+            || (reply->position && ((operation != MD_FS_SEEKDIR && operation != MD_FS_WATCH_ADD
+                && operation != MD_FS_WATCH_BYTES && operation != MD_FS_WATCH_CONTAINS) || reply->error)) || reply->position < 0
             || (operation == MD_FS_GETDENTS && (reply->size > request->capacity || !valid_entries(reply->data, reply->size)))
             || (!reply->error && (operation == MD_FS_PATH || operation == MD_FS_SOCKET_ADDRESS || operation == MD_FS_SOCKET_NAME || operation == MD_FS_REALPATH)
                 && (!reply->size || reply->data[reply->size-1]))) {

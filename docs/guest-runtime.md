@@ -161,9 +161,14 @@ result writes and SCM_RIGHTS. Unadapted socket operations are not thereby certif
 
 `/dev/shm` belongs to the guest store, including access relative to a `/dev`
 descriptor or cwd. POSIX shared memory, mmap, descriptor passing and unlinked
-data work across independent launches. Native file-data inotify works on retained
-backing inodes; directory/name events are not synthesized. Directory watches
-return ENOTSUP instead of silently missing logical namespace changes.
+data work across independent launches. Inotify combines native backing-inode
+data events with transactionally committed directory/name events. Independent
+watchers sharing a store receive create/link/unlink/rename events without polling.
+Subscriptions and bounded queues belong to the existing namespace worker; watch
+reads use exact-FD interception, not a process-wide read proxy. See the
+[watch contract](../native/guest-runtime/watches.md) for descriptor, hardlink,
+protected-copy and kernel limits. Format-6 stores require fresh preparation;
+older stores are rejected, not migrated or deleted.
 
 ## Optional Kernel Support
 
@@ -336,7 +341,9 @@ Guest file sharing and live appearance helpers are not integrated for this launc
 method. Kernel permission denials remain failures. Unprivileged user namespaces
 are unavailable in the tested native shell control as well as the guest.
 
-D-Bus reports that its session-config directory cannot be watched. Wayland publishes a logical monitor before client
+The focused watch suite checks Debian GIO directory notifications from an
+independent writer and stock D-Bus config-watch registration/session requests.
+Wayland publishes a logical monitor before client
 startup and replaces it when an Android host attaches; GTK's initial
 monitor-scale warnings are absent in these checks. The kernel process name identifies the guest executable after
 each exec. Current-process/thread `cmdline` and `auxv` opens produce guest-image

@@ -2,7 +2,7 @@
 
 One native supervisor owns each explicitly launched guest tree. It uses seccomp
 TRACE stops for adaptation and USER_NOTIF for descriptor metadata, selected path
-operations and the image-entry protocol. It never attaches to Android tasks.
+operations, selected watch reads and the image-entry protocol. It never attaches to Android tasks.
 The guest retains the selected real UID; neither the supervisor nor the filesystem
 service changes SELinux policy or acquires root.
 
@@ -30,6 +30,10 @@ The domain checker and seccomp filter consume these same definitions. Argument
 predicates compare the full 64-bit value; other commands retain the dispatcher.
 Application filters still evaluate kernel-fast-path calls. Logical credentials,
 root changes, filter installation and dumpability changes retain their observers.
+Watch descriptors install exact-FD read selectors lazily; ordinary unrelated
+reads stay native. Selected reads retain their original signal context while
+the worker waits for records. Filter installation ownership is separate from
+address-space and descriptor ownership; see [filesystem watches](watches.md).
 Adapted calls run on guarded scratch stacks leased per address space.
 CLONE_VM shares the pool; fork copies mapping metadata without sharing leases;
 exec replaces it. Completed calls return their lease. Thread records are reused

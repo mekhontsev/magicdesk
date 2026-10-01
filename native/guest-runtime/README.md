@@ -82,6 +82,10 @@ custom glibc linker, root transition or SELinux change is used.
   import. SQLite is linked into the native supervisor and storage tool, never
   the freestanding bootstrap or in-guest syscall adapter. The APK build pins the
   unmodified SQLite amalgamation by version and SHA-256.
+- `inode_events.c` records transactional name events; `inode_watch.c` joins them
+  with native data events. `watch_queue.c` owns bounded delivery and readiness;
+  `watch_calls.c`, `watch_activation.c` and `watch_broker.c` own selected-FD
+  activation and asynchronous reads. See the [watch contract](watches.md).
 - `fs_engine.c` dispatches typed namespace operations independently of transport.
   `fs_worker.c` owns the store and sealed-image catalogue on one supervisor thread.
   `namespace_broker.c` handles eligible file notifications directly;
@@ -344,9 +348,10 @@ The host-side receipt watcher uses inotify and an event deadline: window removal
 alone cannot pass the exit assertion. Complete logs are downloaded with SHA-256
 verification, separately from bounded console output. Graphical checks use
 the distribution's standard D-Bus session configuration and pathname transport,
-not the demonstration's keyfile-only settings backend. Namespace file-data
-inotify uses the native backing inode; directory watches remain unsupported,
-including D-Bus's session-config directory watch.
+not the demonstration's keyfile-only settings backend. Namespace inotify combines
+native file-data events with committed logical name events. Focused production
+checks additionally cover stock GIO monitoring and D-Bus watch registration;
+their exact scope and remaining limits are in the [watch contract](watches.md).
 
 The compositor publishes an initial logical monitor before accepting clients,
 then replaces it with application-host output geometry. Initial GTK
