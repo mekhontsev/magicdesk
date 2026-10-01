@@ -67,6 +67,13 @@ numbers and types, `.`/`..`, and opaque monotonic cookies. Committed name cookie
 are not reused after deletion. Enumeration uses an indexed database read snapshot
 per batch; changes between batches have ordinary non-snapshot traversal semantics.
 An undersized first-record buffer fails without advancing the cursor.
+An optional synchronous delivery callback runs after the read transaction and
+before cursor advancement. Rejected or cancelled delivery leaves the offset
+unchanged; successful delivery precedes the native seek. The namespace owner
+serializes that entire operation, including delivery, against other read/seek
+requests. SQLite locks are not held during delivery. A failure after publication
+is not permission to replay the read. RPC uses local delivery followed by its
+existing uncertain-reply contract; notifications copy directly to the caller.
 
 The cursor is the actual backing directory's open-file-description offset,
 not a client ID or service-side FD map. Thus dup, fork, exec and SCM_RIGHTS share
@@ -110,11 +117,15 @@ Import is not execution from the new namespace or successful package installatio
 
 ## Transactions
 
-- Each connection reuses compiled inode, descriptor, name and link-count queries,
+- Each connection reuses compiled inode, descriptor, name, link-count and directory queries,
   plus BEGIN/BEGIN IMMEDIATE/COMMIT/ROLLBACK programs. Every use resets the statement and clears all bindings
   before leaving the operation. No rows, paths or read snapshots are cached;
   other writers and native file-data changes remain visible in the next operation.
   Statements are finalized with their owning connection.
+- Open validates native backing identity without computing logical links it does
+  not use. Descriptor stat reads native attributes from the retained FD once and
+  obtains identity and logical links in one query. No pathname reopening or
+  cached attribute snapshot substitutes for that descriptor.
 - Create allocates a randomly named native object, syncs regular-file data and
   its containing directory before publishing a reference. A collision fails
   without truncation. Symlink data and directory metadata retain filesystem
@@ -169,6 +180,8 @@ real shell UID 2000 in `u:r:shell:s0` on NX809J / API 36 / Linux 6.12.23 / 4 KiB
 - Reused queries observe another connection's link/unlink and name replacement,
   missing-name lookups, native truncation and open-unlinked FD identity without
   recompiling the warmed read programs.
+- Open/fstat query counts, directory batches observing another writer, and
+  rejected/cancelled directory delivery before shared-cursor advancement.
 - Directory moves/replacement/exchange with retained FDs, cycle rejection,
   detached directories, directory link counts and real search/write permissions.
 - Relative/absolute/dangling/cyclic symlinks, hard-linked symlink inodes, follow

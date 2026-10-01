@@ -55,6 +55,10 @@ int md_inode_socket_name(struct md_inode_store *, const char *endpoint, char *, 
  * through one service; direct kernel getdents/lseek are outside this model. */
 struct md_inode_dirent { uint64_t inode; int64_t next; uint16_t size; uint8_t type; char name[]; };
 ssize_t md_inode_getdents(struct md_inode_store *, int fd, void *, size_t);
+/* Optional synchronous delivery before cursor commit. A rejected delivery leaves
+ * the offset unchanged. The callback must not reenter the namespace owner. */
+ssize_t md_inode_getdents_deliver(struct md_inode_store *, int fd, void *, size_t,
+        int (*deliver)(void *, const void *, size_t), void *);
 int64_t md_inode_seekdir(struct md_inode_store *, int fd, int64_t offset, int whence);
 
 struct md_inode_import_limits { uint64_t bytes, entries; };

@@ -32,7 +32,7 @@ int md_inode_open_object(struct md_inode_store *s, const char *id, int flags) {
     struct mdi_node node;
     r = mdi_node(s, id, &node);
     struct stat st;
-    if (!r) r = mdi_stat(s, &node, &st);
+    if (!r) r = mdi_backing_stat(s, &node, &st);
     if (!r && node.kind != S_IFREG) r = -EINVAL;
     int fd = -1;
     if (!r && (fd = openat(s->objects, id, flags | O_NOFOLLOW | O_CLOEXEC)) < 0) r = -errno;
@@ -123,7 +123,7 @@ int md_inode_open_resolved(struct md_inode_store *s, int dirfd, const char *path
     if (!r && loc.node.kind == S_IFSOCK && !(flags & O_PATH)) r = -ENXIO;
     if (!r && loc.node.kind == S_IFDIR && (flags & (O_WRONLY | O_RDWR | O_TRUNC | O_CREAT))) r = -EISDIR;
     struct stat st;
-    if (!r) r = mdi_stat(s, &loc.node, &st);
+    if (!r) r = mdi_backing_stat(s, &loc.node, &st);
     if (!r && (fd = openat(s->objects, loc.node.id, (flags & ~(O_CREAT | O_EXCL)) | O_CLOEXEC | O_NOFOLLOW)) < 0) r = -errno;
     r = mdi_finish(s, r);
     if (r) { if (fd >= 0) close(fd); return r; }
@@ -223,8 +223,7 @@ int md_inode_fstat(struct md_inode_store *s, int fd, struct stat *st) {
     int r = mdi_begin(s, 0);
     if (r) return r;
     struct mdi_node node;
-    r = mdi_fd(s, fd, &node);
-    if (!r) r = mdi_stat(s, &node, st);
+    r = mdi_fstat(s, fd, &node, st);
     return mdi_finish(s, r);
 }
 int md_inode_list(struct md_inode_store *s, int dirfd, const char *path,

@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include <assert.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/audit.h>
@@ -14,6 +15,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/prctl.h>
+#include <sys/resource.h>
+#include <sys/utsname.h>
 #include <sys/auxv.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -105,6 +108,59 @@ static void broker_files(void) {
     close(created); close(dir); assert(!rmdir(context.directory));
     memory();
     puts("PASS broker paths, guard pages, CLOEXEC, hardlinks, unlinked identity and task-private FD/cwd");
+}
+static void directory_entry(int fd, const char *name) {
+    struct { uint64_t inode; int64_t offset; unsigned short length; unsigned char type; char name[256]; } entry;
+    assert(syscall(SYS_getdents64, fd, &entry, 24) == 24);
+    assert(entry.length == 24 && !strcmp(entry.name, name));
+}
+static void broker_directories(void) {
+    char path[128]; snprintf(path, sizeof(path), "/tmp/md-directories-%d", getpid());
+    assert(!mkdir(path, 0700));
+    int fd = open(path, O_RDONLY | O_DIRECTORY), duplicate = dup(fd); assert(fd >= 0 && duplicate >= 0);
+    int file = openat(fd, "item", O_CREAT | O_EXCL | O_RDWR, 0600); assert(file >= 0); close(file);
+    long page = sysconf(_SC_PAGESIZE);
+    char *memory = mmap(NULL, page * 2, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    assert(memory != MAP_FAILED && !mprotect(memory + page, page, PROT_NONE));
+    assert(syscall(SYS_getdents64, fd, memory + page, 24) == -1 && errno == EFAULT);
+    assert(lseek(duplicate, 0, SEEK_CUR) == 0);
+    assert(syscall(SYS_getdents64, fd, memory + page - 8, 24) == -1 && errno == EFAULT);
+    assert(lseek(duplicate, 0, SEEK_CUR) == 0);
+    assert(syscall(SYS_getdents64, fd, memory, 1) == -1 && errno == EINVAL);
+    directory_entry(fd, "."); directory_entry(duplicate, "..");
+    pid_t child = fork(); assert(child >= 0);
+    if (!child) { directory_entry(fd, "item"); _exit(0); }
+    int status; assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && !WEXITSTATUS(status));
+    assert(syscall(SYS_getdents64, duplicate, memory, page) == 0);
+    assert(lseek(fd, 0, SEEK_SET) == 0);
+    child = fork(); assert(child >= 0);
+    if (!child) {
+        struct sock_filter code[] = {
+            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_getdents64, 0, 1),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EIO),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
+        };
+        struct sock_fprog filter = {sizeof(code) / sizeof(*code), code};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0));
+        assert(!syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &filter));
+        assert(syscall(SYS_getdents64, duplicate, memory, page) == -1 && errno == EIO);
+        _exit(0);
+    }
+    assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && !WEXITSTATUS(status));
+    assert(lseek(fd, 0, SEEK_CUR) == 0);
+    child = fork(); assert(child >= 0);
+    if (!child) {
+        assert(!prctl(PR_SET_DUMPABLE, 0));
+        directory_entry(duplicate, "."); directory_entry(duplicate, ".."); _exit(0);
+    }
+    assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && !WEXITSTATUS(status));
+    directory_entry(fd, "item");
+    int native = open("/proc/self/fd", O_RDONLY | O_DIRECTORY); assert(native >= 0);
+    assert(syscall(SYS_getdents64, native, memory, page) > 0); close(native);
+    assert(!unlinkat(fd, "item", 0)); close(duplicate); close(fd); assert(!rmdir(path));
+    assert(!munmap(memory, page * 2));
+    puts("PASS broker directories: shared cursors, partial/failed output, fork, application filters, protected fallback and native procfs");
 }
 static int broker_shared_root(void *data) {
     int *pipes = data;
@@ -640,6 +696,86 @@ static void transport_policy(void) {
     memory();
     puts("PASS adapter transport retains application ERRNO/TRAP/KILL filters");
 }
+static void kernel_signal(int signal, siginfo_t *info, void *context) {
+    assert(signal == SIGSYS && info->si_syscall == SYS_fcntl);
+    ((ucontext_t *)context)->uc_mcontext.regs[0] = (unsigned long)-EKEYREJECTED;
+}
+static void kernel_policy(void) {
+    unsigned actions[] = {SECCOMP_RET_ERRNO | EKEYREJECTED, SECCOMP_RET_TRAP, SECCOMP_RET_KILL_PROCESS};
+    for (unsigned a = 0; a < 3; a++) {
+        pid_t child = fork(); assert(child >= 0);
+        if (!child) {
+            struct sigaction handler = {.sa_sigaction = kernel_signal, .sa_flags = SA_SIGINFO};
+            sigemptyset(&handler.sa_mask); assert(!sigaction(SIGSYS, &handler, NULL));
+            struct sock_filter filter[] = {
+                BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+                BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_fcntl, 0, 1),
+                BPF_STMT(BPF_RET | BPF_K, actions[a]),
+                BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+            };
+            struct sock_fprog policy = {sizeof(filter) / sizeof(*filter), filter};
+            assert(!prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0));
+            assert(!syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &policy));
+            assert(syscall(SYS_fcntl, -1, F_GETFD, 0) == -1 && errno == EKEYREJECTED);
+            _exit(0);
+        }
+        int status;
+        /* EVENT_WAIT: exact filtered child; the runner bounds a stuck process. */
+        assert(waitpid(child, &status, 0) == child);
+        if (actions[a] == SECCOMP_RET_KILL_PROCESS) assert(WIFSIGNALED(status) && WTERMSIG(status) == SIGSYS);
+        else assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    }
+    int fd = open("/etc/passwd", O_RDONLY | O_CLOEXEC); assert(fd >= 0);
+    assert(!syscall(SYS_chroot, "/proc/self/fdinfo"));
+    assert(syscall(SYS_fcntl, fd, F_GETFD, 0) == FD_CLOEXEC);
+    assert(!syscall(SYS_fcntl, fd, F_SETFD, 0));
+    int copy = (int)syscall(SYS_fcntl, fd, F_DUPFD_CLOEXEC, 3); assert(copy >= 3);
+    assert(!close(copy) && !close(fd));
+    struct rlimit limit; assert(!syscall(SYS_prlimit64, 0, RLIMIT_NOFILE, NULL, &limit));
+    struct utsname name; assert(!uname(&name));
+    char label[16];
+    assert(!prctl(PR_SET_NAME, "kernel-policy"));
+    assert(!prctl(PR_GET_NAME, label) && !strcmp(label, "kernel-policy"));
+    assert(syscall(SYS_fcntl, -1, (1UL << 32) | F_GETFD, 0) == -1 && errno == EPERM);
+    assert(syscall(SYS_prctl, (1UL << 32) | PR_GET_NAME, label) == -1 && errno == EPERM);
+    assert(syscall(SYS_prlimit64, 1UL << 32, RLIMIT_NOFILE, NULL, &limit) == -1 && errno == EPERM);
+    assert(syscall(SYS_fcntl, -1, F_GETOWN, 0) == -1 && errno == EPERM);
+    assert(prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) == 0 && prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) == 0);
+    puts("PASS native kernel policy retains full-width arguments, domain restrictions and application filters");
+}
+static unsigned open_descriptors(void) {
+    DIR *directory = opendir("/proc/self/fd"); assert(directory);
+    unsigned count = 0; struct dirent *entry;
+    while ((entry = readdir(directory))) if (entry->d_name[0] != '.') count++;
+    assert(!closedir(directory));
+    return count;
+}
+static void prepared_exec_failure(void) {
+    int marker = open("/dev/null", O_RDONLY | O_CLOEXEC); assert(marker >= 0);
+    assert(!close(marker));
+    struct sock_filter filter[] = {
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_execve, 0, 1),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EKEYREJECTED),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+    };
+    struct sock_fprog policy = {sizeof(filter) / sizeof(*filter), filter};
+    assert(!prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0));
+    assert(!syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &policy));
+    char *args[] = {"true", NULL}; extern char **environ;
+    unsigned descriptors = open_descriptors();
+    for (unsigned i = 0; i < 64; i++) {
+        /* Original execveat is admitted; bootstrap execve fails after both ELF
+         * descriptors have been prepared and made inheritable. */
+        assert(syscall(SYS_execveat, AT_FDCWD, "/bin/true", args, environ, 0) == -1 && errno == EKEYREJECTED);
+        int fd = open("/dev/null", O_RDONLY | O_CLOEXEC); assert(fd == marker);
+        assert(!close(fd) && open_descriptors() == descriptors);
+    }
+    filter[1].k = SYS_fstat; filter[2].k = SECCOMP_RET_ERRNO | EIO;
+    assert(!syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &policy));
+    assert(syscall(SYS_execveat, AT_FDCWD, "/bin/true", args, environ, 0) == -1 && errno == EIO);
+    puts("PASS failed kernel exec releases both prepared image descriptors");
+}
 static void seek_signal(int signal, siginfo_t *info, void *context) {
     assert(signal == SIGSYS && info->si_syscall == SYS_lseek && info->si_errno == 73);
     ((ucontext_t *)context)->uc_mcontext.regs[0] = 711;
@@ -738,7 +874,10 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[1], "seek")) seek_descriptors(0);
     else if (!strcmp(argv[1], "seek-protected")) seek_descriptors(1);
     else if (!strcmp(argv[1], "transport-policy")) transport_policy();
+    else if (!strcmp(argv[1], "kernel-policy")) kernel_policy();
+    else if (!strcmp(argv[1], "prepared-exec-failure")) prepared_exec_failure();
     else if (!strcmp(argv[1], "broker-files")) broker_files();
+    else if (!strcmp(argv[1], "broker-directories")) broker_directories();
     else if (!strcmp(argv[1], "broker-shared-domain")) broker_shared_domain();
     else if (!strcmp(argv[1], "exec-offset") || !strcmp(argv[1], "exec-offset-child"))
         exec_offset(argv[0], !strcmp(argv[1], "exec-offset-child"));

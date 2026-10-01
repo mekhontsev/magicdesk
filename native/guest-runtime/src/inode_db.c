@@ -88,15 +88,13 @@ static int store_unlock(struct md_inode_store *s, int result) {
     }
     return result;
 }
-static int query(struct md_inode_store *, enum mdi_query, sqlite3_stmt **);
-static int release_query(sqlite3_stmt *, int);
 static int transaction(struct md_inode_store *s, enum mdi_query slot) {
     struct md_cost *cost = s->statistics ? &s->statistics->transaction : NULL;
     int64_t begin = md_cost_begin(cost);
     sqlite3_stmt *q = NULL;
-    int r = query(s, slot, &q);
+    int r = mdi_query_acquire(s, slot, &q);
     if (!r) { int rc = mdi_step(s, q); r = rc == SQLITE_DONE ? 0 : mdi_sql_failure(rc); }
-    r = release_query(q, r);
+    r = mdi_query_release(q, r);
     md_cost_end(cost, begin);
     return r;
 }
@@ -155,24 +153,35 @@ static int read_node(struct md_inode_store *s, sqlite3_stmt *q, struct mdi_node 
     if (!r) *node = value;
     return r;
 }
-static int query(struct md_inode_store *s, enum mdi_query slot, sqlite3_stmt **out) {
+int mdi_query_acquire(struct md_inode_store *s, enum mdi_query slot, sqlite3_stmt **out) {
+    /* One definition for path and descriptor metadata, evaluated in the current
+     * transaction. Regular objects need no child-directory count. */
+#define LINKS "CASE WHEN o.kind=16384 THEN CASE WHEN o.object='" MDI_ROOT "' " \
+        "OR EXISTS(SELECT 1 FROM names WHERE object=o.object) THEN 2+" \
+        "(SELECT count(*) FROM names n JOIN objects c ON n.object=c.object " \
+        "WHERE n.parent=o.object AND c.kind=16384) ELSE 0 END " \
+        "ELSE (SELECT count(*) FROM names WHERE object=o.object) END"
     static const char *const sql[MDI_QUERY_COUNT] = {
         [MDI_NODE] = "SELECT object,kind,device,inode,parent FROM objects WHERE object=?1",
         [MDI_FD] = "SELECT object,kind,device,inode,parent FROM objects WHERE device=?1 AND inode=?2",
+        [MDI_FD_STAT] = "SELECT o.object,o.kind,o.device,o.inode,o.parent," LINKS
+            " FROM objects o WHERE o.device=?1 AND o.inode=?2",
         [MDI_LOOKUP] = "SELECT o.object,o.kind,o.device,o.inode,o.parent FROM objects o "
             "JOIN names n ON n.object=o.object WHERE n.parent=?1 AND n.name=?2",
-        [MDI_LINK_COUNT] = "SELECT count(*), (SELECT count(*) FROM names n JOIN objects o ON n.object=o.object "
-            "WHERE n.parent=?1 AND o.kind=?2) FROM names WHERE object=?1",
+        [MDI_LINK_COUNT] = "SELECT " LINKS " FROM objects o WHERE o.object=?1",
+        [MDI_READDIR] = "SELECT n.cookie,n.name,o.inode,o.kind FROM names n JOIN objects o ON o.object=n.object "
+            "WHERE n.parent=?1 AND n.cookie>?2 ORDER BY n.cookie",
         [MDI_BEGIN] = "BEGIN", [MDI_BEGIN_WRITE] = "BEGIN IMMEDIATE",
         [MDI_COMMIT] = "COMMIT", [MDI_ROLLBACK] = "ROLLBACK"
     };
+#undef LINKS
     int result = 0;
     if (!s->queries[slot]) result = mdi_prepare(s, sql[slot], &s->queries[slot]);
     else if (s->statistics) s->statistics->query_reuses++;
     if (!result) *out = s->queries[slot];
     return result;
 }
-static int release_query(sqlite3_stmt *q, int result) {
+int mdi_query_release(sqlite3_stmt *q, int result) {
     if (!q) return result;
     /* Cache only the compiled program, never rows, bindings or a read snapshot. */
     int reset = mdi_sql_error(sqlite3_reset(q));
@@ -181,28 +190,32 @@ static int release_query(sqlite3_stmt *q, int result) {
 }
 int mdi_node(struct md_inode_store *s, const char *id, struct mdi_node *node) {
     sqlite3_stmt *q = NULL;
-    int r = query(s, MDI_NODE, &q);
+    int r = mdi_query_acquire(s, MDI_NODE, &q);
     if (!r) r = mdi_bind_id(q, 1, id);
     if (!r) r = read_node(s, q, node);
-    return release_query(q, r);
+    return mdi_query_release(q, r);
+}
+static int descriptor_node(struct md_inode_store *s, const struct stat *st,
+        struct mdi_node *node, nlink_t *links) {
+    sqlite3_stmt *q = NULL;
+    int r = mdi_query_acquire(s, links ? MDI_FD_STAT : MDI_FD, &q);
+    if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 1, (sqlite3_int64)st->st_dev));
+    if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 2, (sqlite3_int64)st->st_ino));
+    if (!r) r = read_node(s, q, node);
+    if (!r && links) *links = (nlink_t)sqlite3_column_int64(q, 5);
+    r = mdi_query_release(q, r); return r == -ENOENT ? -EXDEV : r;
 }
 int mdi_fd(struct md_inode_store *s, int fd, struct mdi_node *node) {
     struct stat st;
-    if (fstat(fd, &st)) return -errno;
-    sqlite3_stmt *q = NULL;
-    int r = query(s, MDI_FD, &q);
-    if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 1, (sqlite3_int64)st.st_dev));
-    if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 2, (sqlite3_int64)st.st_ino));
-    if (!r) r = read_node(s, q, node);
-    r = release_query(q, r); return r == -ENOENT ? -EXDEV : r;
+    return fstat(fd, &st) ? -errno : descriptor_node(s, &st, node, NULL);
 }
 int mdi_lookup(struct md_inode_store *s, const char *parent, const char *name, struct mdi_node *node) {
     sqlite3_stmt *q = NULL;
-    int r = query(s, MDI_LOOKUP, &q);
+    int r = mdi_query_acquire(s, MDI_LOOKUP, &q);
     if (!r) r = mdi_bind_id(q, 1, parent);
     if (!r) r = mdi_bind_name(q, 2, name);
     if (!r) r = read_node(s, q, node);
-    return release_query(q, r);
+    return mdi_query_release(q, r);
 }
 int mdi_add_name(struct md_inode_store *s, const char *parent, const char *name, const char *object) {
     sqlite3_stmt *q = NULL;
@@ -241,25 +254,34 @@ int mdi_empty(struct md_inode_store *s, const struct mdi_node *node) {
     }
     sqlite3_finalize(q); return r;
 }
-int mdi_stat(struct md_inode_store *s, const struct mdi_node *node, struct stat *st) {
-    if (fstatat(s->objects, node->id, st, AT_SYMLINK_NOFOLLOW)) return -errno;
+static int backing_identity(const struct mdi_node *node, struct stat *st) {
     mode_t backing = node->kind == S_IFSOCK ? S_IFREG : node->kind;
     if (st->st_dev != node->device || st->st_ino != node->inode || (st->st_mode & S_IFMT) != backing) return -EIO;
     st->st_mode = (st->st_mode & ~S_IFMT) | node->kind;
+    return 0;
+}
+int mdi_backing_stat(struct md_inode_store *s, const struct mdi_node *node, struct stat *st) {
+    return fstatat(s->objects, node->id, st, AT_SYMLINK_NOFOLLOW) ? -errno : backing_identity(node, st);
+}
+int mdi_fstat(struct md_inode_store *s, int fd, struct mdi_node *node, struct stat *st) {
+    if (fstat(fd, st)) return -errno;
+    nlink_t links;
+    int r = descriptor_node(s, st, node, &links);
+    if (!r) r = backing_identity(node, st);
+    if (!r) st->st_nlink = links;
+    return r;
+}
+int mdi_stat(struct md_inode_store *s, const struct mdi_node *node, struct stat *st) {
+    int r = mdi_backing_stat(s, node, st);
     sqlite3_stmt *q = NULL;
-    int r = query(s, MDI_LINK_COUNT, &q);
+    if (!r) r = mdi_query_acquire(s, MDI_LINK_COUNT, &q);
     if (!r) r = mdi_bind_id(q, 1, node->id);
-    if (!r) r = mdi_sql_error(sqlite3_bind_int(q, 2, S_IFDIR));
     if (!r) {
         int rc = mdi_step(s, q);
         if (rc != SQLITE_ROW) r = mdi_sql_failure(rc);
-        else {
-            st->st_nlink = (nlink_t)sqlite3_column_int64(q, 0);
-            if (node->kind == S_IFDIR && (st->st_nlink || !strcmp(node->id, MDI_ROOT)))
-                st->st_nlink = 2 + (nlink_t)sqlite3_column_int64(q, 1);
-        }
+        else st->st_nlink = (nlink_t)sqlite3_column_int64(q, 0);
     }
-    return release_query(q, r);
+    return mdi_query_release(q, r);
 }
 int mdi_access(struct md_inode_store *s, const struct mdi_node *node, int mode) {
     if (node->kind != S_IFDIR) return -ENOTDIR;

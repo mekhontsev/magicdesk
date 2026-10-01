@@ -691,13 +691,72 @@ static void reused_queries(void) {
     close(next); close(fd); md_inode_store_close(writer); md_inode_store_close(s);
     puts("PASS query reuse: fresh snapshots across writers, missing names, path reuse and unlinked FDs");
 }
+struct directory_delivery { int fd, error, calls; off_t offset; };
+static int deliver_entries(void *data, const void *entries, size_t size) {
+    struct directory_delivery *delivery = data;
+    CHECK(lseek(delivery->fd, 0, SEEK_CUR) == delivery->offset);
+    CHECK(size == 24 && !strcmp(((const struct md_inode_dirent *)entries)->name, "."));
+    delivery->calls++;
+    return delivery->error;
+}
+static void directory_publication(void) {
+    struct md_inode_store *s = store("delivery", 1);
+    int dir = md_inode_open(s, MD_INODE_ROOT, "/", O_RDONLY | O_DIRECTORY, 0); CHECK(dir >= 0);
+    struct directory_delivery delivery = {.fd = dir, .error = -EACCES};
+    char entries[24];
+    CHECK(md_inode_getdents_deliver(s, dir, entries, sizeof(entries), deliver_entries, &delivery) == -EACCES);
+    CHECK(lseek(dir, 0, SEEK_CUR) == 0 && delivery.calls == 1);
+    delivery.error = -ECANCELED;
+    CHECK(md_inode_getdents_deliver(s, dir, entries, sizeof(entries), deliver_entries, &delivery) == -ECANCELED);
+    CHECK(lseek(dir, 0, SEEK_CUR) == 0 && delivery.calls == 2);
+    delivery.error = 0;
+    CHECK(md_inode_getdents_deliver(s, dir, entries, sizeof(entries), deliver_entries, &delivery) == 24);
+    CHECK(lseek(dir, 0, SEEK_CUR) == 1 && delivery.calls == 3);
+    CHECK(md_inode_getdents(s, dir, entries, sizeof(entries)) == 24);
+    CHECK(!strcmp(((struct md_inode_dirent *)entries)->name, ".."));
+    close(dir); md_inode_store_close(s);
+    puts("PASS directory publication: rejected/cancelled output preserves the shared cursor");
+}
+static void metadata_queries(void) {
+    struct md_inode_store *s = store("metadata", 1), *writer = store("metadata", 0);
+    int fd = md_inode_create(writer, MD_INODE_ROOT, "value", 0600); CHECK(fd >= 0);
+    int dir = md_inode_open(s, MD_INODE_ROOT, "/", O_RDONLY | O_DIRECTORY, 0); CHECK(dir >= 0);
+    int opened = md_inode_open(s, dir, "value", O_RDONLY, 0); CHECK(opened >= 0); close(opened);
+    struct stat st;
+    CHECK(!md_inode_fstat(s, fd, &st));
+    char entries[1024];
+    CHECK(md_inode_getdents(s, dir, entries, sizeof(entries)) > 0);
+    CHECK(md_inode_seekdir(s, dir, 0, SEEK_SET) == 0);
+    struct md_inode_statistics statistics = {0};
+    md_inode_measure(s, &statistics);
+    opened = md_inode_open(s, dir, "value", O_RDONLY, 0); CHECK(opened >= 0); close(opened);
+    /* BEGIN, directory lookup, name lookup, COMMIT; open needs no link count. */
+    CHECK(statistics.step.calls == 4);
+    uint64_t before = statistics.step.calls;
+    CHECK(!md_inode_fstat(s, fd, &st) && st.st_nlink == 1);
+    CHECK(statistics.step.calls - before == 3); /* BEGIN, one metadata row, COMMIT. */
+    CHECK(md_inode_getdents(s, dir, entries, sizeof(entries)) > 0);
+    CHECK(md_inode_getdents(s, dir, entries, sizeof(entries)) == 0);
+    int next = md_inode_create(writer, MD_INODE_ROOT, "later", 0600); CHECK(next >= 0);
+    CHECK(md_inode_getdents(s, dir, entries, sizeof(entries)) > 0);
+    CHECK(!strcmp(((struct md_inode_dirent *)entries)->name, "later"));
+    CHECK(!md_inode_mkdir(writer, MD_INODE_ROOT, "child", 0700));
+    CHECK(!md_inode_fstat(s, dir, &st) && st.st_nlink == 3);
+    CHECK(!fchmod(fd, 0640) && !ftruncate(fd, 71));
+    CHECK(!md_inode_fstat(s, fd, &st) && st.st_size == 71 && (st.st_mode & 0777) == 0640);
+    CHECK(statistics.prepare.calls == 0);
+    md_inode_measure(s, NULL);
+    close(next); close(dir); close(fd); md_inode_store_close(writer); md_inode_store_close(s);
+    puts("PASS metadata programs: minimal open/fstat queries, live FD attributes and fresh directory batches");
+}
 int main(int argc, char **argv) {
     CHECK(argc == 2 || argc == 3);
     CHECK(argv[1][0] == '/' && strlen(argv[1]) < sizeof(root)); strcpy(root, argv[1]);
     if (argc == 3) { CHECK(!strcmp(argv[2], "exec-child")); exec_child("exec"); return 0; }
     CHECK(mkdir(root, 0700) == 0);
     descriptors(); namespace(); contention(); multiple_stores(); across_exec(argv[0]);
-    hierarchy(); symlinks(); permissions(); kernel_reference(); scoped_paths(); reused_queries();
+    hierarchy(); symlinks(); permissions(); kernel_reference(); scoped_paths(); reused_queries(); metadata_queries();
+    directory_publication();
     unsigned serial = 0;
     recovery(CREATE, MD_OBJECT_SYNCED, serial++);
     for (enum operation op = CREATE; op <= EXCHANGE; ++op) {

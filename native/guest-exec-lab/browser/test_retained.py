@@ -18,7 +18,7 @@ def main():
               "layerOneEstablished": False, "runs": []}
     control = "/tmp/guest-browser-controls/md-browser-control"
     cases = [(mode, [control, mode], "PASS", 0) for mode in
-             ("broker-files", "broker-shared-domain", "seek", "seek-protected", "transport-policy", "memory", "children", "job-control", "group-exit", "group-exit-protected",
+             ("broker-files", "broker-directories", "broker-shared-domain", "seek", "seek-protected", "transport-policy", "kernel-policy", "prepared-exec-failure", "memory", "children", "job-control", "group-exit", "group-exit-protected",
               "addressless", "self-exec", "exec-offset", "external-socket",
               "external-connect", "protected-metadata", "protected-exec",
               "protected-thread-exec", "protected-denial", "protected-denial-zero")]

@@ -14,7 +14,7 @@
 
 int md_command_prepare(const struct md_fs *fs, struct md_command *c, const char *program, char *const argv[],
         int input_fd, int inaccessible) {
-    c->fd = -1;
+    c->fd = c->interpreter_fd = -1;
     long r = md_read_string(c->path, sizeof(c->path), program);
     if (r < 0) return (int)r;
     c->argc = 0;
@@ -62,10 +62,19 @@ int md_command_prepare(const struct md_fs *fs, struct md_command *c, const char 
             if (!r && c->interpreter[0]) {
                 long loader = md_program_open(fs, c->interpreter, 1);
                 if (loader < 0) r = loader;
-                else { r = md_elf_validate((int)loader, 1); RAW1(close, loader); }
+                else {
+                    r = md_elf_validate((int)loader, 1);
+                    if (r < 0) RAW1(close, loader);
+                    else c->interpreter_fd = (int)loader;
+                }
             }
-            if (r < 0) RAW1(close, fd);
-            else c->fd = (int)fd;
+            c->fd = (int)fd;
+            if (!r && (input_fd < 0 || depth)) {
+                char identity[PATH_MAX];
+                r = md_program_identity(fs, c->path, identity);
+                if (!r) r = md_copy(c->path, sizeof(c->path), identity);
+            }
+            if (r < 0) md_command_close(c);
             return (int)r;
         }
         RAW1(close, fd);
@@ -101,6 +110,11 @@ int md_command_prepare(const struct md_fs *fs, struct md_command *c, const char 
         c->argc += shift;
         md_copy(c->path, sizeof(c->path), line);
     }
+}
+void md_command_close(struct md_command *c) {
+    if (c->fd >= 0) RAW1(close, c->fd);
+    if (c->interpreter_fd >= 0) RAW1(close, c->interpreter_fd);
+    c->fd = c->interpreter_fd = -1;
 }
 long md_guest_exec(const char *program, char *const argv[], char *const env[]) {
     return md_guest_execat(AT_FDCWD, program, argv, env, 0);
@@ -146,17 +160,24 @@ long md_guest_execat(int base, const char *program, char *const argv[], char *co
     r = md_command_prepare(&md_files, &c, identity, argv, fd, inaccessible);
     if (*path) RAW1(close, fd);
     if (r < 0) return r;
-    /* One inherited descriptor pins the validated ELF across bootstrap exec.
-     * The new bootstrap closes it before guest entry; failed exec closes it here. */
+    /* Pin both images across the real kernel exec. The new bootstrap validates
+     * and maps these exact capabilities, never reopening their mutable names. */
     r = RAW3(fcntl, c.fd, F_SETFD, 0);
-    if (r < 0) { RAW1(close, c.fd); return r; }
+    if (!r && c.interpreter_fd >= 0) r = RAW3(fcntl, c.interpreter_fd, F_SETFD, 0);
+    if (r < 0) { md_command_close(&c); return r; }
     char number[24]; md_decimal(number, (unsigned)c.fd);
+    char interpreter_number[24];
     char *next[MD_ARG_MAX + 24 + MD_SOCKET_ROUTES_MAX * 3];
     next[0] = md_bootstrap;
     next[1] = "--resume";
     unsigned n=2;
     next[n++] = "--program-fd";
     next[n++] = number;
+    if (c.interpreter_fd >= 0) {
+        md_decimal(interpreter_number, (unsigned)c.interpreter_fd);
+        next[n++] = "--interpreter-fd";
+        next[n++] = interpreter_number;
+    }
     // AT_EXECFN is the caller's spelling, not the canonical executable or the
     // final shebang interpreter. Linux uses /dev/fd/N for descriptor exec.
     next[n++] = "--execfn";
@@ -173,6 +194,6 @@ long md_guest_execat(int base, const char *program, char *const argv[], char *co
     next[n++]=c.path;
     for (unsigned i = 0; i <= c.argc; ++i) next[n+i] = c.argv[i];
     r = RAW3(execve, md_bootstrap, next, env);
-    RAW1(close, c.fd);
+    md_command_close(&c);
     return r;
 }

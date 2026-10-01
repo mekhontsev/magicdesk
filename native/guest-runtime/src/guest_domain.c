@@ -85,26 +85,21 @@ int md_domain_path_error(const struct md_guest_domain *d) {
     return error ? error : -EACCES;
 }
 int md_domain_native_call(long nr, const unsigned long a[6]) {
+#define ARGUMENT(name, index, value) if (nr == SYS_##name && a[index] == (unsigned long)(value)) return 1;
+    MD_DOMAIN_KERNEL_ARGUMENTS(ARGUMENT)
+#undef ARGUMENT
     switch (nr) {
 #define NATIVE_CASE(name) case SYS_##name:
     MD_GATE_TRANSPORT_CALLS(NATIVE_CASE)
+    MD_DOMAIN_KERNEL_CALLS(NATIVE_CASE)
 #undef NATIVE_CASE
-    case SYS_lseek: case SYS_getdents64: case SYS_fstatfs:
-    case SYS_getsockname: case SYS_getpeername: case SYS_pipe2:
+    case SYS_lseek: case SYS_getdents64:
+    case SYS_getsockname: case SYS_getpeername:
     case SYS_recvfrom: case SYS_sendmmsg:
-    case SYS_shutdown: case SYS_socketpair: case SYS_wait4: case SYS_waitid:
-    case SYS_seccomp: case SYS_getresuid: case SYS_getresgid:
-    /* These run in the kernel under the unchanged shell credentials. */
-    case SYS_capget: case SYS_capset:
-    case SYS_uname: case SYS_sysinfo: case SYS_sched_yield: case SYS_sched_getaffinity:
-    case SYS_getrusage: case SYS_getrlimit: case SYS_gettimeofday: return 1;
+    case SYS_seccomp: case SYS_getresuid: case SYS_getresgid: return 1;
     case SYS_sendto: return !a[4];
-    case SYS_prlimit64: return a[0] == 0;
-    case SYS_prctl: return a[0] == PR_GET_DUMPABLE || a[0] == PR_SET_DUMPABLE
-        || a[0] == PR_SET_NAME || a[0] == PR_GET_NAME || a[0] == PR_GET_SECCOMP
-        || a[0] == PR_SET_SECCOMP || a[0] == PR_SET_NO_NEW_PRIVS || a[0] == PR_GET_NO_NEW_PRIVS;
-    case SYS_fcntl: return a[1] == F_GETFD || a[1] == F_SETFD || a[1] == F_GETFL
-        || a[1] == F_SETFL || a[1] == F_DUPFD || a[1] == F_DUPFD_CLOEXEC;
+    case SYS_prctl: return a[0] == PR_SET_DUMPABLE || a[0] == PR_SET_SECCOMP
+        || a[0] == PR_SET_NO_NEW_PRIVS || a[0] == PR_GET_NO_NEW_PRIVS;
     default: return 0;
     }
 }

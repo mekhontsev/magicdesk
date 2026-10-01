@@ -32,7 +32,7 @@ testroot=$(mktemp -d "$work/path-test/run.XXXXXX")
     "$src/test_elf.c" "$runtime/elf.c" "$runtime/raw.c" "$runtime/memory.c" "$runtime/raw.S" -o "$work/test-elf"
 "$work/test-elf" "$testroot/elf"
 "$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -DMD_INODE_TESTING \
-    "$runtime/inode_store.c" "$runtime/inode_db.c" "$runtime/inode_path.c" "$src/test_inodes.c" -lsqlite3 -o "$work/test-inodes"
+    "$runtime/inode_store.c" "$runtime/inode_db.c" "$runtime/inode_path.c" "$runtime/inode_directory.c" "$src/test_inodes.c" -lsqlite3 -o "$work/test-inodes"
 inoderoot=$(mktemp -d "$work/path-test/inodes.XXXXXX")
 timeout 45 "$work/test-inodes" "$inoderoot/store"
 "$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -DMD_INODE_TESTING \
@@ -72,6 +72,8 @@ adapter_fixture() {
     "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/memory.c" "$runtime/raw.S"
 }
 adapter_fixture -DMD_SOCKET_DRIVER "$src/test_sockets.c" -o "$work/bundle/md-sockets-test"
+adapter_fixture --target=aarch64-linux-android34 -fno-termux-rpath -static -DMD_USE_LIBC \
+    "$src/test_command.c" "$runtime/exec.c" "$runtime/elf.c" "$runtime/program_files.c" -o "$work/bundle/md-command-test"
 socketroot=$(mktemp -d "$work/path-test/sockets.XXXXXX")
 timeout 45 "$work/bundle/md-sockets-test" native "$socketroot"
 timeout 45 "$work/bundle/md-sockets-test" adapter "$socketroot"
@@ -134,7 +136,7 @@ guest_cc -pie "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aar
     -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 -o "$work/md-namespace-fixture"
 guest_cc -pie -DMD_INODE_TESTING "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" \
     "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" "$runtime/inode_store.c" "$runtime/inode_db.c" \
-    "$runtime/inode_path.c" "$src/test_inodes.c" \
+    "$runtime/inode_path.c" "$runtime/inode_directory.c" "$src/test_inodes.c" \
     "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 \
     -L"$sysroot/usr/lib/aarch64-linux-gnu" -l:libsqlite3.so.0 -l:libm.so.6 \
     -o "$work/md-inodes-fixture"

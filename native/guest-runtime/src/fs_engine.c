@@ -13,7 +13,7 @@ static void info(const struct stat *s, struct md_fs_info *out) {
         .modify_nanos = (uint32_t)s->st_mtim.tv_nsec, .change_nanos = (uint32_t)s->st_ctim.tv_nsec};
 }
 void md_fs_execute(struct md_inode_store *s, struct md_image_catalogue *images,
-        const struct md_fs_request *q, struct md_fs_result *out) {
+        const struct md_fs_request *q, struct md_fs_result *out, const struct md_fs_output *output) {
     *out = (struct md_fs_result){.delivery = MD_FS_REPLIED, .fd = -1};
     const char *a = q->path[0] ? q->path[0] : "", *b = q->path[1] ? q->path[1] : "";
     int first = q->directory[0], second = q->directory[1];
@@ -57,7 +57,8 @@ void md_fs_execute(struct md_inode_store *s, struct md_image_catalogue *images,
         if (r >= 0) { out->size = (uint32_t)r; r = 0; }
         break;
     case MD_FS_GETDENTS:
-        r = (int)md_inode_getdents(s, first, out->data, q->capacity);
+        r = (int)md_inode_getdents_deliver(s, first, out->data, q->capacity,
+            output ? output->deliver : NULL, output ? output->context : NULL);
         if (r >= 0) { out->size = (uint32_t)r; r = 0; }
         break;
     case MD_FS_SEEKDIR: {

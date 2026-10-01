@@ -29,12 +29,16 @@ The supervisor handles regular-file seeks through retained kernel descriptors
 without namespace RPC; directory cursors remain namespace-owned. Filesystem
 replies retain their connection until client release, with event-driven progress
 and a bounded peer lifetime.
-Ordinary open/stat requests are handled directly by that worker through seccomp
+Ordinary open/stat and directory-read requests are handled directly by that worker through seccomp
 notifications, without invoking a guest-side RPC. Protected accesses, O_PATH,
-namespace mutations and directory cursors retain the task-affine adapter.
+namespace mutations and directory seeks retain the task-affine adapter. Directory
+reads publish their bytes before advancing the shared cursor; failed or partial
+output cannot cause an automatic replay of a committed read.
 Both paths use the same namespace engine and sealed-image catalogue.
 The namespace owner reuses compiled queries and transaction programs, never cached
-metadata or transaction snapshots. Optional `--statistics` profiles syscall stops, filesystem
+metadata or transaction snapshots. Descriptor stat combines live kernel attributes
+with one logical metadata query; opens do not calculate unused link counts.
+Optional `--statistics` profiles syscall stops, filesystem
 operations, SQLite and CPU costs without per-call logs or clock sampling
 on ordinary launches.
 
@@ -125,9 +129,11 @@ and the kernel's mapping limits, not a separate image-size cap. Freestanding ELF
 without an interpreter or mapped program-header table is also supported. This
 does not admit set-ID or writable/executable load segments.
 
-Descriptor and relative-dirfd exec pin the validated ELF across bootstrap exec,
-including open-unlinked programs. CLOEXEC scripts fail rather than losing their
-interpreter input. Bounded shebang parsing accepts relative interpreters and a
+Exec preparation retains both the validated ELF and its optional interpreter
+across bootstrap exec. The resumed bootstrap maps those exact descriptors without
+reopening names or repeating command preparation; failed exec releases both.
+Descriptor and relative-dirfd exec include open-unlinked programs. CLOEXEC scripts
+fail rather than losing their interpreter input. Bounded shebang parsing accepts relative interpreters and a
 short header without a newline, preserves the optional argument as one string,
 and rejects a truncated interpreter name. `AT_EXECFN` retains the caller's spelling; descriptor exec uses
 the Linux `/dev/fd/N[/suffix]` form. Namespace `openat2` validates its extensible argument structure
@@ -291,7 +297,10 @@ separate control, not the runtime's default or an automatic fallback.
 The production supervisor preserves application signal handlers, alternate stacks
 and installed seccomp filters. Focused tests cover ERRNO/TRAP/KILL precedence,
 protected descriptor metadata, nondumpable exec, non-leader exec, job control and
-retained descriptors. Protected access uses task-affine export and same-site replay
+retained descriptors. Kernel-only calls share one policy definition between the
+domain checker and the seccomp fast path; argument-dependent permissions compare
+all 64 bits. Identity, namespace and filter-state changes retain their observers.
+Protected access uses task-affine export and same-site replay
 without restoring dumpability. A second tracer cannot attach concurrently; crash
 reporters requiring it remain unsupported.
 

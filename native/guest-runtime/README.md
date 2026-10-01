@@ -67,8 +67,11 @@ custom glibc linker, root transition or SELinux change is used.
   supplied by that context, with no process-global default. Both contexts can
   coexist in one adapter owner without exchanging argv, auxv or destinations.
 - `exec.c` validates the target and handles shebangs before re-executing the
-  bootstrap. Preparation receives the filesystem context explicitly. Kernel
-  exec retains PID, descriptors and the installed filter.
+  bootstrap. Preparation receives the filesystem context explicitly and owns
+  both main and interpreter descriptors. Bootstrap resume consumes that prepared
+  command and maps the retained images without reopening their names. Kernel
+  exec retains PID, descriptors and the installed filter; failure releases both
+  prepared descriptors.
   The bootstrap republishes its adapter ABI before entering the stock loader,
   without adding another filter. Missing executables return errors to the caller.
 - `inode_store.c`, `inode_db.c`, `inode_path.c`, `inode_directory.c` and

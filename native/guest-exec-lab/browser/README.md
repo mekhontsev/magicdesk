@@ -52,7 +52,8 @@ requires a successful exit and expectations. `sandboxSupportEstablished` and
   read-only output buffers, CLOEXEC, open-unlinked inode identity and immediate
   broker revocation after a sibling changes the shared CLONE_FS root,
   offsets, regular/directory/O_PATH/pipe FD reuse, shared dup/fork/thread seeks,
-  seek and internal-transport ERRNO/TRAP/KILL precedence, signals, group death,
+  seek, kernel-fast-path and internal-transport ERRNO/TRAP/KILL precedence,
+  restricted-domain argument checks, failed exec descriptor cleanup, signals, group death,
   job control, sockets, three stock zygote/renderer
   starts and rejection of a helper not explicitly admitted.
 - `test_renderer.py`: a separately labelled layer-two experiment. Its parent
@@ -66,6 +67,8 @@ python native/guest-exec-lab/browser/test_retained.py --build BUILD --store DEVI
 ```
 
 `build-control.sh` builds `control.c` for the prepared guest libc.
+`broker-directories` checks shared dup/fork cursors, failed and partially copied
+output, application-filter denial, nondumpable fallback and native procfs reads.
 `build-identity.sh` tests the production logical-credential model.
 `zygote_stage.py` exercises helper IPC, renderer fork, real filter installation
 and nonempty Mojo startup independently of a displayed page. Prepared stores

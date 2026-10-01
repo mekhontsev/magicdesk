@@ -13,8 +13,21 @@ at an explicit readiness stop. The supervisor reads it before resuming the guest
 exec republishes the same immutable bundle's ABI. No generated address header,
 Java class name or environment-variable switch selects an implementation.
 
+Command preparation owns the main ELF and optional interpreter descriptors,
+resolved identity and argument vector. Both images survive the real kernel exec
+into the bootstrap; it validates their load segments before mapping without
+reopening filenames or reparsing the command. A failed exec releases both
+descriptors. Namespace image admission and logical credential publication remain
+separate from this handoff.
+
 Data IO, common memory operations, futexes, clocks and signals pass directly to
-the kernel. Adapted calls run on guarded scratch stacks leased per address space.
+the kernel. `MD_DOMAIN_KERNEL_CALLS` and `MD_DOMAIN_KERNEL_ARGUMENTS` describe
+additional calls requiring no adaptation or observation in any guest domain.
+The domain checker and seccomp filter consume these same definitions. Argument
+predicates compare the full 64-bit value; other commands retain the dispatcher.
+Application filters still evaluate kernel-fast-path calls. Logical credentials,
+root changes, filter installation and dumpability changes retain their observers.
+Adapted calls run on guarded scratch stacks leased per address space.
 CLONE_VM shares the pool; fork copies mapping metadata without sharing leases;
 exec replaces it. Completed calls return their lease. Thread records are reused
 without a fixed thread-count ceiling. Heap work is confined to ownership changes
@@ -27,7 +40,7 @@ cache or namespace metadata RPC is involved. Shared positions and descriptor
 reuse retain kernel semantics. Directories and unavailable remote descriptor
 access use the ordinary adapter, including nondumpable processes.
 
-`namespace_broker.c` handles ordinary openat/newfstatat/fstat notifications in the
+`namespace_broker.c` handles ordinary openat/newfstatat/fstat/getdents64 notifications in the
 namespace worker, alongside adapter RPC. The worker alone owns SQLite and the
 sealed-image catalogue; `fs_engine.c` dispatches both transports. Eligible requests
 copy paths page by page, retain exact-task descriptors and validate notification
@@ -41,10 +54,15 @@ supervisor state excludes restricted domains and adapter continuations from the
 ordinary path. A shared-root restriction revokes every CLONE_FS member before
 its caller resumes, including members not returning through a ptrace stop.
 O_PATH uses SCM_RIGHTS because ADDFD rejects it. Mutating opens and
-directory cursors retain the task-affine adapter and its no-replay contract.
-Directory reads validate and advance through one namespace operation without a
-preliminary metadata RPC. Unavailable remote access is delegated before mutation;
-a partially delivered result is never replayed.
+directory seeks retain the task-affine adapter and its no-replay contract.
+Directory reads validate and enumerate through one namespace operation without a
+preliminary metadata RPC. The engine's synchronous output callback runs after
+the read transaction, before advancing the actual open-file-description cursor.
+Denied remote output can delegate only when no bytes or cursor position changed;
+partial copies fail without automatic replay. Cancellation before publication
+leaves the cursor unchanged. Cancellation after publication/advance may have an
+uncertain outcome, like a lost RPC reply. Restricted domains retain their native
+descriptor-read policy, and application seccomp filters still apply.
 
 `magicdesk-guest --statistics --store STORE -- PROGRAM` enables aggregate
 syscall/ptrace/stop counters, broker handling/delegation counts, RPC operation
@@ -60,6 +78,9 @@ kernel. These calls are already unconditional native operations in every guest
 domain; the domain policy and gate share the explicit list. External calls still
 enter their adapters. This removes redundant supervisor stops, not application
 filter evaluation: ERRNO, TRAP and KILL also apply to the internal transport.
+Internal fstat at the same gate reads native descriptor metadata directly; it
+does not request logical inode or set-ID metadata. Application fstat retains the
+namespace and image-catalogue path.
 
 The guest owns SIGSYS, signal masks and alternate stacks. Native clone and signal
 return retain their register/extension ABI. Application filters are not removed:

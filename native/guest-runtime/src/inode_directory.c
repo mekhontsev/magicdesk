@@ -7,11 +7,11 @@
 #include <unistd.h>
 
 _Static_assert(offsetof(struct md_inode_dirent, name) == 19, "Linux getdents64 ABI");
-static int directory(struct md_inode_store *s, int fd, struct mdi_node *node) {
+static int directory(struct md_inode_store *s, int fd, struct mdi_node *node, struct stat *st) {
     int flags = fcntl(fd, F_GETFL);
     if (flags < 0) return -errno;
     if (flags & O_PATH) return -EBADF;
-    int r = mdi_fd(s, fd, node);
+    int r = st ? mdi_fstat(s, fd, node, st) : mdi_fd(s, fd, node);
     return r ? r : node->kind == S_IFDIR ? 0 : -ENOTDIR;
 }
 static size_t record(void *out, size_t space, const char *name, size_t length,
@@ -27,19 +27,20 @@ static size_t record(void *out, size_t space, const char *name, size_t length,
 int64_t md_inode_seekdir(struct md_inode_store *s, int fd, int64_t offset, int whence) {
     if (whence != SEEK_SET && whence != SEEK_CUR) return -EINVAL;
     int r = mdi_begin(s, 0); if (r) return r;
-    struct mdi_node node; r = directory(s, fd, &node);
+    struct mdi_node node; r = directory(s, fd, &node, NULL);
     r = mdi_finish(s, r);
     if (r) return r;
     off_t result = lseek(fd, offset, whence);
     return result < 0 ? -errno : result;
 }
-ssize_t md_inode_getdents(struct md_inode_store *s, int fd, void *out, size_t capacity) {
+ssize_t md_inode_getdents_deliver(struct md_inode_store *s, int fd, void *out, size_t capacity,
+        int (*deliver)(void *, const void *, size_t), void *context) {
     if (!out) return -EFAULT;
     if (capacity > INT_MAX) return -EINVAL;
     int r = mdi_begin(s, 0); if (r) return r;
-    struct mdi_node node; r = directory(s, fd, &node);
+    struct mdi_node node;
     struct stat st;
-    if (!r) r = mdi_stat(s, &node, &st);
+    r = directory(s, fd, &node, &st);
     if (!r && !st.st_nlink) r = -ENOENT;
     int64_t offset = 0;
     if (!r && (offset = lseek(fd, 0, SEEK_CUR)) < 0) r = -errno;
@@ -54,9 +55,7 @@ ssize_t md_inode_getdents(struct md_inode_store *s, int fd, void *out, size_t ca
         used += n; ++offset;
     }
     sqlite3_stmt *q = NULL;
-    if (!r && offset >= 2) r = mdi_prepare(s,
-        "SELECT n.cookie,n.name,o.inode,o.kind FROM names n JOIN objects o ON o.object=n.object "
-        "WHERE n.parent=?1 AND n.cookie>?2 ORDER BY n.cookie", &q);
+    if (!r && offset >= 2) r = mdi_query_acquire(s, MDI_READDIR, &q);
     if (!r && q) r = mdi_bind_id(q, 1, node.id);
     if (!r && q) r = mdi_sql_error(sqlite3_bind_int64(q, 2, offset-2));
     while (!r && q) {
@@ -74,7 +73,11 @@ ssize_t md_inode_getdents(struct md_inode_store *s, int fd, void *out, size_t ca
         if (!n) { if (!used) r = -EINVAL; break; }
         used += n; offset = next;
     }
-    sqlite3_finalize(q); r = mdi_finish(s, r);
+    r = mdi_query_release(q, r); r = mdi_finish(s, r);
+    if (!r && deliver) r = deliver(context, out, used);
     if (!r && used && lseek(fd, offset, SEEK_SET) != offset) r = -EIO;
     return r ? r : (ssize_t)used;
+}
+ssize_t md_inode_getdents(struct md_inode_store *s, int fd, void *out, size_t capacity) {
+    return md_inode_getdents_deliver(s, fd, out, capacity, NULL, NULL);
 }

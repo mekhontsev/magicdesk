@@ -16,9 +16,10 @@ struct md_command {
     char lines[4][256];
     char *argv[MD_ARG_MAX + 16];
     unsigned argc;
-    int fd;
+    int fd, interpreter_fd;
 };
-/* Borrows input_fd (-1 selects the path); success transfers an opened ELF fd. */
+/* Borrows input_fd (-1 selects the path); success owns both prepared images. */
 int md_command_prepare(const struct md_fs *, struct md_command *, const char *, char *const [],
     int input_fd, int inaccessible);
+void md_command_close(struct md_command *);
 #endif

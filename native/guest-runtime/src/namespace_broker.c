@@ -21,7 +21,7 @@ struct operation {
     struct seccomp_notif notification;
     struct md_fs_request request;
     struct md_fs_result result;
-    int listener, directory;
+    int listener, directory, undelivered;
     char path[PATH_MAX];
 };
 struct md_namespace_broker {
@@ -66,9 +66,21 @@ static int pathname(pid_t pid, uintptr_t address, char *out, size_t capacity) {
     }
     return -ENAMETOOLONG;
 }
+static int deliver_directory(void *context, const void *data, size_t size) {
+    struct operation *op = context;
+    if (!valid(op)) return -ECANCELED;
+    if (!size) return 0;
+    struct iovec local = {(void *)data, size}, remote = {(void *)op->notification.data.args[1], size};
+    ssize_t n = process_vm_writev(op->notification.pid, &local, 1, &remote, 1, 0);
+    /* Only a denied, untouched output may fall back to the task-affine path.
+     * Partial copies and notification cancellation are terminal for this call. */
+    if (n < 0 && (errno == EPERM || errno == EACCES)) op->undelivered = 1;
+    return n == (ssize_t)size ? 0 : -EFAULT;
+}
 static void execute(struct md_inode_store *store, struct md_image_catalogue *images, struct operation *op) {
     op->result = (struct md_fs_result){.fd = -1, .error = -ECANCELED};
-    if (valid(op)) md_fs_execute(store, images, &op->request, &op->result);
+    struct md_fs_output output = {.deliver = deliver_directory, .context = op};
+    if (valid(op)) md_fs_execute(store, images, &op->request, &op->result, &output);
     if (op->result.error == -EXDEV && op->request.operation == MD_FS_FSTAT) {
         /* Native descriptors outside the namespace retain kernel metadata. */
         struct stat st;
@@ -100,15 +112,19 @@ static void recycle(struct md_namespace_broker *b, struct operation *op) {
 }
 static int prepare(struct operation *op, struct task *task) {
     const struct seccomp_notif *q = &op->notification;
-    if (q->data.nr != SYS_openat && q->data.nr != SYS_newfstatat && q->data.nr != SYS_fstat) return 0;
-    /* Mutating open and directory cursors need an explicit commit/cancellation
-     * contract. They retain the task-affine path, never speculative replay. */
+    if (q->data.nr != SYS_openat && q->data.nr != SYS_newfstatat
+            && q->data.nr != SYS_fstat && q->data.nr != SYS_getdents64) return 0;
+    /* Mutating opens retain the task-affine path, never speculative replay. */
     /* ADDFD uses fget(), which rejects O_PATH; SCM_RIGHTS preserves it. */
     if (q->data.nr == SYS_openat && (q->data.args[2] & (O_CREAT | O_TRUNC | __O_TMPFILE | O_PATH))) return 0;
     if (q->data.nr == SYS_newfstatat && (q->data.args[3] & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT))) return 0;
     op->request = (struct md_fs_request){.operation = MD_FS_FSTAT, .directory = {-1, -1}};
     op->path[0] = 0;
-    if (q->data.nr != SYS_fstat) {
+    if (q->data.nr == SYS_getdents64) {
+        op->request.operation = MD_FS_GETDENTS;
+        op->request.capacity = q->data.args[2] > sizeof(op->result.data)
+            ? sizeof(op->result.data) : (uint32_t)q->data.args[2];
+    } else if (q->data.nr != SYS_fstat) {
         if (pathname(q->pid, q->data.args[1], op->path, sizeof(op->path)) || md_host_path(op->path)) goto delegate;
         if (!*op->path && (q->data.nr != SYS_newfstatat || !(q->data.args[3] & AT_EMPTY_PATH))) goto delegate;
         op->request.path[0] = op->path;
@@ -117,7 +133,7 @@ static int prepare(struct operation *op, struct task *task) {
             : *op->path ? (uint32_t)(q->data.args[3] & AT_SYMLINK_NOFOLLOW) : 0;
     }
     if (*op->path != '/') {
-        if ((int)q->data.args[0] == AT_FDCWD && q->data.nr != SYS_fstat) {
+        if ((int)q->data.args[0] == AT_FDCWD && op->request.path[0]) {
             char cwd[64]; snprintf(cwd, sizeof(cwd), "/proc/%u/cwd", q->pid);
             op->directory = open(cwd, O_PATH | O_DIRECTORY | O_CLOEXEC);
         } else op->directory = duplicate(task, q->pid, (int)q->data.args[0]);
@@ -137,7 +153,7 @@ static void metadata(const struct md_fs_info *i, struct stat *s) {
 }
 /* Zero requests task-affine handling, one means delivered/cancelled. */
 static int reply(struct operation *op) {
-    if (op->result.error == -EXDEV) return 0;
+    if (op->result.error == -EXDEV || op->undelivered) return 0;
     struct seccomp_notif_resp response = {.id = op->notification.id, .error = op->result.error};
     if (!response.error && op->notification.data.nr == SYS_openat) {
         struct seccomp_notif_addfd add = {.id = response.id, .srcfd = op->result.fd,
@@ -145,6 +161,8 @@ static int reply(struct operation *op) {
             .newfd_flags = (uint32_t)op->notification.data.args[2] & O_CLOEXEC};
         if (ioctl(op->listener, SECCOMP_IOCTL_NOTIF_ADDFD, &add) >= 0) return 1;
         response.error = -errno;
+    } else if (!response.error && op->notification.data.nr == SYS_getdents64) {
+        response.val = op->result.size;
     } else if (!response.error) {
         if (!valid(op)) return 1;
         struct stat st;
@@ -213,7 +231,7 @@ static int receive(void *context, struct md_inode_store *s, struct md_image_cata
         }
         op->all = b->all; b->all = op;
     }
-    op->notification = q; op->listener = b->listener; op->directory = -1;
+    op->notification = q; op->listener = b->listener; op->directory = -1; op->undelivered = 0;
     op->result = (struct md_fs_result){.fd = -1};
     int prepared = eligible && prepare(op, task);
     pthread_mutex_lock(&b->lock);

@@ -511,10 +511,16 @@ static void image_request(struct thread *t, const struct seccomp_notif *q) {
 }
 static void handle_notification(const struct seccomp_notif *request) {
     struct seccomp_notif q = *request;
-    CHECK(q.data.nr == SYS_fstat || q.data.nr == SYS_openat || q.data.nr == SYS_newfstatat || q.data.nr == SYS_prctl);
+    CHECK(q.data.nr == SYS_fstat || q.data.nr == SYS_openat || q.data.nr == SYS_newfstatat
+        || q.data.nr == SYS_getdents64 || q.data.nr == SYS_prctl);
     struct thread *t = find_thread((pid_t)q.pid);
     CHECK(t && t->born);
     if (q.data.nr == SYS_prctl) { image_request(t, &q); return; }
+    if (q.data.nr == SYS_getdents64 && md_domain_restricted(t->domain)) {
+        CHECK(t->phase == IDLE);
+        struct seccomp_notif_resp reply = {.id = q.id, .flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE};
+        CHECK(!ioctl(listener, SECCOMP_IOCTL_NOTIF_SEND, &reply) || errno == ENOENT); return;
+    }
     if (t->phase == EXPORT_NOTIFY) {
         struct metadata_operation *op = &t->metadata;
         CHECK(q.id != op->request.id && !memcmp(&q.data, &op->request.data, sizeof(q.data)));

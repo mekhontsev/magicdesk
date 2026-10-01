@@ -20,6 +20,17 @@ char md_executable[PATH_MAX];
 static struct md_process_image process_image;
 static struct md_socket_routes connections;
 
+static int descriptor_number(const char *number) {
+    if (!*number) md_die("missing image descriptor", -EINVAL);
+    unsigned long value = 0;
+    for (; *number; ++number) {
+        if (*number < '0' || *number > '9' || value > (2147483647UL - (*number - '0')) / 10)
+            md_die("invalid image descriptor", -EINVAL);
+        value = value * 10 + (unsigned)(*number - '0');
+    }
+    return (int)value;
+}
+
 void md_boot(uintptr_t *kernel_stack) {
     size_t argc = *kernel_stack;
     char **argv = (char **)(kernel_stack + 1), **env = argv + argc + 1;
@@ -62,19 +73,14 @@ void md_boot(uintptr_t *kernel_stack) {
     }
     int inherited = argc > 1 && md_equal(argv[1], "--resume");
     unsigned root_arg = inherited ? 2 : 1;
-    int program_fd = -1;
+    int program_fd = -1, interpreter_fd = -1;
     const char *execfn = NULL;
     if (inherited && root_arg + 1 < argc && md_equal(argv[root_arg], "--program-fd")) {
-        const char *number = argv[root_arg + 1];
-        if (!*number) md_die("missing program descriptor", -EINVAL);
-        unsigned long value = 0;
-        for (; *number; ++number) {
-            if (*number < '0' || *number > '9' || value > 214748364UL)
-                md_die("invalid program descriptor", -EINVAL);
-            value = value * 10 + (unsigned)(*number - '0');
-        }
-        if (value > 2147483647UL) md_die("invalid program descriptor", -EINVAL);
-        program_fd = (int)value;
+        program_fd = descriptor_number(argv[root_arg + 1]);
+        root_arg += 2;
+    }
+    if (inherited && root_arg + 1 < argc && md_equal(argv[root_arg], "--interpreter-fd")) {
+        interpreter_fd = descriptor_number(argv[root_arg + 1]);
         root_arg += 2;
     }
     if (inherited && root_arg + 1 < argc && md_equal(argv[root_arg], "--execfn")) {
@@ -122,10 +128,16 @@ void md_boot(uintptr_t *kernel_stack) {
     if (r < 0) md_die("install syscall adapter", r);
     struct md_command command;
     if (!execfn) execfn = argv[root_arg + 1];
-    r = md_command_prepare(&md_files, &command, argv[root_arg + 1], argv + root_arg + (inherited ? 2 : 1), program_fd, 0);
-    if (program_fd >= 0) RAW1(close, program_fd);
+    if (inherited) {
+        if (program_fd < 0 || program_fd == interpreter_fd) md_die("invalid prepared images", -EINVAL);
+        command.fd = program_fd; command.interpreter_fd = interpreter_fd;
+        command.argc = argc - root_arg - 2;
+        if (command.argc >= MD_ARG_MAX) md_die("guest arguments", -E2BIG);
+        memcpy(command.argv, argv + root_arg + 2, (command.argc + 1) * sizeof(char *));
+        r = md_copy(command.path, sizeof(command.path), argv[root_arg + 1]);
+    } else r = md_command_prepare(&md_files, &command, argv[root_arg + 1], argv + root_arg + 1, -1, 0);
     if (r < 0) md_die("prepare guest program", r);
-    r = md_program_identity(&md_files, command.path, md_executable);
+    r = md_copy(md_executable, sizeof(md_executable), command.path);
     if (r < 0) md_die("guest identity", r);
     const char *name = md_executable;
     for (const char *p = name; *p; ++p) if (*p == '/') name = p + 1;
@@ -142,9 +154,8 @@ void md_boot(uintptr_t *kernel_stack) {
     RAW1(close, fd);
     if (r < 0) md_die("map guest program", r);
     struct md_image image = {.entry = program.entry};
-    if (command.interpreter[0]) {
-        fd = md_program_open(&md_files, command.interpreter, 1);
-        if (fd < 0) md_die("open stock loader", fd);
+    if (command.interpreter_fd >= 0) {
+        fd = command.interpreter_fd;
         r = md_interception_map_image((int)fd, 1);
         if (!r) r = md_elf_load((int)fd, 1, &image);
         RAW1(close, fd);

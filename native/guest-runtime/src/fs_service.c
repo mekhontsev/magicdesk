@@ -80,7 +80,7 @@ static int dispatch(struct md_inode_store *s, struct md_image_catalogue *images,
     unsigned index = 0;
     for (unsigned i = 0; i < 2; ++i) if (q->descriptors & (1U << i)) request.directory[i] = input->fd[index++];
     struct md_fs_result result;
-    md_fs_execute(s, images, &request, &result);
+    md_fs_execute(s, images, &request, &result, NULL);
     out->info = result.info; out->size = result.size; out->position = result.position;
     memcpy(out->data, result.data, result.size);
     if (result.fd >= 0) output->fd[output->count++] = result.fd;

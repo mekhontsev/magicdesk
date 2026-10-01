@@ -63,6 +63,9 @@ def main():
         check("Android shell identity", "id", contains=["uid=2000(shell)", "context=u:r:shell:s0"])
         check("kernel identity", "uname -a", contains="aarch64")
         check("page size observation", "getconf PAGE_SIZE")
+        check("prepared executable and loader ownership", "timeout 30 " + root
+              + "/md-command-test " + root + "/prepared-images",
+              contains="PASS prepared command:")
         check("optional kernel capabilities do not disable ordinary shell", "timeout 30 " + root
               + "/md-capabilities-test " + root + "/libmagicdesk_guest_supervisor.so " + root + "/libmagicdesk_guest_bootstrap.so",
               contains="PASS capability isolation")

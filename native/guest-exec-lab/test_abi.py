@@ -29,7 +29,7 @@ def main():
     assert state["shell"]["uid"] == 2000
     tag = uuid.uuid4().hex
     directory = "/data/local/tmp/md-guest-abi-" + tag
-    files = [args.libc_build / ("md-" + name + "-fixture") for name in ["execfd", "process_image", "ipc"]]
+    files = [args.libc_build / ("md-" + name + "-fixture") for name in ["exec", "execfd", "process_image", "ipc"]]
     files += [args.static_build / ("md-static-" + name) for name in ["exec", "pie", "exec-2m", "pie-2m"]]
     files += [args.build / "md-freestanding-fixture"]
     archive = args.build / ("abi-" + args.libc + "-" + tag + ".tar")

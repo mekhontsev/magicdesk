@@ -102,6 +102,10 @@ Capability fault injection checks that missing kernel calls reject only guest
 execution. Process fixtures cover concurrent distinct stores, cancellation and
 orphan ownership. These checks do not emulate an old kernel or prove compatibility
 with every distribution. See the native component's coverage and limits.
+The native prepared-command fixture runs under the selected shell identity and
+checks interpreter descriptor pinning across name replacement, borrowed/unlinked
+executables, argument identity and descriptor cleanup. It is not run in the
+Termux app domain, whose syscall restrictions differ from the guest executor.
 
 ## Libc, IPC And Desktop Checks
 
@@ -136,7 +140,8 @@ python native/guest-exec-lab/test_abi.py BUILD \
 
 Repeat with the musl outputs and Alpine store. These checks include descriptor
 and dirfd exec, open-unlinked/name-reused executable identity, bounded shebang
-parsing, process-image snapshots, Unix sendmmsg partial batches and SCM_RIGHTS.
+parsing, 64 successive execs, thread/signal stacks, vfork, spawn file actions,
+process-image snapshots, Unix sendmmsg partial batches and SCM_RIGHTS.
 They install fixture programs only into the explicitly selected disposable store.
 
 ## Distribution Packages And Applications

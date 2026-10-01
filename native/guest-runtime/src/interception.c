@@ -6,6 +6,7 @@
 #include "interception.h"
 #include "guest_domain.h"
 #include <errno.h>
+#include <fcntl.h>
 #include <linux/audit.h>
 #include <linux/filter.h>
 #include <linux/seccomp.h>
@@ -88,7 +89,7 @@ int md_interception_install(int inherited) {
     if (!inherited) {
         uintptr_t gate = (uintptr_t)md_raw_return;
 #define COUNT(name) + 1
-        enum { transport_instructions = 2 * (0 MD_GATE_TRANSPORT_CALLS(COUNT)) };
+        enum { transport_instructions = 2 * (1 MD_GATE_TRANSPORT_CALLS(COUNT)) };
 #undef COUNT
 #define TRACE(n) BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_##n, 0, 1), \
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRACE | MD_INTERCEPT_DISPATCH),
@@ -109,8 +110,6 @@ int md_interception_install(int inherited) {
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_ENTER_IMAGE, 0, 1),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_USER_NOTIF),
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_fstat, 0, 1),
-            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_USER_NOTIF),
             OBSERVE(clone) OBSERVE(clone3) OBSERVE(chroot)
             NATIVE(read) NATIVE(write) NATIVE(readv) NATIVE(writev)
             NATIVE(pread64) NATIVE(pwrite64) NATIVE(close)
@@ -123,6 +122,18 @@ int md_interception_install(int inherited) {
             NATIVE(epoll_pwait) NATIVE(epoll_ctl) NATIVE(epoll_create1)
             NATIVE(eventfd2) NATIVE(timerfd_create) NATIVE(timerfd_settime) NATIVE(timerfd_gettime)
             NATIVE(exit) NATIVE(exit_group) NATIVE(set_tid_address)
+            MD_DOMAIN_KERNEL_CALLS(NATIVE)
+            /* Compare the full policy argument, not only its low kernel int. */
+#define NATIVE_ARGUMENT(n, index, value) \
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_##n, 0, 6), \
+            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[index]) + 4), \
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0, 0, 3), \
+            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[index])), \
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, value, 0, 1), \
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+            MD_DOMAIN_KERNEL_ARGUMENTS(NATIVE_ARGUMENT)
+#undef NATIVE_ARGUMENT
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, instruction_pointer) + 4),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)(gate >> 32), 0, 8 + transport_instructions),
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, instruction_pointer)),
@@ -132,12 +143,18 @@ int md_interception_install(int inherited) {
              * original application call still enters its adapter, and every
              * application filter still evaluates these internal syscalls. */
             MD_GATE_TRANSPORT_CALLS(NATIVE)
+            /* Loader/adapter fstat already requests native descriptor metadata,
+             * never logical inode or admitted set-ID metadata. Keep application
+             * filters in force without a worker/supervisor round trip. */
+            NATIVE(fstat)
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_execve, 0, 1),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRACE | MD_INTERCEPT_EXEC),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_execveat, 0, 1),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRACE | MD_INTERCEPT_EXEC),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRACE | MD_INTERCEPT_NATIVE),
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_fstat, 0, 1),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_USER_NOTIF),
 #define IDENTITY(n) BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_##n, 0, 1), \
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRACE | MD_INTERCEPT_IDENTITY),
             IDENTITY(getuid) IDENTITY(geteuid) IDENTITY(getgid) IDENTITY(getegid)
@@ -150,6 +167,8 @@ int md_interception_install(int inherited) {
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_openat, 0, 1),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_USER_NOTIF),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_newfstatat, 0, 1),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_USER_NOTIF),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_getdents64, 0, 1),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_USER_NOTIF),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_prctl, 0, 5),
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
