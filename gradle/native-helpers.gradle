@@ -129,22 +129,30 @@ def cmakeAndroidTarget = {
 
 def guestBuild = layout.buildDirectory.dir('guestRuntime').get().asFile
 def configureGuest = tasks.register('configureGuestRuntime', Exec) {
-    inputs.file rootProject.file('native/guest-runtime/CMakeLists.txt')
+    inputs.files rootProject.file('native/guest-runtime/CMakeLists.txt'), rootProject.file('native/guest-runtime/image-dependencies.cmake')
     inputs.property 'nativeTarget', nativeTarget
     outputs.file new File(guestBuild, 'build.ninja')
     doFirst {
         commandLine(['cmake', '-S', rootProject.file('native/guest-runtime'), '-B', guestBuild,
-                '-G', 'Ninja'] + cmakeAndroidTarget())
+                '-G', 'Ninja', "-DANDROID_PLATFORM_LEVEL=${android.defaultConfig.minSdk}"] + cmakeAndroidTarget())
     }
 }
 def buildGuest = tasks.register('buildGuestRuntime', Exec) {
     dependsOn configureGuest
-    commandLine 'cmake', '--build', guestBuild, '--parallel', '2'
+    commandLine 'cmake', '--build', guestBuild, '--target', 'bootstrap', 'supervisor', 'run', 'service', 'image', '--parallel', '2'
 }
 def packageGuest = tasks.register('packageGuestRuntime', Copy) {
     dependsOn buildGuest
-    from(guestBuild) { include 'libmagicdesk_guest_bootstrap.so', 'libmagicdesk_guest_supervisor.so', 'libmagicdesk_guest_run.so', 'libmagicdesk_guest_service.so' }
+    from(guestBuild) { include 'libmagicdesk_guest_bootstrap.so', 'libmagicdesk_guest_supervisor.so', 'libmagicdesk_guest_run.so', 'libmagicdesk_guest_service.so', 'libmagicdesk_guest_image.so' }
     into new File(nativeOutputRoot, 'arm64-v8a')
+}
+
+def guestLicenses = layout.buildDirectory.dir('guestRuntimeLicenses').get().asFile
+android.sourceSets.main.assets.srcDir guestLicenses
+def packageGuestLicenses = tasks.register('packageGuestRuntimeLicenses', Sync) {
+    dependsOn configureGuest
+    from new File(guestBuild, 'licenses')
+    into new File(guestLicenses, 'licenses/guest-images')
 }
 
 def settingsBuild = layout.buildDirectory.dir('linuxSettings').get().asFile
@@ -176,5 +184,5 @@ def packageSettingsLicenses = tasks.register('packageLinuxSettingsLicenses', Syn
 }
 
 tasks.named('preBuild').configure {
-    dependsOn uinputTask, ptyTask, serviceTask, processSignalTask, guestFilesTask, packageGuest, packageSettings, packageSettingsLicenses
+    dependsOn uinputTask, ptyTask, serviceTask, processSignalTask, guestFilesTask, packageGuest, packageGuestLicenses, packageSettings, packageSettingsLicenses
 }

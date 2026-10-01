@@ -12,7 +12,7 @@ logical image admission and remaining isolation limits.
 
 ## Build And Run
 
-`build.sh` builds the same four executables as the APK. SQLite uses the pinned
+`build.sh` builds the production execution helpers. SQLite uses the pinned
 production dependency, with `MD_SQLITE_BUILD` optionally selecting its existing
 build directory.
 

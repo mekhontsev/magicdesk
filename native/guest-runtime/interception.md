@@ -30,9 +30,11 @@ The domain checker and seccomp filter consume these same definitions. Argument
 predicates compare the full 64-bit value; other commands retain the dispatcher.
 Application filters still evaluate kernel-fast-path calls. Logical credentials,
 root changes, filter installation and dumpability changes retain their observers.
-Watch descriptors install exact-FD read selectors lazily; ordinary unrelated
-reads stay native. Selected reads retain their original signal context while
-the worker waits for records. Filter installation ownership is separate from
+Watch descriptors install bounded FD-class read selectors lazily; reads in
+unselected classes stay native. Kernel-object identity distinguishes watch
+readers from ordinary descriptors sharing a class. Selected reads retain their
+original signal context while the worker waits for records; protected readers
+use task-affine copying and a native readiness wait. Filter installation ownership is separate from
 address-space and descriptor ownership; see [filesystem watches](watches.md).
 Adapted calls run on guarded scratch stacks leased per address space.
 CLONE_VM shares the pool; fork copies mapping metadata without sharing leases;

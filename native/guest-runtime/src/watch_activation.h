@@ -1,5 +1,9 @@
 #ifndef MD_WATCH_ACTIVATION_H
 #define MD_WATCH_ACTIVATION_H
+
+/* Finite selector classes bound irreversible kernel filter growth. A selector
+ * is never file identity; the namespace owner checks the retained kernel FD. */
+enum { MD_WATCH_SELECTOR_MASK = 511 };
 /* Installed seccomp selectors belong to a thread group, not its address space
  * or descriptor table. Fork copies them, threads share them, exec retains them. */
 struct md_watch_activation;

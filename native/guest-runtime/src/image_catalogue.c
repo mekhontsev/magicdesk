@@ -21,11 +21,13 @@ static int same(const struct stat *a, const struct stat *b) {
 static int selected(struct md_image_catalogue *c, const struct stat *st) {
     return c && (same(st, &c->physical) || same(st, &c->entry.source_stat));
 }
-static int original_fd(struct md_image_catalogue *c, int fd) {
+static int original_fd(struct md_image_catalogue *c, struct md_inode_store *s, int fd) {
     if (!c) return fd;
     struct stat st;
     if (fstat(fd, &st)) return fd;
     if (selected(c, &st)) return c->entry.source;
+    char object[33];
+    if (!md_inode_object_id(s, fd, object) && !strcmp(object, c->object)) return c->entry.source;
     const int required = F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK | F_SEAL_SEAL;
     if (st.st_size != c->physical.st_size) return fd;
     int seals = fcntl(fd, F_GET_SEALS);
@@ -97,11 +99,11 @@ int md_catalogue_open(struct md_image_catalogue *c, struct md_inode_store *s, in
         int fd = md_inode_open_resolved(s, dir, path,
             O_PATH | O_CLOEXEC | (flags & (O_NOFOLLOW | O_DIRECTORY)), 0, resolve);
         if (fd >= 0) {
-            struct stat st;
-            int error = fstat(fd, &st) ? -errno : 0;
+            char object[33];
+            int error = md_inode_object_id(s, fd, object);
             close(fd);
             if (error) return error;
-            if (selected(c, &st)) return open_snapshot(c, flags);
+            if (!strcmp(object, c->object)) return open_snapshot(c, flags);
         } else if (fd != -ENOENT) return fd;
     }
     return md_inode_open_resolved(s, dir, path, flags, mode, resolve);
@@ -120,13 +122,18 @@ int md_catalogue_open_image(struct md_image_catalogue *c, struct md_inode_store 
     return fd;
 }
 int md_catalogue_object_id(struct md_image_catalogue *c, struct md_inode_store *s, int fd, char out[33]) {
-    return md_inode_object_id(s, original_fd(c, fd), out);
+    return md_inode_object_id(s, original_fd(c, s, fd), out);
+}
+int md_catalogue_reopen(struct md_image_catalogue *c, struct md_inode_store *s, int fd, int flags, int mutable) {
+    int original = original_fd(c, s, fd);
+    if (c && original == c->entry.source) return mutable ? -EROFS : open_snapshot(c, flags);
+    return md_inode_reopen(s, original, flags, mutable);
 }
 int md_catalogue_path(struct md_image_catalogue *c, struct md_inode_store *s, int fd, char *out, size_t size) {
-    return md_inode_path(s, original_fd(c, fd), out, size);
+    return md_inode_path(s, original_fd(c, s, fd), out, size);
 }
 int md_catalogue_fstat(struct md_image_catalogue *c, struct md_inode_store *s, int fd, struct stat *st) {
-    int source = original_fd(c, fd);
+    int source = original_fd(c, s, fd);
     int error = md_inode_fstat(s, source, st);
     if (!error && c && source == c->entry.source) {
         nlink_t links = st->st_nlink;
@@ -137,7 +144,7 @@ int md_catalogue_fstat(struct md_image_catalogue *c, struct md_inode_store *s, i
 int md_catalogue_stat(struct md_image_catalogue *c, struct md_inode_store *s, int dir,
         const char *path, int flags, struct stat *st) {
     int error = md_inode_stat(s, dir, path, flags, st);
-    if (!error && selected(c, st)) {
+    if (!error && c && same(&c->logical, st)) {
         nlink_t links = st->st_nlink;
         *st = c->logical; st->st_nlink = links;
     }

@@ -24,7 +24,7 @@ static int readable(int fd) {
 static int closed(struct md_watch_queue *q) {
     struct pollfd p = {md_watch_queue_lifetime(q), 0, 0};
     CHECK(poll(&p, 1, 0) >= 0);
-    return !!(p.revents & POLLERR);
+    return !!(p.revents & (POLLERR | POLLHUP));
 }
 static int reject(void *context, const void *data, size_t size) {
     CHECK(context == data && size > 0);
@@ -47,6 +47,19 @@ static void records(void) {
     CHECK(fcntl(fd, F_GETFD) & FD_CLOEXEC);
     unsigned char bytes[4096];
     CHECK(!readable(fd) && !md_watch_queue_bytes(q));
+    CHECK(!md_watch_queue_emit(q, 9, IN_CREATE, 0, "reserved"));
+    CHECK(md_watch_queue_reserve(q, fd, bytes, sizeof(bytes)) == 32);
+    CHECK(!readable(fd));
+    CHECK(md_watch_queue_read(q, fd, bytes, sizeof(bytes), NULL, NULL) == -EAGAIN);
+    CHECK(!md_watch_queue_emit(q, 9, IN_CREATE, 0, "reserved"));
+    CHECK(md_watch_queue_bytes(q) == 64 && !readable(fd));
+    CHECK(!md_watch_queue_complete(q, 1));
+    CHECK(md_watch_queue_read(q, fd, bytes, sizeof(bytes), NULL, NULL) == 32);
+    CHECK(!md_watch_queue_emit(q, 9, IN_CREATE, 0, "rejected"));
+    CHECK(md_watch_queue_reserve(q, fd, bytes, sizeof(bytes)) == 32);
+    CHECK(!md_watch_queue_complete(q, 0));
+    CHECK(md_watch_queue_read(q, fd, bytes, sizeof(bytes), NULL, NULL) == 32);
+    record(bytes, 9, IN_CREATE, 0, "rejected");
     CHECK(md_watch_queue_read(q, fd, bytes, sizeof(bytes), NULL, NULL) == -EAGAIN);
     CHECK(!md_watch_queue_emit(q, 4, IN_CREATE, 0, "file"));
     CHECK(!md_watch_queue_emit(q, 4, IN_CREATE, 0, "file"));

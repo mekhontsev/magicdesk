@@ -26,6 +26,11 @@ void md_inode_measure(struct md_inode_store *, struct md_inode_statistics *);
 #define MD_INODE_ROOT (-1)
 int md_inode_store_open(const char *directory, int create, struct md_inode_store **out);
 void md_inode_store_close(struct md_inode_store *);
+int md_inode_store_seal(struct md_inode_store *);
+int md_inode_snapshot(struct md_inode_store *source, struct md_inode_store *empty_destination);
+/* Retained FD identity selects its logical object, even after copy-up. Flags
+ * select a new descriptor; the caller's original open description is untouched. */
+int md_inode_reopen(struct md_inode_store *, int fd, int flags, int mutable);
 int md_inode_create(struct md_inode_store *, int dirfd, const char *path, mode_t mode);
 int md_inode_mkdir(struct md_inode_store *, int dirfd, const char *path, mode_t mode);
 int md_inode_symlink(struct md_inode_store *, const char *target, int dirfd, const char *path);

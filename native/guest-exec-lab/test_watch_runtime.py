@@ -65,6 +65,12 @@ def main():
                 + directory + "/store --home /tmp --cwd / -- /bin/watch /tmp/test")
         reads = re.search(r"MD_SYSCALL nr=63 trace=(\d+)", output)
         assert reads and int(reads[1]) < 1000, "Ordinary reads acquired a process-wide interception path"
+        command("timeout 60 " + directory + "/libmagicdesk_guest_run.so --store "
+                + directory + "/store -- /bin/watch protected /tmp/protected")
+        command("timeout 60 " + directory + "/libmagicdesk_guest_run.so --store "
+                + directory + "/store -- /bin/watch protected-all /tmp/protected-all")
+        command("timeout 60 " + directory + "/libmagicdesk_guest_run.so --store "
+                + directory + "/store -- /bin/watch churn")
         command("timeout 60 " + directory + "/libmagicdesk_guest_watch_launch.so "
                 + directory + "/libmagicdesk_guest_run.so " + directory + "/store")
         command("timeout 30 " + directory + "/libmagicdesk_guest_watch_store.so " + directory + "/store-unit")

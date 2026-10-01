@@ -5,7 +5,7 @@
 #include <sys/un.h>
 
 #define MD_FS_MAGIC 0x4d444653U
-#define MD_FS_VERSION 5U
+#define MD_FS_VERSION 7U
 #define MD_FS_MAX_FDS 2
 struct md_fs_packet {
     /* descriptors is a bitmask of the two base-FD slots, in slot order. */

@@ -36,7 +36,9 @@ int md_inode_open_object(struct md_inode_store *s, const char *id, int flags) {
     if (!r) r = mdi_backing_stat(s, &node, &st);
     if (!r && node.kind != S_IFREG) r = -EINVAL;
     int fd = -1;
-    if (!r && (fd = openat(s->objects, id, flags | O_NOFOLLOW | O_CLOEXEC)) < 0) r = -errno;
+    int directory = r ? -1 : mdi_backing_directory(s, &node);
+    if (!r && directory < 0) r = directory;
+    if (!r && (fd = openat(directory, node.backing, flags | O_NOFOLLOW | O_CLOEXEC)) < 0) r = -errno;
     r = mdi_finish(s, r);
     if (r && fd >= 0) close(fd);
     return r ? r : fd;
@@ -86,7 +88,7 @@ ssize_t md_inode_readlink(struct md_inode_store *s, int dirfd, const char *path,
     r = mdi_walk(s, dirfd, path, MDI_NOFOLLOW, 0, &loc);
     if (!r && loc.node.kind != S_IFLNK) r = -EINVAL;
     ssize_t n = -1;
-    if (!r && (n = readlinkat(s->objects, loc.node.id, out, size)) < 0) r = -errno;
+    if (!r && (n = readlinkat(s->objects, loc.node.backing, out, size)) < 0) r = -errno;
     r = mdi_finish(s, r);
     return r ? r : n;
 }
@@ -115,7 +117,8 @@ static int open_resolved(struct md_inode_store *s, int dirfd, const char *path, 
     int create = flags & O_CREAT;
     if (create && (flags & O_DIRECTORY)) return -EINVAL;
     if (create && (mode & ~01777)) return -ENOTSUP;
-    int r = mdi_begin(s, !!create);
+    int write = create || (flags & (O_WRONLY | O_RDWR | O_TRUNC));
+    int r = mdi_begin(s, !!write);
     if (r) return r;
     struct mdi_location loc;
     r = mdi_walk_resolved(s, dirfd, path, create && (flags & O_EXCL) ? MDI_ENTRY
@@ -138,9 +141,12 @@ static int open_resolved(struct md_inode_store *s, int dirfd, const char *path, 
     if (!r && loc.node.kind == S_IFSOCK && !(flags & O_PATH)) r = -ENXIO;
     if (!r && loc.node.kind == S_IFDIR && (flags & (O_WRONLY | O_RDWR | O_TRUNC | O_CREAT))) r = -EISDIR;
     if (!r && image && loc.node.kind != S_IFREG) r = -EACCES;
+    if (!r && write) r = mdi_copy_up(s, &loc.node);
     struct stat st;
     if (!r) r = mdi_backing_stat(s, &loc.node, &st);
-    if (!r && (fd = openat(s->objects, loc.node.id, (flags & ~(O_CREAT | O_EXCL)) | O_CLOEXEC | O_NOFOLLOW)) < 0) r = -errno;
+    int directory = r ? -1 : mdi_backing_directory(s, &loc.node);
+    if (!r && directory < 0) r = directory;
+    if (!r && (fd = openat(directory, loc.node.backing, (flags & ~(O_CREAT | O_EXCL)) | O_CLOEXEC | O_NOFOLLOW)) < 0) r = -errno;
     if (!r && image) {
         struct stat opened;
         if (fstat(fd, &opened)) r = -errno;

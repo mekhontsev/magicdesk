@@ -97,6 +97,7 @@ long md_file_call(const struct md_fs *fs, const char *exe, long nr, const unsign
     int flags;
     switch (nr) {
     case SYS_fstat: case SYS_getdents64: case SYS_lseek: case SYS_fsetxattr:
+    case SYS_fchmod: case SYS_fchown: case SYS_fremovexattr:
         return md_raw(nr,a[0],a[1],a[2],a[3],a[4],a[5]);
     case SYS_openat:
         flags = (int)a[2];

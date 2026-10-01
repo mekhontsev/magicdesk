@@ -3,10 +3,14 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/inotify.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 static void directory(const char *path) {
@@ -61,11 +65,73 @@ static void spawn(void) {
     }
     puts("MD_WORKLOAD_OK spawn 128");
 }
+static int watch_tree(void) {
+    int fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC); assert(fd >= 0);
+    for (unsigned i = 0; i < 16; ++i) {
+        char path[64]; snprintf(path, sizeof(path), "/bench/tree/d%u", i);
+        assert(inotify_add_watch(fd, path, IN_OPEN | IN_ACCESS | IN_CLOSE_NOWRITE) > 0);
+    }
+    return fd;
+}
+static unsigned drain(int fd) {
+    char bytes[65536]; unsigned count = 0;
+    for (;;) {
+        ssize_t n = read(fd, bytes, sizeof(bytes));
+        if (n < 0 && errno == EAGAIN) return count;
+        assert(n > 0);
+        for (size_t at = 0; at < (size_t)n;) {
+            struct inotify_event e; memcpy(&e, bytes + at, sizeof(e));
+            assert(!(e.mask & IN_Q_OVERFLOW));
+            at += sizeof(e) + e.len; count++;
+        }
+    }
+}
+static uint64_t now(void) {
+    struct timespec t; assert(!clock_gettime(CLOCK_MONOTONIC, &t));
+    return (uint64_t)t.tv_sec * 1000000000 + t.tv_nsec;
+}
 int main(int argc, char **argv) {
-    assert(argc == 2);
+    assert(argc == 2 || argc == 3);
+    int watch = -1, stop = -1; pid_t observer = -1;
+    const char *mode = argc == 3 ? argv[2] : "none";
+    if (!strcmp(mode, "self")) watch = watch_tree();
+    else if (!strcmp(mode, "external")) {
+        int ready[2], end[2]; assert(!pipe2(ready, O_CLOEXEC) && !pipe2(end, O_CLOEXEC));
+        observer = fork(); assert(observer >= 0);
+        if (!observer) {
+            close(ready[0]); close(end[1]);
+            int fd = watch_tree(); assert(write(ready[1], "x", 1) == 1); close(ready[1]);
+            struct pollfd fds[] = {{fd, POLLIN, 0}, {end[0], POLLIN, 0}};
+            unsigned events = 0;
+            for (;;) {
+                /* EVENT_WAIT: data or parent completion; outer process deadline cancels hangs. */
+                assert(poll(fds, 2, -1) > 0);
+                events += drain(fd);
+                if (fds[1].revents) break;
+            }
+            if (!strcmp(argv[1], "metadata")) assert(events > 0);
+            printf("MD_WATCH events=%u mode=external\n", events); fflush(stdout);
+            close(fd); close(end[0]); _exit(0);
+        }
+        close(ready[1]); close(end[0]); char byte;
+        /* EVENT_WAIT: observer installed all watches, never a startup delay. */
+        assert(read(ready[0], &byte, 1) == 1); close(ready[0]); stop = end[1];
+    } else assert(!strcmp(mode, "none"));
+    uint64_t start = now();
     if (!strcmp(argv[1], "prepare")) prepare();
     else if (!strcmp(argv[1], "metadata")) metadata();
     else if (!strcmp(argv[1], "spawn")) spawn();
     else return 2;
+    uint64_t elapsed = now() - start;
+    if (watch >= 0) {
+        unsigned count = drain(watch);
+        if (!strcmp(argv[1], "metadata")) assert(count > 0);
+        printf("MD_WATCH events=%u mode=self\n", count); close(watch);
+    }
+    if (observer > 0) {
+        close(stop); int status;
+        assert(waitpid(observer, &status, 0) == observer && WIFEXITED(status) && !WEXITSTATUS(status));
+    }
+    printf("MD_ELAPSED workload=%s watch=%s ns=%llu\n", argv[1], mode, (unsigned long long)elapsed);
     return 0;
 }

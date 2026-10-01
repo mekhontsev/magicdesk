@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "watch_broker.h"
 #include "inode_watch.h"
+#include "interception.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
@@ -29,7 +30,8 @@ static int valid(struct watch_read *r) {
 }
 static int reply(int listener, uint64_t id, long result, int flags) {
     struct seccomp_notif_resp response = {.id = id, .flags = flags,
-        .val = result < 0 ? 0 : result, .error = result < 0 ? (int)result : 0};
+        .val = result < 0 && result >= -4095 ? 0 : result,
+        .error = result < 0 && result >= -4095 ? (int)result : 0};
     return !ioctl(listener, SECCOMP_IOCTL_NOTIF_SEND, &response) || errno == ENOENT ? 0 : -errno;
 }
 static int deliver(void *context, const void *data, size_t size) {
@@ -39,6 +41,7 @@ static int deliver(void *context, const void *data, size_t size) {
     struct iovec local = {(void *)data, size};
     struct iovec remote = {r->vectors[r->vector].iov_base, size};
     ssize_t n = process_vm_writev(r->q.pid, &local, 1, &remote, 1, 0);
+    if (n < 0 && (errno == EPERM || errno == EACCES)) return -EACCES;
     return n == (ssize_t)size ? 0 : -EFAULT;
 }
 static void recycle(struct md_watch_broker *b, struct watch_read *r) {
@@ -67,6 +70,7 @@ static int run(struct md_watch_broker *b, struct md_inode_store *s, struct watch
         r->vector++;
     }
     if (r->copied) result = (long)r->copied;
+    else if (result == -EACCES) result = MD_WATCH_TASK_AFFINE;
     int error = reply(r->listener, r->q.id, result, 0);
     return error ? error : 1;
 }
@@ -77,7 +81,8 @@ struct md_watch_broker *md_watch_broker_create(void) {
 }
 int md_watch_broker_submit(struct md_watch_broker *b, struct md_inode_store *s, int listener,
         const struct seccomp_notif *q, int reader) {
-    if (reader < 0) return reply(listener, q->id, reader, 0);
+    if (reader < 0) return reply(listener, q->id,
+        reader == -EPERM || reader == -EACCES ? MD_WATCH_TASK_AFFINE : reader, 0);
     if (!md_inode_watch_contains(s, reader)) {
         close(reader);
         return reply(listener, q->id, 0, SECCOMP_USER_NOTIF_FLAG_CONTINUE);
@@ -90,7 +95,9 @@ int md_watch_broker_submit(struct md_watch_broker *b, struct md_inode_store *s, 
             if (result >= 0) {
                 int bytes = (int)result;
                 struct iovec local = {&bytes, sizeof(bytes)}, remote = {(void *)q->data.args[2], sizeof(bytes)};
-                result = process_vm_writev(q->pid, &local, 1, &remote, 1, 0) == sizeof(bytes) ? 0 : -EFAULT;
+                ssize_t n = process_vm_writev(q->pid, &local, 1, &remote, 1, 0);
+                result = n == sizeof(bytes) ? 0 : n < 0 && (errno == EPERM || errno == EACCES)
+                    ? MD_WATCH_TASK_AFFINE : -EFAULT;
             }
         } else if (q->data.nr == SYS_ioctl) { result = 0; flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE; }
         close(reader);
@@ -111,7 +118,11 @@ int md_watch_broker_submit(struct md_watch_broker *b, struct md_inode_store *s, 
         r->vector_count = (int)q->data.args[2];
         size_t bytes = (size_t)r->vector_count * sizeof(struct iovec);
         struct iovec local = {r->vectors, bytes}, remote = {(void *)q->data.args[1], bytes};
-        if (bytes && process_vm_readv(q->pid, &local, 1, &remote, 1, 0) != (ssize_t)bytes) error = -EFAULT;
+        if (bytes) {
+            ssize_t copied = process_vm_readv(q->pid, &local, 1, &remote, 1, 0);
+            if (copied != (ssize_t)bytes)
+                error = copied < 0 && (errno == EPERM || errno == EACCES) ? -EACCES : -EFAULT;
+        }
         size_t total = 0;
         for (int i = 0; !error && i < r->vector_count; ++i) {
             if (r->vectors[i].iov_len > (size_t)SSIZE_MAX - total) error = -EINVAL;
@@ -119,7 +130,7 @@ int md_watch_broker_submit(struct md_watch_broker *b, struct md_inode_store *s, 
         }
         if (!error && !total) r->vector_count = 0;
     }
-    if (error) { recycle(b, r); return reply(listener, q->id, error, 0); }
+    if (error) { recycle(b, r); return reply(listener, q->id, error == -EACCES ? MD_WATCH_TASK_AFFINE : error, 0); }
     int done = run(b, s, r);
     if (done) { recycle(b, r); return done < 0 ? done : 0; }
     /* EVENT_WAIT: namespace/native readiness or notification cancellation. The

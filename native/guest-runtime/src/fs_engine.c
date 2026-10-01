@@ -2,10 +2,11 @@
 #include "fs_engine.h"
 #include "image_catalogue.h"
 #include "inode_watch.h"
+#include "fs_mounts.h"
 #include <errno.h>
 #include <string.h>
 
-static void info(const struct stat *s, struct md_fs_info *out) {
+void md_fs_stat_info(const struct stat *s, struct md_fs_info *out) {
     *out = (struct md_fs_info){.device = s->st_dev, .inode = s->st_ino, .links = s->st_nlink,
         .rdev = s->st_rdev, .size = s->st_size, .blocks = s->st_blocks, .mode = s->st_mode,
         .uid = s->st_uid, .gid = s->st_gid, .block_size = (uint32_t)s->st_blksize,
@@ -13,8 +14,15 @@ static void info(const struct stat *s, struct md_fs_info *out) {
         .change_seconds = s->st_ctim.tv_sec, .access_nanos = (uint32_t)s->st_atim.tv_nsec,
         .modify_nanos = (uint32_t)s->st_mtim.tv_nsec, .change_nanos = (uint32_t)s->st_ctim.tv_nsec};
 }
-void md_fs_execute(struct md_inode_store *s, struct md_image_catalogue *images,
+void md_fs_execute(struct md_filesystem *fs,
         const struct md_fs_request *q, struct md_fs_result *out, const struct md_fs_output *output) {
+    if (fs->mounts) md_fs_mounts_execute(fs, q, out, output);
+    else md_fs_inode_execute(fs, q, out, output);
+}
+void md_fs_inode_execute(struct md_filesystem *fs,
+        const struct md_fs_request *q, struct md_fs_result *out, const struct md_fs_output *output) {
+    struct md_inode_store *s = fs->store;
+    struct md_image_catalogue *images = fs->images;
     *out = (struct md_fs_result){.fd = -1};
     void *data = output ? output->data : NULL;
     size_t capacity = output ? output->capacity : 0;
@@ -22,6 +30,7 @@ void md_fs_execute(struct md_inode_store *s, struct md_image_catalogue *images,
     int first = q->directory[0], second = q->directory[1];
     int r = -ENOTSUP; struct stat st;
     switch (q->operation) {
+    case MD_FS_REOPEN: r = md_catalogue_reopen(images, s, first, (int)q->flags, (int)q->mode); goto opened;
     case MD_FS_WATCH_CREATE: r = md_inode_watch_create(s, (int)q->flags); goto opened;
     case MD_FS_WATCH_ADD:
         r = md_inode_watch_add(s, first, second, q->flags);
@@ -69,7 +78,7 @@ void md_fs_execute(struct md_inode_store *s, struct md_image_catalogue *images,
     case MD_FS_STAT: case MD_FS_FSTAT:
         r = q->operation == MD_FS_STAT ? md_catalogue_stat(images, s, first, a, (int)q->flags, &st)
             : md_catalogue_fstat(images, s, first, &st);
-        if (!r) info(&st, &out->info);
+        if (!r) md_fs_stat_info(&st, &out->info);
         break;
     case MD_FS_PATH:
         r = md_catalogue_path(images, s, first, data, capacity);

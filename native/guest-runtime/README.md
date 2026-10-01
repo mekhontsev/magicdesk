@@ -87,6 +87,9 @@ custom glibc linker, root transition or SELinux change is used.
   `watch_calls.c`, `watch_activation.c` and `watch_broker.c` own selected-FD
   activation and asynchronous reads. See the [watch contract](watches.md).
 - `fs_engine.c` dispatches typed namespace operations independently of transport.
+  Its explicit filesystem view composes the store, executable catalogue and
+  launch-local native directory attachments. `fs_mounts.c`, `fs_mount_path.c`
+  and `fs_mount_operations.c` own attachment lifetimes, resolution and operations.
   `fs_worker.c` owns the store and sealed-image catalogue on one supervisor thread.
   `namespace_broker.c` handles eligible file notifications directly;
   `fs_service.c` serves task-affine adapter RPC on the same event loop.
@@ -100,6 +103,11 @@ custom glibc linker, root transition or SELinux change is used.
   namespace serving for native fixtures. See the [lifetime contract](process-lifetime.md).
 - `event_wait.c` supplies monotonic event-driven descriptor waits to RPC and
   process ownership, without polling or a libc dependency.
+- `image_main.c` is the offline OCI image tool. JSON, archive verification,
+  layer application, atomic publication and launch configuration have separate
+  modules. Image launches use the existing runner and process guardian.
+  See [images and filesystem views](images.md) for sharing, copy-on-write,
+  attachments and supported image semantics.
 - `fd_metadata.c` applies namespace chmod and path xattrs to a retained native
   inode under the caller's real identity. Attribute values do not enter SQLite
   or the RPC protocol; ordinary data and FD operations remain kernel-owned.

@@ -55,7 +55,7 @@ int md_inode_socket_address(struct md_inode_store *s, int dirfd, const char *pat
     if (!r && loc.node.kind != S_IFSOCK) r = -ECONNREFUSED;
     struct stat st;
     if (!r) r = mdi_stat(s, &loc.node, &st);
-    if (!r && faccessat(s->objects, loc.node.id, W_OK, AT_EACCESS)) r = -errno;
+    if (!r && faccessat(s->objects, loc.node.backing, W_OK, AT_EACCESS)) r = -errno;
     if (!r) r = endpoint(&loc.node, out, size);
     return mdi_finish(s, r);
 }

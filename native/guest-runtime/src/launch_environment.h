@@ -7,4 +7,5 @@ struct md_launch_environment {
     char *values[128];
 };
 long md_launch_environment(struct md_launch_environment *, const char *home, char **inherited);
+long md_launch_environment_set(struct md_launch_environment *, char *entry);
 #endif

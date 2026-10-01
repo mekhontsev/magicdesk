@@ -70,7 +70,7 @@ int mdi_walk_resolved(struct md_inode_store *s, int dirfd, const char *path,
             if (resolve & RESOLVE_NO_SYMLINKS) return -ELOOP;
             if (++links > 40) return -ELOOP;
             char target[PATH_MAX];
-            ssize_t n = readlinkat(s->objects, next.id, target, sizeof(target));
+            ssize_t n = readlinkat(s->objects, next.backing, target, sizeof(target));
             if (n < 0) return -errno;
             size_t rest_length = strlen(todo);
             if (!n) return -ENOENT;

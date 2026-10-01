@@ -36,6 +36,7 @@ struct instance {
 struct md_inode_watches {
     struct instance *instances;
     int native, epoll, presence, database, objects;
+    int sources[MDI_SOURCES];
     unsigned instance_count, subscription_count;
     int64_t cursor;
 };
@@ -64,7 +65,7 @@ static struct instance *find(struct md_inode_store *s, int fd) {
     struct stat st;
     if (!s->watches || fstat(fd, &st)) return NULL;
     for (struct instance *i = s->watches->instances; i; i = i->next)
-        if (st.st_dev == i->device && st.st_ino == i->inode && S_ISFIFO(st.st_mode)) return i;
+        if (st.st_dev == i->device && st.st_ino == i->inode && S_ISSOCK(st.st_mode)) return i;
     return NULL;
 }
 int md_inode_watch_contains(struct md_inode_store *s, int fd) { return find(s, fd) != NULL; }
@@ -72,7 +73,8 @@ static void retire_native(struct md_inode_watches *w, int wd) {
     for (struct instance *i = w->instances; i; i = i->next)
         for (struct subscription *p = i->subscriptions; p; p = p->next)
             if (p->native == wd) return;
-    if (wd != w->database && wd != w->objects) inotify_rm_watch(w->native, wd);
+    for (unsigned n = 0; n < MDI_SOURCES; ++n) if (w->sources[n] == wd) return;
+    if (wd >= 0 && wd != w->database) inotify_rm_watch(w->native, wd);
 }
 static void free_instance(struct md_inode_watches *w, struct instance *i) {
     while (i->subscriptions) {
@@ -102,6 +104,7 @@ static int start(struct md_inode_store *s) {
     struct md_inode_watches *w = calloc(1, sizeof(*w));
     if (!w) return -ENOMEM;
     w->native = w->epoll = w->presence = -1;
+    for (unsigned i = 0; i < MDI_SOURCES; ++i) w->sources[i] = -1;
     s->watches = w;
     int r = mdi_begin(s, 0);
     if (r) { md_inode_watch_close(s); return r; }
@@ -113,6 +116,11 @@ static int start(struct md_inode_store *s) {
     if (!r) r = epoll_add(w->epoll, w->native, EPOLLIN);
     if (!r && (w->database = watch_path(w->native, s->root, "/namespace.db", IN_MODIFY)) < 0) r = w->database;
     if (!r && (w->objects = watch_path(w->native, s->objects, "", DATA_EVENTS)) < 0) r = w->objects;
+    w->sources[0] = w->objects;
+    for (unsigned i = 1; !r && i < MDI_SOURCES; ++i) if (s->sources[i] >= 0) {
+        w->sources[i] = watch_path(w->native, s->sources[i], "", DATA_EVENTS);
+        if (w->sources[i] < 0) r = w->sources[i];
+    }
     if (!r) r = journal_end(s, &w->cursor);
     r = mdi_finish(s, r);
     if (r) md_inode_watch_close(s);
@@ -205,12 +213,39 @@ static int native_event(struct md_inode_store *s, const struct inotify_event *ev
     if (event->mask & IN_Q_OVERFLOW) return overflow(w);
     if (event->wd == w->database) return 0;
     int r = 0;
-    if (event->wd == w->objects) {
+    int source = -1;
+    for (unsigned i = 0; i < MDI_SOURCES; ++i) if (event->wd == w->sources[i]) { source = (int)i; break; }
+    if (source >= 0) {
         if (!event->len || strlen(event->name) != 32) return 0;
+        sqlite3_stmt *object = NULL;
+        r = mdi_query_acquire(s, MDI_BACKING_OBJECT, &object);
+        if (!r) r = mdi_bind_id(object, 1, event->name);
+        if (!r) r = mdi_sql_error(sqlite3_bind_int(object, 2, source));
+        char id[33] = {0};
+        if (!r) {
+            int rc = mdi_step(s, object);
+            if (rc == SQLITE_ROW && sqlite3_column_bytes(object, 0) == 32)
+                memcpy(id, sqlite3_column_text(object, 0), 32);
+            else if (rc != SQLITE_DONE) r = mdi_sql_failure(rc);
+        }
+        r = mdi_query_release(object, r);
+        if (r || !*id) return r;
+        /* Virtual subscriptions follow logical objects across copy-up. Watching
+         * the retained backing directory observes the first write even before
+         * another namespace owner processes the publication commit. */
+        for (struct instance *i = w->instances; i && !r; i = i->next) {
+            struct subscription **link = &i->subscriptions;
+            while (*link && !r) {
+                struct subscription *p = *link;
+                if (!strcmp(p->object, id)) r = publish(w, i, link, event->mask, 0, NULL);
+                if (*link == p) link = &p->next;
+            }
+        }
         /* Resolve aliases once per native event, not once per subscription. */
         sqlite3_stmt *q = NULL;
-        r = mdi_query_acquire(s, MDI_EVENT_NAMES, &q);
+        if (!r) r = mdi_query_acquire(s, MDI_EVENT_NAMES, &q);
         if (!r) r = mdi_bind_id(q, 1, event->name);
+        if (!r) r = mdi_sql_error(sqlite3_bind_int(q, 2, source));
         while (!r) {
             int rc = mdi_step(s, q);
             if (rc != SQLITE_ROW) { r = mdi_sql_error(rc); break; }
@@ -263,7 +298,7 @@ int md_inode_watch_pump(struct md_inode_store *s) {
     struct epoll_event events[MAX_INSTANCES+1];
     int n = epoll_wait(w->epoll, events, MAX_INSTANCES+1, 0);
     if (n < 0) return errno == EINTR ? 0 : -errno;
-    for (int j = 0; j < n; ++j) if (events[j].events & EPOLLERR) {
+    for (int j = 0; j < n; ++j) if (events[j].events & (EPOLLERR | EPOLLHUP)) {
         struct instance **link = &w->instances;
         while (*link && md_watch_queue_lifetime((*link)->queue) != events[j].data.fd) link = &(*link)->next;
         if (*link) { struct instance *i = *link; *link = i->next; free_instance(w, i); }
@@ -289,8 +324,12 @@ int md_inode_watch_add(struct md_inode_store *s, int fd, int object, unsigned ma
     struct stat st;
     if (fstat(object, &st)) return -errno;
     if ((mask & IN_ONLYDIR) && !S_ISDIR(st.st_mode)) return -ENOTDIR;
+    char identity[33] = {0};
+    r = md_inode_object_id(s, object, identity);
+    if (r && r != -EXDEV) return r;
     struct subscription *p = i->subscriptions;
-    while (p && (p->device != st.st_dev || p->inode != st.st_ino)) p = p->next;
+    while (p && (*identity ? strcmp(p->object, identity) != 0
+            : *p->object || p->device != st.st_dev || p->inode != st.st_ino)) p = p->next;
     if (p) {
         if (mask & IN_MASK_CREATE) return -EEXIST;
         p->mask = mask & IN_MASK_ADD ? p->mask | mask : mask;
@@ -316,11 +355,11 @@ int md_inode_watch_add(struct md_inode_store *s, int fd, int object, unsigned ma
     if (!r) r = journal_end(s, &p->after);
     if (!r) {
         if (*p->object) {
-            char suffix[34] = "/";
-            memcpy(suffix + 1, p->object, 33);
-            p->native = watch_path(w->native, s->objects, suffix, IN_ALL_EVENTS | IN_MASK_ADD | IN_DONT_FOLLOW);
-        } else p->native = watch_path(w->native, object, "", IN_ALL_EVENTS | IN_MASK_ADD);
-        if (p->native < 0) r = p->native;
+            p->native = -1;
+        } else {
+            p->native = watch_path(w->native, object, "", IN_ALL_EVENTS | IN_MASK_ADD);
+            if (p->native < 0) r = p->native;
+        }
     }
     r = mdi_finish(s, r);
     if (r) { free(p); return r; }
@@ -350,4 +389,14 @@ ssize_t md_inode_watch_read(struct md_inode_store *s, int fd, void *data, size_t
     if (r) return r;
     struct instance *i = find(s, fd);
     return i ? md_watch_queue_read(i->queue, fd, data, capacity, deliver, context) : -EINVAL;
+}
+ssize_t md_inode_watch_reserve(struct md_inode_store *s, int fd, void *data, size_t capacity) {
+    int r = md_inode_watch_pump(s);
+    if (r) return r;
+    struct instance *i = find(s, fd);
+    return i ? md_watch_queue_reserve(i->queue, fd, data, capacity) : -EINVAL;
+}
+int md_inode_watch_complete(struct md_inode_store *s, int fd, int delivered) {
+    struct instance *i = find(s, fd);
+    return i ? md_watch_queue_complete(i->queue, delivered) : -EINVAL;
 }

@@ -96,6 +96,19 @@ public class GuestRuntimeTest {
         assertFalse(GuestRuntimeCommand.SCRIPT.contains("--probe) exec \"$md_guest/libmagicdesk_guest_bootstrap.so\""));
     }
 
+    @Test public void imageToolIsStagedWithItsRunnerButOnlyExecutionProbesKernel() {
+        assertTrue(GuestRuntimeArtifacts.FILES.contains("libmagicdesk_guest_image.so"));
+        String script = GuestRuntimeCommand.SCRIPT;
+        int start = script.indexOf("image) shift");
+        int end = script.indexOf("--import) exec", start);
+        assertTrue(start > 0 && end > start);
+        String branch = script.substring(start, end);
+        assertTrue(branch.contains("if [ \"${1-}\" = run ]; then"));
+        assertTrue(branch.contains("--probe >/dev/null || exit $?"));
+        assertTrue(branch.contains("exec \"$md_guest/libmagicdesk_guest_image.so\" \"$@\""));
+        assertFalse(branch.contains("su "));
+    }
+
     @Test public void graphicalConnectionBelongsToRecipeNotIdentityOrFileEnvironment() {
         assertTrue(GraphicalConnectionMode.AUTO.namedEndpoint(0, 10001));
         assertTrue(GraphicalConnectionMode.AUTO.namedEndpoint(10001, 10001));

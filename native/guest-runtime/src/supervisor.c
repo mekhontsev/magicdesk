@@ -2,6 +2,7 @@
 #include "event_wait.h"
 #include "fs_rpc.h"
 #include "fs_worker.h"
+#include "fs_mounts.h"
 #include "namespace_broker.h"
 #include "guest_domain.h"
 #include "elf_admission.h"
@@ -98,6 +99,7 @@ struct thread {
     struct md_identity identity;
     struct md_exec_identity pending_identity;
     int mapped_image, entered;
+    int watch_wait;
 };
 static struct thread *threads;
 static pid_t leader;
@@ -783,6 +785,15 @@ static void dispatch(struct thread *t) {
     if (!set_registers(t->pid, &regs)) return;
     t->phase = DISPATCHING; resume(t->pid, 0);
 }
+static void dispatch_with_stack(struct thread *t) {
+    if (!t->stack) t->stack = md_stacks_take(t->stacks);
+    if (t->stack) dispatch(t);
+    else {
+        struct user_pt_regs regs = t->original; regs.pc = ALLOCATE;
+        if (!set_registers(t->pid, &regs)) return;
+        t->phase = ALLOCATING; resume(t->pid, 0);
+    }
+}
 static void drain(void) {
     struct signalfd_siginfo info;
     while (read(signal_fd, &info, sizeof(info)) == sizeof(info)) {
@@ -847,6 +858,14 @@ int main(int argc, char **argv) {
         admitted_path = argv[argument + 1]; argument += 2;
         CHECK(admitted_path[0] == '/');
     }
+    struct md_fs_attachment attachments[MD_FS_MOUNTS_MAX];
+    unsigned attachment_count = 0;
+    while (argument < argc && (!strcmp(argv[argument], "--bind") || !strcmp(argv[argument], "--bind-ro"))) {
+        CHECK(argument+2 < argc && attachment_count < MD_FS_MOUNTS_MAX);
+        attachments[attachment_count++] = (struct md_fs_attachment){
+            .source=argv[argument+1], .target=argv[argument+2], .readonly=!strcmp(argv[argument], "--bind-ro")};
+        argument += 3;
+    }
     const char *store = NULL, *endpoint = NULL;
     if (argument < argc && !strcmp(argv[argument], "--store")) {
         CHECK(argument + 4 < argc && !strcmp(argv[argument + 2], "--endpoint"));
@@ -881,7 +900,7 @@ int main(int argc, char **argv) {
         /* The guest was forked with the caller's mask. Only the native owner
          * uses zero; creation requests already contain the guest's masked mode. */
         umask(0);
-        int startup = md_fs_worker_start(store, endpoint, admitted_path, statistics != NULL, &filesystem);
+        int startup = md_fs_worker_start(store, endpoint, admitted_path, attachments, attachment_count, statistics != NULL, &filesystem);
         if (startup) errno = -startup;
         CHECK(!startup);
         broker = md_broker_create(filesystem, statistics != NULL); CHECK(broker);
@@ -1012,6 +1031,7 @@ int main(int argc, char **argv) {
             if (cookie == MD_INTERCEPT_WATCH) {
                 CHECK(t->ready && t->phase == IDLE);
                 t->original = regs;
+                t->watch_wait = 0;
                 if (!tracee_request(t, PTRACE_GETSIGMASK, (void *)sizeof(t->mask), &t->mask, "watch-mask")
                         || !shield(t) || !skip(pid)) continue;
                 t->phase = WATCH_CANCEL; resume(pid, 0); continue;
@@ -1035,13 +1055,7 @@ int main(int argc, char **argv) {
             t->original = regs; calls++; t->calls++;
             if (!tracee_request(t, PTRACE_GETSIGMASK, (void *)sizeof(t->mask), &t->mask, "get-mask")
                     || !shield(t) || !skip(pid)) continue;
-            if (!t->stack) t->stack = md_stacks_take(t->stacks);
-            if (t->stack) dispatch(t);
-            else {
-                regs.pc = ALLOCATE;
-                if (!set_registers(pid, &regs)) continue;
-                t->phase = ALLOCATING; resume(pid, 0);
-            }
+            dispatch_with_stack(t);
         } else if (!event && sig == (SIGTRAP | 0x80)) {
             if (t->phase == WATCH_CANCEL) {
                 struct user_pt_regs regs = t->original; regs.pc = abi.watch_gate;
@@ -1056,8 +1070,15 @@ int main(int argc, char **argv) {
             if (t->phase == WATCH_READ) {
                 struct user_pt_regs returned;
                 if (!registers(pid, &returned)) continue;
+                long value = (long)returned.regs[0];
+                if (value == MD_WATCH_TASK_AFFINE || (t->watch_wait == 1 && value > 0)) {
+                    if (!shield(t)) continue;
+                    t->watch_wait = 0;
+                    dispatch_with_stack(t); continue;
+                }
                 struct user_pt_regs regs = t->original; regs.regs[0] = returned.regs[0];
                 if (!set_registers(pid, &regs)) continue;
+                if (t->stack) { md_stacks_return(t->stacks, t->stack); t->stack = 0; }
                 md_fs_worker_wake(filesystem);
                 t->phase = IDLE; resume(pid, 0); continue;
             }
@@ -1151,6 +1172,20 @@ int main(int argc, char **argv) {
                 t->stack = regs.regs[0]; CHECK(!md_stacks_add(t->stacks, t->stack)); dispatch(t);
             } else if (regs.pc == DONE && t->phase == DISPATCHING) {
                 long value = regs.regs[0];
+                if (value == MD_WATCH_WAIT || value == MD_WATCH_NATIVE) {
+                    regs = t->original; regs.pc = RAW_GATE - 4;
+                    t->watch_wait = value == MD_WATCH_WAIT ? 1 : 2;
+                    if (t->watch_wait == 1) {
+                        /* EVENT_WAIT: native MSG_PEEK waits for queue readiness
+                         * without consuming it. Original signals/restart policy
+                         * apply; the namespace owner never waits on this reader. */
+                        regs.regs[8] = SYS_recvfrom;
+                        regs.regs[1] = t->stack - 16; regs.regs[2] = 1;
+                        regs.regs[3] = MSG_PEEK; regs.regs[4] = regs.regs[5] = 0;
+                    }
+                    if (!set_registers(pid, &regs)) continue;
+                    t->phase = WATCH_ENTRY; resume(pid, 0); continue;
+                }
                 if (value < 0 && t->original.regs[8] == SYS_fstat) {
                     if (++fstat_failures <= 8)
                         TRACE("PROBE fstat failed pid=%d fd=%llu result=%ld\n", pid, t->original.regs[0], value);

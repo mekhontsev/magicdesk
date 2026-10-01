@@ -337,6 +337,35 @@ Exact successful device coverage and unsupported ABI surfaces belong in
 [Guest runtime](../../docs/guest-runtime.md#coverage-and-limits), not a general
 claim of distribution or driver compatibility.
 
+## OCI And Filesystem View Checks
+
+Configure `native/guest-runtime` with `-DMAGICDESK_GUEST_FIXTURES=ON` and build
+`bootstrap supervisor run service image test_snapshot test_mounts`.
+The offline importer tests require Python and the `zstd` CLI:
+
+```sh
+python native/guest-exec-lab/test_oci.py BUILD_DIRECTORY -v
+```
+
+`fetch_oci_fixture.py REPOSITORY REFERENCE NEW_DIRECTORY` downloads a public
+Docker Hub ARM64 image into a local OCI layout. It is a development fixture,
+not an installed registry client. Preserve the returned manifest digest for
+reproducible inputs. Run independent Alpine and Debian layouts through actual
+shell UID 2000:
+
+```sh
+python native/guest-exec-lab/test_oci_runtime.py BUILD_DIRECTORY ALPINE_LAYOUT DEBIAN_LAYOUT
+```
+
+The runner stages production helpers, tests snapshot and mount contracts, then
+imports each layout and creates two instances. It checks copy-on-write,
+concurrent independent launches, readonly attachments, cross-boundary symlinks,
+working directories, PATH execution from an attachment and release after launch.
+It retains exact commands, results, digests and device/build identity, without
+starting Desktop or changing privileges. Uploaded layouts and stores remain for
+inspection. The installed CLI additionally needs ordinary Shell-console checks;
+standalone helper coverage alone does not verify APK packaging and dispatch.
+
 ## Watch Transport Controls
 
 ```sh
@@ -350,7 +379,7 @@ not install an APK or enable directory watching in the guest runtime. CMake's
 `watch_activation`; none is installed into the APK.
 
 The single-owner queue retains whole inotify records, adjacent coalescing,
-bounded overflow and rejected-delivery state. Its pipe carries readiness only.
+bounded overflow and rejected-delivery state. Its stream socket carries readiness only.
 Tests cover poll/edge-triggered epoll, short buffers, descriptor flags, dup,
 SCM_RIGHTS lifetime, and a stolen marker failing without blocking the owner.
 The owner does not retain a guest read end between operations. Record storage
@@ -360,7 +389,7 @@ The tracer fixture compares lazy process-wide and FD-selected read interception.
 It checks zero ordinary-read stops before activation, short-record errors,
 notification cancellation, EINTR, SA_RESTART and the application's signal context.
 The FD-selected control additionally checks zero stops on unrelated reads after
-activation, and validates the retained pipe identity after descriptor-number
+activation, and validates the retained kernel-object identity after descriptor-number
 reuse. Its microtimings describe this native fixture only, not GUI latency or
 production-runtime overhead. Output memory is fixture-owned shared memory;
 protected memory transfer and concurrent buffer mutation are not certified.
@@ -368,7 +397,7 @@ protected memory transfer and concurrent buffer mutation are not certified.
 Two blocking transports have separate limits. A predeclared notification gate
 uses the existing listener, but a filter admitting only the original read site
 rejects it. The native same-site read control preserves that filter and signal
-context, but is single-reader only: it restores a consumed pipe marker before
+context, but is single-reader only: it restores a consumed readiness marker before
 reading the queue. It does not implement production concurrent-reader ownership
 or empty zero-length reads. Native inotify controls establish that an empty
 nonblocking zero-length read returns EAGAIN, and that a record cannot span two
@@ -387,14 +416,16 @@ Configure `native/guest-runtime` with `-DMAGICDESK_GUEST_FIXTURES=ON`, then buil
 `bootstrap supervisor run service watch_guest watch_launch watch_store`.
 `test_watch_runtime.py BUILD_DIRECTORY` stages immutable production binaries
 through the configured MCP server, requires actual shell UID 2000, imports a
-fresh disposable format-6 store and checks real guest libc inotify calls.
+fresh disposable store and checks real guest libc inotify calls.
 It neither installs an APK nor changes Desktop or access settings.
 
 The suite covers directory/name events, rename cookies, file-data events,
 read/readv/FIONREAD boundaries, concurrent readers, dup/fcntl, queued SCM_RIGHTS
 through recvmsg/recvmmsg, descriptor reuse, EINTR/SA_RESTART and 64 execs with
-constant filter count. An aggregate interception counter detects accidental
-process-wide read tracing. Two independent observers receive a third launch's
+constant filter count. The complete glibc/musl suite runs again with dumpability
+disabled. Churn checks 7,680 distinct duplicate targets without unbounded filter
+growth. An aggregate interception counter detects accidental ordinary-read tracing
+in the unsaturated case. Two independent observers receive a third launch's
 mutations. Store controls verify rollback after SIGKILL, last-reader retirement
 and journal-overflow notification. Reports retain exact uploads, identities,
 commands and results; a timeout is a failure, not completion evidence.
@@ -419,10 +450,35 @@ python native/guest-exec-lab/test_watch_runtime.py BUILD_DIRECTORY \
 ```
 
 Native fixtures and Linux libraries are not shipped in the APK. These focused
-checks do not certify arbitrary protected-process watches, cross-supervisor FD
+checks do not certify arbitrary application filters, cross-supervisor FD
 transfer, all GUI workflows or performance against PRoot.
 
+`test_watch_apps.py BUILD --store STORE --runtime FIXTURE_DIRECTORY
+--keyboard-directory HOST_XKB --recipes RECIPE_CLASSES` uses the installed APK
+and a prepared Debian/Alpine system containing Mousepad, Thunar, fonts and a
+session bus. The fixture directory supplies `md-await-exit`; the recipe classes
+are the existing app-side `GraphicalRecipe` fixture. On its own virtual display,
+the test changes a document from another launch, accepts Mousepad's reload and
+checks actual clipboard text. It creates a file externally in an open Thunar
+folder, renames the visible selection, verifies the file from another process,
+then moves the current folder and checks Thunar's parent navigation. Both clients
+must exit with status zero. It never starts Desktop.
+
+The guest fixture's `aliases DIRECTORY` command prints data-event attribution
+before/after rename, unlink and last close with two hardlink names. It is a
+characterization, not an assertion of exact Linux dentry history. Native controls
+must report host hardlink permission denial rather than substituting copies.
+
 ## Runtime Benchmarks
+
+`benchmark_watches.py BUILD --store STORE --baseline BUNDLE --current BUNDLE`
+uses the `runtime-workloads` glibc fixture in `BUILD`. It compares metadata
+traversal and process spawning with no watches, a same-process observer, and a
+concurrent child observer. Warmup is excluded, sample order alternates, and
+separate counter-enabled launches do not contribute timing samples. Monotonic
+workload timing excludes watch registration/draining and launch preparation;
+the report retains thermal/power snapshots and verifies events without overflow.
+It measures neither compilation nor PRoot.
 
 `benchmark_compile.py` compares the same Debian GCC toolchain and SQLite
 amalgamation under native chroot, Termux PRoot and the installed guest runtime.

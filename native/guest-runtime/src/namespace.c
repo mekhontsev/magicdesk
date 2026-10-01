@@ -66,6 +66,22 @@ long md_namespace_creation_mode(unsigned mode) {
         }
     return -ENOTSUP;
 }
+long md_namespace_reopen(const struct md_fs *fs, int fd, int flags, int mutable) {
+    struct md_fs_request q = {.operation=MD_FS_REOPEN, .directory={fd,-1},
+        .flags=(uint32_t)flags, .mode=(uint32_t)mutable};
+    struct md_fs_response out;
+    long r = md_namespace_request(fs, &q, &out);
+    if (r < 0) return r;
+    if (!(flags & O_CLOEXEC)) {
+        r = RAW3(fcntl, out.result.fd, F_SETFD, 0);
+        if (r < 0) { RAW1(close, out.result.fd); return r; }
+    }
+    return out.result.fd;
+}
+long md_namespace_mutable(const struct md_fs *fs, int fd) {
+    long r = md_namespace_reopen(fs, fd, O_PATH | O_NOFOLLOW | O_CLOEXEC, 1);
+    return r == -EXDEV ? RAW3(fcntl, fd, F_DUPFD_CLOEXEC, 3) : r;
+}
 long md_namespace_open(const struct md_fs *fs, int base, const char *path, int flags, unsigned mode) {
     if (md_host_path(path))
         return RAW4(openat, base, path, flags, mode);
@@ -178,7 +194,7 @@ long md_namespace_xattr(const struct md_fs *fs, long nr, int base, const char *p
         args[1] = (unsigned long)name;
         default_acl = md_equal(name, "system.posix_acl_default");
     }
-    if (nr == SYS_fsetxattr) {
+    if (nr == SYS_fsetxattr || nr == SYS_fremovexattr) {
         if (default_acl) {
             if (base < 0)
                 return -EBADF;
@@ -189,13 +205,24 @@ long md_namespace_xattr(const struct md_fs *fs, long nr, int base, const char *p
             if (r != -EXDEV)
                 return r;
         }
-        return md_raw(nr, args[0], args[1], args[2], args[3], args[4], 0);
+        long flags = RAW3(fcntl, base, F_GETFL, 0);
+        if (flags < 0) return flags;
+        if (flags & O_PATH) return -EBADF;
+        long fd = md_namespace_mutable(fs, base);
+        if (fd < 0) return fd;
+        long r = md_fd_xattr((int)fd, nr == SYS_fsetxattr ? SYS_setxattr : SYS_removexattr, args);
+        RAW1(close, fd); return r;
     }
     int nofollow =
         nr == SYS_lsetxattr || nr == SYS_lgetxattr || nr == SYS_llistxattr || nr == SYS_lremovexattr;
     long fd = md_namespace_open(fs, base, path, O_PATH | O_CLOEXEC | (nofollow ? O_NOFOLLOW : 0), 0);
     if (fd < 0)
         return fd;
+    if (!default_acl && (nr == SYS_setxattr || nr == SYS_lsetxattr || nr == SYS_removexattr || nr == SYS_lremovexattr)) {
+        long next = md_namespace_mutable(fs, (int)fd);
+        RAW1(close, fd); fd = next;
+        if (fd < 0) return fd;
+    }
     /* Object creation must implement virtual-parent ACL inheritance before a
      * default ACL may be installed, by either a path or descriptor operation. */
     long r = default_acl ? -ENOTSUP : md_fd_xattr((int)fd, nr, args);
@@ -205,10 +232,20 @@ long md_namespace_xattr(const struct md_fs *fs, long nr, int base, const char *p
 long md_namespace_call(const struct md_fs *fs, const char *exe, long nr, const unsigned long *a) {
     if (nr == SYS_fstat || nr == SYS_getdents64 || nr == SYS_lseek)
         return descriptor_call(fs, nr, a);
-    if (nr == SYS_fsetxattr)
+    if (nr == SYS_fsetxattr || nr == SYS_fremovexattr)
         return md_namespace_xattr(fs, nr, (int)a[0], NULL, a);
-    if (nr == SYS_utimensat && !a[1])
-        return RAW4(utimensat, a[0], 0, a[2], a[3]);
+    if (nr == SYS_fchmod || nr == SYS_fchown || (nr == SYS_utimensat && !a[1])) {
+        long flags = RAW3(fcntl, a[0], F_GETFL, 0);
+        if (flags < 0) return flags;
+        if (flags & O_PATH) return -EBADF;
+        long fd = md_namespace_mutable(fs, (int)a[0]);
+        if (fd < 0) return fd;
+        long r;
+        if (nr == SYS_fchmod) r = md_fd_chmod((int)fd, (unsigned)a[1]);
+        else if (nr == SYS_fchown) r = RAW5(fchownat, fd, "", a[1], a[2], AT_EMPTY_PATH);
+        else r = RAW4(utimensat, fd, "", a[2], a[3] | AT_EMPTY_PATH);
+        RAW1(close, fd); return r;
+    }
     if (nr == SYS_getcwd) {
         struct md_fs_request q = {.operation = MD_FS_PATH, .directory = {AT_FDCWD, -1}};
         struct md_fs_response out;
@@ -438,6 +475,12 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
             return -EBADF;
         if (fd < 0)
             return fd;
+        if (nr != SYS_statfs && nr != SYS_truncate) {
+            long next = md_namespace_mutable(fs, (int)fd);
+            if (!borrowed) RAW1(close, fd);
+            fd = next; borrowed = 0;
+            if (fd < 0) return fd;
+        }
         switch (nr) {
         case SYS_fchmodat: {
             r = md_fd_chmod((int)fd, (unsigned)a[2]);

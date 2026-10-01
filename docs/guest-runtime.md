@@ -66,6 +66,22 @@ The default import bounds are 2 GiB and 200,000 entries. Unsupported objects,
 metadata, source mutation, overlap and an existing populated store are errors.
 It runs no package scripts, downloads nothing and does not manage mounts.
 
+Local OCI layouts use the separate offline image command:
+
+```sh
+magicdesk-guest image import /absolute/oci-layout /absolute/image --map-current-user
+magicdesk-guest image create /absolute/image /absolute/instance
+magicdesk-guest image run /absolute/instance --user current -- /bin/sh
+```
+
+Instances share immutable file bodies and copy up on mutation. Image Env,
+WorkingDir, Entrypoint and Cmd feed the ordinary guest runner. `--bind HOST GUEST`
+and `--bind-ro HOST GUEST` attach existing directories to one launch, also for
+ordinary `--store` commands. Import/staging does not probe guest-execution kernel
+capabilities; execution does. See [images and filesystem views](../native/guest-runtime/images.md)
+for formats, explicit ownership mapping, source lifetimes and limitations.
+This provides OCI image execution, not Docker Engine or a container isolation boundary.
+
 The shortcut editor's Shell Linux method accepts a prepared guest store.
 Terminal commands use the shared retained PTY. Graphical recipes currently use
 X11 or Wayland and an explicit host-visible XKB directory.
@@ -165,9 +181,11 @@ data work across independent launches. Inotify combines native backing-inode
 data events with transactionally committed directory/name events. Independent
 watchers sharing a store receive create/link/unlink/rename events without polling.
 Subscriptions and bounded queues belong to the existing namespace worker; watch
-reads use exact-FD interception, not a process-wide read proxy. See the
+reads use lazily armed descriptor classes and retained kernel-object identity.
+Protected readers copy in their own task without changing dumpability; queue
+delivery is acknowledged before consumption is confirmed. See the
 [watch contract](../native/guest-runtime/watches.md) for descriptor, hardlink,
-protected-copy and kernel limits. Format-6 stores require fresh preparation;
+protected-copy and kernel limits. The current store format is 7;
 older stores are rejected, not migrated or deleted.
 
 ## Optional Kernel Support
@@ -343,6 +361,13 @@ are unavailable in the tested native shell control as well as the guest.
 
 The focused watch suite checks Debian GIO directory notifications from an
 independent writer and stock D-Bus config-watch registration/session requests.
+Installed-APK Debian and Alpine workflows verify Mousepad's external-change
+notification and actual reloaded text, plus Thunar's live external file creation,
+selection/rename and reaction to moving the viewed directory. Both close with
+zero process status. These prepared images lack some optional desktop services;
+Debian dictionary installation requires root and Alpine rejects extraction of
+the set-ID D-Bus system-bus helper. Working session buses and GUI workflows do
+not certify those system-package configuration actions.
 Wayland publishes a logical monitor before client
 startup and replaces it when an Android host attaches; GTK's initial
 monitor-scale warnings are absent in these checks. The kernel process name identifies the guest executable after

@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "fs_worker.h"
 #include "fs_service.h"
+#include "fs_mounts.h"
 #include "image_catalogue.h"
 #include "event_wait.h"
 #include <errno.h>
@@ -17,10 +18,12 @@ struct md_fs_worker {
     pthread_mutex_t lock;
     int wake, done, stop, ready, error, statistics;
     const char *store, *endpoint, *admit;
+    const struct md_fs_attachment *attachments;
+    unsigned attachment_count;
     struct md_fs_work *completed, **completed_tail;
     int notification_fd, exited;
     void *notification_context;
-    int (*notification)(void *, struct md_inode_store *, struct md_image_catalogue *, short);
+    int (*notification)(void *, struct md_filesystem *, short);
 };
 static void wake(int fd) {
     uint64_t one = 1;
@@ -39,13 +42,13 @@ static int notification_fd(void *context) {
     pthread_mutex_lock(&w->lock); int fd = w->notification_fd; pthread_mutex_unlock(&w->lock);
     return fd;
 }
-static int notification(void *context, struct md_inode_store *s, struct md_image_catalogue *images, short events) {
+static int notification(void *context, struct md_filesystem *fs, short events) {
     struct md_fs_worker *w = context;
     pthread_mutex_lock(&w->lock);
     void *owner = w->notification_context;
-    int (*ready)(void *, struct md_inode_store *, struct md_image_catalogue *, short) = w->notification;
+    int (*ready)(void *, struct md_filesystem *, short) = w->notification;
     pthread_mutex_unlock(&w->lock);
-    return ready(owner, s, images, events);
+    return ready(owner, fs, events);
 }
 static void *run(void *context) {
     struct md_fs_worker *w = context;
@@ -56,6 +59,8 @@ static void *run(void *context) {
     struct md_image_catalogue *images = NULL;
     int listener = -1, error = md_inode_store_open(w->store, 0, &store);
     if (!error && w->admit) error = md_image_catalogue_open(store, w->admit, &images);
+    struct md_filesystem fs = {.store=store, .images=images};
+    if (!error) error = md_fs_mounts_open(&fs, w->attachments, w->attachment_count);
     if (!error) { listener = md_fs_listen(w->endpoint); if (listener < 0) error = listener; }
     pthread_mutex_lock(&w->lock); w->error = error; pthread_mutex_unlock(&w->lock);
     wake(w->ready);
@@ -65,9 +70,10 @@ static void *run(void *context) {
         if (w->statistics) md_inode_measure(store, &stats);
         struct md_fs_work_source source = {.fd = w->wake, .context = w, .ready = run_ready,
             .notification_fd = notification_fd, .notification = notification};
-        error = md_fs_serve(store, images, listener, w->stop, 5000, w->statistics ? &rpc : NULL, &source);
+        error = md_fs_serve(&fs, listener, w->stop, 5000, w->statistics ? &rpc : NULL, &source);
     }
     if (listener >= 0) close(listener);
+    md_fs_mounts_close(&fs);
     md_image_catalogue_close(images); md_inode_store_close(store);
     if (w->statistics) {
         const struct md_cost *costs[] = {&stats.prepare, &stats.step, &stats.transaction, &stats.lock};
@@ -94,12 +100,13 @@ static void *run(void *context) {
     return NULL;
 }
 int md_fs_worker_start(const char *store, const char *endpoint, const char *admit,
-        int statistics, struct md_fs_worker **out) {
+        const struct md_fs_attachment *attachments, unsigned attachment_count, int statistics, struct md_fs_worker **out) {
     struct md_fs_worker *w = calloc(1, sizeof(*w));
     if (!w) return -ENOMEM;
     w->wake = w->done = w->stop = w->ready = -1;
     w->notification_fd = -1;
     w->store = store; w->endpoint = endpoint; w->admit = admit; w->statistics = statistics;
+    w->attachments = attachments; w->attachment_count = attachment_count;
     w->completed_tail = &w->completed;
     int error = pthread_mutex_init(&w->lock, NULL);
     if (error) { free(w); return -error; }
@@ -130,7 +137,7 @@ int md_fs_worker_error(struct md_fs_worker *w) {
     return error;
 }
 void md_fs_worker_notifications(struct md_fs_worker *w, int fd, void *context,
-        int (*ready)(void *, struct md_inode_store *, struct md_image_catalogue *, short)) {
+        int (*ready)(void *, struct md_filesystem *, short)) {
     pthread_mutex_lock(&w->lock);
     w->notification_fd = fd; w->notification_context = context; w->notification = ready;
     pthread_mutex_unlock(&w->lock); wake(w->wake);

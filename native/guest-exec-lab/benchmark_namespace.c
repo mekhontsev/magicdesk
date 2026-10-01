@@ -22,14 +22,14 @@ int main(int argc, char **argv) {
             struct md_fs_request q = {.operation = MD_FS_OPEN, .directory = {-1, -1},
                 .path = {path, NULL}, .flags = O_RDONLY | O_DIRECTORY | O_CLOEXEC};
             struct md_fs_result dir;
-            md_fs_execute(store, NULL, &q, &dir, NULL); assert(!dir.error && dir.fd >= 0);
+            md_fs_execute(&(struct md_filesystem){.store=store}, &q, &dir, NULL); assert(!dir.error && dir.fd >= 0);
             unsigned count = 0;
             char data[64 * 1024];
             struct md_fs_output output = {.data = data, .capacity = sizeof(data)};
             for (;;) {
                 q = (struct md_fs_request){.operation = MD_FS_GETDENTS, .directory = {dir.fd, -1}, .capacity = sizeof(data)};
                 struct md_fs_result entries;
-                md_fs_execute(store, NULL, &q, &entries, &output); assert(!entries.error);
+                md_fs_execute(&(struct md_filesystem){.store=store}, &q, &entries, &output); assert(!entries.error);
                 if (!entries.size) break;
                 for (unsigned offset = 0; offset < entries.size;) {
                     struct md_inode_dirent *e = (void *)(data + offset);
@@ -38,11 +38,11 @@ int main(int argc, char **argv) {
                     q = (struct md_fs_request){.operation = MD_FS_STAT, .directory = {dir.fd, -1},
                         .path = {e->name, NULL}, .flags = AT_SYMLINK_NOFOLLOW};
                     struct md_fs_result a, opened, b;
-                    md_fs_execute(store, NULL, &q, &a, NULL); assert(!a.error);
+                    md_fs_execute(&(struct md_filesystem){.store=store}, &q, &a, NULL); assert(!a.error);
                     q.operation = MD_FS_OPEN; q.flags = O_RDONLY | O_CLOEXEC;
-                    md_fs_execute(store, NULL, &q, &opened, NULL); assert(!opened.error && opened.fd >= 0);
+                    md_fs_execute(&(struct md_filesystem){.store=store}, &q, &opened, NULL); assert(!opened.error && opened.fd >= 0);
                     q = (struct md_fs_request){.operation = MD_FS_FSTAT, .directory = {opened.fd, -1}};
-                    md_fs_execute(store, NULL, &q, &b, NULL); assert(!b.error);
+                    md_fs_execute(&(struct md_filesystem){.store=store}, &q, &b, NULL); assert(!b.error);
                     assert(a.info.inode == b.info.inode && a.info.device == b.info.device);
                     assert(S_ISREG(b.info.mode) && b.info.size == 32 && b.info.links == 1);
                     unsigned char bytes[32]; assert(read(opened.fd, bytes, sizeof(bytes)) == sizeof(bytes));

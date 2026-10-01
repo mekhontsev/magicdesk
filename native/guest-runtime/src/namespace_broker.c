@@ -82,12 +82,12 @@ static int deliver_directory(void *context, const void *data, size_t size) {
     if (n < 0 && (errno == EPERM || errno == EACCES)) op->undelivered = 1;
     return n == (ssize_t)size ? 0 : -EFAULT;
 }
-static void execute(struct md_inode_store *store, struct md_image_catalogue *images, struct operation *op,
+static void execute(struct md_filesystem *fs, struct operation *op,
         void *data, size_t capacity) {
     op->result = (struct md_fs_result){.fd = -1, .error = -ECANCELED};
     struct md_fs_output output = {.data = data, .capacity = capacity,
         .deliver = deliver_directory, .context = op};
-    if (valid(op)) md_fs_execute(store, images, &op->request, &op->result, &output);
+    if (valid(op)) md_fs_execute(fs, &op->request, &op->result, &output);
     if (op->result.error == -EXDEV && op->request.operation == MD_FS_FSTAT) {
         /* Native descriptors outside the namespace retain kernel metadata. */
         struct stat st;
@@ -205,7 +205,8 @@ void md_broker_forget(struct md_namespace_broker *b, int pid) {
     pthread_mutex_unlock(&b->lock);
     md_fs_worker_wake(b->worker);
 }
-static int receive(void *context, struct md_inode_store *s, struct md_image_catalogue *images, short events) {
+static int receive(void *context, struct md_filesystem *fs, short events) {
+    struct md_inode_store *s = fs->store;
     struct md_namespace_broker *b = context;
     if (!events) return b->watches ? md_watch_broker_progress(b->watches, s) : 0;
     if (events & (POLLERR | POLLNVAL)) return -EIO;
@@ -261,7 +262,7 @@ static int receive(void *context, struct md_inode_store *s, struct md_image_cata
     }
     pthread_mutex_unlock(&b->lock);
     if (prepared) {
-        execute(s, images, op, b->output, sizeof(b->output));
+        execute(fs, op, b->output, sizeof(b->output));
         int result = reply(op, b->output);
         if (result) {
             if (count) count->handled++;

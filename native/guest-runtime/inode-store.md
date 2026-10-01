@@ -7,13 +7,14 @@ changing identity or special-casing dpkg.
 
 ## Ownership
 
-Each object has one ordinary native file, empty directory or symlink in a private
-object directory. Names and directory parent edges refer to objects through
+Each object has a current ordinary native file, empty directory or symlink backing.
+Immutable image bodies can be shared through explicitly retained source directories;
+writable instances promote regular files on mutation. Names and directory parent edges refer to objects through
 SQLite. Adding a name does not copy or move the object.
-Descriptors opened before and after linking share the actual kernel device/inode,
+Within one current backing, descriptors opened before and after linking share the actual kernel device/inode,
 data, mappings and file locks. Data IO, mmap and descriptor duplication stay native.
 
-`md_inode_stat/fstat` combine native metadata with the namespace's transactional link
+`md_inode_stat/fstat` combine native metadata with stable logical device/inode identity and the namespace's transactional link
 count, including zero for an open, unlinked object. Socket inodes expose S_IFSOCK
 while their transport is an abstract kernel endpoint; their backing regular file
 supplies permission and identity metadata. Raw host fstat still sees the
@@ -33,11 +34,14 @@ a timeout is not cancellation of a committed operation.
 `inode_path.c` resolves paths and reconstructs directory paths;
 `inode_store.c` defines namespace operations, `inode_directory.c` implements
 directory cursors, `inode_socket.c` implements socket publication and address
-lookup, and `inode_import.c` imports prepared trees. Their private contract is in
+lookup, and `inode_import.c` imports prepared trees. `inode_snapshot.c` owns
+immutable-source snapshots; `inode_backing.c` owns source validation and copy-up.
+Their private contract is in
 `inode_internal.h`. Callers use the explicit dirfd-based `inode_store.h` API.
 The internal database format is versioned and incompatible formats are rejected,
-not migrated. Format 6 includes socket addresses, transactional namespace
-counters and the [watch event journal](watches.md). Older experimental stores require a separately prepared store; opening
+not migrated. Format 7 includes stable logical identities, backing history,
+immutable sources, socket addresses, transactional namespace
+counters and the [watch event journal](watches.md). Incompatible stores require a separately prepared store; opening
 one never rewrites or deletes it. Bind retains a name until
 unlink, including stale listeners; existing connections survive unlink/rebind.
 
@@ -64,7 +68,7 @@ there is no emulated root or manufactured permission success.
 
 ## Directory Cursors
 
-`md_inode_getdents` emits aligned Linux getdents64 records with native inode
+`md_inode_getdents` emits aligned Linux getdents64 records with logical inode
 numbers and types, `.`/`..`, and opaque monotonic cookies. Committed name cookies
 are not reused after deletion. Enumeration uses an indexed database read snapshot
 per batch; changes between batches have ordinary non-snapshot traversal semantics.
@@ -118,6 +122,10 @@ collector; byte limits bound the current attempt, not accumulated failed attempt
 Import is not execution from the new namespace or successful package installation.
 
 ## Transactions
+
+Sealed images, writable instances and copy-up retain these transaction boundaries;
+their [backing and lifetime contract](images.md#sharing-and-copy-on-write) is
+independent of OCI parsing and launch-local directory attachments.
 
 - Each connection reuses compiled inode, descriptor, name and directory queries,
   plus BEGIN/BEGIN IMMEDIATE/COMMIT/ROLLBACK programs. Every use resets the statement and clears all bindings

@@ -10,6 +10,7 @@
 #include <string.h>
 #include <sys/inotify.h>
 #include <sys/ioctl.h>
+#include <sys/prctl.h>
 #include <sys/sendfile.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -121,9 +122,79 @@ static int shared(const char *mode, const char *directory) {
     CHECK(!close(fd)); puts("PASS independent launch journal"); fflush(stdout);
     return 0;
 }
+static void describe_data(int fd, const char *phase) {
+    printf("PHASE %s\n", phase);
+    for (;;) {
+        ssize_t size = read(fd, buffer.bytes, sizeof(buffer.bytes));
+        if (size < 0 && errno == EAGAIN) break;
+        CHECK(size > 0);
+        for (size_t pos = 0; pos < (size_t)size;) {
+            struct inotify_event *e = (void *)(buffer.bytes + pos);
+            CHECK(!(e->mask & IN_Q_OVERFLOW));
+            printf("EVENT mask=%x name=%s\n", e->mask, e->len ? e->name : "-");
+            pos += sizeof(*e) + e->len;
+        }
+    }
+}
+static int alias_history(const char *directory) {
+    CHECK(!mkdir(directory, 0700) && !chdir(directory));
+    int file = open("first", O_CREAT | O_EXCL | O_RDWR, 0600); CHECK(file >= 0);
+    CHECK(!link("first", "alias"));
+    int fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC); CHECK(fd >= 0);
+    CHECK(inotify_add_watch(fd, ".", IN_MODIFY | IN_CLOSE_WRITE) > 0);
+    CHECK(write(file, "a", 1) == 1); describe_data(fd, "linked-write");
+    CHECK(!rename("first", "moved"));
+    CHECK(write(file, "b", 1) == 1); describe_data(fd, "renamed-write");
+    CHECK(!unlink("moved"));
+    CHECK(write(file, "c", 1) == 1); describe_data(fd, "unlinked-open-write");
+    CHECK(!close(file)); describe_data(fd, "last-close");
+    CHECK(!close(fd));
+    return 0;
+}
 int main(int argc, char **argv) {
+    if (argc == 3 && !strcmp(argv[1], "aliases")) return alias_history(argv[2]);
+    if (argc == 3 && !strcmp(argv[1], "protected-all")) {
+        CHECK(!prctl(PR_SET_DUMPABLE, 0));
+        argv[1] = argv[2]; argc = 2;
+    }
     if (argc == 5 && !strcmp(argv[1], "exec")) return exec_watch(atoi(argv[2]), atoi(argv[3]), atoi(argv[4]));
     if (argc == 4 && !strcmp(argv[1], "shared")) return shared(argv[2], argv[3]);
+    if (argc == 3 && !strcmp(argv[1], "protected")) {
+        CHECK(!mkdir(argv[2], 0700) && !chdir(argv[2]));
+        int fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC); CHECK(fd >= 0);
+        CHECK(inotify_add_watch(fd, ".", IN_CREATE) > 0);
+        CHECK(!prctl(PR_SET_DUMPABLE, 0));
+        create("protected");
+        one(fd, IN_CREATE, "protected");
+        CHECK(prctl(PR_GET_DUMPABLE) == 0);
+        int bytes = -1; CHECK(!ioctl(fd, FIONREAD, &bytes) && !bytes);
+        create("vector");
+        struct iovec v = {buffer.bytes, sizeof(buffer.bytes)};
+        CHECK(readv(fd, &v, 1) == 32 && !strcmp(buffer.align.name, "vector"));
+        CHECK(!close(fd)); puts("PASS protected read/readv/ioctl without changing dumpability"); return 0;
+    }
+    if (argc == 2 && !strcmp(argv[1], "churn")) {
+        int fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC); CHECK(fd >= 0);
+        int before = filters();
+        for (int i = 512; i < 4096; ++i) {
+            int alias = fcntl(fd, F_DUPFD_CLOEXEC, i);
+            if (alias < 0) {
+                fprintf(stderr, "CHURN failed descriptor=%d errno=%d filters=%d initial=%d\n", i, errno, filters(), before);
+                return 1;
+            }
+            CHECK(alias == i && !close(alias));
+        }
+        CHECK(filters() <= before + 512);
+        int count = filters();
+        for (int i = 4096; i < 8192; ++i) {
+            CHECK(dup3(fd, i, O_CLOEXEC) == i && !close(i));
+        }
+        CHECK(filters() == count);
+        int ordinary = open("/dev/zero", O_RDONLY); CHECK(ordinary >= 0);
+        char byte = 1; CHECK(read(ordinary, &byte, 1) == 1 && !byte);
+        CHECK(!close(ordinary));
+        CHECK(!close(fd)); printf("PASS distinct descriptor churn filters=%d initial=%d\n", filters(), before); return 0;
+    }
     CHECK(argc == 2);
     CHECK(!mkdir(argv[1], 0700)); CHECK(!chdir(argv[1]));
     int fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC); CHECK(fd >= 0);

@@ -14,6 +14,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", type=Path, required=True)
     parser.add_argument("--store", required=True, help="Prepared disposable guest store")
+    parser.add_argument("--installed", action="store_true", help="Use the installed APK's immutable guest bundle")
     parser.add_argument("--deadline-seconds", type=int, default=120,
                         help="Owned process-tree event deadline, 5 to 120 seconds")
     parser.add_argument("--scope", choices=("application", "renderer-seccomp-only", "zygote-ipc-only"), default="application",
@@ -60,17 +61,20 @@ def main():
         command("mkdir " + shlex.quote(remote))
         report["identity"] = command("id")["output"]
         report["kernel"] = command("uname -a")["output"]
-        for name in ("libmagicdesk_guest_supervisor.so", "libmagicdesk_guest_run.so",
-                     "libmagicdesk_guest_bootstrap.so", "libmagicdesk_guest_service.so"):
-            report["uploads"].append(transport.upload(client, str(args.build / name), remote + "/" + name))
-        command("chmod 700 " + remote + "/*")
-        report["hashes"] = command("sha256sum " + remote + "/*")["output"]
-        baseline = [remote + "/libmagicdesk_guest_run.so", "--store", args.store, "--"]
+        if not args.installed:
+            for name in ("libmagicdesk_guest_supervisor.so", "libmagicdesk_guest_run.so",
+                         "libmagicdesk_guest_bootstrap.so", "libmagicdesk_guest_service.so"):
+                report["uploads"].append(transport.upload(client, str(args.build / name), remote + "/" + name))
+            command("chmod 700 " + remote + "/*")
+            report["hashes"] = command("sha256sum " + remote + "/*")["output"]
+        report["installed"] = args.installed
+        runner = "magicdesk-guest" if args.installed else remote + "/libmagicdesk_guest_run.so"
+        baseline = [runner, "--store", args.store, "--"]
         if args.expect_artifact:
             command(shlex.join(baseline + ["/usr/bin/test", "!", "-e", args.expect_artifact]))
         # EVENT_WAIT: owned tracee events; outer deadline bounds cancellation.
         # Neither deadline is a startup settling delay or evidence of readiness.
-        launch = shlex.join(["timeout", "-k", "5", str(args.deadline_seconds + 10), remote + "/libmagicdesk_guest_run.so",
+        launch = shlex.join(["timeout", "-k", "5", str(args.deadline_seconds + 10), runner,
                              "--diagnostics",
                              "--deadline-seconds", str(args.deadline_seconds),
                              *(["--admit-elf", args.admit_elf] if args.admit_elf else []),

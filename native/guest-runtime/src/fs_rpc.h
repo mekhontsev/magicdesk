@@ -17,4 +17,8 @@ struct md_fs_response {
  * Inputs are adapter-owned memory, not unchecked guest pointers. */
 long md_fs_call(const char *abstract_name, unsigned timeout_ms,
         const struct md_fs_request *, struct md_fs_response *);
+/* WATCH_READ retains queue ownership until the local copy is acknowledged.
+ * A rejected copy consumes nothing; lost acknowledgement is not replayable. */
+long md_fs_call_deliver(const char *, unsigned, const struct md_fs_request *,
+        struct md_fs_response *, int (*deliver)(void *, const void *, size_t), void *);
 #endif

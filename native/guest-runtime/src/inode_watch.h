@@ -10,6 +10,8 @@ int md_inode_watch_add(struct md_inode_store *, int instance, int object, unsign
 int md_inode_watch_remove(struct md_inode_store *, int instance, int wd);
 int md_inode_watch_contains(struct md_inode_store *, int instance);
 ssize_t md_inode_watch_bytes(struct md_inode_store *, int instance);
+ssize_t md_inode_watch_reserve(struct md_inode_store *, int instance, void *, size_t);
+int md_inode_watch_complete(struct md_inode_store *, int instance, int delivered);
 ssize_t md_inode_watch_read(struct md_inode_store *, int instance, void *, size_t,
         int (*deliver)(void *, const void *, size_t), void *);
 int md_inode_watch_pollfd(struct md_inode_store *);

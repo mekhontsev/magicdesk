@@ -37,7 +37,8 @@ static long receive_reply(int socket, int64_t deadline, const struct md_fs_reque
     if (r < 0) return r;
     uint32_t operation = request->operation;
     int opens = operation == MD_FS_OPEN || operation == MD_FS_CREATE || operation == MD_FS_TEMPORARY
-        || operation == MD_FS_OPEN_OBJECT || operation == MD_FS_OPEN_IMAGE || operation == MD_FS_WATCH_CREATE;
+        || operation == MD_FS_OPEN_OBJECT || operation == MD_FS_OPEN_IMAGE || operation == MD_FS_WATCH_CREATE
+        || operation == MD_FS_REOPEN;
     if (r < (long)offsetof(struct md_fs_reply, data)
             || reply->magic != MD_FS_MAGIC || reply->version != MD_FS_VERSION
             || reply->error > 0 || reply->error < -4095 || reply->reserved
@@ -52,6 +53,7 @@ static long receive_reply(int socket, int64_t deadline, const struct md_fs_reque
             || (reply->position && ((operation != MD_FS_SEEKDIR && operation != MD_FS_WATCH_ADD
                 && operation != MD_FS_WATCH_BYTES && operation != MD_FS_WATCH_CONTAINS) || reply->error)) || reply->position < 0
             || (operation == MD_FS_GETDENTS && (reply->size > request->capacity || !valid_entries(reply->data, reply->size)))
+            || (operation == MD_FS_WATCH_READ && reply->size > request->capacity)
             || (!reply->error && (operation == MD_FS_PATH || operation == MD_FS_SOCKET_ADDRESS || operation == MD_FS_SOCKET_NAME || operation == MD_FS_REALPATH)
                 && (!reply->size || reply->data[reply->size-1]))) {
         md_fs_close_rights(&rights); return -EPROTO;
@@ -75,8 +77,9 @@ static long receive_reply(int socket, int64_t deadline, const struct md_fs_reque
     memcpy(out->data, reply->data, reply->size);
     return 0;
 }
-long md_fs_call(const char *name, unsigned timeout_ms,
-        const struct md_fs_request *request, struct md_fs_response *out) {
+long md_fs_call_deliver(const char *name, unsigned timeout_ms,
+        const struct md_fs_request *request, struct md_fs_response *out,
+        int (*deliver)(void *, const void *, size_t), void *context) {
     if (!out) return -EFAULT;
     memset(out, 0, sizeof(*out)); out->result.fd = -1;
     if (!request) return -EFAULT;
@@ -124,6 +127,39 @@ long md_fs_call(const char *name, unsigned timeout_ms,
         }
         break;
     }
+    if (!r && !out->result.error && request->operation == MD_FS_WATCH_READ) {
+        int copied = deliver ? deliver(context, out->data, out->result.size) : 0;
+        struct md_fs_rights none = {0};
+        long sent;
+        for (;;) {
+            sent = md_fs_send((int)socket, &copied, sizeof(copied), &none);
+            if (sent != -EAGAIN && sent != -EINTR) break;
+            sent = md_event_wait_fd((int)socket, POLLOUT, deadline);
+            if (sent < 0) break;
+        }
+        if (sent != sizeof(copied)) {
+            out->delivery = MD_FS_UNCONFIRMED;
+            r = sent < 0 ? sent : -EIO;
+        } else {
+            int committed = -EPROTO;
+            struct md_fs_rights rights = {0};
+            for (;;) {
+                sent = md_fs_receive((int)socket, &committed, sizeof(committed), &rights);
+                if (sent != -EAGAIN && sent != -EINTR) break;
+                sent = md_event_wait_fd((int)socket, POLLIN, deadline);
+                if (sent < 0) break;
+            }
+            unsigned count = rights.count; md_fs_close_rights(&rights);
+            if (sent != sizeof(committed) || count || committed > 0 || committed < -4095) {
+                out->delivery = MD_FS_UNCONFIRMED;
+                r = sent < 0 ? sent : -EPROTO;
+            } else r = committed ? committed : copied;
+        }
+    }
     RAW1(close, socket);
     return r;
+}
+long md_fs_call(const char *name, unsigned timeout_ms,
+        const struct md_fs_request *request, struct md_fs_response *out) {
+    return md_fs_call_deliver(name, timeout_ms, request, out, NULL, NULL);
 }

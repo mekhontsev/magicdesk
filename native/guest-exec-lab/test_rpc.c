@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/file.h>
+#include <sys/inotify.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
@@ -73,7 +74,7 @@ static void start(struct service *s, enum fault fault, const char *existing, uns
         CHECK(md_inode_store_open(s->directory, 0, &store) == 0);
         struct hooks hooks = {fault, notice[1], control[0], parent};
         md_fs_observe(observe, &hooks); byte(ready[1]); close(ready[1]);
-        CHECK(md_fs_serve(store, NULL, listener, stop[0], timeout, NULL, NULL) == 0);
+        CHECK(md_fs_serve(&(struct md_filesystem){.store=store}, listener, stop[0], timeout, NULL, NULL) == 0);
         md_inode_store_close(store); close(listener); close(stop[0]); close(notice[1]); close(control[0]);
         _exit(0);
     }
@@ -236,6 +237,56 @@ static int connect_peer(const char *endpoint) {
     struct sockaddr_un address; long n = md_fs_address(endpoint, &address); CHECK(n > 0);
     int fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0); CHECK(fd >= 0);
     CHECK(connect(fd, (struct sockaddr *)&address, (socklen_t)n) == 0); return fd;
+}
+struct watch_delivery { struct service *service; int fd, kill; };
+static int reject_watch_delivery(void *context, const void *data, size_t size) {
+    struct watch_delivery *d = context;
+    const struct inotify_event *event = data;
+    CHECK(size == 32 && event->mask == IN_CREATE && !strcmp(event->name, "first"));
+    if (d->kill) { CHECK(!kill(d->service->pid, SIGKILL)); return 0; }
+    struct md_fs_request q = {.operation = MD_FS_WATCH_READ, .directory = {d->fd, -1}, .capacity = 64};
+    struct md_fs_response out;
+    CHECK(!md_fs_call(d->service->endpoint, 5000, &q, &out) && out.result.error == -EAGAIN);
+    struct pollfd ready = {d->fd, POLLIN, 0};
+    CHECK(!poll(&ready, 1, 0));
+    close(call(d->service->endpoint, MD_FS_CREATE, -1, "second", -1, NULL, 0, 0600, 0).result.fd);
+    return -EFAULT;
+}
+static void watch_delivery(void) {
+    for (int killed = 0; killed < 2; ++killed) {
+        struct service s; start(&s, NORMAL, NULL, 5000);
+        int dir = call(s.endpoint, MD_FS_OPEN, -1, "/", -1, NULL, O_RDONLY | O_DIRECTORY, 0, 0).result.fd;
+        int fd = call(s.endpoint, MD_FS_WATCH_CREATE, -1, NULL, -1, NULL, IN_NONBLOCK, 0, 0).result.fd;
+        call(s.endpoint, MD_FS_WATCH_ADD, fd, NULL, dir, NULL, IN_CREATE, 0, 0);
+        close(call(s.endpoint, MD_FS_CREATE, -1, "first", -1, NULL, 0, 0600, 0).result.fd);
+        struct md_fs_request q = {.operation = MD_FS_WATCH_READ, .directory = {fd, -1}, .capacity = 64};
+        struct md_fs_response out;
+        struct watch_delivery d = {&s, fd, killed};
+        long r = md_fs_call_deliver(s.endpoint, 5000, &q, &out, reject_watch_delivery, &d);
+        CHECK(killed ? r < 0 && out.delivery == MD_FS_UNCONFIRMED : r == -EFAULT && out.delivery == MD_FS_REPLIED);
+        if (!killed) {
+            CHECK(!md_fs_call(s.endpoint, 5000, &q, &out) && !out.result.error && out.result.size == 64);
+            const struct inotify_event *a = (void *)out.data, *b = (void *)(out.data + 32);
+            CHECK(!strcmp(a->name, "first") && !strcmp(b->name, "second"));
+            CHECK(!md_fs_call(s.endpoint, 5000, &q, &out) && out.result.error == -EAGAIN);
+            close(call(s.endpoint, MD_FS_CREATE, -1, "third", -1, NULL, 0, 0600, 0).result.fd);
+            int peer = connect_peer(s.endpoint);
+            struct md_fs_packet packet = {.magic = MD_FS_MAGIC, .version = MD_FS_VERSION,
+                .operation = MD_FS_WATCH_READ, .descriptors = 1, .length = {1, 1}, .capacity = 64};
+            struct md_fs_rights rights = {.count = 1, .fd = {fd}};
+            CHECK(md_fs_send(peer, &packet, offsetof(struct md_fs_packet, data) + 2, &rights) > 0);
+            struct md_fs_reply reply;
+            CHECK(!md_event_wait_fd(peer, POLLIN, md_event_now() + 5000000000LL));
+            CHECK(md_fs_receive(peer, &reply, sizeof(reply), &rights) > 0 && !rights.count && reply.size == 32);
+            /* EVENT_WAIT: withheld acknowledgement expires this peer. Timeout
+             * must retire its lease, never replay possibly delivered records. */
+            CHECK(!md_event_wait_fd(peer, POLLIN, md_event_now() + 7000000000LL));
+            CHECK(!md_fs_receive(peer, &reply, sizeof(reply), &rights)); close(peer);
+            CHECK(!md_fs_call(s.endpoint, 5000, &q, &out) && out.result.error == -EAGAIN);
+        }
+        close(fd); close(dir); stop(&s, killed);
+    }
+    puts("PASS watch RPC: reserved readiness, concurrent requests, rejected copy, missing ACK and service death");
 }
 static int fd_count(pid_t pid) {
     char path[64]; snprintf(path, sizeof(path), "/proc/%ld/fd", (long)pid);
@@ -538,12 +589,12 @@ static void engine_buffers(void) {
         .deliver = engine_publish, .context = &p};
     struct md_fs_request q = {.operation = MD_FS_GETDENTS, .directory = {fd, -1}, .capacity = UINT32_MAX};
     struct md_fs_result r;
-    md_fs_execute(s, NULL, &q, &r, NULL);
+    md_fs_execute(&(struct md_filesystem){.store=s}, &q, &r, NULL);
     CHECK(r.error == -EFAULT && !r.size && lseek(fd, 0, SEEK_CUR) == 0);
-    md_fs_execute(s, NULL, &q, &r, &output);
+    md_fs_execute(&(struct md_filesystem){.store=s}, &q, &r, &output);
     CHECK(r.error == -ECANCELED && !r.size && lseek(fd, 0, SEEK_CUR) == 0 && p.calls == 1);
     p.error = 0;
-    md_fs_execute(s, NULL, &q, &r, &output);
+    md_fs_execute(&(struct md_filesystem){.store=s}, &q, &r, &output);
     CHECK(!r.error && r.size > PATH_MAX && r.size <= output.capacity && p.calls == 2);
     for (size_t i = output.capacity; i < sizeof(data); i++) CHECK(data[i] == 0x5a);
     unsigned records = 0, aliases = 0; unsigned char seen[512] = {0};
@@ -557,22 +608,22 @@ static void engine_buffers(void) {
     }
     CHECK(records == 515 && aliases == 512);
     output.deliver = NULL;
-    md_fs_execute(s, NULL, &q, &r, &output); CHECK(!r.error && !r.size);
+    md_fs_execute(&(struct md_filesystem){.store=s}, &q, &r, &output); CHECK(!r.error && !r.size);
     CHECK(md_inode_seekdir(s, fd, 0, SEEK_SET) == 0);
     output.capacity = 24; memset(data, 0x5a, sizeof(data));
-    md_fs_execute(s, NULL, &q, &r, &output); CHECK(!r.error && r.size == 24);
+    md_fs_execute(&(struct md_filesystem){.store=s}, &q, &r, &output); CHECK(!r.error && r.size == 24);
     for (size_t i = 24; i < sizeof(data); i++) CHECK(data[i] == 0x5a);
     q = (struct md_fs_request){.operation = MD_FS_FSTAT, .directory = {file, -1}};
-    md_fs_execute(s, NULL, &q, &r, NULL); CHECK(!r.error && r.info.links == 513);
+    md_fs_execute(&(struct md_filesystem){.store=s}, &q, &r, NULL); CHECK(!r.error && r.info.links == 513);
     q.operation = MD_FS_OBJECT_ID; output.capacity = 32;
-    md_fs_execute(s, NULL, &q, &r, &output); CHECK(r.error == -ERANGE && !r.size);
+    md_fs_execute(&(struct md_filesystem){.store=s}, &q, &r, &output); CHECK(r.error == -ERANGE && !r.size);
     output.capacity = 33;
-    md_fs_execute(s, NULL, &q, &r, &output); CHECK(!r.error && r.size == 33 && !data[32]);
+    md_fs_execute(&(struct md_filesystem){.store=s}, &q, &r, &output); CHECK(!r.error && r.size == 33 && !data[32]);
     q = (struct md_fs_request){.operation = MD_FS_OPEN_IMAGE, .directory = {-1, -1}, .path = {"source", NULL}};
     output.capacity = sizeof(struct md_image_identity) - 1;
-    md_fs_execute(s, NULL, &q, &r, &output); CHECK(r.error == -ERANGE && r.fd < 0 && !r.size);
+    md_fs_execute(&(struct md_filesystem){.store=s}, &q, &r, &output); CHECK(r.error == -ERANGE && r.fd < 0 && !r.size);
     output.capacity = sizeof(struct md_image_identity); memset(data, 0x5a, sizeof(data));
-    md_fs_execute(s, NULL, &q, &r, &output);
+    md_fs_execute(&(struct md_filesystem){.store=s}, &q, &r, &output);
     CHECK(!r.error && r.fd >= 0 && r.size == 41);
     CHECK(!strcmp(((struct md_image_identity *)data)->path, "/source"));
     for (size_t i = output.capacity; i < sizeof(data); i++) CHECK(data[i] == 0x5a);
@@ -580,19 +631,19 @@ static void engine_buffers(void) {
     int socket_fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0); CHECK(socket_fd >= 0);
     q = (struct md_fs_request){.operation = MD_FS_SOCKET_BIND, .directory = {-1, socket_fd},
         .path = {"socket", NULL}, .mode = 0600};
-    md_fs_execute(s, NULL, &q, &r, NULL); CHECK(!r.error);
+    md_fs_execute(&(struct md_filesystem){.store=s}, &q, &r, NULL); CHECK(!r.error);
     q.operation = MD_FS_SOCKET_ADDRESS;
     output.data = NULL; output.capacity = sizeof(data);
-    md_fs_execute(s, NULL, &q, &r, &output); CHECK(r.error == -EFAULT && !r.size);
+    md_fs_execute(&(struct md_filesystem){.store=s}, &q, &r, &output); CHECK(r.error == -EFAULT && !r.size);
     output.data = data;
-    md_fs_execute(s, NULL, &q, &r, &output); CHECK(!r.error && r.size > 33);
+    md_fs_execute(&(struct md_filesystem){.store=s}, &q, &r, &output); CHECK(!r.error && r.size > 33);
     char address[108]; CHECK(r.size < sizeof(address)); memcpy(address, data, r.size);
     q = (struct md_fs_request){.operation = MD_FS_SOCKET_NAME, .path = {address, NULL}};
-    md_fs_execute(s, NULL, &q, &r, NULL); CHECK(r.error == -EFAULT && !r.size);
+    md_fs_execute(&(struct md_filesystem){.store=s}, &q, &r, NULL); CHECK(r.error == -EFAULT && !r.size);
     output.capacity = 6;
-    md_fs_execute(s, NULL, &q, &r, &output); CHECK(r.error == -ERANGE && !r.size);
+    md_fs_execute(&(struct md_filesystem){.store=s}, &q, &r, &output); CHECK(r.error == -ERANGE && !r.size);
     output.capacity = 7;
-    md_fs_execute(s, NULL, &q, &r, &output); CHECK(!r.error && r.size == 7 && !strcmp((char *)data, "socket"));
+    md_fs_execute(&(struct md_filesystem){.store=s}, &q, &r, &output); CHECK(!r.error && r.size == 7 && !strcmp((char *)data, "socket"));
     close(socket_fd);
     close(file); close(fd); md_inode_store_close(s);
     puts("PASS transport-independent engine: large/bounded output, exact records, publication and metadata-only calls");
@@ -617,7 +668,7 @@ int main(int argc, char **argv) {
     CHECK(mkdir(root, 0700) == 0);
     engine_buffers();
     semantics(argv[0]); directories(argv[0]); lost_directory_reply(); concurrent(); contention(); reentrant(); malformed(); idle(); lost_reply();
-    reply_lifetime(); descriptor_stress(10000);
+    reply_lifetime(); watch_delivery(); descriptor_stress(10000);
     for (enum reply_fault fault = UNEXPECTED_FD; fault < REPLY_FAULT_COUNT; fault++) faulty_reply(fault);
     struct md_fs_request q = {.operation=MD_FS_STAT, .directory={-1,-1}, .path={"/",NULL}};
     struct md_fs_response result;

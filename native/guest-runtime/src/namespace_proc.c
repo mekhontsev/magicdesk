@@ -106,7 +106,11 @@ long md_namespace_host_call(const struct md_fs *fs, const char *exe, long nr, co
         if (ref.kind == MD_PROC_ROOT)
             return md_namespace_open(fs, AT_FDCWD, "/",
                                      (int)a[2], (unsigned)a[3]);
-        return RAW4(openat, AT_FDCWD, path, a[2], a[3]);
+        long original = RAW4(openat, AT_FDCWD, path, O_PATH | O_CLOEXEC, 0);
+        if (original < 0) return original;
+        long reopened = md_namespace_reopen(fs, (int)original, (int)a[2], 0);
+        RAW1(close, original);
+        return reopened == -EXDEV ? RAW4(openat, AT_FDCWD, path, a[2], a[3]) : reopened;
     }
     char anchor[PATH_MAX];
     size_t length = tail ? ref.anchor_length : md_length(path);
@@ -121,6 +125,11 @@ long md_namespace_host_call(const struct md_fs *fs, const char *exe, long nr, co
         fd = RAW4(openat, AT_FDCWD, anchor, O_PATH | O_CLOEXEC | (tail ? O_DIRECTORY : 0) |
                   (native && link_operation(nr, a) ? O_NOFOLLOW : 0), 0);
     if (fd < 0) return fd;
+    if (!tail && (nr == SYS_fchmodat || nr == SYS_fchmodat2 || nr == SYS_fchownat || nr == SYS_utimensat)) {
+        long next = md_namespace_mutable(fs, (int)fd);
+        RAW1(close, fd); fd = next;
+        if (fd < 0) return fd;
+    }
     long r;
     if (tail) {
         const char *relative = ref.tail;
@@ -150,6 +159,7 @@ long md_namespace_host_call(const struct md_fs *fs, const char *exe, long nr, co
         r = RAW4(faccessat2, fd, "", a[2], (nr == SYS_faccessat2 ? a[3] : 0) | AT_EMPTY_PATH);
         break;
     case SYS_fchmodat: r = md_fd_chmod((int)fd, (unsigned)a[2]); break;
+    case SYS_fchmodat2: r = RAW4(fchmodat2, fd, "", a[2], a[3] | AT_EMPTY_PATH); break;
     case SYS_fchownat: r = RAW5(fchownat, fd, "", a[2], a[3], a[4] | AT_EMPTY_PATH); break;
     case SYS_utimensat: r = RAW4(utimensat, fd, "", a[2], a[3] | AT_EMPTY_PATH); break;
     case SYS_statfs: r = RAW2(fstatfs, fd, a[1]); break;
@@ -167,7 +177,8 @@ long md_namespace_host_call(const struct md_fs *fs, const char *exe, long nr, co
     case SYS_truncate: {
         md_copy(anchor, sizeof(anchor), "/proc/thread-self/fd/");
         md_decimal(anchor + md_length(anchor), (unsigned)fd);
-        long writefd = RAW4(openat, AT_FDCWD, anchor, O_WRONLY | O_CLOEXEC, 0);
+        long writefd = md_namespace_reopen(fs, (int)fd, O_WRONLY | O_CLOEXEC, 1);
+        if (writefd == -EXDEV) writefd = RAW4(openat, AT_FDCWD, anchor, O_WRONLY | O_CLOEXEC, 0);
         r = writefd < 0 ? writefd : RAW2(ftruncate, writefd, a[1]);
         if (writefd >= 0) RAW1(close, writefd);
         break;

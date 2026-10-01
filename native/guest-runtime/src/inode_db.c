@@ -100,6 +100,7 @@ static int transaction(struct md_inode_store *s, enum mdi_query slot) {
     return r;
 }
 int mdi_begin(struct md_inode_store *s, int write) {
+    if (write && s->readonly) return -EROFS;
     int r = store_lock(s);
     if (r) return r;
     s->recording = 0;
@@ -157,6 +158,12 @@ static int read_node(struct md_inode_store *s, sqlite3_stmt *q, struct mdi_node 
     value.device = (dev_t)sqlite3_column_int64(q, 2);
     value.inode = (ino_t)sqlite3_column_int64(q, 3);
     if (!r && value.kind == S_IFDIR) r = read_id(q, 4, value.parent);
+    if (!r) r = read_id(q, 7, value.backing);
+    value.shared = sqlite3_column_int(q, 8);
+    value.logical_inode = (ino_t)sqlite3_column_int64(q, 9);
+    value.logical_device = (dev_t)sqlite3_column_int64(q, 11);
+    value.source = sqlite3_column_int(q, 10);
+    if (value.source < 0 || value.source >= MDI_SOURCES) r = -EIO;
     if (!r && value.kind != S_IFDIR && value.kind != S_IFREG && value.kind != S_IFLNK && value.kind != S_IFSOCK) r = -EIO;
     sqlite3_int64 names = sqlite3_column_int64(q, 5), children = sqlite3_column_int64(q, 6);
     if (names < 0 || children < 0 || children > INT64_MAX - 2) r = -EIO;
@@ -168,14 +175,15 @@ static int read_node(struct md_inode_store *s, sqlite3_stmt *q, struct mdi_node 
 int mdi_query_acquire(struct md_inode_store *s, enum mdi_query slot, sqlite3_stmt **out) {
     /* Logical attributes share the node's current transaction snapshot. Native
      * permissions, sizes and timestamps are never materialized here. */
-#define NODE_COLUMNS "o.object,o.kind,o.device,o.inode,o.parent,o.name_count,o.directory_count"
+#define NODE_COLUMNS "o.object,o.kind,o.device,o.inode,o.parent,o.name_count,o.directory_count,o.backing,o.shared,o.logical_inode,o.source,o.logical_device"
     static const char *const sql[MDI_QUERY_COUNT] = {
         [MDI_NODE] = "SELECT " NODE_COLUMNS " FROM objects o WHERE o.object=?1",
-        [MDI_FD] = "SELECT " NODE_COLUMNS " FROM objects o WHERE o.device=?1 AND o.inode=?2",
+        [MDI_FD] = "SELECT " NODE_COLUMNS " FROM objects o JOIN backings b ON b.object=o.object "
+            "WHERE b.device=?1 AND b.inode=?2",
         [MDI_LOOKUP] = "SELECT " NODE_COLUMNS " FROM objects o "
             "JOIN names n ON n.object=o.object WHERE n.parent=?1 AND n.name=?2",
         [MDI_DIRECTORY_NAME] = "SELECT name FROM names WHERE parent=?1 AND object=?2",
-        [MDI_READDIR] = ("SELECT n.cookie,n.name,o.inode,o.kind FROM names n JOIN objects o ON o.object=n.object "
+        [MDI_READDIR] = ("SELECT n.cookie,n.name,o.logical_inode,o.kind FROM names n JOIN objects o ON o.object=n.object "
             "WHERE n.parent=?1 AND n.cookie>?2 ORDER BY n.cookie"),
         [MDI_BEGIN] = "BEGIN", [MDI_BEGIN_WRITE] = "BEGIN IMMEDIATE",
         [MDI_COMMIT] = "COMMIT", [MDI_ROLLBACK] = "ROLLBACK",
@@ -183,7 +191,8 @@ int mdi_query_acquire(struct md_inode_store *s, enum mdi_query slot, sqlite3_stm
         [MDI_EVENT_TRIM] = "DELETE FROM events WHERE sequence<=?1-65536",
         [MDI_EVENT_END] = "SELECT coalesce(max(sequence),0) FROM events",
         [MDI_EVENT_SCAN] = "SELECT sequence,parent,object,name,mask,cookie FROM events WHERE sequence>?1 ORDER BY sequence",
-        [MDI_EVENT_NAMES] = "SELECT parent,name FROM names WHERE object=?1"
+        [MDI_EVENT_NAMES] = "SELECT n.parent,n.name FROM names n JOIN backings b ON b.object=n.object WHERE b.backing=?1 AND b.source=?2",
+        [MDI_BACKING_OBJECT] = "SELECT object FROM backings WHERE backing=?1 AND source=?2"
     };
 #undef NODE_COLUMNS
     int result = 0;
@@ -271,14 +280,15 @@ static int backing_identity(const struct mdi_node *node, struct stat *st) {
     return 0;
 }
 int mdi_backing_stat(struct md_inode_store *s, const struct mdi_node *node, struct stat *st) {
-    return fstatat(s->objects, node->id, st, AT_SYMLINK_NOFOLLOW) ? -errno : backing_identity(node, st);
+    int directory = mdi_backing_directory(s, node);
+    return directory < 0 ? directory : fstatat(directory, node->backing, st, AT_SYMLINK_NOFOLLOW) ? -errno : backing_identity(node, st);
 }
 int mdi_fd_membership(struct md_inode_store *s, int fd, struct mdi_node *node, int *attached) {
     struct stat st;
     if (fstat(fd, &st)) return -errno;
     if (s->statistics) s->statistics->membership_queries++;
     int r = descriptor_node(s, &st, node);
-    if (!r) r = backing_identity(node, &st);
+    if (!r && (st.st_mode & S_IFMT) != (node->kind == S_IFSOCK ? S_IFREG : node->kind)) r = -EIO;
     if (!r) *attached = node->attached;
     return r;
 }
@@ -286,18 +296,22 @@ int mdi_fstat(struct md_inode_store *s, int fd, struct mdi_node *node, struct st
     if (fstat(fd, st)) return -errno;
     if (s->statistics) s->statistics->link_count_queries++;
     int r = descriptor_node(s, st, node);
-    if (!r) r = backing_identity(node, st);
-    if (!r) st->st_nlink = node->links;
+    if (!r && (st->st_mode & S_IFMT) != (node->kind == S_IFSOCK ? S_IFREG : node->kind)) r = -EIO;
+    if (!r) {
+        st->st_mode = (st->st_mode & ~S_IFMT) | node->kind;
+        st->st_nlink = node->links; st->st_ino = node->logical_inode; st->st_dev = node->logical_device;
+    }
     return r;
 }
 int mdi_stat(struct md_inode_store *s, const struct mdi_node *node, struct stat *st) {
     int r = mdi_backing_stat(s, node, st);
-    if (!r) st->st_nlink = node->links;
+    if (!r) { st->st_nlink = node->links; st->st_ino = node->logical_inode; st->st_dev = node->logical_device; }
     return r;
 }
 int mdi_access(struct md_inode_store *s, const struct mdi_node *node, int mode) {
     if (node->kind != S_IFDIR) return -ENOTDIR;
-    return faccessat(s->objects, node->id, mode, AT_EACCESS) ? -errno : 0;
+    int directory = mdi_backing_directory(s, node);
+    return directory < 0 ? directory : faccessat(directory, node->backing, mode, AT_EACCESS) ? -errno : 0;
 }
 int mdi_parent_writable(struct md_inode_store *s, const struct mdi_node *node) {
     int r = mdi_access(s, node, W_OK | X_OK);
@@ -321,7 +335,8 @@ static int make_object(struct md_inode_store *s, const char *id, mode_t kind, mo
     if (!r && fsync(s->objects)) r = -errno;
     if (!r) r = checkpoint(s, MD_OBJECT_SYNCED);
     sqlite3_stmt *q = NULL;
-    if (!r) r = mdi_prepare(s, "INSERT INTO objects(object,kind,device,inode,parent) VALUES(?1,?2,?3,?4,?5)", &q);
+    if (!r) r = mdi_prepare(s, "INSERT INTO objects(object,kind,device,inode,parent,backing,logical_inode,logical_device) "
+        "VALUES(?1,?2,?3,?4,?5,?1,?4,?3)", &q);
     if (!r) r = mdi_bind_id(q, 1, id);
     if (!r) r = mdi_sql_error(sqlite3_bind_int(q, 2, (int)kind));
     if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 3, (sqlite3_int64)st.st_dev));
@@ -332,19 +347,23 @@ static int make_object(struct md_inode_store *s, const char *id, mode_t kind, mo
     if (!r) r = mdi_node(s, id, node);
     return r;
 }
-int mdi_allocate(struct md_inode_store *s, mode_t kind, mode_t mode, int flags, const char *target,
-        const char *parent, struct mdi_node *node, int *fd) {
+int mdi_random_id(char id[33]) {
     unsigned char random[16];
     long n = syscall(SYS_getrandom, random, sizeof(random), 0);
     if (n != sizeof(random)) return n < 0 ? -errno : -EIO;
-    char id[33];
     for (size_t i = 0; i < sizeof(random); ++i) {
         id[2*i] = "0123456789abcdef"[random[i] >> 4];
         id[2*i+1] = "0123456789abcdef"[random[i] & 15];
     }
     id[32] = 0;
     if (!strcmp(id, MDI_ROOT)) return -EEXIST;
-    return make_object(s, id, kind, mode, flags, target, parent, node, fd);
+    return 0;
+}
+int mdi_allocate(struct md_inode_store *s, mode_t kind, mode_t mode, int flags, const char *target,
+        const char *parent, struct mdi_node *node, int *fd) {
+    char id[33];
+    int r = mdi_random_id(id);
+    return r ? r : make_object(s, id, kind, mode, flags, target, parent, node, fd);
 }
 int md_inode_store_open(const char *directory, int create, struct md_inode_store **out) {
     if (!out) return -EFAULT;
@@ -359,6 +378,7 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
     struct md_inode_store *s = calloc(1, sizeof(*s));
     if (!s) { close(root); return -ENOMEM; }
     s->objects = s->watch_presence = -1;
+    for (unsigned i = 0; i < MDI_SOURCES; ++i) s->sources[i] = -1;
     s->root = root;
     if (!r && (s->objects = openat(root, "objects", O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)) < 0) r = -errno;
     if (!r) r = store_lock(s);
@@ -373,8 +393,22 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
                 "device INTEGER NOT NULL,inode INTEGER NOT NULL,parent TEXT REFERENCES objects,"
                 "name_count INTEGER NOT NULL DEFAULT 0 CHECK(name_count>=0),"
                 "directory_count INTEGER NOT NULL DEFAULT 0 CHECK(directory_count>=0),"
+                "backing TEXT NOT NULL CHECK(length(backing)=32),shared INTEGER NOT NULL DEFAULT 0 CHECK(shared IN (0,1)),"
+                "logical_inode INTEGER NOT NULL,logical_device INTEGER NOT NULL,"
+                "source INTEGER NOT NULL DEFAULT 0 CHECK(source>=0 AND source<256),"
                 "UNIQUE(device,inode),CHECK(kind IN (32768,16384,40960,49152)),"
                 "CHECK((kind=16384)=(parent IS NOT NULL))) STRICT;"
+            "CREATE TABLE sources(id INTEGER PRIMARY KEY,path TEXT NOT NULL,device INTEGER NOT NULL,inode INTEGER NOT NULL,"
+                "UNIQUE(device,inode),CHECK(id>0 AND id<256)) STRICT;"
+            "CREATE TABLE backings(backing TEXT NOT NULL,object TEXT NOT NULL REFERENCES objects,"
+                "device INTEGER NOT NULL,inode INTEGER NOT NULL,source INTEGER NOT NULL,"
+                "UNIQUE(device,inode),PRIMARY KEY(backing,source)) STRICT;"
+            "CREATE TRIGGER objects_added AFTER INSERT ON objects BEGIN "
+                "INSERT INTO backings VALUES(NEW.backing,NEW.object,NEW.device,NEW.inode,NEW.source); END;"
+            "CREATE TRIGGER objects_copied AFTER UPDATE OF backing ON objects WHEN NEW.backing!=OLD.backing BEGIN "
+                "INSERT INTO backings VALUES(NEW.backing,NEW.object,NEW.device,NEW.inode,NEW.source); END;"
+            "CREATE TABLE properties(key TEXT PRIMARY KEY,value INTEGER NOT NULL) STRICT;"
+            "INSERT INTO properties VALUES('sealed',0);"
             "CREATE TABLE names(cookie INTEGER PRIMARY KEY AUTOINCREMENT,"
                 "parent TEXT NOT NULL REFERENCES objects,name BLOB NOT NULL,"
                 "object TEXT NOT NULL REFERENCES objects,UNIQUE(parent,name),"
@@ -394,7 +428,7 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
             "CREATE TABLE sockets(object TEXT PRIMARY KEY REFERENCES objects, address TEXT NOT NULL) STRICT;"
             "CREATE TABLE events(sequence INTEGER PRIMARY KEY AUTOINCREMENT, parent TEXT NOT NULL,"
                 "object TEXT NOT NULL,name BLOB NOT NULL,mask INTEGER NOT NULL,cookie INTEGER NOT NULL) STRICT;"
-            "PRAGMA user_version=6;");
+            "PRAGMA user_version=7;");
         struct mdi_node node; int fd;
         if (!r) r = make_object(s, MDI_ROOT, S_IFDIR, 0700, 0, NULL, MDI_ROOT, &node, &fd);
         if (!r) r = mdi_sql(s, "COMMIT");
@@ -405,7 +439,7 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
     if (!r) {
         int rc = mdi_step(s, q);
         if (rc != SQLITE_ROW) r = mdi_sql_failure(rc);
-        else if (sqlite3_column_int(q, 0) != 6) r = -EPROTONOSUPPORT;
+        else if (sqlite3_column_int(q, 0) != 7) r = -EPROTONOSUPPORT;
     }
     sqlite3_finalize(q); q = NULL;
     if (!r) r = mdi_prepare(s, "PRAGMA journal_mode", &q);
@@ -415,9 +449,18 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
         else if (strcmp((const char *)sqlite3_column_text(q, 0), "delete")) r = -ENOTSUP;
     }
     sqlite3_finalize(q);
+    q = NULL;
+    if (!r) r = mdi_prepare(s, "SELECT value FROM properties WHERE key='sealed'", &q);
+    if (!r) {
+        int rc = mdi_step(s, q);
+        if (rc != SQLITE_ROW) r = mdi_sql_failure(rc);
+        else s->readonly = sqlite3_column_int(q, 0) != 0;
+    }
+    sqlite3_finalize(q);
     if (!r && (s->watch_presence = openat(root, "watch.lock",
             O_RDWR | O_CLOEXEC | O_NOFOLLOW | (create ? O_CREAT | O_EXCL : 0), 0600)) < 0) r = -errno;
     if (!r && create && fsync(root)) r = -errno;
+    if (!r) r = mdi_sources_open(s);
     r = store_unlock(s, r);
     if (r) md_inode_store_close(s); else *out = s;
     return r;
@@ -430,6 +473,7 @@ void md_inode_store_close(struct md_inode_store *s) {
     if (s->objects >= 0) close(s->objects);
     if (s->watch_presence >= 0) close(s->watch_presence);
     if (s->root >= 0) close(s->root);
+    for (unsigned i = 1; i < MDI_SOURCES; ++i) if (s->sources[i] >= 0) close(s->sources[i]);
     free(s);
 }
 #ifdef MD_INODE_TESTING
@@ -453,7 +497,7 @@ int md_inode_audit(struct md_inode_store *s, struct md_inode_audit *audit) {
             "WHERE n.parent=o.object AND c.kind=16384) LIMIT 1", &q);
     if (!r && mdi_step(s, q) != SQLITE_DONE) r = -EIO;
     sqlite3_finalize(q); q = NULL;
-    if (!r) r = mdi_prepare(s, "SELECT object,kind,device,inode,parent,name_count,directory_count FROM objects", &q);
+    if (!r) r = mdi_prepare(s, "SELECT object,kind,device,inode,parent,name_count,directory_count,backing,shared,logical_inode,source,logical_device FROM objects", &q);
     while (!r) {
         struct mdi_node node;
         r = read_node(s, q, &node);
@@ -503,9 +547,16 @@ int md_inode_audit(struct md_inode_store *s, struct md_inode_audit *audit) {
         struct dirent *entry = readdir(dir);
         if (!entry) { if (errno) r = -errno; break; }
         if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
-        struct mdi_node node;
-        r = mdi_node(s, entry->d_name, &node);
-        if (r == -ENOENT) { ++audit->untracked; r = 0; }
+        sqlite3_stmt *backing = NULL;
+        r = mdi_query_acquire(s, MDI_BACKING_OBJECT, &backing);
+        if (!r) r = mdi_bind_id(backing, 1, entry->d_name);
+        if (!r) r = mdi_sql_error(sqlite3_bind_int(backing, 2, 0));
+        if (!r) {
+            int rc = mdi_step(s, backing);
+            if (rc == SQLITE_DONE) ++audit->untracked;
+            else if (rc != SQLITE_ROW) r = mdi_sql_failure(rc);
+        }
+        r = mdi_query_release(backing, r);
     }
     if (dir) closedir(dir);
     return mdi_finish(s, r);

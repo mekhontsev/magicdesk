@@ -49,7 +49,7 @@ ssize_t md_inode_getdents_deliver(struct md_inode_store *s, int fd, void *out, s
         if (offset == 1) r = mdi_node(s, node.parent, &entry);
         if (r) break;
         size_t n = record((char *)out + used, capacity-used, offset ? ".." : ".",
-            offset ? 2 : 1, entry.inode, offset+1, DT_DIR);
+            offset ? 2 : 1, entry.logical_inode, offset+1, DT_DIR);
         if (!n) { if (!used) r = -EINVAL; break; }
         used += n; ++offset;
     }

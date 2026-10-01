@@ -50,6 +50,8 @@ extern char md_guest_watch_gate[], md_guest_watch_return[];
 long md_guest_dispatch(long nr, unsigned long a0, unsigned long a1, unsigned long a2,
         unsigned long a3, unsigned long a4, unsigned long a5) {
     unsigned long args[] = {a0, a1, a2, a3, a4, a5};
+    if (nr == SYS_read || nr == SYS_readv || nr == SYS_ioctl || nr == SYS_splice
+            || nr == SYS_tee || nr == SYS_sendfile) return md_watch_read_local(&md_files, nr, args);
     if (nr == SYS_inotify_init1 || nr == SYS_inotify_rm_watch
             || nr == SYS_dup || nr == SYS_dup3 || nr == SYS_fcntl)
         return md_watch_call(&md_files, nr, args);

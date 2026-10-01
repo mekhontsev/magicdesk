@@ -32,6 +32,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", type=Path, required=True)
     parser.add_argument("--store", required=True)
+    parser.add_argument("--installed", action="store_true")
     args = parser.parse_args()
     report = {"completed": False, "sandboxSupportEstablished": False, "layerOneEstablished": False, "runs": []}
     try:
@@ -56,6 +57,8 @@ def main():
                        "--deadline-seconds", "60", "--quiet", "--expect-output", ">" + expected + "</h1>"]
             if index == 2:
                 command += ["--expect-artifact", artifact]
+            if args.installed:
+                command += ["--installed"]
             command += ["--", *program]
             # EVENT_WAIT: owned browser completion and cleanup; expiry fails.
             result = subprocess.run(command, text=True, capture_output=True)

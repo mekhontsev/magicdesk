@@ -14,4 +14,5 @@ int md_catalogue_object_id(struct md_image_catalogue *, struct md_inode_store *,
 int md_catalogue_path(struct md_image_catalogue *, struct md_inode_store *, int, char *, size_t);
 int md_catalogue_stat(struct md_image_catalogue *, struct md_inode_store *, int, const char *, int, struct stat *);
 int md_catalogue_fstat(struct md_image_catalogue *, struct md_inode_store *, int, struct stat *);
+int md_catalogue_reopen(struct md_image_catalogue *, struct md_inode_store *, int, int, int mutable);
 #endif

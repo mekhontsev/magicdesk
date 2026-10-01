@@ -5,13 +5,15 @@
 #include <sqlite3.h>
 
 #define MDI_ROOT "00000000000000000000000000000000"
+#define MDI_SOURCES 256
 enum mdi_query { MDI_NODE, MDI_FD, MDI_LOOKUP, MDI_DIRECTORY_NAME, MDI_READDIR,
     MDI_BEGIN, MDI_BEGIN_WRITE, MDI_COMMIT, MDI_ROLLBACK, MDI_EVENT, MDI_EVENT_TRIM,
-    MDI_EVENT_END, MDI_EVENT_SCAN, MDI_EVENT_NAMES,
+    MDI_EVENT_END, MDI_EVENT_SCAN, MDI_EVENT_NAMES, MDI_BACKING_OBJECT,
     MDI_QUERY_COUNT };
 struct md_inode_store {
     sqlite3 *db;
-    int objects, root, watch_presence, locked, recording;
+    int objects, root, watch_presence, locked, recording, readonly, reflink_unavailable;
+    int sources[MDI_SOURCES];
     struct md_inode_watches *watches;
     struct md_inode_statistics *statistics;
     sqlite3_stmt *queries[MDI_QUERY_COUNT];
@@ -21,12 +23,12 @@ struct md_inode_store {
 #endif
 };
 struct mdi_node {
-    char id[33], parent[33];
+    char id[33], parent[33], backing[33];
     mode_t kind;
-    dev_t device;
-    ino_t inode;
+    dev_t device, logical_device;
+    ino_t inode, logical_inode;
     nlink_t links;
-    int attached;
+    int attached, shared, source;
 };
 struct mdi_location {
     struct mdi_node node, parent;
@@ -69,6 +71,12 @@ int mdi_empty(struct md_inode_store *, const struct mdi_node *);
 int mdi_allocate(struct md_inode_store *, mode_t kind, mode_t mode, int flags, const char *target,
         const char *parent, struct mdi_node *, int *fd);
 int mdi_commit(struct md_inode_store *, int);
+int mdi_random_id(char [33]);
+/* Called within the namespace write transaction, before exposing any writable
+ * descriptor. Native data IO remains outside the namespace after this point. */
+int mdi_copy_up(struct md_inode_store *, struct mdi_node *);
+int mdi_sources_open(struct md_inode_store *);
+int mdi_backing_directory(struct md_inode_store *, const struct mdi_node *);
 int mdi_event(struct md_inode_store *, const char *parent, const struct mdi_node *,
         const char *name, unsigned mask, unsigned *cookie);
 int mdi_removed_event(struct md_inode_store *, const struct mdi_location *, int parent_event);

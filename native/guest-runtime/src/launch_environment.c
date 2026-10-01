@@ -10,6 +10,24 @@ static int retain(const char *entry) {
         if (md_prefix(entry, names[i])) return 1;
     return 0;
 }
+long md_launch_environment_set(struct md_launch_environment *out, char *entry) {
+    size_t key = 0;
+    while (entry[key] && entry[key] != '=') {
+        unsigned char c = (unsigned char)entry[key];
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_'
+                || (key && c >= '0' && c <= '9'))) return -EINVAL;
+        if (++key > 1024) return -E2BIG;
+    }
+    if (!key || entry[key] != '=') return -EINVAL;
+    unsigned n = 0;
+    for (; out->values[n]; ++n) {
+        size_t i = 0;
+        while (i < key && out->values[n][i] == entry[i]) ++i;
+        if (i == key && out->values[n][i] == '=') { out->values[n] = entry; return 0; }
+    }
+    if (n + 1 >= sizeof(out->values)/sizeof(*out->values)) return -E2BIG;
+    out->values[n] = entry; out->values[n+1] = NULL; return 0;
+}
 
 long md_launch_environment(struct md_launch_environment *out, const char *home, char **inherited) {
     if (md_copy(out->home, sizeof(out->home), "HOME=") || md_append(out->home, sizeof(out->home), home))
