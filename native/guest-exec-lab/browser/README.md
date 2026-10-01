@@ -48,6 +48,9 @@ requires a successful exit and expectations. `sandboxSupportEstablished` and
   logical credentials, secure auxv/loader, irreversible drops, no_new_privs,
   denied real credentials and retained descriptors.
 - `test_retained.py`: protected metadata and exec, nonleader exec, descriptor
+  and cwd ownership in threads with private FD tables, page-boundary paths,
+  read-only output buffers, CLOEXEC, open-unlinked inode identity and immediate
+  broker revocation after a sibling changes the shared CLONE_FS root,
   offsets, regular/directory/O_PATH/pipe FD reuse, shared dup/fork/thread seeks,
   seek and internal-transport ERRNO/TRAP/KILL precedence, signals, group death,
   job control, sockets, three stock zygote/renderer

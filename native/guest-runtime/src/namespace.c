@@ -146,6 +146,17 @@ static long descriptor_call(const struct md_fs *fs, long nr, const unsigned long
         return -EBADF;
     struct md_fs_result out;
     struct stat st;
+    if (nr == SYS_getdents64) {
+        /* The namespace validates the descriptor and advances its cursor in
+         * one operation; a preliminary metadata RPC adds no authority. */
+        struct md_fs_request q = {.operation = MD_FS_GETDENTS, .directory = {(int)a[0], -1},
+            .capacity = a[2] > PATH_MAX ? PATH_MAX : (uint32_t)a[2]};
+        long r = md_namespace_request(fs, &q, &out);
+        if (r == -EXDEV) return md_raw(nr, a[0], a[1], a[2], 0, 0, 0);
+        if (r < 0) return r;
+        r = md_write_memory((void *)a[1], out.data, out.size);
+        return r < 0 ? r : out.size;
+    }
     long r = md_namespace_inspect(fs, (int)a[0], NULL, 0, &out);
     if (r == -EXDEV)
         return md_raw(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
@@ -157,20 +168,12 @@ static long descriptor_call(const struct md_fs *fs, long nr, const unsigned long
     }
     if (!S_ISDIR(out.info.mode))
         return md_raw(nr, a[0], a[1], a[2], 0, 0, 0);
-    struct md_fs_request q = {.operation = nr == SYS_lseek ? MD_FS_SEEKDIR : MD_FS_GETDENTS,
-                              .directory = {(int)a[0], -1}};
-    if (nr == SYS_lseek) {
-        q.offset = (int64_t)a[1];
-        q.flags = (uint32_t)a[2];
-    } else
-        q.capacity = a[2] > PATH_MAX ? PATH_MAX : (uint32_t)a[2];
+    struct md_fs_request q = {.operation = MD_FS_SEEKDIR, .directory = {(int)a[0], -1},
+        .offset = (int64_t)a[1], .flags = (uint32_t)a[2]};
     r = md_namespace_request(fs, &q, &out);
     if (r < 0)
         return r;
-    if (nr == SYS_lseek)
-        return out.position;
-    r = md_write_memory((void *)a[1], out.data, out.size);
-    return r < 0 ? r : out.size;
+    return out.position;
 }
 long md_namespace_xattr(const struct md_fs *fs, long nr, int base, const char *path, const unsigned long *a) {
     unsigned long args[6];

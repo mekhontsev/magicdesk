@@ -3540,8 +3540,9 @@ creating a global distribution owner. Several environments can use the same
 or different methods concurrently. Lazy content-addressed executable staging
 and explicit child-process capability probes keep new kernel requirements out
 of shared startup. A launch-owned native supervisor mediates selective seccomp
-TRACE/USER_NOTIF operations; the filesystem service owns inode metadata and
-explicit sealed-image admission. Guest signal handlers remain application-owned.
+TRACE/USER_NOTIF operations. Its namespace worker owns inode metadata and explicit
+sealed-image admission, accepting ordinary file notifications directly and
+task-affine adapter RPC through the same engine. Guest signal handlers remain application-owned.
 These executables are never loaded into ART and do not own Android windows.
 Wayland connection mode belongs to the recipe, not its UID;
 an inherited FD works independently of whether the selected executor is root.

@@ -90,7 +90,7 @@ def main():
               contains=["PASS lifecycle: double-fork/setsid descendant uses namespace after root exit",
                         "PASS lifecycle: TERM escalation",
                         "PASS lifecycle: frontend SIGKILL",
-                        "PASS lifecycle: service failure",
+                        "PASS lifecycle: namespace owner failure",
                         "PASS lifecycle: launch failures and final ECHILD"])
         check("stock Debian shell executing from inode namespace", "timeout 45 " + namespace + "/bin/dash -c "
               + shlex.quote("/bin/cat /etc/md-guest-fixture | /usr/bin/wc -c"), contains="12\n")

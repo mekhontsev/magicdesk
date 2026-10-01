@@ -6,29 +6,32 @@ independent of Android terminal windows, graphical hosts and Desktop sessions.
 
 ## Owners
 
-`namespace_run.c` starts the static Bionic filesystem service, observes its
-explicit readiness reply, and creates a guest guardian. Startup also observes
-cancellation and service death; its 30-second limit is a failure bound, not a delay.
+`namespace_run.c` creates a guest guardian. The native supervisor starts its
+namespace worker after forking the guest, before acknowledging guest readiness.
+The worker opens its store, image catalogue and RPC endpoint on its own thread.
+An eventfd publishes readiness or an exact startup error; the 30-second limit
+is a failure bound, not a delay. No SQLite connection is inherited by the guest.
 
 `process_owner.c` implements the guardian as a Linux child subreaper. Headless
 launches create a separate session; an inherited controlling PTY is retained so
 the guest shell can own foreground job control. It starts the native syscall
-supervisor, which traces and reaps its own guest tree. The filesystem service is a
-sibling in a separate session, so its continued existence does not interfere
-with the guardian's `wait4(..., __WALL)` quiescence check. The root guest's exit
+supervisor, which traces and reaps its own guest tree. The namespace worker is
+part of that supervisor, not a child counted by the guardian's
+`wait4(..., __WALL)` quiescence check. The root guest's exit
 status is retained, but returned only after `ECHILD` proves that the entire tree
 has ended. Background processes may intentionally keep a launch alive indefinitely.
 
-The guardian exclusively retains the service's stop-pipe writer. Guest children
-do not inherit it. The frontend transfers ownership after fork, and its exit
-does not prematurely stop the service. The service exits on pipe EOF after the
-guardian finishes. Supervisors close unrelated inherited descriptors; only the
-guest retains caller-supplied application FDs.
+The supervisor retains the namespace worker until tracees have been reaped.
+Shutdown signals its stop eventfd and joins it before freeing request storage;
+a ten-second failure bound terminates the supervisor instead of freeing live
+worker memory. Supervisors close unrelated inherited descriptors before starting
+the worker; only the guest retains caller-supplied application FDs.
 
 The frontend catches cancellation with signalfd and forwards it to the guardian.
 A parent-death signal and parent-PID race check also cover frontend SIGKILL:
-the guardian remains alive to drain the tree and release the service. Unexpected
-service death, observed through its pidfd, cancels the tree and reports failure.
+the guardian remains alive to drain the tree and namespace owner. Worker failure
+wakes the supervisor through an eventfd. Unexpected supervisor death cancels
+its remaining descendants and reports supervision failure.
 
 ## Cancellation
 
@@ -53,7 +56,7 @@ is not used. A scan never proves quiescence; only the final wait result does.
 The frontend returns the root application's status after normal completion,
 `128 + signal` for requested cancellation, and 125 for supervision/service failure.
 A cleanup deadline expiring is failure, not successful termination. Service
-shutdown has its own bounded wait and forced-stop failure path.
+shutdown has its own bounded join and process-failure path.
 
 ## Verification And Limits
 
@@ -62,7 +65,7 @@ The driver observes the executor independently under UID 2000. SCM_RIGHTS passes
 pidfds for exact exit checks; socket and child-stop handshakes establish checkpoints
 without sleeps. Tests cover double-fork/setsid descendants using the namespace
 after root exit, root exit/signal status, concurrent launches, rapid orphaning,
-ignored SIGTERM, acknowledged SIGSTOP, escalation, frontend/service SIGKILL,
+ignored SIGTERM, acknowledged SIGSTOP, escalation, frontend/namespace-owner SIGKILL,
 failed launches, unrelated-process isolation, descriptor release and final ECHILD.
 
 Coverage is NX809J / API 36 / Linux 6.12.23 under actual UID 2000. Other kernels,

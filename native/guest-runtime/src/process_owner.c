@@ -123,7 +123,7 @@ done:
     return result;
 }
 
-long md_process_guard(long owner, int service, int stop, const char *bootstrap,
+long md_process_guard(long owner, const char *bootstrap,
                       char **argv, char **env, const struct md_process_signals *inherited) {
     struct md_process_signals signals;
     /* A login shell owns foreground job control inside its inherited PTY session.
@@ -138,14 +138,11 @@ long md_process_guard(long owner, int service, int stop, const char *bootstrap,
     long guest = RAW5(clone, SIGCHLD, 0, 0, 0, 0);
     if (guest < 0) return 125;
     if (!guest) {
-        RAW1(close, service);
-        RAW1(close, stop);
         RAW1(close, signals.fd);
         if (md_process_signals_restore(inherited) < 0) RAW1(exit_group, 125);
         md_die("execute namespace guest", RAW3(execve, bootstrap, argv, env));
     }
-    int keep[] = {service, stop, signals.fd};
-    int failed = md_process_close_fds(keep, 3) < 0;
+    int failed = md_process_close_fds(&signals.fd, 1) < 0;
     int root_status = 125, root_seen = 0, result = failed ? 125 : 0, phase = failed ? 2 : 0;
     int64_t deadline = failed ? md_event_now() + MD_REAP_NS : INT64_MAX;
     for (;;) {
@@ -158,24 +155,24 @@ long md_process_guard(long owner, int service, int stop, const char *bootstrap,
         int status;
         long pid;
         while ((pid = RAW4(wait4, -1, &status, WNOHANG | __WALL, 0)) > 0)
-            if (pid == guest) { root_status = md_process_status(status); root_seen = 1; }
+            if (pid == guest) {
+                root_status = md_process_status(status); root_seen = 1;
+                if ((status & 127) || root_status == 125) {
+                    root_status = 125;
+                    if (!phase) { result = 125; phase = 1; deadline = md_event_now() + MD_GRACE_NS; }
+                }
+            }
         if (pid == -ECHILD) return result ? result : root_seen ? root_status : 125;
         if (pid < 0 && pid != -EINTR) return 125;
         if (phase && md_process_signal_children(phase == 1 ? SIGTERM : SIGKILL) < 0)
             return 125; /* No ownership proof means no broad kill fallback. */
-        struct pollfd fds[] = {{signals.fd, POLLIN, 0}, {service, POLLIN, 0}};
-        /* EVENT_WAIT: child exits, owner cancellation/death, or service death.
+        struct pollfd fds[] = {{signals.fd, POLLIN, 0}};
+        /* EVENT_WAIT: child exits or owner cancellation/death.
          * Grace expiration escalates TERM to KILL; final expiry reports incomplete cleanup. */
-        long r = md_event_wait(fds, 2, deadline);
+        long r = md_event_wait(fds, 1, deadline);
         if (r == -ETIMEDOUT && phase == 1) {
             phase = 2;
             deadline = md_event_now() + MD_REAP_NS;
         } else if (r < 0) return 125;
-        else if (fds[1].revents) {
-            RAW1(close, service);
-            service = -1;
-            result = 125;
-            if (!phase) { phase = 1; deadline = md_event_now() + MD_GRACE_NS; }
-        }
     }
 }

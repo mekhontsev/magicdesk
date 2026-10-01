@@ -5,7 +5,8 @@
 #include <sqlite3.h>
 
 #define MDI_ROOT "00000000000000000000000000000000"
-enum mdi_query { MDI_NODE, MDI_FD, MDI_LOOKUP, MDI_LINK_COUNT, MDI_QUERY_COUNT };
+enum mdi_query { MDI_NODE, MDI_FD, MDI_LOOKUP, MDI_LINK_COUNT,
+    MDI_BEGIN, MDI_BEGIN_WRITE, MDI_COMMIT, MDI_ROLLBACK, MDI_QUERY_COUNT };
 struct md_inode_store {
     sqlite3 *db;
     int objects, locked;

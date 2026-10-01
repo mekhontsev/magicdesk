@@ -88,15 +88,27 @@ static int store_unlock(struct md_inode_store *s, int result) {
     }
     return result;
 }
+static int query(struct md_inode_store *, enum mdi_query, sqlite3_stmt **);
+static int release_query(sqlite3_stmt *, int);
+static int transaction(struct md_inode_store *s, enum mdi_query slot) {
+    struct md_cost *cost = s->statistics ? &s->statistics->transaction : NULL;
+    int64_t begin = md_cost_begin(cost);
+    sqlite3_stmt *q = NULL;
+    int r = query(s, slot, &q);
+    if (!r) { int rc = mdi_step(s, q); r = rc == SQLITE_DONE ? 0 : mdi_sql_failure(rc); }
+    r = release_query(q, r);
+    md_cost_end(cost, begin);
+    return r;
+}
 int mdi_begin(struct md_inode_store *s, int write) {
     int r = store_lock(s);
     if (r) return r;
-    r = mdi_sql(s, write ? "BEGIN IMMEDIATE" : "BEGIN");
+    r = transaction(s, write ? MDI_BEGIN_WRITE : MDI_BEGIN);
     return r ? store_unlock(s, r) : 0;
 }
 int mdi_finish(struct md_inode_store *s, int result) {
-    if (!result) result = mdi_sql(s, "COMMIT");
-    if (result) mdi_sql(s, "ROLLBACK");
+    if (!result) result = transaction(s, MDI_COMMIT);
+    if (result) transaction(s, MDI_ROLLBACK);
     return store_unlock(s, result);
 }
 #ifndef MD_INODE_TESTING
@@ -150,7 +162,9 @@ static int query(struct md_inode_store *s, enum mdi_query slot, sqlite3_stmt **o
         [MDI_LOOKUP] = "SELECT o.object,o.kind,o.device,o.inode,o.parent FROM objects o "
             "JOIN names n ON n.object=o.object WHERE n.parent=?1 AND n.name=?2",
         [MDI_LINK_COUNT] = "SELECT count(*), (SELECT count(*) FROM names n JOIN objects o ON n.object=o.object "
-            "WHERE n.parent=?1 AND o.kind=?2) FROM names WHERE object=?1"
+            "WHERE n.parent=?1 AND o.kind=?2) FROM names WHERE object=?1",
+        [MDI_BEGIN] = "BEGIN", [MDI_BEGIN_WRITE] = "BEGIN IMMEDIATE",
+        [MDI_COMMIT] = "COMMIT", [MDI_ROLLBACK] = "ROLLBACK"
     };
     int result = 0;
     if (!s->queries[slot]) result = mdi_prepare(s, sql[slot], &s->queries[slot]);

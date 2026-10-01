@@ -40,15 +40,29 @@ target_compile_options(bootstrap PRIVATE -mgeneral-regs-only)
 target_link_options(bootstrap PRIVATE -Wl,--image-base=0x2000000000)
 
 guest_executable(supervisor ${src}/supervisor.c ${src}/process_owner.c ${src}/interception_stacks.c ${src}/guest_domain.c
-    ${src}/guest_identity.c ${src}/elf_admission.c ${src}/elf.c ${src}/fs_client.c ${wire} ${raw})
+    ${src}/guest_identity.c ${src}/elf_admission.c ${src}/elf.c ${src}/fs_client.c ${wire} ${raw}
+    ${src}/fs_worker.c ${src}/fs_service.c ${src}/fs_engine.c ${src}/image_catalogue.c ${inodes}
+    ${src}/namespace_broker.c ${src}/proc_paths.c)
 target_compile_definitions(supervisor PRIVATE MD_NO_START MD_USE_LIBC)
+target_link_libraries(supervisor PRIVATE guest-sqlite m)
 
 guest_executable(run ${src}/namespace_run.c ${src}/process_owner.c ${src}/launch_environment.c ${src}/socket_routes.c ${src}/event_wait.c ${raw})
 guest_freestanding(run)
 
-guest_executable(service ${src}/service_main.c ${src}/fs_service.c ${src}/image_catalogue.c
+guest_executable(service ${src}/service_main.c ${src}/fs_service.c ${src}/fs_engine.c ${src}/image_catalogue.c
     ${src}/elf_admission.c ${src}/guest_identity.c ${src}/elf.c ${src}/fs_client.c ${inodes} ${wire} ${raw})
 target_compile_definitions(service PRIVATE MD_NO_START MD_USE_LIBC)
 target_link_libraries(service PRIVATE guest-sqlite m)
 
 install(TARGETS bootstrap supervisor run service RUNTIME DESTINATION lib)
+
+option(MAGICDESK_GUEST_FIXTURES "Build standalone namespace benchmark" OFF)
+if(MAGICDESK_GUEST_FIXTURES)
+    guest_executable(benchmark_namespace ../guest-exec-lab/benchmark_namespace.c
+        ${src}/fs_engine.c ${src}/image_catalogue.c ${src}/elf_admission.c
+        ${src}/guest_identity.c ${src}/elf.c ${src}/fs_client.c ${inodes} ${wire} ${raw})
+    target_compile_options(benchmark_namespace PRIVATE -iquote ${src})
+    target_compile_definitions(benchmark_namespace PRIVATE MD_NO_START MD_USE_LIBC)
+    target_compile_options(benchmark_namespace PRIVATE -UNDEBUG)
+    target_link_libraries(benchmark_namespace PRIVATE guest-sqlite m)
+endif()

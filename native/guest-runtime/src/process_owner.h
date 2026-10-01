@@ -16,6 +16,6 @@ long md_process_signal(int pidfd, int signal);
 long md_process_signal_children(int signal);
 long md_process_close_fds(const int *keep, unsigned count);
 int md_process_status(int status);
-long md_process_guard(long owner, int service, int stop, const char *bootstrap,
+long md_process_guard(long owner, const char *bootstrap,
                       char **argv, char **env, const struct md_process_signals *inherited);
 #endif

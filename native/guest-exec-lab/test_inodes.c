@@ -665,6 +665,8 @@ static void reused_queries(void) {
     int fd = md_inode_create(writer, MD_INODE_ROOT, "value", 0600); CHECK(fd >= 0);
     struct stat original = state(s, "value", 1), st;
     CHECK(!md_inode_fstat(s, fd, &st));
+    /* Warm both commit and rollback programs before measuring reuse. */
+    CHECK(md_inode_stat(s, MD_INODE_ROOT, "absent", 0, &st) == -ENOENT);
     struct md_inode_statistics statistics = {0};
     md_inode_measure(s, &statistics);
     for (unsigned i = 0; i < 16; i++) {

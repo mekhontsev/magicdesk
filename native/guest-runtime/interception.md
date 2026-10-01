@@ -27,9 +27,29 @@ cache or namespace metadata RPC is involved. Shared positions and descriptor
 reuse retain kernel semantics. Directories and unavailable remote descriptor
 access use the ordinary adapter, including nondumpable processes.
 
+`namespace_broker.c` handles ordinary openat/newfstatat/fstat notifications in the
+namespace worker, alongside adapter RPC. The worker alone owns SQLite and the
+sealed-image catalogue; `fs_engine.c` dispatches both transports. Eligible requests
+copy paths page by page, retain exact-task descriptors and validate notification
+IDs before execution and result publication. Successful opens use atomic ADDFD
+plus response. The optional kernel synchronous-wakeup hint changes scheduling
+only; unsupported kernels retain normal notification delivery.
+
+Pidfds are owned by task lifetime, borrowed during request preparation and retired
+on exit or exec. No file-number, cwd, path or metadata cache is involved. Published
+supervisor state excludes restricted domains and adapter continuations from the
+ordinary path. A shared-root restriction revokes every CLONE_FS member before
+its caller resumes, including members not returning through a ptrace stop.
+O_PATH uses SCM_RIGHTS because ADDFD rejects it. Mutating opens and
+directory cursors retain the task-affine adapter and its no-replay contract.
+Directory reads validate and advance through one namespace operation without a
+preliminary metadata RPC. Unavailable remote access is delegated before mutation;
+a partially delivered result is never replayed.
+
 `magicdesk-guest --statistics --store STORE -- PROGRAM` enables aggregate
-syscall/ptrace/stop counters, filesystem operation times, SQLite costs and each
-service's own CPU usage, printed once on completion. Collection and clock
+syscall/ptrace/stop counters, broker handling/delegation counts, RPC operation
+times, SQLite costs and CPU usage, printed once on completion. Namespace-worker
+CPU is a subset of supervisor process CPU, not an additional cost. Collection and clock
 sampling are opt-in; there are no per-call logs. Operation times include kernel
 waiting and descheduling; nested filesystem/SQLite totals must not be added as
 independent CPU costs. Detailed `--diagnostics` is a separate mode; neither is
@@ -86,8 +106,9 @@ confinement and domain-authenticated filesystem authorization are not establishe
 
 ## Lifetimes And Availability
 
-The runner owns the filesystem service and guardian; the guardian owns the
-supervisor and its descendants. Signalfd, pidfds and child/ptrace events drive
+The runner owns the guardian; the guardian owns the supervisor and its descendants.
+The supervisor's namespace worker is joined after tracee cleanup. Signalfd, pidfds,
+eventfds and child/ptrace events drive
 completion and cancellation. There is no ordinary launch deadline; an explicit
 test deadline fails and cancels the owned tree. Supervisors close unrelated
 inherited FDs while the application retains caller-supplied descriptors.

@@ -381,9 +381,19 @@ GUI latency or cross-device speed claims. Very short native runs can reach
 GNU time's output resolution; do not infer precise ratios from those values.
 
 Use `--guest-statistics --modes guest` for a separately labelled diagnostic run
-with aggregate syscall/ptrace/stop counters, filesystem/SQLite elapsed costs and
-separate supervisor/service CPU totals. Clock sampling is enabled only in that
-diagnostic mode. Keep it separate from ordinary timing series. Frequency caps
+with aggregate syscall/ptrace/stop counters, filesystem/SQLite elapsed costs,
+broker handling/delegation counts and supervisor/namespace-worker CPU usage.
+The worker's thread CPU is included in the supervisor process total; do not add
+them together. Clock sampling is enabled only in that diagnostic mode.
+Keep it separate from ordinary timing series. Frequency caps
 and scheduling groups can differ between these executor
 identities even without changing the power source; retain the individual samples
 and ranges rather than attributing every wall-time difference to interception.
+
+Configure the native CMake build with `-DMAGICDESK_GUEST_FIXTURES=ON` to build
+`libmagicdesk_guest_benchmark_namespace.so`. Run it under the same shell identity
+with the prepared benchmark store as its sole argument. It executes the metadata
+workload directly through the namespace engine, retaining inode/content checks
+but excluding syscall interception and RPC. Its first sample warms the store;
+the next three isolate engine cost. This diagnostic is not another guest runtime
+or a replacement for end-to-end timings, and is not packaged in the APK.

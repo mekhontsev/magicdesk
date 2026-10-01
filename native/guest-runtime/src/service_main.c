@@ -66,7 +66,7 @@ int main(int argc, char **argv) {
     close(ready);
     if (!error && statistics) md_inode_measure(store, &database);
     if (!error)
-        error = md_fs_serve(store, images, listener, stop, 5000, statistics ? &filesystem : NULL);
+        error = md_fs_serve(store, images, listener, stop, 5000, statistics ? &filesystem : NULL, NULL);
     if (statistics) {
         cost("prepare", &database.prepare); cost("step", &database.step);
         cost("transaction", &database.transaction); cost("lock", &database.lock);

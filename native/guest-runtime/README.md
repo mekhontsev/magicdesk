@@ -76,20 +76,21 @@ custom glibc linker, root transition or SELinux change is used.
   [inode namespace](inode-store.md), not a syscall backend. They use SQLite
   transactions for names/parent edges and ordinary kernel objects/descriptors
   for shared data and stable identity, paged directory cursors and atomic offline
-  import. SQLite is linked only into the dedicated Bionic service and test
-  fixtures, never the bootstrap or syscall dispatcher. The APK build pins the
+  import. SQLite is linked into the native supervisor and storage tool, never
+  the freestanding bootstrap or in-guest syscall adapter. The APK build pins the
   unmodified SQLite amalgamation by version and SHA-256.
-- `fs_service.c` exposes the model through a separate
-  [filesystem service](filesystem-service.md). Its event-loop thread
-  owns SQLite; the freestanding `fs_client.c` and `fs_wire.c` transfer native FDs
-  over per-call Unix sockets without shared client locks. It is a launch-owned
-  child executable, not an Android service or persistent system daemon.
+- `fs_engine.c` dispatches typed namespace operations independently of transport.
+  `fs_worker.c` owns the store and sealed-image catalogue on one supervisor thread.
+  `namespace_broker.c` handles eligible file notifications directly;
+  `fs_service.c` serves task-affine adapter RPC on the same event loop.
+  The freestanding `fs_client.c` and `fs_wire.c` transfer native FDs over per-call
+  Unix sockets without shared client locks. See the [filesystem service](filesystem-service.md).
 - `namespace.c` connects the syscall boundary to that service in the explicit
   [namespace execution mode](namespace-execution.md). `program_files.c` shares
   loader/program opening between initial launch and exec. `namespace_run.c`
-  and `process_owner.c` own the service and complete guest process tree through
-  a dedicated subreaper. `service_main.c` performs native Bionic storage IO,
-  independently of any guest loader. See the [lifetime contract](process-lifetime.md).
+  and `process_owner.c` own the supervisor and complete guest process tree through
+  a dedicated subreaper. `service_main.c` supplies offline import and standalone
+  namespace serving for native fixtures. See the [lifetime contract](process-lifetime.md).
 - `event_wait.c` supplies monotonic event-driven descriptor waits to RPC and
   process ownership, without polling or a libc dependency.
 - `fd_metadata.c` applies namespace chmod and path xattrs to a retained native
@@ -364,14 +365,16 @@ contract. No driver or desktop package is embedded in the APK.
 `test_distribution_app.py` adds Writer/Calc document save/readback, GIMP dialogs,
 Blender GLX viewport rendering and GTK GLArea Wayland pixels/input. Its optional
 patched Zink build is an isolated client-driver experiment, not a runtime workaround.
-Firefox and Chromium remain failing controls with their sandbox configuration intact.
+Browser admission and application-filter checks have their own
+[production fixtures](../guest-exec-lab/browser/README.md); GUI tests alone do not
+establish browser execution or security isolation.
 
 ## Package Transactions
 
 The optional package fixture uses unmodified Debian dpkg 1.21.23 and tar 1.34.
 The namespace backend passes installation at version 1.0, upgrade to 2.0 and
 purge, checking committed database state, payload and actual postinst/postrm
-results across fresh service processes. It also extracts the official gzip
+results across fresh namespace owners. It also extracts the official gzip
 archive and verifies the hard-link pair's shared inode. These checks do not
 modify the direct rootfs. This is a fixture lifecycle, not full Debian/APT
 compatibility.

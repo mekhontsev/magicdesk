@@ -1,6 +1,8 @@
 #define _GNU_SOURCE
 #include "event_wait.h"
 #include "fs_rpc.h"
+#include "fs_worker.h"
+#include "namespace_broker.h"
 #include "guest_domain.h"
 #include "elf_admission.h"
 #include "interception.h"
@@ -108,6 +110,8 @@ static unsigned retained_calls, retained_errors;
 static unsigned root_changes, restricted_denials;
 static unsigned group_stops, group_wakes, raced_wakes;
 static const char *admitted_path;
+static struct md_fs_worker *filesystem;
+static struct md_namespace_broker *broker;
 static struct md_admission admission = {.source = -1};
 static unsigned admitted_images, identity_changes;
 static int registers(pid_t pid, struct user_pt_regs *out);
@@ -167,6 +171,10 @@ static void cleanup(void) {
         free(threads); threads = next;
     }
     md_admission_close(&admission);
+    if (md_fs_worker_stop(filesystem)) _Exit(125);
+    filesystem = NULL;
+    md_broker_destroy(broker); broker = NULL;
+    if (listener >= 0) close(listener);
     free(statistics);
 }
 static void fail(const char *what, int line) {
@@ -204,6 +212,7 @@ static struct thread *thread(pid_t pid) {
     live++; total++; return t;
 }
 static void release_thread(struct thread *t) {
+    md_broker_forget(broker, t->pid);
     release_operation(t);
     md_domain_release(t->domain); t->domain = NULL;
     md_stacks_return(t->stacks, t->stack);
@@ -500,15 +509,8 @@ static void image_request(struct thread *t, const struct seccomp_notif *q) {
     } else reply.error = -EPROTO;
     CHECK(!ioctl(listener, SECCOMP_IOCTL_NOTIF_SEND, &reply) || errno == ENOENT);
 }
-static void external_stat(void) {
-    struct seccomp_notif q = {0};
-    if (ioctl(listener, SECCOMP_IOCTL_NOTIF_RECV, &q)) {
-        CHECK(errno == ENOENT || errno == EINTR); return;
-    }
-    if (statistics) {
-        if ((unsigned)q.data.nr < 512) statistics->calls[q.data.nr].notification++;
-        else statistics->unknown++;
-    }
+static void handle_notification(const struct seccomp_notif *request) {
+    struct seccomp_notif q = *request;
     CHECK(q.data.nr == SYS_fstat || q.data.nr == SYS_openat || q.data.nr == SYS_newfstatat || q.data.nr == SYS_prctl);
     struct thread *t = find_thread((pid_t)q.pid);
     CHECK(t && t->born);
@@ -558,6 +560,20 @@ static void external_stat(void) {
         TRACE("PROBE external fstat pid=%u fd=%llu result=%d\n", q.pid, q.data.args[0], error);
     struct seccomp_notif_resp reply = {.id = q.id, .error = error};
     CHECK(!ioctl(listener, SECCOMP_IOCTL_NOTIF_SEND, &reply) || errno == ENOENT);
+}
+static void delegated_notification(const struct seccomp_notif *request) {
+    handle_notification(request);
+}
+static void external_stat(void) {
+    struct seccomp_notif q = {0};
+    if (ioctl(listener, SECCOMP_IOCTL_NOTIF_RECV, &q)) {
+        CHECK(errno == ENOENT || errno == EINTR); return;
+    }
+    if (statistics) {
+        if ((unsigned)q.data.nr < 512) statistics->calls[q.data.nr].notification++;
+        else statistics->unknown++;
+    }
+    handle_notification(&q);
 }
 static int registers(pid_t pid, struct user_pt_regs *out) {
     struct iovec iov = {out, sizeof(*out)};
@@ -622,7 +638,14 @@ static int domain_path_apply(struct thread *t, long nr, const char *path) {
     if (nr == SYS_chdir)
         return !strcmp(path, "/") ? md_domain_chdir_root(t->domain) : -ENOTSUP;
     int error = md_domain_restrict(t->domain, t->pid, path);
-    if (!error) root_changes++;
+    if (!error) {
+        root_changes++;
+        /* CLONE_FS members may run without another ptrace stop. Revoke their
+         * published eligibility before acknowledging the shared restriction. */
+        if (broker) for (struct thread *member = threads; member; member = member->next)
+            if (member->pid && member->domain == t->domain)
+                CHECK(!md_broker_task(broker, member->pid, 0, RAW_GATE));
+    }
     TRACE("PROBE root-change pid=%d result=%d\n", t->pid, error);
     return error;
 }
@@ -719,6 +742,8 @@ static void resume(pid_t pid, int sig) {
     struct thread *t = thread(pid);
     if (t->resume_lost) return;
     enum phase phase = t->phase;
+    if (broker) CHECK(!md_broker_task(broker, pid,
+        t->ready && phase == IDLE && t->endpoint[0] && !md_domain_restricted(t->domain), RAW_GATE));
     if (!native_trace(phase == OBSERVING || phase == EXPORT_ENTRY || phase == EXPORT_NOTIFY
             || phase == EXPORT_RETURN || phase == EXECUTING ? PTRACE_SYSCALL : PTRACE_CONT,
             pid, NULL, (void *)(uintptr_t)sig)) return;
@@ -764,9 +789,10 @@ static pid_t wait_event(int *status, int64_t deadline) {
         CHECK(pid == 0 || errno == EINTR);
         /* EVENT_WAIT: ptrace stop/exit or cancellation via signalfd; expiry
          * fails and cancels the owned tree, never counts as readiness. */
-        struct pollfd events[] = {{signal_fd, POLLIN, 0}, {listener, POLLIN, 0}};
+        struct pollfd events[] = {{signal_fd, POLLIN, 0}, {broker ? -1 : listener, POLLIN, 0},
+            {md_fs_worker_fd(filesystem), POLLIN, 0}};
         int64_t bound = cancelling ? cancellation_deadline : deadline;
-        long outcome = md_event_wait(events, 2, bound);
+        long outcome = md_event_wait(events, 3, bound);
         if (outcome == -ETIMEDOUT && cancelling == 1) {
             /* EVENT_WAIT: graceful cancellation expired; drain killed children
              * for at most ten seconds before reporting incomplete cleanup. */
@@ -775,6 +801,7 @@ static pid_t wait_event(int *status, int64_t deadline) {
         }
         CHECK(outcome >= 0);
         if (events[0].revents) { drain(); continue; }
+        if (events[2].revents) CHECK(!md_broker_complete(broker, delegated_notification));
         if (events[1].revents & POLLIN) external_stat();
         if (events[1].revents & POLLHUP) { close(listener); listener = -1; }
     }
@@ -807,6 +834,11 @@ int main(int argc, char **argv) {
         admitted_path = argv[argument + 1]; argument += 2;
         CHECK(admitted_path[0] == '/');
     }
+    const char *store = NULL, *endpoint = NULL;
+    if (argument < argc && !strcmp(argv[argument], "--store")) {
+        CHECK(argument + 4 < argc && !strcmp(argv[argument + 2], "--endpoint"));
+        store = argv[argument + 1]; endpoint = argv[argument + 3]; argument += 4;
+    }
     CHECK(argument < argc);
     struct md_process_signals inherited;
     CHECK(md_process_signals_open(&inherited) >= 0);
@@ -832,6 +864,15 @@ int main(int argc, char **argv) {
     char byte; CHECK(read(channel[0], &byte, 1) == 1 && byte == 'r');
     CHECK(!native_trace(PTRACE_SEIZE, leader, NULL, (void *)(uintptr_t)(PTRACE_O_TRACESECCOMP | PTRACE_O_TRACEEXEC
         | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK | PTRACE_O_TRACECLONE | PTRACE_O_EXITKILL | PTRACE_O_TRACESYSGOOD)));
+    if (store) {
+        /* The guest was forked with the caller's mask. Only the native owner
+         * uses zero; creation requests already contain the guest's masked mode. */
+        umask(0);
+        int startup = md_fs_worker_start(store, endpoint, admitted_path, statistics != NULL, &filesystem);
+        if (startup) errno = -startup;
+        CHECK(!startup);
+        broker = md_broker_create(filesystem, statistics != NULL); CHECK(broker);
+    }
     byte = 'g'; CHECK(write(channel[0], &byte, 1) == 1); close(channel[0]);
     int64_t deadline = seconds ? md_event_now() + seconds * 1000000000LL : INT64_MAX;
     while (live) {
@@ -849,6 +890,8 @@ int main(int argc, char **argv) {
         CHECK(!t->resume_lost || event == PTRACE_EVENT_EXEC);
         int sig = WSTOPSIG(status);
         if (event == PTRACE_EVENT_EXEC) {
+            /* A non-leader exec replaces the task behind the leader's PID. */
+            md_broker_forget(broker, pid);
             unsigned long old; CHECK(!native_trace(PTRACE_GETEVENTMSG, pid, NULL, &old));
             if (old && old != (unsigned)pid) {
                 struct thread *former = find_thread((pid_t)old);
@@ -1048,6 +1091,7 @@ int main(int argc, char **argv) {
                 if ((int)regs.regs[0] >= 0) {
                     CHECK(listener == -1);
                     listener = duplicate_fd(pid, (int)regs.regs[0]); CHECK(listener >= 0);
+                    if (broker) md_broker_listen(broker, listener);
                 }
                 t->ready = 1; regs.pc += 4;
                 if (!set_registers(pid, &regs)) continue;
@@ -1157,6 +1201,5 @@ int main(int argc, char **argv) {
                     (unsigned long long)statistics->calls[nr].trace,
                     (unsigned long long)statistics->calls[nr].notification);
     }
-    if (listener >= 0) close(listener);
     close(signal_fd); return result;
 }

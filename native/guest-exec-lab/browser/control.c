@@ -5,7 +5,9 @@
 #include <linux/audit.h>
 #include <linux/filter.h>
 #include <linux/seccomp.h>
+#include <linux/futex.h>
 #include <pthread.h>
+#include <sched.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -32,6 +34,114 @@ static void memory(void) {
     assert(syscall(SYS_fstat, fd, 1) == -1 && errno == EFAULT);
     assert(!fstat(fd, &st) && st.st_size > 0);
     assert(!close(fd));
+}
+struct broker_context { int descriptor; char directory[128]; ino_t inode; };
+static int broker_private_files(void *data) {
+    struct broker_context *context = data;
+    assert(!chdir(context->directory));
+    for (unsigned i = 0; i < 64; ++i) {
+        int fd = open("item", O_RDONLY); assert(fd >= 0);
+        assert(dup2(fd, context->descriptor) == context->descriptor);
+        if (fd != context->descriptor) close(fd);
+        struct stat st;
+        assert(!fstat(context->descriptor, &st) && st.st_ino == context->inode);
+        assert(!fstatat(AT_FDCWD, "item", &st, 0) && st.st_ino == context->inode);
+    }
+    return 0;
+}
+static void broker_files(void) {
+    struct broker_context context;
+    snprintf(context.directory, sizeof(context.directory), "/tmp/md-broker-%d", getpid());
+    assert(!mkdir(context.directory, 0700));
+    char file[160], alias[160];
+    snprintf(file, sizeof(file), "%s/item", context.directory);
+    snprintf(alias, sizeof(alias), "%s/alias", context.directory);
+    int created = open(file, O_CREAT | O_EXCL | O_RDWR, 0600); assert(created >= 0);
+    assert(write(created, "payload", 7) == 7);
+    struct stat original, st;
+    assert(!fstat(created, &original)); context.inode = original.st_ino;
+    assert(!link(file, alias) && !stat(alias, &st) && st.st_ino == original.st_ino && st.st_nlink == 2);
+    int dir = open(context.directory, O_RDONLY | O_DIRECTORY | O_CLOEXEC); assert(dir >= 0);
+    int fd = openat(dir, "item", O_RDONLY | O_CLOEXEC); assert(fd >= 0);
+    assert(fcntl(fd, F_GETFD) == FD_CLOEXEC && !fstatat(fd, "", &st, AT_EMPTY_PATH));
+    assert(st.st_ino == original.st_ino);
+    close(fd);
+    fd = openat(dir, "item", O_RDONLY); assert(fd >= 0 && !fcntl(fd, F_GETFD)); close(fd);
+    long page = sysconf(_SC_PAGESIZE);
+    char *pages = mmap(NULL, page * 2, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    assert(pages != MAP_FAILED && !mprotect(pages + page, page, PROT_NONE));
+    char *boundary = pages + page - strlen(file) - 1; strcpy(boundary, file);
+    fd = open(boundary, O_RDONLY); assert(fd >= 0); close(fd);
+    assert(!stat(boundary, &st) && st.st_ino == original.st_ino);
+    assert(syscall(SYS_openat, AT_FDCWD, pages + page, O_RDONLY, 0) == -1 && errno == EFAULT);
+    assert(!mprotect(pages, page, PROT_READ));
+    assert(syscall(SYS_fstat, created, pages) == -1 && errno == EFAULT);
+    assert(syscall(SYS_newfstatat, dir, "item", pages, 0) == -1 && errno == EFAULT);
+    munmap(pages, page * 2);
+    context.descriptor = open("/etc/passwd", O_RDONLY); assert(context.descriptor >= 0);
+    struct stat parent; assert(!fstat(context.descriptor, &parent));
+    char cwd[4096], after[4096]; assert(getcwd(cwd, sizeof(cwd)));
+    size_t stack_size = 256 * 1024;
+    void *stack = mmap(NULL, stack_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    assert(stack != MAP_FAILED);
+    int tid = 1;
+    /* Same thread group, but private FD table and cwd. A leader pidfd cannot
+     * stand in for the notification's exact task identity. */
+    assert(clone(broker_private_files, (char *)stack + stack_size,
+        CLONE_VM | CLONE_SIGHAND | CLONE_THREAD | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID,
+        &context, NULL, NULL, &tid) > 0);
+    /* EVENT_WAIT: kernel clears/wakes child TID after thread exit; runner bounds failure. */
+    int live;
+    while ((live = __atomic_load_n(&tid, __ATOMIC_ACQUIRE))) {
+        long r = syscall(SYS_futex, &tid, FUTEX_WAIT, live, NULL, NULL, 0);
+        assert(!r || errno == EAGAIN || errno == EINTR);
+    }
+    munmap(stack, stack_size);
+    assert(getcwd(after, sizeof(after)) && !strcmp(cwd, after));
+    assert(!fstat(context.descriptor, &st) && st.st_ino == parent.st_ino);
+    close(context.descriptor);
+    assert(!unlink(file) && !unlink(alias));
+    assert(!fstat(created, &st) && st.st_ino == original.st_ino && st.st_nlink == 0 && st.st_size == 7);
+    close(created); close(dir); assert(!rmdir(context.directory));
+    memory();
+    puts("PASS broker paths, guard pages, CLOEXEC, hardlinks, unlinked identity and task-private FD/cwd");
+}
+static int broker_shared_root(void *data) {
+    int *pipes = data;
+    char byte;
+    /* EVENT_WAIT: parent primes its broker state before shared-root restriction. */
+    assert(read(pipes[0], &byte, 1) == 1 && byte == 'R');
+    assert(!chroot("/proc/self/fdinfo"));
+    assert(write(pipes[3], "R", 1) == 1);
+    /* EVENT_WAIT: keep the proc-root owner alive until the parent checks denial. */
+    assert(read(pipes[0], &byte, 1) == 1 && byte == 'F');
+    return 0;
+}
+static void broker_shared_domain(void) {
+    int pipes[4]; assert(!pipe(pipes) && !pipe(pipes + 2));
+    size_t size = 256 * 1024;
+    void *stack = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    assert(stack != MAP_FAILED);
+    pid_t child = clone(broker_shared_root, (char *)stack + size, CLONE_FS | SIGCHLD, pipes);
+    assert(child > 0);
+    int fd = open("/etc/passwd", O_RDONLY); assert(fd >= 0); close(fd);
+    assert(write(pipes[1], "R", 1) == 1);
+    char byte;
+    /* EVENT_WAIT: only native pipe IO separates this task's broker eligibility
+     * from the sibling's successful change. No intervening ptrace stop refreshes it. */
+    assert(read(pipes[2], &byte, 1) == 1 && byte == 'R');
+    fd = open("/etc/passwd", O_RDONLY);
+    int open_denied = fd == -1 && errno == EACCES;
+    if (fd >= 0) close(fd);
+    struct stat st;
+    int stat_denied = stat("/etc/passwd", &st) == -1 && errno == EACCES;
+    assert(write(pipes[1], "F", 1) == 1);
+    int status;
+    assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && !WEXITSTATUS(status));
+    assert(open_denied && stat_denied);
+    munmap(stack, size);
+    for (unsigned i = 0; i < 4; ++i) close(pipes[i]);
+    puts("PASS shared-root restriction revokes sibling broker eligibility");
 }
 static void *worker(void *unused) { (void)unused; memory(); return NULL; }
 static void *exiting_worker(void *unused) {
@@ -515,9 +625,10 @@ static void transport_policy(void) {
             struct sock_fprog policy = {sizeof(filter) / sizeof(*filter), filter};
             assert(!prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0));
             assert(!syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &policy));
-            /* openat enters the adapter: the filter must still apply to its
-             * internal RPC transport, not only external sendmsg/recvmsg. */
-            assert(open("/etc/passwd", O_RDONLY) == -1 && errno == EKEYREJECTED);
+            /* Brokered reads do not call sendmsg/recvmsg in this task. O_PATH
+             * needs SCM_RIGHTS: its internal transport must retain the filter. */
+            int fd = open("/etc/passwd", O_RDONLY); assert(fd >= 0); close(fd);
+            assert(open("/etc/passwd", O_PATH) == -1 && errno == EKEYREJECTED);
             _exit(0);
         }
         int status;
@@ -627,6 +738,8 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[1], "seek")) seek_descriptors(0);
     else if (!strcmp(argv[1], "seek-protected")) seek_descriptors(1);
     else if (!strcmp(argv[1], "transport-policy")) transport_policy();
+    else if (!strcmp(argv[1], "broker-files")) broker_files();
+    else if (!strcmp(argv[1], "broker-shared-domain")) broker_shared_domain();
     else if (!strcmp(argv[1], "exec-offset") || !strcmp(argv[1], "exec-offset-child"))
         exec_offset(argv[0], !strcmp(argv[1], "exec-offset-child"));
     else if (!strncmp(argv[1], "identity-", 9)) identity_control(argv[0], argv[1]);

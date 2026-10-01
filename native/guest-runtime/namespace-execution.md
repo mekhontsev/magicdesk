@@ -7,16 +7,16 @@ executor, not a mount namespace, security sandbox or complete Linux ABI.
 
 ## Ownership
 
-`namespace_run.c` owns a filesystem service and a separate subreaper guardian.
-The guardian retains the service for the complete guest tree, including
+`namespace_run.c` owns a subreaper guardian. The guardian retains the supervisor
+and its namespace worker for the complete guest tree, including
 double-fork/setsid descendants, and preserves the initial program's exit status.
 Cancellation, frontend death and service failure use signalfd/pidfd observation
 and bounded termination/reaping. See the [process lifetime contract](process-lifetime.md)
 for ownership, exact guarantees, coverage and remaining limits.
 
-`service_main.c` runs the dedicated SQLite owner as a static Bionic executable.
+`fs_worker.c` owns SQLite on a supervisor thread, using native Bionic IO.
 Its private storage never depends on the namespace service it supplies. The
-service retains the already-selected real UID and uses umask zero; creation
+owner retains the already-selected real UID and uses umask zero after guest fork; creation
 requests contain modes masked using the requesting process's kernel umask.
 There is no automatic identity change after a denied operation. Explicit image
 admission can publish logical credentials for a selected sealed ELF without
@@ -24,7 +24,9 @@ changing the real UID; see [interception](interception.md).
 
 `namespace.c` is the freestanding syscall adapter. `namespace_proc.c` owns
 host/proc object selection, using the shared `proc_paths.c` classifier. Paths, FD stat, directory
-read/seek and namespace mutations use the typed RPC contract. Data IO, mmap,
+read/seek and namespace mutations use the typed RPC contract when task-affine
+execution is needed. Ordinary open/stat notifications reach the same engine
+directly through `namespace_broker.c`. Data IO, mmap,
 fcntl, flock and ordinary descriptor duplication remain native. The client has
 no SQLite, libc, mutable process-global cwd, FD cache or shared client lock.
 
@@ -176,7 +178,7 @@ does not make the command successful. The runner records this native policy
 limit separately; the adapter never conceals or grants the denied label change.
 
 With `--packages`, unmodified Debian dpkg installs the fixture at version 1.0,
-upgrades to 2.0 and purges it. Each phase uses a fresh service process and checks
+upgrades to 2.0 and purges it. Each phase uses a fresh namespace owner and checks
 committed package state, payload and maintainer-script results. The direct rootfs
 remains unchanged. Unmodified dpkg-deb also extracts the official gzip archive;
 the extracted hard-link pair shares device/inode identity. The direct executor

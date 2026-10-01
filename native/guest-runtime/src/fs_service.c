@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "event_wait.h"
 #include "fs_service.h"
+#include "fs_engine.h"
 #include "image_catalogue.h"
 #include "raw.h"
 #include <errno.h>
@@ -71,76 +72,19 @@ static int valid(const struct md_fs_packet *q, size_t size, const struct md_fs_r
             || (q->operation == MD_FS_FSTAT && !(q->descriptors & 1))) return -EINVAL;
     return 0;
 }
-static void info(const struct stat *s, struct md_fs_info *out) {
-    *out = (struct md_fs_info){.device = s->st_dev, .inode = s->st_ino, .links = s->st_nlink,
-        .rdev = s->st_rdev, .size = s->st_size, .blocks = s->st_blocks, .mode = s->st_mode,
-        .uid = s->st_uid, .gid = s->st_gid, .block_size = (uint32_t)s->st_blksize,
-        .access_seconds = s->st_atim.tv_sec, .modify_seconds = s->st_mtim.tv_sec,
-        .change_seconds = s->st_ctim.tv_sec, .access_nanos = (uint32_t)s->st_atim.tv_nsec,
-        .modify_nanos = (uint32_t)s->st_mtim.tv_nsec, .change_nanos = (uint32_t)s->st_ctim.tv_nsec};
-}
 static int dispatch(struct md_inode_store *s, struct md_image_catalogue *images, const struct md_fs_packet *q,
         const struct md_fs_rights *input, struct md_fs_reply *out, struct md_fs_rights *output) {
-    int fd[2] = {MD_INODE_ROOT, MD_INODE_ROOT}; unsigned index = 0;
-    for (unsigned i = 0; i < 2; ++i) if (q->descriptors & (1U << i)) fd[i] = input->fd[index++];
-    const char *a = q->data, *b = a + q->length[0];
-    int r; struct stat st;
-    switch (q->operation) {
-    case MD_FS_OBJECT_ID:
-        r = md_catalogue_object_id(images, s, fd[0], out->data);
-        if (!r) out->size = 33;
-        return r;
-    case MD_FS_OPEN_OBJECT: r = md_catalogue_open_object(images, s, a, (int)q->flags); break;
-    case MD_FS_SOCKET_BIND: return md_inode_socket_bind(s, fd[0], a, q->mode, fd[1]);
-    case MD_FS_SOCKET_ADDRESS: case MD_FS_SOCKET_NAME:
-        r = q->operation == MD_FS_SOCKET_ADDRESS
-            ? md_inode_socket_address(s, fd[0], a, out->data, sizeof(out->data))
-            : md_inode_socket_name(s, a, out->data, sizeof(out->data));
-        if (!r) out->size = (uint32_t)strlen(out->data) + 1;
-        return r;
-    case MD_FS_CREATE: r = md_inode_create(s, fd[0], a, q->mode); break;
-    case MD_FS_OPEN: r = md_catalogue_open(images, s, fd[0], a, (int)q->flags, q->mode, q->resolve); break;
-    case MD_FS_MKDIR: return md_inode_mkdir(s, fd[0], a, q->mode);
-    case MD_FS_SYMLINK: return md_inode_symlink(s, b, fd[0], a);
-    case MD_FS_LINK: return md_inode_link(s, fd[0], a, fd[1], b, (int)q->flags);
-    case MD_FS_UNLINK: return md_inode_unlink(s, fd[0], a, (int)q->flags);
-    case MD_FS_RENAME: return md_inode_rename(s, fd[0], a, fd[1], b, q->flags);
-    case MD_FS_STAT: case MD_FS_FSTAT:
-        r = q->operation == MD_FS_STAT ? md_catalogue_stat(images, s, fd[0], a, (int)q->flags, &st)
-            : md_catalogue_fstat(images, s, fd[0], &st);
-        if (!r) info(&st, &out->info);
-        return r;
-    case MD_FS_PATH:
-        r = md_catalogue_path(images, s, fd[0], out->data, sizeof(out->data));
-        if (!r) out->size = (uint32_t)strlen(out->data)+1;
-        return r;
-    case MD_FS_REALPATH:
-        r = md_inode_realpath(s, fd[0], a, out->data, sizeof(out->data));
-        if (!r) out->size = (uint32_t)strlen(out->data)+1;
-        return r;
-    case MD_FS_TEMPORARY:
-        r = md_inode_temporary(s);
-        if (r < 0) return r;
-        output->fd[output->count++] = r;
-        return 0;
-    case MD_FS_READLINK:
-        r = (int)md_inode_readlink(s, fd[0], a, out->data, sizeof(out->data));
-        if (r >= 0) { out->size = (uint32_t)r; return 0; }
-        return r;
-    case MD_FS_GETDENTS:
-        r = (int)md_inode_getdents(s, fd[0], out->data, q->capacity);
-        if (r >= 0) { out->size = (uint32_t)r; return 0; }
-        return r;
-    case MD_FS_SEEKDIR: {
-        int64_t position = md_inode_seekdir(s, fd[0], q->offset, (int)q->flags);
-        if (position < 0) return (int)position;
-        out->position = position; return 0;
-    }
-    default: return -ENOTSUP;
-    }
-    if (r < 0) return r;
-    output->fd[output->count++] = r;
-    return 0;
+    struct md_fs_request request = {.operation = q->operation, .flags = q->flags, .mode = q->mode,
+        .capacity = q->capacity, .offset = q->offset, .resolve = q->resolve,
+        .directory = {MD_INODE_ROOT, MD_INODE_ROOT}, .path = {q->data, q->data + q->length[0]}};
+    unsigned index = 0;
+    for (unsigned i = 0; i < 2; ++i) if (q->descriptors & (1U << i)) request.directory[i] = input->fd[index++];
+    struct md_fs_result result;
+    md_fs_execute(s, images, &request, &result);
+    out->info = result.info; out->size = result.size; out->position = result.position;
+    memcpy(out->data, result.data, result.size);
+    if (result.fd >= 0) output->fd[output->count++] = result.fd;
+    return result.error;
 }
 enum peer_phase { REQUEST, REPLY, RELEASE };
 struct peer {
@@ -197,10 +141,11 @@ static void close_peer(struct pollfd *fd, struct peer *peer) {
     OBSERVE(MD_FS_CONNECTION_CLOSED, NULL);
 }
 int md_fs_serve(struct md_inode_store *s, struct md_image_catalogue *images, int listener, int stop_fd,
-        unsigned timeout_ms, struct md_fs_statistics *statistics) {
+        unsigned timeout_ms, struct md_fs_statistics *statistics, const struct md_fs_work_source *work) {
     if (!s || listener < 0 || stop_fd < 0 || !timeout_ms || timeout_ms > 60000) return -EINVAL;
-    enum { SLOTS = 32, BASE = 2 };
-    struct pollfd fds[BASE+SLOTS] = {{.fd = listener, .events = POLLIN}, {.fd = stop_fd, .events = POLLIN}};
+    enum { SLOTS = 32, BASE = 4 };
+    struct pollfd fds[BASE+SLOTS] = {{.fd = listener, .events = POLLIN}, {.fd = stop_fd, .events = POLLIN},
+        {.fd = work ? work->fd : -1, .events = POLLIN}, {.fd = -1, .events = POLLIN}};
     /* Fixed capacity, allocated once per service, never per request. */
     struct peer *peers = calloc(SLOTS, sizeof(*peers));
     if (!peers) return -ENOMEM;
@@ -220,9 +165,15 @@ int md_fs_serve(struct md_inode_store *s, struct md_image_catalogue *images, int
         }
         /* EVENT_WAIT: request/reply/client-close/stop readiness; the absolute
          * peer deadline drops only that connection, without replaying work. */
+        fds[3].fd = work && work->notification_fd ? work->notification_fd(work->context) : -1;
         int r = ppoll(fds, BASE+SLOTS, nearest == INT64_MAX ? NULL : &timeout, NULL);
         if (r < 0) { if (errno == EINTR) continue; error = -errno; break; }
         if (fds[1].revents) break;
+        if (work && fds[2].revents) work->ready(work->context);
+        if (work && fds[3].revents) {
+            error = work->notification(work->context, s, images, fds[3].revents);
+            if (error) break;
+        }
         if (fds[0].revents & (POLLNVAL | POLLERR | POLLHUP)) { error = -EIO; break; }
         for (unsigned i = BASE; i < BASE+SLOTS; ++i) if (fds[i].fd >= 0 && fds[i].revents) {
             if (service_peer(s, images, &fds[i], &peers[i-BASE], statistics)) close_peer(&fds[i], &peers[i-BASE]);

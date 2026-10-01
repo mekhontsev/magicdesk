@@ -1,15 +1,17 @@
 # Filesystem Service
 
 The filesystem service exposes the [inode model](inode-store.md) through explicit
-local RPC. It is a launch-owned native child, not an Android service, mount or
-container manager. The explicit [namespace executor](namespace-execution.md)
+local RPC and direct seccomp notifications. It is owned by a native supervisor
+worker, not an Android service, mount or container manager.
+The explicit [namespace executor](namespace-execution.md)
 routes selected guest syscalls here. Direct-backend hard-link controls remain
 separate from successful namespace package-lifecycle checks.
 
 ## Ownership
 
-- `fs_service.c` owns dispatch on one event-loop thread and one SQLite connection.
-  The caller opens the store and owns the listener and stop FD. A client cannot
+- `fs_engine.c` dispatches typed operations without guest pointers or transport IO.
+  `fs_worker.c` owns the store and image catalogue on one thread; `fs_service.c`
+  multiplexes RPC, notification and stop readiness. A client cannot
   shut down the service or acquire a different execution identity.
 - `fs_client.c` is freestanding: no libc, SQLite, heap, mutex, shared socket or
   thread-local errno. Invocation-local scratch and raw syscalls permit nested
@@ -32,19 +34,22 @@ separate service. A same-UID caller able to reach the endpoint can request an
 open even if its own openat is denied. There is no per-caller browser policy
 enforcement; see the [sandbox boundary controls](../guest-exec-lab/sandbox-research.md).
 
-The service is a static Android/Bionic executable whose own storage IO uses
-the host filesystem directly. Its infrastructure is not
+The namespace worker uses static Android/Bionic code whose storage IO reaches
+the host filesystem directly. The standalone storage executable supplies offline
+import and fixture serving. Their infrastructure is not
 served through its own RPC endpoint. Preserve that nonrecursive boundary when
 extending the guest syscall adapter; service bootstrap must not depend on the
 namespace service it is starting.
 
 ## Requests And Descriptors
 
-Each request owns a fresh CLOEXEC, nonblocking connection, one packet and one
+Each RPC request owns a fresh CLOEXEC, nonblocking connection, one packet and one
 reply. There is no inherited persistent client connection to repair after fork
 or exec, no cross-thread reply matching and no client lock that a nested signal
 can deadlock. Per-call connection setup is an explicit cost of this ownership
-model; data IO and regular-file seeks do not need a filesystem RPC.
+model; ordinary brokered open/stat, data IO and regular-file seeks do not need a
+filesystem RPC. Both request transports execute through the same engine and
+catalogue. Queue locks only transfer ownership; they do not cover filesystem IO.
 
 The server retains a successfully sent reply's connection until the client
 closes it. Request, pending-reply and client-release are distinct event-loop
@@ -114,9 +119,9 @@ deadline primitive, including EINTR handling. Server
 waits observe listener, request/reply, client-close and stop-FD readiness, with peer expiry. These
 are event waits with failure bounds, not readiness polling or settling delays.
 
-In namespace execution, a separate subreaper owns the service's stop pipe until
-the complete guest tree has ended. Frontend lifetime and initial guest exit do
-not determine service lifetime. See [process ownership](process-lifetime.md).
+In namespace execution, the supervisor retains the worker until the complete
+guest tree has ended. Frontend lifetime and initial guest exit do not determine
+namespace lifetime. See [process ownership](process-lifetime.md).
 
 ## Verification
 
@@ -152,7 +157,7 @@ No APK install, root switch, SELinux change or Desktop self-test is involved.
 ## Integration Gates
 
 The namespace adapter covers cwd, directory read/seek, stat/statx, atomic
-open/create and exec. Its dedicated service starts with umask zero; requests
+open/create and exec. Its native owner uses umask zero after guest fork; requests
 carry the caller-masked creation mode. The underlying model API itself retains
 normal calling-process umask semantics. Real identity is unchanged; this is not
 an implementation of arbitrary guest credentials. The offline prepared-rootfs

@@ -52,7 +52,7 @@ printf 'PASS freestanding RPC client: no unresolved libc/SQLite/runtime dependen
 "$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -fno-builtin -DMD_NO_START \
     -DMD_INODE_TESTING -DMD_FS_TESTING "$src/test_rpc.c" "$runtime/fs_client.c" \
     "$runtime/image_catalogue.c" "$runtime/elf_admission.c" "$runtime/guest_identity.c" "$runtime/elf.c" \
-    "$runtime/fs_wire.c" "$runtime/event_wait.c" "$runtime/fs_service.c" "$runtime/inode_store.c" "$runtime/inode_db.c" \
+    "$runtime/fs_wire.c" "$runtime/event_wait.c" "$runtime/fs_service.c" "$runtime/fs_engine.c" "$runtime/inode_store.c" "$runtime/inode_db.c" \
     "$runtime/inode_path.c" "$runtime/inode_directory.c" "$runtime/inode_socket.c" "$runtime/raw.c" "$runtime/memory.c" "$runtime/raw.S" -lsqlite3 -o "$work/test-rpc"
 rpcroot=$(mktemp -d "$work/path-test/rpc.XXXXXX")
 timeout 60 "$work/test-rpc" "$rpcroot/store"
@@ -146,7 +146,7 @@ guest_cc -pie -DMD_INODE_TESTING "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" \
     -o "$work/md-import-fixture"
 guest_cc -pie -fno-builtin -DMD_NO_START -DMD_INODE_TESTING -DMD_FS_TESTING \
     "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" \
-    "$src/test_rpc.c" "$runtime/fs_client.c" "$runtime/fs_wire.c" "$runtime/event_wait.c" "$runtime/fs_service.c" \
+    "$src/test_rpc.c" "$runtime/fs_client.c" "$runtime/fs_wire.c" "$runtime/event_wait.c" "$runtime/fs_service.c" "$runtime/fs_engine.c" \
     "$runtime/image_catalogue.c" "$runtime/elf_admission.c" "$runtime/guest_identity.c" "$runtime/elf.c" \
     "$runtime/inode_store.c" "$runtime/inode_db.c" "$runtime/inode_path.c" "$runtime/inode_directory.c" "$runtime/inode_socket.c" "$runtime/raw.c" "$runtime/memory.c" "$runtime/raw.S" \
     "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 \

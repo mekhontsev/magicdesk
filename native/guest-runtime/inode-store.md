@@ -22,8 +22,8 @@ from arbitrary guest code
 would require a complete filesystem adapter; this prototype does not do that.
 
 Each connection has one owner and is reopened after fork/exec. SQLite is linked
-only into lab fixtures and the dedicated service, not the freestanding bootstrap
-or syscall adapter. Its heap use and locks belong to the service owner. The separate
+only into native namespace owners and fixtures, not the freestanding bootstrap
+or in-guest syscall adapter. Its heap use and locks belong to the worker. The separate
 [filesystem service experiment](filesystem-service.md) supplies explicit RPC,
 native FD transfer and bounded reentrant client waits. The explicit
 [namespace executor](namespace-execution.md) routes selected guest syscalls here;
@@ -110,8 +110,8 @@ Import is not execution from the new namespace or successful package installatio
 
 ## Transactions
 
-- Each connection reuses four compiled read queries for inode, descriptor, name
-  and link-count lookup. Every use resets the statement and clears all bindings
+- Each connection reuses compiled inode, descriptor, name and link-count queries,
+  plus BEGIN/BEGIN IMMEDIATE/COMMIT/ROLLBACK programs. Every use resets the statement and clears all bindings
   before leaving the operation. No rows, paths or read snapshots are cached;
   other writers and native file-data changes remain visible in the next operation.
   Statements are finalized with their owning connection.
@@ -216,4 +216,4 @@ The namespace executor covers selected path/FD operations, cwd, directory
 cursors and program mapping. It passes a fixture package lifecycle and the gzip
 hard-link extraction; direct-backend controls still fail independently. Complete
 the remaining ABI and lifetime contracts before treating this as an installed
-Debian environment. SQLite is packaged only in the dedicated native service.
+Debian environment. SQLite stays in native namespace owners, outside guest execution.

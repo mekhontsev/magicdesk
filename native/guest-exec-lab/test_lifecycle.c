@@ -125,7 +125,7 @@ static void failure(const char *what, int line) {
 static void wait_failure(void) { failure("event wait", __LINE__); }
 #undef assert
 #define assert(x) ((x) ? (void)0 : failure(#x, __LINE__))
-struct run { pid_t pid; int fd, socket, guard, supervisor, service, root, middle, leaf; };
+struct run { pid_t pid; int fd, socket, guard, supervisor, root, middle, leaf; };
 static pid_t parent_of(pid_t pid) {
     char path[64], line[512]; int parent = 0;
     snprintf(path, sizeof(path), "/proc/%d/status", pid);
@@ -149,11 +149,11 @@ static struct message receive(int socket, int *pidfd) {
     track(*pidfd);
     return data;
 }
-static int service_fd(pid_t parent, pid_t guard) {
+static void check_guardian(pid_t parent, pid_t guard) {
     DIR *proc = opendir("/proc");
     assert(proc);
-    int found = -1, children = 0;
-    /* Both children are held alive by the root fixture handshake; no concurrent reap. */
+    int children = 0;
+    /* The child is held alive by the root fixture handshake; no concurrent reap. */
     struct dirent *entry;
     while ((entry = readdir(proc))) {
         char *end;
@@ -167,14 +167,13 @@ static int service_fd(pid_t parent, pid_t guard) {
             int ppid;
             if (sscanf(line, "PPid: %d", &ppid) != 1 || ppid != parent) continue;
             ++children;
-            if (pid != guard) { assert(found < 0); found = track(RAW2(pidfd_open, pid, 0)); }
+            assert(pid == guard);
             break;
         }
         fclose(f);
     }
     closedir(proc);
-    assert(children == 2 && found >= 0);
-    return found;
+    assert(children == 1);
 }
 static void alive(int fd) {
     struct pollfd item = {fd, POLLIN, 0};
@@ -202,7 +201,7 @@ static struct run start(const char *runner, const char *store, int mode, const c
     pid_t guard = parent_of(data.guard);
     assert(parent_of(guard) == pid);
     run.guard = track(RAW2(pidfd_open, guard, 0));
-    run.service = service_fd(pid, guard);
+    check_guardian(pid, guard);
     assert(send(run.socket, "s", 1, MSG_NOSIGNAL) == 1);
     data = receive(run.socket, &run.middle);
     assert(data.kind == 'C');
@@ -214,7 +213,7 @@ static struct run start(const char *runner, const char *store, int mode, const c
         assert(data.kind == 'S');
     }
     ready(run.root, POLLIN);
-    alive(run.fd); alive(run.guard); alive(run.supervisor); alive(run.service); alive(run.leaf);
+    alive(run.fd); alive(run.guard); alive(run.supervisor); alive(run.leaf);
     return run;
 }
 static void finished(struct run *run, int expected) {
@@ -223,7 +222,7 @@ static void finished(struct run *run, int expected) {
     assert(waitpid(run->pid, &status, 0) == run->pid);
     assert(md_process_status(status) == expected);
     ready(run->root, POLLIN); ready(run->middle, POLLIN); ready(run->leaf, POLLIN);
-    ready(run->guard, POLLIN); ready(run->supervisor, POLLIN); ready(run->service, POLLIN);
+    ready(run->guard, POLLIN); ready(run->supervisor, POLLIN);
     ready(run->socket, POLLIN);
     char extra;
     assert(read(run->socket, &extra, 1) == 0); /* No supervisor retained guest endpoint. */
@@ -278,12 +277,12 @@ int main(int argc, char **argv) {
     assert(md_process_signal(death.fd, SIGKILL) == 0);
     finished(&death, 137);
     alive(sentinel_fd);
-    puts("PASS lifecycle: frontend SIGKILL leaves guardian to drain guest tree and stop service");
+    puts("PASS lifecycle: frontend SIGKILL leaves guardian to drain guest tree and namespace owner");
     struct run broken = start(argv[1], argv[2], 1, "first");
-    assert(md_process_signal(broken.service, SIGKILL) == 0);
+    assert(md_process_signal(broken.supervisor, SIGKILL) == 0);
     finished(&broken, 125);
     alive(sentinel_fd);
-    puts("PASS lifecycle: service failure cancels the entire guest tree and reports failure");
+    puts("PASS lifecycle: namespace owner failure cancels the entire guest tree and reports failure");
     bad_launch(argv[1], argv[2], "/usr/bin/not-installed", 127);
     bad_launch(argv[1], "/tmp/absent-lifecycle-store/nested", "/bin/true", 125);
     assert(md_process_signal(sentinel_fd, SIGKILL) == 0);

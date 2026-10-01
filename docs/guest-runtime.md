@@ -17,8 +17,8 @@ Renderer processes remain unprivileged.
 Each launch captures its store, guest home, guest cwd, argv and graphics
 connection. There is no current distribution, global guest root or singleton
 per launch method. Separate guest stores and independent PRoot/chroot entry
-scripts can be used concurrently. Each guest launch owns a filesystem service
-and a supervised process tree; cancelling it does not cancel another launch.
+scripts can be used concurrently. Each guest launch owns a supervised process tree
+and one native namespace worker inside its supervisor; cancelling it does not cancel another launch.
 Stores persist independently of those processes. Metadata operations on the
 same store acquire a kernel file lock before entering SQLite and release it
 after commit or rollback. Separate launches can share a store without exposing
@@ -29,9 +29,13 @@ The supervisor handles regular-file seeks through retained kernel descriptors
 without namespace RPC; directory cursors remain namespace-owned. Filesystem
 replies retain their connection until client release, with event-driven progress
 and a bounded peer lifetime.
-The namespace service reuses compiled read queries, never cached metadata or
-transaction snapshots. Optional `--statistics` profiles syscall stops, filesystem
-operations, SQLite and service CPU costs without per-call logs or clock sampling
+Ordinary open/stat requests are handled directly by that worker through seccomp
+notifications, without invoking a guest-side RPC. Protected accesses, O_PATH,
+namespace mutations and directory cursors retain the task-affine adapter.
+Both paths use the same namespace engine and sealed-image catalogue.
+The namespace owner reuses compiled queries and transaction programs, never cached
+metadata or transaction snapshots. Optional `--statistics` profiles syscall stops, filesystem
+operations, SQLite and CPU costs without per-call logs or clock sampling
 on ordinary launches.
 
 Actual UID 2000 and UID 0 are accepted without switching identity. Root is a
