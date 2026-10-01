@@ -6,6 +6,7 @@
 #include <linux/fs.h>
 #include <linux/openat2.h>
 #include <signal.h>
+#include <sqlite3.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -735,11 +736,16 @@ static void metadata_queries(void) {
     uint64_t before = statistics.step.calls;
     CHECK(!md_inode_fstat(s, fd, &st) && st.st_nlink == 1);
     CHECK(statistics.step.calls - before == 3); /* BEGIN, one metadata row, COMMIT. */
+    before = statistics.step.calls;
+    CHECK(!md_inode_stat(s, dir, "value", 0, &st) && st.st_nlink == 1);
+    CHECK(statistics.step.calls - before == 4); /* Walk already owns logical metadata. */
+    uint64_t links = statistics.link_count_queries;
     CHECK(md_inode_getdents(s, dir, entries, sizeof(entries)) > 0);
     CHECK(md_inode_getdents(s, dir, entries, sizeof(entries)) == 0);
     int next = md_inode_create(writer, MD_INODE_ROOT, "later", 0600); CHECK(next >= 0);
     CHECK(md_inode_getdents(s, dir, entries, sizeof(entries)) > 0);
     CHECK(!strcmp(((struct md_inode_dirent *)entries)->name, "later"));
+    CHECK(statistics.link_count_queries == links && statistics.membership_queries == 3);
     CHECK(!md_inode_mkdir(writer, MD_INODE_ROOT, "child", 0700));
     CHECK(!md_inode_fstat(s, dir, &st) && st.st_nlink == 3);
     CHECK(!fchmod(fd, 0640) && !ftruncate(fd, 71));
@@ -749,6 +755,61 @@ static void metadata_queries(void) {
     close(next); close(dir); close(fd); md_inode_store_close(writer); md_inode_store_close(s);
     puts("PASS metadata programs: minimal open/fstat queries, live FD attributes and fresh directory batches");
 }
+static void membership_queries(void) {
+    struct md_inode_store *s = store("membership", 1), *writer = store("membership", 0);
+    CHECK(!md_inode_mkdir(s, MD_INODE_ROOT, "directory", 0700));
+    int dir = md_inode_open(s, MD_INODE_ROOT, "directory", O_RDONLY | O_DIRECTORY, 0); CHECK(dir >= 0);
+    struct md_inode_statistics stats = {0};
+    md_inode_measure(s, &stats);
+    for (unsigned i = 0; i < 32; i++) {
+        char name[32]; snprintf(name, sizeof(name), "child%u", i);
+        CHECK(!md_inode_mkdir(s, dir, name, 0700));
+    }
+    char buffer[32];
+    unsigned batches = 0;
+    while (md_inode_getdents(s, dir, buffer, sizeof(buffer)) > 0) batches++;
+    CHECK(batches == 34 && stats.link_count_queries == 0 && stats.membership_queries == 35);
+    struct stat st;
+    CHECK(!md_inode_fstat(s, dir, &st) && st.st_nlink == 34 && stats.link_count_queries == 1);
+    for (unsigned i = 0; i < 32; i++) {
+        char name[32]; snprintf(name, sizeof(name), "child%u", i);
+        CHECK(!md_inode_unlink(writer, dir, name, AT_REMOVEDIR));
+    }
+    CHECK(!md_inode_unlink(writer, MD_INODE_ROOT, "directory", AT_REMOVEDIR));
+    CHECK(md_inode_getdents(s, dir, buffer, sizeof(buffer)) == -ENOENT);
+    CHECK(md_inode_create(s, dir, "forbidden", 0600) == -ENOENT);
+    CHECK(stats.link_count_queries == 1);
+    CHECK(!md_inode_fstat(s, dir, &st) && st.st_nlink == 0);
+    close(dir); md_inode_store_close(writer); md_inode_store_close(s);
+    puts("PASS directory membership: transactional counters, live unlink and unchanged full stat");
+}
+static void counter_audit(void) {
+    struct md_inode_store *s = store("counter-audit", 1);
+    int fd = md_inode_create(s, MD_INODE_ROOT, "file", 0600); CHECK(fd >= 0); close(fd);
+    CHECK(!md_inode_mkdir(s, MD_INODE_ROOT, "dir", 0700));
+    struct md_inode_audit audit;
+    CHECK(!md_inode_audit(s, &audit));
+    char database[PATH_MAX]; path(database, "counter-audit/namespace.db");
+    sqlite3 *db;
+    CHECK(sqlite3_open(database, &db) == SQLITE_OK);
+    CHECK(sqlite3_exec(db, "UPDATE objects SET name_count=0 WHERE kind=32768", NULL, NULL, NULL) == SQLITE_OK);
+    CHECK(md_inode_audit(s, &audit) == -EIO);
+    CHECK(sqlite3_exec(db, "UPDATE objects SET name_count=1 WHERE kind=32768;"
+        "UPDATE objects SET directory_count=0 WHERE directory_count=1", NULL, NULL, NULL) == SQLITE_OK);
+    CHECK(md_inode_audit(s, &audit) == -EIO);
+    CHECK(sqlite3_exec(db, "UPDATE objects SET directory_count=1 WHERE object='00000000000000000000000000000000'",
+        NULL, NULL, NULL) == SQLITE_OK);
+    CHECK(!md_inode_audit(s, &audit));
+    md_inode_store_close(s);
+    CHECK(sqlite3_exec(db, "PRAGMA user_version=4", NULL, NULL, NULL) == SQLITE_OK);
+    char directory[PATH_MAX]; path(directory, "counter-audit");
+    CHECK(md_inode_store_open(directory, 0, &s) == -EPROTONOSUPPORT && !s);
+    sqlite3_stmt *q;
+    CHECK(sqlite3_prepare_v2(db, "PRAGMA user_version", -1, &q, NULL) == SQLITE_OK);
+    CHECK(sqlite3_step(q) == SQLITE_ROW && sqlite3_column_int(q, 0) == 4);
+    sqlite3_finalize(q); CHECK(sqlite3_close(db) == SQLITE_OK);
+    puts("PASS independent counter audit and non-mutating unsupported-format rejection");
+}
 int main(int argc, char **argv) {
     CHECK(argc == 2 || argc == 3);
     CHECK(argv[1][0] == '/' && strlen(argv[1]) < sizeof(root)); strcpy(root, argv[1]);
@@ -756,7 +817,7 @@ int main(int argc, char **argv) {
     CHECK(mkdir(root, 0700) == 0);
     descriptors(); namespace(); contention(); multiple_stores(); across_exec(argv[0]);
     hierarchy(); symlinks(); permissions(); kernel_reference(); scoped_paths(); reused_queries(); metadata_queries();
-    directory_publication();
+    directory_publication(); membership_queries(); counter_audit();
     unsigned serial = 0;
     recovery(CREATE, MD_OBJECT_SYNCED, serial++);
     for (enum operation op = CREATE; op <= EXCHANGE; ++op) {

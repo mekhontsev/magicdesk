@@ -71,7 +71,7 @@ int main(int argc, char **argv) {
         cost("prepare", &database.prepare); cost("step", &database.step);
         cost("transaction", &database.transaction); cost("lock", &database.lock);
         fprintf(stderr, "MD_STORE queryReuses=%llu\n", (unsigned long long)database.query_reuses);
-        for (unsigned i = 0; i <= MD_FS_OPEN_OBJECT; i++) if (filesystem.operation[i].calls)
+        for (unsigned i = 0; i <= MD_FS_OPEN_IMAGE; i++) if (filesystem.operation[i].calls)
             fprintf(stderr, "MD_FS operation=%u calls=%llu ns=%llu\n", i,
                 (unsigned long long)filesystem.operation[i].calls,
                 (unsigned long long)filesystem.operation[i].nanoseconds);

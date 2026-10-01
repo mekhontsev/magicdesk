@@ -88,11 +88,23 @@ ssize_t md_inode_readlink(struct md_inode_store *s, int dirfd, const char *path,
     r = mdi_finish(s, r);
     return r ? r : n;
 }
+static int open_resolved(struct md_inode_store *, int, const char *, int, mode_t, uint64_t,
+        struct md_image_identity *);
+int md_inode_open_image(struct md_inode_store *s, int dirfd, const char *path, int flags,
+        struct md_image_identity *image) {
+    if (!image) return -EFAULT;
+    if (flags & ~O_NOFOLLOW) return -EINVAL;
+    return open_resolved(s, dirfd, path, flags | O_RDONLY | O_CLOEXEC, 0, 0, image);
+}
 int md_inode_open(struct md_inode_store *s, int dirfd, const char *path, int flags, mode_t mode) {
     return md_inode_open_resolved(s, dirfd, path, flags, mode, 0);
 }
 int md_inode_open_resolved(struct md_inode_store *s, int dirfd, const char *path, int flags, mode_t mode,
         uint64_t resolve) {
+    return open_resolved(s, dirfd, path, flags, mode, resolve, NULL);
+}
+static int open_resolved(struct md_inode_store *s, int dirfd, const char *path, int flags, mode_t mode,
+        uint64_t resolve, struct md_image_identity *image) {
     if (flags & ~(O_ACCMODE | O_CLOEXEC | O_APPEND | O_TRUNC | O_NOFOLLOW | O_DIRECTORY | O_PATH
             | O_CREAT | O_EXCL | O_NONBLOCK | O_NOCTTY | O_LARGEFILE | O_SYNC | O_DSYNC)) return -ENOTSUP;
     if ((flags & O_ACCMODE) == O_ACCMODE) return -EINVAL;
@@ -122,9 +134,17 @@ int md_inode_open_resolved(struct md_inode_store *s, int dirfd, const char *path
     if (!r && loc.node.kind == S_IFLNK && !(flags & O_PATH)) r = -ELOOP;
     if (!r && loc.node.kind == S_IFSOCK && !(flags & O_PATH)) r = -ENXIO;
     if (!r && loc.node.kind == S_IFDIR && (flags & (O_WRONLY | O_RDWR | O_TRUNC | O_CREAT))) r = -EISDIR;
+    if (!r && image && loc.node.kind != S_IFREG) r = -EACCES;
     struct stat st;
     if (!r) r = mdi_backing_stat(s, &loc.node, &st);
     if (!r && (fd = openat(s->objects, loc.node.id, (flags & ~(O_CREAT | O_EXCL)) | O_CLOEXEC | O_NOFOLLOW)) < 0) r = -errno;
+    if (!r && image) {
+        struct stat opened;
+        if (fstat(fd, &opened)) r = -errno;
+        else if (opened.st_dev != st.st_dev || opened.st_ino != st.st_ino) r = -EIO;
+        if (!r) r = mdi_location_path(s, &loc, image->path, sizeof(image->path));
+        if (!r) memcpy(image->object, loc.node.id, sizeof(image->object));
+    }
     r = mdi_finish(s, r);
     if (r) { if (fd >= 0) close(fd); return r; }
     return fd;

@@ -22,11 +22,11 @@ struct md_process_image {
     unsigned char auxv[4096];
     size_t auxv_bytes;
     char executable_object[33];
+    const char *executable_path;
 };
 void md_proc_image_init(struct md_process_image *, unsigned argc, char *const *argv,
         const void *auxv, size_t auxv_bytes);
 struct md_fs;
-long md_proc_executable_init(const struct md_fs *, struct md_process_image *, int fd);
 long md_proc_executable_open(const struct md_fs *, const char *path, int flags);
 long md_proc_image_open(const struct md_fs *, enum md_proc_kind, int flags);
 #endif

@@ -44,6 +44,7 @@ def main():
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--warmups", type=int, default=1)
     parser.add_argument("--guest-store", help="Reuse an explicitly prepared identical benchmark store")
+    parser.add_argument("--baseline-store", help="Identical reference fixture when the store format differs")
     parser.add_argument("--guest-statistics", action="store_true", help="Opt-in aggregate interception counters")
     parser.add_argument("--modes", nargs="+", choices=("chroot", "proot", "guest", "guest-baseline"),
                         default=["chroot", "proot", "guest"])
@@ -52,6 +53,8 @@ def main():
         parser.error("positive rounds, nonnegative warmups and distinct modes required")
     if "guest-baseline" in args.modes and not args.baseline_runtime:
         parser.error("guest-baseline requires --baseline-runtime")
+    if args.baseline_store and "guest-baseline" not in args.modes:
+        parser.error("--baseline-store requires guest-baseline")
     repo = Path(__file__).resolve().parents[2]
     work = args.work.resolve()
     root = work / "sysroot"
@@ -97,6 +100,7 @@ def main():
               "completed": False}
     guest_store = args.guest_store or remote + "/store"
     report["guestStore"] = guest_store
+    report["baselineStore"] = args.baseline_store or guest_store
     console = client.call("console.open", {"directory": "/data/local/tmp"})["sessionId"]
 
     def save():
@@ -129,9 +133,10 @@ def main():
         guest = ["/bin/sh", "/bench/run.sh", action]
         if mode in ("guest", "guest-baseline"):
             runtime = args.runtime if mode == "guest" else args.baseline_runtime
+            store = guest_store if mode == "guest" else report["baselineStore"]
             return shell(shlex.join([runtime + "/libmagicdesk_guest_run.so",
                                     *(["--statistics"] if args.guest_statistics else []),
-                                    "--deadline-seconds", "300", "--store", guest_store, "--"] + guest))
+                                    "--deadline-seconds", "300", "--store", store, "--"] + guest))
         if mode == "proot":
             env = os.environ.copy()
             for name in ("LD_PRELOAD", "LD_LIBRARY_PATH", "PROOT_NO_SECCOMP"):

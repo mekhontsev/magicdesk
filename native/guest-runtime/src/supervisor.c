@@ -248,22 +248,22 @@ static int descriptor_stat(struct thread *t, int fd, struct stat *st, int native
      * host ELF or bypass the production loader's set-ID rejection. */
     if (native || !t->endpoint[0]) return fstat(fd, st) ? -errno : 0;
     struct md_fs_request request = {.operation = MD_FS_FSTAT, .directory = {fd, -1}};
-    struct md_fs_result response;
+    struct md_fs_response response;
     int64_t begin = md_cost_begin(statistics ? &statistics->rpc : NULL);
     int error = md_fs_call(t->endpoint, 5000, &request, &response);
     md_cost_end(statistics ? &statistics->rpc : NULL, begin);
-    if (!error) error = response.error;
+    if (!error) error = response.result.error;
     if (!error || error == -EXDEV) {
         if (fstat(fd, st)) error = -errno;
         else if (!error) {
-            st->st_dev = response.info.device; st->st_ino = response.info.inode;
-            st->st_nlink = response.info.links; st->st_mode = response.info.mode;
-            st->st_uid = response.info.uid; st->st_gid = response.info.gid;
-            st->st_rdev = response.info.rdev; st->st_size = response.info.size;
-            st->st_blocks = response.info.blocks; st->st_blksize = response.info.block_size;
-            st->st_atim = (struct timespec){response.info.access_seconds, response.info.access_nanos};
-            st->st_mtim = (struct timespec){response.info.modify_seconds, response.info.modify_nanos};
-            st->st_ctim = (struct timespec){response.info.change_seconds, response.info.change_nanos};
+            st->st_dev = response.result.info.device; st->st_ino = response.result.info.inode;
+            st->st_nlink = response.result.info.links; st->st_mode = response.result.info.mode;
+            st->st_uid = response.result.info.uid; st->st_gid = response.result.info.gid;
+            st->st_rdev = response.result.info.rdev; st->st_size = response.result.info.size;
+            st->st_blocks = response.result.info.blocks; st->st_blksize = response.result.info.block_size;
+            st->st_atim = (struct timespec){response.result.info.access_seconds, response.result.info.access_nanos};
+            st->st_mtim = (struct timespec){response.result.info.modify_seconds, response.result.info.modify_nanos};
+            st->st_ctim = (struct timespec){response.result.info.change_seconds, response.result.info.change_nanos};
         }
         else error = 0;
     }

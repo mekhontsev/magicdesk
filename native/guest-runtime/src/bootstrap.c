@@ -75,8 +75,17 @@ void md_boot(uintptr_t *kernel_stack) {
     unsigned root_arg = inherited ? 2 : 1;
     int program_fd = -1, interpreter_fd = -1;
     const char *execfn = NULL;
+    const char *object = "";
     if (inherited && root_arg + 1 < argc && md_equal(argv[root_arg], "--program-fd")) {
         program_fd = descriptor_number(argv[root_arg + 1]);
+        root_arg += 2;
+    }
+    if (inherited && root_arg + 1 < argc && md_equal(argv[root_arg], "--program-object")) {
+        object = argv[root_arg + 1];
+        if (md_length(object) != 32) md_die("invalid image identity", -EINVAL);
+        for (unsigned i = 0; i < 32; i++)
+            if (!((object[i] >= '0' && object[i] <= '9') || (object[i] >= 'a' && object[i] <= 'f')))
+                md_die("invalid image identity", -EINVAL);
         root_arg += 2;
     }
     if (inherited && root_arg + 1 < argc && md_equal(argv[root_arg], "--interpreter-fd")) {
@@ -130,12 +139,15 @@ void md_boot(uintptr_t *kernel_stack) {
     if (!execfn) execfn = argv[root_arg + 1];
     if (inherited) {
         if (program_fd < 0 || program_fd == interpreter_fd) md_die("invalid prepared images", -EINVAL);
+        if (!!namespace != !!*object) md_die("missing prepared object identity", -EINVAL);
+        memset(command.object, 0, sizeof(command.object));
+        md_copy(command.object, sizeof(command.object), object);
         command.fd = program_fd; command.interpreter_fd = interpreter_fd;
         command.argc = argc - root_arg - 2;
         if (command.argc >= MD_ARG_MAX) md_die("guest arguments", -E2BIG);
         memcpy(command.argv, argv + root_arg + 2, (command.argc + 1) * sizeof(char *));
         r = md_copy(command.path, sizeof(command.path), argv[root_arg + 1]);
-    } else r = md_command_prepare(&md_files, &command, argv[root_arg + 1], argv + root_arg + 1, -1, 0);
+    } else r = md_command_prepare(&md_files, &command, argv[root_arg + 1], argv + root_arg + 1, NULL, 0);
     if (r < 0) md_die("prepare guest program", r);
     r = md_copy(md_executable, sizeof(md_executable), command.path);
     if (r < 0) md_die("guest identity", r);
@@ -146,8 +158,8 @@ void md_boot(uintptr_t *kernel_stack) {
     long fd = command.fd;
     md_files.image = &process_image;
     md_files.connections = &connections;
-    r = md_proc_executable_init(&md_files, &process_image, (int)fd);
-    if (r < 0) md_die("retain executable object identity", r);
+    memcpy(process_image.executable_object, command.object, sizeof(command.object));
+    process_image.executable_path = md_executable;
     struct md_image program;
     r = md_interception_map_image((int)fd, 0);
     if (!r) r = md_elf_load((int)fd, 0, &program);

@@ -42,7 +42,7 @@ static int valid(const struct md_fs_packet *q, size_t size, const struct md_fs_r
     const char *a = q->data, *b = a + q->length[0];
     if (a[q->length[0]-1] || b[q->length[1]-1]
             || memchr(a, 0, q->length[0]-1) || memchr(b, 0, q->length[1]-1)) return -EPROTO;
-    if (q->operation < MD_FS_CREATE || q->operation > MD_FS_OPEN_OBJECT) return -ENOTSUP;
+    if (q->operation < MD_FS_CREATE || q->operation > MD_FS_OPEN_IMAGE) return -ENOTSUP;
     if (q->resolve && q->operation != MD_FS_OPEN) return -EINVAL;
     if ((q->capacity && q->operation != MD_FS_GETDENTS) || q->capacity > PATH_MAX
             || (q->offset && q->operation != MD_FS_SEEKDIR)) return -EINVAL;
@@ -52,6 +52,8 @@ static int valid(const struct md_fs_packet *q, size_t size, const struct md_fs_r
         return q->descriptors != 1 || *a || *b || q->flags || q->mode ? -EINVAL : 0;
     if (q->operation == MD_FS_OPEN_OBJECT)
         return q->descriptors || !*a || *b || q->mode ? -EINVAL : 0;
+    if (q->operation == MD_FS_OPEN_IMAGE)
+        return (q->descriptors & 2) || !*a || *b || q->mode || (q->flags & ~O_NOFOLLOW) ? -EINVAL : 0;
     if (q->operation == MD_FS_GETDENTS || q->operation == MD_FS_SEEKDIR) {
         if (q->descriptors != 1 || *a || *b || q->mode) return -EINVAL;
         return q->operation == MD_FS_GETDENTS ? (q->flags ? -EINVAL : 0)
@@ -80,9 +82,10 @@ static int dispatch(struct md_inode_store *s, struct md_image_catalogue *images,
     unsigned index = 0;
     for (unsigned i = 0; i < 2; ++i) if (q->descriptors & (1U << i)) request.directory[i] = input->fd[index++];
     struct md_fs_result result;
-    md_fs_execute(s, images, &request, &result, NULL);
+    struct md_fs_output buffer = {.data = out->data,
+        .capacity = q->operation == MD_FS_OPEN_IMAGE ? sizeof(out->data) : PATH_MAX};
+    md_fs_execute(s, images, &request, &result, &buffer);
     out->info = result.info; out->size = result.size; out->position = result.position;
-    memcpy(out->data, result.data, result.size);
     if (result.fd >= 0) output->fd[output->count++] = result.fd;
     return result.error;
 }

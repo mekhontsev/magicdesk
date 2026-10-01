@@ -116,7 +116,7 @@ static int directory_path(struct md_inode_store *s, struct mdi_node node, char *
     char path[PATH_MAX] = "";
     while (!r && strcmp(node.id, MDI_ROOT)) {
         sqlite3_stmt *q = NULL;
-        r = mdi_prepare(s, "SELECT name FROM names WHERE parent=?1 AND object=?2", &q);
+        r = mdi_query_acquire(s, MDI_DIRECTORY_NAME, &q);
         if (!r) r = mdi_bind_id(q, 1, node.parent);
         if (!r) r = mdi_bind_id(q, 2, node.id);
         if (!r) {
@@ -134,7 +134,7 @@ static int directory_path(struct md_inode_store *s, struct mdi_node node, char *
                 }
             }
         }
-        sqlite3_finalize(q);
+        r = mdi_query_release(q, r);
         if (!r) r = mdi_node(s, node.parent, &node);
     }
     if (!r) {
@@ -161,15 +161,19 @@ int md_inode_realpath(struct md_inode_store *s, int base, const char *path, char
     if (r) return r;
     struct mdi_location location;
     r = mdi_walk(s, base, path, MDI_FOLLOW, 0, &location);
-    if (!r && location.node.kind == S_IFDIR) r = directory_path(s, location.node, out, size);
-    else if (!r) {
-        r = directory_path(s, location.parent, out, size);
-        if (!r) {
-            size_t n = strlen(out), name = strlen(location.name);
-            if (n == 1) n = 0;
-            if (n + 1 + name >= size) r = -ERANGE;
-            else { out[n++] = '/'; memcpy(out + n, location.name, name + 1); }
-        }
-    }
+    if (!r) r = mdi_location_path(s, &location, out, size);
     return mdi_finish(s, r);
+}
+int mdi_location_path(struct md_inode_store *s, const struct mdi_location *location, char *out, size_t size) {
+    if (!out) return -EFAULT;
+    if (!size) return -ERANGE;
+    if (location->node.kind == S_IFDIR) return directory_path(s, location->node, out, size);
+    int r = directory_path(s, location->parent, out, size);
+    if (!r) {
+        size_t n = strlen(out), name = strlen(location->name);
+        if (n == 1) n = 0;
+        if (n + 1 + name >= size) r = -ERANGE;
+        else { out[n++] = '/'; memcpy(out + n, location->name, name + 1); }
+    }
+    return r;
 }

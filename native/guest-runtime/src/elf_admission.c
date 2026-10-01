@@ -18,16 +18,16 @@ void md_admission_close(struct md_admission *a) {
 int md_admission_open(struct md_admission *a, const char *endpoint, const char *path) {
     struct md_fs_request q = {.operation = MD_FS_OPEN, .directory = {-1, -1},
         .path = {path, NULL}, .flags = O_RDONLY | O_CLOEXEC};
-    struct md_fs_result response;
+    struct md_fs_response response;
     int error = md_fs_call(endpoint, 5000, &q, &response);
-    if (!error) error = response.error;
+    if (!error) error = response.result.error;
     if (error) { fprintf(stderr, "PROBE admission source-open error=%d\n", error); return error; }
-    error = md_admission_snapshot(a, response.fd);
+    error = md_admission_snapshot(a, response.result.fd);
     if (error) return error;
     q = (struct md_fs_request){.operation = MD_FS_OBJECT_ID, .directory = {a->source, -1}};
     error = md_fs_call(endpoint, 5000, &q, &response);
-    if (!error) error = response.error;
-    if (!error && response.size != sizeof(a->object)) error = -EPROTO;
+    if (!error) error = response.result.error;
+    if (!error && response.result.size != sizeof(a->object)) error = -EPROTO;
     if (!error) memcpy(a->object, response.data, sizeof(a->object));
     if (error) md_admission_close(a);
     return error;
@@ -79,12 +79,12 @@ int md_admission_match(const struct md_admission *a, const char *endpoint, int f
     int match = a->image && st.st_dev == a->source_stat.st_dev && st.st_ino == a->source_stat.st_ino;
     if (!match && a->object[0]) {
         struct md_fs_request q = {.operation = MD_FS_OBJECT_ID, .directory = {fd, -1}};
-        struct md_fs_result response;
+        struct md_fs_response response;
         int error = md_fs_call(endpoint, 5000, &q, &response);
         if (error) return error;
-        if (response.error == -EXDEV) return 0;
-        if (response.error) return response.error;
-        if (response.size != sizeof(a->object) || memcmp(response.data, a->object, sizeof(a->object))) return 0;
+        if (response.result.error == -EXDEV) return 0;
+        if (response.result.error) return response.result.error;
+        if (response.result.size != sizeof(a->object) || memcmp(response.data, a->object, sizeof(a->object))) return 0;
         const int required = F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK | F_SEAL_SEAL;
         int seals = fcntl(fd, F_GET_SEALS);
         if (seals < 0 || (seals & required) != required || st.st_size != a->source_stat.st_size) return -ESTALE;

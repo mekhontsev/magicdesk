@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include "profile.h"
+#include "image_identity.h"
 
 /* Experimental inode namespace, not a syscall adapter. Each connection
  * has one owner; never use it from SIGSYS, a signal handler, or after fork.
@@ -16,6 +17,7 @@ struct md_inode_store;
 struct md_inode_statistics {
     struct md_cost prepare, step, transaction, lock;
     uint64_t query_reuses;
+    uint64_t link_count_queries, membership_queries;
 };
 /* Caller-owned diagnostic counters; NULL disables clock sampling. */
 void md_inode_measure(struct md_inode_store *, struct md_inode_statistics *);
@@ -30,6 +32,8 @@ int md_inode_symlink(struct md_inode_store *, const char *target, int dirfd, con
 ssize_t md_inode_readlink(struct md_inode_store *, int dirfd, const char *path, char *, size_t);
 int md_inode_open(struct md_inode_store *, int dirfd, const char *path, int flags, mode_t mode);
 int md_inode_open_resolved(struct md_inode_store *, int, const char *, int, mode_t, uint64_t);
+/* Read-only image open and identity from one namespace snapshot. */
+int md_inode_open_image(struct md_inode_store *, int, const char *, int, struct md_image_identity *);
 int md_inode_link(struct md_inode_store *, int sourcefd, const char *source,
         int targetfd, const char *target, int flags);
 int md_inode_unlink(struct md_inode_store *, int dirfd, const char *path, int flags);

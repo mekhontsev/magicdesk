@@ -45,6 +45,7 @@ int md_inode_socket_bind(struct md_inode_store *s, int dirfd, const char *path, 
     return mdi_commit(s, r);
 }
 int md_inode_socket_address(struct md_inode_store *s, int dirfd, const char *path, char *out, size_t size) {
+    if (!out) return -EFAULT;
     int r = mdi_begin(s, 0);
     if (r) return r;
     struct mdi_location loc;
@@ -57,6 +58,7 @@ int md_inode_socket_address(struct md_inode_store *s, int dirfd, const char *pat
     return mdi_finish(s, r);
 }
 int md_inode_socket_name(struct md_inode_store *s, const char *address, char *out, size_t size) {
+    if (!out) return -EFAULT;
     size_t prefix = sizeof(SOCKET_PREFIX) - 1;
     if (strncmp(address, SOCKET_PREFIX, prefix) || strlen(address + prefix) != 32
             || strspn(address + prefix, "0123456789abcdef") != 32) return -ENOENT;
@@ -71,7 +73,8 @@ int md_inode_socket_name(struct md_inode_store *s, const char *address, char *ou
         else {
             const char *name = (const char *)sqlite3_column_text(query, 0);
             int bytes = sqlite3_column_bytes(query, 0);
-            if (!name || bytes <= 0 || (size_t)bytes >= size || strlen(name) != (size_t)bytes) r = -EIO;
+            if (!name || bytes <= 0 || strlen(name) != (size_t)bytes) r = -EIO;
+            else if ((size_t)bytes >= size) r = -ERANGE;
             else memcpy(out, name, (size_t)bytes + 1);
         }
     }

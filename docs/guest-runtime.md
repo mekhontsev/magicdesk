@@ -35,9 +35,12 @@ namespace mutations and directory seeks retain the task-affine adapter. Director
 reads publish their bytes before advancing the shared cursor; failed or partial
 output cannot cause an automatic replay of a committed read.
 Both paths use the same namespace engine and sealed-image catalogue.
+Operation results and caller-owned output are independent of RPC framing; direct
+directory reads use one reusable 64 KiB worker buffer rather than an RPC-sized batch.
 The namespace owner reuses compiled queries and transaction programs, never cached
-metadata or transaction snapshots. Descriptor stat combines live kernel attributes
-with one logical metadata query; opens do not calculate unused link counts.
+metadata or transaction snapshots. Node reads include transactionally maintained
+name and child-directory counters; stat and directory membership need no counting
+subqueries or second logical lookup. Native attributes and access checks remain live.
 Optional `--statistics` profiles syscall stops, filesystem
 operations, SQLite and CPU costs without per-call logs or clock sampling
 on ordinary launches.
@@ -132,6 +135,10 @@ does not admit set-ID or writable/executable load segments.
 Exec preparation retains both the validated ELF and its optional interpreter
 across bootstrap exec. The resumed bootstrap maps those exact descriptors without
 reopening names or repeating command preparation; failed exec releases both.
+Path opening returns the canonical dentry path and object ID from the same namespace
+transaction. That identity travels with the image across exec, rather than being
+resolved again after opening or entering the new process. Descriptor exec captures
+the retained object's identity independently of its current names.
 Descriptor and relative-dirfd exec include open-unlinked programs. CLOEXEC scripts
 fail rather than losing their interpreter input. Bounded shebang parsing accepts relative interpreters and a
 short header without a newline, preserves the optional argument as one string,

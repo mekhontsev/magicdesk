@@ -24,13 +24,15 @@ int main(int argc, char **argv) {
             struct md_fs_result dir;
             md_fs_execute(store, NULL, &q, &dir, NULL); assert(!dir.error && dir.fd >= 0);
             unsigned count = 0;
+            char data[64 * 1024];
+            struct md_fs_output output = {.data = data, .capacity = sizeof(data)};
             for (;;) {
-                q = (struct md_fs_request){.operation = MD_FS_GETDENTS, .directory = {dir.fd, -1}, .capacity = PATH_MAX};
+                q = (struct md_fs_request){.operation = MD_FS_GETDENTS, .directory = {dir.fd, -1}, .capacity = sizeof(data)};
                 struct md_fs_result entries;
-                md_fs_execute(store, NULL, &q, &entries, NULL); assert(!entries.error);
+                md_fs_execute(store, NULL, &q, &entries, &output); assert(!entries.error);
                 if (!entries.size) break;
                 for (unsigned offset = 0; offset < entries.size;) {
-                    struct md_inode_dirent *e = (void *)(entries.data + offset);
+                    struct md_inode_dirent *e = (void *)(data + offset);
                     assert(e->size && e->size <= entries.size - offset); offset += e->size;
                     if (!strcmp(e->name, ".") || !strcmp(e->name, "..")) continue;
                     q = (struct md_fs_request){.operation = MD_FS_STAT, .directory = {dir.fd, -1},

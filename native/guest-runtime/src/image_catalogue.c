@@ -110,6 +110,15 @@ int md_catalogue_open_object(struct md_image_catalogue *c, struct md_inode_store
     if (c && !strcmp(id, c->object)) return open_snapshot(c, flags);
     return md_inode_open_object(s, id, flags);
 }
+int md_catalogue_open_image(struct md_image_catalogue *c, struct md_inode_store *s, int dir,
+        const char *path, int flags, struct md_image_identity *image) {
+    int fd = md_inode_open_image(s, dir, path, flags, image);
+    if (fd >= 0 && c && !strcmp(image->object, c->object)) {
+        close(fd);
+        fd = open_snapshot(c, O_RDONLY | O_CLOEXEC);
+    }
+    return fd;
+}
 int md_catalogue_object_id(struct md_image_catalogue *c, struct md_inode_store *s, int fd, char out[33]) {
     return md_inode_object_id(s, original_fd(c, fd), out);
 }

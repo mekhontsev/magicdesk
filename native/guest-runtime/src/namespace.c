@@ -12,7 +12,7 @@
 #include <sys/inotify.h>
 #include <sys/sysmacros.h>
 
-long md_namespace_request(const struct md_fs *fs, struct md_fs_request *q, struct md_fs_result *out) {
+long md_namespace_request(const struct md_fs *fs, struct md_fs_request *q, struct md_fs_response *out) {
     int cwd = -1;
     unsigned bases = q->operation == MD_FS_LINK || q->operation == MD_FS_RENAME ? 2 : 1;
     for (unsigned i = 0; i < bases; ++i) {
@@ -36,7 +36,7 @@ long md_namespace_request(const struct md_fs *fs, struct md_fs_request *q, struc
     if (cwd >= 0)
         RAW1(close, cwd);
     /* Never replay an unconfirmed request, including a read that advanced a cursor. */
-    return r < 0 ? r : out->error;
+    return r < 0 ? r : out->result.error;
 }
 long md_namespace_creation_mode(unsigned mode) {
     /* Read the kernel's current fs_struct mask without temporarily changing shared process state. */
@@ -87,27 +87,18 @@ long md_namespace_open_resolved(const struct md_fs *fs, int base, const char *pa
                               .path = {path, NULL},
                               .flags = (uint32_t)flags,
                               .mode = mode, .resolve = how->resolve};
-    struct md_fs_result out;
+    struct md_fs_response out;
     long r = md_namespace_request(fs, &q, &out);
     if (r < 0)
         return r;
     if (!(flags & O_CLOEXEC)) {
-        r = RAW3(fcntl, out.fd, F_SETFD, 0);
+        r = RAW3(fcntl, out.result.fd, F_SETFD, 0);
         if (r < 0) {
-            RAW1(close, out.fd);
+            RAW1(close, out.result.fd);
             return r;
         }
     }
-    return out.fd;
-}
-long md_namespace_identity(const struct md_fs *fs, const char *path, char *out) {
-    if (md_host_path(path)) return md_copy(out, PATH_MAX, path);
-    struct md_fs_request q = {.operation = MD_FS_REALPATH, .directory = {AT_FDCWD, -1}, .path = {path, NULL}};
-    struct md_fs_result result;
-    long r = md_namespace_request(fs, &q, &result);
-    if (r < 0)
-        return r;
-    return md_copy(out, PATH_MAX, result.data);
+    return out.result.fd;
 }
 static void stat_info(const struct md_fs_info *i, struct stat *s) {
     memset(s, 0, sizeof(*s));
@@ -128,7 +119,7 @@ static void stat_info(const struct md_fs_info *i, struct stat *s) {
     s->st_ctim.tv_sec = i->change_seconds;
     s->st_ctim.tv_nsec = i->change_nanos;
 }
-long md_namespace_inspect(const struct md_fs *fs, int fd, const char *path, int flags, struct md_fs_result *out) {
+long md_namespace_inspect(const struct md_fs *fs, int fd, const char *path, int flags, struct md_fs_response *out) {
     if (flags & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH | AT_NO_AUTOMOUNT))
         return -EINVAL;
     struct md_fs_request q = {.operation = path && *path ? MD_FS_STAT : MD_FS_FSTAT,
@@ -144,7 +135,7 @@ long md_namespace_inspect(const struct md_fs *fs, int fd, const char *path, int 
 static long descriptor_call(const struct md_fs *fs, long nr, const unsigned long *a) {
     if ((int)a[0] < 0)
         return -EBADF;
-    struct md_fs_result out;
+    struct md_fs_response out;
     struct stat st;
     if (nr == SYS_getdents64) {
         /* The namespace validates the descriptor and advances its cursor in
@@ -154,8 +145,8 @@ static long descriptor_call(const struct md_fs *fs, long nr, const unsigned long
         long r = md_namespace_request(fs, &q, &out);
         if (r == -EXDEV) return md_raw(nr, a[0], a[1], a[2], 0, 0, 0);
         if (r < 0) return r;
-        r = md_write_memory((void *)a[1], out.data, out.size);
-        return r < 0 ? r : out.size;
+        r = md_write_memory((void *)a[1], out.data, out.result.size);
+        return r < 0 ? r : out.result.size;
     }
     long r = md_namespace_inspect(fs, (int)a[0], NULL, 0, &out);
     if (r == -EXDEV)
@@ -163,17 +154,17 @@ static long descriptor_call(const struct md_fs *fs, long nr, const unsigned long
     if (r < 0)
         return r;
     if (nr == SYS_fstat) {
-        stat_info(&out.info, &st);
+        stat_info(&out.result.info, &st);
         return md_write_memory((void *)a[1], &st, sizeof(st));
     }
-    if (!S_ISDIR(out.info.mode))
+    if (!S_ISDIR(out.result.info.mode))
         return md_raw(nr, a[0], a[1], a[2], 0, 0, 0);
     struct md_fs_request q = {.operation = MD_FS_SEEKDIR, .directory = {(int)a[0], -1},
         .offset = (int64_t)a[1], .flags = (uint32_t)a[2]};
     r = md_namespace_request(fs, &q, &out);
     if (r < 0)
         return r;
-    return out.position;
+    return out.result.position;
 }
 long md_namespace_xattr(const struct md_fs *fs, long nr, int base, const char *path, const unsigned long *a) {
     unsigned long args[6];
@@ -191,7 +182,7 @@ long md_namespace_xattr(const struct md_fs *fs, long nr, int base, const char *p
         if (default_acl) {
             if (base < 0)
                 return -EBADF;
-            struct md_fs_result out;
+            struct md_fs_response out;
             long r = md_namespace_inspect(fs, base, NULL, 0, &out);
             if (!r)
                 return -ENOTSUP;
@@ -220,14 +211,14 @@ long md_namespace_call(const struct md_fs *fs, const char *exe, long nr, const u
         return RAW4(utimensat, a[0], 0, a[2], a[3]);
     if (nr == SYS_getcwd) {
         struct md_fs_request q = {.operation = MD_FS_PATH, .directory = {AT_FDCWD, -1}};
-        struct md_fs_result out;
+        struct md_fs_response out;
         long r = md_namespace_request(fs, &q, &out);
         if (r < 0)
             return r;
-        if (out.size > a[1])
+        if (out.result.size > a[1])
             return -ERANGE;
-        r = md_write_memory((void *)a[0], out.data, out.size);
-        return r < 0 ? r : out.size;
+        r = md_write_memory((void *)a[0], out.data, out.result.size);
+        return r < 0 ? r : out.result.size;
     }
     char first[PATH_MAX];
     int base = (int)a[0];
@@ -303,17 +294,17 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
     char second[PATH_MAX];
     long r;
     struct md_fs_request q = {.directory = {base, -1}, .path = {first, NULL}};
-    struct md_fs_result out;
+    struct md_fs_response out;
     switch (nr) {
     case SYS_inotify_add_watch: {
         long fd = md_namespace_open(fs, base, first, O_PATH | O_CLOEXEC |
             ((a[2] & IN_DONT_FOLLOW) ? O_NOFOLLOW : 0), 0);
         if (fd < 0) return fd;
-        struct md_fs_result identity;
+        struct md_fs_response identity;
         r = md_namespace_inspect(fs, (int)fd, NULL, 0, &identity);
         // Directory entries live in the namespace, not in its backing directory.
         // Do not advertise a watch which would silently miss logical changes.
-        if (!r && S_ISDIR(identity.info.mode)) r = -ENOTSUP;
+        if (!r && S_ISDIR(identity.result.info.mode)) r = -ENOTSUP;
         if (!r) {
             char path[64] = "/proc/thread-self/fd/";
             md_decimal(path + md_length(path), (unsigned)fd);
@@ -337,29 +328,29 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
             return r;
         if (nr == SYS_newfstatat) {
             struct stat st;
-            stat_info(&out.info, &st);
+            stat_info(&out.result.info, &st);
             return md_write_memory((void *)a[2], &st, sizeof(st));
         }
         struct statx st = {0};
         st.stx_mask = STATX_BASIC_STATS;
-        st.stx_blksize = out.info.block_size;
-        st.stx_nlink = (uint32_t)out.info.links;
-        st.stx_uid = out.info.uid;
-        st.stx_gid = out.info.gid;
-        st.stx_mode = (uint16_t)out.info.mode;
-        st.stx_ino = out.info.inode;
-        st.stx_size = out.info.size;
-        st.stx_blocks = out.info.blocks;
-        st.stx_atime.tv_sec = out.info.access_seconds;
-        st.stx_atime.tv_nsec = out.info.access_nanos;
-        st.stx_mtime.tv_sec = out.info.modify_seconds;
-        st.stx_mtime.tv_nsec = out.info.modify_nanos;
-        st.stx_ctime.tv_sec = out.info.change_seconds;
-        st.stx_ctime.tv_nsec = out.info.change_nanos;
-        st.stx_dev_major = major(out.info.device);
-        st.stx_dev_minor = minor(out.info.device);
-        st.stx_rdev_major = major(out.info.rdev);
-        st.stx_rdev_minor = minor(out.info.rdev);
+        st.stx_blksize = out.result.info.block_size;
+        st.stx_nlink = (uint32_t)out.result.info.links;
+        st.stx_uid = out.result.info.uid;
+        st.stx_gid = out.result.info.gid;
+        st.stx_mode = (uint16_t)out.result.info.mode;
+        st.stx_ino = out.result.info.inode;
+        st.stx_size = out.result.info.size;
+        st.stx_blocks = out.result.info.blocks;
+        st.stx_atime.tv_sec = out.result.info.access_seconds;
+        st.stx_atime.tv_nsec = out.result.info.access_nanos;
+        st.stx_mtime.tv_sec = out.result.info.modify_seconds;
+        st.stx_mtime.tv_nsec = out.result.info.modify_nanos;
+        st.stx_ctime.tv_sec = out.result.info.change_seconds;
+        st.stx_ctime.tv_nsec = out.result.info.change_nanos;
+        st.stx_dev_major = major(out.result.info.device);
+        st.stx_dev_minor = minor(out.result.info.device);
+        st.stx_rdev_major = major(out.result.info.rdev);
+        st.stx_rdev_minor = minor(out.result.info.rdev);
         return md_write_memory((void *)a[4], &st, sizeof(st));
     }
     case SYS_mkdirat:
@@ -380,10 +371,10 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
         r = md_namespace_request(fs, &q, &out);
         if (r < 0)
             return r;
-        if (out.size > a[3])
-            out.size = (uint32_t)a[3];
-        r = md_write_memory((void *)a[2], out.data, out.size);
-        return r < 0 ? r : out.size;
+        if (out.result.size > a[3])
+            out.result.size = (uint32_t)a[3];
+        r = md_write_memory((void *)a[2], out.data, out.result.size);
+        return r < 0 ? r : out.result.size;
     case SYS_symlinkat:
         r = md_read_string(second, sizeof(second), (const char *)a[0]);
         if (r < 0)

@@ -17,7 +17,10 @@ Command preparation owns the main ELF and optional interpreter descriptors,
 resolved identity and argument vector. Both images survive the real kernel exec
 into the bootstrap; it validates their load segments before mapping without
 reopening filenames or reparsing the command. A failed exec releases both
-descriptors. Namespace image admission and logical credential publication remain
+descriptors. The opened program's object ID and canonical dentry path are captured
+in the opening transaction and passed through the bootstrap handoff; descriptor
+exec obtains identity from the retained FD. Bootstrap does not issue a second
+object lookup. Namespace image admission and logical credential publication remain
 separate from this handoff.
 
 Data IO, common memory operations, futexes, clocks and signals pass directly to
@@ -56,7 +59,8 @@ its caller resumes, including members not returning through a ptrace stop.
 O_PATH uses SCM_RIGHTS because ADDFD rejects it. Mutating opens and
 directory seeks retain the task-affine adapter and its no-replay contract.
 Directory reads validate and enumerate through one namespace operation without a
-preliminary metadata RPC. The engine's synchronous output callback runs after
+preliminary metadata RPC. A reusable 64 KiB worker buffer bounds output independently
+of the RPC frame, with no per-read allocation. The engine's synchronous output callback runs after
 the read transaction, before advancing the actual open-file-description cursor.
 Denied remote output can delegate only when no bytes or cursor position changed;
 partial copies fail without automatic replay. Cancellation before publication

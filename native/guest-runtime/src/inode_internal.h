@@ -5,7 +5,7 @@
 #include <sqlite3.h>
 
 #define MDI_ROOT "00000000000000000000000000000000"
-enum mdi_query { MDI_NODE, MDI_FD, MDI_FD_STAT, MDI_LOOKUP, MDI_LINK_COUNT, MDI_READDIR,
+enum mdi_query { MDI_NODE, MDI_FD, MDI_LOOKUP, MDI_DIRECTORY_NAME, MDI_READDIR,
     MDI_BEGIN, MDI_BEGIN_WRITE, MDI_COMMIT, MDI_ROLLBACK, MDI_QUERY_COUNT };
 struct md_inode_store {
     sqlite3 *db;
@@ -22,6 +22,8 @@ struct mdi_node {
     mode_t kind;
     dev_t device;
     ino_t inode;
+    nlink_t links;
+    int attached;
 };
 struct mdi_location {
     struct mdi_node node, parent;
@@ -45,6 +47,7 @@ int mdi_finish(struct md_inode_store *, int);
 int mdi_name_valid(const char *);
 int mdi_node(struct md_inode_store *, const char *, struct mdi_node *);
 int mdi_fd(struct md_inode_store *, int, struct mdi_node *);
+int mdi_fd_membership(struct md_inode_store *, int, struct mdi_node *, int *attached);
 int mdi_lookup(struct md_inode_store *, const char *parent, const char *, struct mdi_node *);
 int mdi_stat(struct md_inode_store *, const struct mdi_node *, struct stat *);
 int mdi_backing_stat(struct md_inode_store *, const struct mdi_node *, struct stat *);
@@ -53,6 +56,7 @@ int mdi_access(struct md_inode_store *, const struct mdi_node *, int);
 int mdi_walk(struct md_inode_store *, int, const char *, enum mdi_follow, int missing, struct mdi_location *);
 int mdi_walk_resolved(struct md_inode_store *, int, const char *, enum mdi_follow, int missing,
         uint64_t resolve, struct mdi_location *);
+int mdi_location_path(struct md_inode_store *, const struct mdi_location *, char *, size_t);
 int mdi_parent_writable(struct md_inode_store *, const struct mdi_node *);
 int mdi_ancestor(struct md_inode_store *, const char *ancestor, const char *child);
 int mdi_add_name(struct md_inode_store *, const char *parent, const char *name, const char *object);

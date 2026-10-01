@@ -7,12 +7,13 @@
 #include <unistd.h>
 
 _Static_assert(offsetof(struct md_inode_dirent, name) == 19, "Linux getdents64 ABI");
-static int directory(struct md_inode_store *s, int fd, struct mdi_node *node, struct stat *st) {
+static int directory(struct md_inode_store *s, int fd, struct mdi_node *node, int require_attached) {
     int flags = fcntl(fd, F_GETFL);
     if (flags < 0) return -errno;
     if (flags & O_PATH) return -EBADF;
-    int r = st ? mdi_fstat(s, fd, node, st) : mdi_fd(s, fd, node);
-    return r ? r : node->kind == S_IFDIR ? 0 : -ENOTDIR;
+    int attached = 1;
+    int r = require_attached ? mdi_fd_membership(s, fd, node, &attached) : mdi_fd(s, fd, node);
+    return r ? r : node->kind != S_IFDIR ? -ENOTDIR : attached ? 0 : -ENOENT;
 }
 static size_t record(void *out, size_t space, const char *name, size_t length,
         uint64_t inode, int64_t next, uint8_t type) {
@@ -27,7 +28,7 @@ static size_t record(void *out, size_t space, const char *name, size_t length,
 int64_t md_inode_seekdir(struct md_inode_store *s, int fd, int64_t offset, int whence) {
     if (whence != SEEK_SET && whence != SEEK_CUR) return -EINVAL;
     int r = mdi_begin(s, 0); if (r) return r;
-    struct mdi_node node; r = directory(s, fd, &node, NULL);
+    struct mdi_node node; r = directory(s, fd, &node, 0);
     r = mdi_finish(s, r);
     if (r) return r;
     off_t result = lseek(fd, offset, whence);
@@ -39,9 +40,7 @@ ssize_t md_inode_getdents_deliver(struct md_inode_store *s, int fd, void *out, s
     if (capacity > INT_MAX) return -EINVAL;
     int r = mdi_begin(s, 0); if (r) return r;
     struct mdi_node node;
-    struct stat st;
-    r = directory(s, fd, &node, &st);
-    if (!r && !st.st_nlink) r = -ENOENT;
+    r = directory(s, fd, &node, 1);
     int64_t offset = 0;
     if (!r && (offset = lseek(fd, 0, SEEK_CUR)) < 0) r = -errno;
     size_t used = 0;

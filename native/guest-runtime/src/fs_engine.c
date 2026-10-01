@@ -14,22 +14,32 @@ static void info(const struct stat *s, struct md_fs_info *out) {
 }
 void md_fs_execute(struct md_inode_store *s, struct md_image_catalogue *images,
         const struct md_fs_request *q, struct md_fs_result *out, const struct md_fs_output *output) {
-    *out = (struct md_fs_result){.delivery = MD_FS_REPLIED, .fd = -1};
+    *out = (struct md_fs_result){.fd = -1};
+    void *data = output ? output->data : NULL;
+    size_t capacity = output ? output->capacity : 0;
     const char *a = q->path[0] ? q->path[0] : "", *b = q->path[1] ? q->path[1] : "";
     int first = q->directory[0], second = q->directory[1];
     int r = -ENOTSUP; struct stat st;
     switch (q->operation) {
+    case MD_FS_OPEN_IMAGE: {
+        if (!data || capacity < sizeof(struct md_image_identity)) { r = -ERANGE; break; }
+        struct md_image_identity *identity = data;
+        r = md_catalogue_open_image(images, s, first, a, (int)q->flags, identity);
+        if (r >= 0) out->size = offsetof(struct md_image_identity, path) + strlen(identity->path) + 1;
+        goto opened;
+    }
     case MD_FS_OBJECT_ID:
-        r = md_catalogue_object_id(images, s, first, out->data);
+        if (!data || capacity < 33) { r = -ERANGE; break; }
+        r = md_catalogue_object_id(images, s, first, data);
         if (!r) out->size = 33;
         break;
     case MD_FS_OPEN_OBJECT: r = md_catalogue_open_object(images, s, a, (int)q->flags); goto opened;
     case MD_FS_SOCKET_BIND: r = md_inode_socket_bind(s, first, a, q->mode, second); break;
     case MD_FS_SOCKET_ADDRESS: case MD_FS_SOCKET_NAME:
         r = q->operation == MD_FS_SOCKET_ADDRESS
-            ? md_inode_socket_address(s, first, a, out->data, sizeof(out->data))
-            : md_inode_socket_name(s, a, out->data, sizeof(out->data));
-        if (!r) out->size = (uint32_t)strlen(out->data) + 1;
+            ? md_inode_socket_address(s, first, a, data, capacity)
+            : md_inode_socket_name(s, a, data, capacity);
+        if (!r) out->size = strlen(data) + 1;
         break;
     case MD_FS_CREATE: r = md_inode_create(s, first, a, q->mode); goto opened;
     case MD_FS_OPEN: r = md_catalogue_open(images, s, first, a, (int)q->flags, q->mode, q->resolve); goto opened;
@@ -44,22 +54,22 @@ void md_fs_execute(struct md_inode_store *s, struct md_image_catalogue *images,
         if (!r) info(&st, &out->info);
         break;
     case MD_FS_PATH:
-        r = md_catalogue_path(images, s, first, out->data, sizeof(out->data));
-        if (!r) out->size = (uint32_t)strlen(out->data) + 1;
+        r = md_catalogue_path(images, s, first, data, capacity);
+        if (!r) out->size = strlen(data) + 1;
         break;
     case MD_FS_REALPATH:
-        r = md_inode_realpath(s, first, a, out->data, sizeof(out->data));
-        if (!r) out->size = (uint32_t)strlen(out->data) + 1;
+        r = md_inode_realpath(s, first, a, data, capacity);
+        if (!r) out->size = strlen(data) + 1;
         break;
     case MD_FS_TEMPORARY: r = md_inode_temporary(s); goto opened;
     case MD_FS_READLINK:
-        r = (int)md_inode_readlink(s, first, a, out->data, sizeof(out->data));
-        if (r >= 0) { out->size = (uint32_t)r; r = 0; }
+        r = (int)md_inode_readlink(s, first, a, data, capacity);
+        if (r >= 0) { out->size = (size_t)r; r = 0; }
         break;
     case MD_FS_GETDENTS:
-        r = (int)md_inode_getdents_deliver(s, first, out->data, q->capacity,
+        r = (int)md_inode_getdents_deliver(s, first, data, q->capacity < capacity ? q->capacity : capacity,
             output ? output->deliver : NULL, output ? output->context : NULL);
-        if (r >= 0) { out->size = (uint32_t)r; r = 0; }
+        if (r >= 0) { out->size = (size_t)r; r = 0; }
         break;
     case MD_FS_SEEKDIR: {
         int64_t position = md_inode_seekdir(s, first, q->offset, (int)q->flags);

@@ -61,12 +61,12 @@ static long host_readlink(const struct md_fs *fs, const char *path, const unsign
     text[n] = 0;
     long fd = RAW4(openat, AT_FDCWD, path, O_PATH | O_CLOEXEC, 0);
     if (fd >= 0) {
-        struct md_fs_result out;
+        struct md_fs_response out;
         long r = md_namespace_inspect(fs, (int)fd, NULL, 0, &out);
         if (!r) {
             /* A directory has one virtual parent. A file FD has inode identity,
              * but no retained virtual dentry: do not invent a hard-link name. */
-            if (!S_ISDIR(out.info.mode)) r = -ENOTSUP;
+            if (!S_ISDIR(out.result.info.mode)) r = -ENOTSUP;
             else {
                 struct md_fs_request q = {.operation = MD_FS_PATH, .directory = {(int)fd, -1}};
                 r = md_namespace_request(fs, &q, &out);
@@ -126,7 +126,7 @@ long md_namespace_host_call(const struct md_fs *fs, const char *exe, long nr, co
         const char *relative = ref.tail;
         while (*relative == '/') ++relative;
         if (!*relative) relative = ".";
-        struct md_fs_result out;
+        struct md_fs_response out;
         r = md_namespace_inspect(fs, (int)fd, NULL, 0, &out);
         if (!r) r = md_namespace_path_call(fs, nr, args, (int)fd, relative);
         else if (r == -EXDEV) {
@@ -154,7 +154,7 @@ long md_namespace_host_call(const struct md_fs *fs, const char *exe, long nr, co
     case SYS_utimensat: r = RAW4(utimensat, fd, "", a[2], a[3] | AT_EMPTY_PATH); break;
     case SYS_statfs: r = RAW2(fstatfs, fd, a[1]); break;
     case SYS_setxattr: case SYS_getxattr: case SYS_listxattr: case SYS_removexattr: {
-        struct md_fs_result out;
+        struct md_fs_response out;
         r = md_namespace_inspect(fs, (int)fd, NULL, 0, &out);
         if (r == -EXDEV) r = md_raw(nr, args[0], args[1], args[2], args[3], args[4], 0);
         else if (!r) {

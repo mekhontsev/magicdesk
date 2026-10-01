@@ -25,7 +25,7 @@ static int valid_entries(const char *data, size_t size) {
     }
     return 1;
 }
-static long receive_reply(int socket, int64_t deadline, const struct md_fs_request *request, struct md_fs_result *out,
+static long receive_reply(int socket, int64_t deadline, const struct md_fs_request *request, struct md_fs_response *out,
                           struct md_fs_reply *reply) {
     struct md_fs_rights rights = {0};
     long r;
@@ -37,7 +37,7 @@ static long receive_reply(int socket, int64_t deadline, const struct md_fs_reque
     if (r < 0) return r;
     uint32_t operation = request->operation;
     int opens = operation == MD_FS_OPEN || operation == MD_FS_CREATE || operation == MD_FS_TEMPORARY
-        || operation == MD_FS_OPEN_OBJECT;
+        || operation == MD_FS_OPEN_OBJECT || operation == MD_FS_OPEN_IMAGE;
     if (r < (long)offsetof(struct md_fs_reply, data)
             || reply->magic != MD_FS_MAGIC || reply->version != MD_FS_VERSION
             || reply->error > 0 || reply->error < -4095 || reply->reserved
@@ -46,7 +46,8 @@ static long receive_reply(int socket, int64_t deadline, const struct md_fs_reque
             || (reply->error && reply->size)
             || (reply->size && operation != MD_FS_READLINK && operation != MD_FS_PATH && operation != MD_FS_GETDENTS
                 && operation != MD_FS_SOCKET_ADDRESS && operation != MD_FS_SOCKET_NAME && operation != MD_FS_REALPATH
-                && operation != MD_FS_OBJECT_ID)
+                && operation != MD_FS_OBJECT_ID && operation != MD_FS_OPEN_IMAGE)
+            || (operation != MD_FS_OPEN_IMAGE && reply->size > PATH_MAX)
             || (!reply->error && operation == MD_FS_OBJECT_ID && (reply->size != 33 || reply->data[32]))
             || (reply->position && (operation != MD_FS_SEEKDIR || reply->error)) || reply->position < 0
             || (operation == MD_FS_GETDENTS && (reply->size > request->capacity || !valid_entries(reply->data, reply->size)))
@@ -54,17 +55,29 @@ static long receive_reply(int socket, int64_t deadline, const struct md_fs_reque
                 && (!reply->size || reply->data[reply->size-1]))) {
         md_fs_close_rights(&rights); return -EPROTO;
     }
-    out->delivery = MD_FS_REPLIED; out->error = reply->error;
-    out->fd = rights.count ? rights.fd[0] : -1;
-    out->info = reply->info; out->size = reply->size;
-    out->position = reply->position;
+    if (!reply->error && operation == MD_FS_OPEN_IMAGE) {
+        const struct md_image_identity *image = (const void *)reply->data;
+        int valid = reply->size > offsetof(struct md_image_identity, path) + 1
+            && image->object[32] == 0 && image->path[0] == '/'
+            && reply->data[reply->size-1] == 0;
+        for (unsigned i = 0; valid && i < 32; i++)
+            valid = (image->object[i] >= '0' && image->object[i] <= '9')
+                || (image->object[i] >= 'a' && image->object[i] <= 'f');
+        for (size_t i = offsetof(struct md_image_identity, path); valid && i + 1 < reply->size; i++)
+            valid = reply->data[i] != 0;
+        if (!valid) { md_fs_close_rights(&rights); return -EPROTO; }
+    }
+    out->delivery = MD_FS_REPLIED; out->result.error = reply->error;
+    out->result.fd = rights.count ? rights.fd[0] : -1;
+    out->result.info = reply->info; out->result.size = reply->size;
+    out->result.position = reply->position;
     memcpy(out->data, reply->data, reply->size);
     return 0;
 }
 long md_fs_call(const char *name, unsigned timeout_ms,
-        const struct md_fs_request *request, struct md_fs_result *out) {
+        const struct md_fs_request *request, struct md_fs_response *out) {
     if (!out) return -EFAULT;
-    memset(out, 0, sizeof(*out)); out->fd = -1;
+    memset(out, 0, sizeof(*out)); out->result.fd = -1;
     if (!request) return -EFAULT;
     if (!timeout_ms || timeout_ms > 60000) return -EINVAL;
     /* The request is no longer needed after send: reuse its storage for the reply. */

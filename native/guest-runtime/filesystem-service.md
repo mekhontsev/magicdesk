@@ -9,7 +9,11 @@ separate from successful namespace package-lifecycle checks.
 
 ## Ownership
 
-- `fs_engine.c` dispatches typed operations without guest pointers or transport IO.
+- `fs_operation.h` defines borrowed requests, operation results and caller-owned
+  output independently of transport framing. `fs_engine.c` dispatches these
+  operations without guest pointers or transport IO. A metadata-only operation
+  needs no byte buffer. Directory publication uses an optional synchronous
+  callback before cursor advancement; returned size never exceeds supplied capacity.
   `fs_worker.c` owns the store and image catalogue on one thread; `fs_service.c`
   multiplexes RPC, notification and stop readiness. A client cannot
   shut down the service or acquire a different execution identity.
@@ -22,6 +26,12 @@ separate from successful namespace package-lifecycle checks.
 - `fs_wire.c` owns bounded packets, native FD transfer, peer checks and deadline
   waits. `fs_rpc.h` is the typed client contract; `fs_wire.h` is the internal
   same-build ARM64 wire format. Unknown versions are rejected, not migrated.
+  Delivery state belongs to the RPC response, not the common operation result.
+  The service writes directly into its retained reply buffer. Notifications use
+  one reusable 64 KiB worker buffer, so directory batches are not limited by the
+  RPC frame's 4 KiB payload. Neither path allocates an output buffer per operation.
+  Image-open replies additionally carry a bounded object ID and canonical path,
+  captured with the descriptor in one namespace transaction.
 
 The abstract Unix SOCK_SEQPACKET endpoint has no filesystem path to translate.
 Both ends check SO_PEERCRED against their effective UID. Device fixtures require
@@ -69,6 +79,9 @@ two borrowed base FDs via SCM_RIGHTS; -1 explicitly denotes the namespace root.
 There is no implicit service cwd. Create/open replies transfer a native file
 description to the caller, received with CLOEXEC. IO, mmap and file locks do not
 cross the service; they operate on the actual shared kernel object.
+Image preparation uses a read-only open operation that returns both the exact
+descriptor and its logical identity. A sealed catalogue image retains its original
+namespace object ID; admission and executable access checks remain separate.
 Namespace path xattrs likewise operate in the client on the retained native
 inode, with real kernel permission checks. Values are not serialized into the
 service protocol or stored in SQLite.
@@ -134,6 +147,9 @@ requires zero undefined symbols. Host and actual shell-UID Debian fixtures cover
 - Directory paging/types/inodes, dup/fork/exec cursor sharing, independent opens,
   service restart with retained FDs, nonreused cookies, deleted directories,
   invalid capacities/seek requests and eight concurrent readers without duplicates.
+- Common-engine directory output larger than an RPC payload, exact record counts,
+  capacity guards, rejected publication without cursor advancement, metadata-only
+  calls without output and bounded object-identity strings.
 - Service death exactly after directory read advances its offset: the lost reply
   is unconfirmed, and reopening the service observes the retained position.
 - 256 calls from eight threads and eight deterministic nested signal-handler
@@ -142,6 +158,9 @@ requires zero undefined symbols. Host and actual shell-UID Debian fixtures cover
   changing the requested name, and remains usable after the writer commits.
 - Invalid lengths, versions, strings, FD masks, oversized messages and excess
   SCM_RIGHTS. Namespace and service FD counts are checked after rejection.
+- Image-open replies retain one exact descriptor and its object/path identity;
+  short payloads, invalid IDs, unterminated or relative paths, interior NULs and
+  missing descriptors fail explicitly without leaking transferred FDs.
 - An idle peer alongside a working client; reply timeout; malformed-reply FD
   cleanup; failure before sending; and service death exactly after commit.
 - A delayed reader receives its reply and FD while other clients make progress;

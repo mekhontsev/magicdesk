@@ -13,7 +13,7 @@
 #include <unistd.h>
 
 int md_command_prepare(const struct md_fs *fs, struct md_command *c, const char *program, char *const argv[],
-        int input_fd, int inaccessible) {
+        const struct md_program *input, int inaccessible) {
     c->fd = c->interpreter_fd = -1;
     long r = md_read_string(c->path, sizeof(c->path), program);
     if (r < 0) return (int)r;
@@ -29,7 +29,11 @@ int md_command_prepare(const struct md_fs *fs, struct md_command *c, const char 
     if (c->argc == MD_ARG_MAX) return -E2BIG;
     for (unsigned depth = 0;; ++depth) {
         long fd;
-        if (!depth && input_fd >= 0) {
+        struct md_program opened;
+        const struct md_image_identity *identity;
+        if (!depth && input) {
+            int input_fd = input->fd;
+            identity = &input->identity;
             struct stat st;
             r = RAW2(fstat, input_fd, &st);
             if (r < 0) return (int)r;
@@ -49,7 +53,14 @@ int md_command_prepare(const struct md_fs *fs, struct md_command *c, const char 
                 r = RAW4(faccessat2, fd, "", X_OK, AT_EMPTY_PATH | MD_AT_EACCESS);
                 if (r < 0) { RAW1(close, fd); return (int)r; }
             }
-        } else fd = md_program_open(fs, c->path, 1);
+        } else {
+            r = md_program_acquire(fs, AT_FDCWD, c->path, 0, &opened);
+            if (r < 0) return (int)r;
+            fd = opened.fd;
+            identity = &opened.identity;
+            r = RAW4(faccessat2, fd, "", X_OK, AT_EMPTY_PATH | MD_AT_EACCESS);
+            if (r < 0) { RAW1(close, fd); return (int)r; }
+        }
         if (fd < 0) return (int)fd;
         struct stat st;
         r = RAW2(fstat, fd, &st);
@@ -69,11 +80,8 @@ int md_command_prepare(const struct md_fs *fs, struct md_command *c, const char 
                 }
             }
             c->fd = (int)fd;
-            if (!r && (input_fd < 0 || depth)) {
-                char identity[PATH_MAX];
-                r = md_program_identity(fs, c->path, identity);
-                if (!r) r = md_copy(c->path, sizeof(c->path), identity);
-            }
+            if (!r) r = md_copy(c->path, sizeof(c->path), identity->path);
+            if (!r) memcpy(c->object, identity->object, sizeof(c->object));
             if (r < 0) md_command_close(c);
             return (int)r;
         }
@@ -125,7 +133,7 @@ long md_guest_execat(int base, const char *program, char *const argv[], char *co
     long r = md_read_string(path, sizeof(path), program);
     if (r < 0) return r;
     if (!*path && !(flags & AT_EMPTY_PATH)) return -ENOENT;
-    int fd, inaccessible = 0;
+    int inaccessible = 0;
     if (!*path || (*path != '/' && base != AT_FDCWD)) {
         long descriptor_flags = RAW2(fcntl, base, F_GETFD);
         if (descriptor_flags < 0) return descriptor_flags;
@@ -138,27 +146,17 @@ long md_guest_execat(int base, const char *program, char *const argv[], char *co
             if (r < 0) return r;
         }
     }
-    if (!*path) fd = base;
-    else {
-        unsigned long args[6] = {(unsigned long)base, (unsigned long)path,
-            O_RDONLY | O_CLOEXEC | ((flags & AT_SYMLINK_NOFOLLOW) ? O_NOFOLLOW : 0)};
-        r = md_file_call(&md_files, md_executable, SYS_openat, args);
-        if (r < 0) return r;
-        fd = (int)r;
-    }
-    if (*path && (*path == '/' || base == AT_FDCWD)) {
-        // Resolve identity after opening: NOFOLLOW must also reject dangling links.
-        struct md_proc_path ref = md_proc_path(path);
-        /* Re-executing the pinned current image keeps its guest identity.
-         * AT_EXECFN below still records the caller's /proc spelling. */
-        r = ref.kind == MD_PROC_EXE && !*ref.tail
-            ? md_copy(identity, sizeof(identity), md_executable)
-            : md_program_identity(&md_files, path, identity);
-        if (r < 0) { RAW1(close, fd); return r; }
-    }
+    struct md_program input;
+    r = !*path ? md_program_capture(&md_files, base, identity, &input)
+        : md_program_acquire(&md_files, base, path,
+            (flags & AT_SYMLINK_NOFOLLOW) ? O_NOFOLLOW : 0, &input);
+    if (r < 0) return r;
+    /* Relative-dirfd scripts need the caller's descriptor spelling, not a
+     * canonical name which could reopen a replaced entry after exec. */
+    const char *invocation = *path && (*path == '/' || base == AT_FDCWD) ? path : identity;
     struct md_command c;
-    r = md_command_prepare(&md_files, &c, identity, argv, fd, inaccessible);
-    if (*path) RAW1(close, fd);
+    r = md_command_prepare(&md_files, &c, invocation, argv, &input, inaccessible);
+    RAW1(close, input.fd);
     if (r < 0) return r;
     /* Pin both images across the real kernel exec. The new bootstrap validates
      * and maps these exact capabilities, never reopening their mutable names. */
@@ -173,6 +171,7 @@ long md_guest_execat(int base, const char *program, char *const argv[], char *co
     unsigned n=2;
     next[n++] = "--program-fd";
     next[n++] = number;
+    if (c.object[0]) { next[n++] = "--program-object"; next[n++] = c.object; }
     if (c.interpreter_fd >= 0) {
         md_decimal(interpreter_number, (unsigned)c.interpreter_fd);
         next[n++] = "--interpreter-fd";
@@ -181,7 +180,7 @@ long md_guest_execat(int base, const char *program, char *const argv[], char *co
     // AT_EXECFN is the caller's spelling, not the canonical executable or the
     // final shebang interpreter. Linux uses /dev/fd/N for descriptor exec.
     next[n++] = "--execfn";
-    next[n++] = *path && (*path == '/' || base == AT_FDCWD) ? path : identity;
+    next[n++] = (char *)invocation;
     const struct md_socket_routes *routes = md_files.connections;
     for (unsigned i = 0; routes && i < routes->count; i++) {
         const struct md_socket_route *route = &routes->entries[i];

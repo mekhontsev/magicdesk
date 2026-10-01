@@ -71,7 +71,9 @@ static void *run(void *context) {
         for (unsigned i = 0; i < 4; ++i) fprintf(stderr, "MD_STORE phase=%s calls=%llu ns=%llu\n", names[i],
             (unsigned long long)costs[i]->calls, (unsigned long long)costs[i]->nanoseconds);
         fprintf(stderr, "MD_STORE queryReuses=%llu\n", (unsigned long long)stats.query_reuses);
-        for (unsigned i = 0; i <= MD_FS_OPEN_OBJECT; ++i) if (rpc.operation[i].calls)
+        fprintf(stderr, "MD_STORE linkCountQueries=%llu membershipQueries=%llu\n",
+            (unsigned long long)stats.link_count_queries, (unsigned long long)stats.membership_queries);
+        for (unsigned i = 0; i <= MD_FS_OPEN_IMAGE; ++i) if (rpc.operation[i].calls)
             fprintf(stderr, "MD_FS operation=%u calls=%llu ns=%llu\n", i,
                 (unsigned long long)rpc.operation[i].calls,
                 (unsigned long long)rpc.operation[i].nanoseconds);

@@ -254,11 +254,11 @@ static void rpc_policy(void) {
     CHECK(syscall(SYS_openat, AT_FDCWD, "/dev/null", O_RDONLY, 0) == -1 && errno == EACCES);
     struct md_fs_request request = {.operation = MD_FS_OPEN, .directory = {-1, -1},
         .path = {"/sandbox-marker", NULL}, .flags = O_RDONLY};
-    struct md_fs_result result;
-    CHECK(!md_fs_call(endpoint, 3000, &request, &result) && !result.error && result.fd >= 0);
+    struct md_fs_response result;
+    CHECK(!md_fs_call(endpoint, 3000, &request, &result) && !result.result.error && result.result.fd >= 0);
     char marker;
-    CHECK(read(result.fd, &marker, 1) == 1 && marker == 'm');
-    close(result.fd);
+    CHECK(read(result.result.fd, &marker, 1) == 1 && marker == 'm');
+    close(result.result.fd);
     add_filter(SYS_connect, SECCOMP_RET_ERRNO | EACCES, 0);
     CHECK(md_fs_call(endpoint, 3000, &request, &result) == -EACCES);
 }
@@ -284,9 +284,9 @@ static void filesystem_service(const char *executable, const char *store) {
     close(startup[0]);
     struct md_fs_request request = {.operation = MD_FS_CREATE, .directory = {-1, -1},
         .path = {"/sandbox-marker", NULL}, .mode = 0600};
-    struct md_fs_result result;
-    CHECK(!md_fs_call(endpoint, 3000, &request, &result) && !result.error && result.fd >= 0);
-    CHECK(write(result.fd, "m", 1) == 1); close(result.fd);
+    struct md_fs_response result;
+    CHECK(!md_fs_call(endpoint, 3000, &request, &result) && !result.result.error && result.result.fd >= 0);
+    CHECK(write(result.result.fd, "m", 1) == 1); close(result.result.fd);
     run("LIMIT direct filesystem RPC bypasses openat denial; blocking connect closes this route", rpc_policy, 0);
     close(stop[1]); reap(server, 0);
 }

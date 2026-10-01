@@ -156,11 +156,38 @@ static void broker_directories(void) {
     }
     assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && !WEXITSTATUS(status));
     directory_entry(fd, "item");
+    for (unsigned i = 0; i < 512; i++) {
+        char name[96]; snprintf(name, sizeof(name), "%090u", i);
+        assert(!linkat(fd, "item", fd, name, 0));
+    }
+    size_t capacity = 128 * 1024;
+    char *large = mmap(NULL, capacity, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    assert(large != MAP_FAILED && lseek(fd, 0, SEEK_SET) == 0);
+    memset(large, 0x5a, capacity);
+    long bytes = syscall(SYS_getdents64, fd, large, capacity);
+    assert(bytes > 4096 && (size_t)bytes <= capacity);
+    unsigned char seen[512] = {0}; unsigned records = 0, aliases = 0;
+    for (size_t offset = 0; offset < (size_t)bytes;) {
+        struct { uint64_t inode; int64_t next; unsigned short size; unsigned char type; char name[]; } *entry = (void *)(large + offset);
+        assert(entry->size && offset + entry->size <= (size_t)bytes);
+        offset += entry->size; records++;
+        if (entry->name[0] == '.' || !strcmp(entry->name, "item")) continue;
+        unsigned index = (unsigned)strtoul(entry->name, NULL, 10);
+        assert(index < 512 && !seen[index]); seen[index] = 1; aliases++;
+    }
+    assert(records == 515 && aliases == 512);
+    for (size_t i = (size_t)bytes; i < capacity; i++) assert(large[i] == 0x5a);
+    assert(syscall(SYS_getdents64, duplicate, large, capacity) == 0);
+    assert(!munmap(large, capacity));
+    for (unsigned i = 0; i < 512; i++) {
+        char name[96]; snprintf(name, sizeof(name), "%090u", i);
+        assert(!unlinkat(fd, name, 0));
+    }
     int native = open("/proc/self/fd", O_RDONLY | O_DIRECTORY); assert(native >= 0);
     assert(syscall(SYS_getdents64, native, memory, page) > 0); close(native);
     assert(!unlinkat(fd, "item", 0)); close(duplicate); close(fd); assert(!rmdir(path));
     assert(!munmap(memory, page * 2));
-    puts("PASS broker directories: shared cursors, partial/failed output, fork, application filters, protected fallback and native procfs");
+    puts("PASS broker directories: large batches, exact records, shared cursors, partial/failed output, fork, application filters, protected fallback and native procfs");
 }
 static int broker_shared_root(void *data) {
     int *pipes = data;

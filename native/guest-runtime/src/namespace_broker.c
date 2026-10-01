@@ -32,6 +32,9 @@ struct md_namespace_broker {
     int listener;
     struct counters { uint64_t received, handled, delegated; } *counts;
     int synchronous_wake;
+    /* One synchronous worker owns this buffer; delegated operations retain no
+     * bytes in it. Allocation is per broker, never per syscall or directory. */
+    char output[64 * 1024];
 };
 struct task {
     struct task *next;
@@ -77,16 +80,18 @@ static int deliver_directory(void *context, const void *data, size_t size) {
     if (n < 0 && (errno == EPERM || errno == EACCES)) op->undelivered = 1;
     return n == (ssize_t)size ? 0 : -EFAULT;
 }
-static void execute(struct md_inode_store *store, struct md_image_catalogue *images, struct operation *op) {
+static void execute(struct md_inode_store *store, struct md_image_catalogue *images, struct operation *op,
+        void *data, size_t capacity) {
     op->result = (struct md_fs_result){.fd = -1, .error = -ECANCELED};
-    struct md_fs_output output = {.deliver = deliver_directory, .context = op};
+    struct md_fs_output output = {.data = data, .capacity = capacity,
+        .deliver = deliver_directory, .context = op};
     if (valid(op)) md_fs_execute(store, images, &op->request, &op->result, &output);
     if (op->result.error == -EXDEV && op->request.operation == MD_FS_FSTAT) {
         /* Native descriptors outside the namespace retain kernel metadata. */
         struct stat st;
         if (fstat(op->directory, &st)) op->result.error = -errno;
         else {
-            memcpy(op->result.data, &st, sizeof(st));
+            memcpy(data, &st, sizeof(st));
             op->result.size = sizeof(st); op->result.error = 0;
         }
     }
@@ -110,7 +115,7 @@ static void recycle(struct md_namespace_broker *b, struct operation *op) {
     op->free = b->free; b->free = op;
     pthread_mutex_unlock(&b->lock);
 }
-static int prepare(struct operation *op, struct task *task) {
+static int prepare(struct operation *op, struct task *task, size_t capacity) {
     const struct seccomp_notif *q = &op->notification;
     if (q->data.nr != SYS_openat && q->data.nr != SYS_newfstatat
             && q->data.nr != SYS_fstat && q->data.nr != SYS_getdents64) return 0;
@@ -122,8 +127,7 @@ static int prepare(struct operation *op, struct task *task) {
     op->path[0] = 0;
     if (q->data.nr == SYS_getdents64) {
         op->request.operation = MD_FS_GETDENTS;
-        op->request.capacity = q->data.args[2] > sizeof(op->result.data)
-            ? sizeof(op->result.data) : (uint32_t)q->data.args[2];
+        op->request.capacity = q->data.args[2] > capacity ? (uint32_t)capacity : (uint32_t)q->data.args[2];
     } else if (q->data.nr != SYS_fstat) {
         if (pathname(q->pid, q->data.args[1], op->path, sizeof(op->path)) || md_host_path(op->path)) goto delegate;
         if (!*op->path && (q->data.nr != SYS_newfstatat || !(q->data.args[3] & AT_EMPTY_PATH))) goto delegate;
@@ -152,7 +156,7 @@ static void metadata(const struct md_fs_info *i, struct stat *s) {
         .st_ctim = {i->change_seconds, i->change_nanos}};
 }
 /* Zero requests task-affine handling, one means delivered/cancelled. */
-static int reply(struct operation *op) {
+static int reply(struct operation *op, const void *data) {
     if (op->result.error == -EXDEV || op->undelivered) return 0;
     struct seccomp_notif_resp response = {.id = op->notification.id, .error = op->result.error};
     if (!response.error && op->notification.data.nr == SYS_openat) {
@@ -166,7 +170,7 @@ static int reply(struct operation *op) {
     } else if (!response.error) {
         if (!valid(op)) return 1;
         struct stat st;
-        if (op->result.size == sizeof(st)) memcpy(&st, op->result.data, sizeof(st));
+        if (op->result.size == sizeof(st)) memcpy(&st, data, sizeof(st));
         else metadata(&op->result.info, &st);
         uintptr_t pointer = op->notification.data.args[op->notification.data.nr == SYS_newfstatat ? 2 : 1];
         struct iovec local = {&st, sizeof(st)}, remote = {(void *)pointer, sizeof(st)};
@@ -233,7 +237,7 @@ static int receive(void *context, struct md_inode_store *s, struct md_image_cata
     }
     op->notification = q; op->listener = b->listener; op->directory = -1; op->undelivered = 0;
     op->result = (struct md_fs_result){.fd = -1};
-    int prepared = eligible && prepare(op, task);
+    int prepared = eligible && prepare(op, task, sizeof(b->output));
     pthread_mutex_lock(&b->lock);
     if (task) {
         task->borrowed--;
@@ -241,8 +245,8 @@ static int receive(void *context, struct md_inode_store *s, struct md_image_cata
     }
     pthread_mutex_unlock(&b->lock);
     if (prepared) {
-        execute(s, images, op);
-        int result = reply(op);
+        execute(s, images, op, b->output, sizeof(b->output));
+        int result = reply(op, b->output);
         if (result) {
             if (count) count->handled++;
             recycle(b, op); return result < 0 ? result : 0;

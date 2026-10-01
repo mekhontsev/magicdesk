@@ -13,7 +13,7 @@ SQLite. Adding a name does not copy or move the object.
 Descriptors opened before and after linking share the actual kernel device/inode,
 data, mappings and file locks. Data IO, mmap and descriptor duplication stay native.
 
-`md_inode_stat/fstat` combine native metadata with the namespace's indexed link
+`md_inode_stat/fstat` combine native metadata with the namespace's transactional link
 count, including zero for an open, unlinked object. Socket inodes expose S_IFSOCK
 while their transport is an abstract kernel endpoint; their backing regular file
 supplies permission and identity metadata. Raw host fstat still sees the
@@ -36,7 +36,9 @@ directory cursors, `inode_socket.c` implements socket publication and address
 lookup, and `inode_import.c` imports prepared trees. Their private contract is in
 `inode_internal.h`. Callers use the explicit dirfd-based `inode_store.h` API.
 The internal database format is versioned and incompatible formats are rejected,
-not migrated. Format 4 includes socket addresses. Bind retains a name until
+not migrated. Format 5 includes socket addresses and transactional namespace
+counters. Older experimental stores require a separately prepared store; opening
+one never rewrites or deletes it. Bind retains a name until
 unlink, including stale listeners; existing connections survive unlink/rebind.
 
 ## Paths And Directories
@@ -117,15 +119,24 @@ Import is not execution from the new namespace or successful package installatio
 
 ## Transactions
 
-- Each connection reuses compiled inode, descriptor, name, link-count and directory queries,
+- Each connection reuses compiled inode, descriptor, name and directory queries,
   plus BEGIN/BEGIN IMMEDIATE/COMMIT/ROLLBACK programs. Every use resets the statement and clears all bindings
   before leaving the operation. No rows, paths or read snapshots are cached;
   other writers and native file-data changes remain visible in the next operation.
   Statements are finalized with their owning connection.
-- Open validates native backing identity without computing logical links it does
-  not use. Descriptor stat reads native attributes from the retained FD once and
-  obtains identity and logical links in one query. No pathname reopening or
-  cached attribute snapshot substitutes for that descriptor.
+- Each object stores its name count and child-directory count. Insert/delete
+  triggers maintain them in the same transaction as namespace changes, including
+  rollback, rename and exchange. Entry updates must use delete/insert. Node reads
+  obtain these logical attributes together with identity, without counting queries.
+  The independent audit recomputes both counters from names and directory kinds.
+- Stat reads current native attributes, then uses the logical node snapshot already
+  obtained by path resolution or the one descriptor lookup. Directory enumeration
+  and parent mutation checks use that same membership model. Root is always attached;
+  detached directories report zero links and reject enumeration and new entries.
+  No pathname reopening or cached native attribute snapshot substitutes for an FD.
+- Image opening returns one retained FD, its object identity and canonical dentry
+  path in one read transaction. Ordinary opens do not reconstruct unused paths.
+  Reconstructing a directory path reuses prepared parent-name queries, not cached names.
 - Create allocates a randomly named native object, syncs regular-file data and
   its containing directory before publishing a reference. A collision fails
   without truncation. Symlink data and directory metadata retain filesystem
@@ -182,6 +193,10 @@ real shell UID 2000 in `u:r:shell:s0` on NX809J / API 36 / Linux 6.12.23 / 4 KiB
   recompiling the warmed read programs.
 - Open/fstat query counts, directory batches observing another writer, and
   rejected/cancelled directory delivery before shared-cursor advancement.
+- Node reads share transactional membership and link counts; another owner's
+  removal is visible on the next operation, while stat retains exact counts
+  before and after removal. Independent audit rejects corrupt name/directory
+  counters. Opening an incompatible store fails without rewriting its format.
 - Directory moves/replacement/exchange with retained FDs, cycle rejection,
   detached directories, directory link counts and real search/write permissions.
 - Relative/absolute/dangling/cyclic symlinks, hard-linked symlink inodes, follow

@@ -7,17 +7,6 @@
 #include <errno.h>
 #include <fcntl.h>
 
-long md_proc_executable_init(const struct md_fs *fs, struct md_process_image *image, int fd) {
-    image->executable_object[0] = 0;
-    if (!fs->endpoint[0]) return 0;
-    struct md_fs_request q = {.operation = MD_FS_OBJECT_ID, .directory = {fd, -1}};
-    struct md_fs_result result;
-    long r = md_fs_call(fs->endpoint, 5000, &q, &result);
-    if (r < 0) return r;
-    if (result.error) return result.error;
-    memcpy(image->executable_object, result.data, sizeof(image->executable_object));
-    return 0;
-}
 long md_proc_executable_open(const struct md_fs *fs, const char *path, int flags) {
     if (!fs->image || !fs->image->executable_object[0])
         return md_namespace_open(fs, AT_FDCWD, path, flags, 0);
@@ -25,15 +14,15 @@ long md_proc_executable_open(const struct md_fs *fs, const char *path, int flags
     if ((flags & (O_CREAT | O_EXCL)) == (O_CREAT | O_EXCL)) return -EEXIST;
     struct md_fs_request q = {.operation = MD_FS_OPEN_OBJECT, .directory = {-1, -1},
         .path = {fs->image->executable_object, NULL}, .flags = (unsigned)(flags & ~(O_CREAT | O_EXCL | O_NOFOLLOW))};
-    struct md_fs_result result;
+    struct md_fs_response result;
     long r = md_fs_call(fs->endpoint, 5000, &q, &result);
     if (r < 0) return r;
-    if (result.error) return result.error;
+    if (result.result.error) return result.result.error;
     if (!(flags & O_CLOEXEC)) {
-        r = RAW3(fcntl, result.fd, F_SETFD, 0);
-        if (r < 0) { RAW1(close, result.fd); return r; }
+        r = RAW3(fcntl, result.result.fd, F_SETFD, 0);
+        if (r < 0) { RAW1(close, result.result.fd); return r; }
     }
-    return result.fd;
+    return result.result.fd;
 }
 void md_proc_image_init(struct md_process_image *image, unsigned argc,
         char *const *argv, const void *auxv, size_t bytes) {
@@ -64,11 +53,11 @@ long md_proc_image_open(const struct md_fs *fs, enum md_proc_kind kind, int flag
     long fd;
     if (fs->endpoint[0]) {
         struct md_fs_request q = {.operation = MD_FS_TEMPORARY, .directory = {-1, -1}};
-        struct md_fs_result out;
+        struct md_fs_response out;
         long r = md_fs_call(fs->endpoint, 5000, &q, &out);
         if (r < 0) return r;
-        if (out.error) return out.error;
-        fd = out.fd;
+        if (out.result.error) return out.result.error;
+        fd = out.result.fd;
     } else fd = RAW4(openat, AT_FDCWD, fs->root, O_TMPFILE | O_RDWR | O_CLOEXEC, 0600);
     if (fd < 0) return fd;
     long r = 0;
