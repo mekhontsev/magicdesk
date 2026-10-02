@@ -37,16 +37,21 @@ static long receive_reply(int socket, int64_t deadline, const struct md_fs_reque
     }
     if (r < 0) return r;
     uint32_t operation = request->operation;
-    int opens = operation == MD_FS_OPEN || operation == MD_FS_CREATE || operation == MD_FS_TEMPORARY
+    int opens = operation == MD_FS_MOUNT_TABLE || operation == MD_FS_OPEN || operation == MD_FS_CREATE || operation == MD_FS_TEMPORARY
         || operation == MD_FS_OPEN_OBJECT || operation == MD_FS_OPEN_IMAGE || operation == MD_FS_WATCH_CREATE
         || operation == MD_FS_GETACL || operation == MD_FS_XATTR_OPEN || operation == MD_FS_REOPEN || (operation == MD_FS_IPC && (request->flags == MD_IPC_PEER || request->flags == MD_IPC_MESSAGE_CREATE));
     if (r < (long)offsetof(struct md_fs_reply, data)
             || reply->magic != MD_FS_MAGIC || reply->version != MD_FS_VERSION
-            || reply->error > 0 || reply->error < -4095 || reply->reserved
+            || reply->error > 0 || reply->error < -4095 || reply->host_path>1 || reply->reserved
+            || reply->open_completion > MD_OPEN_PIPE
+            || (reply->open_completion && (reply->error || reply->host_path || reply->size
+                || (operation != MD_FS_OPEN && operation != MD_FS_REOPEN && operation != MD_FS_OPEN_OBJECT)
+                || (request->flags & O_PATH)))
             || reply->size > sizeof(reply->data) || (size_t)r != offsetof(struct md_fs_reply, data) + reply->size
-            || reply->descriptors != rights.count || rights.count != (unsigned)(opens && !reply->error)
+            || reply->descriptors != rights.count || rights.count != (unsigned)(opens && !reply->error && !reply->host_path)
+                + (reply->open_completion == MD_OPEN_PIPE)
             || (reply->error && reply->size)
-            || (reply->size && operation != MD_FS_READLINK && operation != MD_FS_PATH && operation != MD_FS_GETDENTS
+            || (reply->size && !reply->host_path && operation != MD_FS_READLINK && operation != MD_FS_PATH && operation != MD_FS_GETDENTS
                 && operation != MD_FS_SOCKET_ADDRESS && operation != MD_FS_SOCKET_NAME && operation != MD_FS_REALPATH
                 && operation != MD_FS_OBJECT_ID && operation != MD_FS_OPEN_IMAGE && operation != MD_FS_WATCH_READ
                 && operation != MD_FS_GETCAP && operation != MD_FS_LISTATTR)
@@ -62,7 +67,12 @@ static long receive_reply(int socket, int64_t deadline, const struct md_fs_reque
                 && (!reply->size || reply->data[reply->size-1]))) {
         md_fs_close_rights(&rights); return -EPROTO;
     }
-    if (!reply->error && operation == MD_FS_OPEN_IMAGE) {
+    if (reply->host_path && (reply->error || reply->position || !reply->size || reply->size>PATH_MAX
+            || reply->data[0]!='/' || reply->data[reply->size-1]
+            || md_length(reply->data)!=reply->size-1)) {
+        md_fs_close_rights(&rights); return -EPROTO;
+    }
+    if (!reply->error && !reply->host_path && operation == MD_FS_OPEN_IMAGE) {
         const struct md_image_identity *image = (const void *)reply->data;
         int valid = reply->size > offsetof(struct md_image_identity, path) + 1
             && image->object[32] == 0 && image->path[0] == '/'
@@ -78,6 +88,9 @@ static long receive_reply(int socket, int64_t deadline, const struct md_fs_reque
     out->result.fd = rights.count ? rights.fd[0] : -1;
     out->result.info = reply->info; out->result.size = reply->size;
     out->result.position = reply->position;
+    out->result.host_path=reply->host_path;
+    out->result.open_completion.kind=(enum md_open_kind)reply->open_completion;
+    out->result.open_completion.control=rights.count > 1 ? rights.fd[1] : -1;
     memcpy(out->data, reply->data, reply->size);
     return 0;
 }

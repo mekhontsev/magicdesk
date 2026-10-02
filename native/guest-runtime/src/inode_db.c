@@ -168,7 +168,8 @@ static int read_node(struct md_inode_store *s, sqlite3_stmt *q, struct mdi_node 
     value.gid = (uint32_t)sqlite3_column_int64(q, 14);
     value.acl_mask = (unsigned)sqlite3_column_int(q, 15);
     if (value.source < 0 || value.source >= MDI_SOURCES) r = -EIO;
-    if (!r && value.kind != S_IFDIR && value.kind != S_IFREG && value.kind != S_IFLNK && value.kind != S_IFSOCK) r = -EIO;
+    if (!r && value.kind != S_IFDIR && value.kind != S_IFREG && value.kind != S_IFLNK
+            && value.kind != S_IFSOCK && value.kind != S_IFIFO) r = -EIO;
     sqlite3_int64 names = sqlite3_column_int64(q, 5), children = sqlite3_column_int64(q, 6);
     if (names < 0 || children < 0 || children > INT64_MAX - 2) r = -EIO;
     value.attached = names != 0 || !strcmp(value.id, MDI_ROOT);
@@ -223,6 +224,7 @@ int mdi_node(struct md_inode_store *s, const char *id, struct mdi_node *node) {
 }
 static int descriptor_node(struct md_inode_store *s, const struct stat *st,
         struct mdi_node *node) {
+    if (S_ISFIFO(st->st_mode)) return mdi_fifo_descriptor(s, st, node);
     sqlite3_stmt *q = NULL;
     int r = mdi_query_acquire(s, MDI_FD, &q);
     if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 1, (sqlite3_int64)st->st_dev));
@@ -280,9 +282,10 @@ int mdi_empty(struct md_inode_store *s, const struct mdi_node *node) {
     sqlite3_finalize(q); return r;
 }
 static int backing_identity(const struct mdi_node *node, struct stat *st) {
-    mode_t backing = node->kind == S_IFSOCK ? S_IFREG : node->kind;
+    mode_t backing = node->kind == S_IFSOCK || node->kind == S_IFIFO ? S_IFREG : node->kind;
     if (st->st_dev != node->device || st->st_ino != node->inode || (st->st_mode & S_IFMT) != backing) return -EIO;
     st->st_mode = (st->st_mode & ~S_IFMT) | node->kind;
+    if (node->kind == S_IFIFO) st->st_size = st->st_blocks = 0;
     return 0;
 }
 int mdi_backing_stat(struct md_inode_store *s, const struct mdi_node *node, struct stat *st) {
@@ -294,7 +297,8 @@ int mdi_fd_membership(struct md_inode_store *s, int fd, struct mdi_node *node, i
     if (fstat(fd, &st)) return -errno;
     if (s->statistics) s->statistics->membership_queries++;
     int r = descriptor_node(s, &st, node);
-    if (!r && (st.st_mode & S_IFMT) != (node->kind == S_IFSOCK ? S_IFREG : node->kind)) r = -EIO;
+    if (!r && (st.st_mode & S_IFMT) != (node->kind == S_IFSOCK ? S_IFREG : node->kind)
+            && !(node->kind == S_IFIFO && S_ISREG(st.st_mode))) r = -EIO;
     if (!r) *attached = node->attached;
     return r;
 }
@@ -302,9 +306,11 @@ int mdi_fstat(struct md_inode_store *s, int fd, struct mdi_node *node, struct st
     if (fstat(fd, st)) return -errno;
     if (s->statistics) s->statistics->link_count_queries++;
     int r = descriptor_node(s, st, node);
-    if (!r && (st->st_mode & S_IFMT) != (node->kind == S_IFSOCK ? S_IFREG : node->kind)) r = -EIO;
+    if (!r && (st->st_mode & S_IFMT) != (node->kind == S_IFSOCK ? S_IFREG : node->kind)
+            && !(node->kind == S_IFIFO && S_ISREG(st->st_mode))) r = -EIO;
     if (!r) {
         st->st_mode = (st->st_mode & ~S_IFMT) | node->kind;
+        if (node->kind == S_IFIFO) st->st_size = st->st_blocks = 0;
         if (node->mode >= 0) { st->st_mode = node->kind | node->mode; st->st_uid = node->uid; st->st_gid = node->gid; }
         st->st_nlink = node->links; st->st_ino = node->logical_inode; st->st_dev = node->logical_device;
     }
@@ -347,7 +353,8 @@ static int make_object(struct md_inode_store *s, const char *id, mode_t kind, mo
     if (kind!=S_IFLNK && !(p.acl_mask&MD_ACL_DEFAULT)) mode&=~s->creation_mask;
     mode_t native = s->identity ? (kind == S_IFDIR ? 0700 : 0600 | ((mode & 0111) ? 0100 : 0)) : mode;
     *fd = -1;
-    if (kind == S_IFREG || kind == S_IFSOCK) {
+    if (kind == S_IFIFO) native = 0600;
+    if (kind == S_IFREG || kind == S_IFSOCK || kind == S_IFIFO) {
         *fd = openat(s->objects, id, O_CREAT | O_EXCL | flags | O_CLOEXEC | O_NOFOLLOW, native);
         if (*fd < 0) return -errno;
     } else if (kind == S_IFDIR) {
@@ -366,7 +373,7 @@ static int make_object(struct md_inode_store *s, const char *id, mode_t kind, mo
     if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 3, (sqlite3_int64)st.st_dev));
     if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 4, (sqlite3_int64)st.st_ino));
     if (!r) r = kind == S_IFDIR && parent ? mdi_bind_id(q, 5, parent) : mdi_sql_error(sqlite3_bind_null(q, 5));
-    if (!r) r = mdi_sql_error(sqlite3_bind_int(q, 6, s->identity ? (int)(mode & 07777) : -1));
+    if (!r) r = mdi_sql_error(sqlite3_bind_int(q, 6, s->identity || kind == S_IFIFO ? (int)(mode & 07777) : -1));
     if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 7, uid));
     if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 8, gid));
     if (!r) r = mdi_sql_error(mdi_step(s, q));
@@ -431,7 +438,7 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
                 "uid INTEGER NOT NULL DEFAULT 0 CHECK(uid>=0 AND uid<4294967295),"
                 "gid INTEGER NOT NULL DEFAULT 0 CHECK(gid>=0 AND gid<4294967295),"
                 "acl_mask INTEGER NOT NULL DEFAULT 0 CHECK(acl_mask>=0 AND acl_mask<=3),"
-                "UNIQUE(device,inode),CHECK(kind IN (32768,16384,40960,49152)),"
+                "UNIQUE(device,inode),CHECK(kind IN (32768,16384,40960,49152,4096)),"
                 "CHECK((kind=16384)=(parent IS NOT NULL))) STRICT;"
             "CREATE TABLE sources(id INTEGER PRIMARY KEY,path TEXT NOT NULL,device INTEGER NOT NULL,inode INTEGER NOT NULL,"
                 "UNIQUE(device,inode),CHECK(id>0 AND id<256)) STRICT;"
@@ -468,6 +475,10 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
             "CREATE TRIGGER names_immutable BEFORE UPDATE ON names BEGIN "
                 "SELECT RAISE(ABORT,'replace namespace entries with delete and insert'); END;"
             "CREATE TABLE sockets(object TEXT PRIMARY KEY REFERENCES objects, address TEXT NOT NULL) STRICT;"
+            "CREATE TABLE fifo_pins(object TEXT NOT NULL REFERENCES objects,owner TEXT NOT NULL CHECK(length(owner)=32),"
+                "pid INTEGER NOT NULL,descriptor INTEGER NOT NULL,device INTEGER NOT NULL,inode INTEGER NOT NULL,"
+                "PRIMARY KEY(object,owner)) STRICT;"
+            "CREATE INDEX fifo_identity ON fifo_pins(device,inode);"
             "CREATE TABLE file_capabilities(object TEXT PRIMARY KEY REFERENCES objects, value BLOB NOT NULL "
                 "CHECK(length(value) IN (12,20,24))) STRICT;"
             "CREATE TABLE inode_acls(object TEXT NOT NULL REFERENCES objects,type INTEGER NOT NULL CHECK(type IN (1,2)),"
@@ -478,7 +489,7 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
                 "UPDATE objects SET acl_mask=acl_mask&~OLD.type WHERE object=OLD.object; END;"
             "CREATE TABLE events(sequence INTEGER PRIMARY KEY AUTOINCREMENT, parent TEXT NOT NULL,"
                 "object TEXT NOT NULL,name BLOB NOT NULL,mask INTEGER NOT NULL,cookie INTEGER NOT NULL) STRICT;"
-            "PRAGMA user_version=11;");
+            "PRAGMA user_version=12;");
         struct mdi_node node; int fd;
         if (!r) r = make_object(s, MDI_ROOT, S_IFDIR, 0700, 0, NULL, MDI_ROOT, &node, &fd);
         if (!r) r = mdi_sql(s, "COMMIT");
@@ -489,7 +500,7 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
     if (!r) {
         int rc = mdi_step(s, q);
         if (rc != SQLITE_ROW) r = mdi_sql_failure(rc);
-        else if (sqlite3_column_int(q, 0) != 11) r = -EPROTONOSUPPORT;
+        else if (sqlite3_column_int(q, 0) != 12) r = -EPROTONOSUPPORT;
     }
     sqlite3_finalize(q); q = NULL;
     if (!r) r = mdi_prepare(s, "PRAGMA journal_mode", &q);
@@ -518,6 +529,7 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
 void md_inode_store_close(struct md_inode_store *s) {
     if (!s) return;
     md_inode_watch_close(s);
+    mdi_fifo_close(s);
     for (unsigned i = 0; i < MDI_QUERY_COUNT; i++) sqlite3_finalize(s->queries[i]);
     if (s->db) sqlite3_close(s->db);
     if (s->objects >= 0) close(s->objects);

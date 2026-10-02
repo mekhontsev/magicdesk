@@ -5,7 +5,7 @@
 #include <sys/un.h>
 
 #define MD_FS_MAGIC 0x4d444653U
-#define MD_FS_VERSION 11U
+#define MD_FS_VERSION 13U
 #define MD_FS_MAX_FDS 2
 struct md_fs_packet {
     /* descriptors is a bitmask of the two base-FD slots, in slot order. */
@@ -21,7 +21,7 @@ struct md_fs_packet {
 struct md_fs_reply {
     uint32_t magic, version;
     int32_t error;
-    uint32_t descriptors, size, reserved; /* descriptor count, not request slot mask */
+    uint32_t descriptors, size, host_path, open_completion, reserved; /* descriptor count, not request slot mask */
     int64_t position;
     struct md_fs_info info;
     char data[sizeof(struct md_image_identity)];

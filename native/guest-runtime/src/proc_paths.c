@@ -47,15 +47,20 @@ struct md_proc_path md_proc_path(const char *path) {
         else return out;
         out.kind = MD_PROC_FD;
     } else if (word(&p, "proc")) {
+        if (word(&p,"mounts")) {
+            out.kind=MD_PROC_MOUNTS; out.tail=p; out.anchor_length=(size_t)(p-path); return out;
+        }
         if (!word(&p, "self") && !word(&p, "thread-self")) {
             long pid = number(&p);
             if (pid < 0) return out;
             foreign = pid != RAW0(getpid) && pid != RAW0(gettid);
+            out.process = (int)pid;
         }
         if (word(&p, "task")) {
             long tid = number(&p);
             if (tid < 0) return out;
             foreign |= tid != RAW0(gettid);
+            out.process = (int)tid;
         }
         if (word(&p, "fd")) {
             if (number(&p) < 0) return out;
@@ -65,8 +70,10 @@ struct md_proc_path md_proc_path(const char *path) {
         else if (word(&p, "exe")) out.kind = MD_PROC_EXE;
         else if (word(&p, "cmdline")) out.kind = MD_PROC_CMDLINE;
         else if (word(&p, "auxv")) out.kind = MD_PROC_AUXV;
+        else if (word(&p, "mounts")) out.kind = MD_PROC_MOUNTS;
+        else if (word(&p, "mountinfo")) out.kind = MD_PROC_MOUNTINFO;
         else return out;
-        if (foreign) out.kind = MD_PROC_FOREIGN;
+        if (foreign) { out.foreign_kind=out.kind; out.kind = MD_PROC_FOREIGN; }
     } else return out;
     out.anchor_length = (size_t)(p - path);
     out.tail = p;

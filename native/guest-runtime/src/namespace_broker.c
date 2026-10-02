@@ -112,7 +112,9 @@ struct md_namespace_broker *md_broker_create(struct md_fs_worker *worker, int st
 static void recycle(struct md_namespace_broker *b, struct operation *op) {
     if (op->directory >= 0) close(op->directory);
     if (op->result.fd >= 0) close(op->result.fd);
+    if (op->result.open_completion.kind == MD_OPEN_PIPE) close(op->result.open_completion.control);
     op->directory = op->result.fd = -1;
+    op->result.open_completion = (struct md_open_completion){0};
     pthread_mutex_lock(&b->lock);
     op->free = b->free; b->free = op;
     pthread_mutex_unlock(&b->lock);
@@ -159,7 +161,8 @@ static void metadata(const struct md_fs_info *i, struct stat *s) {
 }
 /* Zero requests task-affine handling, one means delivered/cancelled. */
 static int reply(struct operation *op, const void *data) {
-    if (op->result.error == -EXDEV || op->undelivered) return 0;
+    if (op->result.error == -EXDEV || op->result.error == -EREMOTE || op->result.host_path
+            || op->result.open_completion.kind != MD_OPEN_READY || op->undelivered) return 0;
     struct seccomp_notif_resp response = {.id = op->notification.id, .error = op->result.error};
     if (!response.error && op->notification.data.nr == SYS_openat) {
         struct seccomp_notif_addfd add = {.id = response.id, .srcfd = op->result.fd,
@@ -309,6 +312,7 @@ void md_broker_destroy(struct md_namespace_broker *b) {
         struct operation *op = b->all; b->all = op->all;
         if (op->directory >= 0) close(op->directory);
         if (op->result.fd >= 0) close(op->result.fd);
+        if (op->result.open_completion.kind == MD_OPEN_PIPE) close(op->result.open_completion.control);
         free(op);
     }
     while (b->tasks) {

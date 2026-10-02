@@ -47,6 +47,10 @@ static int valid(const struct md_fs_packet *q, size_t size, const struct md_fs_r
             || memchr(a, 0, q->length[0]-1) || memchr(b, 0, q->length[1]-1)) return -EPROTO;
     if (q->operation < MD_FS_CREATE || q->operation > MD_FS_LAST) return -ENOTSUP;
     if (q->attributes.creation_mask & ~0777U) return -EINVAL;
+    if (q->operation==MD_FS_MOUNT_TABLE)
+        return q->descriptors || *a || *b || q->flags>1 || q->mode || q->capacity || q->offset || q->resolve ? -EINVAL : 0;
+    if (q->operation==MD_FS_NATIVE_MOUNT)
+        return q->descriptors || *a || *b || q->flags || q->mode || q->capacity || q->offset<=0 || q->resolve ? -EINVAL : 0;
     if (q->operation == MD_FS_XATTR_OPEN)
         return q->descriptors != 1 || q->length[0] > 256 || *b || q->flags
             || (q->mode != F_OK && q->mode != R_OK && q->mode != W_OK)
@@ -104,7 +108,8 @@ static int valid(const struct md_fs_packet *q, size_t size, const struct md_fs_r
     int binary = q->operation == MD_FS_LINK || q->operation == MD_FS_RENAME;
     if ((!binary && (q->descriptors & 2))
             || (!binary && q->operation != MD_FS_SYMLINK && *b)
-            || (q->mode && q->operation != MD_FS_CREATE && q->operation != MD_FS_MKDIR && q->operation != MD_FS_OPEN)
+            || (q->mode && q->operation != MD_FS_CREATE && q->operation != MD_FS_MKDIR && q->operation != MD_FS_MKFIFO && q->operation != MD_FS_OPEN
+                && !((q->operation==MD_FS_STAT || q->operation==MD_FS_FSTAT) && q->mode==MD_FS_STAT_MOUNT))
             || (q->flags && q->operation != MD_FS_OPEN && q->operation != MD_FS_LINK
                 && q->operation != MD_FS_RENAME && q->operation != MD_FS_UNLINK && q->operation != MD_FS_STAT)
             || ((q->operation == MD_FS_FSTAT || q->operation == MD_FS_PATH) && *a)
@@ -123,7 +128,10 @@ static int dispatch(struct md_filesystem *fs, pid_t peer, const struct md_fs_pac
         .capacity = q->operation == MD_FS_OPEN_IMAGE ? sizeof(out->data) : PATH_MAX};
     md_fs_execute(fs, &request, &result, &buffer);
     out->info = result.info; out->size = result.size; out->position = result.position;
+    out->host_path=result.host_path;
+    out->open_completion=result.open_completion.kind;
     if (result.fd >= 0) output->fd[output->count++] = result.fd;
+    if (result.open_completion.kind == MD_OPEN_PIPE) output->fd[output->count++] = result.open_completion.control;
     return result.error;
 }
 enum peer_phase { REQUEST, REPLY, ACKNOWLEDGE, CONFIRM, RELEASE };

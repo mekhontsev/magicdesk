@@ -56,6 +56,9 @@ static int metadata(struct importer *i, const struct mdi_node *node, int fd, con
     if (i->limits->preserve_ownership) {
         int r = mdi_metadata(i->store, node, source->st_uid, source->st_gid, source->st_mode & 07777);
         if (r) return r;
+    } else if (node->kind == S_IFIFO) {
+        int r = mdi_metadata(i->store, node, node->uid, node->gid, source->st_mode & 01777);
+        if (r) return r;
     } else if (fd >= 0 && fchmod(fd, source->st_mode & 01777)) return -errno;
     if (fd >= 0 && (futimens(fd, times) || fsync(fd))) return -errno;
     return 0;
@@ -182,7 +185,7 @@ static int leaf(struct importer *i, struct import_frame *frame, const char *name
         else ++i->result.aliases;
     } else if (!r) {
         r = mdi_allocate(i->store, st->st_mode & S_IFMT, 0600, O_RDWR, link ? target : NULL, NULL, &node, &destination);
-        if (!r && !link) r = copy_file(i, source, destination, st);
+        if (!r && S_ISREG(st->st_mode)) r = copy_file(i, source, destination, st);
         if (!r) r = metadata(i, &node, destination, st);
         if (!r && !link) r=acls(i,&node,source);
         if (!r && capability_size) r=mdi_file_capability(i->store,&node,capability,capability_size);
@@ -245,7 +248,7 @@ int md_inode_import_tree(struct md_inode_store *s, int source_fd,
         if (fstatat(stack->source_fd, entry->d_name, &st, AT_SYMLINK_NOFOLLOW)) { r = -errno; break; }
         if (st.st_dev != root.st_dev) { r = -EXDEV; break; }
         if (((st.st_mode & 06000) && !limits->preserve_ownership)
-                || (!S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode))) {
+                || (!S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode) && !S_ISFIFO(st.st_mode))) {
             r = -ENOTSUP; break;
         }
         if (!S_ISDIR(st.st_mode)) { r = leaf(i, stack, entry->d_name, &st); continue; }

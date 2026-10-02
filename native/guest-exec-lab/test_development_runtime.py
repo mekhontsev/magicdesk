@@ -43,6 +43,46 @@ int main() {
 }
 int main(void) { return answer(41)==42 ? 0 : 1; }
 ''',
+            '/tmp/md-debug-events.c': '''#include <assert.h>
+#include <pthread.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
+static volatile sig_atomic_t received;
+static void handler(int signo) { received=signo; }
+__attribute__((noinline)) void checkpoint(int value) { assert(value==42); }
+static void *worker(void *arg) { (void)arg; checkpoint(42); return 0; }
+int main(void) {
+    signal(SIGUSR1,handler);
+    raise(SIGUSR1); assert(received==SIGUSR1);
+    pthread_t thread; assert(!pthread_create(&thread,0,worker,0));
+    assert(!pthread_join(thread,0));
+    pid_t child=fork(); assert(child>=0);
+    if (!child) { execl("/tmp/md-debug","md-debug",(char *)0); _exit(99); }
+    int status; assert(waitpid(child,&status,0)==child);
+    assert(WIFEXITED(status) && !WEXITSTATUS(status));
+    checkpoint(42); return 0;
+}
+''',
+            '/tmp/md-gdb-events.commands': '''set pagination off
+set confirm off
+set startup-with-shell off
+set follow-fork-mode parent
+handle SIGUSR1 nostop noprint pass
+file /tmp/md-debug-events
+set $checkpoints = 0
+break checkpoint
+commands
+silent
+python assert int(gdb.parse_and_eval("value")) == 42
+set $checkpoints = $checkpoints + 1
+continue
+end
+run
+python assert int(gdb.parse_and_eval("$_exitcode")) == 0
+python assert int(gdb.parse_and_eval("$checkpoints")) == 2
+echo PASS GDB threads, signal delivery, fork detach and child exec\\n
+''',
             '/tmp/md-gdb.commands': '''set pagination off
 set confirm off
 set startup-with-shell off
@@ -67,7 +107,9 @@ echo PASS GDB breakpoint, step, locals, backtrace and normal exit\\n
         suite.command(suite.run(store, '--', '/bin/sh', '-ec',
                                 'gcc -O0 -g -fPIC -shared /tmp/md-library.c -o /tmp/libmd-answer.so\n'
                                 'g++ -O0 -g -pthread /tmp/md-program.cpp -L/tmp -Wl,-rpath,/tmp -lmd-answer -o /tmp/md-program\n'
-                                'gcc -O0 -g /tmp/md-debug.c -o /tmp/md-debug\n/tmp/md-program\n/tmp/md-debug'))
+                                'gcc -O0 -g /tmp/md-debug.c -o /tmp/md-debug\n'
+                                'gcc -O0 -g -pthread /tmp/md-debug-events.c -o /tmp/md-debug-events\n'
+                                '/tmp/md-program\n/tmp/md-debug\n/tmp/md-debug-events'))
         assert suite.command(suite.run(store, '--', '/bin/cat', '/tmp/md-compiled-result')) == '42'
         compiler['passed'] = True
         debugger = {'name': 'gdb-live-debugging', 'passed': False}
@@ -75,6 +117,8 @@ echo PASS GDB breakpoint, step, locals, backtrace and normal exit\\n
         try:
             output = suite.command(suite.run(store, '--', 'gdb', '--batch', '-nx', '-x', '/tmp/md-gdb.commands'))
             assert 'PASS GDB breakpoint, step, locals, backtrace and normal exit' in output
+            output = suite.command(suite.run(store, '--', 'gdb', '--batch', '-nx', '-x', '/tmp/md-gdb-events.commands'))
+            assert 'PASS GDB threads, signal delivery, fork detach and child exec' in output
             debugger['passed'] = True
         except Exception as error:
             debugger['error'] = repr(error)

@@ -6,6 +6,7 @@
 #include "guest_identity.h"
 #include "posix_acl.h"
 struct md_fs_result;
+struct md_inode_boundary { char *path; size_t capacity; const char *suffix; };
 
 #define MDI_ROOT "00000000000000000000000000000000"
 #define MDI_SOURCES 256
@@ -18,8 +19,11 @@ struct md_inode_store {
     int objects, root, watch_presence, locked, recording, readonly, reflink_unavailable;
     const struct md_identity *identity;
     unsigned creation_mask;
+    struct md_inode_boundary *boundary;
+    char *stat_path;
     int sources[MDI_SOURCES];
     struct md_inode_watches *watches;
+    struct mdi_fifo_owner *fifos;
     struct md_inode_statistics *statistics;
     sqlite3_stmt *queries[MDI_QUERY_COUNT];
 #ifdef MD_INODE_TESTING
@@ -67,6 +71,7 @@ int mdi_backing_stat(struct md_inode_store *, const struct mdi_node *, struct st
 int mdi_fstat(struct md_inode_store *, int, struct mdi_node *, struct stat *);
 int mdi_access(struct md_inode_store *, const struct mdi_node *, int);
 int mdi_permission(struct md_inode_store *, const struct mdi_node *, int, int real);
+int mdi_open_permission(struct md_inode_store *, const struct mdi_node *, int flags);
 int mdi_sticky(struct md_inode_store *, const struct mdi_location *);
 int mdi_metadata(struct md_inode_store *, const struct mdi_node *, uint32_t, uint32_t, mode_t);
 int mdi_file_capability(struct md_inode_store *, const struct mdi_node *, const void *, size_t);
@@ -77,9 +82,11 @@ int mdi_acl_inherit(struct md_inode_store *, const struct mdi_node *, const stru
 void md_inode_acl(struct md_inode_store *, const struct md_fs_request *, struct md_fs_result *);
 int md_inode_attributes(struct md_inode_store *, int, void *, size_t);
 int mdi_walk(struct md_inode_store *, int, const char *, enum mdi_follow, int missing, struct mdi_location *);
+int mdi_host_boundary(struct md_inode_store *, const char *parent, const char *name, const char *tail, uint64_t resolve);
 int mdi_walk_resolved(struct md_inode_store *, int, const char *, enum mdi_follow, int missing,
         uint64_t resolve, struct mdi_location *);
 int mdi_location_path(struct md_inode_store *, const struct mdi_location *, char *, size_t);
+int mdi_node_path(struct md_inode_store *, const struct mdi_node *, char *, size_t);
 int mdi_parent_writable(struct md_inode_store *, const struct mdi_node *);
 int mdi_ancestor(struct md_inode_store *, const char *ancestor, const char *child);
 int mdi_add_name(struct md_inode_store *, const char *parent, const char *name, const char *object);
@@ -95,6 +102,9 @@ int mdi_random_id(char [33]);
 int mdi_copy_up(struct md_inode_store *, struct mdi_node *);
 int mdi_sources_open(struct md_inode_store *);
 int mdi_backing_directory(struct md_inode_store *, const struct mdi_node *);
+int mdi_fifo_prepare(struct md_inode_store *, int, struct md_open_completion *);
+int mdi_fifo_descriptor(struct md_inode_store *, const struct stat *, struct mdi_node *);
+void mdi_fifo_close(struct md_inode_store *);
 int mdi_event(struct md_inode_store *, const char *parent, const struct mdi_node *,
         const char *name, unsigned mask, unsigned *cookie);
 int mdi_removed_event(struct md_inode_store *, const struct mdi_location *, int parent_event);

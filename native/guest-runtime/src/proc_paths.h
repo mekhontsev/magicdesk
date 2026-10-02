@@ -4,12 +4,14 @@
 #include <stdint.h>
 
 enum md_proc_kind { MD_PROC_NONE, MD_PROC_FD, MD_PROC_CWD, MD_PROC_ROOT, MD_PROC_EXE,
-                    MD_PROC_CMDLINE, MD_PROC_AUXV, MD_PROC_FOREIGN };
+                    MD_PROC_CMDLINE, MD_PROC_AUXV, MD_PROC_FOREIGN, MD_PROC_MOUNTS, MD_PROC_MOUNTINFO };
 struct md_proc_path {
     enum md_proc_kind kind;
     size_t anchor_length;
     const char *tail;
     int ordinary_link;
+    int process;
+    enum md_proc_kind foreign_kind;
 };
 int md_host_path(const char *);
 /* Classifies adapter-owned absolute strings, without resolving guest symlinks. */

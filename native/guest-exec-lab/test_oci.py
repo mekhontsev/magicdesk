@@ -4,6 +4,7 @@ import argparse
 import base64
 import ctypes
 import errno
+import fcntl
 import gzip
 import hashlib
 import io
@@ -11,9 +12,11 @@ import json
 import os
 import pathlib
 import sqlite3
+import stat
 import subprocess
 import tarfile
 import tempfile
+import threading
 import unittest
 
 ROOT = '0' * 32
@@ -47,8 +50,11 @@ def tar(entries):
                 archive.addfile(entry, io.BytesIO(value))
             else:
                 entry.type = {'dir': tarfile.DIRTYPE, 'sym': tarfile.SYMTYPE,
-                              'hard': tarfile.LNKTYPE, 'device': tarfile.CHRTYPE}[kind]
+                              'hard': tarfile.LNKTYPE, 'device': tarfile.CHRTYPE,
+                              'block': tarfile.BLKTYPE, 'fifo': tarfile.FIFOTYPE}[kind]
                 entry.linkname = value
+                if kind in ('device', 'block'):
+                    entry.devmajor, entry.devminor = (1, 3) if kind == 'device' else (8, 0)
                 archive.addfile(entry)
     return stream.getvalue()
 
@@ -131,6 +137,53 @@ class Images(unittest.TestCase):
     def test_gzip(self):
         self.run_import(self.layout())
         self.assertEqual(self.object('hello').read_bytes(), b'world')
+
+    def test_inspection_shares_store_admission(self):
+        self.run_import(self.layout())
+        instance = self.root / 'instance'
+        subprocess.run([BINARY, 'create', str(self.destination), str(instance)],
+                       check=True, capture_output=True, timeout=60)
+        ready, stop = threading.Event(), threading.Event()
+        errors = []
+
+        def writer():
+            lock = os.open(instance / 'objects', os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                with sqlite3.connect(instance / 'namespace.db', timeout=0) as db:
+                    while not stop.is_set():
+                        # EVENT_WAIT: the same kernel gate used by namespace writers;
+                        # the test completion bound fails a stuck participant.
+                        fcntl.flock(lock, fcntl.LOCK_EX)
+                        try:
+                            db.execute('BEGIN IMMEDIATE')
+                            db.execute("UPDATE properties SET value=value WHERE key='image-users'")
+                            db.commit()
+                        finally:
+                            fcntl.flock(lock, fcntl.LOCK_UN)
+                        ready.set()
+            except Exception as error:
+                errors.append(error)
+                ready.set()
+            finally:
+                os.close(lock)
+
+        thread = threading.Thread(target=writer)
+        thread.start()
+        try:
+            # EVENT_WAIT: first committed write, not a settling delay.
+            self.assertTrue(ready.wait(10), 'writer did not start')
+            for _ in range(50):
+                result = subprocess.run([BINARY, 'inspect', str(instance)],
+                                        capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout)['kind'], 'instance')
+                self.assertFalse(errors, errors)
+        finally:
+            stop.set()
+            # EVENT_WAIT: writer completion; failure does not count as cleanup.
+            thread.join(10)
+            self.assertFalse(thread.is_alive(), 'writer did not stop')
+        self.assertFalse(errors, errors)
 
     def test_preserved_owners_and_snapshot(self):
         layout = self.layout([[('d', 'dir', '', 0o2750, 1000, 2000),
@@ -344,8 +397,75 @@ class Images(unittest.TestCase):
     def test_devices_rejected(self):
         self.run_import(self.layout([[('device', 'device', '')]]), False)
 
+    def test_host_devices_omitted(self):
+        layout = self.layout([[('dev', 'dir', ''), ('dev/null', 'device', ''),
+                               ('dev/console', 'device', ''), ('dev/disk/example', 'block', ''),
+                               ('dev/shm', 'dir', ''), ('dev/shm/value', 'file', b'shared')]])
+        result = self.run_import(layout)
+        for path in ('dev/null', 'dev/console', 'dev/disk/example'):
+            self.assertIn('/' + path, result.stderr)
+            self.assertIsNone(self.object(path))
+        self.assertEqual(self.object('dev/shm/value').read_bytes(), b'shared')
+        self.assertEqual(result.stderr.count('provided by host /dev'), 3)
+
+    def test_host_device_replaces_lower_placeholder(self):
+        layout = self.layout([[('dev/null', 'file', b'not a device'),
+                               ('dev/disk/old', 'file', b'old')],
+                              [('dev/null', 'device', ''), ('dev/disk', 'block', '')]])
+        self.run_import(layout)
+        self.assertIsNone(self.object('dev/null'))
+        self.assertIsNone(self.object('dev/disk'))
+
+    def test_device_policy_does_not_cover_other_paths(self):
+        for path in ('dev', 'device/null', 'dev/shm', 'dev/shm/null', 'proc/null',
+                     '/dev/null', 'dev/../null'):
+            with self.subTest(path=path), tempfile.TemporaryDirectory() as temp:
+                layout = Layout(pathlib.Path(temp) / 'layout', [[(path, 'device', '')]])
+                self.destination = pathlib.Path(temp) / 'image'
+                self.run_import(layout, False)
+
+    def test_device_omission_preserves_validation(self):
+        cases = [
+            [('dev/null', 'device', ''), ('dev/./null', 'device', '')],
+            [('dev/.wh.null', 'device', '')],
+            [('dev/null', 'device', '', 0o644, -1, 0)],
+            [('dev/null', 'device', '', 0o644, 0, 0, {'user.hidden': b'value'})],
+            [('dev/null', 'device', ''), ('alias', 'hard', 'dev/null')],
+            [('dev', 'sym', 'outside'), ('dev/null', 'device', '')],
+        ]
+        for entries in cases:
+            with self.subTest(entries=entries), tempfile.TemporaryDirectory() as temp:
+                layout = Layout(pathlib.Path(temp) / 'layout', [entries])
+                self.destination = pathlib.Path(temp) / 'image'
+                self.run_import(layout, False)
+
     def test_whiteout_data_rejected(self):
         self.run_import(self.layout([[('.wh.old', 'file', b'bad')]]), False)
+
+    def test_fifo_image_and_independent_instances(self):
+        self.run_import(self.layout([[('pipe', 'fifo', '', 0o640, 123, 456),
+                                     ('alias', 'hard', 'pipe')]]), preserve=True)
+        original = self.object('pipe')
+        # FIFO names persist as metadata; live streams belong to kernel pipes.
+        self.assertTrue(stat.S_ISREG(original.stat().st_mode))
+        with sqlite3.connect(self.destination / 'namespace.db') as db:
+            self.assertEqual(db.execute('SELECT kind,mode,uid,gid FROM objects WHERE object=?',
+                                       (original.name,)).fetchone(), (stat.S_IFIFO, 0o640, 123, 456))
+        self.assertEqual(original, self.object('alias'))
+        instances = []
+        for name in ('one', 'two'):
+            destination = self.root / name
+            result = subprocess.run([BINARY, 'create', str(self.destination), str(destination)],
+                                    capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            instances.append(destination / 'objects' / original.name)
+        for fifo in instances:
+            self.assertTrue(stat.S_ISREG(fifo.stat().st_mode))
+            self.assertEqual(fifo.stat().st_size, 0)
+        self.assertNotEqual(instances[0].stat().st_ino, instances[1].stat().st_ino)
+        for name in ('one', 'two'):
+            with sqlite3.connect(self.root / name / 'namespace.db') as db:
+                self.assertEqual(db.execute('SELECT count(*) FROM fifo_pins').fetchone()[0], 0)
 
     def test_layer_digest(self):
         layout = self.layout()

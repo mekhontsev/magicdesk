@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "fs_mount_internal.h"
+#include "inode_internal.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/openat2.h>
@@ -69,7 +70,17 @@ int md_view_walk(struct md_filesystem *fs, int base, const char *path, int follo
             if (resolve & RESOLVE_NO_XDEV) { r = -EXDEV; break; }
             next = md_inode_open(fs->store, fs->mounts->mounts[mount].target, "..", O_PATH | O_DIRECTORY | O_CLOEXEC, 0);
             next_mount = -1;
-        } else if (mount < 0) next = md_inode_open(fs->store, fd, name, O_PATH | O_NOFOLLOW | O_CLOEXEC, 0);
+        } else if (mount < 0) {
+            /* The component walker must retain the unconsumed suffix when a
+             * logical path crosses into a task-owned host filesystem. */
+            struct md_inode_boundary *boundary=fs->store->boundary;
+            const char *previous_suffix=boundary ? boundary->suffix : NULL;
+            if (boundary) boundary->suffix=todo;
+            next = md_inode_open(fs->store, fd, name, O_PATH | O_NOFOLLOW | O_CLOEXEC, 0);
+            if (boundary) boundary->suffix=previous_suffix;
+            if (next==-EREMOTE && (resolve&(RESOLVE_NO_XDEV|RESOLVE_IN_ROOT|RESOLVE_BENEATH))) next=-EXDEV;
+            if (next==-EREMOTE && (resolve&(RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS))) next=-ENOTSUP;
+        }
         else { next = openat(fd, name, O_PATH | O_NOFOLLOW | O_CLOEXEC); if (next < 0) next = -errno; }
         if (next == -ENOENT && last && missing && (!trailing || missing > 1)) {
             out->parent = fd; fd = -1; out->mount = mount; strcpy(out->name, name); break;

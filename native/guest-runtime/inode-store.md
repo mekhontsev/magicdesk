@@ -141,7 +141,8 @@ Default import maps ownership to the executor and keeps the destination root's
 metadata. Explicit `preserve_ownership` retains source UID/GID/mode, including
 root-directory and set-ID metadata, in the database; the host remains unchanged.
 Neither policy reproduces ctime, sparse extents or physical layout.
-Special files, set-ID bits without preservation, cross-device traversal
+FIFO metadata is preserved without copying pipe data. Other special files,
+set-ID bits without preservation, cross-device traversal
 and xattrs other than the kernel-assigned SELinux label are rejected explicitly.
 SELinux labels are not copied or changed. Overlapping source/storage trees and
 nonempty destination namespaces are rejected. No fallback clears unsupported
@@ -267,8 +268,9 @@ three additional deterministic import SIGKILL boundaries. It also imports the
 prepared Debian fixture under shell UID 2000 and checks selected files and the
 namespace audit. Both current Android identities deny source hard-link creation:
 the fixture reports that alias-import branch as LIMIT rather than substituting
-copies. It requires another host with native hard-link support. FIFO rejection
+copies. It requires another host with native hard-link support. FIFO import
 is covered on the Termux host; shell policy blocks creating that source fixture.
+Guest FIFO names and transport use the [named-pipe contract](fifos.md).
 Directory RPC paging, inherited/shared cursors, concurrent readers, lost replies
 and service restart are covered in `test_rpc.c`.
 

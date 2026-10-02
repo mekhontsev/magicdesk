@@ -47,6 +47,17 @@ int mdi_permission(struct md_inode_store *s, const struct mdi_node *node, int mo
     unsigned shift = ids.uid.fs == st.st_uid ? 6 : md_identity_in_group(&ids, st.st_gid) ? 3 : 0;
     return (((unsigned)st.st_mode >> shift) & (unsigned)mode) == (unsigned)mode ? 0 : -EACCES;
 }
+int mdi_open_permission(struct md_inode_store *s, const struct mdi_node *node, int flags) {
+    if (flags & O_PATH) return 0;
+    int r = mdi_permission(s, node,
+        (flags & O_ACCMODE) == O_WRONLY ? W_OK : (flags & O_ACCMODE) == O_RDWR ? R_OK | W_OK : R_OK, 0);
+    if (!r && (flags & O_NOATIME) && s->identity && !md_identity_capable(s->identity, CAP_FOWNER)) {
+        struct stat st;
+        r = mdi_stat(s, node, &st);
+        if (!r && st.st_uid != s->identity->uid.fs) r = -EPERM;
+    }
+    return r;
+}
 int mdi_sticky(struct md_inode_store *s, const struct mdi_location *loc) {
     if (!s->identity || md_identity_capable(s->identity, CAP_FOWNER)) return 0;
     struct stat parent, child;

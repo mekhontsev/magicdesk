@@ -28,6 +28,7 @@ md_raw_return:
 .global md_enter
 .type md_enter, %function
 md_enter:
+    brk #0x5ba
     mov x9, x0
     mov sp, x1
     mov x0, xzr

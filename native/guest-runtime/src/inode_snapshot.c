@@ -47,6 +47,13 @@ static int clone_node(struct md_inode_store *source, struct md_inode_store *targ
         if (fchmod(fd, st.st_mode & 01777) || futimens(fd, times) || fsync(fd)) r = -errno;
         close(fd);
         if (r) return r;
+    } else if (node->kind == S_IFIFO) {
+        int fd = openat(target->objects, node->backing, O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+        if (fd < 0) return -errno;
+        struct timespec times[2] = {st.st_atim, st.st_mtim};
+        if (futimens(fd, times) || fsync(fd)) r = -errno;
+        close(fd);
+        if (r) return r;
     } else if (node->kind != S_IFREG) return -ENOTSUP;
     if (node->kind != S_IFREG && fstatat(target->objects, node->backing, &st, AT_SYMLINK_NOFOLLOW)) return -errno;
     sqlite3_stmt *q = NULL;
@@ -87,7 +94,7 @@ int md_inode_snapshot(struct md_inode_store *source, struct md_inode_store *targ
     if (!r) {
         r = mdi_begin(target, 1);
         if (!r) {
-            r = mdi_sql(target, "DELETE FROM backings; DELETE FROM events; DELETE FROM sockets; "
+            r = mdi_sql(target, "DELETE FROM backings; DELETE FROM events; DELETE FROM sockets; DELETE FROM fifo_pins; "
                 "UPDATE properties SET value=0 WHERE key='sealed'");
             int origin = 0;
             if (!r) r = image_source(source, target, &origin);

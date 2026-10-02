@@ -16,9 +16,9 @@ target_compile_options(guest-sqlite PRIVATE -O2 -fno-pie)
 set(src ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(raw ${src}/raw.c ${src}/memory.c ${src}/raw.S)
 set(wire ${src}/fs_wire.c ${src}/event_wait.c)
-set(mounts ${src}/fs_mounts.c ${src}/fs_mount_path.c ${src}/fs_mount_operations.c)
+set(mounts ${src}/fs_mounts.c ${src}/fs_mount_path.c ${src}/fs_mount_operations.c ${src}/fs_mount_table.c)
 set(inodes ${src}/inode_store.c ${src}/inode_db.c ${src}/inode_events.c ${src}/inode_watch.c ${src}/watch_queue.c ${src}/inode_path.c
-    ${src}/inode_directory.c ${src}/inode_import.c ${src}/inode_socket.c ${src}/inode_backing.c ${src}/inode_snapshot.c
+    ${src}/inode_directory.c ${src}/inode_import.c ${src}/inode_socket.c ${src}/inode_backing.c ${src}/inode_snapshot.c ${src}/inode_fifo.c ${src}/file_open.c
     ${src}/guest_identity.c ${src}/credential_registry.c ${src}/inode_metadata.c ${src}/inode_capability.c ${src}/inode_acl.c ${src}/posix_acl.c)
 set(namespace_engine ${src}/fs_engine.c ${src}/ipc_credentials.c)
 
@@ -37,13 +37,13 @@ guest_executable(bootstrap ${src}/bootstrap.c ${src}/elf.c ${src}/exec.c
     ${src}/interception.c ${src}/interception_entry.S ${src}/watch_calls.c ${src}/shm_calls.c
     ${src}/file_calls.c ${src}/fs.c ${src}/proc_paths.c ${src}/proc_image.c ${src}/program_files.c
     ${src}/namespace.c ${src}/namespace_proc.c ${src}/socket_calls.c ${src}/socket_namespace.c ${src}/socket_identity.c ${src}/socket_ancillary.c ${src}/socket_routes.c ${src}/fd_metadata.c
-    ${src}/fs_client.c ${wire} ${src}/raw.c ${src}/raw.S)
+    ${src}/fs_client.c ${src}/file_open.c ${wire} ${src}/raw.c ${src}/raw.S)
 guest_freestanding(bootstrap)
 target_compile_options(bootstrap PRIVATE -mgeneral-regs-only)
 target_link_options(bootstrap PRIVATE -Wl,--image-base=0x2000000000)
 
 guest_executable(supervisor ${src}/supervisor.c ${src}/process_owner.c ${src}/interception_stacks.c ${src}/guest_domain.c
-    ${src}/watch_activation.c ${src}/sysv_shm.c
+    ${src}/watch_activation.c ${src}/sysv_shm.c ${src}/guest_debugger.c ${src}/process_image_view.c
     ${src}/guest_identity.c ${src}/guest_accounts.c ${src}/elf_admission.c ${src}/elf.c ${src}/fs_client.c ${wire} ${raw}
     ${src}/fs_worker.c ${src}/fs_service.c ${namespace_engine} ${src}/image_catalogue.c ${inodes} ${mounts}
     ${src}/namespace_broker.c ${src}/watch_broker.c ${src}/proc_paths.c)
@@ -61,7 +61,7 @@ target_link_libraries(service PRIVATE guest-sqlite m)
 include(image-dependencies.cmake)
 guest_executable(image ${src}/image_main.c ${src}/image_io.c ${src}/image_json.c
     ${src}/image_oci.c ${src}/image_layer.c ${src}/image_acl.c ${src}/image_publish.c ${src}/image_launch.c ${src}/guest_accounts.c ${inodes}
-    ${namespace_engine} ${mounts} ${src}/image_catalogue.c ${src}/elf_admission.c ${src}/guest_identity.c
+    ${namespace_engine} ${mounts} ${src}/image_catalogue.c ${src}/elf_admission.c ${src}/guest_identity.c ${src}/proc_paths.c
     ${src}/elf.c ${src}/fs_client.c ${wire} ${raw})
 target_compile_definitions(image PRIVATE MD_NO_START MD_USE_LIBC)
 target_compile_options(image PRIVATE -iquote ${src})

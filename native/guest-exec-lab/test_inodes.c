@@ -439,8 +439,13 @@ static void symlinks(void) {
     CHECK(md_inode_stat(s, a, "hard-file", 0, &st) == 0 && st.st_ino == target.st_ino && st.st_nlink == 2);
     CHECK(md_inode_open(s, a, "relative", O_RDONLY | O_NOFOLLOW, 0) == -ELOOP);
     fd = md_inode_open(s, a, "relative", O_PATH | O_NOFOLLOW, 0); CHECK(fd >= 0);
-    CHECK(md_inode_fstat(s, fd, &st) == 0 && S_ISLNK(st.st_mode) && st.st_ino == link.st_ino); close(fd);
+    CHECK(md_inode_fstat(s, fd, &st) == 0 && S_ISLNK(st.st_mode) && st.st_ino == link.st_ino);
     char bytes[PATH_MAX] = {0};
+    CHECK(md_inode_readlink(s, fd, "", bytes, sizeof(bytes)) == 10 && !memcmp(bytes, "../b/value", 10));
+    CHECK(readlinkat(a, "", bytes, sizeof(bytes)) == -1 && errno == ENOENT);
+    CHECK(md_inode_readlink(s, a, "", bytes, sizeof(bytes)) == -ENOENT);
+    CHECK(readlinkat(file, "", bytes, sizeof(bytes)) == -1 && errno == ENOENT);
+    CHECK(md_inode_readlink(s, file, "", bytes, sizeof(bytes)) == -ENOENT); close(fd);
     CHECK(md_inode_readlink(s, a, "relative", bytes, 3) == 3 && !memcmp(bytes, "../", 3));
     CHECK(md_inode_readlink(s, a, "relative", bytes, sizeof(bytes)) == 10 && !memcmp(bytes, "../b/value", 10));
     CHECK(md_inode_stat(s, a, "absolute/", AT_SYMLINK_NOFOLLOW, &st) == 0 && S_ISDIR(st.st_mode));

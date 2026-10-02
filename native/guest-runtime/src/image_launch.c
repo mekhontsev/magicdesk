@@ -26,18 +26,25 @@ static int config(struct md_inode_store *s, char **json) {
 int md_image_inspect(const char *path) {
     struct md_inode_store *s = NULL;
     int r = md_inode_store_open(path, 0, &s);
-    char *json = NULL;
-    if (!r) r = config(s, &json);
-    sqlite3_stmt *q = NULL;
-    if (!r) r = md_json_query(s->db, json, "SELECT json_object('kind',?2,'config',json(?1),'sources',"
-        "(SELECT json_group_array(json_object('path',path,'device',device,'inode',inode)) FROM sources),"
-        "'guestUsers',(SELECT value FROM properties WHERE key='image-users'))", &q);
-    if (!r) sqlite3_bind_text(q, 2, s->readonly ? "image" : "instance", -1, SQLITE_STATIC);
+    char *json = NULL, *result = NULL;
+    if (!r) r = mdi_begin(s, 0);
     if (!r) {
-        if (sqlite3_step(q) != SQLITE_ROW) r = -EIO;
-        else if (puts((const char *)sqlite3_column_text(q, 0)) == EOF) r = -EIO;
+        r = config(s, &json);
+        sqlite3_stmt *q = NULL;
+        if (!r) r = md_json_query(s->db, json, "SELECT json_object('kind',?2,'config',json(?1),'sources',"
+            "(SELECT json_group_array(json_object('path',path,'device',device,'inode',inode)) FROM sources),"
+            "'guestUsers',(SELECT value FROM properties WHERE key='image-users'))", &q);
+        if (!r) sqlite3_bind_text(q, 2, s->readonly ? "image" : "instance", -1, SQLITE_STATIC);
+        if (!r) {
+            int rc = sqlite3_step(q);
+            if (rc != SQLITE_ROW) r = mdi_sql_failure(rc);
+            else if (!(result = strdup((const char *)sqlite3_column_text(q, 0)))) r = -ENOMEM;
+        }
+        sqlite3_finalize(q);
+        r = mdi_finish(s, r);
     }
-    sqlite3_finalize(q); free(json); md_inode_store_close(s); return r;
+    if (!r && puts(result) == EOF) r = -EIO;
+    free(result); free(json); md_inode_store_close(s); return r;
 }
 static int optional(sqlite3 *db, const char *json, const char *path, char **out) {
     int r = md_json_string(db, json, path, out);
@@ -127,18 +134,25 @@ int md_image_launch(int argc, char **argv) {
     char *json = NULL, *cwd = NULL, *user = NULL;
     char **entries = NULL, **cmd = NULL, **env = NULL;
     size_t entry_count = 0, cmd_count = 0, env_count = 0;
-    if (!r) r = config(s, &json);
-    if (!r) r = optional(s->db, json, "$.config.WorkingDir", &cwd);
-    if (!r) r = optional(s->db, json, "$.config.User", &user);
     int preserve = 0;
-    sqlite3_stmt *policy = NULL;
-    if (!r) r = mdi_prepare(s,"SELECT value FROM properties WHERE key='image-users'",&policy);
+    if (!r) r = mdi_begin(s, 0);
     if (!r) {
-        int rc=mdi_step(s,policy);
-        if (rc==SQLITE_ROW) preserve=sqlite3_column_int(policy,0)!=0;
-        else r=mdi_sql_failure(rc);
+        r = config(s, &json);
+        if (!r) r = optional(s->db, json, "$.config.WorkingDir", &cwd);
+        if (!r) r = optional(s->db, json, "$.config.User", &user);
+        sqlite3_stmt *policy = NULL;
+        if (!r) r = mdi_prepare(s,"SELECT value FROM properties WHERE key='image-users'",&policy);
+        if (!r) {
+            int rc=mdi_step(s,policy);
+            if (rc==SQLITE_ROW) preserve=sqlite3_column_int(policy,0)!=0;
+            else r=mdi_sql_failure(rc);
+        }
+        sqlite3_finalize(policy);
+        if (!r) r = md_json_array(s->db, json, "$.config.Entrypoint", &entries, &entry_count);
+        if (!r) r = md_json_array(s->db, json, "$.config.Cmd", &cmd, &cmd_count);
+        if (!r) r = md_json_array(s->db, json, "$.config.Env", &env, &env_count);
+        r = mdi_finish(s, r);
     }
-    sqlite3_finalize(policy);
     if (!r && user && *user && !selected_user && !preserve) {
         fprintf(stderr, "Image USER=%s has mapped ownership; select --user current or an explicit guest user.\n", user);
         r = -ENOTSUP;
@@ -154,9 +168,6 @@ int md_image_launch(int argc, char **argv) {
             s->identity=&identity;
         }
     }
-    if (!r) r = md_json_array(s->db, json, "$.config.Entrypoint", &entries, &entry_count);
-    if (!r) r = md_json_array(s->db, json, "$.config.Cmd", &cmd, &cmd_count);
-    if (!r) r = md_json_array(s->db, json, "$.config.Env", &env, &env_count);
     const char *working = cwd_override ? cwd_override : cwd && *cwd ? cwd : "/";
     if (!r && working[0] != '/') r = -EINVAL;
     if (!r && entry_override) { md_json_array_free(entries, entry_count); entries = NULL; entry_count = 0; }

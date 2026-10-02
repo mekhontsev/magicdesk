@@ -100,6 +100,16 @@ group stops, concurrent TSYNC and non-leader exec have dedicated fixtures.
 
 ## Guest Kernel Interfaces
 
+Nested guest debugging uses the [debugger contract](debugging.md). The supervisor
+retains physical ptrace ownership; GDB requests do not replace syscall mediation.
+
+Native `/proc` and `/dev` descriptors remain task-affine when the operation needs
+no guest inode authority. SELinux can allow local metadata access but reject
+descriptor transfer to another process. An ordinary notification that cannot
+borrow the descriptor delegates to the existing task adapter. A failed protected
+SCM_RIGHTS export returns an error and releases received descriptors; truncated
+ancillary data is not a supervisor assertion or permission to bypass a guest domain.
+
 `guest_domain` owns the distinction between an unsupported guest interface and
 permission to access a host resource. Kernel audit has no guest implementation:
 AF_NETLINK/NETLINK_AUDIT creation returns EPROTONOSUPPORT before a kernel socket

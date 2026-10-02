@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include "profile.h"
 #include "image_identity.h"
+#include "file_open.h"
 
 /* Experimental inode namespace, not a syscall adapter. Each connection
  * has one owner; never use it from SIGSYS, a signal handler, or after fork.
@@ -34,12 +35,16 @@ int md_inode_snapshot(struct md_inode_store *source, struct md_inode_store *empt
 /* Retained FD identity selects its logical object, even after copy-up. Flags
  * select a new descriptor; the caller's original open description is untouched. */
 int md_inode_reopen(struct md_inode_store *, int fd, int flags, int mutable);
+int md_inode_prepare_reopen(struct md_inode_store *, int, int, int, struct md_open_completion *);
 int md_inode_create(struct md_inode_store *, int dirfd, const char *path, mode_t mode);
 int md_inode_mkdir(struct md_inode_store *, int dirfd, const char *path, mode_t mode);
+int md_inode_mkfifo(struct md_inode_store *, int dirfd, const char *path, mode_t mode);
 int md_inode_symlink(struct md_inode_store *, const char *target, int dirfd, const char *path);
 ssize_t md_inode_readlink(struct md_inode_store *, int dirfd, const char *path, char *, size_t);
 int md_inode_open(struct md_inode_store *, int dirfd, const char *path, int flags, mode_t mode);
 int md_inode_open_resolved(struct md_inode_store *, int, const char *, int, mode_t, uint64_t);
+int md_inode_prepare_open(struct md_inode_store *, int, const char *, int, mode_t, uint64_t,
+        struct md_open_completion *);
 /* Read-only image open and identity from one namespace snapshot. */
 int md_inode_open_image(struct md_inode_store *, int, const char *, int, struct md_image_identity *);
 int md_inode_link(struct md_inode_store *, int sourcefd, const char *source,

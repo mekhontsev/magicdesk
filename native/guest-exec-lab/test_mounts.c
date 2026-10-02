@@ -96,8 +96,41 @@ int main(int argc, char **argv) {
     assert(!unlinkat(directory, "file", 0));
     result = call(&fs, MD_FS_REOPEN, fd, NULL, O_RDONLY | O_CLOEXEC, 0, NULL, 0); assert(!result.error);
     memset(bytes, 0, sizeof(bytes)); assert(read(result.fd, bytes, 6) == 6 && !strcmp(bytes, "native")); close(result.fd);
+    assert(!md_inode_mkdir(s,-1,"/etc",0755));
+    assert(!md_inode_mkdir(s,-1,"/dev",0755));
+    assert(!md_inode_mkdir(s,-1,"/dev/shm",01777));
+    assert(!md_inode_symlink(s,"../proc/self/mounts",-1,"/etc/mtab"));
+    assert(!md_inode_symlink(s,"/dev/shm",-1,"/shared"));
+    for (unsigned attached=0; attached<2; ++attached) {
+        struct md_filesystem plain={.store=s};
+        struct md_filesystem *view=attached ? &fs : &plain;
+        result=call(view,MD_FS_OPEN,-1,"/etc/mtab",O_RDONLY,0,bytes,sizeof(bytes));
+        assert(!result.error && result.host_path && result.fd==-1 && !strcmp(bytes,"/proc/self/mounts"));
+        result=call(view,MD_FS_OPEN,-1,"/etc/mtab",O_PATH|O_NOFOLLOW,0,bytes,sizeof(bytes));
+        assert(!result.error && !result.host_path && !fstat(result.fd,&st) && S_ISLNK(st.st_mode)); close(result.fd);
+        result=call(view,MD_FS_OPEN,-1,"/shared",O_PATH|O_DIRECTORY,0,bytes,sizeof(bytes));
+        assert(!result.error && !result.host_path && result.fd>=0); close(result.fd);
+        q=(struct md_fs_request){.operation=MD_FS_OPEN,.directory={-1,-1},.path={"/etc/mtab",NULL},
+            .flags=O_RDONLY,.resolve=RESOLVE_NO_XDEV};
+        output=(struct md_fs_output){.data=bytes,.capacity=sizeof(bytes)};
+        md_fs_execute(view,&q,&result,&output); assert(result.error==-EXDEV);
+        q.resolve=RESOLVE_NO_SYMLINKS;
+        md_fs_execute(view,&q,&result,&output); assert(result.error==-ELOOP);
+        for (unsigned info=0; info<2; ++info) {
+            result=call(view,MD_FS_MOUNT_TABLE,-1,NULL,info,0,bytes,sizeof(bytes));
+            assert(!result.error && result.fd>=0);
+            ssize_t count=read(result.fd,bytes,sizeof(bytes)-1); assert(count>0);
+            bytes[count]=0; assert(strstr(bytes,"guestfs") && strstr(bytes,"/proc") && strstr(bytes,"/dev/shm"));
+            assert(!strstr(bytes,store) && !strstr(bytes,host));
+            if (attached) assert(strstr(bytes,"/readonly") && strstr(bytes,"/volume"));
+            assert((fcntl(result.fd,F_GETFL)&O_ACCMODE)==O_RDONLY);
+            assert(lseek(result.fd,0,SEEK_SET)==0); close(result.fd);
+        }
+        md_fs_mounts_close(&plain);
+    }
     close(fd); close(directory);
     md_fs_mounts_close(&fs); md_inode_store_close(s);
     puts("PASS native attachments, cross-boundary symlinks/dirfds, readonly retained FDs, mount identity and directory publication");
+    puts("PASS host-boundary symlinks, guest shared memory, resolution constraints and guest mount tables");
     return 0;
 }

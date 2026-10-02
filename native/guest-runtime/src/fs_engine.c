@@ -47,9 +47,19 @@ void md_fs_execute(struct md_filesystem *fs,
         fs->store->identity = &identity;
     }
     unsigned previous_mask=fs->store->creation_mask;
+    struct md_inode_boundary boundary={.path=output ? output->data : NULL,.capacity=output ? output->capacity : 0};
+    struct md_inode_boundary *previous_boundary=fs->store->boundary;
+    fs->store->boundary=&boundary;
     fs->store->creation_mask=q->attributes.creation_mask;
     if (fs->mounts) md_fs_mounts_execute(fs, q, out, output);
     else md_fs_inode_execute(fs, q, out, output);
+    fs->store->boundary=previous_boundary;
+    if (out->error==-EREMOTE) {
+        if (q->operation==MD_FS_LINK || q->operation==MD_FS_RENAME) out->error=-EXDEV;
+        else if (boundary.path && boundary.capacity) {
+            out->error=0; out->host_path=1; out->size=strlen(boundary.path)+1;
+        }
+    }
     fs->store->creation_mask=previous_mask;
     fs->store->identity = previous;
     md_identity_release(&identity);
@@ -78,7 +88,7 @@ void md_fs_inode_execute(struct md_filesystem *fs,
     case MD_FS_CHMOD: case MD_FS_CHOWN: case MD_FS_ACCESS: case MD_FS_UTIMENS:
         r = md_inode_metadata(s, q); break;
     case MD_FS_XATTR_OPEN: r = md_inode_xattr_open(s, first, a, (int)q->mode); goto opened;
-    case MD_FS_REOPEN: r = md_catalogue_reopen(images, s, first, (int)q->flags, (int)q->mode); goto opened;
+    case MD_FS_REOPEN: r = md_catalogue_reopen(images, s, first, (int)q->flags, (int)q->mode, &out->open_completion); goto opened;
     case MD_FS_WATCH_CREATE: r = md_inode_watch_create(s, (int)q->flags); goto opened;
     case MD_FS_WATCH_ADD:
         r = md_inode_watch_add(s, first, second, q->flags);
@@ -117,17 +127,27 @@ void md_fs_inode_execute(struct md_filesystem *fs,
         if (!r) out->size = strlen(data) + 1;
         break;
     case MD_FS_CREATE: r = md_inode_create(s, first, a, q->mode); goto opened;
-    case MD_FS_OPEN: r = md_catalogue_open(images, s, first, a, (int)q->flags, q->mode, q->resolve); goto opened;
+    case MD_FS_OPEN: r = md_catalogue_open(images, s, first, a, (int)q->flags, q->mode, q->resolve, &out->open_completion); goto opened;
     case MD_FS_MKDIR: r = md_inode_mkdir(s, first, a, q->mode); break;
+    case MD_FS_MKFIFO: r = md_inode_mkfifo(s, first, a, q->mode); break;
     case MD_FS_SYMLINK: r = md_inode_symlink(s, b, first, a); break;
     case MD_FS_LINK: r = md_inode_link(s, first, a, second, b, (int)q->flags); break;
     case MD_FS_UNLINK: r = md_inode_unlink(s, first, a, (int)q->flags); break;
     case MD_FS_RENAME: r = md_inode_rename(s, first, a, second, b, q->flags); break;
-    case MD_FS_STAT: case MD_FS_FSTAT:
+    case MD_FS_STAT: case MD_FS_FSTAT: {
+        if (q->mode & ~MD_FS_STAT_MOUNT) { r=-EINVAL; break; }
+        char path[PATH_MAX];
+        char *previous=s->stat_path;
+        if (q->mode & MD_FS_STAT_MOUNT) { path[0]=0; s->stat_path=path; }
         r = q->operation == MD_FS_STAT ? md_catalogue_stat(images, s, first, a, (int)q->flags, &st)
             : md_catalogue_fstat(images, s, first, &st);
+        s->stat_path=previous;
         if (!r) md_fs_stat_info(&st, &out->info);
+        if (!r && (q->mode & MD_FS_STAT_MOUNT) && *path)
+            out->info.mount_id=!strncmp(path,"/dev/shm",8) && (!path[8] || path[8]=='/')
+                ? MD_FS_SHM_MOUNT : MD_FS_ROOT_MOUNT;
         break;
+    }
     case MD_FS_PATH:
         r = md_catalogue_path(images, s, first, data, capacity);
         if (!r) out->size = strlen(data) + 1;
@@ -137,6 +157,9 @@ void md_fs_inode_execute(struct md_filesystem *fs,
         if (!r) out->size = strlen(data) + 1;
         break;
     case MD_FS_TEMPORARY: r = md_inode_temporary(s); goto opened;
+    case MD_FS_MOUNT_TABLE: r = md_fs_mount_table(fs,q->flags); goto opened;
+    case MD_FS_NATIVE_MOUNT:
+        r=md_fs_native_mount(fs,(uint64_t)q->offset,&out->info.mount_id); break;
     case MD_FS_READLINK:
         r = (int)md_inode_readlink(s, first, a, data, capacity);
         if (r >= 0) { out->size = (size_t)r; r = 0; }

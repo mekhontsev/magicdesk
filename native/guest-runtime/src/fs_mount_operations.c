@@ -12,14 +12,22 @@
 static int writable(unsigned flags) {
     return !(flags & O_PATH) && (flags & (O_ACCMODE | O_TRUNC | O_CREAT));
 }
-static int reopen(struct md_filesystem *fs, struct md_view_object *p, int flags, int mutable) {
+static int reopen(struct md_filesystem *fs, struct md_view_object *p, int flags, int mutable,
+        struct md_open_completion *completion) {
     if (flags & ~(O_PATH | O_CLOEXEC | O_NONBLOCK | O_DIRECTORY | O_LARGEFILE | O_ACCMODE
-            | O_APPEND | O_TRUNC | O_NOFOLLOW | O_SYNC | O_DSYNC | O_DIRECT)) return -EINVAL;
+            | O_APPEND | O_TRUNC | O_NOFOLLOW | O_SYNC | O_DSYNC | O_DIRECT | O_NOCTTY | O_NOATIME)) return -EINVAL;
     if ((flags & O_ACCMODE) == O_ACCMODE || ((flags & O_TRUNC) && !(flags & O_ACCMODE))) return -EINVAL;
     if (flags & O_PATH) flags &= O_PATH | O_CLOEXEC | O_DIRECTORY | O_NOFOLLOW;
     if (fs->mounts->mounts[p->mount].readonly && (mutable || writable(flags))) return -EROFS;
     struct stat st;
     if (fstat(p->fd, &st)) return -errno;
+    if ((flags & O_DIRECTORY) && !S_ISDIR(st.st_mode)) return -ENOTDIR;
+    if (S_ISFIFO(st.st_mode) && !(flags & O_PATH)) {
+        int fd = fcntl(p->fd, F_DUPFD_CLOEXEC, 3);
+        if (fd < 0) return -errno;
+        completion->kind = MD_OPEN_FIFO;
+        return fd;
+    }
     if (S_ISLNK(st.st_mode)) {
         if (!(flags & O_PATH) || !(flags & O_NOFOLLOW)) return -ELOOP;
         int fd = fcntl(p->fd, F_DUPFD_CLOEXEC, 3); return fd < 0 ? -errno : fd;
@@ -28,10 +36,13 @@ static int reopen(struct md_filesystem *fs, struct md_view_object *p, int flags,
     int fd = open(path, (flags & ~O_NOFOLLOW) | O_CLOEXEC);
     return fd < 0 ? -errno : fd;
 }
-static void result_stat(struct md_fs_result *out, int fd) {
+static void result_stat(struct md_fs_result *out, int fd, int mount) {
     struct stat st;
     if (fstat(fd, &st)) out->error = -errno;
-    else md_fs_stat_info(&st, &out->info);
+    else {
+        md_fs_stat_info(&st, &out->info);
+        out->info.mount_id=MD_FS_ATTACHMENT_MOUNT+(unsigned)mount;
+    }
 }
 static int record(struct md_filesystem *fs, int fd, int mount, struct md_fs_result *out) {
     if (fd < 0) return -errno;
@@ -57,9 +68,15 @@ static int descriptor(struct md_filesystem *fs, const struct md_fs_request *q,
     case MD_FS_GETCAP: case MD_FS_GETACL: case MD_FS_LISTATTR: r = -EXDEV; break;
     case MD_FS_ACCESS: case MD_FS_XATTR_OPEN:
         r = fs->mounts->mounts[p->mount].readonly && (q->mode & W_OK) ? -EROFS : -EXDEV; break;
-    case MD_FS_FSTAT: result_stat(out, q->directory[0]); break;
+    case MD_FS_FSTAT: result_stat(out, q->directory[0], p->mount); break;
+    case MD_FS_READLINK: {
+        if (!data || !capacity) { r=-EINVAL; break; }
+        ssize_t n=readlinkat(q->directory[0],"",data,capacity);
+        if (n<0) r=-errno; else out->size=(size_t)n;
+        break;
+    }
     case MD_FS_REOPEN:
-        r = reopen(fs, p, (int)q->flags, (int)q->mode);
+        r = reopen(fs, p, (int)q->flags, (int)q->mode, &out->open_completion);
         if (r >= 0) { out->fd = r; r = 0; }
         break;
     case MD_FS_OBJECT_ID:
@@ -100,7 +117,7 @@ static int descriptor(struct md_filesystem *fs, const struct md_fs_request *q,
 }
 static int has_path(unsigned operation) {
     switch (operation) {
-    case MD_FS_CREATE: case MD_FS_OPEN: case MD_FS_MKDIR: case MD_FS_SYMLINK:
+    case MD_FS_CREATE: case MD_FS_OPEN: case MD_FS_MKDIR: case MD_FS_MKFIFO: case MD_FS_SYMLINK:
     case MD_FS_READLINK: case MD_FS_LINK: case MD_FS_UNLINK: case MD_FS_RENAME:
     case MD_FS_STAT: case MD_FS_REALPATH: case MD_FS_OPEN_IMAGE:
     case MD_FS_SOCKET_BIND: case MD_FS_SOCKET_ADDRESS: return 1;
@@ -113,7 +130,7 @@ static int follow(const struct md_fs_request *q) {
         return (q->flags & (O_CREAT | O_EXCL)) == (O_CREAT | O_EXCL) ? -1 : !(q->flags & O_NOFOLLOW);
     case MD_FS_STAT: case MD_FS_ACCESS: return !(q->flags & AT_SYMLINK_NOFOLLOW);
     case MD_FS_LINK: return !!(q->flags & AT_SYMLINK_FOLLOW);
-    case MD_FS_CREATE: case MD_FS_MKDIR: case MD_FS_SYMLINK:
+    case MD_FS_CREATE: case MD_FS_MKDIR: case MD_FS_MKFIFO: case MD_FS_SYMLINK:
     case MD_FS_UNLINK: case MD_FS_RENAME: case MD_FS_SOCKET_BIND: return -1;
     case MD_FS_READLINK: return 0;
     default: return 1;
@@ -121,12 +138,12 @@ static int follow(const struct md_fs_request *q) {
 }
 static int missing(const struct md_fs_request *q) {
     if (q->operation == MD_FS_MKDIR) return 2;
-    return q->operation == MD_FS_CREATE || q->operation == MD_FS_SYMLINK
+    return q->operation == MD_FS_CREATE || q->operation == MD_FS_MKFIFO || q->operation == MD_FS_SYMLINK
         || q->operation == MD_FS_SOCKET_BIND || (q->operation == MD_FS_OPEN && (q->flags & O_CREAT));
 }
 static int mutates(const struct md_fs_request *q) {
     switch (q->operation) {
-    case MD_FS_CREATE: case MD_FS_MKDIR: case MD_FS_SYMLINK: case MD_FS_LINK:
+    case MD_FS_CREATE: case MD_FS_MKDIR: case MD_FS_MKFIFO: case MD_FS_SYMLINK: case MD_FS_LINK:
     case MD_FS_UNLINK: case MD_FS_RENAME: case MD_FS_SOCKET_BIND: return 1;
     case MD_FS_OPEN: return writable(q->flags);
     default: return 0;
@@ -160,8 +177,17 @@ static void native(struct md_filesystem *fs, const struct md_fs_request *q,
         if (((flags & O_TRUNC) && !(flags & O_ACCMODE))
                 || ((flags & O_CREAT) && (flags & O_DIRECTORY))) { r = -EINVAL; break; }
         if ((flags & O_CREAT) && (q->mode & ~01777)) { r = -ENOTSUP; break; }
-        int fd = openat(a->parent, a->name, flags | O_NOFOLLOW | O_CLOEXEC, q->mode&~q->attributes.creation_mask);
+        struct stat existing;
+        if (a->fd >= 0 && fstat(a->fd, &existing)) { r = -errno; break; }
+        int fifo = a->fd >= 0 && S_ISFIFO(existing.st_mode);
+        if (fifo && q->operation == MD_FS_OPEN_IMAGE) { r = -EACCES; break; }
+        if (fifo && (flags & O_CREAT) && (flags & O_EXCL)) { r = -EEXIST; break; }
+        if (fifo && (flags & O_DIRECTORY)) { r = -ENOTDIR; break; }
+        int deferred = fifo && !(flags & O_PATH);
+        int fd = deferred ? fcntl(a->fd, F_DUPFD_CLOEXEC, 3)
+            : openat(a->parent, a->name, flags | O_NOFOLLOW | O_CLOEXEC, q->mode&~q->attributes.creation_mask);
         r = record(fs, fd, a->mount, out);
+        if (!r && deferred) out->open_completion.kind = MD_OPEN_FIFO;
         if (!r && q->operation == MD_FS_OPEN_IMAGE) {
             struct stat st;
             if (fstat(fd, &st)) r = -errno;
@@ -177,7 +203,7 @@ static void native(struct md_filesystem *fs, const struct md_fs_request *q,
     }
     case MD_FS_STAT:
         if (q->flags & ~AT_SYMLINK_NOFOLLOW) r = -EINVAL;
-        else result_stat(out, a->fd);
+        else result_stat(out, a->fd, a->mount);
         break;
     case MD_FS_REALPATH:
         if (!data || !capacity) r = -ERANGE;
@@ -189,6 +215,10 @@ static void native(struct md_filesystem *fs, const struct md_fs_request *q,
         break;
     }
     case MD_FS_MKDIR: if (mkdirat(a->parent, a->name, q->mode&~q->attributes.creation_mask)) r = -errno; break;
+    case MD_FS_MKFIFO:
+        if (q->mode & ~07777U) r = -EINVAL;
+        else if (mkfifoat(a->parent, a->name, q->mode&~q->attributes.creation_mask)) r = -errno;
+        break;
     case MD_FS_SYMLINK: if (symlinkat(q->path[1], a->parent, a->name)) r = -errno; break;
     case MD_FS_UNLINK: if (unlinkat(a->parent, a->name, (int)q->flags)) r = -errno; break;
     case MD_FS_RENAME: if (syscall(SYS_renameat2, a->parent, a->name, b->parent, b->name, q->flags)) r = -errno; break;
@@ -207,14 +237,18 @@ void md_fs_mounts_execute(struct md_filesystem *fs, const struct md_fs_request *
         for (unsigned i = 0; i < MD_VIEW_BUCKETS; ++i) for (struct md_view_object *p = fs->mounts->table[i]; p; p = p->next) {
             if (!q->path[0] || strcmp(q->path[0], p->id)) continue;
             if (writable(q->flags)) { out->error = -EACCES; return; }
-            int fd = reopen(fs, p, (int)q->flags, 0);
+            struct stat st;
+            if (fstat(p->fd, &st)) { out->error = -errno; return; }
+            if (!S_ISREG(st.st_mode)) { out->error = -EINVAL; return; }
+            int fd = reopen(fs, p, (int)q->flags, 0, &out->open_completion);
             if (fd < 0) out->error = fd; else out->fd = fd;
             return;
         }
     }
-    if (!has_path(q->operation) && !(q->operation == MD_FS_ACCESS && q->path[0] && *q->path[0])) {
+    if ((!has_path(q->operation) || (q->operation==MD_FS_READLINK && q->path[0] && !*q->path[0]))
+            && !(q->operation == MD_FS_ACCESS && q->path[0] && *q->path[0])) {
         switch (q->operation) {
-        case MD_FS_FSTAT: case MD_FS_PATH: case MD_FS_REOPEN: case MD_FS_GETDENTS:
+        case MD_FS_FSTAT: case MD_FS_PATH: case MD_FS_REOPEN: case MD_FS_GETDENTS: case MD_FS_READLINK:
         case MD_FS_CHMOD: case MD_FS_CHOWN: case MD_FS_ACCESS: case MD_FS_UTIMENS:
         case MD_FS_GETCAP: case MD_FS_SETCAP: case MD_FS_REMOVECAP:
         case MD_FS_GETACL: case MD_FS_SETACL: case MD_FS_REMOVEACL: case MD_FS_LISTATTR: case MD_FS_XATTR_OPEN:

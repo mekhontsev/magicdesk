@@ -8,6 +8,8 @@
 #define MD_GUEST_WATCH_FILTER 0x4d440103
 #define MD_GUEST_SHM 0x4d440104
 #define MD_GUEST_SHM_FILTER 0x4d440105
+#define MD_GUEST_PROC_IMAGE 0x4d440106
+#define MD_PROC_IMAGE_LINK (1U << 31)
 #define MD_WATCH_TASK_AFFINE (-INT64_C(0x4000000000000000))
 #define MD_WATCH_WAIT (MD_WATCH_TASK_AFFINE + 1)
 #define MD_WATCH_NATIVE (MD_WATCH_TASK_AFFINE + 2)
@@ -31,6 +33,7 @@ struct md_interception_abi {
     uintptr_t store_ids, stored_ids, raw_gate, copy_begin, copy_end;
     uintptr_t watch_gate;
     uintptr_t load_groups, loaded_groups, store_groups, stored_groups;
+    uintptr_t enter;
 };
 
 int md_interception_install(int inherited);

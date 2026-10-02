@@ -93,6 +93,7 @@ int md_view_path(struct md_filesystem *fs, int fd, int mount, char *out, size_t 
     return r;
 }
 void md_fs_mounts_close(struct md_filesystem *fs) {
+    md_fs_mount_identity_close(fs);
     struct md_fs_mounts *m = fs->mounts;
     if (!m) return;
     for (unsigned i = 0; i < MD_VIEW_BUCKETS; ++i) {

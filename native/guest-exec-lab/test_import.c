@@ -92,19 +92,29 @@ static void semantics(void) {
     CHECK(md_inode_store_open(dstpath,0,&s)==0 && names(s)==(aliases?7U:5U)); md_inode_store_close(s); close(src);
     puts("PASS import: data, modes, timestamps, symlinks, native identity, independent source and reopen");
 }
+static void fifo_import(void) {
+    char srcpath[PATH_MAX], dstpath[PATH_MAX]; int src = source(srcpath);
+    if (mkfifoat(src, "pipe", 0640)) {
+        CHECK(errno == EACCES || errno == EPERM);
+        puts("LIMIT host policy denies native FIFO source creation; guest FIFO is tested separately");
+        close(src); return;
+    }
+    CHECK(!fchmodat(src, "pipe", 0640, 0));
+    struct md_inode_store *s = store(dstpath); struct md_inode_import_result result;
+    CHECK(!md_inode_import_tree(s, src, &limits, &result) && result.entries == 1 && !result.bytes);
+    struct stat st; CHECK(!md_inode_stat(s, -1, "pipe", 0, &st));
+    CHECK(S_ISFIFO(st.st_mode) && (st.st_mode & 0777) == 0640 && st.st_size == 0);
+    int fd = md_inode_open(s, -1, "pipe", O_RDWR | O_NONBLOCK, 0); CHECK(fd >= 0);
+    char value[8]; CHECK(write(fd, "fifo", 4) == 4 && read(fd, value, 8) == 4 && !memcmp(value, "fifo", 4));
+    close(fd); CHECK(names(s) == 1); md_inode_store_close(s); close(src);
+    puts("PASS imported native FIFO metadata and kernel stream");
+}
 static void failures(void) {
-    for(unsigned test=0;test<7;++test) {
+    for(unsigned test=1;test<7;++test) {
         char srcpath[PATH_MAX],dstpath[PATH_MAX]; int src=source(srcpath); file(src,"a");
         struct md_inode_store *s=store(dstpath); struct md_inode_import_result result;
         struct md_inode_import_limits bound=limits; int error=-ENOTSUP;
         switch(test) {
-        case 0:
-            if(mkfifoat(src,"pipe",0600)) {
-                CHECK(errno==EACCES || errno==EPERM);
-                puts("LIMIT source FIFO creation denied by host policy; unsupported FIFO import not exercised here");
-                CHECK(names(s)==0); md_inode_store_close(s); close(src); continue;
-            }
-            break;
         case 1: CHECK(fchmodat(src,"a",04700,0)==0); break;
         case 2: bound.bytes=1; error=-EFBIG; break;
         case 3: file(src,"b"); bound.entries=1; error=-EFBIG; break;
@@ -200,6 +210,6 @@ int main(int argc,char **argv) {
     CHECK((argc==2 || argc==4) && argv[1][0]=='/' && strlen(argv[1])<sizeof(root)); strcpy(root,argv[1]);
     if(argc==4) complete_tree(argv[2],argv[3]);
     CHECK(mkdir(root,0700)==0);
-    semantics(); failures(); preserved_ownership(); changing_source(); recovery();
+    semantics(); fifo_import(); failures(); preserved_ownership(); changing_source(); recovery();
     puts("PASS offline import fixture (not execution from the imported namespace)"); return 0;
 }

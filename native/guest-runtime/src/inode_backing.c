@@ -135,8 +135,15 @@ int md_inode_store_seal(struct md_inode_store *s) {
     return r;
 }
 int md_inode_reopen(struct md_inode_store *s, int original, int flags, int mutable) {
+    struct md_open_completion completion;
+    int fd = md_inode_prepare_reopen(s, original, flags, mutable, &completion);
+    return md_complete_open(fd, flags | O_CLOEXEC, completion);
+}
+int md_inode_prepare_reopen(struct md_inode_store *s, int original, int flags, int mutable,
+        struct md_open_completion *completion) {
+    *completion = (struct md_open_completion){0};
     if (flags & ~(O_PATH | O_CLOEXEC | O_NONBLOCK | O_DIRECTORY | O_LARGEFILE | O_ACCMODE
-            | O_APPEND | O_TRUNC | O_NOFOLLOW | O_SYNC | O_DSYNC | O_DIRECT)) return -EINVAL;
+            | O_APPEND | O_TRUNC | O_NOFOLLOW | O_SYNC | O_DSYNC | O_DIRECT | O_NOCTTY | O_NOATIME)) return -EINVAL;
     if ((flags & O_ACCMODE) == O_ACCMODE) return -EINVAL;
     if ((flags & O_TRUNC) && !(flags & O_ACCMODE)) return -EINVAL;
     if (flags & O_PATH) flags &= O_PATH | O_CLOEXEC | O_DIRECTORY | O_NOFOLLOW;
@@ -145,8 +152,8 @@ int md_inode_reopen(struct md_inode_store *s, int original, int flags, int mutab
     if (r) return r;
     struct mdi_node node;
     r = mdi_fd(s, original, &node);
-    if (!r && !(flags & O_PATH)) r = mdi_permission(s, &node,
-        (flags & O_ACCMODE) == O_WRONLY ? W_OK : (flags & O_ACCMODE) == O_RDWR ? R_OK | W_OK : R_OK, 0);
+    if (!r && (flags & O_DIRECTORY) && node.kind != S_IFDIR) r = -ENOTDIR;
+    if (!r) r = mdi_open_permission(s, &node, flags);
     if (!r && mutable && (flags & O_PATH) && s->identity && !md_identity_capable(s->identity, CAP_FOWNER)) {
         struct stat st;
         r = mdi_stat(s, &node, &st);
@@ -156,8 +163,10 @@ int md_inode_reopen(struct md_inode_store *s, int original, int flags, int mutab
     int fd = -1;
     int directory = r ? -1 : mdi_backing_directory(s, &node);
     if (!r && directory < 0) r = directory;
-    if (!r && (fd = openat(directory, node.backing, flags | O_NOFOLLOW | O_CLOEXEC)) < 0) r = -errno;
+    int deferred = !r && node.kind == S_IFIFO && !(flags & O_PATH);
+    if (!r && (fd = openat(directory, node.backing, (deferred ? O_PATH : flags) | O_NOFOLLOW | O_CLOEXEC)) < 0) r = -errno;
     r = mdi_commit(s, r);
     if (r && fd >= 0) close(fd);
+    if (!r && deferred) return mdi_fifo_prepare(s, fd, completion);
     return r ? r : fd;
 }

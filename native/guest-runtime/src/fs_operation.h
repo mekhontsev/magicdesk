@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "file_capability.h"
+#include "file_open.h"
 
 enum md_fs_operation {
     MD_FS_CREATE = 1, MD_FS_OPEN, MD_FS_MKDIR, MD_FS_SYMLINK, MD_FS_READLINK,
@@ -14,8 +15,9 @@ enum md_fs_operation {
     MD_FS_CHMOD, MD_FS_CHOWN, MD_FS_ACCESS, MD_FS_UTIMENS, MD_FS_IPC,
     MD_FS_GETCAP, MD_FS_SETCAP, MD_FS_REMOVECAP,
     MD_FS_GETACL, MD_FS_SETACL, MD_FS_REMOVEACL, MD_FS_LISTATTR,
-    MD_FS_XATTR_OPEN, MD_FS_LAST = MD_FS_XATTR_OPEN
+    MD_FS_XATTR_OPEN, MD_FS_MOUNT_TABLE, MD_FS_NATIVE_MOUNT, MD_FS_MKFIFO, MD_FS_LAST = MD_FS_MKFIFO
 };
+enum { MD_FS_STAT_MOUNT = 1 };
 struct md_fs_attributes {
     uint32_t uid, gid;
     int64_t seconds[2], nanos[2];
@@ -35,7 +37,7 @@ struct md_fs_request {
     struct md_fs_attributes attributes;
 };
 struct md_fs_info {
-    uint64_t device, inode, links, rdev;
+    uint64_t device, inode, links, rdev, mount_id;
     int64_t size, blocks;
     uint32_t mode, uid, gid, block_size;
     int64_t access_seconds, modify_seconds, change_seconds;
@@ -43,6 +45,8 @@ struct md_fs_info {
 };
 struct md_fs_result {
     int error, fd;
+    unsigned host_path;
+    struct md_open_completion open_completion;
     size_t size;
     int64_t position;
     struct md_fs_info info;

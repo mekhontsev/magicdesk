@@ -72,10 +72,24 @@ bits, without changing host credentials or making backing files set-ID.
 bits. Preserved-ownership imports retain POSIX access/default ACLs and
 `security.capability` as logical inode metadata. Neither is installed on host
 backings or grants Android privileges. Identical duplicate xattr encodings are
-accepted; conflicting values are rejected. Other xattrs, NFSv4 ACLs and special
-nodes are rejected rather than silently imported with different meaning.
+accepted; conflicting values are rejected. Other xattrs, NFSv4 ACLs and unsupported
+special nodes are rejected rather than silently imported with different meaning.
+FIFO entries retain their namespace metadata and hardlinks; live streams are
+created lazily per instance, never copied from an image. Their declared archive
+payload must be empty. See [named pipes](fifos.md) for execution limits.
 ACL/capability-bearing inputs require preserved ownership.
 General set-ID metadata does not grant execution admission.
+
+Character/block-device entries under native `/dev` are omitted with their path,
+type and major/minor numbers reported. The same runtime path classifier excludes
+guest-owned `/dev/shm`. Omission removes an older-layer placeholder but creates no
+host device, guest inode or ordinary-file substitute. Archive paths, duplicates,
+links and supported metadata are still validated; symlink ancestors cannot redirect
+device omission into another directory. Devices outside that native subtree remain
+unsupported, as do ACL/capability-bearing device entries. At execution, `/dev/null`
+is Android's real device; unavailable `/dev/console` retains the kernel error.
+Interactive terminals use their existing PTY, not an invented system console.
+
 The prepared userspace remains responsible for NSS, DNS and CA certificates.
 Image Volumes, ExposedPorts,
 Healthcheck and StopSignal do not provision host resources or change supervision.
@@ -200,6 +214,34 @@ Arch's base userspace and ACL import pass, but its default pacman download
 sandbox requires Landlock. On this device the native UID 2000 control returns
 ENOSYS for Landlock as well; default package synchronization fails. The runtime
 does not turn that missing kernel isolation into a successful no-op.
+The fixture's explicit `--arch-without-landlock` disables only pacman's filesystem
+sandbox, preserving its syscall filtering and signature policy. With this opt-out,
+package installation/reinstallation, account permissions, session D-Bus and Python
+SQLite/multiprocess/shared-memory/HTTP workflows pass. Systemd hooks attempting to
+change Android device ownership still receive real permission denials; no systemd
+instance is booted. Full kernel/initramfs upgrade completion is not established.
+
+Mount identity comes from one launch-local filesystem view: inode root, guest SHM,
+native attachments and exposed native mounts share statx and proc mount tables.
+Mount IDs are not kernel-global unique IDs. Optional mount lookup does not add a
+canonical-path walk to ordinary stat/fstat. Directory FD metadata, empty-path
+readlink and reopening with O_NOCTTY/O_NOATIME use ordinary descriptor contracts,
+not package-specific rules.
+OCI launch and inspection read configuration and image properties under the same
+store admission gate as namespace operations. Inspection releases that gate before
+writing its result to stdout; a slow reader cannot hold a filesystem transaction.
+
+The Gentoo ARM64 OpenRC stage3 checks use an independently signature- and
+SHA-512-verified official archive. The OCI wrapper preserves tar contents; the
+production importer reports omission of `/dev/console` and `/dev/null`, supplied
+by native `/dev` at execution.
+The prepared userspace passes GCC compilation, pthreads, fork/exec and file IO,
+and runs Python and Portage's information command. `emerge-webrsync` downloads
+the repository snapshot and successfully verifies its OpenPGP signature with
+stock gemato. Full repository extraction did not complete within the fixture's
+900-second bound, so source-package build/install/remove is not a pass. Portage's
+default sandbox FEATURES remain unchanged and their build-time behavior is not
+yet established by this check.
 
 Ubuntu Mousepad is checked through both graphical protocols with keyboard input,
 save/readback and clean exit. `test_qemu_runtime.py` runs a freestanding x86-64
@@ -209,9 +251,28 @@ fork/wait and status. It does not test KVM or full-system emulation.
 `test_development_runtime.py` installs stock Debian trixie GCC/G++ and GDB,
 compiles/runs C and C++ programs with a shared library, worker thread and file
 IO, then separately tests a debugger breakpoint, stepping and backtrace.
-Compilation/execution pass; GDB reads symbols but live debugging fails because
-its inferior already has the runtime supervisor as tracer. No virtual nested
-ptrace implementation or debugger-specific exception is provided.
+Stock Ubuntu GCC/G++ and GDB 15.1 additionally pass live breakpoints, source steps,
+locals, backtrace, thread events, signal delivery, fork detach and child exec.
+The supervisor owns [nested debugging](debugging.md), separately from kernel
+ptrace ownership. The supported request set and untested lifecycle cases remain explicit.
+
+`test_qemu_docker.py` boots the official Alpine ARM64 virtual-machine kernel and
+initramfs with Ubuntu QEMU 8.2.2 TCG under actual UID 2000. Inside that VM, Docker
+Engine pulls/runs Alpine, verifies a volume across two containers and shuts down.
+This is full-system software emulation with its own Linux kernel, not KVM and not
+Docker Engine directly on Android. Ports and bootstrap resources remain loopback-only.
+
+`prepare_astra_userspace.py` and `test_astra_userspace.py` exercise a minimal ARM64
+userspace assembled from Astra's official 4.7_arm repository: glibc, shell,
+fork/exec, hardlinks, archive/compression round trips and core utilities. Repository
+Release/Packages/package SHA-256 checks over HTTPS establish consistency; a pinned
+release-signing key is not yet configured. This is not full-OS or security-feature
+certification. The installed base-files identifies itself as Orel 2.13.1.
+
+The ARM64 netshoot image passes proc network tables, address/route inspection and
+listening-socket inspection through ss's proc fallback. NETLINK_SOCK_DIAG remains
+denied on the test device. Actual shell policy permits observations denied to the
+ordinary Termux UID; this does not grant CAP_NET_ADMIN, raw sockets or firewall control.
 
 These observations are from the RM11/API 36 device identified in
 [guest coverage](../../docs/guest-runtime.md), not cross-device guarantees.

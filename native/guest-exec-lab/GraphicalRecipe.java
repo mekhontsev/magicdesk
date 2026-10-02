@@ -3,10 +3,10 @@ package io.github.mekhontsev.magicdesk;
 /** Build-host fixture uses the actual app-side session policy, not a copied shell template. */
 public final class GraphicalRecipe {
     public static void main(String[] args) {
-        if (args.length == 5 && args[0].equals("routed")) {
+        if ((args.length == 5 || args.length == 6) && args[0].equals("routed")) {
             var protocol = GraphicalProtocol.parse(args[1]);
             String client = GuestGraphicalConnection.client(protocol, "/bin/sh -lc " + ShellCommandLine.quote(args[4]));
-            var plan = new GuestLaunchPlan(new GuestEnvironment(args[2], args[3], ""), "/",
+            var plan = new GuestLaunchPlan(new GuestEnvironment(args[2], args[3], args.length == 6 ? args[5] : ""), "/",
                     java.util.List.of("/bin/sh", "-c", LinuxGraphicalEnvironment.wrap(protocol,
                             "/bin/sh -c " + ShellCommandLine.quote(client))));
             System.out.print(GuestGraphicalConnection.invocation(plan, protocol));

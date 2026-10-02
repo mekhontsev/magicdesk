@@ -4,10 +4,12 @@
 #include "inode_internal.h"
 #include "image_io.h"
 #include "file_capability.h"
+#include "proc_paths.h"
 #include <archive.h>
 #include <archive_entry.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/openat2.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -116,7 +118,28 @@ static int entry_file(struct md_inode_store *s, struct archive *ar, struct archi
         capability=value; capability_size=length;
     }
     if (archive_entry_is_encrypted(entry)) return -ENOTSUP;
-    if (!link && kind != S_IFREG && kind != S_IFDIR && kind != S_IFLNK) return -ENOTSUP;
+    if (kind == S_IFCHR || kind == S_IFBLK) {
+        if (strncmp(path, "/dev/", 5) || !md_host_path(path)) return -ENOTSUP;
+        if (link || archive_entry_symlink(entry) || archive_entry_size(entry)
+                || archive_entry_uid(entry) < 0 || archive_entry_uid(entry) >= UINT32_MAX
+                || archive_entry_gid(entry) < 0 || archive_entry_gid(entry) >= UINT32_MAX
+                || archive_entry_rdevmajor(entry) < 0 || archive_entry_rdevmajor(entry) > UINT32_MAX
+                || archive_entry_rdevminor(entry) < 0 || archive_entry_rdevminor(entry) > UINT32_MAX) return -EINVAL;
+        if (capability || archive_entry_acl_count(entry, ARCHIVE_ENTRY_ACL_TYPE_ACCESS
+                | ARCHIVE_ENTRY_ACL_TYPE_DEFAULT | ARCHIVE_ENTRY_ACL_TYPE_NFS4)) return -ENOTSUP;
+        /* Host /dev replaces these entries. Remove an older placeholder without
+         * following archive symlinks into unrelated guest content. */
+        struct mdi_location loc;
+        int r = mdi_walk_resolved(s, MD_INODE_ROOT, path, MDI_ENTRY, 0, RESOLVE_NO_SYMLINKS, &loc);
+        if (r == -ENOENT) r = 0;
+        else if (!r) r = remove_tree(s, &loc, 0);
+        if (!r) fprintf(stderr, "Guest image: omitted %s device %s (%lld:%lld); provided by host /dev\n",
+            kind == S_IFCHR ? "character" : "block", path,
+            (long long)archive_entry_rdevmajor(entry), (long long)archive_entry_rdevminor(entry));
+        return r;
+    }
+    if (!link && kind != S_IFREG && kind != S_IFDIR && kind != S_IFLNK && kind != S_IFIFO) return -ENOTSUP;
+    if (kind == S_IFIFO && archive_entry_size(entry)) return -EINVAL;
     int r = md_image_acl_record(s,entry,path);
     if (!r) r = parents(s, path);
     struct mdi_location loc;
@@ -214,7 +237,11 @@ static int metadata(struct md_inode_store *s, int preserve) {
         struct timespec times[2] = {{0, UTIME_OMIT},
             {sqlite3_column_int64(q, 2), sqlite3_column_int64(q, 3)}};
         if (!r && node.kind == S_IFLNK && utimensat(s->objects, object, times, AT_SYMLINK_NOFOLLOW)) r = -errno;
-        if (!r && node.kind != S_IFLNK) {
+        if (!r && node.kind == S_IFIFO) {
+            if (utimensat(s->objects, object, times, AT_SYMLINK_NOFOLLOW)) r = -errno;
+            if (!r && !preserve) r = mdi_metadata(s, &node, node.uid, node.gid, sqlite3_column_int(q, 1));
+        }
+        if (!r && node.kind != S_IFLNK && node.kind != S_IFIFO) {
             int fd = openat(s->objects, object, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
             if (fd < 0) r = -errno;
             else {

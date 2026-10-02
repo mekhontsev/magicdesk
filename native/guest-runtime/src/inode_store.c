@@ -74,6 +74,11 @@ int md_inode_create(struct md_inode_store *s, int dirfd, const char *path, mode_
 int md_inode_mkdir(struct md_inode_store *s, int dirfd, const char *path, mode_t mode) {
     return create_node(s, dirfd, path, S_IFDIR, mode, NULL);
 }
+int md_inode_mkfifo(struct md_inode_store *s, int dirfd, const char *path, mode_t mode) {
+    int r = create_node(s, dirfd, path, S_IFIFO, mode, NULL);
+    if (r >= 0) { close(r); return 0; }
+    return r;
+}
 int md_inode_symlink(struct md_inode_store *s, const char *target, int dirfd, const char *path) {
     if (!target) return -EFAULT;
     if (!*target) return -ENOENT;
@@ -86,32 +91,42 @@ ssize_t md_inode_readlink(struct md_inode_store *s, int dirfd, const char *path,
     int r = mdi_begin(s, 0);
     if (r) return r;
     struct mdi_location loc;
-    r = mdi_walk(s, dirfd, path, MDI_NOFOLLOW, 0, &loc);
-    if (!r && loc.node.kind != S_IFLNK) r = -EINVAL;
+    int empty = path && !*path;
+    r = empty ? (dirfd == MD_INODE_ROOT ? -ENOENT : mdi_fd(s, dirfd, &loc.node))
+        : mdi_walk(s, dirfd, path, MDI_NOFOLLOW, 0, &loc);
+    if (!r && loc.node.kind != S_IFLNK) r = empty ? -ENOENT : -EINVAL;
     ssize_t n = -1;
     if (!r && (n = readlinkat(s->objects, loc.node.backing, out, size)) < 0) r = -errno;
     r = mdi_finish(s, r);
     return r ? r : n;
 }
 static int open_resolved(struct md_inode_store *, int, const char *, int, mode_t, uint64_t,
-        struct md_image_identity *);
+        struct md_image_identity *, struct md_open_completion *);
 int md_inode_open_image(struct md_inode_store *s, int dirfd, const char *path, int flags,
         struct md_image_identity *image) {
     if (!image) return -EFAULT;
     if (flags & ~O_NOFOLLOW) return -EINVAL;
-    return open_resolved(s, dirfd, path, flags | O_RDONLY | O_CLOEXEC, 0, 0, image);
+    struct md_open_completion completion;
+    return open_resolved(s, dirfd, path, flags | O_RDONLY | O_CLOEXEC, 0, 0, image, &completion);
 }
 int md_inode_open(struct md_inode_store *s, int dirfd, const char *path, int flags, mode_t mode) {
     return md_inode_open_resolved(s, dirfd, path, flags, mode, 0);
 }
 int md_inode_open_resolved(struct md_inode_store *s, int dirfd, const char *path, int flags, mode_t mode,
         uint64_t resolve) {
-    return open_resolved(s, dirfd, path, flags, mode, resolve, NULL);
+    struct md_open_completion completion;
+    int fd = md_inode_prepare_open(s, dirfd, path, flags, mode, resolve, &completion);
+    return md_complete_open(fd, flags | O_CLOEXEC, completion);
+}
+int md_inode_prepare_open(struct md_inode_store *s, int dirfd, const char *path, int flags, mode_t mode,
+        uint64_t resolve, struct md_open_completion *completion) {
+    return open_resolved(s, dirfd, path, flags, mode, resolve, NULL, completion);
 }
 static int open_resolved(struct md_inode_store *s, int dirfd, const char *path, int flags, mode_t mode,
-        uint64_t resolve, struct md_image_identity *image) {
+        uint64_t resolve, struct md_image_identity *image, struct md_open_completion *completion) {
+    *completion = (struct md_open_completion){0};
     if (flags & ~(O_ACCMODE | O_CLOEXEC | O_APPEND | O_TRUNC | O_NOFOLLOW | O_DIRECTORY | O_PATH
-            | O_CREAT | O_EXCL | O_NONBLOCK | O_NOCTTY | O_LARGEFILE | O_SYNC | O_DSYNC | O_DIRECT)) return -ENOTSUP;
+            | O_CREAT | O_EXCL | O_NONBLOCK | O_NOCTTY | O_NOATIME | O_LARGEFILE | O_SYNC | O_DSYNC | O_DIRECT)) return -ENOTSUP;
     if ((flags & O_ACCMODE) == O_ACCMODE) return -EINVAL;
     if (flags & O_PATH) flags &= O_PATH | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC;
     if ((flags & O_TRUNC) && !(flags & (O_WRONLY | O_RDWR))) return -EINVAL;
@@ -142,15 +157,16 @@ static int open_resolved(struct md_inode_store *s, int dirfd, const char *path, 
     if (!r && loc.node.kind == S_IFSOCK && !(flags & O_PATH)) r = -ENXIO;
     if (!r && loc.node.kind == S_IFDIR && (flags & (O_WRONLY | O_RDWR | O_TRUNC | O_CREAT))) r = -EISDIR;
     if (!r && image && loc.node.kind != S_IFREG) r = -EACCES;
-    if (!r && !(flags & O_PATH)) r = mdi_permission(s, &loc.node,
-        (flags & O_ACCMODE) == O_WRONLY ? W_OK : (flags & O_ACCMODE) == O_RDWR ? R_OK | W_OK : R_OK, 0);
+    if (!r) r = mdi_open_permission(s, &loc.node, flags);
     if (!r && image) r = mdi_permission(s, &loc.node, X_OK, 0);
     if (!r && write) r = mdi_copy_up(s, &loc.node);
     struct stat st;
     if (!r) r = mdi_backing_stat(s, &loc.node, &st);
     int directory = r ? -1 : mdi_backing_directory(s, &loc.node);
     if (!r && directory < 0) r = directory;
-    if (!r && (fd = openat(directory, loc.node.backing, (flags & ~(O_CREAT | O_EXCL)) | O_CLOEXEC | O_NOFOLLOW)) < 0) r = -errno;
+    int deferred = !r && loc.node.kind == S_IFIFO && !(flags & O_PATH);
+    int native_flags = deferred ? O_PATH : flags & ~(O_CREAT | O_EXCL);
+    if (!r && (fd = openat(directory, loc.node.backing, native_flags | O_CLOEXEC | O_NOFOLLOW)) < 0) r = -errno;
     if (!r && image) {
         struct stat opened;
         if (fstat(fd, &opened)) r = -errno;
@@ -160,6 +176,7 @@ static int open_resolved(struct md_inode_store *s, int dirfd, const char *path, 
     }
     r = mdi_finish(s, r);
     if (r) { if (fd >= 0) close(fd); return r; }
+    if (deferred) return mdi_fifo_prepare(s, fd, completion);
     return fd;
 }
 int md_inode_link(struct md_inode_store *s, int sourcefd, const char *source,
@@ -264,6 +281,8 @@ int md_inode_stat(struct md_inode_store *s, int dirfd, const char *path, int fla
     struct mdi_location loc;
     r = mdi_walk(s, dirfd, path, flags & AT_SYMLINK_NOFOLLOW ? MDI_NOFOLLOW : MDI_FOLLOW, 0, &loc);
     if (!r) r = mdi_stat(s, &loc.node, st);
+    if (!r && s->stat_path && mdi_location_path(s, &loc, s->stat_path, PATH_MAX))
+        s->stat_path[0] = 0;
     return mdi_finish(s, r);
 }
 int md_inode_fstat(struct md_inode_store *s, int fd, struct stat *st) {
@@ -272,6 +291,8 @@ int md_inode_fstat(struct md_inode_store *s, int fd, struct stat *st) {
     if (r) return r;
     struct mdi_node node;
     r = mdi_fstat(s, fd, &node, st);
+    if (!r && s->stat_path && mdi_node_path(s, &node, s->stat_path, PATH_MAX))
+        s->stat_path[0] = 0;
     return mdi_finish(s, r);
 }
 int md_inode_list(struct md_inode_store *s, int dirfd, const char *path,

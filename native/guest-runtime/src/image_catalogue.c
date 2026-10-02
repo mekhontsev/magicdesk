@@ -94,7 +94,8 @@ void md_image_catalogue_close(struct md_image_catalogue *c) {
     free(c);
 }
 int md_catalogue_open(struct md_image_catalogue *c, struct md_inode_store *s, int dir,
-        const char *path, int flags, mode_t mode, uint64_t resolve) {
+        const char *path, int flags, mode_t mode, uint64_t resolve, struct md_open_completion *completion) {
+    *completion = (struct md_open_completion){0};
     if (c) {
         int fd = md_inode_open_resolved(s, dir, path,
             O_PATH | O_CLOEXEC | (flags & (O_NOFOLLOW | O_DIRECTORY)), 0, resolve);
@@ -106,7 +107,7 @@ int md_catalogue_open(struct md_image_catalogue *c, struct md_inode_store *s, in
             if (!strcmp(object, c->object)) return open_snapshot(c, flags);
         } else if (fd != -ENOENT) return fd;
     }
-    return md_inode_open_resolved(s, dir, path, flags, mode, resolve);
+    return md_inode_prepare_open(s, dir, path, flags, mode, resolve, completion);
 }
 int md_catalogue_open_object(struct md_image_catalogue *c, struct md_inode_store *s, const char *id, int flags) {
     if (c && !strcmp(id, c->object)) return open_snapshot(c, flags);
@@ -124,10 +125,12 @@ int md_catalogue_open_image(struct md_image_catalogue *c, struct md_inode_store 
 int md_catalogue_object_id(struct md_image_catalogue *c, struct md_inode_store *s, int fd, char out[33]) {
     return md_inode_object_id(s, original_fd(c, s, fd), out);
 }
-int md_catalogue_reopen(struct md_image_catalogue *c, struct md_inode_store *s, int fd, int flags, int mutable) {
+int md_catalogue_reopen(struct md_image_catalogue *c, struct md_inode_store *s, int fd, int flags, int mutable,
+        struct md_open_completion *completion) {
+    *completion = (struct md_open_completion){0};
     int original = original_fd(c, s, fd);
     if (c && original == c->entry.source) return mutable ? -EROFS : open_snapshot(c, flags);
-    return md_inode_reopen(s, original, flags, mutable);
+    return md_inode_prepare_reopen(s, original, flags, mutable, completion);
 }
 int md_catalogue_path(struct md_image_catalogue *c, struct md_inode_store *s, int fd, char *out, size_t size) {
     return md_inode_path(s, original_fd(c, s, fd), out, size);

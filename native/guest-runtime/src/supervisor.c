@@ -35,6 +35,8 @@
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/ptrace.h>
+#include "guest_debugger.h"
+#include "process_image_view.h"
 #include <sys/signalfd.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
@@ -91,7 +93,7 @@ struct thread {
     struct thread *next;
     struct md_interception_stacks *stacks;
     struct md_watch_activation *watch_activation;
-    pid_t pid, tgid;
+    pid_t pid, tgid, parent;
     int ready, born, initial_stop, resume_lost, listening;
     enum phase phase;
     uint64_t stack, mask;
@@ -105,6 +107,8 @@ struct thread {
     struct md_identity identity;
     struct md_exec_identity pending_identity;
     int mapped_image, entered;
+    int debug_step_call, debug_birth;
+    uintptr_t process_image;
     int watch_wait;
     uint32_t *identity_buffer;
     unsigned identity_count, identity_copied;
@@ -115,6 +119,7 @@ struct thread {
     int shm_filter;
 };
 static struct thread *threads;
+static struct md_debugger *debugger;
 static pid_t leader;
 static unsigned live, total, calls, images, signals, copy_faults, fstat_failures;
 struct denial { unsigned nr, adapted, count; enum phase phase; };
@@ -144,6 +149,7 @@ static int shield(struct thread *t);
 static int restore_mask(struct thread *t);
 static void dispatch(struct thread *t);
 static void report_statistics(void);
+static int debugger_allowed(pid_t, pid_t);
 static void release_operation(struct thread *t) {
     struct metadata_operation *op = &t->metadata;
     if (op->peer >= 0) { close(op->peer); op->peer = -1; }
@@ -201,6 +207,7 @@ static void cleanup(void) {
         free(threads); threads = next;
     }
     md_admission_close(&admission);
+    md_debugger_destroy(debugger); debugger = NULL;
     md_shm_close(shm); shm = NULL;
     if (md_fs_worker_stop(filesystem)) _Exit(125);
     filesystem = NULL;
@@ -363,6 +370,30 @@ static void load_path(struct thread *t) {
     if (!set_registers(t->pid, &regs)) return;
     t->phase = LOADING_PATH; resume(t->pid, 0);
 }
+static int exported_descriptor(int peer) {
+    union { struct cmsghdr align; char bytes[CMSG_SPACE(sizeof(int))]; } control = {0};
+    char byte = 0; struct iovec vector = {&byte, 1};
+    struct msghdr message = {.msg_iov = &vector, .msg_iovlen = 1,
+        .msg_control = control.bytes, .msg_controllen = sizeof(control)};
+    ssize_t n = recvmsg(peer, &message, MSG_CMSG_CLOEXEC);
+    if (n < 0) return -errno;
+    int fd = -1, error = n != 1 || byte != 'F' ? -EPROTO : 0;
+    /* SELinux may remove SCM_RIGHTS while delivering the payload. This is a
+     * failed transfer, not a supervisor invariant or a successful export. */
+    if (message.msg_flags & (MSG_TRUNC | MSG_CTRUNC)) error = -EMSGSIZE;
+    for (struct cmsghdr *c = CMSG_FIRSTHDR(&message); c; c = CMSG_NXTHDR(&message, c)) {
+        if (c->cmsg_level != SOL_SOCKET || c->cmsg_type != SCM_RIGHTS) { error = -EPROTO; continue; }
+        size_t count = (c->cmsg_len - CMSG_LEN(0)) / sizeof(int);
+        for (size_t i = 0; i < count; ++i) {
+            int next; memcpy(&next, (char *)CMSG_DATA(c) + i * sizeof(int), sizeof(int));
+            if (fd < 0) fd = next;
+            else { close(next); error = -EPROTO; }
+        }
+    }
+    if (fd < 0 && !error) error = -EPROTO;
+    if (error && fd >= 0) close(fd);
+    return error ? error : fd;
+}
 static void export_finish(struct thread *t) {
     struct metadata_operation *op = &t->metadata;
     struct user_pt_regs regs;
@@ -370,20 +401,12 @@ static void export_finish(struct thread *t) {
     long sent = (long)regs.regs[0];
     op->error = sent < 0 ? (int)sent : sent == 1 ? 0 : -EIO;
     if (!op->error) {
-        union { struct cmsghdr align; char bytes[CMSG_SPACE(sizeof(int))]; } control = {0};
-        char byte; struct iovec vector = {&byte, 1};
-        struct msghdr message = {.msg_iov = &vector, .msg_iovlen = 1,
-            .msg_control = control.bytes, .msg_controllen = sizeof(control)};
-        CHECK(recvmsg(op->peer, &message, MSG_CMSG_CLOEXEC) == 1 && byte == 'F');
-        CHECK(!(message.msg_flags & (MSG_TRUNC | MSG_CTRUNC)));
-        struct cmsghdr *header = CMSG_FIRSTHDR(&message);
-        CHECK(header && header->cmsg_level == SOL_SOCKET && header->cmsg_type == SCM_RIGHTS
-            && header->cmsg_len == CMSG_LEN(sizeof(int)) && !CMSG_NXTHDR(&message, header));
-        int fd; memcpy(&fd, CMSG_DATA(header), sizeof(fd));
-        if (t->phase == PROC_OPENING && op->proc_stat) {
+        int fd = exported_descriptor(op->peer);
+        if (fd < 0) op->error = fd;
+        else if (t->phase == PROC_OPENING && op->proc_stat) {
             op->error = descriptor_stat(t, fd, &op->value, 0); close(fd);
         } else if (t->phase == PROC_OPENING) op->prepared = fd; else op->descriptor = fd;
-        if (op->request.data.nr == SYS_fstat)
+        if (!op->error && op->request.data.nr == SYS_fstat)
             op->error = descriptor_stat(t, op->descriptor, &op->value,
                 op->request.data.instruction_pointer == RAW_GATE);
     }
@@ -492,7 +515,8 @@ static void image_request(struct thread *t, const struct seccomp_notif *q) {
                 next.value.gid.saved = next.value.gid.fs = next.value.gid.effective;
                 next.secure = next.value.uid.real != next.value.uid.effective
                     || next.value.gid.real != next.value.gid.effective;
-                if (matched) reply.error = md_identity_prepare_exec(&t->identity, admission.image, 0, &next);
+                if (matched) reply.error = md_identity_prepare_exec(&t->identity, admission.image,
+                    md_debugger_traced(debugger,t->pid), &next);
                 else md_identity_exec(&t->identity, &next.value);
                 if (!reply.error && matched) {
                     fd = md_exec_image_dup(admission.image);
@@ -581,6 +605,12 @@ static void shm_request(struct thread *t, const struct seccomp_notif *q) {
     } else reply.val = value;
     CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno == ENOENT);
 }
+static void delegate_begin(struct thread *t, const struct seccomp_notif *q) {
+    CHECK(t->phase == IDLE);
+    t->metadata = (struct metadata_operation){.request = *q, .descriptor = -1, .peer = -1, .prepared = -1};
+    t->phase = DELEGATE_CANCEL;
+    tracee_request(t, PTRACE_INTERRUPT, NULL, NULL, "interrupt-delegation");
+}
 static void handle_notification(const struct seccomp_notif *request) {
     struct seccomp_notif q = *request;
     CHECK(q.data.nr == SYS_fstat || q.data.nr == SYS_openat || q.data.nr == SYS_newfstatat
@@ -588,7 +618,22 @@ static void handle_notification(const struct seccomp_notif *request) {
     struct thread *t = find_thread((pid_t)q.pid);
     CHECK(t && t->born);
     if (q.data.nr == SYS_prctl) {
-        if (q.data.args[0] == MD_GUEST_SHM) shm_request(t,&q);
+        if (q.data.args[0] == MD_GUEST_PROC_IMAGE) {
+            struct seccomp_notif_resp reply={.id=q.id};
+            struct thread *target=find_thread((pid_t)q.data.args[1]);
+            int fd=!target || !debugger_allowed(t->pid,target->pid) ? -EACCES
+                : q.data.instruction_pointer!=RAW_GATE || t->phase!=DISPATCHING ? -EPERM
+                : md_process_image_view(target->pid,target->process_image,(unsigned)q.data.args[2],
+                    (unsigned)q.data.args[3],t->endpoint,t->pid);
+            if (fd<0) reply.error=fd;
+            else {
+                struct seccomp_notif_addfd add={.id=q.id,.srcfd=fd,.newfd_flags=(unsigned)q.data.args[3]&O_CLOEXEC};
+                reply.val=ioctl(listener,SECCOMP_IOCTL_NOTIF_ADDFD,&add);
+                if (reply.val<0) { reply.error=-errno; reply.val=0; }
+                close(fd);
+            }
+            CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno==ENOENT);
+        } else if (q.data.args[0] == MD_GUEST_SHM) shm_request(t,&q);
         else image_request(t, &q);
         return;
     }
@@ -610,9 +655,7 @@ static void handle_notification(const struct seccomp_notif *request) {
             t->pid, t->phase, q.data.nr, q.data.instruction_pointer, q.data.args[0]);
         CHECK(t->phase == IDLE);
         if (!md_domain_restricted(t->domain)) {
-            t->metadata = (struct metadata_operation){.request = q, .descriptor = -1, .peer = -1, .prepared = -1};
-            t->phase = DELEGATE_CANCEL;
-            tracee_request(t, PTRACE_INTERRUPT, NULL, NULL, "interrupt-delegation"); return;
+            delegate_begin(t, &q); return;
         }
         if ((int)q.data.args[0] < 0) {
             struct seccomp_notif_resp reply = {.id = q.id,
@@ -623,6 +666,9 @@ static void handle_notification(const struct seccomp_notif *request) {
     }
     int fd = duplicate_fd(q.pid, (int)q.data.args[0]);
     if (fd == -EPERM || fd == -EACCES || fd == -EINVAL || fd == -ENOSYS || fd == -ESRCH) {
+        if (t->phase == IDLE && !md_domain_restricted(t->domain)) {
+            delegate_begin(t, &q); return;
+        }
         export_begin(t, &q); return;
     }
     int error = fd < 0 ? fd : 0;
@@ -674,6 +720,24 @@ static void return_value(struct thread *t, struct user_pt_regs *regs, long value
     if (!skip(t->pid)) return;
     regs->regs[0] = (uint64_t)value;
     if (set_registers(t->pid, regs)) resume(t->pid, 0);
+}
+static int debugger_parent(pid_t pid) {
+    struct thread *t=find_thread(pid);
+    return t ? t->parent : 0;
+}
+static int debugger_allowed(pid_t caller, pid_t pid) {
+    struct thread *from=find_thread(caller), *to=find_thread(pid);
+    if (!from || !to || md_domain_restricted(from->domain)) return 0;
+    return from->identity.uid.effective==to->identity.uid.real
+        && from->identity.uid.effective==to->identity.uid.effective
+        && from->identity.uid.effective==to->identity.uid.saved
+        && from->identity.gid.effective==to->identity.gid.real
+        && from->identity.gid.effective==to->identity.gid.effective
+        && from->identity.gid.effective==to->identity.gid.saved;
+}
+static void debugger_complete(pid_t pid, struct user_pt_regs *regs, long value) {
+    struct thread *t=find_thread(pid);
+    if (t) return_value(t,regs,value);
 }
 enum { COPY_GROUPS, COPY_CAP_HEADER, COPY_CAP_DATA, COPY_CAP_VERSION };
 static void identity_copy_next(struct thread *t);
@@ -939,11 +1003,17 @@ static void resume(pid_t pid, int sig) {
     if (t->resume_lost) return;
     CHECK(!md_credentials_publish(credentials, t->pid, t->tgid, &t->identity));
     enum phase phase = t->phase;
+    if (phase==IDLE && t->debug_step_call) {
+        t->debug_step_call=0;
+        siginfo_t info={.si_signo=SIGTRAP,.si_code=TRAP_TRACE};
+        if (md_debugger_stop(debugger,pid,(SIGTRAP<<8)|0x7f,&info,0)) return;
+    }
     if (broker) CHECK(!md_broker_task(broker, pid,
         t->ready && phase == IDLE && t->endpoint[0] && !md_domain_restricted(t->domain), RAW_GATE, abi.watch_gate + 4));
     if (!native_trace(phase == OBSERVING || phase == EXPORT_ENTRY || phase == EXPORT_NOTIFY
             || phase == EXPORT_RETURN || phase == EXECUTING || phase == WATCH_CANCEL
-            || phase == WATCH_ENTRY || phase == WATCH_READ ? PTRACE_SYSCALL : PTRACE_CONT,
+            || phase == WATCH_ENTRY || phase == WATCH_READ ? PTRACE_SYSCALL
+                : phase==IDLE && t->entered && md_debugger_step(debugger,pid) ? PTRACE_SINGLESTEP : PTRACE_CONT,
             pid, NULL, (void *)(uintptr_t)sig)) return;
     CHECK(errno == ESRCH);
     /* EVENT_WAIT: thread-group exit or exec may win a stopped-thread resume.
@@ -1037,6 +1107,9 @@ int main(int argc, char **argv) {
         argument += 2;
     }
     setvbuf(stderr, NULL, _IONBF, 0);
+    struct md_debugger_host debug_host={.parent=debugger_parent,.allowed=debugger_allowed,
+        .complete=debugger_complete,.resume=resume};
+    debugger=md_debugger_create(&debug_host); CHECK(debugger);
     if (argument < argc && !strcmp(argv[argument], "--admit-elf")) {
         CHECK(argument + 2 < argc);
         admitted_path = argv[argument + 1]; argument += 2;
@@ -1130,7 +1203,7 @@ int main(int argc, char **argv) {
     CHECK(md_event_wait_fd(channel[0], POLLIN, md_event_now() + 5000000000LL) >= 0);
     char byte; CHECK(read(channel[0], &byte, 1) == 1 && byte == 'r');
     CHECK(!native_trace(PTRACE_SEIZE, leader, NULL, (void *)(uintptr_t)(PTRACE_O_TRACESECCOMP | PTRACE_O_TRACEEXEC
-        | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK | PTRACE_O_TRACECLONE | PTRACE_O_EXITKILL | PTRACE_O_TRACESYSGOOD)));
+        | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK | PTRACE_O_TRACEVFORKDONE | PTRACE_O_TRACECLONE | PTRACE_O_EXITKILL | PTRACE_O_TRACESYSGOOD)));
     if (store) {
         /* The guest was forked with the caller's mask. Only the native owner
          * uses zero; creation requests already contain the guest's masked mode. */
@@ -1150,6 +1223,7 @@ int main(int argc, char **argv) {
             int code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
             if (pid == leader && !cancelling) result = code;
             if (code) TRACE("PROBE exit pid=%d status=%d ready=%d calls=%u\n", pid, code, t->ready, t->calls);
+            md_debugger_exit(debugger,pid,status);
             release_thread(t); continue;
         }
         CHECK(WIFSTOPPED(status));
@@ -1157,7 +1231,11 @@ int main(int argc, char **argv) {
         unsigned event = (unsigned)status >> 16;
         CHECK(!t->resume_lost || event == PTRACE_EVENT_EXEC);
         int sig = WSTOPSIG(status);
-        if (event == PTRACE_EVENT_EXEC) {
+        if (event==PTRACE_EVENT_VFORK_DONE) {
+            unsigned long child;
+            if (!tracee_request(t,PTRACE_GETEVENTMSG,NULL,&child,"vfork-complete")) continue;
+            if (!md_debugger_event(debugger,pid,event,child)) resume(pid,0);
+        } else if (event == PTRACE_EVENT_EXEC) {
             /* A non-leader exec replaces the task behind the leader's PID. */
             md_broker_forget(broker, pid);
             unsigned long old; CHECK(!native_trace(PTRACE_GETEVENTMSG, pid, NULL, &old));
@@ -1182,6 +1260,7 @@ int main(int argc, char **argv) {
             md_stacks_release(t->stacks); t->stacks = md_stacks_new(); CHECK(t->stacks);
             t->phase = IDLE; t->stack = 0; t->ready = 0; t->resume_lost = 0; images++;
             t->mapped_image = 0; t->entered = 0;
+            t->process_image=0;
             resume(pid, 0);
         } else if (event == PTRACE_EVENT_FORK || event == PTRACE_EVENT_VFORK || event == PTRACE_EVENT_CLONE) {
             unsigned long child;
@@ -1189,6 +1268,8 @@ int main(int argc, char **argv) {
             struct thread *c = thread(child);
             CHECK(!c->born);
             c->born = 1; c->ready = t->ready;
+            c->parent=t->pid; c->entered=t->entered;
+            c->process_image=t->process_image;
             c->shm_filter = t->shm_filter;
             md_identity_release(&c->identity);
             c->identity = md_identity_copy(&t->identity);
@@ -1206,8 +1287,13 @@ int main(int argc, char **argv) {
             if (cancelling) CHECK(!md_process_signal_children(cancelling == 1 ? SIGTERM : SIGKILL));
             /* EVENT_WAIT: a newborn stop and its parent's birth event can
              * arrive in either order. Both must precede the child's resume. */
-            if (c->initial_stop) resume(c->pid, 0);
-            resume(pid, 0);
+            int debug_birth=md_debugger_birth(debugger,pid,c->pid,event); CHECK(debug_birth>=0);
+            c->debug_birth=debug_birth;
+            if (c->initial_stop) {
+                if (!c->debug_birth || !md_debugger_stop(debugger,c->pid,(SIGSTOP<<8)|0x7f,NULL,0)) resume(c->pid,0);
+                c->debug_birth=0;
+            }
+            if (!debug_birth) resume(pid, 0);
         } else if (event == PTRACE_EVENT_STOP) {
             if (sig == SIGSTOP || sig == SIGTSTP || sig == SIGTTIN || sig == SIGTTOU) {
                 /* EVENT_WAIT: preserve the kernel group-stop until SIGCONT or
@@ -1253,13 +1339,21 @@ int main(int argc, char **argv) {
                 CHECK(t->born); raced_wakes++; resume(pid, 0); continue;
             }
             t->initial_stop = 1;
-            if (t->born) resume(pid, 0);
+            if (t->born) {
+                if (!t->debug_birth || !md_debugger_stop(debugger,pid,(SIGSTOP<<8)|0x7f,NULL,0)) resume(pid,0);
+                t->debug_birth=0;
+            }
         }
         else if (event == PTRACE_EVENT_SECCOMP) {
             unsigned long cookie;
             if (!tracee_request(t, PTRACE_GETEVENTMSG, NULL, &cookie, "seccomp-event")) continue;
             struct user_pt_regs regs;
             if (!registers(pid, &regs)) continue;
+            if (regs.regs[8]==SYS_ptrace && t->phase==IDLE)
+                TRACE("PROBE guest debugger caller=%d request=%llu target=%llu address=%#llx data=%#llx\n",
+                    pid,regs.regs[0],regs.regs[1],regs.regs[2],regs.regs[3]);
+            if (t->phase==IDLE && (regs.regs[8]==SYS_ptrace || regs.regs[8]==SYS_wait4)
+                    && md_debugger_call(debugger,pid,&regs)) continue;
             if (statistics) {
                 if (regs.regs[8] < 512) statistics->calls[regs.regs[8]].trace++;
                 else statistics->unknown++;
@@ -1298,6 +1392,9 @@ int main(int argc, char **argv) {
                 t->phase = WATCH_CANCEL; resume(pid, 0); continue;
             }
             if (cookie == MD_INTERCEPT_NATIVE) {
+                if (t->phase==IDLE && md_debugger_step(debugger,pid)) {
+                    t->debug_step_call=1; t->original=regs; t->phase=OBSERVING;
+                }
                 if (diagnostics && statistics && t->phase == IDLE && regs.regs[8] < 512
                         && statistics->calls[regs.regs[8]].trace <= 4) {
                     TRACE("PROBE native arguments pid=%d nr=%llu args=%#llx,%#llx,%#llx,%#llx,%#llx,%#llx\n",
@@ -1322,6 +1419,7 @@ int main(int argc, char **argv) {
                     pid, cookie, t->ready, t->phase, regs.pc, regs.regs[8], t->original.regs[8]);
             CHECK(cookie == MD_INTERCEPT_DISPATCH && t->ready && t->phase == IDLE);
             t->original = regs; calls++; t->calls++;
+            t->debug_step_call=md_debugger_step(debugger,pid);
             if (!tracee_request(t, PTRACE_GETSIGMASK, (void *)sizeof(t->mask), &t->mask, "get-mask")
                     || !shield(t) || !skip(pid)) continue;
             dispatch_with_stack(t);
@@ -1393,6 +1491,14 @@ int main(int argc, char **argv) {
         } else if (!event && sig == SIGTRAP) {
             struct user_pt_regs regs;
             if (!registers(pid, &regs)) continue;
+            if (regs.pc==abi.enter && t->phase==IDLE && t->entered) {
+                t->process_image=regs.regs[2];
+                uint64_t entry=regs.regs[0], stack=regs.regs[1];
+                regs=(struct user_pt_regs){.pc=entry,.sp=stack};
+                if (!set_registers(pid,&regs)) continue;
+                if (!md_debugger_exec(debugger,pid)) resume(pid,0);
+                continue;
+            }
             if (!t->ready && t->phase == IDLE && regs.regs[2] == MD_INTERCEPTION_MAGIC) {
                 struct md_interception_abi received;
                 struct iovec local = {&received, sizeof(received)}, remote = {(void *)regs.regs[3], sizeof(received)};
@@ -1476,12 +1582,19 @@ int main(int argc, char **argv) {
                 md_stacks_return(t->stacks, t->stack); t->stack = 0;
                 t->phase = IDLE; resume(pid, 0);
             } else {
+                siginfo_t info;
+                if (t->phase==IDLE && !native_trace(PTRACE_GETSIGINFO,pid,NULL,&info)
+                        && md_debugger_stop(debugger,pid,status,&info,0)) continue;
                 TRACE("PROBE guest SIGTRAP pid=%d pc=%#llx lr=%#llx phase=%d\n",
                     pid, regs.pc, regs.regs[30], t->phase);
                 describe_process(pid, regs.pc);
                 resume(pid, SIGTRAP);
             }
         } else {
+            siginfo_t debug_info;
+            TRACE("PROBE signal stop pid=%d signal=%d phase=%d\n",pid,sig,t->phase);
+            if (t->phase==IDLE && !native_trace(PTRACE_GETSIGINFO,pid,NULL,&debug_info)
+                    && md_debugger_stop(debugger,pid,status,&debug_info,0)) continue;
             struct user_pt_regs regs;
             if ((sig == SIGSYS || sig == SIGSEGV || sig == SIGBUS || sig == SIGABRT || sig == SIGILL)
                     && !registers(pid, &regs)) continue;

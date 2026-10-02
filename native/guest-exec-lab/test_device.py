@@ -30,7 +30,10 @@ def main():
     transport = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(transport)
     config = tomllib.loads(args.config.read_text())["mcp_servers"][args.server]
-    client = transport.Client(config["url"], config["http_headers"]["Authorization"].removeprefix("Bearer "))
+    # EVENT_WAIT: command completion may take its full 180-second bound plus
+    # process-tree cleanup. A transport timeout remains a failure, not a replay.
+    client = transport.Client(config["url"], config["http_headers"]["Authorization"].removeprefix("Bearer "),
+                              request_timeout=210)
     state = client.call("get_state")
     if state.get("shell", {}).get("uid") != 2000:
         raise RuntimeError("Select shell access explicitly; this fixture never changes identity")

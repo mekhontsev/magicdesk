@@ -19,7 +19,7 @@ inode_compile() {
     "$compiler" "$runtime/inode_store.c" "$runtime/inode_db.c" "$runtime/inode_events.c" \
         "$runtime/inode_watch.c" "$runtime/watch_queue.c" "$runtime/inode_path.c" \
         "$runtime/inode_directory.c" "$runtime/inode_import.c" "$runtime/inode_socket.c" \
-        "$runtime/inode_backing.c" "$runtime/inode_snapshot.c" "$runtime/guest_identity.c" \
+        "$runtime/inode_backing.c" "$runtime/inode_snapshot.c" "$runtime/inode_fifo.c" "$runtime/file_open.c" "$runtime/guest_identity.c" \
         "$runtime/credential_registry.c" "$runtime/inode_metadata.c" \
         "$runtime/inode_capability.c" "$runtime/inode_acl.c" "$runtime/posix_acl.c" "$@"
 }
@@ -64,7 +64,7 @@ printf 'PASS freestanding RPC client: no unresolved libc/SQLite/runtime dependen
 inode_compile "$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -fno-builtin -DMD_NO_START \
     -DMD_INODE_TESTING -DMD_FS_TESTING "$src/test_rpc.c" "$runtime/fs_client.c" \
     "$runtime/image_catalogue.c" "$runtime/elf_admission.c" "$runtime/elf.c" \
-    "$runtime/fs_mounts.c" "$runtime/fs_mount_path.c" "$runtime/fs_mount_operations.c" \
+    "$runtime/fs_mounts.c" "$runtime/fs_mount_path.c" "$runtime/fs_mount_operations.c" "$runtime/fs_mount_table.c" \
     "$runtime/fs_wire.c" "$runtime/event_wait.c" "$runtime/fs_service.c" "$runtime/fs_engine.c" "$runtime/ipc_credentials.c" \
     "$runtime/raw.c" "$runtime/memory.c" "$runtime/raw.S" -lsqlite3 -o "$work/test-rpc"
 rpcroot=$(mktemp -d "$work/path-test/rpc.XXXXXX")
@@ -81,7 +81,7 @@ timeout 30 "$work/test-proc" "$procroot/files" native
 adapter_fixture() {
 "$cc" -iquote "$runtime" -std=c17 -O2 -g -Wall -Wextra -Werror -UNDEBUG -fno-builtin -DMD_NO_START "$@" \
     "$runtime/socket_calls.c" "$runtime/socket_namespace.c" "$runtime/socket_identity.c" "$runtime/socket_ancillary.c" "$runtime/socket_routes.c" "$runtime/file_calls.c" "$runtime/fs.c" "$runtime/proc_paths.c" \
-    "$runtime/namespace.c" "$runtime/namespace_proc.c" "$runtime/proc_image.c" "$runtime/fd_metadata.c" "$runtime/fs_client.c" "$runtime/fs_wire.c" \
+    "$runtime/namespace.c" "$runtime/namespace_proc.c" "$runtime/proc_image.c" "$runtime/fd_metadata.c" "$runtime/fs_client.c" "$runtime/fs_wire.c" "$runtime/file_open.c" \
     "$runtime/event_wait.c" "$runtime/raw.c" "$runtime/memory.c" "$runtime/raw.S"
 }
 adapter_fixture -DMD_SOCKET_DRIVER "$src/test_sockets.c" -o "$work/bundle/md-sockets-test"
@@ -162,7 +162,7 @@ inode_compile guest_cc -pie -fno-builtin -DMD_NO_START -DMD_INODE_TESTING -DMD_F
     "$sysroot/usr/lib/aarch64-linux-gnu/Scrt1.o" "$sysroot/usr/lib/aarch64-linux-gnu/crti.o" \
     "$src/test_rpc.c" "$runtime/fs_client.c" "$runtime/fs_wire.c" "$runtime/event_wait.c" "$runtime/fs_service.c" "$runtime/fs_engine.c" "$runtime/ipc_credentials.c" \
     "$runtime/image_catalogue.c" "$runtime/elf_admission.c" "$runtime/elf.c" \
-    "$runtime/fs_mounts.c" "$runtime/fs_mount_path.c" "$runtime/fs_mount_operations.c" \
+    "$runtime/fs_mounts.c" "$runtime/fs_mount_path.c" "$runtime/fs_mount_operations.c" "$runtime/fs_mount_table.c" \
     "$runtime/raw.c" "$runtime/memory.c" "$runtime/raw.S" \
     "$sysroot/usr/lib/aarch64-linux-gnu/crtn.o" -Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1 \
     -L"$sysroot/usr/lib/aarch64-linux-gnu" -l:libsqlite3.so.0 -l:libm.so.6 \

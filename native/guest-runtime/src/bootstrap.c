@@ -213,5 +213,5 @@ void md_boot(uintptr_t *kernel_stack) {
     r = md_interception_enter_image(guest_aux, (unsigned)auxc);
     if (r < 0) md_die("enter guest image", r);
     md_proc_image_init(&process_image, command.argc, command.argv, guest_aux, (auxc + 1) * sizeof(*guest_aux));
-    md_enter(image.entry, (uintptr_t)sp);
+    md_enter(image.entry, (uintptr_t)sp, &process_image);
 }

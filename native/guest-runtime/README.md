@@ -437,7 +437,8 @@ restart and explicit uncertain outcomes after lost replies. Offline import copie
 the prepared Debian tree in one transaction, with bounded input, explicit metadata
 limits and three additional SIGKILL checks. Native source hard-link import needs
 another host: current Android identities deny fixture link creation. Shell also
-denies source FIFO creation; its rejection is tested on the Termux host.
+denies source FIFO creation; prepared FIFO import is tested on the Termux host.
+Guest FIFO creation and stream IO have separate shell tests; see [named pipes](fifos.md).
 The namespace fixtures also test actual syscalls, shared FD/cwd across exec,
 atomic open/mknodat creation, client umask, metadata permissions and path/FD
 xattrs. Debian `cp -a` and tar user-attribute archive round trips pass. Strict

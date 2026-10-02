@@ -235,6 +235,10 @@ relative addresses, returned addresses, rename, stale listeners and unlink/rebin
 are tested. Unlinking a name does not invalidate existing connections. Different
 stores have independent names; explicitly abstract sockets retain the host's
 shared abstract namespace and are not isolated.
+Named pipes use the same namespace and kernel pipe payloads, without requiring
+native FIFO creation under Android shell policy. Peer-open rendezvous is
+task-affine, outside namespace transactions. See the [FIFO contract](../native/guest-runtime/fifos.md)
+for readiness and watch limitations.
 Unix `sendmmsg` reuses address and ancillary adapters without copying payloads.
 Credential-free sends need no per-message buffers. Tests cover partial batches, short stream writes, failed
 result writes and SCM_RIGHTS. Unadapted socket operations are not thereby certified.
@@ -254,7 +258,7 @@ reads use lazily armed descriptor classes and retained kernel-object identity.
 Protected readers copy in their own task without changing dumpability; queue
 delivery is acknowledged before consumption is confirmed. See the
 [watch contract](../native/guest-runtime/watches.md) for descriptor, hardlink,
-protected-copy and kernel limits. The current store format is 11;
+protected-copy and kernel limits. The current store format is 12;
 older stores are rejected, not migrated or deleted.
 
 ## Optional Kernel Support
@@ -353,7 +357,23 @@ Ubuntu Mousepad is checked through X11 and Wayland with editing, saved-file read
 and clean exit; QEMU user-mode runs an x86-64 ELF with file IO and fork/wait.
 These are userspace workflows, not booted systemd or virtual-machine certification.
 The [image coverage](../native/guest-runtime/images.md#checks) also records server,
-language-runtime and compiler checks, with GDB live debugging kept separate.
+language-runtime and compiler checks. Stock GDB live debugging uses the
+[nested debugger contract](../native/guest-runtime/debugging.md), with explicit
+request and lifecycle limits. Arch package testing on a kernel without Landlock
+requires an explicit filesystem-sandbox opt-out; ordinary userspace does not.
+Minimal Astra ARM64 userspace and Docker inside a QEMU TCG virtual machine have
+separate checks; neither establishes booted-distribution compatibility on Android.
+Gentoo ARM64 stage3 passes userspace and GCC/pthread/fork/file checks. Image import
+reports omitted native `/dev` nodes instead of creating devices. Its signed repository download
+passes; complete Portage synchronization and package builds remain unverified.
+
+Official ARM64 VS Code with its Electron sandbox flags retained and Microsoft
+C/C++ uses stock GDB through both the integrated-terminal FIFO transport and
+stdio pipe transport. The fixture checks a breakpoint, stack/local inspection,
+step, changed value and normal exit; it does not establish full sandbox isolation.
+Ubuntu developer workflows cover authenticated Git clone/push over loopback SSH,
+CMake/Ninja build/test/install/incremental rebuild, npm install/ci with workers,
+filesystem notifications and HTTP, and pip venv/PEP517 C-extension wheel workflows.
 
 Virtual-root IPC checks run stock Debian and Alpine session D-Bus, independent
 root clients and a rejected different-user client. Debian additionally passes

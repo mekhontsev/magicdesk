@@ -4,10 +4,13 @@
 #include <fcntl.h>
 #include <linux/capability.h>
 #include <linux/filter.h>
+#include <linux/openat2.h>
 #include <linux/seccomp.h>
 #include <linux/securebits.h>
 #include <linux/shm.h>
+#include <linux/stat.h>
 #include <signal.h>
+#include <poll.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -33,6 +36,35 @@ static void child_ok(pid_t child) {
     int status; assert(waitpid(child,&status,0)==child);
     if (!WIFEXITED(status) || WEXITSTATUS(status)) fprintf(stderr,"child %d status=%#x\n",child,status);
     assert(WIFEXITED(status) && !WEXITSTATUS(status));
+}
+static void mount_identity(void) {
+    const char *paths[]={"/","/tmp","/dev/shm","/proc","/dev","/dev/pts","/fixture"};
+    unsigned long long ids[sizeof(paths)/sizeof(*paths)]={0};
+    for (unsigned i=0; i<sizeof(paths)/sizeof(*paths); ++i) {
+        struct statx named, descriptor;
+        long status=syscall(SYS_statx,AT_FDCWD,paths[i],0,STATX_BASIC_STATS|STATX_MNT_ID,&named);
+        if (status) fprintf(stderr,"statx %s: %s\n",paths[i],strerror(errno));
+        assert(!status);
+        assert(named.stx_mask & STATX_MNT_ID); ids[i]=named.stx_mnt_id;
+        int fd=open(paths[i],O_PATH|O_CLOEXEC); assert(fd>=0);
+        assert(!syscall(SYS_statx,fd,"",AT_EMPTY_PATH,STATX_MNT_ID,&descriptor));
+        assert(descriptor.stx_mask & STATX_MNT_ID);
+        assert(descriptor.stx_mnt_id==named.stx_mnt_id); close(fd);
+    }
+    assert(ids[0]==ids[1]);
+    for (unsigned i=2; i<sizeof(paths)/sizeof(*paths); ++i)
+        for (unsigned j=0; j<i; ++j) assert(ids[i]!=ids[j]);
+    FILE *table=fopen("/proc/self/mountinfo","r"); assert(table);
+    char *line=NULL; size_t capacity=0; unsigned seen=0;
+    while (getline(&line,&capacity,table)>=0) {
+        unsigned long long id; char path[4096];
+        assert(sscanf(line,"%llu %*u %*s %*s %4095s",&id,path)==2);
+        for (unsigned i=0; i<sizeof(paths)/sizeof(*paths); ++i)
+            if (!strcmp(path,paths[i])) { assert(id==ids[i]); seen|=1U<<i; }
+    }
+    assert(!ferror(table)); free(line); fclose(table);
+    assert(seen==0x7d); /* /tmp is part of the root, not a separate mount. */
+    puts("PASS statx path/FD mount identity agrees with root, SHM, native mounts and attachment table");
 }
 static void descriptor_path(int fd, const char *expected) {
     char path[64], value[4096];
@@ -67,11 +99,23 @@ static void descriptor_paths(const char *self) {
     puts("PASS FD paths: parent rename, dup/fork/exec, deleted identity, name reuse and alias uncertainty");
 }
 static void descriptors(void) {
+    int native = open("/dev/pts", O_PATH | O_DIRECTORY | O_CLOEXEC); assert(native >= 0);
+    struct stat from_path, from_fd;
+    assert(!stat("/dev/pts", &from_path) && !fstat(native, &from_fd));
+    assert(from_path.st_dev == from_fd.st_dev && from_path.st_ino == from_fd.st_ino);
+    close(native);
+    assert(!symlink("missing-target","/tmp/md-link-descriptor"));
+    int linkfd=open("/tmp/md-link-descriptor",O_PATH|O_NOFOLLOW|O_CLOEXEC); assert(linkfd>=0);
+    char linktext[64];
+    assert(readlinkat(linkfd,"",linktext,sizeof(linktext))==14 && !memcmp(linktext,"missing-target",14));
+    assert(!unlink("/tmp/md-link-descriptor"));
+    assert(readlinkat(linkfd,"",linktext,sizeof(linktext))==14 && !memcmp(linktext,"missing-target",14));
+    close(linkfd);
     int fd = open("/dev/stderr",O_WRONLY|O_CREAT|O_APPEND|O_CLOEXEC,0644); assert(fd>=0); close(fd);
     char path[64]; fd = open("/tmp/md-reopen",O_CREAT|O_EXCL|O_RDWR,0600); assert(fd>=0);
     assert(write(fd,"test",4)==4 && !unlink("/tmp/md-reopen"));
     snprintf(path,sizeof(path),"/proc/self/fd/%d",fd);
-    int reopened = open(path,O_WRONLY|O_CREAT|O_APPEND|O_CLOEXEC,0644); assert(reopened>=0);
+    int reopened = open(path,O_WRONLY|O_CREAT|O_APPEND|O_CLOEXEC|O_NOCTTY|O_NOATIME,0644); assert(reopened>=0);
     assert(write(reopened,"!",1)==1); close(reopened);
     char buffer[8]={0}; assert(pread(fd,buffer,sizeof(buffer),0)==5 && !strcmp(buffer,"test!"));
     errno=0; assert(open(path,O_CREAT|O_EXCL|O_WRONLY,0600)==-1 && errno==EEXIST);
@@ -85,6 +129,78 @@ static void descriptors(void) {
     assert(pread(fd,aligned,4096,0)==4096 && ((char *)aligned)[0]==0x41);
     free(aligned); close(fd); assert(!unlink("/tmp/md-direct"));
     puts("PASS descriptor create/append/exclusive/nofollow/truncate/open-unlinked");
+}
+static void creation_modes(void) {
+    const char *file="/tmp/md-creation-mode", *dir="/tmp/md-directory-mode";
+    mode_t previous=umask(027);
+    int fd=syscall(SYS_openat,AT_FDCWD,file,O_CREAT|O_EXCL|O_RDWR,S_IFREG|0666); assert(fd>=0);
+    struct stat st; assert(!fstat(fd,&st) && S_ISREG(st.st_mode) && (st.st_mode&07777)==0640);
+    close(fd);
+    fd=syscall(SYS_openat,AT_FDCWD,file,O_RDONLY,~0U); assert(fd>=0); close(fd);
+    assert(!syscall(SYS_mkdirat,AT_FDCWD,dir,S_IFREG|0777));
+    assert(!stat(dir,&st) && S_ISDIR(st.st_mode) && (st.st_mode&07777)==0750);
+    struct open_how how={.flags=O_CREAT|O_RDWR,.mode=S_IFREG|0666};
+    errno=0; assert(syscall(SYS_openat2,AT_FDCWD,file,&how,sizeof(how))==-1 && errno==EINVAL);
+    assert(!unlink(file) && !rmdir(dir)); umask(previous);
+    puts("PASS legacy creation mode masking and strict openat2 mode validation");
+}
+static void fifos(const char *directory) {
+    char path[4096], alias[4096], moved[4096];
+    assert(snprintf(path,sizeof(path),"%s/md-fifo-%d",directory,getpid())<(int)sizeof(path));
+    assert(snprintf(alias,sizeof(alias),"%s.alias",path)<(int)sizeof(alias));
+    assert(snprintf(moved,sizeof(moved),"%s.moved",path)<(int)sizeof(moved));
+    mode_t mask=umask(027);
+    assert(!mkfifo(path,0666)); umask(mask);
+    struct stat st, other;
+    assert(!stat(path,&st) && S_ISFIFO(st.st_mode) && (st.st_mode&0777)==0640);
+    errno=0; assert(mkfifo(path,0600)==-1 && errno==EEXIST);
+    errno=0; assert(open(path,O_WRONLY|O_NONBLOCK)==-1 && errno==ENXIO);
+    int reader=open(path,O_RDONLY|O_NONBLOCK|O_CLOEXEC); assert(reader>=0);
+    struct pollfd initial={.fd=reader,.events=POLLIN};
+    int initial_ready=poll(&initial,1,0); assert(initial_ready>=0);
+    if (initial.revents&POLLHUP)
+        puts("LIMIT FIFO nonblocking reader reports initial POLLHUP before first writer");
+    char data[16]; assert(read(reader,data,sizeof(data))==0);
+    int writer=open(path,O_WRONLY|O_NONBLOCK); assert(writer>=0);
+    errno=0; assert(read(reader,data,sizeof(data))==-1 && errno==EAGAIN);
+    assert(write(writer,"fifo",4)==4);
+    struct pollfd event={.fd=reader,.events=POLLIN};
+    /* EVENT_WAIT: kernel pipe data readiness; deadline fails this check. */
+    assert(poll(&event,1,1000)==1 && (event.revents&POLLIN));
+    assert(read(reader,data,sizeof(data))==4 && !memcmp(data,"fifo",4));
+    assert(!fstat(reader,&other) && other.st_ino==st.st_ino && S_ISFIFO(other.st_mode));
+    close(writer); assert(read(reader,data,sizeof(data))==0); close(reader);
+    int fd=open(path,O_RDWR|O_NONBLOCK|O_CLOEXEC); assert(fd>=0);
+    assert((fcntl(fd,F_GETFD)&FD_CLOEXEC) && (fcntl(fd,F_GETFL)&O_NONBLOCK));
+    errno=0; assert(lseek(fd,0,SEEK_SET)==-1 && errno==ESPIPE);
+    assert(!link(path,alias) && !rename(path,moved));
+    assert(!stat(alias,&other) && other.st_ino==st.st_ino && other.st_nlink==2);
+    int pinned=open(moved,O_PATH|O_CLOEXEC); assert(pinned>=0);
+    assert(!unlink(alias) && !unlink(moved));
+    assert(!fstat(fd,&other) && other.st_nlink==0);
+    char proc[64]; snprintf(proc,sizeof(proc),"/proc/self/fd/%d",pinned);
+    int reopened=open(proc,O_RDWR|O_NONBLOCK); assert(reopened>=0);
+    assert(write(reopened,"old",3)==3 && read(fd,data,sizeof(data))==3 && !memcmp(data,"old",3));
+    assert(!mkfifo(path,0600) && !stat(path,&other) && other.st_ino!=st.st_ino);
+    close(pinned); close(reopened); close(fd);
+    for (int direction=0; direction<2; ++direction) {
+        pid_t child=fork(); assert(child>=0);
+        if (!child) {
+            /* EVENT_WAIT: peer open/read rendezvous; alarm only bounds a deadlock. */
+            alarm(15);
+            int peer=open(path,direction ? O_WRONLY : O_RDONLY); assert(peer>=0);
+            if (direction) assert(write(peer,"peer",4)==4);
+            else assert(read(peer,data,sizeof(data))==4 && !memcmp(data,"peer",4));
+            close(peer); _exit(0);
+        }
+        alarm(15);
+        int peer=open(path,direction ? O_RDONLY : O_WRONLY); assert(peer>=0);
+        if (direction) assert(read(peer,data,sizeof(data))==4 && !memcmp(data,"peer",4));
+        else assert(write(peer,"peer",4)==4);
+        close(peer); child_ok(child); alarm(0);
+    }
+    assert(!unlink(path));
+    printf("PASS FIFO %s: modes, nonblocking errors, poll, peer open, hardlinks, rename, unlinked reopen and name reuse\n",directory);
 }
 static void caps_read(struct __user_cap_data_struct data[2]) {
     struct __user_cap_header_struct h={.version=_LINUX_CAPABILITY_VERSION_3};
@@ -342,6 +458,7 @@ int main(int argc,char **argv) {
     assert(argc>=2);
     if (!strcmp(argv[1],"empty-exec")) return 0;
     if (!strcmp(argv[1],"stack")) { stack_boundary(); return 0; }
+    if (!strcmp(argv[1],"mounts")) { mount_identity(); return 0; }
     if (!strcmp(argv[1],"fd-path-exec")) { assert(argc==3); descriptor_path(atoi(argv[2]),"/tmp/md-fd-moved/file"); return 0; }
     if (!strcmp(argv[1],"hostname")) { assert(argc==3); host_identity(argv[0],argv[2]); return 0; }
     if (!strcmp(argv[1],"hostname-exec")) {
@@ -358,7 +475,9 @@ int main(int argc,char **argv) {
         return 0;
     }
     assert(getuid()==0);
-    if (!strcmp(argv[1],"all")) { stack_boundary(); descriptors(); descriptor_paths(argv[0]); copy_attributes(); access_lists(); capabilities(argv[0]); file_capabilities(argv[0]); memory(argv[0]); return 0; }
+    if (!strcmp(argv[1],"creation-modes")) { creation_modes(); return 0; }
+    if (!strcmp(argv[1],"fifo")) { fifos(argc>2 ? argv[2] : "/tmp"); return 0; }
+    if (!strcmp(argv[1],"all")) { mount_identity(); stack_boundary(); descriptors(); creation_modes(); fifos("/tmp"); descriptor_paths(argv[0]); copy_attributes(); access_lists(); capabilities(argv[0]); file_capabilities(argv[0]); memory(argv[0]); return 0; }
     assert(argc==3); int key=atoi(argv[2]);
     if (!strcmp(argv[1],"publish")) {
         int id=get(key,4096,IPC_CREAT|IPC_EXCL|0600); assert(id>=0);

@@ -405,8 +405,26 @@ OCI layer. Verify its detached signature before importing; wrapping alone is not
 authentication. Arch package commands retain pacman's configured sandbox and
 signature checks. A kernel without Landlock cannot pass that default download
 workflow; `test_isolation.py` measures availability directly outside guest execution.
+`--arch-without-landlock` explicitly selects only pacman's filesystem-sandbox
+opt-out for package checks; signatures and syscall filtering remain enabled.
+XZ rootfs archives are transcoded without changing tar contents, including device
+entries. The production importer owns omission/reporting for native `/dev` and
+rejection of unsupported objects elsewhere. Verify source signatures before
+conversion; wrapping or transcoding alone does not authenticate a rootfs.
 The QEMU fixture checks an x86-64 program's file IO and fork/wait through the
 distribution's user-mode emulator, not KVM or full-system virtualization.
+
+`test_qemu_docker.py` separately boots Alpine with QEMU TCG and exercises actual
+Docker Engine inside the VM, including container/volume reuse and shutdown.
+`prepare_astra_userspace.py` prepares official ARM64 packages for
+`test_astra_userspace.py`; its repository checksums over HTTPS are not a pinned-GPG
+authentication claim. `test_gentoo_runtime.py` checks stage3 userspace and GCC;
+`--packages` adds repository synchronization and a GNU hello source-build,
+installation and removal without disabling Portage's sandbox FEATURES.
+`test_rootfs_oci_fixture.py` checks conversion digests, exact unfiltered tar content
+and hardlinks without running an image. `test_oci.py` checks native-device omission,
+lower-layer replacement, guest SHM, strict path/metadata handling and concurrent
+inspection while another participant writes the same store.
 
 ## Guest Credential Checks
 
@@ -564,6 +582,36 @@ The guest fixture's `aliases DIRECTORY` command prints data-event attribution
 before/after rename, unlink and last close with two hardlink names. It is a
 characterization, not an assertion of exact Linux dentry history. Native controls
 must report host hardlink permission denial rather than substituting copies.
+
+## Developer Workflows
+
+`prepare_vscode.py` stages official ARM64 VS Code and the Microsoft C/C++ VSIX
+in an explicitly selected disposable Ubuntu store. `test_vscode_runtime.py`
+opens the sandbox-enabled editor on an owned virtual display and drives stock
+GDB through the extension's Debug Adapter Protocol. Its default transport is
+the integrated terminal with named FIFOs; `--debug-transport pipe` separately
+checks stdio transport. It verifies a breakpoint, stack/locals, step, value
+change, inferior exit, editor exit and graphics/display cleanup. It does not
+claim a complete Linux security sandbox.
+
+`test_developer_workflows.py BUILD --store STORE` checks authenticated loopback
+Git/SSH clone and push, CMake/Ninja/CTest with install and incremental rebuild,
+npm install/ci plus worker/child/watch/HTTP behavior, and pip venv/PEP517 C-extension
+wheel build/install/use/removal. Ubuntu needs Git, OpenSSH client/server, CMake,
+Ninja, GCC, Node/npm and Python venv/pip/development packages and the fixture's
+`mdcode` user. `--case` selects an individual workflow. Each uses a unique private
+directory; SSH retains key authentication and strict ownership checks.
+
+`test_fifo_runtime.py BUILD --store STORE` checks independent launches sharing
+FIFO streams and repeated ownership lifetimes. The service fixture covers
+single-launch FIFO semantics; the [FIFO contract](../guest-runtime/fifos.md)
+lists readiness and watch limitations rather than treating these as certified.
+
+`prepare_blender_gpu.py` stages explicitly supplied, hash-recorded Zink/Turnip
+assets in a disposable Blender store. `test_distribution_app.py` with
+`--application blender --protocol x11 --x11-manager --gpu-prefix /opt/md-gpu`
+checks renderer identity, viewport drawing, captured pixels and normal closure.
+The result concerns viewport acceleration, not Cycles GPU support.
 
 ## Runtime Benchmarks
 

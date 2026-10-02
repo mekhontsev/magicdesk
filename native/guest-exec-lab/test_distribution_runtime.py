@@ -14,7 +14,11 @@ def main():
     group.add_argument('--layout', type=Path)
     group.add_argument('--instance')
     parser.add_argument('--install', action='store_true')
+    parser.add_argument('--arch-without-landlock', action='store_true',
+                        help='Explicit pacman filesystem-sandbox opt-out on a kernel without Landlock')
     args = parser.parse_args()
+    if args.arch_without_landlock and args.distribution != 'arch':
+        parser.error('--arch-without-landlock requires arch')
     suite = Suite(args.output, args.build)
     try:
         store = suite.prepare(args.distribution, args.layout) if args.layout else args.instance
@@ -23,6 +27,8 @@ def main():
             # No systemd-resolved runs in this command-only fixture.
             setup = 'rm -f /etc/resolv.conf\nprintf "nameserver 1.1.1.1\\n" > /etc/resolv.conf\n'
             suite.command(suite.run(store, '--', '/bin/sh', '-ec', setup))
+            pacman = 'pacman --disable-sandbox-filesystem' if args.arch_without_landlock else 'pacman'
+            suite.report['pacmanFilesystemSandbox'] = not args.arch_without_landlock
             commands = {
                 'ubuntu': [
                     'apt-get update',
@@ -32,9 +38,11 @@ def main():
                 'centos': [
                     'dnf -y --setopt=install_weak_deps=False --setopt=max_parallel_downloads=10 install python3 dbus-daemon shadow-utils jq zenity',
                     'dnf -y reinstall jq', 'rpm -q python3 dbus-daemon jq'],
+                # This fixture runs userspace, not the image's boot kernel/firmware.
                 'arch': ['pacman-key --init', 'pacman-key --populate archlinuxarm',
-                         'pacman -Syu --noconfirm',
-                         'pacman -S --noconfirm dbus python jq mousepad', 'pacman -Q dbus python jq']}
+                         pacman + ' -Syu --noconfirm --ignore linux-aarch64,linux-firmware',
+                         pacman + ' -S --noconfirm dbus python jq mousepad',
+                         pacman + ' -S --noconfirm jq', 'pacman -Q dbus python jq']}
             for command in commands[args.distribution]:
                 if args.distribution == 'arch':
                     # The launch owns descendants, including GnuPG's detached agent.

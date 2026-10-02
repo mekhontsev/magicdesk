@@ -39,7 +39,7 @@ long md_namespace_request(const struct md_fs *fs, struct md_fs_request *q, struc
     if (cwd >= 0)
         RAW1(close, cwd);
     /* Never replay an unconfirmed request, including a read that advanced a cursor. */
-    return r < 0 ? r : out->result.error;
+    return r < 0 ? r : out->result.host_path ? -EREMOTE : out->result.error;
 }
 long md_namespace_creation_mode(unsigned mode) {
     /* Read the kernel's current fs_struct mask without temporarily changing shared process state. */
@@ -69,17 +69,26 @@ long md_namespace_creation_mode(unsigned mode) {
         }
     return -ENOTSUP;
 }
+static long complete_open(struct md_fs_result *result, int flags) {
+    int fd = result->fd;
+    if (result->open_completion.kind != MD_OPEN_READY)
+        return md_complete_open(fd, flags, result->open_completion);
+    if (!(flags & O_CLOEXEC)) {
+        long r = RAW3(fcntl, fd, F_SETFD, 0);
+        if (r < 0) { RAW1(close, fd); return r; }
+    }
+    return fd;
+}
 long md_namespace_reopen(const struct md_fs *fs, int fd, int flags, int mutable) {
+    long native = md_namespace_native_descriptor(fd);
+    if (native < 0) return native;
+    if (native) return -EXDEV;
     struct md_fs_request q = {.operation=MD_FS_REOPEN, .directory={fd,-1},
         .flags=(uint32_t)flags, .mode=(uint32_t)mutable};
     struct md_fs_response out;
     long r = md_namespace_request(fs, &q, &out);
     if (r < 0) return r;
-    if (!(flags & O_CLOEXEC)) {
-        r = RAW3(fcntl, out.result.fd, F_SETFD, 0);
-        if (r < 0) { RAW1(close, out.result.fd); return r; }
-    }
-    return out.result.fd;
+    return complete_open(&out.result, flags);
 }
 long md_namespace_mutable(const struct md_fs *fs, int fd) {
     long r = md_namespace_reopen(fs, fd, O_PATH | O_NOFOLLOW | O_CLOEXEC, 1);
@@ -88,7 +97,9 @@ long md_namespace_mutable(const struct md_fs *fs, int fd) {
 long md_namespace_open(const struct md_fs *fs, int base, const char *path, int flags, unsigned mode) {
     if (md_host_path(path))
         return RAW4(openat, base, path, flags, mode);
-    struct open_how how = {.flags = (unsigned)flags, .mode = mode};
+    /* Legacy open ignores file-type bits; openat2 validates its mode separately. */
+    struct open_how how = {.flags = (unsigned)flags,
+        .mode = (flags & O_CREAT) && !(flags & O_PATH) ? mode & 07777U : 0};
     return md_namespace_open_resolved(fs, base, path, &how);
 }
 long md_namespace_open_resolved(const struct md_fs *fs, int base, const char *path,
@@ -109,16 +120,13 @@ long md_namespace_open_resolved(const struct md_fs *fs, int base, const char *pa
                               .mode = mode, .resolve = how->resolve, .attributes.creation_mask=mask};
     struct md_fs_response out;
     long r = md_namespace_request(fs, &q, &out);
+    if (r==-EREMOTE) {
+        unsigned long args[6]={(unsigned long)AT_FDCWD,(unsigned long)out.data,(unsigned)flags,mode,0,0};
+        return md_namespace_host_call(fs,fs->image ? fs->image->executable_path : "",SYS_openat,args,1,out.data);
+    }
     if (r < 0)
         return r;
-    if (!(flags & O_CLOEXEC)) {
-        r = RAW3(fcntl, out.result.fd, F_SETFD, 0);
-        if (r < 0) {
-            RAW1(close, out.result.fd);
-            return r;
-        }
-    }
-    return out.result.fd;
+    return complete_open(&out.result, flags);
 }
 static void stat_info(const struct md_fs_info *i, struct stat *s) {
     memset(s, 0, sizeof(*s));
@@ -139,11 +147,11 @@ static void stat_info(const struct md_fs_info *i, struct stat *s) {
     s->st_ctim.tv_sec = i->change_seconds;
     s->st_ctim.tv_nsec = i->change_nanos;
 }
-long md_namespace_inspect(const struct md_fs *fs, int fd, const char *path, int flags, struct md_fs_response *out) {
+long md_namespace_inspect(const struct md_fs *fs, int fd, const char *path, int flags, unsigned mode, struct md_fs_response *out) {
     if (flags & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH | AT_NO_AUTOMOUNT))
         return -EINVAL;
     struct md_fs_request q = {.operation = path && *path ? MD_FS_STAT : MD_FS_FSTAT,
-                              .directory = {fd, -1},
+                              .directory = {fd, -1}, .mode=mode,
                               .path = {path, NULL},
                               .flags = (uint32_t)(flags & AT_SYMLINK_NOFOLLOW)};
     if (!path || !*path)
@@ -155,6 +163,9 @@ long md_namespace_inspect(const struct md_fs *fs, int fd, const char *path, int 
 static long descriptor_call(const struct md_fs *fs, long nr, const unsigned long *a) {
     if ((int)a[0] < 0)
         return -EBADF;
+    long native = md_namespace_native_descriptor((int)a[0]);
+    if (native < 0) return native;
+    if (native) return md_raw(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
     struct md_fs_response out;
     struct stat st;
     if (nr == SYS_getdents64) {
@@ -168,7 +179,7 @@ static long descriptor_call(const struct md_fs *fs, long nr, const unsigned long
         r = md_write_memory((void *)a[1], out.data, out.result.size);
         return r < 0 ? r : out.result.size;
     }
-    long r = md_namespace_inspect(fs, (int)a[0], NULL, 0, &out);
+    long r = md_namespace_inspect(fs, (int)a[0], NULL, 0, 0, &out);
     if (r == -EXDEV)
         return md_raw(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
     if (r < 0)
@@ -252,6 +263,11 @@ long md_namespace_xattr(const struct md_fs *fs, long nr, int base, const char *p
         : md_namespace_open(fs, base, path, O_PATH | O_CLOEXEC | (nofollow ? O_NOFOLLOW : 0), 0);
     if (fd < 0)
         return fd;
+    long native = md_namespace_native_descriptor((int)fd);
+    if (native) {
+        long result = native < 0 ? native : md_fd_xattr((int)fd, nr, args);
+        RAW1(close, fd); return result;
+    }
     if (list) {
         long next = namespace_xattr_backing(fs,(int)fd,"",F_OK);
         RAW1(close,fd); fd=next;
@@ -308,6 +324,9 @@ long md_namespace_xattr(const struct md_fs *fs, long nr, int base, const char *p
 }
 static long metadata_request(const struct md_fs *fs, long nr, int fd,
         unsigned long mode, unsigned long extra, int flags) {
+    long native = md_namespace_native_descriptor(fd);
+    if (native < 0) return native;
+    if (native) return -EXDEV;
     struct md_fs_request q = {.directory = {fd, -1}, .flags = (unsigned)flags};
     switch (nr) {
     case SYS_fchmod: case SYS_fchmodat: case SYS_fchmodat2:
@@ -399,7 +418,7 @@ long md_namespace_call(const struct md_fs *fs, const char *exe, long nr, const u
     r = md_namespace_relative_mount(base, first);
     if (r < 0)
         return r;
-    /* Explicit host mappings only. Symlinks crossing these mounts are not implemented. */
+    /* Direct and symlink-resolved host boundaries use the same task adapter. */
     if (md_host_path(first) && nr != SYS_inotify_add_watch)
         return md_namespace_host_call(fs, exe, nr, a, path_index, first);
     return md_namespace_path_call(fs, nr, a, base, first);
@@ -412,6 +431,19 @@ long md_namespace_path_call(const struct md_fs *fs, long nr, const unsigned long
         return md_namespace_open(fs, base, first, (int)a[2], (unsigned)a[3]);
     case SYS_mknodat: {
         unsigned mode = (unsigned)a[2];
+        if ((mode & S_IFMT) == S_IFIFO) {
+            long masked = md_namespace_creation_mode(0777);
+            if (masked < 0) return masked;
+            struct md_fs_request q = {.operation=MD_FS_MKFIFO, .directory={base,-1},
+                .path={first,NULL}, .mode=mode & 07777,
+                .attributes.creation_mask=0777U ^ (unsigned)masked};
+            struct md_fs_response out;
+            long r = md_namespace_request(fs, &q, &out);
+            if (r == -EREMOTE)
+                return md_namespace_host_call(fs, fs->image ? fs->image->executable_path : "",
+                    nr, a, 1, out.data);
+            return r;
+        }
         if ((mode & S_IFMT) && (mode & S_IFMT) != S_IFREG)
             return -ENOTSUP;
         long fd = md_namespace_open(fs, base, first, O_RDONLY | O_CREAT | O_EXCL | O_CLOEXEC,
@@ -460,9 +492,19 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
             return -EINVAL;
         if (nr == SYS_statx)
             flags &= ~(AT_STATX_FORCE_SYNC | AT_STATX_DONT_SYNC);
-        r = md_namespace_inspect(fs, base, first, flags, &out);
+        if (!*first && (flags & AT_EMPTY_PATH)) {
+            /* Native boundary FDs need no namespace ownership lookup. Some LSM
+             * policies allow local stat but reject SCM_RIGHTS for these FDs. */
+            r=md_namespace_native_descriptor(base);
+            if (r<0) return r;
+            if (r) return nr==SYS_statx ? md_namespace_native_statx(fs,a)
+                : md_raw(nr,a[0],a[1],a[2],a[3],a[4],a[5]);
+        }
+        r = md_namespace_inspect(fs, base, first, flags, nr==SYS_statx ? MD_FS_STAT_MOUNT : 0, &out);
+        if (r==-EREMOTE) return md_namespace_host_call(fs,fs->image ? fs->image->executable_path : "",nr,a,1,out.data);
         if (r == -EXDEV && !*first && (flags & AT_EMPTY_PATH))
-            return md_raw(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
+            return nr==SYS_statx ? md_namespace_native_statx(fs,a)
+                : md_raw(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
         if (r < 0)
             return r;
         if (nr == SYS_newfstatat) {
@@ -472,6 +514,10 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
         }
         struct statx st = {0};
         st.stx_mask = STATX_BASIC_STATS;
+        if (out.result.info.mount_id) {
+            st.stx_mask |= STATX_MNT_ID;
+            st.stx_mnt_id=out.result.info.mount_id;
+        }
         st.stx_blksize = out.result.info.block_size;
         st.stx_nlink = (uint32_t)out.result.info.links;
         st.stx_uid = out.result.info.uid;
@@ -497,7 +543,7 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
         if (r < 0)
             return r;
         q.operation = MD_FS_MKDIR;
-        q.mode = (uint32_t)a[2];
+        q.mode = (uint32_t)a[2] & 07777U;
         q.attributes.creation_mask=0777U^(unsigned)r;
         break;
     case SYS_unlinkat:
@@ -509,6 +555,8 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
             return -EINVAL;
         q.operation = MD_FS_READLINK;
         r = md_namespace_request(fs, &q, &out);
+        if (r==-EREMOTE) return md_namespace_host_call(fs,fs->image ? fs->image->executable_path : "",nr,a,1,out.data);
+        if (r==-EXDEV && !*first) return RAW4(readlinkat,base,first,a[2],a[3]);
         if (r < 0)
             return r;
         if (out.result.size > a[3])
@@ -545,7 +593,7 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
             return -EINVAL;
         if (*first) {
             q.operation = MD_FS_ACCESS; q.mode = (unsigned)a[2]; q.flags = flags & ~AT_EMPTY_PATH;
-            return md_namespace_request(fs, &q, &out);
+            break;
         }
         if (!(flags & AT_EMPTY_PATH)) return -ENOENT;
         r = metadata_request(fs, nr, base, a[2], 0, flags & ~AT_EMPTY_PATH);
@@ -621,5 +669,8 @@ __attribute__((noinline)) static long path_metadata(const struct md_fs *fs, long
     default:
         return -ENOTSUP;
     }
-    return md_namespace_request(fs, &q, &out);
+    r=md_namespace_request(fs, &q, &out);
+    if (r==-EREMOTE) return md_namespace_host_call(fs,fs->image ? fs->image->executable_path : "",
+        nr,a,nr==SYS_symlinkat ? 2 : 1,out.data);
+    return r;
 }

@@ -5,6 +5,20 @@
 #include <linux/openat2.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdio.h>
+
+int mdi_host_boundary(struct md_inode_store *s, const char *parent, const char *name, const char *tail, uint64_t resolve) {
+    if (!s->boundary || strcmp(parent,MDI_ROOT)) return 0;
+    if (strcmp(name,"proc") && strcmp(name,"dev")) return 0;
+    const char *suffix=s->boundary->suffix ? s->boundary->suffix : "";
+    const char *next=*tail ? tail : suffix; while (*next=='/') ++next;
+    if (!strcmp(name,"dev") && !strncmp(next,"shm",3) && (!next[3] || next[3]=='/')) return 0;
+    if (resolve&(RESOLVE_NO_XDEV|RESOLVE_IN_ROOT|RESOLVE_BENEATH)) return -EXDEV;
+    if (resolve&(RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS)) return -ENOTSUP;
+    if (!s->boundary->path) return -EREMOTE;
+    int n=snprintf(s->boundary->path,s->boundary->capacity,"/%s%s%s",name,tail,suffix);
+    return n<0 || (size_t)n>=s->boundary->capacity ? -ENAMETOOLONG : -EREMOTE;
+}
 
 int mdi_walk(struct md_inode_store *s, int dirfd, const char *path,
         enum mdi_follow follow, int missing, struct mdi_location *out) {
@@ -49,6 +63,8 @@ int mdi_walk_resolved(struct md_inode_store *s, int dirfd, const char *path,
         memmove(todo, end, strlen(end)+1);
         char *rest = todo; while (*rest == '/') ++rest;
         int last = !*rest;
+        r=mdi_host_boundary(s,current.id,name,todo,resolve);
+        if (r) return r;
         struct mdi_node next;
         int special = !strcmp(name, ".") || !strcmp(name, "..");
         if (!strcmp(name, ".")) { next = current; r = 0; }
@@ -151,7 +167,13 @@ int md_inode_path(struct md_inode_store *s, int dirfd, char *out, size_t size) {
     if (r) return r;
     struct mdi_node node;
     r = dirfd == MD_INODE_ROOT ? mdi_node(s, MDI_ROOT, &node) : mdi_fd(s, dirfd, &node);
-    if (!r && node.kind == S_IFDIR) r = directory_path(s, node, out, size);
+    if (!r) r = mdi_node_path(s, &node, out, size);
+    return mdi_finish(s, r);
+}
+int mdi_node_path(struct md_inode_store *s, const struct mdi_node *source, char *out, size_t size) {
+    struct mdi_node node = *source;
+    int r = 0;
+    if (node.kind == S_IFDIR) r = directory_path(s, node, out, size);
     else if (!r) {
         /* An inode which has ever had aliases cannot identify the dentry of an
          * arbitrary inherited FD. Keep that uncertainty even after unlinking an
@@ -184,7 +206,7 @@ int md_inode_path(struct md_inode_store *s, int dirfd, char *out, size_t size) {
             else memcpy(out + length, " (deleted)", sizeof(" (deleted)"));
         }
     }
-    return mdi_finish(s, r);
+    return r;
 }
 int md_inode_realpath(struct md_inode_store *s, int base, const char *path, char *out, size_t size) {
     if (!out) return -EFAULT;
