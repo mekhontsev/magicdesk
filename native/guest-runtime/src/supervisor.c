@@ -38,6 +38,7 @@
 #include "guest_debugger.h"
 #include "process_image_view.h"
 #include <sys/signalfd.h>
+#include "launch_registry.h"
 #include <sys/socket.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
@@ -126,6 +127,7 @@ struct denial { unsigned nr, adapted, count; enum phase phase; };
 static struct denial denials[64];
 static int result, signal_fd, listener = -1;
 static int cancelling;
+static struct md_launch_registration registration = {.directory=-1, .record=-1};
 static int64_t cancellation_deadline;
 static unsigned external_stats, external_errors;
 static unsigned protected_stats;
@@ -211,6 +213,7 @@ static void cleanup(void) {
     md_shm_close(shm); shm = NULL;
     if (md_fs_worker_stop(filesystem)) _Exit(125);
     filesystem = NULL;
+    md_launch_unregister(&registration);
     md_broker_destroy(broker); broker = NULL;
     md_credentials_destroy(credentials); credentials = NULL;
     md_identity_release(&launch_identity);
@@ -1213,6 +1216,12 @@ int main(int argc, char **argv) {
         if (startup) errno = -startup;
         CHECK(!startup);
         broker = md_broker_create(filesystem, statistics != NULL); CHECK(broker);
+        const char *program = "", *cwd = "/";
+        for (int i = argument+1; i+1 < argc; ++i) {
+            if (!strcmp(argv[i], "--cwd")) cwd = argv[++i];
+            else if (!strcmp(argv[i], "--namespace") && i+2 < argc) { program = argv[i+2]; break; }
+        }
+        CHECK(!md_launch_register(&registration, store, program, cwd, launch_identity.uid.effective));
     }
     byte = 'g'; CHECK(write(channel[0], &byte, 1) == 1); close(channel[0]);
     int64_t deadline = seconds ? md_event_now() + seconds * 1000000000LL : INT64_MAX;

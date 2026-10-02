@@ -124,7 +124,14 @@ Healthcheck and StopSignal do not provision host resources or change supervision
 `image_publish.c` owns private staging and no-replace atomic publication. Failure
 before publication removes only that private tree. An fsync failure after rename
 leaves the published destination for inspection; it is not permission to retry
-or delete it. Process-kill tests do not establish power-loss recovery.
+or delete it. Imports and backups retain an exclusive lock on their private
+`.md-image-<id>` directory until publication or cleanup. A short parent-directory
+lock serializes creation with recovery; active writers are never reclaimed.
+`image recover-staging DIRECTORY` removes only abandoned staging with the
+expected name, type, owner and permissions, without following symlinks. Publication
+also recovers its parent's abandoned staging before starting new work. The app's
+Java management child binds its native helper lifetime with a verified parent
+PID and a parent-death signal. Process-kill tests do not establish power-loss recovery.
 
 Before publishing a new image, the importer removes unreachable namespace objects,
 private backings and source references left by replacements or whiteouts. This

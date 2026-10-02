@@ -1902,9 +1902,18 @@ These owners neither elevate renderers nor proxy socket IO.
 The server's event loop owns wlroots state, while borrowed
 outputs and their Android presenters have independent lifetimes. Nested-desktop
 viewers retain their compositor after closing, like X11 whole-screen viewers.
-The read-only Termux `.desktop` catalog feeds shared Start content and MCP/CLI
-application discovery. `DesktopEntrySource` separates its authority from shell
-file access: Termux launches resolve an exact freshly queried catalog path.
+Read-only Termux and guest `.desktop` catalogs feed shared Start content and
+MCP/CLI discovery through `ApplicationCatalog`. `DesktopEntrySource` separates
+their authorities from arbitrary file access: Termux uses its selected service;
+guest discovery reads the image account's XDG paths through the native inode
+namespace. Guest keys include immutable environment identities, and launches
+resolve exact catalog entries into ordinary `LinuxLaunchRecipe` values.
+Guest snapshots refresh explicitly; the shared bounded bitmap decoder handles
+PNG icons without guest execution or menu-time file IO.
+Native supervisors own guest launch records across all entry points. On-demand
+list/stop adapters validate lifetime locks and pidfds, not cached Android process
+state. The native publication layer similarly owns import/backup staging leases;
+the environment library owns names, dependency cleanup and download staging.
 `GraphicalApplicationLaunch` turns graphical presentation into a normal Android launch request;
 the native window model owns X relationships, never Android task topology.
 Clipboard and copy drag-and-drop reuse the shared Android content boundary;

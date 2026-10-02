@@ -5,7 +5,7 @@
 static int retain(const char *entry) {
     const char *names[] = {"TERM=", "COLORTERM=", "LANG=", "LC_", "WAYLAND_SOCKET=", "WAYLAND_DISPLAY=",
         "DISPLAY=", "XAUTHORITY=", "XDG_SESSION_TYPE=", "GDK_", "GTK_", "QT_", "SDL_",
-        "GSETTINGS_BACKEND=", "LIBGL_", "MESA_", "VK_", "MAGICDESK_X11_AUTHORITY="};
+        "GSETTINGS_BACKEND=", "LIBGL_", "MESA_", "VK_", "MAGICDESK_X11_AUTHORITY=", "MAGICDESK_GUEST_LABEL="};
     for (unsigned i = 0; i < sizeof(names) / sizeof(*names); ++i)
         if (md_prefix(entry, names[i])) return 1;
     return 0;

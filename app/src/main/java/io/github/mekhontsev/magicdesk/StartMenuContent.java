@@ -205,6 +205,14 @@ final class StartMenuContent {
         mSearchRow = new LinearLayout(mActivity);
         mSearchRow.setGravity(Gravity.CENTER_VERTICAL);
         mSearchRow.addView(mSearch, new LinearLayout.LayoutParams(0, dp(48), 1));
+        final android.widget.ImageButton refresh = new android.widget.ImageButton(mActivity);
+        refresh.setImageDrawable(UiAppearance.symbol(mActivity, R.drawable.ic_file_refresh, UiColor.TEXT));
+        refresh.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        refresh.setContentDescription(mActivity.getString(R.string.action_refresh));
+        refresh.setTooltipText(mActivity.getString(R.string.action_refresh));
+        refresh.setOnClickListener(view -> mCatalog.refreshApplications());
+        mSearchRow.addView(refresh, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        mHost.automation().register(refresh, "start.refresh", "button", mActivity.getString(R.string.action_refresh));
         mLaunchControls = new StartLaunchControls(mActivity, mUi, mHost.automation(), this::destinationChanged);
         mContent.setOrientation(LinearLayout.VERTICAL);
         final LinearLayout.LayoutParams contentParams = new LinearLayout.LayoutParams(
@@ -334,6 +342,10 @@ final class StartMenuContent {
                 StartMenuEntry entry = StartMenuEntry.desktopApplication(application);
                 if (keys.add(entry.stableKey())) result.add(entry);
             }
+            if (search) for (var application : mCatalog.snapshot().guest().entries()) {
+                StartMenuEntry entry = StartMenuEntry.desktopApplication(application);
+                if (keys.add(entry.stableKey())) result.add(entry);
+            }
             if (search) for (var recent : RecentApplications.entries(mLaunchControls.recentScope())) {
                 boolean inCatalog = !recent.sourcePath().isEmpty() && result.stream().anyMatch(entry ->
                         entry.desktopApplication != null && entry.desktopApplication.desktopFilePath.equals(recent.sourcePath()));
@@ -363,6 +375,7 @@ final class StartMenuContent {
         if (previous != null && previous.android().entries() == next.android().entries()
                 && previous.android().ready() == next.android().ready()
                 && previous.termux().entries() == next.termux().entries()
+                && previous.guest().entries() == next.guest().entries()
                 && (next.android().ready() || (previous.android().loading() == next.android().loading()
                         && previous.android().error().equals(next.android().error())))) {
             if (previous.termuxIcons() != next.termuxIcons()) refreshIcons(mBody);

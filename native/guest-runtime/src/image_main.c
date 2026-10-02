@@ -10,6 +10,9 @@
 #include "image_maintenance.h"
 #include "image_prepare.h"
 #include "image_export.h"
+#include "launch_registry.h"
+int md_image_launches(const char *store);
+int md_image_applications(const char *store, const char *icon);
 #include "inode_internal.h"
 #include "launch_identity.h"
 #include <errno.h>
@@ -18,6 +21,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/prctl.h>
+#include <signal.h>
 
 static int save(int directory, const char *name, const char *json) {
     int fd = openat(directory, name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
@@ -116,6 +121,13 @@ static int create(const char *source, const char *destination) {
     return r;
 }
 int main(int argc, char **argv) {
+    const char *owner = getenv("MAGICDESK_IMAGE_OWNER_PID");
+    if (owner) {
+        char *end;
+        long pid = strtol(owner, &end, 10);
+        if (!*owner || *end || pid <= 1 || prctl(PR_SET_PDEATHSIG, SIGKILL) || getppid() != pid) return 2;
+        unsetenv("MAGICDESK_IMAGE_OWNER_PID");
+    }
 #ifndef MD_INODE_TESTING
     if (!md_launch_identity(getuid(), geteuid(), getgid(), getegid())) return 2;
 #endif
@@ -139,6 +151,11 @@ int main(int argc, char **argv) {
     else if (argc == 3 && !strcmp(argv[1], "remove")) r = md_image_remove(argv[2], 0);
     else if (argc == 3 && !strcmp(argv[1], "remove-layer")) r = md_image_remove(argv[2], 1);
     else if (argc == 3 && !strcmp(argv[1], "inspect")) r = md_image_inspect(argv[2]);
+    else if (argc == 3 && !strcmp(argv[1], "recover-staging")) r = md_image_publish_recover(argv[2]);
+    else if (argc == 3 && !strcmp(argv[1], "launches")) r = md_image_launches(argv[2]);
+    else if (argc == 4 && !strcmp(argv[1], "stop")) r = md_launch_stop(argv[2], argv[3]);
+    else if (argc == 3 && !strcmp(argv[1], "applications")) r = md_image_applications(argv[2], NULL);
+    else if (argc == 4 && !strcmp(argv[1], "icon")) r = md_image_applications(argv[2], argv[3]);
     else if (argc == 5 && !strcmp(argv[1], "export-tree")) r = md_image_export_tree(argv[2], argv[3], argv[4]);
     else if ((argc == 4 || (argc == 5 && !strcmp(argv[4], "--replace"))) && !strcmp(argv[1], "resolver"))
         r = md_image_resolver(argv[2], argv[3], argc == 5);

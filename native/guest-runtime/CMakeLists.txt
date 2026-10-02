@@ -42,7 +42,7 @@ guest_freestanding(bootstrap)
 target_compile_options(bootstrap PRIVATE -mgeneral-regs-only)
 target_link_options(bootstrap PRIVATE -Wl,--image-base=0x2000000000)
 
-guest_executable(supervisor ${src}/supervisor.c ${src}/process_owner.c ${src}/interception_stacks.c ${src}/guest_domain.c
+guest_executable(supervisor ${src}/supervisor.c ${src}/launch_registry.c ${src}/process_owner.c ${src}/interception_stacks.c ${src}/guest_domain.c
     ${src}/watch_activation.c ${src}/sysv_shm.c ${src}/guest_debugger.c ${src}/process_image_view.c
     ${src}/guest_identity.c ${src}/guest_accounts.c ${src}/elf_admission.c ${src}/elf.c ${src}/fs_client.c ${wire} ${raw}
     ${src}/fs_worker.c ${src}/fs_service.c ${namespace_engine} ${src}/image_catalogue.c ${inodes} ${mounts}
@@ -59,7 +59,7 @@ target_compile_definitions(service PRIVATE MD_NO_START MD_USE_LIBC)
 target_link_libraries(service PRIVATE guest-sqlite m)
 
 include(image-dependencies.cmake)
-guest_executable(image ${src}/image_main.c ${src}/image_io.c ${src}/image_json.c
+guest_executable(image ${src}/image_main.c ${src}/image_io.c ${src}/image_json.c ${src}/launch_registry.c ${src}/image_launches.c ${src}/image_applications.c
     ${src}/image_oci.c ${src}/image_layer.c ${src}/image_pool.c ${src}/image_backup.c ${src}/image_maintenance.c
     ${src}/image_acl.c ${src}/image_publish.c ${src}/image_launch.c ${src}/image_prepare.c ${src}/image_export.c ${src}/guest_accounts.c ${src}/socket_routes.c ${inodes}
     ${namespace_engine} ${mounts} ${src}/image_catalogue.c ${src}/elf_admission.c ${src}/guest_identity.c ${src}/proc_paths.c
@@ -73,6 +73,8 @@ install(TARGETS bootstrap supervisor run service image RUNTIME DESTINATION lib)
 
 option(MAGICDESK_GUEST_FIXTURES "Build standalone native fixtures" OFF)
 if(MAGICDESK_GUEST_FIXTURES)
+    guest_executable(test_launch_registry ../guest-exec-lab/test_launch_registry.c ${src}/launch_registry.c)
+    target_compile_options(test_launch_registry PRIVATE -iquote ${src} -UNDEBUG)
     target_compile_definitions(image PRIVATE MD_INODE_TESTING)
     foreach(name inodes import rpc snapshot mounts credentials)
         guest_executable(test_${name} ../guest-exec-lab/test_${name}.c ${inodes})

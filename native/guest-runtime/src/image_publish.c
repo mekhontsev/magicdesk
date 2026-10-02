@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/random.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -43,9 +44,45 @@ int md_image_discard(int parent, const char *name) {
     return r;
 }
 void md_image_publish_close(struct md_image_publish *p) {
-    if (p->stage >= 0) { close(p->stage); md_image_discard(p->parent, p->temporary); }
+    if (p->stage >= 0) { md_image_discard(p->parent, p->temporary); close(p->stage); }
     if (p->parent >= 0) close(p->parent);
     p->stage = p->parent = -1;
+}
+
+/* The parent lock closes the mkdir/open/flock race. The retained stage lock
+ * distinguishes live publication from a crashed owner, without PID heuristics. */
+static int recover(int parent) {
+    int fd = openat(parent, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0) return -errno;
+    DIR *dir = fdopendir(fd);
+    if (!dir) { int r = -errno; close(fd); return r; }
+    int r = 0;
+    for (;;) {
+        errno = 0;
+        struct dirent *e = readdir(dir);
+        if (!e) { if (errno) r = -errno; break; }
+        const char *name = e->d_name;
+        if (strlen(name) != 42 || strncmp(name, ".md-image-", 10)
+                || strspn(name+10, "0123456789abcdef") != 32) continue;
+        int stage = openat(parent, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (stage < 0) { if (errno == ENOENT) continue; r = -errno; break; }
+        struct stat st;
+        if (fstat(stage, &st)) r = -errno;
+        else if (st.st_uid != getuid() || (st.st_mode & 0777) != 0700) r = -EACCES;
+        else if (flock(stage, LOCK_EX | LOCK_NB)) { if (errno != EWOULDBLOCK) r = -errno; }
+        else r = md_image_discard(parent, name);
+        close(stage);
+        if (r) break;
+    }
+    closedir(dir); return r;
+}
+int md_image_publish_recover(const char *directory) {
+    int fd = open(directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (fd < 0) return -errno;
+    /* EVENT_WAIT: kernel publication-lock release; caller cancellation/process
+     * exit interrupts ownership. No timeout is interpreted as successful recovery. */
+    int r = flock(fd, LOCK_EX) ? -errno : recover(fd);
+    close(fd); return r;
 }
 int md_image_publish_begin(const char *destination, struct md_image_publish *p) {
     memset(p, 0, sizeof(*p)); p->stage = p->parent = -1;
@@ -58,9 +95,13 @@ int md_image_publish_begin(const char *destination, struct md_image_publish *p) 
     p->parent = open(directory, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     if (p->parent < 0) return -errno;
     struct stat st;
-    int r = 0;
-    if (!fstatat(p->parent, p->name, &st, AT_SYMLINK_NOFOLLOW)) r = -EEXIST;
-    else if (errno != ENOENT) r = -errno;
+    /* EVENT_WAIT: another publisher finishes its staging handoff; operation
+     * cancellation releases this kernel wait and every owned descriptor. */
+    int r = flock(p->parent, LOCK_EX) ? -errno : recover(p->parent);
+    if (!r) {
+        if (!fstatat(p->parent, p->name, &st, AT_SYMLINK_NOFOLLOW)) r = -EEXIST;
+        else if (errno != ENOENT) r = -errno;
+    }
     unsigned char random[16];
     if (!r && getrandom(random, sizeof(random), 0) != sizeof(random)) r = errno ? -errno : -EIO;
     if (!r) {
@@ -73,7 +114,9 @@ int md_image_publish_begin(const char *destination, struct md_image_publish *p) 
         if (!r && (p->stage = openat(p->parent, p->temporary, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)) < 0) {
             r = -errno; unlinkat(p->parent, p->temporary, AT_REMOVEDIR);
         }
+        if (!r && flock(p->stage, LOCK_EX | LOCK_NB)) r = -errno;
     }
+    flock(p->parent, LOCK_UN);
     if (!r) {
         char proc[64]; snprintf(proc, sizeof(proc), "/proc/self/fd/%d", p->stage);
         if (!realpath(proc, directory)) r = -errno;

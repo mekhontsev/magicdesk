@@ -119,7 +119,8 @@ final class LinuxLaunchRecipe {
                 : new GuestLaunchPlan(identity, cwd, command.isEmpty()
                         ? managed ? List.of() : List.of("/bin/sh", "-l") : List.of("/bin/sh", "-lc", command));
         String exec = DesktopExecTemplate.encodeArguments(graphical
-                ? List.of("sh", "-c", GuestGraphicalConnection.invocation(plan, protocol, true)) : plan.arguments());
+                ? List.of("env", "MAGICDESK_GUEST_LABEL=" + name, "sh", "-c",
+                        GuestGraphicalConnection.invocation(plan, protocol, true)) : plan.arguments());
         DesktopExecTemplate.expandArguments(exec, DesktopLaunchArguments.empty(), name, "", "");
         return new DesktopApplicationShortcut(name, graphical ? "computer" : "utilities-terminal",
                 exec, null, "", DesktopLaunchMode.AUTO, false, DesktopExecBackend.SHELL, !graphical)

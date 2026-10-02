@@ -93,6 +93,7 @@ final class DesktopApplicationRepository {
         final String desktopFilePath;
         final DesktopFile desktopFile;
         final boolean userShortcut;
+        final String summary;
 
         Entry(
                 final DesktopApplicationShortcut shortcut,
@@ -103,10 +104,18 @@ final class DesktopApplicationRepository {
 
         Entry(DesktopApplicationShortcut shortcut, String desktopFilePath,
                 DesktopFile desktopFile, boolean userShortcut) {
+            this(shortcut, desktopFilePath, desktopFile, userShortcut,
+                    shortcut.execBackend == DesktopExecBackend.TERMUX ? "Termux"
+                            : shortcut.execBackend.wireName + ": " + shortcut.exec);
+        }
+
+        Entry(DesktopApplicationShortcut shortcut, String desktopFilePath,
+                DesktopFile desktopFile, boolean userShortcut, String summary) {
             this.shortcut = shortcut;
             this.desktopFilePath = desktopFilePath;
             this.desktopFile = desktopFile;
             this.userShortcut = userShortcut;
+            this.summary = summary;
         }
     }
 }

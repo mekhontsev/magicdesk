@@ -99,6 +99,33 @@ final class GuestEnvironmentLibrary {
         return result;
     }
 
+    JSONArray applications() throws Exception {
+        JSONArray result = new JSONArray();
+        for (Environment environment : list()) {
+            var icons = new java.util.HashMap<String, String>();
+            for (String line : images.invoke("applications", environment.store().toString()).split("\\n")) {
+                if (line.isBlank()) continue;
+                JSONObject item = new JSONObject(line);
+                var shortcut = DesktopEntryFile.parseGuestApplication(item.getString("text"));
+                // Hidden entries remain in the snapshot so their IDs can mask lower XDG directories.
+                if (shortcut != null && TermuxIconCommand.valid(shortcut.icon)) {
+                    String png = icons.get(shortcut.icon);
+                    if (png == null) {
+                        png = images.invoke("icon", environment.store().toString(), shortcut.icon).trim();
+                        icons.put(shortcut.icon, png);
+                    }
+                    item.put("png", png);
+                }
+                item.put("environment", new JSONObject().put("name", environment.name()).put("id", environment.id())
+                        .put("source", environment.source()).put("store", environment.store().toString()));
+                if (result.length() >= 1024) throw new IOException("Too many guest applications");
+                result.put(item);
+            }
+        }
+        if (result.toString().length() > GuestImageFiles.JSON_LIMIT) throw new IOException("Guest catalog is too large");
+        return result;
+    }
+
     Environment restore(Path archive, String name) throws Exception {
         validateName(name);
         try (Lock ignored = lock()) {
@@ -150,13 +177,42 @@ final class GuestEnvironmentLibrary {
         Environment environment = resolve(name);
         return new JSONObject(images.invoke("inspect", environment.store().toString()))
                 .put("name", environment.name()).put("store", environment.store().toString())
-                .put("source", environment.source()).put("image", environment.image());
+                .put("source", environment.source()).put("image", environment.image())
+                .put("launches", launches(environment));
+    }
+
+    JSONArray launches(String name) throws Exception { return launches(resolve(name)); }
+
+    private JSONArray launches(Environment environment) throws Exception {
+        JSONArray result = new JSONArray();
+        for (String line : images.invoke("launches", environment.store().toString()).split("\\n")) {
+            if (!line.isBlank()) result.put(new JSONObject(line).put("environmentId", environment.id())
+                    .put("name", environment.name()).put("store", environment.store().toString()));
+        }
+        return result;
+    }
+
+    void stop(String name, String id) throws Exception {
+        if (id == null || !id.matches("[0-9a-f]{32}")) throw new IllegalArgumentException("Invalid launch identity");
+        images.invoke("stop", resolve(name).store().toString(), id);
     }
 
     /** Only this library's unreferenced resources are candidates; native leases still arbitrate live use. */
     void prune() throws Exception {
         try (Lock ignored = lock()) {
-            for (String group : List.of("instances", "images", "layers")) finishRemovals(group);
+            for (String group : List.of("instances", "images", "layers")) {
+                images.invoke("recover-staging", root.resolve(group).toString());
+                finishRemovals(group);
+            }
+            // The catalog lock owns these Java-side inputs and unpublished name records.
+            try (var files = Files.list(root.resolve("work"))) {
+                for (Path file : files.toList()) if (file.getFileName().toString().startsWith("install-")) discardWork(file);
+            }
+            try (var files = Files.list(root.resolve("names"))) {
+                for (Path file : files.toList()) if (file.getFileName().toString().startsWith(".publish-")) {
+                    GuestImageFiles.regular(file); Files.delete(file);
+                }
+            }
             Set<Path> keptStores = new HashSet<>(), keptImages = new HashSet<>();
             for (Environment environment : list()) {
                 keptStores.add(environment.store());
@@ -220,7 +276,7 @@ final class GuestEnvironmentLibrary {
 
     private List<Path> directories(String group) throws IOException {
         try (var paths = Files.list(root.resolve(group))) {
-            List<Path> result = paths.sorted().toList();
+            List<Path> result = paths.filter(path -> !path.getFileName().toString().matches("\\.md-image-[0-9a-f]{32}")).sorted().toList();
             for (Path path : result) if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS))
                 throw new IOException("Invalid library resource: " + path);
             return result;

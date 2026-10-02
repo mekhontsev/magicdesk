@@ -3,6 +3,9 @@
     <string name="guest_environments">Ambientes convidados</string>
     <string name="guest_loading">Carregando ambientes&#8230;</string>
     <string name="guest_empty">Nenhum ambiente convidado instalado</string>
+    <string name="guest_launches">Execuções ativas</string>
+    <string name="guest_no_launches">Nenhuma execução ativa</string>
+    <string name="guest_stop_launch">Parar execução</string>
     <string name="guest_select">Selecione um ambiente convidado</string>
     <string name="settings_language">Idioma do aplicativo</string>
     <string name="settings_language_system">Padrão do sistema</string>

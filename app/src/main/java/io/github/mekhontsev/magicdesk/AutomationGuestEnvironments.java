@@ -9,6 +9,12 @@ final class AutomationGuestEnvironments {
             JSONObject data = switch (name) {
                 case "guest.list" -> new JSONObject().put("environments", new JSONArray(GuestEnvironmentOperations.read(args.optString("library", ""), "list", "--json")));
                 case "guest.inspect" -> new JSONObject(GuestEnvironmentOperations.read(args.optString("library", ""), "inspect", args.getString("name")));
+                case "guest.launches" -> new JSONObject().put("launches", new JSONArray(GuestEnvironmentOperations.read(
+                        args.optString("library", ""), "launches", args.getString("name"))));
+                case "guest.stop" -> {
+                    GuestEnvironmentOperations.read(args.optString("library", ""), "stop", args.getString("name"), args.getString("launchId"));
+                    yield new JSONObject().put("accepted", true).put("launchId", args.getString("launchId"));
+                }
                 case "guest.start" -> GuestEnvironmentOperations.get().start(args.getJSONArray("arguments"), args.optString("library", ""));
                 case "guest.status" -> GuestEnvironmentOperations.get().require(args.getString("operationId"))
                         .observe(args.optLong("afterRevision", -1), args.optInt("timeoutMillis", 0));

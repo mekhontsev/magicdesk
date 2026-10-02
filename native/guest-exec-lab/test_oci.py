@@ -10,11 +10,14 @@ import hashlib
 import io
 import json
 import os
+import select
+import signal
 import pathlib
 import shutil
 import sqlite3
 import stat
 import subprocess
+import sys
 import tarfile
 import tempfile
 import threading
@@ -138,6 +141,103 @@ class Images(unittest.TestCase):
     def test_gzip(self):
         self.run_import(self.layout())
         self.assertEqual(self.object('hello').read_bytes(), b'world')
+
+    def interrupt_publication(self, *arguments):
+        libc = ctypes.CDLL(None, use_errno=True)
+        watch = libc.inotify_init1(os.O_CLOEXEC | os.O_NONBLOCK)
+        self.assertGreaterEqual(watch, 0)
+        self.assertGreaterEqual(libc.inotify_add_watch(watch, os.fsencode(self.root), 0x100), 0)
+        process = subprocess.Popen([BINARY, *map(str, arguments)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            # EVENT_WAIT: staging directory creation; timeout fails the interruption fixture.
+            self.assertTrue(select.select([watch], [], [], 10)[0], 'No publication stage created')
+            os.kill(process.pid, signal.SIGSTOP)
+            os.waitpid(process.pid, os.WUNTRACED)
+            self.assertTrue(list(self.root.glob('.md-image-*')))
+            process.kill()
+            process.communicate(timeout=10)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.communicate(timeout=10)
+            os.close(watch)
+
+    def test_killed_rootfs_import_and_backup_retry_without_partial_publication(self):
+        source = self.root / 'rootfs.tar'
+        source.write_bytes(tar([('large', 'file', b'a' * (32 * 1024 * 1024))]))
+        self.interrupt_publication('rootfs', source, self.destination)
+        self.assertFalse(self.destination.exists())
+        self.command('rootfs', source, self.destination)
+        self.assertFalse(list(self.root.glob('.md-image-*')))
+        backup = self.root / 'backup.tar.zst'
+        self.interrupt_publication('backup', self.destination, backup)
+        self.assertFalse(backup.exists())
+        self.command('backup', self.destination, backup)
+        self.assertFalse(list(self.root.glob('.md-image-*')))
+        self.command('restore', backup, self.root / 'restored')
+        self.assertEqual(self.body('large', self.root / 'restored').stat().st_size, 32 * 1024 * 1024)
+
+    def test_recovery_retains_live_stage_and_never_follows_symlinks(self):
+        stage = self.root / ('.md-image-' + 'a' * 32)
+        stage.mkdir(mode=0o700)
+        (stage / 'partial').write_text('unfinished')
+        fd = os.open(stage, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.command('recover-staging', self.root)
+            self.assertTrue(stage.exists())
+        finally:
+            os.close(fd)
+        self.command('recover-staging', self.root)
+        self.assertFalse(stage.exists())
+        outside = self.root / 'unrelated'
+        outside.mkdir()
+        (outside / 'keep').write_text('keep')
+        stage.symlink_to(outside, target_is_directory=True)
+        self.command('recover-staging', self.root, success=False)
+        self.assertEqual((outside / 'keep').read_text(), 'keep')
+
+    def test_image_helper_dies_with_its_declared_owner(self):
+        fifo = self.root / 'blocked-input'
+        os.mkfifo(fifo)
+        driver = '''import os,subprocess,sys
+env = dict(os.environ, MAGICDESK_IMAGE_OWNER_PID=str(os.getpid()))
+child = subprocess.Popen(sys.argv[1:], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+print(child.pid, flush=True)
+sys.stdin.read()
+'''
+        owner = subprocess.Popen([sys.executable, '-c', driver, BINARY, 'rootfs', str(fifo), str(self.destination)],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        child = int(owner.stdout.readline())
+        # pidfd_open has the generic Linux syscall number on the ARM64 fixture host.
+        pidfd = ctypes.CDLL(None, use_errno=True).syscall(434, child, 0)
+        try:
+            self.assertGreaterEqual(pidfd, 0)
+            self.assertFalse(select.select([pidfd], [], [], 0)[0])
+            owner.kill()
+            owner.communicate(timeout=10)
+            # EVENT_WAIT: pidfd becomes readable on child exit; timeout fails owner-death propagation.
+            self.assertTrue(select.select([pidfd], [], [], 10)[0])
+            self.assertFalse(self.destination.exists())
+        finally:
+            if pidfd >= 0: os.close(pidfd)
+            if owner.poll() is None: owner.kill()
+            owner.communicate(timeout=10)
+
+    def test_applications_read_guest_paths_and_account_home_without_launch(self):
+        entries = [('etc', 'dir', ''), ('etc/passwd', 'file', b'root:x:0:0:root:/root:/bin/sh\n'),
+                   ('root', 'dir', ''), ('root/.local', 'dir', ''), ('root/.local/share', 'dir', ''),
+                   ('root/.local/share/applications', 'dir', ''),
+                   ('root/.local/share/applications/a.desktop', 'file', b'[Desktop Entry]\nHidden=true\n'),
+                   ('usr', 'dir', ''), ('usr/share', 'dir', ''), ('usr/share/applications', 'dir', ''),
+                   ('usr/share/applications/a.desktop', 'file', b'[Desktop Entry]\nName=A\nExec=true\n'),
+                   ('usr/share/applications/link.desktop', 'sym', '/usr/share/applications/a.desktop'),
+                   ('usr/share/applications/not-regular.desktop', 'fifo', '')]
+        self.run_import(self.layout([entries]), preserve=True)
+        records = [json.loads(line) for line in self.command('applications', self.destination).stdout.splitlines()]
+        self.assertEqual(len(records), 3)
+        self.assertEqual(records[0]['path'], '/root/.local/share/applications/a.desktop')
+        self.assertIn('Hidden=true', records[0]['text'])
 
     def test_explicit_blob_cache_keeps_full_digest_validation(self):
         layout = self.layout()

@@ -3,6 +3,9 @@
     <string name="guest_environments">Gastumgebungen</string>
     <string name="guest_loading">Umgebungen werden geladen&#8230;</string>
     <string name="guest_empty">Keine Gastumgebungen installiert</string>
+    <string name="guest_launches">Aktive Starts</string>
+    <string name="guest_no_launches">Keine aktiven Starts</string>
+    <string name="guest_stop_launch">Start beenden</string>
     <string name="guest_select">Gastumgebung auswählen</string>
     <string name="settings_language">App-Sprache</string>
     <string name="settings_language_system">Systemstandard</string>

@@ -24,8 +24,10 @@ final class GuestImageTool implements GuestEnvironmentLibrary.Images {
         try {
             var command = new ArrayList<>(List.of(arguments));
             command.add(0, executable.toString());
-            process = new ProcessBuilder(command).redirectError(ProcessBuilder.Redirect.INHERIT)
-                    .redirectOutput(output.toFile()).start();
+            var builder = new ProcessBuilder(command).redirectError(ProcessBuilder.Redirect.INHERIT)
+                    .redirectOutput(output.toFile());
+            builder.environment().put("MAGICDESK_IMAGE_OWNER_PID", Integer.toString(android.os.Process.myPid()));
+            process = builder.start();
             Process child = process;
             cleanup = new Thread(child::destroyForcibly, "guest-image-cancellation");
             Runtime.getRuntime().addShutdownHook(cleanup);

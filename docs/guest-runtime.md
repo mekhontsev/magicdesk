@@ -62,6 +62,8 @@ magicdesk-guest login work
 magicdesk-guest exec work -- /bin/sh -c 'mkdir -p /mnt/project'
 magicdesk-guest exec work --bind /sdcard/Download /mnt/project -- /bin/sh
 magicdesk-guest run tools -- /bin/sh
+magicdesk-guest launches work
+magicdesk-guest stop work LAUNCH_ID
 magicdesk-guest backup work /sdcard/Download/work.tar.zst
 magicdesk-guest restore /sdcard/Download/work.tar.zst --name restored
 magicdesk-guest remove tools
@@ -89,6 +91,16 @@ verified layer bodies. `path NAME` returns the immutable store location for
 existing shell/PTY/X11/Wayland recipes. `inspect NAME` includes that location,
 source, image config and lower dependencies. Reusing a removed name creates a
 new storage identity, never retargets an already resolved launch.
+
+`launches NAME` lists live native launch owners from CLI, PTY and graphical
+recipes alike. Each has an opaque launch ID, initial program/cwd, optional
+application label and actual/guest UIDs. `stop NAME ID` requests cancellation of
+that exact supervised tree. A pidfd and the supervisor's retained record FD
+validate ownership; PID reuse cannot redirect cancellation. Acceptance is not
+completion: list again to observe removal. Kernel lifetime locks distinguish
+live records from stale records after a crash. This is an on-demand launch
+catalog, not a process scan or a second supervisor. The terminal environment
+picker exposes the same list with an explicit stop confirmation.
 
 `run` retains Entrypoint/Cmd. `exec` overrides both with the explicit command;
 it starts a new supervised process tree, not Docker-style entry into an existing
@@ -121,8 +133,13 @@ downloads. Busy or uninspectable resources stop cleanup. Attached host directori
 are never removed. Do not create unmanaged snapshots referencing library-owned
 images: the catalog cannot discover dependents outside its library. Use portable
 backup/restore for independent storage. Interrupted native removals retain a
-retryable tombstone; interrupted imports with unknown staging state are not
-blindly deleted. There is no background GC or process-list daemon.
+retryable tombstone. Native import and backup share private, lifetime-locked
+staging directories: the next publication or explicit recovery removes only
+recognized abandoned staging, never an active writer or a published result.
+Java management helpers terminate with their owner; `prune` reclaims abandoned
+library work and download staging under the catalog lock. An interrupted name
+publication does not expose a partial environment. Inspect published resources
+before retrying an operation whose result was lost. There is no background GC.
 
 Low-level prepared-store commands remain available:
 
@@ -176,6 +193,17 @@ environment catalog with the CLI. Selection captures the immutable store path;
 removing and reusing a name cannot retarget an existing shortcut. Raw prepared
 stores and user-owned entry scripts remain explicit alternatives.
 Its optional User field accepts the same guest user/group selection as the CLI.
+Installed guest applications also feed Start's shared application catalog.
+Discovery reads `.desktop` files from the image account's XDG data directories
+without starting guest processes. Application identities include the immutable
+environment ID; duplicate names in different environments remain independent.
+The same recipe builder handles terminal, X11 and Wayland entries. Bounded PNG
+icons use the shared bitmap decoder; unavailable icons use the ordinary fallback.
+The cached snapshot refreshes explicitly through Start's refresh control or
+MCP discovery, not on every menu opening. Package changes inside a running guest
+require that refresh. Discovery does not supply Android file arguments or a new
+MIME-handler bridge to guest applications.
+
 Terminal commands use the shared retained PTY. An empty managed terminal command
 opens the account login shell. Both X11 and Wayland recipes resolve XKB from
 `/usr/share/X11/xkb` in their selected store, without a copied path in the UI.
@@ -193,6 +221,8 @@ actual guest URI; exports return read-only descriptors. No rootfs path guessing,
 Termux bind directory or virtual-inode-to-host-name conversion is involved.
 
 `guest.list` and `guest.inspect` expose the same catalog through MCP.
+`guest.launches` and `guest.stop` address native launch ownership independently
+of the caller that initiated a launch and of process-local MCP receipts.
 `guest.start` runs explicit CLI arguments, `guest.status` observes bounded output
 and completion by operation ID/revision, and `guest.cancel` closes only that
 operation's owned command tree. Disconnecting MCP does not cancel work. Process
@@ -489,6 +519,14 @@ File-helper checks verify import, descriptor export and owner-loss cleanup.
 Backup, deletion and restore retain saved content under new storage identities
 and support graphical relaunch. These checks use a virtual display without
 Desktop, HOME acquisition or a Termux executor.
+
+Installed-catalog checks cover independent Debian/Alpine application identities,
+X11/Wayland rendering, terminal ownership and exact CLI/MCP cancellation without
+stopping another launch. Recovery checks kill MagicDesk during a native restore,
+reopen it, verify helper termination and intact catalogs, then prune and restore
+the same archive successfully. Native fixtures separately interrupt import and
+backup, preserve active staging and reject staging symlinks. These are process
+failure checks, not power-loss guarantees.
 
 Virtual-root IPC checks run stock Debian and Alpine session D-Bus, independent
 root clients and a rejected different-user client. Debian additionally passes

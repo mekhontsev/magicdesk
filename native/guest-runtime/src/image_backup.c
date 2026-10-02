@@ -184,23 +184,10 @@ int md_image_backup(const char *store, const char *destination) {
     }
     sqlite3_finalize(q);
     if (!r && asprintf(&metadata, "{\"format\":1,\"guestUsers\":%d,\"imageConfig\":%s}", guest_users, config) < 0) r = -ENOMEM;
-    char temporary[PATH_MAX]; char id[33];
-    if (!r) r = mdi_random_id(id);
-    if (!r && (!destination || destination[0] != '/')) r = -EINVAL;
-    if (!r && snprintf(temporary, sizeof(temporary), "%s.part-%s", destination, id) >= (int)sizeof(temporary)) r = -ENAMETOOLONG;
-    char directory[PATH_MAX];
-    int parent = -1;
-    if (!r) {
-        if (strlen(destination) >= sizeof(directory)) r = -ENAMETOOLONG;
-        else {
-            strcpy(directory, destination);
-            char *end = strrchr(directory, '/');
-            if (end == directory) end[1] = 0; else *end = 0;
-            if ((parent = open(directory, O_RDONLY | O_DIRECTORY | O_CLOEXEC)) < 0) r = -errno;
-        }
-    }
+    struct md_image_publish publication = {.parent=-1, .stage=-1};
+    if (!r) r = md_image_publish_begin(destination, &publication);
     int fd = -1;
-    if (!r && (fd = open(temporary, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600)) < 0) r = -errno;
+    if (!r && (fd = openat(publication.stage, "store", O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600)) < 0) r = -errno;
     struct archive *ar = archive_write_new();
     if (!ar && !r) r = -ENOMEM;
     if (!r && (archive_write_set_format_pax(ar) != ARCHIVE_OK || archive_write_add_filter_zstd(ar) != ARCHIVE_OK
@@ -209,10 +196,9 @@ int md_image_backup(const char *store, const char *destination) {
     if (!r) r = write_tree(s, ar);
     if (ar) { if (archive_write_close(ar) != ARCHIVE_OK && !r) r = -EIO; archive_write_free(ar); }
     if (!r && fsync(fd)) r = -errno;
-    if (!r && syscall(SYS_renameat2, AT_FDCWD, temporary, AT_FDCWD, destination, RENAME_NOREPLACE)) r = -errno;
-    if (!r && fsync(parent)) r = -errno;
-    if (parent >= 0) close(parent);
-    if (fd >= 0) { close(fd); unlink(temporary); }
+    if (!r) r = md_image_publish_commit(&publication);
+    if (fd >= 0) close(fd);
+    md_image_publish_close(&publication);
     free(config); free(metadata); md_inode_store_close(s); return r;
 }
 static int backup_config(int fd, sqlite3 *db, char **out, int *guest_users) {

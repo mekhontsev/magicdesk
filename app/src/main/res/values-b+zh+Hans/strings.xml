@@ -3,6 +3,9 @@
     <string name="guest_environments">客户机环境</string>
     <string name="guest_loading">正在加载环境&#8230;</string>
     <string name="guest_empty">尚未安装客户机环境</string>
+    <string name="guest_launches">正在运行的启动项</string>
+    <string name="guest_no_launches">没有正在运行的启动项</string>
+    <string name="guest_stop_launch">停止启动项</string>
     <string name="guest_select">选择客户机环境</string>
     <string name="settings_language">应用语言</string>
     <string name="settings_language_system">跟随系统</string>

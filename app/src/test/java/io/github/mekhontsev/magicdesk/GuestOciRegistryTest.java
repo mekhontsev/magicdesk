@@ -24,11 +24,21 @@ public class GuestOciRegistryTest {
     private static final class Response extends HttpURLConnection {
         int status = 200;
         byte[] body;
+        boolean interrupted;
         Map<String, String> headers = new HashMap<>();
         Response(URI uri, byte[] body) throws Exception { super(uri.toURL()); this.body = body; }
         @Override public int getResponseCode() { return status; }
         @Override public String getHeaderField(String name) { return headers.get(name); }
-        @Override public ByteArrayInputStream getInputStream() { return new ByteArrayInputStream(body); }
+        @Override public java.io.InputStream getInputStream() {
+            if (!interrupted) return new ByteArrayInputStream(body);
+            return new java.io.InputStream() {
+                int offset;
+                @Override public int read() throws IOException {
+                    if (offset == body.length / 2) throw new java.io.InterruptedIOException("fixture download interrupted");
+                    return body[offset++] & 255;
+                }
+            };
+        }
         @Override public void disconnect() { }
         @Override public boolean usingProxy() { return false; }
         @Override public void connect() { }
@@ -106,5 +116,32 @@ public class GuestOciRegistryTest {
             } catch (Exception error) { throw new IOException(error); }
         }, message -> { });
         assertThrows(IOException.class, () -> registry.pull("alpine", root.resolve("cache"), root.resolve("layout")));
+    }
+
+    @Test public void interruptedDownloadKeepsVerifiedCacheAndRetryPublishesOnlyCompleteBlob() throws Exception {
+        Path root = temporary.newFolder().toPath();
+        byte[] config = bytes("{\"os\":\"linux\",\"architecture\":\"arm64\",\"rootfs\":{\"type\":\"layers\",\"diff_ids\":[]}}");
+        byte[] layer = bytes("fixture layer to interrupt");
+        var cd = descriptor(config, "application/vnd.oci.image.config.v1+json");
+        var ld = descriptor(layer, "application/vnd.oci.image.layer.v1.tar");
+        byte[] manifest = bytes(new JSONObject().put("schemaVersion", 2).put("mediaType", "application/vnd.oci.image.manifest.v1+json")
+                .put("config", cd).put("layers", new JSONArray().put(ld)).toString());
+        boolean[] interrupt = {true};
+        var registry = new GuestOciRegistry(uri -> {
+            try {
+                var response = new Response(uri, manifest);
+                if (uri.getPath().endsWith(cd.getString("digest"))) response.body = config;
+                if (uri.getPath().endsWith(ld.getString("digest"))) { response.body = layer; response.interrupted = interrupt[0]; }
+                return response;
+            } catch (Exception failure) { throw new IOException(failure); }
+        }, message -> { });
+        var cache = root.resolve("cache");
+        assertThrows(IOException.class, () -> registry.pull("registry.test/repo", cache, root.resolve("broken")));
+        assertFalse(Files.exists(cache.resolve(GuestImageFiles.hex(ld.getString("digest")))));
+        assertArrayEquals(config, Files.readAllBytes(cache.resolve(GuestImageFiles.hex(cd.getString("digest")))));
+        try (var files = Files.list(cache)) { assertFalse(files.anyMatch(p -> p.getFileName().toString().startsWith(".download-"))); }
+        interrupt[0] = false;
+        registry.pull("registry.test/repo", cache, root.resolve("retried"));
+        assertArrayEquals(layer, Files.readAllBytes(cache.resolve(GuestImageFiles.hex(ld.getString("digest")))));
     }
 }

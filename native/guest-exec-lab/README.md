@@ -28,6 +28,21 @@ store. It exercises production shell admission, the selected-guest static helper
 Android import, independent guest read, SCM_RIGHTS export and owner-loss cleanup,
 without creating a graphical session.
 
+`test_environment_catalog.py --names NAME NAME` uses prepared named Debian and
+Alpine environments with Python 3 and Mousepad. It checks independent catalog
+identities, rendered X11/Wayland windows, shared terminal ownership, and exact
+CLI/MCP stop without cancelling a peer. Test-only desktop entries are added to
+the selected guests and removed after successful checks. The owned virtual
+display and graphical sessions are released on exit.
+
+`test_environment_recovery.py --help` documents an opt-in process-death check.
+Its `--kill-app` mode terminates MagicDesk during a native restore and reopens
+the exported launcher, interrupting any other work in that app process. Run it
+only on an idle device. It uses a private library, preserves the default catalog,
+verifies helper termination, then recovers staging and retries the restore.
+Neither fixture reboots the device or requires a Desktop session. Reports are
+`build/environment-catalog.json` and `build/environment-recovery.json`.
+
 ## Prepared Runtime Fixtures
 
 `prepare.mjs` authenticates Debian archive metadata and packages, then extracts

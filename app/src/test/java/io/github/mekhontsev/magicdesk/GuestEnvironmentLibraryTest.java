@@ -27,6 +27,7 @@ public class GuestEnvironmentLibraryTest {
             commands.add(List.of(args));
             Path path = Path.of(args[1]);
             switch (args[0]) {
+                case "recover-staging", "launches" -> { }
                 case "rootfs", "import", "restore" -> {
                     Path target = Path.of(args[2]); Files.createDirectory(target);
                     stores.put(target, new JSONObject().put("kind", args[0].equals("restore") ? "instance" : "image")

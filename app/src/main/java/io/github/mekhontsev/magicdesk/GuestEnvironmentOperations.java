@@ -38,9 +38,13 @@ final class GuestEnvironmentOperations {
         requireShell();
         var session = new ShellCommandSession("/data/local/tmp");
         try {
-            var result = session.execute(inLibrary(GuestEnvironmentCatalog.command(arguments), library));
-            if (result.exitCode() != 0) throw new IOException(result.output());
-            return result.output().trim();
+            var output = new java.io.ByteArrayOutputStream();
+            var result = session.execute(inLibrary(GuestEnvironmentCatalog.command(arguments), library), (bytes, offset, count) -> {
+                if (count > GuestImageFiles.JSON_LIMIT - output.size()) throw new IOException("Guest result exceeds size limit");
+                output.write(bytes, offset, count);
+            });
+            if (result.exitCode() != 0) throw new IOException(result.stderr());
+            return output.toString(StandardCharsets.UTF_8).trim();
         } finally { session.close(); }
     }
 

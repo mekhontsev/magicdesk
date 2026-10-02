@@ -51,7 +51,33 @@ static int optional(sqlite3 *db, const char *json, const char *path, char **out)
     int r = md_json_string(db, json, path, out);
     return r == -ENOENT ? 0 : r;
 }
-static const char *environment(char **entries, size_t count, const char *name) {
+int md_image_config_read(struct md_filesystem *fs, char **json) { return config(fs->store, json); }
+int md_image_config_account(struct md_filesystem *fs, const char *json, const char *selected,
+        struct md_identity *identity, struct md_guest_account *account, int *guest_user) {
+    struct md_inode_store *s = fs->store;
+    char *user = NULL;
+    int preserve = 0, r = optional(s->db, json, "$.config.User", &user);
+    if (!r) r = mdi_begin(s, 0);
+    if (!r) {
+        sqlite3_stmt *q = NULL;
+        r = mdi_prepare(s, "SELECT value FROM properties WHERE key='image-users'", &q);
+        if (!r) {
+            int rc = mdi_step(s, q);
+            if (rc == SQLITE_ROW) preserve = sqlite3_column_int(q, 0) != 0;
+            else r = mdi_sql_failure(rc);
+        }
+        sqlite3_finalize(q); r = mdi_finish(s, r);
+    }
+    if (!r && user && *user && !selected && !preserve) r = -ENOTSUP;
+    *guest_user = selected ? strcmp(selected, "current") != 0 : preserve;
+    if (!r && *guest_user) {
+        r = md_guest_user_resolve(fs, selected ? selected : user, identity);
+        if (!r) s->identity = identity;
+    }
+    if (!r) r = md_guest_account_resolve(fs, *guest_user ? identity->uid.real : getuid(), account);
+    free(user); return r;
+}
+const char *md_image_environment_value(char **entries, size_t count, const char *name) {
     size_t n = strlen(name);
     for (size_t i = count; i; --i) if (!strncmp(entries[i-1], name, n) && entries[i-1][n] == '=') return entries[i-1]+n+1;
     return NULL;
@@ -141,49 +167,31 @@ int md_image_launch(enum md_image_command kind, int argc, char **argv) {
         (unsigned long long)instance.st_dev, (unsigned long long)instance.st_ino);
     struct md_filesystem fs = {.store=s};
     if (!r) r = md_fs_mounts_open(&fs, attachments, attachment_count);
-    char *json = NULL, *cwd = NULL, *user = NULL;
+    char *json = NULL, *cwd = NULL;
     char **entries = NULL, **cmd = NULL, **env = NULL;
     size_t entry_count = 0, cmd_count = 0, env_count = 0;
-    int preserve = 0;
     if (!r) r = mdi_begin(s, 0);
     if (!r) {
         r = config(s, &json);
         if (!r) r = optional(s->db, json, "$.config.WorkingDir", &cwd);
-        if (!r) r = optional(s->db, json, "$.config.User", &user);
-        sqlite3_stmt *policy = NULL;
-        if (!r) r = mdi_prepare(s,"SELECT value FROM properties WHERE key='image-users'",&policy);
-        if (!r) {
-            int rc=mdi_step(s,policy);
-            if (rc==SQLITE_ROW) preserve=sqlite3_column_int(policy,0)!=0;
-            else r=mdi_sql_failure(rc);
-        }
-        sqlite3_finalize(policy);
         if (!r) r = md_json_array(s->db, json, "$.config.Entrypoint", &entries, &entry_count);
         if (!r) r = md_json_array(s->db, json, "$.config.Cmd", &cmd, &cmd_count);
         if (!r) r = md_json_array(s->db, json, "$.config.Env", &env, &env_count);
         r = mdi_finish(s, r);
     }
-    if (!r && user && *user && !selected_user && !preserve) {
-        fprintf(stderr, "Image USER=%s has mapped ownership; select --user current or an explicit guest user.\n", user);
-        r = -ENOTSUP;
-    }
     struct md_identity identity = {0};
-    char identity_text[32], *group_text = NULL;
-    int guest_user = selected_user ? strcmp(selected_user,"current")!=0 : preserve;
-    if (!r && guest_user) {
-        r=md_guest_user_resolve(&fs,selected_user ? selected_user : user,&identity);
-        if (!r) {
-            snprintf(identity_text,sizeof(identity_text),"%u:%u",identity.uid.real,identity.gid.real);
-            r=md_guest_group_argument(&identity,&group_text);
-            s->identity=&identity;
-        }
-    }
     struct md_guest_account account = {0};
-    if (!r) r = md_guest_account_resolve(&fs, guest_user ? identity.uid.real : getuid(), &account);
-    const char *home = environment(overrides, override_count, "HOME");
-    if (!home && kind != MD_IMAGE_LOGIN) home = environment(env, env_count, "HOME");
+    char identity_text[32], *group_text = NULL;
+    int guest_user = 0;
+    if (!r) r = md_image_config_account(&fs, json, selected_user, &identity, &account, &guest_user);
+    if (!r && guest_user) {
+        snprintf(identity_text,sizeof(identity_text),"%u:%u",identity.uid.real,identity.gid.real);
+        r=md_guest_group_argument(&identity,&group_text);
+    }
+    const char *home = md_image_environment_value(overrides, override_count, "HOME");
+    if (!home && kind != MD_IMAGE_LOGIN) home = md_image_environment_value(env, env_count, "HOME");
     if (!home) home = account.home;
-    const char *shell = environment(overrides, override_count, "SHELL");
+    const char *shell = md_image_environment_value(overrides, override_count, "SHELL");
     if (!shell) shell = account.shell;
     const char *working = cwd_override ? cwd_override : kind == MD_IMAGE_LOGIN ? home : cwd && *cwd ? cwd : "/";
     if (!r && working[0] != '/') r = -EINVAL;
@@ -195,8 +203,8 @@ int md_image_launch(enum md_image_command kind, int argc, char **argv) {
     if (kind == MD_IMAGE_LOGIN && position == argc) { command = login; command_count = 2; }
     size_t total = entry_count + explicit_count + command_count;
     if (!r && (!total || total + 2*(env_count+override_count) + 3*(attachment_count+routes.count) + 32 > 1000)) r = -E2BIG;
-    const char *search = environment(overrides, override_count, "PATH");
-    if (!search) search = environment(env, env_count, "PATH");
+    const char *search = md_image_environment_value(overrides, override_count, "PATH");
+    if (!search) search = md_image_environment_value(env, env_count, "PATH");
     char executable[PATH_MAX], runner[PATH_MAX];
     const char *first = explicit_count ? entry_override : entry_count ? entries[0] : command_count ? command[0] : NULL;
     if (!r) r = program_path(&fs, first, working, search, executable);
@@ -256,7 +264,7 @@ int md_image_launch(enum md_image_command kind, int argc, char **argv) {
         md_fs_mounts_close(&fs); md_inode_store_close(s); s = NULL;
         execv(runner, launch); r = -errno;
     }
-    free(launch); free(json); free(cwd); free(user);
+    free(launch); free(json); free(cwd);
     free(group_text); md_identity_release(&identity);
     md_json_array_free(entries, entry_count); md_json_array_free(cmd, cmd_count); md_json_array_free(env, env_count);
     md_fs_mounts_close(&fs); md_inode_store_close(s); return r;

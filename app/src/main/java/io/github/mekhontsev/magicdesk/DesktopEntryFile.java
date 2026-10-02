@@ -104,6 +104,14 @@ final class DesktopEntryFile {
     }
 
     private static DesktopApplicationShortcut parseTermuxApplicationValues(Map<String, String> values) {
+        return parseLinuxApplicationValues(values, "termux");
+    }
+
+    static DesktopApplicationShortcut parseGuestApplication(String encoded) {
+        return parseLinuxApplicationValues(parseValues(encoded), "shell");
+    }
+
+    private static DesktopApplicationShortcut parseLinuxApplicationValues(Map<String, String> values, String backend) {
         if (values == null || !"Application".equals(values.get("Type"))
                 || "true".equalsIgnoreCase(values.get("Hidden"))
                 || "true".equalsIgnoreCase(values.get("NoDisplay"))) return null;
@@ -112,7 +120,7 @@ final class DesktopEntryFile {
                 && !key.equals("X-MagicDesk-Graphics") && !key.equals("X-MagicDesk-GraphicsMode")
                 && !key.equals("X-MagicDesk-GraphicsConnection")
                 && !key.equals("X-MagicDesk-KeyboardDirectory") && !key.equals("X-MagicDesk-FileEnvironment"));
-        values.put("X-MagicDesk-ExecBackend", "termux");
+        values.put("X-MagicDesk-ExecBackend", backend);
         values.put("X-MagicDesk-ExecSyntax", "argv");
         if (!"true".equalsIgnoreCase(values.get("Terminal"))) values.putIfAbsent("X-MagicDesk-Graphics", "x11");
         return parseApplication(values);

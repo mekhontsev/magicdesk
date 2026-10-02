@@ -165,8 +165,16 @@ final class TerminalSessionsDialog {
                 picker.dismiss();
                 UiDialogs.builder(activity).setTitle(R.string.guest_environments)
                         .setItems(entries.stream().map(GuestEnvironmentCatalog.Entry::name).toArray(String[]::new),
-                                (dialog, index) -> openIntent(CommandConsoleActivity.createPreparedCommandIntent(activity,
-                                        GuestEnvironmentCatalog.login(entries.get(index)), "", DesktopExecBackend.SHELL)))
+                                (dialog, index) -> {
+                                    var entry = entries.get(index);
+                                    UiDialogs.builder(activity).setTitle(entry.name())
+                                            .setItems(new String[]{activity.getString(R.string.terminal_new), activity.getString(R.string.guest_launches)},
+                                                    (action, selected) -> {
+                                                        if (selected == 1) GuestLaunchesDialog.show(activity, entry);
+                                                        else openIntent(CommandConsoleActivity.createPreparedCommandIntent(activity,
+                                                                GuestEnvironmentCatalog.login(entry), "", DesktopExecBackend.SHELL));
+                                                    }).setNegativeButton(android.R.string.cancel, null).show();
+                                })
                         .setNegativeButton(android.R.string.cancel, null).show();
             }));
             picker.setOnDismissListener(dialog -> { try { request.close(); } catch (java.io.IOException ignored) { } });

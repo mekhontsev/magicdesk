@@ -3,6 +3,9 @@
     <string name="guest_environments">ゲスト環境</string>
     <string name="guest_loading">環境を読み込み中&#8230;</string>
     <string name="guest_empty">インストール済みのゲスト環境はありません</string>
+    <string name="guest_launches">実行中のプロセス</string>
+    <string name="guest_no_launches">実行中のプロセスはありません</string>
+    <string name="guest_stop_launch">実行を停止</string>
     <string name="guest_select">ゲスト環境を選択</string>
     <string name="settings_language">アプリの言語</string>
     <string name="settings_language_system">システムの設定に従う</string>

@@ -28,6 +28,7 @@ final class ApplicationCatalog {
 
     record Snapshot(ApplicationCatalogSource.Snapshot<AppItem> android,
             ApplicationCatalogSource.Snapshot<DesktopApplicationRepository.Entry> termux,
+            ApplicationCatalogSource.Snapshot<DesktopApplicationRepository.Entry> guest,
             java.util.Map<String, android.graphics.Bitmap> termuxIcons) {
         List<StartMenuEntry> applications(List<AppItem> apps,
                 List<DesktopApplicationRepository.Entry> desktop) {
@@ -36,6 +37,7 @@ final class ApplicationCatalog {
             for (var entry : desktop) if (entry.shortcut.hasExecLaunch())
                 entries.add(StartMenuEntry.desktopApplication(entry));
             for (var entry : termux.entries()) entries.add(StartMenuEntry.desktopApplication(entry));
+            for (var entry : guest.entries()) entries.add(StartMenuEntry.desktopApplication(entry));
             return sortedUnique(entries);
         }
     }
@@ -44,6 +46,9 @@ final class ApplicationCatalog {
     private final List<Runnable> listeners = new ArrayList<>();
     private final ApplicationCatalogSource<AppItem> android;
     private final ApplicationCatalogSource<DesktopApplicationRepository.Entry> termux;
+    private final ApplicationCatalogSource<DesktopApplicationRepository.Entry> guest;
+    private java.util.Map<String, android.graphics.Bitmap> guestIcons = java.util.Map.of();
+    private int guestOwner = -1;
     private final ApplicationIconCache<android.graphics.Bitmap> icons;
     private TermuxIntegration.Endpoint endpoint;
     private String termuxOwner = "";
@@ -63,6 +68,7 @@ final class ApplicationCatalog {
         configuration = new Configuration(context.getResources().getConfiguration());
         android = new ApplicationCatalogSource<>(this::loadAndroid, this::changed);
         termux = new ApplicationCatalogSource<>(this::loadTermuxSource, this::termuxChanged);
+        guest = new ApplicationCatalogSource<>(this::loadGuestSource, this::changed);
         icons = new ApplicationIconCache<>(TermuxIconCommand.BATCH_SIZE,
                 (keys, complete) -> TermuxApplicationIcons.load(context, endpoint, IO, keys, complete),
                 this::changed);
@@ -88,7 +94,11 @@ final class ApplicationCatalog {
         });
     }
 
-    Snapshot snapshot() { return new Snapshot(android.snapshot(), termux.snapshot(), icons.snapshot()); }
+    Snapshot snapshot() { return new Snapshot(android.snapshot(), termux.snapshot(), guest.snapshot(), icons.snapshot()); }
+
+    static android.graphics.Bitmap cachedGuestIcon(String name) {
+        return instance == null ? null : instance.guestIcons.get(name);
+    }
 
     static android.graphics.Bitmap cachedTermuxIcon(String name) {
         return instance == null ? null : instance.icons.snapshot().get(name);
@@ -114,6 +124,79 @@ final class ApplicationCatalog {
     void refresh() {
         ensureAndroid();
         if (inspectTermux()) termux.refresh(null);
+        if (inspectGuest()) guest.ensureLoaded();
+    }
+
+    void refreshApplications() {
+        android.invalidate(); termux.invalidate(); guest.invalidate();
+        refresh();
+    }
+
+    private boolean inspectGuest() {
+        int uid = ShellAccess.isReady() ? ShellAccess.currentSnapshot().uid : -1;
+        if (uid != guestOwner) {
+            guestOwner = uid; guestIcons = java.util.Map.of();
+            guest.reset(uid < 0 ? "Privileged command service is unavailable" : "");
+        }
+        return uid == 2000 || uid == 0;
+    }
+
+    private void loadGuestSource(ApplicationCatalogSource.Completion<DesktopApplicationRepository.Entry> complete) {
+        int owner = guestOwner;
+        IO.execute(() -> {
+            try {
+                var result = GuestApplicationRecords.parse(GuestEnvironmentOperations.read("", "applications"));
+                var images = new java.util.HashMap<String, android.graphics.Bitmap>();
+                result.icons().forEach((key, bytes) -> {
+                    var image = ApplicationIconBitmap.decode(bytes);
+                    if (image != null) images.put(key, image);
+                });
+                MAIN.post(() -> {
+                    inspectGuest();
+                    if (owner != guestOwner) return;
+                    guestIcons = java.util.Map.copyOf(images);
+                    complete.complete(result.entries(), "");
+                });
+            } catch (Exception error) {
+                MAIN.post(() -> {
+                    inspectGuest();
+                    if (owner == guestOwner) {
+                        CompatibilityDiagnostics.record("GUEST-APPS-001", "Could not load guest applications", "", error);
+                        complete.complete(List.of(), ShellAccess.usefulMessage(error));
+                    }
+                });
+            }
+        });
+    }
+
+    static List<DesktopApplicationRepository.Entry> loadGuest(Context context) throws IOException {
+        return loadGuest(context, true);
+    }
+
+    static List<DesktopApplicationRepository.Entry> loadGuest(Context context, boolean refresh) throws IOException {
+        if (Looper.myLooper() == Looper.getMainLooper()) throw new IOException("Guest catalog cannot block the UI");
+        var ready = new CountDownLatch(1);
+        var result = new AtomicReference<ApplicationCatalogSource.Snapshot<DesktopApplicationRepository.Entry>>();
+        MAIN.post(() -> {
+            try {
+                var catalog = get(context);
+                if (!catalog.inspectGuest()) { result.set(catalog.guest.snapshot()); ready.countDown(); }
+                else if (!refresh && catalog.guest.snapshot().ready()) { result.set(catalog.guest.snapshot()); ready.countDown(); }
+                else catalog.guest.refresh(value -> { result.set(value); ready.countDown(); });
+            } catch (RuntimeException error) {
+                result.set(new ApplicationCatalogSource.Snapshot<>(List.of(), false, false, ShellAccess.usefulMessage(error)));
+                ready.countDown();
+            }
+        });
+        try {
+            // EVENT_WAIT: catalog completion; expiry fails this observation, not the shared load.
+            EventDrivenWaits.noteFrameworkWait(EventDrivenWaits.Reason.APPLICATION_CATALOG);
+            if (!ready.await(60, TimeUnit.SECONDS)) throw new IOException("Guest catalog query timed out");
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt(); throw new IOException("Guest catalog interrupted", error);
+        }
+        if (!result.get().error().isEmpty()) throw new IOException(result.get().error());
+        return result.get().entries();
     }
 
     void ensureAndroid() { android.ensureLoaded(); }

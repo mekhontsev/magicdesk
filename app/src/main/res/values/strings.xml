@@ -2,6 +2,9 @@
     <string name="guest_environments">Guest environments</string>
     <string name="guest_loading">Loading environments&#8230;</string>
     <string name="guest_empty">No installed guest environments</string>
+    <string name="guest_launches">Running launches</string>
+    <string name="guest_no_launches">No running launches</string>
+    <string name="guest_stop_launch">Stop launch</string>
     <string name="guest_select">Select a guest environment</string>
     <string name="settings_language">App language</string>
     <string name="settings_language_system">System default</string>

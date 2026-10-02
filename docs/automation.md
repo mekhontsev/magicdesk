@@ -860,6 +860,12 @@ completed, and cancelled is not rolled back. Receipts survive MCP disconnect but
 not app restart. The same services support CLI, terminal and shortcut selection
 without Desktop or Termux; no separate MCP container manager is created.
 
+`guest.launches` lists native launch IDs across CLI, terminal and graphical
+entry points. `guest.stop` cancels one exact supervised tree after validating
+its retained record and pidfd; acceptance is not completion. Observe absence in
+`guest.launches`. These IDs belong to native owners, not MCP operation receipts.
+Stale records are reclaimed only after their lifetime lock is released.
+
 `graphics.list`, `graphics.start`, `graphics.execute`, `graphics.stop` and
 `graphics.open_window` address retained X11/Wayland sessions through the same
 service used by **Linux graphics**. Starting selects an explicit protocol and
@@ -1317,16 +1323,22 @@ An Android Desktop Entry that explicitly references a different profile fails
 before execution instead of falling back to the current profile.
 
 `list_desktop_entries` discovers launchable `.desktop` applications with
-`source=desktop|termux`, an optional `query` and a bounded `limit`. `desktop`
+`source=desktop|termux|guest`, an optional `query` and a bounded `limit`. `desktop`
 reads the Desktop folder; `termux` refreshes the installed application catalog
-through the selected Termux endpoint's `RUN_COMMAND`. Both require the MCP
+through the selected Termux endpoint's `RUN_COMMAND`. `guest` refreshes installed
+applications from named guest environments through the selected shell executor,
+without executing Linux. All require the MCP
 `shell` grant, not a running Desktop. Unavailable Termux access is an error,
 not an empty catalog or a fallback to another identity.
 
 Pass a returned `source` and `desktopPath` to `launch_desktop_entry`, with
 optional `files`, `placement`, `displayId`, `mode`, `instance` and `bounds`.
 Termux paths must match its current catalog; private files are never read through
-Android shell. Start and automation share the recipe coordinator and destination
+Android shell. Guest paths are synthetic catalog keys, not Android files; they must
+match the current catalog and capture the immutable environment identity.
+Discovered guest recipes use their own Linux Exec arguments, without mapping
+optional Android `files` into the guest. Start caches guest entries and icons
+until explicit refresh. Start and automation share the recipe coordinator and destination
 policy. Ordinary placement does not acquire HOME or start Desktop. An accepted
 recipe is not proof of application readiness: observe `list_tasks` and, for X11,
 the session/window catalog in `get_state`. A callback timeout is an uncertain

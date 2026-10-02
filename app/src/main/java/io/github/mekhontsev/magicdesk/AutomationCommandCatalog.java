@@ -16,6 +16,13 @@ final class AutomationCommandCatalog {
                 .put(readTool("guest.inspect", "Inspect guest environment", "Read a named environment, immutable store identity, image configuration and backing dependencies.",
                         objectSchema(new JSONObject().put("name", stringProperty("Environment name."))
                                 .put("library", stringProperty("Optional absolute library root.")), "name")))
+                .put(readTool("guest.launches", "List guest launches", "Read native owners of all launches in this environment, including CLI, terminal and graphical launches. Records survive app reconnect; no periodic process scan.",
+                        objectSchema(new JSONObject().put("name", stringProperty("Environment name."))
+                                .put("library", stringProperty("Optional absolute library root.")), "name")))
+                .put(destructiveTool("guest.stop", "Stop guest launch", "Request cancellation of one exact native launch tree. PID reuse cannot retarget it. Accepted is not completion; observe guest.launches until this ID disappears.",
+                        objectSchema(new JSONObject().put("name", stringProperty("Environment name."))
+                                .put("launchId", stringProperty("Exact launchId returned by guest.launches."))
+                                .put("library", stringProperty("Optional absolute library root.")), "name", "launchId")))
                 .put(actionTool("guest.start", "Start guest operation", "Run the shared magicdesk-guest CLI asynchronously under the selected shell/root identity. Arguments begin with install, restore, backup, remove, prune, dns, exec or run. Returns an operationId, not completion. Observe guest.status. Does not require Termux or Desktop. Cancellation can leave published resources: inspect before retrying.",
                         objectSchema(new JSONObject().put("arguments", arrayProperty("Literal CLI arguments; no shell parsing.", stringProperty("Argument.")))
                                 .put("library", stringProperty("Optional absolute library root for this operation only.")), "arguments")))
@@ -527,15 +534,15 @@ final class AutomationCommandCatalog {
                 .put(readTool(
                         "list_desktop_entries",
                         "List desktop applications",
-                        "Discover .desktop applications from the Desktop directory or the selected Termux installation. Does not require an active Desktop.",
+                        "Discover .desktop applications from Desktop, Termux or installed guest environments. Does not require an active Desktop.",
                         objectSchema(new JSONObject()
-                                .put("source", enumProperty("Catalog source; defaults to desktop.", "desktop", "termux"))
+                                .put("source", enumProperty("Catalog source; defaults to desktop.", "desktop", "termux", "guest"))
                                 .put("query", stringProperty("Optional name or desktop-file path filter."))
                                 .put("limit", integerProperty("Maximum entries, 1..256; defaults to 100.")))))
                 .put(actionTool(
                         "launch_desktop_entry",
                         "Launch desktop entry",
-                        "Launch a .desktop recipe through the same coordinator as Start. Termux entries come from list_desktop_entries, not the shell filesystem. Does not require Desktop; acceptance is not application readiness.",
+                        "Launch a .desktop recipe through the same coordinator as Start. Termux and guest entries require exact catalog identities from list_desktop_entries. Does not require Desktop; acceptance is not application readiness.",
                         desktopEntrySchema()))
                 .put(readTool(
                         "get_recording_status",
@@ -1304,7 +1311,7 @@ final class AutomationCommandCatalog {
     private static JSONObject desktopEntrySchema() throws JSONException {
         return objectSchema(activityPlacementProperties()
                 .put("source", enumProperty("File authority; defaults to desktop. Termux requires an exact catalog path.",
-                        "desktop", "termux"))
+                        "desktop", "termux", "guest"))
                 .put("desktopPath", stringProperty(
                         "Absolute .desktop file path."))
                 .put("mode", enumProperty("Launch mode; windowed requires Desktop.", "auto", "windowed", "fullscreen"))
@@ -1481,7 +1488,15 @@ final class AutomationCommandCatalog {
                                 .put("source", stringProperty("Installation source.")))));
                 break;
             case "guest.inspect":
-                return openObjectProperty("Native image inspection with configuration, identity and backing dependencies.");
+                return openObjectProperty("Native image inspection with configuration, identity and backing dependencies.")
+                        .put("title", toolName + " data");
+            case "guest.launches":
+                properties.put("launches", arrayProperty("Live native launch owners.", openObjectProperty("Launch identity, executorUid, guestUid, program and cwd.")));
+                break;
+            case "guest.stop":
+                properties.put("accepted", booleanProperty("Cancellation requested, not completed."))
+                        .put("launchId", stringProperty("Exact selected launch identity."));
+                break;
             case "guest.start":
             case "guest.status":
             case "guest.cancel":

@@ -3,6 +3,9 @@
     <string name="guest_environments">Гостевые окружения</string>
     <string name="guest_loading">Загрузка окружений&#8230;</string>
     <string name="guest_empty">Нет установленных гостевых окружений</string>
+    <string name="guest_launches">Активные запуски</string>
+    <string name="guest_no_launches">Нет активных запусков</string>
+    <string name="guest_stop_launch">Остановить запуск</string>
     <string name="guest_select">Выберите гостевое окружение</string>
     <string name="settings_language">Язык приложения</string>
     <string name="settings_language_system">Как в системе</string>

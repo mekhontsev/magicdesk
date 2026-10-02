@@ -28,6 +28,8 @@ public final class GuestEnvironmentMain {
                     magicdesk-guest install REPOSITORY[:TAG] --name NAME
                     magicdesk-guest install PATH --oci|--rootfs --name NAME
                     magicdesk-guest list | inspect NAME | path NAME
+                    magicdesk-guest launches NAME | stop NAME LAUNCH_ID
+                    magicdesk-guest applications
                     magicdesk-guest login NAME [OPTIONS] [-- SHELL...]
                     magicdesk-guest exec NAME [OPTIONS] -- COMMAND...
                     magicdesk-guest run NAME [OPTIONS] [-- ARGS...]
@@ -69,6 +71,8 @@ public final class GuestEnvironmentMain {
             System.out.println("Installed " + installed.name() + " at " + installed.store());
         } else if (command.equals("list") && arguments.length == 2 && arguments[1].equals("--json")) {
             System.out.println(library.catalog());
+        } else if (command.equals("applications") && arguments.length == 1) {
+            System.out.println(library.applications());
         } else if (command.equals("dns") && (arguments.length == 3
                 || arguments.length == 4 && arguments[3].equals("--replace"))) {
             String contents = resolver(arguments[2]);
@@ -80,6 +84,11 @@ public final class GuestEnvironmentMain {
             System.out.println(library.resolve(arguments[1]).store());
         } else if (command.equals("inspect") && arguments.length == 2) {
             System.out.println(library.inspect(arguments[1]).toString(2));
+        } else if (command.equals("launches") && arguments.length == 2) {
+            System.out.println(library.launches(arguments[1]));
+        } else if (command.equals("stop") && arguments.length == 3) {
+            library.stop(arguments[1], arguments[2]);
+            System.out.println("Stop requested for " + arguments[2]);
         } else if (command.equals("backup") && arguments.length == 3) {
             library.backup(arguments[1], Path.of(arguments[2]));
             System.out.println("Backed up " + arguments[1] + " to " + arguments[2]);

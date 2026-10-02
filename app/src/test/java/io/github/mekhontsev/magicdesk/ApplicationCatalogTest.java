@@ -52,9 +52,11 @@ public final class ApplicationCatalogTest {
     @Test public void catalogDoesNotRequireDesktopOrPrivilegeAndAutomationSharesTermuxSource() throws Exception {
         final String catalog = source("ApplicationCatalog");
         for (String dependency : new String[]{"DesktopRuntimeBridge", "DesktopHomeRoleLease",
-                "ShellAccess.require", "ShellAccess.isReady", "RuntimeCapabilities.require"}) {
+                "ShellAccess.require", "RuntimeCapabilities.require"}) {
             assertFalse(dependency, catalog.contains(dependency));
         }
+        assertFalse(RuntimeSourceFixture.methods("ApplicationCatalog", "ensureAndroid").contains("inspectGuest"));
+        assertFalse(RuntimeSourceFixture.methods("ApplicationCatalog", "inspectTermux").contains("ShellAccess"));
         assertTrue(source("DesktopEntrySource").contains("ApplicationCatalog.loadTermux"));
         final String termux = RuntimeSourceFixture.methods("ApplicationCatalog", "loadTermuxSource");
         assertTrue(termux.indexOf("inspectTermux()") < termux.indexOf("complete.complete"));

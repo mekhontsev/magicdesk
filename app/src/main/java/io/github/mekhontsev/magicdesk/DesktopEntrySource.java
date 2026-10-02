@@ -6,7 +6,7 @@ import java.util.List;
 
 /** File authority is explicit; a Termux catalog entry never falls back to the shell filesystem. */
 enum DesktopEntrySource {
-    DESKTOP("desktop"), TERMUX("termux");
+    DESKTOP("desktop"), TERMUX("termux"), GUEST("guest");
 
     final String wireName;
     DesktopEntrySource(String wireName) { this.wireName = wireName; }
@@ -17,11 +17,16 @@ enum DesktopEntrySource {
     }
 
     List<DesktopApplicationRepository.Entry> load(Context context) throws IOException {
-        return this == TERMUX ? ApplicationCatalog.loadTermux(context) : DesktopApplicationRepository.load();
+        return switch (this) {
+            case TERMUX -> ApplicationCatalog.loadTermux(context);
+            case GUEST -> ApplicationCatalog.loadGuest(context);
+            case DESKTOP -> DesktopApplicationRepository.load();
+        };
     }
 
     DesktopEntry read(Context context, String path) throws IOException {
-        if (this == TERMUX) return find(load(context), path).shortcut;
+        if (this == GUEST) return find(ApplicationCatalog.loadGuest(context, false), path).shortcut;
+        if (this != DESKTOP) return find(load(context), path).shortcut;
         DesktopEntry entry = DesktopEntryFile.read(ShellAccess.getShellFileInfo(path));
         if (entry == null) throw new IllegalArgumentException("unsupported or invalid .desktop file");
         return entry;
