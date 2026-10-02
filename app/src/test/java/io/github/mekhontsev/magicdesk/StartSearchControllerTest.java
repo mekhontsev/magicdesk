@@ -59,8 +59,10 @@ public final class StartSearchControllerTest {
 
     @Test
     public void genericSearchRowsRegisterTheResultIdentity() throws IOException {
-        final String source = read("StartMenuContent.java");
-        assertTrue(source.contains("result.stableKey()"));
+        final String source = RuntimeSourceFixture.methods("StartMenuContent", "bindEntry");
+        assertTrue(source.contains("entry.stableKey()"));
+        assertTrue(RuntimeSourceFixture.methods("StartMenuContent", "createSearchRow")
+                .contains("bindEntry(row, views, result, selected)"));
     }
 
     @Test
@@ -68,16 +70,13 @@ public final class StartSearchControllerTest {
         final DesktopApplicationShortcut shortcut = new DesktopCommandApplicationDraft(
                 "Command", "pwd", DesktopExecBackend.SHELL, "",
                 DesktopCommandApplicationDraft.FileArguments.NONE, "").build();
-        final Set<String> commandIds = new HashSet<>();
         final Set<String> resultIds = new HashSet<>();
         for (final String path : new String[] {
                 "/Desktop/Aa.desktop", "/Desktop/aa.desktop", "/Desktop/a b.desktop",
                 "/Desktop/a/b.desktop", "/Desktop/a-b.desktop"}) {
             final StartMenuEntry result = StartMenuEntry
                     .desktopApplication(new DesktopApplicationRepository.Entry(shortcut, path, null));
-            assertTrue(commandIds.add("start.search.command."
-                    + DesktopAutomationUiRegistry.identitySegment(path)));
-            assertTrue(resultIds.add("start.search.result."
+            assertTrue(resultIds.add("start.app."
                     + DesktopAutomationUiRegistry.identitySegment(result.stableKey())));
         }
     }
@@ -85,11 +84,9 @@ public final class StartSearchControllerTest {
     @Test
     public void startAndTaskbarEncodeIdentitiesWithoutChangingReadableLabels() throws IOException {
         final String start = read("StartMenuContent.java").replaceAll("\\s+", "");
-        for (final String identity : new String[] {
-                "application.stableKey()",
-                "result.desktopApplication.desktopFilePath", "result.stableKey()"}) {
-            assertTrue(start.contains("DesktopAutomationUiRegistry.identitySegment(" + identity + ")"));
-        }
+        assertTrue(start.contains("DesktopAutomationUiRegistry.identitySegment(entry.stableKey())"));
+        assertTrue(start.contains("bindEntry(tile,views,application,false)"));
+        assertTrue(start.contains("bindEntry(row,views,result,selected)"));
         assertTrue(read("TaskbarController.java").replaceAll("\\s+", "").contains(
                 "DesktopAutomationUiRegistry.identitySegment(app.packageName)"));
         assertTrue(read("TaskbarOverflowController.java").replaceAll("\\s+", "").contains(

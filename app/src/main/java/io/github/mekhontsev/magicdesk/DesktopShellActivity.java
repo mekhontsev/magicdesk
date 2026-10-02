@@ -65,8 +65,6 @@ public abstract class DesktopShellActivity extends Activity
     private static final String STATE_SESSION_POLICY = "session_policy";
     private static final Map<Integer, Integer> EXPECTED_DISPLAY_BY_TASK =
             new HashMap<>();
-    static final int TASKBAR_HEIGHT_DP = 64;
-    private static final int COMPACT_TASKBAR_HEIGHT_DP = 52;
     private FrameLayout mDesktopRoot;
     private DesktopLayoutController mDesktopLayout;
     private DesktopWallpaperController mDesktopWallpaperController;
@@ -1941,10 +1939,7 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     int getPanelThickness(ShellPanel panel) {
-        if (panel.style().thicknessDp() != 0) return mUi.dp(panel.style().thicknessDp());
-        final int padding = panel.style().paddingDp();
-        return desktopDp(TASKBAR_HEIGHT_DP - 16 + padding * 2,
-                COMPACT_TASKBAR_HEIGHT_DP - 8 + 2 * (padding / 2));
+        return mUi.dp(ShellPanelMetrics.resolve(panel.style(), isCompactDesktopPreview()).thickness());
     }
 
     void onTaskbarContentChanged() {

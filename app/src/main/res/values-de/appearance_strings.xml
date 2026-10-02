@@ -57,4 +57,16 @@
     <string name="appearance_color_accent_container">Akzentfläche</string>
     <string name="appearance_color_on_accent_container">Auf Akzentfläche</string>
     <string name="appearance_color_outline">Umriss</string>
+    <string name="appearance_start_navigation">Navigation im Startmenü</string>
+    <string name="appearance_scroll">Scrollen</string>
+    <string name="appearance_pages">Seiten</string>
+    <string name="appearance_entry_gap">Abstand zwischen Anwendungen</string>
+    <string name="appearance_component_options">Komponentenoptionen</string>
+    <string name="appearance_component_group">Leistengruppe</string>
+    <string name="appearance_percent">Prozent</string>
+    <string name="appearance_icon">Symbol</string>
+    <string name="appearance_icon_percent">Symbol und Prozent</string>
+    <string name="appearance_task_indicator">Aufgabenanzeige</string>
+    <string name="appearance_line">Linie</string>
+    <string name="appearance_dot">Punkt</string>
 </resources>

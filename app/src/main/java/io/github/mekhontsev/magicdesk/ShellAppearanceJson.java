@@ -90,9 +90,14 @@ final class ShellAppearanceJson {
             if (kind != ShellComposition.Kind.SPACER && !seen.add(kind)) throw invalid(path + "/type", "component already present");
             if (item.has("label") && kind != ShellComposition.Kind.START) throw invalid(path + "/label", "only valid for start");
             if (item.has("clock") && kind != ShellComposition.Kind.CLOCK) throw invalid(path + "/clock", "only valid for clock");
+            if (item.has("battery") && kind != ShellComposition.Kind.BATTERY) throw invalid(path + "/battery", "only valid for battery");
+            if (item.has("indicator") && kind != ShellComposition.Kind.TASKS) throw invalid(path + "/indicator", "only valid for tasks");
             components.add(new ShellComposition.Component(kind, item.optInt("widthDp", 0), item.optInt("minViewportDp", 0),
                     value(ShellComposition.Visibility.class, item.optString("visibility", name(ShellComposition.Component.of(kind).visibility()))),
-                    item.optString("label", ""), value(ShellComposition.Clock.class, item.optString("clock", "time"))));
+                    item.optString("label", ""), value(ShellComposition.Clock.class, item.optString("clock", "time")),
+                    value(ShellComposition.Group.class, item.optString("group", "start")),
+                    value(ShellComposition.Battery.class, item.optString("battery", "percent")),
+                    value(ShellComposition.Indicator.class, item.optString("indicator", "line"))));
             }
             JSONObject barStyle = object(panel, "style");
             var b = ShellAppearance.PanelStyle.defaults();
@@ -113,7 +118,8 @@ final class ShellAppearanceJson {
         if (!sections.contains(ShellComposition.Section.APPS)) throw invalid("/composition/start/sections", "apps is required");
         return new ShellComposition(panels, new ShellComposition.Start(sections,
                 value(ShellComposition.Presentation.class, start.optString("presentation", "grid")),
-                start.optInt("tileWidthDp", 100), start.optInt("iconSizeDp", 44)));
+                start.optInt("tileWidthDp", defaults.start().tileWidthDp()), start.optInt("iconSizeDp", 44),
+                value(ShellComposition.Navigation.class, start.optString("navigation", "scroll")), start.optInt("gapDp", 4)));
     }
 
     static JSONObject encode(ShellAppearance value) throws JSONException {
@@ -128,9 +134,11 @@ final class ShellAppearanceJson {
         JSONArray components = new JSONArray();
         for (var c : panel.components()) {
             JSONObject item = new JSONObject().put("type", name(c.type())).put("widthDp", c.widthDp())
-                    .put("minViewportDp", c.minViewportDp()).put("visibility", name(c.visibility()));
+                    .put("minViewportDp", c.minViewportDp()).put("visibility", name(c.visibility())).put("group", name(c.group()));
             if (c.type() == ShellComposition.Kind.START) item.put("label", c.label());
             if (c.type() == ShellComposition.Kind.CLOCK) item.put("clock", name(c.clock()));
+            if (c.type() == ShellComposition.Kind.BATTERY) item.put("battery", name(c.battery()));
+            if (c.type() == ShellComposition.Kind.TASKS) item.put("indicator", name(c.indicator()));
             components.put(item);
         }
         var t = panel.style();
@@ -155,7 +163,8 @@ final class ShellAppearanceJson {
                 .put("shape", new JSONObject().put("radiusScale", Float.valueOf(value.shape().radiusScale())).put("borderDp", Float.valueOf(value.shape().borderDp())))
                 .put("backdrop", encodeBackdrop(value.backdrop()))
                 .put("composition", new JSONObject().put("panels", panels).put("start", new JSONObject()
-                        .put("sections", sections).put("presentation", name(s.presentation())).put("tileWidthDp", s.tileWidthDp()).put("iconSizeDp", s.iconSizeDp())))
+                        .put("sections", sections).put("presentation", name(s.presentation())).put("tileWidthDp", s.tileWidthDp()).put("iconSizeDp", s.iconSizeDp())
+                        .put("navigation", name(s.navigation())).put("gapDp", s.gapDp())))
                 .put("motion", new JSONObject().put("reduced", m.reduced()).put("panels", name(m.panels())).put("taskbar", name(m.taskbar()))
                         .put("durationMs", m.durationMs()).put("feedbackMs", m.feedbackMs()).put("curve", name(m.curve()))
                         .put("distanceDp", m.distanceDp()).put("scaleFrom", Float.valueOf(m.scaleFrom())).put("wallpaper", m.wallpaper()))

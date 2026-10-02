@@ -1143,6 +1143,10 @@ runtime integration and are not distributed through the same release path.
   the sparse field-level patch pipeline; panel overrides retain whole-panel-list
   replacement semantics.
 - `ShellComposition` declares native panels at each edge, their components and Start sections.
+  `ShellComponentLayout` places start/center/end groups without overlap;
+  `ShellPanelMetrics` derives button and icon geometry from panel thickness and padding.
+  Start grid/list navigation recycles visible entries and measures page capacity from
+  the host viewport and cells rather than reserving fixed rows.
   `ShellComponentLayout` allocates fixed and flexible slots; UI reconciliation
   retains component Views and the existing action/service owners. `ShellMotion`
   and state feedback are presentation-only. `UiMotion` transforms child content

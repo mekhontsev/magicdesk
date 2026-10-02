@@ -56,4 +56,16 @@
     <string name="appearance_color_accent_container">Accent container</string>
     <string name="appearance_color_on_accent_container">On accent container</string>
     <string name="appearance_color_outline">Outline</string>
+    <string name="appearance_start_navigation">Start navigation</string>
+    <string name="appearance_scroll">Scrolling</string>
+    <string name="appearance_pages">Pages</string>
+    <string name="appearance_entry_gap">Spacing between applications</string>
+    <string name="appearance_component_options">Component options</string>
+    <string name="appearance_component_group">Panel group</string>
+    <string name="appearance_percent">Percentage</string>
+    <string name="appearance_icon">Icon</string>
+    <string name="appearance_icon_percent">Icon and percentage</string>
+    <string name="appearance_task_indicator">Task indicator</string>
+    <string name="appearance_line">Line</string>
+    <string name="appearance_dot">Dot</string>
 </resources>

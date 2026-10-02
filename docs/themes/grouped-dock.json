@@ -1,0 +1,18 @@
+{
+  "version": 5,
+  "preset": "light",
+  "composition": {
+    "panels": [{
+      "id": "dock",
+      "edge": "bottom",
+      "style": {"thicknessDp": 80, "paddingDp": 8, "edgeGapDp": 12, "sideGapDp": 12, "radiusDp": 8},
+      "components": [
+        {"type": "start", "group": "start"},
+        {"type": "tasks", "group": "center", "indicator": "dot"},
+        {"type": "battery", "group": "end", "battery": "both"},
+        {"type": "clock", "group": "end"}
+      ]
+    }],
+    "start": {"navigation": "scroll", "tileWidthDp": 88, "gapDp": 4}
+  }
+}

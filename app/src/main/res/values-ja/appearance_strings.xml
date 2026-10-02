@@ -57,4 +57,16 @@
     <string name="appearance_color_accent_container">アクセントコンテナ</string>
     <string name="appearance_color_on_accent_container">アクセントコンテナ上の色</string>
     <string name="appearance_color_outline">輪郭</string>
+    <string name="appearance_start_navigation">スタートの移動方法</string>
+    <string name="appearance_scroll">スクロール</string>
+    <string name="appearance_pages">ページ</string>
+    <string name="appearance_entry_gap">アプリ間の間隔</string>
+    <string name="appearance_component_options">コンポーネントの設定</string>
+    <string name="appearance_component_group">パネルのグループ</string>
+    <string name="appearance_percent">パーセント</string>
+    <string name="appearance_icon">アイコン</string>
+    <string name="appearance_icon_percent">アイコンとパーセント</string>
+    <string name="appearance_task_indicator">タスクのインジケーター</string>
+    <string name="appearance_line">線</string>
+    <string name="appearance_dot">点</string>
 </resources>

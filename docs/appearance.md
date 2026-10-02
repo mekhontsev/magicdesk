@@ -255,10 +255,10 @@ Panel style uses `length` (`fill`, `content`), `alignment` (`start`, `center`,
 `thicknessDp` (0 for automatic, otherwise 40-160), `paddingDp` (0-16),
 `radiusDp` (0-32), optional `backdrop`, and `reserveSpace`. Automatic thickness
 uses the native host's normal sizing. All lengths are density-independent and
-constrained to the available viewport. Thickness sets the panel's cross-axis
-extent, not a uniform content scale; automatic task buttons retain their host
-width, and icons fit their available bounds. Control styles do not replace this
-panel geometry. Start/end alignment follows the panel's
+constrained to the available viewport. Thickness and padding determine automatic
+square button extents and icon sizes on either axis. Explicit component widths
+and control padding override those defaults. Control paints do not own panel
+geometry. Start/end alignment follows the panel's
 long axis. Reserving panels contribute edge intervals; rectangular window
 consumers conservatively avoid an edge band. Non-reserving panels overlay the
 workspace. These reservations do not alter Android task-area ownership.
@@ -267,15 +267,24 @@ Components are `start`, `tasks`, `show_desktop`, `open_tasks`, `notifications`,
 `keyboard_layout`, `phone_screen`, `quick_controls`, `battery`, `clock`, `spacer`.
 They retain production action controllers and semantic automation identities.
 Each accepts `widthDp` (0 for automatic, otherwise 32-240), `minViewportDp`
-(0-4096), and `visibility` (`always`, `expanded`, `external`). The Start component
+(0-4096), `visibility` (`always`, `expanded`, `external`), and `group` (`start`,
+`center`, `end`; default `start`). Groups anchor independently; the center group
+is centered when space permits and shifts to avoid side groups. Components keep
+their order within each group. Overflow scrolls rather than overlapping. The Start component
 accepts `label` (at most 32 printable characters); Clock accepts `clock` (`time`,
-`date`, `date_time`). Unavailable controls do not start their services.
+`date`, `date_time`). Battery accepts `battery` (`percent`, `icon`, `both`), and
+Tasks accepts `indicator` (`line`, `dot`, `none`). These presentations reuse
+existing battery observations and task state. Unavailable controls do not start
+their services. [Grouped Dock](themes/grouped-dock.json) combines these options.
 
 `composition.start` declares ordered `sections` (`recent`, `apps`, `running`,
-`tools`), `presentation` (`grid`, `list`), `tileWidthDp` (80-200), and `iconSizeDp`
-(24-64). `apps` is required and sections cannot repeat. Both presentations retain
-the shared application catalog, profile identity, bounded pages, search and
-existing launch destinations.
+`tools`), `presentation` (`grid`, `list`), `navigation` (`scroll`, `pages`; default
+`scroll`), `tileWidthDp` (80-200; preferred column width), `iconSizeDp` (24-64), and
+`gapDp` (0-24). `apps` is required and sections cannot repeat. Grid and list use
+recycled visible entries. Columns adapt to width and icon bounds; page capacity
+uses the measured viewport and cell height, including themed text. There is no
+fixed row count. Both retain the shared catalog, profile identity, search,
+context actions and launch destinations.
 
 ## Resources
 

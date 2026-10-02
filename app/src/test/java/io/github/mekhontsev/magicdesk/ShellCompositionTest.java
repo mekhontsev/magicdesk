@@ -63,11 +63,52 @@ public final class ShellCompositionTest {
         assertFalse(phone.visible(false, false, 1200));
         assertFalse(phone.visible(true, true, 1200));
         assertTrue(phone.visible(false, true, 1200));
-        var slots = List.of(new ShellComponentLayout.Slot(48, false), new ShellComponentLayout.Slot(48, true),
-                new ShellComponentLayout.Slot(0, true), new ShellComponentLayout.Slot(72, false));
-        assertArrayEquals(new int[] {48, 114, 66, 72}, ShellComponentLayout.widths(slots, 300));
-        assertArrayEquals(new int[] {48, 48, 0, 72}, ShellComponentLayout.widths(slots, 100));
-        assertEquals(0, ShellComponentLayout.widths(List.of(), 100).length);
+        var group = ShellComposition.Group.START;
+        var slots = List.of(new ShellComponentLayout.Slot(48, 48, false, group), new ShellComponentLayout.Slot(48, 48, true, group),
+                new ShellComponentLayout.Slot(0, 0, true, group), new ShellComponentLayout.Slot(72, 72, false, group));
+        assertArrayEquals(new int[] {48, 114, 66, 72}, ShellComponentLayout.resolve(slots, 300).lengths());
+        assertArrayEquals(new int[] {48, 48, 0, 72}, ShellComponentLayout.resolve(slots, 100).lengths());
+        assertEquals(0, ShellComponentLayout.resolve(List.of(), 100).lengths().length);
+    }
+    @Test public void presentationVariantsRoundTripAndRejectOtherComponents() throws Exception {
+        var theme = ShellAppearanceJson.parse("""
+            {"composition":{"panels":[{"id":"dock","components":[
+                {"type":"start","group":"start"},{"type":"tasks","group":"center","indicator":"dot"},
+                {"type":"battery","group":"end","battery":"both"}]}],
+                "start":{"navigation":"scroll","gapDp":6}}}
+            """);
+        assertEquals(theme, ShellAppearanceJson.parse(ShellAppearanceJson.encode(theme).toString()));
+        assertEquals(ShellComposition.Group.CENTER, theme.composition().panels().get(0).components().get(1).group());
+        invalid("{\"composition\":{\"panels\":[{\"id\":\"main\",\"components\":[{\"type\":\"start\",\"battery\":\"icon\"}]}]}}", "/composition/panels/0/components/0/battery");
+        invalid("{\"composition\":{\"start\":{\"gapDp\":25}}}", "/composition/start/gapDp");
+    }
+    @Test public void groupsAreCenteredAndNeverOverlapOnNarrowPanels() {
+        var start = ShellComposition.Group.START; var center = ShellComposition.Group.CENTER; var end = ShellComposition.Group.END;
+        var slots = List.of(new ShellComponentLayout.Slot(80, 80, false, end), new ShellComponentLayout.Slot(48, 144, true, center),
+                new ShellComponentLayout.Slot(120, 120, false, start));
+        var wide = ShellComponentLayout.resolve(slots, 600);
+        assertArrayEquals(new int[] {520, 228, 0}, wide.offsets());
+        assertArrayEquals(new int[] {80, 144, 120}, wide.lengths());
+        for (int available = 0; available <= 600; available++) {
+            var layout = ShellComponentLayout.resolve(slots, available);
+            assertTrue(layout.offsets()[2] + layout.lengths()[2] <= layout.offsets()[1]);
+            assertTrue(layout.offsets()[1] + layout.lengths()[1] <= layout.offsets()[0]);
+            assertEquals(layout.extent(), layout.offsets()[0] + layout.lengths()[0]);
+        }
+    }
+    @Test public void standaloneAnchoredGroupsRetainNaturalSize() {
+        for (var group : List.of(ShellComposition.Group.CENTER, ShellComposition.Group.END)) {
+            var layout = ShellComponentLayout.resolve(List.of(new ShellComponentLayout.Slot(48, 144, true, group)), 600);
+            assertArrayEquals(new int[] {144}, layout.lengths());
+            assertEquals(group == ShellComposition.Group.CENTER ? 228 : 456, layout.offsets()[0]);
+        }
+    }
+    @Test public void cappedFlexibleSlotsDoNotStarveOtherContents() {
+        var slots = List.of(new ShellComponentLayout.Slot(48, 400, true, ShellComposition.Group.CENTER),
+                new ShellComponentLayout.Slot(0, 0, true, ShellComposition.Group.CENTER),
+                new ShellComponentLayout.Slot(48, 48, false, ShellComposition.Group.END));
+        assertArrayEquals(new int[] {400, 0, 48}, ShellComponentLayout.resolve(slots, 600).lengths());
+        assertArrayEquals(new int[] {252, 0, 48}, ShellComponentLayout.resolve(slots, 300).lengths());
     }
     @Test public void reducedAndSystemDisabledAnimationsAlwaysResolveToZero() {
         var motion = new ShellMotion(false, ShellMotion.Effect.FADE, ShellMotion.Effect.FADE, 180, 60, ShellMotion.Curve.SMOOTH, 12, .96f, true);

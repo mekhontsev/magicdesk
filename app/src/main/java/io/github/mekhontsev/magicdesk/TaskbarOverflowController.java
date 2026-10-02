@@ -60,25 +60,19 @@ final class TaskbarOverflowController {
         }
     }
 
-    View createButton() {
+    View createButton(ShellPanelMetrics metrics) {
         final int hiddenCount = mItems.size();
 
         final FrameLayout button = new FrameLayout(mActivity);
-        button.setBackground(mUi.interactiveRounded(
-                UiColor.SURFACE,
-                desktopDp(10, 8),
-                UiColor.ACCENT));
+        UiAppearance.component(button, ShellControls.Role.PANEL_BUTTON);
         button.setClickable(true);
         button.setFocusable(true);
 
         final ImageView icon = new ImageView(mActivity);
         icon.setImageResource(R.drawable.ic_more);
         UiAppearance.image(icon, UiColor.TEXT);
-        icon.setPadding(
-                desktopDp(9, 7),
-                desktopDp(9, 7),
-                desktopDp(9, 7),
-                desktopDp(9, 7));
+        int inset = dp(metrics.iconInset());
+        icon.setPadding(inset, inset, inset, inset);
         button.addView(icon, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));

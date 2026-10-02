@@ -2,7 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.graphics.drawable.StateListDrawable;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
@@ -12,7 +11,8 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.GridLayout;
+import android.widget.GridView;
+import android.widget.BaseAdapter;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -77,6 +77,9 @@ final class StartMenuContent {
     private String mSearchQuery = "";
     private int mColumns = 3;
     private int mRows = 3;
+    private GridView mEntriesView;
+    private List<StartMenuEntry> mVisibleEntries = List.of();
+    private int mEntriesMode, mEntriesStart;
     private boolean mPrepared, mReleased;
     private ShellComposition.Start mAppearance;
     private final Runnable mAppearanceChanged = this::appearanceChanged;
@@ -269,22 +272,6 @@ final class StartMenuContent {
 
         mBody = new LinearLayout(mActivity);
         mBody.setOrientation(LinearLayout.VERTICAL);
-        mBody.addOnLayoutChangeListener((view, left, top, right, bottom,
-                oldLeft, oldTop, oldRight, oldBottom) -> {
-            final float density = mActivity.getResources().getDisplayMetrics().density;
-            final int columns = StartMenuLayout.columns(Math.round((right - left) / density),
-                    mAppearance.tileWidthDp(), mAppearance.iconSizeDp());
-            final int rows = StartMenuLayout.rows(Math.round((bottom - top) / density));
-            if (right > left && bottom > top && (columns != mColumns || rows != mRows)) {
-                mColumns = columns;
-                mRows = rows;
-                view.post(() -> {
-                    if (view == mBody && view.isAttachedToWindow()) {
-                        renderBody();
-                    }
-                });
-            }
-        });
         mContent.addView(mBody, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         renderBody();
@@ -397,6 +384,8 @@ final class StartMenuContent {
         mCatalog.unsubscribe(mCatalogListener);
         mLaunchControls.dismiss();
         mSearchController.close();
+        mEntriesView = null;
+        mVisibleEntries = List.of();
     }
 
     private static int sectionMode(ShellComposition.Section section) {
@@ -431,13 +420,22 @@ final class StartMenuContent {
         if (mBody == null) {
             return;
         }
+        String anchor = null;
+        int anchorOffset = 0;
+        if (mEntriesView != null && mEntriesMode == mMode && mEntriesView.getChildCount() > 0
+                && mAppearance.navigation() == ShellComposition.Navigation.SCROLL) {
+            int first = mEntriesView.getFirstVisiblePosition();
+            if (first < mVisibleEntries.size()) anchor = mVisibleEntries.get(first).stableKey();
+            anchorOffset = mEntriesView.getChildAt(0).getTop();
+        }
+        mEntriesView = null;
         mBody.removeAllViews();
 
-        final var android = mCatalog.snapshot().android();
-        if ((mMode == MENU_APPS || !mSearchQuery.trim().isEmpty()) && !android.ready()) {
+        final var androidApps = mCatalog.snapshot().android();
+        if ((mMode == MENU_APPS || !mSearchQuery.trim().isEmpty()) && !androidApps.ready()) {
             final TextView status = new TextView(mActivity);
-            status.setText(android.error().isEmpty()
-                    ? mActivity.getString(R.string.apps_loading) : android.error());
+            status.setText(androidApps.error().isEmpty()
+                    ? mActivity.getString(R.string.apps_loading) : androidApps.error());
             UiAppearance.text(status, UiColor.MUTED);
             status.setTextSize(14);
             status.setGravity(Gravity.CENTER);
@@ -467,7 +465,8 @@ final class StartMenuContent {
             return;
         }
         final boolean list = mAppearance.presentation() == ShellComposition.Presentation.LIST;
-        final int pageSize = list ? Math.max(1, mRows * 2) : getPageSize();
+        final boolean pages = mAppearance.navigation() == ShellComposition.Navigation.PAGES;
+        final int pageSize = pages ? getPageSize() : menuApps.size();
         final int pageCount = Math.max(
                 1, (menuApps.size() + pageSize - 1) / pageSize);
         if (mPage >= pageCount) {
@@ -476,38 +475,65 @@ final class StartMenuContent {
         if (mPage < 0) {
             mPage = 0;
         }
-        if (list) {
-            final LinearLayout rows = new LinearLayout(mActivity);
-            rows.setOrientation(LinearLayout.VERTICAL);
-            for (var entry : menuApps.subList(mPage * pageSize, Math.min(menuApps.size(), (mPage + 1) * pageSize))) {
-                View row = createSearchRow(entry, false);
-                row.setOnClickListener(v -> mHost.open(entry));
-                rows.addView(row, new LinearLayout.LayoutParams(-1, dp(StartMenuLayout.rowHeight(mAppearance.iconSizeDp()))));
+        final GridView grid = new GridView(mActivity) {
+            @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+                super.onLayout(changed, left, top, right, bottom);
+                updateEntryCapacity(this);
             }
-            final ScrollView scroll = new ScrollView(mActivity);
-            scroll.addView(rows);
-            mBody.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-            addPager(pageCount);
-            return;
-        }
-
-        final GridLayout grid = new GridLayout(mActivity);
-        grid.setColumnCount(getColumnCount());
+        };
+        grid.setNumColumns(list ? 1 : getColumnCount());
+        grid.setStretchMode(GridView.STRETCH_COLUMN_WIDTH);
+        grid.setHorizontalSpacing(dp(mAppearance.gapDp()));
+        grid.setVerticalSpacing(dp(mAppearance.gapDp()));
+        grid.setSelector(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
         final int start = mPage * pageSize;
         final int end = Math.min(menuApps.size(), start + pageSize);
-        for (int index = start; index < end; index++) {
-            grid.addView(createAppTile(menuApps.get(index)),
-                    createTileParams());
-        }
+        final List<StartMenuEntry> entries = List.copyOf(menuApps.subList(start, end));
+        mVisibleEntries = entries; mEntriesStart = start; mEntriesMode = mMode; mEntriesView = grid;
+        grid.setAdapter(new BaseAdapter() {
+            @Override public int getCount() { return entries.size(); }
+            @Override public Object getItem(int position) { return entries.get(position); }
+            @Override public long getItemId(int position) { return position; }
+            @Override public View getView(int position, View recycled, android.view.ViewGroup parent) {
+                return list ? createSearchRow(entries.get(position), false, recycled) : createAppTile(entries.get(position), recycled);
+            }
+        });
         final LinearLayout.LayoutParams gridParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
-        gridParams.setMargins(0, dp(12), 0, dp(8));
-        final ScrollView scroll = new ScrollView(mActivity);
-        scroll.addView(grid, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
-        mBody.addView(scroll, gridParams);
-        addPager(pageCount);
+        gridParams.setMargins(0, dp(8), 0, dp(8));
+        mBody.addView(grid, gridParams);
+        if (pages) addPager(pageCount);
+        if (anchor != null) for (int i = 0; i < entries.size(); i++) {
+            if (anchor.equals(entries.get(i).stableKey())) {
+                restoreEntryAnchor(grid, i, anchorOffset);
+                break;
+            }
+        }
+    }
+
+    private void restoreEntryAnchor(GridView grid, int position, int offset) {
+        // GridView resolves its actual column count during measurement, before restoring selection.
+        grid.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override public void onLayoutChange(View view, int l, int t, int r, int b, int ol, int ot, int or, int ob) {
+                grid.removeOnLayoutChangeListener(this);
+                if (grid == mEntriesView && !mReleased) grid.setSelectionFromTop(position, offset);
+            }
+        });
+    }
+
+    private void updateEntryCapacity(GridView grid) {
+        if (grid != mEntriesView || grid.getWidth() <= 0 || grid.getHeight() <= 0 || grid.getChildCount() == 0) return;
+        boolean list = mAppearance.presentation() == ShellComposition.Presentation.LIST;
+        int gap = dp(mAppearance.gapDp());
+        int columns = list ? 1 : StartMenuLayout.columns(grid.getWidth(), dp(mAppearance.tileWidthDp()), dp(mAppearance.iconSizeDp() + 20), gap);
+        int rows = StartMenuLayout.rows(grid.getHeight(), grid.getChildAt(0).getMeasuredHeight(), gap);
+        if (columns == mColumns && rows == mRows) return;
+        int first = mEntriesStart + grid.getFirstVisiblePosition();
+        mColumns = columns; mRows = rows;
+        mPage = mAppearance.navigation() == ShellComposition.Navigation.PAGES ? first / getPageSize() : 0;
+        // Layout completion, not a timed settling delay; detached/replaced views discard the update.
+        grid.post(() -> { if (grid == mEntriesView && grid.isAttachedToWindow()) renderBody(); });
     }
 
     private Button createTab(final int textResId, final int mode) {
@@ -590,8 +616,13 @@ final class StartMenuContent {
                 || mode == MENU_CAPTURE;
     }
 
-    private View createAppTile(final StartMenuEntry application) {
-        final AppItem app = application.app;
+    private record EntryViews(ImageView icon, TextView name, TextView detail) { }
+
+    private View createAppTile(final StartMenuEntry application, View recycled) {
+        if (recycled instanceof LinearLayout tile && tile.getTag() instanceof EntryViews views) {
+            bindEntry(tile, views, application, false);
+            return tile;
+        }
         final LinearLayout tile = new LinearLayout(mActivity);
         tile.setOrientation(LinearLayout.VERTICAL);
         tile.setGravity(Gravity.CENTER);
@@ -599,25 +630,11 @@ final class StartMenuContent {
         UiAppearance.component(tile, ShellControls.Role.APP_TILE);
         tile.setClickable(true);
         tile.setFocusable(true);
-        tile.setOnClickListener(view -> mHost.open(application));
-        bindContextMenu(tile, application);
-        mHost.automation().register(
-                tile,
-                "start.app."
-                        + DesktopAutomationUiRegistry.identitySegment(
-                                application.stableKey()),
-                "application",
-                application.label,
-                app == null ? "" : app.packageName,
-                application.task == null ? -1 : application.task.taskId);
 
         final ImageView icon = new ImageView(mActivity);
-        bindIcon(icon, application);
         tile.addView(icon, new LinearLayout.LayoutParams(dp(mAppearance.iconSizeDp()), dp(mAppearance.iconSizeDp())));
 
         final TextView label = new TextView(mActivity);
-        label.setText(application.label);
-        tile.setContentDescription(application.label + ", " + application.detail);
         UiAppearance.text(label, UiColor.TEXT);
         label.setTextSize(11);
         UiAppearance.componentText(label, ShellControls.Role.APP_TILE);
@@ -630,16 +647,9 @@ final class StartMenuContent {
                         LinearLayout.LayoutParams.WRAP_CONTENT);
         labelParams.setMargins(0, dp(4), 0, 0);
         tile.addView(label, labelParams);
+        var views = new EntryViews(icon, label, null); tile.setTag(views);
+        bindEntry(tile, views, application, false);
         return tile;
-    }
-
-    private GridLayout.LayoutParams createTileParams() {
-        final GridLayout.LayoutParams params = new GridLayout.LayoutParams();
-        params.width = 0;
-        params.height = dp(104);
-        params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
-        params.setMargins(dp(4), dp(4), dp(4), dp(4));
-        return params;
     }
 
     private void addPager(final int pageCount) {
@@ -717,7 +727,7 @@ final class StartMenuContent {
             list.addView(
                     createSearchRow(
                             matches.get(index),
-                            index == mSearchSelection),
+                            index == mSearchSelection, null),
                     new LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.MATCH_PARENT,
                             dp(StartMenuLayout.rowHeight(mAppearance.iconSizeDp()))));
@@ -767,7 +777,11 @@ final class StartMenuContent {
 
     private View createSearchRow(
             final StartMenuEntry result,
-            final boolean selected) {
+            final boolean selected, View recycled) {
+        if (recycled instanceof LinearLayout row && row.getTag() instanceof EntryViews views) {
+            bindEntry(row, views, result, selected);
+            return row;
+        }
         final LinearLayout row = new LinearLayout(mActivity);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -776,37 +790,6 @@ final class StartMenuContent {
         row.setSelected(selected);
         row.setClickable(true);
         row.setFocusable(true);
-        row.setOnClickListener(view -> openSearchResult(result));
-        if (result.app != null) {
-            mHost.automation().register(
-                    row,
-                    "start.search.app."
-                            + DesktopAutomationUiRegistry.identitySegment(
-                                    result.stableKey()),
-                    "application",
-                    result.label,
-                    result.app.packageName,
-                    -1);
-        } else if (result.desktopApplication != null
-                && result.desktopApplication.desktopFile != null) {
-            mHost.automation().register(
-                    row,
-                    "start.search.command."
-                            + DesktopAutomationUiRegistry.identitySegment(
-                                    result.desktopApplication.desktopFilePath),
-                    "application",
-                    result.label);
-        } else {
-            mHost.automation().register(
-                    row,
-                    "start.search.result."
-                            + DesktopAutomationUiRegistry.identitySegment(
-                                    result.stableKey()),
-                    "search_result",
-                    result.label);
-        }
-
-        bindContextMenu(row, result);
 
         final ImageView icon = new ImageView(mActivity);
         bindIcon(icon, result);
@@ -833,7 +816,22 @@ final class StartMenuContent {
         labels.addView(detail);
         row.addView(labels, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        var views = new EntryViews(icon, name, detail); row.setTag(views);
+        bindEntry(row, views, result, selected);
         return row;
+    }
+
+    private void bindEntry(View view, EntryViews views, StartMenuEntry entry, boolean selected) {
+        views.name().setText(entry.label);
+        if (views.detail() != null) views.detail().setText(entry.detail);
+        bindIcon(views.icon(), entry);
+        view.setSelected(selected);
+        view.setContentDescription(entry.label + ", " + entry.detail);
+        view.setOnClickListener(v -> mHost.open(entry));
+        view.setOnLongClickListener(null); view.setOnContextClickListener(null);
+        bindContextMenu(view, entry);
+        mHost.automation().register(view, "start.app." + DesktopAutomationUiRegistry.identitySegment(entry.stableKey()),
+                "application", entry.label, entry.app == null ? "" : entry.app.packageName, entry.task == null ? -1 : entry.task.taskId);
     }
 
     private int searchIcon(final StartMenuEntry result) {

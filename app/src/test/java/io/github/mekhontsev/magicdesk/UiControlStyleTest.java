@@ -76,6 +76,11 @@ public final class UiControlStyleTest {
                     check(view.left==7 && view.top==5 && view.right==9 && view.bottom==6,"cancel lost baseline padding");
                     check(view.minimum==42 && view.minHeight==40,"cancel lost minimum size");
                     check(view.text.equals("unchanged search") && view.selection==3,"changed input contents");
+                    control.setBaselinePadding(11,12,13,14);
+                    control.apply(view,themed,UiColor.TEXT);
+                    check(view.left==20 && view.top==8,"host metrics override explicit theme");
+                    control.apply(view,base,UiColor.TEXT);
+                    check(view.left==11 && view.top==12 && view.right==13 && view.bottom==14,"live host metrics lost on cancellation");
                     var panel=new UiControlStyle(ShellControls.Role.PANEL_BUTTON,UiColor.ACCENT,false);
                     var button=new TextView(); button.attached=true; panel.apply(button,base,UiColor.ACCENT);
                     check(button.background.paints.get(6).color==0,"idle panel button is not transparent");

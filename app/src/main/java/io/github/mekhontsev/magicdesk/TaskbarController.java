@@ -56,6 +56,7 @@ final class TaskbarController {
     private final InputMethodMenuController mInputMethodMenu;
     private final TaskbarOverflowController mOverflow;
     private TextView mBatteryStatus;
+    private final UiBatteryDrawable mBatteryIcon = new UiBatteryDrawable();
     private ImageButton mSystemButton;
     private ImageButton mPhoneScreenButton;
     private Intent mLastBatteryIntent;
@@ -372,9 +373,10 @@ final class TaskbarController {
                 collectTaskbarItems(apps);
         if (mItemCount != items.size()) {
             mItemCount = items.size();
+            for (var panel : mPanels.values()) panel.allocate();
             mActivity.onTaskbarContentChanged();
         }
-        final int itemWidth = desktopDp(48, 36);
+        final int itemWidth = taskItemExtent();
         final int availableWidth = mTaskViewport == null
                 ? 0 : mTasksVertical ? mTaskViewport.getHeight() : mTaskViewport.getWidth();
         final int visibleCount = TaskbarOverflowPolicy.visibleItemCount(
@@ -396,9 +398,9 @@ final class TaskbarController {
         int width = 2 * panelPadding(panel);
         for (var item : panel.components()) {
             if (!componentVisible(item)) continue;
-            width += componentLength(item, panel.edge().vertical());
+            width += componentLength(item, panel);
             if (preferred && item.type() == Kind.TASKS && item.widthDp() == 0) {
-                width += desktopDp(48, 36) * Math.max(0, mItemCount - 1);
+                width += dp(metrics(panel).itemExtent()) * Math.max(0, mItemCount - 1);
             }
         }
         return width;
@@ -425,10 +427,19 @@ final class TaskbarController {
             mActivity.registerAutomationUiElement(panel.root, i == 0 ? "taskbar" : "shell.panel." + definition.id(),
                     "taskbar", definition.id());
         }
+        renderPins(mActivity.getLauncherApps());
+        if (mLastBatteryIntent != null) updateBattery(mLastBatteryIntent);
         mActivity.onTaskbarContentChanged();
     }
 
-    private int panelPadding(ShellPanel panel) { return desktopDp(panel.style().paddingDp(), panel.style().paddingDp() / 2); }
+    private ShellPanelMetrics metrics(ShellPanel panel) { return ShellPanelMetrics.resolve(panel.style(), mActivity.isCompactDesktopPreview()); }
+    private int panelPadding(ShellPanel panel) { return dp(metrics(panel).padding()); }
+    private ShellPanel taskPanel() { return AppearanceStore.current(mActivity).composition().panelFor(Kind.TASKS); }
+    private int taskItemExtent() { return dp(metrics(taskPanel()).itemExtent()); }
+    private ShellComposition.Component component(Kind kind) {
+        return AppearanceStore.current(mActivity).composition().panels().stream().flatMap(p -> p.components().stream())
+                .filter(c -> c.type() == kind).findFirst().orElse(ShellComposition.Component.of(kind));
+    }
 
     private boolean componentVisible(ShellComposition.Component item) {
         final var metrics = mActivity.getResources().getDisplayMetrics();
@@ -437,20 +448,27 @@ final class TaskbarController {
                 && (item.type() != Kind.PHONE_SCREEN || mPhoneActionVisible);
     }
 
-    private int componentLength(ShellComposition.Component item, boolean vertical) {
+    private int componentLength(ShellComposition.Component item, ShellPanel panel) {
         if (item.widthDp() != 0) return dp(item.widthDp());
-        if (item.type() == Kind.TASKS) return desktopDp(48, 36);
+        var metrics = metrics(panel);
+        if (item.type() == Kind.TASKS) return dp(metrics.itemExtent());
         if (item.type() == Kind.SPACER) return 0;
-        if (vertical) return desktopDp(48, 36);
+        if (panel.edge().vertical()) return dp(metrics.itemExtent());
         if (item.type() == Kind.CLOCK && item.clock() != ShellComposition.Clock.TIME) {
-            return dp(item.clock() == ShellComposition.Clock.DATE ? 110 : 170);
+            return dp(metrics.scaled(item.clock() == ShellComposition.Clock.DATE ? 110 : 170));
         }
-        return mNaturalWidths.getOrDefault(item.type(), 0);
+        if (item.type() == Kind.BATTERY) return switch (item.battery()) {
+            case ICON -> dp(metrics.itemExtent());
+            case BOTH -> dp(metrics.scaled(mActivity.isCompactDesktopPreview() ? 76 : 92));
+            case PERCENT -> Math.round(mNaturalWidths.getOrDefault(item.type(), 0) * metrics.contentScale());
+        };
+        if (mComponents.get(item.type()) instanceof ImageButton || item.type() == Kind.NOTIFICATIONS) return dp(metrics.itemExtent());
+        return Math.round(mNaturalWidths.getOrDefault(item.type(), 0) * metrics.contentScale());
     }
 
     private final class PanelView {
         final LinearLayout root = createPanelContainer();
-        final LinearLayout row = new LinearLayout(mActivity);
+        final FrameLayout row = new FrameLayout(mActivity);
         final List<View> spacers = new ArrayList<>();
         ShellPanel definition;
         Boolean vertical;
@@ -464,8 +482,6 @@ final class TaskbarController {
             if (vertical == null || vertical != axis) {
                 if (row.getParent() instanceof ViewGroup parent) parent.removeView(row);
                 root.removeAllViews();
-                row.setOrientation(axis ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
-                row.setGravity(Gravity.CENTER);
                 if (axis) {
                     ScrollView scroll = new ScrollView(mActivity); scroll.setVerticalScrollBarEnabled(false); scroll.setFillViewport(true);
                     scroll.addView(row, new FrameLayout.LayoutParams(-1, -2)); root.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
@@ -486,6 +502,10 @@ final class TaskbarController {
                     view = spacers.get(spacer++);
                 } else view = mComponents.get(item.type());
                 ordered.add(view);
+                if (view instanceof ImageButton icon) {
+                    int inset = dp(metrics(value).iconInset());
+                    UiAppearance.componentPadding(icon, inset, inset, inset, inset);
+                }
                 if (item.type() == Kind.START) mStartButton.setText(item.label().isEmpty()
                         ? mActivity.getString(R.string.action_start) : item.label());
                 if (item.type() == Kind.CLOCK) {
@@ -506,7 +526,7 @@ final class TaskbarController {
                 View view = ordered.get(i);
                 if (row.indexOfChild(view) == i) continue;
                 if (view.getParent() instanceof ViewGroup parent) parent.removeView(view);
-                row.addView(view, i, new LinearLayout.LayoutParams(axis ? -1 : 0, axis ? 0 : -1));
+                row.addView(view, i, new FrameLayout.LayoutParams(axis ? -1 : 0, axis ? 0 : -1));
             }
             while (spacers.size() > spacer) spacers.remove(spacers.size() - 1);
             allocate();
@@ -516,16 +536,30 @@ final class TaskbarController {
             final List<ShellComponentLayout.Slot> slots = new ArrayList<>();
             for (var item : definition.components()) {
                 boolean visible = componentVisible(item);
-                slots.add(new ShellComponentLayout.Slot(visible ? componentLength(item, vertical) : 0,
-                        visible && item.widthDp() == 0 && (item.type() == Kind.TASKS || item.type() == Kind.SPACER)));
+                int minimum = visible ? componentLength(item, definition) : 0;
+                int preferred = minimum + (visible && item.type() == Kind.TASKS && item.widthDp() == 0
+                        ? dp(metrics(definition).itemExtent()) * Math.max(0, mItemCount - 1) : 0);
+                slots.add(new ShellComponentLayout.Slot(minimum, preferred,
+                        visible && item.widthDp() == 0 && (item.type() == Kind.TASKS || item.type() == Kind.SPACER), item.group()));
             }
-            int[] lengths = ShellComponentLayout.widths(slots, (vertical ? root.getHeight() : root.getWidth()) - 2 * panelPadding(definition));
+            var layout = ShellComponentLayout.resolve(slots, (vertical ? root.getHeight() : root.getWidth()) - 2 * panelPadding(definition));
+            var rowParams = row.getLayoutParams();
+            int rowWidth = vertical ? -1 : layout.extent(), rowHeight = vertical ? layout.extent() : -1;
+            if (rowParams.width != rowWidth || rowParams.height != rowHeight) {
+                rowParams.width = rowWidth; rowParams.height = rowHeight; row.setLayoutParams(rowParams);
+            }
             for (int i = 0; i < definition.components().size(); i++) {
                 View view = row.getChildAt(i);
                 view.setVisibility(componentVisible(definition.components().get(i)) ? View.VISIBLE : View.GONE);
-                var params = (LinearLayout.LayoutParams) view.getLayoutParams();
-                int width = vertical ? -1 : lengths[i], height = vertical ? lengths[i] : -1;
-                if (params.width != width || params.height != height) { params.width = width; params.height = height; view.setLayoutParams(params); }
+                var params = (FrameLayout.LayoutParams) view.getLayoutParams();
+                int width = vertical ? -1 : layout.lengths()[i], height = vertical ? layout.lengths()[i] : -1;
+                int left = vertical ? 0 : row.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL
+                        ? layout.extent() - layout.offsets()[i] - width : layout.offsets()[i];
+                int top = vertical ? layout.offsets()[i] : 0;
+                if (params.width != width || params.height != height || params.leftMargin != left || params.topMargin != top) {
+                    params.width = width; params.height = height; params.gravity = Gravity.TOP | Gravity.LEFT;
+                    params.leftMargin = left; params.topMargin = top; view.setLayoutParams(params);
+                }
             }
         }
     }
@@ -742,7 +776,16 @@ final class TaskbarController {
                 status == BatteryManager.BATTERY_STATUS_CHARGING;
         final boolean full =
                 status == BatteryManager.BATTERY_STATUS_FULL;
-        mBatteryStatus.setText(percent < 0
+        var batteryStyle = component(Kind.BATTERY).battery();
+        var panel = AppearanceStore.current(mActivity).composition().panelFor(Kind.BATTERY);
+        var size = metrics(panel);
+        mBatteryIcon.setPercent(percent);
+        mBatteryIcon.setBounds(0, 0, dp(size.scaled(28)), dp(size.scaled(16)));
+        boolean aboveText = panel.edge().vertical() && batteryStyle == ShellComposition.Battery.BOTH;
+        mBatteryStatus.setCompoundDrawablesRelative(batteryStyle != ShellComposition.Battery.PERCENT && !aboveText ? mBatteryIcon : null,
+                aboveText ? mBatteryIcon : null, null, null);
+        mBatteryStatus.setCompoundDrawablePadding(dp(4));
+        mBatteryStatus.setText(batteryStyle == ShellComposition.Battery.ICON ? "" : percent < 0
                 ? mActivity.getString(R.string.battery_compact_unknown)
                 : mActivity.getString(
                         R.string.battery_compact,
@@ -782,8 +825,8 @@ final class TaskbarController {
         mPins.addView(
                 createPin(taskbarItem),
                 new LinearLayout.LayoutParams(
-                        mTasksVertical ? -1 : desktopDp(48, 36),
-                        mTasksVertical ? desktopDp(48, 36) : -1));
+                        mTasksVertical ? -1 : taskItemExtent(),
+                        mTasksVertical ? taskItemExtent() : -1));
     }
 
     private View createPin(
@@ -797,27 +840,34 @@ final class TaskbarController {
 
         final ImageView icon = new ImageView(mActivity);
         icon.setImageDrawable(app.icon);
-        icon.setPadding(
-                desktopDp(7, 5),
-                desktopDp(7, 5),
-                desktopDp(7, 5),
-                desktopDp(7, 5));
+        int inset = dp(metrics(taskPanel()).iconInset());
+        icon.setPadding(inset, inset, inset, inset);
         item.addView(icon, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
 
-        if (task != null) {
+        var indicator = component(Kind.TASKS).indicator();
+        if (task != null && indicator != ShellComposition.Indicator.NONE) {
             final View running = new View(mActivity);
             var presentation = BuiltInWindowRegistry.presentation(task);
-            UiAppearance.background(running, task.active || presentation != null && presentation.attention()
+            UiColor color = task.active || presentation != null && presentation.attention()
                     ? UiColor.ATTENTION
-                    : UiColor.ACCENT);
-            final FrameLayout.LayoutParams runningParams =
-                    new FrameLayout.LayoutParams(
-                            task.active ? desktopDp(26, 20) : desktopDp(20, 14),
-                            dp(task.active ? 3 : 2),
-                            Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-            runningParams.setMargins(0, 0, 0, dp(2));
+                    : UiColor.ACCENT;
+            int length = dp(indicator == ShellComposition.Indicator.DOT ? (task.active ? 6 : 4)
+                    : metrics(taskPanel()).scaled(task.active ? 26 : 20));
+            int thickness = dp(indicator == ShellComposition.Indicator.DOT ? (task.active ? 6 : 4) : (task.active ? 3 : 2));
+            int gravity = switch (taskPanel().edge()) {
+                case BOTTOM -> Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+                case TOP -> Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+                case LEFT -> Gravity.LEFT | Gravity.CENTER_VERTICAL;
+                case RIGHT -> Gravity.RIGHT | Gravity.CENTER_VERTICAL;
+            };
+            if (indicator == ShellComposition.Indicator.DOT) running.setBackground(mUi.rounded(
+                    color, dp(3), UiColor.TRANSPARENT));
+            else UiAppearance.background(running, color);
+            final FrameLayout.LayoutParams runningParams = new FrameLayout.LayoutParams(
+                    mTasksVertical ? thickness : length, mTasksVertical ? length : thickness, gravity);
+            runningParams.setMargins(dp(2), dp(2), dp(2), dp(2));
             item.addView(running, runningParams);
         }
 
@@ -931,10 +981,10 @@ final class TaskbarController {
     }
 
     private void addOverflowButton() {
-        mPins.addView(mOverflow.createButton(),
+        mPins.addView(mOverflow.createButton(metrics(taskPanel())),
                 new LinearLayout.LayoutParams(
-                mTasksVertical ? -1 : desktopDp(48, 36),
-                mTasksVertical ? desktopDp(48, 36) : -1));
+                mTasksVertical ? -1 : taskItemExtent(),
+                mTasksVertical ? taskItemExtent() : -1));
     }
 
     private void activate(final TaskbarOverflowController.Entry taskbarItem) {

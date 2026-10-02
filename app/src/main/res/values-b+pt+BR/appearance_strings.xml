@@ -57,4 +57,16 @@
     <string name="appearance_color_accent_container">Contêiner de destaque</string>
     <string name="appearance_color_on_accent_container">Sobre contêiner de destaque</string>
     <string name="appearance_color_outline">Contorno</string>
+    <string name="appearance_start_navigation">Navegação do Iniciar</string>
+    <string name="appearance_scroll">Rolagem</string>
+    <string name="appearance_pages">Páginas</string>
+    <string name="appearance_entry_gap">Espaçamento entre aplicativos</string>
+    <string name="appearance_component_options">Opções do componente</string>
+    <string name="appearance_component_group">Grupo do painel</string>
+    <string name="appearance_percent">Porcentagem</string>
+    <string name="appearance_icon">Ícone</string>
+    <string name="appearance_icon_percent">Ícone e porcentagem</string>
+    <string name="appearance_task_indicator">Indicador de tarefa</string>
+    <string name="appearance_line">Linha</string>
+    <string name="appearance_dot">Ponto</string>
 </resources>

@@ -57,4 +57,16 @@
     <string name="appearance_color_accent_container">强调色容器</string>
     <string name="appearance_color_on_accent_container">强调色容器上的颜色</string>
     <string name="appearance_color_outline">轮廓</string>
+    <string name="appearance_start_navigation">开始菜单导航</string>
+    <string name="appearance_scroll">滚动</string>
+    <string name="appearance_pages">分页</string>
+    <string name="appearance_entry_gap">应用间距</string>
+    <string name="appearance_component_options">组件选项</string>
+    <string name="appearance_component_group">面板分组</string>
+    <string name="appearance_percent">百分比</string>
+    <string name="appearance_icon">图标</string>
+    <string name="appearance_icon_percent">图标和百分比</string>
+    <string name="appearance_task_indicator">任务指示器</string>
+    <string name="appearance_line">线条</string>
+    <string name="appearance_dot">圆点</string>
 </resources>

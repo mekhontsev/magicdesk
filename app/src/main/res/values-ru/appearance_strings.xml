@@ -57,4 +57,16 @@
     <string name="appearance_color_accent_container">Акцентный контейнер</string>
     <string name="appearance_color_on_accent_container">На акцентном контейнере</string>
     <string name="appearance_color_outline">Контур</string>
+    <string name="appearance_start_navigation">Навигация в Пуске</string>
+    <string name="appearance_scroll">Прокрутка</string>
+    <string name="appearance_pages">Страницы</string>
+    <string name="appearance_entry_gap">Расстояние между приложениями</string>
+    <string name="appearance_component_options">Параметры компонента</string>
+    <string name="appearance_component_group">Группа панели</string>
+    <string name="appearance_percent">Проценты</string>
+    <string name="appearance_icon">Значок</string>
+    <string name="appearance_icon_percent">Значок и проценты</string>
+    <string name="appearance_task_indicator">Индикатор задачи</string>
+    <string name="appearance_line">Линия</string>
+    <string name="appearance_dot">Точка</string>
 </resources>

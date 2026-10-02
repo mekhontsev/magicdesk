@@ -4,16 +4,17 @@ package io.github.mekhontsev.magicdesk;
 final class StartMenuLayout {
     private StartMenuLayout() { }
 
-    static int columns(final int widthDp, final int tileWidthDp, final int iconSizeDp) {
-        return Math.max(1, widthDp / Math.max(tileWidthDp, iconSizeDp + 20));
+    static int columns(final int width, final int preferredWidth, final int minimumWidth, final int gap) {
+        int desired = Math.round((width + gap) / (float) Math.max(1, preferredWidth + gap));
+        int capacity = (width + gap) / Math.max(1, minimumWidth + gap);
+        return Math.max(1, Math.min(desired, capacity));
     }
 
     static int rowHeight(final int iconSizeDp) {
         return Math.max(58, iconSizeDp + 12);
     }
 
-    static int rows(final int bodyHeightDp) {
-        // Pager and grid margins remain outside the fixed-height tiles.
-        return Math.max(1, Math.min(6, (bodyHeightDp - 80) / 112));
+    static int rows(final int viewportHeight, final int measuredCellHeight, final int gap) {
+        return Math.max(1, (viewportHeight + gap) / Math.max(1, measuredCellHeight + gap));
     }
 }

@@ -21,6 +21,7 @@ final class UiControlStyle {
     private final StateListDrawable background;
     private final GradientDrawable[] paints;
     private boolean captured;
+    private boolean paddingProvided;
     private int left, top, right, bottom, minHeight, textMinHeight;
 
     UiControlStyle(ShellControls.Role role, UiColor accent, boolean textOnly) {
@@ -30,6 +31,9 @@ final class UiControlStyle {
         if (paints != null) for (int i = 0; i < paints.length; i++) {
             paints[i] = new GradientDrawable(); background.addState(STATES[i], paints[i]);
         }
+    }
+    void setBaselinePadding(int l, int t, int r, int b) {
+        left = l; top = t; right = r; bottom = b; paddingProvided = true;
     }
     void apply(View view, ShellAppearance theme, UiColor contentRole) {
         var style = theme.controls().style(role);
@@ -60,7 +64,9 @@ final class UiControlStyle {
         if (background != null) { background.setEnterFadeDuration(duration); background.setExitFadeDuration(duration); }
         if (!textOnly && view.isAttachedToWindow()) {
             if (!captured) {
-                left = view.getPaddingLeft(); top = view.getPaddingTop(); right = view.getPaddingRight(); bottom = view.getPaddingBottom();
+                if (!paddingProvided) {
+                    left = view.getPaddingLeft(); top = view.getPaddingTop(); right = view.getPaddingRight(); bottom = view.getPaddingBottom();
+                }
                 minHeight = view.getMinimumHeight(); textMinHeight = view instanceof TextView text ? text.getMinHeight() : -1;
                 captured = true;
             }

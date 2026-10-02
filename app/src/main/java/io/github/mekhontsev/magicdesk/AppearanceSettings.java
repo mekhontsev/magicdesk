@@ -184,10 +184,15 @@ final class AppearanceSettings implements AutoCloseable {
         choice(page, R.string.appearance_start_presentation, new int[] {R.string.appearance_grid, R.string.appearance_list},
                 () -> current().composition().start().presentation().ordinal(),
                 v -> change("composition.start", "presentation", v == 0 ? "grid" : "list"));
+        choice(page, R.string.appearance_start_navigation, new int[] {R.string.appearance_scroll, R.string.appearance_pages},
+                () -> current().composition().start().navigation().ordinal(),
+                v -> change("composition.start", "navigation", v == 0 ? "scroll" : "pages"));
         slider(page, R.string.appearance_tile_width, 80, 200, () -> current().composition().start().tileWidthDp(),
                 v -> change("composition.start", "tileWidthDp", v));
         slider(page, R.string.appearance_icon_size, 24, 64, () -> current().composition().start().iconSizeDp(),
                 v -> change("composition.start", "iconSizeDp", v));
+        slider(page, R.string.appearance_entry_gap, 0, 24, () -> current().composition().start().gapDp(),
+                v -> change("composition.start", "gapDp", v));
         heading(page, R.string.appearance_motion);
         CheckBox wallpaper = new CheckBox(mActivity);
         wallpaper.setText(R.string.appearance_animate_wallpaper); UiAppearance.text(wallpaper, UiColor.TEXT);
@@ -650,6 +655,9 @@ final class AppearanceSettings implements AutoCloseable {
                     title.setAutoSizeTextTypeUniformWithConfiguration(8, 14, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
                     title.setTooltipText(title.getText());
                     UiAppearance.text(title, UiColor.TEXT); row.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+                    ImageButton options = mUi.taskbarIconButton(R.drawable.ic_settings, R.string.appearance_component_options, true);
+                    options.setOnClickListener(v -> componentOptions(options, items, index, update));
+                    row.addView(options, new LinearLayout.LayoutParams(mUi.dp(40), mUi.dp(44)));
                     ImageButton up = mUi.taskbarIconButton(R.drawable.ic_arrow_up, R.string.appearance_move_up, true);
                     up.setEnabled(i > 0);
                     up.setOnClickListener(v -> { java.util.Collections.swap(items, index, index - 1); update.run(); });
@@ -696,6 +704,37 @@ final class AppearanceSettings implements AutoCloseable {
             } catch (Exception error) { Toast.makeText(mActivity, error.getMessage(), Toast.LENGTH_LONG).show(); }
         }));
         showChild(dialog);
+    }
+
+    private void componentOptions(View anchor, List<ShellComposition.Component> items, int index, Runnable update) {
+        var value = items.get(index);
+        var menu = new PopupMenu(mActivity, anchor);
+        var groups = menu.getMenu().addSubMenu(R.string.appearance_component_group);
+        int[] labels = {R.string.appearance_align_start, R.string.appearance_center, R.string.appearance_align_end};
+        for (var group : ShellComposition.Group.values()) {
+            groups.add(0, group.ordinal(), group.ordinal(), labels[group.ordinal()]).setCheckable(true).setChecked(group == value.group())
+                    .setOnMenuItemClickListener(item -> { items.set(index, value.withPresentation(group, value.battery(), value.indicator())); update.run(); return true; });
+        }
+        groups.setGroupCheckable(0, true, true);
+        if (value.type() == ShellComposition.Kind.BATTERY) {
+            var battery = menu.getMenu().addSubMenu(R.string.appearance_battery);
+            int[] modes = {R.string.appearance_percent, R.string.appearance_icon, R.string.appearance_icon_percent};
+            for (var mode : ShellComposition.Battery.values()) battery.add(0, mode.ordinal(), mode.ordinal(), modes[mode.ordinal()])
+                    .setCheckable(true).setChecked(mode == value.battery()).setOnMenuItemClickListener(item -> {
+                        items.set(index, value.withPresentation(value.group(), mode, value.indicator())); update.run(); return true;
+                    });
+            battery.setGroupCheckable(0, true, true);
+        }
+        if (value.type() == ShellComposition.Kind.TASKS) {
+            var indicators = menu.getMenu().addSubMenu(R.string.appearance_task_indicator);
+            int[] modes = {R.string.appearance_line, R.string.appearance_dot, R.string.appearance_none};
+            for (var mode : ShellComposition.Indicator.values()) indicators.add(0, mode.ordinal(), mode.ordinal(), modes[mode.ordinal()])
+                    .setCheckable(true).setChecked(mode == value.indicator()).setOnMenuItemClickListener(item -> {
+                        items.set(index, value.withPresentation(value.group(), value.battery(), mode)); update.run(); return true;
+                    });
+            indicators.setGroupCheckable(0, true, true);
+        }
+        menu.show();
     }
 
     private String componentLabel(ShellComposition.Kind kind) {

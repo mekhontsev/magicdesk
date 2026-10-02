@@ -12,11 +12,15 @@ public record ShellComposition(List<ShellPanel> panels, Start start) {
     }
     public enum Visibility { ALWAYS, EXPANDED, EXTERNAL }
     public enum Clock { TIME, DATE, DATE_TIME }
+    public enum Group { START, CENTER, END }
+    public enum Battery { PERCENT, ICON, BOTH }
+    public enum Indicator { LINE, DOT, NONE }
     public record Component(Kind type, int widthDp, int minViewportDp,
-            Visibility visibility, String label, Clock clock) {
+            Visibility visibility, String label, Clock clock, Group group, Battery battery, Indicator indicator) {
         public Component {
             Objects.requireNonNull(type); Objects.requireNonNull(visibility);
             Objects.requireNonNull(label); Objects.requireNonNull(clock);
+            Objects.requireNonNull(group); Objects.requireNonNull(battery); Objects.requireNonNull(indicator);
             ShellAppearance.range(widthDp, 0, 240, "component width");
             if (widthDp > 0 && widthDp < 32) throw new IllegalArgumentException("component width must be 0 or at least 32");
             ShellAppearance.range(minViewportDp, 0, 4096, "minimum viewport");
@@ -25,6 +29,8 @@ public record ShellComposition(List<ShellPanel> panels, Start start) {
             }
             if (!label.isEmpty() && type != Kind.START) throw new IllegalArgumentException("Only Start has a configurable label");
             if (clock != Clock.TIME && type != Kind.CLOCK) throw new IllegalArgumentException("Only Clock has a clock format");
+            if (battery != Battery.PERCENT && type != Kind.BATTERY) throw new IllegalArgumentException("Only Battery has a battery format");
+            if (indicator != Indicator.LINE && type != Kind.TASKS) throw new IllegalArgumentException("Only Tasks has a task indicator");
         }
         public boolean visible(boolean compact, boolean external, int viewportDp) {
             return viewportDp >= minViewportDp && switch (visibility) {
@@ -35,23 +41,31 @@ public record ShellComposition(List<ShellPanel> panels, Start start) {
         }
         public static Component of(Kind kind) {
             return new Component(kind, 0, 0, kind == Kind.PHONE_SCREEN ? Visibility.EXTERNAL
-                    : kind == Kind.KEYBOARD_LAYOUT ? Visibility.EXPANDED : Visibility.ALWAYS, "", Clock.TIME);
+                    : kind == Kind.KEYBOARD_LAYOUT ? Visibility.EXPANDED : Visibility.ALWAYS, "", Clock.TIME,
+                    Group.START, Battery.PERCENT, Indicator.LINE);
+        }
+        public Component withPresentation(Group position, Battery power, Indicator marker) {
+            return new Component(type, widthDp, minViewportDp, visibility, label, clock, position, power, marker);
         }
     }
     public enum Section { RECENT, APPS, RUNNING, TOOLS }
     public enum Presentation { GRID, LIST }
-    public record Start(List<Section> sections, Presentation presentation, int tileWidthDp, int iconSizeDp) {
+    public enum Navigation { SCROLL, PAGES }
+    public record Start(List<Section> sections, Presentation presentation, int tileWidthDp, int iconSizeDp,
+            Navigation navigation, int gapDp) {
         public Start {
             sections = List.copyOf(sections); Objects.requireNonNull(presentation);
+            Objects.requireNonNull(navigation);
             if (!sections.contains(Section.APPS) || new HashSet<>(sections).size() != sections.size()) {
                 throw new IllegalArgumentException("Start sections must include apps and must not repeat");
             }
             ShellAppearance.range(tileWidthDp, 80, 200, "tile width");
             ShellAppearance.range(iconSizeDp, 24, 64, "icon size");
+            ShellAppearance.range(gapDp, 0, 24, "entry gap");
         }
         public static Start defaults() {
             return new Start(List.of(Section.RECENT, Section.APPS, Section.RUNNING, Section.TOOLS),
-                    Presentation.GRID, 100, 44);
+                    Presentation.GRID, 88, 44, Navigation.SCROLL, 4);
         }
     }
     public ShellComposition {

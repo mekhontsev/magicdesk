@@ -142,6 +142,12 @@ public final class UiAppearance {
         view.setDuplicateParentStateEnabled(true);
         binding.refresh();
     }
+    static void componentPadding(View view, int left, int top, int right, int bottom) {
+        Binding binding = binding(view);
+        if (binding.control == null) throw new IllegalStateException("Control role required before setting host metrics");
+        binding.control.setBaselinePadding(left, top, right, bottom);
+        binding.refresh();
+    }
     private static void bind(View view, Property property, Style style) {
         Binding binding = binding(view);
         binding.styles.put(property, style);
