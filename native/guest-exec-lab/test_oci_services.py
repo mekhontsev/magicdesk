@@ -82,12 +82,12 @@ class Server:
             if text in line:
                 return
 
-    def completed(self):
+    def completed(self, expected=0):
         # EVENT_WAIT: supervised command completion; timeout is a test failure.
         self.process.join(30)
         assert not self.process.is_alive(), 'server did not exit after shutdown'
         assert self.error is None, self.error
-        assert self.result['exitCode'] == 0, self.result
+        assert self.result['exitCode'] == expected, self.result
 
     def close(self):
         self.suite.client.call('console.close', {'sessionId': self.console})

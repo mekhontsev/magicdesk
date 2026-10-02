@@ -12,6 +12,7 @@
 #include "watch_activation.h"
 #include "launch_identity.h"
 #include "sysv_shm.h"
+#include "sysv_ipc.h"
 #include <linux/memfd.h>
 #include <sys/mman.h>
 #include "credential_registry.h"
@@ -78,7 +79,8 @@ static struct interception_statistics *statistics;
 enum phase { IDLE, ALLOCATING, DISPATCHING, EXECUTING, OBSERVING,
     EXPORT_CANCEL, EXPORTING, EXPORT_ENTRY, EXPORT_NOTIFY, EXPORT_RETURN, STORING,
     DELEGATE_CANCEL, LOADING_PATH, PROC_CANCEL, PROC_OPENING, STORING_IDS, DOMAIN_PATH,
-    WATCH_CANCEL, WATCH_ENTRY, WATCH_READ, IDENTITY_COPY, DEBUG_WAIT_ENTRY, DEBUG_WAIT_EXIT };
+    WATCH_CANCEL, WATCH_ENTRY, WATCH_READ, IPC_WAIT_ENTRY, IPC_WAITING, IPC_WAIT_RESULT,
+    IDENTITY_COPY, DEBUG_WAIT_ENTRY, DEBUG_WAIT_EXIT };
 struct metadata_operation {
     enum phase previous;
     struct seccomp_notif request;
@@ -124,6 +126,10 @@ struct thread {
     struct md_shm_space *shm_space;
     struct md_shm_mapping *shm_pending;
     int shm_filter;
+    struct md_ipc_undo *ipc_undo;
+    struct md_ipc_pending *ipc_pending;
+    struct md_ipc_transport ipc_transport;
+    int ipc_fd, ipc_cancel;
 };
 static struct thread *threads;
 static struct md_debugger *debugger;
@@ -143,6 +149,7 @@ static unsigned group_stops, group_wakes, raced_wakes;
 static const char *admitted_path;
 static struct md_fs_worker *filesystem;
 static struct md_shm *shm;
+static struct md_ipc *ipc;
 static const char *shm_store;
 static struct md_namespace_broker *broker;
 static struct md_credentials *credentials;
@@ -213,6 +220,9 @@ static void cleanup(void) {
         md_watch_activation_release(threads->watch_activation);
         md_shm_abort(shm,&threads->shm_pending);
         md_shm_space_release(shm,threads->shm_space);
+        md_ipc_cancel(ipc,&threads->ipc_pending);
+        md_ipc_transport_close(&threads->ipc_transport);
+        md_ipc_undo_release(ipc,threads->ipc_undo);
         md_identity_release(&threads->identity);
         free(threads->identity_buffer);
         free(threads); threads = next;
@@ -220,6 +230,7 @@ static void cleanup(void) {
     md_admission_close(&admission);
     md_debugger_destroy(debugger); debugger = NULL;
     md_shm_close(shm); shm = NULL;
+    md_ipc_close(ipc); ipc = NULL;
     if (md_fs_worker_stop(filesystem)) _Exit(125);
     filesystem = NULL;
     md_launch_unregister(&registration);
@@ -261,8 +272,9 @@ static struct thread *thread(pid_t pid) {
         .metadata = {.peer = -1, .descriptor = -1, .prepared = -1},
         .identity = md_identity_copy(&launch_identity), .stacks = md_stacks_new(),
         .shm_space = md_shm_space_new(),
+        .ipc_undo = md_ipc_undo_new(), .ipc_fd = -1, .ipc_transport = {.fd=-1},
         .watch_activation = md_watch_activation_new()};
-    CHECK(t->stacks && t->watch_activation && t->shm_space);
+    CHECK(t->stacks && t->watch_activation && t->shm_space && t->ipc_undo);
     live++; total++; return t;
 }
 static void release_thread(struct thread *t) {
@@ -270,6 +282,9 @@ static void release_thread(struct thread *t) {
     md_identity_release(&t->identity);
     CHECK(!md_shm_abort(shm,&t->shm_pending));
     CHECK(!md_shm_space_release(shm,t->shm_space)); t->shm_space = NULL;
+    CHECK(!md_ipc_cancel(ipc,&t->ipc_pending));
+    md_ipc_transport_close(&t->ipc_transport);
+    CHECK(!md_ipc_undo_release(ipc,t->ipc_undo)); t->ipc_undo = NULL;
     free(t->identity_buffer); t->identity_buffer = NULL;
     md_broker_forget(broker, t->pid);
     release_operation(t);
@@ -617,6 +632,46 @@ static void shm_request(struct thread *t, const struct seccomp_notif *q) {
     } else reply.val = value;
     CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno == ENOENT);
 }
+static void ipc_request(struct thread *t, const struct seccomp_notif *q) {
+    struct seccomp_notif_resp reply={.id=q->id};
+    struct md_ipc_request call={.nr=t->original.regs[8]};
+    for (unsigned i=0;i<6;i++) call.args[i]=t->original.regs[i];
+    int r=t->phase!=DISPATCHING || q->data.instruction_pointer!=RAW_GATE ? -EPERM : 0;
+    if (!r && (call.nr!=SYS_semget && call.nr!=SYS_semctl
+            && call.nr!=SYS_semop && call.nr!=SYS_semtimedop && call.nr!=SYS_msgget
+            && call.nr!=SYS_msgctl && call.nr!=SYS_msgsnd && call.nr!=SYS_msgrcv)) r=-EINVAL;
+    if (!r) r=!shm_store ? -ENOTSUP : !ipc ? md_ipc_open(shm_store,&ipc) : 0;
+    long value=r;
+    struct md_ipc_transport *channel=&t->ipc_transport;
+    if (!r && q->data.args[1]==MD_IPC_OPEN) {
+        value=channel->packet ? -EBUSY : md_ipc_transport_open(ipc,channel,&call,t->ipc_pending!=NULL);
+        if (!value) {
+            struct seccomp_notif_addfd add={.id=q->id,.srcfd=channel->fd,.newfd_flags=O_CLOEXEC};
+            value=ioctl(listener,SECCOMP_IOCTL_NOTIF_ADDFD,&add);
+            if (value<0) { value=-errno; md_ipc_transport_close(channel); }
+        }
+    } else if (!r && q->data.args[1]==MD_IPC_CLOSE) {
+        md_ipc_transport_close(channel);
+        if (q->data.args[2]) {
+            value=md_ipc_cancel(ipc,&t->ipc_pending); t->ipc_cancel=0;
+            if (!value) { value=t->ipc_fd+1; t->ipc_fd=-1; }
+        }
+    } else if (!r && q->data.args[1]==MD_IPC_EXECUTE && channel->packet) {
+        if (t->ipc_cancel) {
+            value=t->ipc_cancel; t->ipc_cancel=0;
+            int error=md_ipc_cancel(ipc,&t->ipc_pending); if (error) value=error;
+        } else value=md_ipc_call(ipc,&t->ipc_pending,t->ipc_undo,&t->identity,t->pid,t->tgid,channel);
+        if (value==MD_IPC_WAIT && t->ipc_fd<0) {
+            struct seccomp_notif_addfd add={.id=q->id,.srcfd=md_ipc_wait_fd(t->ipc_pending),.newfd_flags=O_CLOEXEC};
+            t->ipc_fd=ioctl(listener,SECCOMP_IOCTL_NOTIF_ADDFD,&add);
+            if (t->ipc_fd<0) { value=-errno; CHECK(!md_ipc_cancel(ipc,&t->ipc_pending)); }
+        }
+    } else if (!r) value=-EINVAL;
+    if (value==MD_IPC_WAIT) reply.val=value;
+    else if (value<0) reply.error=value;
+    else reply.val=value;
+    CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno==ENOENT);
+}
 static void delegate_begin(struct thread *t, const struct seccomp_notif *q) {
     CHECK(t->phase == IDLE);
     t->metadata = (struct metadata_operation){.request = *q, .descriptor = -1, .peer = -1, .prepared = -1};
@@ -646,6 +701,7 @@ static void handle_notification(const struct seccomp_notif *request) {
             }
             CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno==ENOENT);
         } else if (q.data.args[0] == MD_GUEST_SHM) shm_request(t,&q);
+        else if (q.data.args[0] == MD_GUEST_IPC) ipc_request(t,&q);
         else image_request(t, &q);
         return;
     }
@@ -740,6 +796,11 @@ static int debugger_parent(pid_t pid) {
 static int debugger_group(pid_t pid) {
     struct thread *t=find_thread(pid);
     return t ? t->tgid : pid;
+}
+static uid_t debugger_uid(pid_t pid) {
+    struct thread *t=find_thread(pid);
+    CHECK(t);
+    return t->identity.uid.real;
 }
 static int debugger_allowed(pid_t caller, pid_t pid) {
     struct thread *from=find_thread(caller), *to=find_thread(pid);
@@ -1096,6 +1157,7 @@ static void resume(pid_t pid, int sig) {
     if (!native_trace(phase == OBSERVING || phase == EXPORT_ENTRY || phase == EXPORT_NOTIFY
             || phase == EXPORT_RETURN || phase == EXECUTING || phase == WATCH_CANCEL
             || phase == WATCH_ENTRY || phase == WATCH_READ || phase==DEBUG_WAIT_ENTRY || phase==DEBUG_WAIT_EXIT
+            || phase==IPC_WAIT_ENTRY || phase==IPC_WAITING
             || (phase==IDLE && t->entered && t->process_image
                 && (md_debugger_syscall_mode(debugger,pid) || md_debugger_observing(debugger,pid))) ? PTRACE_SYSCALL
                 : phase==IDLE && t->entered && md_debugger_step(debugger,pid) ? PTRACE_SINGLESTEP : PTRACE_CONT,
@@ -1217,7 +1279,7 @@ int main(int argc, char **argv) {
         argument += 2;
     }
     setvbuf(stderr, NULL, _IONBF, 0);
-    struct md_debugger_host debug_host={.parent=debugger_parent,.group=debugger_group,.allowed=debugger_allowed,
+    struct md_debugger_host debug_host={.parent=debugger_parent,.group=debugger_group,.uid=debugger_uid,.allowed=debugger_allowed,
         .attachable=debugger_attachable,.interrupt=debugger_interrupt,.options=debugger_options,
         .listen=debugger_listen,.usage=debugger_usage,.wait_probe=debugger_wait_probe,
         .complete=debugger_complete,.resume=resume};
@@ -1305,6 +1367,9 @@ int main(int argc, char **argv) {
     signal_fd = inherited.fd;
     CHECK(!prctl(PR_SET_CHILD_SUBREAPER, 1) && !atexit(cleanup));
     int channel[2]; CHECK(!socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, channel));
+    int tty = open("/dev/tty", O_RDWR | O_NOCTTY | O_CLOEXEC);
+    int headless = tty < 0;
+    if (tty >= 0) close(tty);
     pid_t parent = getpid();
     leader = fork(); CHECK(leader >= 0);
     if (!leader) {
@@ -1312,6 +1377,9 @@ int main(int argc, char **argv) {
         close(channel[0]); close(signal_fd);
         CHECK(!md_process_signals_restore(&inherited));
         CHECK(!prctl(PR_SET_PDEATHSIG, SIGKILL) && getppid() == parent);
+        /* Headless group signals belong to the guest tree, not its guardians.
+         * A controlling PTY retains its caller's foreground job-control group. */
+        if (headless) CHECK(!setpgid(0, 0));
         char byte = 'r'; CHECK(write(channel[1], &byte, 1) == 1);
         /* EVENT_WAIT: supervisor's attach acknowledgement; the outer timeout cancels. */
         CHECK(read(channel[1], &byte, 1) == 1 && byte == 'g'); close(channel[1]);
@@ -1383,6 +1451,8 @@ int main(int argc, char **argv) {
                     t->identity = md_identity_copy(&former->identity);
                     md_watch_activation_release(t->watch_activation);
                     t->watch_activation = former->watch_activation; former->watch_activation = NULL;
+                    CHECK(!md_ipc_undo_release(ipc,t->ipc_undo));
+                    t->ipc_undo=former->ipc_undo; former->ipc_undo=NULL;
                     memcpy(t->endpoint, former->endpoint, sizeof(t->endpoint));
                     release_thread(former);
                 }
@@ -1391,6 +1461,8 @@ int main(int argc, char **argv) {
             CHECK(!md_shm_abort(shm,&t->shm_pending));
             CHECK(!md_shm_space_release(shm,t->shm_space));
             t->shm_space = md_shm_space_new(); CHECK(t->shm_space);
+            CHECK(!md_ipc_cancel(ipc,&t->ipc_pending)); t->ipc_fd=-1; t->ipc_cancel=0;
+            md_ipc_transport_close(&t->ipc_transport);
             md_stacks_release(t->stacks); t->stacks = md_stacks_new(); CHECK(t->stacks);
             t->phase = IDLE; t->stack = 0; t->ready = 0; t->resume_lost = 0; images++;
             t->mapped_image = 0; t->entered = 0;
@@ -1412,6 +1484,8 @@ int main(int argc, char **argv) {
             c->tgid = t->cloning & CLONE_THREAD ? t->tgid : c->pid;
             CHECK(!md_shm_space_release(shm,c->shm_space));
             c->shm_space = md_shm_space_fork(shm,t->shm_space,!!(t->cloning & CLONE_VM)); CHECK(c->shm_space);
+            CHECK(!md_ipc_undo_release(ipc,c->ipc_undo));
+            c->ipc_undo=md_ipc_undo_fork(t->ipc_undo,!!(t->cloning&CLONE_SYSVSEM)); CHECK(c->ipc_undo);
             md_stacks_release(c->stacks);
             c->stacks = md_stacks_fork(t->stacks, !!(t->cloning & CLONE_VM)); CHECK(c->stacks);
             md_watch_activation_release(c->watch_activation);
@@ -1578,6 +1652,20 @@ int main(int argc, char **argv) {
                 if (!restore_mask(t)) continue;
                 t->phase = WATCH_READ; resume(pid, 0); continue;
             }
+            if (t->phase==IPC_WAIT_ENTRY) {
+                if (!restore_mask(t)) continue;
+                t->phase=IPC_WAITING; resume(pid,0); continue;
+            }
+            if (t->phase==IPC_WAITING) {
+                struct user_pt_regs returned;
+                if (!registers(pid,&returned) || !shield(t)) continue;
+                long value=(long)returned.regs[0];
+                if (value<0) {
+                    t->ipc_cancel=(value<=-512 && value>=-516) ? -EINTR : value;
+                    dispatch_with_stack(t); continue;
+                }
+                t->phase=IPC_WAIT_RESULT; resume(pid,0); continue;
+            }
             if (t->phase == WATCH_READ) {
                 struct user_pt_regs returned;
                 if (!registers(pid, &returned)) continue;
@@ -1700,8 +1788,31 @@ int main(int argc, char **argv) {
             } else if (regs.pc == ALLOCATED && t->phase == ALLOCATING) {
                 CHECK((long)regs.regs[0] > 0 && !(regs.regs[0] & (md_page_size - 1)));
                 t->stack = regs.regs[0]; CHECK(!md_stacks_add(t->stacks, t->stack)); dispatch(t);
+            } else if (regs.pc==DONE && t->phase==IPC_WAIT_RESULT) {
+                long value=(long)regs.regs[0];
+                if (value<0) t->ipc_cancel=(value<=-512 && value>=-516) ? -EINTR : value;
+                else if (regs.regs[1]&POLLNVAL) t->ipc_cancel=-EBADF;
+                dispatch_with_stack(t); continue;
             } else if (regs.pc == DONE && t->phase == DISPATCHING) {
                 long value = regs.regs[0];
+                if (value==MD_IPC_WAIT) {
+                    int64_t deadline=md_ipc_deadline(t->ipc_pending);
+                    int64_t remaining=0;
+                    if (deadline!=INT64_MAX) {
+                        int64_t now=md_event_now(); CHECK(now>=0);
+                        remaining=deadline>now ? deadline-now : 0;
+                    }
+                    regs=t->original; regs.pc=abi.ipc_wait; regs.sp=t->stack;
+                    regs.regs[30]=abi.ipc_wait_result;
+                    regs.regs[0]=(uint64_t)POLLIN<<32 | (unsigned)t->ipc_fd;
+                    regs.regs[1]=remaining/1000000000LL; regs.regs[2]=remaining%1000000000LL;
+                    regs.regs[3]=deadline!=INT64_MAX;
+                    if (!set_registers(pid,&regs)) continue;
+                    /* EVENT_WAIT: IPC mutation or owner death; semtimedop's
+                     * deadline returns EAGAIN. Signals interrupt, never restart
+                     * the guest IPC operation. The supervisor stays runnable. */
+                    t->phase=IPC_WAIT_ENTRY; resume(pid,0); continue;
+                }
                 if (value == MD_WATCH_WAIT || value == MD_WATCH_NATIVE) {
                     regs = t->original; regs.pc = RAW_GATE - 4;
                     t->watch_wait = value == MD_WATCH_WAIT ? 1 : 2;

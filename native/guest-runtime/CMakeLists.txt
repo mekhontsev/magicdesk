@@ -34,7 +34,7 @@ function(guest_freestanding name)
 endfunction()
 
 guest_executable(bootstrap ${src}/bootstrap.c ${src}/elf.c ${src}/exec.c
-    ${src}/interception.c ${src}/interception_entry.S ${src}/watch_calls.c ${src}/shm_calls.c
+    ${src}/interception.c ${src}/interception_entry.S ${src}/watch_calls.c ${src}/shm_calls.c ${src}/ipc_calls.c
     ${src}/file_calls.c ${src}/fs.c ${src}/proc_paths.c ${src}/proc_image.c ${src}/program_files.c
     ${src}/namespace.c ${src}/namespace_proc.c ${src}/socket_calls.c ${src}/socket_namespace.c ${src}/socket_identity.c ${src}/socket_ancillary.c ${src}/socket_routes.c ${src}/fd_metadata.c
     ${src}/fs_client.c ${src}/file_open.c ${wire} ${src}/raw.c ${src}/raw.S)
@@ -44,6 +44,7 @@ target_link_options(bootstrap PRIVATE -Wl,--image-base=0x2000000000)
 
 guest_executable(supervisor ${src}/supervisor.c ${src}/command_access.c ../command-client/wire.c ${src}/launch_registry.c ${src}/process_owner.c ${src}/interception_stacks.c ${src}/guest_domain.c
     ${src}/watch_activation.c ${src}/sysv_shm.c ${src}/guest_debugger.c ${src}/process_image_view.c
+    ${src}/sysv_ipc.c ${src}/sysv_ipc_db.c ${src}/sysv_sem.c ${src}/sysv_msg.c ${src}/sysv_ipc_transport.c
     ${src}/guest_identity.c ${src}/guest_accounts.c ${src}/elf_admission.c ${src}/elf.c ${src}/fs_client.c ${wire} ${raw}
     ${src}/fs_worker.c ${src}/fs_service.c ${namespace_engine} ${src}/image_catalogue.c ${inodes} ${mounts}
     ${src}/namespace_broker.c ${src}/watch_broker.c ${src}/proc_paths.c)
@@ -74,6 +75,11 @@ install(TARGETS bootstrap supervisor run service image RUNTIME DESTINATION lib)
 
 option(MAGICDESK_GUEST_FIXTURES "Build standalone native fixtures" OFF)
 if(MAGICDESK_GUEST_FIXTURES)
+    guest_executable(kernel_contract ../guest-exec-lab/test_kernel_contract.c)
+    target_compile_options(kernel_contract PRIVATE -UNDEBUG)
+    guest_executable(test_elf ../guest-exec-lab/test_elf.c ${src}/elf.c ${raw})
+    target_compile_options(test_elf PRIVATE -iquote ${src} -UNDEBUG)
+    target_compile_definitions(test_elf PRIVATE MD_NO_START MD_USE_LIBC)
     guest_executable(test_launch_registry ../guest-exec-lab/test_launch_registry.c ${src}/launch_registry.c)
     target_compile_options(test_launch_registry PRIVATE -iquote ${src} -UNDEBUG)
     target_compile_definitions(image PRIVATE MD_INODE_TESTING)

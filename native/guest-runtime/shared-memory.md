@@ -46,9 +46,11 @@ Partial unmaps retain surviving fragments. shmdt removes those fragments without
 unmapping an unrelated mapping inserted in a hole. Fragment counts do not model
 every VMA split, such as those caused by mprotect.
 
-SysV semaphore/message queues, SHM_REMAP, huge-page selection, locking/statistics
+SHM_REMAP, huge-page selection, locking/statistics
 commands and mremap involving an attached segment are not implemented. These
 operations fail explicitly; POSIX semaphores and shared memory are separate APIs.
+Store-scoped [SysV semaphores and message queues](sysv-ipc.md) have their own
+authority and task-affine argument transport.
 
 ## Checks
 

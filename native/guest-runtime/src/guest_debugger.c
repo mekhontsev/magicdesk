@@ -13,10 +13,14 @@
 #include <sys/uio.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#ifndef P_PIDFD
+#define P_PIDFD 3
+#endif
 
 struct inferior {
     struct inferior *next;
     pid_t pid, owner, group;
+    uid_t uid;
     unsigned long options, message;
     uint64_t sequence;
     int stopped, status, step, terminal, real_child;
@@ -100,8 +104,9 @@ static int wait_result(struct md_debugger *d, pid_t owner, struct user_pt_regs *
     int error;
     uintptr_t usage;
     if (r->regs[8]==SYS_waitid) {
-        siginfo_t info={.si_signo=SIGCHLD,.si_pid=chosen->pid};
-        info.si_code=chosen->terminal ? (WIFEXITED(chosen->status) ? CLD_EXITED : CLD_KILLED) : CLD_TRAPPED;
+        siginfo_t info={.si_signo=SIGCHLD,.si_pid=chosen->pid,.si_uid=chosen->uid};
+        info.si_code=chosen->terminal ? (WIFEXITED(chosen->status) ? CLD_EXITED
+            : WCOREDUMP(chosen->status) ? CLD_DUMPED : CLD_KILLED) : CLD_TRAPPED;
         info.si_status=chosen->terminal ? (WIFEXITED(chosen->status) ? WEXITSTATUS(chosen->status)
             : WTERMSIG(chosen->status)) : (chosen->status>>8);
         error=r->regs[2] ? transfer(owner,r->regs[2],&info,sizeof(info),1) : 0;
@@ -144,6 +149,7 @@ int md_debugger_stop(struct md_debugger *d, pid_t pid, int status, const siginfo
     struct inferior *p=find(d,pid);
     if (!p) return 0;
     p->stopped=1; p->status=status; p->message=message; p->step=0;
+    p->uid=d->host.uid(pid);
     d->host.usage(pid,&p->usage);
     p->syscall.op=PTRACE_SYSCALL_INFO_NONE;
     p->info=info ? *info : (siginfo_t){.si_signo=WSTOPSIG(status),
@@ -208,7 +214,8 @@ int md_debugger_syscall(struct md_debugger *d, pid_t pid, const struct user_pt_r
     struct inferior *p=find(d,pid);
     if (!p || !p->syscall_mode) return 0;
     int stopped=md_debugger_stop(d,pid,((SIGTRAP|(p->options&PTRACE_O_TRACESYSGOOD ? 0x80 : 0))<<8)|0x7f,NULL,0);
-    p->syscall=(struct ptrace_syscall_info){.op=entry ? PTRACE_SYSCALL_INFO_ENTRY : PTRACE_SYSCALL_INFO_EXIT,
+    p->syscall=(struct ptrace_syscall_info){.op=!(p->options&PTRACE_O_TRACESYSGOOD) ? PTRACE_SYSCALL_INFO_NONE
+        : entry ? PTRACE_SYSCALL_INFO_ENTRY : PTRACE_SYSCALL_INFO_EXIT,
         .arch=AUDIT_ARCH_AARCH64,.instruction_pointer=r->pc,.stack_pointer=r->sp};
     if (entry) {
         p->syscall.entry.nr=r->regs[8];
@@ -226,6 +233,7 @@ void md_debugger_exit(struct md_debugger *d, pid_t pid, int status) {
     pid_t notify=0;
     if (ending && !ending->real_child) {
         ending->terminal=1; ending->status=status; ending->stopped=0;
+        ending->uid=d->host.uid(pid);
         d->host.usage(pid,&ending->usage);
         ending->sequence=++d->sequence; notify=ending->owner;
     }
@@ -301,7 +309,7 @@ static long control(struct md_debugger *d, pid_t caller, const struct user_pt_re
         return parent>0 && d->host.allowed(parent,caller) ? add(d,caller,parent,0) : -EPERM;
     }
     if (op==PTRACE_ATTACH || op==PTRACE_SEIZE) {
-        if (op==PTRACE_SEIZE && (address || (data&~supported_options()))) return -EINVAL;
+        if (op==PTRACE_SEIZE && (address || (data&~supported_options()))) return -EIO;
         if (!d->host.attachable(caller,pid)) return -EPERM;
         int error=add(d,pid,caller,op==PTRACE_SEIZE ? data : 0);
         if (error) return error;
@@ -384,6 +392,15 @@ static long control(struct md_debugger *d, pid_t caller, const struct user_pt_re
 int md_debugger_call(struct md_debugger *d, pid_t pid, struct user_pt_regs *r) {
     if (r->regs[8]==SYS_ptrace) { d->host.complete(pid,r,control(d,pid,r)); return 1; }
     if (r->regs[8]!=SYS_wait4 && r->regs[8]!=SYS_waitid) return 0;
+    unsigned options=wait_options(r);
+    unsigned valid=WNOHANG|WUNTRACED|WCONTINUED|__WALL|__WCLONE|__WNOTHREAD;
+    int id=r->regs[8]==SYS_waitid;
+    if (id) valid|=WEXITED|WNOWAIT;
+    if ((options&~valid) || (id && (!(options&(WEXITED|WSTOPPED|WCONTINUED))
+            || (r->regs[0]!=P_ALL && r->regs[0]!=P_PID && r->regs[0]!=P_PGID && r->regs[0]!=P_PIDFD)
+            || (r->regs[0]==P_PID && (int)r->regs[1]<=0)))) {
+        d->host.complete(pid,r,-EINVAL); return 1;
+    }
     int children;
     if (wait_result(d,pid,r,&children)) return 1;
     if (!children) return 0;

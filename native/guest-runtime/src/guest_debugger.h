@@ -10,6 +10,7 @@ enum md_debugger_wait_action { MD_DEBUG_WAIT_PROBE, MD_DEBUG_WAIT_REPROBE, MD_DE
 struct md_debugger_host {
     int (*parent)(pid_t);
     int (*group)(pid_t);
+    uid_t (*uid)(pid_t);
     int (*allowed)(pid_t, pid_t);
     int (*attachable)(pid_t, pid_t);
     int (*interrupt)(pid_t);

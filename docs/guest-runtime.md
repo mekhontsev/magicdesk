@@ -402,7 +402,12 @@ or change the sealed image. POSIX shared memory, mmap, descriptor passing and un
 data work across independent launches. Store-scoped System V shared memory uses
 native mapped backing files and a separate lazy IPC authority; it does not require
 kernel SysV IPC support. See [shared memory](../native/guest-runtime/shared-memory.md)
-for supported operations and lifecycle limits. Inotify combines native backing-inode
+for supported operations and lifecycle limits.
+Store-scoped [SysV semaphores and message queues](../native/guest-runtime/sysv-ipc.md)
+support atomic vectors, SEM_UNDO, typed messages and signal-interruptible waits.
+Argument/result copying is task-affine, including nondumpable programs; IPC
+transactions do not span guest waits. No native SysV kernel support is required.
+Inotify combines native backing-inode
 data events with transactionally committed directory/name events. Independent
 watchers sharing a store receive create/link/unlink/rename events without polling.
 Subscriptions and bounded queues belong to the existing namespace worker; watch

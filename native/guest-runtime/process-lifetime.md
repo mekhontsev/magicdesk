@@ -20,6 +20,9 @@ part of that supervisor, not a child counted by the guardian's
 `wait4(..., __WALL)` quiescence check. The root guest's exit
 status is retained, but returned only after `ECHILD` proves that the entire tree
 has ended. Background processes may intentionally keep a launch alive indefinitely.
+The initial headless guest has a separate process group from its guardians, so
+an application's group-wide shutdown does not cancel supervision. A controlling
+PTY retains the caller's foreground group and ordinary shell job control.
 
 The supervisor retains the namespace worker until tracees have been reaped.
 Shutdown signals its stop eventfd and joins it before freeing request storage;

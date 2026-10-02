@@ -469,6 +469,22 @@ an upstream ARM64 register bug. Timeouts fail their cases and the launch owner
 cancels remaining descendants. Shroot fixtures persist only in the explicitly
 selected disposable store. See the [debugger contract and measured coverage](../guest-runtime/debugging.md).
 
+`test_kernel_contract.py OUTPUT --fixture BUILD/libmagicdesk_guest_kernel_contract.so
+--instance STORE [--build BUILD]` compares normalized observations from the same
+static executable directly under shell and inside Shroot. Cases cover wait and
+ptrace contracts, signal delivery, descriptor lifetime, openat2 and concurrent
+rename confinement. Native capability gaps are recorded separately from guest
+assertions. Build the `kernel_contract` and `test_elf` CMake fixture targets;
+the latter runs malformed ELF, page-size preflight and actual BSS mapping checks.
+
+`test_sysv_runtime.py OUTPUT --instance STORE [--build BUILD]` compiles the focused
+SysV fixture with the prepared distribution's GCC and checks semaphore/message
+semantics, protected copying, independent launch traffic and owner-death recovery.
+`test_sysv_apps.py` accepts the same arguments and tests stock fakeroot-sysv,
+PHP with sysvsem/sysvmsg/pcntl, Symfony Lock and Apache prefork. These packages
+must already be present; the tests do not install software. `--case NAME` selects
+individual workflows. See the [SysV contract](../guest-runtime/sysv-ipc.md).
+
 Distribution and emulator workflows use the same runner and per-instance policy:
 
 ```sh

@@ -1,5 +1,23 @@
 #include <asm/unistd.h>
 .text
+.global md_guest_ipc_wait
+md_guest_ipc_wait:
+    sub sp, sp, #32
+    str x0, [sp]
+    stp x1, x2, [sp, #16]
+    add x2, sp, #16
+    cmp x3, #0
+    csel x2, x2, xzr, ne
+    mov x0, sp
+    mov x1, #1
+    mov x3, xzr
+    mov x4, #8
+    mov x8, #__NR_ppoll
+    b md_raw_return - 4
+.global md_guest_ipc_wait_result
+md_guest_ipc_wait_result:
+    ldrh w1, [sp, #6]
+    b md_guest_done
 .balign 4
 .global md_guest_watch_gate
 md_guest_watch_gate:

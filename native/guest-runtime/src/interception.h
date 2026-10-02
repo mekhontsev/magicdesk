@@ -9,10 +9,12 @@
 #define MD_GUEST_SHM 0x4d440104
 #define MD_GUEST_SHM_FILTER 0x4d440105
 #define MD_GUEST_PROC_IMAGE 0x4d440106
+#define MD_GUEST_IPC 0x4d440107
 #define MD_PROC_IMAGE_LINK (1U << 31)
 #define MD_WATCH_TASK_AFFINE (-INT64_C(0x4000000000000000))
 #define MD_WATCH_WAIT (MD_WATCH_TASK_AFFINE + 1)
 #define MD_WATCH_NATIVE (MD_WATCH_TASK_AFFINE + 2)
+#define MD_IPC_WAIT (MD_WATCH_TASK_AFFINE + 3)
 
 enum md_interception_kind {
     MD_INTERCEPT_DISPATCH = 41,
@@ -34,10 +36,12 @@ struct md_interception_abi {
     uintptr_t watch_gate;
     uintptr_t load_groups, loaded_groups, store_groups, stored_groups;
     uintptr_t enter;
+    uintptr_t ipc_wait, ipc_wait_result;
 };
 
 int md_interception_install(int inherited);
 long md_shm_dispatch(long, const unsigned long *);
+long md_ipc_dispatch(long, const unsigned long *);
 int md_interception_map_image(int fd, int loader);
 int md_interception_enter_image(void *aux, unsigned count);
 #endif

@@ -36,6 +36,10 @@ retains real-child exit reaping; traced nonchildren have supervisor-owned exit
 records. Event waits end on a trace event, owned child exit or launch cancellation,
 not a settling delay. EXITKILL and stopped-inferior release belong to debugger
 lifetime. Records are released when consumed or their owner exits.
+Invalid wait flags are rejected before consuming an event. waitid siginfo includes
+the inferior's logical UID and distinguishes normal, killed and core-dumped exits.
+PTRACE_GET_SYSCALL_INFO exposes entry/exit records only with TRACESYSGOOD; short
+buffers retain the kernel's full-size return convention.
 
 The kernel TRACEEXIT option is enabled only for inferiors requesting it. Syscall
 stepping observes only explicit syscall-traced inferiors and active debugger
@@ -64,6 +68,15 @@ strace following a child, gprof function output and Callgrind instruction counts
 The perf capability check opens a task-clock event and requires a positive
 counter; a kernel permission denial is recorded as unavailable, not a successful
 profile or a runtime workaround.
+
+`test_kernel_contract.py` runs one static binary directly under shell and inside
+Shroot on the same kernel. It compares waitid WNOWAIT, invalid waits, ptrace
+option errors, syscall-info sizing and signal suppression/replacement, alongside
+descriptor lifetimes and scoped pathname resolution under concurrent rename.
+Unavailable native hardlink creation is reported separately; the guest must
+execute that subcheck, not silently omit it. ELF fixtures independently check
+malformed layouts, 4/16 KiB preflight and mapped BSS zeroing. Synthetic 16 KiB
+preflight is not device coverage.
 
 On the tested NX809J/API 36 kernel 6.12, Shroot under UID 2000 passes these
 workflows with Ubuntu GDB 15.1, LLDB 18.1.3, strace 6.8 and Valgrind 3.22.

@@ -51,6 +51,7 @@ extern void md_guest_load_groups(void), md_guest_loaded_groups(void);
 extern void md_guest_store_groups(void), md_guest_stored_groups(void);
 extern char md_guest_copy_begin[], md_guest_copy_end[];
 extern char md_guest_watch_gate[], md_guest_watch_return[];
+extern char md_guest_ipc_wait[], md_guest_ipc_wait_result[];
 long md_guest_dispatch(long nr, unsigned long a0, unsigned long a1, unsigned long a2,
         unsigned long a3, unsigned long a4, unsigned long a5) {
     unsigned long args[] = {a0, a1, a2, a3, a4, a5};
@@ -62,6 +63,9 @@ long md_guest_dispatch(long nr, unsigned long a0, unsigned long a1, unsigned lon
     }
     if (nr == SYS_shmget || nr == SYS_shmat || nr == SYS_shmdt || nr == SYS_shmctl)
         return md_shm_dispatch(nr,args);
+    if (nr == SYS_semget || nr == SYS_semctl || nr == SYS_semop || nr == SYS_semtimedop
+            || nr == SYS_msgget || nr == SYS_msgctl || nr == SYS_msgsnd || nr == SYS_msgrcv)
+        return md_ipc_dispatch(nr,args);
     if (nr == SYS_read || nr == SYS_readv || nr == SYS_ioctl || nr == SYS_splice
             || nr == SYS_tee || nr == SYS_sendfile) return md_watch_read_local(&md_files, nr, args);
     if (nr == SYS_inotify_init1 || nr == SYS_inotify_rm_watch
@@ -95,6 +99,8 @@ long md_guest_dispatch(long nr, unsigned long a0, unsigned long a1, unsigned lon
     }
 }
 static const struct md_interception_abi abi = {
+    .ipc_wait = (uintptr_t)md_guest_ipc_wait,
+    .ipc_wait_result = (uintptr_t)md_guest_ipc_wait_result,
     .magic = MD_INTERCEPTION_MAGIC, .size = sizeof(struct md_interception_abi),
     .ready = (uintptr_t)md_guest_ready, .done = (uintptr_t)md_guest_done,
     .allocate = (uintptr_t)md_guest_allocate, .allocated = (uintptr_t)md_guest_allocated,
@@ -150,10 +156,11 @@ int md_interception_install(int inherited) {
             /* Descriptor metadata must remain serviceable after an application
              * installs a higher-precedence filter or becomes nondumpable. */
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_prctl, 0, 7),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_prctl, 0, 8),
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_PROC_IMAGE, 3, 0),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_SHM, 2, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_PROC_IMAGE, 4, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_SHM, 3, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_IPC, 2, 0),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_MAP_IMAGE, 1, 0),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MD_GUEST_ENTER_IMAGE, 0, 1),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_USER_NOTIF),
@@ -213,6 +220,8 @@ int md_interception_install(int inherited) {
             IDENTITY(setfsuid) IDENTITY(setfsgid) IDENTITY(setgroups) IDENTITY(getgroups)
             IDENTITY(capget) IDENTITY(capset)
             TRACE(shmget) TRACE(shmat) TRACE(shmdt) TRACE(shmctl)
+            TRACE(semget) TRACE(semctl) TRACE(semop) TRACE(semtimedop)
+            TRACE(msgget) TRACE(msgctl) TRACE(msgsnd) TRACE(msgrcv)
 #undef IDENTITY
             OBSERVE(unshare) OBSERVE(setns)
             OBSERVE(seccomp)

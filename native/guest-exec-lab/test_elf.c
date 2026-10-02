@@ -38,6 +38,10 @@ static void check(int error, int loader) {
     int r = md_elf_validate(descriptor, loader);
     if (r != error) fprintf(stderr, "ELF page=%zu: expected=%d actual=%d\n", md_page_size, error, r);
     assert(r == error);
+    if (error) {
+        struct md_image image;
+        assert(md_elf_load(descriptor, loader, &image) == error);
+    }
 }
 int main(int argc, char **argv) {
     assert(argc == 2);
@@ -66,6 +70,14 @@ int main(int argc, char **argv) {
         seed(); header->e_phnum = 129; check(-ENOEXEC, 0);
         seed(); header->e_phoff = UINT64_MAX; check(-ENOEXEC, 0);
         seed(); segments[2].p_memsz = UINT64_MAX; check(-ENOEXEC, 0);
+        seed(); header->e_phnum = 1;
+        segments[0].p_memsz = UINT64_MAX - page + 2; check(-ENOEXEC, 0);
+        seed(); header->e_phnum = 1;
+        segments[0].p_memsz = (UINT64_C(1) << 63) + page;
+        segments[0].p_align = UINT64_C(1) << 63; check(-ENOEXEC, 0);
+        seed(); segments[2] = segments[1]; check(-ENOEXEC, 0);
+        seed(); bytes[512 + segments[1].p_filesz - 1] = 'x'; check(-ENOEXEC, 0);
+        seed(); header->e_phoff = sizeof(bytes) - sizeof(Elf64_Phdr); check(-ENOEXEC, 0);
         seed(); segments[0].p_align = 3 * page; check(-ENOEXEC, 0);
         seed(); segments[2].p_align = 2 * page;
         segments[2].p_vaddr += page; check(-ENOEXEC, 0);
@@ -81,6 +93,13 @@ int main(int argc, char **argv) {
     assert(aligned.base % segments[0].p_align == 0);
     assert(!memcmp((void *)aligned.base, bytes, md_page_size));
     assert(!munmap((void *)aligned.base, 2 * md_page_size));
+    seed();
+    memset(bytes + md_page_size, 0xa5, md_page_size);
+    segments[2].p_filesz = 17; segments[2].p_memsz = 2 * md_page_size;
+    check(0, 0); assert(!md_elf_load(descriptor, 0, &aligned));
+    unsigned char *bss = (void *)(aligned.base + md_page_size);
+    for (size_t i = 0; i < 2 * md_page_size; i++) assert(bss[i] == (i < 17 ? 0xa5 : 0));
+    assert(!munmap((void *)aligned.base, 3 * md_page_size));
     unsigned char *owned = mmap(NULL, 2 * md_page_size, PROT_READ | PROT_WRITE,
         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     assert(owned != MAP_FAILED); owned[0] = 0x5a; owned[md_page_size] = 0xa5;

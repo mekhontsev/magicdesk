@@ -51,6 +51,9 @@ custom glibc linker, root transition or SELinux change is used.
   `shm_calls.c` maps native backing descriptors in the calling guest task.
   [Shared-memory storage](shared-memory.md) is separate from filesystem names,
   and launches that never use it allocate no shared-memory authority.
+- `sysv_ipc.c` owns [SysV semaphore/message waits and undo groups](sysv-ipc.md).
+  The database, semaphore and message modules share one store-scoped authority;
+  `ipc_calls.c` and `sysv_ipc_transport.c` exchange bounded task-affine packets.
 - `file_calls.c` owns file syscall argument translation, separately from signal
   delivery. Its single catalog in `file_calls.h` drives dispatch and filtering,
   so a supported file operation cannot accidentally bypass the adapter.
