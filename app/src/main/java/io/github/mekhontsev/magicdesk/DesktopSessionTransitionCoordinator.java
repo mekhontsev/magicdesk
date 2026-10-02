@@ -320,12 +320,13 @@ final class DesktopSessionTransitionCoordinator {
         }
         try {
             MagicDeskRuntime.parkDesktopTasks(plan.workspace,
-                    plan.tasks == DesktopSessionEndPlan.Tasks.RETURN_TO_DEFAULT_AND_REMEMBER, parked -> {
+                    plan.tasks == DesktopSessionEndPlan.Tasks.RETURN_TO_DEFAULT_AND_REMEMBER,
+                    () -> SecondaryDisplayWindowing.release(plan.workspace.workspaceDisplayId), parked -> {
                 if (!parked) {
                     Log.w(TAG, "Desktop close continues after partial task parking");
                 }
                 mOperations.execute(() -> finishDesktopSessionClose(
-                        plan, prepared, callback));
+                        plan, prepared && parked, callback));
             });
         } catch (RuntimeException error) {
             recordCloseFailure("Could not park desktop tasks", error);

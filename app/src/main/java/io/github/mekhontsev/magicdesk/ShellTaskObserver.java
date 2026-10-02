@@ -991,7 +991,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     error.addSuppressed(unavailable);
                 }
             }
-            throw new IllegalStateException("could not release desktop tasks", error);
+            Log.w(TAG, "could not release desktop tasks display=" + mConfiguredDisplayId
+                    + " tasks=" + java.util.Arrays.toString(taskIds), error);
+            throw new IllegalStateException("could not release desktop tasks: "
+                    + usefulMessage(error), error);
         } finally {
             // Ignore reads begun before handoff completion, without blocking the sampler.
             mDesktopOwnership.finishRelease(taskIds, mTaskObservations.nextSampleSequence());

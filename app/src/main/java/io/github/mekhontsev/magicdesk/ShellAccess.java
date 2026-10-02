@@ -326,7 +326,7 @@ public final class ShellAccess {
     static void releaseDesktopTasks(final int displayId, final int[] taskIds) throws IOException {
         try { requireService().releaseDesktopTasks(displayId, taskIds); }
         catch (android.os.RemoteException | RuntimeException error) {
-            throw new IOException("could not release desktop tasks", error);
+            throw new IOException("could not release desktop tasks: " + usefulMessage(error), error);
         }
     }
 

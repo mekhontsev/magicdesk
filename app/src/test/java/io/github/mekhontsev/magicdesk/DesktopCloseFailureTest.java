@@ -83,8 +83,11 @@ public final class DesktopCloseFailureTest {
                     }
                     static void desktopTransitionFinished() {}
                     static void disableExternalTaskMigrationProtection(int id) { step("protection"); }
-                    static void parkDesktopTasks(DesktopDisplayTarget t, boolean remember, CompletionCallback c) {
-                        step("park"); c.onComplete(true);
+                    interface Preparation { void prepare() throws IOException; }
+                    static void parkDesktopTasks(DesktopDisplayTarget t, boolean remember, Preparation p, CompletionCallback c) {
+                        step("park");
+                        try { events.add("captured"); p.prepare(); events.add("released"); c.onComplete(true); }
+                        catch (IOException | RuntimeException e) { c.onComplete(false); }
                     }
                 }
                 static class DesktopRuntimeBridge {
@@ -170,9 +173,13 @@ public final class DesktopCloseFailureTest {
                         if (fail.startsWith("projection")) {
                             check(!succeeded[0], "lost projection restoration failure");
                         }
-                        check(events.indexOf("close") < events.indexOf("display-mode")
-                                && events.indexOf("display-mode") < events.indexOf("surfaces"),
-                                "display default restored outside teardown boundary: " + events);
+                        check(events.indexOf("display-mode") < events.indexOf("surfaces"),
+                                "display default survived teardown: " + events);
+                        if (events.contains("released")) {
+                            check(events.indexOf("captured") < events.indexOf("display-mode")
+                                    && events.indexOf("display-mode") < events.indexOf("released"),
+                                    "display default must change between snapshot and task handoff: " + events);
+                        }
                         if (fail.startsWith("display-mode")) {
                             check(!succeeded[0], "lost display default restoration failure");
                         }

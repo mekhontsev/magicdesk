@@ -69,7 +69,7 @@
     <string name="display_independent_count">独立应用：%1$d</string>
     <string name="display_tasks_unknown">应用：不可用</string>
     <string name="display_independent_apps">独立应用</string>
-    <string name="start_mode_default">应用默认值</string>
+    <string name="start_mode_default">自动</string>
     <string name="start_mode_windowed">桌面窗口</string>
     <string name="start_mode_fullscreen">桌面全屏</string>
     <string name="start_mode_independent">独立</string>

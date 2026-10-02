@@ -466,10 +466,11 @@ public final class MagicDeskRuntime {
     static void parkDesktopTasks(
             final DesktopDisplayTarget source,
             final boolean remember,
+            final DesktopTaskParkingRuntime.ReleasePreparation preparation,
             final DesktopTaskParkingRuntime.ResultCallback callback) {
         final DesktopTaskParkingRuntime parking = desktopTaskParking();
         if (parking != null) {
-            parking.park(source, remember, callback);
+            parking.park(source, remember, preparation, callback);
         } else if (callback != null) {
             callback.onComplete(false);
         }

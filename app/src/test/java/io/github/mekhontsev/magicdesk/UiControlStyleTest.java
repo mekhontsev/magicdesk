@@ -48,12 +48,15 @@ public final class UiControlStyleTest {
                 }
                 static class TextView extends View {
                     int minHeight=40,selection=3; String text="unchanged search";
-                    ColorStateList colors;
+                    ColorStateList colors,compound;
                     int getMinHeight() { return minHeight; } void setMinHeight(int value) { minHeight=value; }
                     void setTextColor(ColorStateList value) { colors=value; }
-                    void setCompoundDrawableTintList(ColorStateList value) {}
+                    void setCompoundDrawableTintList(ColorStateList value) { compound=value; }
                 }
-                static class ImageView extends View { void setImageTintList(ColorStateList value) {} }
+                static class ImageView extends View { ColorStateList colors; void setImageTintList(ColorStateList value) { colors=value; } }
+                static class UiAppearance {
+                """ + RuntimeSourceFixture.methods("UiAppearance", "states") + """
+                }
                 public static void verify() {
                     var base=ShellAppearance.defaults();
                     var paint=new ShellControls.Paint(UiColor.ACCENT,UiColor.ON_ACCENT,UiColor.TRANSPARENT,UiColor.TEXT,0,1);
@@ -92,6 +95,23 @@ public final class UiControlStyleTest {
                     new UiControlStyle(ShellControls.Role.SWITCH,UiColor.ACCENT,false).apply(toggle,base,UiColor.TEXT);
                     check(toggle.background==null && toggle.thumb!=null && toggle.track!=null,"replaced platform switch");
                     check(toggle.thumb.colors()[3]==base.palette().color(UiColor.ACCENT),"checked switch lost accent");
+                    for (String preset : List.of("light","dark","contrast")) {
+                        var theme=ShellAppearance.preset(preset);
+                        int disabled=ShellControls.disabledContent(theme.palette());
+                        check(disabled>>>24==97,"disabled content is not visibly dimmed");
+                        for (var role : ShellControls.Role.values()) {
+                            if (role==ShellControls.Role.SWITCH) continue;
+                            new UiControlStyle(role,UiColor.ACCENT,false).apply(button,theme,UiColor.TEXT);
+                            check(button.colors.colors()[0]==disabled,"disabled text disagrees for "+role);
+                            check(button.compound==button.colors,"compound icon has different states");
+                            var image=new ImageView();
+                            new UiControlStyle(role,UiColor.ACCENT,false).apply(image,theme,UiColor.TEXT);
+                            check(image.colors.colors()[0]==disabled,"disabled image disagrees for "+role);
+                        }
+                        new UiControlStyle(ShellControls.Role.SWITCH,UiColor.ACCENT,false).apply(toggle,theme,UiColor.TEXT);
+                        check(toggle.thumb.colors()[0]==disabled && toggle.colors.colors()[0]==disabled,"disabled switch label and thumb disagree");
+                        check(toggle.colors.colors()[1]==theme.palette().color(UiColor.TEXT),"switch label lost enabled content color");
+                    }
                 }
                 """ + RuntimeSourceFixture.nestedClass("UiControlStyle", "UiControlStyle")
                         .replace("final class UiControlStyle", "static final class UiControlStyle"),

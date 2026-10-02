@@ -70,7 +70,8 @@ final class StartDisplaySelector {
                 final DesktopDisplayInfo[] displays = DesktopDisplayCatalog.read();
                 mActivity.runOnUiThread(() -> {
                     if (generation != mGeneration || !mButton.isAttachedToWindow()
-                            || !mButton.isShown() || mActivity.isDestroyed()) { return; }
+                            || !mButton.isShown() || mActivity.isFinishing()
+                            || mActivity.isDestroyed()) { return; }
                     final PopupMenu menu = new PopupMenu(mActivity, mButton, Gravity.END);
                     mMenu = menu;
                     menu.getMenu().add(0, 0, 0, R.string.start_current_display)

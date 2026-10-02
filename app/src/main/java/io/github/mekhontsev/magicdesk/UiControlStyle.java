@@ -54,6 +54,7 @@ final class UiControlStyle {
         var colors = new ColorStateList(STATES, content);
         if (role == ShellControls.Role.SWITCH && view instanceof android.widget.Switch toggle) {
             toggle.setThumbTintList(colors); toggle.setTrackTintList(new ColorStateList(STATES, fills));
+            toggle.setTextColor(UiAppearance.states(theme, contentRole));
         } else {
             if (!textOnly && view.getBackground() != background) view.setBackground(background);
             if (view instanceof TextView text) {
@@ -89,7 +90,7 @@ final class UiControlStyle {
         if (role == ShellControls.Role.SWITCH) {
             boolean selected = state == ShellControls.State.SELECTED;
             return new ShellControls.Paint(selected ? ACCENT_CONTAINER : SURFACE_HIGH, selected ? accent : MUTED,
-                    TRANSPARENT, TRANSPARENT, 0, state == ShellControls.State.DISABLED ? .38f : 1);
+                    TRANSPARENT, TRANSPARENT, 0, state == ShellControls.State.DISABLED ? ShellControls.DISABLED_OPACITY : 1);
         }
         if (normal != null) {
             if (state == null) return normal;
@@ -97,7 +98,7 @@ final class UiControlStyle {
                 case HOVER -> .08f; case PRESSED, FOCUSED -> .12f; case SELECTED -> .16f; default -> 0;
             };
             return new ShellControls.Paint(normal.fill(), normal.content(), state == ShellControls.State.FOCUSED ? theme.feedback().outline() : normal.outline(),
-                    normal.content(), overlay, state == ShellControls.State.DISABLED ? normal.opacity() * .38f : normal.opacity());
+                    normal.content(), overlay, state == ShellControls.State.DISABLED ? normal.opacity() * ShellControls.DISABLED_OPACITY : normal.opacity());
         }
         UiColor fill = role == ShellControls.Role.ACTION_BUTTON || role == ShellControls.Role.SEARCH_FIELD ? SURFACE : theme.feedback().normal();
         UiColor outline = role == ShellControls.Role.ACTION_BUTTON ? accent : TRANSPARENT;
@@ -109,6 +110,7 @@ final class UiControlStyle {
             case SELECTED -> { fill = theme.feedback().selected(); outline = theme.feedback().outline(); }
             case FOCUSED -> { fill = theme.feedback().focused(); outline = theme.feedback().outline(); }
         }
-        return new ShellControls.Paint(fill, content, outline, TRANSPARENT, 0, 1);
+        return new ShellControls.Paint(fill, content, outline, TRANSPARENT, 0,
+                state == ShellControls.State.DISABLED ? ShellControls.DISABLED_OPACITY : 1);
     }
 }

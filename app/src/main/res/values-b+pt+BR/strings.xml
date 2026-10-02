@@ -69,7 +69,7 @@
     <string name="display_independent_count">Apps independentes: %1$d</string>
     <string name="display_tasks_unknown">Aplicativos: indisponível</string>
     <string name="display_independent_apps">Aplicativos independentes</string>
-    <string name="start_mode_default">Padrão do aplicativo</string>
+    <string name="start_mode_default">Auto</string>
     <string name="start_mode_windowed">Janela da área de trabalho</string>
     <string name="start_mode_fullscreen">Tela cheia na área de trabalho</string>
     <string name="start_mode_independent">Independente</string>

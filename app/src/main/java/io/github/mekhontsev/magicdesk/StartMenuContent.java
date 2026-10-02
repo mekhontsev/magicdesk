@@ -865,7 +865,7 @@ final class StartMenuContent {
 
     private void bindIcon(final ImageView icon, final StartMenuEntry entry) {
         icon.setTag(entry);
-        if (entry.app != null) { icon.setImageDrawable(entry.app.icon); }
+        if (entry.app != null) { UiApplicationIcon.bind(icon, entry.app, UiColor.TEXT); }
         else if (entry.builtIn != null) { UiAppearance.icon(icon, searchIcon(entry), UiColor.TEXT); }
         else if (entry.desktopApplication != null) {
             icon.setImageDrawable(DesktopApplicationIconResolver.resolve(

@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
 import android.content.res.Resources;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
@@ -20,6 +21,7 @@ final class UiSymbolDrawable extends Drawable implements Drawable.Callback {
     private Bitmap mAsset;
     private int mResolved, mAlpha = 255;
     private ColorFilter mFilter;
+    private ColorStateList mTint;
     UiSymbolDrawable(Context context, int original, UiColor role) {
         mResources = context.getResources(); mSource = new AppearanceScopeSource(context);
         mOriginal = original; mRole = role;
@@ -41,9 +43,18 @@ final class UiSymbolDrawable extends Drawable implements Drawable.Callback {
             mResolved = resource; mAsset = asset;
             mDrawable.setCallback(this); mDrawable.setBounds(getBounds());
             mDrawable.setAlpha(mAlpha); mDrawable.setColorFilter(mFilter);
+            mDrawable.setState(getState());
         }
-        if (asset == null) mDrawable.setTint(theme.palette().color(mRole));
+        mDrawable.setTintList(mTint != null ? mTint : asset == null ? UiAppearance.states(theme, mRole) : null);
         invalidateSelf();
+    }
+    @Override public boolean isStateful() { return mDrawable != null && mDrawable.isStateful(); }
+    @Override protected boolean onStateChange(int[] state) {
+        return mDrawable != null && mDrawable.setState(state);
+    }
+    @Override public void setTintList(ColorStateList tint) {
+        mTint = tint;
+        refresh();
     }
     @Override public void draw(Canvas canvas) { mDrawable.draw(canvas); }
     @Override protected void onBoundsChange(Rect bounds) { if (mDrawable != null) mDrawable.setBounds(bounds); }

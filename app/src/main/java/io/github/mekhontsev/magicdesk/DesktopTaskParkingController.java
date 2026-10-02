@@ -82,6 +82,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
     public void park(
             final DesktopDisplayTarget source,
             final boolean remember,
+            final ReleasePreparation preparation,
             final ResultCallback callback) {
         if (source == null
                 || source.workspaceDisplayId < Display.DEFAULT_DISPLAY) {
@@ -93,7 +94,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             generation = mGeneration;
         }
         TaskCommandQueue.execute(
-                () -> parkNow(source, remember, callback, generation));
+                () -> parkNow(source, remember, preparation, callback, generation));
     }
 
     @Override
@@ -170,6 +171,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
     private void parkNow(
             final DesktopDisplayTarget source,
             final boolean remember,
+            final ReleasePreparation preparation,
             final ResultCallback callback,
             final long generation) {
         final TaskRepository.Snapshot snapshot =
@@ -212,12 +214,14 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                 workArea,
                 ownershipReady,
                 ownedTaskIds);
-        if (candidates.isEmpty()) {
-            complete(callback, true);
-            return;
-        }
-
         try {
+            // Snapshot geometry before restoring display defaults: inherited
+            // modes can change as part of that restoration.
+            preparation.prepare();
+            if (candidates.isEmpty()) {
+                complete(callback, true);
+                return;
+            }
             DesktopDisplayCatalog.require(source.workspaceDisplayId, null);
             ShellAccess.releaseDesktopTasks(source.workspaceDisplayId,
                     candidates.stream().mapToInt(task -> task.taskId).toArray());
@@ -239,7 +243,10 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                         .anyMatch(display -> display.id == source.workspaceDisplayId);
             } catch (IOException | RuntimeException unavailable) { error.addSuppressed(unavailable); }
             if (present) {
-                recordFailure("Could not release desktop tasks", error.getMessage());
+                Log.w(TAG, "Could not release desktop tasks", error);
+                CompatibilityDiagnostics.record("DISPLAY-TASKS-002",
+                        "Could not release desktop tasks",
+                        "display=" + source.workspaceDisplayId, error);
                 complete(callback, false);
                 return;
             }

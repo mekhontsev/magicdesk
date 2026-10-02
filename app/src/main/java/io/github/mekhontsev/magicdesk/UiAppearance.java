@@ -33,8 +33,7 @@ public final class UiAppearance {
         return drawable;
     }
     public static void text(TextView view, UiColor role) {
-        binding(view).content = role;
-        bind(view, Property.TEXT, (v, t) -> ((TextView) v).setTextColor(t.palette().color(role)));
+        textStates(view, role);
     }
     public static void textStates(TextView view, UiColor enabled) {
         binding(view).content = enabled;
@@ -50,7 +49,7 @@ public final class UiAppearance {
         bind(view, Property.BACKGROUND_TINT, (v, t) -> v.setBackgroundTintList(states(t, role)));
     }
     public static void image(ImageView view, UiColor role) {
-        bind(view, Property.IMAGE, (v, t) -> ((ImageView) v).setColorFilter(t.palette().color(role)));
+        imageStates(view, role);
     }
     static void icon(ImageView view, int resource, UiColor role) {
         view.setImageDrawable(symbol(view.getContext(), resource, role));
@@ -63,8 +62,9 @@ public final class UiAppearance {
     }
     public static void button(android.widget.CompoundButton view, UiColor role) {
         bind(view, Property.BUTTON, (v, t) -> {
-            final var tint = new ColorStateList(new int[][] {new int[] {android.R.attr.state_checked}, new int[0]},
-                    new int[] {t.palette().color(role), t.palette().color(UiColor.MUTED)});
+            final var tint = new ColorStateList(new int[][] {new int[] {-android.R.attr.state_enabled},
+                    new int[] {android.R.attr.state_checked}, new int[0]},
+                    new int[] {ShellControls.disabledContent(t.palette()), t.palette().color(role), t.palette().color(UiColor.MUTED)});
             if (v instanceof android.widget.Switch toggle) {
                 toggle.setThumbTintList(tint);
                 toggle.setTrackTintList(tint.withAlpha(90));
@@ -97,7 +97,7 @@ public final class UiAppearance {
             bind(view, Property.CHECK_MARK, (v, t) -> {
                 var tint = new ColorStateList(new int[][] {new int[] {-android.R.attr.state_enabled},
                             new int[] {android.R.attr.state_checked}, new int[0]},
-                            new int[] {t.palette().color(UiColor.MUTED), t.palette().color(UiColor.ACCENT),
+                            new int[] {ShellControls.disabledContent(t.palette()), t.palette().color(UiColor.ACCENT),
                                     t.palette().color(UiColor.TEXT)});
                 var choice = (android.widget.CheckedTextView) v;
                 choice.setCheckMarkTintList(tint);
@@ -116,9 +116,9 @@ public final class UiAppearance {
             for (int i = 0; i < group.getChildCount(); i++) dialogContents(group.getChildAt(i));
         }
     }
-    private static ColorStateList states(ShellAppearance theme, UiColor role) {
+    static ColorStateList states(ShellAppearance theme, UiColor role) {
         return new ColorStateList(new int[][] {new int[] {-android.R.attr.state_enabled}, new int[0]},
-                new int[] {theme.palette().color(UiColor.MUTED), theme.palette().color(role)});
+                new int[] {ShellControls.disabledContent(theme.palette()), theme.palette().color(role)});
     }
     private static Binding binding(View view) {
         Binding binding = (Binding) view.getTag(R.id.appearance_binding);

@@ -165,6 +165,13 @@ final class BuiltInDesktopAppCatalog {
         return find(target) == X11_WINDOW || find(target) == WAYLAND_WINDOW;
     }
 
+    static int symbolicIcon(AppLaunchTarget target) {
+        final Entry entry = find(target);
+        if (entry == CONSOLE) return R.drawable.ic_file_console;
+        if (entry == DISPLAY_VIEWER || entry == GRAPHICS) return R.drawable.ic_show_desktop;
+        return 0;
+    }
+
     static AppLaunchTarget filesTarget() {
         return FILES.launchTarget;
     }

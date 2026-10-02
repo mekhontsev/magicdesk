@@ -5,6 +5,13 @@ import java.util.Objects;
 
 /** Semantic control presentation, independent of View classes and shell composition. */
 public record ShellControls(Map<Role, Style> styles) {
+    static final float DISABLED_OPACITY = .38f;
+
+    static int disabledContent(ShellAppearance.Palette palette) {
+        int color = palette.color(UiColor.MUTED);
+        return (Math.round((color >>> 24) * DISABLED_OPACITY) << 24) | (color & 0xffffff);
+    }
+
     public enum Role { ACTION_BUTTON, PANEL_BUTTON, SEARCH_FIELD, TAB, SWITCH, SETTINGS_ROW, APP_TILE }
     public enum State { HOVER, PRESSED, SELECTED, FOCUSED, DISABLED }
     public enum Shape { ROUNDED, CAPSULE }

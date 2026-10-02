@@ -69,7 +69,7 @@
     <string name="display_independent_count">Независимых приложений: %1$d</string>
     <string name="display_tasks_unknown">Приложения: недоступно</string>
     <string name="display_independent_apps">Независимые приложения</string>
-    <string name="start_mode_default">По умолчанию для приложения</string>
+    <string name="start_mode_default">Авто</string>
     <string name="start_mode_windowed">В окне рабочего стола</string>
     <string name="start_mode_fullscreen">На весь рабочий стол</string>
     <string name="start_mode_independent">Независимо</string>

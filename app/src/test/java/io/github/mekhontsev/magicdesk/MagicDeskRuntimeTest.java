@@ -25,7 +25,7 @@ public final class MagicDeskRuntimeTest {
         final boolean[] desktopReleaseCompleted = {false};
 
         MagicDeskRuntime.parkDesktopTasks(
-                DesktopDisplayTarget.wired(7), true,
+                DesktopDisplayTarget.wired(7), true, () -> { },
                 success -> parkingResult[0] = success);
         MagicDeskRuntime.releaseDesktopWorkspace(workspace,
                 () -> desktopReleaseCompleted[0] = true);
@@ -156,6 +156,7 @@ public final class MagicDeskRuntimeTest {
                     public void park(
                             final DesktopDisplayTarget source,
                             final boolean remember,
+                            final ReleasePreparation preparation,
                             final ResultCallback callback) {
                         if (callback != null) {
                             callback.onComplete(true);

@@ -272,7 +272,7 @@ final class TaskOverviewController {
         content.setGravity(Gravity.CENTER);
         content.setPadding(dp(8), dp(8), dp(8), dp(6));
         final ImageView icon = new ImageView(mActivity);
-        icon.setImageDrawable(app.icon);
+        UiApplicationIcon.bind(icon, app, UiColor.TEXT);
         content.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
 
         final TextView label = new TextView(mActivity);

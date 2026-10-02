@@ -69,7 +69,7 @@
     <string name="display_independent_count">Apps independientes: %1$d</string>
     <string name="display_tasks_unknown">Aplicaciones: no disponible</string>
     <string name="display_independent_apps">Aplicaciones independientes</string>
-    <string name="start_mode_default">Predeterminado de la app</string>
+    <string name="start_mode_default">Auto</string>
     <string name="start_mode_windowed">Ventana del escritorio</string>
     <string name="start_mode_fullscreen">Pantalla completa del escritorio</string>
     <string name="start_mode_independent">Independiente</string>

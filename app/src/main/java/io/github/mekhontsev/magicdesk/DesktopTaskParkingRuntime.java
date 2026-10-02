@@ -6,7 +6,12 @@ interface DesktopTaskParkingRuntime {
         void onComplete(boolean success);
     }
 
-    void park(DesktopDisplayTarget source, boolean remember, ResultCallback callback);
+    interface ReleasePreparation {
+        void prepare() throws java.io.IOException;
+    }
+
+    void park(DesktopDisplayTarget source, boolean remember,
+            ReleasePreparation preparation, ResultCallback callback);
 
     void preserve(int displayId);
 

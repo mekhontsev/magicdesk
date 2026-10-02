@@ -12,6 +12,7 @@ final class ShellIconResources {
     }
     private static int resource(ShellResources.Icon icon) {
         return switch (icon) {
+            case START -> R.drawable.ic_apps;
             case DESKTOP -> R.drawable.ic_show_desktop;
             case WINDOWS -> R.drawable.ic_file_new_window;
             case NOTIFICATIONS -> R.drawable.ic_notifications;

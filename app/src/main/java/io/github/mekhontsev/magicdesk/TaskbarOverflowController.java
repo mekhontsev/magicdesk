@@ -218,7 +218,7 @@ final class TaskbarOverflowController {
         row.setFocusable(true);
 
         final ImageView icon = new ImageView(mActivity);
-        icon.setImageDrawable(item.app.icon);
+        UiApplicationIcon.bind(icon, item.app, UiColor.TEXT);
         icon.setPadding(dp(2), dp(2), dp(2), dp(2));
         row.addView(icon, new LinearLayout.LayoutParams(
                 desktopDp(38, 30), desktopDp(38, 30)));

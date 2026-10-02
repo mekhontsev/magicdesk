@@ -163,6 +163,9 @@ final class TaskbarController {
         UiAppearance.component(start, ShellControls.Role.PANEL_BUTTON);
         start.setPadding(mUi.dp(4), 0, mUi.dp(4), 0);
         start.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        start.setAllCaps(false);
+        start.setContentDescription(mActivity.getString(R.string.action_start));
+        start.setTooltipText(mActivity.getString(R.string.action_start));
         start.setOnClickListener(view -> mActivity.toggleStartMenu());
         start.setOnLongClickListener(view -> {
             final int[] location = new int[2];
@@ -452,6 +455,7 @@ final class TaskbarController {
         if (item.widthDp() != 0) return dp(item.widthDp());
         var metrics = metrics(panel);
         if (item.type() == Kind.TASKS) return dp(metrics.itemExtent());
+        if (item.type() == Kind.START && item.label().isEmpty()) return dp(metrics.itemExtent());
         if (item.type() == Kind.SPACER) return 0;
         if (panel.edge().vertical()) return dp(metrics.itemExtent());
         if (item.type() == Kind.CLOCK && item.clock() != ShellComposition.Clock.TIME) {
@@ -506,8 +510,16 @@ final class TaskbarController {
                     int inset = dp(metrics(value).iconInset());
                     UiAppearance.componentPadding(icon, inset, inset, inset, inset);
                 }
-                if (item.type() == Kind.START) mStartButton.setText(item.label().isEmpty()
-                        ? mActivity.getString(R.string.action_start) : item.label());
+                if (item.type() == Kind.START) {
+                    mStartButton.setText(item.label());
+                    var icon = UiAppearance.symbol(mActivity, R.drawable.ic_apps, UiColor.TEXT);
+                    int size = dp(metrics(value).iconSize());
+                    if (axis && !item.label().isEmpty()) size = Math.min(size, dp(24));
+                    icon.setBounds(0, 0, size, size);
+                    boolean above = axis && !item.label().isEmpty();
+                    mStartButton.setCompoundDrawablesRelative(above ? null : icon, above ? icon : null, null, null);
+                    mStartButton.setCompoundDrawablePadding(item.label().isEmpty() ? 0 : dp(4));
+                }
                 if (item.type() == Kind.CLOCK) {
                     String format = switch (item.clock()) { case TIME -> "HH:mm"; case DATE -> "EEE, d MMM"; case DATE_TIME -> "d MMM  HH:mm"; };
                     mClock.setFormat12Hour(format); mClock.setFormat24Hour(format);
@@ -839,7 +851,7 @@ final class TaskbarController {
         item.setFocusable(true);
 
         final ImageView icon = new ImageView(mActivity);
-        icon.setImageDrawable(app.icon);
+        UiApplicationIcon.bind(icon, app, UiColor.TEXT);
         int inset = dp(metrics(taskPanel()).iconInset());
         icon.setPadding(inset, inset, inset, inset);
         item.addView(icon, new FrameLayout.LayoutParams(

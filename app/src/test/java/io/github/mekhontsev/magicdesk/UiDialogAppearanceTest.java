@@ -12,6 +12,7 @@ public final class UiDialogAppearanceTest {
                 static class R { static class id { static int appearance_binding=1; } }
                 static class Attrs { static int state_enabled=1,state_checked=2; }
                 static class Theme { Theme palette(){return this;} int color(UiColor role){return role.ordinal();} }
+                static class ShellControls { static int disabledContent(Theme theme){return 3;} }
                 static class ColorStateList { int[] colors; ColorStateList(int[][] states,int[] colors){this.colors=colors;} }
                 interface Style {void apply(View v,Theme t);}
                 static class View { Object tag; Object getTag(int id){return tag;} }
@@ -38,7 +39,7 @@ public final class UiDialogAppearanceTest {
                     dialogContents(root);
                     var first=new CheckedTextView();list.add(first);
                     check(first.text==UiColor.TEXT,"late row retained system text color");
-                    check(Arrays.equals(first.mark.colors,new int[]{1,2,0}),"choice mark does not follow palette");
+                    check(Arrays.equals(first.mark.colors,new int[]{3,2,0}),"choice mark does not follow palette");
                     check(first.compound==first.mark,"drawableStart choice indicator does not follow palette");
                     list.listener.onChildViewRemoved(list,first);list.add(first);
                     check(first.text==UiColor.TEXT && list.click==click,"recycling changed style or selection handler");

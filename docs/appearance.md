@@ -206,6 +206,11 @@ resolved palette reaches Views, drawables and MagicDesk task descriptions.
 
 ## Control Styles
 
+Unavailable actions retain their layout slots and use the shared disabled
+state for text, icons and switch labels. Its default content is `muted` at
+38% opacity, distinct from ordinary secondary labels. Explicit control-state
+styles can override that presentation without changing action availability.
+
 `controls` styles semantic roles: `action_button`, `panel_button`, `search_field`,
 `tab`, `switch`, `settings_row`, `app_tile`. These are not widget IDs, launch
 commands or panel components. They change presentation without replacing actions,

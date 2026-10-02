@@ -25,7 +25,7 @@ final class DesktopItemViewFactory {
     View app(final AppItem app, final String label) {
         final LinearLayout item = iconContainer();
         final ImageView icon = new ImageView(mActivity);
-        icon.setImageDrawable(app.icon);
+        UiApplicationIcon.bind(icon, app, UiColor.DESKTOP_TEXT);
         item.addView(icon, iconParams());
         addLabel(item, label);
         return item;

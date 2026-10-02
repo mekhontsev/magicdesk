@@ -69,7 +69,7 @@
     <string name="display_independent_count">独立アプリ：%1$d</string>
     <string name="display_tasks_unknown">アプリ：利用不可</string>
     <string name="display_independent_apps">独立したアプリ</string>
-    <string name="start_mode_default">アプリの既定</string>
+    <string name="start_mode_default">自動</string>
     <string name="start_mode_windowed">デスクトップのウィンドウ</string>
     <string name="start_mode_fullscreen">デスクトップ全画面</string>
     <string name="start_mode_independent">独立</string>

@@ -5,7 +5,7 @@ import java.util.Map;
 /** Symbolic aliases and immutable bundle-relative resources; never arbitrary filesystem paths. */
 public record ShellResources(Map<Icon, Icon> icons, String bundle, Map<Icon, String> iconAssets,
         String font, String wallpaper, ShaderWallpaper shader) {
-    public enum Icon { DESKTOP, WINDOWS, NOTIFICATIONS, KEYBOARD, CONTROLS, FILES, TERMINAL, SETTINGS, SEARCH, CAMERA, VIDEO }
+    public enum Icon { START, DESKTOP, WINDOWS, NOTIFICATIONS, KEYBOARD, CONTROLS, FILES, TERMINAL, SETTINGS, SEARCH, CAMERA, VIDEO }
     public ShellResources {
         icons = Map.copyOf(icons); iconAssets = Map.copyOf(iconAssets);
         if (bundle == null || (!bundle.isEmpty() && !bundle.matches("[a-f0-9]{64}"))) throw new IllegalArgumentException("Invalid theme bundle digest");

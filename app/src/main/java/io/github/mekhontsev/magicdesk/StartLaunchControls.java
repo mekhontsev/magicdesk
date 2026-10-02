@@ -35,6 +35,10 @@ final class StartLaunchControls {
     StartLaunchControls(Activity activity, DesktopUiFactory ui, DesktopAutomationUiRegistry automation, Runnable changed) {
         mDisplay = new StartDisplaySelector(activity, ui, () -> { refresh(); changed.run(); });
         mView = new LinearLayout(activity);
+        mView.addOnAttachStateChangeListener(new android.view.View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(android.view.View view) { }
+            @Override public void onViewDetachedFromWindow(android.view.View view) { dismiss(); }
+        });
         mView.setGravity(android.view.Gravity.CENTER_VERTICAL);
         mView.addView(mDisplay.view(), new LinearLayout.LayoutParams(0, ui.dp(52), 1));
         final Button mode = ui.actionButton(mMode.label, UiColor.SURFACE);
