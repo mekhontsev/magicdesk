@@ -60,6 +60,7 @@ final class McpAccessPolicy {
     static Permission required(final String name) {
         return switch (name) {
             case "graphics.start", "graphics.execute", "graphics.stop",
+                    "guest.list", "guest.inspect", "guest.start", "guest.status", "guest.cancel",
                     "console.open", "console.execute", "console.status", "console.close",
                     "terminal.open", "terminal.list", "terminal.status", "terminal.read",
                     "terminal.write", "terminal.send_key", "terminal.close", "terminal.attach",

@@ -47,6 +47,25 @@ static int fields(char *line, char **out, unsigned count) {
     for (unsigned i=0;i<count;i++) { out[i]=strsep(&line,":"); if (!out[i]) return 0; }
     return !line;
 }
+int md_guest_account_resolve(struct md_filesystem *fs, uint32_t uid, struct md_guest_account *out) {
+    memset(out, 0, sizeof(*out));
+    snprintf(out->name, sizeof(out->name), "%u", uid);
+    strcpy(out->home, "/");
+    strcpy(out->shell, "/bin/sh");
+    char *passwd = NULL;
+    int r = accounts(fs, "/etc/passwd", &passwd);
+    for (char *cursor = passwd, *line; !r && cursor && (line = strsep(&cursor, "\n"));) {
+        char *f[7]; uint32_t candidate;
+        if (!fields(line, f, 7) || number(f[2], &candidate) != 1 || candidate != uid) continue;
+        const char *home = *f[5] ? f[5] : "/", *shell = *f[6] ? f[6] : "/bin/sh";
+        if (!*f[0] || strlen(f[0]) >= sizeof(out->name) || home[0] != '/' || shell[0] != '/'
+                || strlen(home) >= sizeof(out->home) || strlen(shell) >= sizeof(out->shell)) r = -EINVAL;
+        else { strcpy(out->name, f[0]); strcpy(out->home, home); strcpy(out->shell, shell); }
+        break;
+    }
+    free(passwd);
+    return r;
+}
 int md_guest_user_resolve(struct md_filesystem *fs, const char *selection, struct md_identity *out) {
     if (!selection || !*selection) selection="0";
     if (strlen(selection)>1024) return -E2BIG;

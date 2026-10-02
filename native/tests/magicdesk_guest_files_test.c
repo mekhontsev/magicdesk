@@ -6,7 +6,7 @@
 
 static int request(int socketFd, const char *path, int expected) {
     uint32_t size = (uint32_t)strlen(path);
-    unsigned char header[] = {size >> 24, size >> 16, size >> 8, size};
+    unsigned char header[] = {1, size >> 24, size >> 16, size >> 8, size};
     for (size_t i = 0; i < sizeof(header); i++) assert(!transfer(socketFd, header + i, 1, 1));
     assert(!transfer(socketFd, (void *)path, size, 1));
     unsigned char status;
@@ -39,7 +39,9 @@ int main(void) {
     assert(fd >= 0 && !ftruncate(fd, 128LL * 1024 * 1024 + 1)); close(fd);
     int sockets[2]; assert(!socketpair(AF_UNIX, SOCK_STREAM, 0, sockets));
     pid_t worker = fork(); assert(worker >= 0);
-    if (!worker) { close(sockets[0]); _exit(serve(sockets[1])); }
+    if (!worker) {
+        close(sockets[0]); _exit(run_worker(sockets[1], getppid()));
+    }
     close(sockets[1]);
     fd = request(sockets[0], link, 0);
     assert(!unlink(file));
@@ -48,8 +50,27 @@ int main(void) {
     request(sockets[0], directory, EINVAL);
     request(sockets[0], fifo, EINVAL);
     request(sockets[0], large, EINVAL);
+    const char *name = "copied ' file";
+    unsigned length = (unsigned)strlen(name);
+    unsigned char import[] = {2, 0, 0, 0, length};
+    assert(!transfer(sockets[0], import, sizeof(import), 1));
+    assert(!transfer(sockets[0], (void *)name, length, 1));
+    unsigned char size[] = {0,0,0,0,0,0,0,4};
+    assert(!transfer(sockets[0], size, sizeof(size), 1));
+    assert(!transfer(sockets[0], "body", 4, 1));
+    unsigned char response[5]; assert(!transfer(sockets[0], response, sizeof(response), 0));
+    assert(!response[0]);
+    length = (unsigned)response[1]<<24 | (unsigned)response[2]<<16 | (unsigned)response[3]<<8 | response[4];
+    char imported[4097]; assert(length && length < sizeof(imported));
+    assert(!transfer(sockets[0], imported, length, 0)); imported[length] = 0;
+    assert(!strcmp(strrchr(imported, '/')+1, name));
+    fd = request(sockets[0], imported, 0);
+    assert(read(fd, bytes, 4) == 4 && !memcmp(bytes, "body", 4)); close(fd);
+    assert(!kill(worker, SIGTERM));
+    assert(read(sockets[0], bytes, sizeof(bytes)) == 0);
     close(sockets[0]);
     int status; assert(waitpid(worker, &status, 0) == worker && WIFEXITED(status) && !WEXITSTATUS(status));
+    assert(access(imported, F_OK) < 0 && errno == ENOENT);
     unlink(fifo); unlink(link); unlink(large); rmdir(directory);
     puts("Guest file descriptors: literal paths, symlinks, unlink, nonregular/large rejection and owner loss verified");
 }

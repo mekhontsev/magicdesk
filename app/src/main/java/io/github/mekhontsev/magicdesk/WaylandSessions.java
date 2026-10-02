@@ -133,6 +133,20 @@ final class WaylandSessions {
         };
 
         private void clientEndpointReady(String endpoint) {
+            if (execution.commands.uid != 2000) { publishClientEndpoint(endpoint); return; }
+            var resource = resources.reserve();
+            var current = renderer;
+            WORK.execute(() -> {
+                try {
+                    if (stopped()) { resource.close(); return; }
+                    resource.attach(execution.guestFiles.admit(execution.commands.uid, current::acceptGuestFiles,
+                            error -> MAIN.post(() -> fail(error))));
+                    MAIN.post(() -> publishClientEndpoint(endpoint));
+                } catch (IOException | RuntimeException error) { resource.close(); MAIN.post(() -> fail(error)); }
+            });
+        }
+
+        private void publishClientEndpoint(String endpoint) {
             if (stopped()) return;
             socket = endpoint;
             state = "READY";
@@ -180,7 +194,7 @@ final class WaylandSessions {
             WORK.execute(() -> {
                 try {
                     if (stopped()) { resource.close(); return; }
-                    var endpoint = new GraphicalSocketEndpoint(execution.commands.uid, current::acceptClient,
+                    var endpoint = new ExecutorSocketEndpoint(execution.commands.uid, current::acceptClient,
                             error -> MAIN.post(() -> fail(error)));
                     resource.attach(endpoint);
                     MAIN.post(() -> clientEndpointReady(endpoint.name));

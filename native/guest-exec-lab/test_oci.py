@@ -535,6 +535,44 @@ class Images(unittest.TestCase):
         self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
         return result
 
+    def test_resolver_preserves_existing_and_requires_idle_instance(self):
+        self.run_import(self.layout([[('etc', 'dir', ''), ('etc/resolv.conf', 'file', b'nameserver 192.0.2.1\n')]]))
+        instance = self.root / 'instance'
+        self.command('create', self.destination, instance)
+        self.command('resolver', instance, 'nameserver 192.0.2.2\n')
+        self.assertEqual(self.body('etc/resolv.conf', instance).read_bytes(), b'nameserver 192.0.2.1\n')
+        self.command('resolver', instance, 'nameserver 192.0.2.2\n', '--replace')
+        self.assertEqual(self.body('etc/resolv.conf', instance).read_bytes(), b'nameserver 192.0.2.2\n')
+        fd = os.open(instance, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH)
+            result = self.command('resolver', instance, 'nameserver 192.0.2.4\n', '--replace', success=False)
+            self.assertIn('errno=16', result.stderr)
+        finally:
+            os.close(fd)
+        self.assertEqual(self.body('etc/resolv.conf', instance).read_bytes(), b'nameserver 192.0.2.2\n')
+        self.assertEqual(self.body('etc/resolv.conf').read_bytes(), b'nameserver 192.0.2.1\n')
+        self.command('resolver', self.destination, 'changed', success=False)
+
+    def test_resolver_initializes_missing_and_does_not_follow_symlink(self):
+        self.run_import(self.layout([[('etc', 'dir', ''), ('target', 'file', b'untouched'), ('etc/resolv.conf', 'sym', '/target')]]))
+        instance = self.root / 'instance'
+        self.command('create', self.destination, instance)
+        self.command('resolver', instance, 'nameserver 192.0.2.3\n')
+        self.assertEqual(self.body('target', instance).read_bytes(), b'untouched')
+        self.command('resolver', instance, 'nameserver 192.0.2.3\n', '--replace')
+        self.assertEqual(self.body('target', instance).read_bytes(), b'untouched')
+        self.assertEqual(self.body('etc/resolv.conf', instance).read_bytes(), b'nameserver 192.0.2.3\n')
+
+    def test_bounded_data_export_uses_guest_names_and_skips_symlinks(self):
+        self.run_import(self.layout([[('xkb', 'dir', ''), ('xkb/rules', 'dir', ''),
+                                     ('xkb/rules/evdev', 'file', b'keyboard'), ('xkb/alias', 'sym', '/outside')]]))
+        target = self.root / 'exported'
+        self.command('export-tree', self.destination, '/xkb', target)
+        self.assertEqual((target / 'rules/evdev').read_bytes(), b'keyboard')
+        self.assertFalse((target / 'alias').exists())
+        self.command('export-tree', self.destination, '/xkb', target, success=False)
+
     def body(self, path, store=None):
         store = store or self.destination
         with sqlite3.connect(store / 'namespace.db') as db:

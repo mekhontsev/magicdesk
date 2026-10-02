@@ -129,6 +129,7 @@ final class TerminalSessionsDialog {
         final RuntimeCapabilities capabilities = RuntimeCapabilities.current(activity);
         final java.util.ArrayList<Integer> choices = new java.util.ArrayList<>();
         if (capabilities.missing(RuntimeCapabilities.Service.SHELL).isEmpty()) choices.add(R.string.console_title);
+        if (capabilities.missing(RuntimeCapabilities.Service.SHELL).isEmpty()) choices.add(R.string.guest_environments);
         if (capabilities.missing(RuntimeCapabilities.Service.TERMUX).isEmpty()) {
             choices.add(R.string.console_termux_title);
             choices.add(R.string.console_tmux_new_session);
@@ -141,12 +142,35 @@ final class TerminalSessionsDialog {
                 .setItems(choices.stream().map(activity::getString).toArray(String[]::new),
                         (which, index) -> {
                             final int choice = choices.get(index);
+                            if (choice == R.string.guest_environments) { chooseGuest(); return; }
                             if (choice == R.string.console_tmux_new_session) editName(activity.getString(R.string.console_tmux_new_session), "", name -> {
                                 TmuxSessionProvider.normalizeName(name); prepareTmux(null, name);
                             });
                             else openIntent(choice == R.string.console_title ? CommandConsoleActivity.createIntent(activity)
                                     : CommandConsoleActivity.createTermuxIntent(activity));
                         }).show();
+    }
+
+    private void chooseGuest() {
+        final var picker = UiDialogs.builder(activity).setTitle(R.string.guest_environments)
+                .setMessage(R.string.guest_loading).setNegativeButton(android.R.string.cancel, null).create();
+        picker.show();
+        try {
+            var request = GuestEnvironmentCatalog.load(activity, (entries, error) -> activity.runOnUiThread(() -> {
+                if (!picker.isShowing() || activity.isFinishing() || activity.isDestroyed()) return;
+                if (error != null || entries.isEmpty()) {
+                    picker.setMessage(error == null ? activity.getString(R.string.guest_empty) : ShellAccess.usefulMessage(error));
+                    return;
+                }
+                picker.dismiss();
+                UiDialogs.builder(activity).setTitle(R.string.guest_environments)
+                        .setItems(entries.stream().map(GuestEnvironmentCatalog.Entry::name).toArray(String[]::new),
+                                (dialog, index) -> openIntent(CommandConsoleActivity.createPreparedCommandIntent(activity,
+                                        GuestEnvironmentCatalog.login(entries.get(index)), "", DesktopExecBackend.SHELL)))
+                        .setNegativeButton(android.R.string.cancel, null).show();
+            }));
+            picker.setOnDismissListener(dialog -> { try { request.close(); } catch (java.io.IOException ignored) { } });
+        } catch (RuntimeException error) { picker.setMessage(ShellAccess.usefulMessage(error)); }
     }
 
     private void actions(TerminalSessions.Item item) {

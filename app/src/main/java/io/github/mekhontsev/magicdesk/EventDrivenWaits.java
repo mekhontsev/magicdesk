@@ -10,6 +10,7 @@ public final class EventDrivenWaits {
         TASK_CREATION,
         ACTIVITY_LAUNCH_RESULT,
         APPLICATION_CATALOG,
+        GUEST_OPERATION,
         PTY_RESPONSE,
         AUTOMATION_EVENT,
         CLIPBOARD_CHANGE,

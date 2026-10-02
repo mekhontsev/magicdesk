@@ -92,6 +92,11 @@ public final class X11Server extends IX11Server.Stub {
         }
     }
 
+    @Override public void acceptGuestFiles(ParcelFileDescriptor socket) {
+        try { lifecycle.checkReady(Binder.getCallingUid()); files.acceptGuest(socket); }
+        catch (RuntimeException error) { io.github.mekhontsev.magicdesk.hosted.HostedSocketAdmission.discard(socket); throw error; }
+    }
+
     private void requestStop() {
         incoming.close();
         if (appearance != null) appearance.close();

@@ -11,6 +11,20 @@ final class AutomationCommandCatalog {
 
     static JSONArray create() throws JSONException {
         final JSONArray tools = new JSONArray()
+                .put(readTool("guest.list", "List guest environments", "Read the same shell-owned named environment catalog as magicdesk-guest and the terminal picker. No Desktop or Termux requirement.",
+                        objectSchema(new JSONObject().put("library", stringProperty("Optional absolute library root.")))))
+                .put(readTool("guest.inspect", "Inspect guest environment", "Read a named environment, immutable store identity, image configuration and backing dependencies.",
+                        objectSchema(new JSONObject().put("name", stringProperty("Environment name."))
+                                .put("library", stringProperty("Optional absolute library root.")), "name")))
+                .put(actionTool("guest.start", "Start guest operation", "Run the shared magicdesk-guest CLI asynchronously under the selected shell/root identity. Arguments begin with install, restore, backup, remove, prune, dns, exec or run. Returns an operationId, not completion. Observe guest.status. Does not require Termux or Desktop. Cancellation can leave published resources: inspect before retrying.",
+                        objectSchema(new JSONObject().put("arguments", arrayProperty("Literal CLI arguments; no shell parsing.", stringProperty("Argument.")))
+                                .put("library", stringProperty("Optional absolute library root for this operation only.")), "arguments")))
+                .put(readTool("guest.status", "Observe guest operation", "Read bounded output and exact completion, or event-wait after a revision. A timeout only ends observation. Results survive client disconnect, not app restart; up to 64 operations retained.",
+                        objectSchema(new JSONObject().put("operationId", stringProperty("Exact accepted operation ID."))
+                                .put("afterRevision", integerProperty("Wait for a greater revision; default -1 returns immediately."))
+                                .put("timeoutMillis", integerProperty("Observation bound 0-30000 ms, default 0.")), "operationId")))
+                .put(destructiveTool("guest.cancel", "Cancel guest operation", "Cancel only this operation's owned command tree. Observe completion; already committed files are not rolled back. Never infer safe replay from cancellation.",
+                        objectSchema(new JSONObject().put("operationId", stringProperty("Exact accepted operation ID.")), "operationId")))
                 .put(readTool("appearance.get", "Read shell appearance",
                         "Read effective and committed native shell configuration, workspace patch, known override keys, active preview ID, revision and process-wide active signalSources. Signal diagnostics do not start collection. Omit workspaceKey for global defaults. Independent of Desktop, shell access and Termux.", appearanceSchema(new JSONObject())))
                 .put(readTool("appearance.schema", "Read shell configuration schema",
@@ -90,7 +104,7 @@ final class AutomationCommandCatalog {
                                 .put("command", stringProperty("Optional startup shell command."))
                                 .put("directory", stringProperty("Optional absolute client working directory."))
                                 .put("wholeDesktop", booleanProperty("For Wayland, the command launches a nested desktop compositor; closing its Android viewer retains the client. X11 always provides a whole-desktop viewer. Default false."))
-                                .put("keyboardDirectory", stringProperty("XKB data path; required for shell, optional for Termux."))
+                                .put("keyboardDirectory", stringProperty("XKB host data path or guest:/absolute/store for data from a guest environment; required for shell, optional for Termux."))
                                 .put("connection", enumProperty("Default auto. inherited is Wayland-only. routed requires Shell and an explicit guest socket-route recipe; exports MAGICDESK_GRAPHICS_ENDPOINT for independent guest connections.", "auto", "inherited", "routed")),
                                 "protocol", "backend", "name")))
                 .put(actionTool("graphics.execute", "Run graphical command",
@@ -1459,6 +1473,30 @@ final class AutomationCommandCatalog {
             throws JSONException {
         final JSONObject properties = new JSONObject();
         switch (toolName) {
+            case "guest.list":
+                properties.put("environments", arrayProperty("Named environments.", openObjectProperty("Environment.")
+                        .put("properties", new JSONObject().put("name", stringProperty("Library name."))
+                                .put("id", stringProperty("Immutable instance identity."))
+                                .put("store", stringProperty("Absolute store path captured for launches."))
+                                .put("source", stringProperty("Installation source.")))));
+                break;
+            case "guest.inspect":
+                return openObjectProperty("Native image inspection with configuration, identity and backing dependencies.");
+            case "guest.start":
+            case "guest.status":
+            case "guest.cancel":
+                properties.put("operationId", stringProperty("Exact process-local operation identity."))
+                        .put("state", enumProperty("Observed operation state.", "running", "completed", "failed", "cancelled"))
+                        .put("revision", integerProperty("Output/lifecycle revision for event-driven observation."))
+                        .put("executorUid", integerProperty("Captured command identity."))
+                        .put("cancelRequested", booleanProperty("Cancellation requested; not proof of completion."))
+                        .put("exitCode", nullableIntegerProperty("Command exit code, or null when unobserved."))
+                        .put("output", stringProperty("Last 64 KiB of combined command output."))
+                        .put("outputBytes", integerProperty("Total output bytes observed."))
+                        .put("truncated", booleanProperty("Earlier output was discarded."))
+                        .put("error", stringProperty("Transport or execution error."))
+                        .put("safeToRetry", booleanProperty("False: inspect committed resources before replaying."));
+                break;
             case "appearance.themes":
                 properties.put("themes", arrayProperty("Bundled full themes, distinct from style-only presets.",
                         openObjectProperty("Theme.").put("properties", new JSONObject()

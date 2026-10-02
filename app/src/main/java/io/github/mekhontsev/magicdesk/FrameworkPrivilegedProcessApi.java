@@ -36,13 +36,21 @@ final class FrameworkPrivilegedProcessApi {
     }
 
     static Context createContext(int userId) throws ReflectiveOperationException {
+        return createContext(userId, BuildConfig.APPLICATION_ID);
+    }
+
+    static Context createShellContext(int userId) throws ReflectiveOperationException {
+        return createContext(userId, "com.android.shell");
+    }
+
+    private static Context createContext(int userId, String packageName) throws ReflectiveOperationException {
         if (userId < 0) throw new IllegalArgumentException("invalid Android user");
         final Class<?> threadClass = Class.forName("android.app.ActivityThread");
         final Object thread = threadClass.getMethod("systemMain").invoke(null);
         final Context system = (Context) threadClass.getMethod("getSystemContext").invoke(thread);
         final UserHandle user = (UserHandle) UserHandle.class.getMethod("of", int.class).invoke(null, userId);
         final Context context = (Context) Context.class.getMethod("createPackageContextAsUser",
-                String.class, int.class, UserHandle.class).invoke(system, BuildConfig.APPLICATION_ID,
+                String.class, int.class, UserHandle.class).invoke(system, packageName,
                 Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY, user);
         final var packageInfo = context.getClass().getDeclaredField("mPackageInfo");
         packageInfo.setAccessible(true);

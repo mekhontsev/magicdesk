@@ -1,5 +1,9 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
+    <string name="guest_environments">Гостевые окружения</string>
+    <string name="guest_loading">Загрузка окружений&#8230;</string>
+    <string name="guest_empty">Нет установленных гостевых окружений</string>
+    <string name="guest_select">Выберите гостевое окружение</string>
     <string name="settings_language">Язык приложения</string>
     <string name="settings_language_system">Как в системе</string>
     <string name="graphics_nested_desktop">Вложенный рабочий стол Linux</string>

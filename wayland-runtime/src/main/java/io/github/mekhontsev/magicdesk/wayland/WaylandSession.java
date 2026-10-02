@@ -52,6 +52,9 @@ public final class WaylandSession implements AutoCloseable {
         if (closed.get()) throw new IOException("Wayland session is closed");
         server.acceptClient(socket);
     }
+    public void acceptGuestFiles(ParcelFileDescriptor socket) throws RemoteException {
+        server.acceptGuestFiles(socket);
+    }
 
     private final IWaylandServer server;
     private final int executorUid;

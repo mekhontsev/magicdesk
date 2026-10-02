@@ -1,5 +1,9 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
+    <string name="guest_environments">Ambientes convidados</string>
+    <string name="guest_loading">Carregando ambientes&#8230;</string>
+    <string name="guest_empty">Nenhum ambiente convidado instalado</string>
+    <string name="guest_select">Selecione um ambiente convidado</string>
     <string name="settings_language">Idioma do aplicativo</string>
     <string name="settings_language_system">Padrão do sistema</string>
     <string name="graphics_nested_desktop">Área de trabalho Linux aninhada</string>

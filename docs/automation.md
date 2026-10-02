@@ -852,6 +852,14 @@ Normal commands include:
 
 Use `tools/list` as the authoritative command and argument catalog.
 
+`guest.list` and `guest.inspect` read the shell-owned named environment catalog.
+`guest.start` takes literal `magicdesk-guest` arguments and returns an operation
+ID; `guest.status` waits for output/exit revisions and returns a bounded output
+tail, while `guest.cancel` cancels that operation's command tree. Accepted is not
+completed, and cancelled is not rolled back. Receipts survive MCP disconnect but
+not app restart. The same services support CLI, terminal and shortcut selection
+without Desktop or Termux; no separate MCP container manager is created.
+
 `graphics.list`, `graphics.start`, `graphics.execute`, `graphics.stop` and
 `graphics.open_window` address retained X11/Wayland sessions through the same
 service used by **Linux graphics**. Starting selects an explicit protocol and
@@ -860,6 +868,8 @@ host. Its optional `connection` selects `auto`, Wayland-only `inherited`, or
 Shell-only `routed` admission for independent guest connections. The latter
 requires explicit address routes supplied by the guest launch adapter; it is
 not a general cross-UID pathname socket. See [guest connections](guest-runtime.md#graphical-connections).
+`keyboardDirectory` accepts a host path or `guest:/absolute/store`; the latter
+uses bounded export of `/usr/share/X11/xkb` from the selected guest namespace.
 `graphics.list` supplies native window IDs; `graphics.open_window` uses the
 ordinary tool placement options. X11 accepts window ID zero for its
 whole-desktop viewer; Wayland accepts it for a session explicitly started with

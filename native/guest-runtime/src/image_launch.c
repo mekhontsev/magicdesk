@@ -7,6 +7,7 @@
 #include "fs_mounts.h"
 #include "guest_accounts.h"
 #include "host_identity.h"
+#include "socket_routes.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -101,10 +102,17 @@ int md_image_launch(enum md_image_command kind, int argc, char **argv) {
     const char *path = argv[0], *cwd_override = NULL, *entry_override = NULL;
     char *overrides[128]; size_t override_count = 0;
     struct md_fs_attachment attachments[MD_FS_MOUNTS_MAX]; unsigned attachment_count = 0;
+    struct md_socket_routes routes = {0};
     const char *selected_user = NULL;
     const char *hostname_override = NULL;
     int position = 1;
     while (position < argc && strcmp(argv[position], "--")) {
+        if (!strcmp(argv[position], "--socket-path") || !strcmp(argv[position], "--socket-abstract")) {
+            if (position + 2 >= argc) return -EINVAL;
+            int r = md_socket_route_add(&routes, argv[position], argv[position+1], argv[position+2]);
+            if (r) return r;
+            position += 3; continue;
+        }
         if (!strcmp(argv[position], "--bind") || !strcmp(argv[position], "--bind-ro")) {
             if (position+2 >= argc || attachment_count == MD_FS_MOUNTS_MAX) return -EINVAL;
             attachments[attachment_count++] = (struct md_fs_attachment){.source=argv[position+1],
@@ -170,16 +178,23 @@ int md_image_launch(enum md_image_command kind, int argc, char **argv) {
             s->identity=&identity;
         }
     }
-    const char *working = cwd_override ? cwd_override : cwd && *cwd ? cwd : "/";
+    struct md_guest_account account = {0};
+    if (!r) r = md_guest_account_resolve(&fs, guest_user ? identity.uid.real : getuid(), &account);
+    const char *home = environment(overrides, override_count, "HOME");
+    if (!home && kind != MD_IMAGE_LOGIN) home = environment(env, env_count, "HOME");
+    if (!home) home = account.home;
+    const char *shell = environment(overrides, override_count, "SHELL");
+    if (!shell) shell = account.shell;
+    const char *working = cwd_override ? cwd_override : kind == MD_IMAGE_LOGIN ? home : cwd && *cwd ? cwd : "/";
     if (!r && working[0] != '/') r = -EINVAL;
     if (!r && entry_override) { md_json_array_free(entries, entry_count); entries = NULL; entry_count = 0; }
     size_t explicit_count = entry_override && *entry_override ? 1 : 0;
     char **command = position < argc ? argv+position : cmd;
     size_t command_count = position < argc ? (size_t)(argc-position) : cmd_count;
-    char *login[] = {"/bin/sh", "-l"};
+    char *login[] = {(char *)shell, "-l"};
     if (kind == MD_IMAGE_LOGIN && position == argc) { command = login; command_count = 2; }
     size_t total = entry_count + explicit_count + command_count;
-    if (!r && (!total || total + 2*(env_count+override_count) + 3*attachment_count + 16 > 1000)) r = -E2BIG;
+    if (!r && (!total || total + 2*(env_count+override_count) + 3*(attachment_count+routes.count) + 32 > 1000)) r = -E2BIG;
     const char *search = environment(overrides, override_count, "PATH");
     if (!search) search = environment(env, env_count, "PATH");
     char executable[PATH_MAX], runner[PATH_MAX];
@@ -196,11 +211,22 @@ int md_image_launch(enum md_image_command kind, int argc, char **argv) {
     }
     char **launch = !r ? calloc(1001, sizeof(*launch)) : NULL;
     if (!r && !launch) r = -ENOMEM;
+    char user_env[1040], logname_env[1040], shell_env[PATH_MAX+8], home_env[PATH_MAX+8];
+    if (!r) {
+        snprintf(user_env, sizeof(user_env), "USER=%s", account.name);
+        snprintf(logname_env, sizeof(logname_env), "LOGNAME=%s", account.name);
+        if (snprintf(shell_env, sizeof(shell_env), "SHELL=%s", shell) >= (int)sizeof(shell_env)
+                || snprintf(home_env, sizeof(home_env), "HOME=%s", home) >= (int)sizeof(home_env)) r = -E2BIG;
+    }
     if (!r) {
         size_t n = 0;
         launch[n++] = runner; launch[n++] = "--store"; launch[n++] = (char *)path;
         launch[n++] = "--cwd"; launch[n++] = (char *)working;
         launch[n++] = "--hostname"; launch[n++] = (char *)(hostname_override ? hostname_override : hostname);
+        for (unsigned i = 0; i < routes.count; ++i) {
+            launch[n++] = routes.entries[i].abstract ? "--socket-abstract" : "--socket-path";
+            launch[n++] = routes.entries[i].source; launch[n++] = routes.entries[i].destination;
+        }
         if (guest_user) {
             launch[n++]="--user"; launch[n++]=identity_text;
             launch[n++]="--groups"; launch[n++]=group_text;
@@ -209,7 +235,17 @@ int md_image_launch(enum md_image_command kind, int argc, char **argv) {
             launch[n++] = attachments[i].readonly ? "--bind-ro" : "--bind";
             launch[n++] = (char *)attachments[i].source; launch[n++] = (char *)attachments[i].target;
         }
+        launch[n++] = "--env"; launch[n++] = user_env;
+        launch[n++] = "--env"; launch[n++] = logname_env;
+        launch[n++] = "--env"; launch[n++] = shell_env;
+        launch[n++] = "--env"; launch[n++] = home_env;
         for (size_t i = 0; i < env_count; ++i) { launch[n++] = "--env"; launch[n++] = env[i]; }
+        if (kind == MD_IMAGE_LOGIN) {
+            launch[n++] = "--env"; launch[n++] = shell_env;
+            launch[n++] = "--env"; launch[n++] = home_env;
+            launch[n++] = "--env"; launch[n++] = user_env;
+            launch[n++] = "--env"; launch[n++] = logname_env;
+        }
         for (size_t i = 0; i < override_count; ++i) { launch[n++] = "--env"; launch[n++] = overrides[i]; }
         launch[n++] = "--"; size_t start = n;
         if (explicit_count) launch[n++] = (char *)entry_override;

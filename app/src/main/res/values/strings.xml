@@ -1,4 +1,8 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="guest_environments">Guest environments</string>
+    <string name="guest_loading">Loading environments&#8230;</string>
+    <string name="guest_empty">No installed guest environments</string>
+    <string name="guest_select">Select a guest environment</string>
     <string name="settings_language">App language</string>
     <string name="settings_language_system">System default</string>
     <string name="graphics_nested_desktop">Nested Linux desktop</string>

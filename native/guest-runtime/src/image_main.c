@@ -8,6 +8,8 @@
 #include "image_pool.h"
 #include "image_backup.h"
 #include "image_maintenance.h"
+#include "image_prepare.h"
+#include "image_export.h"
 #include "inode_internal.h"
 #include "launch_identity.h"
 #include <errno.h>
@@ -137,6 +139,9 @@ int main(int argc, char **argv) {
     else if (argc == 3 && !strcmp(argv[1], "remove")) r = md_image_remove(argv[2], 0);
     else if (argc == 3 && !strcmp(argv[1], "remove-layer")) r = md_image_remove(argv[2], 1);
     else if (argc == 3 && !strcmp(argv[1], "inspect")) r = md_image_inspect(argv[2]);
+    else if (argc == 5 && !strcmp(argv[1], "export-tree")) r = md_image_export_tree(argv[2], argv[3], argv[4]);
+    else if ((argc == 4 || (argc == 5 && !strcmp(argv[4], "--replace"))) && !strcmp(argv[1], "resolver"))
+        r = md_image_resolver(argv[2], argv[3], argc == 5);
     else if (argc >= 3 && !strcmp(argv[1], "run")) r = md_image_launch(MD_IMAGE_RUN, argc-2, argv+2);
     else if (argc >= 3 && !strcmp(argv[1], "exec")) r = md_image_launch(MD_IMAGE_EXEC, argc-2, argv+2);
     else if (argc >= 3 && !strcmp(argv[1], "login")) r = md_image_launch(MD_IMAGE_LOGIN, argc-2, argv+2);

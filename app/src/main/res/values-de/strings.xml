@@ -1,5 +1,9 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
+    <string name="guest_environments">Gastumgebungen</string>
+    <string name="guest_loading">Umgebungen werden geladen&#8230;</string>
+    <string name="guest_empty">Keine Gastumgebungen installiert</string>
+    <string name="guest_select">Gastumgebung auswählen</string>
     <string name="settings_language">App-Sprache</string>
     <string name="settings_language_system">Systemstandard</string>
     <string name="graphics_nested_desktop">Verschachtelter Linux-Desktop</string>

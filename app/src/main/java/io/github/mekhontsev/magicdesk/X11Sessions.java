@@ -522,11 +522,16 @@ final class X11Sessions {
                     }
                 });
                 pending.connect(process.openConnection());
+                if (execution.commands.uid == 2000) {
+                    var resource = resources.reserve();
+                    try { resource.attach(launch.guestFiles.admit(execution.commands.uid, process::acceptGuestFiles, this::fail)); }
+                    catch (java.io.IOException | RuntimeException failure) { resource.close(); throw failure; }
+                }
                 if (recipe != null && recipe.shortcut().graphics != null
                         && recipe.shortcut().graphics.connectionMode() == GraphicalConnectionMode.ROUTED) {
                     var resource = resources.reserve();
                     try {
-                        var endpoint = new GraphicalSocketEndpoint(execution.commands.uid, process::acceptClient, this::fail);
+                        var endpoint = new ExecutorSocketEndpoint(execution.commands.uid, process::acceptClient, this::fail);
                         resource.attach(endpoint);
                         clientEndpoint = endpoint.name;
                     } catch (java.io.IOException | RuntimeException failure) { resource.close(); throw failure; }

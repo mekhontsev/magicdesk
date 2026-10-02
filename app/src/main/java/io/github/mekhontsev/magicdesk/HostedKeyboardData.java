@@ -16,16 +16,28 @@ final class HostedKeyboardData {
     private int entries = 4096;
 
     static synchronized String prepare(Context context, String source) throws IOException {
-        source = DesktopExecWorkingDirectory.normalize(source);
+        source = HostedKeyboardSource.normalize(source);
         if (source.isEmpty()) throw new IOException("An XKB data directory is required for the Shell graphical executor");
         String key = ShellAccess.currentSnapshot().uid + ":" + source;
         Path existing = COPIES.get(key);
         if (existing != null) return existing.toString();
+        var selection = HostedKeyboardSource.parse(source);
+        String exported = null;
+        ShellCommandSession commands = null;
         Path parent = context.getCacheDir().toPath().resolve("xkb");
         Files.createDirectories(parent);
         Path target = Files.createTempDirectory(parent, "data-");
         boolean ready = false;
         try {
+            if (!selection.guestStore().isEmpty()) {
+                commands = new ShellCommandSession("/data/local/tmp");
+                exported = "/data/local/tmp/md-xkb-" + java.util.UUID.randomUUID();
+                String command = GuestEnvironmentCatalog.command("image", "export-tree", selection.guestStore(),
+                        selection.directory(), exported);
+                var result = commands.execute(command);
+                if (result.exitCode() != 0) throw new IOException("Cannot export guest XKB data: " + result.output());
+                source = exported;
+            }
             HostedKeyboardData transfer = new HostedKeyboardData();
             transfer.copy(source, target, 0);
             if (!Files.isRegularFile(target.resolve("rules/evdev"))) throw new IOException("Missing XKB rules/evdev");
@@ -36,7 +48,14 @@ final class HostedKeyboardData {
             COPIES.put(key, published);
             ready = true;
             return published.toString();
-        } finally { if (!ready) FileTreeDeletion.deleteIfExists(target); }
+        } finally {
+            try {
+                if (exported != null && commands != null) commands.execute("rm -rf -- " + ShellCommandLine.quote(exported));
+            } finally {
+                if (commands != null) commands.close();
+                if (!ready) FileTreeDeletion.deleteIfExists(target);
+            }
+        }
     }
 
     private void copy(String source, Path target, int depth) throws IOException {

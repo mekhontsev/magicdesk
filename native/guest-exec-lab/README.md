@@ -4,6 +4,32 @@ Opt-in development tools and reference fixtures for
 [`native/guest-runtime`](../guest-runtime/README.md). Runtime sources live only in
 that native component; this directory is not packaged into the APK.
 
+## Named Environment Workflows
+
+`test_environment_workflows.py --tag NAME --stage all` installs fresh public
+Debian and Alpine images through the installed APK's shell-owned catalog. It
+checks package installation, account login, concurrent cancellable operations,
+authenticated file import/export and cleanup, then simultaneous X11/Wayland
+editors with keyboard input, bidirectional clipboard and saved-file readback.
+Backup checks remove the original instances, restore new storage identities and
+relaunch graphical clients against the restored files.
+
+The fixture uses a virtual display without Desktop and retains its two named
+environments and archives for inspection. `--stage prepare|accounts|files|graphics|backup`
+can run a focused phase against the same tag. `--dns system` is the default;
+an explicit address opts into that resolver for the test stores when Android's
+network uses Private DNS or a VPN. `--apk PATH` installs through the normal MCP
+update protocol; `--lease ID` reuses an existing wake lease without releasing it.
+Reports and screenshots live under `build/environment-workflow-*` and
+`build/check-*`. No Termux executor, Android root or HOME lease is required.
+
+The file phase invokes debug-only `GuestFilesInstrumentation` with an exact
+store. It exercises production shell admission, the selected-guest static helper,
+Android import, independent guest read, SCM_RIGHTS export and owner-loss cleanup,
+without creating a graphical session.
+
+## Prepared Runtime Fixtures
+
 `prepare.mjs` authenticates Debian archive metadata and packages, then extracts
 an isolated test rootfs without maintainer scripts or host installation.
 `build.sh` builds the same CMake runtime as the APK and separate Bionic/glibc

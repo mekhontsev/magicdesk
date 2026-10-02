@@ -1,5 +1,9 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
+    <string name="guest_environments">客户机环境</string>
+    <string name="guest_loading">正在加载环境&#8230;</string>
+    <string name="guest_empty">尚未安装客户机环境</string>
+    <string name="guest_select">选择客户机环境</string>
     <string name="settings_language">应用语言</string>
     <string name="settings_language_system">跟随系统</string>
     <string name="graphics_nested_desktop">嵌套 Linux 桌面</string>

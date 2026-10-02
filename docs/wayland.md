@@ -298,11 +298,12 @@ compositor event loop and Android main thread. Clipboard ownership is scoped to
 the focused host, with source tagging to prevent feedback.
 
 `HostedFileExchange`, `SharedFileNamespace` and `GuestFileBridge` are shared with
-X11. A guest recipe binds a private session directory at `/tmp/magicdesk-wayland`
-and starts the authenticated helper as the guest application's user. Import
-paths refer to that shared directory; export opens the actual guest file, not
-an identically named host path. One session retains one explicit file environment.
-The PRoot recipe builder supplies these bindings; custom entry scripts own their
+X11. A guest recipe starts the authenticated helper as the guest application's
+user. Imports stream into its private guest temporary directory; export opens
+the actual guest file, not an identically named host path. The connection owns
+import cleanup. One session retains one explicit file environment.
+PRoot uses a shared graphics socket directory; Guest uses explicit socket routes
+and derives XKB from its store. Custom entry scripts own their
 mounts and authorization. Root chroot recipes use the session broker and the
 same guest file environment; the renderer remains under the app UID.
 

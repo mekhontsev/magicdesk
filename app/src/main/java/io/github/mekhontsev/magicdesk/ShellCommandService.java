@@ -78,8 +78,8 @@ public final class ShellCommandService extends IShellCommandService.Stub {
 
     @Override public String sourceId() { return BuildConfig.SOURCE_ID; }
 
-    @Override public IShellUnixEndpoint openUnixEndpoint(String name, int expectedUid, IUnixConnectionReceiver receiver) {
-        try { return new ShellUnixEndpoint(name, expectedUid, receiver); }
+    @Override public IShellUnixEndpoint openUnixEndpoint(String name, int expectedUid, int ioTimeoutMillis, IUnixConnectionReceiver receiver) {
+        try { return new ShellUnixEndpoint(name, expectedUid, ioTimeoutMillis, receiver); }
         catch (IOException error) { throw new IllegalStateException("Cannot create Unix endpoint", error); }
     }
 

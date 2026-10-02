@@ -18,7 +18,7 @@ final class X11Execution {
 
     X11Execution(Context context, DesktopExecBackend backend, String keyboardSource) {
         this.context = context.getApplicationContext();
-        this.keyboardSource = DesktopExecWorkingDirectory.normalize(keyboardSource);
+        this.keyboardSource = HostedKeyboardSource.normalize(keyboardSource);
         commands = new CommandExecution(context, backend);
         serverUid = commands.termux == null ? Process.myUid() : commands.uid;
         serverPackage = commands.termux == null ? context.getPackageName() : commands.termux.packageName;
@@ -53,6 +53,7 @@ final class X11Execution {
             Files.createDirectory(directory.resolve("content"));
             android.system.Os.chmod(directory.resolve("content").toString(), 01777);
             var environment = new java.util.LinkedHashMap<>(spec.environment);
+            if (commands.uid == 2000 && !spec.fileEnvironment.isEmpty()) environment.put("MAGICDESK_GUEST_FILES_SOCKET", "");
             environment.put("XKB_CONFIG_ROOT", keyboard);
             return HostedServerProcess.start(spec.arguments, environment, directory, "X11Server-" + spec.id, completion);
         } catch (IOException | android.system.ErrnoException | RuntimeException error) {

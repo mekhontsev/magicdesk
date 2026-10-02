@@ -288,6 +288,10 @@ public final class WaylandServer extends IWaylandServer.Stub {
         try { return contentFiles.open(uri); }
         catch (IOException e) { throw new IllegalStateException("Cannot open guest file", e); }
     }
+    @Override public void acceptGuestFiles(ParcelFileDescriptor socket) {
+        try { lifecycle.checkReady(Binder.getCallingUid()); contentFiles.acceptGuest(socket); }
+        catch (RuntimeException error) { closeDescriptor(socket); throw error; }
+    }
     @Override public String importContentFile(ParcelFileDescriptor file, String name) {
         try (file) {
             lifecycle.checkReady(Binder.getCallingUid());

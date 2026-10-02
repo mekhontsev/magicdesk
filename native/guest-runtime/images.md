@@ -27,8 +27,12 @@ Destinations must not exist. `--reference TAG` selects an index annotation;
 ambiguous or incompatible selections fail. `inspect` returns the image config,
 instance/image kind and retained immutable source directory identities.
 `run` combines Entrypoint and Cmd; arguments after `--` replace Cmd.
-`exec` requires an explicit command and ignores Entrypoint/Cmd. `login` defaults
-to `/bin/sh -l`, or the explicit shell command after `--`. Both use the same
+`exec` requires an explicit command and ignores Entrypoint/Cmd. `login` uses the
+selected account's home directory and login shell, or the explicit command after
+`--`. HOME, SHELL, USER and LOGNAME derive from `/etc/passwd`; a missing numeric
+account falls back to `/` and `/bin/sh` without creating an account. Image Env
+overrides account defaults for run/exec, while login selects account defaults;
+explicit `--env` values override both. Both use the same
 launch parser and supervised execution path as `run`.
 `--entrypoint PROGRAM` replaces Entrypoint, including an empty override to clear it.
 WorkingDir and Env come from the image; `--cwd` and repeated `--env KEY=VALUE`
@@ -49,6 +53,16 @@ can use it through `--store`, including their explicit graphics routes and
 sealed-helper admission. Closing a launch does not delete its store or volumes;
 cancellation uses the existing process-tree guardian. Image configuration does
 not create a second launch supervisor or a global current distribution.
+
+`image resolver STORE TEXT [--replace]` prepares a bounded `/etc/resolv.conf`
+under exclusive writable-store admission. By default it preserves nonempty files
+and symlinks. Explicit replacement replaces the symlink itself, not its target.
+The app-side manager selects DNS policy; the native tool never chooses a resolver.
+
+`image export-tree STORE /GUEST/PATH HOST_DEST` exports a bounded regular-file
+tree through the inode API. It skips symlinks, rejects special files and publishes
+atomically without replacement (32 MiB, 4096 entries, depth 12). The Android
+adapter uses this for XKB data without extracting or guessing the store layout.
 
 ## Import Boundary
 
@@ -245,6 +259,12 @@ return EBUSY; both become available after that process exits.
 Its Java catalog/registry fixtures separately cover name validation, ownership
 contention, credential scope on redirects, TLS downgrade rejection and cache
 digest failures. These workflows need no Termux execution or Desktop session.
+
+`test_environment_workflows.py` extends this to account login, fresh APT/APK
+GUI package installation, independent concurrent operations, helper-owned file
+exchange, X11/Wayland editing and clipboard, and relaunch after backup, deletion
+and restoration. It uses the installed APK and ordinary Start recipes under
+actual UID 2000; its virtual display has no Desktop session or HOME lease.
 
 `test_oci.py` covers codecs, metadata, whiteouts, links, malformed inputs,
 digest failures, concurrent shared-layer publication, independent equal files,

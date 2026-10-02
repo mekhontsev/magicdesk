@@ -18,7 +18,7 @@ record GraphicalLaunchOptions(GraphicalProtocol protocol, boolean desktop, Strin
         if (protocol == null) throw new IllegalArgumentException("Missing graphical protocol");
         if (connectionMode == null || (protocol != GraphicalProtocol.WAYLAND && connectionMode == GraphicalConnectionMode.INHERITED))
             throw new IllegalArgumentException("Inherited connection requires Wayland");
-        keyboardDirectory = DesktopExecWorkingDirectory.normalize(keyboardDirectory);
+        keyboardDirectory = HostedKeyboardSource.normalize(keyboardDirectory);
         startupClass = startupClass == null ? "" : startupClass;
         if (startupClass.indexOf('\0') >= 0)
             throw new IllegalArgumentException("Invalid StartupWMClass");

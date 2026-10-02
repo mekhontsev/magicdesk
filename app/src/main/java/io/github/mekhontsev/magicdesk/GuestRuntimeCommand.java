@@ -18,7 +18,7 @@ public final class GuestRuntimeCommand {
             + "     shift\n"
             + "     \"$md_guest/libmagicdesk_guest_supervisor.so\" \"$md_guest/libmagicdesk_guest_bootstrap.so\" --probe >/dev/null || exit $?\n"
             + "     exec \"$md_guest/libmagicdesk_guest_image.so\" \"$md_action\" \"$md_store\" \"$@\" ;;\n"
-            + "  install|list|inspect|path|backup|restore|remove|prune) md_library \"$@\"; exit $? ;;\n"
+            + "  install|list|inspect|path|backup|restore|remove|prune|dns) md_library \"$@\"; exit $? ;;\n"
             + "  ''|-h|--help|help) md_library help; exit $? ;;\n"
             + "  image) shift\n"
             + "     if [ \"${1-}\" = run ] || [ \"${1-}\" = exec ] || [ \"${1-}\" = login ]; then\n"

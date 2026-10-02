@@ -70,6 +70,7 @@ final class AutomationCommands implements AutoCloseable {
         final JSONObject data;
         if (name.startsWith("appearance.")) return AutomationAppearance.execute(name, args);
         if (name.startsWith("graphics.")) return AutomationGraphics.execute(name, args);
+        if (name.startsWith("guest.")) return AutomationGuestEnvironments.execute(name, args);
         if (name.equals("dialog.show") || name.equals("notification.post")
                 || name.equals("interaction.result") || name.equals("interaction.close")) {
             return DesktopAutomationResult.success("ok", interactions().execute(name, args));

@@ -6,7 +6,7 @@ import java.util.TreeSet;
 /** Linux entry adapters produce ordinary Exec recipes, never own containers or privilege startup. */
 final class LinuxLaunchRecipe {
     enum Presentation { TERMINAL, APPLICATION, DESKTOP }
-    enum Kind { PROOT, SCRIPT, GUEST }
+    enum Kind { PROOT, SCRIPT, GUEST, MANAGED_GUEST }
 
     record Environment(Kind kind, String target, DesktopExecBackend backend, String keyboardDirectory) {
         Environment(Kind kind, String target) { this(kind, target, DesktopExecBackend.TERMUX, ""); }
@@ -19,7 +19,7 @@ final class LinuxLaunchRecipe {
             if (backend == null) throw new IllegalArgumentException("Select an executor");
             if (kind == Kind.PROOT && backend != DesktopExecBackend.TERMUX)
                 throw new IllegalArgumentException("proot-distro requires Termux");
-            if (kind == Kind.GUEST && backend != DesktopExecBackend.SHELL)
+            if ((kind == Kind.GUEST || kind == Kind.MANAGED_GUEST) && backend != DesktopExecBackend.SHELL)
                 throw new IllegalArgumentException("Guest runtime requires the Shell executor");
             keyboardDirectory = DesktopExecWorkingDirectory.normalize(keyboardDirectory);
         }
@@ -48,13 +48,13 @@ final class LinuxLaunchRecipe {
             String directory, String user, Presentation presentation, GraphicalProtocol protocol) {
         if (protocol == null) throw new IllegalArgumentException("Select a graphical protocol");
         user = user == null ? "" : user.trim();
-        if (environment.kind() != Kind.GUEST && !user.isEmpty() && !user.matches("[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}\\$?"))
+        if (environment.kind() != Kind.GUEST && environment.kind() != Kind.MANAGED_GUEST && !user.isEmpty() && !user.matches("[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}\\$?"))
             throw new IllegalArgumentException("Invalid Linux user name");
         command = DesktopExecCommand.normalize(command);
         directory = DesktopExecWorkingDirectory.normalize(directory);
         if (command.isEmpty() && presentation != Presentation.TERMINAL)
             throw new IllegalArgumentException("Enter a Linux command");
-        if (environment.kind() == Kind.GUEST)
+        if (environment.kind() == Kind.GUEST || environment.kind() == Kind.MANAGED_GUEST)
             return guest(name, environment, command, directory, user, presentation, protocol);
 
         boolean graphical = presentation != Presentation.TERMINAL;
@@ -111,20 +111,20 @@ final class LinuxLaunchRecipe {
     private static DesktopApplicationShortcut guest(String name, Environment environment, String command,
             String directory, String user, Presentation presentation, GraphicalProtocol protocol) {
         boolean graphical = presentation != Presentation.TERMINAL;
-        if (graphical && environment.keyboardDirectory().isEmpty())
-            throw new IllegalArgumentException("Enter the host XKB data directory");
-        var plan = new GuestLaunchPlan(new GuestEnvironment(environment.target(), "/tmp", user),
-                directory.isEmpty() ? "/" : directory,
-                command.isEmpty() ? List.of("/bin/sh", "-l") : List.of("/bin/sh", "-lc",
-                        graphical ? LinuxGraphicalEnvironment.wrap(protocol,
-                                "/bin/sh -c " + q(GuestGraphicalConnection.client(protocol, "/bin/sh -lc " + q(command)))) : command));
+        boolean managed = environment.kind() == Kind.MANAGED_GUEST;
+        String keyboard = environment.keyboardDirectory().isEmpty() ? "guest:" + environment.target() : environment.keyboardDirectory();
+        var identity = new GuestEnvironment(environment.target(), managed ? "" : "/tmp", user, managed);
+        String cwd = directory.isEmpty() && !managed ? "/" : directory;
+        var plan = graphical ? GuestGraphicalConnection.plan(identity, cwd, command, protocol)
+                : new GuestLaunchPlan(identity, cwd, command.isEmpty()
+                        ? managed ? List.of() : List.of("/bin/sh", "-l") : List.of("/bin/sh", "-lc", command));
         String exec = DesktopExecTemplate.encodeArguments(graphical
-                ? List.of("sh", "-c", GuestGraphicalConnection.invocation(plan, protocol)) : plan.arguments());
+                ? List.of("sh", "-c", GuestGraphicalConnection.invocation(plan, protocol, true)) : plan.arguments());
         DesktopExecTemplate.expandArguments(exec, DesktopLaunchArguments.empty(), name, "", "");
         return new DesktopApplicationShortcut(name, graphical ? "computer" : "utilities-terminal",
                 exec, null, "", DesktopLaunchMode.AUTO, false, DesktopExecBackend.SHELL, !graphical)
                 .withLiteralExec(true).withGraphics(graphical ? new GraphicalLaunchOptions(protocol,
-                        presentation == Presentation.DESKTOP, environment.keyboardDirectory(), "",
+                        presentation == Presentation.DESKTOP, keyboard, "",
                         "GUEST:" + environment.target().length() + ":" + environment.target() + ":" + user, GraphicalConnectionMode.ROUTED) : null);
     }
 

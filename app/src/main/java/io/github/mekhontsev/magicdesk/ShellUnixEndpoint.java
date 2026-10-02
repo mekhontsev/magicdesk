@@ -16,12 +16,15 @@ final class ShellUnixEndpoint extends IShellUnixEndpoint.Stub {
     private final IUnixConnectionReceiver receiver;
     private final int ownerUid = Binder.getCallingUid();
     private final int clientUid;
+    private final int ioTimeoutMillis;
     private final Object state = new Object();
     private final IBinder.DeathRecipient died = this::release;
     private volatile boolean closed;
     private long offered, acknowledged;
 
-    ShellUnixEndpoint(String name, int uid, IUnixConnectionReceiver receiver) throws IOException {
+    ShellUnixEndpoint(String name, int uid, int ioTimeoutMillis, IUnixConnectionReceiver receiver) throws IOException {
+        if (ioTimeoutMillis < 0 || ioTimeoutMillis > 60000) throw new IllegalArgumentException("Invalid socket IO bound");
+        this.ioTimeoutMillis = ioTimeoutMillis;
         if (Os.getuid() != uid) throw new SecurityException("The command service identity changed");
         if (name == null || !name.matches("magicdesk-[a-z0-9-]{16,80}"))
             throw new IllegalArgumentException("Invalid Unix endpoint name");
@@ -41,6 +44,8 @@ final class ShellUnixEndpoint extends IShellUnixEndpoint.Stub {
                 try (var client = listener.accept()) {
                     if (closed) break;
                     if (client.getPeerCredentials().getUid() != clientUid) continue;
+                    // Configure under the socket owner's SELinux identity, before handing off its FD.
+                    client.setSoTimeout(ioTimeoutMillis);
                     final long serial;
                     synchronized (state) { serial = ++offered; }
                     try (var descriptor = ParcelFileDescriptor.dup(client.getFileDescriptor())) {

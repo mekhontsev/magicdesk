@@ -89,7 +89,7 @@ public final class ShellProbeInstrumentation extends Instrumentation {
         if (execution.uid == android.os.Process.myUid()) throw new IOException("Cross-UID listener test required");
         var completed = new java.util.concurrent.CompletableFuture<String>();
         var count = new java.util.concurrent.atomic.AtomicInteger();
-        try (var endpoint = new GraphicalSocketEndpoint(execution.uid, descriptor -> {
+        try (var endpoint = new ExecutorSocketEndpoint(execution.uid, descriptor -> {
             int i = count.getAndIncrement();
             var peer = descriptor.getFileDescriptor();
             try {

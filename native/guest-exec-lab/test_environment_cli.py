@@ -15,6 +15,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apk', type=Path)
     parser.add_argument('--images', nargs='+', default=['alpine:3.23', 'debian:trixie-slim'])
+    parser.add_argument('--dns', default='system', help='Explicit fixture DNS policy, never changes Android DNS')
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[2]
     spec = importlib.util.spec_from_file_location('transport', repo / 'scripts/mcp-client.py')
@@ -58,7 +59,7 @@ def main():
         for index, image in enumerate(args.images):
             client.call('device.keep_awake', {'durationMillis': 1800000, 'leaseId': lease})
             name = 'linux-' + str(index)
-            guest('install', image, '--name', name)
+            guest('install', image, '--name', name, '--dns', args.dns)
             names.append(name)
             output = guest('exec', name, '--', '/bin/sh', '-c',
                            'set -eu\ntest "$(id -u)" = 0\nmkdir -p /mnt /media\n'
@@ -72,10 +73,10 @@ def main():
             guest('run', name, '--', '/bin/sh', '-c', 'test "$(cat /tmp/manager-value)" = private')
             inspected = json.loads(guest('inspect', name))
             assert inspected['kind'] == 'instance' and inspected['guestUsers'] == 1
-        guest('install', args.images[0], '--name', 'independent')
+        guest('install', args.images[0], '--name', 'independent', '--dns', args.dns)
         names.append('independent')
         guest('exec', 'independent', '--', '/bin/sh', '-c', 'test ! -e /tmp/manager-value')
-        guest('install', args.images[0], '--name', 'independent', success=False)
+        guest('install', args.images[0], '--name', 'independent', '--dns', args.dns, success=False)
         assert len(guest('list').strip().splitlines()) == len(names)
         ready, release = threading.Event(), threading.Event()
         class Hold(http.server.BaseHTTPRequestHandler):

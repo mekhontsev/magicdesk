@@ -19,7 +19,7 @@ final class X11LaunchSpec {
     final String temporaryDirectory;
     final String keyboardDirectory;
     final String fileEnvironment;
-    private final HostedGuestFiles guestFiles;
+    final HostedGuestFiles guestFiles;
     private final LinuxAppearanceLaunch appearance;
     private final String shell;
     final java.util.Map<String, String> environment;

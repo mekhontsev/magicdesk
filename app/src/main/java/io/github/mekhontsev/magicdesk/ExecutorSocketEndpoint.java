@@ -9,14 +9,18 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 /** Captured executor admission shared by protocol servers; no graphics or protocol proxy. */
-final class GraphicalSocketEndpoint implements Closeable {
+final class ExecutorSocketEndpoint implements Closeable {
     interface Sink { void accept(ParcelFileDescriptor socket) throws RemoteException, IOException; }
     final String name;
     private final CompletableFuture<IShellUnixEndpoint> endpoint = new CompletableFuture<>();
     private final java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean();
     private final android.os.IBinder.DeathRecipient died;
 
-    GraphicalSocketEndpoint(int uid, Sink sink, Consumer<Throwable> failure) throws IOException {
+    ExecutorSocketEndpoint(int uid, Sink sink, Consumer<Throwable> failure) throws IOException {
+        this(uid, 0, sink, failure);
+    }
+
+    ExecutorSocketEndpoint(int uid, int ioTimeoutMillis, Sink sink, Consumer<Throwable> failure) throws IOException {
         byte[] nonce = new byte[32]; new java.security.SecureRandom().nextBytes(nonce);
         name = "magicdesk-" + java.util.HexFormat.of().formatHex(nonce);
         died = () -> {
@@ -48,13 +52,13 @@ final class GraphicalSocketEndpoint implements Closeable {
         };
         IShellUnixEndpoint owner = null;
         try {
-            owner = ShellAccess.openUnixEndpoint(name, uid, receiver);
+            owner = ShellAccess.openUnixEndpoint(name, uid, ioTimeoutMillis, receiver);
             owner.asBinder().linkToDeath(died, 0);
             endpoint.complete(owner);
         } catch (IOException | RemoteException | RuntimeException error) {
             endpoint.completeExceptionally(error);
             if (owner != null) try { owner.close(); } catch (RemoteException ignored) { }
-            throw new IOException("Cannot open graphical socket endpoint", error);
+            throw new IOException("Cannot open executor socket endpoint", error);
         }
     }
 

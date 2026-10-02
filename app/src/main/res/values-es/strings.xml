@@ -1,5 +1,9 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
+    <string name="guest_environments">Entornos invitados</string>
+    <string name="guest_loading">Cargando entornos&#8230;</string>
+    <string name="guest_empty">No hay entornos invitados instalados</string>
+    <string name="guest_select">Selecciona un entorno invitado</string>
     <string name="settings_language">Idioma de la aplicación</string>
     <string name="settings_language_system">Predeterminado del sistema</string>
     <string name="graphics_nested_desktop">Escritorio Linux anidado</string>

@@ -13,7 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.UUID;
 
-/** Session file exchange: server-local paths or the explicitly selected guest's read-only bridge. */
+/** Session file exchange through server-local paths or the explicitly selected guest. */
 public final class HostedFileExchange {
     private static final long MAX_BYTES = 128L * 1024 * 1024, MAX_STORAGE = 256L * 1024 * 1024;
     private int fileCount;
@@ -67,6 +67,11 @@ public final class HostedFileExchange {
         finally { if (descriptor != null) try { Os.close(descriptor); } catch (ErrnoException ignored) { } }
     }
 
+    public void acceptGuest(ParcelFileDescriptor socket) {
+        if (closed || guest == null) { HostedSocketAdmission.discard(socket); throw new IllegalStateException("Guest file exchange unavailable"); }
+        guest.offer(socket);
+    }
+
     public synchronized String importFile(ParcelFileDescriptor source, String name) throws IOException {
         if (source == null) throw new IOException("Missing file descriptor");
         try (source) {
@@ -77,6 +82,11 @@ public final class HostedFileExchange {
             if (name == null || name.isBlank() || name.equals(".") || name.equals("..") || name.length() > 240 ||
                     name.indexOf('/') >= 0 || name.indexOf('\\') >= 0 || name.indexOf('\0') >= 0)
                 throw new IOException("Invalid imported file name");
+            if (guest != null) {
+                String uri = guest.importFile(source, name, size);
+                fileCount++; used += size;
+                return uri;
+            }
             if (directory == null) {
                 directory = new File(contentDirectory);
                 Files.createDirectories(directory.toPath());

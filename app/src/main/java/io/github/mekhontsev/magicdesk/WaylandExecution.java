@@ -23,7 +23,7 @@ final class WaylandExecution {
     private final String keyboard;
     private final String directory;
     private final String executorPackage;
-    private final HostedGuestFiles guestFiles;
+    final HostedGuestFiles guestFiles;
     private final String fileEnvironment;
     private final LinuxAppearanceLaunch appearance;
     private final GraphicalConnectionMode connectionMode;
@@ -49,7 +49,7 @@ final class WaylandExecution {
                 !fileEnvironment.isEmpty(), LinuxAppearance.read(context));
         serverUid = commands.termux == null ? Process.myUid() : commands.uid;
         executorPackage = commands.termux == null ? context.getPackageName() : commands.termux.packageName;
-        keyboard = DesktopExecWorkingDirectory.normalize(keyboardDirectory);
+        keyboard = HostedKeyboardSource.normalize(keyboardDirectory);
         if (commands.termux == null && keyboard.isEmpty())
             throw new IllegalArgumentException("An XKB data directory is required for the Shell graphical executor");
         byte[] secret = new byte[32];
@@ -77,6 +77,7 @@ final class WaylandExecution {
         environment.put("XDG_RUNTIME_DIR", directory);
         if (needsBroker()) environment.put("MAGICDESK_WAYLAND_GUEST_SOCKET", "1");
         guestFiles.configure(environment);
+        if (commands.uid == 2000 && !fileEnvironment.isEmpty()) environment.put("MAGICDESK_GUEST_FILES_SOCKET", "");
         appearance.configure(environment);
         if (!fileEnvironment.isEmpty()) environment.put("MAGICDESK_WAYLAND_GUEST_CONTENT", "/tmp/magicdesk-wayland/content");
         environment.put("XKB_CONFIG_ROOT", commands.termux == null ? HostedKeyboardData.prepare(context, keyboard)
@@ -138,7 +139,7 @@ final class WaylandExecution {
         if (hasRoutedEndpoint()) {
             String script = "unset DISPLAY WAYLAND_SOCKET\nexport XDG_SESSION_TYPE=wayland WAYLAND_DISPLAY="
                     + q(GuestGraphicalConnection.WAYLAND_PATH) + " MAGICDESK_GRAPHICS_ENDPOINT=" + q(socket)
-                    + appearance.exports() + "\n" + appearance.command(command, shell());
+                    + guestFiles.exports() + appearance.exports() + "\n" + appearance.command(command, shell());
             return commands.start(script, workingDirectory, id + "-client", null, completion);
         }
         if (!hasNamedEndpoint() || socket == null || !socket.matches("wayland-[0-9]+"))

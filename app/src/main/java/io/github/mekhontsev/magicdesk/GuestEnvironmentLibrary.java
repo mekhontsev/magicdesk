@@ -39,6 +39,10 @@ final class GuestEnvironmentLibrary {
     }
 
     Environment install(String source, SourceKind kind, String name) throws Exception {
+        return install(source, kind, name, null);
+    }
+
+    Environment install(String source, SourceKind kind, String name, String resolver) throws Exception {
         validateName(name);
         try (Lock ignored = lock()) {
             requireNew(name);
@@ -74,9 +78,25 @@ final class GuestEnvironmentLibrary {
                 String id = UUID.randomUUID().toString();
                 Path store = root.resolve("instances").resolve(id);
                 images.invoke("create", base.toString(), store.toString());
+                if (resolver != null) progress.accept(images.invoke("resolver", store.toString(), resolver).trim());
                 return publish(name, id, image, source);
             } finally { discardWork(work); }
         }
+    }
+
+    void resolver(String name, String contents, boolean replace) throws Exception {
+        try (Lock ignored = lock()) {
+            Environment environment = resolve(name);
+            progress.accept(replace ? images.invoke("resolver", environment.store().toString(), contents, "--replace")
+                    : images.invoke("resolver", environment.store().toString(), contents));
+        }
+    }
+
+    JSONArray catalog() throws Exception {
+        JSONArray result = new JSONArray();
+        for (Environment item : list()) result.put(new JSONObject().put("name", item.name()).put("id", item.id())
+                .put("source", item.source()).put("store", item.store().toString()));
+        return result;
     }
 
     Environment restore(Path archive, String name) throws Exception {

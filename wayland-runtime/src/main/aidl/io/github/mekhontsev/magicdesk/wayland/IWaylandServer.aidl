@@ -33,6 +33,7 @@ interface IWaylandServer {
     oneway void setColorScheme(int value);
     oneway void openClient(long request);
     oneway void acceptClient(in ParcelFileDescriptor socket);
+    oneway void acceptGuestFiles(in ParcelFileDescriptor socket);
     oneway void setShellOutput(long owner, int width, int height);
     oneway void releaseShell(long owner);
     oneway void configureShell(long owner, long surface, long revision, int x, int y, int width, int height);

@@ -10,7 +10,7 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import java.util.List;
 
-/** Dialog-scoped entry selection: discovered PRoot or an explicit user-owned launcher. */
+/** Dialog-scoped entry selection from the selected executor's environment catalog. */
 final class LinuxEnvironmentPicker extends LinearLayout {
     private final Spinner method;
     private final LinearLayout prootFields;
@@ -23,6 +23,10 @@ final class LinuxEnvironmentPicker extends LinearLayout {
     private final TextView status;
     private TermuxIntegration.Endpoint endpoint;
     private TermuxCommandResultReceiver.Registration request;
+    private java.io.Closeable guestRequest;
+    private List<GuestEnvironmentCatalog.Entry> guests = List.of();
+    private boolean graphical;
+    private final TextView title;
     private int generation;
     private boolean active;
     private DesktopExecBackend backend = DesktopExecBackend.TERMUX;
@@ -41,7 +45,7 @@ final class LinuxEnvironmentPicker extends LinearLayout {
         prootFields = new LinearLayout(context);
         prootFields.setOrientation(VERTICAL);
         addView(prootFields);
-        TextView title = new TextView(context);
+        title = new TextView(context);
         title.setText(R.string.command_app_proot_environment);
         title.setTextSize(12);
         prootFields.addView(title);
@@ -91,7 +95,7 @@ final class LinuxEnvironmentPicker extends LinearLayout {
         if (backend == value) return;
         backend = value;
         kinds = value == DesktopExecBackend.SHELL
-                ? List.of(LinuxLaunchRecipe.Kind.SCRIPT, LinuxLaunchRecipe.Kind.GUEST)
+                ? List.of(LinuxLaunchRecipe.Kind.MANAGED_GUEST, LinuxLaunchRecipe.Kind.SCRIPT, LinuxLaunchRecipe.Kind.GUEST)
                 : List.of(LinuxLaunchRecipe.Kind.PROOT, LinuxLaunchRecipe.Kind.SCRIPT);
         updateMethods();
         if (active) load();
@@ -100,29 +104,52 @@ final class LinuxEnvironmentPicker extends LinearLayout {
     private void updateMethods() {
         String[] labels = getResources().getStringArray(R.array.command_app_linux_methods);
         var adapter = new ArrayAdapter<>(getContext(), android.R.layout.simple_spinner_item,
-                kinds.stream().map(kind -> labels[kind.ordinal()]).toList());
+                kinds.stream().map(kind -> kind == LinuxLaunchRecipe.Kind.MANAGED_GUEST
+                        ? getContext().getString(R.string.guest_environments) : labels[kind.ordinal()]).toList());
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         method.setAdapter(adapter);
     }
 
     void setGraphical(boolean graphical) {
-        keyboardFields.setVisibility(graphical && backend == DesktopExecBackend.SHELL ? View.VISIBLE : View.GONE);
+        this.graphical = graphical;
+        updateKeyboard();
+    }
+
+    private void updateKeyboard() {
+        keyboardFields.setVisibility(graphical && backend == DesktopExecBackend.SHELL
+                && kinds.get(Math.max(0, method.getSelectedItemPosition())) != LinuxLaunchRecipe.Kind.MANAGED_GUEST ? View.VISIBLE : View.GONE);
     }
 
     private void load() {
         cancel();
         var kind = kinds.get(Math.max(0, method.getSelectedItemPosition()));
         boolean proot = kind == LinuxLaunchRecipe.Kind.PROOT;
-        prootFields.setVisibility(proot ? View.VISIBLE : View.GONE);
-        scriptFields.setVisibility(proot ? View.GONE : View.VISIBLE);
+        boolean managed = kind == LinuxLaunchRecipe.Kind.MANAGED_GUEST;
+        prootFields.setVisibility(proot || managed ? View.VISIBLE : View.GONE);
+        scriptFields.setVisibility(proot || managed ? View.GONE : View.VISIBLE);
+        title.setText(managed ? R.string.guest_environments : R.string.command_app_proot_environment);
+        choices.setContentDescription(title.getText());
+        updateKeyboard();
         scriptTitle.setText(kind == LinuxLaunchRecipe.Kind.GUEST ? R.string.command_app_guest_store : R.string.command_app_linux_script);
         endpoint = backend == DesktopExecBackend.TERMUX ? TermuxIntegration.inspect(getContext()) : null;
-        if (!proot) return;
+        if (!proot && !managed) return;
         final int expected = generation;
         choices.setAdapter(null);
         status.setVisibility(View.VISIBLE);
-        status.setText(R.string.command_app_proot_loading);
+        status.setText(managed ? R.string.guest_loading : R.string.command_app_proot_loading);
         try {
+            if (managed) {
+                guestRequest = GuestEnvironmentCatalog.load(getContext(), (entries, error) -> post(() -> {
+                    if (expected != generation) return;
+                    guests = entries;
+                    var adapter = new ArrayAdapter<>(getContext(), android.R.layout.simple_spinner_item, guests);
+                    adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+                    choices.setAdapter(adapter);
+                    status.setText(error == null ? getContext().getString(R.string.guest_empty) : ShellAccess.usefulMessage(error));
+                    status.setVisibility(error != null || guests.isEmpty() ? View.VISIBLE : View.GONE);
+                }));
+                return;
+            }
             request = TermuxIntegration.runBackgroundShellCommandForResult(getContext(), endpoint,
                     "proot-distro list --quiet", "MagicDesk PRoot environments", endpoint.homeDirectory,
                     15_000, (result, failure) -> {
@@ -146,6 +173,11 @@ final class LinuxEnvironmentPicker extends LinearLayout {
 
     LinuxLaunchRecipe.Environment selected() {
         var kind = kinds.get(Math.max(0, method.getSelectedItemPosition()));
+        if (kind == LinuxLaunchRecipe.Kind.MANAGED_GUEST) {
+            Object selection = choices.getSelectedItem();
+            if (!(selection instanceof GuestEnvironmentCatalog.Entry item)) throw new IllegalArgumentException(getContext().getString(R.string.guest_select));
+            return new LinuxLaunchRecipe.Environment(kind, item.store(), backend, "");
+        }
         if (kind != LinuxLaunchRecipe.Kind.PROOT)
             return new LinuxLaunchRecipe.Environment(kind, script.getText().toString(),
                     backend, keyboard.getText().toString());
@@ -161,6 +193,11 @@ final class LinuxEnvironmentPicker extends LinearLayout {
         generation++;
         TermuxCommandResultReceiver.cancel(request);
         request = null;
+        if (guestRequest != null) {
+            try { guestRequest.close(); } catch (java.io.IOException ignored) { }
+            guestRequest = null;
+        }
+        guests = List.of();
     }
 
     @Override protected void onDetachedFromWindow() {

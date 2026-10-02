@@ -10,9 +10,10 @@ public record GuestLaunchPlan(GuestEnvironment environment, String directory, Li
 
     public GuestLaunchPlan {
         Objects.requireNonNull(environment, "environment");
-        directory = GuestEnvironment.absolute(directory, "guest directory");
+        directory = environment.image() && (directory == null || directory.isEmpty()) ? ""
+                : GuestEnvironment.absolute(directory, "guest directory");
         command = List.copyOf(command);
-        if (command.isEmpty() || command.size() > 900 || !command.get(0).startsWith("/"))
+        if (command.isEmpty() && !environment.image() || command.size() > 900 || !command.isEmpty() && !command.get(0).startsWith("/"))
             throw new IllegalArgumentException("Guest command must name an absolute executable");
         int size = 0;
         for (String argument : command) {
@@ -29,7 +30,11 @@ public record GuestLaunchPlan(GuestEnvironment environment, String directory, Li
     }
 
     List<String> launcherArguments() {
-        var result = new ArrayList<>(List.of(TOOL, "--store", environment.store(), "--home", environment.home(), "--cwd", directory));
+        var result = new ArrayList<>(environment.image()
+                ? List.of(TOOL, "image", command.isEmpty() ? "login" : "exec", environment.store())
+                : List.of(TOOL, "--store", environment.store(), "--home", environment.home()));
+        if (!directory.isEmpty()) result.addAll(List.of("--cwd", directory));
+        if (environment.image() && !environment.home().isEmpty()) result.addAll(List.of("--env", "HOME=" + environment.home()));
         if (!environment.user().isEmpty()) result.addAll(List.of("--user", environment.user()));
         return List.copyOf(result);
     }

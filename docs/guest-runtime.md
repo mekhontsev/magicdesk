@@ -92,11 +92,24 @@ new storage identity, never retargets an already resolved launch.
 
 `run` retains Entrypoint/Cmd. `exec` overrides both with the explicit command;
 it starts a new supervised process tree, not Docker-style entry into an existing
-one. `login` defaults to `/bin/sh -l` and accepts an explicit shell after `--`.
+one. `login` uses the selected account's home and login shell from `/etc/passwd`
+and accepts an explicit shell after `--`. Numeric users absent from that file
+use `/`, `/bin/sh` and a numeric username; no account is created. Image launches
+also supply HOME, SHELL, USER and LOGNAME defaults. Image environment and explicit
+`--env` values override exec/run defaults; login uses account values unless
+explicitly overridden. `--cwd` always selects the requested guest directory.
 All three share user, environment, cwd, hostname and directory-attachment options.
-The image's userland remains responsible for DNS configuration, certificates,
-accounts and optional services. Installation does not execute package scripts
-or synthesize a resolver configuration.
+
+Installation accepts `--dns system` (default), `--dns preserve` or up to three
+comma-separated numeric addresses. System DNS is a one-shot active-network
+snapshot under the selected command identity, not a live Android resolver proxy.
+Private DNS/VPN require an explicit policy because copying addresses cannot
+preserve those semantics. No public resolver is chosen implicitly. Nonempty or
+symlinked `/etc/resolv.conf` is retained. `magicdesk-guest dns NAME POLICY --replace`
+explicitly replaces it in an inactive environment; without `--replace` the same
+preservation rule applies. Restore preserves the backed-up configuration.
+The guest owns later DNS changes, certificates, accounts and optional services;
+installation never executes package scripts.
 
 The default library is `$MAGICDESK_RUNTIME/guest-environments`;
 `MAGICDESK_GUEST_HOME` selects another executor-accessible, executable filesystem.
@@ -158,14 +171,34 @@ stock entrypoints, network requests and persistent data, separately from import
 and base-image shell execution. Unsupported image metadata and kernel interfaces
 remain explicit errors.
 
-The shortcut editor's Shell Linux method accepts a prepared guest store.
+The terminal picker and shortcut editor's Shell Linux method share the named
+environment catalog with the CLI. Selection captures the immutable store path;
+removing and reusing a name cannot retarget an existing shortcut. Raw prepared
+stores and user-owned entry scripts remain explicit alternatives.
 Its optional User field accepts the same guest user/group selection as the CLI.
-Terminal commands use the shared retained PTY. Graphical recipes currently use
-X11 or Wayland and an explicit host-visible XKB directory.
+Terminal commands use the shared retained PTY. An empty managed terminal command
+opens the account login shell. Both X11 and Wayland recipes resolve XKB from
+`/usr/share/X11/xkb` in their selected store, without a copied path in the UI.
+`guest:/absolute/store` is the shared keyboard-source representation. The native
+data exporter bounds depth, entries and total bytes, skips symlinks and publishes
+atomically; Android copies the verified result into its private keyboard cache.
+An explicit host-visible XKB directory remains available for prepared entry scripts.
 `X-MagicDesk-GraphicsConnection=routed` selects independent guest connections;
 ordinary recipes select `auto`. Each graphical launch prepares
 its own guest `XDG_RUNTIME_DIR` and D-Bus session. File-environment identity remains distinct from
 host paths; an unavailable guest-file helper is an error, never host fallback.
+The packaged static file helper runs inside the selected guest filesystem and
+identity. Imports stream into a private guest temporary directory and return the
+actual guest URI; exports return read-only descriptors. No rootfs path guessing,
+Termux bind directory or virtual-inode-to-host-name conversion is involved.
+
+`guest.list` and `guest.inspect` expose the same catalog through MCP.
+`guest.start` runs explicit CLI arguments, `guest.status` observes bounded output
+and completion by operation ID/revision, and `guest.cancel` closes only that
+operation's owned command tree. Disconnecting MCP does not cancel work. Process
+restart discards operation receipts; cancellation does not roll back committed
+resources or authorize blind retries. These tools require the selected shell/root
+executor, never Desktop, Termux or guest kernel support merely to start MagicDesk.
 
 ## Graphical Connections
 
@@ -176,6 +209,11 @@ ownership only; protocol bytes and SCM_RIGHTS buffers travel directly through
 the connected Unix socket. There is no stream proxy or privileged renderer.
 Closing the session or losing its owner closes admission; outstanding FD handoff
 has a bounded acknowledgement deadline.
+`ExecutorSocketEndpoint` serves both graphics and guest-file admission. File
+connections retain per-session authentication and bounded IO; socket options
+are configured by the executor before FD handoff, not by the app-UID receiver.
+The helper releases its imports when its channel closes or its wrapped command
+exits. It must not keep an otherwise completed guest launch alive.
 
 Explicit `--socket-path SOURCE ENDPOINT` and `--socket-abstract SOURCE ENDPOINT`
 arguments map exact guest connect addresses to that endpoint. Routes survive
@@ -443,6 +481,15 @@ Ubuntu developer workflows cover authenticated Git clone/push over loopback SSH,
 CMake/Ninja build/test/install/incremental rebuild, npm install/ci with workers,
 filesystem notifications and HTTP, and pip venv/PEP517 C-extension wheel workflows.
 
+The named-environment workflow checks fresh Debian and Alpine installation,
+APT/APK GUI packages, account login and concurrent operations through the
+installed APK under UID 2000. X11 and Wayland checks cover simultaneous editors,
+keyboard input, bidirectional clipboard, saved-file readback and client closure.
+File-helper checks verify import, descriptor export and owner-loss cleanup.
+Backup, deletion and restore retain saved content under new storage identities
+and support graphical relaunch. These checks use a virtual display without
+Desktop, HOME acquisition or a Termux executor.
+
 Virtual-root IPC checks run stock Debian and Alpine session D-Bus, independent
 root clients and a rejected different-user client. Debian additionally passes
 GDBus service activation, caller-UID lookup and bidirectional FD delivery.
@@ -527,9 +574,10 @@ not automatically enforce a caller's seccomp domain. Unadapted syscalls retain
 host semantics, and Chromium child SIGTRAP exits are recorded separately from
 successful page execution. See the [interception contract](../native/guest-runtime/interception.md).
 
-Guest file sharing and live appearance helpers are not integrated for this launch
-method. Kernel permission denials remain failures. Unprivileged user namespaces
-are unavailable in the tested native shell control as well as the guest.
+Guest file sharing uses the selected guest's authenticated helper; live appearance
+updates are not integrated for this launch method. Kernel permission denials
+remain failures. Unprivileged user namespaces are unavailable in the tested
+native shell control as well as the guest.
 
 The focused watch suite checks Debian GIO directory notifications from an
 independent writer and stock D-Bus config-watch registration/session requests.
