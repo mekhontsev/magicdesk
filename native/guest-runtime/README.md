@@ -5,7 +5,7 @@ shell or root executor. The APK packages its executables, but loads none into
 ART and probes no guest kernel capability during application startup. Explicit
 guest launches retain the selected UID. This is **not a security sandbox or a
 complete Linux ABI**. See the [application contract](../../docs/guest-runtime.md).
-No proroot binary, decompiled implementation, PRoot tracer, container manager,
+No proroot binary, decompiled implementation, PRoot tracer, external container manager,
 custom glibc linker, root transition or SELinux change is used.
 
 ## Boundary
@@ -115,7 +115,9 @@ custom glibc linker, root transition or SELinux change is used.
   namespace serving for native fixtures. See the [lifetime contract](process-lifetime.md).
 - `event_wait.c` supplies monotonic event-driven descriptor waits to RPC and
   process ownership, without polling or a libc dependency.
-- `image_main.c` is the offline OCI image tool. JSON, archive verification,
+- `image_main.c` is the offline OCI/rootfs image and backup tool. `image_pool.c`
+  shares immutable layer bodies without per-layer namespaces; `image_backup.c`
+  exports self-contained data under exclusive store ownership. JSON, archive verification,
   layer application, atomic publication and launch configuration have separate
   modules. Image launches use the existing runner and process guardian.
   See [images and filesystem views](images.md) for sharing, copy-on-write,

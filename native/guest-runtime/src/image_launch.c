@@ -96,7 +96,7 @@ static int program_path(struct md_filesystem *fs, const char *command, const cha
     }
     return denied ? -EACCES : -ENOENT;
 }
-int md_image_launch(int argc, char **argv) {
+int md_image_launch(enum md_image_command kind, int argc, char **argv) {
     if (argc < 1) return -EINVAL;
     const char *path = argv[0], *cwd_override = NULL, *entry_override = NULL;
     char *overrides[128]; size_t override_count = 0;
@@ -115,12 +115,14 @@ int md_image_launch(int argc, char **argv) {
         const char *option = argv[position++]; char *value = argv[position++];
         if (!strcmp(option, "--user") && !selected_user && *value) selected_user = value;
         else if (!strcmp(option, "--cwd") && value[0] == '/') cwd_override = value;
-        else if (!strcmp(option, "--entrypoint")) entry_override = value;
+        else if (!strcmp(option, "--entrypoint") && kind == MD_IMAGE_RUN) entry_override = value;
         else if (!strcmp(option, "--hostname") && !hostname_override && md_hostname_valid(value)) hostname_override = value;
         else if (!strcmp(option, "--env") && override_count < 128) overrides[override_count++] = value;
         else return -EINVAL;
     }
     if (position < argc) ++position;
+    if (kind == MD_IMAGE_EXEC && position == argc) return -EINVAL;
+    if (kind != MD_IMAGE_RUN) entry_override = "";
     struct md_inode_store *s = NULL;
     int r = md_inode_store_open(path, 0, &s);
     if (!r && s->readonly) r = -EROFS;
@@ -174,6 +176,8 @@ int md_image_launch(int argc, char **argv) {
     size_t explicit_count = entry_override && *entry_override ? 1 : 0;
     char **command = position < argc ? argv+position : cmd;
     size_t command_count = position < argc ? (size_t)(argc-position) : cmd_count;
+    char *login[] = {"/bin/sh", "-l"};
+    if (kind == MD_IMAGE_LOGIN && position == argc) { command = login; command_count = 2; }
     size_t total = entry_count + explicit_count + command_count;
     if (!r && (!total || total + 2*(env_count+override_count) + 3*attachment_count + 16 > 1000)) r = -E2BIG;
     const char *search = environment(overrides, override_count, "PATH");

@@ -3,7 +3,9 @@
 The offline image utility accepts a local OCI image layout containing an OCI or
 Docker schema-2 Linux ARM64 manifest. It imports layers into a sealed inode store,
 creates independent writable instances and invokes the ordinary guest runner.
-There is no Docker daemon, registry client, kernel mount or privilege change.
+The native utility has no registry client, Docker daemon, kernel mount or privilege
+change. The app-side [named-environment manager](../../docs/guest-runtime.md#commands)
+supplies HTTPS acquisition, names and dependency-aware cleanup using this same API.
 This is image execution, not OCI runtime-spec or Docker Engine compatibility.
 
 ## Commands
@@ -15,12 +17,19 @@ magicdesk-guest image inspect /host/instance
 magicdesk-guest image run /host/instance -- /bin/sh
 magicdesk-guest image run /host/instance --user 1000:1000 -- /bin/sh
 magicdesk-guest image run /host/instance --bind /host/project /mnt -- /bin/sh
+magicdesk-guest image import /host/layout /host/image2 --preserve-ownership --layers /host/layers
+magicdesk-guest image rootfs /host/rootfs.tar.gz /host/rootfs-image
+magicdesk-guest image backup /host/instance /host/backup.tar.zst
+magicdesk-guest image restore /host/backup.tar.zst /host/restored-instance
 ```
 
 Destinations must not exist. `--reference TAG` selects an index annotation;
 ambiguous or incompatible selections fail. `inspect` returns the image config,
 instance/image kind and retained immutable source directory identities.
 `run` combines Entrypoint and Cmd; arguments after `--` replace Cmd.
+`exec` requires an explicit command and ignores Entrypoint/Cmd. `login` defaults
+to `/bin/sh -l`, or the explicit shell command after `--`. Both use the same
+launch parser and supervised execution path as `run`.
 `--entrypoint PROGRAM` replaces Entrypoint, including an empty override to clear it.
 WorkingDir and Env come from the image; `--cwd` and repeated `--env KEY=VALUE`
 override them. PATH lookup uses the same filesystem view as execution, including
@@ -56,6 +65,10 @@ between hashing and extraction. Tar, gzip and zstd layers are supported. JSON is
 bounded to 8 MiB, each blob/uncompressed layer to 8 GiB, and imported content to
 8 GiB/200,000 entries. Duplicate keys/names, NULs, malformed metadata, unsupported
 compression, ambiguous indices and digest failures are errors.
+`--blobs DIRECTORY` selects an explicit SHA-256 blob directory instead of the
+layout's `blobs/sha256`. This lets the registry adapter supply its verified cache
+without hardlinks, symlinks or temporary duplicate downloads. All native digest,
+size and diff_id validation remains mandatory.
 
 Archive entries never go through a host disk extractor. Absolute entry names and
 `..` components are rejected. Whiteouts and opaque directories remove only lower
@@ -99,6 +112,11 @@ before publication removes only that private tree. An fsync failure after rename
 leaves the published destination for inspection; it is not permission to retry
 or delete it. Process-kill tests do not establish power-loss recovery.
 
+Before publishing a new image, the importer removes unreachable namespace objects,
+private backings and source references left by replacements or whiteouts. This
+operates only on its unpublished staging store, never on live instances or their
+open-unlinked objects.
+
 ## Sharing And Copy-On-Write
 
 An object has a stable logical device/inode and a separate current native
@@ -107,6 +125,23 @@ immutable regular-file backings through source directory FDs; snapshots copy
 namespace metadata and directory/symlink objects, not regular file bodies.
 Native hardlinks are not required. Source paths and device/inode pairs are
 validated when an instance owner opens them.
+
+`--layers DIRECTORY` selects an existing shared layer pool. `image_pool.c` stores
+regular-file bodies by verified uncompressed layer digest and archive-entry ordinal.
+It publishes each pool atomically, and concurrent imports adopt the winning pool
+before retaining its inode identities. A pool has no guest namespace database;
+each image contains one final namespace. Runtime lookup uses the object's direct
+source descriptor, without walking a chain of image layers. Input blob digests
+and diff_ids are still verified on reuse. Pools are trusted immutable local data,
+not a security boundary against another process with the same Android authority.
+
+Guest owners, permissions, ACLs and capabilities belong to each image's logical
+objects, not the shared native file. Native data permissions are executor-owned.
+Equal byte contents do not imply hardlinks: only archive hardlink entries share
+a logical object within an image. Reapplying one layer while an old alias remains
+uses private storage for the new object rather than merging those independent
+inodes. Writable instances retain the same copy-up path for pooled and ordinary
+image sources. No kernel OverlayFS, FUSE, mount or native hardlink is required.
 
 The first mutable open/reopen promotes the logical object under the store's
 normal transaction gate. Data, supported xattrs, mode and timestamps are copied
@@ -123,11 +158,47 @@ Internal copy-up IO does not synthesize application modification events.
 Logical watch subscriptions follow the object across promotion.
 
 Image directories must remain at their recorded locations while instances depend
-on them. `inspect` exposes dependencies; there is no automatic image deletion,
-live object GC or reference-counted registry. Removing an instance after its
+on them. `inspect` exposes dependencies; the native utility does not perform
+automatic image deletion or live object GC. The app-side library owns persistent
+dependency checks for its resources. Removing an instance after its
 launches stop does not remove its image or attached directories. The caller
 must not edit sealed backing files outside the runtime. Sharing is not a security
 boundary: lower descriptors can share kernel locks and native observation effects.
+
+Each open store retains a shared lifetime lock on its root, separately from the
+short namespace transaction lock. Source directories retain their own parent-root
+leases. Exclusive offline maintenance fails with EBUSY while an owner retains the
+store. These leases protect cooperating live operations; they do not replace a
+persistent image-dependency catalog or prevent external filesystem deletion.
+`remove STORE` and `remove-layer LAYER` are exclusive offline operations. Their
+caller must first verify persistent dependents. A successful admission renames
+the resource to a deterministic private tombstone before deleting it; repeating
+the original removal completes an interrupted tombstone without requiring a
+still-valid SQLite database. A conflicting name or live owner is an error.
+
+## Rootfs Archives And Backup
+
+`rootfs` imports a tar, gzip or zstd rootfs through the same bounded inode importer,
+with preserved guest ownership and no OCI whiteout interpretation. It creates a
+sealed image whose default command is `/bin/sh`. It runs no installation scripts.
+Other codecs are not enabled. Archive input is copied into a private bounded
+snapshot before parsing; observed source mutation rejects publication.
+
+`backup` requires exclusive store ownership. It emits a self-contained zstd PAX
+archive, including lower file bodies, image configuration and guest-user launch
+policy. `restore` publishes a new writable store with no lower dependencies.
+Names, hardlink relationships, symlinks, FIFO metadata, guest UID/GID/mode,
+access/default ACLs, file capabilities, user xattrs and file atime/mtime are
+retained. The format carries guest mode independently of libarchive's ACL mode
+representation. Native Android SELinux labels are not exported; unsupported
+native xattrs fail rather than being silently lost.
+
+Backup is filesystem data, not a process checkpoint. Sockets are omitted with
+their paths reported; running processes, FIFO streams, open descriptors and
+launch-local attached directories are not saved. Restore creates new backing and
+logical inode identities; ctime and sparse-allocation layout are not preserved.
+Output publication does not replace an existing archive. The source store and its
+immutable dependencies must not be modified through external tools during export.
 
 ## Attached Directories
 
@@ -165,13 +236,27 @@ same view with explicit namespace ownership, not duplicate path translation.
 
 ## Checks
 
+`native/guest-exec-lab/test_environment_cli.py` exercises the installed APK's
+named CLI through actual UID 2000: public Alpine/Debian pulls, independent stores,
+run/exec/login, writable/readonly directory attachments, portable backup/restore
+and dependency-aware prune followed by execution of the independent restore.
+A real guest HTTP request retains an active store while removal and backup must
+return EBUSY; both become available after that process exits.
+Its Java catalog/registry fixtures separately cover name validation, ownership
+contention, credential scope on redirects, TLS downgrade rejection and cache
+digest failures. These workflows need no Termux execution or Desktop session.
+
 `test_oci.py` covers codecs, metadata, whiteouts, links, malformed inputs,
-digest failures and cleanup. `test_snapshot.c` covers sharing, promotion,
+digest failures, concurrent shared-layer publication, independent equal files,
+repeated-layer aliases, unreachable-source cleanup and self-contained backup.
+`test_snapshot.c` covers sharing, promotion,
 hardlink aliases, retained FDs, mmap and file watches. `test_mounts.c` checks
 cross-boundary resolution, readonly retained FDs and cursor publication.
 `test_oci_runtime.py` imports real Alpine and Debian OCI layouts and runs both
 through the production guest runtime under actual UID 2000, without Desktop.
-Reports retain image digests, command output and the selected device/build.
+It reimports into the same layer pool, checks independent modifications and
+launches restored userspace without lower dependencies. Reports retain image
+digests, command output and the selected device/build.
 
 `test_oci_services.py` exercises stock ARM64 application images through
 the selected UID 2000 shell service. It runs image entrypoints and checks loopback

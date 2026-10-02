@@ -42,9 +42,9 @@ immutable-source snapshots; `inode_backing.c` owns source validation and copy-up
 Their private contract is in
 `inode_internal.h`. Callers use the explicit dirfd-based `inode_store.h` API.
 The internal database format is versioned and incompatible formats are rejected,
-not migrated. Format 11 includes logical owners/modes, POSIX ACLs, file capabilities,
+not migrated. Format 12 includes logical owners/modes, POSIX ACLs, file capabilities,
 unambiguous file-path history, stable identities, backing history,
-immutable sources, socket addresses, transactional namespace
+immutable sources, socket addresses, FIFO ownership, transactional namespace
 counters and the [watch event journal](watches.md). Incompatible stores require a separately prepared store; opening
 one never rewrites or deletes it. Bind retains a name until
 unlink, including stale listeners; existing connections survive unlink/rebind.
@@ -196,6 +196,10 @@ independent of OCI parsing and launch-local directory attachments.
   allocation and is not held during RPC delivery, guest execution or ordinary
   IO through returned file descriptors. Connections must still be reopened after
   fork; an inherited description would share the lock owner.
+- An independent shared root-directory lease retains the store's lifetime.
+  Immutable source directories retain parent-root leases as well. Exclusive
+  offline maintenance fails with EBUSY while a cooperating owner is active;
+  namespace transactions keep their separate short-lived gate.
 - Lock admission waits for kernel release, without polling or a settling delay.
   A caught signal can fail admission before the transaction starts. Kernel IO
   and lock waiting do not promise bounded service completion; the caller's RPC

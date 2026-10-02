@@ -12,32 +12,38 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
-/* Only unpublished, privately created staging trees are removed here. */
-static void discard(int parent, const char *name) {
+/* Only private staging trees and exclusively owned removal tombstones. */
+int md_image_discard(int parent, const char *name) {
     int ref = openat(parent, name, O_PATH | O_NOFOLLOW | O_CLOEXEC);
-    if (ref < 0) return;
+    if (ref < 0) return errno == ENOENT ? 0 : -errno;
     struct stat st;
-    if (fstat(ref, &st)) { close(ref); return; }
-    if (!S_ISDIR(st.st_mode)) { close(ref); unlinkat(parent, name, 0); return; }
+    if (fstat(ref, &st)) { int r = -errno; close(ref); return r; }
+    if (!S_ISDIR(st.st_mode)) { close(ref); return unlinkat(parent, name, 0) ? -errno : 0; }
     char proc[64];
     snprintf(proc, sizeof(proc), "/proc/self/fd/%d", ref);
     /* Imported directories can have mode 000. The retained O_PATH descriptor
      * names our private object, not an archive-controlled symlink target. */
-    if (chmod(proc, 0700)) { close(ref); return; }
+    if (chmod(proc, 0700)) { int r = -errno; close(ref); return r; }
     int fd = openat(ref, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     close(ref);
-    if (fd < 0) return;
+    if (fd < 0) return -errno;
     DIR *dir = fdopendir(fd);
-    if (!dir) { close(fd); return; }
+    if (!dir) { int r = -errno; close(fd); return r; }
     struct dirent *entry;
-    while ((entry = readdir(dir))) {
+    int r = 0;
+    while (!r) {
+        errno = 0;
+        entry = readdir(dir);
+        if (!entry) { if (errno) r = -errno; break; }
         if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
-        discard(fd, entry->d_name);
+        r = md_image_discard(fd, entry->d_name);
     }
-    closedir(dir); unlinkat(parent, name, AT_REMOVEDIR);
+    closedir(dir);
+    if (!r && unlinkat(parent, name, AT_REMOVEDIR)) r = -errno;
+    return r;
 }
 void md_image_publish_close(struct md_image_publish *p) {
-    if (p->stage >= 0) { close(p->stage); discard(p->parent, p->temporary); }
+    if (p->stage >= 0) { close(p->stage); md_image_discard(p->parent, p->temporary); }
     if (p->parent >= 0) close(p->parent);
     p->stage = p->parent = -1;
 }

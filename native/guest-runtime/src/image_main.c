@@ -5,6 +5,9 @@
 #include "image_launch.h"
 #include "image_oci.h"
 #include "image_publish.h"
+#include "image_pool.h"
+#include "image_backup.h"
+#include "image_maintenance.h"
 #include "inode_internal.h"
 #include "launch_identity.h"
 #include <errno.h>
@@ -21,13 +24,17 @@ static int save(int directory, const char *name, const char *json) {
     if (!r && fsync(fd)) r = -errno;
     close(fd); return r;
 }
-static int import(const char *source, const char *destination, const char *reference, int preserve) {
+static int import(const char *source, const char *destination, const char *reference, int preserve, const char *pool, const char *blob_path) {
     int layout = open(source, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     if (layout < 0) return -errno;
-    int blobs_root = openat(layout, "blobs", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-    int r = blobs_root < 0 ? -errno : 0;
+    int blobs_root = blob_path ? -1 : openat(layout, "blobs", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    int r = !blob_path && blobs_root < 0 ? -errno : 0;
     int blobs = -1;
-    if (!r && (blobs = openat(blobs_root, "sha256", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)) < 0) r = -errno;
+    if (!r) {
+        blobs = blob_path ? open(blob_path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            : openat(blobs_root, "sha256", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (blobs < 0) r = -errno;
+    }
     struct md_image_publish publish = {.parent=-1, .stage=-1};
     if (!r) r = md_image_publish_begin(destination, &publish);
     struct md_inode_store *store = NULL;
@@ -56,7 +63,11 @@ static int import(const char *source, const char *destination, const char *refer
         r = md_image_descriptor_read(json, (const char *)sqlite3_column_text(q, 1), &d);
         int fd = -1;
         if (!r) r = md_image_unpack(blobs, publish.stage, &d, diffs[layers], &fd);
-        if (!r) r = md_image_layer(store, fd, &bytes, &entries);
+        struct md_image_pool shared = {.root=-1, .objects=-1};
+        if (!r && pool) r = md_image_pool_open(pool, diffs[layers], fd, &shared);
+        if (!r) r = pool ? md_image_layer_shared(store, fd, shared.objects, &bytes, &entries)
+            : md_image_layer(store, fd, &bytes, &entries);
+        md_image_pool_close(&shared);
         if (fd >= 0) close(fd);
         md_image_descriptor_free(&d);
         ++layers;
@@ -89,7 +100,7 @@ static int create(const char *source, const char *destination) {
     const char *files[] = {"image-config.json", "image-manifest.json"};
     for (unsigned i = 0; !r && i < sizeof(files)/sizeof(*files); ++i) {
         int fd = openat(image->root, files[i], O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-        if (fd < 0) { r = -errno; break; }
+        if (fd < 0) { if (i && errno == ENOENT) continue; r = -errno; break; }
         char *json = NULL;
         r = md_image_read(fd, 8*1024*1024, &json);
         if (!r) r = save(instance->root, files[i], json);
@@ -107,19 +118,36 @@ int main(int argc, char **argv) {
     if (!md_launch_identity(getuid(), geteuid(), getgid(), getegid())) return 2;
 #endif
     umask(0);
-    const char *reference = NULL;
+    const char *reference = NULL, *pool = NULL, *blobs = NULL;
     int r = -EINVAL;
-    if ((argc == 5 || argc == 7) && !strcmp(argv[1], "import")
+    if (argc >= 5 && !strcmp(argv[1], "import")
             && (!strcmp(argv[4], "--map-current-user") || !strcmp(argv[4], "--preserve-ownership"))) {
-        if (argc == 7 && strcmp(argv[5], "--reference")) return 2;
-        if (argc == 7) reference = argv[6];
-        r = import(argv[2], argv[3], reference, !strcmp(argv[4], "--preserve-ownership"));
+        for (int i=5; i<argc; i+=2) {
+            if (i+1 == argc) return 2;
+            if (!strcmp(argv[i], "--reference") && !reference) reference = argv[i+1];
+            else if (!strcmp(argv[i], "--layers") && !pool) pool = argv[i+1];
+            else if (!strcmp(argv[i], "--blobs") && !blobs) blobs = argv[i+1];
+            else return 2;
+        }
+        r = import(argv[2], argv[3], reference, !strcmp(argv[4], "--preserve-ownership"), pool, blobs);
     } else if (argc == 4 && !strcmp(argv[1], "create")) r = create(argv[2], argv[3]);
+    else if (argc == 4 && !strcmp(argv[1], "backup")) r = md_image_backup(argv[2], argv[3]);
+    else if (argc == 4 && !strcmp(argv[1], "restore")) r = md_image_archive_import(argv[2], argv[3], 1);
+    else if (argc == 4 && !strcmp(argv[1], "rootfs")) r = md_image_archive_import(argv[2], argv[3], 0);
+    else if (argc == 3 && !strcmp(argv[1], "remove")) r = md_image_remove(argv[2], 0);
+    else if (argc == 3 && !strcmp(argv[1], "remove-layer")) r = md_image_remove(argv[2], 1);
     else if (argc == 3 && !strcmp(argv[1], "inspect")) r = md_image_inspect(argv[2]);
-    else if (argc >= 3 && !strcmp(argv[1], "run")) r = md_image_launch(argc-2, argv+2);
-    else fprintf(stderr, "Usage: image import OCI_LAYOUT NEW_IMAGE (--map-current-user|--preserve-ownership) [--reference TAG]\n"
+    else if (argc >= 3 && !strcmp(argv[1], "run")) r = md_image_launch(MD_IMAGE_RUN, argc-2, argv+2);
+    else if (argc >= 3 && !strcmp(argv[1], "exec")) r = md_image_launch(MD_IMAGE_EXEC, argc-2, argv+2);
+    else if (argc >= 3 && !strcmp(argv[1], "login")) r = md_image_launch(MD_IMAGE_LOGIN, argc-2, argv+2);
+    else fprintf(stderr, "Usage: image import OCI_LAYOUT NEW_IMAGE (--map-current-user|--preserve-ownership) [--reference TAG] [--layers DIRECTORY] [--blobs DIRECTORY]\n"
         "       image create IMAGE NEW_INSTANCE\n"
+        "       image rootfs ARCHIVE NEW_IMAGE\n"
+        "       image backup STORE NEW_ARCHIVE\n"
+        "       image restore ARCHIVE NEW_INSTANCE\n"
+        "       image remove STORE | remove-layer LAYER (caller verifies persistent dependents)\n"
         "       image inspect IMAGE_OR_INSTANCE\n"
+        "       image exec INSTANCE [OPTIONS] -- COMMAND... | login INSTANCE [OPTIONS] [-- SHELL...]\n"
         "       image run INSTANCE [--user current|UID[:GID]|NAME[:GROUP]] [--cwd PATH] [--entrypoint PROGRAM] [--env KEY=VALUE]\n"
         "             [--hostname NAME] [--bind HOST GUEST] [--bind-ro HOST GUEST] [-- COMMAND...]\n");
     if (r) fprintf(stderr, "Guest image: %s (errno=%d)\n", strerror(-r), -r);

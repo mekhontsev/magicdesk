@@ -2,7 +2,7 @@
 
 MagicDesk includes an experimental native ARM64 Linux execution adapter.
 It runs prepared ARM64 ELF programs with glibc or musl through the explicitly selected shell or root
-executor, without PRoot, chroot, Termux or a distribution manager. It is not a
+executor, without PRoot, chroot or Termux. It is not a
 security sandbox: guest programs retain the caller's authority and unadapted
 syscalls can access Android resources. Use trusted programs and prepared stores.
 
@@ -55,13 +55,72 @@ executor; prepared chroot scripts retain their existing root requirements.
 In a newly opened MagicDesk Shell console or terminal:
 
 ```sh
+magicdesk-guest install debian:trixie-slim --name work
+magicdesk-guest install alpine:3.23 --name tools
+magicdesk-guest list
+magicdesk-guest login work
+magicdesk-guest exec work -- /bin/sh -c 'mkdir -p /mnt/project'
+magicdesk-guest exec work --bind /sdcard/Download /mnt/project -- /bin/sh
+magicdesk-guest run tools -- /bin/sh
+magicdesk-guest backup work /sdcard/Download/work.tar.zst
+magicdesk-guest restore /sdcard/Download/work.tar.zst --name restored
+magicdesk-guest remove tools
+magicdesk-guest prune
+```
+
+The named-environment manager runs entirely through MagicDesk's selected shell
+executor. It needs neither an installed Termux nor Python, external download tools,
+PRoot or a Docker daemon. `GuestEnvironmentLibrary` owns names and dependencies;
+`GuestOciRegistry` owns bounded HTTPS acquisition; the native image utility owns
+validated import, snapshots, maintenance and launch configuration. Java management
+is a short-lived child. The original shell execs the native runner, preserving
+its controlling PTY and inherited graphical descriptors.
+
+`install` accepts a public OCI registry reference, a local layout with `--oci`,
+or a tar/gzip/zstd rootfs archive with `--rootfs`. Registry acquisition selects
+Linux ARM64, supports anonymous Bearer challenges, verifies SHA-256 and sizes,
+and never forwards registry credentials to another origin. Private registry
+credentials, Docker-save archives and other rootfs compression formats are not
+supported. Registry rate limits and authentication failures remain explicit errors.
+
+Each name selects an independent writable store. Registry images and rootfs
+archives reuse content-addressed sealed images; OCI images additionally share
+verified layer bodies. `path NAME` returns the immutable store location for
+existing shell/PTY/X11/Wayland recipes. `inspect NAME` includes that location,
+source, image config and lower dependencies. Reusing a removed name creates a
+new storage identity, never retargets an already resolved launch.
+
+`run` retains Entrypoint/Cmd. `exec` overrides both with the explicit command;
+it starts a new supervised process tree, not Docker-style entry into an existing
+one. `login` defaults to `/bin/sh -l` and accepts an explicit shell after `--`.
+All three share user, environment, cwd, hostname and directory-attachment options.
+The image's userland remains responsible for DNS configuration, certificates,
+accounts and optional services. Installation does not execute package scripts
+or synthesize a resolver configuration.
+
+The default library is `$MAGICDESK_RUNTIME/guest-environments`;
+`MAGICDESK_GUEST_HOME` selects another executor-accessible, executable filesystem.
+Catalog mutations are serialized and report busy rather than wait behind another
+operation. Launch resolution and listing do not wait for downloads. `remove`
+requires an inactive store. Explicit `prune` uses persistent dependencies and
+native lifetime locks before deleting unused stores, images, layers and cached
+downloads. Busy or uninspectable resources stop cleanup. Attached host directories
+are never removed. Do not create unmanaged snapshots referencing library-owned
+images: the catalog cannot discover dependents outside its library. Use portable
+backup/restore for independent storage. Interrupted native removals retain a
+retryable tombstone; interrupted imports with unknown staging state are not
+blindly deleted. There is no background GC or process-list daemon.
+
+Low-level prepared-store commands remain available:
+
+```sh
 magicdesk-guest --probe
 magicdesk-guest --import /absolute/prepared-rootfs /absolute/new-store
 magicdesk-guest --store /absolute/store --home /tmp --cwd / -- /bin/sh -l
 magicdesk-guest --store /absolute/store --user root -- /bin/sh -l
 ```
 
-Import accepts an immutable prepared tree, not an archive or distribution name.
+`--import` accepts an immutable prepared tree, not an archive or distribution name.
 It publishes atomically into an empty store and retains real metadata checks.
 The default import bounds are 2 GiB and 200,000 entries. Unsupported objects,
 metadata, source mutation, overlap and an existing populated store are errors.
@@ -76,9 +135,18 @@ Local OCI layouts use the separate offline image command:
 magicdesk-guest image import /absolute/oci-layout /absolute/image --preserve-ownership
 magicdesk-guest image create /absolute/image /absolute/instance
 magicdesk-guest image run /absolute/instance -- /bin/sh
+magicdesk-guest image import /absolute/oci-layout /absolute/another-image --preserve-ownership --layers /absolute/layer-pool
+magicdesk-guest image rootfs /absolute/rootfs.tar.gz /absolute/rootfs-image
+magicdesk-guest image backup /absolute/instance /absolute/backup.tar.zst
+magicdesk-guest image restore /absolute/backup.tar.zst /absolute/restored-instance
 ```
 
-Instances share immutable file bodies and copy up on mutation. Image Env,
+Instances share immutable file bodies and copy up on mutation. Shared-layer reuse
+and independent names do not require kernel mounts. An optional
+pool shares regular files across imported images, with one final namespace per
+image and no runtime traversal of layer chains. Backup requires a stopped store
+and contains its shared data; restored instances have no lower dependencies.
+Image Env,
 WorkingDir, Entrypoint and Cmd feed the ordinary guest runner. `--bind HOST GUEST`
 and `--bind-ro HOST GUEST` attach existing directories to one launch, also for
 ordinary `--store` commands. Import/staging does not probe guest-execution kernel

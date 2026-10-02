@@ -403,7 +403,7 @@ int mdi_allocate(struct md_inode_store *s, mode_t kind, mode_t mode, int flags, 
     int r = mdi_random_id(id);
     return r ? r : make_object(s, id, kind, mode, flags, target, parent, node, fd);
 }
-int md_inode_store_open(const char *directory, int create, struct md_inode_store **out) {
+static int store_open(const char *directory, int create, int exclusive, struct md_inode_store **out) {
     if (!out) return -EFAULT;
     *out = NULL;
     if (!directory || directory[0] != '/') return -EINVAL;
@@ -412,11 +412,21 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
     if (create && mkdir(directory, 0700)) return -errno;
     int root = open(directory, O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
     if (root < 0) return -errno;
+    /* Lifetime admission is independent of the short objects-directory transaction lock. */
+    if (flock(root, (exclusive ? LOCK_EX : LOCK_SH) | LOCK_NB)) {
+        int error = errno == EWOULDBLOCK ? -EBUSY : -errno;
+        close(root); return error;
+    }
+    struct stat named, opened;
+    if (fstat(root, &opened) || lstat(directory, &named)
+            || !opened.st_nlink || named.st_dev != opened.st_dev || named.st_ino != opened.st_ino) {
+        close(root); return -ESTALE;
+    }
     int r = create && mkdirat(root, "objects", 0700) ? -errno : 0;
     struct md_inode_store *s = calloc(1, sizeof(*s));
     if (!s) { close(root); return -ENOMEM; }
     s->objects = s->watch_presence = -1;
-    for (unsigned i = 0; i < MDI_SOURCES; ++i) s->sources[i] = -1;
+    for (unsigned i = 0; i < MDI_SOURCES; ++i) s->sources[i] = s->source_leases[i] = -1;
     s->root = root;
     if (!r && (s->objects = openat(root, "objects", O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)) < 0) r = -errno;
     if (!r) r = store_lock(s);
@@ -526,6 +536,12 @@ int md_inode_store_open(const char *directory, int create, struct md_inode_store
     if (r) md_inode_store_close(s); else *out = s;
     return r;
 }
+int md_inode_store_open(const char *directory, int create, struct md_inode_store **out) {
+    return store_open(directory, create, 0, out);
+}
+int md_inode_store_open_exclusive(const char *directory, struct md_inode_store **out) {
+    return store_open(directory, 0, 1, out);
+}
 void md_inode_store_close(struct md_inode_store *s) {
     if (!s) return;
     md_inode_watch_close(s);
@@ -535,7 +551,10 @@ void md_inode_store_close(struct md_inode_store *s) {
     if (s->objects >= 0) close(s->objects);
     if (s->watch_presence >= 0) close(s->watch_presence);
     if (s->root >= 0) close(s->root);
-    for (unsigned i = 1; i < MDI_SOURCES; ++i) if (s->sources[i] >= 0) close(s->sources[i]);
+    for (unsigned i = 1; i < MDI_SOURCES; ++i) {
+        if (s->sources[i] >= 0) close(s->sources[i]);
+        if (s->source_leases[i] >= 0) close(s->source_leases[i]);
+    }
     free(s);
 }
 #ifdef MD_INODE_TESTING

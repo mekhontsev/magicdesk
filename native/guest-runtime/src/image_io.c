@@ -64,14 +64,12 @@ int md_image_hash(int fd, uint64_t size, char out[65]) {
     }
     return r;
 }
-int md_image_blob(int blobs, int scratch, const char *digest, uint64_t size, int *out) {
+int md_image_snapshot(int fd, int scratch, uint64_t limit, int *out) {
     *out = -1;
-    if (!md_image_digest_valid(digest) || size > 8ULL * 1024 * 1024 * 1024) return -EINVAL;
-    int fd = openat(blobs, digest + 7, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-    if (fd < 0) return -errno;
     struct stat st;
     int r = fstat(fd, &st) ? -errno : 0;
-    if (!r && (!S_ISREG(st.st_mode) || st.st_size < 0 || (uint64_t)st.st_size != size)) r = -EBADMSG;
+    if (!r && (!S_ISREG(st.st_mode) || st.st_size < 0 || (uint64_t)st.st_size > limit)) r = -EFBIG;
+    uint64_t size = r ? 0 : (uint64_t)st.st_size;
     int snapshot = -1;
     if (!r && (snapshot = openat(scratch, ".", O_TMPFILE | O_RDWR | O_CLOEXEC, 0600)) < 0) r = -errno;
     unsigned char buffer[65536];
@@ -83,6 +81,26 @@ int md_image_blob(int blobs, int scratch, const char *digest, uint64_t size, int
         r = md_image_write(snapshot, buffer, (size_t)n);
         offset += (uint64_t)n;
     }
+    struct stat after;
+    if (!r && fstat(fd, &after)) r = -errno;
+    if (!r && (st.st_size != after.st_size || st.st_mtim.tv_sec != after.st_mtim.tv_sec
+            || st.st_mtim.tv_nsec != after.st_mtim.tv_nsec || st.st_ctim.tv_sec != after.st_ctim.tv_sec
+            || st.st_ctim.tv_nsec != after.st_ctim.tv_nsec)) r = -ESTALE;
+    if (!r && lseek(snapshot, 0, SEEK_SET) < 0) r = -errno;
+    if (r && snapshot >= 0) close(snapshot);
+    if (!r) *out = snapshot;
+    return r;
+}
+int md_image_blob(int blobs, int scratch, const char *digest, uint64_t size, int *out) {
+    *out = -1;
+    if (!md_image_digest_valid(digest) || size > 8ULL * 1024 * 1024 * 1024) return -EINVAL;
+    int fd = openat(blobs, digest + 7, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (fd < 0) return -errno;
+    int snapshot = -1;
+    struct stat st;
+    int r = fstat(fd, &st) ? -errno : 0;
+    if (!r && (st.st_size < 0 || (uint64_t)st.st_size != size)) r = -EBADMSG;
+    if (!r) r = md_image_snapshot(fd, scratch, size, &snapshot);
     close(fd);
     char hash[65];
     if (!r) r = md_image_hash(snapshot, size, hash);

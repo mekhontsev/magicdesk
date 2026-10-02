@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/file.h>
 #include <sys/xattr.h>
 #include <unistd.h>
 
@@ -27,13 +28,62 @@ int mdi_sources_open(struct md_inode_store *s) {
         if (s->sources[id] >= 0) continue;
         int fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
         if (fd < 0) { r = -errno; break; }
+        int lease = openat(fd, "..", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        if (lease < 0) r = -errno;
+        if (!r && flock(lease, LOCK_SH | LOCK_NB)) r = errno == EWOULDBLOCK ? -EBUSY : -errno;
         struct stat st;
-        if (fstat(fd, &st)) r = -errno;
+        if (!r && fstat(fd, &st)) r = -errno;
         if (!r && (st.st_dev != (dev_t)sqlite3_column_int64(q, 2) || st.st_ino != (ino_t)sqlite3_column_int64(q, 3)))
             r = -ESTALE;
-        if (r) close(fd); else s->sources[id] = fd;
+        struct stat named;
+        if (!r && (fstatat(lease, "objects", &named, AT_SYMLINK_NOFOLLOW)
+                || !st.st_nlink || named.st_dev != st.st_dev || named.st_ino != st.st_ino)) r = -ESTALE;
+        if (r) { close(fd); if (lease >= 0) close(lease); }
+        else { s->sources[id] = fd; s->source_leases[id] = lease; }
     }
     sqlite3_finalize(q); return r;
+}
+
+int mdi_source_register(struct md_inode_store *s, int objects, int *id) {
+    char proc[64], path[PATH_MAX];
+    snprintf(proc, sizeof(proc), "/proc/self/fd/%d", objects);
+    if (!realpath(proc, path)) return -errno;
+    struct stat st;
+    if (fstat(objects, &st)) return -errno;
+    sqlite3_stmt *q = NULL;
+    int r = mdi_prepare(s, "INSERT INTO sources(path,device,inode) VALUES(?1,?2,?3) "
+        "ON CONFLICT(device,inode) DO UPDATE SET path=excluded.path RETURNING id", &q);
+    if (!r) r = mdi_sql_error(sqlite3_bind_text(q, 1, path, -1, SQLITE_STATIC));
+    if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 2, (sqlite3_int64)st.st_dev));
+    if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 3, (sqlite3_int64)st.st_ino));
+    if (!r) {
+        int rc = mdi_step(s, q);
+        if (rc != SQLITE_ROW) r = mdi_sql_failure(rc);
+        else *id = sqlite3_column_int(q, 0);
+    }
+    sqlite3_finalize(q); return r;
+}
+
+int mdi_import_shared(struct md_inode_store *s, int source, const char *backing, struct mdi_node *node) {
+    if (source <= 0 || source >= MDI_SOURCES || s->sources[source] < 0
+            || strlen(backing) != 32 || strspn(backing, "0123456789abcdef") != 32) return -EINVAL;
+    struct stat st;
+    if (fstatat(s->sources[source], backing, &st, AT_SYMLINK_NOFOLLOW)) return -errno;
+    if (!S_ISREG(st.st_mode)) return -EINVAL;
+    char id[33];
+    int r = mdi_random_id(id);
+    sqlite3_stmt *q = NULL;
+    if (!r) r = mdi_prepare(s, "INSERT INTO objects(object,kind,device,inode,backing,shared,source,logical_inode,logical_device) "
+        "VALUES(?1,32768,?2,?3,?4,1,?5,?3,?2)", &q);
+    if (!r) r = mdi_bind_id(q, 1, id);
+    if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 2, (sqlite3_int64)st.st_dev));
+    if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 3, (sqlite3_int64)st.st_ino));
+    if (!r) r = mdi_bind_id(q, 4, backing);
+    if (!r) r = mdi_sql_error(sqlite3_bind_int(q, 5, source));
+    if (!r) r = mdi_sql_error(mdi_step(s, q));
+    sqlite3_finalize(q);
+    if (!r) r = mdi_node(s, id, node);
+    return r;
 }
 
 static int attributes(int source, int destination) {

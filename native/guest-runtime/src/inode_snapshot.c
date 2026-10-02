@@ -7,25 +7,6 @@
 #include <string.h>
 #include <unistd.h>
 
-static int image_source(struct md_inode_store *source, struct md_inode_store *target, int *id) {
-    char proc[64], path[PATH_MAX];
-    snprintf(proc, sizeof(proc), "/proc/self/fd/%d", source->objects);
-    if (!realpath(proc, path)) return -errno;
-    struct stat st;
-    if (fstat(source->objects, &st)) return -errno;
-    sqlite3_stmt *q = NULL;
-    int r = mdi_prepare(target, "INSERT INTO sources(path,device,inode) VALUES(?1,?2,?3) "
-        "ON CONFLICT(device,inode) DO UPDATE SET path=excluded.path RETURNING id", &q);
-    if (!r) r = mdi_sql_error(sqlite3_bind_text(q, 1, path, -1, SQLITE_STATIC));
-    if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 2, (sqlite3_int64)st.st_dev));
-    if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 3, (sqlite3_int64)st.st_ino));
-    if (!r) {
-        int rc = mdi_step(target, q);
-        if (rc != SQLITE_ROW) r = mdi_sql_failure(rc);
-        else *id = sqlite3_column_int(q, 0);
-    }
-    sqlite3_finalize(q); return r;
-}
 static int clone_node(struct md_inode_store *source, struct md_inode_store *target, struct mdi_node *node, int origin) {
     struct stat st;
     int r = mdi_backing_stat(source, node, &st);
@@ -97,7 +78,14 @@ int md_inode_snapshot(struct md_inode_store *source, struct md_inode_store *targ
             r = mdi_sql(target, "DELETE FROM backings; DELETE FROM events; DELETE FROM sockets; DELETE FROM fifo_pins; "
                 "UPDATE properties SET value=0 WHERE key='sealed'");
             int origin = 0;
-            if (!r) r = image_source(source, target, &origin);
+            sqlite3_stmt *local = NULL;
+            if (!r) r = mdi_prepare(target, "SELECT 1 FROM objects WHERE kind=32768 AND source=0 LIMIT 1", &local);
+            if (!r) {
+                int rc = mdi_step(target, local);
+                if (rc == SQLITE_ROW) r = mdi_source_register(target, source->objects, &origin);
+                else if (rc != SQLITE_DONE) r = mdi_sql_failure(rc);
+            }
+            sqlite3_finalize(local);
             sqlite3_stmt *q = NULL;
             if (!r) r = mdi_prepare(source, "SELECT object FROM objects", &q);
             while (!r) {
@@ -110,6 +98,7 @@ int md_inode_snapshot(struct md_inode_store *source, struct md_inode_store *targ
             }
             sqlite3_finalize(q);
             if (!r) r = mdi_sql(target, "INSERT INTO backings SELECT backing,object,device,inode,source FROM objects");
+            if (!r) r = mdi_sql(target, "DELETE FROM sources WHERE id NOT IN (SELECT source FROM objects WHERE source>0)");
             if (!r && fsync(target->objects)) r = -errno;
             r = mdi_commit(target, r);
         }

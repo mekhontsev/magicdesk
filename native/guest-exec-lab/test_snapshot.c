@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/inotify.h>
+#include <sys/file.h>
 #include <sys/mman.h>
 #include <sys/xattr.h>
 #include <unistd.h>
@@ -26,6 +27,28 @@ static void value(struct md_inode_store *s, const char *path, const char *expect
     assert(!strcmp(data, expected)); close(fd);
 }
 int main(int argc, char **argv) {
+    if (argc == 4 && !strcmp(argv[1], "--imported")) {
+        struct md_inode_store *s = NULL, *other = NULL;
+        assert(!md_inode_store_open(argv[2], 0, &s));
+        assert(md_inode_store_open_exclusive(argv[2], &other) == -EBUSY && !other);
+        int source = open(argv[3], O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        assert(source >= 0 && flock(source, LOCK_EX | LOCK_NB) == -1 && errno == EWOULDBLOCK);
+        int old = open_file(s, "/data/file", O_RDONLY);
+        struct stat before, after;
+        assert(!md_inode_fstat(s, old, &before));
+        int fd = open_file(s, "/data/alias", O_RDWR);
+        assert(pwrite(fd, "upper", 5, 0) == 5);
+        assert(!md_inode_fstat(s, fd, &after));
+        assert(before.st_ino == after.st_ino && before.st_dev == after.st_dev && after.st_nlink == 2);
+        close(fd);
+        value(s, "/data/file", "upper"); value(s, "/data/alias", "upper");
+        char old_data[5]; assert(pread(old, old_data, 5, 0) == 5 && !memcmp(old_data, "lower", 5));
+        close(old); md_inode_store_close(s);
+        assert(!flock(source, LOCK_EX | LOCK_NB)); close(source);
+        assert(!md_inode_store_open_exclusive(argv[2], &s)); md_inode_store_close(s);
+        puts("PASS imported pool copy-up, hardlink identity, retained FD and lifetime leases");
+        return 0;
+    }
     assert(argc == 2 && argv[1][0] == '/'); assert(!mkdir(argv[1], 0700));
     struct md_inode_store *base = store(argv[1], "base"), *a = store(argv[1], "a"), *b = store(argv[1], "b");
     assert(!md_inode_mkdir(base, MD_INODE_ROOT, "/data", 0700));

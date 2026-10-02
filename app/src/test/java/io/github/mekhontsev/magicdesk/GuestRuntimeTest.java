@@ -112,7 +112,7 @@ public class GuestRuntimeTest {
         int end = script.indexOf("--import) exec", start);
         assertTrue(start > 0 && end > start);
         String branch = script.substring(start, end);
-        assertTrue(branch.contains("if [ \"${1-}\" = run ]; then"));
+        assertTrue(branch.contains("if [ \"${1-}\" = run ] ||"));
         assertTrue(branch.contains("--probe >/dev/null || exit $?"));
         assertTrue(branch.contains("exec \"$md_guest/libmagicdesk_guest_image.so\" \"$@\""));
         assertFalse(branch.contains("su "));

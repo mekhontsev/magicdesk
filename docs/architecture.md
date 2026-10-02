@@ -3544,6 +3544,14 @@ TRACE/USER_NOTIF operations. Its namespace worker owns inode metadata and explic
 sealed-image admission, accepting ordinary file notifications directly and
 task-affine adapter RPC through the same engine. Guest signal handlers remain application-owned.
 These executables are never loaded into ART and do not own Android windows.
+`GuestEnvironmentLibrary` owns a shell-identity catalog of named writable stores,
+sealed images and shared layer dependencies. `GuestOciRegistry` supplies verified
+public OCI downloads through Java HTTPS; `GuestImageTool` invokes only offline
+native image operations. Management runs in a short-lived Java child, while the
+original CLI shell retains PTY/graphics descriptors and execs native launches.
+No Termux, external downloader, Docker daemon or Desktop session is required.
+Catalog mutation and native store lifetime locks protect explicit removal and GC;
+ordinary execution retains the existing process-tree guardian.
 Wayland connection mode belongs to the recipe, not its UID;
 an inherited FD works independently of whether the selected executor is root.
 

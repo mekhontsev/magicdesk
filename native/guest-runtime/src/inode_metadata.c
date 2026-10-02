@@ -112,7 +112,7 @@ int mdi_metadata(struct md_inode_store *s, const struct mdi_node *node, uint32_t
      * This is data storage, not the guest's permission authority. */
     int dir = r ? -1 : mdi_backing_directory(s, node);
     if (!r && dir < 0) r = dir;
-    if (!r && node->kind != S_IFLNK && fchmodat(dir, node->backing,
+    if (!r && !node->shared && node->kind != S_IFLNK && fchmodat(dir, node->backing,
             node->kind == S_IFDIR ? 0700 : 0600 | ((mode & 0111) ? 0100 : 0), 0)) r = -errno;
     return r;
 }

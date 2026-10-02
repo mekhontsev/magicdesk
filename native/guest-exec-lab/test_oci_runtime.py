@@ -43,7 +43,7 @@ def main():
         return result['output']
 
     try:
-        command(['mkdir', directory])
+        command(['mkdir', '-p', directory + '/layers'])
         for name in ('bootstrap', 'supervisor', 'run', 'service', 'image', 'test_snapshot', 'test_mounts'):
             filename = 'libmagicdesk_guest_' + name + '.so'
             report['uploads'].append(transport.upload(client, args.build / filename, directory + '/' + filename))
@@ -62,11 +62,16 @@ def main():
                     out.add(layout / 'blobs', arcname='blobs')
                 report['uploads'].append(transport.upload(client, archive, base + '/layout.tar'))
             command(['tar', '-xf', base + '/layout.tar', '-C', base + '/layout'])
-            command([image, 'import', base + '/layout', base + '/image', '--map-current-user'], 180)
+            command([image, 'import', base + '/layout', base + '/image', '--map-current-user',
+                     '--layers', directory + '/layers'], 180)
+            command([image, 'import', base + '/layout', base + '/second-image', '--map-current-user',
+                     '--layers', directory + '/layers'], 180)
             command([image, 'create', base + '/image', base + '/a'])
             command([image, 'create', base + '/image', base + '/b'])
             inspected = json.loads(command([image, 'inspect', base + '/a']))
             assert inspected['kind'] == 'instance' and inspected['sources']
+            repeated = json.loads(command([image, 'inspect', base + '/second-image']))
+            assert inspected['sources'] == repeated['sources'], (inspected, repeated)
             common = [image, 'run', base + '/a', '--user', 'current']
             output = command([*common, '--env', 'MD_FIXTURE=hello world', '--', '/bin/sh', '-c',
                               'set -eu\ntest "$(id -u)" = 2000\ntest "$MD_FIXTURE" = "hello world"\n'
@@ -102,6 +107,14 @@ def main():
                 assert command([image, 'run', base + '/' + instance, '--user', 'current', '--',
                                 '/bin/cat', '/tmp/independent']) == text
             command([*common, '--', '/bin/sh', '-c', 'test ! -e /mnt/value'])
+            command([image, 'backup', base + '/a', base + '/backup.tar.zst'], 180)
+            command([image, 'restore', base + '/backup.tar.zst', base + '/restored'], 180)
+            restored = json.loads(command([image, 'inspect', base + '/restored']))
+            assert not restored['sources'], restored
+            output = command([image, 'run', base + '/restored', '--user', 'current', '--', '/bin/sh', '-c',
+                              'set -eu\ntest "$(cat /etc/os-release)" = modified\n'
+                              'test "$(cat /tmp/independent)" = first\nprintf "PASS independent restored userspace\\n"'])
+            assert 'PASS independent restored userspace' in output
         report['passed'] = True
     except Exception as error:
         report['failure'] = str(error)

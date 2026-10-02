@@ -22,6 +22,7 @@ struct md_inode_store {
     struct md_inode_boundary *boundary;
     char *stat_path;
     int sources[MDI_SOURCES];
+    int source_leases[MDI_SOURCES];
     struct md_inode_watches *watches;
     struct mdi_fifo_owner *fifos;
     struct md_inode_statistics *statistics;
@@ -101,6 +102,8 @@ int mdi_random_id(char [33]);
  * descriptor. Native data IO remains outside the namespace after this point. */
 int mdi_copy_up(struct md_inode_store *, struct mdi_node *);
 int mdi_sources_open(struct md_inode_store *);
+int mdi_source_register(struct md_inode_store *, int objects, int *source);
+int mdi_import_shared(struct md_inode_store *, int source, const char *backing, struct mdi_node *);
 int mdi_backing_directory(struct md_inode_store *, const struct mdi_node *);
 int mdi_fifo_prepare(struct md_inode_store *, int, struct md_open_completion *);
 int mdi_fifo_descriptor(struct md_inode_store *, const struct stat *, struct mdi_node *);

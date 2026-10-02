@@ -11,6 +11,7 @@ import io
 import json
 import os
 import pathlib
+import shutil
 import sqlite3
 import stat
 import subprocess
@@ -137,6 +138,17 @@ class Images(unittest.TestCase):
     def test_gzip(self):
         self.run_import(self.layout())
         self.assertEqual(self.object('hello').read_bytes(), b'world')
+
+    def test_explicit_blob_cache_keeps_full_digest_validation(self):
+        layout = self.layout()
+        blobs = self.root / 'cache'
+        (layout.path / 'blobs/sha256').rename(blobs)
+        self.run_import(layout, args=('--blobs', str(blobs)))
+        self.assertEqual(self.body('hello').read_bytes(), b'world')
+        self.destination = self.root / 'corrupt'
+        digest = layout.layers[0]['digest'].split(':')[1]
+        (blobs / digest).write_bytes(b'corrupted')
+        self.run_import(layout, success=False, args=('--blobs', str(blobs)))
 
     def test_inspection_shares_store_admission(self):
         self.run_import(self.layout())
@@ -517,6 +529,252 @@ class Images(unittest.TestCase):
     def test_atomic_failure_later_layer(self):
         layout = self.layout([[('ok', 'file', b'first')], [('bad', 'hard', 'missing')]])
         self.run_import(layout, False)
+
+    def command(self, *args, success=True):
+        result = subprocess.run([BINARY, *map(str, args)], capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
+        return result
+
+    def body(self, path, store=None):
+        store = store or self.destination
+        with sqlite3.connect(store / 'namespace.db') as db:
+            object_id = ROOT
+            for name in path.strip('/').split('/'):
+                row = db.execute('SELECT object FROM names WHERE parent=? AND name=?',
+                                 (object_id, name.encode())).fetchone()
+                if row is None:
+                    return None
+                object_id = row[0]
+            source, backing = db.execute('SELECT source,backing FROM objects WHERE object=?',
+                                         (object_id,)).fetchone()
+            directory = pathlib.Path(db.execute('SELECT path FROM sources WHERE id=?', (source,)).fetchone()[0]) \
+                if source else store / 'objects'
+            return directory / backing
+
+    def pool_import(self, layout, destination=None):
+        pool = self.root / 'layers'
+        pool.mkdir(exist_ok=True)
+        self.command('import', layout.path, destination or self.destination,
+                     '--preserve-ownership', '--layers', pool)
+        return pool
+
+    def test_shared_layer_bodies_and_flat_namespaces(self):
+        common = [('data', 'dir', ''), ('data/file', 'file', b'lower'), ('data/alias', 'hard', 'data/file')]
+        first = self.layout([common])
+        second = Layout(self.root / 'layout2', [common, [('extra', 'file', b'new')]])
+        pool = self.pool_import(first)
+        sibling = self.root / 'sibling'
+        self.pool_import(second, sibling)
+        self.assertEqual(self.body('data/file'), self.body('data/file', sibling))
+        self.assertEqual(self.body('data/file'), self.body('data/alias'))
+        self.assertEqual(len(list(pool.iterdir())), 2)
+        self.assertFalse(list(pool.rglob('namespace.db')))
+        for image in (self.destination, sibling):
+            with sqlite3.connect(image / 'namespace.db') as db:
+                self.assertEqual(db.execute('SELECT count(*) FROM objects WHERE kind=32768 AND source=0').fetchone(), (0,))
+        instance = self.root / 'instance'
+        self.command('create', self.destination, instance)
+        layer_root = self.body('data/file').parent.parent
+        check = pathlib.Path(BINARY).with_name('libmagicdesk_guest_test_snapshot.so')
+        result = subprocess.run([check, '--imported', instance, layer_root], capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+        self.assertEqual(self.body('data/file', instance).read_bytes(), b'upper')
+        self.assertEqual(self.body('data/file', sibling).read_bytes(), b'lower')
+        self.assertEqual(self.body('data/file').read_bytes(), b'lower')
+
+    def test_pool_does_not_merge_equal_files(self):
+        self.pool_import(self.layout([[('a', 'file', b'equal'), ('b', 'file', b'equal'), ('c', 'hard', 'a')]]))
+        self.assertNotEqual(self.body('a'), self.body('b'))
+        self.assertEqual(self.body('a'), self.body('c'))
+
+    def test_pool_repeated_layer_retains_independent_inodes(self):
+        common = [('a', 'file', b'lower')]
+        layout = self.layout([common, [('old', 'hard', 'a')], common])
+        self.pool_import(layout)
+        self.assertNotEqual(self.body('a'), self.body('old'))
+        self.assertEqual(self.body('a').read_bytes(), b'lower')
+        self.assertEqual(self.body('old').read_bytes(), b'lower')
+
+    def test_pool_whiteouts_do_not_mutate_other_images(self):
+        common = [('dir', 'dir', ''), ('dir/a', 'file', b'a'), ('dir/b', 'file', b'b')]
+        self.pool_import(self.layout([common]))
+        other = self.root / 'other'
+        layout = Layout(self.root / 'layout2', [common, [('dir/new', 'file', b'new'),
+                            ('dir/.wh..wh..opq', 'file', b'')]])
+        self.pool_import(layout, other)
+        self.assertIsNone(self.body('dir/a', other))
+        self.assertEqual(self.body('dir/new', other).read_bytes(), b'new')
+        self.assertEqual(self.body('dir/a').read_bytes(), b'a')
+
+    def test_pool_concurrent_publication(self):
+        layout = self.layout([[('a', 'file', b'value'*10000)]])
+        pool = self.root / 'layers'; pool.mkdir()
+        paths = [self.root / ('image'+str(i)) for i in range(4)]
+        processes = [subprocess.Popen([BINARY, 'import', str(layout.path), str(path),
+                     '--preserve-ownership', '--layers', str(pool)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                     for path in paths]
+        try:
+            for process in processes:
+                out, err = process.communicate(timeout=60)
+                self.assertEqual(process.returncode, 0, out+err)
+        finally:
+            for process in processes:
+                if process.poll() is None:
+                    process.kill(); process.wait(timeout=10)
+                process.stdout.close(); process.stderr.close()
+        self.assertEqual(len(list(pool.iterdir())), 1)
+        self.assertEqual(len({self.body('a', path) for path in paths}), 1)
+
+    def test_pool_checks_source_digest_on_reuse(self):
+        layout = self.layout()
+        pool = self.pool_import(layout)
+        blob = layout.path / 'blobs/sha256' / layout.layers[0]['digest'][7:]
+        data = blob.read_bytes(); blob.write_bytes(data[:-1]+bytes([data[-1]^1]))
+        self.command('import', layout.path, self.root / 'bad', '--preserve-ownership', '--layers', pool, success=False)
+        self.assertFalse((self.root / 'bad').exists())
+
+    def test_pool_drops_unreachable_layer_dependencies(self):
+        layout = self.layout([[('old', 'dir', ''), ('old/file', 'file', b'lower')],
+                              [('.wh.old', 'file', b''), ('new', 'file', b'upper')]])
+        self.pool_import(layout)
+        self.assertIsNone(self.body('old'))
+        info = json.loads(self.command('inspect', self.destination).stdout)
+        self.assertEqual(len(info['sources']), 1)
+        self.assertIn(layout.config['rootfs']['diff_ids'][1][7:], info['sources'][0]['path'])
+        self.assertEqual(len(list((self.destination / 'objects').iterdir())), 1)
+        with sqlite3.connect(self.destination / 'namespace.db') as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM objects').fetchone(), (2,))
+
+    def test_pool_attribute_corruption_is_not_repaired_in_place(self):
+        layout = self.layout()
+        pool = self.pool_import(layout)
+        body = self.body('hello')
+        body.write_bytes(b'changed-size')
+        self.command('import', layout.path, self.root / 'rejected', '--preserve-ownership', '--layers', pool, success=False)
+        self.assertEqual(body.read_bytes(), b'changed-size')
+
+    def test_restore_rejects_invalid_metadata_and_duplicate_header(self):
+        header = encoded({'format': 1, 'guestUsers': 1, 'imageConfig': {}})
+        for i, entries in enumerate((
+                [('magicdesk-backup.json', 'file', header), ('magicdesk-backup.json', 'file', header)],
+                [('magicdesk-backup.json', 'file', b'{"format":1}')],
+                [('magicdesk-backup.json', 'file', header), ('rootfs/../../escaped', 'file', b'bad')])):
+            archive = self.root / ('invalid'+str(i)+'.tar')
+            archive.write_bytes(tar(entries))
+            self.command('restore', archive, self.destination, success=False)
+            self.assertFalse(self.destination.exists())
+        self.assertFalse(list(self.root.glob('.md-image-*')))
+
+    def test_backup_is_independent_of_layers(self):
+        capability = bytes.fromhex('0100000200040000000000000000000000000000')
+        acl = 'user::rwx,user:fixture:r-x:1234,group::---,mask::r-x,other::---'
+        layout = self.layout([[('a', 'file', b'content', 0o4750, 123, 456,
+                               {'security.capability': capability}, {'SCHILY.acl.access': acl}),
+                               ('b', 'hard', 'a'), ('link', 'sym', 'a'), ('pipe', 'fifo', '')]])
+        pool = self.pool_import(layout)
+        backup = self.root / 'backup.tar.zst'
+        with sqlite3.connect(self.destination / 'namespace.db') as db:
+            # Offline fixture represents metadata after a guest chmod, independently
+            # of libarchive's mapping of tar ACL entries into its mode field.
+            db.execute('UPDATE objects SET mode=? WHERE kind=32768', (0o4700,))
+            expected_acl = db.execute('SELECT value FROM inode_acls').fetchone()[0]
+        self.command('backup', self.destination, backup)
+        shutil.rmtree(self.destination); shutil.rmtree(pool)
+        self.command('restore', backup, self.destination)
+        self.assertEqual(self.body('a').read_bytes(), b'content')
+        self.assertEqual(self.body('a'), self.body('b'))
+        self.assertEqual(os.readlink(self.body('link')), 'a')
+        with sqlite3.connect(self.destination / 'namespace.db') as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM sources').fetchone(), (0,))
+            self.assertEqual(db.execute('SELECT value FROM file_capabilities').fetchone(), (capability,))
+            self.assertEqual(db.execute('SELECT count(*) FROM inode_acls').fetchone(), (1,))
+            self.assertEqual(db.execute('SELECT value FROM inode_acls').fetchone(), (expected_acl,))
+            self.assertEqual(db.execute('SELECT count(*) FROM objects WHERE kind=4096').fetchone(), (1,))
+            self.assertEqual(db.execute('SELECT uid,gid,mode FROM objects WHERE kind=32768').fetchone(), (123, 456, 0o4700))
+        info = json.loads(self.command('inspect', self.destination).stdout)
+        self.assertEqual(info['kind'], 'instance')
+        self.assertEqual(info['config'], layout.config)
+
+    def test_backup_rejects_live_store_and_existing_output(self):
+        self.run_import(self.layout())
+        backup = self.root / 'backup.tar.zst'
+        fd = os.open(self.destination, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH)
+            result = self.command('backup', self.destination, backup, success=False)
+            self.assertIn('errno=16', result.stderr)
+            self.assertFalse(backup.exists())
+        finally:
+            os.close(fd)
+        self.command('backup', self.destination, backup)
+        original = backup.read_bytes()
+        self.command('backup', self.destination, backup, success=False)
+        self.assertEqual(backup.read_bytes(), original)
+        self.assertFalse(list(self.root.glob('*.part-*')))
+
+    def test_removal_requires_exclusive_store_and_layer_lifetimes(self):
+        pool = self.pool_import(self.layout())
+        layer = next(pool.iterdir())
+        for target, command in ((self.destination, 'remove'), (layer, 'remove-layer')):
+            fd = os.open(target, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_SH)
+                result = self.command(command, target, success=False)
+                self.assertIn('errno=16', result.stderr)
+                self.assertTrue(target.exists())
+            finally:
+                os.close(fd)
+        self.command('remove', self.destination)
+        self.command('remove-layer', layer)
+        self.assertFalse(self.destination.exists())
+        self.assertFalse(layer.exists())
+        self.assertFalse(list(self.root.rglob('.md-remove-*')))
+
+    def test_interrupted_removal_can_finish_without_a_valid_database(self):
+        self.run_import(self.layout())
+        original = self.destination
+        tomb = original.with_name('.md-remove-' + original.name)
+        original.rename(tomb)
+        (tomb / 'namespace.db').unlink()
+        self.command('remove', original)
+        self.assertFalse(tomb.exists())
+
+    def test_removal_does_not_follow_symlink_targets(self):
+        self.run_import(self.layout())
+        alias = self.root / 'alias'
+        alias.symlink_to(self.destination, target_is_directory=True)
+        self.command('remove', alias, success=False)
+        self.assertEqual(self.body('hello').read_bytes(), b'world')
+        self.command('inspect', self.destination)
+
+    def test_backup_user_attributes_and_times(self):
+        self.run_import(self.layout())
+        body = self.body('hello')
+        libc = ctypes.CDLL(None, use_errno=True)
+        value = b'value\0binary'
+        self.assertEqual(libc.setxattr(os.fsencode(body), b'user.fixture', value, len(value), 0), 0)
+        os.utime(body, ns=(123456789000000123, 123456789000000456))
+        backup = self.root / 'backup.tar.zst'
+        self.command('backup', self.destination, backup)
+        restored = self.root / 'restored'
+        self.command('restore', backup, restored)
+        body = self.body('hello', restored)
+        data = ctypes.create_string_buffer(64)
+        libc.getxattr.restype = ctypes.c_ssize_t
+        self.assertEqual(libc.getxattr(os.fsencode(body), b'user.fixture', data, 64), len(value))
+        self.assertEqual(data.raw[:len(value)], value)
+        self.assertEqual(body.stat().st_mtime_ns, 123456789000000456)
+        self.assertEqual(body.stat().st_atime_ns, 123456789000000123)
+        self.assertEqual(json.loads(self.command('inspect', restored).stdout)['guestUsers'], 0)
+
+    def test_rootfs_archive_preserves_whiteout_names(self):
+        source = self.root / 'rootfs.tar.gz'
+        source.write_bytes(gzip.compress(tar([('.wh.user-file', 'file', b'ordinary')])) )
+        self.command('rootfs', source, self.destination)
+        self.assertEqual(self.body('.wh.user-file').read_bytes(), b'ordinary')
+        instance = self.root / 'instance'
+        self.command('create', self.destination, instance)
+        self.assertEqual(json.loads(self.command('inspect', instance).stdout)['config']['config']['Cmd'], ['/bin/sh'])
 
 
 if __name__ == '__main__':

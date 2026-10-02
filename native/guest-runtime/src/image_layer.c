@@ -1,17 +1,20 @@
 #define _GNU_SOURCE
 #include "image_layer.h"
 #include "image_acl.h"
+#include "image_pool.h"
 #include "inode_internal.h"
 #include "image_io.h"
 #include "file_capability.h"
 #include "proc_paths.h"
 #include <archive.h>
 #include <archive_entry.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/openat2.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/xattr.h>
 #include <unistd.h>
 
 static int path_name(const char *input, char out[PATH_MAX]) {
@@ -78,17 +81,21 @@ static int whiteout(struct md_inode_store *s, char *path) {
     if (!r) r = remove_tree(s, &loc, opaque);
     return r ? r : 1;
 }
-static int record_metadata(struct md_inode_store *s, struct archive_entry *entry, const struct mdi_node *node) {
+static int record_metadata(struct md_inode_store *s, struct archive_entry *entry, const struct mdi_node *node, mode_t mode) {
     sqlite3_stmt *q = NULL;
     la_int64_t uid = archive_entry_uid(entry), gid = archive_entry_gid(entry);
     if (uid < 0 || gid < 0 || uid >= UINT32_MAX || gid >= UINT32_MAX) return -EINVAL;
-    int r = mdi_prepare(s, "INSERT OR REPLACE INTO temp.image_metadata VALUES(?1,?2,?3,?4,?5,?6)", &q);
+    int r = mdi_prepare(s, "INSERT OR REPLACE INTO temp.image_metadata VALUES(?1,?2,?3,?4,?5,?6,?7,?8)", &q);
     if (!r) r = mdi_bind_id(q, 1, node->id);
-    if (!r) r = mdi_sql_error(sqlite3_bind_int(q, 2, archive_entry_perm(entry) & 07777));
+    if (!r) r = mdi_sql_error(sqlite3_bind_int(q, 2, mode & 07777));
     if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 3, archive_entry_mtime(entry)));
     if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 4, archive_entry_mtime_nsec(entry)));
     if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 5, uid));
     if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 6, gid));
+    if (!r && archive_entry_atime_is_set(entry)) {
+        r = mdi_sql_error(sqlite3_bind_int64(q, 7, archive_entry_atime(entry)));
+        if (!r) r = mdi_sql_error(sqlite3_bind_int64(q, 8, archive_entry_atime_nsec(entry)));
+    }
     if (!r) r = mdi_sql_error(mdi_step(s, q));
     sqlite3_finalize(q); return r;
 }
@@ -101,13 +108,27 @@ static int unique_path(struct md_inode_store *s, const char *path) {
     return r;
 }
 static int entry_file(struct md_inode_store *s, struct archive *ar, struct archive_entry *entry,
-        char *path, uint64_t *bytes) {
+        char *path, uint64_t *bytes, int source, uint64_t index, int backup) {
     mode_t kind = archive_entry_filetype(entry);
     const char *link = archive_entry_hardlink(entry);
     const void *capability = NULL; size_t capability_size = 0;
     const char *name = NULL; const void *value = NULL; size_t length = 0;
+    mode_t mode = archive_entry_perm(entry);
+    int mode_seen = 0;
     archive_entry_xattr_reset(entry);
     while (!archive_entry_xattr_next(entry,&name,&value,&length)) {
+        if (backup && !strcmp(name, "magicdesk.backup.mode")) {
+            if (length != 2) return -EINVAL;
+            const unsigned char *b = value;
+            unsigned parsed = b[0] | (unsigned)b[1]<<8;
+            if (parsed > 07777 || (mode_seen && parsed != mode)) return -EINVAL;
+            mode = parsed; mode_seen = 1;
+            continue;
+        }
+        if (backup && !strncmp(name, "user.", 5)) {
+            if (length > 65536 || strlen(name) > 255 || link) return -EINVAL;
+            continue;
+        }
         if (strcmp(name, MD_FILE_CAPABILITY_NAME)) {
             fprintf(stderr,"Guest image: unsupported extended attribute %s on %s\n",name,path);
             return -ENOTSUP;
@@ -117,6 +138,7 @@ static int entry_file(struct md_inode_store *s, struct archive *ar, struct archi
         if (capability && (capability_size != length || memcmp(capability,value,length))) return -EINVAL;
         capability=value; capability_size=length;
     }
+    if (backup && !link && !mode_seen) return -EINVAL;
     if (archive_entry_is_encrypted(entry)) return -ENOTSUP;
     if (kind == S_IFCHR || kind == S_IFBLK) {
         if (strncmp(path, "/dev/", 5) || !md_host_path(path)) return -ENOTSUP;
@@ -164,7 +186,21 @@ static int entry_file(struct md_inode_store *s, struct archive *ar, struct archi
     if (!(loc.exists && kind == S_IFDIR && loc.node.kind == S_IFDIR)) {
         const char *target = kind == S_IFLNK ? archive_entry_symlink(entry) : NULL;
         if (kind == S_IFLNK && (!target || !*target || strlen(target) >= PATH_MAX)) return -EINVAL;
-        r = mdi_allocate(s, kind, kind == S_IFDIR ? 0700 : 0600, O_RDWR, target,
+        int shared = source && kind == S_IFREG;
+        if (shared) {
+            char backing[33]; md_image_pool_name(index, backing);
+            struct stat st;
+            if (fstatat(s->sources[source], backing, &st, AT_SYMLINK_NOFOLLOW)) r = -errno;
+            else if (!S_ISREG(st.st_mode) || st.st_size != archive_entry_size(entry)
+                    || (st.st_mode & 07777) != (0600 | ((archive_entry_perm(entry) & 0111) ? 0100 : 0))
+                    || st.st_mtim.tv_sec != archive_entry_mtime(entry)
+                    || st.st_mtim.tv_nsec != archive_entry_mtime_nsec(entry)) r = -ESTALE;
+            if (!r) r = mdi_import_shared(s, source, backing, &node);
+            /* Reapplying a layer can replace one name while a hardlink retains
+             * its previous inode. Equal provenance must not merge those objects. */
+            if (r == -EEXIST) { shared = 0; r = 0; }
+        }
+        if (!r && !shared) r = mdi_allocate(s, kind, kind == S_IFDIR ? 0700 : 0600, O_RDWR, target,
             kind == S_IFDIR ? loc.parent.id : NULL, &node, &fd);
         if (!r) r = mdi_add_name(s, loc.parent.id, loc.name, node.id);
     }
@@ -173,20 +209,39 @@ static int entry_file(struct md_inode_store *s, struct archive *ar, struct archi
         if (size < 0 || (uint64_t)size > 8ULL * 1024 * 1024 * 1024 - *bytes) r = -EFBIG;
         unsigned char buffer[65536];
         uint64_t total = 0;
-        while (!r) {
+        while (!r && !node.shared) {
             la_ssize_t n = archive_read_data(ar, buffer, sizeof(buffer));
             if (n < 0) { r = -EBADMSG; break; }
             if (!n) break;
             if ((uint64_t)n > (uint64_t)size - total) { r = -EBADMSG; break; }
             r = md_image_write(fd, buffer, (size_t)n); total += (uint64_t)n;
         }
+        if (!r && node.shared) total = (uint64_t)size;
         if (!r && total != (uint64_t)size) r = -EBADMSG;
         if (!r) *bytes += total;
-        if (!r && fsync(fd)) r = -errno;
+        if (!r && fd >= 0 && fsync(fd)) r = -errno;
     }
     if (fd >= 0) close(fd);
-    if (!r) r = record_metadata(s, entry, &node);
+    if (!r) r = record_metadata(s, entry, &node, mode);
     if (!r && capability) r = mdi_file_capability(s,&node,capability,capability_size);
+    if (!r && backup) {
+        char native[128];
+        snprintf(native, sizeof(native), "/proc/self/fd/%d/%s", s->objects, node.backing);
+        archive_entry_xattr_reset(entry);
+        while (!r && !archive_entry_xattr_next(entry, &name, &value, &length)) {
+            if (strncmp(name, "user.", 5)) continue;
+            if (lsetxattr(native, name, value, length, XATTR_CREATE)) {
+                if (errno != EEXIST) r = -errno;
+                else {
+                    void *existing = malloc(length ? length : 1);
+                    if (!existing) r = -ENOMEM;
+                    else if (lgetxattr(native, name, existing, length) != (ssize_t)length
+                            || memcmp(existing, value, length)) r = -EINVAL;
+                    free(existing);
+                }
+            }
+        }
+    }
     return r;
 }
 static int links(struct md_inode_store *s) {
@@ -226,7 +281,7 @@ static int links(struct md_inode_store *s) {
 }
 static int metadata(struct md_inode_store *s, int preserve) {
     sqlite3_stmt *q = NULL;
-    int r = mdi_prepare(s, "SELECT object,mode,seconds,nanos,uid,gid FROM temp.image_metadata", &q);
+    int r = mdi_prepare(s, "SELECT object,mode,seconds,nanos,uid,gid,atime,atime_nanos FROM temp.image_metadata", &q);
     while (!r) {
         int rc = mdi_step(s, q);
         if (rc == SQLITE_DONE) break;
@@ -236,12 +291,14 @@ static int metadata(struct md_inode_store *s, int preserve) {
         r = mdi_node(s, object, &node);
         struct timespec times[2] = {{0, UTIME_OMIT},
             {sqlite3_column_int64(q, 2), sqlite3_column_int64(q, 3)}};
+        if (sqlite3_column_type(q, 6) != SQLITE_NULL)
+            times[0] = (struct timespec){sqlite3_column_int64(q, 6), sqlite3_column_int64(q, 7)};
         if (!r && node.kind == S_IFLNK && utimensat(s->objects, object, times, AT_SYMLINK_NOFOLLOW)) r = -errno;
         if (!r && node.kind == S_IFIFO) {
             if (utimensat(s->objects, object, times, AT_SYMLINK_NOFOLLOW)) r = -errno;
             if (!r && !preserve) r = mdi_metadata(s, &node, node.uid, node.gid, sqlite3_column_int(q, 1));
         }
-        if (!r && node.kind != S_IFLNK && node.kind != S_IFIFO) {
+        if (!r && node.kind != S_IFLNK && node.kind != S_IFIFO && !node.shared) {
             int fd = openat(s->objects, object, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
             if (fd < 0) r = -errno;
             else {
@@ -251,15 +308,20 @@ static int metadata(struct md_inode_store *s, int preserve) {
         }
         if (!r && preserve) r = mdi_metadata(s, &node, (uint32_t)sqlite3_column_int64(q, 4),
             (uint32_t)sqlite3_column_int64(q, 5), (mode_t)sqlite3_column_int(q, 1));
+        if (!r && !preserve && node.shared) r = mdi_metadata(s, &node, geteuid(), getegid(),
+            (mode_t)sqlite3_column_int(q, 1) & 01777);
         if (!r && preserve) r=mdi_acl_chmod(s,&node,(mode_t)sqlite3_column_int(q,1));
         if (!r && !preserve && node.acl_mask) r=-ENOTSUP;
     }
     sqlite3_finalize(q); return r;
 }
-int md_image_layer(struct md_inode_store *s, int fd, uint64_t *bytes, uint64_t *entries) {
+static int read_tree(struct md_inode_store *s, int fd, uint64_t *bytes, uint64_t *entries, int overlay, int backup, int objects) {
     int r = mdi_begin(s, 1);
     if (r) return r;
-    r = mdi_sql(s, "CREATE TEMP TABLE IF NOT EXISTS image_metadata(object TEXT PRIMARY KEY,mode INTEGER,seconds INTEGER,nanos INTEGER,uid INTEGER,gid INTEGER);"
+    int source = 0;
+    if (objects >= 0) r = mdi_source_register(s, objects, &source);
+    if (!r && source) r = mdi_sources_open(s);
+    if (!r) r = mdi_sql(s, "CREATE TEMP TABLE IF NOT EXISTS image_metadata(object TEXT PRIMARY KEY,mode INTEGER,seconds INTEGER,nanos INTEGER,uid INTEGER,gid INTEGER,atime INTEGER,atime_nanos INTEGER);"
         "CREATE TEMP TABLE layer_links(parent TEXT,name BLOB,target TEXT,capability BLOB,UNIQUE(parent,name));"
         "CREATE TEMP TABLE layer_acls(path TEXT,type INTEGER,value BLOB,PRIMARY KEY(path,type));"
         "CREATE TEMP TABLE layer_paths(path TEXT PRIMARY KEY);");
@@ -268,24 +330,45 @@ int md_image_layer(struct md_inode_store *s, int fd, uint64_t *bytes, uint64_t *
         struct archive *ar = archive_read_new();
         if (!ar) { r = -ENOMEM; break; }
         archive_read_support_format_tar(ar);
+        archive_read_support_filter_gzip(ar);
+        archive_read_support_filter_zstd(ar);
         if (lseek(fd, 0, SEEK_SET) < 0) r = -errno;
         if (!r && archive_read_open_fd(ar, fd, 65536) != ARCHIVE_OK) r = -EBADMSG;
         struct archive_entry *entry;
+        uint64_t index = 0;
         while (!r) {
             int rc = archive_read_next_header(ar, &entry);
             if (rc == ARCHIVE_EOF) break;
             if (rc != ARCHIVE_OK) { r = -EBADMSG; break; }
+            ++index;
             if (!pass && ++*entries > 200000) { r = -EFBIG; break; }
             char path[PATH_MAX];
-            r = path_name(archive_entry_pathname(entry), path);
+            const char *name_in = archive_entry_pathname(entry);
+            if (backup) {
+                if (name_in && !strcmp(name_in, "magicdesk-backup.json")) {
+                    if (index != 1) { r = -EINVAL; break; }
+                    continue;
+                }
+                if (!name_in || strncmp(name_in, "rootfs/", 7)) { r = -EINVAL; break; }
+                name_in += 7;
+                const char *link = archive_entry_hardlink(entry);
+                if (link) {
+                    if (strncmp(link, "rootfs/", 7)) { r = -EINVAL; break; }
+                    char *target = strdup(link + 7);
+                    if (!target) { r = -ENOMEM; break; }
+                    archive_entry_set_hardlink(entry, target);
+                    free(target);
+                }
+            }
+            r = path_name(name_in, path);
             if (!r && !pass) r = unique_path(s, path);
             if (r) break;
             const char *name = strrchr(path, '/') + 1;
-            int marker = !strncmp(name, ".wh.", 4);
+            int marker = overlay && !strncmp(name, ".wh.", 4);
             if (marker && (archive_entry_filetype(entry) != S_IFREG || archive_entry_size(entry) != 0
                     || archive_entry_hardlink(entry))) { r = -EINVAL; break; }
             if (!pass && marker) { int removed = whiteout(s, path); if (removed < 0) r = removed; }
-            if (pass && !marker) r = entry_file(s, ar, entry, path, bytes);
+            if (pass && !marker) r = entry_file(s, ar, entry, path, bytes, source, index, backup);
             if (r) fprintf(stderr,"Guest image: entry %s: %s\n",path,strerror(-r));
         }
         if (archive_read_close(ar) != ARCHIVE_OK && !r) r = -EBADMSG;
@@ -297,12 +380,50 @@ int md_image_layer(struct md_inode_store *s, int fd, uint64_t *bytes, uint64_t *
     if (!r && fsync(s->objects)) r = -errno;
     return mdi_commit(s, r);
 }
+int md_image_layer(struct md_inode_store *s, int fd, uint64_t *bytes, uint64_t *entries) {
+    return read_tree(s, fd, bytes, entries, 1, 0, -1);
+}
+int md_image_layer_shared(struct md_inode_store *s, int fd, int objects, uint64_t *bytes, uint64_t *entries) {
+    return read_tree(s, fd, bytes, entries, 1, 0, objects);
+}
+int md_image_rootfs(struct md_inode_store *s, int fd, uint64_t *bytes, uint64_t *entries) {
+    return read_tree(s, fd, bytes, entries, 0, 0, -1);
+}
+int md_image_backup_tree(struct md_inode_store *s, int fd, uint64_t *bytes, uint64_t *entries) {
+    return read_tree(s, fd, bytes, entries, 0, 1, -1);
+}
+static int discard_unreachable_backings(struct md_inode_store *s) {
+    int fd = openat(s->objects, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0) return -errno;
+    DIR *dir = fdopendir(fd);
+    if (!dir) { int r = -errno; close(fd); return r; }
+    sqlite3_stmt *q = NULL;
+    int r = mdi_prepare(s, "SELECT 1 FROM backings WHERE backing=?1 AND source=0", &q);
+    while (!r) {
+        errno = 0;
+        struct dirent *entry = readdir(dir);
+        if (!entry) { if (errno) r = -errno; break; }
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+        r = mdi_bind_id(q, 1, entry->d_name);
+        int rc = r ? SQLITE_ERROR : mdi_step(s, q);
+        if (!r && rc == SQLITE_DONE) {
+            struct stat st;
+            if (fstatat(fd, entry->d_name, &st, AT_SYMLINK_NOFOLLOW)
+                    || unlinkat(fd, entry->d_name, S_ISDIR(st.st_mode) ? AT_REMOVEDIR : 0)) r = -errno;
+        } else if (!r && rc != SQLITE_ROW) r = mdi_sql_failure(rc);
+        int reset = mdi_sql_error(sqlite3_reset(q));
+        if (!r) r = reset;
+    }
+    sqlite3_finalize(q); closedir(dir);
+    if (!r && fsync(s->objects)) r = -errno;
+    return r;
+}
 int md_image_layers_finish(struct md_inode_store *s, int preserve) {
     int r = mdi_begin(s, 1);
     if (r) return r;
     /* The unpublished tree stays traversable while applying layers. Final
      * permissions belong to publication, not the importer's access rights. */
-    r=mdi_sql(s,"CREATE TEMP TABLE IF NOT EXISTS image_metadata(object TEXT PRIMARY KEY,mode INTEGER,seconds INTEGER,nanos INTEGER,uid INTEGER,gid INTEGER)");
+    r=mdi_sql(s,"CREATE TEMP TABLE IF NOT EXISTS image_metadata(object TEXT PRIMARY KEY,mode INTEGER,seconds INTEGER,nanos INTEGER,uid INTEGER,gid INTEGER,atime INTEGER,atime_nanos INTEGER)");
     if (!r && preserve) {
         struct mdi_node root;
         r = mdi_node(s, MDI_ROOT, &root);
@@ -312,5 +433,21 @@ int md_image_layers_finish(struct md_inode_store *s, int preserve) {
     if (!r) r = mdi_sql(s, preserve ? "INSERT INTO properties VALUES('image-users',1)"
         : "INSERT INTO properties VALUES('image-users',0)");
     if (!r) r = mdi_sql(s, "DROP TABLE temp.image_metadata");
+    /* No guest owns this unpublished namespace. Drop unreachable metadata and
+     * lower dependencies now; runtime open-unlinked objects are never compacted. */
+    if (!r) r = mdi_sql(s, "CREATE TEMP TABLE image_live(object TEXT PRIMARY KEY);"
+        "INSERT INTO image_live WITH RECURSIVE tree(object) AS (SELECT '" MDI_ROOT "' UNION "
+        "SELECT n.object FROM names n JOIN tree t ON n.parent=t.object) SELECT object FROM tree;"
+        "DELETE FROM file_paths;"
+        "DELETE FROM names WHERE parent NOT IN image_live;"
+        "DELETE FROM backings WHERE object NOT IN image_live;"
+        "DELETE FROM inode_acls WHERE object NOT IN image_live;"
+        "DELETE FROM file_capabilities WHERE object NOT IN image_live;"
+        "DELETE FROM objects WHERE object NOT IN image_live;"
+        "INSERT INTO file_paths SELECT o.object,n.parent,n.name,o.name_count>1 "
+            "FROM objects o JOIN names n ON n.object=o.object WHERE o.kind!=16384 GROUP BY o.object;"
+        "DELETE FROM sources WHERE id NOT IN (SELECT source FROM objects WHERE source>0);"
+        "DROP TABLE image_live");
+    if (!r) r = discard_unreachable_backings(s);
     return mdi_commit(s, r);
 }

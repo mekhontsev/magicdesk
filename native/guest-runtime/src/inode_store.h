@@ -26,6 +26,8 @@ void md_inode_measure(struct md_inode_store *, struct md_inode_statistics *);
  * store. Absolute paths ignore dirfd. Data/directory FDs are real kernel FDs. */
 #define MD_INODE_ROOT (-1)
 int md_inode_store_open(const char *directory, int create, struct md_inode_store **out);
+/* Offline maintenance fails with EBUSY while a namespace owner retains the store. */
+int md_inode_store_open_exclusive(const char *directory, struct md_inode_store **out);
 void md_inode_store_close(struct md_inode_store *);
 int md_inode_store_seal(struct md_inode_store *);
 /* Prepare store-owned runtime resources before accepting guest operations.

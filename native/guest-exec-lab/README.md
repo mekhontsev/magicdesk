@@ -366,6 +366,20 @@ starting Desktop or changing privileges. Uploaded layouts and stores remain for
 inspection. The installed CLI additionally needs ordinary Shell-console checks;
 standalone helper coverage alone does not verify APK packaging and dispatch.
 
+The installed named manager has a separate workflow:
+
+```sh
+python native/guest-exec-lab/test_environment_cli.py --apk app/build/outputs/apk/debug/app-debug.apk
+```
+
+It downloads public Alpine and Debian images through the APK's registry client,
+exercises independent names, run/exec/login, directory attachments, backup/restore
+and explicit prune under UID 2000. A guest HTTP request holds a real launch open
+while removal and backup are required to fail. The fixture's Python controller
+is development tooling, not an installed runtime dependency; guest acquisition
+and execution use no Termux command or service. Reports retain the exact APK,
+image configuration, storage paths and command results.
+
 Stock service-image workflows and development tools:
 
 ```sh
