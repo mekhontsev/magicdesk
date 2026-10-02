@@ -604,8 +604,10 @@ retained descriptors. Kernel-only calls share one policy definition between the
 domain checker and the seccomp fast path; argument-dependent permissions compare
 all 64 bits. Identity, namespace and filter-state changes retain their observers.
 Protected access uses task-affine export and same-site replay
-without restoring dumpability. A second tracer cannot attach concurrently; crash
-reporters requiring it remain unsupported.
+without restoring dumpability. A second physical tracer cannot attach concurrently.
+Guest debuggers within the same launch use the supervisor-owned
+[nested debugger contract](../native/guest-runtime/debugging.md); external attach
+and arbitrary crash-reporter compatibility are not established.
 
 `--admit-elf /absolute/guest/path` explicitly selects an ordinary ELF for a
 launch-scoped sealed snapshot with logical set-ID metadata and credentials.

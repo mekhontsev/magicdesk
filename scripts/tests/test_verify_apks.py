@@ -7,16 +7,19 @@ import zipfile
 
 VERIFY = Path(__file__).resolve().parents[1] / "verify-apks.sh"
 HELPERS = ("uinput_bridge", "pty_bridge", "service_launcher", "process_signal", "guest_files",
+           "command_client", "command_bridge",
            "wayland_executor", "wayland_client", "graphics_host",
            "guest_bootstrap", "guest_supervisor", "guest_run", "guest_service")
 
 
 class VerifyApksTest(unittest.TestCase):
-    def verify(self, *extra_entries):
+    def verify(self, *extra_entries, omit_helper=None):
         with tempfile.TemporaryDirectory() as directory:
             apk = Path(directory) / "fixture.apk"
             with zipfile.ZipFile(apk, "w") as archive:
                 for helper in HELPERS:
+                    if helper == omit_helper:
+                        continue
                     archive.writestr(f"lib/arm64-v8a/libmagicdesk_{helper}.so", b"")
                 archive.writestr("lib/arm64-v8a/libXlorie.so", b"")
                 for entry in extra_entries:
@@ -34,6 +37,13 @@ class VerifyApksTest(unittest.TestCase):
                 result = self.verify(f"lib/{abi}/libXlorie.so")
                 self.assertNotEqual(0, result.returncode)
                 self.assertIn(f"unsupported native ABIs: {abi}", result.stderr)
+
+    def test_rejects_missing_helpers(self):
+        for helper in HELPERS:
+            with self.subTest(helper=helper):
+                result = self.verify(omit_helper=helper)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(f"Core APK is missing libmagicdesk_{helper}.so", result.stderr)
 
 
 if __name__ == "__main__":

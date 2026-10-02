@@ -2,12 +2,14 @@
 import array
 import os
 from pathlib import Path
+import selectors
 import shutil
 import socket
 import struct
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import uuid
 
@@ -37,7 +39,9 @@ class GuestFilesTest(unittest.TestCase):
         if argv and argv[0] == "proot-distro":
             argv = argv[:2] + ["--env", "MAGICDESK_GUEST_FILES_SOCKET=" + endpoint,
                               "--env", "MAGICDESK_GUEST_FILES_TOKEN=" + token] + argv[2:]
-        process = subprocess.Popen(argv or [str(self.helper), "--", "/bin/sh", "-c", "printf ready"],
+        command = [str(self.helper), "--", sys.executable, "-c",
+                   "import os; os.write(1, b'ready'); os.close(1); os.close(2); os.read(0, 1)"]
+        process = subprocess.Popen(argv or command,
                                    env=environment, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         def cleanup():
             if process.poll() is None:
@@ -59,10 +63,31 @@ class GuestFilesTest(unittest.TestCase):
         self.assertEqual(token.encode(), supplied)
         return process, peer
 
+    def assert_command_ready(self, process):
+        output = {process.stdout: bytearray(), process.stderr: bytearray()}
+        with selectors.DefaultSelector() as selector:
+            for stream in output:
+                selector.register(stream, selectors.EVENT_READ)
+            deadline = time.monotonic() + 5
+            # EVENT_WAIT: command readiness and pipe EOF; timeout detects retained writers.
+            while selector.get_map():
+                events = selector.select(max(0, deadline - time.monotonic()))
+                self.assertTrue(events, "Command output pipes did not close")
+                for key, _ in events:
+                    chunk = os.read(key.fd, 4096)
+                    if chunk:
+                        output[key.fileobj].extend(chunk)
+                    else:
+                        selector.unregister(key.fileobj)
+        self.assertEqual(b"ready", output[process.stdout])
+        self.assertEqual(b"", output[process.stderr])
+        self.assertIsNone(process.poll(), "Command must remain alive while serving files")
+
     def receive(self, peer, path):
         data = path.encode()
-        peer.sendall(struct.pack("!I", len(data)) + data)
+        peer.sendall(struct.pack("!BI", 1, len(data)) + data)
         reply, control, flags, _ = peer.recvmsg(1, socket.CMSG_SPACE(4))
+        self.assertEqual(1, len(reply), "File service disconnected before replying")
         self.assertFalse(flags & socket.MSG_CTRUNC)
         if reply != b"\0":
             self.assertFalse(control)
@@ -78,7 +103,7 @@ class GuestFilesTest(unittest.TestCase):
     def test_command_pipes_close_while_worker_retains_file_service(self):
         process, peer = self.launch()
         peer.sendall(b"\0")
-        self.assertEqual((b"ready", b""), process.communicate(timeout=5))
+        self.assert_command_ready(process)
         source = Path(self.work.name) / "quotes ' and spaces.txt"
         source.write_bytes(b"guest payload")
         self.assertEqual(b"guest payload", self.receive(peer, str(source)))
@@ -86,6 +111,21 @@ class GuestFilesTest(unittest.TestCase):
         self.assertIsNone(self.receive(peer, str(source) + "-missing"))
         self.assertEqual(b"guest payload", self.receive(peer, str(source)))
         peer.shutdown(socket.SHUT_WR)
+        self.assertEqual(b"", peer.recv(1))
+        self.assertIsNone(process.poll(), "Closing the file channel must not kill its command")
+        process.communicate(timeout=5)
+        self.assertEqual(0, process.returncode)
+
+    def test_command_exit_closes_file_service(self):
+        process, peer = self.launch()
+        peer.sendall(b"\0")
+        self.assert_command_ready(process)
+        source = Path(self.work.name) / "owner-exit.txt"
+        source.write_bytes(b"owned payload")
+        self.assertEqual(b"owned payload", self.receive(peer, str(source)))
+        process.communicate(timeout=5)
+        self.assertEqual(0, process.returncode)
+        # EVENT_WAIT: owner death closes the service socket; socket timeout fails cleanup.
         self.assertEqual(b"", peer.recv(1))
 
     def test_rejected_authorization_never_launches_command(self):
@@ -98,9 +138,16 @@ class GuestFilesTest(unittest.TestCase):
     def test_malformed_path_ends_only_its_connection(self):
         process, peer = self.launch()
         peer.sendall(b"\0")
-        process.communicate(timeout=5)
-        peer.sendall(struct.pack("!I", 4) + b"/a\0b")
+        self.assert_command_ready(process)
+        other, other_peer = self.launch()
+        other_peer.sendall(b"\0")
+        self.assert_command_ready(other)
+        peer.sendall(struct.pack("!BI", 1, 4) + b"/a\0b")
         self.assertEqual(b"", peer.recv(1))
+        self.assertIsNone(process.poll())
+        source = Path(self.work.name) / "other-session.txt"
+        source.write_bytes(b"unaffected")
+        self.assertEqual(b"unaffected", self.receive(other_peer, str(source)))
 
     @unittest.skipUnless(os.environ.get("MAGICDESK_GUEST_FILE_HELPER") and shutil.which("proot-distro"), "Opt-in PRoot fixture")
     def test_static_helper_resolves_guest_paths_without_android_root(self):

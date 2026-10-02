@@ -453,6 +453,22 @@ GCC, libc headers and GDB already available. It checks both default PRoot and
 process lifetime; temporary sources and binaries are removed afterward. The
 report records versions, output, exit status and timeout failures separately.
 
+`test_debugger_runtime.py OUTPUT --instance STORE [--build BUILD]` runs raw
+debugger lifecycle checks and real GDB attach, LLDB, gdbserver, strace, gprof,
+Callgrind and perf-event checks. `--proot ubuntu` selects the same cases in an
+installed Termux PRoot distribution; `--case NAME` restricts a run. The prepared
+userspace needs GCC, Python 3, GDB, LLDB, gdbserver, binutils, strace and Valgrind.
+No package is installed by the test. `--diagnostics` enables supervisor diagnostics
+for Shroot only. A denied perf event is recorded as unavailable, never as working
+profiling. Device capability and debugger compatibility are separate results.
+
+`--gdbserver-binary FILE` explicitly stages a standalone Linux ARM64 binary under
+`/tmp`, retaining its hash in the report without replacing the installed package.
+This permits a current gdbserver control when an older distribution package has
+an upstream ARM64 register bug. Timeouts fail their cases and the launch owner
+cancels remaining descendants. Shroot fixtures persist only in the explicitly
+selected disposable store. See the [debugger contract and measured coverage](../guest-runtime/debugging.md).
+
 Distribution and emulator workflows use the same runner and per-instance policy:
 
 ```sh

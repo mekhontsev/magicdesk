@@ -107,6 +107,7 @@ class Server:
 
 class Suite:
     def __init__(self, output, build=None):
+        output.mkdir(parents=True, exist_ok=True)
         repo = Path(__file__).resolve().parents[2]
         spec = importlib.util.spec_from_file_location('transport', repo / 'scripts/mcp-client.py')
         self.transport = importlib.util.module_from_spec(spec)

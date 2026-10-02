@@ -78,7 +78,7 @@ static struct interception_statistics *statistics;
 enum phase { IDLE, ALLOCATING, DISPATCHING, EXECUTING, OBSERVING,
     EXPORT_CANCEL, EXPORTING, EXPORT_ENTRY, EXPORT_NOTIFY, EXPORT_RETURN, STORING,
     DELEGATE_CANCEL, LOADING_PATH, PROC_CANCEL, PROC_OPENING, STORING_IDS, DOMAIN_PATH,
-    WATCH_CANCEL, WATCH_ENTRY, WATCH_READ, IDENTITY_COPY };
+    WATCH_CANCEL, WATCH_ENTRY, WATCH_READ, IDENTITY_COPY, DEBUG_WAIT_ENTRY, DEBUG_WAIT_EXIT };
 struct metadata_operation {
     enum phase previous;
     struct seccomp_notif request;
@@ -110,6 +110,11 @@ struct thread {
     struct md_exec_identity pending_identity;
     int mapped_image, entered;
     int debug_step_call, debug_birth;
+    pid_t debug_exec_old;
+    int kernel_stopped, debug_options_dirty, debug_call_active, debug_adapter;
+    unsigned long debug_options;
+    uint64_t debug_wait_mask;
+    struct rusage usage;
     uintptr_t process_image;
     int watch_wait;
     uint32_t *identity_buffer;
@@ -153,6 +158,9 @@ static int restore_mask(struct thread *t);
 static void dispatch(struct thread *t);
 static void report_statistics(void);
 static int debugger_allowed(pid_t, pid_t);
+static const unsigned long trace_options = PTRACE_O_TRACESECCOMP | PTRACE_O_TRACEEXEC
+    | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK | PTRACE_O_TRACEVFORKDONE | PTRACE_O_TRACECLONE
+    | PTRACE_O_EXITKILL | PTRACE_O_TRACESYSGOOD;
 static void release_operation(struct thread *t) {
     struct metadata_operation *op = &t->metadata;
     if (op->peer >= 0) { close(op->peer); op->peer = -1; }
@@ -729,6 +737,10 @@ static int debugger_parent(pid_t pid) {
     struct thread *t=find_thread(pid);
     return t ? t->parent : 0;
 }
+static int debugger_group(pid_t pid) {
+    struct thread *t=find_thread(pid);
+    return t ? t->tgid : pid;
+}
 static int debugger_allowed(pid_t caller, pid_t pid) {
     struct thread *from=find_thread(caller), *to=find_thread(pid);
     if (!from || !to || md_domain_restricted(from->domain)) return 0;
@@ -741,7 +753,63 @@ static int debugger_allowed(pid_t caller, pid_t pid) {
 }
 static void debugger_complete(pid_t pid, struct user_pt_regs *regs, long value) {
     struct thread *t=find_thread(pid);
+    TRACE("PROBE debugger result pid=%d nr=%llu target=%llu value=%ld\n",pid,regs->regs[8],regs->regs[0],value);
     if (t) return_value(t,regs,value);
+}
+static int debugger_attachable(pid_t caller, pid_t pid) {
+    struct thread *t=find_thread(pid);
+    if (!t || debugger_group(caller)==debugger_group(pid) || !debugger_allowed(caller,pid)
+            || !t->entered || !t->process_image) return 0;
+    char byte;
+    struct iovec local={&byte,1}, remote={(void *)t->process_image,1};
+    return process_vm_readv(pid,&local,1,&remote,1,0)==1;
+}
+static int debugger_interrupt(pid_t pid) {
+    struct thread *t=find_thread(pid);
+    if (!t) return -ESRCH;
+    /* An owned stop already queued by clone is itself the interruption boundary. */
+    if (t->kernel_stopped || (pid!=leader && t->born && !t->initial_stop)) return 0;
+    return native_trace(PTRACE_INTERRUPT,pid,NULL,NULL) ? -errno : 0;
+}
+static int debugger_options(pid_t pid, unsigned long options) {
+    struct thread *t=find_thread(pid);
+    if (!t) return -ESRCH;
+    int changed=(t->debug_options^options)&PTRACE_O_TRACEEXIT;
+    t->debug_options=options;
+    if (!changed && !t->debug_options_dirty) return 0;
+    t->debug_options_dirty=1;
+    if (!t->kernel_stopped) return debugger_interrupt(pid);
+    if (native_trace(PTRACE_SETOPTIONS,pid,NULL,(void *)(trace_options|(options&PTRACE_O_TRACEEXIT)))) return -errno;
+    t->debug_options_dirty=0;
+    return 0;
+}
+static void debugger_usage(pid_t pid, struct rusage *usage) {
+    struct thread *t=find_thread(pid);
+    *usage=t ? t->usage : (struct rusage){0};
+}
+static int debugger_listen(pid_t pid) {
+    struct thread *t=find_thread(pid);
+    if (!t) return -ESRCH;
+    if (native_trace(PTRACE_LISTEN,pid,NULL,NULL)) return -errno;
+    t->listening=1; t->kernel_stopped=0;
+    return 0;
+}
+static void debugger_wait_probe(pid_t pid, const struct user_pt_regs *original, enum md_debugger_wait_action action) {
+    struct thread *t=find_thread(pid);
+    if (!t) return;
+    struct user_pt_regs regs=*original;
+    TRACE("PROBE debugger wait pid=%d nr=%llu target=%llu action=%d phase=%d\n",pid,regs.regs[8],regs.regs[0],action,t->phase);
+    if (action!=MD_DEBUG_WAIT_PROBE) regs.pc-=4;
+    if (action==MD_DEBUG_WAIT_NATIVE) t->phase=IDLE;
+    else {
+        /* Only the nonblocking probe is shielded. A handler must not replace
+         * the replayed syscall; native blocking waits retain ordinary signals. */
+        if (!tracee_request(t,PTRACE_GETSIGMASK,(void *)sizeof(t->debug_wait_mask),&t->debug_wait_mask,"debug-wait-mask")
+                || !shield(t)) return;
+        regs.regs[regs.regs[8]==SYS_waitid ? 3 : 2]|=WNOHANG;
+        t->phase=action==MD_DEBUG_WAIT_PROBE ? DEBUG_WAIT_EXIT : DEBUG_WAIT_ENTRY;
+    }
+    if (set_registers(pid,&regs)) resume(pid,0);
 }
 enum { COPY_GROUPS, COPY_CAP_HEADER, COPY_CAP_DATA, COPY_CAP_VERSION };
 static void identity_copy_next(struct thread *t);
@@ -1007,6 +1075,17 @@ static void resume(pid_t pid, int sig) {
     if (t->resume_lost) return;
     CHECK(!md_credentials_publish(credentials, t->pid, t->tgid, &t->identity));
     enum phase phase = t->phase;
+    if (t->debug_options_dirty && debugger_options(pid,t->debug_options)) return;
+    if (phase!=IDLE && t->debug_call_active) t->debug_adapter=1;
+    if (phase==IDLE && t->entered && t->process_image) {
+        if (t->debug_call_active && t->debug_adapter) {
+            struct user_pt_regs regs;
+            if (!registers(pid,&regs)) return;
+            t->debug_call_active=t->debug_adapter=0;
+            if (md_debugger_syscall(debugger,pid,&regs,0)) return;
+        }
+        if (md_debugger_boundary(debugger,pid)) return;
+    }
     if (phase==IDLE && t->debug_step_call) {
         t->debug_step_call=0;
         siginfo_t info={.si_signo=SIGTRAP,.si_code=TRAP_TRACE};
@@ -1016,9 +1095,11 @@ static void resume(pid_t pid, int sig) {
         t->ready && phase == IDLE && t->endpoint[0] && !md_domain_restricted(t->domain), RAW_GATE, abi.watch_gate + 4));
     if (!native_trace(phase == OBSERVING || phase == EXPORT_ENTRY || phase == EXPORT_NOTIFY
             || phase == EXPORT_RETURN || phase == EXECUTING || phase == WATCH_CANCEL
-            || phase == WATCH_ENTRY || phase == WATCH_READ ? PTRACE_SYSCALL
+            || phase == WATCH_ENTRY || phase == WATCH_READ || phase==DEBUG_WAIT_ENTRY || phase==DEBUG_WAIT_EXIT
+            || (phase==IDLE && t->entered && t->process_image
+                && (md_debugger_syscall_mode(debugger,pid) || md_debugger_observing(debugger,pid))) ? PTRACE_SYSCALL
                 : phase==IDLE && t->entered && md_debugger_step(debugger,pid) ? PTRACE_SINGLESTEP : PTRACE_CONT,
-            pid, NULL, (void *)(uintptr_t)sig)) return;
+            pid, NULL, (void *)(uintptr_t)sig)) { t->kernel_stopped=0; return; }
     CHECK(errno == ESRCH);
     /* EVENT_WAIT: thread-group exit or exec may win a stopped-thread resume.
      * Only the exact waitpid exit/exec event releases ownership. A later stop
@@ -1051,6 +1132,28 @@ static void dispatch_with_stack(struct thread *t) {
         t->phase = ALLOCATING; resume(t->pid, 0);
     }
 }
+static int interrupted_operation(struct thread *t) {
+    /* EVENT_WAIT: INTERRUPT cancels the exact notification. Under SYSCALL the
+     * acknowledgement is a syscall-exit stop; under CONT it is EVENT_STOP. */
+    if (t->phase==EXPORT_CANCEL) { export_start(t); return 1; }
+    if (t->phase==PROC_CANCEL) { proc_query_start(t); return 1; }
+    if (t->phase!=DELEGATE_CANCEL) return 0;
+    const struct seccomp_notif *q=&t->metadata.request;
+    CHECK(ioctl(listener,SECCOMP_IOCTL_NOTIF_ID_VALID,&q->id)==-1 && errno==ENOENT);
+    struct user_pt_regs regs;
+    if (!registers(t->pid,&regs)) return 1;
+    regs.pc=q->data.instruction_pointer; regs.regs[8]=q->data.nr;
+    for (unsigned i=0;i<6;i++) regs.regs[i]=q->data.args[i];
+    t->original=regs; calls++; t->calls++;
+    if (!tracee_request(t,PTRACE_GETSIGMASK,(void *)sizeof(t->mask),&t->mask,"get-mask") || !shield(t)) return 1;
+    if (!t->stack) t->stack=md_stacks_take(t->stacks);
+    if (t->stack) dispatch(t);
+    else {
+        regs.pc=ALLOCATE;
+        if (set_registers(t->pid,&regs)) { t->phase=ALLOCATING; resume(t->pid,0); }
+    }
+    return 1;
+}
 static void drain(void) {
     struct signalfd_siginfo info;
     while (read(signal_fd, &info, sizeof(info)) == sizeof(info)) {
@@ -1063,9 +1166,9 @@ static void drain(void) {
     }
     CHECK(errno == EAGAIN);
 }
-static pid_t wait_event(int *status, int64_t deadline) {
+static pid_t wait_event(int *status, struct rusage *usage, int64_t deadline) {
     for (;;) {
-        pid_t pid = waitpid(-1, status, __WALL | WNOHANG);
+        pid_t pid = wait4(-1, status, __WALL | WNOHANG, md_debugger_active(debugger) ? usage : NULL);
         if (pid > 0) return pid;
         CHECK(pid == 0 || errno == EINTR);
         /* EVENT_WAIT: ptrace stop/exit or cancellation via signalfd; expiry
@@ -1114,7 +1217,9 @@ int main(int argc, char **argv) {
         argument += 2;
     }
     setvbuf(stderr, NULL, _IONBF, 0);
-    struct md_debugger_host debug_host={.parent=debugger_parent,.allowed=debugger_allowed,
+    struct md_debugger_host debug_host={.parent=debugger_parent,.group=debugger_group,.allowed=debugger_allowed,
+        .attachable=debugger_attachable,.interrupt=debugger_interrupt,.options=debugger_options,
+        .listen=debugger_listen,.usage=debugger_usage,.wait_probe=debugger_wait_probe,
         .complete=debugger_complete,.resume=resume};
     debugger=md_debugger_create(&debug_host); CHECK(debugger);
     if (argument < argc && !strcmp(argv[argument], "--admit-elf")) {
@@ -1218,8 +1323,7 @@ int main(int argc, char **argv) {
     /* EVENT_WAIT: child readiness precedes attaching; timeout cancels this tree. */
     CHECK(md_event_wait_fd(channel[0], POLLIN, md_event_now() + 5000000000LL) >= 0);
     char byte; CHECK(read(channel[0], &byte, 1) == 1 && byte == 'r');
-    CHECK(!native_trace(PTRACE_SEIZE, leader, NULL, (void *)(uintptr_t)(PTRACE_O_TRACESECCOMP | PTRACE_O_TRACEEXEC
-        | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK | PTRACE_O_TRACEVFORKDONE | PTRACE_O_TRACECLONE | PTRACE_O_EXITKILL | PTRACE_O_TRACESYSGOOD)));
+    CHECK(!native_trace(PTRACE_SEIZE, leader, NULL, (void *)trace_options));
     if (store) {
         /* The guest was forked with the caller's mask. Only the native owner
          * uses zero; creation requests already contain the guest's masked mode. */
@@ -1239,8 +1343,10 @@ int main(int argc, char **argv) {
     byte = 'g'; CHECK(write(channel[0], &byte, 1) == 1); close(channel[0]);
     int64_t deadline = seconds ? md_event_now() + seconds * 1000000000LL : INT64_MAX;
     while (live) {
-        int status; pid_t pid = wait_event(&status, deadline);
+        int status; struct rusage usage; pid_t pid = wait_event(&status, &usage, deadline);
         struct thread *t = thread(pid);
+        t->kernel_stopped=1;
+        if (md_debugger_active(debugger)) t->usage=usage;
         if (WIFEXITED(status) || WIFSIGNALED(status)) {
             int code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
             if (pid == leader && !cancelling) result = code;
@@ -1253,7 +1359,11 @@ int main(int argc, char **argv) {
         unsigned event = (unsigned)status >> 16;
         CHECK(!t->resume_lost || event == PTRACE_EVENT_EXEC);
         int sig = WSTOPSIG(status);
-        if (event==PTRACE_EVENT_VFORK_DONE) {
+        if (event==PTRACE_EVENT_EXIT) {
+            unsigned long message;
+            if (!tracee_request(t,PTRACE_GETEVENTMSG,NULL,&message,"debug-exit")) continue;
+            if (!md_debugger_event(debugger,pid,event,message)) resume(pid,0);
+        } else if (event==PTRACE_EVENT_VFORK_DONE) {
             unsigned long child;
             if (!tracee_request(t,PTRACE_GETEVENTMSG,NULL,&child,"vfork-complete")) continue;
             if (!md_debugger_event(debugger,pid,event,child)) resume(pid,0);
@@ -1261,7 +1371,9 @@ int main(int argc, char **argv) {
             /* A non-leader exec replaces the task behind the leader's PID. */
             md_broker_forget(broker, pid);
             unsigned long old; CHECK(!native_trace(PTRACE_GETEVENTMSG, pid, NULL, &old));
+            t->debug_exec_old=(pid_t)old;
             if (old && old != (unsigned)pid) {
+                md_debugger_rekey(debugger,(pid_t)old,pid);
                 struct thread *former = find_thread((pid_t)old);
                 if (former) {
                     release_operation(t);
@@ -1292,6 +1404,8 @@ int main(int argc, char **argv) {
             c->born = 1; c->ready = t->ready;
             c->parent=t->pid; c->entered=t->entered;
             c->process_image=t->process_image;
+            c->debug_call_active=t->debug_call_active;
+            c->debug_options=t->debug_options;
             c->shm_filter = t->shm_filter;
             md_identity_release(&c->identity);
             c->identity = md_identity_copy(&t->identity);
@@ -1312,47 +1426,29 @@ int main(int argc, char **argv) {
             int debug_birth=md_debugger_birth(debugger,pid,c->pid,event); CHECK(debug_birth>=0);
             c->debug_birth=debug_birth;
             if (c->initial_stop) {
-                if (!c->debug_birth || !md_debugger_stop(debugger,c->pid,(SIGSTOP<<8)|0x7f,NULL,0)) resume(c->pid,0);
+                if (!c->debug_birth || !md_debugger_newborn(debugger,c->pid)) resume(c->pid,0);
                 c->debug_birth=0;
             }
             if (!debug_birth) resume(pid, 0);
         } else if (event == PTRACE_EVENT_STOP) {
             if (sig == SIGSTOP || sig == SIGTSTP || sig == SIGTTIN || sig == SIGTTOU) {
+                if (t->phase==IDLE && md_debugger_stop(debugger,pid,status,NULL,0)) continue;
                 /* EVENT_WAIT: preserve the kernel group-stop until SIGCONT or
                  * exit. CONT here would silently discard the application's stop.
                  * Keep the operation phase intact across the listening state. */
                 t->listening = 1; group_stops++;
                 if (native_trace(PTRACE_LISTEN, pid, NULL, NULL)) {
                     CHECK(errno == ESRCH); t->resume_lost = 1;
-                }
+                } else t->kernel_stopped=0;
                 continue;
             }
             int wake = t->listening;
             if (wake) { CHECK(sig == SIGTRAP); t->listening = 0; group_wakes++; }
-            if (t->phase == EXPORT_CANCEL) { export_start(t); continue; }
-            if (t->phase == PROC_CANCEL) {
-                proc_query_start(t); continue;
-            }
-            if (t->phase == DELEGATE_CANCEL) {
-                const struct seccomp_notif *q = &t->metadata.request;
-                CHECK(ioctl(listener, SECCOMP_IOCTL_NOTIF_ID_VALID, &q->id) == -1 && errno == ENOENT);
-                struct user_pt_regs regs;
-                if (!registers(pid, &regs)) continue;
-                regs.pc = q->data.instruction_pointer; regs.regs[8] = q->data.nr;
-                for (unsigned i = 0; i < 6; i++) regs.regs[i] = q->data.args[i];
-                t->original = regs; calls++; t->calls++;
-                if (!tracee_request(t, PTRACE_GETSIGMASK, (void *)sizeof(t->mask), &t->mask, "get-mask")
-                        || !shield(t)) continue;
-                if (!t->stack) t->stack = md_stacks_take(t->stacks);
-                if (t->stack) dispatch(t);
-                else {
-                    regs.pc = ALLOCATE;
-                    if (!set_registers(pid, &regs)) continue;
-                    t->phase = ALLOCATING; resume(pid, 0);
-                }
-                continue;
-            }
+            if (interrupted_operation(t)) continue;
             if (wake) { resume(pid, 0); continue; }
+            if (t->phase==IDLE && t->entered && md_debugger_boundary(debugger,pid)) {
+                t->initial_stop=1; continue;
+            }
             CHECK(sig == SIGTRAP);
             if (t->initial_stop) {
                 /* SIGCONT can clear a pending group-stop before this tracee
@@ -1362,7 +1458,7 @@ int main(int argc, char **argv) {
             }
             t->initial_stop = 1;
             if (t->born) {
-                if (!t->debug_birth || !md_debugger_stop(debugger,pid,(SIGSTOP<<8)|0x7f,NULL,0)) resume(pid,0);
+                if (!t->debug_birth || !md_debugger_newborn(debugger,pid)) resume(pid,0);
                 t->debug_birth=0;
             }
         }
@@ -1446,6 +1542,32 @@ int main(int argc, char **argv) {
                     || !shield(t) || !skip(pid)) continue;
             dispatch_with_stack(t);
         } else if (!event && sig == (SIGTRAP | 0x80)) {
+            if (interrupted_operation(t)) continue;
+            if (t->phase==DEBUG_WAIT_ENTRY) {
+                t->phase=DEBUG_WAIT_EXIT; resume(pid,0); continue;
+            }
+            if (t->phase==DEBUG_WAIT_EXIT) {
+                struct user_pt_regs regs;
+                if (!registers(pid,&regs)) continue;
+                if (!tracee_request(t,PTRACE_SETSIGMASK,(void *)sizeof(t->debug_wait_mask),&t->debug_wait_mask,"debug-wait-unmask")) continue;
+                t->phase=IDLE;
+                md_debugger_wait_complete(debugger,pid,(long)regs.regs[0]); continue;
+            }
+            if (t->phase==IDLE) {
+                struct ptrace_syscall_info info;
+                struct user_pt_regs regs;
+                if (!registers(pid,&regs)) continue;
+                CHECK(native_trace(PTRACE_GET_SYSCALL_INFO,pid,(void *)sizeof(info),&info)>=0);
+                if (info.op==PTRACE_SYSCALL_INFO_ENTRY) {
+                    t->debug_call_active=md_debugger_syscall_mode(debugger,pid);
+                    if (regs.regs[8]==SYS_waitid && md_debugger_call(debugger,pid,&regs)) continue;
+                    if (t->entered && t->process_image && md_debugger_syscall(debugger,pid,&regs,1)) continue;
+                } else {
+                    int active=t->debug_call_active; t->debug_call_active=0;
+                    if (active && md_debugger_syscall(debugger,pid,&regs,0)) continue;
+                }
+                resume(pid,0); continue;
+            }
             if (t->phase == WATCH_CANCEL) {
                 struct user_pt_regs regs = t->original; regs.pc = abi.watch_gate;
                 if (!set_registers(pid, &regs)) continue;
@@ -1470,12 +1592,6 @@ int main(int argc, char **argv) {
                 if (t->stack) { md_stacks_return(t->stacks, t->stack); t->stack = 0; }
                 md_fs_worker_wake(filesystem);
                 t->phase = IDLE; resume(pid, 0); continue;
-            }
-            if (t->phase == PROC_CANCEL) {
-                /* EVENT_WAIT: PTRACE_INTERRUPT under PTRACE_SYSCALL reports a
-                 * syscall-exit stop instead of EVENT_STOP. Require cancellation
-                 * of the exact notification before entering the continuation. */
-                proc_query_start(t); continue;
             }
             if (t->phase == EXPORT_ENTRY) {
                 t->phase = EXPORT_NOTIFY;
@@ -1507,6 +1623,11 @@ int main(int argc, char **argv) {
                     TRACE("PROBE installed-filter pid=%d instructions=%d\n", pid, t->filter_length);
                 t->phase = IDLE; resume(pid, 0); continue;
             }
+            if (t->phase!=EXECUTING) {
+                struct user_pt_regs unexpected;
+                if (registers(pid,&unexpected)) fprintf(stderr,"guest-runtime: unexpected syscall-stop pid=%d phase=%d pc=%#llx nr=%llu result=%lld\n",
+                    pid,t->phase,unexpected.pc,unexpected.regs[8],(long long)unexpected.regs[0]);
+            }
             CHECK(t->phase == EXECUTING);
             if (!shield(t)) continue;
             t->phase = DISPATCHING; resume(pid, 0);
@@ -1518,7 +1639,7 @@ int main(int argc, char **argv) {
                 uint64_t entry=regs.regs[0], stack=regs.regs[1];
                 regs=(struct user_pt_regs){.pc=entry,.sp=stack};
                 if (!set_registers(pid,&regs)) continue;
-                if (!md_debugger_exec(debugger,pid)) resume(pid,0);
+                if (!md_debugger_exec(debugger,pid,t->debug_exec_old ? t->debug_exec_old : pid)) resume(pid,0);
                 continue;
             }
             if (!t->ready && t->phase == IDLE && regs.regs[2] == MD_INTERCEPTION_MAGIC) {
