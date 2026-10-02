@@ -39,7 +39,10 @@ public final class DesktopTaskDescriptionTest {
                     }
                     Palette palette() { return new Palette(primary,background); }
                 }
-                static class AppearanceStore { static ShellAppearance current(Activity activity) { return activity.theme; } }
+                static class AppearanceStore {
+                    record Resolved(ShellAppearance theme) {}
+                    static Resolved resolved(Activity activity) { return new Resolved(activity.theme); }
+                }
                 static class FrameworkTaskDescriptionApi {
                     static void publish(Activity activity,String label,int resource,Bitmap bitmap,int primary,int background) {
                         activity.publications.add(new Presentation(new Identity(label,resource,bitmap),primary,background));

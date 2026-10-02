@@ -17,7 +17,7 @@ final class WorkspaceAppearancePatch {
         if (value.has("preset")) {
             throw ShellAppearanceSchema.invalid("/preset", "workspace patches inherit global defaults, not a preset");
         }
-        ShellAppearanceSchema.validate(value);
+        ShellAppearanceSchema.validatePatch(value);
         return value.length() == 0 ? EMPTY : new WorkspaceAppearancePatch(value.toString());
     }
 
@@ -53,7 +53,10 @@ final class WorkspaceAppearancePatch {
         for (var keys = patch.keys(); keys.hasNext();) {
             String key = keys.next();
             Object value = patch.get(key);
-            if (value instanceof JSONObject child && base.opt(key) instanceof JSONObject inherited) {
+            if (value == JSONObject.NULL) base.remove(key);
+            else if (value instanceof JSONObject child) {
+                JSONObject inherited = base.optJSONObject(key);
+                if (inherited == null) { inherited = new JSONObject(); base.put(key, inherited); }
                 merge(inherited, child);
             } else base.put(key, value);
         }

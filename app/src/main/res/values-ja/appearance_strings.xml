@@ -46,4 +46,15 @@
     <string name="appearance_import">インポート</string>
     <string name="appearance_export">エクスポート</string>
     <string name="appearance_reset">リセット</string>
+    <string name="appearance_palette_source">パレットのソース</string>
+    <string name="appearance_palette_fixed">テーマの色</string>
+    <string name="appearance_palette_system">Android の色</string>
+    <string name="appearance_palette_mode">システムパレットの明暗</string>
+    <string name="appearance_palette_follow">Android に従う</string>
+    <string name="appearance_color_surface_low">低いサーフェス</string>
+    <string name="appearance_color_surface_high">高いサーフェス</string>
+    <string name="appearance_color_on_accent">アクセント上の色</string>
+    <string name="appearance_color_accent_container">アクセントコンテナ</string>
+    <string name="appearance_color_on_accent_container">アクセントコンテナ上の色</string>
+    <string name="appearance_color_outline">輪郭</string>
 </resources>

@@ -7,7 +7,7 @@ import java.util.Objects;
 /** Immutable, density-independent appearance. It owns no window or workspace state. */
 public record ShellAppearance(Palette palette, Typography typography, Shape shape, Backdrop backdrop,
         ShellComposition composition, ShellMotion motion,
-        Feedback feedback, ShellResources resources) {
+        Feedback feedback, ShellResources resources, ShellControls controls) {
     public record Feedback(UiColor normal, UiColor hover, UiColor pressed,
             UiColor selected, UiColor focused, UiColor disabled, UiColor outline) {
         public Feedback {
@@ -20,13 +20,48 @@ public record ShellAppearance(Palette palette, Typography typography, Shape shap
                     UiColor.SURFACE, UiColor.HOVER, UiColor.TRANSPARENT, UiColor.ACCENT);
         }
     }
-    public record Palette(Map<UiColor, Integer> colors) {
-        public Palette {
-            colors = Map.copyOf(colors);
-            for (UiColor role : UiColor.values()) Objects.requireNonNull(colors.get(role), role.name());
-            if (colors.get(UiColor.TRANSPARENT) != 0) throw new IllegalArgumentException("transparent");
+    public enum ColorSource { FIXED, SYSTEM }
+    public enum ColorMode { LIGHT, DARK, SYSTEM }
+    public static final class Palette {
+        private final ColorSource source;
+        private final ColorMode mode;
+        private final String preset;
+        private final Map<UiColor, Integer> overrides, colors;
+        public Palette(ColorSource source, ColorMode mode, String preset, Map<UiColor, Integer> overrides) {
+            this(source, mode, preset, overrides, presetColors(preset));
         }
+        private Palette(ColorSource source, ColorMode mode, String preset,
+                Map<UiColor, Integer> overrides, Map<UiColor, Integer> base) {
+            this.source = Objects.requireNonNull(source); this.mode = Objects.requireNonNull(mode);
+            this.preset = Objects.requireNonNull(preset); this.overrides = Map.copyOf(overrides);
+            var merged = new EnumMap<UiColor, Integer>(UiColor.class);
+            merged.putAll(base); merged.putAll(overrides);
+            for (UiColor role : UiColor.values()) Objects.requireNonNull(merged.get(role), role.name());
+            if (merged.get(UiColor.TRANSPARENT) != 0) throw new IllegalArgumentException("transparent");
+            colors = Map.copyOf(merged);
+        }
+        public ColorSource source() { return source; }
+        public ColorMode mode() { return mode; }
+        public String preset() { return preset; }
+        public Map<UiColor, Integer> overrides() { return overrides; }
+        public Map<UiColor, Integer> colors() { return colors; }
         public int color(UiColor role) { return colors.get(role); }
+        public Palette resolve(Map<UiColor, Integer> system) {
+            return source == ColorSource.SYSTEM ? new Palette(source, mode, preset, overrides, system) : this;
+        }
+        public Palette withColor(UiColor role, int color) {
+            var values = new EnumMap<UiColor, Integer>(UiColor.class);
+            values.putAll(overrides); values.put(role, color);
+            return new Palette(source, mode, preset, values);
+        }
+        public Palette withSource(ColorSource value, ColorMode tone) {
+            return new Palette(value, tone, preset, overrides);
+        }
+        @Override public boolean equals(Object other) {
+            return other instanceof Palette p && source == p.source && mode == p.mode && preset.equals(p.preset)
+                    && overrides.equals(p.overrides) && colors.equals(p.colors);
+        }
+        @Override public int hashCode() { return Objects.hash(source, mode, preset, overrides, colors); }
     }
     public enum Font { SANS, SERIF, MONO }
     public record Typography(Font font, float scale) {
@@ -65,36 +100,44 @@ public record ShellAppearance(Palette palette, Typography typography, Shape shap
         Objects.requireNonNull(palette); Objects.requireNonNull(typography);
         Objects.requireNonNull(shape); Objects.requireNonNull(backdrop);
         Objects.requireNonNull(composition); Objects.requireNonNull(motion);
-        Objects.requireNonNull(feedback); Objects.requireNonNull(resources);
+        Objects.requireNonNull(feedback); Objects.requireNonNull(resources); Objects.requireNonNull(controls);
     }
     public Backdrop panelBackdrop(String id) {
         var panel = composition.panel(id);
         return panel == null || panel.style().backdrop() == null ? backdrop : panel.style().backdrop();
     }
     public ShellAppearance withComposition(ShellComposition value) {
-        return new ShellAppearance(palette, typography, shape, backdrop, value, motion, feedback, resources);
+        return new ShellAppearance(palette, typography, shape, backdrop, value, motion, feedback, resources, controls);
     }
     public ShellAppearance withStyle(ShellAppearance value) {
         return new ShellAppearance(value.palette, value.typography, value.shape, backdrop,
-                composition, motion, value.feedback, resources);
+                composition, motion, value.feedback, resources, value.controls);
     }
     public ShellAppearance withPalette(Palette value) {
-        return new ShellAppearance(value, typography, shape, backdrop, composition, motion, feedback, resources);
+        return new ShellAppearance(value, typography, shape, backdrop, composition, motion, feedback, resources, controls);
     }
     public ShellAppearance withTypography(Typography value) {
-        return new ShellAppearance(palette, value, shape, backdrop, composition, motion, feedback, resources);
+        return new ShellAppearance(palette, value, shape, backdrop, composition, motion, feedback, resources, controls);
     }
     public ShellAppearance withShape(Shape value) {
-        return new ShellAppearance(palette, typography, value, backdrop, composition, motion, feedback, resources);
+        return new ShellAppearance(palette, typography, value, backdrop, composition, motion, feedback, resources, controls);
     }
     public ShellAppearance withBackdrop(Backdrop value) {
-        return new ShellAppearance(palette, typography, shape, value, composition, motion, feedback, resources);
+        return new ShellAppearance(palette, typography, shape, value, composition, motion, feedback, resources, controls);
     }
     public ShellAppearance withResources(ShellResources value) {
-        return new ShellAppearance(palette, typography, shape, backdrop, composition, motion, feedback, value);
+        return new ShellAppearance(palette, typography, shape, backdrop, composition, motion, feedback, value, controls);
+    }
+    public ShellAppearance withControls(ShellControls value) {
+        return new ShellAppearance(palette, typography, shape, backdrop, composition, motion, feedback, resources, value);
     }
     public static ShellAppearance defaults() { return preset("dark"); }
     public static ShellAppearance preset(String name) {
+        return new ShellAppearance(new Palette(ColorSource.FIXED, ColorMode.SYSTEM, name, Map.of()), new Typography(Font.SANS, 1),
+                new Shape(1, 1), Backdrop.defaults(), ShellComposition.defaults(), ShellMotion.defaults(),
+                Feedback.defaults(), ShellResources.defaults(), ShellControls.defaults());
+    }
+    private static Map<UiColor, Integer> presetColors(String name) {
         final int[] values = switch (name) {
             case "dark" -> new int[] {0xff090d14, 0xff111827, 0xff172033, 0xffe5e7eb,
                     0xff94a3b8, 0xff22d3ee, 0xfff43f5e, 0xfff59e0b, 0xff26344a, 0xffe5e7eb, 0};
@@ -105,10 +148,16 @@ public record ShellAppearance(Palette palette, Typography typography, Shape shap
             default -> throw new IllegalArgumentException("Unknown appearance preset: " + name);
         };
         final EnumMap<UiColor, Integer> colors = new EnumMap<>(UiColor.class);
-        for (UiColor role : UiColor.values()) colors.put(role, values[role.ordinal()]);
-        return new ShellAppearance(new Palette(colors), new Typography(Font.SANS, 1),
-                new Shape(1, 1), Backdrop.defaults(), ShellComposition.defaults(), ShellMotion.defaults(),
-                Feedback.defaults(), ShellResources.defaults());
+        UiColor[] roles = {UiColor.BACKGROUND, UiColor.PANEL, UiColor.SURFACE, UiColor.TEXT, UiColor.MUTED,
+                UiColor.ACCENT, UiColor.DANGER, UiColor.ATTENTION, UiColor.HOVER, UiColor.DESKTOP_TEXT, UiColor.TRANSPARENT};
+        for (int i = 0; i < roles.length; i++) colors.put(roles[i], values[i]);
+        colors.put(UiColor.SURFACE_LOW, colors.get(UiColor.PANEL));
+        colors.put(UiColor.SURFACE_HIGH, colors.get(UiColor.HOVER));
+        colors.put(UiColor.ON_ACCENT, name.equals("light") ? 0xffffffff : 0xff002d32);
+        colors.put(UiColor.ACCENT_CONTAINER, name.equals("light") ? 0xffb0ecef : 0xff12454c);
+        colors.put(UiColor.ON_ACCENT_CONTAINER, name.equals("light") ? 0xff002d32 : 0xffb0ecef);
+        colors.put(UiColor.OUTLINE, colors.get(UiColor.MUTED));
+        return colors;
     }
     static void range(float value, float min, float max, String name) {
         if (!Float.isFinite(value) || value < min || value > max) {

@@ -26,12 +26,11 @@ final class ShellAppearanceJson {
         final JSONObject root = new JSONObject(tokener);
         if (tokener.nextClean() != 0) throw invalid("", "trailing JSON content");
         ShellAppearanceSchema.validate(root);
-        final ShellAppearance base = ShellAppearance.preset(root.optString("preset", "dark"));
         final EnumMap<UiColor, Integer> colors = new EnumMap<>(UiColor.class);
-        colors.putAll(base.palette().colors());
         final JSONObject palette = object(root, "colors");
         for (var it = palette.keys(); it.hasNext();) {
             String key = it.next();
+            if (palette.isNull(key)) continue;
             colors.put(value(UiColor.class, key), (int) (0xff000000L | Long.parseLong(palette.getString(key).substring(1), 16)));
         }
         final JSONObject type = object(root, "typography"), shape = object(root, "shape");
@@ -48,7 +47,11 @@ final class ShellAppearanceJson {
         for (var keys = requestedAssets.keys(); keys.hasNext();) {
             String key = keys.next(); iconAssets.put(value(ShellResources.Icon.class, key), requestedAssets.getString(key));
         }
-        return new ShellAppearance(new ShellAppearance.Palette(colors),
+        final JSONObject colorSource = object(root, "palette");
+        return new ShellAppearance(new ShellAppearance.Palette(
+                value(ShellAppearance.ColorSource.class, colorSource.optString("source", "fixed")),
+                value(ShellAppearance.ColorMode.class, colorSource.optString("mode", "system")),
+                colorSource.optString("preset", root.optString("preset", "dark")), colors),
                 new ShellAppearance.Typography(value(ShellAppearance.Font.class, type.optString("font", "sans")), number(type, "scale", 1)),
                 new ShellAppearance.Shape(number(shape, "radiusScale", 1), number(shape, "borderDp", 1)),
                 backdrop(object(root, "backdrop")),
@@ -62,7 +65,8 @@ final class ShellAppearanceJson {
                         role(feedback, "focused", UiColor.HOVER), role(feedback, "disabled", UiColor.TRANSPARENT),
                         role(feedback, "outline", UiColor.ACCENT)), new ShellResources(icons,
                                 resourceRoot.optString("bundle", ""), iconAssets, resourceRoot.optString("font", ""), resourceRoot.optString("wallpaper", ""),
-                                ShaderWallpaperJson.parse(resourceRoot.optJSONObject("shader"))));
+                                ShaderWallpaperJson.parse(resourceRoot.optJSONObject("shader"))),
+                ShellControlsJson.parse(root.optJSONObject("controls")));
     }
 
     private static ShellComposition composition(JSONObject input) throws JSONException {
@@ -115,7 +119,8 @@ final class ShellAppearanceJson {
     static JSONObject encode(ShellAppearance value) throws JSONException {
         final JSONObject colors = new JSONObject();
         for (UiColor role : UiColor.values()) if (role != UiColor.TRANSPARENT) {
-            colors.put(name(role), String.format(Locale.ROOT, "#%06X", value.palette().color(role) & 0xffffff));
+            Integer color = value.palette().overrides().get(role);
+            colors.put(name(role), color == null ? JSONObject.NULL : String.format(Locale.ROOT, "#%06X", color & 0xffffff));
         }
         var m = value.motion(); var f = value.feedback(); var s = value.composition().start();
         JSONArray panels = new JSONArray(), sections = new JSONArray();
@@ -142,7 +147,10 @@ final class ShellAppearanceJson {
         for (var icon : value.resources().icons().entrySet()) icons.put(name(icon.getKey()), name(icon.getValue()));
         JSONObject assets = new JSONObject();
         for (var icon : value.resources().iconAssets().entrySet()) assets.put(name(icon.getKey()), icon.getValue());
-        return new JSONObject().put("version", 4).put("colors", colors)
+        return new JSONObject().put("version", 5).put("colors", colors)
+                .put("palette", new JSONObject().put("source", name(value.palette().source()))
+                        .put("mode", name(value.palette().mode())).put("preset", value.palette().preset()))
+                .put("controls", ShellControlsJson.encode(value.controls()))
                 .put("typography", new JSONObject().put("font", name(value.typography().font())).put("scale", Float.valueOf(value.typography().scale())))
                 .put("shape", new JSONObject().put("radiusScale", Float.valueOf(value.shape().radiusScale())).put("borderDp", Float.valueOf(value.shape().borderDp())))
                 .put("backdrop", encodeBackdrop(value.backdrop()))

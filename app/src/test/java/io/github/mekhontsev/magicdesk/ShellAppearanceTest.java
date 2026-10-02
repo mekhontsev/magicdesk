@@ -62,7 +62,7 @@ public final class ShellAppearanceTest {
 
     @Test public void panelBackdropsInheritOrOverrideWithoutFlatteningOnRoundTrip() throws Exception {
         var value = ShellAppearanceJson.parse("""
-                {"version":4,"backdrop":{"opacity":0.6,"blurRadiusDp":24},"composition":{"panels":[
+                {"version":5,"backdrop":{"opacity":0.6,"blurRadiusDp":24},"composition":{"panels":[
                   {"id":"inherited","components":[{"type":"start"}]},
                   {"id":"override","style":{"backdrop":{"opacity":0.15,"blurRadiusDp":64}},
                     "components":[{"type":"tasks"}]},
@@ -77,7 +77,7 @@ public final class ShellAppearanceTest {
         assertEquals(ShellAppearance.Backdrop.defaults(), value.panelBackdrop("opaque"));
 
         var encoded = ShellAppearanceJson.encode(value);
-        assertEquals(4, encoded.getInt("version"));
+        assertEquals(5, encoded.getInt("version"));
         assertEquals(.6, encoded.getJSONObject("backdrop").getDouble("opacity"), .000001);
         assertEquals(24, encoded.getJSONObject("backdrop").getInt("blurRadiusDp"));
         var panels = encoded.getJSONObject("composition").getJSONArray("panels");

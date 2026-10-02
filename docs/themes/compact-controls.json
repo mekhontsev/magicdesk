@@ -1,0 +1,13 @@
+{
+  "version": 5,
+  "preset": "light",
+  "controls": {
+    "action_button": {"radiusDp": 2, "paddingHorizontalDp": 8, "paddingVerticalDp": 4, "minHeightDp": 40, "textSizeSp": 13},
+    "panel_button": {"radiusDp": 0, "paddingHorizontalDp": 6, "paddingVerticalDp": 4},
+    "search_field": {"radiusDp": 2, "textSizeSp": 13},
+    "tab": {"radiusDp": 0, "textWeight": 600},
+    "switch": {"normal": {"fill": "surface", "content": "muted"}, "states": {"selected": {"fill": "accent_container", "content": "accent"}}},
+    "settings_row": {"radiusDp": 0, "minHeightDp": 48, "textSizeSp": 13},
+    "app_tile": {"radiusDp": 2, "textSizeSp": 11}
+  }
+}

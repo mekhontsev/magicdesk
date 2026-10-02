@@ -1517,7 +1517,7 @@ final class AutomationCommandCatalog {
                         openObjectProperty("Theme.").put("properties", new JSONObject()
                                 .put("id", stringProperty("Stable theme id."))
                                 .put("name", stringProperty("Display name."))
-                                .put("document", openObjectProperty("Resolved version 4 document for global or workspace preview.")))));
+                                .put("document", openObjectProperty("Resolved version 5 definition for global or workspace preview; system colors remain dynamic.")))));
                 break;
             case "appearance.get":
             case "appearance.preview":
@@ -1527,7 +1527,7 @@ final class AutomationCommandCatalog {
             case "appearance.preset":
             case "appearance.reset":
             case "appearance.import":
-                properties.put("document", openObjectProperty("Effective version 4 shell configuration."))
+                properties.put("document", openObjectProperty("Effective version 5 shell definition; system colors remain dynamic."))
                         .put("committed", openObjectProperty("Confirmed configuration, restored after preview cancellation or process restart."))
                         .put("workspaceKey", nullableStringProperty("Selected stable workspace identity; null means global defaults."))
                         .put("workspaceKeys", arrayProperty("Known workspace override or preview keys; not a list of live displays.", stringProperty("Stable workspace key.")))

@@ -220,6 +220,6 @@ public final class QuickControlsPresentationTest {
                     Fixture f = new Fixture();
                 """ + scenario + "}\n" + RuntimeSourceFixture.methods("SystemPanelController", "toggle"),
                 "ShellBounds", "ShellSurface", "ShellReservation", "ShellLayout", "ShellPanelPlacement",
-                "ShellPanel", "ShellComposition", "ShellAppearance", "UiColor", "ShellMotion", "ShellResources");
+                "ShellPanel", "ShellComposition", "ShellAppearance", "ShellControls", "UiColor", "ShellMotion", "ShellResources");
     }
 }

@@ -98,20 +98,7 @@ public final class DesktopUiFactory {
         UiAppearance.textStates(button, TEXT);
         button.setSingleLine(true);
         button.setEllipsize(TextUtils.TruncateAt.END);
-        final StateListDrawable background = new StateListDrawable();
-        background.addState(
-                new int[] {-android.R.attr.state_enabled},
-                rounded(PANEL, dp(10), MUTED));
-        background.addState(
-                new int[] {android.R.attr.state_pressed},
-                rounded(HOVER, dp(10), accentColor));
-        background.addState(
-                new int[] {android.R.attr.state_focused},
-                rounded(HOVER, dp(10), accentColor));
-        background.addState(
-                new int[0],
-                rounded(SURFACE, dp(10), accentColor));
-        button.setBackground(background);
+        UiAppearance.component(button, ShellControls.Role.ACTION_BUTTON, accentColor);
         return button;
     }
 
@@ -268,7 +255,7 @@ public final class DesktopUiFactory {
         UiAppearance.icon(button, drawableResId, TEXT);
         button.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         button.setPadding(dp(10), dp(10), dp(10), dp(10));
-        button.setBackground(flatButtonBackground(desktopDp(8, 6, compact)));
+        UiAppearance.component(button, ShellControls.Role.PANEL_BUTTON);
         button.setContentDescription(mContext.getString(descriptionResId));
         button.setTooltipText(mContext.getString(descriptionResId));
         return button;

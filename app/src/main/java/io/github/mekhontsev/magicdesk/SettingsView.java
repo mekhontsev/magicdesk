@@ -551,6 +551,7 @@ final class SettingsView {
         label.setText(labelResId);
         UiAppearance.text(label, UiColor.TEXT);
         label.setTextSize(14);
+        UiAppearance.componentText(label, ShellControls.Role.SETTINGS_ROW);
         row.addView(label, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
@@ -615,12 +616,14 @@ final class SettingsView {
         label.setText(labelResId);
         UiAppearance.text(label, UiColor.TEXT);
         label.setTextSize(14);
+        UiAppearance.componentText(label, ShellControls.Role.SETTINGS_ROW);
         final LinearLayout.LayoutParams labelParams =
                 new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
         labelParams.setMargins(dp(14), 0, dp(12), 0);
         final LinearLayout text = new LinearLayout(mActivity);
         text.setOrientation(LinearLayout.VERTICAL);
+        text.setDuplicateParentStateEnabled(true);
         text.setPadding(0, dp(10), 0, dp(10));
         text.addView(label);
         if (detail != null) { text.addView(detail); }
@@ -647,7 +650,7 @@ final class SettingsView {
     }
 
     private void applyPressedBackground(final View view) {
-        view.setBackground(mUi.flatButtonBackground(dp(4)));
+        UiAppearance.component(view, ShellControls.Role.SETTINGS_ROW);
     }
 
     private int dp(final int value) {

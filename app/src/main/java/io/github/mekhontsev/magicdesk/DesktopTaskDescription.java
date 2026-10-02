@@ -65,7 +65,7 @@ final class DesktopTaskDescription {
             TASKS.remove(activity);
             return;
         }
-        ShellAppearance.Palette palette = AppearanceStore.current(activity).palette();
+        ShellAppearance.Palette palette = AppearanceStore.resolved(activity).theme().palette();
         int primary = palette.color(UiColor.PANEL);
         int background = palette.color(UiColor.BACKGROUND);
         if (state.published != null && state.identity.equals(state.published.identity())

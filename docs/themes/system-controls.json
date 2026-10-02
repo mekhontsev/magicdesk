@@ -1,0 +1,32 @@
+{
+  "version": 5,
+  "palette": {"source": "system", "mode": "system"},
+  "motion": {"feedbackMs": 100},
+  "controls": {
+    "action_button": {
+      "shape": "capsule", "paddingHorizontalDp": 18, "paddingVerticalDp": 8,
+      "minHeightDp": 48, "textWeight": 600,
+      "normal": {"fill": "accent", "content": "on_accent"}
+    },
+    "panel_button": {
+      "radiusDp": 12,
+      "normal": {"fill": "transparent", "content": "text"},
+      "states": {"selected": {"fill": "accent_container", "content": "on_accent_container"}}
+    },
+    "search_field": {
+      "shape": "capsule", "paddingHorizontalDp": 16, "textSizeSp": 14,
+      "normal": {"fill": "surface_high", "content": "text"}
+    },
+    "tab": {
+      "shape": "capsule", "textWeight": 600,
+      "normal": {"fill": "transparent", "content": "text"},
+      "states": {"selected": {"fill": "accent_container", "content": "on_accent_container"}}
+    },
+    "switch": {
+      "normal": {"fill": "surface_high", "content": "outline"},
+      "states": {"selected": {"fill": "accent_container", "content": "accent"}}
+    },
+    "settings_row": {"radiusDp": 12, "minHeightDp": 56, "normal": {"fill": "transparent", "content": "text"}},
+    "app_tile": {"radiusDp": 12, "textWeight": 500, "normal": {"fill": "transparent", "content": "text"}}
+  }
+}

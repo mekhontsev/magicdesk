@@ -25,17 +25,19 @@ public final class UiAppearance {
 
     static void registerSpan(AppearanceTextSpan span) { SPANS.put(span, true); }
 
-    public static int color(UiColor role) { return AppearanceStore.current().palette().color(role); }
-    public static int color(Context context, UiColor role) { return AppearanceStore.current(context).palette().color(role); }
+    public static int color(UiColor role) { return color(null, role); }
+    public static int color(Context context, UiColor role) { return AppearanceStore.resolved(context).theme().palette().color(role); }
     static android.graphics.drawable.Drawable symbol(Context context, int resource, UiColor role) {
         final var drawable = new UiSymbolDrawable(context, resource, role);
         synchronized (SYMBOLS) { SYMBOLS.put(drawable, true); }
         return drawable;
     }
     public static void text(TextView view, UiColor role) {
+        binding(view).content = role;
         bind(view, Property.TEXT, (v, t) -> ((TextView) v).setTextColor(t.palette().color(role)));
     }
     public static void textStates(TextView view, UiColor enabled) {
+        binding(view).content = enabled;
         bind(view, Property.TEXT, (v, t) -> ((TextView) v).setTextColor(states(t, enabled)));
     }
     public static void hint(TextView view, UiColor role) {
@@ -68,6 +70,7 @@ public final class UiAppearance {
                 toggle.setTrackTintList(tint.withAlpha(90));
             } else ((android.widget.CompoundButton) v).setButtonTintList(tint);
         });
+        if (view instanceof android.widget.Switch) component(view, ShellControls.Role.SWITCH, role);
     }
     public static void progress(android.widget.ProgressBar view, UiColor role) {
         bind(view, Property.PROGRESS, (v, t) -> {
@@ -117,7 +120,7 @@ public final class UiAppearance {
         return new ColorStateList(new int[][] {new int[] {-android.R.attr.state_enabled}, new int[0]},
                 new int[] {theme.palette().color(UiColor.MUTED), theme.palette().color(role)});
     }
-    private static void bind(View view, Property property, Style style) {
+    private static Binding binding(View view) {
         Binding binding = (Binding) view.getTag(R.id.appearance_binding);
         if (binding == null) {
             binding = new Binding(view);
@@ -125,13 +128,27 @@ public final class UiAppearance {
             view.addOnAttachStateChangeListener(binding);
             BINDINGS.put(binding, true);
         }
+        return binding;
+    }
+    public static void component(View view, ShellControls.Role role) { component(view, role, UiColor.ACCENT); }
+    static void component(View view, ShellControls.Role role, UiColor accent) {
+        Binding binding = binding(view);
+        binding.control = new UiControlStyle(role, accent, false);
+        binding.refresh();
+    }
+    static void componentText(TextView view, ShellControls.Role role) {
+        Binding binding = binding(view);
+        binding.control = new UiControlStyle(role, UiColor.ACCENT, true);
+        view.setDuplicateParentStateEnabled(true);
+        binding.refresh();
+    }
+    private static void bind(View view, Property property, Style style) {
+        Binding binding = binding(view);
         binding.styles.put(property, style);
         if (view instanceof android.widget.CompoundButton button && !binding.styles.containsKey(Property.BUTTON)) {
             button(button, UiColor.ACCENT);
         }
-        var appearance = binding.source.resolve();
-        style.apply(view, appearance.theme());
-        binding.applyTypography(appearance.theme(), appearance.assets());
+        binding.refresh();
     }
     static void refresh() {
         DesktopTaskDescription.refresh();
@@ -177,6 +194,9 @@ public final class UiAppearance {
         boolean captured;
         ShellAppearance.Typography appliedTypography;
         Typeface appliedFont;
+        ShellControls.Style appliedControl;
+        UiControlStyle control;
+        UiColor content = UiColor.TEXT;
         Binding(View view) { this.view = view; source = new AppearanceScopeSource(view.getContext()); }
         public void onViewAttachedToWindow(View view) { refresh(); }
         public void onViewDetachedFromWindow(View view) {}
@@ -184,6 +204,7 @@ public final class UiAppearance {
             var appearance = source.resolve();
             final ShellAppearance theme = appearance.theme();
             for (Style style : styles.values()) style.apply(view, theme);
+            if (control != null) control.apply(view, theme, content);
             applyTypography(theme, appearance.assets());
             view.invalidate();
         }
@@ -192,17 +213,23 @@ public final class UiAppearance {
                 if (!captured) {
                     baseSize = text.getTextSize(); baseFace = text.getTypeface(); captured = true;
                 }
-                Typeface font = assets.font(baseFace == null ? Typeface.NORMAL : baseFace.getStyle());
-                if (theme.typography().equals(appliedTypography) && font == appliedFont) return;
+                ShellControls.Style style = control == null ? null : theme.controls().style(control.role);
+                int weight = style == null || style.textWeight() == null ? (baseFace == null ? 400 : baseFace.getWeight()) : style.textWeight();
+                Typeface font = assets.font(weight >= 600 ? Typeface.BOLD : Typeface.NORMAL);
+                if (theme.typography().equals(appliedTypography) && font == appliedFont && java.util.Objects.equals(style, appliedControl)) return;
                 appliedTypography = theme.typography();
                 appliedFont = font;
+                appliedControl = style;
                 final String family = switch (theme.typography().font()) {
                     case SANS -> "sans-serif"; case SERIF -> "serif"; case MONO -> "monospace";
                 };
-                text.setTypeface(font != null ? font : theme.typography().font() == ShellAppearance.Font.SANS ? baseFace
-                        : Typeface.create(family, baseFace == null ? Typeface.NORMAL : baseFace.getStyle()));
+                Typeface face = font != null ? font : theme.typography().font() == ShellAppearance.Font.SANS ? baseFace
+                        : Typeface.create(family, baseFace == null ? Typeface.NORMAL : baseFace.getStyle());
+                text.setTypeface(style != null && style.textWeight() != null ? Typeface.create(face, weight, baseFace != null && baseFace.isItalic()) : face);
                 if (text.getAutoSizeTextType() == TextView.AUTO_SIZE_TEXT_TYPE_NONE) {
-                    text.setTextSize(TypedValue.COMPLEX_UNIT_PX, baseSize * theme.typography().scale());
+                    float size = style == null || style.textSizeSp() == null ? baseSize : TypedValue.applyDimension(
+                            TypedValue.COMPLEX_UNIT_SP, style.textSizeSp(), text.getResources().getDisplayMetrics());
+                    text.setTextSize(TypedValue.COMPLEX_UNIT_PX, size * theme.typography().scale());
                 }
             }
         }

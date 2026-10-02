@@ -6,6 +6,6 @@ import android.content.Context;
 final class AppearanceScopeSource {
     private final java.lang.ref.WeakReference<Context> mContext;
     AppearanceScopeSource(Context context) { mContext = new java.lang.ref.WeakReference<>(context); }
-    ShellAppearance current() { return AppearanceStore.current(mContext.get()); }
+    ShellAppearance current() { return resolve().theme(); }
     AppearanceStore.ResolvedAppearance resolve() { return AppearanceStore.resolved(mContext.get()); }
 }

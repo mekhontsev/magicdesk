@@ -46,4 +46,15 @@
     <string name="appearance_import">Импорт</string>
     <string name="appearance_export">Экспорт</string>
     <string name="appearance_reset">Сбросить</string>
+    <string name="appearance_palette_source">Источник палитры</string>
+    <string name="appearance_palette_fixed">Цвета темы</string>
+    <string name="appearance_palette_system">Цвета Android</string>
+    <string name="appearance_palette_mode">Тон системной палитры</string>
+    <string name="appearance_palette_follow">Как в Android</string>
+    <string name="appearance_color_surface_low">Нижняя поверхность</string>
+    <string name="appearance_color_surface_high">Верхняя поверхность</string>
+    <string name="appearance_color_on_accent">На акценте</string>
+    <string name="appearance_color_accent_container">Акцентный контейнер</string>
+    <string name="appearance_color_on_accent_container">На акцентном контейнере</string>
+    <string name="appearance_color_outline">Контур</string>
 </resources>

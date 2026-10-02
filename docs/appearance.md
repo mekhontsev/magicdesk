@@ -4,7 +4,7 @@
 tools without starting Desktop or acquiring display input. Choose **Global
 defaults**, or **Current workspace** when the host supplies a stable workspace
 identity. **Use global defaults** removes that workspace's override. Dark, Light
-and Contrast change colors, typography, shapes and feedback while retaining
+and Contrast change colors, typography, shapes, control styles and feedback while retaining
 backdrops, panel geometry, composition, resources and motion.
 
 **Choose theme** previews a complete appearance for the selected scope, including
@@ -66,7 +66,7 @@ independently of shell themes; its help panel uses the normal dialog palette.
 ## Ownership And Scope
 
 `ShellAppearance` is an immutable density-independent model: semantic palette,
-typography, shape, backdrop, composition, motion, feedback and resources.
+typography, shape, semantic control styles, backdrop, composition, motion, feedback and resources.
 `AppearanceStore` owns global defaults and workspace patches in app-private preferences.
 `WorkspaceAppearance` resolves patches over global defaults. Stable profile or
 workspace keys survive output changes; transient display IDs and live workspace
@@ -76,7 +76,9 @@ their host explicitly supplies a workspace binding.
 Global documents inherit omitted fields from the named built-in `preset`
 (default `dark`). A workspace patch inherits omitted fields from the global
 document, not from its previous patch, and does not accept `preset`. Objects merge
-recursively; arrays replace whole lists. Overriding `composition.panels` owns the
+recursively; arrays replace whole lists. A `null` patch value removes a known field,
+restoring its built-in default rather than its global override. Omission inherits.
+Overriding `composition.panels` owns the
 complete panel list, while overriding `typography.scale` still inherits the global
 font. Likewise, a workspace edit to `backdrop.opacity` leaves `blurRadiusDp`
 inherited, and a blur-radius edit leaves opacity inherited. Panel backdrop edits
@@ -99,7 +101,7 @@ focus or input authority. Application task-area topology remains unchanged.
 ## Document
 
 Documents and workspace patches are at most 32 KiB with bounded nesting. The
-current document version is **4**. Unknown fields, invalid types, duplicate
+current document version is **5**. Unknown fields, invalid types, duplicate
 identities and out-of-range values are rejected before the appearance changes.
 The authoritative schema is available through **Export JSON Schema**,
 `appearance.schema`, and `magicdesk://appearance/schema`. Errors identify
@@ -107,7 +109,7 @@ JSON-pointer paths; typed model checks also enforce cross-panel uniqueness.
 
 ```json
 {
-  "version": 4,
+  "version": 5,
   "preset": "dark",
   "colors": { "accent": "#22D3EE" },
   "backdrop": { "opacity": 0.9, "blurRadiusDp": 16 },
@@ -176,6 +178,71 @@ captured screenshots. Availability changes update the presentation without
 restarting Desktop or acquiring new services. Blur does
 not add a platform, privilege, HOME or input prerequisite to Appearance.
 
+## Palette Sources
+
+`palette.source` is `fixed` (default) or `system`. Fixed palettes use
+`palette.preset` (`dark`, `light`, `contrast`); a root `preset` supplies its default.
+System palettes use public Android 14+ semantic color resources.
+`palette.mode` selects `light`, `dark`, or `system` (default, follows Android).
+The mode only affects system palettes and never changes Android's theme.
+`colors` overrides individual roles for either source; a `null` color uses the
+source's value. Export writes source settings and explicit overrides, not the
+currently resolved wallpaper-derived colors. Complete exports explicitly reset
+unspecified overrides, so importing a theme into a workspace cannot retain colors
+or control metrics from the previous theme.
+
+Roles include `background`, `panel`, `surface`, `surface_low`, `surface_high`,
+`text`, `muted`, `accent`, `on_accent`, `accent_container`, `on_accent_container`,
+`outline`, `danger`, `attention`, `hover`, and `desktop_text`. `transparent` is a
+paint role with constant zero alpha, not an editable color. Paired content roles
+allow filled buttons without assuming that the ordinary text color contrasts
+with the accent. Fixed colors use `#RRGGBB`; paint state layers provide alpha.
+
+`SystemAppearancePalette` resolves and caches presentation snapshots separately
+from `AppearanceStore` definitions. Android configuration callbacks invalidate
+that cache; no palette polling, privilege request, theme persistence or preview
+revision change is involved. Unused system palettes are not read. The same
+resolved palette reaches Views, drawables and MagicDesk task descriptions.
+
+## Control Styles
+
+`controls` styles semantic roles: `action_button`, `panel_button`, `search_field`,
+`tab`, `switch`, `settings_row`, `app_tile`. These are not widget IDs, launch
+commands or panel components. They change presentation without replacing actions,
+Views, text selections, application icons, focus or scroll position.
+
+Each role supports `shape` (`rounded` or `capsule`), `radiusDp` (0-48), `borderDp`
+(0-4), `paddingHorizontalDp` (0-32), `paddingVerticalDp` (0-24), `minHeightDp`
+(0-96), `textSizeSp` (8-32), and `textWeight` (100-900). Missing/null metrics
+retain the host baseline. Global typography scale and rounding scale still apply;
+capsules follow control bounds. Layout constraints remain owned by the host.
+Container labels receive the same role explicitly; application artwork is not
+tinted. Autosized labels retain their fit-to-container policy.
+Without an explicit paint, content keeps the host's semantic color, including
+live status indicators such as charging. Explicit paints define their own paired
+content color.
+
+`normal` and `states` (`hover`, `pressed`, `selected`, `focused`, `disabled`)
+contain paints: `fill`, `content`, `outline`, `layer` are palette roles;
+`layerOpacity` and `opacity` are 0-1. A paint defaults to transparent fill/outline,
+ordinary text content/layer, no state layer, full opacity. States are complete
+paints, not partial changes to `normal`. Omitted states use shared feedback;
+when `normal` is customized they derive hover/press/selection layers from its
+content color and reduce disabled opacity. Focus retains a visible outline.
+Switches keep the native Android widget and behavior: fill tints its track,
+content tints its thumb; `selected` maps to checked. Radius/border do not replace
+the platform switch's track and thumb geometry.
+
+`UiControlStyle` owns retained state drawables and captures baseline metrics once.
+`UiAppearance` applies scoped paints and typography to existing Views on publication
+and attachment. Pointer state changes select a prepared drawable; they do not
+parse JSON or rebuild the palette. Geometry is identical across visual states.
+
+Examples: [System controls](themes/system-controls.json) uses Android colors,
+filled action buttons, capsule search/tabs and state layers;
+[Compact controls](themes/compact-controls.json) uses square, compact native controls.
+Both use the same framework and default shell composition.
+
 ## Panels And Components
 
 `composition.panels` contains 1-4 panels with unique stable `id` values of 1-32
@@ -188,7 +255,10 @@ Panel style uses `length` (`fill`, `content`), `alignment` (`start`, `center`,
 `thicknessDp` (0 for automatic, otherwise 40-160), `paddingDp` (0-16),
 `radiusDp` (0-32), optional `backdrop`, and `reserveSpace`. Automatic thickness
 uses the native host's normal sizing. All lengths are density-independent and
-constrained to the available viewport. Start/end alignment follows the panel's
+constrained to the available viewport. Thickness sets the panel's cross-axis
+extent, not a uniform content scale; automatic task buttons retain their host
+width, and icons fit their available bounds. Control styles do not replace this
+panel geometry. Start/end alignment follows the panel's
 long axis. Reserving panels contribute edge intervals; rectangular window
 consumers conservatively avoid an edge band. Non-reserving panels overlay the
 workspace. These reservations do not alter Android task-area ownership.
@@ -225,7 +295,7 @@ assets therefore references an already-installed bundle.
 
 ```json
 {
-  "version": 4,
+  "version": 5,
   "resources": {
     "iconAssets": { "files": "icons/files.png" },
     "font": "fonts/interface.ttf",
@@ -293,7 +363,7 @@ workspace that inherits a global shader. Omitting it preserves inheritance.
 
 ```json
 {
-  "version": 4,
+  "version": 5,
   "resources": {
     "shader": {
       "fps": 30,

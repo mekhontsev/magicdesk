@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "preset": "dark",
   "colors": {
     "background": "#141816", "panel": "#222824", "surface": "#343E37",

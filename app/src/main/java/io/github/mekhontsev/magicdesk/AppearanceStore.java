@@ -30,6 +30,7 @@ public final class AppearanceStore {
 
     static synchronized void initialize(Context context) {
         if (sPreferences != null) return;
+        SystemAppearancePalette.initialize(context, AppearanceStore::changed);
         sPreferences = context.getSharedPreferences("shell-appearance", Context.MODE_PRIVATE);
         WorkspaceAppearance loaded = WorkspaceAppearance.defaults();
         try { loaded = WorkspaceAppearance.restore(sPreferences.getString("document", "{}"), "{}"); }
@@ -71,7 +72,7 @@ public final class AppearanceStore {
         String scope = AppearanceScopeBindings.find(context);
         Resolved resolved = sResolved;
         ShellAppearance theme = scope == null ? resolved.state().current() : resolved.state().current(scope);
-        return new ResolvedAppearance(theme, resolved.assets(theme));
+        return new ResolvedAppearance(SystemAppearancePalette.resolve(theme), resolved.assets(theme));
     }
     /** Already-decoded, immutable resources for the same atomically published scoped appearance. */
     public static ThemeAssets.Prepared assets(Context context) { return resolved(context).assets(); }

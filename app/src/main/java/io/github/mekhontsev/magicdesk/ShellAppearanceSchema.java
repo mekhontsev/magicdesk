@@ -11,12 +11,13 @@ final class ShellAppearanceSchema {
 
     static JSONObject document() throws JSONException { return new JSONObject(DOCUMENT.toString()); }
     static void validate(JSONObject value) throws JSONException { validate(DOCUMENT, value, ""); }
+    static void validatePatch(JSONObject value) throws JSONException { validate(DOCUMENT, value, "", true); }
 
     private static JSONObject build() {
         try {
             JSONObject colors = new JSONObject();
             for (UiColor role : UiColor.values()) if (role != UiColor.TRANSPARENT) {
-                colors.put(name(role), type("string").put("pattern", "^#[0-9a-fA-F]{6}$"));
+                colors.put(name(role), nullable(type("string").put("pattern", "^#[0-9a-fA-F]{6}$")));
             }
             JSONObject feedback = new JSONObject();
             for (String state : new String[] {"normal", "hover", "pressed", "selected", "focused", "disabled", "outline"}) {
@@ -51,8 +52,11 @@ final class ShellAppearanceSchema {
                     .put("components", type("array").put("items", component).put("minItems", 1).put("maxItems", 24)))
                     .put("required", new JSONArray().put("id").put("components"));
             return object(new JSONObject()
-                    .put("version", type("integer").put("const", 4))
+                    .put("version", type("integer").put("const", 5))
                     .put("preset", strings("dark", "light", "contrast"))
+                    .put("palette", object(new JSONObject().put("source", enumeration(ShellAppearance.ColorSource.values()))
+                            .put("mode", enumeration(ShellAppearance.ColorMode.values())).put("preset", strings("dark", "light", "contrast"))))
+                    .put("controls", ShellControlsJson.schema())
                     .put("colors", object(colors))
                     .put("typography", object(new JSONObject().put("font", enumeration(ShellAppearance.Font.values()))
                             .put("scale", number(false, .8, 1.3))))
@@ -84,6 +88,9 @@ final class ShellAppearanceSchema {
     }
 
     static JSONObject type(String value) throws JSONException { return new JSONObject().put("type", value); }
+    static JSONObject nullable(JSONObject value) throws JSONException {
+        return new JSONObject().put("oneOf", new JSONArray().put(type("null")).put(value));
+    }
     private static JSONObject backdrop() throws JSONException {
         return object(new JSONObject().put("opacity", number(false, .15, 1).put("default", 1))
                 .put("blurRadiusDp", number(true, 0, 64).put("default", 0)));
@@ -101,7 +108,7 @@ final class ShellAppearanceSchema {
     private static JSONObject strings(String... values) throws JSONException {
         return type("string").put("enum", new JSONArray(java.util.List.of(values)));
     }
-    private static JSONObject enumeration(Enum<?>[] values) throws JSONException {
+    static JSONObject enumeration(Enum<?>[] values) throws JSONException {
         return strings(java.util.Arrays.stream(values).map(ShellAppearanceSchema::name).toArray(String[]::new));
     }
     static String name(Enum<?> value) { return value.name().toLowerCase(Locale.ROOT); }
@@ -110,13 +117,17 @@ final class ShellAppearanceSchema {
     }
 
     private static void validate(JSONObject rule, Object value, String path) throws JSONException {
+        validate(rule, value, path, false);
+    }
+    private static void validate(JSONObject rule, Object value, String path, boolean patch) throws JSONException {
         if (rule.has("oneOf")) {
             JSONArray choices = rule.getJSONArray("oneOf");
+            IllegalArgumentException last = null;
             for (int i = 0; i < choices.length(); i++) {
-                try { validate(choices.getJSONObject(i), value, path); return; }
-                catch (IllegalArgumentException ignored) { }
+                try { validate(choices.getJSONObject(i), value, path, patch); return; }
+                catch (IllegalArgumentException error) { last = error; }
             }
-            throw invalid(path, "value does not match any allowed alternative: " + choices);
+            throw last == null ? invalid(path, "no allowed alternative") : last;
         }
         String type = rule.getString("type");
         boolean correct = switch (type) {
@@ -153,10 +164,10 @@ final class ShellAppearanceSchema {
                 String key = keys.next();
                 String child = path + "/" + key.replace("~", "~0").replace("/", "~1");
                 if (!fields.has(key)) throw invalid(child, "unknown field; allowed: " + fields.names());
-                validate(fields.getJSONObject(key), object.get(key), child);
+                if (!patch || object.get(key) != JSONObject.NULL) validate(fields.getJSONObject(key), object.get(key), child, patch);
             }
             JSONArray required = rule.optJSONArray("required");
-            if (required != null) for (int i = 0; i < required.length(); i++) {
+            if (!patch && required != null) for (int i = 0; i < required.length(); i++) {
                 String key = required.getString(i);
                 if (!object.has(key)) throw invalid(path + "/" + key, "required field");
             }

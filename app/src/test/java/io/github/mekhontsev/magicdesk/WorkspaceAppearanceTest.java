@@ -184,7 +184,7 @@ public final class WorkspaceAppearanceTest {
     @Test public void validatesEveryPatchBeforeAcceptingIt() throws Exception {
         var store = WorkspaceAppearance.defaults().apply(WORK, ACCENT);
         for (String patch : new String[] {null, "[]", "{} trailing", "{\"preset\":\"light\"}",
-                "{\"version\":2}", "{\"command\":\"id\"}", "{\"colors\":{\"text\":null}}",
+                "{\"version\":2}", "{\"command\":\"id\"}", "{\"colors\":{\"bogus\":null}}",
                 "{\"colors\":{\"bogus\":\"#123456\"}}", "{\"shape\":{\"radiusScale\":3}}",
                 "{\"motion\":{\"reduced\":\"true\"}}", "{\"typography\":{\"scale\":\"1.2\"}}",
                 "{\"composition\":{\"panels\":[{\"id\":\"main\"}]}}",

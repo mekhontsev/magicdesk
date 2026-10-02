@@ -152,10 +152,7 @@ final class StartMenuContent {
             return false;
         });
         mSearch.setPadding(dp(12), dp(8), dp(12), dp(8));
-        mSearch.setBackground(mUi.rounded(
-                UiColor.SURFACE,
-                dp(8),
-                UiColor.SURFACE));
+        UiAppearance.component(mSearch, ShellControls.Role.SEARCH_FIELD);
         mSearch.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(
@@ -519,6 +516,8 @@ final class StartMenuContent {
                 tabSelected(mode)
                         ? UiColor.ACCENT
                         : UiColor.SURFACE);
+        UiAppearance.component(button, ShellControls.Role.TAB);
+        button.setSelected(tabSelected(mode));
         button.setTextSize(11);
         button.setMinWidth(0);
         button.setMinimumWidth(0);
@@ -591,17 +590,13 @@ final class StartMenuContent {
                 || mode == MENU_CAPTURE;
     }
 
-    private StateListDrawable entryBackground(final int radius) {
-        return mUi.flatButtonBackground(dp(radius));
-    }
-
     private View createAppTile(final StartMenuEntry application) {
         final AppItem app = application.app;
         final LinearLayout tile = new LinearLayout(mActivity);
         tile.setOrientation(LinearLayout.VERTICAL);
         tile.setGravity(Gravity.CENTER);
         tile.setPadding(dp(6), dp(5), dp(6), dp(5));
-        tile.setBackground(entryBackground(12));
+        UiAppearance.component(tile, ShellControls.Role.APP_TILE);
         tile.setClickable(true);
         tile.setFocusable(true);
         tile.setOnClickListener(view -> mHost.open(application));
@@ -625,6 +620,7 @@ final class StartMenuContent {
         tile.setContentDescription(application.label + ", " + application.detail);
         UiAppearance.text(label, UiColor.TEXT);
         label.setTextSize(11);
+        UiAppearance.componentText(label, ShellControls.Role.APP_TILE);
         label.setGravity(Gravity.CENTER);
         label.setMaxLines(1);
         label.setEllipsize(TextUtils.TruncateAt.END);
@@ -776,7 +772,7 @@ final class StartMenuContent {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(8), dp(5), dp(8), dp(5));
-        row.setBackground(entryBackground(7));
+        UiAppearance.component(row, ShellControls.Role.APP_TILE);
         row.setSelected(selected);
         row.setClickable(true);
         row.setFocusable(true);
@@ -823,6 +819,8 @@ final class StartMenuContent {
         name.setText(result.label);
         UiAppearance.text(name, UiColor.TEXT);
         name.setTextSize(14);
+        labels.setDuplicateParentStateEnabled(true);
+        UiAppearance.componentText(name, ShellControls.Role.APP_TILE);
         name.setSingleLine(true);
         name.setEllipsize(TextUtils.TruncateAt.END);
         final TextView detail = new TextView(mActivity);

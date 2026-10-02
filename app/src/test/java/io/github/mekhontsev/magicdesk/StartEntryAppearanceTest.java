@@ -42,15 +42,16 @@ public final class StartEntryAppearanceTest {
                 }
                 """ + RuntimeSourceFixture.nestedClass("UiFeedbackDrawable", "UiFeedbackDrawable")
                         .replace("final class UiFeedbackDrawable", "static final class UiFeedbackDrawable"),
-                "ShellAppearance", "ShellComposition", "ShellPanel", "ShellMotion", "ShellResources", "UiColor");
+                "ShellAppearance", "ShellControls", "ShellComposition", "ShellPanel", "ShellMotion", "ShellResources", "UiColor");
     }
     @Test public void gridAndSearchShareAppearanceIndependentOfLaunchBackend() throws Exception {
         final String tile = RuntimeSourceFixture.methods("StartMenuContent", "createAppTile");
-        assertTrue(tile.contains("tile.setBackground(entryBackground(12))"));
+        assertTrue(tile.contains("UiAppearance.component(tile, ShellControls.Role.APP_TILE)"));
         assertFalse(tile.contains("canFloat"));
         final String row = RuntimeSourceFixture.methods("StartMenuContent", "createSearchRow");
-        assertTrue(row.contains("row.setBackground(entryBackground(7))"));
+        assertTrue(row.contains("UiAppearance.component(row, ShellControls.Role.APP_TILE)"));
         assertTrue(row.contains("row.setSelected(selected)"));
-        assertTrue(RuntimeSourceFixture.methods("StartMenuContent", "entryBackground").contains("mUi.flatButtonBackground"));
+        assertTrue(tile.contains("UiAppearance.componentText(label, ShellControls.Role.APP_TILE)"));
+        assertTrue(row.contains("UiAppearance.componentText(name, ShellControls.Role.APP_TILE)"));
     }
 }

@@ -46,4 +46,15 @@
     <string name="appearance_import">导入</string>
     <string name="appearance_export">导出</string>
     <string name="appearance_reset">重置</string>
+    <string name="appearance_palette_source">调色板来源</string>
+    <string name="appearance_palette_fixed">主题颜色</string>
+    <string name="appearance_palette_system">Android 颜色</string>
+    <string name="appearance_palette_mode">系统调色板明暗</string>
+    <string name="appearance_palette_follow">跟随 Android</string>
+    <string name="appearance_color_surface_low">低层表面</string>
+    <string name="appearance_color_surface_high">高层表面</string>
+    <string name="appearance_color_on_accent">强调色上的颜色</string>
+    <string name="appearance_color_accent_container">强调色容器</string>
+    <string name="appearance_color_on_accent_container">强调色容器上的颜色</string>
+    <string name="appearance_color_outline">轮廓</string>
 </resources>

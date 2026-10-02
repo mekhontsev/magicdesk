@@ -85,21 +85,37 @@ final class AppearanceSettings implements AutoCloseable {
             presets.addView(button, new LinearLayout.LayoutParams(0, mUi.dp(48), 1));
         }
         page.addView(presets);
+        choice(page, R.string.appearance_palette_source, new int[] {R.string.appearance_palette_fixed, R.string.appearance_palette_system},
+                () -> current().palette().source().ordinal(), value -> {
+                    var t = current(); apply(t.withPalette(t.palette().withSource(ShellAppearance.ColorSource.values()[value], t.palette().mode())));
+                });
+        Spinner paletteMode = choice(page, R.string.appearance_palette_mode, new int[] {R.string.appearance_light, R.string.appearance_dark, R.string.appearance_palette_follow},
+                () -> current().palette().mode().ordinal(), value -> {
+                    var t = current(); apply(t.withPalette(t.palette().withSource(t.palette().source(), ShellAppearance.ColorMode.values()[value])));
+                });
+        mRefreshers.add(() -> paletteMode.setEnabled(current().palette().source() == ShellAppearance.ColorSource.SYSTEM));
         final LinearLayout swatches = new LinearLayout(mActivity);
         for (UiColor role : UiColor.values()) {
             if (role == UiColor.TRANSPARENT) continue;
             final View swatch = new View(mActivity);
             swatch.setBackground(mUi.rounded(role, mUi.dp(2), UiColor.MUTED));
-            mRefreshers.add(() -> swatch.setBackgroundTintList(android.content.res.ColorStateList.valueOf(current().palette().color(role))));
+            mRefreshers.add(() -> {
+                var palette = SystemAppearancePalette.resolve(current()).palette();
+                var paint = (android.graphics.drawable.GradientDrawable) swatch.getBackground();
+                paint.setColor(palette.color(role));
+                paint.setStroke(mUi.dp(1), palette.color(UiColor.OUTLINE));
+            });
             swatch.setContentDescription(mActivity.getString(colorLabel(role)));
             swatch.setTooltipText(swatch.getContentDescription());
             swatch.setFocusable(true);
             swatch.setOnClickListener(v -> editColor(role));
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, mUi.dp(40), 1);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(mUi.dp(44), mUi.dp(44));
             p.setMargins(mUi.dp(2), mUi.dp(4), mUi.dp(2), mUi.dp(4));
             swatches.addView(swatch, p);
         }
-        page.addView(swatches);
+        final android.widget.HorizontalScrollView colorScroll = new android.widget.HorizontalScrollView(mActivity);
+        colorScroll.addView(swatches);
+        page.addView(colorScroll);
         choice(page, R.string.appearance_font, new int[] {R.string.appearance_sans, R.string.appearance_serif, R.string.appearance_mono},
                 () -> current().typography().font().ordinal(), index -> {
                     var t = current();
@@ -284,6 +300,12 @@ final class AppearanceSettings implements AutoCloseable {
             case HOVER -> R.string.appearance_color_hover;
             case DESKTOP_TEXT -> R.string.appearance_color_desktop_text;
             case TRANSPARENT -> R.string.appearance_color_transparent;
+            case SURFACE_LOW -> R.string.appearance_color_surface_low;
+            case SURFACE_HIGH -> R.string.appearance_color_surface_high;
+            case ON_ACCENT -> R.string.appearance_color_on_accent;
+            case ACCENT_CONTAINER -> R.string.appearance_color_accent_container;
+            case ON_ACCENT_CONTAINER -> R.string.appearance_color_on_accent_container;
+            case OUTLINE -> R.string.appearance_color_outline;
         };
     }
 
@@ -292,7 +314,7 @@ final class AppearanceSettings implements AutoCloseable {
         final EditText text = new EditText(mActivity);
         text.setSingleLine(true);
         text.setFilters(new android.text.InputFilter[] {new android.text.InputFilter.LengthFilter(7)});
-        text.setText(String.format(Locale.ROOT, "#%06X", current().palette().color(role) & 0xffffff));
+        text.setText(String.format(Locale.ROOT, "#%06X", SystemAppearancePalette.resolve(current()).palette().color(role) & 0xffffff));
         UiAppearance.text(text, UiColor.TEXT);
         final AlertDialog dialog = UiDialogs.themedBuilder(mActivity).setTitle(colorLabel(role)).setView(text)
                 .setPositiveButton(android.R.string.ok, null).setNegativeButton(android.R.string.cancel, null).create();
@@ -300,10 +322,7 @@ final class AppearanceSettings implements AutoCloseable {
             if (!isCurrent(target)) { text.setError(mActivity.getString(R.string.appearance_changed)); return; }
             if (!text.getText().toString().matches("#[0-9a-fA-F]{6}")) { text.setError("#RRGGBB"); return; }
             var t = current();
-            EnumMap<UiColor, Integer> colors = new EnumMap<>(UiColor.class);
-            colors.putAll(t.palette().colors());
-            colors.put(role, android.graphics.Color.parseColor(text.getText().toString()));
-            apply(t.withPalette(new ShellAppearance.Palette(colors)));
+            apply(t.withPalette(t.palette().withColor(role, android.graphics.Color.parseColor(text.getText().toString()))));
             dialog.dismiss();
         }));
         showChild(dialog);
@@ -736,6 +755,10 @@ final class AppearanceSettings implements AutoCloseable {
     }
     private static void mergeChanges(org.json.JSONObject patch, org.json.JSONObject before, org.json.JSONObject after)
             throws org.json.JSONException {
+        for (var keys = before.keys(); keys.hasNext();) {
+            String key = keys.next();
+            if (!after.has(key)) patch.put(key, org.json.JSONObject.NULL);
+        }
         for (var keys = after.keys(); keys.hasNext();) {
             String key = keys.next();
             Object previous = before.opt(key), next = after.get(key);

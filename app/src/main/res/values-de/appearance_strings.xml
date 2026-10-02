@@ -46,4 +46,15 @@
     <string name="appearance_import">Importieren</string>
     <string name="appearance_export">Exportieren</string>
     <string name="appearance_reset">Zurücksetzen</string>
+    <string name="appearance_palette_source">Palettenquelle</string>
+    <string name="appearance_palette_fixed">Designfarben</string>
+    <string name="appearance_palette_system">Android-Farben</string>
+    <string name="appearance_palette_mode">Ton der Systempalette</string>
+    <string name="appearance_palette_follow">Wie Android</string>
+    <string name="appearance_color_surface_low">Niedrige Fläche</string>
+    <string name="appearance_color_surface_high">Hohe Fläche</string>
+    <string name="appearance_color_on_accent">Auf Akzent</string>
+    <string name="appearance_color_accent_container">Akzentfläche</string>
+    <string name="appearance_color_on_accent_container">Auf Akzentfläche</string>
+    <string name="appearance_color_outline">Umriss</string>
 </resources>

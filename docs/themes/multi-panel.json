@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "preset": "dark",
   "colors": { "panel": "#172624", "accent": "#8BE8C8" },
   "composition": {

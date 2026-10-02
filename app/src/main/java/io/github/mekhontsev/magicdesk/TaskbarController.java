@@ -159,7 +159,7 @@ final class TaskbarController {
                 R.string.action_start,
                 UiColor.ACCENT);
         start.setTextSize(14);
-        start.setBackground(mUi.flatButtonBackground(desktopDp(8, 6)));
+        UiAppearance.component(start, ShellControls.Role.PANEL_BUTTON);
         start.setPadding(mUi.dp(4), 0, mUi.dp(4), 0);
         start.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         start.setOnClickListener(view -> mActivity.toggleStartMenu());
@@ -245,7 +245,7 @@ final class TaskbarController {
         mKeyboardLayout.setGravity(Gravity.CENTER);
         mKeyboardLayout.setClickable(true);
         mKeyboardLayout.setFocusable(true);
-        mKeyboardLayout.setBackground(mUi.flatButtonBackground(desktopDp(8, 6)));
+        UiAppearance.component(mKeyboardLayout, ShellControls.Role.PANEL_BUTTON);
         mKeyboardLayout.setOnClickListener(mInputMethodMenu::toggle);
         mKeyboardLayout.setEnabled(
                 ShellAccess.isReady());
@@ -293,7 +293,7 @@ final class TaskbarController {
         mBatteryStatus.setSingleLine(true);
         mBatteryStatus.setClickable(true);
         mBatteryStatus.setFocusable(true);
-        mBatteryStatus.setBackground(mUi.flatButtonBackground(desktopDp(8, 6)));
+        UiAppearance.component(mBatteryStatus, ShellControls.Role.PANEL_BUTTON);
         mBatteryStatus.setOnClickListener(view ->
                 mActivity.toggleSystemPanel());
         mActivity.registerAutomationUiElement(
@@ -316,7 +316,7 @@ final class TaskbarController {
         clock.setGravity(Gravity.CENTER);
         clock.setClickable(true);
         clock.setFocusable(true);
-        clock.setBackground(mUi.flatButtonBackground(desktopDp(8, 6)));
+        UiAppearance.component(clock, ShellControls.Role.PANEL_BUTTON);
         clock.setContentDescription(
                 mActivity.getString(R.string.action_calendar));
         clock.setTooltipText(mActivity.getString(R.string.action_calendar));
@@ -791,7 +791,7 @@ final class TaskbarController {
         final AppItem app = taskbarItem.app;
         final TaskRepository.TaskEntry task = taskbarItem.task;
         final FrameLayout item = new FrameLayout(mActivity);
-        item.setBackground(mUi.flatButtonBackground(desktopDp(10, 8)));
+        UiAppearance.component(item, ShellControls.Role.PANEL_BUTTON);
         item.setClickable(true);
         item.setFocusable(true);
 

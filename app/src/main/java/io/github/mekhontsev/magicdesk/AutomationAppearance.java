@@ -131,7 +131,7 @@ final class AutomationAppearance {
                 else {
                     var patch = new JSONObject(AppearanceStore.snapshot(scope).patch());
                     var style = ShellAppearanceJson.encode(preset);
-                    for (String key : new String[] {"colors", "typography", "shape", "feedback"}) patch.put(key, style.get(key));
+                    for (String key : new String[] {"palette", "colors", "typography", "shape", "feedback", "controls"}) patch.put(key, style.get(key));
                     AppearanceStore.apply(scope, patch.toString());
                 }
             }

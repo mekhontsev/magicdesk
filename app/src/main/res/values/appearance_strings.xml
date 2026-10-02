@@ -45,4 +45,15 @@
     <string name="appearance_import">Import</string>
     <string name="appearance_export">Export</string>
     <string name="appearance_reset">Reset</string>
+    <string name="appearance_palette_source">Palette source</string>
+    <string name="appearance_palette_fixed">Theme colors</string>
+    <string name="appearance_palette_system">Android colors</string>
+    <string name="appearance_palette_mode">System palette tone</string>
+    <string name="appearance_palette_follow">Follow Android</string>
+    <string name="appearance_color_surface_low">Low surface</string>
+    <string name="appearance_color_surface_high">High surface</string>
+    <string name="appearance_color_on_accent">On accent</string>
+    <string name="appearance_color_accent_container">Accent container</string>
+    <string name="appearance_color_on_accent_container">On accent container</string>
+    <string name="appearance_color_outline">Outline</string>
 </resources>
