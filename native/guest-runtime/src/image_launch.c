@@ -131,8 +131,9 @@ int md_image_launch(enum md_image_command kind, int argc, char **argv) {
     struct md_socket_routes routes = {0};
     const char *selected_user = NULL;
     const char *hostname_override = NULL;
-    int position = 1;
+    int position = 1, commands = 0;
     while (position < argc && strcmp(argv[position], "--")) {
+        if (!strcmp(argv[position], "--magicdesk") && !commands) { commands = 1; position++; continue; }
         if (!strcmp(argv[position], "--socket-path") || !strcmp(argv[position], "--socket-abstract")) {
             if (position + 2 >= argc) return -EINVAL;
             int r = md_socket_route_add(&routes, argv[position], argv[position+1], argv[position+2]);
@@ -207,7 +208,8 @@ int md_image_launch(enum md_image_command kind, int argc, char **argv) {
     if (!search) search = md_image_environment_value(env, env_count, "PATH");
     char executable[PATH_MAX], runner[PATH_MAX];
     const char *first = explicit_count ? entry_override : entry_count ? entries[0] : command_count ? command[0] : NULL;
-    if (!r) r = program_path(&fs, first, working, search, executable);
+    if (!r && commands && first && !strcmp(first, "magicdesk")) strcpy(executable, "/run/magicdesk/magicdesk");
+    else if (!r) r = program_path(&fs, first, working, search, executable);
     if (!r) {
         ssize_t n = readlink("/proc/self/exe", runner, sizeof(runner)-1);
         if (n <= 0 || n >= (ssize_t)sizeof(runner)-1) r = -ENAMETOOLONG;
@@ -229,6 +231,7 @@ int md_image_launch(enum md_image_command kind, int argc, char **argv) {
     if (!r) {
         size_t n = 0;
         launch[n++] = runner; launch[n++] = "--store"; launch[n++] = (char *)path;
+        if (commands) launch[n++] = "--magicdesk";
         launch[n++] = "--cwd"; launch[n++] = (char *)working;
         launch[n++] = "--hostname"; launch[n++] = (char *)(hostname_override ? hostname_override : hostname);
         for (unsigned i = 0; i < routes.count; ++i) {

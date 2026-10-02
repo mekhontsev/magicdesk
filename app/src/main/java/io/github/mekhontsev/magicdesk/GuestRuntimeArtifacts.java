@@ -20,7 +20,7 @@ import java.util.List;
 public final class GuestRuntimeArtifacts {
     public static final List<String> FILES = List.of("libmagicdesk_guest_bootstrap.so",
             "libmagicdesk_guest_supervisor.so", "libmagicdesk_guest_run.so", "libmagicdesk_guest_service.so",
-            "libmagicdesk_guest_image.so");
+            "libmagicdesk_guest_image.so", "libmagicdesk_command_client.so");
 
     public static Path prepare(Path source, Path root) throws IOException {
         if (!source.isAbsolute() || !root.isAbsolute()) throw new IOException("Absolute runtime paths required");
@@ -41,8 +41,9 @@ public final class GuestRuntimeArtifacts {
         Path temporary = Files.createTempDirectory(root, ".prepare-",
                 PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
         try {
+            Files.createDirectory(temporary.resolve("commands"));
             for (String name : FILES) {
-                Path file = temporary.resolve(name);
+                Path file = artifact(temporary, name);
                 try (InputStream input = open(source.resolve(name));
                      var output = FileChannel.open(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
                     var bytes = new byte[32768];
@@ -64,7 +65,8 @@ public final class GuestRuntimeArtifacts {
             }
             return target;
         } finally {
-            for (String name : FILES) Files.deleteIfExists(temporary.resolve(name));
+            for (String name : FILES) Files.deleteIfExists(artifact(temporary, name));
+            Files.deleteIfExists(temporary.resolve("commands"));
             Files.deleteIfExists(temporary);
         }
     }
@@ -72,10 +74,16 @@ public final class GuestRuntimeArtifacts {
     private static void verify(Path directory, LinkedHashMap<String, String> hashes) throws IOException {
         if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Invalid runtime bundle");
         for (var entry : hashes.entrySet()) {
-            Path file = directory.resolve(entry.getKey());
+            Path file = artifact(directory, entry.getKey());
             if (!entry.getValue().equals(hash(file)) || !Files.isExecutable(file))
                 throw new IOException("Guest runtime bundle is incomplete or modified: " + file);
         }
+        if (!Files.isDirectory(directory.resolve("commands"), LinkOption.NOFOLLOW_LINKS))
+            throw new IOException("Invalid guest command directory");
+    }
+
+    private static Path artifact(Path directory, String name) {
+        return directory.resolve(name.equals("libmagicdesk_command_client.so") ? "commands/magicdesk" : name);
     }
 
     private static InputStream open(Path file) throws IOException {

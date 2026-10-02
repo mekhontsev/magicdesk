@@ -11,6 +11,19 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 public final class LinuxLaunchRecipeTest {
+    @Test public void shortcutsRetainExplicitCommandAccessForEveryPresentation() {
+        for (var kind : List.of(LinuxLaunchRecipe.Kind.GUEST, LinuxLaunchRecipe.Kind.MANAGED_GUEST, LinuxLaunchRecipe.Kind.PROOT)) {
+            for (var presentation : LinuxLaunchRecipe.Presentation.values()) {
+                for (var protocol : GraphicalProtocol.values()) {
+                    var environment = new LinuxLaunchRecipe.Environment(kind, kind == LinuxLaunchRecipe.Kind.PROOT ? "debian" : "/store",
+                            kind == LinuxLaunchRecipe.Kind.PROOT ? DesktopExecBackend.TERMUX : DesktopExecBackend.SHELL, "", true);
+                    var shortcut = LinuxLaunchRecipe.build("Guest commands", environment, "magicdesk list_tasks", "", "", presentation, protocol);
+                    assertTrue(shortcut.exec.contains(kind == LinuxLaunchRecipe.Kind.PROOT ? "magicdesk-connect" : "--magicdesk"));
+                    assertFalse(shortcut.exec.contains("127.0.0.1"));
+                }
+            }
+        }
+    }
     @Rule public final TemporaryFolder temporary = new TemporaryFolder();
 
     @Test public void readsOnlyInstalledNamesAndRejectsHumanOutput() {

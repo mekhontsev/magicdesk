@@ -852,6 +852,17 @@ runtime integration and are not distributed through the same release path.
   prerequisite for shell execution. The channel has bounded messages/workers,
   no polling, and closes with the runtime. Process restart invalidates old
   channels. The CLI never retries an indeterminate action.
+- `native/command-client` supplies a static argument/byte transport and an
+  invocation wrapper independently of guest execution. `AutomationCliWire`
+  invokes the same Java CLI parser, including caller-side file/stdin reads.
+  `AutomationCommandLeases` revokes delegated keys on registration-connection
+  EOF or runtime shutdown; captured executor replacement rejects stale requests.
+  A guest supervisor retains the owner FD for its supervised tree, while native
+  Termux/PRoot use `magicdesk-connect` for a wrapped invocation. Lease-owned
+  headless consoles close with that owner; other shared services keep their
+  existing lifetime contracts. The bridge adds no Desktop or shell startup
+  prerequisite: each command still checks its own capabilities. Guest client
+  mappings and shortcut flags carry no persisted authority.
 - `UserInteractions` owns script prompts and actionable notifications, lazily
   and independently of Desktop or MCP enablement. `UserInteractionRequest`
   validates bounded declarative content; `UserInteractionRegistry` retains

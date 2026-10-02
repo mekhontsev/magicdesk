@@ -5,6 +5,8 @@ import android.os.IBinder;
 import android.os.RemoteException;
 import android.util.Log;
 import java.io.IOException;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
@@ -35,7 +37,9 @@ final class AutomationCommandRuntime implements AutoCloseable {
             });
     private ServerSocket mServer;
     private String mKey;
-    private IBinder mConfiguredShell;
+    private volatile IBinder mConfiguredShell;
+    private final AutomationCommandLeases mLeases = new AutomationCommandLeases();
+    private final java.util.Map<String, DesktopAutomationConsoleSessions> mLeaseConsoles = new ConcurrentHashMap<>();
     private volatile boolean mClosed;
 
     private AutomationCommandRuntime(Context context) {
@@ -63,7 +67,8 @@ final class AutomationCommandRuntime implements AutoCloseable {
     String prepareTermux(TermuxIntegration.Endpoint termux) {
         termux.requireAvailable();
         try {
-            return CommandShellEnvironment.termuxSetup(endpoint(), mContext.getApplicationInfo().sourceDir);
+            return CommandShellEnvironment.termuxSetup(endpoint(), mContext.getApplicationInfo().sourceDir,
+                    mContext.getApplicationInfo().nativeLibraryDir);
         } catch (IOException error) {
             throw new IllegalStateException("Cannot prepare the local command channel", error);
         }
@@ -107,29 +112,100 @@ final class AutomationCommandRuntime implements AutoCloseable {
     }
 
     private void handle(Socket client) {
-        try (client) {
+        boolean retained = false;
+        try {
             if (!client.getInetAddress().isLoopbackAddress()) return;
             // Bound only the local protocol handshake, not execution of a long-running command.
             client.setSoTimeout(5_000);
-            final JSONObject request = AutomationCommandWire.read(client.getInputStream(), AutomationCommandWire.REQUEST_LIMIT);
+            final DataInputStream input = new DataInputStream(client.getInputStream());
+            final int framing = input.readInt();
+            if (framing == AutomationCliWire.MAGIC) {
+                retained = handleCli(client, input);
+                return;
+            }
+            final JSONObject request = AutomationCommandWire.read(input, framing, AutomationCommandWire.REQUEST_LIMIT);
             final boolean keyMatches = MessageDigest.isEqual(mKey.getBytes(StandardCharsets.UTF_8),
                     request.optString("key").getBytes(StandardCharsets.UTF_8));
-            if (!keyMatches || mClosed) return;
+            if (mClosed) return;
+            final AutomationCommandLeases.Lease lease = keyMatches ? null : mLeases.acquire(request.optString("key"), client);
             client.setSoTimeout(0);
             final DesktopAutomationResult result;
-            if (!BuildConfig.SOURCE_ID.equals(request.optString("build"))) {
-                result = DesktopAutomationResult.failure(DesktopAutomationErrorCode.HOST_UNAVAILABLE,
-                        "CLI build differs from the running MagicDesk process; reopen MagicDesk", false);
-            } else {
-                result = commands.execute(request.getString("name"), request.getJSONObject("arguments"));
-            }
-            final JSONObject encoded = result.toJson();
-            if (result.image != null) encoded.put("image", new JSONObject()
-                    .put("mimeType", result.image.mimeType).put("data", result.image.base64Data));
-            AutomationCommandWire.write(client.getOutputStream(), encoded, AutomationCommandWire.RESPONSE_LIMIT);
+            try {
+                if (!BuildConfig.SOURCE_ID.equals(request.optString("build"))) {
+                    result = DesktopAutomationResult.failure(DesktopAutomationErrorCode.HOST_UNAVAILABLE,
+                            "CLI build differs from the running MagicDesk process; reopen MagicDesk", false);
+                } else if (lease == null) {
+                    result = commands.execute(request.getString("name"), request.getJSONObject("arguments"));
+                } else {
+                    lease.requireActive();
+                    var consoles = mLeaseConsoles.get(lease.key);
+                    if (consoles == null) throw new IOException("Command owner closed");
+                    result = commands.execute(request.getString("name"), request.getJSONObject("arguments"), consoles);
+                }
+                AutomationCommandWire.write(client.getOutputStream(), encode(result), AutomationCommandWire.RESPONSE_LIMIT);
+            } finally { if (lease != null) lease.release(client); }
         } catch (IOException | JSONException | RuntimeException error) {
             if (!mClosed) Log.w("MagicDeskCli", "Command channel request failed", error);
-        } finally { mClients.remove(client); }
+        } finally {
+            if (!retained) {
+                mClients.remove(client);
+                try { client.close(); } catch (IOException ignored) { }
+            }
+        }
+    }
+
+    private boolean handleCli(Socket client, DataInputStream input) throws IOException {
+        int operation = input.readInt();
+        String key = AutomationCliWire.read(input, 128);
+        String build = AutomationCliWire.read(input, 128);
+        if (!BuildConfig.SOURCE_ID.equals(build)) throw new IOException("CLI build differs from MagicDesk; reopen the launch");
+        var output = new DataOutputStream(client.getOutputStream());
+        if (operation == AutomationCliWire.LEASE) {
+            if (!MessageDigest.isEqual(mKey.getBytes(StandardCharsets.UTF_8), key.getBytes(StandardCharsets.UTF_8)))
+                throw new IOException("Invalid command owner");
+            final IBinder shell = mConfiguredShell;
+            var consoles = new DesktopAutomationConsoleSessions(false);
+            var lease = mLeases.create(client, () -> !mClosed && mConfiguredShell == shell
+                    && (shell == null || shell.isBinderAlive()), consoles::closeAll);
+            mLeaseConsoles.put(lease.key, consoles);
+            try {
+                output.writeInt(0);
+                AutomationCliWire.write(output, lease.key);
+                client.setSoTimeout(0);
+                Thread owner = new Thread(() -> {
+                    try {
+                        // EVENT_WAIT: registration EOF revokes the lease; no heartbeat or expiry polling.
+                        input.read();
+                    } catch (IOException ignored) {
+                    } finally {
+                        lease.close(); mLeaseConsoles.remove(lease.key); mClients.remove(client);
+                    }
+                }, "MagicDeskCliOwner");
+                owner.setDaemon(true); owner.start();
+                return true;
+            } catch (IOException | RuntimeException error) {
+                lease.close(); mLeaseConsoles.remove(lease.key); throw error;
+            }
+        }
+        if (operation != AutomationCliWire.INVOKE) throw new IOException("Invalid CLI operation");
+        var lease = mLeases.acquire(key, client);
+        try {
+            final var consoles = mLeaseConsoles.get(lease.key);
+            if (consoles == null) throw new IOException("Command owner closed");
+            client.setSoTimeout(120_000);
+            AutomationCliWire.serve(input, output, (name, args) -> {
+                lease.requireActive();
+                return encode(commands.execute(name, args, consoles));
+            });
+        } finally { lease.release(client); }
+        return false;
+    }
+
+    private static JSONObject encode(DesktopAutomationResult result) throws JSONException {
+        var encoded = result.toJson();
+        if (result.image != null) encoded.put("image", new JSONObject()
+                .put("mimeType", result.image.mimeType).put("data", result.image.base64Data));
+        return encoded;
     }
 
     @Override public void close() {
@@ -145,6 +221,7 @@ final class AutomationCommandRuntime implements AutoCloseable {
             mClients.clear();
         }
         mWorkers.shutdownNow();
+        mLeases.close();
         commands.close();
     }
 }

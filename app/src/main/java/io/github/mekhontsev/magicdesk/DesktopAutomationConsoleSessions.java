@@ -12,12 +12,17 @@ import java.util.UUID;
 /** Bounded set of explicitly gated persistent shell sessions for MCP. */
 final class DesktopAutomationConsoleSessions {
     private static final int MAX_SESSIONS = 8;
+    private boolean mClosed;
+    private final boolean mInheritCommandChannel;
+    DesktopAutomationConsoleSessions() { this(true); }
+    DesktopAutomationConsoleSessions(boolean inheritCommandChannel) { mInheritCommandChannel = inheritCommandChannel; }
 
     private final Map<String, ShellCommandSession> mSessions =
             new LinkedHashMap<>();
 
     synchronized DesktopAutomationResult open(final JSONObject arguments) {
         try {
+            if (mClosed) throw new IOException("console owner is closed");
             requireShell();
             if (mSessions.size() >= MAX_SESSIONS) {
                 return DesktopAutomationResult.failure(
@@ -30,7 +35,7 @@ final class DesktopAutomationConsoleSessions {
                     "directory", ShellDesktopDirectory.ABSOLUTE_PATH);
             final String id = "console-" + UUID.randomUUID().toString().replace("-", "");
             final ShellCommandSession session =
-                    new ShellCommandSession(directory);
+                    new ShellCommandSession(directory, mInheritCommandChannel);
             mSessions.put(id, session);
             return DesktopAutomationResult.success(
                     "console session opened",
@@ -157,6 +162,7 @@ final class DesktopAutomationConsoleSessions {
     }
 
     synchronized void closeAll() {
+        mClosed = true;
         for (final ShellCommandSession session
                 : mSessions.values()) {
             session.close();

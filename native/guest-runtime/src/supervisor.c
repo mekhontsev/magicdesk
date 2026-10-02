@@ -2,6 +2,7 @@
 #include "event_wait.h"
 #include "fs_rpc.h"
 #include "fs_worker.h"
+#include "command_access.h"
 #include "fs_mounts.h"
 #include "namespace_broker.h"
 #include "guest_domain.h"
@@ -1092,9 +1093,12 @@ int main(int argc, char **argv) {
     md_page_size = (size_t)sysconf(_SC_PAGESIZE);
     CHECK(md_page_size >= 4096 && md_page_size <= 65536 && !(md_page_size & (md_page_size - 1)));
     int argument = 1;
+    int command_access = 0, command_owner = -1;
+    char command_directory[PATH_MAX];
     long seconds = 0;
     while (argument < argc) {
         if (!strcmp(argv[argument], "--diagnostics")) diagnostics = 1;
+        else if (!strcmp(argv[argument], "--magicdesk") && !command_access) command_access = 1;
         else if (!strcmp(argv[argument], "--statistics")) {
             CHECK(!statistics);
             statistics = calloc(1, sizeof(*statistics));
@@ -1183,6 +1187,14 @@ int main(int argc, char **argv) {
     CHECK(inherited_no_new_privs >= 0);
     launch_identity.no_new_privs = (unsigned)inherited_no_new_privs;
     CHECK(argument < argc);
+    if (command_access) {
+        CHECK(attachment_count < MD_FS_MOUNTS_MAX);
+        command_owner = md_guest_command_access(store, &attachments[attachment_count], command_directory);
+        if (command_owner < 0) { errno = -command_owner; perror("MagicDesk command access"); return 125; }
+        ++attachment_count;
+    } else {
+        unsetenv("MAGICDESK_COMMAND_ENDPOINT"); unsetenv("MAGICDESK_COMMAND_BUILD");
+    }
     struct md_process_signals inherited;
     CHECK(md_process_signals_open(&inherited) >= 0);
     signal_fd = inherited.fd;
@@ -1191,6 +1203,7 @@ int main(int argc, char **argv) {
     pid_t parent = getpid();
     leader = fork(); CHECK(leader >= 0);
     if (!leader) {
+        if (command_owner >= 0) close(command_owner);
         close(channel[0]); close(signal_fd);
         CHECK(!md_process_signals_restore(&inherited));
         CHECK(!prctl(PR_SET_PDEATHSIG, SIGKILL) && getppid() == parent);
@@ -1200,8 +1213,8 @@ int main(int argc, char **argv) {
         execv(argv[argument], argv + argument); _exit(127);
     }
     thread(leader)->born = 1; close(channel[1]);
-    int keep[] = {signal_fd, channel[0]};
-    CHECK(!md_process_close_fds(keep, 2));
+    int keep[] = {signal_fd, channel[0], command_owner};
+    CHECK(!md_process_close_fds(keep, command_owner >= 0 ? 3 : 2));
     /* EVENT_WAIT: child readiness precedes attaching; timeout cancels this tree. */
     CHECK(md_event_wait_fd(channel[0], POLLIN, md_event_now() + 5000000000LL) >= 0);
     char byte; CHECK(read(channel[0], &byte, 1) == 1 && byte == 'r');

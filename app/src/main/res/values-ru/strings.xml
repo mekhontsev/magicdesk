@@ -1,12 +1,13 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="guest_environments">Гостевые окружения</string>
+    <string name="guest_command_access">Разрешить управление MagicDesk и Android</string>
+    <string name="guest_environments">Окружения Shroot</string>
     <string name="guest_loading">Загрузка окружений&#8230;</string>
-    <string name="guest_empty">Нет установленных гостевых окружений</string>
+    <string name="guest_empty">Нет установленных окружений Shroot</string>
     <string name="guest_launches">Активные запуски</string>
     <string name="guest_no_launches">Нет активных запусков</string>
     <string name="guest_stop_launch">Остановить запуск</string>
-    <string name="guest_select">Выберите гостевое окружение</string>
+    <string name="guest_select">Выберите окружение Shroot</string>
     <string name="settings_language">Язык приложения</string>
     <string name="settings_language_system">Как в системе</string>
     <string name="graphics_nested_desktop">Вложенный рабочий стол Linux</string>
@@ -222,7 +223,7 @@
     <string-array name="command_app_linux_methods">
         <item>PRoot (proot-distro)</item>
         <item>Свой скрипт (chroot или другой)</item>
-        <item>Гостевая среда MagicDesk (экспериментальная)</item>
+        <item>Shroot (экспериментальный)</item>
     </string-array>
     <string name="command_app_guest_store">Подготовленное хранилище гостя (путь на хосте)</string>
     <string name="command_app_guest_directory">Рабочая папка внутри Linux</string>

@@ -378,13 +378,27 @@ environment or a custom entry script for prepared chroot/other environments.
 Create a terminal, graphical application or Linux-desktop launcher, optionally choosing
 the Linux user and working directory. User shortcuts can be deleted from Start.
 Leave the terminal command empty for a Linux login shell in MagicDesk Console.
-MagicDesk supplies the display server and windows; Termux and your container setup
-supply the programs. It does not install or configure a Linux distribution for you.
+For these launchers, MagicDesk supplies the display server and windows;
+Termux and your container setup supply the programs.
 
 With authorized **Root** access, **Linux (Shell / root)** launchers can use a
 prepared chroot without Termux at all: the same Console, individual Linux windows
 or whole Linux desktop. Provide an entry script and, for graphics, the guest's
 XKB data path. See [chroot setup](docs/x11.md#chroot-without-termux).
+
+**[Shroot](docs/guest-runtime.md)** is MagicDesk's experimental Linux runtime for
+the authorized shell executor (UID 2000), without root, Termux or PRoot. It runs
+prepared ARM64 glibc/musl distributions and OCI images through the same terminal,
+X11 and Wayland services. `magicdesk-guest` installs and manages independent
+environments, shared image data and explicit directory attachments. Shroot is not
+a container security boundary or Docker Engine; guest programs retain the selected
+executor's authority. Required kernel capabilities are checked at launch, without
+affecting ordinary MagicDesk tools on unsupported kernels.
+
+Optional [MagicDesk command access](docs/automation.md#linux-command-access)
+lets Shroot, PRoot and native Termux programs use the same automation commands,
+including Android commands through the authorized shell. Access belongs to the
+explicit invocation; images and shortcuts contain no credentials.
 
 Closing a whole-session viewer keeps its Linux session running; the manager's
 Stop action ends it. Closing an individual app window requests the app's normal

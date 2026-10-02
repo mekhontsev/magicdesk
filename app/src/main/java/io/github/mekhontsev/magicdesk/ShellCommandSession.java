@@ -15,13 +15,21 @@ final class ShellCommandSession {
         this(directory, null, UUID.randomUUID().toString().replace("-", ""));
     }
 
+    ShellCommandSession(String directory, boolean inheritCommandChannel) {
+        this(directory, null, UUID.randomUUID().toString().replace("-", ""), inheritCommandChannel);
+    }
+
     ShellCommandSession(String directory, CommandExecutor executor, String token) {
+        this(directory, executor, token, true);
+    }
+
+    private ShellCommandSession(String directory, CommandExecutor executor, String token, boolean inheritCommandChannel) {
         if (token == null || !token.matches("[a-zA-Z0-9]+")) {
             throw new IllegalArgumentException("invalid console session token");
         }
         mWorkingDirectory = requireDirectory(directory);
         mMarker = "__MAGICDESK_CWD_" + token + "__";
-        mExecutor = executor == null ? new ShellCommandExecutor(mMarker) : executor;
+        mExecutor = executor == null ? new ShellCommandExecutor(mMarker, inheritCommandChannel) : executor;
     }
 
     String workingDirectory() { return mWorkingDirectory; }

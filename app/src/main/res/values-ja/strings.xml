@@ -1,12 +1,13 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="guest_environments">ゲスト環境</string>
+    <string name="guest_command_access">MagicDesk と Android の操作を許可</string>
+    <string name="guest_environments">Shroot 環境</string>
     <string name="guest_loading">環境を読み込み中&#8230;</string>
-    <string name="guest_empty">インストール済みのゲスト環境はありません</string>
+    <string name="guest_empty">インストール済みの Shroot 環境はありません</string>
     <string name="guest_launches">実行中のプロセス</string>
     <string name="guest_no_launches">実行中のプロセスはありません</string>
     <string name="guest_stop_launch">実行を停止</string>
-    <string name="guest_select">ゲスト環境を選択</string>
+    <string name="guest_select">Shroot 環境を選択</string>
     <string name="settings_language">アプリの言語</string>
     <string name="settings_language_system">システムの設定に従う</string>
     <string name="graphics_nested_desktop">入れ子の Linux デスクトップ</string>
@@ -219,7 +220,7 @@
     <string-array name="command_app_linux_methods">
         <item>PRoot (proot-distro)</item>
         <item>カスタムスクリプト（chroot など）</item>
-        <item>MagicDesk ゲスト実行環境（試験的）</item>
+        <item>Shroot（試験的）</item>
     </string-array>
     <string name="command_app_guest_store">準備済みゲストストア（ホストのパス）</string>
     <string name="command_app_guest_directory">Linux 内の作業ディレクトリ</string>

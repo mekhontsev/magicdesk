@@ -11,7 +11,7 @@ public final class GuestRuntimeMain {
                 throw new IllegalArgumentException("Expected native-library and runtime-store directories");
             System.out.println(GuestRuntimeArtifacts.prepare(Path.of(arguments[0]), Path.of(arguments[1])));
         } catch (Exception error) {
-            System.err.println("Guest runtime preparation failed: " + error.getMessage());
+            System.err.println("Shroot preparation failed: " + error.getMessage());
             System.exit(1);
         }
     }

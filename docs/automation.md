@@ -219,7 +219,8 @@ options accept `--includeReport`, `--includeReport=true` or
 `--includeReport false`. Objects and arrays use JSON. `--args -` reads one JSON
 object from stdin; it cannot be mixed with named arguments. `COMMAND --schema`
 prints the command descriptor. `--dry-run` validates and prints a request without
-executing it. Help and schema inspection do not need a running app connection.
+executing it. The Android Java entry point can inspect help/schema offline;
+the small Linux client gets them from the running app's shared parser.
 
 Stdout contains the shared `success`, `message`, `data`, `error` JSON result;
 captures additionally carry an `image` object with `mimeType` and base64 `data`.
@@ -242,6 +243,46 @@ not privileges from the APK. Existing shells must be reopened after upgrading
 or restarting the runtime. The entry script contains no secret, and running it
 from an unrelated app does not grant access. Shell descendants are trusted as
 part of the user's command environment; do not pass it to untrusted code.
+
+### Linux Command Access
+
+`magicdesk-connect -- COMMAND ARG...` delegates the same command interface to
+one invocation in a MagicDesk-prepared shell or native Termux environment.
+It keeps the program's UID, terminal and process group. The wrapper owns a
+temporary key until that invocation exits; its descendants inherit that key.
+For supervised guest trees, `magicdesk-guest exec NAME --magicdesk -- PROGRAM`
+retains access for the whole tree. Neither option enables MCP or opens an
+externally reachable listener.
+
+The packaged static `MAGICDESK_COMMAND_CLIENT` runs inside glibc/musl guests
+without Android Java, Binder or a host `/system` bind. Guest execution exposes
+it read-only as `/run/magicdesk/magicdesk` and prepends that directory to PATH.
+Login profiles may replace PATH; the absolute name remains available. The
+shortcut editor's **Allow control of MagicDesk and Android** option creates
+the corresponding terminal/X11/Wayland recipe. For PRoot it wraps the invocation
+with `magicdesk-connect`, binds the client at `/usr/local/bin/magicdesk` and
+passes only the delegated endpoint/build into the guest. Prepared entry scripts
+can use the same wrapper and explicitly map the client themselves.
+
+The client transports argv, stdout, stderr and exit status; command definitions
+and parsing remain in the APK. `--args @file` and `--args -` read the calling
+Linux environment's file/stdin, not an Android host pathname. Lost results are
+never replayed. Shortcuts, client files and images contain no channel secrets.
+
+Each launch owns its headless `console.*` sessions. Those close when its key is
+revoked and cannot address another launch's or MCP's consoles. To invoke Android
+commands, open a console, execute `am`, `pm` or a shell script there, and close it.
+The command service keeps its already-selected identity; virtual guest root does
+not grant Android root. The scoped console does not export the base CLI key.
+Explicit persistent resources, such as terminals or displays, retain their
+ordinary independent lifetimes; revoking a channel does not undo completed actions.
+
+Channel registration does not require shell access. Without it, ordinary
+app/Termux operations remain usable and privileged commands fail through their
+normal prerequisite checks. Losing a captured shell service invalidates command
+access but does not terminate the wrapped Termux/PRoot application. Reopen the
+invocation after runtime restart or executor replacement. This is integration
+for trusted programs, not confinement or a per-command permission sandbox.
 
 ## Script Dialogs And Notifications
 

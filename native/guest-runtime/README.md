@@ -1,4 +1,4 @@
-# Guest Runtime
+# Shroot Native Runtime
 
 Experimental, native-only ARM64 component for the already-authorized Android
 shell or root executor. The APK packages its executables, but loads none into
@@ -115,6 +115,10 @@ custom glibc linker, root transition or SELinux change is used.
   namespace serving for native fixtures. See the [lifetime contract](process-lifetime.md).
 - `event_wait.c` supplies monotonic event-driven descriptor waits to RPC and
   process ownership, without polling or a libc dependency.
+- `command_access.c` adapts explicit `--magicdesk` launches to the independent
+  [command client](../command-client/README.md). The supervisor owns a delegated
+  channel connection and a read-only client attachment for its process tree;
+  command schemas, Android authority and execution remain app-owned.
 - `image_main.c` is the offline OCI/rootfs image and backup tool. `image_pool.c`
   shares immutable layer bodies without per-layer namespaces; `image_backup.c`
   exports self-contained data under exclusive store ownership. JSON, archive verification,

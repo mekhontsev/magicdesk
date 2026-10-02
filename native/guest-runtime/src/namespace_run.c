@@ -24,7 +24,7 @@ void md_boot(uintptr_t *stack) {
     if (argc < 5 || argc > 1000)
         md_die("usage: guest-run --store HOST_PATH [--cwd GUEST_PATH] -- PROGRAM [ARGS]", -EINVAL);
     const char *store = NULL, *cwd = "/", *home = "/tmp", *admit = NULL, *run_deadline = NULL;
-    int diagnostics = 0, statistics = 0;
+    int diagnostics = 0, statistics = 0, commands = 0;
     const char *user = NULL;
     const char *groups = NULL;
     const char *hostname = NULL;
@@ -34,6 +34,7 @@ void md_boot(uintptr_t *stack) {
     while (program < argc && !md_equal(argv[program], "--")) {
         if (md_equal(argv[program], "--diagnostics")) { diagnostics = 1; program++; continue; }
         if (md_equal(argv[program], "--statistics")) { statistics = 1; program++; continue; }
+        if (md_equal(argv[program], "--magicdesk") && !commands) { commands = 1; program++; continue; }
         if (program + 1 >= argc) md_die("missing launch option value", -EINVAL);
         if (md_equal(argv[program], "--bind") || md_equal(argv[program], "--bind-ro")) {
             if (program+2 >= argc || attachment_count == MD_FS_MOUNTS_MAX) md_die("invalid directory attachment", -EINVAL);
@@ -78,8 +79,20 @@ void md_boot(uintptr_t *stack) {
     if (user && (environment_result = md_launch_environment_user(&guest_environment, user)) < 0)
         md_die("guest user environment", environment_result);
     for (unsigned i = 0; i < override_count; ++i) {
+        if (md_prefix(overrides[i], "MAGICDESK_COMMAND_")) md_die("command channel requires --magicdesk", -EINVAL);
         environment_result = md_launch_environment_set(&guest_environment, overrides[i]);
         if (environment_result < 0) md_die("invalid guest environment override", environment_result);
+    }
+    if (commands) {
+        unsigned found = 0;
+        for (unsigned i = 0; env[i]; i++) {
+            if (md_prefix(env[i], "MAGICDESK_COMMAND_ENDPOINT=") || md_prefix(env[i], "MAGICDESK_COMMAND_BUILD=")) {
+                environment_result = md_launch_environment_set(&guest_environment, env[i]);
+                if (environment_result < 0) md_die("command environment", environment_result);
+                ++found;
+            }
+        }
+        if (found != 2) md_die("--magicdesk requires a live MagicDesk command environment", -ENOTCONN);
     }
     if (admit && admit[0] != '/') md_die("admitted ELF must be absolute", -EINVAL);
     char bootstrap[PATH_MAX], supervisor[PATH_MAX], endpoint[96] = "md-namespace-";
@@ -103,6 +116,7 @@ void md_boot(uintptr_t *stack) {
         unsigned n = 1;
         if (diagnostics) args[n++] = "--diagnostics";
         if (statistics) args[n++] = "--statistics";
+        if (commands) args[n++] = "--magicdesk";
         if (run_deadline) { args[n++] = "--deadline-seconds"; args[n++] = (char *)run_deadline; }
         if (admit) { args[n++] = "--admit-elf"; args[n++] = (char *)admit; }
         if (user) { args[n++] = "--user"; args[n++] = (char *)user; }

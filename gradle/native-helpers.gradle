@@ -147,6 +147,25 @@ def packageGuest = tasks.register('packageGuestRuntime', Copy) {
     into new File(nativeOutputRoot, 'arm64-v8a')
 }
 
+def commandBuild = layout.buildDirectory.dir('commandClient').get().asFile
+def configureCommands = tasks.register('configureCommandClient', Exec) {
+    inputs.file rootProject.file('native/command-client/CMakeLists.txt')
+    outputs.file new File(commandBuild, 'build.ninja')
+    doFirst {
+        commandLine(['cmake', '-S', rootProject.file('native/command-client'), '-B', commandBuild,
+                '-G', 'Ninja'] + cmakeAndroidTarget())
+    }
+}
+def buildCommands = tasks.register('buildCommandClient', Exec) {
+    dependsOn configureCommands
+    commandLine 'cmake', '--build', commandBuild, '--parallel', '2'
+}
+def packageCommands = tasks.register('packageCommandClient', Copy) {
+    dependsOn buildCommands
+    from(commandBuild) { include 'libmagicdesk_command_client.so', 'libmagicdesk_command_bridge.so' }
+    into new File(nativeOutputRoot, 'arm64-v8a')
+}
+
 def guestLicenses = layout.buildDirectory.dir('guestRuntimeLicenses').get().asFile
 android.sourceSets.main.assets.srcDir guestLicenses
 def packageGuestLicenses = tasks.register('packageGuestRuntimeLicenses', Sync) {
@@ -184,5 +203,5 @@ def packageSettingsLicenses = tasks.register('packageLinuxSettingsLicenses', Syn
 }
 
 tasks.named('preBuild').configure {
-    dependsOn uinputTask, ptyTask, serviceTask, processSignalTask, guestFilesTask, packageGuest, packageGuestLicenses, packageSettings, packageSettingsLicenses
+    dependsOn uinputTask, ptyTask, serviceTask, processSignalTask, guestFilesTask, packageGuest, packageGuestLicenses, packageSettings, packageSettingsLicenses, packageCommands
 }

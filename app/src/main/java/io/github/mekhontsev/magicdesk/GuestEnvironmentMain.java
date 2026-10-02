@@ -15,7 +15,7 @@ public final class GuestEnvironmentMain {
                     new GuestOciRegistry(System.err::println), System.err::println);
             execute(library, Arrays.copyOfRange(arguments, 2, arguments.length));
         } catch (Exception error) {
-            System.err.println("Guest environment: " + error.getMessage());
+            System.err.println("Shroot environment: " + error.getMessage());
             System.exit(1);
         }
     }
@@ -25,6 +25,8 @@ public final class GuestEnvironmentMain {
         String command = arguments[0];
         if (command.equals("help") || command.equals("--help") || command.equals("-h")) {
             System.out.println("""
+                    Shroot: Linux environments through the selected shell/root executor.
+
                     magicdesk-guest install REPOSITORY[:TAG] --name NAME
                     magicdesk-guest install PATH --oci|--rootfs --name NAME
                     magicdesk-guest list | inspect NAME | path NAME
@@ -39,7 +41,8 @@ public final class GuestEnvironmentMain {
                     magicdesk-guest dns NAME system|preserve|IP[,IP...] [--replace]
 
                     Launch options: --bind HOST GUEST, --bind-ro HOST GUEST,
-                      --user USER[:GROUP], --cwd /PATH, --env KEY=VALUE, --hostname NAME.
+                      --user USER[:GROUP], --cwd /PATH, --env KEY=VALUE, --hostname NAME, --magicdesk.
+                    --magicdesk grants this launch access to the MagicDesk CLI and Android commands.
                     run retains the image Entrypoint/Cmd; --entrypoint PROGRAM overrides it.
                     exec starts a new process in the selected store, not in an existing process tree.
                     login uses the guest account home and shell unless explicitly overridden.

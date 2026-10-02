@@ -8,7 +8,10 @@ final class LinuxLaunchRecipe {
     enum Presentation { TERMINAL, APPLICATION, DESKTOP }
     enum Kind { PROOT, SCRIPT, GUEST, MANAGED_GUEST }
 
-    record Environment(Kind kind, String target, DesktopExecBackend backend, String keyboardDirectory) {
+    record Environment(Kind kind, String target, DesktopExecBackend backend, String keyboardDirectory, boolean magicDesk) {
+        Environment(Kind kind, String target, DesktopExecBackend backend, String keyboardDirectory) {
+            this(kind, target, backend, keyboardDirectory, false);
+        }
         Environment(Kind kind, String target) { this(kind, target, DesktopExecBackend.TERMUX, ""); }
         Environment {
             if (kind == null) throw new IllegalArgumentException("Select a Linux launch method");
@@ -20,7 +23,9 @@ final class LinuxLaunchRecipe {
             if (kind == Kind.PROOT && backend != DesktopExecBackend.TERMUX)
                 throw new IllegalArgumentException("proot-distro requires Termux");
             if ((kind == Kind.GUEST || kind == Kind.MANAGED_GUEST) && backend != DesktopExecBackend.SHELL)
-                throw new IllegalArgumentException("Guest runtime requires the Shell executor");
+                throw new IllegalArgumentException("Shroot requires the Shell executor");
+            if (magicDesk && kind == Kind.SCRIPT)
+                throw new IllegalArgumentException("Prepared scripts supply their own command client mapping");
             keyboardDirectory = DesktopExecWorkingDirectory.normalize(keyboardDirectory);
         }
     }
@@ -66,6 +71,11 @@ final class LinuxLaunchRecipe {
         host.append("exec ").append(proot ? "proot-distro login --isolated" : q(environment.target()));
         if (!user.isEmpty()) host.append(" --user ").append(q(user));
         if (!directory.isEmpty()) host.append(" --work-dir ").append(q(directory));
+        if (environment.magicDesk() && proot) {
+            host.append(" --bind \"${MAGICDESK_COMMAND_CLIENT:?Missing command client}:/usr/local/bin/magicdesk\""
+                    + " --env \"MAGICDESK_COMMAND_ENDPOINT=$MAGICDESK_COMMAND_ENDPOINT\""
+                    + " --env \"MAGICDESK_COMMAND_BUILD=$MAGICDESK_COMMAND_BUILD\"");
+        }
         if (graphical && proot) {
             host.append(protocol == GraphicalProtocol.X11
                     ? " --shared-tmp --bind \"$MAGICDESK_X11_RUNTIME:/tmp/magicdesk-x11\""
@@ -93,7 +103,9 @@ final class LinuxLaunchRecipe {
         }
         if (graphical && environment.backend() == DesktopExecBackend.SHELL && environment.keyboardDirectory().isEmpty())
             throw new IllegalArgumentException("Enter the XKB data directory in the prepared Linux environment");
-        String exec = DesktopExecTemplate.encodeArguments(List.of("sh", "-c", host.toString()));
+        List<String> invocation = environment.magicDesk()
+                ? List.of("magicdesk-connect", "--", "sh", "-c", host.toString()) : List.of("sh", "-c", host.toString());
+        String exec = DesktopExecTemplate.encodeArguments(invocation);
         DesktopExecTemplate.expandArguments(exec, DesktopLaunchArguments.empty(), name, "", "");
         return new DesktopApplicationShortcut(name, graphical ? "computer" : "utilities-terminal",
                 exec, null, "", DesktopLaunchMode.AUTO, false, environment.backend(),
@@ -115,9 +127,12 @@ final class LinuxLaunchRecipe {
         String keyboard = environment.keyboardDirectory().isEmpty() ? "guest:" + environment.target() : environment.keyboardDirectory();
         var identity = new GuestEnvironment(environment.target(), managed ? "" : "/tmp", user, managed);
         String cwd = directory.isEmpty() && !managed ? "/" : directory;
+        if (environment.magicDesk() && !command.isEmpty())
+            command = "export PATH=/run/magicdesk:\"$PATH\"; " + command;
         var plan = graphical ? GuestGraphicalConnection.plan(identity, cwd, command, protocol)
                 : new GuestLaunchPlan(identity, cwd, command.isEmpty()
                         ? managed ? List.of() : List.of("/bin/sh", "-l") : List.of("/bin/sh", "-lc", command));
+        plan = new GuestLaunchPlan(plan.environment(), plan.directory(), plan.command(), environment.magicDesk());
         String exec = DesktopExecTemplate.encodeArguments(graphical
                 ? List.of("env", "MAGICDESK_GUEST_LABEL=" + name, "sh", "-c",
                         GuestGraphicalConnection.invocation(plan, protocol, true)) : plan.arguments());

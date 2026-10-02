@@ -1,12 +1,13 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="guest_environments">客户机环境</string>
+    <string name="guest_command_access">允许控制 MagicDesk 和 Android</string>
+    <string name="guest_environments">Shroot 环境</string>
     <string name="guest_loading">正在加载环境&#8230;</string>
-    <string name="guest_empty">尚未安装客户机环境</string>
+    <string name="guest_empty">尚未安装 Shroot 环境</string>
     <string name="guest_launches">正在运行的启动项</string>
     <string name="guest_no_launches">没有正在运行的启动项</string>
     <string name="guest_stop_launch">停止启动项</string>
-    <string name="guest_select">选择客户机环境</string>
+    <string name="guest_select">选择 Shroot 环境</string>
     <string name="settings_language">应用语言</string>
     <string name="settings_language_system">跟随系统</string>
     <string name="graphics_nested_desktop">嵌套 Linux 桌面</string>
@@ -219,7 +220,7 @@
     <string-array name="command_app_linux_methods">
         <item>PRoot (proot-distro)</item>
         <item>自定义脚本（chroot 或其他）</item>
-        <item>MagicDesk 客体运行环境（实验性）</item>
+        <item>Shroot（实验性）</item>
     </string-array>
     <string name="command_app_guest_store">已准备的客体存储（宿主路径）</string>
     <string name="command_app_guest_directory">Linux 内的工作目录</string>

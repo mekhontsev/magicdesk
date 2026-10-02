@@ -5,8 +5,11 @@ import java.util.List;
 import java.util.Objects;
 
 /** Argument-only contract shared by terminal, background and graphical launch adapters. */
-public record GuestLaunchPlan(GuestEnvironment environment, String directory, List<String> command) {
+public record GuestLaunchPlan(GuestEnvironment environment, String directory, List<String> command, boolean magicDesk) {
     public static final String TOOL = "magicdesk-guest";
+    public GuestLaunchPlan(GuestEnvironment environment, String directory, List<String> command) {
+        this(environment, directory, command, false);
+    }
 
     public GuestLaunchPlan {
         Objects.requireNonNull(environment, "environment");
@@ -36,10 +39,11 @@ public record GuestLaunchPlan(GuestEnvironment environment, String directory, Li
         if (!directory.isEmpty()) result.addAll(List.of("--cwd", directory));
         if (environment.image() && !environment.home().isEmpty()) result.addAll(List.of("--env", "HOME=" + environment.home()));
         if (!environment.user().isEmpty()) result.addAll(List.of("--user", environment.user()));
+        if (magicDesk) result.add("--magicdesk");
         return List.copyOf(result);
     }
 
     public static void requireIdentity(int uid) {
-        if (uid != 2000 && uid != 0) throw new IllegalStateException("Guest runtime requires the selected shell or root executor");
+        if (uid != 2000 && uid != 0) throw new IllegalStateException("Shroot requires the selected shell or root executor");
     }
 }

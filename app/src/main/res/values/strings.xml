@@ -1,11 +1,12 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <string name="guest_environments">Guest environments</string>
+    <string name="guest_environments">Shroot environments</string>
+    <string name="guest_command_access">Allow control of MagicDesk and Android</string>
     <string name="guest_loading">Loading environments&#8230;</string>
-    <string name="guest_empty">No installed guest environments</string>
+    <string name="guest_empty">No installed Shroot environments</string>
     <string name="guest_launches">Running launches</string>
     <string name="guest_no_launches">No running launches</string>
     <string name="guest_stop_launch">Stop launch</string>
-    <string name="guest_select">Select a guest environment</string>
+    <string name="guest_select">Select a Shroot environment</string>
     <string name="settings_language">App language</string>
     <string name="settings_language_system">System default</string>
     <string name="graphics_nested_desktop">Nested Linux desktop</string>
@@ -219,7 +220,7 @@
     <string-array name="command_app_linux_methods">
         <item>PRoot (proot-distro)</item>
         <item>Custom script (chroot or other)</item>
-        <item>MagicDesk guest runtime (experimental)</item>
+        <item>Shroot (experimental)</item>
     </string-array>
     <string name="command_app_guest_store">Prepared guest store (host path)</string>
     <string name="command_app_guest_directory">Working directory inside Linux</string>

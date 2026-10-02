@@ -1,6 +1,6 @@
-# Guest Execution Runtime
+# Shroot
 
-MagicDesk includes an experimental native ARM64 Linux execution adapter.
+Shroot is MagicDesk's experimental native ARM64 Linux execution runtime.
 It runs prepared ARM64 ELF programs with glibc or musl through the explicitly selected shell or root
 executor, without PRoot, chroot or Termux. It is not a
 security sandbox: guest programs retain the caller's authority and unadapted
@@ -111,6 +111,22 @@ also supply HOME, SHELL, USER and LOGNAME defaults. Image environment and explic
 `--env` values override exec/run defaults; login uses account values unless
 explicitly overridden. `--cwd` always selects the requested guest directory.
 All three share user, environment, cwd, hostname and directory-attachment options.
+
+`--magicdesk` explicitly enables the shared [Linux command channel](automation.md#linux-command-access):
+
+```sh
+magicdesk-guest exec work --magicdesk -- magicdesk get_state
+magicdesk-guest login work --magicdesk
+```
+
+The supervisor borrows a launch-scoped key and read-only client mount at
+`/run/magicdesk`, separate from image contents. It retains the owner connection
+until the supervised tree ends; no heartbeat or per-syscall command work is added.
+The image receives only empty mountpoint directories, not a secret or client copy.
+Normal launches omit both the attachment and command environment. The same option
+works with raw `--store`, local `image` launches and the terminal/shortcut picker.
+Native Termux and PRoot reuse the same channel via `magicdesk-connect`; neither
+depends on the guest runtime's kernel capabilities.
 
 Installation accepts `--dns system` (default), `--dns preserve` or up to three
 comma-separated numeric addresses. System DNS is a one-shot active-network

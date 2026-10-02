@@ -1,12 +1,13 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="guest_environments">Environnements invités</string>
+    <string name="guest_command_access">Autoriser le contrôle de MagicDesk et Android</string>
+    <string name="guest_environments">Environnements Shroot</string>
     <string name="guest_loading">Chargement des environnements&#8230;</string>
-    <string name="guest_empty">Aucun environnement invité installé</string>
+    <string name="guest_empty">Aucun environnement Shroot installé</string>
     <string name="guest_launches">Exécutions actives</string>
     <string name="guest_no_launches">Aucune exécution active</string>
     <string name="guest_stop_launch">Arrêter cette exécution</string>
-    <string name="guest_select">Sélectionner un environnement invité</string>
+    <string name="guest_select">Sélectionner un environnement Shroot</string>
     <string name="settings_language">Langue de l\'application</string>
     <string name="settings_language_system">Langue du système</string>
     <string name="graphics_nested_desktop">Bureau Linux imbriqué</string>
@@ -221,7 +222,7 @@
     <string-array name="command_app_linux_methods">
         <item>PRoot (proot-distro)</item>
         <item>Script personnalisé (chroot ou autre)</item>
-        <item>Environnement invité MagicDesk (expérimental)</item>
+        <item>Shroot (expérimental)</item>
     </string-array>
     <string name="command_app_guest_store">Stockage invité préparé (chemin hôte)</string>
     <string name="command_app_guest_directory">Répertoire de travail dans Linux</string>

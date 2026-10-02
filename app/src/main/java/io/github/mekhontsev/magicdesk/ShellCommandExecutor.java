@@ -8,12 +8,16 @@ final class ShellCommandExecutor
         implements ShellCommandSession.CommandExecutor {
     private final Object mStateLock = new Object();
     private final String mMarker;
+    private final boolean mInheritCommandChannel;
     private ShellStreamHandle mStream;
     private boolean mClosed;
     private boolean mCommandActive;
     private boolean mCancelNextCommand;
 
-    ShellCommandExecutor(String marker) { mMarker = marker; }
+    ShellCommandExecutor(String marker) { this(marker, true); }
+    ShellCommandExecutor(String marker, boolean inheritCommandChannel) {
+        mMarker = marker; mInheritCommandChannel = inheritCommandChannel;
+    }
 
     @Override public ShellCommandOutput.Result execute(String command, ShellCommandOutput.Sink stdout)
             throws IOException {
@@ -65,7 +69,9 @@ final class ShellCommandExecutor
             if (mStream == null) {
                 final File helper = new File(MagicDeskApplication.applicationContext()
                         .getApplicationInfo().nativeLibraryDir, "libmagicdesk_pty_bridge.so");
-                mStream = ShellAccess.openOwnedStream("exec " + ShellCommandLine.quote(helper.getPath())
+                mStream = ShellAccess.openOwnedStream((mInheritCommandChannel ? "" :
+                        "unset MAGICDESK_COMMAND_ENDPOINT MAGICDESK_COMMAND_BUILD MAGICDESK_COMMAND_APK; ")
+                        + "exec " + ShellCommandLine.quote(helper.getPath())
                         + " --pipe-shell /system/bin/sh");
             }
             mCommandActive = true;

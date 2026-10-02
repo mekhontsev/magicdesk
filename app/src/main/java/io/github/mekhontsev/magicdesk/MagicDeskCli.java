@@ -28,8 +28,13 @@ public final class MagicDeskCli {
     }
 
     interface Executor { JSONObject execute(String name, JSONObject args) throws Exception; }
+    interface ArgumentSource { String read(String value) throws IOException; }
 
     static int run(String[] argv, InputStream input, PrintStream out, PrintStream err, Executor executor) {
+        return run(argv, value -> readArguments(value, input), out, err, executor);
+    }
+
+    static int run(String[] argv, ArgumentSource source, PrintStream out, PrintStream err, Executor executor) {
         try {
             if (argv.length == 0 || argv[0].equals("--help")) {
                 out.print(help(null));
@@ -64,7 +69,7 @@ public final class MagicDeskCli {
                     if (wholeObject || args.length() != 0 || ++i == argv.length) {
                         throw new IllegalArgumentException("Use --args JSON|@file|- without named arguments");
                     }
-                    args = AutomationCommandWire.object(readArguments(argv[i], input));
+                    args = AutomationCommandWire.object(source.read(argv[i]));
                     wholeObject = true;
                     continue;
                 }

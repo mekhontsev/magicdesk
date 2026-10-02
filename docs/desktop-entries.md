@@ -35,6 +35,13 @@ uses the same script contract through the authorized command service. All offer
 or **Linux desktop**, with an X11/Wayland protocol selector for graphics.
 Enter a command already installed in that environment.
 The optional working directory is inside Linux, not Android or Termux.
+**Allow control of MagicDesk and Android** explicitly enables the shared
+[command channel](automation.md#linux-command-access) for guest-runtime and PRoot
+recipes. Terminal, individual application and whole-desktop presentations use the
+same option, for X11 and Wayland alike. The recipe contains only the opt-in and
+dynamic client mapping, never a saved credential. Native Termux commands may use
+`magicdesk-connect -- COMMAND ARG...` directly. Prepared entry scripts own their
+client mapping instead of receiving an assumed rootfs layout from the picker.
 **Linux user** optionally selects an existing guest account through `--user`;
 leave it empty for the launcher's default (`root` inside PRoot, not Android root). No
 account is created and no password is stored in the launcher.
@@ -66,7 +73,9 @@ at `/tmp/magicdesk-wayland` and supplies an absolute guest `WAYLAND_DISPLAY`.
 Each graphical launch gets its own D-Bus session
 and temporary `XDG_RUNTIME_DIR`. This is not a security sandbox. Arbitrary
 Android file arguments are not mapped into the guest; the editor hides file
-associations for these recipes. MagicDesk does not install distributions or scan guest apps.
+associations for these recipes. PRoot and prepared entry scripts retain their
+external distribution setup. Shroot supplies its own environment catalog and
+installed-application discovery through the [guest runtime](guest-runtime.md).
 
 ### Custom Linux Entry Scripts
 

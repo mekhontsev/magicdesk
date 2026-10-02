@@ -33,6 +33,18 @@ public class GuestRuntimeTest {
         assertThrows(IllegalArgumentException.class, () -> new GuestLaunchPlan(environment, "/", List.of("/bin/sh", "\0")));
     }
 
+    @Test public void commandAccessIsExplicitAndClientHasNoPersistedAuthority() throws Exception {
+        var environment = new GuestEnvironment("/store", "", "", true);
+        assertFalse(new GuestLaunchPlan(environment, "", List.of()).arguments().contains("--magicdesk"));
+        assertTrue(new GuestLaunchPlan(environment, "", List.of(), true).arguments().contains("--magicdesk"));
+        Path source = source(), root = temporary.newFolder().toPath();
+        Path bundle = GuestRuntimeArtifacts.prepare(source, root);
+        assertEquals(Files.readString(source.resolve("libmagicdesk_command_client.so")),
+                Files.readString(bundle.resolve("commands/magicdesk")));
+        assertFalse(Files.exists(bundle.resolve("commands/token")));
+        assertFalse(Files.exists(bundle.resolve("libmagicdesk_command_client.so")));
+    }
+
     @Test public void guestUserIsAnExplicitLaunchArgumentNotAnExecutorSwitch() {
         var plan = new GuestLaunchPlan(new GuestEnvironment("/store", "/tmp", " 1000:200 "),
                 "/", List.of("/bin/sh"));

@@ -48,9 +48,14 @@ final class AutomationCommands implements AutoCloseable {
     DesktopAutomationResult execute(
             final String name,
             final JSONObject arguments) throws JSONException {
+        return execute(name, arguments, mConsole);
+    }
+
+    DesktopAutomationResult execute(String name, JSONObject arguments,
+            DesktopAutomationConsoleSessions consoles) throws JSONException {
         try {
             AutomationCommandArguments.check(name, arguments);
-            return executeChecked(name, arguments);
+            return executeChecked(name, arguments, consoles);
         } catch (IllegalArgumentException | JSONException error) {
             return DesktopAutomationResult.failure(
                     DesktopAutomationErrorCode.INVALID_ARGUMENT,
@@ -64,7 +69,7 @@ final class AutomationCommands implements AutoCloseable {
 
     private DesktopAutomationResult executeChecked(
             final String name,
-            final JSONObject arguments) throws JSONException {
+            final JSONObject arguments, DesktopAutomationConsoleSessions consoles) throws JSONException {
         final JSONObject args = arguments == null
                 ? new JSONObject() : arguments;
         final JSONObject data;
@@ -162,13 +167,13 @@ final class AutomationCommands implements AutoCloseable {
                 case "files.rename":
                     return mFiles.rename(args);
                 case "console.open":
-                    return mConsole.open(args);
+                    return consoles.open(args);
                 case "console.execute":
-                    return mConsole.execute(mContext, args);
+                    return consoles.execute(mContext, args);
                 case "console.status":
-                    return mConsole.status(args);
+                    return consoles.status(args);
                 case "console.close":
-                    return mConsole.close(args);
+                    return consoles.close(args);
                 case "terminal.open":
                     return mTerminals.open(args);
                 case "terminal.attach":

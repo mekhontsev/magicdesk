@@ -25,7 +25,7 @@ if [ -n "$unsupported_abis" ]; then
     exit 1
 fi
 
-for helper in uinput_bridge pty_bridge service_launcher process_signal guest_files \
+for helper in uinput_bridge pty_bridge service_launcher process_signal guest_files command_client command_bridge \
         wayland_executor wayland_client graphics_host guest_bootstrap guest_supervisor guest_run guest_service; do
     printf '%s\n' "$core_contents" \
         | grep -Fxq "lib/arm64-v8a/libmagicdesk_$helper.so" \

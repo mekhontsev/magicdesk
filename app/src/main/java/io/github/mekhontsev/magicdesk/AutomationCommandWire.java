@@ -29,6 +29,11 @@ final class AutomationCommandWire {
     static JSONObject read(InputStream input, int limit) throws IOException, JSONException {
         final DataInputStream stream = new DataInputStream(input);
         final int length = stream.readInt();
+        return read(stream, length, limit);
+    }
+
+    static JSONObject read(InputStream input, int length, int limit) throws IOException, JSONException {
+        final DataInputStream stream = new DataInputStream(input);
         if (length < 2 || length > limit) throw new IOException("Invalid command message size");
         final byte[] bytes = new byte[length];
         stream.readFully(bytes);

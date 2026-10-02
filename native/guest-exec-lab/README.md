@@ -446,6 +446,13 @@ reading symbols is not a debugger pass. Reports preserve failures, image digests
 and exact commands. Current coverage and unsupported requirements are in
 [image checks](../guest-runtime/images.md#checks).
 
+`test_proot_debugger.py REPORT.json --distribution ubuntu` runs the same GDB
+sources, commands and assertions in an installed Termux PRoot distribution with
+GCC, libc headers and GDB already available. It checks both default PRoot and
+`PROOT_NO_SECCOMP=1`, without root or package installation. Each case has a bounded
+process lifetime; temporary sources and binaries are removed afterward. The
+report records versions, output, exit status and timeout failures separately.
+
 Distribution and emulator workflows use the same runner and per-instance policy:
 
 ```sh

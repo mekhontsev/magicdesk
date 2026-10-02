@@ -7,7 +7,7 @@ public final class GuestRuntimeCommand {
             + "unset LD_PRELOAD LD_LIBRARY_PATH\n"
             + "md_guest=$(CLASSPATH=\"${MAGICDESK_COMMAND_APK:?Open a new MagicDesk console}\" "
             + "/system/bin/app_process / io.github.mekhontsev.magicdesk.GuestRuntimeMain "
-            + "\"${" + LIBRARIES_ENV + ":?Guest runtime is unavailable}\" "
+            + "\"${" + LIBRARIES_ENV + ":?Shroot is unavailable}\" "
             + "\"${MAGICDESK_RUNTIME:?Missing shell runtime}/guest-runtime\") || exit $?\n"
             + "md_library() { CLASSPATH=\"$MAGICDESK_COMMAND_APK\" /system/bin/app_process / "
             + "io.github.mekhontsev.magicdesk.GuestEnvironmentMain \"$md_guest\" "

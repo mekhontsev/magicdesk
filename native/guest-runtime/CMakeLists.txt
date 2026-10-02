@@ -42,7 +42,7 @@ guest_freestanding(bootstrap)
 target_compile_options(bootstrap PRIVATE -mgeneral-regs-only)
 target_link_options(bootstrap PRIVATE -Wl,--image-base=0x2000000000)
 
-guest_executable(supervisor ${src}/supervisor.c ${src}/launch_registry.c ${src}/process_owner.c ${src}/interception_stacks.c ${src}/guest_domain.c
+guest_executable(supervisor ${src}/supervisor.c ${src}/command_access.c ../command-client/wire.c ${src}/launch_registry.c ${src}/process_owner.c ${src}/interception_stacks.c ${src}/guest_domain.c
     ${src}/watch_activation.c ${src}/sysv_shm.c ${src}/guest_debugger.c ${src}/process_image_view.c
     ${src}/guest_identity.c ${src}/guest_accounts.c ${src}/elf_admission.c ${src}/elf.c ${src}/fs_client.c ${wire} ${raw}
     ${src}/fs_worker.c ${src}/fs_service.c ${namespace_engine} ${src}/image_catalogue.c ${inodes} ${mounts}
@@ -52,6 +52,7 @@ target_link_libraries(supervisor PRIVATE guest-sqlite m)
 
 guest_executable(run ${src}/namespace_run.c ${src}/process_owner.c ${src}/launch_environment.c ${src}/socket_routes.c ${src}/event_wait.c ${raw})
 guest_freestanding(run)
+
 
 guest_executable(service ${src}/service_main.c ${src}/fs_service.c ${namespace_engine} ${src}/image_catalogue.c
     ${src}/elf_admission.c ${src}/guest_identity.c ${src}/elf.c ${src}/fs_client.c ${inodes} ${wire} ${raw} ${mounts})

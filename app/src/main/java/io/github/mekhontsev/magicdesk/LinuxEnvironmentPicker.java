@@ -8,6 +8,7 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
+import android.widget.CheckBox;
 import java.util.List;
 
 /** Dialog-scoped entry selection from the selected executor's environment catalog. */
@@ -21,6 +22,7 @@ final class LinuxEnvironmentPicker extends LinearLayout {
     private final LinearLayout keyboardFields;
     private final Spinner choices;
     private final TextView status;
+    private final CheckBox magicDesk;
     private TermuxIntegration.Endpoint endpoint;
     private TermuxCommandResultReceiver.Registration request;
     private java.io.Closeable guestRequest;
@@ -76,6 +78,10 @@ final class LinuxEnvironmentPicker extends LinearLayout {
         keyboardFields.addView(keyboard, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
         keyboardFields.setVisibility(View.GONE);
         addView(keyboardFields);
+        magicDesk = new CheckBox(context);
+        magicDesk.setText(R.string.guest_command_access);
+        magicDesk.setVisibility(View.GONE);
+        addView(magicDesk);
         method.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 if (active) load();
@@ -125,6 +131,7 @@ final class LinuxEnvironmentPicker extends LinearLayout {
         var kind = kinds.get(Math.max(0, method.getSelectedItemPosition()));
         boolean proot = kind == LinuxLaunchRecipe.Kind.PROOT;
         boolean managed = kind == LinuxLaunchRecipe.Kind.MANAGED_GUEST;
+        magicDesk.setVisibility(kind != LinuxLaunchRecipe.Kind.SCRIPT ? View.VISIBLE : View.GONE);
         prootFields.setVisibility(proot || managed ? View.VISIBLE : View.GONE);
         scriptFields.setVisibility(proot || managed ? View.GONE : View.VISIBLE);
         title.setText(managed ? R.string.guest_environments : R.string.command_app_proot_environment);
@@ -176,15 +183,15 @@ final class LinuxEnvironmentPicker extends LinearLayout {
         if (kind == LinuxLaunchRecipe.Kind.MANAGED_GUEST) {
             Object selection = choices.getSelectedItem();
             if (!(selection instanceof GuestEnvironmentCatalog.Entry item)) throw new IllegalArgumentException(getContext().getString(R.string.guest_select));
-            return new LinuxLaunchRecipe.Environment(kind, item.store(), backend, "");
+            return new LinuxLaunchRecipe.Environment(kind, item.store(), backend, "", magicDesk.isChecked());
         }
         if (kind != LinuxLaunchRecipe.Kind.PROOT)
             return new LinuxLaunchRecipe.Environment(kind, script.getText().toString(),
-                    backend, keyboard.getText().toString());
+                    backend, keyboard.getText().toString(), kind == LinuxLaunchRecipe.Kind.GUEST && magicDesk.isChecked());
         Object selected = choices.getSelectedItem();
         if (selected == null) throw new IllegalArgumentException(
                 getContext().getString(R.string.command_app_proot_select));
-        return new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.PROOT, selected.toString());
+        return new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.PROOT, selected.toString(), backend, "", magicDesk.isChecked());
     }
 
     TermuxIntegration.Endpoint endpoint() { return endpoint; }

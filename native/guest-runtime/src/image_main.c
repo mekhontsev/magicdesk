@@ -171,7 +171,7 @@ int main(int argc, char **argv) {
         "       image inspect IMAGE_OR_INSTANCE\n"
         "       image exec INSTANCE [OPTIONS] -- COMMAND... | login INSTANCE [OPTIONS] [-- SHELL...]\n"
         "       image run INSTANCE [--user current|UID[:GID]|NAME[:GROUP]] [--cwd PATH] [--entrypoint PROGRAM] [--env KEY=VALUE]\n"
-        "             [--hostname NAME] [--bind HOST GUEST] [--bind-ro HOST GUEST] [-- COMMAND...]\n");
+        "             [--hostname NAME] [--bind HOST GUEST] [--bind-ro HOST GUEST] [--magicdesk] [-- COMMAND...]\n");
     if (r) fprintf(stderr, "Guest image: %s (errno=%d)\n", strerror(-r), -r);
     return r ? 1 : 0;
 }

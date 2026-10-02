@@ -5,26 +5,10 @@ from pathlib import Path
 from test_oci_services import Suite, write_script
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('output', type=Path)
-    source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument('--debian', type=Path)
-    source.add_argument('--instance')
-    parser.add_argument('--build', type=Path)
-    parser.add_argument('--install', action='store_true', help='Install Debian compiler/debugger packages')
-    args = parser.parse_args()
-    suite = Suite(args.output, args.build)
-    try:
-        store = suite.prepare('development', args.debian) if args.debian else args.instance
-        if args.install:
-            suite.command(suite.run(store, '--env', 'DEBIAN_FRONTEND=noninteractive', '--', '/bin/sh', '-ec',
-                                    'printf "nameserver 1.1.1.1\\n" >/etc/resolv.conf\n'
-                                    'apt-get update\napt-get install -y --no-install-recommends gcc g++ gdb libc6-dev\n'
-                                    'dpkg --audit'))
-        sources = {
-            '/tmp/md-library.c': 'int answer(int a,int b) { return a*b; }\n',
-            '/tmp/md-program.cpp': '''#include <cassert>
+def development_sources():
+    return {
+        '/tmp/md-library.c': 'int answer(int a,int b) { return a*b; }\n',
+        '/tmp/md-program.cpp': '''#include <cassert>
 #include <future>
 #include <fstream>
 #include <iostream>
@@ -37,13 +21,13 @@ int main() {
     std::cout<<"PASS C/C++ shared library, pthread worker and file IO\\n";
 }
 ''',
-            '/tmp/md-debug.c': '''__attribute__((noinline)) int answer(int input) {
+        '/tmp/md-debug.c': '''__attribute__((noinline)) int answer(int input) {
     int result=input+1;
     return result;
 }
 int main(void) { return answer(41)==42 ? 0 : 1; }
 ''',
-            '/tmp/md-debug-events.c': '''#include <assert.h>
+        '/tmp/md-debug-events.c': '''#include <assert.h>
 #include <pthread.h>
 #include <signal.h>
 #include <sys/wait.h>
@@ -64,7 +48,7 @@ int main(void) {
     checkpoint(42); return 0;
 }
 ''',
-            '/tmp/md-gdb-events.commands': '''set pagination off
+        '/tmp/md-gdb-events.commands': '''set pagination off
 set confirm off
 set startup-with-shell off
 set follow-fork-mode parent
@@ -83,7 +67,7 @@ python assert int(gdb.parse_and_eval("$_exitcode")) == 0
 python assert int(gdb.parse_and_eval("$checkpoints")) == 2
 echo PASS GDB threads, signal delivery, fork detach and child exec\\n
 ''',
-            '/tmp/md-gdb.commands': '''set pagination off
+        '/tmp/md-gdb.commands': '''set pagination off
 set confirm off
 set startup-with-shell off
 file /tmp/md-debug
@@ -99,7 +83,27 @@ continue
 python assert int(gdb.parse_and_eval("$_exitcode")) == 0
 echo PASS GDB breakpoint, step, locals, backtrace and normal exit\\n
 '''
-        }
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('output', type=Path)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument('--debian', type=Path)
+    source.add_argument('--instance')
+    parser.add_argument('--build', type=Path)
+    parser.add_argument('--install', action='store_true', help='Install Debian compiler/debugger packages')
+    args = parser.parse_args()
+    suite = Suite(args.output, args.build)
+    try:
+        store = suite.prepare('development', args.debian) if args.debian else args.instance
+        if args.install:
+            suite.command(suite.run(store, '--env', 'DEBIAN_FRONTEND=noninteractive', '--', '/bin/sh', '-ec',
+                                    'printf "nameserver 1.1.1.1\\n" >/etc/resolv.conf\n'
+                                    'apt-get update\napt-get install -y --no-install-recommends gcc g++ gdb libc6-dev\n'
+                                    'dpkg --audit'))
+        sources = development_sources()
         for name, content in sources.items():
             write_script(suite, store, name, content)
         compiler = {'name': 'gcc-g++', 'passed': False}
