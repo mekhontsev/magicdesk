@@ -409,6 +409,20 @@ sh ~/install_linux.sh
 The installer asks for Debian, Ubuntu, Alpine, Fedora or Arch Linux ARM, an
 environment name, GUI profile and optional graphics setup. Package installation
 runs visibly in the console. Several independent environments can coexist.
+
+After installation:
+
+- **Applications:** open **Apps** in MagicDesk's control panel, press **Refresh**
+  beside the search field, then select an installed entry such as
+  **Mousepad (x11)** or **Mousepad (wayland)**.
+- **Whole Linux desktop:** if you selected the `xfce` or `weston` profile,
+  open **Xfce Desktop** or **Weston Desktop** from that same list. The default
+  `apps` profile installs individual applications, not a whole desktop.
+- **Terminal:** choose **Terminal sessions > New session > Shroot environments**
+  and your environment, or run `magicdesk-guest login NAME` in a Shell console,
+  replacing `NAME` with the environment name chosen during installation.
+
+These launches do not require starting MagicDesk Desktop or rerunning the installer.
 See [Linux setup](docs/getting-started.md#install-linux-with-shroot) for requirements
 and [installer profiles](docs/guest-runtime.md#linux-installer) for their limits.
 

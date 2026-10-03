@@ -163,13 +163,46 @@ and builds a private Mesa inside Linux; it does not replace Android drivers.
 GUI recipes and distro-specific limits are listed in the
 [installer guide](guest-runtime.md#linux-installer).
 
-After installation, use **Refresh** beside Start's search field.
-Installed application entries use the shared X11/Wayland launcher; whole-desktop
-entries open a viewer. **Terminal sessions > New session > Shroot environments** opens a login
-or lists that environment's running launches. No Desktop session is required.
-Use `magicdesk-guest list` and `magicdesk-guest login NAME` from the console as well.
-Existing environment names are never silently replaced;
-`sh ~/install_linux.sh --name NAME --resume` explicitly resumes package setup.
+### Launch Installed Linux
+
+Installation prepares an environment; it does not open its GUI automatically.
+Keep your configured privileged access available. Neither Termux nor a MagicDesk
+Desktop session is required, and you do not need to rerun the installer to launch
+Linux again.
+
+1. In MagicDesk's control panel, select the destination display and open **Apps**.
+   This opens Start; during a Desktop session you can use Start on the taskbar instead.
+2. Press **Refresh** beside the search field to discover installed Linux entries.
+3. Select an application or desktop entry. MagicDesk supplies its X11/Wayland
+   connection and opens its Android window; no display-server command is needed.
+
+The default `apps` profile adds **Mousepad**, **Thunar** and **Xfce Terminal**
+entries with `(x11)` and/or `(wayland)` suffixes according to the selected protocol.
+Choose one of these entries to run an individual application.
+
+For a whole Linux desktop in one viewer, open **Xfce Desktop** with the `xfce`
+profile or **Weston Desktop** with `weston`. Fedora's `gnome` profile adds
+**GNOME Shell (development kit)**; it remains experimental and needs a working
+Linux system bus. The `apps` profile does not install a whole desktop, and `none`
+installs console tools only. See the [profile limits](guest-runtime.md#linux-installer).
+
+For a login shell, choose **Terminal sessions > New session > Shroot environments**,
+then your environment and **New session**. The same picker can show its running launches.
+Alternatively, in a MagicDesk Shell console:
+
+```sh
+magicdesk-guest list
+magicdesk-guest login debian
+```
+
+Replace `debian` with the environment name you chose, which can differ from the
+distribution name. For an optional account created during installation, append
+`--user USER` to the login command.
+
+To add a desktop to an existing environment, explicitly resume package setup,
+for example `sh ~/install_linux.sh --name debian --resume --gui xfce`, then refresh
+Start again. Existing environment names are never silently replaced;
+`--resume` without `--gui` preserves the installed GUI configuration.
 
 ## Choose Or Create A Display
 

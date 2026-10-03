@@ -83,12 +83,60 @@ if os.environ.get("TEST_FAIL") == stage:
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual("xfce", self.calls()[-1][-9])
 
+    def test_app_launch_hints_match_selected_protocol(self):
+        for protocol in ("x11", "wayland", "both"):
+            with self.subTest(protocol=protocol):
+                result = self.run_script("--yes", "--name", "work", "--protocol", protocol)
+                self.assertEqual(0, result.returncode, result.stderr)
+                hints = result.stdout.split("Next steps:\n", 1)[1]
+                self.assertIn("open Apps (Start)", hints)
+                self.assertIn("Refresh beside the search field", hints)
+                for backend in ("x11", "wayland"):
+                    for title in ("Mousepad", "Thunar", "Xfce Terminal"):
+                        self.assertEqual(protocol in (backend, "both"), f"{title} ({backend})" in hints)
+                self.assertIn("not a whole Linux desktop", hints)
+                self.assertNotIn("Whole desktop:", hints)
+                self.assertIn("Shroot environments > work > New session", hints)
+                self.assertIn("Console: magicdesk-guest login work\n", hints)
+
+    def test_desktop_launch_hints_match_generated_entry_not_app_protocol(self):
+        profiles = (("xfce", "debian", "wayland", "Xfce Desktop"),
+                    ("weston", "debian", "x11", "Weston Desktop"),
+                    ("gnome", "fedora", "x11", "GNOME Shell (development kit)"))
+        for gui, distro, protocol, title in profiles:
+            with self.subTest(gui=gui):
+                result = self.run_script("--yes", "--distro", distro, "--gui", gui, "--protocol", protocol)
+                self.assertEqual(0, result.returncode, result.stderr)
+                hints = result.stdout.split("Next steps:\n", 1)[1]
+                self.assertIn(f"Name={title}\n", self.payload.read_text())
+                self.assertIn(title, hints)
+                for _, _, _, other_title in profiles:
+                    if other_title != title:
+                        self.assertNotIn(other_title, hints)
+                if gui == "gnome":
+                    self.assertIn("requires a Linux system bus", hints)
+
+    def test_console_only_hints_do_not_offer_uninstalled_gui(self):
+        result = self.run_script("--yes", "--name", "tools", "--gui", "none")
+        self.assertEqual(0, result.returncode, result.stderr)
+        hints = result.stdout.split("Next steps:\n", 1)[1]
+        self.assertIn("No GUI was installed by this run", hints)
+        self.assertNotIn("open Apps", hints)
+        self.assertNotIn("Individual apps:", hints)
+        self.assertNotIn("Whole desktop:", hints)
+        self.assertIn("Console: magicdesk-guest login tools\n", hints)
+
     def test_resume_validates_without_reinstalling(self):
         result = self.run_script("--yes", "--name", "existing", "--resume")
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(["exec", "--probe", "exec", "exec"], [args[0] for args in self.calls()])
         self.assertEqual(["sh", "debian", "13"], self.calls()[2][-3:])
         self.assertEqual(["keep", "both", "keep", "keep", "", "keep", "keep", "keep", ""], self.calls()[-1][-9:])
+        hints = result.stdout.split("Next steps:\n", 1)[1]
+        self.assertIn("Existing GUI entries were preserved", hints)
+        self.assertNotIn("Individual apps:", hints)
+        self.assertNotIn("Whole desktop:", hints)
+        self.assertIn("Console: magicdesk-guest login existing\n", hints)
 
     def test_distribution_profiles_share_setup_and_selected_image(self):
         images = {"debian": "debian:trixie-slim", "ubuntu": "ubuntu:24.04", "alpine": "alpine:3.23",
@@ -173,6 +221,7 @@ if os.environ.get("TEST_FAIL") == stage:
                 self.assertEqual(23, result.returncode)
                 self.assertEqual(count, len(self.calls()))
                 self.assertNotIn("Linux is ready", result.stdout)
+                self.assertNotIn("Next steps:", result.stdout)
                 self.assertIn("Installation stopped", result.stderr)
                 if stage == "setup":
                     self.assertIn("--resume", result.stderr)

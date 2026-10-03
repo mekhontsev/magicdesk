@@ -702,7 +702,29 @@ fi
 stage=complete
 printf '\nLinux is ready: %s (%s %s)\n' "$name" "$distro" "$version"
 gui_notice
-printf 'Refresh the Linux application list in MagicDesk. Distribution entries remain available.\n'
+printf '\nNext steps:\n'
+if [ "$gui" != none ]; then
+    printf 'In MagicDesk Control Panel, select a display and open Apps (Start).\n'
+    printf 'Press Refresh beside the search field to load installed Linux entries.\n'
+fi
+case "$gui" in
+    none) printf 'No GUI was installed by this run. Use a terminal below.\n' ;;
+    keep) printf 'Existing GUI entries were preserved; choose an installed application or desktop.\n' ;;
+    *)
+        for backend in x11 wayland; do
+            if [ "$protocol" = both ] || [ "$protocol" = "$backend" ]; then
+                printf 'Individual apps: Mousepad (%s), Thunar (%s), Xfce Terminal (%s).\n' "$backend" "$backend" "$backend"
+            fi
+        done
+        case "$gui" in
+            apps) printf 'The apps profile adds individual applications, not a whole Linux desktop.\n' ;;
+            xfce) printf 'Whole desktop: open Xfce Desktop from the same list (X11).\n' ;;
+            weston) printf 'Whole desktop: open Weston Desktop from the same list (Wayland).\n' ;;
+            gnome) printf 'Experimental desktop: GNOME Shell (development kit); requires a Linux system bus.\n' ;;
+        esac ;;
+esac
+printf 'Terminal: Terminal sessions > New session > Shroot environments > %s > New session.\n' "$name"
+printf 'Keep privileged access available; no MagicDesk Desktop session or installer rerun is needed.\n'
 printf 'Console: magicdesk-guest login %s\n' "$name"
 if [ -n "$new_user" ]; then printf 'User console: magicdesk-guest login %s --user %s\n' "$name" "$new_user"; fi
 printf 'Folder attachment: magicdesk-guest login %s --bind /sdcard/Download /mnt\n' "$name"

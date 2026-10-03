@@ -141,6 +141,8 @@ command; `preserve` leaves it alone. Resume retains existing DNS.
 Refresh MagicDesk's Linux application list after installation. Distribution
 entries remain untouched; `--protocol x11|wayland|both` controls the installer's
 own application entries. Selected whole-desktop entries open in one viewer.
+See [Launch installed Linux](getting-started.md#launch-installed-linux) for the
+application, whole-desktop and terminal launch steps.
 The shared catalog preserves application/desktop presentation for both protocols;
 guest declarations cannot replace store-derived host paths or graphics routing.
 
