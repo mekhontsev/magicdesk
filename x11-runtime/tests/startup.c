@@ -47,6 +47,10 @@ int main(int argc, char **argv) {
     assert(argc == 2 || argc == 3);
     setvbuf(stdout, NULL, _IOLBF, 0);
     display = XOpenDisplay(NULL); assert(display);
+    /* The first client must discover closure without creating the protocol atoms itself. */
+    assert(XInternAtom(display, "WM_PROTOCOLS", True) != None);
+    assert(XInternAtom(display, "WM_DELETE_WINDOW", True) != None);
+    assert(XInternAtom(display, "WM_TAKE_FOCUS", True) != None);
     splash = create("Startup splash", "_NET_WM_WINDOW_TYPE_SPLASH", 420, 220, 0x246454);
     main_window = create("Startup main", "_NET_WM_WINDOW_TYPE_NORMAL", 800, 600, 0x245488);
     dialog = create("Startup recovery", "_NET_WM_WINDOW_TYPE_DIALOG", 360, 240, 0x885424);
