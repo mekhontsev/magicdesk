@@ -75,7 +75,9 @@ static int add(struct md_debugger *d, pid_t pid, pid_t owner, unsigned long opti
     *p=(struct inferior){.next=d->inferiors,.pid=pid,.owner=owner,.options=options,
         .real_child=d->host.group(d->host.parent(pid))==d->host.group(owner),.group=getpgid(pid)};
     d->inferiors=p;
-    return 0;
+    int error=d->host.observe(owner);
+    if (error) { d->inferiors=p->next; free(p); }
+    return error;
 }
 static int selected(pid_t owner, const struct user_pt_regs *r, const struct inferior *p) {
     if (r->regs[8]==SYS_waitid) {
@@ -173,7 +175,8 @@ int md_debugger_event(struct md_debugger *d, pid_t pid, unsigned event, unsigned
 int md_debugger_birth(struct md_debugger *d, pid_t parent, pid_t child, unsigned event) {
     struct inferior *p=find(d,parent);
     if (!p || !(p->options & (1UL<<event))) return 0;
-    if (add(d,child,p->owner,p->options)) return -ENOMEM;
+    int error=add(d,child,p->owner,p->options);
+    if (error) return error;
     find(d,child)->seized=p->seized;
     return md_debugger_stop(d,parent,(SIGTRAP<<8)|0x7f|(event<<16),NULL,(unsigned long)child);
 }

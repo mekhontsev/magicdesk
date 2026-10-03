@@ -22,6 +22,12 @@ Supported requests include register sets, memory peek/poke, signal information
 and masks, continue, single step, syscall entry/exit information, interrupt,
 listen, detach, kill, event messages and fork/vfork/clone/exec/exit options.
 Attach/interrupt stops are published at a guest boundary, outside adapter code.
+Admitting a trace relationship activates observation in the owner's whole thread
+group. A native wait entered before that relationship is interrupted and restarted
+through the same debugger-aware wait path. This also covers a child requesting
+TRACEME after its parent, or another parent thread, has already blocked in wait4
+or waitid with SIGCHLD masked. Activation is relationship-driven; ordinary
+launches do not acquire extra stops or periodic checks.
 The wait status and siginfo describe the same event; internal bootstrap execs
 are not separate guest exec events. Non-leader inferior exec retains its former
 TID in the exec event while transferring the relationship to the surviving PID.
@@ -63,14 +69,16 @@ Raw-instruction stepping and unsupported-request coverage remain separate work.
 `test_debugger_runtime.py` adds identical Shroot/PRoot attach, seize, interrupt,
 exit-event, syscall-information, mixed-wait, debugger-death, EXITKILL and
 non-leader inferior-exec checks. Real-tool scenarios verify GDB sibling attach
-with a memory write and detach, LLDB source stepping, GDB through gdbserver,
-strace following a child, gprof function output and Callgrind instruction counts.
+with a memory write and detach, including a 41-thread target, LLDB source stepping,
+GDB through gdbserver, strace following a child, gprof function output and
+Callgrind instruction counts.
 The perf capability check opens a task-clock event and requires a positive
 counter; a kernel permission denial is recorded as unavailable, not a successful
 profile or a runtime workaround.
 
 `test_kernel_contract.py` runs one static binary directly under shell and inside
-Shroot on the same kernel. It compares waitid WNOWAIT, invalid waits, ptrace
+Shroot on the same kernel. It compares waitid WNOWAIT, invalid waits, late TRACEME
+while the parent or another parent thread is in a native wait, ptrace
 option errors, syscall-info sizing and signal suppression/replacement, alongside
 descriptor lifetimes and scoped pathname resolution under concurrent rename.
 Unavailable native hardlink creation is reported separately; the guest must
@@ -80,6 +88,8 @@ preflight is not device coverage.
 
 On the tested NX809J/API 36 kernel 6.12, Shroot under UID 2000 passes these
 workflows with Ubuntu GDB 15.1, LLDB 18.1.3, strace 6.8 and Valgrind 3.22.
+Debian GDB 16.3 also completes sibling attach, all-thread backtraces and detach
+for Blender with a rendered viewport and after a forced X11 client disconnect.
 The gdbserver workflow uses an explicitly selected Debian 16.3 binary. Ubuntu's
 gdbserver 15.1 hits the same ARM64 SVE register assertion in both Shroot and PRoot;
 the corresponding [upstream fix](https://gnu.googlesource.com/binutils-gdb/+/1137625d46f3840dd7cb7f8519ec9dcba0acd53e)

@@ -6,7 +6,8 @@ from pathlib import Path
 
 from test_oci_services import Suite
 
-CASES = ('waitid-peek', 'wait-errors', 'ptrace-options', 'syscall-info',
+CASES = ('waitid-peek', 'wait-errors', 'traceme-late-wait4', 'traceme-late-waitid',
+         'traceme-thread-wait4', 'traceme-thread-waitid', 'ptrace-options', 'syscall-info',
          'signal-delivery', 'file-lifetime', 'resolution', 'resolution-race')
 
 

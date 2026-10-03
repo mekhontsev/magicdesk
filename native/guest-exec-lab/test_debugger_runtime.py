@@ -14,21 +14,31 @@ from test_development_runtime import development_sources
 TARGET = '/tmp/md-debugger-tests'
 GDB_ATTACH = r'''
 import subprocess
-child = subprocess.Popen(['/tmp/md-debugger-tests', 'gdb-target'],
+import sys
+target = sys.argv[1] if len(sys.argv) > 1 else 'gdb-target'
+child = subprocess.Popen(['/tmp/md-debugger-tests', target],
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
 try:
     # EVENT_WAIT: target readiness and debugger completion; outer launch bounds failures.
     assert child.stdout.readline().strip() == 'READY'
     result = subprocess.run(['gdb', '--batch', '-nx',
-        '-ex', 'attach '+str(child.pid),
+        '-ex', 'set debuginfod enabled off',
+        '-ex', 'attach '+str(child.pid), '-ex', 'echo MD_ATTACHED\\n',
+        '-ex', 'python assert len(gdb.selected_inferior().threads()) == '
+               + ('41' if target == 'gdb-thread-target' else '1'),
+        '-ex', 'thread apply all bt 4', '-ex', 'echo MD_BACKTRACE\\n',
         '-ex', 'python assert int(gdb.parse_and_eval("magic_value")) == 42',
-        '-ex', 'set var magic_value=43', '-ex', 'detach'],
+        '-ex', 'set var magic_value=43', '-ex', 'detach', '-ex', 'echo MD_DETACHED\\n'],
         capture_output=True, text=True, timeout=20)
     print(result.stdout, result.stderr)
     assert result.returncode == 0
     output, _ = child.communicate('x', timeout=10)
-    assert child.returncode == 0 and 'PASS gdb-target' in output
-    print('PASS gdb-attach')
+    assert child.returncode == 0 and 'PASS '+target in output
+    assert all(stage in result.stdout for stage in ('MD_ATTACHED', 'MD_BACKTRACE', 'MD_DETACHED'))
+    print('PASS gdb-attach' + ('-threads' if target == 'gdb-thread-target' else ''))
+except subprocess.TimeoutExpired as error:
+    print(error.stdout, error.stderr, flush=True)
+    raise
 finally:
     if child.poll() is None: child.kill()
     child.wait()
@@ -57,6 +67,7 @@ def commands():
     cases = [(name, [TARGET, name]) for name in ('attach', 'seize', 'trace-exit', 'syscall', 'mixed',
                                                'kill-stopped', 'owner-exit', 'exitkill', 'thread-exec', 'perf-event')]
     cases.append(('gdb-attach', ['python3', '-c', GDB_ATTACH]))
+    cases.append(('gdb-attach-threads', ['python3', '-c', GDB_ATTACH, 'gdb-thread-target']))
     cases.append(('lldb', ['python3', '-c', LLDB]))
     cases.append(('gdbserver', ['gdb', '--batch', '-nx', '-x', '/tmp/md-gdbserver.commands']))
     cases.append(('gprof', ['/bin/sh', '-ec',

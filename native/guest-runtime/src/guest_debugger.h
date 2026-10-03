@@ -13,6 +13,7 @@ struct md_debugger_host {
     uid_t (*uid)(pid_t);
     int (*allowed)(pid_t, pid_t);
     int (*attachable)(pid_t, pid_t);
+    int (*observe)(pid_t);
     int (*interrupt)(pid_t);
     int (*options)(pid_t, unsigned long);
     int (*listen)(pid_t);

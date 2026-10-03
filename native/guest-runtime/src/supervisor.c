@@ -832,6 +832,18 @@ static int debugger_interrupt(pid_t pid) {
     if (t->kernel_stopped || (pid!=leader && t->born && !t->initial_stop)) return 0;
     return native_trace(PTRACE_INTERRUPT,pid,NULL,NULL) ? -errno : 0;
 }
+static int debugger_observe(pid_t owner) {
+    struct thread *parent=find_thread(owner);
+    if (!parent) return -ESRCH;
+    /* EVENT_WAIT: a new trace relationship can select a wait already blocked
+     * in the kernel, in any owner thread. INTERRUPT restarts it through the
+     * debugger-aware path; cancellation/exit still owns the wait's lifetime. */
+    for (struct thread *t=threads; t; t=t->next) if (t->pid && t->tgid==parent->tgid) {
+        int error=debugger_interrupt(t->pid);
+        if (error && error!=-ESRCH) return error;
+    }
+    return 0;
+}
 static int debugger_options(pid_t pid, unsigned long options) {
     struct thread *t=find_thread(pid);
     if (!t) return -ESRCH;
@@ -1280,7 +1292,7 @@ int main(int argc, char **argv) {
     }
     setvbuf(stderr, NULL, _IONBF, 0);
     struct md_debugger_host debug_host={.parent=debugger_parent,.group=debugger_group,.uid=debugger_uid,.allowed=debugger_allowed,
-        .attachable=debugger_attachable,.interrupt=debugger_interrupt,.options=debugger_options,
+        .attachable=debugger_attachable,.observe=debugger_observe,.interrupt=debugger_interrupt,.options=debugger_options,
         .listen=debugger_listen,.usage=debugger_usage,.wait_probe=debugger_wait_probe,
         .complete=debugger_complete,.resume=resume};
     debugger=md_debugger_create(&debug_host); CHECK(debugger);

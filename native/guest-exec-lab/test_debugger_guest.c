@@ -193,6 +193,38 @@ static int perf_test(void) {
     close(fd); printf("task-clock=%llu work=%lu\n",(unsigned long long)count,work);
     return 1;
 }
+static pthread_barrier_t ready_barrier;
+static pthread_mutex_t workers_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t workers_done = PTHREAD_COND_INITIALIZER;
+static int workers_exit;
+static void *gdb_worker(void *unused) {
+    (void)unused;
+    pthread_barrier_wait(&ready_barrier);
+    assert(!pthread_mutex_lock(&workers_lock));
+    // EVENT_WAIT: explicit target release; the fixture alarm bounds debugger failures.
+    while (!workers_exit) assert(!pthread_cond_wait(&workers_done, &workers_lock));
+    assert(!pthread_mutex_unlock(&workers_lock));
+    return NULL;
+}
+static void gdb_target(int threaded) {
+    pthread_t workers[40];
+    if (threaded) {
+        assert(!pthread_barrier_init(&ready_barrier, NULL, 41));
+        for (unsigned i = 0; i < 40; i++)
+            assert(!pthread_create(&workers[i], NULL, gdb_worker, NULL));
+        pthread_barrier_wait(&ready_barrier);
+    }
+    puts("READY"); fflush(stdout); char c;
+    assert(read(0, &c, 1) == 1); assert(magic_value == 43);
+    if (threaded) {
+        assert(!pthread_mutex_lock(&workers_lock));
+        workers_exit = 1;
+        assert(!pthread_cond_broadcast(&workers_done));
+        assert(!pthread_mutex_unlock(&workers_lock));
+        for (unsigned i = 0; i < 40; i++) assert(!pthread_join(workers[i], NULL));
+        assert(!pthread_barrier_destroy(&ready_barrier));
+    }
+}
 int main(int argc, char **argv) {
     assert(argc == 2); alarm(20);
     if (!strcmp(argv[1], "attach")) attach_test(0, 0);
@@ -205,9 +237,8 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[1], "exitkill")) owner_test(1);
     else if (!strcmp(argv[1], "thread-exec")) exec_thread_test();
     else if (!strcmp(argv[1], "perf-event")) { if (!perf_test()) return 0; }
-    else if (!strcmp(argv[1], "gdb-target")) {
-        puts("READY"); fflush(stdout); char c;
-        assert(read(0, &c, 1) == 1); assert(magic_value == 43);
-    } else return 2;
+    else if (!strcmp(argv[1], "gdb-target")) gdb_target(0);
+    else if (!strcmp(argv[1], "gdb-thread-target")) gdb_target(1);
+    else return 2;
     printf("PASS %s\n", argv[1]); return 0;
 }

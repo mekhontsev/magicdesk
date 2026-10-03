@@ -481,7 +481,9 @@ report records versions, output, exit status and timeout failures separately.
 `test_debugger_runtime.py OUTPUT --instance STORE [--build BUILD]` runs raw
 debugger lifecycle checks and real GDB attach, LLDB, gdbserver, strace, gprof,
 Callgrind and perf-event checks. `--proot ubuntu` selects the same cases in an
-installed Termux PRoot distribution; `--case NAME` restricts a run. The prepared
+installed Termux PRoot distribution; `--case NAME` restricts a run. The
+`gdb-attach-threads` case checks all 41 target threads, backtraces, a memory write,
+detach and normal target exit. The prepared
 userspace needs GCC, Python 3, GDB, LLDB, gdbserver, binutils, strace and Valgrind.
 No package is installed by the test. `--diagnostics` enables supervisor diagnostics
 for Shroot only. A denied perf event is recorded as unavailable, never as working

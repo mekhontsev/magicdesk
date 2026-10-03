@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <linux/openat2.h>
 #include <pthread.h>
+#include <sched.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -17,6 +18,7 @@
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 static pid_t child(void) {
@@ -77,6 +79,69 @@ static void wait_errors(void) {
     assert(WSTOPSIG(stopped(pid)) == SIGSTOP);
     assert(!kill(pid, SIGKILL));
     assert(waitpid(pid, &status, __WALL) == pid && WIFSIGNALED(status));
+}
+static void await_native_wait(pid_t parent, int syscall_number) {
+    char path[64], bytes[512];
+    snprintf(path, sizeof(path), "/proc/%d/syscall", parent);
+    int fd = open(path, O_RDONLY); assert(fd >= 0);
+    struct timespec start, now; assert(!clock_gettime(CLOCK_MONOTONIC, &start));
+    // Bounded state observation: prove the parent is inside the kernel wait
+    // before TRACEME. Expiry fails the fixture, never substitutes for evidence.
+    for (;;) {
+        assert(lseek(fd, 0, SEEK_SET) == 0);
+        ssize_t length = read(fd, bytes, sizeof(bytes)-1); assert(length > 0);
+        bytes[length] = 0;
+        int observed;
+        if (sscanf(bytes, "%d", &observed) == 1 && observed == syscall_number) break;
+        assert(!clock_gettime(CLOCK_MONOTONIC, &now) && now.tv_sec-start.tv_sec < 5);
+        sched_yield();
+    }
+    close(fd);
+}
+struct late_wait {
+    int id, ready;
+    pid_t pid;
+};
+static void *late_waiter(void *argument) {
+    struct late_wait *wait = argument;
+    pid_t tid = syscall(SYS_gettid);
+    assert(write(wait->ready, &tid, sizeof(tid)) == sizeof(tid));
+    int status;
+    if (wait->id) {
+        siginfo_t info;
+        assert(!waitid(P_PID, wait->pid, &info, WSTOPPED));
+        assert(info.si_pid == wait->pid && info.si_code == CLD_TRAPPED && info.si_status == SIGSTOP);
+    } else {
+        assert(waitpid(wait->pid, &status, __WALL) == wait->pid);
+        assert(WIFSTOPPED(status) && WSTOPSIG(status) == SIGSTOP);
+    }
+    return NULL;
+}
+static void traceme_late_wait(int id, int threaded) {
+    sigset_t blocked, saved;
+    sigemptyset(&blocked); sigaddset(&blocked, SIGCHLD);
+    assert(!sigprocmask(SIG_BLOCK, &blocked, &saved));
+    int ready[2]; assert(!pipe(ready));
+    pid_t pid = child();
+    if (!pid) {
+        close(ready[1]); pid_t waiter;
+        assert(read(ready[0], &waiter, sizeof(waiter)) == sizeof(waiter)); close(ready[0]);
+        await_native_wait(waiter, id ? SYS_waitid : SYS_wait4);
+        assert(!ptrace(PTRACE_TRACEME, 0, 0, 0));
+        raise(SIGSTOP); _exit(23);
+    }
+    close(ready[0]);
+    struct late_wait wait = {.id=id, .ready=ready[1], .pid=pid};
+    if (threaded) {
+        pthread_t worker; assert(!pthread_create(&worker, NULL, late_waiter, &wait));
+        assert(!pthread_join(worker, NULL));
+    } else {
+        late_waiter(&wait);
+    }
+    close(ready[1]);
+    assert(!ptrace(PTRACE_DETACH, pid, 0, 0)); exited(pid, 23);
+    assert(!sigprocmask(SIG_SETMASK, &saved, NULL));
+    puts("OBS late-traceme stopped=1 detached=1 exited=23");
 }
 static void ptrace_options(void) {
     int ready[2], release[2]; assert(!pipe(ready) && !pipe(release));
@@ -241,6 +306,10 @@ int main(int argc, char **argv) {
     alarm(20);
     if (!strcmp(argv[1], "waitid-peek")) waitid_peek();
     else if (!strcmp(argv[1], "wait-errors")) wait_errors();
+    else if (!strcmp(argv[1], "traceme-late-wait4")) traceme_late_wait(0, 0);
+    else if (!strcmp(argv[1], "traceme-late-waitid")) traceme_late_wait(1, 0);
+    else if (!strcmp(argv[1], "traceme-thread-wait4")) traceme_late_wait(0, 1);
+    else if (!strcmp(argv[1], "traceme-thread-waitid")) traceme_late_wait(1, 1);
     else if (!strcmp(argv[1], "ptrace-options")) ptrace_options();
     else if (!strcmp(argv[1], "syscall-info")) syscall_info();
     else if (!strcmp(argv[1], "signal-delivery")) signal_delivery();
