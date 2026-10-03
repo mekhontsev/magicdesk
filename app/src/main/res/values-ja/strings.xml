@@ -1130,4 +1130,7 @@
     <string name="appearance_battery">バッテリー</string>
     <string name="appearance_clock">時計</string>
     <string name="appearance_spacer">余白</string>
+    <string name="appearance_dock_scale">ホバー時のアイコン拡大率 (%)</string>
+    <string name="appearance_dock_lift">ホバー時のアイコン浮上量 (dp)</string>
+    <string name="appearance_dock_radius">隣接アイコンへの影響 (%)</string>
 </resources>

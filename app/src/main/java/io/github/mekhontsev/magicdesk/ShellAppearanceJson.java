@@ -100,6 +100,7 @@ final class ShellAppearanceJson {
                     value(ShellComposition.Indicator.class, item.optString("indicator", "line"))));
             }
             JSONObject barStyle = object(panel, "style");
+            JSONObject hover = object(barStyle, "hover");
             var b = ShellAppearance.PanelStyle.defaults();
             panels.add(new ShellPanel(id, value(ShellPanel.Edge.class, panel.optString("edge", "bottom")),
                     new ShellAppearance.PanelStyle(value(ShellAppearance.Width.class, barStyle.optString("length", "fill")),
@@ -108,7 +109,8 @@ final class ShellAppearanceJson {
                             barStyle.optInt("edgeGapDp", b.edgeGapDp()), barStyle.optInt("thicknessDp", b.thicknessDp()),
                             barStyle.optInt("paddingDp", b.paddingDp()), barStyle.optInt("radiusDp", b.radiusDp()),
                             barStyle.has("backdrop") ? backdrop(barStyle.getJSONObject("backdrop")) : null,
-                            barStyle.optBoolean("reserveSpace", b.reserveSpace())), components));
+                            barStyle.optBoolean("reserveSpace", b.reserveSpace()),
+                            new ShellDockEffect(number(hover, "scale", 1), hover.optInt("liftDp", 0), number(hover, "radius", 1.5f))), components));
         }
         JSONObject start = object(input, "start");
         var sections = new ArrayList<ShellComposition.Section>();
@@ -145,7 +147,9 @@ final class ShellAppearanceJson {
         JSONObject style = new JSONObject().put("length", name(t.length())).put("alignment", name(t.alignment()))
                 .put("maxLengthDp", t.maxLengthDp()).put("sideGapDp", t.sideGapDp()).put("edgeGapDp", t.edgeGapDp())
                 .put("thicknessDp", t.thicknessDp()).put("paddingDp", t.paddingDp()).put("radiusDp", t.radiusDp())
-                .put("reserveSpace", t.reserveSpace());
+                .put("reserveSpace", t.reserveSpace())
+                .put("hover", new JSONObject().put("scale", t.hover().scale())
+                        .put("liftDp", t.hover().liftDp()).put("radius", t.hover().radius()));
         if (t.backdrop() != null) style.put("backdrop", encodeBackdrop(t.backdrop()));
         panels.put(new JSONObject().put("id", panel.id()).put("edge", name(panel.edge())).put("components", components)
                 .put("style", style));

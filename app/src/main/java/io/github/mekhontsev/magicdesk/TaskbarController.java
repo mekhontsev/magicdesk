@@ -846,6 +846,7 @@ final class TaskbarController {
         final AppItem app = taskbarItem.app;
         final TaskRepository.TaskEntry task = taskbarItem.task;
         final FrameLayout item = new FrameLayout(mActivity);
+        item.setTag(R.id.appearance_dock_item, true);
         UiAppearance.component(item, ShellControls.Role.PANEL_BUTTON);
         item.setClickable(true);
         item.setFocusable(true);

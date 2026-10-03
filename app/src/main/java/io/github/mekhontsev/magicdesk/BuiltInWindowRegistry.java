@@ -140,9 +140,11 @@ final class BuiltInWindowRegistry {
         if (app == null) return null;
         AppReference identity = task == null ? app.reference : resolveWindowApplication(task.taskId, task.userId, app.reference);
         if (presentation == null) return app.withReference(identity);
+        var icon = presentation.icon() != null ? new BitmapDrawable(context.getResources(), presentation.icon())
+                : BuiltInDesktopAppCatalog.hostsApplications(app.launchTarget)
+                    ? UiAppearance.symbol(context, R.drawable.ic_show_desktop, UiColor.TEXT) : app.icon;
         return new AppItem(app.profile, presentation.title(), app.packageName, app.canFloat,
-                app.fullscreenReason, presentation.icon() == null ? app.icon
-                        : new BitmapDrawable(context.getResources(), presentation.icon()), app.launchTarget).withReference(identity);
+                app.fullscreenReason, icon, app.launchTarget).withReference(identity);
     }
 
     static boolean needsSeparateTask(final AppLaunchTarget target, final int displayId) {

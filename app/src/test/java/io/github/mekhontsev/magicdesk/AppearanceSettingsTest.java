@@ -7,8 +7,9 @@ import org.junit.Test;
 public final class AppearanceSettingsTest {
     @Test public void pageUsesActivityInsetsAndInvalidatesEditsWhenLeaving() throws Exception {
         String create = RuntimeSourceFixture.methods("AppearanceSettings", "createPage");
-        assertTrue(create.contains("SystemBarInsets.addToPadding(root)"));
-        assertTrue(create.contains("new UiContentColumn(page, 640)"));
+        assertTrue(create.contains("UiToolLayout.page"));
+        assertTrue(RuntimeSourceFixture.methods("UiToolLayout", "page").contains("SystemBarInsets.addToPadding(page, ime)"));
+        assertTrue(create.contains("UiToolLayout.scroll(page, 640)"));
         assertFalse(create.contains("AlertDialog"));
         RuntimeSourceFixture.verify("""
                 static class AppearanceStore {
@@ -120,7 +121,7 @@ public final class AppearanceSettingsTest {
 
     @Test public void panelBackdropChangesPreserveGeometryIdentityAndComponents() {
         var style = new ShellAppearance.PanelStyle(ShellAppearance.Width.CONTENT, ShellAppearance.Alignment.END,
-                700, 9, 11, 72, 5, 17, null, false);
+                700, 9, 11, 72, 5, 17, null, false, ShellDockEffect.NONE);
         var original = new ShellPanel("dock", ShellPanel.Edge.LEFT, style,
                 List.of(ShellComposition.Component.of(ShellComposition.Kind.START)));
         var backdrop = new ShellAppearance.Backdrop(.45f, 24);

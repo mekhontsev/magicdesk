@@ -13,7 +13,7 @@ public final class ShellPanelMetricsTest {
     @Test public void explicitThicknessScalesContentsAndKeepsThemInsidePadding() throws Exception {
         for (int thickness = 40; thickness <= 160; thickness++) {
             var style = new ShellAppearance.PanelStyle(ShellAppearance.Width.FILL, ShellAppearance.Alignment.CENTER,
-                    4096, 0, 0, thickness, 16, 0, null, true);
+                    4096, 0, 0, thickness, 16, 0, null, true, ShellDockEffect.NONE);
             var metrics = ShellPanelMetrics.resolve(style, false);
             assertEquals(thickness, metrics.thickness());
             assertEquals(thickness, metrics.itemExtent() + 2 * metrics.padding());

@@ -1141,4 +1141,7 @@
     <string name="appearance_battery">Akku</string>
     <string name="appearance_clock">Uhr</string>
     <string name="appearance_spacer">Abstand</string>
+    <string name="appearance_dock_scale">Symbolvergrößerung bei Mauszeiger (%)</string>
+    <string name="appearance_dock_lift">Symbolanhebung bei Mauszeiger (dp)</string>
+    <string name="appearance_dock_radius">Einfluss auf Nachbarsymbole (%)</string>
 </resources>

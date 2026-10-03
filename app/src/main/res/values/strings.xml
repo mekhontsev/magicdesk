@@ -1141,4 +1141,7 @@
     <string name="appearance_battery">Battery</string>
     <string name="appearance_clock">Clock</string>
     <string name="appearance_spacer">Space</string>
+    <string name="appearance_dock_scale">Icon zoom on hover (%)</string>
+    <string name="appearance_dock_lift">Icon lift on hover (dp)</string>
+    <string name="appearance_dock_radius">Neighbor influence (%)</string>
 </resources>

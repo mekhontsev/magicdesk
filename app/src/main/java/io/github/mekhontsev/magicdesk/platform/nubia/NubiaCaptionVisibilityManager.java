@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.RemoteException;
 import android.util.Log;
 
 import java.io.IOException;
@@ -208,9 +209,11 @@ public final class NubiaCaptionVisibilityManager {
             final Transport transport) {
         final Bundle request = new Bundle();
         request.putBoolean(transport.providerRequestKey, true);
-        try {
-            final Bundle result = context.getContentResolver().call(
-                    Uri.parse(PROJECTION_PROVIDER),
+        // A vendor provider's death must not take the shell UI down with it.
+        try (var provider = context.getContentResolver().acquireUnstableContentProviderClient(
+                Uri.parse(PROJECTION_PROVIDER))) {
+            if (provider == null) return null;
+            final Bundle result = provider.call(
                     PROVIDER_METHOD,
                     transport.providerArgument,
                     request);
@@ -220,7 +223,7 @@ public final class NubiaCaptionVisibilityManager {
             Log.i(TAG, "Nubia privacy transport=" + transport
                     + " value=" + rawValue);
             return value;
-        } catch (RuntimeException error) {
+        } catch (RemoteException | RuntimeException error) {
             Log.w(TAG, "cannot read Nubia privacy transport=" + transport, error);
             return null;
         }

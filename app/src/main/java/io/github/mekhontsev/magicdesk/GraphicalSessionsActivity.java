@@ -30,10 +30,7 @@ public final class GraphicalSessionsActivity extends Activity {
         BuiltInWindowRegistry.register(this);
         DesktopTaskDescription.apply(this, R.string.graphics_title, R.drawable.ic_show_desktop);
         ui = new DesktopUiFactory(this);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        UiAppearance.background(root, UiColor.BACKGROUND);
-        SystemBarInsets.addToPadding(root, true);
+        LinearLayout root = UiToolLayout.page(this, UiColor.BACKGROUND, true);
         root.addView(createSessionControls());
         status = new TextView(this);
         UiAppearance.text(status, UiColor.MUTED);

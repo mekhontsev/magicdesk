@@ -1,4 +1,5 @@
 <resources>
     <item type="id" name="appearance_binding" />
+    <item type="id" name="appearance_dock_item" />
     <item type="id" name="appearance_backdrop" />
 </resources>

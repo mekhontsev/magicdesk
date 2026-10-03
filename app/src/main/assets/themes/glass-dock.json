@@ -13,7 +13,7 @@
   "composition": {
     "panels": [{
       "id": "dock", "edge": "bottom",
-      "style": { "length": "content", "alignment": "center", "maxLengthDp": 1000, "sideGapDp": 12, "edgeGapDp": 12, "thicknessDp": 64, "paddingDp": 8, "radiusDp": 8, "reserveSpace": true },
+      "style": { "length": "content", "alignment": "center", "maxLengthDp": 1000, "sideGapDp": 12, "edgeGapDp": 12, "thicknessDp": 64, "paddingDp": 8, "radiusDp": 8, "reserveSpace": true, "hover": { "scale": 1.5, "liftDp": 8, "radius": 1.5 } },
       "components": [
         { "type": "start", "widthDp": 64 }, { "type": "tasks" },
         { "type": "open_tasks" }, { "type": "notifications", "minViewportDp": 640 },

@@ -115,6 +115,6 @@ public final class UiControlStyleTest {
                 }
                 """ + RuntimeSourceFixture.nestedClass("UiControlStyle", "UiControlStyle")
                         .replace("final class UiControlStyle", "static final class UiControlStyle"),
-                "ShellAppearance", "ShellControls", "ShellComposition", "ShellPanel", "ShellMotion", "ShellResources", "UiColor");
+                "ShellAppearance", "ShellControls", "ShellComposition", "ShellPanel", "ShellMotion", "ShellResources", "ShellDockEffect", "UiColor");
     }
 }

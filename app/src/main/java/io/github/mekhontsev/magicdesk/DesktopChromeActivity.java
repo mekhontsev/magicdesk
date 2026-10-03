@@ -167,6 +167,11 @@ public final class DesktopChromeActivity extends Activity {
         DesktopTaskbarHost.Panel definition;
         final UiPanelWindow decoration;
         final Rect applied = new Rect();
+        final Rect panelInput = new Rect();
+        final android.graphics.Region inputRegion = new android.graphics.Region();
+        final android.graphics.Region lastInputRegion = new android.graphics.Region();
+        final UiDockEffects dock = new UiDockEffects(this, this::updateInputRegion);
+        boolean inputRegionApplied;
         boolean added, hiddenTouch, contentPresented, presentationApplied;
 
         NativePanel(DesktopTaskbarHost.Panel value) {
@@ -181,7 +186,15 @@ public final class DesktopChromeActivity extends Activity {
 
         void apply() {
             var view = definition.view();
-            var content = definition.content(); var surface = definition.paint();
+            var content = definition.content();
+            var surface = mEdgeHidden ? definition.paint() : definition.frame();
+            var paint = definition.paint();
+            panelInput.set(paint.left - surface.left, paint.top - surface.top, paint.right - surface.left, paint.bottom - surface.top);
+            decoration.backdropInsets(panelInput.left, panelInput.top, surface.right - paint.right, surface.bottom - paint.bottom);
+            var theme = AppearanceStore.current(view.getContext());
+            var style = theme.composition().panel(definition.id());
+            dock.configure(definition.overflow() == 0 || style == null || mEdgeHidden || !mPresented ? ShellDockEffect.NONE
+                    : style.style().hover(), definition.edge(), theme.motion());
             var params = (FrameLayout.LayoutParams) view.getLayoutParams();
             int left = content.left - surface.left, top = content.top - surface.top;
             if (params.width != content.width() || params.height != content.height()
@@ -203,6 +216,7 @@ public final class DesktopChromeActivity extends Activity {
                     definition.edge(), mPresented, mEdgeHidden, mEdgeHeight);
             Rect rect = new Rect(target.left(), target.top(), target.right(), target.bottom());
             if (rect.isEmpty()) { removeWindow(); return; }
+            updateInputRegion();
             if (mWindowManager == null || mRoot == null || mRoot.getWindowToken() == null
                     || (added && applied.equals(rect))) return;
             WindowManager.LayoutParams window = new WindowManager.LayoutParams(rect.width(), rect.height(),
@@ -223,17 +237,42 @@ public final class DesktopChromeActivity extends Activity {
             if (added && mWindowManager != null) mWindowManager.removeViewImmediate(decoration.view());
             added = false; applied.setEmpty();
         }
-        void release() { removeWindow(); decoration.close(); removeAllViews(); UiMotion.cancel(definition.view()); }
+        void updateInputRegion() {
+            var surface = getRootSurfaceControl();
+            if (surface == null) return;
+            if (mEdgeHidden) inputRegion.set(0, 0, getWidth(), getHeight());
+            else { inputRegion.set(panelInput); dock.input(inputRegion); }
+            if (inputRegionApplied && lastInputRegion.equals(inputRegion)) return;
+            lastInputRegion.set(inputRegion);
+            inputRegionApplied = true;
+            surface.setTouchableRegion(inputRegion);
+        }
+        void release() { dock.clear(); removeWindow(); decoration.close(); removeAllViews(); UiMotion.cancel(definition.view()); }
+        @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            super.onLayout(changed, l, t, r, b);
+            dock.layout(definition.view(), changed);
+            updateInputRegion();
+        }
+        @Override protected void onDetachedFromWindow() {
+            dock.reset(); inputRegionApplied = false; super.onDetachedFromWindow();
+        }
+        @Override public boolean dispatchHoverEvent(MotionEvent event) {
+            return dock.hover(event) || super.dispatchHoverEvent(event);
+        }
         @Override public boolean dispatchGenericMotionEvent(MotionEvent event) {
             DesktopTaskbarHost.dispatchEdgeInput(mDisplayId, event);
-            return super.dispatchGenericMotionEvent(event);
+            return dock.generic(event) || super.dispatchGenericMotionEvent(event);
+        }
+        @Override public boolean dispatchDragEvent(android.view.DragEvent event) {
+            if (event.getAction() == android.view.DragEvent.ACTION_DRAG_STARTED) dock.reset();
+            return super.dispatchDragEvent(event);
         }
         @Override public boolean dispatchTouchEvent(MotionEvent event) {
             int action = event.getActionMasked();
             boolean consume = hiddenTouch;
             if (action == MotionEvent.ACTION_DOWN && mEdgeHidden) { hiddenTouch = true; consume = true; }
             // Deliver UP before reveal dismissal can detach the clicked control.
-            boolean handled = consume || super.dispatchTouchEvent(event);
+            boolean handled = consume || dock.touch(event) || super.dispatchTouchEvent(event);
             DesktopTaskbarHost.dispatchEdgeInput(mDisplayId, event);
             if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) hiddenTouch = false;
             return handled;

@@ -279,11 +279,7 @@ public final class DiagnosticsActivity extends Activity {
     }
 
     private View createContentView() {
-        final LinearLayout page = new LinearLayout(this);
-        page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(18), dp(16), dp(18), dp(16));
-        SystemBarInsets.addToPadding(page, true);
-        UiAppearance.background(page, UiColor.BACKGROUND);
+        final LinearLayout page = UiToolLayout.page(this, UiColor.BACKGROUND, true);
 
         final LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);

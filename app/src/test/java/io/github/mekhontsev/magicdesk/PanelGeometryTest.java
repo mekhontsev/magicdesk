@@ -34,7 +34,7 @@ public final class PanelGeometryTest {
         final var before = layout.snapshot();
         final var bounds = layout.taskbar().content();
         final var overlay = new ShellAppearance.PanelStyle(style.length(), style.alignment(), style.maxLengthDp(),
-                style.sideGapDp(), style.edgeGapDp(), style.thicknessDp(), style.paddingDp(), style.radiusDp(), style.backdrop(), false);
+                style.sideGapDp(), style.edgeGapDp(), style.thicknessDp(), style.paddingDp(), style.radiusDp(), style.backdrop(), false, style.hover());
         layout.update(viewport, List.of(PanelGeometry.resolve(definition.withStyle(overlay), 1, 1920, 1080, 64, 900, 500)), false);
         assertEquals(viewport.contentGeometry(), layout.snapshot().workArea());
         assertEquals(before.panelArea(), layout.snapshot().panelArea());
@@ -56,7 +56,7 @@ public final class PanelGeometryTest {
     @Test public void explicitThicknessIsDensityResolvedAndAutoUsesRuntimeMeasurement() {
         final var auto = panel("main", ShellPanel.Edge.LEFT, ShellAppearance.PanelStyle.defaults(), ShellComposition.Kind.TASKS);
         final var fixed = auto.withStyle(new ShellAppearance.PanelStyle(ShellAppearance.Width.FILL,
-                ShellAppearance.Alignment.CENTER, 4096, 0, 0, 40, 8, 0, null, true));
+                ShellAppearance.Alignment.CENTER, 4096, 0, 0, 40, 8, 0, null, true, ShellDockEffect.NONE));
         assertEquals(123, PanelGeometry.resolve(auto, 2, 1920, 1080, 123, 900, 500).width());
         assertEquals(80, PanelGeometry.resolve(fixed, 2, 1920, 1080, 123, 900, 500).width());
         assertEquals(1, PanelGeometry.resolve(fixed, 2, 1, 1, 123, 900, 500).width());

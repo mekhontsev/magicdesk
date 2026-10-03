@@ -118,27 +118,7 @@ final class FileManagerView {
         mContext = context;
         mListener = listener;
         mLayoutMode = initialLayoutMode;
-        mRoot = new LinearLayout(context);
-        mRoot.setOrientation(LinearLayout.VERTICAL);
-        UiAppearance.background(mRoot, UiColor.BACKGROUND);
-        final int horizontalPadding = dp(10);
-        final int verticalPadding = dp(8);
-        mRoot.setPadding(
-                horizontalPadding,
-                verticalPadding,
-                horizontalPadding,
-                verticalPadding);
-        mRoot.setOnApplyWindowInsetsListener((view, windowInsets) -> {
-            final Insets insets = windowInsets.getInsets(
-                    WindowInsets.Type.systemBars()
-                            | WindowInsets.Type.displayCutout());
-            view.setPadding(
-                    horizontalPadding + insets.left,
-                    verticalPadding + insets.top,
-                    horizontalPadding + insets.right,
-                    verticalPadding + insets.bottom);
-            return windowInsets;
-        });
+        mRoot = UiToolLayout.page(context, UiColor.BACKGROUND, true);
 
         final LinearLayout navigation = horizontal();
         mBack = iconCommand(
@@ -326,28 +306,8 @@ final class FileManagerView {
                 R.drawable.ic_search,
                 R.string.file_manager_filter,
                 view -> focusFilter()), compactButton());
-        final HorizontalScrollView commandsScroll =
-                new HorizontalScrollView(context);
-        commandsScroll.setHorizontalScrollBarEnabled(false);
-        commandsScroll.addView(commands, wrapWrap());
-        mRoot.addView(commandsScroll, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
-
-        final boolean wide = context.getResources().getConfiguration()
-                .screenWidthDp >= 720;
-        final LinearLayout content = horizontal();
-        final LinearLayout bookmarks = createBookmarks(wide);
-        if (wide) {
-            content.addView(bookmarks, new LinearLayout.LayoutParams(
-                    dp(176), ViewGroup.LayoutParams.MATCH_PARENT));
-        } else {
-            final HorizontalScrollView bookmarkScroll =
-                    new HorizontalScrollView(context);
-            bookmarkScroll.setHorizontalScrollBarEnabled(false);
-            bookmarkScroll.addView(bookmarks, wrapWrap());
-            mRoot.addView(bookmarkScroll, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
-        }
+        mRoot.addView(UiToolLayout.actions(commands), matchWrap());
+        final LinearLayout bookmarks = createBookmarks(false);
 
         final LinearLayout browser = new LinearLayout(context);
         browser.setOrientation(LinearLayout.VERTICAL);
@@ -400,9 +360,7 @@ final class FileManagerView {
         browser.addView(listFrame,
                 new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        content.addView(browser, new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
-        mRoot.addView(content, new LinearLayout.LayoutParams(
+        mRoot.addView(new UiAdaptivePane(bookmarks, browser), new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         mStatus = new TextView(context);

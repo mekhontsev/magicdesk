@@ -38,11 +38,7 @@ public final class CompatibilityOnboardingActivity extends Activity {
 
     private View createContentView() {
         final ScrollView scroll = new ScrollView(this);
-        final LinearLayout page = new LinearLayout(this);
-        page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(18), dp(16), dp(18), dp(20));
-        SystemBarInsets.addToPadding(page);
-        UiAppearance.background(page, UiColor.BACKGROUND);
+        final LinearLayout page = UiToolLayout.page(this, UiColor.BACKGROUND, true);
         scroll.addView(page);
 
         final TextView title = text(

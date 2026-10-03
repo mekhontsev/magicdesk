@@ -38,16 +38,8 @@ final class DeviceSetupView {
     }
 
     View create() {
-        final FrameLayout root = new FrameLayout(mActivity);
-        UiAppearance.background(root, UiColor.BACKGROUND);
-
-        final LinearLayout page = new LinearLayout(mActivity);
-        page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(
-                dp(20),
-                dp(18),
-                dp(20),
-                dp(18));
+        final LinearLayout root = UiToolLayout.page(mActivity, UiColor.BACKGROUND, true);
+        final LinearLayout page = UiToolLayout.column(mActivity);
 
         final LinearLayout header = new LinearLayout(mActivity);
         header.setOrientation(LinearLayout.VERTICAL);
@@ -170,23 +162,7 @@ final class DeviceSetupView {
         mRestoreNote.setVisibility(View.GONE);
         mRestoreAction.setVisibility(View.GONE);
 
-        final ScrollView scroll = new ScrollView(mActivity);
-        scroll.setFillViewport(true);
-        scroll.addView(page, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT));
-
-        final FrameLayout.LayoutParams scrollParams =
-                new FrameLayout.LayoutParams(
-                        Math.min(
-                                mActivity.getResources()
-                                        .getDisplayMetrics().widthPixels
-                                        - dp(24),
-                                dp(720)),
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        Gravity.CENTER_HORIZONTAL);
-        root.addView(scroll, scrollParams);
-        SystemBarInsets.addToPadding(root);
+        root.addView(UiToolLayout.scroll(page, 720), new LinearLayout.LayoutParams(-1, 0, 1));
         return root;
     }
 

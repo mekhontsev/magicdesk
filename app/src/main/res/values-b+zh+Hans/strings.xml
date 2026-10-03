@@ -1130,4 +1130,7 @@
     <string name="appearance_battery">电池</string>
     <string name="appearance_clock">时钟</string>
     <string name="appearance_spacer">间隔</string>
+    <string name="appearance_dock_scale">悬停时图标放大比例 (%)</string>
+    <string name="appearance_dock_lift">悬停时图标抬升高度 (dp)</string>
+    <string name="appearance_dock_radius">相邻图标影响范围 (%)</string>
 </resources>

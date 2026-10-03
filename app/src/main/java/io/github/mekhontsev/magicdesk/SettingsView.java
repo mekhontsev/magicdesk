@@ -122,11 +122,7 @@ final class SettingsView {
     }
 
     View create() {
-        final LinearLayout page = new LinearLayout(mActivity);
-        page.setOrientation(LinearLayout.VERTICAL);
-        UiAppearance.background(page, UiColor.PANEL);
-        page.setPadding(dp(14), dp(10), dp(14), dp(14));
-        SystemBarInsets.addToPadding(page);
+        final LinearLayout page = UiToolLayout.page(mActivity, UiColor.PANEL, true);
 
         final LinearLayout content = new LinearLayout(mActivity);
         content.setOrientation(LinearLayout.VERTICAL);
@@ -344,11 +340,7 @@ final class SettingsView {
                 R.string.action_about,
                 mActions::showAbout);
 
-        mScroll = new ScrollView(mActivity);
-        mScroll.setFillViewport(true);
-        mScroll.addView(centered(content), new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT));
+        mScroll = UiToolLayout.scroll(content, CONTENT_MAX_WIDTH_DP);
         final LinearLayout.LayoutParams scrollParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
@@ -540,31 +532,16 @@ final class SettingsView {
     private Switch addSwitch(
             final LinearLayout parent,
             final int labelResId) {
-        final LinearLayout row = new LinearLayout(mActivity);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(8), 0, dp(8), 0);
-        row.setMinimumHeight(dp(52));
-        applyPressedBackground(row);
-
-        final TextView label = new TextView(mActivity);
-        label.setText(labelResId);
-        UiAppearance.text(label, UiColor.TEXT);
-        label.setTextSize(14);
-        UiAppearance.componentText(label, ShellControls.Role.SETTINGS_ROW);
-        row.addView(label, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-
-        final Switch toggle = new Switch(mActivity);
+        final Switch toggle = new Switch(mActivity) {
+            @Override public void setEnabled(boolean enabled) {
+                super.setEnabled(enabled);
+                if (getParent() instanceof View row) row.setEnabled(enabled);
+            }
+        };
         UiAppearance.button(toggle, UiColor.ACCENT);
         toggle.setShowText(false);
         toggle.setContentDescription(mActivity.getString(labelResId));
-        final LinearLayout.LayoutParams toggleParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        toggleParams.setMargins(dp(16), 0, 0, 0);
-        row.addView(toggle, toggleParams);
+        final LinearLayout row = UiToolLayout.settingRow(mActivity, 0, labelResId, null, toggle);
         row.setOnClickListener(view -> {
             if (toggle.isEnabled()) {
                 toggle.toggle();
@@ -596,44 +573,14 @@ final class SettingsView {
             final int labelResId,
             final Runnable action,
             final TextView detail) {
-        final LinearLayout row = new LinearLayout(mActivity);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(8), 0, dp(8), 0);
-        row.setMinimumHeight(dp(50));
-        row.setClickable(true);
-        row.setFocusable(true);
-        applyPressedBackground(row);
-        row.setOnClickListener(view -> action.run());
-
-        final ImageView icon = new ImageView(mActivity);
-        icon.setImageResource(iconResId);
-        UiAppearance.image(icon, UiColor.ACCENT);
-        icon.setContentDescription(null);
-        row.addView(icon, new LinearLayout.LayoutParams(dp(22), dp(22)));
-
-        final TextView label = new TextView(mActivity);
-        label.setText(labelResId);
-        UiAppearance.text(label, UiColor.TEXT);
-        label.setTextSize(14);
-        UiAppearance.componentText(label, ShellControls.Role.SETTINGS_ROW);
-        final LinearLayout.LayoutParams labelParams =
-                new LinearLayout.LayoutParams(
-                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
-        labelParams.setMargins(dp(14), 0, dp(12), 0);
-        final LinearLayout text = new LinearLayout(mActivity);
-        text.setOrientation(LinearLayout.VERTICAL);
-        text.setDuplicateParentStateEnabled(true);
-        text.setPadding(0, dp(10), 0, dp(10));
-        text.addView(label);
-        if (detail != null) { text.addView(detail); }
-        row.addView(text, labelParams);
-
         final ImageView arrow = new ImageView(mActivity);
-        arrow.setImageResource(R.drawable.ic_chevron_right);
-        UiAppearance.image(arrow, UiColor.MUTED);
+        UiAppearance.icon(arrow, R.drawable.ic_chevron_right, UiColor.MUTED);
+        arrow.setDuplicateParentStateEnabled(true);
         arrow.setContentDescription(null);
-        row.addView(arrow, new LinearLayout.LayoutParams(dp(18), dp(18)));
+        final LinearLayout row = UiToolLayout.settingRow(mActivity, iconResId, labelResId, detail, arrow);
+        arrow.getLayoutParams().width = dp(18); arrow.getLayoutParams().height = dp(18);
+        row.setClickable(true); row.setFocusable(true);
+        row.setOnClickListener(view -> action.run());
 
         parent.addView(row, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -647,10 +594,6 @@ final class SettingsView {
         UiAppearance.background(divider, UiColor.SURFACE);
         parent.addView(divider, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(1)));
-    }
-
-    private void applyPressedBackground(final View view) {
-        UiAppearance.component(view, ShellControls.Role.SETTINGS_ROW);
     }
 
     private int dp(final int value) {

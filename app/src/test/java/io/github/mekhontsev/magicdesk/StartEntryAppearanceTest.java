@@ -42,7 +42,7 @@ public final class StartEntryAppearanceTest {
                 }
                 """ + RuntimeSourceFixture.nestedClass("UiFeedbackDrawable", "UiFeedbackDrawable")
                         .replace("final class UiFeedbackDrawable", "static final class UiFeedbackDrawable"),
-                "ShellAppearance", "ShellControls", "ShellComposition", "ShellPanel", "ShellMotion", "ShellResources", "UiColor");
+                "ShellAppearance", "ShellControls", "ShellComposition", "ShellPanel", "ShellMotion", "ShellResources", "ShellDockEffect", "UiColor");
     }
     @Test public void gridAndSearchShareAppearanceIndependentOfLaunchBackend() throws Exception {
         final String tile = RuntimeSourceFixture.methods("StartMenuContent", "createAppTile");

@@ -36,6 +36,14 @@ final class UiBackdrop {
         view.setTag(R.id.appearance_backdrop, null);
     }
 
+    static void allowWindowBlur(Window window, boolean allowed) {
+        if (window.getDecorView().getTag(R.id.appearance_backdrop) instanceof Binding binding) {
+            if (binding.windowBlurAllowed == allowed) return;
+            binding.windowBlurAllowed = allowed;
+            binding.refresh();
+        }
+    }
+
     static void refreshAll() {
         for (Binding binding : new ArrayList<>(BINDINGS.keySet())) binding.refresh();
     }
@@ -49,6 +57,7 @@ final class UiBackdrop {
         final View view;
         final UiAppearance.Paint paint;
         boolean presented = true;
+        boolean windowBlurAllowed = true;
 
         Binding(Window window, UiAppearance.Paint paint) {
             this.window = window; this.view = window.getDecorView(); this.paint = paint;
@@ -56,7 +65,7 @@ final class UiBackdrop {
 
         void refresh() {
             if (!view.isAttachedToWindow()) return;
-            radius(presented && view.isHardwareAccelerated()
+            radius(presented && windowBlurAllowed && view.isHardwareAccelerated()
                     ? radiusPixels(paint.backdropStyle().blurRadiusDp(), paint.density) : 0);
         }
 

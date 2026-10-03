@@ -10,6 +10,13 @@ import java.util.IdentityHashMap;
 
 /** Animates child content, never the window frame, backdrop, focus or input ownership. */
 final class UiMotion {
+    static android.animation.TimeInterpolator interpolator(ShellMotion.Curve curve) {
+        return switch (curve) {
+            case LINEAR -> new android.view.animation.LinearInterpolator();
+            case EASE_OUT -> new android.view.animation.DecelerateInterpolator();
+            case SMOOTH -> new android.view.animation.AccelerateDecelerateInterpolator();
+        };
+    }
     private static final IdentityHashMap<View, Running> ACTIVE = new IdentityHashMap<>();
 
     static void reveal(View view, boolean panel, ShellPanel.Edge edge) {
@@ -85,11 +92,7 @@ final class UiMotion {
             float initialScale = effect.scales() ? motion.scaleFrom() : 1;
             animator = ValueAnimator.ofFloat(0, 1);
             animator.setDuration(duration);
-            animator.setInterpolator(switch (motion.curve()) {
-                case LINEAR -> new android.view.animation.LinearInterpolator();
-                case EASE_OUT -> new android.view.animation.DecelerateInterpolator();
-                case SMOOTH -> new android.view.animation.AccelerateDecelerateInterpolator();
-            });
+            animator.setInterpolator(interpolator(motion.curve()));
             animator.addUpdateListener(value -> {
                 if (!finished) apply((float) value.getAnimatedValue(), dx, dy, initialScale);
             });

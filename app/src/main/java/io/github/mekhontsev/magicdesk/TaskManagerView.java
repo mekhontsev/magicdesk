@@ -37,10 +37,7 @@ final class TaskManagerView {
 
     TaskManagerView(Activity activity, Runnable refresh, TaskManagerActions actions) {
         this.activity = activity; this.actions = actions;
-        root = new LinearLayout(activity); root.setOrientation(LinearLayout.VERTICAL);
-        UiAppearance.background(root, UiColor.BACKGROUND);
-        root.setPadding(dp(12), dp(8), dp(12), dp(8));
-        SystemBarInsets.addToPadding(root);
+        root = UiToolLayout.page(activity, UiColor.BACKGROUND, true);
 
         final LinearLayout header = horizontal();
         final RadioGroup tabs = new RadioGroup(activity); tabs.setOrientation(LinearLayout.HORIZONTAL);

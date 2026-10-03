@@ -10,11 +10,15 @@ import java.util.Map;
 
 /** One workspace owner binds every native panel to the existing chrome token. */
 final class DesktopTaskbarHost {
-    record Panel(String id, View view, ShellPanel.Edge edge, Rect content, Rect paint, Rect output) {
+    record Panel(String id, View view, ShellPanel.Edge edge, Rect content, Rect paint, Rect output, int overflow) {
         Panel {
             java.util.Objects.requireNonNull(id); java.util.Objects.requireNonNull(view); java.util.Objects.requireNonNull(edge);
             content = new Rect(content); paint = new Rect(paint); output = new Rect(output);
             if (content.isEmpty() || !paint.contains(content)) throw new IllegalArgumentException("Invalid native panel bounds");
+        }
+        Rect frame() {
+            var expanded = PanelGeometry.expanded(bounds(paint), bounds(output), overflow);
+            return new Rect(expanded.left(), expanded.top(), expanded.right(), expanded.bottom());
         }
     }
     interface BoundsListener { void onBoundsChanged(List<Rect> bounds); }
@@ -51,7 +55,7 @@ final class DesktopTaskbarHost {
     Rect appliedBounds() { return mPanels.isEmpty() ? new Rect() : new Rect(mPanels.get(0).content()); }
     boolean contains(float x, float y, boolean edgeHidden, int edgeHeight) {
         for (var panel : mPanels) {
-            ShellBounds bounds = PanelGeometry.presented(bounds(panel.output()), bounds(panel.paint()),
+            ShellBounds bounds = PanelGeometry.presented(bounds(panel.output()), bounds(edgeHidden ? panel.paint() : panel.frame()),
                     panel.edge(), true, edgeHidden, edgeHeight);
             if (x >= bounds.left() && x < bounds.right() && y >= bounds.top() && y < bounds.bottom()) return true;
         }

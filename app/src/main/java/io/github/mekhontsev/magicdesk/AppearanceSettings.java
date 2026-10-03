@@ -168,6 +168,11 @@ final class AppearanceSettings implements AutoCloseable {
                 () -> panel().style().thicknessDp() == 0 ? 64 : panel().style().thicknessDp(), v -> changeBar("thicknessDp", v));
         slider(page, R.string.appearance_padding, 0, 16, () -> panel().style().paddingDp(), v -> changeBar("paddingDp", v));
         slider(page, R.string.appearance_radius, 0, 32, () -> panel().style().radiusDp(), v -> changeBar("radiusDp", v));
+        slider(page, R.string.appearance_dock_scale, 100, 200, () -> Math.round(panel().style().hover().scale() * 100),
+                v -> changeHover("scale", v / 100f));
+        slider(page, R.string.appearance_dock_lift, 0, 32, () -> panel().style().hover().liftDp(), v -> changeHover("liftDp", v));
+        slider(page, R.string.appearance_dock_radius, 50, 300, () -> Math.round(panel().style().hover().radius() * 100),
+                v -> changeHover("radius", v / 100f));
         panelBackdropControls(page);
         final Switch reserve = new Switch(mActivity);
         UiAppearance.button(reserve, UiColor.ACCENT);
@@ -234,14 +239,8 @@ final class AppearanceSettings implements AutoCloseable {
         addCommand(bundles, R.string.appearance_export_bundle, R.drawable.ic_arrow_down, () -> chooseFile(EXPORT_BUNDLE));
         addCommand(bundles, R.string.appearance_prune, R.drawable.ic_file_delete, this::pruneBundles);
         page.addView(bundles);
-        final ScrollView scroll = new ScrollView(mActivity);
-        scroll.setFillViewport(true);
-        scroll.addView(new UiContentColumn(page, 640));
-        final LinearLayout root = new LinearLayout(mActivity);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(mUi.dp(14), mUi.dp(10), mUi.dp(14), mUi.dp(14));
-        UiAppearance.background(root, UiColor.PANEL);
-        SystemBarInsets.addToPadding(root);
+        final ScrollView scroll = UiToolLayout.scroll(page, 640);
+        final LinearLayout root = UiToolLayout.page(mActivity, UiColor.PANEL, true);
         final LinearLayout header = new LinearLayout(mActivity);
         header.setGravity(android.view.Gravity.CENTER_VERTICAL);
         final ImageButton previous = mUi.taskbarIconButton(R.drawable.ic_file_back, R.string.action_back, false);
@@ -342,6 +341,14 @@ final class AppearanceSettings implements AutoCloseable {
                 if (item.getString("id").equals(panel().id())) item.getJSONObject("style").put(key, value);
             }
             apply(ShellAppearanceJson.parse(json.toString()));
+        } catch (org.json.JSONException error) { throw new IllegalArgumentException(error); }
+    }
+
+    private void changeHover(String key, Object value) {
+        try {
+            var hover = panel().style().hover();
+            changeBar("hover", new org.json.JSONObject().put("scale", hover.scale()).put("liftDp", hover.liftDp())
+                    .put("radius", hover.radius()).put(key, value));
         } catch (org.json.JSONException error) { throw new IllegalArgumentException(error); }
     }
 
@@ -539,7 +546,7 @@ final class AppearanceSettings implements AutoCloseable {
         var style = panel.style();
         return new ShellPanel(panel.id(), panel.edge(), new ShellAppearance.PanelStyle(
                 style.length(), style.alignment(), style.maxLengthDp(), style.sideGapDp(), style.edgeGapDp(),
-                style.thicknessDp(), style.paddingDp(), style.radiusDp(), backdrop, style.reserveSpace()), panel.components());
+                style.thicknessDp(), style.paddingDp(), style.radiusDp(), backdrop, style.reserveSpace(), style.hover()), panel.components());
     }
 
     private void replacePanel(ShellPanel replacement) {

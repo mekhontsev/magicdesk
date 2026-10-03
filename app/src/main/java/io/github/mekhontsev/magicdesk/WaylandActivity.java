@@ -133,8 +133,7 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
 
     private void present(String title) {
         var recipe = session.recipe();
-        var icon = recipe == null || recipe.termuxPackage().isEmpty() ? null
-                : ApplicationCatalog.cachedTermuxIcon(recipe.shortcut().icon);
+        var icon = DesktopApplicationIconResolver.hostedIcon(null, recipe);
         if (presentation != null && presentation.title().equals(title) && presentation.icon() == icon) return;
         presentation = new BuiltInWindowRegistry.Presentation(title, icon);
         setTitle(title);

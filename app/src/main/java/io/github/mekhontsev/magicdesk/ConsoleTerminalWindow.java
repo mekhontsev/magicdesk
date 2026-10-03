@@ -40,12 +40,7 @@ final class ConsoleTerminalWindow {
     void toggleToolbar() { setToolbarVisible(!mToolbarVisible); }
 
     private View createContentView() {
-        final LinearLayout page = new LinearLayout(mActivity);
-        page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(8), dp(6), dp(8), dp(6));
-        // Edge-to-edge windows receive IME insets instead of a resized content frame.
-        SystemBarInsets.addToPadding(page, true);
-        UiAppearance.background(page, UiColor.BACKGROUND);
+        final LinearLayout page = UiToolLayout.page(mActivity, UiColor.BACKGROUND, true);
 
         mToolbar = new LinearLayout(mActivity);
         mToolbar.setOrientation(LinearLayout.HORIZONTAL);

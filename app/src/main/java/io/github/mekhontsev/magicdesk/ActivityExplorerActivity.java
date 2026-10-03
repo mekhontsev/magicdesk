@@ -73,10 +73,7 @@ public final class ActivityExplorerActivity extends Activity {
 
     private View createContent() {
         final DesktopUiFactory ui = new DesktopUiFactory(this);
-        final LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(ui.dp(16), ui.dp(14), ui.dp(16), ui.dp(14));
-        UiAppearance.background(root, UiColor.BACKGROUND);
+        final LinearLayout root = UiToolLayout.page(this, UiColor.BACKGROUND, true);
 
         final TextView title = ui.sectionTitle(
                 R.string.activity_explorer_title);

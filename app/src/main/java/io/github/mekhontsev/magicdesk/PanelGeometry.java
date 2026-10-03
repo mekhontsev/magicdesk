@@ -91,4 +91,10 @@ record PanelGeometry(ShellPanel panel, int width, int height, int anchors,
     }
 
     static int paintAlpha(boolean visible, boolean edgeHidden) { return visible && !edgeHidden ? 255 : 0; }
+
+    static ShellBounds expanded(ShellBounds paint, ShellBounds output, int overflow) {
+        int margin = Math.max(0, overflow);
+        return new ShellBounds(Math.max(output.left(), paint.left() - margin), Math.max(output.top(), paint.top() - margin),
+                Math.min(output.right(), paint.right() + margin), Math.min(output.bottom(), paint.bottom() + margin));
+    }
 }

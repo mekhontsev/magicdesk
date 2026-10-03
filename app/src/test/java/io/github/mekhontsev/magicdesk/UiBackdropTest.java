@@ -4,6 +4,28 @@ import org.junit.Test;
 
 /** Execute the real Window binding without requiring a device compositor. */
 public final class UiBackdropTest {
+    @Test public void overflowKeepsPaintInsideItsPanelAndDoesNotReallocateOnRefresh() throws Exception {
+        verify("""
+                var content = new View(); content.setBackground(paint);
+                var host = new UiPanelWindow(content); var frame = Dialog.last.window;
+                frame.decor.attach();
+                host.backdropInsets(16, 24, 16, 8);
+                check(frame.background instanceof InsetDrawable, "overflow painted as whole window");
+                var inset = (InsetDrawable) frame.background;
+                check(inset.paint()==paint && inset.left()==16 && inset.top()==24 && inset.bottom()==8, "paint insets");
+                check(!frame.decor.clipped && !frame.decor.clipChildren, "magnification clipped");
+                check(frame.decor.padding==0, "paint insets applied twice to content");
+                var padding = new Rect();
+                check(!inset.getPadding(padding) && padding.left==0 && padding.top==0, "decor rebuild restores inset padding");
+                check(frame.radius==0, "blur covered transparent overflow");
+                host.backdropInsets(16,24,16,8);
+                check(frame.background==inset, "unchanged presentation reallocated background");
+                host.backdropInsets(0,0,0,0);
+                check(frame.radius>0, "window-sized panel lost blur");
+                check(frame.background==paint && frame.decor.clipped && frame.decor.clipChildren, "normal clipping not restored");
+                host.close();
+                """);
+    }
     @Test public void attachmentRefreshDetachAndReattach() throws Exception {
         verify("""
                 UiBackdrop.bind(window, paint);
@@ -144,12 +166,24 @@ public final class UiBackdropTest {
         RuntimeSourceFixture.verify(STUBS + "\nstatic "
                 + RuntimeSourceFixture.nestedClass("UiBackdrop", "UiBackdrop")
                 + "\nstatic " + RuntimeSourceFixture.nestedClass("UiPanelWindow", "UiPanelWindow")
+                    .replace("android.graphics.Rect", "Rect").replace("android.graphics.drawable.InsetDrawable", "InsetDrawable")
                 + "\npublic static void verify() throws Exception {\n"
                 + "var window = new Window(); var view = window.decor; var paint = new UiAppearance.Paint();\n"
                 + scenario + "\n}");
     }
 
     private static final String STUBS = """
+            static class Rect {
+                int left,top,right,bottom;
+                void set(int l,int t,int r,int b){left=l;top=t;right=r;bottom=b;}
+                void setEmpty(){set(0,0,0,0);}
+            }
+            static class InsetDrawable {
+                final UiAppearance.Paint paint; final int left,top,right,bottom;
+                InsetDrawable(UiAppearance.Paint p,int l,int t,int r,int b){paint=p;left=l;top=t;right=r;bottom=b;}
+                UiAppearance.Paint paint(){return paint;} int left(){return left;} int top(){return top;} int bottom(){return bottom;}
+                boolean getPadding(Rect r){r.set(left,top,right,bottom);return true;}
+            }
             static class R {
                 static class id { static int appearance_backdrop = 1; }
                 static class style { static int DesktopChromeTheme = 2; }
@@ -207,6 +241,8 @@ public final class UiBackdropTest {
             }
             static class ViewGroup extends View {
                 final List<View> children = new ArrayList<>();
+                boolean clipChildren=true,clipPadding=true;
+                void setClipChildren(boolean value){clipChildren=value;} void setClipToPadding(boolean value){clipPadding=value;}
                 void removeView(View child) { children.remove(child); child.parent = null; }
             }
             static class WindowManager {
@@ -214,7 +250,7 @@ public final class UiBackdropTest {
             }
             static class Window {
                 final ViewGroup decor = new ViewGroup();
-                UiAppearance.Paint background;
+                Object background;
                 int radius, writes, type;
                 Object callback = new Object();
                 boolean reject, fits = true;
@@ -225,7 +261,12 @@ public final class UiBackdropTest {
                 void setAttributes(WindowManager.LayoutParams value) { attributes = value; }
                 void setDecorFitsSystemWindows(boolean value) { fits = value; }
                 void setContentView(View value) { decor.children.add(value); value.parent = decor; }
-                void setBackgroundDrawable(UiAppearance.Paint paint) { background = paint; }
+                void setBackgroundDrawable(Object paint) {
+                    background = paint;
+                    Rect padding=new Rect();
+                    if (paint instanceof InsetDrawable i) i.getPadding(padding);
+                    decor.setPadding(padding.left,padding.top,padding.right,padding.bottom);
+                }
                 void setBackgroundBlurRadius(int value) {
                     writes++;
                     if (reject) throw new UnsupportedOperationException();

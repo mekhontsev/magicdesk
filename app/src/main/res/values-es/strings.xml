@@ -1152,4 +1152,7 @@
     <string name="appearance_battery">Batería</string>
     <string name="appearance_clock">Reloj</string>
     <string name="appearance_spacer">Espacio</string>
+    <string name="appearance_dock_scale">Ampliación de iconos al pasar el cursor (%)</string>
+    <string name="appearance_dock_lift">Elevación de iconos al pasar el cursor (dp)</string>
+    <string name="appearance_dock_radius">Influencia en iconos vecinos (%)</string>
 </resources>

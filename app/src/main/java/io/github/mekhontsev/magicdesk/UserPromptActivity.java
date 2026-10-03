@@ -47,9 +47,7 @@ public final class UserPromptActivity extends Activity {
             selected.addAll(state.getStringArrayList("selection"));
         }
 
-        final LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(24), dp(16), dp(24), dp(16));
+        final LinearLayout content = UiToolLayout.column(this);
         final TextView title = new TextView(this);
         title.setText(request.title()); title.setTextSize(20);
         content.addView(title);
@@ -103,9 +101,9 @@ public final class UserPromptActivity extends Activity {
         }
         buttons.addView(cancel); buttons.addView(accept);
         content.addView(buttons);
-        final ScrollView scroll = new ScrollView(this);
-        scroll.addView(content, new ViewGroup.LayoutParams(-1, -2));
-        setContentView(scroll);
+        final LinearLayout page = UiToolLayout.page(this, UiColor.BACKGROUND, true);
+        page.addView(UiToolLayout.scroll(content, 640), new LinearLayout.LayoutParams(-1, 0, 1));
+        setContentView(page);
         completion = owner.registry.whenFinished(id, () -> runOnUiThread(() -> {
             if (!isFinishing() && !isDestroyed()) finishAndRemoveTask();
         }));

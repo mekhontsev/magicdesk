@@ -1152,4 +1152,7 @@
     <string name="appearance_battery">Batterie</string>
     <string name="appearance_clock">Horloge</string>
     <string name="appearance_spacer">Espacement</string>
+    <string name="appearance_dock_scale">Agrandissement des icônes au survol (%)</string>
+    <string name="appearance_dock_lift">Élévation des icônes au survol (dp)</string>
+    <string name="appearance_dock_radius">Influence sur les icônes voisines (%)</string>
 </resources>

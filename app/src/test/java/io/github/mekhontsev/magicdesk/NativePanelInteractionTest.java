@@ -58,7 +58,7 @@ public final class NativePanelInteractionTest {
                 static class PanelGeometry {
                 """ + RuntimeSourceFixture.methods("PanelGeometry", "reveal", "presented") + """
                 }
-                record Panel(ShellPanel.Edge edge, Rect paint, Rect output) {}
+                record Panel(ShellPanel.Edge edge, Rect paint, Rect output) { Rect frame() { return paint; } }
                 List<Panel> mPanels;
                 public static void verify() {
                     Fixture f = new Fixture();

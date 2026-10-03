@@ -218,6 +218,10 @@ in-APK catalog recognition must not use its reused stock fingerprint alone.
   preferences are unchanged. The toggle is under **Compatibility (next session)**
   only on Nubia. After a process crash, restoration requires reopening MagicDesk
   with privileged access. Other vendor casting protocols are not verified.
+  Caption preferences are read through a short-lived unstable provider client:
+  provider death returns an unavailable value rather than making MagicDesk a
+  dependent process that Android may kill. Restoration retains its saved value
+  when the provider is unavailable.
 
 - **Background UI while securely locked** is opt-in for owned virtual displays.
   The `alwaysUnlocked` flag does not keep a display powered or prevent firmware

@@ -81,8 +81,10 @@ public record ShellAppearance(Palette palette, Typography typography, Shape shap
     public enum Alignment { START, CENTER, END }
     /** A null backdrop inherits the appearance's global backdrop. */
     public record PanelStyle(Width length, Alignment alignment, int maxLengthDp, int sideGapDp,
-            int edgeGapDp, int thicknessDp, int paddingDp, int radiusDp, Backdrop backdrop, boolean reserveSpace) {
+            int edgeGapDp, int thicknessDp, int paddingDp, int radiusDp, Backdrop backdrop, boolean reserveSpace,
+            ShellDockEffect hover) {
         public PanelStyle {
+            java.util.Objects.requireNonNull(hover);
             Objects.requireNonNull(length); Objects.requireNonNull(alignment);
             range(maxLengthDp, 64, 4096, "maximum length");
             range(sideGapDp, 0, 96, "side gap"); range(edgeGapDp, 0, 96, "edge gap");
@@ -90,10 +92,10 @@ public record ShellAppearance(Palette palette, Typography typography, Shape shap
             range(paddingDp, 0, 16, "padding"); range(radiusDp, 0, 32, "radius");
         }
         public static PanelStyle defaults() {
-            return new PanelStyle(Width.FILL, Alignment.CENTER, 4096, 0, 0, 0, 8, 0, null, true);
+            return new PanelStyle(Width.FILL, Alignment.CENTER, 4096, 0, 0, 0, 8, 0, null, true, ShellDockEffect.NONE);
         }
         public static PanelStyle floating() {
-            return new PanelStyle(Width.CONTENT, Alignment.CENTER, 1100, 12, 12, 0, 8, 8, new Backdrop(.88f, 0), true);
+            return new PanelStyle(Width.CONTENT, Alignment.CENTER, 1100, 12, 12, 0, 8, 8, new Backdrop(.88f, 0), true, ShellDockEffect.NONE);
         }
     }
     public ShellAppearance {

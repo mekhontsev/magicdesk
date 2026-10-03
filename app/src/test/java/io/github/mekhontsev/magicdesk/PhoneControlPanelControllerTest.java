@@ -15,6 +15,7 @@ public final class PhoneControlPanelControllerTest {
         RuntimeSourceFixture.verify("""
                 static class Gravity { static int TOP = 1, CENTER_HORIZONTAL = 2; }
                 static class View {
+                    Object getContext() { return null; }
                     FrameLayout.LayoutParams params;
                     FrameLayout.LayoutParams getLayoutParams() { return params; }
                     static class MeasureSpec {
@@ -35,6 +36,11 @@ public final class PhoneControlPanelControllerTest {
                     }
                     void addView(View view, LayoutParams params) { child = view; view.params = params; }
                     protected void onMeasure(int width, int height) { measuredChildWidth = child.params.width; }
+                    View getChildAt(int index) { return child; }
+                    static class Metrics { float density = 3.25f; }
+                    static class Resources { Metrics metrics=new Metrics(); Metrics getDisplayMetrics() { return metrics; } }
+                    Resources resources=new Resources();
+                    Resources getResources() { return resources; }
                 }
                 Object mActivity = new Object();
                 float density = 3.25f;
@@ -51,14 +57,15 @@ public final class PhoneControlPanelControllerTest {
                     check(host.measuredChildWidth == f.dp(900), "large window lost maximum width");
                     host.onMeasure(View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.AT_MOST), 0);
                     check(host.measuredChildWidth == 600, "shrinking window exceeds parent");
-                    f.density = 1;
+                    f.density = 1; host.resources.metrics.density=1;
                     host.onMeasure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY), 0);
                     check(host.measuredChildWidth == 900, "density change retained old cap");
                     host.onMeasure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), 0);
                     check(host.measuredChildWidth == 900, "unbounded measurement collapsed content");
                     check(content.params.gravity == (Gravity.TOP | Gravity.CENTER_HORIZONTAL), "not centered");
                 }
-                """ + RuntimeSourceFixture.methods("PhoneControlPanelController", "centered"));
+                """ + RuntimeSourceFixture.methods("PhoneControlPanelController", "centered")
+                    + "static " + RuntimeSourceFixture.nestedClass("UiContentColumn", "UiContentColumn"));
     }
 
     @Test

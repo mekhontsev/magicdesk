@@ -217,8 +217,12 @@ final class DesktopLayoutController {
             final ShellLayout.Surface surface = mShellLayout.panel(panel.id());
             final View view = mPanels.panelView(panel.id());
             if (surface == null || view == null) continue;
+            var motion = AppearanceStore.current(mActivity).motion();
+            int overflow = motion.reduced() || !android.animation.ValueAnimator.areAnimatorsEnabled() ? 0
+                    : panel.style().hover().overflow(panel.edge().vertical() ? surface.content().width() : surface.content().height(),
+                            mActivity.getResources().getDisplayMetrics().density);
             result.add(new DesktopTaskbarHost.Panel(panel.id(), view, panel.edge(),
-                    rect(surface.content()), rect(surface.paint()), rect(mViewport.outputGeometry())));
+                    rect(surface.content()), rect(surface.paint()), rect(mViewport.outputGeometry()), overflow));
         }
         return List.copyOf(result);
     }

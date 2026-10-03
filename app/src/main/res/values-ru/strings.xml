@@ -1163,4 +1163,7 @@
     <string name="appearance_battery">Батарея</string>
     <string name="appearance_clock">Часы</string>
     <string name="appearance_spacer">Промежуток</string>
+    <string name="appearance_dock_scale">Увеличение иконок при наведении (%)</string>
+    <string name="appearance_dock_lift">Подъём иконок при наведении (dp)</string>
+    <string name="appearance_dock_radius">Влияние на соседние иконки (%)</string>
 </resources>

@@ -124,15 +124,7 @@ final class PhoneControlPanelController {
     }
 
     View createView() {
-        final LinearLayout page = new LinearLayout(mActivity);
-        page.setOrientation(LinearLayout.VERTICAL);
-        UiAppearance.background(page, BACKGROUND);
-        page.setPadding(
-                dp(18),
-                dp(16),
-                dp(18),
-                dp(16));
-        SystemBarInsets.addToPadding(page);
+        final LinearLayout page = UiToolLayout.page(mActivity, BACKGROUND, true);
 
         page.addView(centered(createHeader()));
 
@@ -318,20 +310,7 @@ final class PhoneControlPanelController {
     }
 
     private View centered(final View view) {
-        final FrameLayout host = new FrameLayout(mActivity) {
-            @Override
-            protected void onMeasure(final int widthMeasureSpec, final int heightMeasureSpec) {
-                // The parent already excludes page padding and system insets.
-                // Recompute after resize instead of retaining startup Configuration dimensions.
-                final int maxWidth = dp(900);
-                view.getLayoutParams().width = MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED
-                        ? maxWidth : Math.min(maxWidth, MeasureSpec.getSize(widthMeasureSpec));
-                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-            }
-        };
-        host.addView(view, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.CENTER_HORIZONTAL));
-        return host;
+        return new UiContentColumn(view, 900);
     }
 
     private TextView statusText(

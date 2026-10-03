@@ -131,11 +131,7 @@ public final class AppLogViewerActivity extends Activity
     }
 
     private View createContent() {
-        final LinearLayout page = new LinearLayout(this);
-        page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(10), dp(8), dp(10), dp(8));
-        UiAppearance.background(page, UiColor.BACKGROUND);
-        SystemBarInsets.addToPadding(page);
+        final LinearLayout page = UiToolLayout.page(this, UiColor.BACKGROUND, true);
 
         final LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);

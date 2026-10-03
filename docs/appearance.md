@@ -258,7 +258,7 @@ kind may occur only once across all panels, except `spacer`.
 Panel style uses `length` (`fill`, `content`), `alignment` (`start`, `center`,
 `end`), `maxLengthDp` (64-4096), `sideGapDp` and `edgeGapDp` (0-96),
 `thicknessDp` (0 for automatic, otherwise 40-160), `paddingDp` (0-16),
-`radiusDp` (0-32), optional `backdrop`, and `reserveSpace`. Automatic thickness
+`radiusDp` (0-32), optional `backdrop`, `hover`, and `reserveSpace`. Automatic thickness
 uses the native host's normal sizing. All lengths are density-independent and
 constrained to the available viewport. Thickness and padding determine automatic
 square button extents and icon sizes on either axis. Explicit component widths
@@ -276,7 +276,7 @@ Each accepts `widthDp` (0 for automatic, otherwise 32-240), `minViewportDp`
 `center`, `end`; default `start`). Groups anchor independently; the center group
 is centered when space permits and shifts to avoid side groups. Components keep
 their order within each group. Overflow scrolls rather than overlapping. The Start component
-accepts `label` (at most 32 printable characters); Clock accepts `clock` (`time`,
+accepts `label` (at most 32 printable characters; empty shows the Start symbol); Clock accepts `clock` (`time`,
 `date`, `date_time`). Battery accepts `battery` (`percent`, `icon`, `both`), and
 Tasks accepts `indicator` (`line`, `dot`, `none`). These presentations reuse
 existing battery observations and task state. Unavailable controls do not start
@@ -483,6 +483,23 @@ import/export use the same binding schema.
 
 ## Feedback And Motion
 
+Each panel's `style.hover` configures task-icon feedback: `scale` (1-2, default
+1), `liftDp` (0-32, default 0), and `radius` (0.5-3 stable item widths, default
+1.5). Influence falls smoothly with distance from each slot; lift points inward
+from the panel edge. `motion.feedbackMs` and `curve` govern interpolation.
+Reduced motion and disabled Android animators disable these transforms.
+
+The host allocates a bounded overflow frame without changing the panel's paint,
+content slots or workspace reservation. Its touch region contains the base panel
+and visible transformed items, not the surrounding transparent rectangle.
+Pointer actions map back into the original controls, retaining their task,
+context-menu and accessibility identities. The public Android root-surface API
+publishes that region only when it changes. Finger scrolling remains owned by
+the normal View hierarchy. No animation runs while idle. A panel with visual
+overflow retains translucency but disables window-wide background blur: Android's
+public blur API cannot restrict it to the panel's smaller paint bounds. Menus and
+panels whose paint fills their window retain normal background blur.
+
 `feedback` maps `normal`, `hover`, `pressed`, `selected`, `focused`, `disabled`
 and `outline` to palette roles, including `transparent`. Native controls retain
 geometry as their state changes; defaults have no permanent idle backplate.
@@ -509,6 +526,21 @@ hosts and outside-dismissal regions do not move. Effects begin on layout's
 pre-draw callback, and detach, dismissal or theme replacement releases the
 animation and restores the original properties. Focus and close never wait for
 an animation; application-task transitions are separate.
+
+## Tool Layouts
+
+`UiToolLayout` supplies the shared native page, system/IME insets, bounded content
+column, scrollable action row and settings-row composition. Settings, Appearance,
+Files, Control Panel, Device Setup, Diagnostics, task/application inspectors,
+graphics-session management and prompts use these primitives without changing
+their service or window ownership. `UiContentColumn` resolves its cap against the
+current host width and density on measurement.
+
+Files uses `UiAdaptivePane`: navigation occupies a sidebar in wide windows and a
+horizontal strip in narrow ones. Resizing retains the same browser, selection,
+navigation and scroll views. The console shares only the outer page and inset
+policy; its terminal field stays specialized. X11, Wayland and display-viewer
+surfaces retain their own edge-to-edge content and scaling contracts.
 
 ## Automation
 

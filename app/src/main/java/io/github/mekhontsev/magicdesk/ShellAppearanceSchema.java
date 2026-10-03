@@ -37,7 +37,7 @@ final class ShellAppearanceSchema {
                     .put("battery", enumeration(ShellComposition.Battery.values()))
                     .put("indicator", enumeration(ShellComposition.Indicator.values()))
                     .put("label", type("string").put("maxLength", 32).put("pattern", "^[^\\u0000-\\u001f\\u007f-\\u009f]*$")
-                            .put("description", "Start label; empty uses the localized label. Only valid for start."))
+                            .put("description", "Start label; empty shows the Start symbol. Only valid for start."))
                     .put("clock", enumeration(ShellComposition.Clock.values())
                             .put("description", "Clock display format; only valid for clock.")))
                     .put("required", new JSONArray().put("type"));
@@ -51,7 +51,9 @@ final class ShellAppearanceSchema {
                             .put("thicknessDp", new JSONObject().put("oneOf", new JSONArray().put(type("integer").put("const", 0)).put(number(true, 40, 160))))
                             .put("radiusDp", number(true, 0, 32))
                             .put("backdrop", backdrop().put("description", "Panel override; omit to inherit the global backdrop."))
-                            .put("reserveSpace", type("boolean"))))
+                            .put("reserveSpace", type("boolean"))
+                            .put("hover", object(new JSONObject().put("scale", number(false, 1, 2))
+                                    .put("liftDp", number(true, 0, 32)).put("radius", number(false, .5, 3))))))
                     .put("components", type("array").put("items", component).put("minItems", 1).put("maxItems", 24)))
                     .put("required", new JSONArray().put("id").put("components"));
             return object(new JSONObject()

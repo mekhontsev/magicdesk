@@ -397,25 +397,8 @@ final class AppPresentationSettingsView {
     }
 
     private View wrapPage(final LinearLayout content) {
-        final LinearLayout page = new LinearLayout(mActivity);
-        page.setOrientation(LinearLayout.VERTICAL);
-        UiAppearance.background(page, UiColor.PANEL);
-        page.setPadding(dp(14), dp(10), dp(14), dp(14));
-        SystemBarInsets.addToPadding(page);
-        final ScrollView scroll = new ScrollView(mActivity);
-        scroll.setFillViewport(true);
-        final FrameLayout host = new FrameLayout(mActivity);
-        final int availableWidthDp = Math.max(
-                1,
-                mActivity.getResources().getConfiguration().screenWidthDp
-                        - 32);
-        host.addView(content, new FrameLayout.LayoutParams(
-                dp(Math.min(CONTENT_MAX_WIDTH_DP, availableWidthDp)),
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP | Gravity.CENTER_HORIZONTAL));
-        scroll.addView(host, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT));
+        final LinearLayout page = UiToolLayout.page(mActivity, UiColor.PANEL, true);
+        final ScrollView scroll = UiToolLayout.scroll(content, CONTENT_MAX_WIDTH_DP);
         page.addView(scroll, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         return page;

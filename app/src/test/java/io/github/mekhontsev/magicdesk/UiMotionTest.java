@@ -153,8 +153,10 @@ public final class UiMotionTest {
             void advance(float value) { fraction = value; for (var l : List.copyOf(updates)) l.onAnimationUpdate(this); }
             void end() { for (var l : List.copyOf(ends)) l.onAnimationEnd(this); }
         }
-        static class android { static class view { static class animation {
-            static class LinearInterpolator { } static class DecelerateInterpolator { } static class AccelerateDecelerateInterpolator { }
+        static class android { static class animation { interface TimeInterpolator { } } static class view { static class animation {
+            static class LinearInterpolator implements android.animation.TimeInterpolator { }
+            static class DecelerateInterpolator implements android.animation.TimeInterpolator { }
+            static class AccelerateDecelerateInterpolator implements android.animation.TimeInterpolator { }
         } } }
         """;
 }

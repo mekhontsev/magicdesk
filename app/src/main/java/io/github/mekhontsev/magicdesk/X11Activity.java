@@ -157,7 +157,7 @@ public final class X11Activity extends Activity implements
             if (info != null) {
                 seenWindow = true;
                 String title = info.title().isBlank() ? session.name : info.title();
-                present(title, info.icon());
+                present(title, DesktopApplicationIconResolver.hostedIcon(info.icon(), currentRecipe));
             } else if (seenWindow || ready) { finish(); return; }
         }
         status.setText(session == null ? getString(R.string.x11_no_session)

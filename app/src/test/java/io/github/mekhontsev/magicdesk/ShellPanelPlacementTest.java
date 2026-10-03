@@ -78,7 +78,7 @@ public final class ShellPanelPlacementTest {
         assertEquals(new ShellBounds(526, 384, 1086, 1004), place(layout, start));
         assertEquals(new ShellBounds(1102, 796, 1402, 996), place(layout, end));
         final var overlay = new ShellAppearance.PanelStyle(style.length(), ShellAppearance.Alignment.END,
-                style.maxLengthDp(), 12, 12, 0, 8, 8, ShellAppearance.Backdrop.defaults(), false);
+                style.maxLengthDp(), 12, 12, 0, 8, 8, ShellAppearance.Backdrop.defaults(), false, style.hover());
         layout.update(viewport, List.of(PanelGeometry.resolve(panel.withStyle(overlay), 1, 1920, 1080, 64, 900, 500)), false);
         assertEquals(1080, layout.snapshot().workArea().bottom());
         assertEquals(new ShellBounds(1024, 384, 1584, 1004), place(layout, start));
