@@ -5,7 +5,7 @@
 #include <linux/magic.h>
 #include <linux/netlink.h>
 #include <linux/openat2.h>
-#include <linux/pidfd.h>
+#include "linux_abi.h"
 #include <limits.h>
 #include <poll.h>
 #include <stdio.h>
@@ -58,7 +58,7 @@ int md_domain_restrict(struct md_guest_domain *d, pid_t pid, const char *path) {
     if (fd < 0) return -errno;
     struct statfs fs;
     int error = fstatfs(fd, &fs) ? -errno : fs.f_type != PROC_SUPER_MAGIC ? -EXDEV : 0;
-    int process = error ? -1 : syscall(SYS_pidfd_open, pid, PIDFD_THREAD);
+    int process = error ? -1 : syscall(SYS_pidfd_open, pid, MD_PIDFD_THREAD);
     if (!error && process < 0 && errno == EINVAL) process = syscall(SYS_pidfd_open, pid, 0);
     if (!error && process < 0) error = -errno;
     if (error) close(fd); else { d->root = fd; d->root_process = process; }

@@ -5,7 +5,7 @@
 #include "watch_broker.h"
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/pidfd.h>
+#include "linux_abi.h"
 #include <poll.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -50,7 +50,7 @@ static int duplicate(struct task *task, pid_t pid, int number) {
     /* Worker borrows this identity until preparation ends. Retirement cannot
      * close or reuse it meanwhile; file numbers themselves are never cached. */
     if (task->process < 0) {
-        task->process = syscall(SYS_pidfd_open, pid, PIDFD_THREAD);
+        task->process = syscall(SYS_pidfd_open, pid, MD_PIDFD_THREAD);
         if (task->process < 0 && errno == EINVAL) task->process = syscall(SYS_pidfd_open, pid, 0);
         if (task->process < 0) return -errno;
     }

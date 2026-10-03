@@ -25,7 +25,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/filter.h>
-#include <linux/pidfd.h>
+#include "linux_abi.h"
 #include <linux/seccomp.h>
 #include <signal.h>
 #include <sched.h>
@@ -298,7 +298,7 @@ static int duplicate_fd(pid_t pid, int descriptor) {
     /* Never substitute a group's leader for another thread's descriptor table.
      * Older kernels can duplicate a leader's descriptors; other threads use
      * their task-affine SCM_RIGHTS continuation instead. */
-    int process = syscall(SYS_pidfd_open, pid, PIDFD_THREAD);
+    int process = syscall(SYS_pidfd_open, pid, MD_PIDFD_THREAD);
     if (process < 0 && errno == EINVAL)
         process = syscall(SYS_pidfd_open, pid, 0);
     if (process < 0) return -errno;
