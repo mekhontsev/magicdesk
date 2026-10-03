@@ -1,5 +1,7 @@
 #define _GNU_SOURCE
 #include "inode_store.h"
+#include "fs_operation.h"
+#include "linux_abi.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -485,7 +487,18 @@ static void permissions(void) {
     struct md_inode_store *s = store("permissions", 1);
     CHECK(md_inode_mkdir(s, MD_INODE_ROOT, "dir", 0755) == 0);
     int dir = directory(s, "dir");
-    int file = md_inode_create(s, dir, "value", 0600); CHECK(file >= 0); close(file);
+    int file = md_inode_create(s, dir, "value", 0600); CHECK(file >= 0);
+    for (unsigned effective = 0; effective < 2; ++effective) {
+        struct md_fs_request q = {.operation=MD_FS_ACCESS, .directory={file,-1},
+            .flags=effective ? MD_AT_EACCESS : 0, .mode=R_OK|W_OK};
+        CHECK(md_inode_metadata(s, &q) == 0);
+        q.mode = X_OK;
+        CHECK(md_inode_metadata(s, &q) == -EACCES);
+        CHECK(fchmod(file, 0700) == 0);
+        CHECK(md_inode_metadata(s, &q) == 0);
+        CHECK(fchmod(file, 0600) == 0);
+    }
+    close(file);
     struct stat st;
     CHECK(fchmod(dir, 0600) == 0);
     CHECK(md_inode_stat(s, dir, "value", 0, &st) == -EACCES);

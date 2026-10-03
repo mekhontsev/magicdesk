@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/inotify.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 int md_inode_runtime_prepare(struct md_inode_store *s) {
@@ -31,7 +32,8 @@ int mdi_permission(struct md_inode_store *s, const struct mdi_node *node, int mo
     if (mode & ~(R_OK | W_OK | X_OK)) return -EINVAL;
     if (!s->identity) {
         int dir = mdi_backing_directory(s, node);
-        return dir < 0 ? dir : faccessat(dir, node->backing, mode, real ? 0 : AT_EACCESS) ? -errno : 0;
+        return dir < 0 ? dir : syscall(SYS_faccessat2, dir, node->backing,
+            mode, real ? 0 : MD_AT_EACCESS) ? -errno : 0;
     }
     struct stat st;
     int error = mdi_stat(s, node, &st);
