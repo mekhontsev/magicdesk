@@ -230,11 +230,16 @@ HOME. The parent is a non-interactive, display-sized application panel, shared b
 its active leases and removed when the last lease ends.
 
 The embedded hierarchy uses the application's `InputTransferToken`.
-`FrameworkHostedSurfaceApi` orders its owned surface relative to the application's
-SurfaceView, while the structural parent supplies the uncropped space. Application
-tasks, fullscreen planes, windowing modes and focus commands retain their existing
-owners. Ordering and reparenting have separate commit receipts; neither receipt
-establishes renderer or InputDispatcher readiness.
+The host creates a bufferless ordering anchor under the application's attached
+surface root, above its painted content. After that attachment commits,
+`FrameworkHostedSurfaceApi` orders the borrowed hierarchy relative to the anchor,
+while the structural parent supplies the uncropped space. The SurfaceView remains
+the geometry and lifetime reference, not the Z-order reference. Application tasks,
+fullscreen planes, windowing modes and focus commands retain their existing
+owners. Anchor attachment, ordering and reparenting have separate commit receipts;
+none establishes renderer or InputDispatcher readiness. Closing the borrowed host
+detaches and releases the anchor, including failed or cancelled attachment.
+System-owned task decorations remain outside this application-content ordering.
 
 `HostedShellSurfaceView` supplies the existing frame and exact-input admission
 path. An embedded View root reports local coordinates, so its placement owner
@@ -405,6 +410,8 @@ release, failure, concurrent replacement, reentrant completions and viewport lim
 `HostedFamilyGeometryTest` covers owner-relative scaling, sparse input, workspace
 clamping and oversized families. `HostedFamilyInputTest` verifies shared key
 ownership across parent/child focus changes and detachment of borrowed surfaces.
+`HostedDependentWindowTest` checks above-content root anchoring, commit ordering,
+late callbacks, rejected attachment and cleanup after partial failure.
 `X11FamilyGeometryTest` checks bounded, immutable native geometry publication.
 The native Wayland window fixture covers dependent-output ownership, viewport
 configuration before activation and same-family key/button transfer.

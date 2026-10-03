@@ -34,6 +34,7 @@ final class HostedDependentWindow implements AutoCloseable {
     private DesktopSurfaceParent.Lease parent;
     private SurfaceControlViewHost host;
     private SurfaceControlViewHost.SurfacePackage surfacePackage;
+    private SurfaceControl orderingAnchor;
     private ShellBounds bounds;
     private boolean closed, attached;
     private Runnable placementChanged;
@@ -60,14 +61,14 @@ final class HostedDependentWindow implements AutoCloseable {
             if (surfacePackage == null) throw new IllegalStateException("Embedded surface unavailable");
             anchor.getHolder().addCallback(lifecycle);
             anchor.getViewTreeObserver().addOnPreDrawListener(drawing);
-            // EVENT_WAIT: parent layout, ordering commit and reparent commit; expiry cancels this child only.
+            // EVENT_WAIT: parent layout, anchor/order/reparent commits; expiry cancels this child only.
             main.postDelayed(timeout, 4_000);
             parent.ended().whenComplete((unused, error) -> {
                 if (!closed) fail(error == null ? new IllegalStateException("Desktop surface parent ended") : error);
             });
             parent.ready().whenComplete((root, error) -> {
                 if (closed) return;
-                if (error != null) fail(error); else order(root);
+                if (error != null) fail(error); else prepareOrder(root);
             });
         } catch (RuntimeException error) {
             fail(error);
@@ -98,12 +99,30 @@ final class HostedDependentWindow implements AutoCloseable {
         position();
     }
 
+    private void prepareOrder(AttachedSurfaceControl root) {
+        try {
+            var applicationRoot = anchor.getRootSurfaceControl();
+            if (applicationRoot == null) throw new IllegalStateException("Application surface root lost");
+            // The SurfaceView itself is below the Activity's painted background. A bufferless
+            // root child anchors dependents above that background without changing task order.
+            orderingAnchor = new SurfaceControl.Builder().setName("MagicDesk dependent ordering anchor").build();
+            try (var transaction = applicationRoot.buildReparentTransaction(orderingAnchor)) {
+                if (transaction == null) throw new IllegalStateException("Application surface root lost");
+                transaction.setLayer(orderingAnchor, 1).setVisibility(orderingAnchor, true);
+                transaction.addTransactionCommittedListener(main::post, () -> {
+                    if (!closed) order(root);
+                });
+                transaction.apply();
+            }
+        } catch (RuntimeException error) { fail(error); }
+    }
+
     private void order(AttachedSurfaceControl root) {
         SurfaceControl target;
         try { target = retain(surfacePackage.getSurfaceControl()); }
         catch (RuntimeException error) { fail(error); return; }
         SurfaceControl relative;
-        try { relative = retain(anchor.getSurfaceControl()); }
+        try { relative = retain(orderingAnchor); }
         catch (RuntimeException error) { target.release(); fail(error); return; }
         try {
             TaskCommandQueue.execute(() -> {
@@ -165,6 +184,8 @@ final class HostedDependentWindow implements AutoCloseable {
         catch (RuntimeException cleanup) { error.addSuppressed(cleanup); }
         try { if (previousPackage != null) previousPackage.release(); }
         catch (RuntimeException cleanup) { error.addSuppressed(cleanup); }
+        try { releaseOrderingAnchor(); }
+        catch (RuntimeException cleanup) { error.addSuppressed(cleanup); }
         try { if (previousParent != null) previousParent.close(); }
         catch (RuntimeException cleanup) { error.addSuppressed(cleanup); }
         ready.completeExceptionally(error);
@@ -172,6 +193,15 @@ final class HostedDependentWindow implements AutoCloseable {
     }
 
     @Override public void close() { fail(new java.util.concurrent.CancellationException("Dependent window released")); }
+
+    private void releaseOrderingAnchor() {
+        var previous = orderingAnchor;
+        orderingAnchor = null;
+        if (previous == null) return;
+        try (var transaction = new SurfaceControl.Transaction()) {
+            transaction.reparent(previous, null).apply();
+        } finally { previous.release(); }
+    }
 
     private static ShellBounds requireBounds(ShellBounds value) {
         if (value == null || value.isEmpty() || value.width() > 16384 || value.height() > 16384)
