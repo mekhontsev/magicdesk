@@ -29,7 +29,9 @@ function(guest_executable name)
     target_link_options(${name} PRIVATE -static -Wl,-z,noexecstack -Wl,-z,max-page-size=16384)
 endfunction()
 function(guest_freestanding name)
-    target_compile_options(${name} PRIVATE -ffreestanding -fno-stack-protector -fvisibility=hidden)
+    # NDK defaults assume libc; freestanding helpers use only their own raw syscall gate.
+    target_compile_options(${name} PRIVATE -ffreestanding -U_FORTIFY_SOURCE
+        -fno-stack-protector -fvisibility=hidden)
     target_link_options(${name} PRIVATE -nostdlib -Wl,-z,defs)
 endfunction()
 
