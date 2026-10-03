@@ -33,10 +33,11 @@ final class GuestApplicationRecords {
             var recipe = LinuxLaunchRecipe.build(linux.name + " (" + environment.name() + ")",
                     new LinuxLaunchRecipe.Environment(LinuxLaunchRecipe.Kind.MANAGED_GUEST, environment.store(), DesktopExecBackend.SHELL, ""),
                     "exec " + command, linux.workingDirectory, "", linux.terminal ? LinuxLaunchRecipe.Presentation.TERMINAL
+                            : linux.graphics != null && linux.graphics.desktop() ? LinuxLaunchRecipe.Presentation.DESKTOP
                             : LinuxLaunchRecipe.Presentation.APPLICATION, linux.graphics == null ? GraphicalProtocol.X11 : linux.graphics.protocol());
             var shortcut = new DesktopApplicationShortcut(recipe.name, id, recipe.exec, null, "", recipe.launchMode,
                     false, recipe.execBackend, recipe.terminal).withLiteralExec(true).withGraphics(recipe.graphics == null ? null
-                            : new GraphicalLaunchOptions(recipe.graphics.protocol(), false, recipe.graphics.keyboardDirectory(),
+                            : new GraphicalLaunchOptions(recipe.graphics.protocol(), recipe.graphics.desktop(), recipe.graphics.keyboardDirectory(),
                                     linux.graphics == null ? "" : linux.graphics.startupClass(), recipe.graphics.fileEnvironment(), recipe.graphics.connectionMode()));
             entries.add(new DesktopApplicationRepository.Entry(shortcut, "/magicdesk-guest/" + environment.id() + "/applications/"
                     + path.substring(directory + 14).replace('/', '-'), null, false, linux.exec));

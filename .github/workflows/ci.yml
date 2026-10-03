@@ -73,6 +73,10 @@ jobs:
       - name: Verify Wayland build boundary fixtures
         run: python3 -m unittest discover -s scripts/tests -p test_wayland_build.py
 
+      - name: Verify Linux installer fixtures
+        if: runner.os == 'Linux'
+        run: python3 -m unittest discover -s scripts/tests -p test_install_linux.py
+
       - name: Graphics native host tools
         uses: ./.github/actions/setup-graphics-build
 

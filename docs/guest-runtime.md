@@ -52,6 +52,58 @@ executor; prepared chroot scripts retain their existing root requirements.
 
 ## Commands
 
+### Debian GUI installer
+
+[`scripts/install_linux.sh`](../scripts/install_linux.sh) installs Debian 13 ARM64
+through the same named-environment manager. Run it in a MagicDesk **Shell**
+console with shell or root access. Termux and managed Desktop are not required.
+Download the file before running it so terminal input remains available for
+the questions:
+
+```sh
+magicdesk download https://raw.githubusercontent.com/mekhontsev/magicdesk/main/scripts/install_linux.sh ~/install_linux.sh
+sh ~/install_linux.sh
+```
+
+Choose an independent environment name and `apps` or `xfce`. Both install
+Mousepad, Thunar, Xfce Terminal, fonts, XKB data and a session D-Bus client setup.
+The `xfce` profile adds a complete X11 desktop. Package-manager output and errors
+stay in the console. The installer uses Debian's `trixie-slim` OCI image and
+Debian repositories; these are trusted executable inputs, not sandboxed content.
+This image uses the guest root account for package setup and GUI launches;
+that does not grant Android root or change the selected executor's UID.
+
+```sh
+sh ~/install_linux.sh --name debian --gui xfce --yes
+sh ~/install_linux.sh --name debian --gui xfce --resume
+```
+
+Existing names are never replaced. `--resume` explicitly continues package
+setup in a verified Debian 13 ARM64 environment. It retains user data and an
+existing graphics profile. After an interrupted image installation, inspect
+`magicdesk-guest list` before choosing a new installation or resuming. A package
+failure leaves the environment available for diagnosis and retry.
+
+New installs default to system DNS. Private DNS/VPN requires an explicit
+`--dns IP[,IP...]` choice or a prepared image resolver with `--dns preserve`;
+plain guest DNS does not reproduce Android's encrypted resolver policy.
+No public resolver is selected automatically. Resume retains existing DNS.
+
+Refresh MagicDesk's Linux application list after installation. Distribution
+entries use X11; the installer adds explicitly marked Wayland alternatives and,
+for `xfce`, an `Xfce Desktop` entry that opens the whole session in one viewer.
+The shared catalog preserves application/desktop presentation for both protocols;
+guest declarations cannot replace store-derived host paths or graphics routing.
+
+Graphics default to software rendering through a guest-owned
+`/etc/profile.d/magicdesk-graphics.sh`. This installer does not build Mesa or
+enable Turnip. Graphical launches keep the normal per-launch runtime directory,
+session bus and X11/Wayland connection; the script does not start an Android
+service, display server or system D-Bus daemon. A shell is available with
+`magicdesk-guest login NAME`.
+
+### Named environments
+
 In a newly opened MagicDesk Shell console or terminal:
 
 ```sh
