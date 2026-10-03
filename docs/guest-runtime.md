@@ -52,9 +52,9 @@ executor; prepared chroot scripts retain their existing root requirements.
 
 ## Commands
 
-### Debian GUI installer
+### Linux installer
 
-[`scripts/install_linux.sh`](../scripts/install_linux.sh) installs Debian 13 ARM64
+[`scripts/install_linux.sh`](../scripts/install_linux.sh) installs ARM64 Linux
 through the same named-environment manager. Run it in a MagicDesk **Shell**
 console with shell or root access. Termux and managed Desktop are not required.
 Download the file before running it so terminal input remains available for
@@ -65,42 +65,115 @@ magicdesk download https://raw.githubusercontent.com/mekhontsev/magicdesk/main/s
 sh ~/install_linux.sh
 ```
 
-Choose an independent environment name and `apps` or `xfce`. Both install
-Mousepad, Thunar, Xfce Terminal, fonts, XKB data and a session D-Bus client setup.
-The `xfce` profile adds a complete X11 desktop. Package-manager output and errors
-stay in the console. The installer uses Debian's `trixie-slim` OCI image and
-Debian repositories; these are trusted executable inputs, not sandboxed content.
-This image uses the guest root account for package setup and GUI launches;
-that does not grant Android root or change the selected executor's UID.
+The script itself asks for the distribution, independent environment name,
+GUI profile, graphics driver, locale, timezone and fonts. Additional questions
+cover an optional guest account, X11/Wayland application entries, extra packages,
+DNS, package-download cleanup and Arch's filesystem sandbox. The same choices
+are command-line options; `--yes` suppresses questions. `--list` is read-only.
+
+| Distribution | Source | GUI recipes |
+| --- | --- | --- |
+| Debian 13 | `debian:trixie-slim` | apps, Xfce, Weston |
+| Ubuntu 24.04 | `ubuntu:24.04` | apps, Xfce, Weston |
+| Alpine 3.23 | `alpine:3.23` | apps, Xfce, Weston |
+| Fedora 44 | `registry.fedoraproject.org/fedora:44` | apps, Xfce, Weston, experimental GNOME devkit |
+| Arch Linux ARM | `menci/archlinuxarm:base` (community image) | apps, Xfce, Weston |
+
+`none` installs console tools only. `apps` supplies Mousepad, Thunar and Xfce
+Terminal, XKB data, icons and a session D-Bus setup. `xfce` adds an X11 desktop;
+`weston` adds a nested Wayland desktop with Xwayland. `gnome` selects Fedora's
+development-kit shell, not a systemd/GDM login session. GUI recipes are package
+configurations, not a claim of complete desktop compatibility. Fedora 44 and
+rolling Arch use Glycin image loaders whose Bubblewrap startup currently fails
+on the tested shell runtime; GNOME also needs a system-bus arrangement. These
+limitations are not bypassed by silently disabling sandboxes.
+
+Images and repository packages are trusted executable inputs, not sandboxed
+content. `--image REF` selects another OCI source of the same distribution and
+version; the guest architecture and OS are checked before package setup. Arch
+uses a community publisher and performs a complete rolling userspace upgrade.
+Package signing remains enabled; `--arch-sandbox disable-filesystem` is an
+explicit, reported pacman opt-out for kernels where its Landlock setup fails.
+Package output and errors stay in the console.
+
+Package setup uses the guest root account, without granting Android root or
+changing the executor UID. `--create-user developer` creates a password-locked
+ordinary account; choose it with `login --user developer` or a shortcut's User
+field. It does not change the image's default account. `--locale ru_RU.UTF-8`
+prepares guest locale data; `--timezone system` snapshots Android's IANA zone.
+The selected login locale clears the inherited shell `LC_ALL` override.
+On apt-based images it also retains translations during package installation;
+packages already installed with translations excluded need reinstallation to
+restore those files.
+`--fonts cjk` adds Chinese/Japanese/Korean fonts. `--package NAME` is repeatable;
+`--cache clean` removes downloaded packages, not user files or Mesa build work.
 
 ```sh
 sh ~/install_linux.sh --name debian --gui xfce --yes
-sh ~/install_linux.sh --name debian --gui xfce --resume
+sh ~/install_linux.sh --distro alpine --name alpine-work --gui weston
+sh ~/install_linux.sh --name debian --resume --gui xfce
 ```
 
 Existing names are never replaced. `--resume` explicitly continues package
-setup in a verified Debian 13 ARM64 environment. It retains user data and an
-existing graphics profile. After an interrupted image installation, inspect
-`magicdesk-guest list` before choosing a new installation or resuming. A package
-failure leaves the environment available for diagnosis and retry.
+setup after detecting and validating the distribution. Without explicit options
+it preserves GUI entries, locale, timezone, fonts and graphics profile. It does
+not remove previously installed desktops when another profile is added. After an
+interrupted image installation, inspect `magicdesk-guest list` before choosing a
+new installation or resuming. A package failure leaves the environment available
+for diagnosis and retry.
 
 New installs default to system DNS. Private DNS/VPN requires an explicit
 `--dns IP[,IP...]` choice or a prepared image resolver with `--dns preserve`;
 plain guest DNS does not reproduce Android's encrypted resolver policy.
-No public resolver is selected automatically. Resume retains existing DNS.
+No public resolver is selected automatically. For a new environment, system or
+explicit DNS replaces the image's resolver through the existing offline DNS
+command; `preserve` leaves it alone. Resume retains existing DNS.
 
 Refresh MagicDesk's Linux application list after installation. Distribution
-entries use X11; the installer adds explicitly marked Wayland alternatives and,
-for `xfce`, an `Xfce Desktop` entry that opens the whole session in one viewer.
+entries remain untouched; `--protocol x11|wayland|both` controls the installer's
+own application entries. Selected whole-desktop entries open in one viewer.
 The shared catalog preserves application/desktop presentation for both protocols;
 guest declarations cannot replace store-derived host paths or graphics routing.
 
 Graphics default to software rendering through a guest-owned
-`/etc/profile.d/magicdesk-graphics.sh`. This installer does not build Mesa or
-enable Turnip. Graphical launches keep the normal per-launch runtime directory,
+`/etc/profile.d/magicdesk-graphics.sh`. A supported Adreno GPU with accessible
+KGSL can use the optional Turnip profile:
+
+```sh
+sh ~/install_linux.sh --name debian --resume --gpu turnip
+sh ~/install_linux.sh --name debian --resume --gpu software
+```
+
+Turnip setup installs distribution-specific build dependencies and compiles Mesa
+26.2.3 inside the guest. The HTTPS source archive has a pinned SHA-256; the non-DRM Wayland/Zink
+patch is embedded in the installer and applied without fuzz. Turnip, Zink, EGL,
+GLX and GBM come from that same build. `--jobs N` controls compiler parallelism
+(1-8, default 2). Allow several GB of space for sources, build files and libraries.
+Build work stays in `/var/cache/magicdesk/mesa/` for resuming; completed libraries
+have an immutable recipe-addressed prefix in `/opt/magicdesk/mesa/`.
+
+A temporary profile explicitly selects that Vulkan ICD, DRI directory and EGL
+vendor. Bounded Vulkan enumeration must report Turnip before an atomic profile
+replacement enables it for new launches. Failure preserves the previous profile;
+existing programs are not restarted. This suitability check is not proof that
+every OpenGL application renders correctly. The complete build/render workflow
+is verified on Debian; other distribution toolchains require separate validation.
+Software fallback uses the distribution's
+unchanged libraries. Neither profile replaces Android libraries, distribution
+drivers or the APK renderer, and no privileged identity switch is performed.
+The lab obtains the identical patch with `sh scripts/install_linux.sh --print-mesa-patch`.
+
+Graphical launches keep the normal per-launch runtime directory,
 session bus and X11/Wayland connection; the script does not start an Android
 service, display server or system D-Bus daemon. A shell is available with
 `magicdesk-guest login NAME`.
+
+Focused RM11 checks under UID 2000 cover package setup, guest settings and resume
+for all five distributions. Without managed Desktop, catalog-launched Mousepad,
+Thunar and Xfce Terminal render through both X11 and Wayland on Debian, Ubuntu
+and Alpine. Debian Xfce and Ubuntu/Alpine Weston also produce desktop content.
+These launch/render checks do not certify every desktop feature. Fedora/Arch
+GUI failures remain recorded, not counted as passes.
 
 ### Named environments
 
@@ -633,10 +706,13 @@ that text followed by the original content. Neither observation is classified
 as a guest-runtime defect without isolating client, input and window-manager behavior.
 
 Debian Blender 4.3.2 renders its viewport through X11/GLX with Linux Mesa 26.2.3
-Zink/Turnip on Adreno 840 and exits normally. A GTK GLArea fixture separately
-checks four colored regions and an input-driven frame through Wayland/EGL.
-It passes with llvmpipe and with a test-owned Zink build using the explicit
-[non-DRM Wayland patch](../wayland-runtime/tests/mesa-wayland-zink.patch).
+Zink/Turnip on Adreno 840 and exits normally. The Debian installer's profiles
+are checked without test-injected driver overrides: Blender X11 closes with
+zero status under both Turnip and llvmpipe; GTK GLArea checks four colored
+regions, an input-driven frame and closure through X11/GLX and Wayland/EGL.
+The Turnip profile uses the explicit
+[non-DRM Wayland patch embedded in the installer](../scripts/install_linux.sh).
+The tested Debian Blender package has only the X11 display backend.
 The unmodified Zink Wayland control produces blank frames despite reporting the
 hardware renderer. Patched sources and libraries stay in isolated fixture paths;
 neither Android nor APK drivers are replaced. These checks are not complete

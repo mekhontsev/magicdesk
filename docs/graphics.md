@@ -102,7 +102,7 @@ feedback or `wl_drm`. Android KGSL plus Vulkan WSI does not supply that identity
 Consequently, installing a working Vulkan driver does not by itself make EGL's
 default Zink path work. Software GL remains independent of this limitation.
 
-The optional [Mesa 26.2.3 test patch](../wayland-runtime/tests/mesa-wayland-zink.patch)
+The optional [Mesa 26.2.3 patch in the Linux installer](../scripts/install_linux.sh)
 routes explicitly selected Zink through Kopper and uses Mesa's existing non-DRM
 EGLDevice convention. On RM11/API 36, Termux Mesa/Turnip with this client patch
 reports OpenGL 4.6 and GLES 3.2 on Adreno 840; GTK4's GL renderer and GLArea present
@@ -110,6 +110,10 @@ linear DMA-BUFs and respond to pointer input. The unmodified loader fails before
 that path; forcing only `GALLIUM_DRIVER=zink` can instead produce empty SHM frames.
 This is a tested client-side patch, not a bundled driver or general Mesa support
 claim. Different GPUs and distribution builds require their own checks.
+
+The [Linux installer](guest-runtime.md#linux-installer) builds a complete,
+private Linux client stack for `--gpu turnip` and retains a software alternative.
+Its `--print-mesa-patch` export is also the lab's patch source.
 
 Build a separate EGL vendor library using the exact installed Mesa version and
 the environment's normal build patches (including Termux's Android-detection

@@ -342,7 +342,8 @@ Use a fresh output directory when changing Mesa/configuration.
 Zink additionally needs `libwayland-egl-backend-dev`, `libxcb-glx0-dev` and
 `libxxf86vm-dev` in the authenticated SDK. Build it with `--driver zink`.
 `--wayland-zink` explicitly applies the repository's Mesa 26.2.3 non-DRM
-Wayland patch to a private source copy and records its hash; the original source
+Wayland patch exported by `scripts/install_linux.sh --print-mesa-patch` to a
+private source copy and records its hash; the original source
 tree remains unchanged. Keep patched and unmodified prefixes separate, and run
 the unmodified control. A patched fixture result is not upstream compatibility.
 
@@ -365,6 +366,30 @@ use `--environment VK_DRIVER_FILES=/opt/md-gpu/turnip.json`. Installing that
 manifest in the test store's `/usr/share/vulkan/icd.d` exercises ordinary loader
 discovery without a driver override. These controls do not change Android or
 APK drivers.
+
+`test_installer.py --distro ID --name TEST_NAME --gui MODE` exercises the public
+installer through MagicDesk's shell executor. It checks package setup, locale,
+timezone, an ordinary guest account and settings persistence across resume.
+The named test environment is retained. `--resume` continues that fixture;
+`--arch-without-landlock` explicitly opts out of pacman's filesystem sandbox.
+The test uses explicit guest DNS, not Android's encrypted resolver.
+
+`test_installer_graphics.py --names TEST_NAME ...` launches the installer's
+catalog entries on an owned virtual display without Desktop. It records actual
+native windows, Android hosts, screenshots and launch failures, then releases
+its sessions and display. `--entry TEXT` filters desktop-file names. An optional
+`--lease ID` retains an existing phone awake lease; otherwise the test owns a
+virtual-display lease. Package installation alone is not a passed graphics test.
+
+To check the Debian installer's actual login profile, use
+`test_distribution_app.py BUILD --store HOST_STORE --runtime STAGED_HELPERS
+--keyboard-directory guest:HOST_STORE --user root --home /root
+--protocol wayland --application gtkgl --installed-profile turnip`.
+Repeat with X11, Blender on X11, and `--installed-profile software` after switching the
+installer profile. This mode injects no driver overrides and asserts the actual
+renderer. GTK checks four color regions, an input-driven frame and zero process
+exit. The test holds its virtual display awake; release any separately held MCP
+awake lease before the run. `--user` selects a guest account, not Android root.
 
 The Debian Mesa 25.0.7 fixture can block in GTK's initial GLX probe when there
 is no discoverable Vulkan ICD. Its [Zink initialization](https://sources.debian.org/src/mesa/25.0.7-2%2Bdeb13u1/src/gallium/drivers/zink/zink_screen.c/)

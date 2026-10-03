@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 import shlex
 import subprocess
+import time
 import tomllib
 import uuid
 import urllib.parse
@@ -50,16 +51,20 @@ def main():
     parser.add_argument("--store", required=True)
     parser.add_argument("--runtime", required=True)
     parser.add_argument("--keyboard-directory", required=True)
+    parser.add_argument("--user", default="", help="Guest account (not the Android executor identity)")
+    parser.add_argument("--home", default="/home/shell", help="Guest home for the selected fixture account")
     parser.add_argument("--protocol", choices=["x11", "wayland"], required=True)
     parser.add_argument("--application", choices=["gimp", "writer", "calc", "firefox", "chromium", "blender", "gles", "gtkgl"], required=True)
     parser.add_argument("--x11-manager", action="store_true", help="Test inside an ordinary X11 viewer with the distribution's xfwm4")
     parser.add_argument("--software", action="store_true", help="Explicit Mesa llvmpipe software-rendering control")
     parser.add_argument("--gpu-prefix", help="Explicit guest directory containing test-only Mesa GL and Turnip")
+    parser.add_argument("--installed-profile", choices=["turnip", "software"],
+                        help="Verify the installer's login profile without injecting graphics overrides")
     parser.add_argument("--trace", help="Optional test-only native fault observer")
     parser.add_argument("--trace-wayland", action="store_true", help="Retain client protocol events for input diagnostics")
     args = parser.parse_args()
-    if args.software and args.gpu_prefix:
-        parser.error("--software and --gpu-prefix are mutually exclusive")
+    if sum(bool(value) for value in (args.software, args.gpu_prefix, args.installed_profile)) > 1:
+        parser.error("--software, --gpu-prefix and --installed-profile are mutually exclusive")
     if args.x11_manager and args.protocol != "x11":
         parser.error("--x11-manager requires X11")
     if args.application == "gles" and args.protocol != "wayland":
@@ -76,9 +81,10 @@ def main():
     tag = uuid.uuid4().hex
     result = {"id": tag, "application": args.application, "protocol": args.protocol,
               "store": args.store, "app": before["app"], "software": args.software,
-              "x11Manager": args.x11_manager, "gpuPrefix": args.gpu_prefix, "passed": False}
+              "x11Manager": args.x11_manager, "gpuPrefix": args.gpu_prefix,
+              "installedProfile": args.installed_profile, "passed": False}
     console = client.call("console.open", {"directory": "/data/local/tmp"})["sessionId"]
-    display = session = None
+    display = session = display_lease = None
     clipboard = None
     log = args.runtime + "/" + args.application + "-" + tag + ".log"
     receipt = log + ".exit"
@@ -98,6 +104,34 @@ def main():
         response = client.call("wait_for_state", {"condition": condition, "timeoutMillis": 30000, **selection})
         assert response.get("matched"), response
         return response
+
+    def capture_frame(task_id, phase=None):
+        # BOUNDED_OBSERVATION: GTK after-paint is not Android presentation completion.
+        # Fresh capture acknowledgements pace sampling; expiry fails, not a settling delay.
+        deadline = time.monotonic() + 15
+        colors = [(230, 26, 51), (26, 204, 51), (26, 51, 230), (230, 204, 26)]
+        while True:
+            capture = client.call_result("capture_screenshot", {"taskId": task_id})
+            png = base64.b64decode(next(c["data"] for c in capture["content"] if c["type"] == "image"), validate=True)
+            rgb = subprocess.check_output(["magick", "png:-", "-depth", "8", "rgb:-"], input=png)
+            if phase is None:
+                return png, rgb
+            info = capture["structuredContent"]["data"]
+            width, height = info["width"], info["height"]
+            counts = []
+            for quadrant in range(4):
+                color = colors[(quadrant + phase) % 4]
+                left, right = (quadrant % 2) * width // 2, (quadrant % 2 + 1) * width // 2
+                top, bottom = (1 - quadrant // 2) * height // 2, (2 - quadrant // 2) * height // 2
+                count = 0
+                for y in range(top, bottom):
+                    row = rgb[(y * width + left) * 3:(y * width + right) * 3]
+                    count += sum(all(abs(a - b) <= 3 for a, b in zip(pixel, color))
+                                 for pixel in zip(row[::3], row[1::3], row[2::3]))
+                counts.append(count)
+            if min(counts) > 10000:
+                return png, rgb
+            assert time.monotonic() < deadline, {"phase": phase, "colorCounts": counts}
 
     browser_page = "data:text/html," + urllib.parse.quote("<title>MagicDesk guest fixture</title><h1>Linux browser</h1><input autofocus value='Native guest input'>")
     applications = {
@@ -129,6 +163,7 @@ def main():
             command("cat " + shlex.quote(source) + " | " + runner + " /bin/sh -c "
                     + shlex.quote("cat > " + shlex.quote(document)))
         display = client.call("create_display", {"type": "virtual", "width": 1200, "height": 800, "densityDpi": 160})
+        display_lease = client.call("device.keep_awake", {"displayId": display["id"], "durationMillis": 300000})["leaseId"]
         session = client.call("graphics.start", {"protocol": args.protocol, "backend": "shell", "connection": "routed",
             "name": "Distribution " + args.application, "keyboardDirectory": args.keyboard_directory})["sessionId"]
         info = wait("graphics_ready", sessionId=session)["session"]
@@ -153,14 +188,14 @@ def main():
             ]) + "; "
         recipe = subprocess.check_output(["java", "-cp", str(args.build / "recipe-classes"),
             "io.github.mekhontsev.magicdesk.GraphicalRecipe", "routed", args.protocol,
-            args.store, "/home/shell", prefix + applications[args.application]], text=True)
+            args.store, args.home, prefix + applications[args.application], args.user], text=True)
         launch = ("{ timeout 150 env PATH=" + shlex.quote(args.runtime + ":/system/bin")
             + " " + (shlex.quote(args.trace) + " " if args.trace else "") + "/system/bin/sh -c " + shlex.quote(recipe)
             + "; r=$?; printf '%s\\n' \"$r\" > " + shlex.quote(receipt)
             + "; } > " + shlex.quote(log) + " 2>&1")
         result["launch"] = launch
         client.call("graphics.execute", {"sessionId": session, "command": launch})
-        titles = {"blender": "Blender", "gimp": "GNU Image Manipulation Program"}
+        titles = {"gimp": "GNU Image Manipulation Program"}
         if args.application in ("writer", "calc"):
             titles[args.application] = Path(document).name + " \u2014 LibreOffice " + args.application.title()
         selection = {"windowTitle": titles[args.application]} if args.application in titles else {}
@@ -168,6 +203,8 @@ def main():
         result["windows"] = mapped["windows"]
         window = next(w for w in mapped["windows"] if w["mapped"] and not w["parentWindowId"]
                       and (not selection or w["title"] == selection["windowTitle"]))
+        if args.application == "blender":
+            assert window["appId"].lower() == "blender", window
         if args.application in ("writer", "calc"):
             if args.protocol == "wayland":
                 assert window["appId"] == "libreoffice-" + args.application, window
@@ -190,9 +227,9 @@ def main():
             rendered = command(shlex.join(["timeout", "50", args.runtime + "/md-await-exit",
                 "--marker", "MD_FRAME_READY ", log]))
             result["renderer"] = json.loads(rendered.removeprefix("MD_FRAME_READY "))
-            if args.software:
+            if args.software or args.installed_profile == "software":
                 assert "llvmpipe" in result["renderer"]["renderer"].lower(), result["renderer"]
-            if args.gpu_prefix:
+            if args.gpu_prefix or args.installed_profile == "turnip":
                 assert "zink" in result["renderer"]["renderer"].lower(), result["renderer"]
                 assert "turnip" in result["renderer"]["renderer"].lower(), result["renderer"]
         if args.application == "firefox":
@@ -252,23 +289,16 @@ def main():
                 result["contentAfter"] = client.call("clipboard.read_text", {"expectedText": expected_text, "timeoutMillis": 10000})
                 assert result["contentAfter"].get("text", "").strip() == expected_text, result["contentAfter"]
             client.call("input.key_chord", {"displayId": display["id"], "keys": ["CTRL_LEFT", "S"]})
-        capture = client.call_result("capture_screenshot", {"taskId": host["taskId"]})
-        png = base64.b64decode(next(c["data"] for c in capture["content"] if c["type"] == "image"), validate=True)
+        png, rgb = capture_frame(host["taskId"], 0 if args.application == "gtkgl" else None)
         picture = args.build / (args.application + "-" + args.protocol + "-" + tag + ".png")
         picture.write_bytes(png)
-        rgb = subprocess.check_output(["magick", "png:-", "-depth", "8", "rgb:-"], input=png)
         if args.application == "gtkgl":
-            for color in [(230, 26, 51), (26, 204, 51), (26, 51, 230), (230, 204, 26)]:
-                assert sum(all(abs(a - b) <= 3 for a, b in zip(pixel, color))
-                           for pixel in zip(rgb[::3], rgb[1::3], rgb[2::3])) > 10000, color
             client.call("input.key_chord", {"displayId": display["id"], "keys": ["A"]})
             # EVENT_WAIT: GTK after-paint for the input-driven second image.
             command(shlex.join(["timeout", "25", args.runtime + "/md-await-exit",
                 "--marker", "MD_INPUT_READY", log]))
-            second = client.call_result("capture_screenshot", {"taskId": host["taskId"]})
-            second_png = base64.b64decode(next(c["data"] for c in second["content"] if c["type"] == "image"))
-            second_rgb = subprocess.check_output(["magick", "png:-", "-depth", "8", "rgb:-"], input=second_png)
-            assert len(second_rgb) == len(rgb) and sum(a != b for a, b in zip(rgb, second_rgb)) > 100000
+            second_png, second_rgb = capture_frame(host["taskId"], 1)
+            assert second_png != png
             (args.build / (args.application + "-" + args.protocol + "-" + tag + "-input.png")).write_bytes(second_png)
         else:
             assert len(set(zip(rgb[::3], rgb[1::3], rgb[2::3]))) > 100
@@ -322,6 +352,8 @@ def main():
                 errors.append(str(error))
         if display:
             try:
+                if display_lease:
+                    client.call("device.release_awake", {"leaseId": display_lease})
                 client.call("remove_display", {"displayId": display["id"], "uniqueId": display["uniqueId"]})
                 wait("display_absent", displayId=display["id"])
             except Exception as error:

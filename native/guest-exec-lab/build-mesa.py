@@ -23,17 +23,19 @@ patch_id = None
 if args.wayland_zink:
     if args.driver != "zink" or (source / "VERSION").read_text().strip() != "26.2.3":
         parser.error("--wayland-zink requires the Zink driver and Mesa 26.2.3")
-    patch = Path(__file__).resolve().parents[2] / "wayland-runtime/tests/mesa-wayland-zink.patch"
-    patch_id = hashlib.sha256(patch.read_bytes()).hexdigest()
+    installer = Path(__file__).resolve().parents[2] / "scripts/install_linux.sh"
+    patch = subprocess.check_output(["sh", str(installer), "--print-mesa-patch"])
+    patch_id = hashlib.sha256(patch).hexdigest()
     source = output / "patched-source"
     receipt = output / "source-patch.json"
-    identity = {"source": str(origin), "patch": str(patch), "sha256": patch_id}
+    identity = {"source": str(origin), "patch": str(installer), "sha256": patch_id}
     if source.exists():
         if not receipt.exists() or json.loads(receipt.read_text()) != identity:
             parser.error("Patched source identity differs; choose a new output directory")
     else:
         shutil.copytree(origin, source)
-        subprocess.run(["patch", "--batch", "--forward", "-p1", "-d", str(source), "-i", str(patch)], check=True)
+        subprocess.run(["patch", "--batch", "--forward", "--fuzz=0", "-p1", "-d", str(source)],
+                       input=patch, check=True)
         receipt.write_text(json.dumps(identity, indent=2) + "\n")
 common = ["--target=aarch64-linux-gnu", "--sysroot=" + str(root),
           "--gcc-toolchain=" + str(root / "usr")]
