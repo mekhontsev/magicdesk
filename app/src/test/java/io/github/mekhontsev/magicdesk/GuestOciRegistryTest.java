@@ -95,7 +95,7 @@ public class GuestOciRegistryTest {
                 } else throw new AssertionError(uri);
                 calls.add(response); return response;
             } catch (Exception error) { throw new IOException(error); }
-        }, message -> { });
+        }, message -> { }, GuestImageFilesTest::assertDirectorySync);
         var pulled = registry.pull("registry.test/repo", root.resolve("cache"), root.resolve("layout"));
         assertEquals(md.getString("digest"), pulled.digest());
         for (Response call : calls) {
@@ -114,7 +114,7 @@ public class GuestOciRegistryTest {
                 var response = new Response(uri, new byte[0]); response.status = 302;
                 response.headers.put("Location", "http://insecure.test/image"); return response;
             } catch (Exception error) { throw new IOException(error); }
-        }, message -> { });
+        }, message -> { }, GuestImageFilesTest::assertDirectorySync);
         assertThrows(IOException.class, () -> registry.pull("alpine", root.resolve("cache"), root.resolve("layout")));
     }
 
@@ -134,7 +134,7 @@ public class GuestOciRegistryTest {
                 if (uri.getPath().endsWith(ld.getString("digest"))) { response.body = layer; response.interrupted = interrupt[0]; }
                 return response;
             } catch (Exception failure) { throw new IOException(failure); }
-        }, message -> { });
+        }, message -> { }, GuestImageFilesTest::assertDirectorySync);
         var cache = root.resolve("cache");
         assertThrows(IOException.class, () -> registry.pull("registry.test/repo", cache, root.resolve("broken")));
         assertFalse(Files.exists(cache.resolve(GuestImageFiles.hex(ld.getString("digest")))));

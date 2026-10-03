@@ -54,7 +54,8 @@ public class GuestEnvironmentLibraryTest {
     }
 
     private GuestEnvironmentLibrary library(Path root, Images images) throws Exception {
-        return new GuestEnvironmentLibrary(root, images, new GuestOciRegistry(message -> { }), message -> { });
+        return new GuestEnvironmentLibrary(root, images, new GuestOciRegistry(message -> { }), message -> { },
+                GuestImageFilesTest::assertDirectorySync);
     }
 
     @Test public void instancesShareImageButKeepIndependentStablePaths() throws Exception {
@@ -104,6 +105,17 @@ public class GuestEnvironmentLibraryTest {
             assertThrows(IOException.class, library::prune);
             assertTrue(library.list().isEmpty());
         }
+    }
+
+    @Test public void publicationSyncFailureRetainsTheCommittedName() throws Exception {
+        Path root = temporary.newFolder().toPath(), archive = temporary.newFile().toPath();
+        IOException failure = new IOException("directory sync failed");
+        var library = new GuestEnvironmentLibrary(root, new Images(), new GuestOciRegistry(message -> { }),
+                message -> { }, directory -> { throw failure; });
+        assertSame(failure, assertThrows(IOException.class,
+                () -> library.install(archive.toString(), GuestEnvironmentLibrary.SourceKind.ROOTFS, "work")));
+        assertEquals("work", library.resolve("work").name());
+        assertEquals(1, library.list().size());
     }
 
     @Test public void namedLaunchRetainsArgumentsInOriginalShell() {

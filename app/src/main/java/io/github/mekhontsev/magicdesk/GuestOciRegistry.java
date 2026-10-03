@@ -28,6 +28,7 @@ final class GuestOciRegistry {
     private static final Pattern AUTH_PARAMETER = Pattern.compile("\\s*([A-Za-z_]+)=\"((?:[^\"\\\\]|\\\\.)*)\"\\s*(?:,|$)");
     private final HttpGet.Connections connections;
     private final Consumer<String> progress;
+    private final GuestImageFiles.DirectorySync directories;
     private String token;
     private GuestOciReference reference;
 
@@ -36,7 +37,13 @@ final class GuestOciRegistry {
     }
 
     GuestOciRegistry(HttpGet.Connections connections, Consumer<String> progress) {
+        this(connections, progress, GuestImageFiles.DIRECTORY_SYNC);
+    }
+
+    GuestOciRegistry(HttpGet.Connections connections, Consumer<String> progress,
+                     GuestImageFiles.DirectorySync directories) {
         this.connections = connections; this.progress = progress;
+        this.directories = directories;
     }
 
     Pulled pull(String source, Path cache, Path layout) throws Exception {
@@ -73,7 +80,7 @@ final class GuestOciRegistry {
         Path manifestFile = cache.resolve(GuestImageFiles.hex(digest));
         if (Files.exists(manifestFile, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
             if (!GuestImageFiles.digest(manifestFile).equals(GuestImageFiles.hex(digest))) throw new IOException("Corrupt cached manifest");
-        } else GuestImageFiles.write(manifestFile, bytes);
+        } else GuestImageFiles.write(manifestFile, bytes, directories);
         fetch(manifest.getJSONObject("config"), cache, GuestImageFiles.JSON_LIMIT);
         JSONObject config = new JSONObject(GuestImageFiles.read(cache.resolve(GuestImageFiles.hex(
                 manifest.getJSONObject("config").getString("digest")))));
@@ -91,9 +98,9 @@ final class GuestOciRegistry {
         }
         JSONObject descriptor = new JSONObject().put("mediaType", manifest.getString("mediaType"))
                 .put("digest", digest).put("size", bytes.length);
-        GuestImageFiles.write(layout.resolve("oci-layout"), "{\"imageLayoutVersion\":\"1.0.0\"}");
+        GuestImageFiles.write(layout.resolve("oci-layout"), "{\"imageLayoutVersion\":\"1.0.0\"}", directories);
         GuestImageFiles.write(layout.resolve("index.json"), new JSONObject().put("schemaVersion", 2)
-                .put("manifests", new JSONArray().put(descriptor)).toString());
+                .put("manifests", new JSONArray().put(descriptor)).toString(), directories);
         return new Pulled(layout, digest);
     }
 
@@ -120,7 +127,7 @@ final class GuestOciRegistry {
                     throw new IOException("OCI blob size or digest mismatch: " + digest);
                 try (var file = java.nio.channels.FileChannel.open(temporary, java.nio.file.StandardOpenOption.WRITE)) { file.force(true); }
                 Files.move(temporary, cached, StandardCopyOption.ATOMIC_MOVE);
-                GuestImageFiles.syncDirectory(cache);
+                directories.sync(cache);
             } finally {
                 if (connection != null) connection.disconnect();
                 Files.deleteIfExists(temporary);

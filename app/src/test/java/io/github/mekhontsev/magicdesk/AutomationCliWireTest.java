@@ -32,7 +32,7 @@ public class AutomationCliWireTest {
     }
     @Test public void sharedParserPreservesWhitespaceUnicodeAndFieldProjection() throws Exception {
         var reply = run("", "list_tasks", "--query", "line one\n\u4e8c", "--field", "data.query");
-        assertEquals(0, reply.status); assertEquals("line one\n\u4e8c\n", reply.out);
+        assertEquals(0, reply.status); assertEquals("line one\n\u4e8c" + System.lineSeparator(), reply.out);
         assertEquals("", reply.err); assertNull(reply.requested);
     }
     @Test public void helpSchemaAndDryRunUseTheSameCatalog() throws Exception {
@@ -43,11 +43,11 @@ public class AutomationCliWireTest {
     @Test public void guestInputIsRequestedOnlyWhenSharedParserNeedsIt() throws Exception {
         for (String source : new String[]{"-", "@/guest/path.json"}) {
             var reply = run("{\"query\":\"guest file\"}", "list_tasks", "--args", source, "--field", "data.query");
-            assertEquals(source, reply.requested); assertEquals("guest file\n", reply.out);
+            assertEquals(source, reply.requested); assertEquals("guest file" + System.lineSeparator(), reply.out);
             assertEquals(0, reply.status);
         }
         var literal = run("", "list_tasks", "--query", "--args", "--field", "data.query");
-        assertNull(literal.requested); assertEquals("--args\n", literal.out);
+        assertNull(literal.requested); assertEquals("--args" + System.lineSeparator(), literal.out);
     }
     @Test public void invalidOptionsNeverBecomeHostFileReads() throws Exception {
         var reply = run("{}", "get_state", "--wrong", "@/host/secret");

@@ -15,6 +15,8 @@ import java.util.UUID;
 
 /** Bounded artifact IO, independent of Android, Desktop and guest execution. */
 final class GuestImageFiles {
+    interface DirectorySync { void sync(Path directory) throws IOException; }
+    static final DirectorySync DIRECTORY_SYNC = GuestImageFiles::syncDirectory;
     static final long JSON_LIMIT = 8 * 1024 * 1024;
     static final long BLOB_LIMIT = 8L * 1024 * 1024 * 1024;
 
@@ -70,11 +72,11 @@ final class GuestImageFiles {
         return count;
     }
 
-    static void write(Path destination, String text) throws IOException {
-        write(destination, text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    static void write(Path destination, String text, DirectorySync directories) throws IOException {
+        write(destination, text.getBytes(java.nio.charset.StandardCharsets.UTF_8), directories);
     }
 
-    static void write(Path destination, byte[] data) throws IOException {
+    static void write(Path destination, byte[] data, DirectorySync directories) throws IOException {
         Path temporary = destination.resolveSibling(".publish-" + UUID.randomUUID());
         try {
             try (FileChannel file = FileChannel.open(temporary, StandardOpenOption.CREATE_NEW,
@@ -84,7 +86,7 @@ final class GuestImageFiles {
                 file.force(true);
             }
             Files.move(temporary, destination, StandardCopyOption.ATOMIC_MOVE);
-            syncDirectory(destination.getParent());
+            directories.sync(destination.getParent());
         } finally { Files.deleteIfExists(temporary); }
     }
 

@@ -26,10 +26,17 @@ final class GuestEnvironmentLibrary {
     private final Images images;
     private final GuestOciRegistry registry;
     private final Consumer<String> progress;
+    private final GuestImageFiles.DirectorySync directories;
 
     GuestEnvironmentLibrary(Path root, Images images, GuestOciRegistry registry, Consumer<String> progress) throws IOException {
+        this(root, images, registry, progress, GuestImageFiles.DIRECTORY_SYNC);
+    }
+
+    GuestEnvironmentLibrary(Path root, Images images, GuestOciRegistry registry, Consumer<String> progress,
+                            GuestImageFiles.DirectorySync directories) throws IOException {
         this.root = Files.createDirectories(root.toAbsolutePath().normalize()).toRealPath();
         this.images = images; this.registry = registry; this.progress = progress;
+        this.directories = directories;
         Files.createDirectories(this.root);
         for (String child : List.of("names", "instances", "images", "layers", "cache", "work")) {
             Path directory = this.root.resolve(child);
@@ -150,7 +157,7 @@ final class GuestEnvironmentLibrary {
             if (Files.exists(store, LinkOption.NOFOLLOW_LINKS) || Files.exists(store.resolveSibling(".md-remove-" + store.getFileName()),
                     LinkOption.NOFOLLOW_LINKS)) images.invoke("remove", store.toString());
             Files.delete(recordPath(name));
-            GuestImageFiles.syncDirectory(root.resolve("names"));
+            directories.sync(root.resolve("names"));
         }
     }
 
@@ -286,7 +293,7 @@ final class GuestEnvironmentLibrary {
     private Environment publish(String name, String id, String image, String source) throws Exception {
         JSONObject record = new JSONObject().put("format", 1).put("name", name).put("id", id)
                 .put("image", image).put("source", source);
-        GuestImageFiles.write(recordPath(name), record.toString());
+        GuestImageFiles.write(recordPath(name), record.toString(), directories);
         return read(name);
     }
 
