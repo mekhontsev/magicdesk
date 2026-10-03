@@ -38,7 +38,49 @@ public final class MagicDeskCliTest {
         assertEquals(0, run("--help"));
         assertTrue(stdout.contains("get_state"));
         assertTrue(stdout.contains("terminal.open"));
+        assertTrue(stdout.contains("download"));
         assertEquals(0, calls.get());
+    }
+
+    @Test public void localDownloadHelpAndErrorsNeverUseTheCommandChannel() {
+        assertEquals(0, run("download", "--help"));
+        assertTrue(stdout.contains("--sha256"));
+        assertEquals(2, run("download", "file:///etc/passwd", "output"));
+        assertTrue(stderr.contains("HTTP(S)"));
+        assertEquals(0, calls.get());
+    }
+
+    @Test public void localDownloadUsesNeitherArgumentInputNorCommandChannel() throws Exception {
+        final var directory = java.nio.file.Files.createTempDirectory("magicdesk-download-cli");
+        final var target = directory.resolve("downloaded");
+        final var worker = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try (var server = new java.net.ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1"))) {
+            server.setSoTimeout(5_000);
+            final var response = worker.submit(() -> {
+                try (var socket = server.accept()) {
+                    socket.setSoTimeout(5_000);
+                    var reader = new java.io.BufferedReader(new java.io.InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+                    for (String line; (line = reader.readLine()) != null && !line.isEmpty();) { }
+                    socket.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\nnew"
+                            .getBytes(StandardCharsets.UTF_8));
+                }
+                return null;
+            });
+            var out = new ByteArrayOutputStream();
+            var err = new ByteArrayOutputStream();
+            assertEquals(0, MagicDeskCli.run(new String[]{"download", "http://127.0.0.1:" + server.getLocalPort() + "/file", target.toString()},
+                    value -> { throw new AssertionError("argument input read"); }, new PrintStream(out), new PrintStream(err),
+                    (name, args) -> { throw new AssertionError("command channel used"); }));
+            // EVENT_WAIT: fixture response completion; timeout fails the test.
+            response.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertEquals("new", java.nio.file.Files.readString(target));
+            assertEquals(0, out.size());
+            assertTrue(err.toString().contains("Saved 3 bytes"));
+        } finally {
+            worker.shutdownNow();
+            java.nio.file.Files.deleteIfExists(target);
+            java.nio.file.Files.delete(directory);
+        }
     }
 
     @Test public void graphicalCommandsUseTheSameGeneratedInterface() throws Exception {

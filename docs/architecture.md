@@ -2408,8 +2408,10 @@ late start acknowledgements cannot reopen a completed diagnostic session.
 PTY relay, marker-delimited MCP shells, background shell Desktop Entries, and
 one-shot shell commands. It removes inherited Termux process variables and
 provides stable `HOME`, `TMPDIR`, XDG directories, Android-system `PATH`,
-locale, and shell identity values under UID-specific
-`/data/local/tmp/magicdesk-{shell,root}` runtime directories. Interactive
+locale, and shell identity values. Shell `HOME` is `/data/local/tmp/magicdesk`;
+root `HOME` is `/data/local/tmp/magicdesk-root/home`. XDG directories follow
+the selected home. Tools, temporary files and Shroot storage remain under
+UID-specific `/data/local/tmp/magicdesk-{shell,root}` runtime directories. Interactive
 transports add `xterm-256color` and
 true-color metadata and an owned Android-shell `ENV` startup file. Its two-line
 prompt puts the current path and nonzero exit status above the short `$`/`#`
@@ -2420,6 +2422,15 @@ profile is the only insertion point for future Android-native command bundles.
 Shell and root identities use independent top-level runtime directories so a
 root-backed service session cannot leave ownership that breaks a later
 shell-backed session.
+
+`MagicDeskCli` dispatches local `download` before inspecting the automation
+catalog or connecting to the inherited command channel. `DownloadCommand` owns
+CLI arguments and throttled terminal progress; `HttpDownload` owns streaming,
+optional SHA-256 verification and atomic destination replacement. `HttpGet`
+shares connection bounds and redirect validation with `GuestOciRegistry`, whose
+HTTPS-only endpoint policy, registry authentication and content-addressed cache
+remain OCI-owned. Downloads run under the caller's UID without app initialization,
+Desktop, Termux, MCP or guest-runtime capabilities.
 
 `TaskStackListener` does not reliably report changes to app-requested system-bar
 visibility, native freeform bounds, or organizer-child ordering. The centralized

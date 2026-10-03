@@ -41,6 +41,7 @@ public final class MagicDeskCli {
                 return 0;
             }
             final String name = argv[0];
+            if (name.equals("download")) return DownloadCommand.run(argv, out, err, HttpGet.SYSTEM);
             final JSONObject command = AutomationCommandArguments.command(name);
             if (argv.length == 2 && argv[1].equals("--help")) {
                 out.print(help(command));
@@ -157,7 +158,11 @@ public final class MagicDeskCli {
         final StringBuilder out = new StringBuilder();
         if (command == null) {
             out.append("Usage: magicdesk COMMAND [--argument VALUE] [--args JSON|@file|-]\n")
-                    .append("       magicdesk COMMAND --help|--schema\n\n");
+                    .append("       magicdesk COMMAND --help|--schema\n")
+                    .append("       magicdesk download [--sha256 HASH] URL FILE\n\n")
+                    .append("Local commands (no command channel):\n")
+                    .append("download  Download and atomically replace a file\n\n")
+                    .append("Application commands:\n");
             final JSONArray catalog = AutomationCommandCatalog.create();
             final List<String> rows = new ArrayList<>();
             for (int i = 0; i < catalog.length(); i++) {

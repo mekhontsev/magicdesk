@@ -15,7 +15,7 @@ boundaries. A missing Desktop capability does not disable an independent tool.
 | Embedded X11 servers and clients | Termux route: selected Termux UID. Shell route: server under MagicDesk's app UID, commands under the captured authorized service UID. Per-session Xauthority and Binder lifetime; renderer always uses the app UID. No per-command elevation or fallback. |
 | Embedded Wayland servers and clients | Termux route: selected Termux UID and private named socket. Shell route: app-UID compositor and one inherited client connection. Root chroot route: app-UID compositor and a session-owned broker under the already-selected root executor, with verified anonymous-buffer admission. No renderer elevation or global SELinux changes. |
 | MCP request | Listener token and grants, followed by the operation's service and Android permission checks |
-| Built-in CLI | Private channel inherited by a MagicDesk-launched shell; the same service prerequisites and operation implementation as MCP |
+| Built-in CLI | Application commands use a private inherited channel with the same service prerequisites and implementation as MCP. Local `download` runs entirely under the caller's UID without that channel or privilege delegation. |
 | Explicit Linux command access | Launch-scoped delegation of that CLI through `--magicdesk` or `magicdesk-connect`. Linux programs retain their own UID; privileged commands use the already-selected service. No implicit elevation, system-directory mapping, or guest-kernel prerequisite for native Termux/PRoot. |
 | Optional Kernel Fixes APK | Separate application with an explicit root workflow; never a main-APK dependency |
 

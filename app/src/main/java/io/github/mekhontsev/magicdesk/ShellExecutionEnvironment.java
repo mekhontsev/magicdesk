@@ -75,11 +75,12 @@ final class ShellExecutionEnvironment {
             final Map<String, String> environment,
             final int uid,
             final boolean interactive,
-            final String runtimeRoot) {
-        if (runtimeRoot == null || !runtimeRoot.startsWith("/")) {
+            final String runtimeRoot,
+            final String home) {
+        if (runtimeRoot == null || !runtimeRoot.startsWith("/") || home == null || !home.startsWith("/")) {
             throw new IllegalArgumentException("invalid shell runtime root");
         }
-        apply(environment, uid, interactive, new RuntimePaths(runtimeRoot));
+        apply(environment, uid, interactive, new RuntimePaths(runtimeRoot, home));
     }
 
     private static void apply(
@@ -141,7 +142,8 @@ final class ShellExecutionEnvironment {
     private static RuntimePaths paths(final int uid) {
         final String identity = uid == ShellAccess.ROOT_UID
                 ? "root" : "shell";
-        return new RuntimePaths(RUNTIME_PREFIX + identity);
+        final String root = RUNTIME_PREFIX + identity;
+        return new RuntimePaths(root, uid == ShellAccess.ROOT_UID ? root + "/home" : "/data/local/tmp/magicdesk");
     }
 
     private static boolean createRuntimeDirectories(
@@ -187,16 +189,16 @@ final class ShellExecutionEnvironment {
         final String cache;
         final String state;
 
-        RuntimePaths(final String root) {
+        RuntimePaths(final String root, final String home) {
             this(
                     root,
-                    root + "/home",
+                    home,
                     root + "/tmp",
                     root + "/bin",
-                    root + "/home/.config",
-                    root + "/home/.local/share",
-                    root + "/home/.cache",
-                    root + "/home/.local/state");
+                    home + "/.config",
+                    home + "/.local/share",
+                    home + "/.cache",
+                    home + "/.local/state");
         }
 
         RuntimePaths(

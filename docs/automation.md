@@ -200,7 +200,43 @@ Tokens remain private and stable.
 New MagicDesk Console and Termux Console shells provide `magicdesk` in `PATH`.
 It also works in child shell scripts and MagicDesk-launched background commands.
 The ordinary Console uses Android's shell; Termux is optional. The CLI needs
-neither Python nor an enabled MCP server, network connection, or MCP token setup.
+neither Python nor an enabled MCP server or MCP token setup. Application commands
+use the inherited local channel, not a network MCP connection.
+
+### Local Downloads
+
+The Android CLI provides a local operation independent of the command channel,
+running app, Desktop and Shroot:
+
+```sh
+magicdesk download [--sha256 HASH] URL FILE
+```
+
+It streams HTTP(S) directly under the calling UID, verifies TLS certificates,
+follows bounded redirects without HTTPS downgrades, and optionally checks a
+64-digit SHA-256 digest. The destination's parent must exist. A private temporary
+file in that directory is atomically renamed over the destination only after
+complete receipt and verification; a failed transfer leaves the destination
+unchanged. Connect/read timeouts fail the transfer, with no automatic retry.
+Progress and errors use stderr; stdin and stdout remain untouched. Exit status
+is 0 after publication, 1 for a transfer/file error, and 2 for invalid arguments.
+Normal termination cleans up the temporary file; a forcibly killed process can
+leave a `.magicdesk-download-*.part` file, never a partial destination.
+
+For an interactive installer, save the script before invoking it:
+
+```sh
+magicdesk download "$INSTALL_URL" ~/install_linux.sh && sh ~/install_linux.sh
+```
+
+`INSTALL_URL` must identify the trusted script to run. The downloader itself
+never executes downloaded content. In shell consoles, `~` is
+`/data/local/tmp/magicdesk`; root uses its separate
+`/data/local/tmp/magicdesk-root/home`. Termux keeps its own home. This local
+subcommand belongs to the Android `app_process` entry point, not the delegated
+Linux command client or MCP catalog.
+
+### Application Commands
 
 ```sh
 magicdesk --help
@@ -214,7 +250,7 @@ magicdesk list_tasks --args @request.json
 magicdesk close_desktop --dry-run
 ```
 
-Command names and argument names match the shared catalog exactly. Boolean
+Application command names and argument names match the shared catalog exactly. Boolean
 options accept `--includeReport`, `--includeReport=true` or
 `--includeReport false`. Objects and arrays use JSON. `--args -` reads one JSON
 object from stdin; it cannot be mixed with named arguments. `COMMAND --schema`

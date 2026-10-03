@@ -24,13 +24,17 @@ public final class ShellExecutionEnvironmentTest {
         environment.put("ENV", "/termux/shellrc");
 
         ShellExecutionEnvironment.apply(
-                environment, ShellAccess.SHELL_UID, true, "/runtime/shell");
+                environment, ShellAccess.SHELL_UID, true, "/runtime/shell", "/home/shell");
 
-        assertEquals("/runtime/shell/home", environment.get("HOME"));
+        assertEquals("/home/shell", environment.get("HOME"));
         assertEquals("/runtime/shell/tmp", environment.get("TMPDIR"));
         assertEquals("xterm-256color", environment.get("TERM"));
         assertEquals("truecolor", environment.get("COLORTERM"));
-        assertEquals("/runtime/shell/home/.config/shellrc", environment.get("ENV"));
+        assertEquals("/home/shell/.config/shellrc", environment.get("ENV"));
+        assertEquals("/home/shell/.local/share", environment.get("XDG_DATA_HOME"));
+        assertEquals("/home/shell/.cache", environment.get("XDG_CACHE_HOME"));
+        assertEquals("/home/shell/.local/state", environment.get("XDG_STATE_HOME"));
+        assertEquals("/runtime/shell", environment.get("MAGICDESK_RUNTIME"));
         assertEquals("shell", environment.get("USER"));
         assertTrue(environment.get("PATH").startsWith(
                 "/runtime/shell/bin:/system/bin"));
@@ -48,7 +52,7 @@ public final class ShellExecutionEnvironmentTest {
         environment.put("ENV", "/inherited/shellrc");
 
         ShellExecutionEnvironment.apply(
-                environment, ShellAccess.ROOT_UID, false, "/runtime/root");
+                environment, ShellAccess.ROOT_UID, false, "/runtime/root", "/runtime/root/home");
 
         assertEquals("root", environment.get("USER"));
         assertEquals("dumb", environment.get("TERM"));
@@ -58,7 +62,9 @@ public final class ShellExecutionEnvironmentTest {
         assertTrue(ShellExecutionEnvironment.diagnostics(ShellAccess.ROOT_UID)
                 .contains("/data/local/tmp/magicdesk-root/home"));
         assertTrue(ShellExecutionEnvironment.diagnostics(ShellAccess.SHELL_UID)
-                .contains("/data/local/tmp/magicdesk-shell/home"));
+                .contains("home=/data/local/tmp/magicdesk,"));
+        assertTrue(ShellExecutionEnvironment.diagnostics(ShellAccess.SHELL_UID)
+                .contains("tools=/data/local/tmp/magicdesk-shell/bin"));
     }
 
     @Test

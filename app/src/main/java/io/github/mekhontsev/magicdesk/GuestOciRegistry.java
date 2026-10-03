@@ -20,23 +20,22 @@ import java.util.regex.Pattern;
 
 /** Anonymous HTTPS OCI pulls into a verified blob cache and a private manifest index. */
 final class GuestOciRegistry {
-    interface Connections { HttpURLConnection open(URI uri) throws IOException; }
     record Pulled(Path layout, String digest) { }
     private static final String ACCEPT = "application/vnd.oci.image.index.v1+json, "
             + "application/vnd.oci.image.manifest.v1+json, "
             + "application/vnd.docker.distribution.manifest.list.v2+json, "
             + "application/vnd.docker.distribution.manifest.v2+json";
     private static final Pattern AUTH_PARAMETER = Pattern.compile("\\s*([A-Za-z_]+)=\"((?:[^\"\\\\]|\\\\.)*)\"\\s*(?:,|$)");
-    private final Connections connections;
+    private final HttpGet.Connections connections;
     private final Consumer<String> progress;
     private String token;
     private GuestOciReference reference;
 
     GuestOciRegistry(Consumer<String> progress) {
-        this(uri -> (HttpURLConnection) uri.toURL().openConnection(), progress);
+        this(HttpGet.SYSTEM, progress);
     }
 
-    GuestOciRegistry(Connections connections, Consumer<String> progress) {
+    GuestOciRegistry(HttpGet.Connections connections, Consumer<String> progress) {
         this.connections = connections; this.progress = progress;
     }
 
@@ -148,31 +147,33 @@ final class GuestOciRegistry {
     private HttpURLConnection request(URI original, boolean authenticate) throws Exception {
         URI uri = original;
         boolean challenged = false;
-        for (int redirects = 0; redirects < 8; ++redirects) {
+        for (int redirects = 0; redirects < HttpGet.MAX_REQUESTS; ++redirects) {
             requireHttps(uri);
-            HttpURLConnection connection = connections.open(uri);
-            connection.setInstanceFollowRedirects(false);
-            // EVENT_WAIT: socket connect/read; bounds fail the transfer, never imply readiness.
-            connection.setConnectTimeout(30000); connection.setReadTimeout(60000);
-            connection.setRequestProperty("Accept", ACCEPT);
-            connection.setRequestProperty("User-Agent", "MagicDesk-Guest/1");
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Accept", ACCEPT);
+            headers.put("User-Agent", "MagicDesk-Guest/1");
             boolean registry = authenticate && sameOrigin(uri, reference.endpoint("manifests", reference.reference()));
-            if (registry && token != null) connection.setRequestProperty("Authorization", "Bearer " + token);
-            int status;
-            try { status = connection.getResponseCode(); }
-            catch (IOException error) { connection.disconnect(); throw error; }
-            if (status == 200) return connection;
-            String location = connection.getHeaderField("Location");
-            String challenge = connection.getHeaderField("WWW-Authenticate");
-            connection.disconnect();
-            if (status == 401 && registry && !challenged) {
-                challenged = true; token = authorize(challenge); continue;
+            if (registry && token != null) headers.put("Authorization", "Bearer " + token);
+            HttpURLConnection connection = HttpGet.open(connections, uri, headers);
+            boolean retained = false;
+            final String challenge;
+            try {
+                int status = connection.getResponseCode();
+                if (status == 200) { retained = true; return connection; }
+                if (status == 401 && registry && !challenged) {
+                    challenge = connection.getHeaderField("WWW-Authenticate");
+                } else {
+                    URI next = HttpGet.redirect(uri, connection);
+                    if (next == null) throw new IOException("Registry HTTP " + status + " at " + uri.getHost()
+                            + (status == 401 || status == 403 ? "; only anonymous pulls are supported" : ""));
+                    uri = next;
+                    continue;
+                }
+            } finally {
+                if (!retained) connection.disconnect();
             }
-            if ((status == 301 || status == 302 || status == 303 || status == 307 || status == 308) && location != null) {
-                uri = uri.resolve(location); continue;
-            }
-            throw new IOException("Registry HTTP " + status + " at " + uri.getHost()
-                    + (status == 401 || status == 403 ? "; only anonymous pulls are supported" : ""));
+            challenged = true;
+            token = authorize(challenge);
         }
         throw new IOException("Registry redirect/authentication limit");
     }
