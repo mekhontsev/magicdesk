@@ -41,6 +41,8 @@ final class GraphicalSessions {
         Intent windowIntent(Context context, long window);
         int hostTaskId(long window);
         void recordUse(long window, RecentLaunchScope scope);
+        HostedWindowPresentation presentation();
+        default Application redirect() { return null; }
         default boolean desktop() { return false; }
         default boolean canIntegrateShell() { return false; }
         default AutoCloseable bindShell(DesktopShellActivity host, java.util.function.Consumer<String> ended) {
@@ -61,6 +63,17 @@ final class GraphicalSessions {
             if (window >= 0) return new Application(new Wayland(session), window);
         }
         return null;
+    }
+    static Session startApplication(Context context, DesktopLaunchRequest request, RecentApplicationStore.Entry recipe) {
+        var exec = request.exec;
+        return switch (exec.graphics.protocol()) {
+            case X11 -> new X11(X11Sessions.startCommand(context, request.name, exec.command,
+                    exec.workingDirectory, request.desktopFilePath, !exec.graphics.desktop(), recipe,
+                    exec.backend, exec.graphics.keyboardDirectory()));
+            case WAYLAND -> new Wayland(WaylandSessions.start(context, request.name, exec.command,
+                    exec.workingDirectory, exec.backend, exec.graphics.keyboardDirectory(), recipe,
+                    exec.graphics.desktop(), exec.graphics.connectionMode()));
+        };
     }
     static Session start(Context context, GraphicalProtocol protocol, String name, String command, String directory,
             DesktopExecBackend backend, String keyboard, boolean desktop) {
@@ -142,7 +155,7 @@ final class GraphicalSessions {
             return session.windows().stream().map(window -> {
                 var control = window.management();
                 return new Window(window.id(), window.title(), window.mapped(), window.className(),
-                        window.role().name().toLowerCase(java.util.Locale.ROOT), session.layout(window.id()),
+                        window.layout().parent() != 0 ? "dialog" : window.role().name().toLowerCase(java.util.Locale.ROOT), session.layout(window.id()),
                         new Control(Integer.toUnsignedLong(control.request().serial()), control.request().fullscreen(), control.actual().fullscreen(),
                                 Integer.toUnsignedLong(control.maximization().serial()), control.maximization().requested(), control.maximization().actual(),
                                 control.interaction()));
@@ -165,6 +178,11 @@ final class GraphicalSessions {
         public Intent windowIntent(Context context, long window) { session.claimWindow(window); return X11Activity.windowIntent(context, session, window); }
         public int hostTaskId(long window) { return session.hostTaskId(window); }
         public void recordUse(long window, RecentLaunchScope scope) { session.recordUse(window, scope); }
+        public HostedWindowPresentation presentation() { return session.presentation; }
+        public Application redirect() {
+            var target = session.redirect();
+            return target == null ? null : new Application(new X11(target.session()), target.window());
+        }
     }
     private static final class Wayland implements Session {
         final WaylandSessions.Session session;
@@ -201,7 +219,7 @@ final class GraphicalSessions {
         }
         public List<Window> windows() {
             return session.windows().stream().map(window -> new Window(window.id(), window.title(), window.mapped(),
-                    window.appId(), "application", session.layout(window.id()), new Control(window.requestSerial(), window.fullscreen(), null,
+                    window.appId(), window.parent() == 0 ? "application" : "dialog", session.layout(window.id()), new Control(window.requestSerial(), window.fullscreen(), null,
                             window.maximizeSerial(), window.maximized() ? io.github.mekhontsev.magicdesk.hosted.HostedMaximization.BOTH
                             : io.github.mekhontsev.magicdesk.hosted.HostedMaximization.NONE, null, window.interaction()))).toList();
         }
@@ -220,6 +238,7 @@ final class GraphicalSessions {
         public void close() { session.close(); }
         public int hostTaskId(long window) { return session.hostTaskId(window); }
         public void recordUse(long window, RecentLaunchScope scope) { session.recordUse(scope); }
+        public HostedWindowPresentation presentation() { return session.presentation; }
         public Intent windowIntent(Context context, long window) {
             if (window != 0 && !session.containsWindow(window)) throw new IllegalArgumentException("Select a live Wayland toplevel");
             session.presentation.claim(window);

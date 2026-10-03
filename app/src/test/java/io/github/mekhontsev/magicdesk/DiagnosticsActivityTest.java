@@ -114,7 +114,10 @@ public final class DiagnosticsActivityTest {
         assertTrue(source.contains("DesktopSelfTestPhoneInputGuard.recordKey(event)"));
         assertTrue(source.contains("DesktopSelfTestRunState.requestCancellation(state.runId)"));
         assertFalse(source.contains("postDelayed("));
-        assertTrue(source.contains("SystemBarInsets.addToPadding(page, true)"));
+        assertTrue(source.contains("UiToolLayout.page(this, UiColor.BACKGROUND, true)"));
+        assertTrue(RuntimeSourceFixture.methods("UiToolLayout", "page")
+                .contains("SystemBarInsets.addToPadding(page, ime)"));
+        assertFalse("The Activity must not apply the shared page insets twice", source.contains("SystemBarInsets.addToPadding("));
         assertFalse(between(source, "protected void onDestroy()", "void releaseSelfTestGuard()")
                 .contains("requestCancellation("));
     }

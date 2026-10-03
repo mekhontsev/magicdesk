@@ -54,7 +54,8 @@ public class TermuxApplicationRecordsTest {
     @Test public void terminalEntryUsesExistingTermuxConsoleWithoutAnXServer() {
         var shortcut = DesktopEntryFile.parseTermuxApplication(application("Editor", "editor \"a b.txt\"")
                 + "Terminal=true\nPath=/work dir\n");
-        var request = GraphicalApplicationLaunch.prepare(null, DesktopLaunchRequest.from(shortcut).prepareExec());
+        var request = DesktopLaunchRequest.from(shortcut).prepareExec();
+        assertNull(request.exec.graphics);
         assertEquals(DesktopExecBackend.TERMUX, request.exec.backend);
         assertTrue(request.exec.terminal);
         assertEquals("'editor' 'a b.txt'", request.exec.command);

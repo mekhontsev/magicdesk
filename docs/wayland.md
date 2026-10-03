@@ -114,8 +114,12 @@ remains explicit, without a different UID or system-policy fallback.
   viewer detaches without requesting client closure; the manager owns explicit
   session shutdown.
 - `GraphicalApplicationLaunch` shares recipe reuse, profile-scoped application
-  identity, Recent and Android placement between X11 and Wayland. The pending
-  application host claims the first mapped toplevel; additional toplevels use
+  identity, Recent and Android placement between X11 and Wayland.
+  `HostedApplicationStartup` starts the session on the selected display before
+  creating an Activity. The first mapped parentless toplevel receives the
+  application's presentation; a parented startup dialog receives client-sized
+  temporary placement. XDG toplevels do not declare an X11 splash role, so titles,
+  sizes and startup timing are not used to infer one. Additional toplevels use
   `HostedWindowPresentation`. A recipe launch owns a dedicated session, which
   ends when its last window is destroyed and its launch command has completed.
   The shared `HostedApplicationLifetime` observes both events independently,

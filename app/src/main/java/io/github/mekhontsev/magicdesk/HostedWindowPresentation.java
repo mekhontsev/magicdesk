@@ -18,6 +18,7 @@ final class HostedWindowPresentation {
         long hostedWindowId();
         HostedSurfaceView hostedSurface();
         boolean wholeDesktopViewer();
+        void detachHostedWindow();
     }
     record Observation(int taskId, int displayId, long windowId, boolean focused,
             boolean attached, boolean wholeDesktop, HostedSurfaceView.Geometry geometry) { }
@@ -43,6 +44,7 @@ final class HostedWindowPresentation {
     private final Set<Long> recovering = new HashSet<>();
     private long generation;
     private boolean closed;
+    private boolean launching;
 
     private static final class Host {
         long generation;
@@ -107,6 +109,16 @@ final class HostedWindowPresentation {
     }
 
     void claim(long window) { if (window != 0) presented.add(window); }
+    void claimSized(long window) { claim(window); clientSizes.putIfAbsent(window, new HostedWindowSizing(session.layout(window))); }
+    void beginLaunch() { launching = true; }
+    void endLaunch() { launching = false; session.presentationChanged(); }
+    void detach(long window) {
+        for (var host : java.util.List.copyOf(hosts.values())) {
+            var activity = host.activity.get();
+            if (activity instanceof ContentHost content && content.hostedWindowId() == window)
+                content.detachHostedWindow();
+        }
+    }
     boolean hasFocusedHost() {
         for (var host : hosts.values()) {
             Activity activity = host.activity.get();
@@ -203,6 +215,7 @@ final class HostedWindowPresentation {
             if (activity != null) applyClientSize(activity, host);
             return false;
         }
+        if (launching) return false;
         Activity activity = source.get();
         var layout = session.layout(window);
         Host parent = layout.parent() == 0 ? null : hosts.get(session.hostTaskId(layout.parent()));

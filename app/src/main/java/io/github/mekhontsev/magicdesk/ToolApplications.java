@@ -92,6 +92,20 @@ final class ToolApplications {
         return new DesktopLaunchPresentation(DesktopLaunchMode.WINDOWED, relative, DesktopTaskInstancePolicy.CREATE_NEW, -1);
     }
 
+    /** Initial client offer, before an Android host exists to publish caption insets. */
+    static DesktopLaunchPresentation hostedWindowPresentation(int display,
+            io.github.mekhontsev.magicdesk.hosted.HostedWindowLayout layout, float scale) {
+        var work = DesktopRuntimeBridge.getDesktopWorkAreaBounds(display);
+        if (work == null || work.isEmpty()) throw new IllegalStateException("Desktop launch area is unavailable");
+        var size = layout.constraints().size(layout.width(), layout.height());
+        int width = Math.min(work.width(), Math.max(1, Math.round(size.width() * scale)));
+        int height = Math.min(work.height(), Math.max(1, Math.round(size.height() * scale)));
+        int left = work.centerX() - width / 2, top = work.centerY() - height / 2;
+        return new DesktopLaunchPresentation(DesktopLaunchMode.WINDOWED,
+                RelativeWindowBounds.from(new android.graphics.Rect(left, top, left + width, top + height), work),
+                DesktopTaskInstancePolicy.CREATE_NEW, -1);
+    }
+
     /** One-shot ownership capture on the command queue; never infers ownership from the display alone. */
     static WindowPlacement windowPlacement(int display, int taskId) throws java.io.IOException {
         boolean managed = false;

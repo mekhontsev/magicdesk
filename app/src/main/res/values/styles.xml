@@ -1,4 +1,9 @@
 <resources>
+    <style name="HostedStartupTheme" parent="@style/TransparentActivityTheme">
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowCloseOnTouchOutside">false</item>
+    </style>
     <style name="AppDialogTheme" parent="@android:style/Theme.Material.Dialog.Alert">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:colorAccent">#22D3EE</item>

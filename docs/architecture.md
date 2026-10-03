@@ -1929,7 +1929,9 @@ Native supervisors own guest launch records across all entry points. On-demand
 list/stop adapters validate lifetime locks and pidfds, not cached Android process
 state. The native publication layer similarly owns import/backup staging leases;
 the environment library owns names, dependency cleanup and download staging.
-`GraphicalApplicationLaunch` turns graphical presentation into a normal Android launch request;
+`HostedApplicationStartup` starts graphical sessions before admitting their mapped
+clients through normal Android launch requests. `GraphicalApplicationLaunch`
+reuses retained recipe/window identities;
 the native window model owns X relationships, never Android task topology.
 Clipboard and copy drag-and-drop reuse the shared Android content boundary;
 the fork owns native selection/XDND negotiation, while MagicDesk owns the Java
@@ -2005,9 +2007,11 @@ Protocol adapters own hint decoding. Managed individual hosts lend supported
 dependent families to `HostedFamilyWindows` outside the parent task crop; placement,
 scale and exact input admission use the shared shell host. Independent hosts and
 unavailable external presentation retain one aspect-fitted family canvas shared
-by rendering and input. Startup roles from the X catalog allow a splash-to-main
-handoff within the same Android host, releasing the old output's input/content
-leases without closing the client or server. Root outputs leave Linux
+by rendering and input. The shared startup coordinator gives declared splash
+screens and startup dialogs temporary client-sized hosts, independent of the
+main application's saved presentation. Activities borrow exact native windows;
+they neither start Linux commands nor select a replacement main window. A role
+change can replace a temporary host without closing the native client. Root outputs leave Linux
 window placement to its window manager. Window titles and bounded EWMH icons
 flow through the existing X catalog into Android task descriptions and
 `BuiltInWindowRegistry.PresentationSource`. Taskbar/overview/picker presentation
@@ -3583,8 +3587,8 @@ an inherited FD works independently of whether the selected executor is root.
 default backend;
 `X-MagicDesk-ExecBackend=termux` selects Termux explicitly. `GraphicalLaunchOptions`
 selects X11 or Wayland presentation plus keyboard data, not a third executor. It
-is prepared by `GraphicalApplicationLaunch` as an Android host request before generic
-command delegation. Both protocols share recipe reuse, Recent identity and Android
+is handled by `HostedApplicationStartup` before generic command delegation.
+Both protocols share recipe reuse, Recent identity and Android
 placement through `GraphicalSessions`. Terminal recipes omit graphical options. Unknown backend
 names invalidate the entry instead of silently running a command in the wrong
 environment. `Terminal=true` opens the built-in Console with either a

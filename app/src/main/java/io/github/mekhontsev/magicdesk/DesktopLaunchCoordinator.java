@@ -54,7 +54,7 @@ final class DesktopLaunchCoordinator {
                 source.application.requireProfile(AppProfile.current(mContext.context()));
             }
             if (GraphicalApplicationLaunch.reuse(mContext, source, completion)) return true;
-            request = GraphicalApplicationLaunch.prepare(mContext, source.prepareExec());
+            request = source.prepareExec();
         } catch (RuntimeException error) {
             if (completion == null) mContext.onFailure(source, error);
             complete(completion, DesktopActivityLaunchResult.failed(error));
@@ -88,6 +88,13 @@ final class DesktopLaunchCoordinator {
                         "desktop launch requires user permission"));
                 return true;
             }
+        }
+        if (request.exec != null && request.exec.graphics != null) {
+            if (request.androidLaunch != null || request.androidShortcut != null) {
+                completeActivity(request, completion, DesktopActivityLaunchResult.failed(
+                        "Graphical commands cannot also launch an Android application"));
+            } else HostedApplicationStartup.start(mContext, request, completion);
+            return true;
         }
         final DesktopLaunchRequest prepared = request;
         final String sessionId = prepared.exec == null

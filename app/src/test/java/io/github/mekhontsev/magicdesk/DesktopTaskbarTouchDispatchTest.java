@@ -27,6 +27,18 @@ public final class DesktopTaskbarTouchDispatchTest {
                         return handled;
                     }
                 }
+                static final class Dock {
+                    boolean handled;
+                    boolean touch(MotionEvent event) {
+                        events.add("dock:" + event.action);
+                        if (!handled) return false;
+                        if (event.action == MotionEvent.ACTION_UP) {
+                            Runnable click = () -> { if (attached) events.add("click"); };
+                            if (immediateClick) click.run(); else queue.add(click);
+                        }
+                        return true;
+                    }
+                }
                 static final class DesktopTaskbarHost {
                     static void dispatchEdgeInput(int displayId, MotionEvent event) {
                         events.add("edge:" + event.action);
@@ -38,19 +50,24 @@ public final class DesktopTaskbarTouchDispatchTest {
                 static class Panel extends FrameLayout {
                     boolean hiddenTouch, mEdgeHidden;
                     int mDisplayId;
+                    final Dock dock = new Dock();
                 """ + RuntimeSourceFixture.methods("DesktopChromeActivity", "dispatchTouchEvent") + """
                 }
                 static void drain() { while (!queue.isEmpty()) queue.remove().run(); }
                 static void reset() { drain(); events.clear(); attached = true; }
                 public static void verify() {
-                    for (boolean immediate : new boolean[] {false, true}) {
+                    for (boolean immediate : new boolean[] {false, true}) for (boolean magnified : new boolean[] {false, true}) {
                         reset(); immediateClick = immediate;
                         Panel panel = new Panel();
+                        panel.dock.handled = magnified;
                         check(panel.dispatchTouchEvent(new MotionEvent(MotionEvent.ACTION_DOWN)), "down lost");
                         check(panel.dispatchTouchEvent(new MotionEvent(MotionEvent.ACTION_UP)), "up lost");
                         drain();
                         check(events.contains("click"), "detachment cancelled button click: " + events);
                         check(events.indexOf("click") < events.indexOf("dismiss"), "dismiss preceded click");
+                        check(events.stream().filter(e -> e.equals("click")).count() == 1, "dock duplicated button click");
+                        check(!magnified || events.stream().noneMatch(e -> e.startsWith("control:")),
+                                "consumed dock event leaked to the underlying View");
                     }
                     for (int end : new int[] {MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL}) {
                         reset();
@@ -62,6 +79,7 @@ public final class DesktopTaskbarTouchDispatchTest {
                         drain();
                         check(events.stream().noneMatch(e -> e.startsWith("control:")),
                                 "reveal gesture clicked exposed controls: " + events);
+                        check(events.stream().noneMatch(e -> e.startsWith("dock:")), "reveal gesture reached the dock");
                         check(!panel.hiddenTouch, "edge tracking survived termination");
                         reset();
                         panel.dispatchTouchEvent(new MotionEvent(MotionEvent.ACTION_DOWN));

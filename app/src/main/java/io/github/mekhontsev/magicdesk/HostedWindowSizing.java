@@ -12,6 +12,12 @@ final class HostedWindowSizing {
     private int initialWidth, initialHeight;
     private Rect settled, submitted;
 
+    HostedWindowSizing() { }
+    HostedWindowSizing(HostedWindowLayout offer) {
+        initialized = offer.width() > 0 && offer.height() > 0;
+        initialWidth = offer.width(); initialHeight = offer.height();
+    }
+
     void apply(Activity activity, ToolApplications.WindowPlacement placement,
             HostedWindowLayout layout, float scale, Runnable changed) {
         if (manualSize || pending || placement == null || !placement.target().desktop

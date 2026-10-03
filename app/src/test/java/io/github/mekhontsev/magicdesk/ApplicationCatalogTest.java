@@ -65,9 +65,12 @@ public final class ApplicationCatalogTest {
 
     @Test public void iconsAreOptionalCachedAndBoundWithoutRebuildingStart() throws Exception {
         final String lookup = RuntimeSourceFixture.methods("DesktopApplicationIconResolver", "resolve");
-        assertTrue(lookup.contains("ApplicationCatalog.cachedTermuxIcon"));
-        assertFalse(lookup.contains("runBackgroundShellCommand"));
-        assertFalse(lookup.contains("decodeByteArray"));
+        final String cached = RuntimeSourceFixture.methods("DesktopApplicationIconResolver", "cachedIcon");
+        assertTrue(lookup.contains("cachedIcon(shortcut)"));
+        assertTrue(cached.contains("ApplicationCatalog.cachedTermuxIcon"));
+        assertTrue(cached.contains("ApplicationCatalog.cachedGuestIcon"));
+        assertFalse((lookup + cached).contains("runBackgroundShellCommand"));
+        assertFalse((lookup + cached).contains("decodeByteArray"));
         final String refresh = RuntimeSourceFixture.methods("StartMenuContent", "refreshIcons");
         assertTrue(refresh.contains("bindIcon"));
         assertFalse(refresh.contains("renderBody"));

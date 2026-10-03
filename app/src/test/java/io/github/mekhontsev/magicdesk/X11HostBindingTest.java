@@ -7,6 +7,7 @@ public final class X11HostBindingTest {
         RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", "static " + RuntimeSourceFixture.nestedClass("X11HostBinding", "X11HostBinding") + """
             static final List<String> events = new ArrayList<>();
             static class HostedUiScale { static float resolve(Activity activity) { return 1.3f; } }
+            static class HostedStartupWindow { static boolean temporary(Activity activity) { return false; } }
             static class Configuration { int densityDpi = 320; }
             static class Resources {
                 final Configuration configuration = new Configuration();

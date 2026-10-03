@@ -21,14 +21,7 @@ public final class X11Activity extends Activity implements
     @Override public boolean wholeDesktopViewer() { return !application && window == 0; }
     static final String SESSION = "x11_session";
     static final String WINDOW = "x11_window";
-    static final String DESKTOP_FILE = "x11_desktop_file";
     static final String APPLICATION = "x11_application";
-    static final String RECENT_SCOPE = "x11_recent_scope";
-    static final String BACKEND = "x11_backend";
-    static final String KEYBOARD_DIRECTORY = "x11_keyboard_directory";
-    private static final String COMMAND = "x11_command";
-    private static final String NAME = "x11_name";
-    private static final String DIRECTORY = "x11_directory";
     private X11Sessions.Session session;
     private volatile X11HostBinding binding;
     private HostedSurfaceView surface;
@@ -37,7 +30,7 @@ public final class X11Activity extends Activity implements
     private long window;
     private boolean seenWindow;
     private boolean application;
-    private boolean provisional = true;
+    private boolean detached;
     private volatile BuiltInWindowRegistry.Presentation presentation;
     private RecentApplicationStore.Entry identityRecipe;
     private volatile AppReference windowApplication;
@@ -46,16 +39,12 @@ public final class X11Activity extends Activity implements
 
     static Intent windowIntent(Context context, X11Sessions.Session session, long window) {
         return BuiltInWindowIdentity.bind(createIntent(context).putExtra(SESSION, session.id()).putExtra(WINDOW, window)
-                .putExtra(APPLICATION, session.application),
+                .putExtra(APPLICATION, session.application && window != 0),
                 GraphicalApplicationLaunch.reference(context, session.windowRecipe(window)));
     }
 
-    static Intent createApplicationIntent(Context context, String name, String command, String directory) {
-        return createIntent(context).putExtra(NAME, name).putExtra(COMMAND, command).putExtra(DIRECTORY, directory)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
-    }
-
     @Override public void onCreate(Bundle state) {
+        HostedStartupWindow.prepare(this);
         super.onCreate(state);
         BuiltInWindowRegistry.register(this);
         DesktopTaskDescription.apply(this, R.string.x11_title, R.drawable.ic_show_desktop);
@@ -72,34 +61,10 @@ public final class X11Activity extends Activity implements
         content = new HostedContentLayout(this, surface);
         root.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
         setContentView(root);
+        HostedStartupWindow.layout(this);
         window = state == null ? getIntent().getLongExtra(WINDOW, 0) : state.getLong(WINDOW);
-        provisional = state == null ? window == 0 : state.getBoolean("x11_provisional", window == 0);
         String id = state == null ? getIntent().getStringExtra(SESSION) : state.getString(SESSION);
-        final var recipe = getIntent().hasExtra(GraphicalApplicationLaunch.RECIPE) ? DesktopEntryFile.parseRecent(getIntent().getStringExtra(GraphicalApplicationLaunch.RECIPE)) : null;
-        identityRecipe = recipe;
-        windowApplication = GraphicalApplicationLaunch.reference(this, recipe);
-        application = state == null ? getIntent().getBooleanExtra(APPLICATION,
-                getIntent().hasExtra(COMMAND) && (recipe == null || recipe.shortcut().graphics == null
-                        || !recipe.shortcut().graphics.desktop())) : state.getBoolean(APPLICATION);
-        if (getIntent().hasExtra(COMMAND) && state == null && id == null) {
-            try {
-                DesktopExecBackend backend = DesktopExecBackend.parse(getIntent().getStringExtra(BACKEND));
-                if (DesktopExecRunner.prepareBackend(this, backend) != DesktopExecRunner.StartResult.STARTED) {
-                    status.setText(backend == DesktopExecBackend.TERMUX ? R.string.x11_permission_required
-                            : R.string.capability_access_required);
-                    return;
-                }
-                if (getIntent().hasExtra(GraphicalApplicationLaunch.RECIPE) && recipe == null) throw new IllegalArgumentException("Invalid X11 launch recipe");
-                if (recipe != null) RecentApplications.requireEnvironment(this, recipe);
-                select(X11Sessions.startCommand(this, getIntent().getStringExtra(NAME),
-                        getIntent().getStringExtra(COMMAND), getIntent().getStringExtra(DIRECTORY),
-                        getIntent().getStringExtra(DESKTOP_FILE), application, recipe, backend,
-                        getIntent().getStringExtra(KEYBOARD_DIRECTORY)));
-                if (getIntent().hasExtra(RECENT_SCOPE))
-                    session.recordUse(RecentLaunchScope.valueOf(getIntent().getStringExtra(RECENT_SCOPE)));
-            } catch (RuntimeException error) { showError(error); }
-            return;
-        }
+        application = state == null ? getIntent().getBooleanExtra(APPLICATION, false) : state.getBoolean(APPLICATION);
         select(X11Sessions.find(id));
     }
 
@@ -117,30 +82,14 @@ public final class X11Activity extends Activity implements
 
     private void onChanged() {
         if (isDestroyed() || isFinishing()) return;
-        if (session != null && session.redirect() != null) {
-            var redirect = session.redirect();
-            window = redirect.window();
-            provisional = false;
-            select(redirect.session());
-            return;
-        }
         if (session != null && session.presentation.isClosed()) { finish(); return; }
         boolean ready = session != null && session.state() == X11Sessions.State.READY;
-        if (application && ready) {
-            long selected = X11WindowSelection.select(window, provisional, session.windows());
-            if (selected < 0) { finish(); return; }
-            if (selected != window) {
-                window = selected;
-                seenWindow = false;
-            }
-            for (var item : session.windows()) if (item.id() == window) provisional = item.provisional();
-        }
         if (ready && window != 0) {
             session.claimWindow(window);
         }
         content.constraints(session == null ? io.github.mekhontsev.magicdesk.hosted.HostedWindowConstraints.NONE
                 : session.layout(window).constraints(), 1);
-        var currentRecipe = session == null ? null : session.windowRecipe(window);
+        var currentRecipe = session == null || HostedStartupWindow.temporary(this) ? null : session.windowRecipe(window);
         if (currentRecipe != identityRecipe) {
             identityRecipe = currentRecipe;
             windowApplication = GraphicalApplicationLaunch.reference(this, currentRecipe);
@@ -154,6 +103,10 @@ public final class X11Activity extends Activity implements
             if (session == null || session.state() == X11Sessions.State.CLOSED
                     || session.state() == X11Sessions.State.FAILED) { finish(); return; }
             X11Session.Window info = session.windows().stream().filter(item -> item.id() == window).findFirst().orElse(null);
+            if (HostedStartupWindow.temporary(this) && (info == null || !info.mapped()
+                    || info.applicationWindow())) {
+                detachHostedWindow(); return;
+            }
             if (info != null) {
                 seenWindow = true;
                 String title = info.title().isBlank() ? session.name : info.title();
@@ -209,6 +162,7 @@ public final class X11Activity extends Activity implements
 
     @Override public void onConfigurationChanged(android.content.res.Configuration configuration) {
         super.onConfigurationChanged(configuration);
+        HostedStartupWindow.layout(this);
         if (binding != null) { binding.updateDensity(); binding.presentationChanged(); }
         if (session != null) session.presentation.host(this);
     }
@@ -229,11 +183,7 @@ public final class X11Activity extends Activity implements
                 });
     }
 
-    private void showError(Throwable error) {
-        UiDialogs.builder(this).setMessage(ShellAccess.usefulMessage(error))
-                .setPositiveButton(android.R.string.ok, null).show();
-    }
-
+    @Override public void detachHostedWindow() { detached = true; finishAndRemoveTask(); }
     @Override public void requestClose(boolean force) {
         if (binding != null && binding.requestClose(force)) return;
         finishAndRemoveTask();
@@ -250,11 +200,10 @@ public final class X11Activity extends Activity implements
         if (session != null) state.putString(SESSION, session.id());
         state.putLong(WINDOW, window);
         state.putBoolean(APPLICATION, application);
-        state.putBoolean("x11_provisional", provisional);
     }
 
     @Override public void onDestroy() {
-        if (binding != null) binding.close(isFinishing());
+        if (binding != null) binding.close(isFinishing() && !detached);
         binding = null;
         BuiltInWindowRegistry.unregister(this);
         super.onDestroy();

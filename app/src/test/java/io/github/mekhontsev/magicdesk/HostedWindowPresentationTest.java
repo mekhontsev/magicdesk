@@ -42,6 +42,7 @@ public final class HostedWindowPresentationTest {
                 public HostedSurfaceView hostedSurface() { return surface; }
                 public long hostedWindowId() { return desktop ? 0 : 1; }
                 public boolean wholeDesktopViewer() { return desktop; }
+                public void detachHostedWindow() { finishAndRemoveTask(); }
             }
             record Display(int id) { int getDisplayId() { return id; } }
             static class Looper { static Object getMainLooper() { return null; } }
@@ -68,6 +69,7 @@ public final class HostedWindowPresentationTest {
             static class HostedWindowSizing {
                 static int calls, instances;
                 HostedWindowSizing() { instances++; }
+                HostedWindowSizing(HostedWindowLayout offer) { instances++; }
                 void apply(Activity activity, ToolApplications.WindowPlacement placement,
                         HostedWindowLayout layout, float scale, Runnable changed) {
                     if (placement != null) calls++;
@@ -138,6 +140,9 @@ public final class HostedWindowPresentationTest {
                 var host = new Activity(11, 7);
                 presentation.host(host); Handler.drain();
                 check(session.changes == 1, "placement availability wakes presentation");
+                presentation.beginLaunch();
+                check(!presentation.present(1), "a temporary host must not start the main window on its own");
+                presentation.endLaunch();
                 check(presentation.present(1), "live host, no focus prerequisite or shell");
                 check(!presentation.present(1) && ToolApplications.opens == 1, "duplicate catalog delivery");
                 presentation.claim(2);

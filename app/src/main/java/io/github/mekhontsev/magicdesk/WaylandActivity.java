@@ -17,9 +17,7 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
     @Override public HostedSurfaceView hostedSurface() { return surface; }
     @Override public boolean wholeDesktopViewer() { return session != null && session.desktop; }
     static final String SESSION = "wayland_session";
-    private static final String WINDOW = "wayland_window", COMMAND = "wayland_command", NAME = "wayland_name",
-            DIRECTORY = "wayland_directory", BACKEND = "wayland_backend", KEYBOARD = "wayland_keyboard",
-            SCOPE = "wayland_recent_scope";
+    private static final String WINDOW = "wayland_window";
     private WaylandSessions.Session session;
     private WaylandHostBinding binding;
     private HostedSurfaceView surface;
@@ -30,6 +28,7 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
     private volatile AppReference application;
     private RecentApplicationStore.Entry identityRecipe;
     private boolean pendingLaunch;
+    private boolean detached;
 
     static Intent windowIntent(Context context, WaylandSessions.Session session, long window) {
         return BuiltInWindowIdentity.bind(new Intent(context, WaylandActivity.class)
@@ -38,14 +37,8 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
                 GraphicalApplicationLaunch.reference(context, session.windowRecipe(window)));
     }
 
-    static Intent applicationIntent(Context context, DesktopLaunchRequest request, RecentLaunchScope scope) {
-        return new Intent(context, WaylandActivity.class).putExtra(NAME, request.name)
-                .putExtra(COMMAND, request.exec.command).putExtra(DIRECTORY, request.exec.workingDirectory)
-                .putExtra(BACKEND, request.exec.backend.wireName).putExtra(KEYBOARD, request.exec.graphics.keyboardDirectory())
-                .putExtra(SCOPE, scope.name()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
-    }
-
     @Override public void onCreate(Bundle state) {
+        HostedStartupWindow.prepare(this);
         super.onCreate(state);
         BuiltInWindowRegistry.register(this);
         DesktopTaskDescription.apply(this, R.string.wayland_title, R.drawable.ic_show_desktop);
@@ -68,24 +61,7 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
         content = new HostedContentLayout(this, surface);
         root.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
         setContentView(root);
-        if (state == null && sessionId == null && getIntent().hasExtra(COMMAND)) {
-            try {
-                DesktopExecBackend backend = DesktopExecBackend.parse(getIntent().getStringExtra(BACKEND));
-                if (DesktopExecRunner.prepareBackend(this, backend) != DesktopExecRunner.StartResult.STARTED) {
-                    status.setText(backend == DesktopExecBackend.TERMUX ? R.string.x11_permission_required
-                            : R.string.capability_access_required);
-                    return;
-                }
-                var recipe = DesktopEntryFile.parseRecent(getIntent().getStringExtra(GraphicalApplicationLaunch.RECIPE));
-                if (recipe == null || recipe.shortcut().graphics == null
-                        || recipe.shortcut().graphics.protocol() != GraphicalProtocol.WAYLAND)
-                    throw new IllegalArgumentException("Invalid Wayland launch recipe");
-                RecentApplications.requireEnvironment(this, recipe);
-                session = WaylandSessions.start(this, getIntent().getStringExtra(NAME), getIntent().getStringExtra(COMMAND),
-                        getIntent().getStringExtra(DIRECTORY), backend, getIntent().getStringExtra(KEYBOARD), recipe);
-                session.recordUse(RecentLaunchScope.valueOf(getIntent().getStringExtra(SCOPE)));
-            } catch (RuntimeException error) { status.setText(ShellAccess.usefulMessage(error)); return; }
-        }
+        HostedStartupWindow.layout(this);
         if (session != null) {
             pendingLaunch = window == 0 && (session.recipe() != null || session.desktop);
             session.listen(this);
@@ -112,7 +88,7 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
             pendingLaunch = false;
             session.host(getTaskId(), window);
         }
-        var currentRecipe = session.windowRecipe(window);
+        var currentRecipe = HostedStartupWindow.temporary(this) ? null : session.windowRecipe(window);
         if (currentRecipe != identityRecipe) {
             identityRecipe = currentRecipe;
             application = GraphicalApplicationLaunch.reference(this, currentRecipe);
@@ -120,6 +96,7 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
         }
         if (session.stopped() || window <= 0 || !session.containsWindow(window)) { finishAndRemoveTask(); return; }
         var current = session.windows().stream().filter(item -> item.id() == window).findFirst().orElseThrow();
+        if (HostedStartupWindow.temporary(this) && !current.mapped()) { detachHostedWindow(); return; }
         content.constraints(current.constraints(), session.unitScale(this));
         String title = current.title().isBlank() ? session.name : current.title();
         present(title);
@@ -177,6 +154,7 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
     }
     @Override public void onConfigurationChanged(android.content.res.Configuration configuration) {
         super.onConfigurationChanged(configuration);
+        HostedStartupWindow.layout(this);
         if (session != null) {
             session.presentation.host(this);
             changed();
@@ -192,9 +170,10 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
         if (session != null && session.desktop) return null;
         return new BuiltInWindowRegistry.ForceCloseAction(R.string.action_force_stop, getString(R.string.graphics_force_stop_client));
     }
+    @Override public void detachHostedWindow() { detached = true; finishAndRemoveTask(); }
     @Override public void onDestroy() {
         if (isFinishing() && pendingLaunch && session != null && !session.desktop) session.close();
-        boolean request = isFinishing() && session != null && !session.desktop && session.ready() && session.containsWindow(window);
+        boolean request = isFinishing() && !detached && session != null && !session.desktop && session.ready() && session.containsWindow(window);
         if (request) session.closeWindow(window, false);
         if (binding != null) binding.close();
         else if (surface != null) surface.release();
