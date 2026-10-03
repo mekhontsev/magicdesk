@@ -13,6 +13,8 @@
     <string name="appearance_title">Appearance</string>
     <string name="appearance_choose_theme">Choose theme</string>
     <string name="appearance_theme_workbench">Workbench</string>
+    <string name="appearance_theme_material" translatable="false">Material</string>
+    <string name="appearance_theme_cupertino" translatable="false">Cupertino</string>
     <string name="appearance_theme_glass_dock">Glass Dock</string>
     <string name="appearance_theme_two_panels">Two Panels</string>
     <string name="appearance_theme_contours">Contours (AGSL)</string>

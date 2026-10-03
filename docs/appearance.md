@@ -18,6 +18,8 @@ publication path as imported documents:
 | Theme | Layout |
 | --- | --- |
 | [Workbench](../app/src/main/assets/themes/workbench.json) | Compact full-width bottom panel and list-style Start; initially light. |
+| [Material](../app/src/main/assets/themes/material.json) | Android system colors, semantic Material-style controls, centered Start and a compact app grid. |
+| [Cupertino](../app/src/main/assets/themes/cupertino.json) | Translucent top status bar, floating magnifying dock with dot indicators and paged Start. |
 | [Glass Dock](../app/src/main/assets/themes/glass-dock.json) | Translucent floating dock and grid-style Start; initially dark. |
 | [Two Panels](../app/src/main/assets/themes/two-panels.json) | Top status panel with Start, plus a separate bottom task dock. |
 | [Contours](../app/src/main/assets/themes/contours.json) | Animated AGSL contour wallpaper and translucent bottom panel. |
@@ -26,7 +28,13 @@ Secondary controls adapt to available width. Start, tasks, open tasks and quick
 controls remain available. These bundled themes contain no external assets or
 service requirements; blur follows system availability. The linked files are the actual
 bundled documents and can be edited and imported as JSON. All include light and
-dark presentation, using either explicit color variants or the fixed base.
+dark presentation, using explicit color variants, the fixed base or Android's
+semantic palette. Material and Cupertino initially follow Android's light/dark mode.
+Material is inspired by [MaterialDesk](https://github.com/y9hack337/MaterialDesk);
+its presentation is expressed entirely through the shared theme schema.
+Cupertino's dock uses translucency without blur so icons can extend beyond its
+background during magnification; its top bar and popups request system blur.
+Neither theme installs a separate shell or a global application menu.
 
 **Common background** sets background opacity (15-100%) and blur radius (0-64 dp)
 for native shell panels, popup backgrounds and appearance-bound dialogs in the

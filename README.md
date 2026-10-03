@@ -177,7 +177,7 @@ applications' language. Diagnostic reports and automation identifiers stay in
 English.
 
 **Settings > Appearance** customizes MagicDesk's own interface. Choose Workbench,
-Glass Dock, Two Panels or Contours, then keep or cancel the live preview. Styles
+Material, Cupertino, Glass Dock, Two Panels or Contours, then keep or cancel the live preview. Styles
 apply to open panels and built-in tools without restarting them; settings and
 tool styling also work without Desktop or Termux.
 

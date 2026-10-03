@@ -280,8 +280,8 @@ notification center and popups are wanted.
 ## Customize Appearance
 
 Open **Settings > Appearance**, choose **Global defaults** or **Current
-workspace** when available, then **Choose theme**. Workbench, Glass Dock,
-Two Panels and Contours preview complete native layouts; **Keep changes** saves
+workspace** when available, then **Choose theme**. Workbench, Material, Cupertino,
+Glass Dock, Two Panels and Contours preview complete native layouts; **Keep changes** saves
 the result, while cancellation restores the previous appearance.
 
 Adjust panel edges, dimensions and components, Start's layout, colors, background

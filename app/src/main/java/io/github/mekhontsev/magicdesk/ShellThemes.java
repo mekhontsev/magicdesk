@@ -11,6 +11,8 @@ final class ShellThemes {
     record Entry(String id, int title) { String path() { return "themes/" + id + ".json"; } }
     static final List<Entry> ENTRIES = List.of(
             new Entry("workbench", R.string.appearance_theme_workbench),
+            new Entry("material", R.string.appearance_theme_material),
+            new Entry("cupertino", R.string.appearance_theme_cupertino),
             new Entry("glass-dock", R.string.appearance_theme_glass_dock),
             new Entry("two-panels", R.string.appearance_theme_two_panels),
             new Entry("contours", R.string.appearance_theme_contours));

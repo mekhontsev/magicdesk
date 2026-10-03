@@ -32,7 +32,7 @@ public final class ShellThemesTest {
         try (var paths = Files.list(Path.of("src/main/assets/themes"))) {
             assertEquals(files, paths.map(path -> path.getFileName().toString()).collect(java.util.stream.Collectors.toSet()));
         }
-        assertEquals(4, ids.size());
+        assertEquals(java.util.Set.of("workbench", "material", "cupertino", "glass-dock", "two-panels", "contours"), ids);
     }
 
     @Test public void invalidNamesNeverOpenPathsAndMalformedDocumentsCloseTheirInput() {
@@ -48,11 +48,13 @@ public final class ShellThemesTest {
 
     @Test public void primaryTextRemainsLegibleAndThemesHaveDistinctLayouts() throws Exception {
         for (var entry : ShellThemes.ENTRIES) {
-            var theme = load(entry.id());
-            for (UiColor background : List.of(UiColor.BACKGROUND, UiColor.PANEL, UiColor.SURFACE, UiColor.HOVER)) {
-                assertTrue(entry.id() + "/" + background, contrast(theme.palette().color(UiColor.TEXT), theme.palette().color(background)) >= 4.5);
+            for (var mode : List.of(ShellAppearance.ColorMode.LIGHT, ShellAppearance.ColorMode.DARK)) {
+                var palette = load(entry.id()).palette().withMode(mode);
+                for (UiColor background : List.of(UiColor.BACKGROUND, UiColor.PANEL, UiColor.SURFACE, UiColor.HOVER)) {
+                    assertTrue(entry.id() + "/" + mode + "/" + background, contrast(palette.color(UiColor.TEXT), palette.color(background)) >= 4.5);
+                }
+                assertTrue(entry.id() + "/" + mode, contrast(palette.color(UiColor.MUTED), palette.color(UiColor.PANEL)) >= 4.5);
             }
-            assertTrue(entry.id(), contrast(theme.palette().color(UiColor.MUTED), theme.palette().color(UiColor.PANEL)) >= 4.5);
         }
         var workbench = load("workbench");
         assertEquals(ShellComposition.Presentation.LIST, workbench.composition().start().presentation());
@@ -62,6 +64,70 @@ public final class ShellThemesTest {
         assertTrue(dock.composition().panels().get(0).style().edgeGapDp() > 0);
         assertEquals(List.of(ShellPanel.Edge.TOP, ShellPanel.Edge.BOTTOM),
                 load("two-panels").composition().panels().stream().map(ShellPanel::edge).toList());
+    }
+
+    @Test public void materialUsesSemanticSystemColorsAndACenteredLauncher() throws Exception {
+        var theme = load("material");
+        assertEquals(ShellAppearance.ColorSource.SYSTEM, theme.palette().source());
+        assertEquals(ShellAppearance.ColorMode.SYSTEM, theme.palette().mode());
+        assertEquals(1, theme.composition().panels().size());
+        var bar = theme.composition().panels().get(0);
+        assertEquals(ShellAppearance.Width.FILL, bar.style().length());
+        assertEquals(ShellPanel.Edge.BOTTOM, bar.edge());
+        assertEquals(56, bar.style().thicknessDp());
+        assertEquals(ShellComposition.Group.CENTER, bar.components().stream()
+                .filter(item -> item.type() == ShellComposition.Kind.START).findFirst().orElseThrow().group());
+        var button = theme.controls().style(ShellControls.Role.ACTION_BUTTON);
+        assertEquals(ShellControls.Shape.CAPSULE, button.shape());
+        assertEquals(UiColor.ACCENT, button.normal().fill());
+        assertEquals(UiColor.ON_ACCENT, button.normal().content());
+        var system = new java.util.EnumMap<UiColor, Integer>(UiColor.class);
+        system.putAll(ShellAppearance.preset("light").palette().colors());
+        system.put(UiColor.ACCENT, 0xff006633);
+        assertEquals(0xff006633, theme.palette().resolve(false, system).color(UiColor.ACCENT));
+    }
+
+    @Test public void cupertinoSeparatesTheStatusBarFromTheMagnifyingDock() throws Exception {
+        var theme = load("cupertino");
+        assertEquals(ShellAppearance.ColorMode.SYSTEM, theme.palette().mode());
+        assertEquals(2, theme.composition().panels().size());
+        var top = theme.composition().panelFor(ShellComposition.Kind.START);
+        assertEquals(ShellPanel.Edge.TOP, top.edge());
+        assertEquals(ShellAppearance.Width.FILL, top.style().length());
+        assertEquals(40, top.style().thicknessDp());
+        assertTrue(top.style().backdrop().blurRadiusDp() > 0);
+        var dock = theme.composition().panelFor(ShellComposition.Kind.TASKS);
+        assertEquals(ShellPanel.Edge.BOTTOM, dock.edge());
+        assertEquals(ShellAppearance.Width.CONTENT, dock.style().length());
+        assertTrue(dock.style().edgeGapDp() > 0);
+        assertTrue(dock.style().hover().scale() > 1);
+        assertTrue(dock.style().backdrop().opacity() < 1);
+        assertEquals(0, dock.style().backdrop().blurRadiusDp(), 0);
+        assertEquals(ShellComposition.Indicator.DOT, dock.components().stream()
+                .filter(item -> item.type() == ShellComposition.Kind.TASKS).findFirst().orElseThrow().indicator());
+        assertEquals(ShellComposition.Navigation.PAGES, theme.composition().start().navigation());
+    }
+
+    @Test public void themedIconsHaveNoPermanentBackplatesAndFilledControlsHaveContrast() throws Exception {
+        for (String id : List.of("material", "cupertino")) {
+            var theme = load(id);
+            for (var role : List.of(ShellControls.Role.PANEL_BUTTON, ShellControls.Role.APP_TILE)) {
+                assertEquals(UiColor.TRANSPARENT, theme.controls().style(role).normal().fill());
+            }
+            for (var mode : List.of(ShellAppearance.ColorMode.LIGHT, ShellAppearance.ColorMode.DARK)) {
+                var palette = theme.palette().withMode(mode);
+                for (var role : ShellControls.Role.values()) {
+                    var style = theme.controls().style(role);
+                    var paints = new ArrayList<ShellControls.Paint>();
+                    paints.add(style.normal()); paints.addAll(style.states().values());
+                    for (var paint : paints) {
+                        if (paint.fill() == UiColor.TRANSPARENT || role == ShellControls.Role.SWITCH) continue;
+                        assertTrue(id + "/" + mode + "/" + role,
+                                contrast(paint.contentColor(palette), paint.background(palette)) >= 4.5);
+                    }
+                }
+            }
+        }
     }
 
     @Test public void panelsAndStartFitPhoneTabletAndDesktopAtMultipleDensities() throws Exception {

@@ -1,0 +1,84 @@
+{
+  "version": 6,
+  "preset": "dark",
+  "palette": {
+    "mode": "system",
+    "light": {
+      "background": "#F3F3F5", "panel": "#F9F9FB", "surface": "#E9E9ED",
+      "surface_low": "#FFFFFF", "surface_high": "#DDDEE4",
+      "text": "#202126", "muted": "#555760", "outline": "#747680",
+      "accent": "#0062CB", "on_accent": "#FFFFFF",
+      "accent_container": "#D7E8FF", "on_accent_container": "#123B6C",
+      "danger": "#B92036", "attention": "#855C0B", "hover": "#DDDEE4",
+      "desktop_text": "#FFFFFF"
+    },
+    "dark": {
+      "background": "#202126", "panel": "#292A30", "surface": "#36373E",
+      "surface_low": "#222329", "surface_high": "#43444C",
+      "text": "#F8F8FA", "muted": "#C2C3CD", "outline": "#9496A1",
+      "accent": "#85BBFF", "on_accent": "#092D59",
+      "accent_container": "#234C79", "on_accent_container": "#E2EFFF",
+      "danger": "#FF8A98", "attention": "#F1CC79", "hover": "#43444C",
+      "desktop_text": "#FFFFFF"
+    }
+  },
+  "typography": { "font": "sans", "scale": 1 },
+  "shape": { "radiusScale": 1, "borderDp": 1 },
+  "backdrop": { "opacity": 0.96, "blurRadiusDp": 24 },
+  "composition": {
+    "panels": [
+      {
+        "id": "status", "edge": "top",
+        "style": { "length": "fill", "thicknessDp": 40, "paddingDp": 0, "radiusDp": 0, "backdrop": { "opacity": 0.94, "blurRadiusDp": 20 }, "reserveSpace": true },
+        "components": [
+          { "type": "start", "group": "start", "widthDp": 40, "label": "" },
+          { "type": "show_desktop", "group": "start", "minViewportDp": 640 },
+          { "type": "keyboard_layout", "group": "end", "minViewportDp": 800 },
+          { "type": "notifications", "group": "end", "minViewportDp": 480 },
+          { "type": "quick_controls", "group": "end" },
+          { "type": "battery", "group": "end", "minViewportDp": 640, "battery": "both" },
+          { "type": "clock", "group": "end", "clock": "time" }
+        ]
+      },
+      {
+        "id": "dock", "edge": "bottom",
+        "style": {
+          "length": "content", "alignment": "center", "maxLengthDp": 1100,
+          "sideGapDp": 12, "edgeGapDp": 12, "thicknessDp": 76, "paddingDp": 8, "radiusDp": 20,
+          "backdrop": { "opacity": 0.88, "blurRadiusDp": 0 }, "reserveSpace": true,
+          "hover": { "scale": 1.4, "liftDp": 8, "radius": 1.5 }
+        },
+        "components": [ { "type": "tasks", "indicator": "dot" }, { "type": "open_tasks", "widthDp": 48 } ]
+      }
+    ],
+    "start": { "sections": ["apps", "recent", "running", "tools"], "presentation": "grid", "navigation": "pages", "tileWidthDp": 96, "iconSizeDp": 48, "gapDp": 8 }
+  },
+  "controls": {
+    "action_button": {
+      "radiusDp": 8, "borderDp": 1, "paddingHorizontalDp": 14, "paddingVerticalDp": 6,
+      "minHeightDp": 40, "textWeight": 500,
+      "normal": { "fill": "surface_low", "content": "text", "outline": "outline" }
+    },
+    "panel_button": {
+      "radiusDp": 8, "normal": { "fill": "transparent", "content": "text" },
+      "states": { "selected": { "fill": "surface_high", "content": "text" } }
+    },
+    "search_field": {
+      "radiusDp": 8, "paddingHorizontalDp": 12, "textSizeSp": 14,
+      "normal": { "fill": "surface", "content": "text" }
+    },
+    "tab": {
+      "radiusDp": 8, "textWeight": 500,
+      "normal": { "fill": "transparent", "content": "text" },
+      "states": { "selected": { "fill": "accent_container", "content": "on_accent_container" } }
+    },
+    "switch": {
+      "normal": { "fill": "surface_high", "content": "outline" },
+      "states": { "selected": { "fill": "accent", "content": "on_accent" } }
+    },
+    "settings_row": { "radiusDp": 8, "minHeightDp": 48, "normal": { "fill": "transparent", "content": "text" } },
+    "app_tile": { "radiusDp": 8, "normal": { "fill": "transparent", "content": "text" } }
+  },
+  "feedback": { "normal": "transparent", "hover": "surface", "pressed": "hover", "selected": "surface_high", "focused": "hover", "disabled": "transparent", "outline": "accent" },
+  "motion": { "panels": "scale", "taskbar": "slide", "durationMs": 160, "feedbackMs": 80, "curve": "ease_out", "distanceDp": 12, "scaleFrom": 0.97, "wallpaper": true }
+}

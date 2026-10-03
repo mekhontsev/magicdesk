@@ -1,7 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Map;
 import org.junit.Test;
 import static org.junit.Assert.*;
@@ -75,8 +73,9 @@ public final class AppearanceModeTest {
     }
 
     @Test public void bundledThemesHaveUsableLightAndDarkVariantsWithoutLayoutChanges() throws Exception {
-        for (String theme : new String[] {"glass-dock", "workbench", "two-panels", "contours"}) {
-            var original = ShellAppearanceJson.parse(Files.readString(Path.of("src/main/assets/themes/" + theme + ".json")));
+        for (var entry : ShellThemes.ENTRIES) {
+            String theme = entry.id();
+            var original = ShellThemesTest.load(theme);
             for (var mode : new ShellAppearance.ColorMode[] {ShellAppearance.ColorMode.LIGHT, ShellAppearance.ColorMode.DARK}) {
                 var changed = original.withPalette(original.palette().withMode(mode));
                 int background = changed.palette().color(UiColor.PANEL), foreground = changed.palette().color(UiColor.TEXT);

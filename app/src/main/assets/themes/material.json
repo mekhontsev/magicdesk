@@ -1,0 +1,55 @@
+{
+  "version": 6,
+  "preset": "dark",
+  "palette": { "source": "system", "mode": "system" },
+  "typography": { "font": "sans", "scale": 1 },
+  "shape": { "radiusScale": 1, "borderDp": 0 },
+  "backdrop": { "opacity": 1, "blurRadiusDp": 0 },
+  "composition": {
+    "panels": [
+      {
+        "id": "taskbar", "edge": "bottom",
+        "style": { "length": "fill", "thicknessDp": 56, "paddingDp": 4, "radiusDp": 0, "reserveSpace": true },
+        "components": [
+          { "type": "tasks", "group": "start", "indicator": "line" },
+          { "type": "start", "group": "center", "widthDp": 48, "label": "" },
+          { "type": "open_tasks", "group": "end" },
+          { "type": "keyboard_layout", "group": "end", "minViewportDp": 1000 },
+          { "type": "notifications", "group": "end", "minViewportDp": 720 },
+          { "type": "quick_controls", "group": "end" },
+          { "type": "battery", "group": "end", "minViewportDp": 900, "battery": "icon" },
+          { "type": "clock", "group": "end", "minViewportDp": 600, "clock": "time" }
+        ]
+      }
+    ],
+    "start": { "sections": ["apps", "recent", "running", "tools"], "presentation": "grid", "navigation": "scroll", "tileWidthDp": 80, "iconSizeDp": 40, "gapDp": 4 }
+  },
+  "controls": {
+    "action_button": {
+      "shape": "capsule", "paddingHorizontalDp": 18, "paddingVerticalDp": 8,
+      "minHeightDp": 48, "textWeight": 600,
+      "normal": { "fill": "accent", "content": "on_accent" }
+    },
+    "panel_button": {
+      "radiusDp": 8, "normal": { "fill": "transparent", "content": "text" },
+      "states": { "selected": { "fill": "accent_container", "content": "on_accent_container" } }
+    },
+    "search_field": {
+      "shape": "capsule", "paddingHorizontalDp": 16, "textSizeSp": 14,
+      "normal": { "fill": "surface_high", "content": "text" }
+    },
+    "tab": {
+      "shape": "capsule", "textWeight": 600,
+      "normal": { "fill": "transparent", "content": "text" },
+      "states": { "selected": { "fill": "accent_container", "content": "on_accent_container" } }
+    },
+    "switch": {
+      "normal": { "fill": "surface_high", "content": "outline" },
+      "states": { "selected": { "fill": "accent_container", "content": "accent" } }
+    },
+    "settings_row": { "radiusDp": 8, "minHeightDp": 56, "normal": { "fill": "transparent", "content": "text" } },
+    "app_tile": { "radiusDp": 8, "textWeight": 500, "normal": { "fill": "transparent", "content": "text" } }
+  },
+  "feedback": { "normal": "transparent", "hover": "surface_high", "pressed": "hover", "selected": "accent_container", "focused": "hover", "disabled": "transparent", "outline": "accent" },
+  "motion": { "panels": "slide_scale", "taskbar": "fade", "durationMs": 160, "feedbackMs": 80, "curve": "ease_out", "distanceDp": 8, "scaleFrom": 0.98, "wallpaper": true }
+}
