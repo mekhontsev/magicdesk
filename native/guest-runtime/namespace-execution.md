@@ -1,9 +1,10 @@
-# Namespace Execution Experiment
+# Namespace Execution
 
 The internal supervisor/bootstrap pair's `--namespace ENDPOINT PROGRAM [ARGS]` mode executes
 ARM64 glibc/musl programs from the imported inode namespace. It does not fall back
 to the direct rootfs for unsupported virtual paths. This is an experimental
-executor, not a mount namespace, security sandbox or complete Linux ABI.
+runtime used by named Shroot environments, not a mount namespace, security sandbox
+or complete Linux ABI.
 
 ## Ownership
 
@@ -205,8 +206,8 @@ This is one fixture lifecycle, not full-distribution compatibility. Separate
 fresh-image APT/APK checks and selected upgrades are documented in the
 [application coverage](../../docs/guest-runtime.md#coverage-and-limits).
 Arbitrary maintainer scripts, privileged kernel operations,
-broader GTK/Qt workflows, notifications, object reclamation, power loss, performance and API 34/16 KiB
-coverage remain separate gates. Execution-policy checks described in the main
+broader GTK/Qt workflows, exact hardlink-dentry notifications, object reclamation,
+power loss and API 34/16 KiB coverage retain their documented limits. Execution-policy checks described in the main
 README still apply; X_OK is not a replacement for full kernel execution policy.
 
 The [software GUI fixture](README.md#software-gui) also runs from the imported

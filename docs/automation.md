@@ -226,11 +226,14 @@ leave a `.magicdesk-download-*.part` file, never a partial destination.
 For an interactive installer, save the script before invoking it:
 
 ```sh
-magicdesk download "$INSTALL_URL" ~/install_linux.sh && sh ~/install_linux.sh
+magicdesk download https://raw.githubusercontent.com/mekhontsev/magicdesk/main/scripts/install_linux.sh ~/install_linux.sh
+sh ~/install_linux.sh
 ```
 
-`INSTALL_URL` must identify the trusted script to run. The downloader itself
-never executes downloaded content. In shell consoles, `~` is
+Run the script only after the download succeeds. The maintained
+[Linux installer](guest-runtime.md#linux-installer) uses this stable URL; release
+tags also retain their exact scripts. The downloader itself never executes
+downloaded content. In shell consoles, `~` is
 `/data/local/tmp/magicdesk`; root uses its separate
 `/data/local/tmp/magicdesk-root/home`. Termux keeps its own home. This local
 subcommand belongs to the Android `app_process` entry point, not the delegated

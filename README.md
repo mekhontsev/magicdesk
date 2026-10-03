@@ -51,8 +51,9 @@ MagicDesk's strength is how its parts work together:
   keeps its apps on a virtual display while you disconnect or change monitors.
 - **Linux graphical apps join the workspace.** Launch installed Termux apps
   such as GIMP and Firefox from Start into separate windows alongside Android
-  apps. Or open a complete Linux desktop from a configured proot/chroot
-  environment. X11 and Wayland are built in; no separate Termux:X11 APK or
+  apps. Use Shroot to install Linux without Termux or root, or connect a configured
+  proot/chroot environment. Applications and whole Linux desktops use the built-in
+  X11 and Wayland servers; no separate Termux:X11 APK or
   companion display server is needed.
 - **A terminal worth using on its own.** Run Android shell, root shell or
   Termux tools in independent windows with a bundled Nerd Font, clickable
@@ -131,8 +132,9 @@ On phone Desktop, Android Home reveals a hidden taskbar while leaving the
 current application in place. **New windows fullscreen on phone** can make
 fullscreen the default, while explicit choices and saved window layouts take
 precedence. **Settings > Session** controls phone screen retention, CPU wake
-lock, adaptive brightness and a temporary system-wide light/dark theme. These
-options apply while Desktop is running and release their overrides when it ends.
+lock and adaptive brightness. **Settings > Appearance** also offers a temporary
+system-wide light/dark theme. These options apply while Desktop is running and
+release their overrides when it ends.
 
 Close records the selected workspace and releases its surviving applications
 as independent fullscreen tasks on the same live display, leaving other
@@ -196,9 +198,11 @@ CPU readings require existing shell access, while RAM and battery do not.
 
 Import/export a [JSON theme](docs/appearance.md) or a ZIP containing its icons,
 fonts and media. The same validated document and preview workflow are available
-through Settings, MCP and the CLI, with an exported JSON Schema. Themes do not
-restyle third-party apps, Android captions or terminal content; Android's
-**System theme during Desktop** remains a separate setting.
+through Settings, MCP and the CLI, with an exported JSON Schema. MagicDesk's
+windows also publish their palette to Android's native captions; firmware decides
+how to render those decorations. Themes do not restyle third-party apps or
+terminal content. **System theme during Desktop** is a separate Android-wide
+setting; individual Linux applications receive Android's light/dark preference.
 
 ## Tools Without Desktop
 
@@ -282,7 +286,7 @@ commands into launchers.
 
 ### Task Manager
 
-See Android applications, retained terminals, tmux and X11 sessions in one
+See Android applications, retained terminals, tmux and X11/Wayland sessions in one
 **Applications** list. Switch to **Processes** for CPU and resident-memory use,
 process trees and a Termux filter. Sort by name, CPU or memory, find a busy
 process, return to its window or end a session explicitly. Available process
@@ -295,7 +299,7 @@ large Linux desktop window.** MagicDesk embeds an X11 server and a Wayland
 compositor, with common Android hosting and session controls. GIMP and the
 Termux version of Firefox can run simultaneously, each with its own window,
 taskbar entry and graphical session. Programs can come from native Termux
-packages, proot or a prepared chroot. Individual application mode does not need
+packages, Shroot, proot or a prepared chroot. Individual application mode does not need
 a guest desktop environment or a separate display-server APK.
 
 ![GIMP and Termux Firefox in separate MagicDesk windows, with Task Manager showing their X11 sessions](docs/images/magicdesk-x11.png)
@@ -394,6 +398,19 @@ environments, shared image data and explicit directory attachments. Shroot is no
 a container security boundary or Docker Engine; guest programs retain the selected
 executor's authority. Required kernel capabilities are checked at launch, without
 affecting ordinary MagicDesk tools on unsupported kernels.
+
+To install Linux, open a MagicDesk **Shell** console and run:
+
+```sh
+magicdesk download https://raw.githubusercontent.com/mekhontsev/magicdesk/main/scripts/install_linux.sh ~/install_linux.sh
+sh ~/install_linux.sh
+```
+
+The installer asks for Debian, Ubuntu, Alpine, Fedora or Arch Linux ARM, an
+environment name, GUI profile and optional graphics setup. Package installation
+runs visibly in the console. Several independent environments can coexist.
+See [Linux setup](docs/getting-started.md#install-linux-with-shroot) for requirements
+and [installer profiles](docs/guest-runtime.md#linux-installer) for their limits.
 
 Optional [MagicDesk command access](docs/automation.md#linux-command-access)
 lets Shroot, PRoot and native Termux programs use the same automation commands,
@@ -638,7 +655,8 @@ and the [API-level contract](docs/runtime-api-levels.md).
 | Display inventory and interactive app launches | Ordinary app access; Android must allow the selected app on that display |
 | Files, Android shell, privileged capture and device actions | An authorized privileged service and the operation's actual capabilities |
 | Termux terminals | Termux, external commands enabled, MagicDesk's `RUN_COMMAND` permission |
-| Linux graphical applications and desktops | Termux integration with `xkeyboard-config`, or authorized root with a prepared chroot/entry script and XKB data; no standalone Termux:X11 APK |
+| Shroot Linux environments and OCI images | Authorized shell/root service, supported kernel capabilities, ARM64 Linux image and executable storage; no Termux or Android root required |
+| Linux graphical applications and desktops | A configured Shroot, Termux/proot or root/chroot environment with XKB data; no standalone Termux:X11 APK |
 | Owned virtual displays | An authorized privileged service and working framework display APIs |
 | Managed Desktop | Android 15+, an authorized privileged service, Desktop setup, working framework windowing |
 | Wired/wireless output | Hardware and firmware that expose a usable Android secondary display |
@@ -646,8 +664,9 @@ and the [API-level contract](docs/runtime-api-levels.md).
 The integrations are independent: **Termux only** provides terminals, tmux,
 X11 and Wayland on the phone or an Android-allowed secondary display;
 **shell/root only** provides Files, Android-shell terminals, device automation
-and display control; **root** can additionally enter prepared chroots in Console
-or Linux graphics without Termux. Enable both integrations to combine them. Managed
+and display control, plus Shroot Linux where its kernel requirements are met;
+**root** can additionally enter prepared chroots in Console or Linux graphics
+without Termux. Enable both integrations to combine them. Managed
 Desktop adds window management on Android 15+; it is not a prerequisite for
 the independent tools.
 

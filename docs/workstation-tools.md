@@ -276,6 +276,10 @@ including separate sessions. Termux-hosted file exchange uses its UID.
 Shell-hosted servers run under MagicDesk's app UID and exchange files only
 through their explicit shared content directory. Prepared chroots can use
 Shell/root launchers without Termux; the existing service must have UID 0.
+Shroot instead runs prepared Linux and OCI environments under the selected shell
+or root identity, without requiring Android root or Termux. Its installed apps
+join Start's Linux catalog and use these same graphical services. See
+[Shroot setup](getting-started.md#install-linux-with-shroot).
 Desktop is not a prerequisite. See [Embedded X11](x11.md) and [Embedded Wayland](wayland.md)
 for setup, shared interface scaling, session lifetime, container examples and
 transfer limits. In managed Desktop, supported child windows can extend beyond

@@ -51,6 +51,12 @@ sandbox. See [the README security section](README.md#security) and
 Suspected bypasses of authentication, permissions or those boundaries belong
 in a private security report.
 
+Shroot runs trusted Linux programs with the selected shell/root executor's
+authority. Its guest users, virtual root, OCI layers and browser-filter support
+do not make it a container security boundary. A guest program can reach Android
+resources allowed to that executor. See [Shroot boundaries](docs/guest-runtime.md#boundaries).
+Only opt trusted programs into the additional MagicDesk command channel.
+
 For ordinary crashes, display compatibility and feature requests, use
 [GitHub issues](https://github.com/mekhontsev/magicdesk/issues) or
 [community support](README.md#community-and-support).

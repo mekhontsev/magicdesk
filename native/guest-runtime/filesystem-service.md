@@ -186,7 +186,7 @@ Test checkpoint hooks are compile-time-only. Pipes identify exact checkpoints;
 waitpid observes termination. The outer runner timeout cancels stuck fixtures.
 No APK install, root switch, SELinux change or Desktop self-test is involved.
 
-## Integration Gates
+## Limits
 
 The namespace adapter covers cwd, directory read/seek, stat/statx, atomic
 open/create and exec. Its native owner uses umask zero after guest fork; requests
@@ -197,8 +197,10 @@ import does not implement live promotion, object reclamation or notifications.
 
 Keep SQLite and its locks outside the guest process. Preserve the direct kernel data path
 and truthful failure/commit outcomes as syscall coverage expands. A real fixture
-install/update/purge workflow and bounded ordinary APT/APK checks pass; full-distribution compatibility,
-remaining ABI coverage and production resource ownership still require validation.
+install/update/purge workflow and distribution package-manager checks pass;
+see [application coverage](../../docs/guest-runtime.md#coverage-and-limits).
+Those workflows do not establish a complete Linux ABI, live storage reclamation
+or security isolation.
 
 References: [Unix sockets and SCM_RIGHTS](https://man7.org/linux/man-pages/man7/unix.7.html),
 [recvmsg truncation and CLOEXEC](https://man7.org/linux/man-pages/man2/recvmsg.2.html),

@@ -3,8 +3,8 @@
 MagicDesk reads `.desktop` files from `/storage/emulated/0/Desktop` and from
 directories opened in built-in Files. It supports a bounded subset of the
 [freedesktop Desktop Entry specification](https://specifications.freedesktop.org/desktop-entry/latest/)
-for folder links, web links, Android applications, Android-shell commands, and
-Termux commands.
+for folder links, web links, Android applications, Android-shell commands,
+Termux commands and Linux launch recipes.
 
 ## Command entries
 
@@ -58,7 +58,14 @@ executor, including the package identity for Termux. Identical saves do not
 create duplicates, and a different entry with the same name is not overwritten.
 These launchers use ordinary
 `Exec`, `Terminal`, `X-MagicDesk-Graphics` and `X-MagicDesk-GraphicsMode`;
-there is no separate distribution registry or executor.
+PRoot and custom scripts use their selected executor, not a separate command backend.
+
+**Shroot (experimental)** selects a named environment from MagicDesk's library
+or an explicitly prepared store through the Shell executor. It shares the same
+terminal/application/desktop, user and directory controls. Named environments
+also publish installed application entries to Start; see
+[Shroot environments](guest-runtime.md#named-environments). The selected store
+identity belongs to the recipe, not to a global current distribution.
 
 Long-press or right-click a user-created Termux shortcut in Start and select
 **Delete shortcut**. Confirmation removes the `.desktop` file and its entries

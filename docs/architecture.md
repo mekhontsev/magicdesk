@@ -609,6 +609,8 @@ component.
 | X11 Android runtime | `x11-runtime/` | Server entry point, Binder connection, JNI and Android renderer adapters |
 | X11 native engine | `vendor/magicdesk-x11/lorie/src/main/cpp/` | X server, protocol and adapters to shared multi-output graphics |
 | Wayland runtime | `wayland-runtime/` | wlroots compositor, protocol state, client admission and Android adapters |
+| Shroot native runtime | `native/guest-runtime/` | Optional ARM64 Linux execution, supervision, inode namespace and OCI image tools under the selected command identity |
+| Linux environment manager | `GuestEnvironmentLibrary`, `GuestOciRegistry` | Named stores, verified public OCI acquisition and shared image dependencies; existing PTY/graphics services own launch presentation |
 | Mouse helper | `native/magicdesk_uinput_bridge.c` | Binder-owned relative phone pointer |
 | Kernel Fixes add-on | `io.github.mekhontsev.magicdesk.kernel` | Independent, manually launched, firmware-specific root fixes |
 
@@ -3549,7 +3551,8 @@ fields consequently drive Start launches, Open With, and drag-and-drop without
 surface-specific command logic.
 
 `LinuxEnvironmentPicker` selects an installed PRoot environment, a user-owned
-entry script or an experimental prepared guest store. Only PRoot selection makes a dialog-scoped `proot-distro list --quiet`
+entry script, a named Shroot environment or an explicitly prepared guest store.
+Only PRoot selection makes a dialog-scoped `proot-distro list --quiet`
 request through the captured Termux endpoint. `LinuxLaunchRecipe` shares user,
 working-directory and terminal/application/desktop presentation across these
 adapters and builds a normal `.desktop` command, not a runtime/container registry.
@@ -3573,7 +3576,7 @@ endpoint, refuses package-owned files and symbolic links, and removes matching
 source/package recipes from both Recent scopes. Retained graphical sessions forget
 that launch recipe without stopping their clients or server.
 
-The [guest runtime](guest-runtime.md) is a native-only component under
+The [Shroot runtime](guest-runtime.md) is a native-only component under
 `native/guest-runtime`. App-side immutable launch plans select a store without
 creating a global distribution owner. Several environments can use the same
 or different methods concurrently. Lazy content-addressed executable staging

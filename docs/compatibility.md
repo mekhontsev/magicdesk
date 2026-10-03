@@ -276,11 +276,15 @@ in-APK catalog recognition must not use its reused stock fingerprint alone.
   and display infrastructure.
 - Embedded X11 and Wayland need an authorized Termux or Shell executor and XKB
   data. Shell-hosted chroot entry needs actual UID 0; the display server itself
-  uses the app UID. No companion display-server APK is required. Both protocols
+  uses the app UID. Shroot supplies Linux clients without Android root or Termux
+  when its independent kernel requirements are met; see its
+  [coverage and limits](guest-runtime.md#coverage-and-limits).
+  No companion display-server APK is required. Both protocols
   use the [shared graphics backend](graphics.md); client GPU acceleration requires
   a compatible driver and buffer format. A software-rendered client remains
   supported without GPU import. Wayland currently admits linear RGB DMA-BUFs,
-  not arbitrary modifiers; XWayland is not enabled.
+  not arbitrary modifiers. The embedded compositor does not start Xwayland;
+  a nested Linux desktop may supply its own.
 - In managed Desktop, supported Linux child windows extend beyond the parent's
   task crop. Independent hosts and unavailable external presentation use the
   in-window fallback. Whole Linux desktop viewers keep their children inside

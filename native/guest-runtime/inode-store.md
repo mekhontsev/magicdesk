@@ -21,12 +21,13 @@ while their transport is an abstract kernel endpoint; their backing regular file
 supplies permission and identity metadata. Raw host fstat still sees the
 backing object's native links and directory contents. Concealing that distinction
 from arbitrary guest code
-would require a complete filesystem adapter; this prototype does not do that.
+would require complete mediation of every filesystem entry point; Shroot does
+not provide that security boundary.
 
 Each connection has one owner and is reopened after fork/exec. SQLite is linked
 only into native namespace owners and fixtures, not the freestanding bootstrap
 or in-guest syscall adapter. Its heap use and locks belong to the worker. The separate
-[filesystem service experiment](filesystem-service.md) supplies explicit RPC,
+[filesystem service](filesystem-service.md) supplies explicit RPC,
 native FD transfer and bounded reentrant client waits. The explicit
 [namespace executor](namespace-execution.md) routes selected guest syscalls here;
 a timeout is not cancellation of a committed operation.
@@ -211,8 +212,8 @@ independent of OCI parsing and launch-local directory attachments.
   outcome: inspect before replaying a mutation.
 - Detached objects and uncommitted allocations are retained and audited separately.
   There is no live garbage collector. Removing metadata while another process
-  holds an FD would break descriptor lookup. This bounded experiment is not
-  suitable for indefinite production churn.
+  holds an FD would break descriptor lookup. Long-lived stores can therefore
+  accumulate unreachable backing data; live reclamation remains unsupported.
 
 SQLite supplies database transactions, not Linux filesystem semantics. References:
 [atomic commit](https://www.sqlite.org/atomiccommit.html),
@@ -278,17 +279,17 @@ Guest FIFO names and transport use the [named-pipe contract](fifos.md).
 Directory RPC paging, inherited/shared cursors, concurrent readers, lost replies
 and service restart are covered in `test_rpc.c`.
 
-## Remaining Boundary
+## Limits
 
 Namespace-induced ctime updates, complete set-ID/file-capability clearing on
 native data writes,
-exact hardlink-dentry data notifications, live import/promotion, FD
-reclamation, out-of-space recovery and production throughput are not implemented
-or validated. RPC descriptor transfer does not supply lifetime/reclamation policy.
+exact hardlink-dentry data notifications, live import/promotion, unreachable-object
+reclamation and power-loss/out-of-space recovery remain incomplete or unvalidated.
+RPC descriptor transfer does not supply storage reclamation policy.
 Host ownership stays the real executor identity; guest ownership is logical.
 
-The namespace executor covers selected path/FD operations, cwd, directory
-cursors and program mapping. It passes a fixture package lifecycle and the gzip
-hard-link extraction; direct-backend controls still fail independently. Complete
-the remaining ABI and lifetime contracts before treating this as an installed
-Debian environment. SQLite stays in native namespace owners, outside guest execution.
+Installed distributions, package-manager transactions and OCI image workflows
+use this same namespace. Their [coverage](../../docs/guest-runtime.md#coverage-and-limits)
+does not imply a complete Linux ABI or filesystem isolation. Direct-backend
+hardlink controls retain the host's independent restrictions. SQLite stays in
+native namespace owners, outside guest execution.

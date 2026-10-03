@@ -70,6 +70,16 @@ the successful Miracast direct-pointer path.
 
 ## Independent-Service Matrix
 
+Shroot has its own [device coverage and limits](guest-runtime.md#coverage-and-limits)
+and [fixture commands](../native/guest-exec-lab/README.md). On RM11/API 36 under
+UID 2000 these exercise glibc/musl userspaces, packages and OCI layers, concurrent
+launches, watches/IPC, debuggers, browser filters and X11/Wayland applications.
+Those results do not cover every distribution or kernel and are not Desktop
+self-test results. Remaining Shroot device gates include actual API 34/older
+kernels, 16 KiB pages and actual root execution. Installer GUI/Turnip recipes
+also need separate validation for each distribution/toolchain; a recipe's
+presence is not a passed desktop or GPU test.
+
 Run these without Desktop; managed Desktop self-tests cannot prove isolation:
 
 - [ ] On actual API 34, verify cold app/MCP startup and early Desktop/self-test

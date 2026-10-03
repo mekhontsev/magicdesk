@@ -65,6 +65,15 @@ magicdesk download https://raw.githubusercontent.com/mekhontsev/magicdesk/main/s
 sh ~/install_linux.sh
 ```
 
+This is the maintained download address. The installer can be updated without
+replacing the APK; download again to atomically replace `~/install_linux.sh`.
+UID 2000's shell home is `/data/local/tmp/magicdesk/`; root consoles use
+`/data/local/tmp/magicdesk-root/home`. Release tags retain their exact
+installer, for example
+[`v2.0/scripts/install_linux.sh`](https://raw.githubusercontent.com/mekhontsev/magicdesk/v2.0/scripts/install_linux.sh).
+An older APK may lack commands required by a newer installer; use a matching
+release tag when keeping an older MagicDesk version.
+
 The script itself asks for the distribution, independent environment name,
 GUI profile, graphics driver, locale, timezone and fonts. Additional questions
 cover an optional guest account, X11/Wayland application entries, extra packages,

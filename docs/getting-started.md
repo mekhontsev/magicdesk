@@ -133,6 +133,44 @@ and Wayland compositor, while your Linux environment supplies its programs.
 See [Embedded X11](x11.md), [Embedded Wayland](wayland.md) and
 [Desktop Entry files](desktop-entries.md) for launch and file-exchange requirements.
 
+## Install Linux With Shroot
+
+Shroot runs ARM64 Linux distributions and OCI images through MagicDesk's
+authorized shell service. It needs neither Termux nor Android root. Its kernel
+requirements are checked when launched; unsupported kernels do not disable
+MagicDesk's other tools. Shroot is experimental and not a security sandbox:
+install only trusted images and programs.
+
+Open a **Shell** console after configuring Shizuku, Shevery or direct root:
+
+```sh
+magicdesk download https://raw.githubusercontent.com/mekhontsev/magicdesk/main/scripts/install_linux.sh ~/install_linux.sh
+sh ~/install_linux.sh
+```
+
+The URL is the maintained installer on `main`. Repeating the download replaces
+the script only after a successful transfer, without changing installed Linux
+environments. Under shell UID 2000, `~` is `/data/local/tmp/magicdesk/`; root
+consoles use `/data/local/tmp/magicdesk-root/home`. Download before executing
+so the script can read your answers from the terminal; do not pipe it into `sh`.
+For the script shipped with a specific release, replace `main` with its tag,
+for example `v2.0`.
+
+Choose a distribution, environment name, GUI profile, graphics driver, language
+and optional user. Installation and package-manager output stay in the console.
+Software graphics is the default. Turnip requires a compatible Adreno device
+and builds a private Mesa inside Linux; it does not replace Android drivers.
+GUI recipes and distro-specific limits are listed in the
+[installer guide](guest-runtime.md#linux-installer).
+
+After installation, use **Refresh** beside Start's search field.
+Installed application entries use the shared X11/Wayland launcher; whole-desktop
+entries open a viewer. **Terminal sessions > New session > Shroot environments** opens a login
+or lists that environment's running launches. No Desktop session is required.
+Use `magicdesk-guest list` and `magicdesk-guest login NAME` from the console as well.
+Existing environment names are never silently replaced;
+`sh ~/install_linux.sh --name NAME --resume` explicitly resumes package setup.
+
 ## Choose Or Create A Display
 
 The control panel lists displays exposed by Android, using the privileged
@@ -289,7 +327,8 @@ opacity and optional system blur. Use **Edit configuration** for the full JSON
 document, or import a JSON/ZIP theme through Android's document picker. This
 requires neither Termux nor shell access. Built-in tool styles apply without
 Desktop; Desktop panels and wallpaper appear in an active workspace. Themes
-affect MagicDesk, not other apps or Android's caption bars.
+affect MagicDesk, not other apps' content. MagicDesk publishes its window palette
+to Android's native captions; the firmware controls their actual rendering.
 
 **Use global defaults** removes the current workspace's overrides. Global changes
 otherwise flow to workspaces that have not overridden those properties.
