@@ -20,7 +20,7 @@ public final class AutomationAppearanceTest {
     }
 
     @Test public void documentResolutionUsesTheSelectedScopeContract() throws Exception {
-        assertEquals(ShellAppearance.preset("light"), AutomationAppearance.resolve("{\"version\":5,\"preset\":\"light\"}", null));
+        assertEquals(ShellAppearance.preset("light"), AutomationAppearance.resolve("{\"version\":6,\"preset\":\"light\"}", null));
         assertThrows(IllegalArgumentException.class,
                 () -> AutomationAppearance.resolve("{\"preset\":\"light\"}", "portable:workspace"));
         assertEquals(AppearanceStore.current(), AutomationAppearance.resolve("{}", "portable:workspace"));

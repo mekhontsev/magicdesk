@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "preset": "light",
   "colors": { "accent": "#14665B", "attention": "#923F72" },
   "composition": {

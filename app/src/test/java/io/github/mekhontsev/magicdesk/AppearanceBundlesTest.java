@@ -28,7 +28,7 @@ public final class AppearanceBundlesTest {
     @After public void cleanup() throws Exception { ThemeBundleFiles.deleteTree(directory); }
 
     @Test public void editedThemeAndReferencedAssetsRoundTripWithoutExternalDigest() throws Exception {
-        var theme = AppearanceBundles.read(store, archive("{\"version\":5,\"resources\":{\"iconAssets\":{\"files\":\"icons/test.png\"}}}",
+        var theme = AppearanceBundles.read(store, archive("{\"version\":6,\"resources\":{\"iconAssets\":{\"files\":\"icons/test.png\"}}}",
                 Map.of("icons/test.png", PNG, "icons/unused.png", PNG)));
         assertTrue(theme.resources().bundle().matches("[a-f0-9]{64}"));
         var edited = theme.withTypography(new ShellAppearance.Typography(ShellAppearance.Font.SERIF, 1.2f));

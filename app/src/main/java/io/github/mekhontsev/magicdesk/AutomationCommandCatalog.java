@@ -40,10 +40,10 @@ final class AutomationCommandCatalog {
                         "Read complete bundled theme documents with ids and names. Pass a document to appearance.preview and confirm/cancel its exact previewId. Works without Desktop, shell or Termux; does not apply a theme.", emptySchema()))
                 .put(readTool("appearance.validate", "Validate shell configuration",
                         "Validate and resolve a document without applying it. Reports JSON-pointer paths for invalid fields and component constraints.",
-                        appearanceSchema(new JSONObject().put("document", openObjectProperty("Version 4 document, or workspace patch resolved over global defaults. Discover fields with appearance.schema.")), "document")))
+                        appearanceSchema(new JSONObject().put("document", openObjectProperty("Appearance document, or workspace patch resolved over global defaults. Discover fields with appearance.schema.")), "document")))
                 .put(actionTool("appearance.preview", "Preview shell configuration",
                         "Apply a temporary, non-persisted configuration. Returns an exact previewId for confirm/cancel with the same workspaceKey. One preview per scope; process restart restores committed configuration.",
-                        appearanceSchema(new JSONObject().put("document", openObjectProperty("Version 4 document or sparse workspace patch; discover fields with appearance.schema.")), "document")))
+                        appearanceSchema(new JSONObject().put("document", openObjectProperty("Appearance document or sparse workspace patch; discover fields with appearance.schema.")), "document")))
                 .put(actionTool("appearance.confirm", "Confirm shell preview",
                         "Persist the exact active preview. Stale preview IDs are rejected.",
                         appearanceSchema(new JSONObject().put("previewId", stringProperty("Exact active preview ID in the selected scope.")), "previewId")))
@@ -52,7 +52,7 @@ final class AutomationCommandCatalog {
                         appearanceSchema(new JSONObject().put("previewId", stringProperty("Exact active preview ID in the selected scope.")), "previewId")))
                 .put(actionTool("appearance.apply", "Apply shell appearance",
                         "Validate and replace the document or selected workspace patch, at most 32 KiB. Global omissions use built-in defaults; workspace omissions inherit global fields and arrays replace whole lists. Supersedes that scope's preview. Returns accepted values, not pixel-presentation or disk-completion acknowledgement.",
-                        appearanceSchema(new JSONObject().put("document", openObjectProperty("Version 4 document or sparse workspace patch. Workspace patches do not accept preset.")), "document")))
+                        appearanceSchema(new JSONObject().put("document", openObjectProperty("Appearance document or sparse workspace patch. Workspace patches do not accept preset.")), "document")))
                 .put(actionTool("appearance.preset", "Select appearance preset",
                         "Apply a built-in color, typography and shape preset while retaining panel geometry, resources and motion in the selected scope.",
                         appearanceSchema(new JSONObject().put("name", enumProperty("Built-in style.", "dark", "light", "contrast")), "name")))
@@ -1517,7 +1517,7 @@ final class AutomationCommandCatalog {
                         openObjectProperty("Theme.").put("properties", new JSONObject()
                                 .put("id", stringProperty("Stable theme id."))
                                 .put("name", stringProperty("Display name."))
-                                .put("document", openObjectProperty("Resolved version 5 definition for global or workspace preview; system colors remain dynamic.")))));
+                                .put("document", openObjectProperty("Resolved appearance definition for global or workspace preview; system colors remain dynamic.")))));
                 break;
             case "appearance.get":
             case "appearance.preview":
@@ -1527,7 +1527,7 @@ final class AutomationCommandCatalog {
             case "appearance.preset":
             case "appearance.reset":
             case "appearance.import":
-                properties.put("document", openObjectProperty("Effective version 5 shell definition; system colors remain dynamic."))
+                properties.put("document", openObjectProperty("Effective shell definition; system colors remain dynamic."))
                         .put("committed", openObjectProperty("Confirmed configuration, restored after preview cancellation or process restart."))
                         .put("workspaceKey", nullableStringProperty("Selected stable workspace identity; null means global defaults."))
                         .put("workspaceKeys", arrayProperty("Known workspace override or preview keys; not a list of live displays.", stringProperty("Stable workspace key.")))

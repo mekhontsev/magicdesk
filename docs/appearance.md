@@ -3,9 +3,12 @@
 **Settings > Appearance** configures MagicDesk's native panels, Start and built-in
 tools without starting Desktop or acquiring display input. Choose **Global
 defaults**, or **Current workspace** when the host supplies a stable workspace
-identity. **Use global defaults** removes that workspace's override. Dark, Light
-and Contrast change colors, typography, shapes, control styles and feedback while retaining
-backdrops, panel geometry, composition, resources and motion.
+identity. **Use global defaults** removes that workspace's override.
+**Appearance mode** selects Follow Android, Light or Dark for either palette
+source. It changes colors without resetting typography, controls, backdrops,
+geometry, composition, resources or motion. **High contrast** selects the
+high-contrast fixed base. **Custom colors** edits the currently displayed tone;
+the other tone remains unchanged.
 
 **Choose theme** previews a complete appearance for the selected scope, including
 panel composition and Start layout. **Keep changes** applies it; cancellation
@@ -14,15 +17,16 @@ publication path as imported documents:
 
 | Theme | Layout |
 | --- | --- |
-| [Workbench](../app/src/main/assets/themes/workbench.json) | Light, compact full-width bottom panel and list-style Start. |
-| [Glass Dock](../app/src/main/assets/themes/glass-dock.json) | Dark, translucent floating dock and grid-style Start. |
+| [Workbench](../app/src/main/assets/themes/workbench.json) | Compact full-width bottom panel and list-style Start; initially light. |
+| [Glass Dock](../app/src/main/assets/themes/glass-dock.json) | Translucent floating dock and grid-style Start; initially dark. |
 | [Two Panels](../app/src/main/assets/themes/two-panels.json) | Top status panel with Start, plus a separate bottom task dock. |
 | [Contours](../app/src/main/assets/themes/contours.json) | Animated AGSL contour wallpaper and translucent bottom panel. |
 
 Secondary controls adapt to available width. Start, tasks, open tasks and quick
 controls remain available. These bundled themes contain no external assets or
 service requirements; blur follows system availability. The linked files are the actual
-bundled documents and can be edited and imported as JSON.
+bundled documents and can be edited and imported as JSON. All include light and
+dark presentation, using either explicit color variants or the fixed base.
 
 **Common background** sets background opacity (15-100%) and blur radius (0-64 dp)
 for native shell panels, popup backgrounds and appearance-bound dialogs in the
@@ -56,8 +60,8 @@ not the shell's independent palette. Whole Linux desktops retain their own setti
 
 Appearance does not restyle third-party applications, their captions, arbitrary
 Android dialogs or terminal protocol colors. Widget bindings, Android
-application identities and permissions are independent. **System theme during
-Desktop** at the top of this page is a separate, temporary system-wide preference.
+application identities and permissions are independent. The **Android** section's
+**System theme during Desktop** is a separate, temporary system-wide preference.
 It is shared by all Desktop workspaces, independently of the appearance scope,
 and is not part of theme JSON or bundles.
 The phone touchpad keeps a black input surface and high-contrast toolbar,
@@ -101,7 +105,7 @@ focus or input authority. Application task-area topology remains unchanged.
 ## Document
 
 Documents and workspace patches are at most 32 KiB with bounded nesting. The
-current document version is **5**. Unknown fields, invalid types, duplicate
+current document version is **6**. Unknown fields, invalid types, duplicate
 identities and out-of-range values are rejected before the appearance changes.
 The authoritative schema is available through **Export JSON Schema**,
 `appearance.schema`, and `magicdesk://appearance/schema`. Errors identify
@@ -109,7 +113,7 @@ JSON-pointer paths; typed model checks also enforce cross-panel uniqueness.
 
 ```json
 {
-  "version": 5,
+  "version": 6,
   "preset": "dark",
   "colors": { "accent": "#22D3EE" },
   "backdrop": { "opacity": 0.9, "blurRadiusDp": 16 },
@@ -180,16 +184,22 @@ not add a platform, privilege, HOME or input prerequisite to Appearance.
 
 ## Palette Sources
 
-`palette.source` is `fixed` (default) or `system`. Fixed palettes use
-`palette.preset` (`dark`, `light`, `contrast`); a root `preset` supplies its default.
-System palettes use public Android 14+ semantic color resources.
-`palette.mode` selects `light`, `dark`, or `system` (default, follows Android).
-The mode only affects system palettes and never changes Android's theme.
-`colors` overrides individual roles for either source; a `null` color uses the
-source's value. Export writes source settings and explicit overrides, not the
-currently resolved wallpaper-derived colors. Complete exports explicitly reset
-unspecified overrides, so importing a theme into a workspace cannot retain colors
-or control metrics from the previous theme.
+`palette.source` is `fixed` (default) or `system`. Fixed palettes use MagicDesk's
+light/dark base, with optional `palette.highContrast` (default false). System
+palettes use public Android 14+ semantic color resources; high contrast applies
+only to the fixed base.
+`palette.mode` selects `system`, `light`, or `dark` for either source and never
+changes Android's theme. When omitted, fixed colors use the root `preset`'s tone
+(dark by default); system colors follow Android. A root `preset` of `contrast`
+selects a dark, high-contrast fixed base.
+
+`colors` overrides roles for both tones. `palette.light` and `palette.dark` are
+optional role maps applied after the common overrides for the selected tone.
+Missing or null colors fall back to the preceding layer. Mode changes preserve
+all overrides; source changes also retain explicit colors. No automatic color
+inversion is performed. Export writes definitions, not currently resolved Android
+colors. Complete exports explicitly reset unspecified overrides in all three
+maps, so importing a theme cannot retain colors from the previous definition.
 
 Roles include `background`, `panel`, `surface`, `surface_low`, `surface_high`,
 `text`, `muted`, `accent`, `on_accent`, `accent_container`, `on_accent_container`,
@@ -200,8 +210,9 @@ with the accent. Fixed colors use `#RRGGBB`; paint state layers provide alpha.
 
 `SystemAppearancePalette` resolves and caches presentation snapshots separately
 from `AppearanceStore` definitions. Android configuration callbacks invalidate
-that cache; no palette polling, privilege request, theme persistence or preview
-revision change is involved. Unused system palettes are not read. The same
+that cache for either source; no palette polling, privilege request, theme
+persistence or preview revision change is involved. Fixed palettes do not read
+Android color resources. The same
 resolved palette reaches Views, drawables and MagicDesk task descriptions.
 
 ## Control Styles
@@ -309,7 +320,7 @@ assets therefore references an already-installed bundle.
 
 ```json
 {
-  "version": 5,
+  "version": 6,
   "resources": {
     "iconAssets": { "files": "icons/files.png" },
     "font": "fonts/interface.ttf",
@@ -377,7 +388,7 @@ workspace that inherits a global shader. Omitting it preserves inheritance.
 
 ```json
 {
-  "version": 5,
+  "version": 6,
   "resources": {
     "shader": {
       "fps": 30,

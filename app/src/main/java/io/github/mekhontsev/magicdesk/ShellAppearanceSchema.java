@@ -57,10 +57,11 @@ final class ShellAppearanceSchema {
                     .put("components", type("array").put("items", component).put("minItems", 1).put("maxItems", 24)))
                     .put("required", new JSONArray().put("id").put("components"));
             return object(new JSONObject()
-                    .put("version", type("integer").put("const", 5))
+                    .put("version", type("integer").put("const", 6))
                     .put("preset", strings("dark", "light", "contrast"))
                     .put("palette", object(new JSONObject().put("source", enumeration(ShellAppearance.ColorSource.values()))
-                            .put("mode", enumeration(ShellAppearance.ColorMode.values())).put("preset", strings("dark", "light", "contrast"))))
+                            .put("mode", enumeration(ShellAppearance.ColorMode.values())).put("highContrast", type("boolean"))
+                            .put("light", object(colors)).put("dark", object(colors))))
                     .put("controls", ShellControlsJson.schema())
                     .put("colors", object(colors))
                     .put("typography", object(new JSONObject().put("font", enumeration(ShellAppearance.Font.values()))

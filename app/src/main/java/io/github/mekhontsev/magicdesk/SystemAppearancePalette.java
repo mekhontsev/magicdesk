@@ -23,18 +23,22 @@ final class SystemAppearancePalette implements ComponentCallbacks {
         if (sInstance == null) sInstance = new SystemAppearancePalette(context, changed);
     }
     static synchronized ShellAppearance resolve(ShellAppearance definition) {
-        if (sInstance == null || definition.palette().source() == ShellAppearance.ColorSource.FIXED) return definition;
+        if (sInstance == null) return definition;
+        if (definition.palette().source() == ShellAppearance.ColorSource.FIXED
+                && definition.palette().mode() != ShellAppearance.ColorMode.SYSTEM) return definition;
         return sInstance.cache.computeIfAbsent(definition, sInstance::resolveTheme);
     }
     private ShellAppearance resolveTheme(ShellAppearance definition) {
-        boolean night = switch (definition.palette().mode()) {
-            case LIGHT -> false; case DARK -> true;
-            case SYSTEM -> (context.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
-                    == Configuration.UI_MODE_NIGHT_YES;
-        };
-        if (night && dark == null) dark = read(true);
-        if (!night && light == null) light = read(false);
-        return definition.withPalette(definition.palette().resolve(night ? dark : light));
+        boolean systemNight = (context.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                == Configuration.UI_MODE_NIGHT_YES;
+        boolean night = definition.palette().night(systemNight);
+        Map<UiColor, Integer> base = null;
+        if (definition.palette().source() == ShellAppearance.ColorSource.SYSTEM) {
+            if (night && dark == null) dark = read(true);
+            if (!night && light == null) light = read(false);
+            base = night ? dark : light;
+        }
+        return definition.withPalette(definition.palette().resolve(systemNight, base));
     }
     private Map<UiColor, Integer> read(boolean night) {
         var result = new EnumMap<UiColor, Integer>(UiColor.class);

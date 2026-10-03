@@ -20,7 +20,7 @@
     <string name="appearance_colors">颜色与文本</string>
     <string name="appearance_dark">深色</string>
     <string name="appearance_light">浅色</string>
-    <string name="appearance_contrast">高对比度</string>
+    <string name="appearance_high_contrast">高对比度</string>
     <string name="appearance_font">字体</string>
     <string name="appearance_sans">无衬线</string>
     <string name="appearance_serif">衬线</string>
@@ -49,7 +49,10 @@
     <string name="appearance_palette_source">调色板来源</string>
     <string name="appearance_palette_fixed">主题颜色</string>
     <string name="appearance_palette_system">Android 颜色</string>
-    <string name="appearance_palette_mode">系统调色板明暗</string>
+    <string name="appearance_mode">外观模式</string>
+    <string name="appearance_shell">MagicDesk 外观</string>
+    <string name="appearance_android">Android</string>
+    <string name="appearance_custom_colors">自定义颜色</string>
     <string name="appearance_palette_follow">跟随 Android</string>
     <string name="appearance_color_surface_low">低层表面</string>
     <string name="appearance_color_surface_high">高层表面</string>

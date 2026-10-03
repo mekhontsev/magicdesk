@@ -8,7 +8,7 @@ import static org.junit.Assert.*;
 public final class ShellControlsTest {
     @Test public void semanticStylesRoundTripAndAreImmutable() throws Exception {
         var theme = ShellAppearanceJson.parse("""
-                {"version":5,"controls":{
+                {"version":6,"controls":{
                   "action_button":{"shape":"capsule","paddingHorizontalDp":18,"minHeightDp":48,
                     "textWeight":600,"normal":{"fill":"accent","content":"on_accent"},
                     "states":{"hover":{"fill":"accent","content":"on_accent","layer":"on_accent","layerOpacity":0.08}}},
@@ -26,23 +26,24 @@ public final class ShellControlsTest {
     }
     @Test public void systemColorsAreNotCapturedByEditingOrExport() throws Exception {
         var theme = ShellAppearanceJson.parse("""
-                {"palette":{"source":"system","mode":"light","preset":"light"},"colors":{"danger":"#AB1234"}}
+                {"palette":{"source":"system","mode":"light"},"colors":{"danger":"#AB1234"}}
                 """);
         var android = new EnumMap<UiColor, Integer>(UiColor.class);
         android.putAll(ShellAppearance.preset("contrast").palette().colors());
         android.put(UiColor.ACCENT, 0xffaabbcc);
-        var resolved = theme.withPalette(theme.palette().resolve(android));
+        var resolved = theme.withPalette(theme.palette().resolve(false, android));
         assertEquals(0xffaabbcc, resolved.palette().color(UiColor.ACCENT));
         assertEquals(0xffab1234, resolved.palette().color(UiColor.DANGER));
         assertEquals(ShellAppearanceJson.encode(theme).toString(), ShellAppearanceJson.encode(resolved).toString());
         assertEquals(theme, ShellAppearanceJson.parse(ShellAppearanceJson.encode(resolved).toString()));
         var changed = resolved.palette().withColor(UiColor.TEXT, 0xff112233);
-        assertEquals(2, changed.overrides().size());
+        assertEquals(1, changed.overrides().size());
+        assertEquals(Map.of(UiColor.TEXT, 0xff112233), changed.overrides(false));
         assertFalse(changed.overrides().containsKey(UiColor.ACCENT));
         assertEquals(ShellAppearance.ColorSource.SYSTEM, changed.source());
         assertSame(ShellAppearance.defaults().palette().source(), ShellAppearance.ColorSource.FIXED);
         var fixed = ShellAppearance.defaults().palette();
-        assertSame(fixed, fixed.resolve(android));
+        assertSame(fixed, fixed.resolve(false, android));
     }
     @Test public void stateLayersUseSourceOverAndPreserveTransparency() {
         var palette = ShellAppearance.defaults().palette().withColor(UiColor.TEXT, 0xffffffff).withColor(UiColor.SURFACE, 0xff000000);
@@ -85,7 +86,7 @@ public final class ShellControlsTest {
         var global = ShellAppearanceJson.parse("{\"palette\":{\"source\":\"system\"},\"colors\":{\"accent\":\"#112233\"}}");
         var before = global.withControls(new ShellControls(Map.of(ShellControls.Role.TAB, ShellControls.Style.inherit())));
         var after = global.withPalette(new ShellAppearance.Palette(ShellAppearance.ColorSource.SYSTEM,
-                ShellAppearance.ColorMode.SYSTEM, "dark", Map.of()));
+                ShellAppearance.ColorMode.SYSTEM, false, Map.of(), Map.of(), Map.of()));
         String patch = AppearanceSettings.changedPatch("{}", before, after);
         var resolved = WorkspaceAppearancePatch.parse(patch).resolve(before);
         assertEquals(after, resolved);

@@ -28,7 +28,7 @@ public final class ShellCompositionTest {
     }
     @Test public void componentsAndMotionRoundTrip() throws Exception {
         var theme = ShellAppearanceJson.parse("""
-                {"version":5,"composition":{"panels":[{"id":"dock","components":[
+                {"version":6,"composition":{"panels":[{"id":"dock","components":[
                   {"type":"clock","clock":"date_time","widthDp":180},
                   {"type":"spacer"},{"type":"start","label":"Launch"},
                   {"type":"tasks"},{"type":"spacer"},

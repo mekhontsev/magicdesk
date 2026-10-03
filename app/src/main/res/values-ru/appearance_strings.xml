@@ -20,7 +20,7 @@
     <string name="appearance_colors">Цвета и текст</string>
     <string name="appearance_dark">Тёмная</string>
     <string name="appearance_light">Светлая</string>
-    <string name="appearance_contrast">Контрастная</string>
+    <string name="appearance_high_contrast">Высокая контрастность</string>
     <string name="appearance_font">Шрифт</string>
     <string name="appearance_sans">Без засечек</string>
     <string name="appearance_serif">С засечками</string>
@@ -49,7 +49,10 @@
     <string name="appearance_palette_source">Источник палитры</string>
     <string name="appearance_palette_fixed">Цвета темы</string>
     <string name="appearance_palette_system">Цвета Android</string>
-    <string name="appearance_palette_mode">Тон системной палитры</string>
+    <string name="appearance_mode">Режим оформления</string>
+    <string name="appearance_shell">Оформление MagicDesk</string>
+    <string name="appearance_android">Android</string>
+    <string name="appearance_custom_colors">Пользовательские цвета</string>
     <string name="appearance_palette_follow">Как в Android</string>
     <string name="appearance_color_surface_low">Нижняя поверхность</string>
     <string name="appearance_color_surface_high">Верхняя поверхность</string>

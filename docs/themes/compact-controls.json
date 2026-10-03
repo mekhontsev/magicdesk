@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "preset": "light",
   "controls": {
     "action_button": {"radiusDp": 2, "paddingHorizontalDp": 8, "paddingVerticalDp": 4, "minHeightDp": 40, "textSizeSp": 13},

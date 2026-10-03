@@ -20,7 +20,7 @@
     <string name="appearance_colors">Colores y texto</string>
     <string name="appearance_dark">Oscuro</string>
     <string name="appearance_light">Claro</string>
-    <string name="appearance_contrast">Contraste</string>
+    <string name="appearance_high_contrast">Alto contraste</string>
     <string name="appearance_font">Fuente</string>
     <string name="appearance_sans">Sin serifa</string>
     <string name="appearance_serif">Con serifa</string>
@@ -49,7 +49,10 @@
     <string name="appearance_palette_source">Origen de la paleta</string>
     <string name="appearance_palette_fixed">Colores del tema</string>
     <string name="appearance_palette_system">Colores de Android</string>
-    <string name="appearance_palette_mode">Tono de la paleta del sistema</string>
+    <string name="appearance_mode">Modo de apariencia</string>
+    <string name="appearance_shell">Apariencia de MagicDesk</string>
+    <string name="appearance_android">Android</string>
+    <string name="appearance_custom_colors">Colores personalizados</string>
     <string name="appearance_palette_follow">Seguir Android</string>
     <string name="appearance_color_surface_low">Superficie baja</string>
     <string name="appearance_color_surface_high">Superficie alta</string>

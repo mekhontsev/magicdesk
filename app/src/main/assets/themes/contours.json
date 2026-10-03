@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "preset": "dark",
   "backdrop": { "opacity": 0.9, "blurRadiusDp": 20 },
   "resources": {

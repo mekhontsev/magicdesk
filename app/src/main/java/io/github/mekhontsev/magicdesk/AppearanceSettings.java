@@ -54,6 +54,7 @@ final class AppearanceSettings implements AutoCloseable {
         page.setOrientation(LinearLayout.VERTICAL);
         page.setPadding(mUi.dp(16), mUi.dp(8), mUi.dp(16), mUi.dp(8));
         systemThemeControls(page);
+        heading(page, R.string.appearance_shell);
         final String workspace = AppearanceScopeBindings.find(mActivity);
         choice(page, R.string.appearance_scope, workspace == null ? new int[] {R.string.appearance_global}
                         : new int[] {R.string.appearance_global, R.string.appearance_workspace},
@@ -69,31 +70,26 @@ final class AppearanceSettings implements AutoCloseable {
         themes.setOnClickListener(v -> chooseTheme());
         page.addView(themes);
         heading(page, R.string.appearance_colors);
-        final LinearLayout presets = new LinearLayout(mActivity);
-        final String[] ids = {"dark", "light", "contrast"};
-        final int[] names = {R.string.appearance_dark, R.string.appearance_light, R.string.appearance_contrast};
-        for (int i = 0; i < ids.length; i++) {
-            final String id = ids[i];
-            final Button button = mUi.menuItem(names[i], UiColor.TEXT);
-            button.setGravity(android.view.Gravity.CENTER);
-            button.setBackground(mUi.flatButtonBackground(mUi.dp(4)));
-            mRefreshers.add(() -> {
-                var current = current();
-                button.setSelected(current.equals(current.withStyle(ShellAppearance.preset(id))));
-            });
-            button.setOnClickListener(v -> apply(current().withStyle(ShellAppearance.preset(id))));
-            presets.addView(button, new LinearLayout.LayoutParams(0, mUi.dp(48), 1));
-        }
-        page.addView(presets);
+        choice(page, R.string.appearance_mode,
+                new int[] {R.string.appearance_palette_follow, R.string.appearance_light, R.string.appearance_dark},
+                () -> current().palette().mode().ordinal(), value -> {
+                    var t = current(); apply(t.withPalette(t.palette().withMode(ShellAppearance.ColorMode.values()[value])));
+                });
         choice(page, R.string.appearance_palette_source, new int[] {R.string.appearance_palette_fixed, R.string.appearance_palette_system},
                 () -> current().palette().source().ordinal(), value -> {
-                    var t = current(); apply(t.withPalette(t.palette().withSource(ShellAppearance.ColorSource.values()[value], t.palette().mode())));
+                    var t = current(); apply(t.withPalette(t.palette().withSource(ShellAppearance.ColorSource.values()[value])));
                 });
-        Spinner paletteMode = choice(page, R.string.appearance_palette_mode, new int[] {R.string.appearance_light, R.string.appearance_dark, R.string.appearance_palette_follow},
-                () -> current().palette().mode().ordinal(), value -> {
-                    var t = current(); apply(t.withPalette(t.palette().withSource(t.palette().source(), ShellAppearance.ColorMode.values()[value])));
-                });
-        mRefreshers.add(() -> paletteMode.setEnabled(current().palette().source() == ShellAppearance.ColorSource.SYSTEM));
+        final CheckBox contrast = new CheckBox(mActivity);
+        contrast.setText(R.string.appearance_high_contrast); UiAppearance.text(contrast, UiColor.TEXT);
+        mRefreshers.add(() -> {
+            contrast.setChecked(current().palette().highContrast());
+            contrast.setEnabled(current().palette().source() == ShellAppearance.ColorSource.FIXED);
+        });
+        contrast.setOnCheckedChangeListener((v, checked) -> {
+            if (!mRendering) { var t = current(); apply(t.withPalette(t.palette().withHighContrast(checked))); }
+        });
+        page.addView(contrast);
+        label(page, R.string.appearance_custom_colors);
         final LinearLayout swatches = new LinearLayout(mActivity);
         for (UiColor role : UiColor.values()) {
             if (role == UiColor.TRANSPARENT) continue;
@@ -260,6 +256,7 @@ final class AppearanceSettings implements AutoCloseable {
     boolean isOpen() { return mPage != null; }
 
     private void systemThemeControls(LinearLayout page) {
+        heading(page, R.string.appearance_android);
         mSystemThemeChoice = choice(page, R.string.settings_system_theme,
                 new int[] {R.string.settings_system_theme_unchanged, R.string.settings_system_theme_light,
                         R.string.settings_system_theme_dark},
@@ -318,7 +315,9 @@ final class AppearanceSettings implements AutoCloseable {
         final EditText text = new EditText(mActivity);
         text.setSingleLine(true);
         text.setFilters(new android.text.InputFilter[] {new android.text.InputFilter.LengthFilter(7)});
-        text.setText(String.format(Locale.ROOT, "#%06X", SystemAppearancePalette.resolve(current()).palette().color(role) & 0xffffff));
+        final var palette = SystemAppearancePalette.resolve(current()).palette();
+        final boolean night = palette.night();
+        text.setText(String.format(Locale.ROOT, "#%06X", palette.color(role) & 0xffffff));
         UiAppearance.text(text, UiColor.TEXT);
         final AlertDialog dialog = UiDialogs.themedBuilder(mActivity).setTitle(colorLabel(role)).setView(text)
                 .setPositiveButton(android.R.string.ok, null).setNegativeButton(android.R.string.cancel, null).create();
@@ -326,7 +325,7 @@ final class AppearanceSettings implements AutoCloseable {
             if (!isCurrent(target)) { text.setError(mActivity.getString(R.string.appearance_changed)); return; }
             if (!text.getText().toString().matches("#[0-9a-fA-F]{6}")) { text.setError("#RRGGBB"); return; }
             var t = current();
-            apply(t.withPalette(t.palette().withColor(role, android.graphics.Color.parseColor(text.getText().toString()))));
+            apply(t.withPalette(t.palette().withColor(role, android.graphics.Color.parseColor(text.getText().toString()), night)));
             dialog.dismiss();
         }));
         showChild(dialog);

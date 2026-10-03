@@ -20,7 +20,7 @@
     <string name="appearance_colors">色とテキスト</string>
     <string name="appearance_dark">ダーク</string>
     <string name="appearance_light">ライト</string>
-    <string name="appearance_contrast">コントラスト</string>
+    <string name="appearance_high_contrast">ハイコントラスト</string>
     <string name="appearance_font">フォント</string>
     <string name="appearance_sans">サンセリフ</string>
     <string name="appearance_serif">セリフ</string>
@@ -49,7 +49,10 @@
     <string name="appearance_palette_source">パレットのソース</string>
     <string name="appearance_palette_fixed">テーマの色</string>
     <string name="appearance_palette_system">Android の色</string>
-    <string name="appearance_palette_mode">システムパレットの明暗</string>
+    <string name="appearance_mode">表示モード</string>
+    <string name="appearance_shell">MagicDesk の外観</string>
+    <string name="appearance_android">Android</string>
+    <string name="appearance_custom_colors">カスタムカラー</string>
     <string name="appearance_palette_follow">Android に従う</string>
     <string name="appearance_color_surface_low">低いサーフェス</string>
     <string name="appearance_color_surface_high">高いサーフェス</string>

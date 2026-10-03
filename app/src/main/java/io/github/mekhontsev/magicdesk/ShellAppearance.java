@@ -21,47 +21,69 @@ public record ShellAppearance(Palette palette, Typography typography, Shape shap
         }
     }
     public enum ColorSource { FIXED, SYSTEM }
-    public enum ColorMode { LIGHT, DARK, SYSTEM }
+    public enum ColorMode { SYSTEM, LIGHT, DARK }
     public static final class Palette {
         private final ColorSource source;
         private final ColorMode mode;
-        private final String preset;
-        private final Map<UiColor, Integer> overrides, colors;
-        public Palette(ColorSource source, ColorMode mode, String preset, Map<UiColor, Integer> overrides) {
-            this(source, mode, preset, overrides, presetColors(preset));
+        private final boolean highContrast, night;
+        private final Map<UiColor, Integer> overrides, light, dark, colors;
+        public Palette(ColorSource source, ColorMode mode, boolean highContrast,
+                Map<UiColor, Integer> overrides, Map<UiColor, Integer> light, Map<UiColor, Integer> dark) {
+            this(source, mode, highContrast, overrides, light, dark, mode != ColorMode.LIGHT,
+                    fixedColors(mode != ColorMode.LIGHT, highContrast));
         }
-        private Palette(ColorSource source, ColorMode mode, String preset,
-                Map<UiColor, Integer> overrides, Map<UiColor, Integer> base) {
+        private Palette(ColorSource source, ColorMode mode, boolean highContrast,
+                Map<UiColor, Integer> overrides, Map<UiColor, Integer> light, Map<UiColor, Integer> dark,
+                boolean night, Map<UiColor, Integer> base) {
             this.source = Objects.requireNonNull(source); this.mode = Objects.requireNonNull(mode);
-            this.preset = Objects.requireNonNull(preset); this.overrides = Map.copyOf(overrides);
+            this.highContrast = highContrast; this.night = night;
+            this.overrides = Map.copyOf(overrides); this.light = Map.copyOf(light); this.dark = Map.copyOf(dark);
             var merged = new EnumMap<UiColor, Integer>(UiColor.class);
-            merged.putAll(base); merged.putAll(overrides);
+            merged.putAll(base); merged.putAll(overrides); merged.putAll(night ? dark : light);
             for (UiColor role : UiColor.values()) Objects.requireNonNull(merged.get(role), role.name());
             if (merged.get(UiColor.TRANSPARENT) != 0) throw new IllegalArgumentException("transparent");
             colors = Map.copyOf(merged);
         }
         public ColorSource source() { return source; }
         public ColorMode mode() { return mode; }
-        public String preset() { return preset; }
+        public boolean highContrast() { return highContrast; }
+        public boolean night() { return night; }
+        public boolean night(boolean systemNight) {
+            return mode == ColorMode.SYSTEM ? systemNight : mode == ColorMode.DARK;
+        }
         public Map<UiColor, Integer> overrides() { return overrides; }
+        public Map<UiColor, Integer> overrides(boolean night) { return night ? dark : light; }
         public Map<UiColor, Integer> colors() { return colors; }
         public int color(UiColor role) { return colors.get(role); }
-        public Palette resolve(Map<UiColor, Integer> system) {
-            return source == ColorSource.SYSTEM ? new Palette(source, mode, preset, overrides, system) : this;
+        public Palette resolve(boolean systemNight, Map<UiColor, Integer> system) {
+            boolean resolvedNight = night(systemNight);
+            if (source == ColorSource.FIXED && night == resolvedNight) return this;
+            return new Palette(source, mode, highContrast, overrides, light, dark, resolvedNight,
+                    source == ColorSource.SYSTEM ? Objects.requireNonNull(system) : fixedColors(resolvedNight, highContrast));
         }
         public Palette withColor(UiColor role, int color) {
-            var values = new EnumMap<UiColor, Integer>(UiColor.class);
-            values.putAll(overrides); values.put(role, color);
-            return new Palette(source, mode, preset, values);
+            return withColor(role, color, night);
         }
-        public Palette withSource(ColorSource value, ColorMode tone) {
-            return new Palette(value, tone, preset, overrides);
+        public Palette withColor(UiColor role, int color, boolean night) {
+            var values = new EnumMap<UiColor, Integer>(UiColor.class);
+            values.putAll(overrides(night)); values.put(role, color);
+            return new Palette(source, mode, highContrast, overrides, night ? light : values, night ? values : dark);
+        }
+        public Palette withSource(ColorSource value) {
+            return new Palette(value, mode, highContrast, overrides, light, dark);
+        }
+        public Palette withMode(ColorMode value) {
+            return new Palette(source, value, highContrast, overrides, light, dark);
+        }
+        public Palette withHighContrast(boolean value) {
+            return new Palette(source, mode, value, overrides, light, dark);
         }
         @Override public boolean equals(Object other) {
-            return other instanceof Palette p && source == p.source && mode == p.mode && preset.equals(p.preset)
-                    && overrides.equals(p.overrides) && colors.equals(p.colors);
+            return other instanceof Palette p && source == p.source && mode == p.mode && highContrast == p.highContrast
+                    && night == p.night && overrides.equals(p.overrides) && light.equals(p.light)
+                    && dark.equals(p.dark) && colors.equals(p.colors);
         }
-        @Override public int hashCode() { return Objects.hash(source, mode, preset, overrides, colors); }
+        @Override public int hashCode() { return Objects.hash(source, mode, highContrast, night, overrides, light, dark, colors); }
     }
     public enum Font { SANS, SERIF, MONO }
     public record Typography(Font font, float scale) {
@@ -135,9 +157,22 @@ public record ShellAppearance(Palette palette, Typography typography, Shape shap
     }
     public static ShellAppearance defaults() { return preset("dark"); }
     public static ShellAppearance preset(String name) {
-        return new ShellAppearance(new Palette(ColorSource.FIXED, ColorMode.SYSTEM, name, Map.of()), new Typography(Font.SANS, 1),
+        ColorMode mode = switch (name) {
+            case "light" -> ColorMode.LIGHT;
+            case "dark", "contrast" -> ColorMode.DARK;
+            default -> throw new IllegalArgumentException("Unknown appearance preset: " + name);
+        };
+        return new ShellAppearance(new Palette(ColorSource.FIXED, mode, name.equals("contrast"), Map.of(), Map.of(), Map.of()), new Typography(Font.SANS, 1),
                 new Shape(1, 1), Backdrop.defaults(), ShellComposition.defaults(), ShellMotion.defaults(),
                 Feedback.defaults(), ShellResources.defaults(), ShellControls.defaults());
+    }
+    private static Map<UiColor, Integer> fixedColors(boolean night, boolean highContrast) {
+        if (!highContrast || night) return presetColors(highContrast ? "contrast" : night ? "dark" : "light");
+        var colors = new EnumMap<UiColor, Integer>(presetColors("light"));
+        colors.put(UiColor.BACKGROUND, 0xffffffff); colors.put(UiColor.PANEL, 0xffffffff);
+        colors.put(UiColor.SURFACE_LOW, 0xffffffff); colors.put(UiColor.TEXT, 0xff000000);
+        colors.put(UiColor.MUTED, 0xff000000); colors.put(UiColor.OUTLINE, 0xff000000);
+        return Map.copyOf(colors);
     }
     private static Map<UiColor, Integer> presetColors(String name) {
         final int[] values = switch (name) {
