@@ -70,7 +70,7 @@ replacing the APK; download again to atomically replace `~/install_linux.sh`.
 UID 2000's shell home is `/data/local/tmp/magicdesk/`; root consoles use
 `/data/local/tmp/magicdesk-root/home`. Release tags retain their exact
 installer, for example
-[`v2.0/scripts/install_linux.sh`](https://raw.githubusercontent.com/mekhontsev/magicdesk/v2.0/scripts/install_linux.sh).
+[`v2.0.2/scripts/install_linux.sh`](https://raw.githubusercontent.com/mekhontsev/magicdesk/v2.0.2/scripts/install_linux.sh).
 An older APK may lack commands required by a newer installer; use a matching
 release tag when keeping an older MagicDesk version.
 
@@ -82,7 +82,7 @@ are command-line options; `--yes` suppresses questions. `--list` is read-only.
 
 | Distribution | Source | GUI recipes |
 | --- | --- | --- |
-| Debian 13 | `debian:trixie-slim` | apps, Xfce, Weston |
+| Debian 13 | `debian:trixie-slim` | apps, Xfce, Weston, Plasma 6 |
 | Ubuntu 24.04 | `ubuntu:24.04` | apps, Xfce, Weston |
 | Alpine 3.23 | `alpine:3.23` | apps, Xfce, Weston |
 | Fedora 44 | `registry.fedoraproject.org/fedora:44` | apps, Xfce, Weston, experimental GNOME devkit |
@@ -90,7 +90,8 @@ are command-line options; `--yes` suppresses questions. `--list` is read-only.
 
 `none` installs console tools only. `apps` supplies Mousepad, Thunar and Xfce
 Terminal, XKB data, icons and a session D-Bus setup. `xfce` adds an X11 desktop;
-`weston` adds a nested Wayland desktop with Xwayland. `gnome` selects Fedora's
+`weston` adds a nested Wayland desktop with Xwayland. `plasma` adds KDE Plasma 6
+with X11 and Wayland desktop entries on Debian. `gnome` selects Fedora's
 development-kit shell, not a systemd/GDM login session. GUI recipes are package
 configurations, not a claim of complete desktop compatibility. Fedora 44 and
 rolling Arch use Glycin image loaders whose Bubblewrap startup currently fails
