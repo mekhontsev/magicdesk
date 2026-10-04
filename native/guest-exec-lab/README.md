@@ -342,7 +342,7 @@ Use a fresh output directory when changing Mesa/configuration.
 Zink additionally needs `libwayland-egl-backend-dev`, `libxcb-glx0-dev` and
 `libxxf86vm-dev` in the authenticated SDK. Build it with `--driver zink`.
 `--wayland-zink` explicitly applies the repository's Mesa 26.2.3 non-DRM
-Wayland patch exported by `scripts/install_linux.sh --print-mesa-patch` to a
+Wayland and KGSL timestamp patch exported by `scripts/install_linux.sh --print-mesa-patch` to a
 private source copy and records its hash; the original source
 tree remains unchanged. Keep patched and unmodified prefixes separate, and run
 the unmodified control. A patched fixture result is not upstream compatibility.
@@ -359,6 +359,49 @@ A software compositor or successful `vulkaninfo` alone
 does not establish guest GPU rendering. `--trace` accepts the optional static
 `md-trace-fault` observer. The production supervisor already owns ptrace for its
 guest tree; a second observer cannot attach concurrently.
+
+`test_gpu_timestamps.c` checks calibrated CPU/device clocks against actual queue
+timestamp queries. Build it inside a prepared guest with `cc -O2 -Wall -Wextra
+-Werror test_gpu_timestamps.c -lvulkan -o test_gpu_timestamps`. With the private
+Turnip ICD selected, run without arguments for EXT and with `khr` for KHR.
+Both require 16 successful GPU submissions and calibration brackets. Run the
+unmodified driver as a negative control, not as an expected success.
+
+Build `fixtures/kgsl_no_calibration.c` with `cc -shared -fPIC -Wall -Wextra
+-Werror kgsl_no_calibration.c -ldl -o kgsl_no_calibration.so`. Its test-only
+`LD_PRELOAD` denies the calibrated timestamp ioctl with `ENOTTY`; run the patched
+driver's timestamp fixture with `disabled`. Both extensions must be absent and
+ordinary GPU timestamp queries must still succeed. This simulates an unavailable
+ioctl, not complete coverage of an older kernel.
+
+`test_egl_dmabuf.c`, linked with `-lEGL -lGLESv2 -lwayland-client`, connects to a
+retained Wayland session through the production guest socket route. It requires
+the matching EGL/GLES, Wayland, libdrm and Linux development headers. It checks
+no-config/surfaceless EGL, linear ARGB8888 DMA-BUF import, exact input pixels and
+64 alternating GPU frames written back to the same allocation. Each frame uses
+an EGL native fence plus DMA-BUF sync-file export/import; exact CPU pixels are
+checked after a bounded fence wait, without `glFinish`. The DMA heap is opened read-only; the
+allocated buffer FD is read/write. Run with an outer process timeout to bound a
+driver hang. This fixture verifies backend building blocks, not a nested KWin
+desktop or frame-presentation timing.
+
+`fixtures/dma_heap_unavailable.c` is a test-only `LD_PRELOAD` control for the
+nested KWin allocator. Build it with `cc -shared -fPIC -Wall -Wextra -Werror
+dma_heap_unavailable.c -ldl -o dma_heap_unavailable.so`. It rejects opening
+`/dev/dma_heap/system` without blocking ordinary file access. Forced OpenGL must
+fail explicitly; a separately selected QPainter session must still render.
+Do not install this control in a guest login profile.
+
+For the nested Plasma check, build the exact `--print-kwin-patch` from the
+installer against its pinned archive in a private prefix. Use the installer's
+`magicdesk-plasma wayland` launcher under an ordinary guest account and the
+production graphical socket route. On an owned virtual display, verify actual
+desktop pixels, Dolphin, launcher input, Overview and resize. KWin's D-Bus
+`supportInformation` must report OpenGL and the intended GPU; the session bus
+must be accessed as the same guest user. An inner EGL client must advertise the
+same hardware renderer, submit v3 DMA-BUFs (`WAYLAND_DEBUG=client`) and produce
+different rendered frames. Scope traces and timeouts to test processes; a
+timeout is not a successful startup or shutdown.
 
 `test_userspace.py --environment NAME=VALUE` records explicit guest-client
 driver controls; `--software` selects llvmpipe. For an isolated Turnip prefix,

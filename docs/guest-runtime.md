@@ -121,6 +121,7 @@ restore those files.
 sh ~/install_linux.sh --name debian --gui xfce --yes
 sh ~/install_linux.sh --distro alpine --name alpine-work --gui weston
 sh ~/install_linux.sh --name debian --resume --gui xfce
+sh ~/install_linux.sh --name debian --resume --gui plasma --gpu turnip
 ```
 
 Existing names are never replaced. `--resume` explicitly continues package
@@ -156,8 +157,9 @@ sh ~/install_linux.sh --name debian --resume --gpu software
 ```
 
 Turnip setup installs distribution-specific build dependencies and compiles Mesa
-26.2.3 inside the guest. The HTTPS source archive has a pinned SHA-256; the non-DRM Wayland/Zink
-patch is embedded in the installer and applied without fuzz. Turnip, Zink, EGL,
+26.2.3 inside the guest. The HTTPS source archive has a pinned SHA-256; the
+non-DRM Wayland/Zink and capability-probed KGSL timestamp changes are embedded
+in the installer and applied without fuzz. Turnip, Zink, EGL,
 GLX and GBM come from that same build. `--jobs N` controls compiler parallelism
 (1-8, default 2). Allow several GB of space for sources, build files and libraries.
 Build work stays in `/var/cache/magicdesk/mesa/` for resuming; completed libraries
@@ -173,6 +175,33 @@ Software fallback uses the distribution's
 unchanged libraries. Neither profile replaces Android libraries, distribution
 drivers or the APK renderer, and no privileged identity switch is performed.
 The lab obtains the identical patch with `sh scripts/install_linux.sh --print-mesa-patch`.
+
+The Debian 13 `plasma` profile adds both `Plasma Desktop (x11)` and
+`Plasma Desktop (wayland)`. With Turnip selected, it additionally builds pinned
+KWin 6.3.6 from a checksum-verified KDE archive. Its ordinary patch is embedded
+in the installer (`--print-kwin-patch`); no semantic patch engine, KWin fork,
+APK dependency or system compositor replacement is involved. The recipe includes
+Debian's Plasma dependency minimum. Work stays in `/var/cache/magicdesk/kwin/`,
+and complete builds use immutable `/opt/magicdesk/kwin/` prefixes. Only the
+Wayland desktop launcher selects those libraries, plugins and executables.
+An unsuccessful KWin build retains the previous KWin selection. Explicit
+`--gui plasma` also prepares this path when adding Turnip to an existing desktop;
+`--gui keep` does not build a new compositor.
+
+```sh
+sh ~/install_linux.sh --distro debian --name plasma --gui plasma --gpu turnip
+sh ~/install_linux.sh --name plasma --resume --gui plasma --gpu turnip
+```
+
+Plasma launches its classic session inside the selected graphical connection,
+without booting systemd or a system bus. Hardware-related KDE services may remain
+unavailable. The software profile uses the distribution's KWin with QPainter on
+Wayland; switching profiles affects new launches, not an already running session.
+On RM11 under UID 2000, the private Wayland compositor renders Plasma, Dolphin,
+its launcher and Overview through Zink/Turnip. A nested EGL client submits
+DMA-BUF v3 buffers and produces changing frames; desktop resizing preserves GPU
+composition. This coverage is for Debian 13, KWin 6.3.6 and Adreno 840, not other
+GPUs or all Plasma services.
 
 Graphical launches keep the normal per-launch runtime directory,
 session bus and X11/Wayland connection; the script does not start an Android

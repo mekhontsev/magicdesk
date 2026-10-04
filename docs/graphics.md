@@ -115,6 +115,13 @@ The [Linux installer](guest-runtime.md#linux-installer) builds a complete,
 private Linux client stack for `--gpu turnip` and retains a software alternative.
 Its `--print-mesa-patch` export is also the lab's patch source.
 
+The same patch implements Turnip KGSL calibrated timestamps with
+`IOCTL_KGSL_READ_CALIBRATED_TIMESTAMPS`. Extension discovery probes the selected
+device: if the ioctl is unavailable or denied, neither the KHR nor EXT calibrated
+timestamp extension is advertised. Ordinary GPU timestamp queries remain
+available; Zink can use its queue-query fallback. This policy belongs to the
+client driver, not a KWin-specific timer override in MagicDesk.
+
 Build a separate EGL vendor library using the exact installed Mesa version and
 the environment's normal build patches (including Termux's Android-detection
 patch). Select it for the test process through a private GLVND JSON file and
@@ -125,6 +132,22 @@ Use `MESA_LOADER_DRIVER_OVERRIDE=zink`, the intended Vulkan ICD and no
 that the client presented a frame.
 
 ### Server Composition
+
+The installer's optional KWin 6.3.6 patch is a Linux client-side nested-compositor
+adapter. It accepts DMA-BUF v3 format/modifier events without inventing a DRM
+device. A Wayland EGL display and linear DMA-heap allocator feed KWin's existing
+`EglSwapchain`; the normal DRM/GBM path remains independent. The non-DRM path
+requires real EGL import and native-fence capabilities and probes allocation,
+image import and sync-file exchange before advertising GPU composition.
+Its nested Wayland server publishes v3 import formats without DRM feedback.
+Internal Qt windows use the backend's allocator rather than assuming GBM.
+DRM syncobj and DMA-BUF screencasting require an actual DRM device.
+DMA-BUF reservation fences cover output reuse, internal Qt rendering and sampled client buffers;
+dependencies are queued on the GPU, not waited on by the compositor thread.
+Software composition remains selectable in the Linux installer. These changes
+do not alter MagicDesk's renderer identity, Android hosts or display ownership.
+An unavailable forced OpenGL backend fails startup with a nonzero exit status;
+it does not silently start a QPainter workspace.
 
 X11's native `LorieGraphics` contract receives a host-owned implementation from
 `x11-runtime`. The engine owns X protocol, output selection, window families and
@@ -138,6 +161,11 @@ queued copy. Output snapshots reuse storage rather than allocate every frame.
 The optional X11 EXA linear-DMA-BUF copy accelerator remains a separate
 producer-side operation. It writes X pixmaps and falls back to Xorg CPU copies;
 it is not a second window compositor or Android presentation path.
+X11's DRI3 export additionally promotes private CPU pixmaps to live linear
+DMA-heap storage when a client requests it. The X engine owns this allocation,
+row-stride publication and CPU cache synchronization; the shared renderer still
+borrows buffers through its existing interfaces. Export does not inspect private
+Android hardware-buffer handles or require a DRM render node.
 
 Wayland implements wlroots' renderer and allocator interfaces without modifying
 wlroots. SHM clients are uploaded into textures; composition targets retained

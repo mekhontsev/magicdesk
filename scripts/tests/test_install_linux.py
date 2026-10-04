@@ -41,7 +41,10 @@ if stage == "exec":
         payload = sys.stdin.read()
         if args[-4] in ("turnip", "software"):
             stage = "graphics"
-        Path(os.environ["TEST_PAYLOAD"] + (".gpu" if stage == "graphics" else "")).write_text(payload)
+        if "version=6.3.6" in payload:
+            stage = "kwin"
+        suffix = {"graphics": ".gpu", "kwin": ".kwin"}.get(stage, "")
+        Path(os.environ["TEST_PAYLOAD"] + suffix).write_text(payload)
 if os.environ.get("TEST_FAIL") == stage:
     print("test failure: " + stage, file=sys.stderr)
     sys.exit(23)
@@ -125,6 +128,70 @@ if os.environ.get("TEST_FAIL") == stage:
         self.assertNotIn("Individual apps:", hints)
         self.assertNotIn("Whole desktop:", hints)
         self.assertIn("Console: magicdesk-guest login tools\n", hints)
+
+    def test_plasma_recipe_is_explicit_pinned_and_separate_from_mesa(self):
+        result = self.run_script("--yes", "--gui", "plasma", "--gpu", "turnip", "--jobs", "4")
+        self.assertEqual(0, result.returncode, result.stderr)
+        kwin = Path(str(self.payload) + ".kwin").read_text()
+        gpu = Path(str(self.payload) + ".gpu").read_text()
+        self.assertIn("version=6.3.6", kwin)
+        self.assertIn("27f2205f06d58f1d1f480d2a94ae24022c2f95b9c1fdc5a549f8e143713fce12", kwin)
+        self.assertIn('patch --batch --forward --fuzz=0', kwin)
+        self.assertIn('mv "$work/stage$prefix" "$prefix"', kwin)
+        self.assertIn('mv "$candidate" /etc/magicdesk/plasma-kwin.sh', kwin)
+        self.assertIn('-DCMAKE_AUTOGEN_PARALLEL="$jobs"', kwin)
+        self.assertIn('[ -n "${MAGICDESK_MESA_PREFIX:-}" ] || exit 0', kwin)
+        self.assertNotIn("version=6.3.6", gpu)
+        self.assertIn('export KWIN_COMPOSE=Q QT_QUICK_BACKEND=software', self.payload.read_text())
+        self.assertIn('Plasma Desktop (wayland)', result.stdout)
+        self.assertEqual("4", self.calls()[-1][-2])
+        self.assertEqual(0, subprocess.run(["sh", "-n"], input=kwin, text=True).returncode)
+
+    def test_plasma_rejects_unsupported_distributions_before_mutation(self):
+        for distro in ("ubuntu", "alpine", "fedora", "arch"):
+            result = self.run_script("--yes", "--distro", distro, "--gui", "plasma")
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("requires Debian 13", result.stderr)
+            self.assertEqual([], self.calls())
+
+    def test_kwin_recipe_identity_does_not_depend_on_build_parallelism(self):
+        fingerprints = []
+        for jobs in ("1", "4"):
+            result = self.run_script("--yes", "--name", "plasma", "--resume",
+                                     "--gui", "plasma", "--gpu", "turnip", "--jobs", jobs)
+            self.assertEqual(0, result.returncode, result.stderr)
+            fingerprints.append(self.calls()[-1][-1])
+            self.assertEqual(jobs, self.calls()[-1][-2])
+        self.assertRegex(fingerprints[0], r"^[0-9a-f]{64}$")
+        self.assertEqual(*fingerprints)
+
+    def test_kwin_build_failure_preserves_environment_and_reports_resume(self):
+        result = self.run_script("--yes", "--name", "plasma", "--resume", "--gui", "plasma",
+                                 "--gpu", "turnip", TEST_FAIL="kwin")
+        self.assertEqual(23, result.returncode, result.stderr)
+        self.assertIn("preparing the nested Plasma compositor", result.stderr)
+        self.assertIn("--name plasma --resume", result.stderr)
+        self.assertIn("GUI=plasma GPU=turnip", result.stderr)
+        self.assertNotIn("Linux is ready", result.stdout)
+        self.assertNotIn("install", [args[0] for args in self.calls()])
+
+    def test_kwin_patch_export_is_read_only_and_contains_buffer_sync(self):
+        result = self.run_script("--print-kwin-patch", TEST_UID="10001")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual([], self.calls())
+        self.assertIn('deviceFeedback ? 4 : 3', result.stdout)
+        self.assertIn('DMA_HEAP_IOCTL_ALLOC', result.stdout)
+        self.assertIn('DMA_BUF_IOCTL_EXPORT_SYNC_FILE', result.stdout)
+        self.assertIn('DMA_BUF_IOCTL_IMPORT_SYNC_FILE', result.stdout)
+        self.assertIn('m_dmaBufReads', result.stdout)
+        self.assertIn('EglSwapchain::create', result.stdout)
+        self.assertIn('device && device->supportsSyncObjTimelines()', result.stdout)
+        self.assertIn('backend->graphicsBufferAllocator()', result.stdout)
+        self.assertIn('m_eglDisplay->acquireDmaBuf(buffer, true)', result.stdout)
+        self.assertIn('m_eglDisplay->releaseDmaBuf(m_current->buffer', result.stdout)
+        self.assertIn('if (!compositor->createRenderer())', result.stdout)
+        self.assertIn('QCoreApplication::exit(1)', result.stdout)
+        self.assertNotIn('glFinish(', result.stdout)
 
     def test_resume_validates_without_reinstalling(self):
         result = self.run_script("--yes", "--name", "existing", "--resume")
@@ -258,11 +325,16 @@ if os.environ.get("TEST_FAIL") == stage:
         self.assertIn("software rendering", result.stdout)
         self.assertEqual([], self.calls())
 
-    def test_patch_export_needs_no_executor_and_has_both_egl_changes(self):
+    def test_patch_export_needs_no_executor_and_includes_egl_and_kgsl_capabilities(self):
         result = self.run_script("--print-mesa-patch", TEST_UID="10001")
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(2, result.stdout.count("+   if ("))
         self.assertIn("disp->Options.ForceSoftware || disp->Options.Zink", result.stdout)
+        self.assertIn("IOCTL_KGSL_READ_CALIBRATED_TIMESTAMPS", result.stdout)
+        self.assertIn("dev->local_fd, &timestamp) == 0", result.stdout)
+        self.assertIn("kgsl_read_gpu_timestamp(dev->fd, ts)", result.stdout)
+        for extension in ("KHR_calibrated_timestamps", "EXT_calibrated_timestamps"):
+            self.assertIn(f"+      .{extension} = has_calibrated_timestamps,", result.stdout)
         self.assertEqual([], self.calls())
 
     def test_gpu_recipe_is_fingerprinted_and_independent_of_parallelism(self):
