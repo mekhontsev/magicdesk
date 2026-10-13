@@ -84,6 +84,25 @@ record PanelGeometry(ShellPanel panel, int width, int height, int anchors,
         };
     }
 
+    /** The path from the physical reveal edge to a floating panel, excluding side gaps. */
+    static ShellBounds approach(ShellBounds output, ShellBounds paint, ShellPanel.Edge edge) {
+        final var span = paint.intersect(output);
+        if (span.isEmpty()) return span;
+        return switch (edge) {
+            case TOP -> new ShellBounds(span.left(), output.top(), span.right(), span.top());
+            case BOTTOM -> new ShellBounds(span.left(), span.bottom(), span.right(), output.bottom());
+            case LEFT -> new ShellBounds(output.left(), span.top(), span.left(), span.bottom());
+            case RIGHT -> new ShellBounds(span.right(), span.top(), output.right(), span.bottom());
+        };
+    }
+
+    /** Host buffer only; input remains the union of paint, approach and transformed icons. */
+    static ShellBounds withApproach(ShellBounds frame, ShellBounds approach) {
+        if (approach.isEmpty()) return frame;
+        return new ShellBounds(Math.min(frame.left(), approach.left()), Math.min(frame.top(), approach.top()),
+                Math.max(frame.right(), approach.right()), Math.max(frame.bottom(), approach.bottom()));
+    }
+
     static ShellBounds presented(ShellBounds output, ShellBounds surface, ShellPanel.Edge panelEdge,
             boolean visible, boolean edgeHidden, int edgeThickness) {
         if (!visible) return new ShellBounds(0, 0, 0, 0);

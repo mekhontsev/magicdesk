@@ -311,6 +311,8 @@ if (RuntimeLimits.active().termux() && TermuxIntegration.isInstalled(mActivity))
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
 
+        addSubmenuAction(R.string.paper_layout_title,
+                view -> showPaperMenu(x, y));
         addAction(
                 R.string.action_new_file,
                 UiColor.ACCENT,
@@ -882,6 +884,30 @@ if (RuntimeLimits.active().termux() && TermuxIntegration.isInstalled(mActivity))
                             state.app, state.task));
         }
         positionAndShow(state.x, state.y);
+    }
+
+    private void showPaperMenu(final float x, final float y) {
+        prepareSubmenuTitle(mActivity.getString(R.string.paper_layout_title),
+                view -> mActivity.hideAllPanels());
+        final boolean enabled = MagicDeskRuntime.isPaperLayoutEnabled(
+                mActivity.getDisplay().getDisplayId());
+        addPaperAction(enabled ? R.string.paper_disable : R.string.paper_enable,
+                DesktopWindowAction.PAPER_TOGGLE);
+        addPaperAction(R.string.paper_previous, DesktopWindowAction.PAPER_PREVIOUS);
+        addPaperAction(R.string.paper_next, DesktopWindowAction.PAPER_NEXT);
+        addPaperAction(R.string.paper_width, DesktopWindowAction.PAPER_WIDTH);
+        addPaperAction(R.string.paper_float, DesktopWindowAction.PAPER_FLOAT);
+        addAction(R.string.action_settings, UiColor.SURFACE, true, view -> mActivity.openSettings());
+        positionAndShow(x, y);
+    }
+
+    private void addPaperAction(final int label, final DesktopWindowAction command) {
+        final boolean enabled = command == DesktopWindowAction.PAPER_TOGGLE
+                || MagicDeskRuntime.isPaperLayoutEnabled(mActivity.getDisplay().getDisplayId());
+        addAction(label, UiColor.SURFACE, enabled, view -> {
+            mActivity.hideAllPanels();
+            MagicDeskRuntime.handleActiveTaskShortcut(mActivity.getDisplay().getDisplayId(), command);
+        });
     }
 
     private void showArrangeMenu(final AppMenuState state) {

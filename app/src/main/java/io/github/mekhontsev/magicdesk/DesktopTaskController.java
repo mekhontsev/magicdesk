@@ -359,6 +359,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                                 && mFocusingTaskId != taskId) {
                             mFocusingTaskId = -1;
                         }
+                        if (mObservedFocusedTaskId != taskId) clearPaperControls();
                         mObservedFocusedTaskId = taskId;
                         if (!mWorkspaceQueue.isRunning()) {
                             confirmTrackedFocus(taskId);
@@ -382,7 +383,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         // with the framework callback before input repair runs.
                         DesktopRuntimeBridge.prepareTaskFocus(
                                 displayId, taskId);
-                        restoreTaskbarTask(taskId);
+                        // A bounds transition can repeat focus on the departing
+                        // task. The queued demotion owns concealment until completion.
+                        if (!mWorkspaceQueue.isRunning()) restoreTaskbarTask(taskId);
+                        var paper = paperPolicy();
+                        if (!mWorkspaceQueue.isRunning() && !mLayoutRefreshQueued
+                                && paper != null && paper.requiresReveal(taskId)) {
+                            arrangePaperWindows(DesktopPaperWindowController.Command.FOCUS, taskId, null);
+                        }
                         scheduleRefresh(0);
                     }
 
@@ -482,13 +490,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     void stop() {
+        clearPaperControls();
         publishTaskObservation(null);
         mRunning = false;
         mGeneration++;
         mWindowTransitions.cancelPendingTransitions("desktop task runtime stopped");
         mWorkspaceQueue.cancelAll("desktop task runtime stopped");
         mLayoutRefreshQueued = false;
-        mWindowLayout.clearObservation();
+        mWindowLayout.replacePolicy(new FloatingWindowLayoutPolicy());
         mHandler.removeCallbacks(mRefreshRunnable);
         mRefreshDueUptimeMillis = -1;
         mTaskWatcher.setPhoneTouchpadRequested(false);
@@ -937,7 +946,13 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                                     ? error.getClass().getSimpleName() : error.getMessage());
                 }
             }));
-        }, callback));
+        }, result -> {
+            try {
+                completeActionCallback(callback, result.success, result.message);
+            } finally {
+                if (isWorkspaceRequestCurrent(displayId, generation)) scheduleRefresh(0);
+            }
+        }));
     }
 
     private boolean isWorkspaceRequestCurrent(final int displayId, final int generation) {
@@ -1176,7 +1191,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             synchronized (mTaskbarConcealedTaskIds) {
                 concealedTaskIds = new LinkedHashSet<>(mTaskbarConcealedTaskIds);
             }
-            if (EffectiveTaskStack.shouldActivateTaskbarTarget(
+            var paper = paperPolicy();
+            if ((paper != null && paper.requiresReveal(taskId)) || EffectiveTaskStack.shouldActivateTaskbarTarget(
                     workspace, task, concealedTaskIds, mObservedFocusedTaskId)) {
                 activateThroughGateway(workspace, taskId, completion);
             } else {
@@ -1198,7 +1214,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             synchronized (mTaskbarConcealedTaskIds) {
                 concealedTaskIds = new LinkedHashSet<>(mTaskbarConcealedTaskIds);
             }
-            if (EffectiveTaskStack.shouldActivateTaskbarTarget(
+            var paper = paperPolicy();
+            if ((paper != null && paper.requiresReveal(taskId)) || EffectiveTaskStack.shouldActivateTaskbarTarget(
                     workspace, task, concealedTaskIds, mObservedFocusedTaskId)) {
                 completeActionCallback(completion, false, "task is not foreground");
                 return;
@@ -1227,7 +1244,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private void demoteTask(
             final TaskRepository.Snapshot snapshot,
             final int taskId,
-            final TaskRepository.ActionCallback callback) {
+            final DesktopWorkspaceQueue.Completion callback) {
         final boolean alreadyConcealed;
         final Set<Integer> concealedTaskIds;
         synchronized (mTaskbarConcealedTaskIds) {
@@ -1253,7 +1270,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         }
         final int targetTaskId = focusOrder.get(
                 focusOrder.size() - 1).intValue();
-        focusThroughGateway(
+        clearPaperControls();
+        final Runnable demote = () -> focusThroughGateway(
                 DesktopWorkspaceCommand.DEMOTE,
                 focusOrder,
                 targetTaskId,
@@ -1265,6 +1283,27 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     completeActionCallback(
                             callback, result.success, result.message);
                 });
+        final var paper = paperPolicy();
+        if (paper == null || !paper.owns(taskId)) {
+            demote.run();
+            return;
+        }
+        // Remove the concealed column from the strip and reveal its successor
+        // before changing z-order. The departing task keeps its current bounds;
+        // it must not slide to an overflow preview while waiting for demotion.
+        final WindowLayoutPolicy.Request request = paper.owns(targetTaskId)
+                ? WindowLayoutPolicy.Request.reveal(targetTaskId)
+                : WindowLayoutPolicy.Request.observe();
+        applyWindowLayout(snapshot, request, callback, result -> {
+            if (!callback.isCurrent()) return;
+            if (!result.success) {
+                if (!alreadyConcealed) restoreTaskbarTask(taskId);
+                notifyTaskStackChanged();
+                completeActionCallback(callback, false, result.message);
+                return;
+            }
+            demote.run();
+        });
     }
 
     /** Common focus route for taskbar, Alt+Tab, overview, and automation. */
@@ -1304,12 +1343,22 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     private WindowLayoutPolicy.Workspace layoutWorkspace(TaskRepository.Snapshot snapshot) {
+        Set<Integer> concealed = paperConcealedTasks(snapshot.tasks);
+        return mWindowLayout.workspace(mDisplayId, mNativeWindowBounds.getTaskbarMaximizedBounds(),
+                snapshot.tasks, concealed, mObservedFocusedTaskId);
+    }
+
+    private Set<Integer> paperConcealedTasks(List<TaskRepository.TaskEntry> tasks) {
         Set<Integer> concealed;
         synchronized (mTaskbarConcealedTaskIds) {
             concealed = new LinkedHashSet<>(mTaskbarConcealedTaskIds);
         }
-        return mWindowLayout.workspace(mDisplayId, mNativeWindowBounds.getTaskbarMaximizedBounds(),
-                snapshot.tasks, concealed, mObservedFocusedTaskId);
+        boolean belowHome = false;
+        for (var task : tasks) {
+            if (isDesktopHostTask(task)) belowHome = true;
+            else if (belowHome && task.isFreeform()) concealed.add(task.taskId);
+        }
+        return concealed;
     }
 
     private void requestWindowPlacement(int taskId, Rect bounds, boolean preserveRestore,
@@ -1336,13 +1385,24 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     private void reconcileWindowLayout(TaskRepository.Snapshot snapshot) {
-        if (mLayoutRefreshQueued || !mRunning || !mTaskWatcherReady
+        if (mLayoutRefreshQueued || mWorkspaceQueue.isRunning() || !mRunning || !mTaskWatcherReady
                 || !mWindowLayout.observesWorkspace()) return;
         WindowLayoutPolicy.Request request = WindowLayoutPolicy.Request.observe();
         WindowLayoutPolicy.Workspace observed = layoutWorkspace(snapshot);
         if (!mWindowLayout.acceptObservation(observed)) return;
         try {
-            if (mWindowLayout.plan(observed, request).isEmpty()) return;
+            WindowLayoutPolicy.Plan plan = mWindowLayout.plan(observed, request);
+            if (plan.isEmpty()) return;
+            if (plan.placements().isEmpty()) {
+                // The dispatcher is idle and this publication is already current.
+                // Commit observation-only policy state without another task query
+                // or a queued operation that temporarily hides the focus border.
+                mWindowLayout.execute(observed, plan, snapshot.tasks,
+                        () -> mRunning && mTaskWatcherReady, result -> {
+                            if (!result.success) Log.w(TAG, "window layout failed: " + result.message);
+                        });
+                return;
+            }
         } catch (RuntimeException error) {
             Log.w(TAG, "window layout rejected observation", error);
             return;
@@ -1352,6 +1412,121 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             mLayoutRefreshQueued = false;
             if (!result.success) Log.w(TAG, "window layout failed: " + result.message);
         }, (workspace, completion) -> applyWindowLayout(workspace, request, completion, completion));
+    }
+
+    private DesktopPaperWindowController paperPolicy() {
+        return mWindowLayout.policy() instanceof DesktopPaperWindowController paper ? paper : null;
+    }
+
+    @Override public boolean isPaperLayoutEnabled() { return paperPolicy() != null; }
+
+    private int paperWindowDimension(int dp) {
+        return Math.max(1, Math.round(dp * mWindowContext.getResources().getDisplayMetrics().density));
+    }
+
+    private void arrangePaperWindows(DesktopPaperWindowController.Command command, int taskId, TaskRepository.ActionCallback callback) {
+        clearPaperControls();
+        enqueueWorkspaceOperation(mDisplayId, result -> {
+            if (!result.success) {
+                Log.w(TAG, "scrollable tiling failed: " + result.message);
+                if (mRunning && command != DesktopPaperWindowController.Command.REFLOW
+                        && command != DesktopPaperWindowController.Command.FOCUS) {
+                    android.widget.Toast.makeText(mApplicationContext,
+                            R.string.paper_layout_failed, android.widget.Toast.LENGTH_LONG).show();
+                }
+            }
+            completeActionCallback(callback, result.success, result.message);
+        }, (snapshot, completion) -> {
+            var paper = paperPolicy();
+            if (command == DesktopPaperWindowController.Command.TOGGLE && paper != null) {
+                applyWindowLayout(snapshot, WindowLayoutPolicy.Request.release(), completion, result -> {
+                    if (!completion.isCurrent()) return;
+                    if (result.success) {
+                        mWindowLayout.replacePolicy(new FloatingWindowLayoutPolicy());
+                    }
+                    completion.onComplete(result);
+                });
+                return;
+            }
+            if (paper == null) {
+                if (command != DesktopPaperWindowController.Command.TOGGLE) {
+                    completeActionCallback(completion, false, "scrollable tiling is disabled");
+                    return;
+                }
+                paper = new DesktopPaperWindowController(paperWindowDimension(8), paperWindowDimension(64));
+            }
+            var workspace = layoutWorkspace(snapshot);
+            var planned = paper.command(workspace, command, taskId);
+            mWindowLayout.execute(workspace, planned.plan(), snapshot.tasks, completion::isCurrent, result -> {
+                if (!completion.isCurrent()) return;
+                if (!result.success || planned.focusTaskId() < 0) {
+                    completion.onComplete(result);
+                    return;
+                }
+                // Geometry is acknowledged before the shared z-order-only activation.
+                focusThroughGateway(DesktopWorkspaceCommand.ACTIVATE,
+                        Collections.singletonList(planned.focusTaskId()), planned.focusTaskId(), completion);
+            });
+        });
+    }
+
+    private void clearPaperControls() {
+        DesktopTaskbarHost.setPaperFocusShields(mDisplayId, List.of(), null);
+        DesktopTaskbarHost.setActiveWindowBorder(mDisplayId, null, null);
+        DesktopTaskbarHost.setPaperNavigation(mDisplayId, null, false, false, null);
+    }
+
+    private void updatePaperControls(TaskRepository.Snapshot workspace) {
+        var paper = paperPolicy();
+        var focused = findTask(workspace.tasks, mObservedFocusedTaskId);
+        boolean idle = !mWorkspaceQueue.isRunning() && !mLayoutRefreshQueued;
+        DesktopTaskRuntimeState state = focused == null ? null : mTaskRuntimeStates.find(focused.taskId);
+        boolean geometryReady = state == null
+                || (state.boundsTransition() == null && !state.isFullscreenTransition());
+        boolean focusReady = mFocusingTaskId < 0 || mFocusingTaskId == mObservedFocusedTaskId;
+        boolean border = idle && geometryReady && focusReady && paper != null && MagicDeskSettings.load().paperActiveBorder
+                && focused != null && !paperConcealedTasks(workspace.tasks).contains(focused.taskId)
+                && focused.visible && focused.isBoundedFreeform()
+                && !focused.hasCrossPackageTopActivity() && paper.owns(focused.taskId);
+        Rect area = mNativeWindowBounds.getTaskbarMaximizedBounds();
+        updatePaperFocusShields(workspace, paper, area, idle);
+        DesktopTaskbarHost.setActiveWindowBorder(mDisplayId, border ? focused.bounds : null, area);
+        DesktopTaskbarHost.setPaperNavigation(mDisplayId,
+                paper != null && MagicDeskSettings.load().paperEdgeButtons ? area : null,
+                idle && paper != null && paper.canNavigate(-1),
+                idle && paper != null && paper.canNavigate(1), direction -> {
+                    if (mRunning && !mWorkspaceQueue.isRunning()) {
+                        arrangePaperWindows(direction < 0 ? DesktopPaperWindowController.Command.PREVIOUS
+                                : DesktopPaperWindowController.Command.NEXT, -1, null);
+                    }
+                });
+    }
+
+    private void updatePaperFocusShields(TaskRepository.Snapshot workspace,
+            DesktopPaperWindowController paper, Rect area, boolean idle) {
+        List<DesktopPaperFocusShields.Target> targets = new ArrayList<>();
+        if (idle && paper != null && area != null) {
+            var covered = new android.graphics.Region();
+            var concealed = paperConcealedTasks(workspace.tasks);
+            for (var task : workspace.tasks) {
+                if (!task.visible || concealed.contains(task.taskId) || task.bounds == null) continue;
+                var exposed = new android.graphics.Region(task.bounds);
+                exposed.op(area, android.graphics.Region.Op.INTERSECT);
+                exposed.op(covered, android.graphics.Region.Op.DIFFERENCE);
+                if (task.taskId != mObservedFocusedTaskId && paper.owns(task.taskId)
+                        && task.isBoundedFreeform()
+                        && (task.bounds.left < area.left || task.bounds.right > area.right)) {
+                    var rectangles = new android.graphics.RegionIterator(exposed);
+                    Rect rectangle = new Rect();
+                    while (rectangles.next(rectangle)) {
+                        targets.add(new DesktopPaperFocusShields.Target(task.taskId, new Rect(rectangle)));
+                    }
+                }
+                covered.op(task.bounds, android.graphics.Region.Op.UNION);
+            }
+        }
+        DesktopTaskbarHost.setPaperFocusShields(mDisplayId, targets,
+                taskId -> focusDesktopTask(mDisplayId, taskId, null));
     }
 
     private int currentDesktopHostTaskId() {
@@ -1373,10 +1548,18 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         }
         final boolean restoredConcealedTask =
                 restoreTaskbarTask(focusedTaskId);
+        final var paper = paperPolicy();
+        final List<Integer> focusOrder = operation == DesktopWorkspaceCommand.ACTIVATE
+                && paper != null && paper.owns(focusedTaskId)
+                ? paper.activationOrder(focusedTaskId).stream()
+                        .filter(this::isDesktopOwnedTask).toList()
+                : requestedTaskIds;
+        final int focusOperation = operation == DesktopWorkspaceCommand.ACTIVATE
+                && focusOrder.size() > 1 ? DesktopWorkspaceCommand.RESTORE_WORKSPACE : operation;
         sendWorkspaceCommand(
-                operation,
+                focusOperation,
                 mDisplayId,
-                requestedTaskIds,
+                focusOrder,
                 beginFocusTracking(
                         focusedTaskId,
                         result -> {
@@ -1589,13 +1772,19 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             if (task == null) {
                 return;
             }
-            mWindowTransitions.applyAction(task, shortcut);
+            applyNativeTaskShortcut(shortcut, task);
         }));
         return true;
     }
 
     @Override public void setMaximized(int displayId, int taskId, io.github.mekhontsev.magicdesk.hosted.HostedMaximization maximized, TaskRepository.ActionCallback callback) {
-        withFreeformTask(displayId, taskId, task -> mWindowTransitions.setMaximized(task, maximized, callback), callback);
+        withFreeformTask(displayId, taskId, task -> {
+            var paper = paperPolicy();
+            if (paper != null && paper.owns(taskId)) {
+                arrangePaperWindows(maximized.horizontal ? DesktopPaperWindowController.Command.MAXIMIZE
+                        : DesktopPaperWindowController.Command.UNMAXIMIZE, taskId, callback);
+            } else mWindowTransitions.setMaximized(task, maximized, callback);
+        }, callback);
     }
 
     @Override
@@ -1793,7 +1982,10 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private void handleActiveTaskShortcutInternal(
             final DesktopWindowAction shortcut,
             final int activeTaskId) {
-        handleNativeTaskShortcut(shortcut, activeTaskId);
+        var command = DesktopPaperWindowController.commandFor(shortcut);
+        if (command != null) {
+            arrangePaperWindows(command, activeTaskId, null);
+        } else handleNativeTaskShortcut(shortcut, activeTaskId);
     }
 
     private void handleNativeTaskShortcut(
@@ -1841,6 +2033,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final TaskRepository.TaskEntry task) {
         recordFocusEvent("shortcut_target", mDisplayId, task.taskId,
                 true, "shortcut=" + shortcut.diagnosticId());
+        var paper = paperPolicy();
+        if (paper != null && task.isBoundedFreeform() && paper.owns(task.taskId)) {
+            if (shortcut == DesktopWindowAction.MAXIMIZE || shortcut == DesktopWindowAction.UNMAXIMIZE || shortcut == DesktopWindowAction.RESTORE) {
+                arrangePaperWindows(shortcut == DesktopWindowAction.MAXIMIZE ? DesktopPaperWindowController.Command.MAXIMIZE
+                        : DesktopPaperWindowController.Command.UNMAXIMIZE, task.taskId, null);
+                return;
+            }
+        }
         mWindowTransitions.applyAction(task, shortcut);
     }
 
@@ -2124,6 +2324,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private void applySnapshot(final TaskRepository.Snapshot snapshot) {
         publishTaskObservation(snapshot);
         if (!snapshot.available) {
+            clearPaperControls();
             Log.w(TAG, "task snapshot unavailable: " + snapshot.error);
             return;
         }
@@ -2140,6 +2341,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         final TaskRepository.Snapshot workspace =
                 desktopWorkspaceSnapshot(snapshot);
         if (!workspace.available) {
+            clearPaperControls();
             mLatestTasks = Collections.emptyList();
             return;
         }
@@ -2150,7 +2352,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 DesktopTaskPresentationPolicy.displayDensityDpi(
                         mWindowContext));
         reconcileTaskbarConcealment(workspace.tasks);
-        mNativeWindowBounds.reconcile(workspace.tasks);
+        mNativeWindowBounds.reconcile(workspace.tasks.stream()
+                .filter(task -> !isLayoutOwned(task.taskId)).toList());
         reconcileWindowLayout(workspace);
         // Workspace operations remain ownership-scoped, but shell chrome must
         // follow the physical display foreground. A foreign fullscreen task
@@ -2195,6 +2398,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 workspace.tasks,
                 visibleTasks,
                 focusingTaskId >= 0);
+        updatePaperControls(workspace);
     }
 
     private TaskRepository.Snapshot desktopWorkspaceSnapshot(

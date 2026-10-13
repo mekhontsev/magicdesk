@@ -58,6 +58,10 @@ final class DesktopTaskbarHost {
             ShellBounds bounds = PanelGeometry.presented(bounds(panel.output()), bounds(edgeHidden ? panel.paint() : panel.frame()),
                     panel.edge(), true, edgeHidden, edgeHeight);
             if (x >= bounds.left() && x < bounds.right() && y >= bounds.top() && y < bounds.bottom()) return true;
+            if (!edgeHidden) {
+                var approach = PanelGeometry.approach(bounds(panel.output()), bounds(panel.paint()), panel.edge());
+                if (x >= approach.left() && x < approach.right() && y >= approach.top() && y < approach.bottom()) return true;
+            }
         }
         return false;
     }
@@ -96,6 +100,24 @@ final class DesktopTaskbarHost {
         final DesktopTaskbarHost host;
         synchronized (REGISTRY_LOCK) { host = HOSTS.get(displayId); }
         if (host != null && !host.mReleased && host.mEdgeInputListener != null && event != null) host.mEdgeInputListener.onEdgeInput(event);
+    }
+    static void setActiveWindowBorder(int displayId, Rect task, Rect workArea) {
+        final DesktopChromeActivity activity;
+        synchronized (REGISTRY_LOCK) { activity = ACTIVITIES.get(displayId); }
+        if (activity != null) activity.setActiveWindowBorder(task, workArea);
+    }
+    static void setPaperFocusShields(int displayId,
+            java.util.List<DesktopPaperFocusShields.Target> targets,
+            java.util.function.IntConsumer activate) {
+        final DesktopChromeActivity activity;
+        synchronized (REGISTRY_LOCK) { activity = ACTIVITIES.get(displayId); }
+        if (activity != null) activity.setPaperFocusShields(targets, activate);
+    }
+    static void setPaperNavigation(int displayId, Rect area, boolean previous, boolean next,
+            java.util.function.IntConsumer navigate) {
+        final DesktopChromeActivity activity;
+        synchronized (REGISTRY_LOCK) { activity = ACTIVITIES.get(displayId); }
+        if (activity != null) activity.setPaperNavigation(area, previous, next, navigate);
     }
     private DesktopChromeActivity currentActivity() {
         synchronized (REGISTRY_LOCK) { return HOSTS.get(mDisplayId) == this ? ACTIVITIES.get(mDisplayId) : null; }

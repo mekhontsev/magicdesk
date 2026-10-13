@@ -191,6 +191,12 @@ public final class UiAppearance {
         paint.refresh();
         return paint;
     }
+    static GradientDrawable edgeTabPaint(Context context, UiColor fill, float radius) {
+        final Paint paint = (Paint) paint(context, fill, radius, UiColor.TRANSPARENT);
+        paint.squareRight = true;
+        paint.refresh();
+        return paint;
+    }
     static GradientDrawable panelPaint(Context context, String panelId) {
         if (AppearanceStore.current(context).composition().panel(panelId) == null) {
             throw new IllegalArgumentException("Unknown appearance panel: " + panelId);
@@ -260,6 +266,7 @@ public final class UiAppearance {
         final AppearanceScopeSource source;
         String panelId;
         boolean backdrop;
+        boolean squareRight;
         Paint(Context context, float density, UiColor fill, float radius, UiColor border) {
             this.density = density; this.fill = fill; this.radius = radius; this.border = border;
             source = new AppearanceScopeSource(context);
@@ -273,7 +280,11 @@ public final class UiAppearance {
             }
             final int color = theme.palette().color(fill);
             setColor(backdrop ? (Math.round(255 * backdropStyle().opacity()) << 24) | (color & 0xffffff) : color);
-            setCornerRadius(panel != null ? panel.style().radiusDp() * density : radius * theme.shape().radiusScale());
+            final float resolvedRadius = panel != null ? panel.style().radiusDp() * density
+                    : radius * theme.shape().radiusScale();
+            if (squareRight) setCornerRadii(new float[] {resolvedRadius, resolvedRadius, 0, 0,
+                    0, 0, resolvedRadius, resolvedRadius});
+            else setCornerRadius(resolvedRadius);
             setStroke(border == UiColor.TRANSPARENT ? 0 : Math.round(density * theme.shape().borderDp()),
                     theme.palette().color(border));
             invalidateSelf();

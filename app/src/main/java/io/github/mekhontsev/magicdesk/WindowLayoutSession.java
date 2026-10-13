@@ -6,12 +6,15 @@ import java.util.Objects;
 final class WindowLayoutSession {
     private static final WindowLayoutPolicy RELEASE_POLICY = new FloatingWindowLayoutPolicy();
 
-    private WindowLayoutPolicy mPolicy;
+    // Mutations are dispatcher-confined; input adapters may read the immutable policy snapshot.
+    private volatile WindowLayoutPolicy mPolicy;
     private WindowLayoutPolicy.Workspace mLastObservation;
 
     WindowLayoutSession(WindowLayoutPolicy policy) {
         mPolicy = Objects.requireNonNull(policy);
     }
+
+    WindowLayoutPolicy policy() { return mPolicy; }
 
     boolean observesWorkspace() { return mPolicy.observesWorkspace(); }
 

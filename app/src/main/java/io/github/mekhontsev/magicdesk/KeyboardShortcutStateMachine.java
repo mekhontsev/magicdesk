@@ -35,7 +35,14 @@ final class KeyboardShortcutStateMachine {
         DISPLAY_CANCEL,
         SCREENSHOT,
         SCREEN_RECORDING,
-        SHORTCUT_HELP
+        SHORTCUT_HELP,
+        PAPER_TOGGLE,
+        PAPER_PREVIOUS,
+        PAPER_NEXT,
+        PAPER_MOVE_LEFT,
+        PAPER_MOVE_RIGHT,
+        PAPER_WIDTH,
+        PAPER_FLOAT
     }
 
 
@@ -167,6 +174,18 @@ final class KeyboardShortcutStateMachine {
         }
         if (!ctrl && !alt && !shift && !meta && key == KeyEvent.KEYCODE_ESCAPE) {
             return Action.DISMISS;
+        }
+        if (meta && ctrl && !alt) {
+            return switch (key) {
+                case KeyEvent.KEYCODE_P -> shift ? Action.NONE : Action.PAPER_TOGGLE;
+                case KeyEvent.KEYCODE_DPAD_LEFT -> shift
+                        ? Action.PAPER_MOVE_LEFT : Action.PAPER_PREVIOUS;
+                case KeyEvent.KEYCODE_DPAD_RIGHT -> shift
+                        ? Action.PAPER_MOVE_RIGHT : Action.PAPER_NEXT;
+                case KeyEvent.KEYCODE_R -> shift ? Action.NONE : Action.PAPER_WIDTH;
+                case KeyEvent.KEYCODE_F -> shift ? Action.NONE : Action.PAPER_FLOAT;
+                default -> Action.NONE;
+            };
         }
         if (!meta || ctrl || alt) {
             return Action.NONE;

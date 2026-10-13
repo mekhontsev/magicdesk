@@ -93,7 +93,7 @@ interface IShellCommandService {
 
     String[] getOwnedInputPorts() = 22;
 
-    int[] getRoutedKeyboardDeviceIds(int displayId) = 23;
+    int[] getRoutedShortcutDeviceIds(int displayId) = 23;
 
     String startDisplayRecording(
         String physicalDisplayId,

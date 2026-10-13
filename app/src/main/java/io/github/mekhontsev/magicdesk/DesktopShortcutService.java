@@ -22,9 +22,15 @@ public final class DesktopShortcutService extends AccessibilityService
     private static volatile DesktopShortcutService sInstance;
     private static volatile int sTargetDisplay = Display.INVALID_DISPLAY;
     private static volatile boolean sDesktop;
+    private static volatile int sRecordingInputs;
+
+    static void setRecordingInput(boolean recording) {
+        sRecordingInputs = Math.max(0, sRecordingInputs + (recording ? 1 : -1));
+    }
     private final Map<Integer, KeyboardShortcutStateMachine> mKeyboards = new HashMap<>();
+    private final Map<Integer, PaperInputShortcutState> mCustomInputs = new HashMap<>();
     private volatile long mShortcutCount;
-    private volatile Set<Integer> mRoutedKeyboards = Set.of();
+    private volatile Set<Integer> mRoutedDevices = Set.of();
     private int mDeviceGeneration;
 
     static void setTargetDisplay(final int displayId) {
@@ -63,7 +69,7 @@ public final class DesktopShortcutService extends AccessibilityService
         return new DesktopInputDiagnostics.BridgeSnapshot(
                 service != null, service != null && sTargetDisplay >= 0, 0,
                 "mechanism=accessibility-key-filter, devices="
-                        + (service == null ? Set.of() : service.mRoutedKeyboards)
+                        + (service == null ? Set.of() : service.mRoutedDevices)
                         + ", mode=" + (sDesktop ? "desktop" : "display-switch") + ", shortcuts="
                         + (service == null ? 0 : service.mShortcutCount),
                 service == null ? "service not connected" : "");
@@ -83,7 +89,28 @@ public final class DesktopShortcutService extends AccessibilityService
                         && event.getAction() != KeyEvent.ACTION_UP)) return false;
         final InputDevice device = event.getDevice();
         if (device == null || device.isVirtual() || !device.isExternal()
-                || !mRoutedKeyboards.contains(event.getDeviceId())) return false;
+                || !mRoutedDevices.contains(event.getDeviceId())) return false;
+        if (sRecordingInputs > 0) return false;
+        final var input = mCustomInputs.computeIfAbsent(event.getDeviceId(), id -> new PaperInputShortcutState());
+        final boolean tiling = sDesktop && MagicDeskRuntime.isPaperLayoutEnabled(sTargetDisplay);
+        PaperInputAction mapping = PaperInputAction.SYSTEM;
+        if (tiling) {
+            final var settings = MagicDeskSettings.load();
+            final int modifiers = PaperInputBinding.modifiers(event.isCtrlPressed(), event.isAltPressed(),
+                    event.isShiftPressed(), event.isMetaPressed());
+            if (settings.paperInputFirst.matches(event.getKeyCode(), modifiers)) mapping = settings.paperInputFirst.action();
+            else if (settings.paperInputSecond.matches(event.getKeyCode(), modifiers)) mapping = settings.paperInputSecond.action();
+        }
+        final var custom = input.accept(event.getKeyCode(), event.getAction() == KeyEvent.ACTION_DOWN,
+                event.getRepeatCount(), tiling, mapping);
+        if (custom.consumed()) {
+            if (custom.command() != null && !event.isCanceled()) {
+                mShortcutCount++;
+                MagicDeskRuntime.handleActiveTaskShortcut(sTargetDisplay, custom.command());
+            }
+            return true;
+        }
+        if (device.getKeyboardType() != InputDevice.KEYBOARD_TYPE_ALPHABETIC) return false;
         final KeyboardShortcutStateMachine keyboard = mKeyboards.computeIfAbsent(
                 event.getDeviceId(), id -> new KeyboardShortcutStateMachine());
         final KeyboardShortcutStateMachine.Result result = keyboard.accept(
@@ -104,6 +131,7 @@ public final class DesktopShortcutService extends AccessibilityService
 
     @Override
     public void onInputDeviceRemoved(final int id) {
+        mCustomInputs.remove(id);
         final KeyboardShortcutStateMachine keyboard = mKeyboards.remove(id);
         if (keyboard != null && keyboard.reset()) cancelSelections();
         refreshRouting();
@@ -123,6 +151,7 @@ public final class DesktopShortcutService extends AccessibilityService
             cancel |= keyboard.reset();
         }
         mKeyboards.clear();
+        mCustomInputs.clear();
         if (cancel) cancelSelections();
     }
 
@@ -135,7 +164,7 @@ public final class DesktopShortcutService extends AccessibilityService
         final int displayId = sTargetDisplay;
         final int generation = ++mDeviceGeneration;
         if (displayId < 0) {
-            mRoutedKeyboards = Set.of();
+            mRoutedDevices = Set.of();
             return;
         }
         // InputManagerGlobal publishes generation changes only for materialized
@@ -146,15 +175,15 @@ public final class DesktopShortcutService extends AccessibilityService
         DesktopOperations.executeSerialized(() -> {
             final Set<Integer> ids = new HashSet<>();
             try {
-                for (final int id : ShellAccess.routedKeyboardDeviceIds(displayId)) ids.add(id);
+                for (final int id : ShellAccess.routedShortcutDeviceIds(displayId)) ids.add(id);
             } catch (IOException error) {
                 CompatibilityDiagnostics.record("INPUT-SHORTCUTS-001",
-                        "Could not observe shortcut keyboard routing", error.getMessage(), error);
+                        "Could not observe shortcut device routing", error.getMessage(), error);
             }
             MAIN.post(() -> {
                 if (sInstance == this && sTargetDisplay == displayId
                         && mDeviceGeneration == generation) {
-                    mRoutedKeyboards = Set.copyOf(ids);
+                    mRoutedDevices = Set.copyOf(ids);
                 }
             });
         });

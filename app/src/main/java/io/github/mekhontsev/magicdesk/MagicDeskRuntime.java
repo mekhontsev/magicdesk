@@ -875,8 +875,17 @@ public final class MagicDeskRuntime {
         tasks.toggleTaskbarTask(displayId, taskId, callback);
     }
 
+    static boolean isPaperLayoutEnabled(final int displayId) {
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
+        return tasks != null && tasks.isPaperLayoutEnabled();
+    }
+
     static boolean handleActiveTaskShortcut(final DesktopWindowAction shortcut) {
-        final DesktopTaskRuntime tasks = desktopTasks(inputDisplayId());
+        return handleActiveTaskShortcut(inputDisplayId(), shortcut);
+    }
+
+    static boolean handleActiveTaskShortcut(final int displayId, final DesktopWindowAction shortcut) {
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         return tasks != null && tasks.handleActiveTaskShortcut(shortcut);
     }
 

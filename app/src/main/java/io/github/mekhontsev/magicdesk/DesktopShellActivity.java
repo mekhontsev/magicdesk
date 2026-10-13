@@ -2328,6 +2328,7 @@ public abstract class DesktopShellActivity extends Activity
         }
         if (mTaskbarRevealController != null) {
             mTaskbarRevealController.setAutoHide(mTaskbarAutoHide);
+            mTaskbarRevealController.setClickReveal(settings.taskbarClickReveal);
         }
         if (mDesktopWorkspaceController != null) {
             mDesktopWorkspaceController.refreshSettings(settings);

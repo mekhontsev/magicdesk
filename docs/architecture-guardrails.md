@@ -69,7 +69,7 @@ retryable. Unknown or incomplete input inventory is an error, not an empty list.
 
 Existing input-device callbacks reconcile hot-plugged locations. There is no
 periodic input inventory query. While input is explicitly acquired, a key-only
-Accessibility service receives confirmed routed keyboard IDs, observed through
+Accessibility service receives confirmed routed keyboard and mouse IDs, observed through
 device-generation callbacks. It materializes the app's input-device inventory
 after each callback so Android continues publishing generation changes. The
 privileged routing adapter reads devices directly from InputManager's Binder:
@@ -78,9 +78,11 @@ device cache. Shortcut eligibility must not retain that stale association.
 This adds no polling or per-key Binder query. Outside a prepared Desktop it handles display
 switching only; Android retains application shortcuts, including Alt+Tab and
 Meta. With Desktop it also consumes MagicDesk combinations through the same
-`DesktopOperations` and task-controller gateways as the UI. Ordinary key
-events continue through Android unchanged. Service enablement has its own
-shell-owned journal and preserves other Accessibility services.
+`DesktopOperations` and task-controller gateways as the UI. Recorded tiling
+shortcuts apply only while tiling is enabled on that Desktop. Programmable
+mouse buttons can use them if they send keyboard events. Raw pointer events
+are not intercepted. Other keys pass through to Android. Service enablement
+has its own shell-owned journal and preserves other Accessibility services.
 
 Host registration alone does not start input. Preparation is published after
 HOME draws, workspace ownership is configured and parked-task restoration

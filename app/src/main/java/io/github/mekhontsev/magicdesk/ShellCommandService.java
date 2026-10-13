@@ -1194,11 +1194,11 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     }
 
     @Override
-    public int[] getRoutedKeyboardDeviceIds(final int displayId) {
+    public int[] getRoutedShortcutDeviceIds(final int displayId) {
         try {
-            return FrameworkRuntime.current().inputRouting().keyboardDeviceIds(displayId);
+            return FrameworkRuntime.current().inputRouting().shortcutDeviceIds(displayId);
         } catch (ReflectiveOperationException error) {
-            throw new IllegalStateException("cannot observe routed keyboard devices", error);
+            throw new IllegalStateException("cannot observe routed shortcut devices", error);
         }
     }
 

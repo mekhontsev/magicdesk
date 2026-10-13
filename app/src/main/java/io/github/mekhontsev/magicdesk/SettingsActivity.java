@@ -77,6 +77,14 @@ public final class SettingsActivity extends Activity
         super.onDestroy();
     }
 
+    @Override public void setPaperActiveBorder(boolean enabled) {
+        saveSetting(MagicDeskSettings.setPaperActiveBorder(enabled));
+    }
+
+    @Override public void setPaperEdgeButtons(boolean enabled) {
+        saveSetting(MagicDeskSettings.setPaperEdgeButtons(enabled));
+    }
+
     @Override public void configureAppearance() {
         if (mAppearance.isOpen()) return;
         setContentView(mAppearance.createPage(this::closeAppearance));
@@ -128,6 +136,11 @@ public final class SettingsActivity extends Activity
     @Override protected void onActivityResult(int request, int result, Intent data) {
         if (mAppearance != null && mAppearance.onResult(request, result, data)) return;
         super.onActivityResult(request, result, data);
+    }
+
+    @Override
+    public void setTaskbarClickReveal(final boolean enabled) {
+        saveSetting(MagicDeskSettings.setTaskbarClickReveal(enabled));
     }
 
     @Override

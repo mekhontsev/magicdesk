@@ -94,6 +94,27 @@ final class DesktopShortcutActions {
             case SHORTCUT_HELP:
                 DesktopOperations.showShortcutHelp();
                 break;
+            case PAPER_TOGGLE:
+                DesktopOperations.manageActiveWindow(DesktopWindowAction.PAPER_TOGGLE);
+                break;
+            case PAPER_PREVIOUS:
+                DesktopOperations.manageActiveWindow(DesktopWindowAction.PAPER_PREVIOUS);
+                break;
+            case PAPER_NEXT:
+                DesktopOperations.manageActiveWindow(DesktopWindowAction.PAPER_NEXT);
+                break;
+            case PAPER_MOVE_LEFT:
+                DesktopOperations.manageActiveWindow(DesktopWindowAction.PAPER_MOVE_LEFT);
+                break;
+            case PAPER_MOVE_RIGHT:
+                DesktopOperations.manageActiveWindow(DesktopWindowAction.PAPER_MOVE_RIGHT);
+                break;
+            case PAPER_WIDTH:
+                DesktopOperations.manageActiveWindow(DesktopWindowAction.PAPER_WIDTH);
+                break;
+            case PAPER_FLOAT:
+                DesktopOperations.manageActiveWindow(DesktopWindowAction.PAPER_FLOAT);
+                break;
             case NONE:
             default:
                 break;

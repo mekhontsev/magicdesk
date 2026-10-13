@@ -105,6 +105,42 @@ public final class PanelGeometryTest {
         assertEquals(255, PanelGeometry.paintAlpha(true, false));
     }
 
+    @Test public void approachReachesEveryOutputEdgeWithoutDependingOnDockOverflow() {
+        var output = new ShellBounds(100, 200, 1100, 900);
+        var paint = new ShellBounds(300, 400, 700, 800);
+        for (var edge : ShellPanel.Edge.values()) {
+            var expected = switch (edge) {
+                case TOP -> new ShellBounds(300, 200, 700, 400);
+                case BOTTOM -> new ShellBounds(300, 800, 700, 900);
+                case LEFT -> new ShellBounds(100, 400, 300, 800);
+                case RIGHT -> new ShellBounds(700, 400, 1100, 800);
+            };
+            var approach = PanelGeometry.approach(output, paint, edge);
+            assertEquals(expected, approach);
+            var host = PanelGeometry.withApproach(paint, approach);
+            assertEquals(paint, host.intersect(paint));
+            assertEquals(approach, host.intersect(approach));
+            assertEquals(host, host.intersect(output));
+            assertTrue(PanelGeometry.approach(output, output, edge).isEmpty());
+            assertSame(paint, PanelGeometry.withApproach(paint, new ShellBounds(0, 0, 0, 0)));
+        }
+    }
+
+    @Test public void stableHostContainsTheHiddenStripAndShownApproachForEveryEdge() {
+        var output = new ShellBounds(100, 200, 1100, 900);
+        var paint = new ShellBounds(300, 400, 700, 800);
+        for (var edge : ShellPanel.Edge.values()) {
+            var approach = PanelGeometry.approach(output, paint, edge);
+            var host = PanelGeometry.withApproach(PanelGeometry.expanded(paint, output, 24), approach);
+            var strip = PanelGeometry.reveal(output, paint, edge, 1);
+            assertEquals(strip, host.intersect(strip));
+            assertEquals(approach, host.intersect(approach));
+            assertEquals(paint, host.intersect(paint));
+            assertEquals(edge.vertical() ? 1 : paint.width(), strip.width());
+            assertEquals(edge.vertical() ? paint.height() : 1, strip.height());
+        }
+    }
+
     @Test public void tinyRevealRemainsInsideOutputForEveryEdge() {
         final var output = new ShellBounds(10, 20, 11, 21);
         for (ShellPanel.Edge edge : ShellPanel.Edge.values()) {
