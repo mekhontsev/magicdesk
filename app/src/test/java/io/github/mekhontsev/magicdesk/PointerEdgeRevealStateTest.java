@@ -80,6 +80,21 @@ public final class PointerEdgeRevealStateTest {
         assertFalse(state.isRevealed());
     }
 
+    @Test public void clickRevealsImmediatelyAndClearsPendingTimers() {
+        final var state = armedState();
+        state.onPointerEntered();
+        assertTrue(state.onPointerClick());
+        assertTrue(state.isRevealed());
+        assertFalse(state.onRevealTimeout());
+        state.onPointerExited();
+        assertTrue(state.onPointerClick());
+        assertFalse(state.onHideTimeout());
+        state.onPointerExited();
+        assertTrue(state.onHideTimeout());
+        state.setArmed(false);
+        assertFalse(state.onPointerClick());
+    }
+
     private static PointerEdgeRevealState armedState() {
         final PointerEdgeRevealState state = new PointerEdgeRevealState();
         state.setArmed(true);

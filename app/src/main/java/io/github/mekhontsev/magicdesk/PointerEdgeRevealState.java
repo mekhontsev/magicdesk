@@ -65,6 +65,15 @@ final class PointerEdgeRevealState {
         return TimerAction.NONE;
     }
 
+    boolean onPointerClick() {
+        if (!mArmed) return false;
+        mPointerInside = true;
+        mRevealPending = false;
+        mHidePending = false;
+        mRevealed = true;
+        return true;
+    }
+
     boolean onRevealTimeout() {
         if (!mArmed || !mPointerInside || !mRevealPending || mRevealed) {
             return false;

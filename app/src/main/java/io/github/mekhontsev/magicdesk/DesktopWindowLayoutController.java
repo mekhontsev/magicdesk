@@ -43,6 +43,8 @@ final class DesktopWindowLayoutController {
         }
     }
 
+    WindowLayoutPolicy policy() { return mSession.policy(); }
+
     boolean observesWorkspace() { return mSession.observesWorkspace(); }
 
     boolean acceptObservation(WindowLayoutPolicy.Workspace workspace) {
@@ -59,7 +61,8 @@ final class DesktopWindowLayoutController {
                     || !DesktopManagedTaskPolicy.isControllableApplicationTask(task)) continue;
             DesktopTaskRuntimeState state = mStates.find(task.taskId);
             windows.add(new WindowLayoutPolicy.Window(task.taskId,
-                    task.isBoundedFreeform() && (state == null || !state.isFullscreenTransition()),
+                    task.isBoundedFreeform() && !task.hasCrossPackageTopActivity()
+                            && (state == null || !state.isFullscreenTransition()),
                     concealed.contains(task.taskId), bounds(task.bounds),
                     state == null ? null : state.layoutOwnership().floatingBounds()));
         }

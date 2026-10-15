@@ -17,7 +17,8 @@ current only after successful submission, never after cancellation or failure.
 
 `WindowLayoutSession` owns the current policy, observation deduplication and
 continuation acknowledgement without Android dependencies. The workspace
-dispatcher serializes access to it. Layout release uses the core floating policy,
+dispatcher serializes mutations; input adapters can read its published immutable
+policy snapshot to check whether tiling is enabled. Layout release uses the core floating policy,
 not the selected policy, so restoration does not depend on that policy's planner.
 Replacing a policy clears its consumed observation; a continuation retains it.
 
@@ -89,4 +90,5 @@ Desktop self-test checks `LAYOUT-001` and `LAYOUT-002` install a temporary test
 policy, place two real tasks before activation and restore their original
 floating geometry through production policy replacement.
 
-No alternative layout mode or tiling controls are exposed by this contract.
+The optional [Scrollable tiling](scrollable-tiling.md) mode implements this
+contract. Its controls and preferences are separate from the geometry executor.

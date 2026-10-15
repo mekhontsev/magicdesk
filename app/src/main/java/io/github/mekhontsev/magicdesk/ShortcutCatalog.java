@@ -2,6 +2,12 @@ package io.github.mekhontsev.magicdesk;
 
 final class ShortcutCatalog {
     static final Entry[] ENTRIES = {
+        new Entry(R.string.shortcut_paper_toggle, R.string.shortcut_paper_toggle_action),
+        new Entry(R.string.shortcut_paper_scroll, R.string.shortcut_paper_scroll_action),
+        new Entry(R.string.shortcut_paper_move, R.string.shortcut_paper_move_action),
+        new Entry(R.string.shortcut_paper_width, R.string.shortcut_paper_width_action),
+        new Entry(R.string.shortcut_paper_float, R.string.shortcut_paper_float_action),
+
         new Entry(R.string.shortcut_maximize,
                 R.string.shortcut_maximize_action),
         new Entry(R.string.shortcut_restore,

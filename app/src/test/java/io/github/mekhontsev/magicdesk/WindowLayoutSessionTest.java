@@ -40,9 +40,12 @@ public final class WindowLayoutSessionTest {
         var candidate = new WindowLayoutPolicy.Plan(List.of(), next);
         var session = new WindowLayoutSession((workspace, request) -> candidate);
         assertTrue(session.acceptObservation(WORKSPACE));
+        WindowLayoutPolicy original = session.policy();
         assertSame(candidate, session.plan(WORKSPACE, WindowLayoutPolicy.Request.observe()));
+        assertSame(original, session.policy());
         assertTrue(session.observesWorkspace());
         session.acknowledge(candidate);
+        assertSame(next, session.policy());
         assertFalse(session.observesWorkspace());
         assertFalse(session.acceptObservation(WORKSPACE));
         session.acknowledge(WindowLayoutPolicy.Plan.EMPTY);
@@ -54,6 +57,7 @@ public final class WindowLayoutSessionTest {
         session.acceptObservation(WORKSPACE);
         WindowLayoutPolicy next = (workspace, request) -> WindowLayoutPolicy.Plan.EMPTY;
         session.replacePolicy(next);
+        assertSame(next, session.policy());
         assertTrue(session.observesWorkspace());
         assertTrue(session.acceptObservation(WORKSPACE));
         assertSame(WindowLayoutPolicy.Plan.EMPTY,

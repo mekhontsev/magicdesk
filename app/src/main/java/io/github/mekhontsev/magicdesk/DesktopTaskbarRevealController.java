@@ -31,6 +31,7 @@ final class DesktopTaskbarRevealController {
 
     private boolean mPolicyVisible = true;
     private boolean mAutoHide;
+    private boolean mClickReveal;
     private boolean mAutomaticHold;
     private boolean mInteractionHold;
     private boolean mStarted;
@@ -84,6 +85,10 @@ final class DesktopTaskbarRevealController {
         if (mStarted) {
             applyPresentation();
         }
+    }
+
+    void setClickReveal(final boolean enabled) {
+        mClickReveal = enabled;
     }
 
     void setAutoHide(final boolean enabled) {
@@ -149,12 +154,27 @@ final class DesktopTaskbarRevealController {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_HOVER_ENTER:
             case MotionEvent.ACTION_HOVER_MOVE:
-            case MotionEvent.ACTION_DOWN:
-            case MotionEvent.ACTION_MOVE:
-            case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_OUTSIDE:
                 applyTimerAction(contains(event.getRawX(), event.getRawY())
                         ? mPointerState.onPointerEntered() : mPointerState.onPointerExited());
+                break;
+            case MotionEvent.ACTION_DOWN:
+                if (mClickReveal && event.isFromSource(InputDevice.SOURCE_MOUSE)
+                        && (event.getButtonState() & MotionEvent.BUTTON_PRIMARY) != 0
+                        && contains(event.getRawX(), event.getRawY())
+                        && mPointerState.onPointerClick()) {
+                    cancelTimers();
+                    applyPresentation();
+                    break;
+                }
+                // Clicking is an optional immediate reveal. Only hover starts
+                // dwell; ordinary clicks must not accidentally enable it.
+            case MotionEvent.ACTION_MOVE:
+            case MotionEvent.ACTION_UP:
+                if (currentPresentation() == Presentation.VISIBLE) {
+                    applyTimerAction(contains(event.getRawX(), event.getRawY())
+                            ? mPointerState.onPointerEntered() : mPointerState.onPointerExited());
+                }
                 break;
             case MotionEvent.ACTION_HOVER_EXIT:
             case MotionEvent.ACTION_CANCEL:

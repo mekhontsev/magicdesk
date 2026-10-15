@@ -17,8 +17,11 @@ import android.widget.TextView;
 
 final class SettingsView {
     interface Actions {
+        void setPaperActiveBorder(boolean enabled);
+        void setPaperEdgeButtons(boolean enabled);
         void configureAppearance();
         void configureLanguage();
+        void setTaskbarClickReveal(boolean enabled);
         void setTaskbarAutoHide(boolean enabled);
 
         void setKeepDesktopAwake(boolean enabled);
@@ -82,12 +85,15 @@ final class SettingsView {
     private final DesktopUiFactory mUi;
     private final Actions mActions;
     private Switch mTaskbarAutoHide;
+    private Switch mTaskbarClickReveal;
     private Switch mKeepDesktopAwake;
     private Switch mKeepScreenOn;
     private Switch mPhoneFullscreenByDefault;
     private Switch mDisableAdaptiveBrightness;
     private Switch mOpenTouchpadAutomatically;
     private Switch mKeyboardOnAppDisplay;
+    private Switch mPaperActiveBorder;
+    private Switch mPaperEdgeButtons;
     private final java.util.EnumMap<DesktopCompatibilityPolicy.Option, Switch> mCompatibility =
             new java.util.EnumMap<>(DesktopCompatibilityPolicy.Option.class);
     private Switch mOpenFilesWithSingleClick;
@@ -143,6 +149,10 @@ final class SettingsView {
                 mActions.setTaskbarAutoHide(checked);
             }
         });
+        mTaskbarClickReveal = addSwitch(content, R.string.settings_taskbar_click_reveal);
+        mTaskbarClickReveal.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) mActions.setTaskbarClickReveal(checked);
+        });
         mOpenFilesWithSingleClick = addSwitch(
                 content, R.string.settings_open_files_single_click);
         mOpenFilesWithSingleClick.setOnCheckedChangeListener(
@@ -160,6 +170,18 @@ final class SettingsView {
                 R.drawable.ic_quick_controls,
                 R.string.app_presentation_profiles_title,
                 mActions::openApplicationSettings);
+
+        addSection(content, R.string.paper_layout_title);
+        mPaperEdgeButtons = addSwitch(content, R.string.paper_edge_buttons);
+        mPaperEdgeButtons.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) mActions.setPaperEdgeButtons(checked);
+        });
+        mPaperActiveBorder = addSwitch(content, R.string.paper_active_border);
+        mPaperActiveBorder.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) mActions.setPaperActiveBorder(checked);
+        });
+        addAction(content, R.drawable.ic_keyboard, R.string.paper_shortcuts,
+                () -> PaperWindowSettingsDialog.show(mActivity));
 
         addSection(content, R.string.settings_section_console);
         mConsoleFontSize = new TextView(mActivity);
@@ -396,18 +418,23 @@ final class SettingsView {
         mDesktopSettingsStatus.setText(!RuntimeCapabilities.supportsDesktop(android.os.Build.VERSION.SDK_INT)
                 ? R.string.capability_android_15_required : !RuntimeLimits.active().desktopAllowed()
                 ? R.string.limit_desktop_disabled : R.string.capability_access_required);
-        for (final Switch control : new Switch[] {mTaskbarAutoHide,
+        for (final Switch control : new Switch[] {mTaskbarAutoHide, mTaskbarClickReveal,
                 mOpenTouchpadAutomatically, mKeepDesktopAwake, mKeepScreenOn,
                 mPhoneFullscreenByDefault, mDisableAdaptiveBrightness}) {
             control.setEnabled(mDesktopSettingsAvailable);
         }
         mOpenFilesWithSingleClick.setEnabled(settings != null);
         mKeyboardOnAppDisplay.setEnabled(settings != null);
+        mPaperActiveBorder.setEnabled(settings != null);
+        mPaperEdgeButtons.setEnabled(settings != null);
         if (mProjectionDesktopOption != null) {
             mProjectionDesktopOption.setChecked(mProjectionOption.isEnabled());
             mProjectionDesktopOption.setEnabled(mDesktopSettingsAvailable);
         }
         if (settings != null) {
+            mPaperActiveBorder.setChecked(settings.paperActiveBorder);
+            mPaperEdgeButtons.setChecked(settings.paperEdgeButtons);
+            mTaskbarClickReveal.setChecked(settings.taskbarClickReveal);
             mTaskbarAutoHide.setChecked(settings.taskbarAutoHide);
             mOpenFilesWithSingleClick.setChecked(settings.openFilesWithSingleClick);
             mKeyboardOnAppDisplay.setChecked(settings.keyboardOnAppDisplay);

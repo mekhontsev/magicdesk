@@ -55,7 +55,7 @@ final class FrameworkInputRoutingApi implements InputRoutingLease.Api {
         }
     }
 
-    int[] keyboardDeviceIds(final int displayId) throws ReflectiveOperationException {
+    int[] shortcutDeviceIds(final int displayId) throws ReflectiveOperationException {
         // Public in API 37, hidden but present on the API 34 baseline. Resolve
         // here under shell identity, never from the accessibility key callback.
         final Method associatedDisplay = InputDevice.class.getMethod("getAssociatedDisplayId");
@@ -65,7 +65,8 @@ final class FrameworkInputRoutingApi implements InputRoutingLease.Api {
         for (final int id : (int[]) mGetInputDeviceIds.invoke(mInputManager)) {
             final InputDevice device = (InputDevice) mGetInputDevice.invoke(mInputManager, id);
             if (device != null && !device.isVirtual() && device.isExternal()
-                    && device.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC
+                    && (device.supportsSource(InputDevice.SOURCE_KEYBOARD)
+                            || device.supportsSource(InputDevice.SOURCE_MOUSE))
                     && ((Integer) associatedDisplay.invoke(device)) == displayId) {
                 ids.add(id);
             }

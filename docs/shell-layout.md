@@ -211,7 +211,16 @@ policy without discarding layout intents or moving the stable viewport.
 panel under the same chrome token. Reveal strips lie on each panel's physical
 output edge and retain only its long-axis span. Reveal hit testing and popup
 interaction-owner checks use the individual rectangles, never their bounding box:
-floating gaps and spaces between panels remain outside native input. Touch reveal
+side gaps and spaces between panels remain outside native input. A shown floating
+panel also receives input in the space between its visible content and the
+screen edge, limited to the panel's length. The host window includes that space
+even without dock magnification; its background and work-area reservation stay
+unchanged. Showing or hiding the panel does not resize its window, so hover
+is not cancelled underneath a stationary pointer.
+Concealment makes the content window transparent and non-touchable; a separate
+persistent transparent edge window retains the reveal strip's input. The dock
+and the space between it and the edge no longer receive input.
+Hover reaches the reveal controller before dock effects consume it. Touch reveal
 uses an inward gesture on the edge where it began. Wallpaper fills the physical
 display independently of shell content padding.
 
@@ -472,3 +481,13 @@ late receipts. The workspace runtime fixture accepts an explicit `policy_task`
 for an existing managed freeform task: the production fullscreen/restore gateways
 and native Start exercise conceal/reveal while retaining the same fullscreen task
 plane, panel mapping and work-area reservation.
+
+## Optional Application Arrangement
+
+[Scrollable tiling](scrollable-tiling.md) arranges managed freeform windows
+within the Desktop work area. It is separate from
+`ShellLayout`'s panel reservations and never changes Android task-area topology.
+The mode is explicitly enabled per Desktop session. Activation remains a
+z-order-only gateway operation; the optional tiling policy separately observes
+confirmed focus and scrolls its viewport enough to reveal the selected column.
+Minimized columns retain their place but occupy no strip space until restored.

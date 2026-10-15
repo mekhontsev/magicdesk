@@ -6,7 +6,9 @@ public final class DesktopShortcutRoutingTest {
     @Test public void routedKeyboardsUseCommittedInventoryNotTheOtherProcessesCache() throws Exception {
         RuntimeSourceFixture.verify("""
                 public static class InputDevice {
-                    static final int KEYBOARD_TYPE_ALPHABETIC = 2;
+                    static final int KEYBOARD_TYPE_ALPHABETIC = 2, SOURCE_MOUSE = 8194, SOURCE_KEYBOARD = 257;
+                    boolean mouse;
+                    boolean supportsSource(int source) { return (mouse && source == SOURCE_MOUSE) || (type != 0 && source == SOURCE_KEYBOARD); }
                     int display; boolean virtual, external = true; int type = 2;
                     InputDevice(int target) { display = target; }
                     boolean isVirtual() { return virtual; }
@@ -30,7 +32,7 @@ public final class DesktopShortcutRoutingTest {
                     try { return InputManager.class.getMethod(name, args); }
                     catch (ReflectiveOperationException e) { throw new AssertionError(e); }
                 }
-                """ + RuntimeSourceFixture.methods("FrameworkInputRoutingApi", "keyboardDeviceIds") + """
+                """ + RuntimeSourceFixture.methods("FrameworkInputRoutingApi", "shortcutDeviceIds") + """
                 public static void verify() throws Exception {
                     Fixture api = new Fixture();
                     InputDevice keyboard = new InputDevice(41);
@@ -43,14 +45,16 @@ public final class DesktopShortcutRoutingTest {
                     InputDevice buttons = new InputDevice(41); buttons.type = 1;
                     api.mInputManager.devices.put(61, buttons);
                     api.mInputManager.devices.put(62, null);
-                    check(Arrays.equals(api.keyboardDeviceIds(41), new int[] {57}),
+                    InputDevice mouse = new InputDevice(41); mouse.type = 0; mouse.mouse = true;
+                    api.mInputManager.devices.put(63, mouse);
+                    check(Arrays.equals(api.shortcutDeviceIds(41), new int[] {57, 61, 63}),
                             "committed keyboard route lost or foreign device admitted");
                     keyboard.display = 0;
-                    check(api.keyboardDeviceIds(41).length == 0, "old route retained");
-                    check(Arrays.equals(api.keyboardDeviceIds(0), new int[] {57, 58}),
+                    check(Arrays.equals(api.shortcutDeviceIds(41), new int[] {61, 63}), "old keyboard route retained");
+                    check(Arrays.equals(api.shortcutDeviceIds(0), new int[] {57, 58}),
                             "new route not observed without local cache invalidation");
                     api.mInputManager.devices.clear();
-                    check(api.keyboardDeviceIds(0).length == 0, "disconnected keyboard retained");
+                    check(api.shortcutDeviceIds(0).length == 0, "disconnected keyboard retained");
                 }
                 """);
     }
@@ -72,7 +76,7 @@ public final class DesktopShortcutRoutingTest {
                 }
                 static class ShellAccess {
                     static int[] ids = {57};
-                    static int[] routedKeyboardDeviceIds(int display) throws IOException { return ids; }
+                    static int[] routedShortcutDeviceIds(int display) throws IOException { return ids; }
                 }
                 static class CompatibilityDiagnostics {
                     static void record(String a, String b, String c, Exception d) { throw new AssertionError(d); }
@@ -82,7 +86,7 @@ public final class DesktopShortcutRoutingTest {
                 static DesktopShortcutService sInstance;
                 static class DesktopShortcutService {
                     int mDeviceGeneration;
-                    Set<Integer> mRoutedKeyboards = Set.of();
+                    Set<Integer> mRoutedDevices = Set.of();
                 """ + RuntimeSourceFixture.methods("DesktopShortcutService", "refreshRouting") + """
                 }
                 public static void verify() {
@@ -95,14 +99,14 @@ public final class DesktopShortcutRoutingTest {
                     service.refreshRouting();
                     check(InputDevice.materialized, "next generation was not rearmed");
                     MAIN.replies.remove(0).run();
-                    check(service.mRoutedKeyboards.isEmpty(), "old-target reply published");
+                    check(service.mRoutedDevices.isEmpty(), "old-target reply published");
                     ShellAccess.ids = new int[] {58};
                     DesktopOperations.work.remove(0).run();
                     MAIN.replies.remove(0).run();
-                    check(service.mRoutedKeyboards.equals(Set.of(58)), "current route not published");
+                    check(service.mRoutedDevices.equals(Set.of(58)), "current route not published");
                     sTargetDisplay = -1;
                     service.refreshRouting();
-                    check(service.mRoutedKeyboards.isEmpty(), "release retained shortcut eligibility");
+                    check(service.mRoutedDevices.isEmpty(), "release retained shortcut eligibility");
                     check(DesktopOperations.work.isEmpty(), "inactive target queried shell");
                 }
                 """);

@@ -1444,11 +1444,11 @@ public final class ShellAccess {
         }
     }
 
-    static int[] routedKeyboardDeviceIds(final int displayId) throws IOException {
+    static int[] routedShortcutDeviceIds(final int displayId) throws IOException {
         try {
-            return requireService().getRoutedKeyboardDeviceIds(displayId);
+            return requireService().getRoutedShortcutDeviceIds(displayId);
         } catch (RemoteException | RuntimeException error) {
-            throw new IOException("cannot observe routed keyboards", error);
+            throw new IOException("cannot observe routed shortcut devices", error);
         }
     }
 

@@ -3,22 +3,76 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 public final class NativePanelInteractionTest {
+    @Test public void hoverReachesRevealOnceEvenWhenDockConsumesIt() throws Exception {
+        RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", """
+                record MotionEvent(int action) {
+                    static final int ACTION_HOVER_ENTER=9, ACTION_HOVER_MOVE=7, ACTION_HOVER_EXIT=10;
+                    int getActionMasked() { return action; }
+                }
+                static class DesktopTaskbarHost {
+                    static int signals;
+                    static void dispatchEdgeInput(int display, MotionEvent event) { signals++; }
+                }
+                static class Parent {
+                    public boolean dispatchHoverEvent(MotionEvent event) { return false; }
+                    public boolean dispatchGenericMotionEvent(MotionEvent event) {
+                        int action=event.getActionMasked();
+                        return (action==9 || action==7 || action==10) && dispatchHoverEvent(event);
+                    }
+                }
+                static class Dock {
+                    boolean consumes;
+                    boolean hover(MotionEvent event) { return consumes; }
+                    boolean generic(MotionEvent event) { return false; }
+                }
+                static class Panel extends Parent {
+                    int mDisplayId=4;
+                    Dock dock=new Dock();
+                """ + RuntimeSourceFixture.methods("DesktopChromeActivity",
+                        "dispatchHoverEvent", "dispatchGenericMotionEvent") + """
+                }
+                public static void verify() {
+                    Panel panel=new Panel();
+                    for (boolean consumes : new boolean[]{false,true}) {
+                    panel.dock.consumes=consumes;
+                    for(int action : new int[]{9,7,10}) {
+                        DesktopTaskbarHost.signals=0;
+                        check(panel.dispatchHoverEvent(new MotionEvent(action)), "dock did not consume direct hover");
+                        check(DesktopTaskbarHost.signals==1, "direct hover missing reveal signal");
+                        DesktopTaskbarHost.signals=0;
+                        check(panel.dispatchGenericMotionEvent(new MotionEvent(action)), "generic hover not consumed");
+                        check(DesktopTaskbarHost.signals==1, "generic hover duplicated or lost reveal signal");
+                    }
+                    }
+                    DesktopTaskbarHost.signals=0;
+                    panel.dispatchGenericMotionEvent(new MotionEvent(11));
+                    check(DesktopTaskbarHost.signals==1, "non-hover generic input lost");
+                }
+                """);
+    }
+
     @Test public void siblingOutsideTouchDoesNotDismissRevealOrStartPointerDwell() throws Exception {
         RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", """
                 static class ShellPanel { enum Edge {
                     TOP, BOTTOM, LEFT, RIGHT;
                     boolean vertical() { return this == LEFT || this == RIGHT; }
                 } }
-                static class InputDevice { static final int SOURCE_TOUCHSCREEN=1; }
+                static class InputDevice { static final int SOURCE_TOUCHSCREEN=1, SOURCE_MOUSE=2; }
                 static class MotionEvent {
                     static final int ACTION_HOVER_ENTER=1,ACTION_HOVER_MOVE=2,ACTION_DOWN=3,ACTION_MOVE=4,
                         ACTION_UP=5,ACTION_HOVER_EXIT=6,ACTION_CANCEL=7,ACTION_OUTSIDE=8;
+                    static final int BUTTON_PRIMARY=1;
+                    int getButtonState(){return 1;}
                     int action; float x,y; boolean touch;
                     MotionEvent(int a,float x,float y,boolean t) {action=a;this.x=x;this.y=y;touch=t;}
                     int getActionMasked(){return action;} float getRawX(){return x;} float getRawY(){return y;}
-                    boolean isFromSource(int source){return touch;}
+                    boolean isFromSource(int source){return source==1?touch:!touch;}
                 }
-                boolean mReleased, mTouchEdgeEnabled=true;
+                boolean mReleased, mClickReveal, mTouchEdgeEnabled=true;
+                enum Presentation { EDGE, VISIBLE }
+                Presentation currentPresentation(){return mPointerState.isRevealed()?Presentation.VISIBLE:Presentation.EDGE;}
+                void cancelTimers(){}
+                void applyPresentation(){}
                 int mTouchSlop=8;
                 ShellPanel.Edge mTouchEdge;
                 PointerEdgeRevealState mPointerState = new PointerEdgeRevealState();
@@ -30,6 +84,22 @@ public final class NativePanelInteractionTest {
                 void applyTouchAction(TouchEdgeRevealState.Action action,boolean afterDispatch){}
                 public static void verify() {
                     Fixture f=new Fixture(); f.mPointerState.setArmed(true); f.mTouchState.setArmed(true);
+                    Fixture pointer=new Fixture(); pointer.mPointerState.setArmed(true);
+                    pointer.onEdgeInput(new MotionEvent(MotionEvent.ACTION_DOWN,110,0,false));
+                    check(!pointer.mPointerState.isRevealed(),"click revealed with option disabled");
+                    pointer.mClickReveal=true;
+                    pointer.onEdgeInput(new MotionEvent(MotionEvent.ACTION_DOWN,75,0,false));
+                    check(!pointer.mPointerState.isRevealed(),"gap click revealed panel");
+                    pointer.onEdgeInput(new MotionEvent(MotionEvent.ACTION_DOWN,110,0,false));
+                    check(pointer.mPointerState.isRevealed(),"enabled click did not reveal immediately");
+                    Fixture hover=new Fixture(); hover.mPointerState.setArmed(true);
+                    hover.onEdgeInput(new MotionEvent(MotionEvent.ACTION_HOVER_ENTER,110,0,false));
+                    check(hover.mPointerState.onRevealTimeout(),"default hover reveal missing");
+                    hover.onEdgeInput(new MotionEvent(MotionEvent.ACTION_HOVER_EXIT,110,0,false));
+                    check(hover.mPointerState.onHideTimeout(),"hover exit failed to hide");
+                    hover.mClickReveal=true;
+                    hover.onEdgeInput(new MotionEvent(MotionEvent.ACTION_HOVER_ENTER,110,0,false));
+                    check(hover.mPointerState.onRevealTimeout(),"click option disabled hover");
                     f.mTouchState.reveal();
                     f.onEdgeInput(new MotionEvent(MotionEvent.ACTION_OUTSIDE,110,0,true));
                     check(f.mTouchState.isRevealed(),"sibling notification dismissed reveal");
@@ -56,7 +126,7 @@ public final class NativePanelInteractionTest {
                     boolean vertical() { return this == LEFT || this == RIGHT; }
                 } }
                 static class PanelGeometry {
-                """ + RuntimeSourceFixture.methods("PanelGeometry", "reveal", "presented") + """
+                """ + RuntimeSourceFixture.methods("PanelGeometry", "reveal", "presented", "approach") + """
                 }
                 record Panel(ShellPanel.Edge edge, Rect paint, Rect output) { Rect frame() { return paint; } }
                 List<Panel> mPanels;
@@ -71,6 +141,11 @@ public final class NativePanelInteractionTest {
                     check(f.contains(800,790,false,4), "stacked panel missing");
                     check(!f.contains(600,850,false,4), "horizontal gap captures pointer");
                     check(!f.contains(300,820,false,4), "vertical gap captures pointer");
+                    check(f.contains(300,899,false,4), "bottom approach missing without overflow");
+                    check(f.contains(102,400,false,4), "left approach missing");
+                    check(!f.contains(600,899,false,4), "approach fills side gap");
+                    check(!f.contains(500,899,false,4), "approach includes half-open edge");
+                    check(!f.contains(300,890,true,4), "hidden panel retains approach input");
                     check(f.contains(300,899,true,4), "first reveal missing");
                     check(f.contains(800,899,true,4), "second reveal missing");
                     check(!f.contains(600,899,true,4), "reveal union fills gap");
@@ -134,14 +209,22 @@ public final class NativePanelInteractionTest {
 
     @Test public void pointerExitUsesItsActionAndSiblingEntryCancelsHide() throws Exception {
         RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", """
+                static class InputDevice { static final int SOURCE_MOUSE=2; }
                 static class MotionEvent {
                     static final int ACTION_HOVER_ENTER=1,ACTION_HOVER_MOVE=2,ACTION_DOWN=3,ACTION_MOVE=4,
                         ACTION_UP=5,ACTION_HOVER_EXIT=6,ACTION_CANCEL=7,ACTION_OUTSIDE=8;
+                    static final int BUTTON_PRIMARY=1;
+                    int getButtonState(){return BUTTON_PRIMARY;}
+                    boolean isFromSource(int source){return source==InputDevice.SOURCE_MOUSE;}
                     int action; float x,y;
                     MotionEvent(int a,float x,float y) {action=a;this.x=x;this.y=y;}
                     int getActionMasked(){return action;} float getRawX(){return x;} float getRawY(){return y;}
                 }
-                boolean mReleased;
+                boolean mReleased, mClickReveal;
+                enum Presentation { EDGE, VISIBLE }
+                Presentation currentPresentation(){return mPointerState.isRevealed()?Presentation.VISIBLE:Presentation.EDGE;}
+                void cancelTimers(){}
+                void applyPresentation(){}
                 PointerEdgeRevealState mPointerState = new PointerEdgeRevealState();
                 PointerEdgeRevealState.TimerAction last;
                 boolean handleTouchEdgeInput(MotionEvent event){return false;}

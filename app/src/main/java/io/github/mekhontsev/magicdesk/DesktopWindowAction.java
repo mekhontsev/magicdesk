@@ -12,7 +12,14 @@ enum DesktopWindowAction {
     SNAP_BOTTOM_LEFT(8, true),
     SNAP_BOTTOM_RIGHT(9, true),
     MAXIMIZE(10, true),
-    UNMAXIMIZE(11, false);
+    UNMAXIMIZE(11, false),
+    PAPER_TOGGLE(100, false),
+    PAPER_PREVIOUS(101, false),
+    PAPER_NEXT(102, false),
+    PAPER_MOVE_LEFT(103, false),
+    PAPER_MOVE_RIGHT(104, false),
+    PAPER_WIDTH(105, false),
+    PAPER_FLOAT(106, false);
 
     private final int mDiagnosticId;
     private final boolean mSupportsFullscreen;

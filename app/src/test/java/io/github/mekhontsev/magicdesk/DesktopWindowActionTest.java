@@ -10,7 +10,14 @@ import java.util.Set;
 public final class DesktopWindowActionTest {
     @Test public void fullscreenTargetEligibilityIsIndependentOfTheInputSource() {
         Set<DesktopWindowAction> freeformOnly = EnumSet.of(
-                DesktopWindowAction.FULLSCREEN, DesktopWindowAction.UNMAXIMIZE);
+                DesktopWindowAction.FULLSCREEN, DesktopWindowAction.UNMAXIMIZE,
+                DesktopWindowAction.PAPER_TOGGLE,
+                DesktopWindowAction.PAPER_PREVIOUS,
+                DesktopWindowAction.PAPER_NEXT,
+                DesktopWindowAction.PAPER_MOVE_LEFT,
+                DesktopWindowAction.PAPER_MOVE_RIGHT,
+                DesktopWindowAction.PAPER_WIDTH,
+                DesktopWindowAction.PAPER_FLOAT);
         for (var action : DesktopWindowAction.values()) {
             assertEquals(action.name(), !freeformOnly.contains(action), action.supportsFullscreenTask());
         }

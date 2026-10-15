@@ -26,6 +26,9 @@ public final class DesktopChromeActivity extends Activity {
     static final ComponentName COMPONENT = new ComponentName(
             BuildConfig.APPLICATION_ID, CLASS_NAME);
 
+    private DesktopActiveWindowBorder mActiveBorder;
+    private DesktopPaperNavigation mPaperNavigation;
+    private DesktopPaperFocusShields mPaperFocusShields;
     private FrameLayout mRoot;
     private WindowManager mWindowManager;
     private final java.util.Map<String, NativePanel> mPanels = new java.util.LinkedHashMap<>();
@@ -104,6 +107,9 @@ public final class DesktopChromeActivity extends Activity {
                         DesktopPanelWindowController.unregisterActivity(
                                 mDisplayId, DesktopChromeActivity.this);
                         removePanelWindows();
+                        if (mActiveBorder != null) mActiveBorder.clear();
+                        if (mPaperNavigation != null) mPaperNavigation.clear();
+                        if (mPaperFocusShields != null) mPaperFocusShields.clear();
                     }
                 });
         DesktopTaskbarHost.registerActivity(mDisplayId, this);
@@ -149,7 +155,39 @@ public final class DesktopChromeActivity extends Activity {
         applyPresentation();
     }
 
+    void setActiveWindowBorder(Rect task, Rect workArea) {
+        if (mWindowManager == null || mRoot == null) return;
+        if (mActiveBorder == null) {
+            if (task == null) return;
+            mActiveBorder = new DesktopActiveWindowBorder(this, mWindowManager);
+        }
+        mActiveBorder.update(mRoot.getWindowToken(), task, workArea);
+    }
+
+    void setPaperFocusShields(java.util.List<DesktopPaperFocusShields.Target> targets,
+            java.util.function.IntConsumer activate) {
+        if (mWindowManager == null || mRoot == null) return;
+        if (mPaperFocusShields == null) {
+            if (targets.isEmpty()) return;
+            mPaperFocusShields = new DesktopPaperFocusShields(this, mWindowManager);
+        }
+        mPaperFocusShields.update(mRoot.getWindowToken(), targets, activate);
+    }
+
+    void setPaperNavigation(Rect area, boolean previous, boolean next,
+            java.util.function.IntConsumer navigate) {
+        if (mWindowManager == null || mRoot == null) return;
+        if (mPaperNavigation == null) {
+            if (area == null) return;
+            mPaperNavigation = new DesktopPaperNavigation(this, mWindowManager);
+        }
+        mPaperNavigation.update(mRoot.getWindowToken(), area, previous, next, navigate);
+    }
+
     void detachPanels() {
+        if (mActiveBorder != null) mActiveBorder.clear();
+        if (mPaperNavigation != null) mPaperNavigation.clear();
+        if (mPaperFocusShields != null) mPaperFocusShields.clear();
         for (var panel : mPanels.values()) panel.release();
         mPanels.clear();
     }
@@ -168,11 +206,30 @@ public final class DesktopChromeActivity extends Activity {
         final UiPanelWindow decoration;
         final Rect applied = new Rect();
         final Rect panelInput = new Rect();
+        final Rect approachInput = new Rect();
+        final Rect revealInput = new Rect();
         final android.graphics.Region inputRegion = new android.graphics.Region();
         final android.graphics.Region lastInputRegion = new android.graphics.Region();
         final UiDockEffects dock = new UiDockEffects(this, this::updateInputRegion);
         boolean inputRegionApplied;
-        boolean added, hiddenTouch, contentPresented, presentationApplied;
+        boolean added, appliedHidden, hiddenTouch, contentPresented, presentationApplied;
+        final Rect appliedReveal = new Rect();
+        boolean revealAdded;
+        final View revealEdge = new View(DesktopChromeActivity.this) {
+            @Override public boolean onHoverEvent(MotionEvent event) {
+                DesktopTaskbarHost.dispatchEdgeInput(mDisplayId, event);
+                return true;
+            }
+            @Override public boolean onGenericMotionEvent(MotionEvent event) {
+                DesktopTaskbarHost.dispatchEdgeInput(mDisplayId, event);
+                return true;
+            }
+            @Override public boolean onTouchEvent(MotionEvent event) {
+                // A reveal gesture never clicks through to a newly shown icon.
+                DesktopTaskbarHost.dispatchEdgeInput(mDisplayId, event);
+                return true;
+            }
+        };
 
         NativePanel(DesktopTaskbarHost.Panel value) {
             super(value.view().getContext());
@@ -187,8 +244,21 @@ public final class DesktopChromeActivity extends Activity {
         void apply() {
             var view = definition.view();
             var content = definition.content();
-            var surface = mEdgeHidden ? definition.paint() : definition.frame();
             var paint = definition.paint();
+            var approach = PanelGeometry.approach(bounds(definition.output()), bounds(paint), definition.edge());
+            // Keep the window frame stable across reveal. Resizing a one-pixel
+            // window into the dock can cancel its hover stream under a stationary
+            // pointer; only the sparse input region and paint visibility change.
+            var host = PanelGeometry.withApproach(bounds(definition.frame()), approach);
+            var surface = new Rect(host.left(), host.top(), host.right(), host.bottom());
+            approachInput.setEmpty();
+            if (!approach.isEmpty()) {
+                approachInput.set(approach.left() - surface.left, approach.top() - surface.top,
+                        approach.right() - surface.left, approach.bottom() - surface.top);
+            }
+            var reveal = PanelGeometry.reveal(bounds(definition.output()), bounds(paint), definition.edge(), mEdgeHeight);
+            revealInput.set(reveal.left() - surface.left, reveal.top() - surface.top,
+                    reveal.right() - surface.left, reveal.bottom() - surface.top);
             panelInput.set(paint.left - surface.left, paint.top - surface.top, paint.right - surface.left, paint.bottom - surface.top);
             decoration.backdropInsets(panelInput.left, panelInput.top, surface.right - paint.right, surface.bottom - paint.bottom);
             var theme = AppearanceStore.current(view.getContext());
@@ -213,16 +283,21 @@ public final class DesktopChromeActivity extends Activity {
             }
             view.setVisibility(mPresented ? View.VISIBLE : View.INVISIBLE);
             var target = PanelGeometry.presented(bounds(definition.output()), bounds(surface),
-                    definition.edge(), mPresented, mEdgeHidden, mEdgeHeight);
+                    definition.edge(), mPresented, false, mEdgeHeight);
             Rect rect = new Rect(target.left(), target.top(), target.right(), target.bottom());
             if (rect.isEmpty()) { removeWindow(); return; }
             updateInputRegion();
+            applyRevealEdge(reveal);
             if (mWindowManager == null || mRoot == null || mRoot.getWindowToken() == null
-                    || (added && applied.equals(rect))) return;
+                    || (added && applied.equals(rect) && appliedHidden == mEdgeHidden)) return;
             WindowManager.LayoutParams window = new WindowManager.LayoutParams(rect.width(), rect.height(),
                     WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                             | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH, PixelFormat.TRANSLUCENT);
+            // The permanent edge window owns reveal input. Hidden dock content
+            // must neither capture nor obscure application input.
+            if (mEdgeHidden) window.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+            window.alpha = mEdgeHidden ? 0f : 1f;
             window.gravity = Gravity.LEFT | Gravity.TOP; window.x = rect.left; window.y = rect.top;
             window.token = mRoot.getWindowToken();
             // Shared shell layout already resolved stable system insets and panel reservations.
@@ -232,16 +307,51 @@ public final class DesktopChromeActivity extends Activity {
             if (added) mWindowManager.updateViewLayout(decoration.view(), window);
             else { mWindowManager.addView(decoration.view(), window); added = true; }
             applied.set(rect);
+            appliedHidden = mEdgeHidden;
+        }
+        void applyRevealEdge(ShellBounds bounds) {
+            if (!mPresented || bounds.isEmpty()) { removeRevealEdge(); return; }
+            if (mWindowManager == null || mRoot == null || mRoot.getWindowToken() == null) return;
+            final Rect frame = new Rect(bounds.left(), bounds.top(), bounds.right(), bounds.bottom());
+            if (revealAdded && appliedReveal.equals(frame)) return;
+            // A permanent, transparent strip keeps hover ownership when the dock
+            // changes paint, alpha, input region or contents during task updates.
+            final var params = new WindowManager.LayoutParams(frame.width(), frame.height(),
+                    WindowManager.LayoutParams.TYPE_APPLICATION_SUB_PANEL,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                            | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                    PixelFormat.TRANSLUCENT);
+            params.token = mRoot.getWindowToken();
+            params.gravity = Gravity.TOP | Gravity.LEFT;
+            params.x = frame.left; params.y = frame.top;
+            params.setFitInsetsTypes(0);
+            params.setTitle("MagicDesk reveal edge " + definition.id());
+            revealEdge.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            if (revealAdded) mWindowManager.updateViewLayout(revealEdge, params);
+            else { mWindowManager.addView(revealEdge, params); revealAdded = true; }
+            appliedReveal.set(frame);
+        }
+        void removeRevealEdge() {
+            if (revealAdded && mWindowManager != null) mWindowManager.removeViewImmediate(revealEdge);
+            revealAdded = false;
+            appliedReveal.setEmpty();
         }
         void removeWindow() {
+            removeRevealEdge();
             if (added && mWindowManager != null) mWindowManager.removeViewImmediate(decoration.view());
             added = false; applied.setEmpty();
         }
         void updateInputRegion() {
             var surface = getRootSurfaceControl();
             if (surface == null) return;
-            if (mEdgeHidden) inputRegion.set(0, 0, getWidth(), getHeight());
-            else { inputRegion.set(panelInput); dock.input(inputRegion); }
+            if (mEdgeHidden) inputRegion.setEmpty();
+            else {
+                inputRegion.set(panelInput);
+                inputRegion.op(approachInput, android.graphics.Region.Op.UNION);
+                dock.input(inputRegion);
+                inputRegion.op(revealInput, android.graphics.Region.Op.DIFFERENCE);
+            }
             if (inputRegionApplied && lastInputRegion.equals(inputRegion)) return;
             lastInputRegion.set(inputRegion);
             inputRegionApplied = true;
@@ -257,10 +367,21 @@ public final class DesktopChromeActivity extends Activity {
             dock.reset(); inputRegionApplied = false; super.onDetachedFromWindow();
         }
         @Override public boolean dispatchHoverEvent(MotionEvent event) {
-            return dock.hover(event) || super.dispatchHoverEvent(event);
+            // Dock effects may consume hover before child Views see it.
+            DesktopTaskbarHost.dispatchEdgeInput(mDisplayId, event);
+            if (!dock.hover(event)) super.dispatchHoverEvent(event);
+            // The edge/corridor belongs to this panel even when no child is
+            // hoverable. Returning false lets ViewGroup end the child's hover
+            // sequence immediately, cancelling dwell on the empty reveal strip.
+            return true;
         }
         @Override public boolean dispatchGenericMotionEvent(MotionEvent event) {
-            DesktopTaskbarHost.dispatchEdgeInput(mDisplayId, event);
+            int action = event.getActionMasked();
+            // View routes these to dispatchHoverEvent; deliver each signal exactly once.
+            if (action != MotionEvent.ACTION_HOVER_ENTER && action != MotionEvent.ACTION_HOVER_MOVE
+                    && action != MotionEvent.ACTION_HOVER_EXIT) {
+                DesktopTaskbarHost.dispatchEdgeInput(mDisplayId, event);
+            }
             return dock.generic(event) || super.dispatchGenericMotionEvent(event);
         }
         @Override public boolean dispatchDragEvent(android.view.DragEvent event) {

@@ -12,6 +12,10 @@ final class MagicDeskSettings {
                 state -> state.settings.copy(), Values.defaults());
     }
 
+    static boolean setTaskbarClickReveal(final boolean enabled) {
+        return DesktopStateStore.update(state -> state.settings.taskbarClickReveal = enabled);
+    }
+
     static boolean setTaskbarAutoHide(final boolean enabled) {
         return DesktopStateStore.update(
                 state -> state.settings.taskbarAutoHide = enabled);
@@ -66,6 +70,31 @@ final class MagicDeskSettings {
                 state -> state.settings.openFilesWithSingleClick = enabled);
     }
 
+    static boolean setPaperInputBinding(boolean second, PaperInputBinding binding) {
+        if (binding == null) throw new IllegalArgumentException("input binding required");
+        return DesktopStateStore.update(state -> {
+            if (second) {
+                state.settings.paperInputSecond = binding;
+                if (binding.matches(state.settings.paperInputFirst.key(), state.settings.paperInputFirst.modifiers())) {
+                    state.settings.paperInputFirst = PaperInputBinding.NONE;
+                }
+            } else {
+                state.settings.paperInputFirst = binding;
+                if (binding.matches(state.settings.paperInputSecond.key(), state.settings.paperInputSecond.modifiers())) {
+                    state.settings.paperInputSecond = PaperInputBinding.NONE;
+                }
+            }
+        });
+    }
+
+    static boolean setPaperActiveBorder(boolean enabled) {
+        return DesktopStateStore.update(state -> state.settings.paperActiveBorder = enabled);
+    }
+
+    static boolean setPaperEdgeButtons(boolean enabled) {
+        return DesktopStateStore.update(state -> state.settings.paperEdgeButtons = enabled);
+    }
+
     static final class Values {
         private static final String TASKBAR_AUTO_HIDE = "taskbarAutoHide";
         private static final String KEEP_DESKTOP_AWAKE = "keepDesktopAwake";
@@ -80,7 +109,12 @@ final class MagicDeskSettings {
         private static final String OPEN_FILES_WITH_SINGLE_CLICK =
                 "openFilesWithSingleClick";
 
+        PaperInputBinding paperInputFirst = PaperInputBinding.NONE;
+        PaperInputBinding paperInputSecond = PaperInputBinding.NONE;
+        boolean paperActiveBorder;
+        boolean paperEdgeButtons;
         boolean taskbarAutoHide;
+        boolean taskbarClickReveal;
         boolean keepDesktopAwake;
         DesktopSystemThemeSession.Preference systemTheme = DesktopSystemThemeSession.Preference.UNCHANGED;
         boolean keepScreenOn;
@@ -102,6 +136,11 @@ final class MagicDeskSettings {
         static Values fromJson(final JSONObject json) {
             final Values values = defaults();
             if (json != null) {
+                values.paperInputFirst = PaperInputBinding.fromJson(json.optJSONObject("paperInputFirst"));
+                values.paperInputSecond = PaperInputBinding.fromJson(json.optJSONObject("paperInputSecond"));
+                values.paperEdgeButtons = json.optBoolean("paperEdgeButtons", false);
+                values.paperActiveBorder = json.optBoolean("paperActiveBorder", false);
+                values.taskbarClickReveal = json.optBoolean("taskbarClickReveal", false);
                 values.taskbarAutoHide = json.optBoolean(
                         TASKBAR_AUTO_HIDE, false);
                 values.keepDesktopAwake = json.optBoolean(
@@ -131,6 +170,11 @@ final class MagicDeskSettings {
 
         Values copy() {
             final Values copy = new Values();
+            copy.paperInputFirst = paperInputFirst;
+            copy.paperInputSecond = paperInputSecond;
+            copy.paperEdgeButtons = paperEdgeButtons;
+            copy.paperActiveBorder = paperActiveBorder;
+            copy.taskbarClickReveal = taskbarClickReveal;
             copy.taskbarAutoHide = taskbarAutoHide;
             copy.keepDesktopAwake = keepDesktopAwake;
             copy.systemTheme = systemTheme;
@@ -147,6 +191,11 @@ final class MagicDeskSettings {
 
         JSONObject toJson() throws JSONException {
             final JSONObject json = new JSONObject();
+            json.put("paperInputFirst", paperInputFirst.toJson());
+            json.put("paperInputSecond", paperInputSecond.toJson());
+            json.put("paperEdgeButtons", paperEdgeButtons);
+            json.put("paperActiveBorder", paperActiveBorder);
+            json.put("taskbarClickReveal", taskbarClickReveal);
             json.put(TASKBAR_AUTO_HIDE, taskbarAutoHide);
             json.put(KEYBOARD_ON_APP_DISPLAY, keyboardOnAppDisplay);
             json.put(KEEP_DESKTOP_AWAKE, keepDesktopAwake);

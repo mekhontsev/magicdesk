@@ -6,6 +6,26 @@ import static org.junit.Assert.*;
 import static io.github.mekhontsev.magicdesk.KeyboardShortcutStateMachine.Action.*;
 
 public final class KeyboardShortcutStateMachineTest {
+    @Test public void paperChordsAreDesktopScopedAndBalanced() {
+        final var s = new KeyboardShortcutStateMachine();
+        assertFalse(s.accept(KeyEvent.KEYCODE_P, true, 0,
+                true, false, false, true, false).consumed);
+        assertEquals(PAPER_TOGGLE, s.accept(KeyEvent.KEYCODE_P, true, 0,
+                true, false, false, true, true).action);
+        assertEquals(NONE, s.accept(KeyEvent.KEYCODE_P, true, 1,
+                true, false, false, true, true).action);
+        assertTrue(s.accept(KeyEvent.KEYCODE_P, false, 0,
+                false, false, false, false, true).consumed);
+        assertEquals(PAPER_PREVIOUS, s.accept(KeyEvent.KEYCODE_DPAD_LEFT, true, 0,
+                true, false, false, true).action);
+        s.accept(KeyEvent.KEYCODE_DPAD_LEFT, false, 0, true, false, false, true);
+        assertEquals(PAPER_MOVE_LEFT, s.accept(KeyEvent.KEYCODE_DPAD_LEFT, true, 0,
+                true, false, true, true).action);
+        s.accept(KeyEvent.KEYCODE_DPAD_LEFT, false, 0, true, false, true, true);
+        assertEquals(SNAP_LEFT, s.accept(KeyEvent.KEYCODE_DPAD_LEFT, true, 0,
+                false, false, false, true).action);
+    }
+
     @Test public void heldMetaWalksFromCornerThroughHalfToOppositeCorner() {
         final KeyboardShortcutStateMachine s = new KeyboardShortcutStateMachine();
         assertEquals("SNAP_LEFT", metaArrow(s, KeyEvent.KEYCODE_DPAD_LEFT));

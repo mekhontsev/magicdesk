@@ -935,7 +935,8 @@ suppresses this extension; controls remain within content bounds. Attached
 windows do not subtract system-bar or IME insets a second time.
 
 When fullscreen policy or auto-hide conceals chrome, each bounded panel
-collapses to a transparent reveal strip on its configured physical output edge.
+becomes transparent and limits input to a reveal strip on its configured
+physical output edge.
 Input remains bounded to the individual strips, never a rectangle spanning gaps
 between panels. Expansion restores that panel's resolved background and content.
 Managed and independent fullscreen tasks share the edge-reveal policy;
@@ -1007,12 +1008,15 @@ in `ActivityStarter` during app-owned child/result launches.
 The shell disables that Activity's Android 15+ ActivityRecord input sink, so
 only the individual panel windows' bounded touch regions receive input; pointer
 events outside them continue to the desktop and application windows.
-Auto-hide keeps the non-touchable host geometry stable and resizes the
-application windows containing the panel Views to their respective reveal edges.
-Each bounded window therefore owns its visible panel input and
-hidden-edge hover without forwarding synthetic events. It adds no polling and
-keeps the input frame aligned with the visible edge. `ShellDesktopSurfaceOrder`
-only orders fullscreen planes within the application workspace. Chrome's
+Auto-hide keeps both the non-touchable host and panel window frames stable.
+Each panel has a persistent transparent child window for its physical reveal
+edge. The content window contains the panel, dock effects and the space
+between the dock and screen edge. Hidden content is transparent and
+non-touchable. Keeping the edge window stable prevents panel relayout from
+cancelling a stationary hover. These windows handle panel and reveal input
+without synthetic events or polling, keeping input aligned with the visible
+edge. `ShellDesktopSurfaceOrder` only orders fullscreen planes within the
+application workspace. Chrome's
 framework priority handles window relayout without retaining its organizer
 leash, manually setting a surface layer, or appending a transaction or wait to
 application operations. Both the visible panel and hidden

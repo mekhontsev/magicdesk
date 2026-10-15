@@ -127,6 +127,8 @@ interface DesktopTaskRuntime {
 
     boolean handleActiveTaskShortcut(DesktopWindowAction shortcut);
 
+    boolean isPaperLayoutEnabled();
+
     void concealTask(int displayId, int taskId, TaskRepository.ActionCallback callback);
 
     boolean isTaskConcealed(int displayId, int taskId);
