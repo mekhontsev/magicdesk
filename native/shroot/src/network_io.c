@@ -10,20 +10,19 @@
 #include <unistd.h>
 
 struct packet_info_ref { void *data; size_t bytes; unsigned family; };
-static int packet_info(struct md_ipc_io_message *message,int sending,struct packet_info_ref out[2],unsigned *count,
+static int packet_info(void *control,size_t control_size,int flags,int sending,struct packet_info_ref out[2],unsigned *count,
         struct md_network_packet_info *info) {
     *count=0;
-    if (message->control_size>sizeof(message->control)) return -EMSGSIZE;
     size_t offset=0;
-    while (message->control_size-offset>=sizeof(struct cmsghdr)) {
-        struct cmsghdr *c=(void *)(message->control+offset);
-        if (c->cmsg_len<CMSG_LEN(0) || c->cmsg_len>message->control_size-offset) return -EINVAL;
+    while (control_size-offset>=sizeof(struct cmsghdr)) {
+        struct cmsghdr *c=(void *)((char *)control+offset);
+        if (c->cmsg_len<CMSG_LEN(0) || c->cmsg_len>control_size-offset) return -EINVAL;
         unsigned family=c->cmsg_level==IPPROTO_IP && c->cmsg_type==IP_PKTINFO ? AF_INET
             : c->cmsg_level==IPPROTO_IPV6 && c->cmsg_type==IPV6_PKTINFO ? AF_INET6 : 0;
         if (family) {
             size_t expected=family==AF_INET ? sizeof(struct in_pktinfo) : sizeof(struct in6_pktinfo);
             size_t size=c->cmsg_len-CMSG_LEN(0);
-            if (size!=expected && (sending || !(message->flags&MSG_CTRUNC) || size>expected)) return -EINVAL;
+            if (size!=expected && (sending || !(flags&MSG_CTRUNC) || size>expected)) return -EINVAL;
             if (*count==2 || (sending && *count)) return -EINVAL;
             for (unsigned i=0;i<*count;++i) if (out[i].family==family) return -EINVAL;
             out[(*count)++]=(struct packet_info_ref){CMSG_DATA(c),size,family};
@@ -43,7 +42,7 @@ static int packet_info(struct md_ipc_io_message *message,int sending,struct pack
         } else if (sending && !(c->cmsg_level==IPPROTO_IP && (c->cmsg_type==IP_TTL || c->cmsg_type==IP_TOS))
                 && !(c->cmsg_level==IPPROTO_IPV6 && (c->cmsg_type==IPV6_HOPLIMIT || c->cmsg_type==IPV6_TCLASS))) return -EOPNOTSUPP;
         size_t step=CMSG_ALIGN(c->cmsg_len);
-        if (step>message->control_size-offset) break;
+        if (step>control_size-offset) break;
         offset+=step;
     }
     return 0;
@@ -70,6 +69,28 @@ static void write_info(const struct packet_info_ref *ref,const struct md_network
         memcpy(ref->data,&value,ref->bytes);
     }
 }
+static int receive_source(struct md_network_io *n,struct md_ipc_io_message *message,void *control) {
+    if (!message->address_size) return 0;
+    struct packet_info_ref refs[2]; unsigned count=0;
+    struct md_network_packet_info translated;
+    int error=md_network_endpoint_source_info(n->endpoint,&message->address,&message->address_size,&translated);
+    if (!error) error=packet_info(control,message->control_size,message->flags,0,refs,&count,&translated);
+    /* Truncated ancillary fields must not expose backing transport addresses. */
+    if (!error) for (unsigned i=0;i<count;++i) write_info(&refs[i],&translated);
+    return error;
+}
+int md_network_io_prepare_batch(struct md_ipc_io *io,struct md_ipc_io_message *message,int fd,int flags,unsigned count) {
+    if (count>MD_IPC_IO_BATCH) return -EINVAL;
+    /* Peer metadata is also needed for pktinfo when the caller omits msg_name. */
+    for (unsigned i=0;i<count;++i) message->layouts[i].address_size=sizeof(message->address);
+    return md_ipc_io_prepare_batch(io,message,fd,flags,count);
+}
+int md_network_io_select(struct md_network_io *n,struct md_ipc_io *io,struct md_ipc_io_message *message,unsigned index) {
+    int result=md_ipc_io_select(io,message,index);
+    if (result<0) return result;
+    int error=receive_source(n,message,io->control);
+    return error ? error : result;
+}
 int md_network_io_sending(const struct md_network_io *n) {
     return n->number==SYS_sendto || n->number==SYS_sendmsg;
 }
@@ -90,7 +111,7 @@ int md_network_io_progress(struct md_network_io *n,struct md_ipc_io *io,struct m
     long nr=n->number;
     if (nr==SYS_setsockopt || nr==SYS_getsockopt) {
         if (md_network_endpoint_option(n->args[1],n->args[2]))
-            *result=md_network_endpoint_sockopt(n->endpoint,fd,nr==SYS_setsockopt,n->args[1],n->args[2],
+            *result=md_network_endpoint_sockopt(n->endpoint,fd,n->identity,nr==SYS_setsockopt,n->args[1],n->args[2],
                 message->control,&message->address_size);
         else if (n->args[1]!=SOL_SOCKET || n->args[2]!=SO_BINDTODEVICE) *result=-ENOPROTOOPT;
         else if (nr==SYS_setsockopt)
@@ -114,13 +135,15 @@ int md_network_io_progress(struct md_network_io *n,struct md_ipc_io *io,struct m
         if (!*result) *result=md_network_endpoint_listen(n->endpoint,fd,(int)n->args[1]);
         return 0;
     }
+    if (nr==SYS_recvmmsg) return md_ipc_io_receive(io,fds,message,md_network_io_flags(n),result);
     if (nr==SYS_sendto || nr==SYS_recvfrom || nr==SYS_sendmsg || nr==SYS_recvmsg) {
         int sending=md_network_io_sending(n),flags=md_network_io_flags(n);
         if (!n->started) {
             struct packet_info_ref refs[2]; unsigned count=0;
             unsigned family=md_network_endpoint_family(n->endpoint);
             struct md_network_packet_info value={.source=md_ip_any(family),.destination=md_ip_any(family)},*info=NULL;
-            int error=sending ? packet_info(message,1,refs,&count,&value) : 0;
+            int error=message->control_size>sizeof(message->control) ? -EMSGSIZE
+                : sending ? packet_info(message->control,message->control_size,message->flags,1,refs,&count,&value) : 0;
             if (!error && count) {
                 struct md_network_packet_info address=read_info(refs);
                 value.interface=address.interface; value.source=address.source; value.destination=address.destination;
@@ -146,13 +169,7 @@ int md_network_io_progress(struct md_network_io *n,struct md_ipc_io *io,struct m
         int waiting=sending ? md_ipc_io_send(io,*fds,message,flags,result)
             : md_ipc_io_receive(io,fds,message,flags,result);
         if (!waiting && !sending && *result>=0 && message->address_size) {
-            struct packet_info_ref refs[2]; unsigned count=0;
-            struct md_network_packet_info translated;
-            int error=md_network_endpoint_source_info(n->endpoint,&message->address,&message->address_size,&translated);
-            if (!error) error=packet_info(message,0,refs,&count,&translated);
-            /* Even a truncated cmsg must expose guest fields, never the
-             * backing loopback interface index or address prefix. */
-            if (!error) for (unsigned i=0;i<count;++i) write_info(&refs[i],&translated);
+            int error=receive_source(n,message,message->control);
             if (error) *result=error;
         }
         return waiting;
@@ -175,8 +192,16 @@ int md_network_io_progress(struct md_network_io *n,struct md_ipc_io *io,struct m
             args[3]=(nr==SYS_accept4 ? n->args[3] : 0)|SOCK_CLOEXEC;
             nr=SYS_accept4;
         }
-        if (error) { *result=error; return 0; }
+        if (error) {
+            if (nr==SYS_connect) md_network_endpoint_connect_reported(n->endpoint,error);
+            *result=error; return 0;
+        }
         io->initialized=1; io->deadline=INT64_MAX;
+        if (nr==SYS_connect) {
+            int flags=fcntl(fd,F_GETFL);
+            if (flags<0) { *result=-errno; return 0; }
+            io->nonblocking=!!(flags&O_NONBLOCK);
+        }
         error=md_ipc_io_job_start(&io->job,nr,args);
         if (error) { *result=error; return 0; }
         n->started=1; return 1;
@@ -186,8 +211,23 @@ int md_network_io_progress(struct md_network_io *n,struct md_ipc_io *io,struct m
     }
     *result=io->native_result;
     if (n->number==SYS_connect) {
-        if (!*result || *result==-EINPROGRESS || *result==-EALREADY)
+        if (n->started==2 && *result>=0) *result=0;
+        if (!*result || *result==-EINPROGRESS || *result==-EALREADY) {
             md_network_endpoint_connected(n->endpoint,fd,(void *)&message->address,message->address_size);
+            int wait=-1;
+            int upstream=md_network_endpoint_connect_result(n->endpoint,&wait);
+            if (upstream==-EINPROGRESS && wait>=0 && !io->nonblocking) {
+                /* EVENT_WAIT: actual destination handshake, not local relay
+                 * acceptance. Cancellation retains the common IO job owner. */
+                n->connect_wait=(struct pollfd){.fd=wait,.events=POLLIN};
+                long args[5]={(long)&n->connect_wait,1,0,0,8};
+                int error=md_ipc_io_job_start(&io->job,SYS_ppoll,args);
+                if (error) { *result=error; io->native_ready=0; return 0; }
+                n->started=2; io->native_ready=0; return 1;
+            }
+            if (upstream) *result=upstream;
+        } else md_network_endpoint_connect_complete(n->endpoint,(int)*result);
+        md_network_endpoint_connect_reported(n->endpoint,(int)*result);
         io->native_ready=0;
     }
     return 0;

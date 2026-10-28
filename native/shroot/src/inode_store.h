@@ -154,8 +154,9 @@ int md_inode_open_object(struct md_inode_store *, const char *id, int flags);
 int md_inode_landlock_fd(struct md_inode_store *,int fd,int flags);
 /* Stable physical name of an already opened backing object. The store and its
  * source leases must outlive use; guest unlink/rename/copy-up cannot retarget it.
- * EXDEV means the descriptor has no leased backing name in this store. */
-int md_inode_descriptor_source(struct md_inode_store *, int, char *, size_t);
+ * EXDEV means the descriptor has no leased backing name in this store.
+ * promote permits durable native-leaf publication when FD transfer is restricted. */
+int md_inode_descriptor_source(struct md_inode_store *, int, char *, size_t, int promote);
 /* Pathname socket identity belongs to the namespace; data, credentials, buffer
  * passing and listener lifetime remain kernel Unix-socket operations. */
 int md_inode_socket_bind(struct md_inode_store *, int dirfd, const char *path, const char *name, mode_t, int socket);

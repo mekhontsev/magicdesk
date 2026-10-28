@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "task_wait.h"
 #include "fd_selector.h"
 #include "fs_worker.h"
 #include "fs_service.h"
@@ -833,6 +834,84 @@ static struct md_fs_buffer_request *buffer_request(struct md_fs_buffer_service *
     assert(!buffer_error);
     return buffer_pending;
 }
+static void owned_snapshot_delivery(struct md_fs_buffer_service *service,struct md_fs_worker *worker,
+        struct md_task_resources *resources,struct md_resource_wakeup *token) {
+    unsigned before=all_fds();
+    struct md_fs_buffer_request *request=NULL;
+    assert(md_fs_buffer_snapshot_copy(service,getpid(),resources->fs,O_RDWR,"x",1,&request)==-EACCES);
+    for (unsigned cancel=0;cancel<2;++cancel) for (unsigned empty=0;empty<2;++empty) {
+        struct md_fs_worker_pause pause={0};
+        assert(!md_fs_worker_pause_begin(worker,&pause)); pause_wait(worker,&pause);
+        struct md_fd_order files={0};
+        assert(md_fd_order_begin(resources->files,&files,token)==1 && !md_fd_order_start(&files));
+        char bytes[8192]; memset(bytes,'a',sizeof(bytes));
+        size_t size=empty ? 0 : sizeof(bytes);
+        int callbacks=buffer_callbacks;
+        assert(!md_fs_buffer_snapshot_copy(service,getpid(),resources->fs,O_RDONLY,bytes,size,&request));
+        memset(bytes,'b',sizeof(bytes));
+        assert(!md_fs_buffer_progress(service) && buffer_callbacks==callbacks);
+        if (cancel) md_fs_buffer_cancel(&request);
+        struct queued sentinel={.work={.run=queued_run,.complete=queued_complete},.gate=-1,.started=-1};
+        assert(!md_fs_worker_submit(worker,&sentinel.work));
+        assert(!md_fs_worker_pause_end(&pause));
+        while (!sentinel.completed) worker_event(worker);
+        assert(buffer_callbacks==callbacks+!cancel);
+        if (!cancel) {
+            assert(!buffer_error && buffered_open.fd>=0);
+            int fd=buffered_open.fd;
+            assert(read(fd,bytes,sizeof(bytes))==(ssize_t)size);
+            for (size_t i=0;i<size;++i) assert(bytes[i]=='a');
+            assert(read(fd,bytes,1)==0 && lseek(fd,0,SEEK_SET)==0);
+            assert(write(fd,"x",1)==-1 && errno==EBADF);
+            assert((fcntl(fd,F_GETFL)&O_ACCMODE)==O_RDONLY && (fcntl(fd,F_GETFD)&FD_CLOEXEC));
+            md_fs_buffer_open_release(&buffered_open); request=NULL;
+        }
+        assert(!md_fd_order_complete(&files) && all_fds()==before);
+    }
+    puts("PASS owned snapshot receipt: paused worker, immutable bytes, empty/read-only seekable results and cancelled custody");
+}
+static void captured_stat_delivery(struct md_fs_buffer_service *service,struct md_fs_worker *worker,
+        struct md_task_resources *resources,struct md_resource_wakeup *token,struct md_fs_anchor *base) {
+    unsigned before=all_fds();
+    struct md_fs_buffer_request *request=NULL;
+    assert(md_fs_buffer_stat_begin(service,getpid(),resources->fs,-1,&request)==-EINVAL && !request);
+    for (unsigned native=0;native<2;++native) for (unsigned cancel=0;cancel<2;++cancel) {
+        struct md_fs_worker_pause pause={0};
+        assert(!md_fs_worker_pause_begin(worker,&pause)); pause_wait(worker,&pause);
+        struct md_fd_order files={0};
+        assert(md_fd_order_begin(resources->files,&files,token)==1 && !md_fd_order_start(&files));
+        int fd=native ? eventfd(0,EFD_CLOEXEC|EFD_NONBLOCK)
+            : fcntl(md_fs_anchor_fd(base),F_DUPFD_CLOEXEC,3);
+        assert(fd>=0);
+        struct stat observed; assert(!fstat(fd,&observed));
+        int callbacks=buffer_callbacks;
+        assert(!md_fs_buffer_stat_begin(service,getpid(),resources->fs,fd,&request));
+        assert(!md_fs_buffer_progress(service) && buffer_callbacks==callbacks);
+        assert(md_fs_worker_pause_state(&pause)==1 && fcntl(fd,F_GETFD)>=0);
+        if (cancel) md_fs_buffer_cancel(&request);
+        struct queued sentinel={.work={.run=queued_run,.complete=queued_complete},.gate=-1,.started=-1};
+        assert(!md_fs_worker_submit(worker,&sentinel.work));
+        assert(!md_fs_worker_pause_end(&pause));
+        while (!sentinel.completed) worker_event(worker);
+        assert(buffer_callbacks==callbacks+!cancel && fcntl(fd,F_GETFD)==-1 && errno==EBADF);
+        if (!cancel) {
+            assert(!buffer_error && !status_result.error && !status_result.host_path);
+            if (native) assert(status_result.info.mode==observed.st_mode
+                && status_result.info.inode==observed.st_ino && status_result.info.uid==observed.st_uid);
+            else assert(S_ISDIR(status_result.info.mode) && status_result.info.uid==getuid());
+            request=NULL;
+        }
+        assert(!md_fd_order_complete(&files));
+        assert(all_fds()==before);
+    }
+    int fd=eventfd(0,EFD_CLOEXEC); assert(fd>=0);
+    struct md_guest_domain *other=md_domain_new(); assert(other);
+    assert(md_fs_buffer_stat_begin(service,getpid(),other,fd,&request)==-ESTALE && !request);
+    assert(fcntl(fd,F_GETFD)>=0 && !close(fd));
+    md_domain_release(other);
+    assert(all_fds()==before);
+    puts("PASS captured metadata receipt: paused worker, retained descriptor, no table wait, logical/native metadata, cancellation and failed admission custody");
+}
 static void buffer_channel_check(struct md_fs_buffer_service *service, struct md_fs_worker *worker,
         struct md_task_registry *tasks, struct md_task_resources *resources, const struct md_identity *identity,
         const struct md_interception_buffer *buffer, struct md_fs_buffer_frame *frame) {
@@ -1091,6 +1170,48 @@ static void buffer_reopen_delivery(struct md_fs_buffer_service *service,
     assert(md_fs_buffer_begin(service,getpid(),fs,MD_FS_FSTAT,buffer,&invalid)==-EINVAL && !invalid);
     assert(all_fds()==before);
     puts("PASS mapped reopen and object access: immutable/mutable origins, nofollow, data/O_PATH results, captured identity and queued cancellation");
+}
+static int buffer_source_restricted;
+static int buffer_source_policy(pid_t pid) {
+    assert(pid==getpid()); return buffer_source_restricted;
+}
+static void buffer_leaf_delivery(struct md_fs_buffer_service *service,
+        struct md_fs_worker *worker,struct md_guest_domain *fs,
+        const struct md_interception_buffer *buffer,struct md_fs_buffer_frame *frame) {
+    md_fs_buffer_restricted(service,buffer_source_policy);
+    *frame=(struct md_fs_buffer_frame){.input={.base={-1,-1},.mode=0700,
+        .path={"/mapped-native-parent"},.length={sizeof("/mapped-native-parent"),0}}};
+    assert(!buffer_request(service,worker,fs,buffer,MD_FS_MKDIR) && !frame->reply.result.error);
+    for (int restricted=0;restricted<2;++restricted) {
+        buffer_source_restricted=restricted;
+        *frame=(struct md_fs_buffer_frame){.input={.base={-1,-1},.mode=0600,
+            .flags=O_CREAT|O_EXCL|O_RDWR,.path={"/mapped-native-parent/leaf"},
+            .length={sizeof("/mapped-native-parent/leaf"),0}}};
+        assert(!buffer_request(service,worker,fs,buffer,MD_FS_OPEN));
+        assert(!frame->reply.result.error && buffered_open.fd>=0);
+        struct stat expected,actual; assert(!fstat(buffered_open.fd,&expected));
+        md_fs_buffer_open_release(&buffered_open);
+        *frame=(struct md_fs_buffer_frame){.input={.base={-1,-1},
+            .flags=O_PATH|O_NOFOLLOW|O_CLOEXEC,.path={"/mapped-native-parent/leaf"},
+            .length={sizeof("/mapped-native-parent/leaf"),0}}};
+        assert(!buffer_request(service,worker,fs,buffer,MD_FS_OPEN));
+        assert(!frame->reply.result.error && buffered_open.fd>=0);
+        assert(frame->transfer==(restricted ? MD_FS_BUFFER_ANCHOR : MD_FS_BUFFER_RIGHTS));
+        int delivered=restricted ? open(frame->source,frame->source_flags)
+            : fcntl(buffered_open.fd,F_DUPFD_CLOEXEC,0);
+        assert(delivered>=0 && fcntl(delivered,F_GETFL)==(O_PATH|O_NOFOLLOW));
+        assert(!fstat(delivered,&actual) && expected.st_dev==actual.st_dev && expected.st_ino==actual.st_ino);
+        md_fs_buffer_open_release(&buffered_open);
+        *frame=(struct md_fs_buffer_frame){.input={.base={-1,-1},
+            .path={"/mapped-native-parent/leaf"},.length={sizeof("/mapped-native-parent/leaf"),0}}};
+        assert(!buffer_request(service,worker,fs,buffer,MD_FS_UNLINK) && !frame->reply.result.error);
+        assert(!fstat(delivered,&actual) && expected.st_ino==actual.st_ino && !close(delivered));
+    }
+    *frame=(struct md_fs_buffer_frame){.input={.base={-1,-1},.flags=AT_REMOVEDIR,
+        .path={"/mapped-native-parent"},.length={sizeof("/mapped-native-parent"),0}}};
+    assert(!buffer_request(service,worker,fs,buffer,MD_FS_UNLINK) && !frame->reply.result.error);
+    md_fs_buffer_restricted(service,NULL);
+    puts("PASS O_PATH leaf delivery: exact FD without publication, restricted source, flags and identity after unlink");
 }
 static void buffer_native_path_delivery(struct md_fs_buffer_service *service,
         struct md_fs_worker *worker,struct md_guest_domain *fs,
@@ -1554,7 +1675,8 @@ static void buffer_service_lifetime(const char *store, unsigned cancelled_operat
     assert(!md_task_registry_publish(tasks,getpid(),getpid(),&identity,&resources));
     int wake=eventfd(0,EFD_CLOEXEC|EFD_NONBLOCK); assert(wake>=0);
     struct md_resource_wakeup *token=NULL; assert(!md_resource_wakeup_create(wake,&token));
-    struct md_fs_buffer_service *service=md_fs_buffer_service_new(worker,tasks,token,buffer_completed); assert(service);
+    struct md_task_wait wait={0};
+    struct md_fs_buffer_service *service=md_fs_buffer_service_new(worker,tasks,token,&wait,buffer_completed); assert(service);
     md_fs_buffer_control_factory(service,md_proc_file_control_object);
     struct md_interception_buffers *pool=NULL; assert(!md_buffers_create(1,sizeof(struct md_fs_buffer_frame),sizeof(struct md_fs_buffer_frame),0,&pool));
     struct md_interception_buffer task={0},next={0};
@@ -1681,8 +1803,11 @@ static void buffer_service_lifetime(const char *store, unsigned cancelled_operat
         assert(blocked.completed && !close(fd) && !close(gate) && !close(started));
     }
     buffer_reopen_delivery(service,worker,resources.fs,&task,frame);
+    buffer_leaf_delivery(service,worker,resources.fs,&task,frame);
     buffer_native_path_delivery(service,worker,resources.fs,&task,frame);
     status_delivery(service,worker,&resources,token);
+    captured_stat_delivery(service,worker,&resources,token,base);
+    owned_snapshot_delivery(service,worker,&resources,token);
     buffer_cwd_delivery(service,worker,&resources,&task,frame,base,token);
     buffer_cwd_capture(service,worker,&resources,&task,frame,base,token);
     buffer_kernel_capture(service,worker,&resources,&task,frame,base,token);
@@ -1812,7 +1937,8 @@ static void buffer_export_lifetime(const char *store) {
         assert(!md_task_registry_publish(tasks,child,child,&identity,&resources));
         int wake=eventfd(0,EFD_CLOEXEC|EFD_NONBLOCK); assert(wake>=0);
         struct md_resource_wakeup *token=NULL; assert(!md_resource_wakeup_create(wake,&token));
-        struct md_fs_buffer_service *service=md_fs_buffer_service_new(worker,tasks,token,export_completed);
+        struct md_task_wait wait={0};
+        struct md_fs_buffer_service *service=md_fs_buffer_service_new(worker,tasks,token,&wait,export_completed);
         struct md_interception_buffers *pool=NULL;
         assert(service && !md_buffers_create(1,sizeof(struct md_fs_buffer_frame),sizeof(struct md_fs_buffer_frame),0,&pool));
         struct md_interception_buffer buffer={0}; struct md_buffer_span span;

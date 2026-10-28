@@ -347,11 +347,42 @@ static void overlay_killed(const char *path,int point,int upper,int cold) {
     md_inode_store_close(s); md_identity_release(&ids);
     printf("PASS overlay SIGKILL at %d upper=%d cold=%d: both projections, identity and no false namespace events\n",point,upper,cold);
 }
+static void overlay_sync_batch(const char *path) {
+    struct md_inode_store *s=NULL,*view=NULL;
+    assert(!md_inode_store_open(path,1,&s));
+    assert(!md_inode_mkdir(s,-1,"lower",0700));
+    int lower=md_inode_open(s,-1,"lower",O_RDONLY|O_DIRECTORY,0); assert(lower>=0);
+    for (unsigned i=0;i<64;++i) {
+        char name[32]; snprintf(name,sizeof(name),"dir-%u",i);
+        assert(!md_inode_mkdir(s,lower,name,0700));
+    }
+    assert(!md_inode_view_create(s,MD_FILESYSTEM_OVERLAY,&view));
+    struct md_inode_statistics stats={0}; md_inode_measure(view,&stats);
+    fail_sync=1;
+    assert(md_inode_overlay_layer(view,s,lower,1)==-EIO);
+    fail_sync=0;
+    assert(stats.sync_directory.calls==1 && !view->directory_sync_batch);
+    struct stat st;
+    assert(md_inode_stat(view,-1,"dir-0",0,&st)==-ENOENT);
+    assert(!md_inode_overlay_layer(view,s,lower,1));
+    assert(stats.sync_directory.calls==2 && !view->directory_sync_batch);
+    struct md_inode_lifetime *lifetime=md_inode_lifetime_retain(view->lifetime);
+    md_inode_store_close(view); view=NULL;
+    assert(!md_inode_store_reconnect(lifetime,&view));
+    md_inode_lifetime_release(lifetime);
+    for (unsigned i=0;i<64;++i) {
+        char name[32]; snprintf(name,sizeof(name),"dir-%u",i);
+        assert(!md_inode_stat(view,-1,name,0,&st) && S_ISDIR(st.st_mode));
+    }
+    md_inode_store_close(view); close(lower); md_inode_store_close(s);
+    puts("PASS overlay durability batch: one directory sync, failure rollback, retry and reconnect");
+}
 int main(int argc,char **argv) {
     assert(argc==2 && argv[1][0]=='/' && !mkdir(argv[1],0700));
     char path[PATH_MAX];
     snprintf(path,sizeof(path),"%s/pinned",argv[1]); pinned_lookup(path);
     snprintf(path,sizeof(path),"%s/success",argv[1]); success(path);
+    snprintf(path,sizeof(path),"%s/overlay-sync",argv[1]); overlay_sync_batch(path);
     const int points[]={MD_PUBLICATION_INTENT,MD_PUBLICATION_MOVED,MD_PUBLICATION_STAGED,MD_PUBLICATION_CATALOGUED};
     for (unsigned i=0;i<sizeof(points)/sizeof(*points);++i) for (int cold=0;cold<2;++cold) {
         snprintf(path,sizeof(path),"%s/kill-%u-%d",argv[1],i,cold); killed(path,points[i],cold);

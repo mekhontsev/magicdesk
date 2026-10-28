@@ -18,7 +18,7 @@
 #define PTRACE_SYSEMU 31
 #endif
 enum { CALL_ENTRY=1, CALLING, USER_RESTORING, REENTERING, RESTORING,
-    EXIT_REENTERING, EXIT_SKIPPING, COMPLETE, RECOVERING, TERMINATING };
+    EXIT_REENTERING, EXIT_SKIPPING, COMPLETE, RECOVERING, TERMINATING, EMULATED_EXIT };
 _Static_assert((int)MD_TASK_CALL_USER==PTRACE_SYSCALL_INFO_NONE
     && (int)MD_TASK_CALL_ENTRY==PTRACE_SYSCALL_INFO_ENTRY
     && (int)MD_TASK_CALL_EXIT==PTRACE_SYSCALL_INFO_EXIT
@@ -65,14 +65,15 @@ int md_task_call_begin(struct md_task_call *f,long (*operation)(int,pid_t,void *
         pid_t actor,enum md_task_call_boundary boundary,const struct user_pt_regs *resume,
         uintptr_t call,uintptr_t returned,const struct md_task_call_arguments *arguments) {
     if (!f || !operation || actor<=0 || !resume || !arguments || !call
-            || returned!=call+4 || boundary<MD_TASK_CALL_USER || boundary>MD_TASK_CALL_SECCOMP) return -EINVAL;
+            || returned!=call+4 || boundary<MD_TASK_CALL_USER || boundary>MD_TASK_CALL_EMULATED_ENTRY) return -EINVAL;
     if (f->stage) return -EBUSY;
     *f=(struct md_task_call){.trace=operation,.actor=actor,.boundary=boundary,
         .saved=*resume,.entry=*resume,.call=call,.returned=returned,.arguments=*arguments};
     struct ptrace_syscall_info observed;
     int error=info(f,&observed);
-    if (!error && (unsigned)boundary!=observed.op) error=-EINVAL;
-    if (!error && (boundary==MD_TASK_CALL_ENTRY || boundary==MD_TASK_CALL_SECCOMP)
+    unsigned expected=boundary==MD_TASK_CALL_EMULATED_ENTRY ? PTRACE_SYSCALL_INFO_ENTRY : (unsigned)boundary;
+    if (!error && expected!=observed.op) error=-EINVAL;
+    if (!error && (boundary==MD_TASK_CALL_ENTRY || boundary==MD_TASK_CALL_SECCOMP || boundary==MD_TASK_CALL_EMULATED_ENTRY)
             && (resume->pc<4 || observed.instruction_pointer!=resume->pc)) error=-EINVAL;
     int restarting=0;
     if (!error && boundary==MD_TASK_CALL_EXIT) {
@@ -97,6 +98,10 @@ int md_task_call_begin(struct md_task_call *f,long (*operation)(int,pid_t,void *
     }
     if (boundary==MD_TASK_CALL_ENTRY || boundary==MD_TASK_CALL_SECCOMP) {
         return replace_entry(f);
+    }
+    if (boundary==MD_TASK_CALL_EMULATED_ENTRY) {
+        f->stage=EMULATED_EXIT;
+        return trace(f,PTRACE_SYSCALL,NULL,NULL);
     }
     return invoke(f);
 }
@@ -123,12 +128,17 @@ int md_task_call_again(struct md_task_call *f,const struct md_task_call_argument
     if (f->boundary==MD_TASK_CALL_ENTRY || f->boundary==MD_TASK_CALL_SECCOMP) {
         return replace_entry(f);
     }
+    if (f->boundary==MD_TASK_CALL_EMULATED_ENTRY) {
+        f->stage=EMULATED_EXIT;
+        return trace(f,PTRACE_SYSCALL,NULL,NULL);
+    }
     return invoke(f);
 }
 int md_task_call_resume(struct md_task_call *f,int signal) {
     if (!f || !f->stage || f->stage==COMPLETE) return -EINVAL;
     return trace(f,f->stage==USER_RESTORING || f->stage==RESTORING || f->stage==TERMINATING ? PTRACE_CONT
-        : f->stage==EXIT_REENTERING ? PTRACE_SYSEMU : PTRACE_SYSCALL,
+        : f->stage==EXIT_REENTERING || (f->stage==REENTERING && f->boundary==MD_TASK_CALL_EMULATED_ENTRY)
+            ? PTRACE_SYSEMU : PTRACE_SYSCALL,
         NULL,(void *)(intptr_t)signal);
 }
 int md_task_call_expects_interrupt(const struct md_task_call *f) {
@@ -148,6 +158,13 @@ int md_task_call_event(struct md_task_call *f,int status) {
     struct user_pt_regs current;
     int error=regs(f,PTRACE_GETREGSET,&current);
     if (error) return error;
+    if (f->stage==EMULATED_EXIT) {
+        struct ptrace_syscall_info observed;
+        if (event || signal!=(SIGTRAP|0x80)) return -EPROTO;
+        error=info(f,&observed); if (error) return error;
+        if (observed.op!=PTRACE_SYSCALL_INFO_EXIT) return -EPROTO;
+        return invoke(f);
+    }
     if (f->stage==USER_RESTORING) {
         if (event!=PTRACE_EVENT_STOP || signal!=SIGTRAP || current.pc!=f->returned) return -EPROTO;
         return finish(f,1);
@@ -201,7 +218,7 @@ int md_task_call_event(struct md_task_call *f,int status) {
             f->stage=EXIT_SKIPPING;
             return trace(f,PTRACE_SYSCALL,NULL,NULL);
         }
-        if (f->boundary==MD_TASK_CALL_ENTRY) return finish(f,0);
+        if (f->boundary==MD_TASK_CALL_ENTRY || f->boundary==MD_TASK_CALL_EMULATED_ENTRY) return finish(f,0);
         f->stage=RESTORING;
         return trace(f,PTRACE_CONT,NULL,NULL);
     }
@@ -252,5 +269,6 @@ int md_task_call_event(struct md_task_call *f,int status) {
     struct user_pt_regs replay=f->entry; replay.pc=f->call;
     error=regs(f,PTRACE_SETREGSET,&replay); if (error) return error;
     f->stage=f->boundary==MD_TASK_CALL_EXIT ? EXIT_REENTERING : REENTERING;
-    return trace(f,f->boundary==MD_TASK_CALL_EXIT ? PTRACE_SYSEMU : PTRACE_SYSCALL,NULL,NULL);
+    return trace(f,f->boundary==MD_TASK_CALL_EXIT || f->boundary==MD_TASK_CALL_EMULATED_ENTRY
+        ? PTRACE_SYSEMU : PTRACE_SYSCALL,NULL,NULL);
 }

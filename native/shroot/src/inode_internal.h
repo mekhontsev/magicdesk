@@ -90,6 +90,7 @@ struct md_inode_store {
     struct mdi_overlay_writer *overlay;
     int write_transaction;
     int sync_requested;
+    unsigned directory_sync_batch;
     struct mdi_read_cache *read_cache;
     struct mdi_path_cache *path_cache;
     int cache_checked;
@@ -191,6 +192,10 @@ int mdi_sql(struct md_inode_store *, const char *);
 int mdi_sync(struct md_inode_store *, int fd);
 /* The caller holds the store gate, outside a SQLite transaction. */
 int mdi_checkpoint(struct md_inode_store *);
+/* Unpublished construction in one writer transaction. Only the objects
+ * directory is deferred; end must succeed before the caller commits. */
+int mdi_sync_batch_begin(struct md_inode_store *);
+int mdi_sync_batch_end(struct md_inode_store *,int result);
 enum { MDI_RESERVE_BATCH = 32 };
 /* Claims one durable, previously unpublished physical file in this transaction.
  * No live backing is recycled. The caller still syncs its final attributes. */

@@ -87,8 +87,8 @@ static void backing_sources(struct md_inode_store *s) {
         int fd=md_inode_open(s,-1,names[i],flags,0); assert(fd>=0);
         struct stat original; assert(!fstat(fd,&original));
         char source[96];
-        assert(md_inode_descriptor_source(s,fd,source,1)==-ERANGE);
-        assert(!md_inode_descriptor_source(s,fd,source,sizeof(source)));
+        assert(md_inode_descriptor_source(s,fd,source,1,1)==-ERANGE);
+        assert(!md_inode_descriptor_source(s,fd,source,sizeof(source),1));
         assert(!md_inode_rename(s,-1,names[i],-1,"/source-moved",0));
         assert(!md_inode_unlink(s,-1,"/source-moved",i==1 ? AT_REMOVEDIR : 0));
         int opened=open(source,flags); assert(opened>=0);
@@ -99,7 +99,7 @@ static void backing_sources(struct md_inode_store *s) {
         close(opened); close(fd);
     }
     int native=open("/dev/null",O_PATH|O_NOFOLLOW|O_CLOEXEC); assert(native>=0);
-    char source[96]; assert(md_inode_descriptor_source(s,native,source,sizeof(source))==-EXDEV);
+    char source[96]; assert(md_inode_descriptor_source(s,native,source,sizeof(source),1)==-EXDEV);
     close(native); assert(descriptors()==before);
     puts("PASS backing-source lease preserves object/type/status after guest rename and unlink, without descriptor allocation");
 }
@@ -212,6 +212,10 @@ static void empty_views(struct md_inode_store *s) {
             MD_FS_OPEN,"mnt",O_PATH|O_DIRECTORY,0,NULL);
         assert(!opened.error && opened.fd>=0); close(opened.fd);
         md_inode_measure(s,NULL);
+        printf("anchor open annotated=%u: steps=%llu transactions=%llu pins=%llu\n",annotated,
+            (unsigned long long)costs[annotated].step.calls,
+            (unsigned long long)costs[annotated].transaction.calls,
+            (unsigned long long)costs[annotated].directory_pin_hits);
     }
     assert(costs[0].step.calls==costs[1].step.calls
         && costs[0].transaction.calls==costs[1].transaction.calls);

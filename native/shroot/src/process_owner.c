@@ -157,6 +157,12 @@ long md_process_guard(long owner, const char *bootstrap,
             if (pid == guest) {
                 root_status = md_process_status(status); root_seen = 1;
                 if ((status & 127) || root_status == 125) {
+                    char message[96]="Shroot: supervisor terminated ", code[32];
+                    md_append(message,sizeof(message),(status & 127) ? "signal=" : "status=");
+                    md_decimal(code,(unsigned long)((status & 127) ? status & 127 : root_status));
+                    md_append(message,sizeof(message),code);
+                    md_append(message,sizeof(message),"\n");
+                    RAW3(write,2,message,md_length(message));
                     root_status = 125;
                     if (!phase) { result = 125; phase = 1; deadline = md_event_now() + MD_GRACE_NS; }
                 }

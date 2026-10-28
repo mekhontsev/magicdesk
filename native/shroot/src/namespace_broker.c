@@ -144,6 +144,24 @@ struct task {
         struct task *next;
     } result;
 };
+static void describe_task(const struct task *t,int fd) {
+    dprintf(fd,"Shroot: broker pid=%d eligible=%d stopped=%d held=%d status=%#x borrowed=%d operation=%d recovering=%d\n",
+        t->pid,t->eligible,t->stopped,t->held,t->status,t->borrowed,t->operation!=NULL,t->recovering);
+    if (t->operation) dprintf(fd,"Shroot: broker operation pid=%d nativePlan=%d\n",
+        t->pid,t->operation->native_plan);
+    struct md_entry_channel *c=t->channel;
+    if (c) dprintf(fd,"Shroot: channel pid=%d state=%u enabled=%u caller=%u awake=%u sleeping=%u native=%u\n",
+        t->pid,atomic_load(&c->state),atomic_load(&c->enabled),atomic_load(&c->caller),
+        atomic_load(&c->awake),atomic_load(&c->sleeping),atomic_load(&c->native.state));
+}
+void md_broker_describe_task(struct md_namespace_broker *b,pid_t pid,int fd) {
+    if (!b) return;
+    int error=pthread_mutex_trylock(&b->lock);
+    if (error) { dprintf(fd,"Shroot: broker snapshot unavailable error=%d\n",error); return; }
+    for (struct task *t=b->task_index[(unsigned)pid%TASK_BUCKETS];t;t=t->indexed)
+        if (t->pid==pid) { describe_task(t,fd); break; }
+    pthread_mutex_unlock(&b->lock);
+}
 void md_broker_describe(struct md_namespace_broker *b,int fd) {
     if (!b) return;
     md_fs_worker_describe(b->worker,fd);
@@ -153,14 +171,7 @@ void md_broker_describe(struct md_namespace_broker *b,int fd) {
     for (struct task *t=b->tasks;t;t=t->next) if (t->pid) {
         ++total;
         if (shown++>=16) continue;
-        dprintf(fd,"Shroot: broker pid=%d eligible=%d stopped=%d held=%d borrowed=%d operation=%d recovering=%d\n",
-            t->pid,t->eligible,t->stopped,t->held,t->borrowed,t->operation!=NULL,t->recovering);
-        if (t->operation) dprintf(fd,"Shroot: broker operation pid=%d nativePlan=%d\n",
-            t->pid,t->operation->native_plan);
-        struct md_entry_channel *c=t->channel;
-        if (c) dprintf(fd,"Shroot: channel pid=%d state=%u enabled=%u caller=%u awake=%u sleeping=%u native=%u\n",
-            t->pid,atomic_load(&c->state),atomic_load(&c->enabled),atomic_load(&c->caller),
-            atomic_load(&c->awake),atomic_load(&c->sleeping),atomic_load(&c->native.state));
+        describe_task(t,fd);
     }
     pthread_mutex_unlock(&b->lock);
     if (total>16) dprintf(fd,"Shroot: broker tasks shown=16 total=%u\n",total);

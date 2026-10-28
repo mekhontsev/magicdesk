@@ -4,11 +4,13 @@
 #include "identity_call.h"
 #include <sys/syscall.h>
 
-enum md_entry_route { MD_ENTRY_CALLER, MD_ENTRY_WORKER, MD_ENTRY_TASK, MD_ENTRY_FD, MD_ENTRY_VALUE, MD_ENTRY_MEMORY };
+enum md_entry_route { MD_ENTRY_CALLER, MD_ENTRY_WORKER, MD_ENTRY_TASK, MD_ENTRY_FD, MD_ENTRY_VALUE, MD_ENTRY_MEMORY,
+    MD_ENTRY_READINESS };
 /* CALLER retains the original instruction, including clone/signal-return stack
  * semantics and native IO. Dynamic FD selectors still apply at that syscall.
  * TASK uses the ordinary kernel-admitted dispatcher and its completion owners. */
 static inline enum md_entry_route md_entry_route(int number) {
+    if (number==SYS_epoll_pwait || number==SYS_epoll_pwait2) return MD_ENTRY_READINESS;
     if (number==SYS_mmap || number==SYS_munmap || number==SYS_mprotect || number==SYS_mremap)
         return MD_ENTRY_MEMORY;
     if (md_identity_scalar_call(number)) return MD_ENTRY_VALUE;

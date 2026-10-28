@@ -28,7 +28,8 @@ def guest(directory):
         paths[name] = path
 
     def check(name, euid, egid, *, fd=False, nnp=False, path=None, unlink=False, traced=False,
-              userns=False, capabilities=None, secure=None, drop=None, error=None, unreadable=False):
+              userns=False, capabilities=None, secure=None, drop=None, error=None, unreadable=False,
+              closed=()):
         path = path or paths[name]
         descriptor = os.open(path, (os.O_PATH if fd == 'path' else os.O_RDONLY) | os.O_CLOEXEC) if fd else None
         if unlink:
@@ -38,8 +39,12 @@ def guest(directory):
         if not pid:
             try:
                 os.close(reader)
-                os.dup2(writer, 1)
-                os.close(writer)
+                report_fd = writer if closed else 1
+                if closed:
+                    os.set_inheritable(writer, True)
+                else:
+                    os.dup2(writer, 1)
+                    os.close(writer)
                 if traced:
                     assert libc.ptrace(0, 0, 0, 0) == 0, ctypes.get_errno()
                 if drop is not None:
@@ -73,7 +78,13 @@ def guest(directory):
                     Path('/proc/self/setgroups').write_text('deny\n')
                     Path('/proc/self/gid_map').write_text('0 1000 1\n')
                 try:
-                    os.execve(descriptor if fd else path, [path],
+                    for number in closed:
+                        os.close(number)
+                    arguments = [path]
+                    if closed:
+                        arguments += ['--report-fd', str(report_fd),
+                                      str(sum(1 << number for number in closed))]
+                    os.execve(descriptor if fd else path, arguments,
                               dict(os.environ, LD_LIBRARY_PATH=directory + '/untrusted'))
                 except OSError as failure:
                     if error is None or failure.errno != error:
@@ -100,7 +111,7 @@ def guest(directory):
             status = os.waitpid(pid, 0)[1]
         if descriptor is not None:
             os.close(descriptor)
-        assert status == 0, (name, status, output)
+        assert status == 0, (name, closed, status, output)
         if error is not None:
             assert not output, (name, 'exec unexpectedly succeeded', output)
             print('PASS executable privileges rejected', name, error, flush=True)
@@ -116,7 +127,8 @@ def guest(directory):
                         aux=[real, euid, real, egid], secure=secure, env=1-secure,
                         library=7 if secure else 99)
         assert result == expected, (name, fd, nnp, result, expected)
-        print('PASS set-ID', name, 'fd' if fd else 'path', 'NNP' if nnp else '', flush=True)
+        print('PASS set-ID', name, 'fd' if fd else 'path', 'NNP' if nnp else '',
+              'closed=' + str(closed) if closed else '', flush=True)
 
     for name, uid, gid in [('plain', 1000, 1000), ('suid', 0, 1000),
                          ('sgid', 1000, 2345), ('both', 0, 2345),
@@ -133,6 +145,9 @@ def guest(directory):
             check(name, 1000, 1000, fd=descriptor, error=errno.EACCES)
     check('both', 1000, 1000, nnp=True)
     check('both', 1000, 1000, nnp=True, fd=True)
+    for closed in ((0,), (1,), (2,), (0, 1, 2)):
+        check('both', 0, 2345, closed=closed)
+        check('both', 0, 2345, fd=True, closed=closed)
     check('both', 1000, 1000, traced=True)
     check('both', 0, 0, userns=True)
     for name, effective in [('cap-p', False), ('cap-ep', True)]:

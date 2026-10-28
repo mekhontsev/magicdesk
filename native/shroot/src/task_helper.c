@@ -9,6 +9,7 @@
 #include "signal_protocol.h"
 #include "task_checkpoint.h"
 #include "task_registers.h"
+#include "task_wait.h"
 #include <elf.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -39,6 +40,7 @@ struct parcel {
 struct helper {
     struct helper *next;
     struct md_task_helpers *manager;
+    struct md_task_wait_member wait_member;
     pid_t owner, group, child;
     int parent_ready, reaped, started, cancelled, before, observed, child_stopped;
     enum operation parent_operation, operation;
@@ -68,6 +70,8 @@ struct helper {
     struct md_fd_channel *channel;
     struct md_fd_channel_capture capture;
     int backing, maps;
+    unsigned notifications;
+    int notification_result;
     void *completion;
     unsigned export_count, export_offset;
     int export_inputs[];
@@ -117,6 +121,7 @@ static int call(struct helper *m, pid_t pid, long nr, const unsigned long args[6
 }
 static void dispose(struct helper *m) {
     struct md_task_helpers *manager=m->manager;
+    md_task_wait_untrack(manager->callbacks.wait,&m->wait_member);
     struct helper **p=&manager->first;
     while (*p && *p!=m) p=&(*p)->next;
     if (*p) { *p=m->next; --manager->count; }
@@ -454,7 +459,7 @@ static int advance(struct helper *m, long value) {
     return call(m,m->child,nr,args);
 }
 struct md_task_helpers *md_task_helpers_new(const struct md_task_helper_callbacks *callbacks) {
-    if (!callbacks || !callbacks->trace || !callbacks->newborn) return NULL;
+    if (!callbacks || !callbacks->trace || !callbacks->newborn || !callbacks->wait) return NULL;
     struct md_task_helpers *manager=calloc(1,sizeof(*manager));
     if (manager) manager->callbacks=*callbacks;
     return manager;
@@ -652,7 +657,10 @@ int md_task_helper_notification(struct md_task_helpers *manager, int listener, c
                 ? md_fd_channel_endpoint(m->channel) : m->send_inputs ? m->send_inputs->fds[0] : m->backing,
             .newfd=m->operation==SEND_CHANNEL || m->operation==SEND_SOCKET ? (unsigned)m->send.socket : 0,
             .newfd_flags=O_CLOEXEC};
-        if (ioctl(listener,SECCOMP_IOCTL_NOTIF_ADDFD,&add)<0 && errno!=ENOENT) {
+        ++m->notifications;
+        int result=ioctl(listener,SECCOMP_IOCTL_NOTIF_ADDFD,&add);
+        m->notification_result=result<0 ? -errno : result;
+        if (result<0 && errno!=ENOENT) {
             int error=errno;
             /* SETFD reports an out-of-limit target as EBADF. The source socket
              * is retained and valid; this is private-table capacity failure. */
@@ -673,6 +681,7 @@ int md_task_helper_event(struct md_task_helpers *manager, pid_t pid, int status)
     if (child) m->child_stopped=1;
     if (WIFEXITED(status) || WIFSIGNALED(status)) {
         if (!child) return 0;
+        md_task_wait_untrack(manager->callbacks.wait,&m->wait_member);
         m->reaped=1;
         if (!m->owner || m->parent_ready) complete(m);
         return 1;
@@ -706,6 +715,7 @@ int md_task_helper_event(struct md_task_helpers *manager, pid_t pid, int status)
             m->child=(pid_t)born;
             if (m->captured) { m->captured(m->completion); m->captured=NULL; }
             int ready=manager->callbacks.newborn(m->child);
+            md_task_wait_track(manager->callbacks.wait,&m->wait_member,m->child);
             error=ready<0 ? ready : ready ? child_begin(m) : 0;
             if (!error) error=resume(m,pid);
         }
@@ -786,6 +796,31 @@ int md_task_helper_owns(struct md_task_helpers *manager,pid_t owner,pid_t task) 
     for (struct helper *m=manager ? manager->first : NULL;m;m=m->next)
         if (m->owner==owner && (m->owner==task || m->child==task)) return 1;
     return 0;
+}
+void md_task_helpers_describe(struct md_task_helpers *manager,pid_t owner,int output) {
+    for (struct helper *m=manager ? manager->first : NULL;m;m=m->next) if (m->owner==owner) {
+        dprintf(output,"Shroot: helper owner=%d child=%d kind=%d parent=%d operation=%d ready=%d reaped=%d stopped=%d cancelled=%d started=%d\n",
+            m->owner,m->child,m->kind,m->parent_operation,m->operation,
+            m->parent_ready,m->reaped,m->child_stopped,m->cancelled,m->started);
+        const pid_t actors[]={m->owner,m->child};
+        dprintf(output,"Shroot: helper notifications=%u result=%d\n",m->notifications,m->notification_result);
+        for (unsigned i=0;i<2;++i) if (actors[i]) {
+            struct user_pt_regs r={0};
+            int error=registers(m,actors[i],&r,0);
+            dprintf(output,"Shroot: helper actor=%d pc=%#llx syscall=%llu result=%lld error=%d\n",
+                actors[i],(unsigned long long)r.pc,(unsigned long long)r.regs[8],(long long)r.regs[0],error);
+            char path[80],state[256];
+            snprintf(path,sizeof(path),"/proc/%d/task/%d/syscall",m->group,actors[i]);
+            int fd=open(path,O_RDONLY|O_CLOEXEC);
+            ssize_t size=fd<0 ? -1 : read(fd,state,sizeof(state)-1);
+            int failure=size<0 ? errno : 0;
+            if (fd>=0) close(fd);
+            if (size>0 && state[size-1]=='\n') --size;
+            if (size>=0) state[size]=0;
+            dprintf(output,"Shroot: helper actor=%d syscall=%s error=%d\n",
+                actors[i],size>=0 ? state : "unavailable",failure);
+        }
+    }
 }
 struct md_interception_memory *md_task_helper_memory(struct md_task_helpers *manager,pid_t task) {
     for (struct helper *m=manager ? manager->first : NULL;m;m=m->next)

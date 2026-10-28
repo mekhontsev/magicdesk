@@ -85,7 +85,9 @@ int md_poll_wait_task(struct md_poll_wait *p,struct md_epoll_wait *wait,struct m
                  * event (for example a proc-sysctl generation notification). */
                 short pending=completed ? item->poll.revents : 0;
                 item->poll.revents=pending|((short)mask&(item->poll.events|POLLERR|POLLHUP));
-                int fd=-1,error=provider.ops->poll_descriptor ? provider.ops->poll_descriptor(provider.context,&fd) : 0;
+                int fd=-1,error=provider.ops->poll_wait_descriptor
+                    ? provider.ops->poll_wait_descriptor(provider.context,&fd)
+                    : provider.ops->poll_descriptor ? provider.ops->poll_descriptor(provider.context,&fd) : 0;
                 if (error) { *result=error; return 0; }
                 p->sources[i]=(struct pollfd){fd,POLLIN,0};
                 native[i]=(struct pollfd){-1,0,0};

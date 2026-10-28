@@ -42,7 +42,7 @@ static void release(void *p, void *local, size_t size) { if (p && p != local) RA
 extern long md_guest_buffer_control(unsigned, unsigned long, unsigned long);
 long md_socket_capture_inputs(long state, struct md_fd_capture_frame *f, const int *numbers, unsigned count) {
     static const struct md_descriptor_capture_protocol p={MD_FS_BUFFER_IPC_ADMIT,MD_FS_BUFFER_IPC_CAPTURE_READY,
-        MD_FS_BUFFER_IPC_CAPTURE_SENT,MD_FS_BUFFER_IPC_CAPTURE_OBSERVED,MD_IPC_TASK_IO};
+        MD_FS_BUFFER_IPC_CAPTURE_SENT,MD_FS_BUFFER_IPC_CAPTURE_OBSERVED,MD_IPC_TASK_IO,NULL};
     return md_descriptor_capture_inputs(state,f,numbers,count,&p);
 }
 static long io_transfer(struct md_ipc_io_message *io, void *memory, size_t size,

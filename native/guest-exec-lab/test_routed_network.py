@@ -12,6 +12,20 @@ import struct
 import subprocess
 import sys
 
+class Vector(ctypes.Structure):
+    _fields_ = [('base', ctypes.c_void_p), ('length', ctypes.c_size_t)]
+
+
+class Header(ctypes.Structure):
+    _fields_ = [('name', ctypes.c_void_p), ('namelen', ctypes.c_uint),
+               ('iov', ctypes.POINTER(Vector)), ('count', ctypes.c_size_t),
+               ('control', ctypes.c_void_p), ('control_size', ctypes.c_size_t), ('flags', ctypes.c_int)]
+
+
+class Message(ctypes.Structure):
+    _fields_ = [('header', Header), ('length', ctypes.c_uint)]
+
+
 def socket_table(name, process='self'):
     with open(f'/proc/{process}/net/{name}') as source:
         return {int(parts[9]): parts for line in source if len(parts := line.split()) >= 10 and parts[0] != 'sl'}
@@ -75,14 +89,6 @@ def socket_tables():
     print('PASS proc socket tables: logical ports, peers, UID/inode, lsof, rewind, close and private namespace', flush=True)
 
 def send_batch(udp, address):
-    class Vector(ctypes.Structure):
-        _fields_ = [('base', ctypes.c_void_p), ('length', ctypes.c_size_t)]
-    class Header(ctypes.Structure):
-        _fields_ = [('name', ctypes.c_void_p), ('namelen', ctypes.c_uint),
-                    ('iov', ctypes.POINTER(Vector)), ('count', ctypes.c_size_t),
-                    ('control', ctypes.c_void_p), ('control_size', ctypes.c_size_t), ('flags', ctypes.c_int)]
-    class Message(ctypes.Structure):
-        _fields_ = [('header', Header), ('length', ctypes.c_uint)]
     native = ctypes.create_string_buffer(struct.pack('=H', socket.AF_INET)
         + struct.pack('!H', address[1]) + socket.inet_aton(address[0]) + bytes(8))
     payloads = [ctypes.create_string_buffer(b'FIRST'), ctypes.create_string_buffer(b'SECOND')]
@@ -97,12 +103,6 @@ def send_batch(udp, address):
 
 
 def receive_info_without_name(udp, capacity):
-    class Vector(ctypes.Structure):
-        _fields_ = [('base', ctypes.c_void_p), ('length', ctypes.c_size_t)]
-    class Header(ctypes.Structure):
-        _fields_ = [('name', ctypes.c_void_p), ('namelen', ctypes.c_uint),
-                    ('iov', ctypes.POINTER(Vector)), ('count', ctypes.c_size_t),
-                    ('control', ctypes.c_void_p), ('control_size', ctypes.c_size_t), ('flags', ctypes.c_int)]
     data, control = ctypes.create_string_buffer(100), ctypes.create_string_buffer(capacity)
     vector = Vector(ctypes.addressof(data), 100)
     message = Header(None, 0, ctypes.pointer(vector), 1, ctypes.addressof(control), capacity, 0)
@@ -120,6 +120,95 @@ def receive_info_without_name(udp, capacity):
                            socket.inet_aton('172.18.0.2'), socket.inet_aton('172.18.0.2'))
     assert control.raw[16:length] == expected[:length-16], (control.raw, expected)
     assert message.flags == (socket.MSG_CTRUNC if capacity < socket.CMSG_LEN(12) else 0)
+
+
+def receive_batch():
+    class Timespec(ctypes.Structure):
+        _fields_ = [('seconds', ctypes.c_long), ('nanoseconds', ctypes.c_long)]
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.recvmmsg.argtypes = [ctypes.c_int, ctypes.POINTER(Message), ctypes.c_uint,
+                             ctypes.c_int, ctypes.POINTER(Timespec)]
+    for family, loopback, level, option, cmsg_type in (
+            (socket.AF_INET, '127.0.0.1', socket.IPPROTO_IP, 8, 8),
+            (socket.AF_INET6, '::1', socket.IPPROTO_IPV6, socket.IPV6_RECVPKTINFO, socket.IPV6_PKTINFO)):
+        with socket.socket(family, socket.SOCK_DGRAM) as receiver, socket.socket(family, socket.SOCK_DGRAM) as sender:
+            receiver.bind((loopback, 0))
+            sender.bind((loopback, 0))
+            receiver.setsockopt(level, option, 1)
+            receiver.setblocking(False)
+            count = 128
+            payloads = [ctypes.create_string_buffer(16) for _ in range(count)]
+            addresses = [ctypes.create_string_buffer(128) for _ in range(count)]
+            controls = [ctypes.create_string_buffer(8192 if i == 0 else 256) for i in range(count)]
+            vectors = [Vector(ctypes.addressof(p), len(p)) for p in payloads]
+            messages = (Message * count)()
+
+            def reset():
+                for i in range(count):
+                    messages[i].header = Header(ctypes.addressof(addresses[i]) if i % 2 == 0 else None,
+                        128 if i % 2 == 0 else 0, ctypes.pointer(vectors[i]), 1,
+                        ctypes.addressof(controls[i]), len(controls[i]), 0)
+                    messages[i].length = 0xffffffff
+
+            def send(data):
+                assert sender.sendto(data, receiver.getsockname()) == len(data)
+
+            reset()
+            for i in range(count):
+                send(struct.pack('=I', i))
+            remaining = Timespec(1, 0)
+            result = libc.recvmmsg(receiver.fileno(), messages, count, 0, ctypes.byref(remaining))
+            assert result == count, (family, result, ctypes.get_errno())
+            assert 0 <= remaining.seconds * 1000000000 + remaining.nanoseconds <= 1000000000
+            for i, message in enumerate(messages):
+                assert message.length == 4 and payloads[i].raw[:4] == struct.pack('=I', i)
+                if i % 2 == 0:
+                    raw = addresses[i].raw
+                    assert struct.unpack_from('=H', raw)[0] == family
+                    assert struct.unpack_from('!H', raw, 2)[0] == sender.getsockname()[1]
+                    start, size = (4, 4) if family == socket.AF_INET else (8, 16)
+                    assert socket.inet_ntop(family, raw[start:start+size]) == loopback
+                else:
+                    assert message.header.namelen == 0
+                length, actual_level, kind = struct.unpack_from('=Qii', controls[i].raw)
+                assert (actual_level, kind) == (level, cmsg_type)
+                info = controls[i].raw[16:length]
+                address = socket.inet_pton(family, loopback)
+                expected = (struct.pack('=i', socket.if_nametoindex('lo')) + address + address
+                            if family == socket.AF_INET else address + struct.pack('=i', socket.if_nametoindex('lo')))
+                assert info == expected, (family, info, expected)
+            reset()
+            assert libc.recvmmsg(receiver.fileno(), messages, count, 0, None) == -1
+            assert ctypes.get_errno() == errno.EAGAIN
+            send(b'peek')
+            reset()
+            assert libc.recvmmsg(receiver.fileno(), messages, 1, socket.MSG_PEEK, None) == 1
+            assert payloads[0].raw[:4] == b'peek'
+            reset()
+            vectors[0].length = 1
+            assert libc.recvmmsg(receiver.fileno(), messages, 1, socket.MSG_TRUNC, None) == 1
+            assert messages[0].length == 4 and messages[0].header.flags & socket.MSG_TRUNC
+            vectors[0].length = 16
+            reset()
+            send(b'prefix')
+            send(b'retained')
+            messages[1].header.iov = ctypes.cast(1, ctypes.POINTER(Vector))
+            assert libc.recvmmsg(receiver.fileno(), messages, 2, 0, None) == 1
+            assert messages[0].length == 6 and messages[1].length == 0xffffffff
+            assert receiver.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR) == errno.EFAULT
+            assert receiver.recv(16) == b'retained'
+            reset()
+            invalid = Timespec(-1, 0)
+            assert libc.recvmmsg(receiver.fileno(), messages, 1, 0, ctypes.byref(invalid)) == -1
+            assert ctypes.get_errno() == errno.EINVAL
+            assert libc.recvmmsg(receiver.fileno(), messages, 0, 0, None) == 0
+            receiver.setblocking(True)
+            receiver.setsockopt(socket.SOL_SOCKET, socket.SO_RCVTIMEO, struct.pack('@ll', 2, 0))
+            send(b'wait-one')
+            reset()
+            assert libc.recvmmsg(receiver.fileno(), messages, count, 0x10000, None) == 1  # MSG_WAITFORONE
+            assert messages[0].length == 8
+    print('PASS recvmmsg: IPv4/IPv6 128-packet batches, names/pktinfo, partial faults, peek/truncation, timeout and WAITFORONE', flush=True)
 
 
 def datagram_lifetime():
@@ -149,18 +238,24 @@ def datagram_lifetime():
 
 
 def device_binding():
+    bind_index = getattr(socket, 'SO_BINDTOIFINDEX', 62)
+    loopback = socket.if_nametoindex('lo')
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as server:
         assert server.getsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, 16) == b''
+        assert server.getsockopt(socket.SOL_SOCKET, bind_index) == 0
         try:
             server.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, b'no-such-device')
         except OSError as error:
             assert error.errno == errno.ENODEV, error
         else:
             raise AssertionError('Missing device was accepted')
-        server.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, b'lo\0')
+        server.setsockopt(socket.SOL_SOCKET, bind_index, loopback)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_PRIORITY, 7)
         with server.dup() as shared:
             assert shared.getsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, 16) == b'lo\0'
-            shared.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, b'')
+            assert shared.getsockopt(socket.SOL_SOCKET, bind_index) == loopback
+            assert shared.getsockopt(socket.SOL_SOCKET, socket.SO_PRIORITY) == 7
+            shared.setsockopt(socket.SOL_SOCKET, bind_index, 0)
             assert server.getsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, 16) == b''
         server.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, b'lo')
         server.bind(('0.0.0.0', 0))
@@ -180,6 +275,7 @@ def device_binding():
             raise AssertionError('Bound socket escaped its interface')
     with socket.socket() as server, socket.socket() as client:
         server.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, b'lo')
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_PRIORITY, 7)
         server.bind(('127.0.0.1', 0))
         server.listen(1)
         server.settimeout(5)
@@ -189,6 +285,8 @@ def device_binding():
         with accepted:
             accepted.settimeout(5)
             assert accepted.getsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, 16) == b'lo\0'
+            assert accepted.getsockopt(socket.SOL_SOCKET, bind_index) == loopback
+            assert accepted.getsockopt(socket.SOL_SOCKET, socket.SO_PRIORITY) == 7
             client.sendall(b'INHERITED')
             assert accepted.recv(100) == b'INHERITED'
             accepted.sendall(b'REPLY')
@@ -222,6 +320,7 @@ def legacy_route_dump():
 
 
 def guest():
+    receive_batch()
     device_binding()
     legacy_route_dump()
     def run(*args):
@@ -420,4 +519,4 @@ def main():
 
 
 if __name__ == '__main__':
-    socket_tables() if '--tables' in sys.argv else guest() if '--guest' in sys.argv else main()
+    receive_batch() if '--batch' in sys.argv else socket_tables() if '--tables' in sys.argv else guest() if '--guest' in sys.argv else main()

@@ -10,6 +10,9 @@ struct md_task_registry;
 struct md_guest_domain;
 struct md_fs_buffer_service;
 void md_fs_buffer_admission(struct md_fs_buffer_service *, int (*)(pid_t));
+/* Capture on the supervisor thread before admission. Filter installation must
+ * drain admitted operations before committing a new transport restriction. */
+void md_fs_buffer_restricted(struct md_fs_buffer_service *, int (*)(pid_t));
 struct md_fs_buffer_request;
 struct md_fs_anchor;
 struct md_fd_object;
@@ -42,8 +45,9 @@ int md_fs_buffer_capture_pending(const struct md_fs_buffer_request *);
 int md_fs_buffer_capture_start(struct md_fs_buffer_request *);
 int md_fs_buffer_capture_target(const struct md_fs_buffer_request *, struct md_fs_task_capture *);
 int md_fs_buffer_capture_finish(struct md_fs_buffer_request *, int descriptor, int error);
+struct md_task_wait;
 struct md_fs_buffer_service *md_fs_buffer_service_new(struct md_fs_worker *, struct md_task_registry *,
-        struct md_resource_wakeup *, void (*complete)(struct md_fs_buffer_request *, pid_t, int));
+        struct md_resource_wakeup *, struct md_task_wait *, void (*complete)(struct md_fs_buffer_request *, pid_t, int));
 /* Configure before accepting work. The descriptor host owns the common IO
  * implementation; filesystem providers only supply control-file semantics. */
 /* The factory may transfer a per-open poll/mapping carrier through descriptor.
@@ -64,10 +68,10 @@ struct md_program;
 typedef int (*md_exec_capture)(pid_t,struct md_program *);
 void md_fs_buffer_exec_capture(struct md_fs_buffer_service *,md_exec_capture);
 struct md_task_snapshot;
-/* Capture a live task's logical root after process-access authorization. The
- * worker resolves that snapshot; no Android root descriptor enters the guest. */
-typedef int (*md_root_capture)(pid_t,pid_t,struct md_task_snapshot *);
-void md_fs_buffer_root_capture(struct md_fs_buffer_service *,md_root_capture);
+/* Capture a live task's root/cwd after process-access authorization. The
+ * worker retains its logical placement, never an Android path as guest text. */
+typedef int (*md_proc_path_capture)(pid_t,pid_t,unsigned,struct md_task_snapshot *);
+void md_fs_buffer_path_capture(struct md_fs_buffer_service *,md_proc_path_capture);
 /* Cancel requests and reap owned children, then stop/join the worker before
  * destroy. Records retain buffers independently of a dead/replaced task. */
 void md_fs_buffer_service_destroy(struct md_fs_buffer_service *);
@@ -87,6 +91,15 @@ int md_fs_buffer_invoke_status(struct md_fs_buffer_service *,pid_t,struct md_gue
     const struct md_fs_request *,struct md_fs_buffer_request **);
 /* Borrowed during completion only; NULL for mapped-buffer requests. */
 const struct md_fs_result *md_fs_buffer_status_result(const struct md_fs_buffer_request *);
+/* Inspect an already captured descriptor without a guest buffer or another
+ * file-table turn. Accepted submission owns descriptor; failure leaves it with
+ * the caller. The ordinary receipt/cancellation owner retains the task context. */
+int md_fs_buffer_stat_begin(struct md_fs_buffer_service *,pid_t,struct md_guest_domain *,
+    int descriptor,struct md_fs_buffer_request **);
+/* Copies owned bytes, then creates a read-only snapshot on the worker. No guest
+ * buffer/table turn is retained; completion uses open_take and normal cancellation. */
+int md_fs_buffer_snapshot_copy(struct md_fs_buffer_service *,pid_t,struct md_guest_domain *,
+    unsigned flags,const void *,size_t,struct md_fs_buffer_request **);
 /* Continue delivery of an already executed open. On accepted submission, moves
  * opened into the request; no path lookup or mutation is repeated. */
 int md_fs_buffer_adopt(struct md_fs_buffer_service *,pid_t,struct md_guest_domain *,unsigned operation,unsigned flags,
@@ -125,6 +138,8 @@ int md_fs_buffer_child(struct md_fs_buffer_service *, pid_t, int status);
  * then ready. The owner resumes publication only at its stopped-task boundary. */
 int md_fs_buffer_open_waiting(const struct md_fs_buffer_request *);
 int md_fs_buffer_open_ready(const struct md_fs_buffer_request *);
+int md_fs_buffer_open_interrupt(struct md_fs_buffer_request *);
+int md_fs_buffer_open_interrupted(const struct md_fs_buffer_request *);
 int md_fs_buffer_open_resume(struct md_fs_buffer_request *);
 void md_fs_buffer_cancel(struct md_fs_buffer_request **);
 /* Supervisor-thread diagnostics at a failed wait boundary, never polling. */

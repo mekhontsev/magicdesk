@@ -123,6 +123,25 @@ static void site_discovery(void) {
     assert(!unlink(path));
     puts("PASS native site discovery: 32 distinct SVCs without explicit entry API");
 }
+static void proc_discovery(void) {
+    int directory=open("/proc/self/ns",O_RDONLY|O_DIRECTORY|O_CLOEXEC);
+    assert(directory>=0);
+    char entries[4096],first[4096];
+    long expected=0;
+    for (unsigned site=0;site<MD_TEST_SYSCALL_SITES;++site) {
+        md_test_syscall_fn call=md_test_syscall_site(site);
+        for (unsigned repeat=0;repeat<2;++repeat) {
+            assert(lseek(directory,0,SEEK_SET)==0);
+            long count=call(directory,(uintptr_t)entries,sizeof(entries),0,0,0,SYS_getdents64);
+            assert(count>0 && count<=(long)sizeof(entries));
+            if (!expected) { expected=count; memcpy(first,entries,(size_t)count); }
+            assert(count==expected && !memcmp(entries,first,(size_t)count));
+            assert(call(directory,(uintptr_t)entries,sizeof(entries),0,0,0,SYS_getdents64)==0);
+        }
+    }
+    assert(!close(directory));
+    puts("PASS native proc discovery: cold and warm sites retain directory contents, cursor and request ownership");
+}
 static void reap(pid_t child) {
     int status;
     while (waitpid(child,&status,0)<0) assert(errno==EINTR);
@@ -1657,6 +1676,9 @@ int main(int argc,char **argv) {
     }
     if (argc>1 && !strcmp(argv[1],"--site-discovery")) {
         site_discovery(); return 0;
+    }
+    if (argc>1 && !strcmp(argv[1],"--proc-discovery")) {
+        proc_discovery(); return 0;
     }
     if (argc>1 && !strcmp(argv[1],"--jit-busy")) {
         int fd=open(path,O_CREAT|O_RDWR,0600); assert(fd>=0 && write(fd,"payload",7)==7 && !close(fd));

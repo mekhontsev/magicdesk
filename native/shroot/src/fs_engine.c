@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "readonly_file.h"
+#include "full_device.h"
 #include "fs_control.h"
 #include "fs_engine.h"
 #include "fs_continuation.h"
@@ -31,6 +32,7 @@
 #include <sys/syscall.h>
 #include <sys/vfs.h>
 #include <sys/statvfs.h>
+#include <sys/sysmacros.h>
 #include <unistd.h>
 
 void md_fs_statistics_report(int fd,const struct md_fs_statistics *stats) {
@@ -776,13 +778,32 @@ opened:
         }
         if (!out->error && out->open_completion.kind==MD_OPEN_DEVICE) {
             struct md_open_completion device=out->open_completion;
-            int fd=md_open_device(device.mode,device.device,(int)q->flags,&out->open_completion);
-            if (fd>=0 && output && output->origin && *output->origin) {
+            struct md_fs_anchor *origin=output && output->origin ? *output->origin : NULL;
+            struct md_control_file file={0};
+            int fd;
+            if (S_ISCHR(device.mode) && device.device==makedev(1,7)) {
+                struct stat st;
+                fd=md_inode_fstat(s,out->fd,&st);
+                if (!fd) {
+                    file=md_full_device_new(&st,origin);
+                    fd=file.ops ? file.ops->descriptor(file.context,(int)q->flags) : -errno;
+                }
+                out->open_completion=(struct md_open_completion){0};
+            } else fd=md_open_device(device.mode,device.device,(int)q->flags,&out->open_completion);
+            if (fd>=0 && origin) {
                 struct stat st;
                 if (fstat(fd,&st)) { int error=-errno; close(fd); fd=error; }
-                else (*output->origin)->endpoint=md_fd_identity(&st);
+                else origin->endpoint=md_fd_identity(&st);
             }
             close(out->fd); out->fd=fd<0 ? -1 : fd;
+            if (fd>=0 && file.ops) {
+                /* Placement is already captured; publish only IO authority. */
+                struct md_fs_output controlled=output ? *output : (struct md_fs_output){0};
+                controlled.origin=NULL;
+                int error=md_fs_control_publish(fd,file,origin,s->identity,(int)q->flags,out,&controlled);
+                if (error) { fd=error; out->fd=-1; }
+            }
+            md_control_file_release(file);
             if (fd<0) {
                 out->error=fd; out->open_completion=(struct md_open_completion){0};
                 if (output && output->origin) {

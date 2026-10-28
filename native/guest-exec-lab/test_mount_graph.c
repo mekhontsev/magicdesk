@@ -13,6 +13,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -124,6 +125,48 @@ static struct md_filesystem filesystem(const char *base, int create) {
 }
 static void close_filesystem(struct md_filesystem *fs) {
     md_fs_mounts_close(fs); md_inode_store_close(fs->store); fs->store=NULL;
+}
+static void *deep_paths(void *context) {
+    struct md_filesystem *fs=context;
+    enum { DEPTH=600 };
+    struct md_view_mount *mounts=calloc(DEPTH,sizeof(*mounts)); assert(mounts);
+    struct md_view_mount *base=&fs->mounts->tree->mounts[0];
+    int target=openat(base->source,"nested",O_PATH|O_DIRECTORY|O_CLOEXEC);
+    int leaf=openat(base->source,"parent",O_PATH|O_CLOEXEC);
+    assert(target>=0 && leaf>=0);
+    for (unsigned i=0;i<DEPTH;++i) {
+        mounts[i]=*base;
+        mounts[i].parent=i ? &mounts[i-1] : base;
+        mounts[i].target=base->source;
+    }
+    char actual[PATH_MAX],expected[PATH_MAX]="/outer";
+    assert(!md_view_path(fs,leaf,&mounts[DEPTH-1],actual,sizeof(actual)));
+    assert(!strcmp(actual,"/outer/parent"));
+    for (unsigned i=0;i<512;++i) {
+        mounts[i].target=target;
+        strcat(expected,"/nested");
+    }
+    strcat(expected,"/parent");
+    assert(!md_view_path(fs,leaf,&mounts[511],actual,sizeof(actual)) && !strcmp(actual,expected));
+    assert(md_view_path(fs,leaf,&mounts[511],actual,strlen(expected))==-ERANGE);
+    mounts[255].detached=1;
+    assert(md_view_path(fs,leaf,&mounts[511],actual,sizeof(actual))==-ENOENT);
+    mounts[255].detached=0;
+    for (unsigned i=512;i<DEPTH;++i) mounts[i].target=target;
+    assert(md_view_path(fs,leaf,&mounts[DEPTH-1],actual,sizeof(actual))==-ERANGE);
+    close(leaf); close(target); free(mounts);
+    return NULL;
+}
+static void deep_mount_paths(const char *base) {
+    unsigned before=descriptors();
+    char dir[PATH_MAX]; path(dir,base,"deep-paths"); assert(!mkdir(dir,0700));
+    struct md_filesystem fs=filesystem(dir,1);
+    pthread_attr_t attr; assert(!pthread_attr_init(&attr));
+    assert(!pthread_attr_setstacksize(&attr,128*1024));
+    pthread_t thread; assert(!pthread_create(&thread,&attr,deep_paths,&fs));
+    assert(!pthread_join(thread,NULL) && !pthread_attr_destroy(&attr));
+    close_filesystem(&fs); assert(descriptors()==before);
+    puts("PASS deep mount paths: bounded stack, stacked roots, nested suffixes, detach and size limits");
 }
 static struct md_fs_result open_file(struct md_filesystem *fs, const char *name, unsigned flags,
         struct md_fs_anchor *origin, struct md_fs_anchor **capture) {
@@ -1202,7 +1245,7 @@ void test_mount_graph(const char *base) {
     alarm(300); char model[PATH_MAX], peers[PATH_MAX];
     path(model,base,"graph-model"); path(peers,base,"graph-peers");
     assert(!mkdir(model,0700) && !mkdir(peers,0700));
-    models(model); sizes(base); unordered(base); indexed_updates(base); updates(base); private_publication(base);
+    models(model); deep_mount_paths(base); sizes(base); unordered(base); indexed_updates(base); updates(base); private_publication(base);
     retirement(base,0); retirement(base,1); processes(peers); host_projections(base);
     initial_pivot(base); removed_points(base); branch_reconciliation(base); unlinked_propagation(base); propagation_stack(base); propagation(base); alarm(0);
 }

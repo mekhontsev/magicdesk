@@ -3,6 +3,8 @@
 #include <elf.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,6 +37,31 @@ static void image(int base, const char *name, int argc, char **argv) {
     assert(lseek(fd, 0, SEEK_SET) == 0);
     close(fd);
 }
+static volatile sig_atomic_t snapshot_signals;
+static void snapshot_signal(int signal) { assert(signal==SIGUSR1); ++snapshot_signals; }
+static void image_signals(const char *path,int argc,char **argv) {
+    int done[2]; assert(!pipe(done));
+    struct sigaction old,action={.sa_handler=snapshot_signal,.sa_flags=SA_RESTART};
+    sigemptyset(&action.sa_mask); assert(!sigaction(SIGUSR1,&action,&old));
+    snapshot_signals=0;
+    pid_t parent=getpid(),sender=fork(); assert(sender>=0);
+    if (!sender) {
+        close(done[1]);
+        struct pollfd input={.fd=done[0],.events=POLLIN};
+        /* PROTOCOL_BACKOFF: bounded signal rate during live proc opens, not a
+         * readiness delay. Parent EOF ends the sender even on test failure. */
+        while (!poll(&input,1,1)) if (kill(parent,SIGUSR1)) _exit(1);
+        _exit(0);
+    }
+    close(done[0]);
+    for (unsigned i=0;i<64 || !snapshot_signals;++i) image(AT_FDCWD,path,argc,argv);
+    close(done[1]);
+    int status; pid_t waited;
+    do { waited=waitpid(sender,&status,0); } while (waited<0 && errno==EINTR);
+    assert(waited==sender && status==0 && snapshot_signals);
+    assert(!sigaction(SIGUSR1,&old,NULL));
+    puts("PASS foreign process snapshot: signal restart preserves exact cmdline bytes");
+}
 static void protected_image(int argc,char **argv,int other_user) {
     int ready[2],finish[2]; assert(!pipe(ready) && !pipe(finish));
     pid_t child=fork(); assert(child>=0);
@@ -55,7 +82,8 @@ static void protected_image(int argc,char **argv,int other_user) {
     if (other_user) assert(!seteuid(1000));
     char path[128]; snprintf(path,sizeof(path),"/proc/%d/cmdline",child);
     char first=argv[0][0]; argv[0][0]='X';
-    image(AT_FDCWD,path,argc,argv); argv[0][0]=first;
+    image(AT_FDCWD,path,argc,argv);
+    image_signals(path,argc,argv); argv[0][0]=first;
     snprintf(path,sizeof(path),"/proc/%d/auxv",child);
     int fd=open(path,O_RDONLY); assert(fd==-1 && errno==EACCES);
     snprintf(path,sizeof(path),"/proc/%d/exe",child);
@@ -81,6 +109,36 @@ static void title_snapshot(const char *path,const char *expected,size_t size) {
     assert(pread(fd,bytes,1,(off_t)size)==0);
     if (size>1) assert(pread(fd,bytes,1,1)==1 && bytes[0]==expected[1]);
     close(fd);
+}
+static void zombie_image(void) {
+    for (int protected=0;protected<2;++protected) {
+        pid_t child=fork(); assert(child>=0);
+        if (!child) {
+            if (protected) assert(!prctl(PR_SET_DUMPABLE,0,0,0,0));
+            _exit(0);
+        }
+        siginfo_t exited={0};
+        /* EVENT_WAIT: child exit without reaping keeps its native proc inode. */
+        assert(!waitid(P_PID,child,&exited,WEXITED|WNOWAIT) && exited.si_pid==child);
+        char path[128]; snprintf(path,sizeof(path),"/proc/%d",child);
+        int directory=open(path,O_PATH|O_DIRECTORY|O_CLOEXEC); assert(directory>=0);
+        int retained=-1;
+        for (int resolve=0;resolve<2;++resolve) for (int cloexec=0;cloexec<2;++cloexec) {
+            int flags=O_RDONLY|(cloexec ? O_CLOEXEC : 0);
+            int fd=resolve ? extended(directory,"cmdline",flags,BENEATH|NO_SYMLINKS)
+                : openat(directory,"cmdline",flags);
+            assert(fd>=0 && !!(fcntl(fd,F_GETFD)&FD_CLOEXEC)==cloexec);
+            char byte; assert(!read(fd,&byte,1) && !pread(fd,&byte,1,0));
+            assert(!lseek(fd,0,SEEK_SET));
+            if (retained>=0) close(retained);
+            retained=fd;
+        }
+        int status; assert(waitpid(child,&status,0)==child && !status);
+        /* Readable Shroot views are per-open snapshots; unlike native proc
+         * descriptors, they do not acquire ESRCH when the PID is reaped. */
+        assert(!close(retained) && !close(directory));
+    }
+    puts("PASS zombie process image: native EOF, openat/openat2, CLOEXEC and descriptor cleanup");
 }
 static void process_title(int argc,char **argv) {
     extern char **environ;
@@ -119,6 +177,7 @@ static void process_title(int argc,char **argv) {
     puts("PASS process title: extended argv/environment, first NUL, page bound and protected foreign views");
 }
 int main(int argc, char **argv) {
+    if (argc==2 && !strcmp(argv[1],"zombie")) { zombie_image(); return 0; }
     if (argc==2 && !strcmp(argv[1],"title")) { process_title(argc,argv); return 0; }
     if (argc==2 && (!strcmp(argv[1],"protected") || !strcmp(argv[1],"protected-other-user"))) {
         protected_image(argc,argv,!strcmp(argv[1],"protected-other-user")); return 0;

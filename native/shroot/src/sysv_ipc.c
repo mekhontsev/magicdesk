@@ -41,7 +41,8 @@ static void free_pending(struct md_ipc_pending **pending) {
     struct md_ipc_pending *p=*pending;
     if (!p) return;
     if (p->watcher>=0) close(p->watcher);
-    md_identity_release(&p->identity); free(p->input); free(p); *pending=NULL;
+    md_identity_release(&p->identity); md_pid_identity_release(p->process);
+    free(p->input); free(p); *pending=NULL;
 }
 int md_ipc_cancel(struct md_ipc *s, struct md_ipc_pending **pending) {
     struct md_ipc_pending *p=*pending;
@@ -104,7 +105,7 @@ static int register_wait(struct md_ipc *s, struct md_ipc_pending *p) {
     sqlite3_finalize(q); if (!r) p->registered=1; return r;
 }
 long md_ipc_call(struct md_ipc *s, struct md_ipc_pending **pending, struct md_ipc_undo *undo,
-        const struct md_identity *identity, pid_t tid, pid_t tgid, struct md_ipc_transport *transport) {
+        const struct md_identity *identity,pid_t tid,pid_t tgid,struct md_pid_identity *process,struct md_ipc_transport *transport) {
     struct md_ipc_pending *p=*pending;
     int r=0;
     if (!p) {
@@ -112,6 +113,7 @@ long md_ipc_call(struct md_ipc *s, struct md_ipc_pending **pending, struct md_ip
         *pending=p; p->watcher=-1; p->call=transport->call; p->identity=md_identity_copy(identity);
         p->transport=transport;
         p->tid=tid; p->pid=tgid; p->undo=undo->id;
+        p->process=md_pid_identity_retain(process);
         r=prepare(p);
         if (!r && (p->call.nr==SYS_semop || p->call.nr==SYS_semtimedop)) {
             const struct sembuf *ops=p->input;

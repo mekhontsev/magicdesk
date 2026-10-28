@@ -3,23 +3,164 @@
 #include "network_internal.h"
 #include "network_forward.h"
 #include "network_proc.h"
+#include "control_epoll.h"
+#include "fd_selector.h"
 #include "test_network_fixture.h"
 #include "guest_identity.h"
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <net/if.h>
 #include <netinet/tcp.h>
 #include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 static void endpoint_option(struct md_fd_object *o,int fd,unsigned level,unsigned option,void *value,socklen_t size) {
-    int error=md_network_endpoint_sockopt(o,fd,1,level,option,value,&size);
+    struct md_identity root=md_identity_new(0,0);
+    int error=md_network_endpoint_sockopt(o,fd,&root,1,level,option,value,&size);
+    md_identity_release(&root);
     if (error) fprintf(stderr,"endpoint option %u/%u: %d\n",level,option,error);
     assert(!error);
+}
+static void connection_observers(struct md_network_namespace *n,unsigned family) {
+    struct md_fd_object *object=NULL; int fd=-1;
+    assert(!md_network_endpoint_open(n,0,family,SOCK_STREAM,0,&object,&fd));
+    struct md_inet_address address={.ip=md_ip_loopback(family)};
+    int server=socket(family,SOCK_STREAM|SOCK_CLOEXEC,0);
+    assert(server>=0 && !md_inet_bind(server,&address,0));
+    assert(!md_inet_name(server,0,&address) && !listen(server,1));
+    assert(!md_inet_connect(fd,&address,0));
+    int peer=accept4(server,NULL,NULL,SOCK_CLOEXEC);
+    assert(peer>=0);
+    struct md_control_file provider=md_fd_object_readiness(object);
+    struct md_control_epoll *queues[2]={md_control_epoll_new(),md_control_epoll_new()};
+    struct epoll_event event={.events=EPOLLIN|EPOLLET,.data.u64=42},observed;
+    for (unsigned i=0;i<2;++i) {
+        assert(queues[i]);
+        assert(!md_control_epoll_ctl(queues[i],EPOLL_CTL_ADD,fd,object,provider,&event));
+    }
+    for (unsigned round=0;round<32;++round) {
+        assert(write(peer,"x",1)==1);
+        for (unsigned i=0;i<2;++i) {
+            assert(md_control_epoll_collect(queues[i],&observed,1)==1);
+            assert(observed.events==EPOLLIN && observed.data.u64==42);
+        }
+        char byte;
+        assert(read(fd,&byte,1)==1 && byte=='x');
+        for (unsigned i=0;i<2;++i) {
+            assert(md_control_epoll_collect(queues[i],&observed,1)==0);
+            struct pollfd source={.fd=md_control_epoll_descriptor(queues[i]),.events=POLLIN};
+            assert(poll(&source,1,0)==0);
+        }
+    }
+    for (unsigned i=0;i<2;++i) md_control_epoll_release(queues[i]);
+    close(peer); close(server); close(fd); md_fd_object_release(object);
+}
+static void refused_connect(struct md_network_namespace *n,const struct md_inet_address *target) {
+    struct md_fd_object *object=NULL; int fd=-1;
+    assert(!md_network_endpoint_open(n,0,target->ip.family,SOCK_STREAM|SOCK_NONBLOCK,0,&object,&fd));
+    struct md_inet_address client={.ip=md_ip_loopback(target->ip.family)},gateway;
+    assert(!md_inet_bind(fd,&client,0) && !md_inet_name(fd,0,&client));
+    struct md_network_flow_path path={.original={.source=client.ip,.source_port=client.port,
+        .destination=target->ip,.destination_port=target->port,.protocol=IPPROTO_TCP}};
+    path.translated=path.original;
+    struct md_control_file provider=md_fd_object_readiness(object);
+    struct md_control_epoll *queue=md_control_epoll_new();
+    struct epoll_event event={.events=EPOLLOUT|EPOLLET,.data.u64=42},observed;
+    assert(queue && provider.ops);
+    /* Registration before connect must remain valid when mediation starts. */
+    assert(!md_control_epoll_ctl(queue,EPOLL_CTL_ADD,fd,object,provider,&event));
+    pthread_mutex_lock(&n->fabric->lock);
+    assert(!md_network_forward_route(n,object,SOCK_STREAM,&client,target,&path,&gateway));
+    assert(md_inet_connect(fd,&gateway,0)==-1 && errno==EINPROGRESS);
+    /* Forwarder cannot process either leg under this lock. Native writability
+     * must not leak through the still-pending destination handshake. */
+    assert(provider.ops->poll(provider.context)==0);
+    assert(md_control_epoll_collect(queue,&observed,1)==0);
+    pthread_mutex_unlock(&n->fabric->lock);
+    struct timespec start,now;
+    assert(!clock_gettime(CLOCK_MONOTONIC,&start));
+    for (;;) {
+        int count=md_control_epoll_collect(queue,&observed,1);
+        assert(count>=0);
+        if (count) break;
+        assert(!clock_gettime(CLOCK_MONOTONIC,&now));
+        long elapsed=(now.tv_sec-start.tv_sec)*1000+(now.tv_nsec-start.tv_nsec)/1000000;
+        assert(elapsed<2000);
+        struct pollfd ready={.fd=md_control_epoll_descriptor(queue),.events=POLLIN};
+        /* EVENT_WAIT: refusal completion; expiry fails the test. */
+        assert(poll(&ready,1,(int)(2000-elapsed))==1);
+    }
+    assert(observed.data.u64==42 && (observed.events&EPOLLERR));
+    assert(md_network_endpoint_connect_result(object,NULL)==-ECONNREFUSED);
+    for (unsigned i=0;i<2;++i) {
+        int value=-1; socklen_t size=sizeof(value);
+        assert(!md_network_endpoint_sockopt(object,fd,NULL,0,SOL_SOCKET,SO_ERROR,&value,&size));
+        assert(value==(i ? 0 : ECONNREFUSED));
+    }
+    assert(!(provider.ops->poll(provider.context)&EPOLLERR));
+    struct sockaddr_storage peer; socklen_t length=sizeof(peer);
+    assert(md_network_endpoint_name(object,fd,1,&peer,&length)==-ENOTCONN);
+    close(fd); md_fd_object_release(object); md_control_epoll_release(queue);
+}
+static void forwarded_connect(unsigned family) {
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+    assert(n);
+    connection_observers(n,family);
+    struct md_inet_address bad={.ip=md_ip_any(family),.port=htons(9)};
+    if (family==AF_INET) bad.ip.v4=htonl(INADDR_BROADCAST);
+    else { bad.ip.bytes[0]=0xfe; bad.ip.bytes[1]=0x80; bad.ip.bytes[15]=1; }
+    int fd=socket(family,SOCK_STREAM|SOCK_NONBLOCK|SOCK_CLOEXEC,0);
+    assert(fd>=0 && md_inet_connect(fd,&bad,0)==-1);
+    int expected=-errno;
+    assert(expected!=-EINPROGRESS);
+    close(fd);
+    struct md_inet_address client={.ip=md_ip_loopback(family)},gateway;
+    struct md_network_flow_path path={.original={.source=client.ip,.protocol=IPPROTO_TCP}};
+    pthread_mutex_lock(&n->fabric->lock);
+    for (unsigned i=0;i<4;++i)
+        assert(md_network_forward_route(n,NULL,SOCK_STREAM,&client,&bad,&path,&gateway)==expected);
+    pthread_mutex_unlock(&n->fabric->lock);
+
+    struct md_inet_address target={.ip=md_ip_loopback(family)};
+    int server=socket(family,SOCK_STREAM|SOCK_CLOEXEC,0);
+    assert(server>=0 && !md_inet_bind(server,&target,0));
+    assert(!md_inet_name(server,0,&target));
+    /* A reserved but non-listening port rejects the SYN. Nonblocking connect
+     * reports EINPROGRESS first; the queued SO_ERROR must not become success
+     * merely because the relay itself can accept a local connection. */
+    for (unsigned i=0;i<32;++i) refused_connect(n,&target);
+    assert(!listen(server,1));
+    fd=socket(family,SOCK_STREAM|SOCK_CLOEXEC,0);
+    assert(fd>=0 && !md_inet_bind(fd,&client,0) && !md_inet_name(fd,0,&client));
+    path.original=(struct md_filter_packet){.source=client.ip,.source_port=client.port,
+        .destination=target.ip,.destination_port=target.port,.protocol=IPPROTO_TCP};
+    path.translated=path.original;
+    pthread_mutex_lock(&n->fabric->lock);
+    assert(!md_network_forward_route(n,NULL,SOCK_STREAM,&client,&target,&path,&gateway));
+    pthread_mutex_unlock(&n->fabric->lock);
+    /* EVENT_WAIT: the real upstream is connected before the guest sees its
+     * local relay; both directions must retain that exact connection. */
+    struct pollfd ready={.fd=server,.events=POLLIN};
+    assert(poll(&ready,1,2000)==1 && (ready.revents&POLLIN));
+    int peer=accept4(server,NULL,NULL,SOCK_CLOEXEC);
+    assert(peer>=0 && !md_inet_connect(fd,&gateway,0));
+    for (unsigned i=0;i<2;++i) {
+        int from=i ? fd : peer,to=i ? peer : fd;
+        assert(write(from,"r",1)==1);
+        ready=(struct pollfd){.fd=to,.events=POLLIN};
+        assert(poll(&ready,1,2000)==1 && (ready.revents&POLLIN));
+        char byte=0;
+        assert(read(to,&byte,1)==1 && byte=='r');
+    }
+    close(fd); close(peer); close(server);
+    md_network_namespace_release(n);
+    printf("PASS IPv%u relay: immediate connect errors and retained upstream socket\n",family==AF_INET ? 4 : 6);
 }
 static void tcp_reuse(unsigned family) {
     struct md_network_namespace *root=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
@@ -174,7 +315,22 @@ static void device_binding(void) {
     assert(!md_network_endpoint_device_get(one,name,&length) && length==9 && !strcmp(name,"device-a"));
     assert(!md_network_endpoint_device_set(one,&root,""));
     assert(!md_network_endpoint_device_set(one,&root,"device-a"));
-    assert(!md_network_endpoint_device_set(two,&root,"device-b"));
+    int index=-1; size=sizeof(index);
+    assert(md_network_endpoint_sockopt(two,s,&root,1,SOL_SOCKET,SO_BINDTOIFINDEX,&index,&size)==-EINVAL);
+    index=INT_MAX;
+    assert(!md_network_endpoint_sockopt(two,s,&user,1,SOL_SOCKET,SO_BINDTOIFINDEX,&index,&size));
+    index=0;
+    assert(md_network_endpoint_sockopt(two,s,&user,1,SOL_SOCKET,SO_BINDTOIFINDEX,&index,&size)==-EPERM);
+    assert(!md_network_endpoint_sockopt(two,s,&root,0,SOL_SOCKET,SO_BINDTOIFINDEX,&index,&size) && index==INT_MAX);
+    index=(int)second; size=sizeof(index)-1;
+    assert(md_network_endpoint_sockopt(two,s,&root,1,SOL_SOCKET,SO_BINDTOIFINDEX,&index,&size)==-EINVAL);
+    size=sizeof(index);
+    assert(!md_network_endpoint_sockopt(two,s,&root,1,SOL_SOCKET,SO_BINDTOIFINDEX,&index,&size));
+    index=0;
+    assert(!md_network_endpoint_sockopt(two,s,&root,0,SOL_SOCKET,SO_BINDTOIFINDEX,&index,&size) && index==(int)second);
+    assert(!getsockopt(s,SOL_SOCKET,SO_BINDTOIFINDEX,&index,&size) && !index);
+    length=sizeof(name);
+    assert(!md_network_endpoint_device_get(two,name,&length) && !strcmp(name,"device-b"));
     struct sockaddr_in any={.sin_family=AF_INET,.sin_port=htons(18670)};
     assert(!md_network_endpoint_bind(one,f,&root,(void *)&any,sizeof(any)));
     assert(!md_network_endpoint_bind(two,s,&root,(void *)&any,sizeof(any)));
@@ -203,6 +359,48 @@ static void device_binding(void) {
     puts("PASS socket device binding: shared endpoint identity, permissions, routing, ingress, rename and removal");
 }
 
+static void socket_priority(unsigned family) {
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+    struct md_identity root=md_identity_new(0,0),user=md_identity_new(1000,1000);
+    struct md_fd_object *parent; int fd;
+    assert(!md_network_endpoint_open(n,0,family,SOCK_STREAM,0,&parent,&fd));
+    int value=-1; socklen_t size=sizeof(value);
+    assert(!md_network_endpoint_sockopt(parent,fd,&user,0,SOL_SOCKET,SO_PRIORITY,&value,&size) && !value);
+    value=6;
+    assert(!md_network_endpoint_sockopt(parent,fd,&user,1,SOL_SOCKET,SO_PRIORITY,&value,&size));
+    value=7;
+    assert(md_network_endpoint_sockopt(parent,fd,&user,1,SOL_SOCKET,SO_PRIORITY,&value,&size)==-EPERM);
+    assert(!md_network_endpoint_sockopt(parent,fd,&user,0,SOL_SOCKET,SO_PRIORITY,&value,&size) && value==6);
+    value=-1;
+    assert(md_network_endpoint_sockopt(parent,fd,&user,1,SOL_SOCKET,SO_PRIORITY,&value,&size)==-EPERM);
+    assert(!md_network_endpoint_sockopt(parent,fd,&root,1,SOL_SOCKET,SO_PRIORITY,&value,&size));
+    value=7; size=sizeof(value)-1;
+    assert(md_network_endpoint_sockopt(parent,fd,&root,1,SOL_SOCKET,SO_PRIORITY,&value,&size)==-EINVAL);
+    size=sizeof(value);
+    assert(!md_network_endpoint_sockopt(parent,fd,&root,1,SOL_SOCKET,SO_PRIORITY,&value,&size));
+    value=0; size=1;
+    assert(!md_network_endpoint_sockopt(parent,fd,&user,0,SOL_SOCKET,SO_PRIORITY,&value,&size) && size==1 && value==7);
+    size=sizeof(value);
+    assert(!getsockopt(fd,SOL_SOCKET,SO_PRIORITY,&value,&size) && !value);
+
+    struct md_inet_address address={.ip=md_ip_loopback(family)};
+    struct sockaddr_storage logical; socklen_t length;
+    assert(!md_inet_encode(&address,family,&logical,&length));
+    assert(!md_network_endpoint_bind(parent,fd,&root,(void *)&logical,length));
+    assert(!md_network_endpoint_listen(parent,fd,1));
+    assert(!md_inet_name(fd,0,&address));
+    int client=socket(family,SOCK_STREAM|SOCK_CLOEXEC,0);
+    assert(client>=0 && !md_inet_connect(client,&address,0));
+    int accepted=accept4(fd,NULL,NULL,SOCK_CLOEXEC);
+    struct md_fd_object *child;
+    assert(accepted>=0 && !md_network_endpoint_accept(parent,accepted,&child));
+    assert(!md_network_endpoint_sockopt(child,accepted,&user,0,SOL_SOCKET,SO_PRIORITY,&value,&size) && value==7);
+    close(accepted); close(client); close(fd);
+    md_fd_object_release(child); md_fd_object_release(parent);
+    md_identity_release(&root); md_identity_release(&user); md_network_namespace_release(n);
+    puts("PASS socket priority: namespace permissions, readback, accept inheritance and unchanged host priority");
+}
+
 static void tcp_defaults(void) {
     struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
     assert(n);
@@ -226,11 +424,13 @@ static void tcp_defaults(void) {
     assert(!md_network_parameter_read(child,MD_NET_TCP_KEEPIDLE,0,values) && values[0]==7200);
     struct md_fd_object *tcp,*udp; int fd,datagram;
     assert(!md_network_endpoint_open(n,0,AF_INET,SOCK_DGRAM,0,&udp,&datagram));
+    assert(!md_fd_object_selectors(udp));
     values[0]=1801;
     assert(!md_network_parameter_write(n,MD_NET_TCP_KEEPIDLE,0,values));
     values[0]=1800;
     assert(!md_network_parameter_write(n,MD_NET_TCP_KEEPIDLE,0,values));
     assert(!md_network_endpoint_open(n,0,AF_INET,SOCK_STREAM,0,&tcp,&fd));
+    assert(md_fd_object_selectors(tcp)==((1U<<MD_FD_SELECTOR_EPOLL_TARGET)|(1U<<MD_FD_SELECTOR_POLL)));
     for (unsigned i=0;i<3;++i) {
         int value=-1; socklen_t length=sizeof(value);
         assert(!getsockopt(fd,IPPROTO_TCP,options[i],&value,&length) && value==(int)selected[i]);
@@ -250,11 +450,15 @@ static void tcp_defaults(void) {
 }
 
 void test_network_endpoint(void) {
+    forwarded_connect(AF_INET);
+    forwarded_connect(AF_INET6);
     multicast(AF_INET);
     multicast(AF_INET6);
     tcp_defaults();
     tcp_reuse(AF_INET); tcp_reuse(AF_INET6);
     device_binding();
+    socket_priority(AF_INET);
+    socket_priority(AF_INET6);
     struct md_network_namespace *root=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
     struct md_network_namespace *a=md_network_namespace_copy(root,NULL), *b=md_network_namespace_copy(root,NULL);
     struct md_network_namespace *offline=md_network_namespace_new(NULL,MD_NETWORK_PRIVATE);

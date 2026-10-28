@@ -60,7 +60,9 @@ def descriptor_info():
         by_path = (ctypes.c_long * 15)()
         native(libc.statfs, f'/proc/self/fd/{fd}'.encode(), ctypes.byref(by_path))
         assert bytes(result) == bytes(by_path), (list(result), list(by_path))
-        rejects(errno.EFAULT, native, libc.fstatfs, fd, ctypes.c_void_p(1))
+        # musl clears the buffer before entering the kernel; test the syscall's
+        # fault contract without that userspace write (AArch64 SYS_fstatfs=44).
+        rejects(errno.EFAULT, native, libc.syscall, 44, fd, ctypes.c_void_p(1))
         duplicate = os.dup(fd)
         try:
             native(libc.fstatfs, duplicate, ctypes.byref(by_path))
@@ -294,6 +296,7 @@ def main():
                 assert os.readlink(str(retained_root), dir_fd=proc_fds) == '/'
                 os.close(retained_root)
             os.close(proc_fds)
+            os.chdir('/mounted')
             os.write(notify, b'R')
             # EVENT_WAIT: parent owns inspection; the harness deadline cancels failure.
             assert os.read(release, 1) == b'M'
@@ -329,6 +332,14 @@ def main():
         assert open(path + '/mounted/private', 'rb').read() == b'private mount'
         assert not os.path.exists(root + '/mounted/private')
         assert os.readlink(path) == root, (os.readlink(path), root)
+        cwd_path = f'/proc/{pid}/cwd'
+        assert os.readlink(cwd_path) == root + '/mounted', os.readlink(cwd_path)
+        assert open(cwd_path + '/private', 'rb').read() == b'private mount'
+        cwd_fd = os.open(cwd_path, os.O_PATH | os.O_DIRECTORY)
+        try:
+            assert readat(cwd_fd, 'private') == b'private mount'
+        finally:
+            os.close(cwd_fd)
         created = os.open('created', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=fd)
         os.close(created)
         assert os.path.isfile(root + '/created')

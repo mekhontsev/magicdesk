@@ -10,6 +10,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('archive', type=Path)
     parser.add_argument('output', type=Path)
+    parser.add_argument('--source', type=Path, default=Path(__file__).with_name('test_svc_go.go'))
     parser.add_argument('--cgo-environment', help='existing test environment supplying an unmodified Linux C toolchain')
     args = parser.parse_args()
     expected = '94f3e30b8e374bc285e7dadc11e0865726b9bc6e85b841ccceaabc0214c6b7c8'
@@ -17,7 +18,7 @@ def main():
     suite = Suite(Path('build/svc-go-build'))
     try:
         suite.transport.upload(suite.client, args.archive, suite.base + '/go.tar.gz')
-        suite.transport.upload(suite.client, Path(__file__).with_name('test_svc_go.go'), suite.base + '/probe.go')
+        suite.transport.upload(suite.client, args.source, suite.base + '/probe.go')
         suite.command(['tar', '-xzf', suite.base + '/go.tar.gz', '-C', suite.base], quiet=True)
         suite.command(['mkdir', suite.base + '/tmp', suite.base + '/cache'])
         if args.cgo_environment:

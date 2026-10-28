@@ -123,7 +123,10 @@ static int paused(void *context) {
     pthread_mutex_lock(&w->lock);
     int active=w->pause && !w->stopping;
     int acknowledge=active && !w->pause->acknowledged;
-    if (acknowledge) w->pause->acknowledged=1;
+    if (acknowledge) {
+        w->pause->acknowledged_at=md_event_now();
+        w->pause->acknowledged=1;
+    }
     pthread_mutex_unlock(&w->lock);
     if (acknowledge) md_queue_signal_send(&w->done);
     return active;
@@ -346,6 +349,12 @@ void md_fs_worker_describe(struct md_fs_worker *w,int output) {
     if (size>=0) state[size]=0;
     dprintf(output,"Shroot: worker tid=%d paused=%d syscall=%s error=%d\n",
         tid,atomic_load(&w->pause_requested),size>=0 ? state : "unavailable",error);
+    pthread_mutex_lock(&w->lock);
+    unsigned pending=0,completed=0;
+    for (struct md_fs_work *p=w->submitted;p;p=p->next) ++pending;
+    for (struct md_fs_work *p=w->completed;p;p=p->next) ++completed;
+    dprintf(output,"Shroot: worker pending=%u completed=%u listener=%d\n",pending,completed,w->notification_fd);
+    pthread_mutex_unlock(&w->lock);
 }
 int md_fs_worker_pause_begin(struct md_fs_worker *w, struct md_fs_worker_pause *p) {
     if (!w || !p || p->owner) return -EINVAL;

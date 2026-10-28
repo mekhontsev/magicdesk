@@ -30,8 +30,9 @@ int md_fd_admission_begin(struct md_fd_admission *,struct md_resource_wakeup *);
  * must rescan live owners here: a preceding fork/unshare may have completed
  * while a table was queued. add remains available until seal, including new
  * tables; prepare then waits for those too. Once no owner is missing, seal
- * captures aliases under the held turns. Future dup/fork operations are queued;
- * incoming retained objects use their reserved dynamic requirements. */
+ * captures aliases under the held turns and releases tables without an alias.
+ * Holder dup/fork operations remain queued; incoming retained objects use their
+ * reserved dynamic requirements even in a previously empty table. */
 int md_fd_admission_prepare(struct md_fd_admission *);
 int md_fd_admission_seal(struct md_fd_admission *);
 /* 1: exact request, 2: all requirements met. Requires a sealed inventory.

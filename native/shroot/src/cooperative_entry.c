@@ -139,8 +139,41 @@ static enum md_entry_outcome invoke_identified(struct md_entry_client *client,lo
     call->continuation[CONT_CHANNEL]=0;
     struct md_entry_channel *c=(void *)client->opaque[MD_ENTRY_CLIENT_CHANNEL];
     enum md_entry_outcome outcome=MD_ENTRY_DECLINED;
-    if (md_entry_route(call->number)==MD_ENTRY_TASK) goto kernel;
     if (c && !atomic_load_explicit(&c->enabled,memory_order_acquire)) goto kernel;
+    int probe=0,immediate=0;
+    if (md_entry_route(call->number)==MD_ENTRY_READINESS && tid>0 && !call->args[4]) {
+        probe=(call->number==SYS_epoll_pwait && (int)call->args[3]<0)
+            || (call->number==SYS_epoll_pwait2 && !call->args[3]);
+        if (c && (uintptr_t)tid==client->opaque[MD_ENTRY_CLIENT_OWNER]
+                && call->number==SYS_epoll_pwait2 && call->args[3]) {
+            struct timespec timeout;
+            unsigned idle=0;
+            if (atomic_compare_exchange_strong_explicit(&c->caller,&idle,1,
+                    memory_order_acquire,memory_order_relaxed)) {
+                atomic_store_explicit(&c->copying,1,memory_order_release);
+                int error=md_read_memory(&timeout,(void *)call->args[3],sizeof(timeout));
+                atomic_store_explicit(&c->copying,0,memory_order_release);
+                atomic_store_explicit(&c->caller,0,memory_order_release);
+                immediate=!error && !timeout.tv_sec && !timeout.tv_nsec;
+            }
+            probe=immediate;
+        }
+    }
+    if (probe) {
+        /* Infinite or zero-time unmasked waits need no deadline adjustment.
+         * Both ABIs use the scalar zero-time kernel probe. Dynamic queue
+         * selectors still collect virtual events; application filters revoke
+         * this entry before installation. No raw gate or FD cache is used. */
+        uint64_t args[6];
+        for (unsigned i=0;i<6;++i) args[i]=call->args[i];
+        args[3]=0;
+        long result=md_guest_entry_kernel(SYS_epoll_pwait,args);
+        if (result || immediate) {
+            call->result=result;
+            return finish(client,call,MD_ENTRY_COMPLETED);
+        }
+    }
+    if (md_entry_route(call->number)==MD_ENTRY_TASK || md_entry_route(call->number)==MD_ENTRY_READINESS) goto kernel;
     if (!c) {
         /* Monotonic per-image hint, revoked before an application filter can
          * forbid helpers. Existing channels retain their per-task eligibility;

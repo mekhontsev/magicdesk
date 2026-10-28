@@ -62,6 +62,27 @@ struct md_svc_registry *md_svc_machine_admit(pid_t pid,uintptr_t descriptor) {
 void md_svc_machine_forget(struct md_svc_machine_thread *s) {
     *s=(struct md_svc_machine_thread){0};
 }
+int md_svc_machine_retire(struct md_svc_registry *r,pid_t pid,const struct user_pt_regs *adapter) {
+    if (!md_svc_registry_resident(r)) return 0;
+    struct user_pt_regs registers;
+    int error=regs(pid,PTRACE_GETREGSET,&registers);
+    if (error) return error;
+    struct md_svc_site *site=md_svc_registry_direct_at(r,pid,registers.pc,registers.sp);
+    if (!site && adapter) {
+        registers=*adapter;
+        site=md_svc_registry_direct_at(r,pid,registers.pc,registers.sp);
+    }
+    if (!site) return 0;
+    int result=md_svc_direct_recover(&site->direct,&registers,memory,(void *)(intptr_t)pid);
+    if (result!=2) return result<0 ? result : 0;
+    /* Recovery normally drains a running payload. At an exit stop it cannot
+     * run again; the validated frame belongs only to this terminal task. */
+    uintptr_t frame=(registers.sp-1)&~(uintptr_t)(MD_SVC_SLOT_SIZE-1);
+    uint64_t zero=0;
+    error=md_svc_registry_write(pid,frame+MD_SVC_DIRECT_PENDING,&zero,sizeof(zero));
+    if (!error) error=md_svc_registry_write(pid,frame,&zero,sizeof(zero));
+    return error;
+}
 static int retry(struct md_svc_registry *r,struct md_svc_machine_thread *s,pid_t pid,
         const struct user_pt_regs *registers) {
     int error=md_svc_registry_suspend(r,pid,registers->pc);

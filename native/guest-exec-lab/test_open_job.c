@@ -6,6 +6,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <linux/filter.h>
+#include <linux/futex.h>
 #include <linux/seccomp.h>
 #include <signal.h>
 #include <stdio.h>
@@ -136,10 +137,44 @@ static void initial_readiness(void) {
     assert(!close(control) && !close(pin));
     puts("PASS FIFO readiness: initial HUP suppression, writer, data, EOF, no retained reader");
 }
+static void interrupted_open(void) {
+    int control,pin=pin_pipe(&control);
+    uint32_t *generations=mmap(NULL,8,PROT_READ,MAP_SHARED,control,0);
+    assert(generations!=MAP_FAILED);
+    struct md_open_completion completion={.kind=MD_OPEN_PIPE,.control=control};
+    for (unsigned round=0;round<32;++round) {
+        struct md_open_job reader={0},writer={0};
+        assert(!start(&reader,pin,O_RDONLY,completion));
+        assert(!md_open_job_interrupt(&reader));
+        assert(reap(&reader)==-EINTR);
+        uint32_t before=__atomic_load_n(&generations[0],__ATOMIC_ACQUIRE);
+        assert(!start(&reader,pin,O_RDONLY,completion));
+        while (__atomic_load_n(&generations[0],__ATOMIC_ACQUIRE)==before) {
+            struct timespec timeout={.tv_sec=5};
+            /* EVENT_WAIT: the helper publishes its real endpoint before waiting. */
+            int r=syscall(SYS_futex,&generations[0],FUTEX_WAIT,before,&timeout,NULL,0);
+            assert(!r || errno==EAGAIN);
+        }
+        if (round&1) {
+            assert(!start(&writer,pin,O_WRONLY,completion));
+            int w=reap(&writer); assert(w>=0);
+            assert(!md_open_job_interrupt(&reader));
+            int r=reap(&reader); assert(r>=0);
+            assert(write(w,"x",1)==1 && !close(w));
+            char byte; assert(read(r,&byte,1)==1 && byte=='x' && !close(r));
+        } else {
+            assert(!md_open_job_interrupt(&reader) && reap(&reader)==-EINTR);
+            assert(!start(&writer,pin,O_WRONLY|O_NONBLOCK,completion) && reap(&writer)==-ENXIO);
+        }
+    }
+    assert(!munmap(generations,8) && !close(control) && !close(pin));
+    puts("PASS FIFO interruption: before start, while waiting, after peer admission, no phantom endpoint");
+}
 int main(void) {
     setbuf(stdout,NULL); alarm(60);
     int before=fds();
     initial_readiness(); assert(fds()==before);
+    interrupted_open(); assert(fds()==before);
     owner_death(0); owner_death(1); assert(fds()==before);
     for (unsigned round=0;round<32;++round) {
         if (round==16) missing_close_range();

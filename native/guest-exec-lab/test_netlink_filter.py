@@ -80,6 +80,10 @@ def guest():
             assert struct.unpack('=I', queued)[0] == 7
             payload, source = receiver.recvfrom(4096)
             assert payload == request[:7] and source == (sender.getsockname()[0], 1)
+            send()
+            payload, control, flags, source = receiver.recvmsg(4096)
+            assert payload == request[:7] and source == (sender.getsockname()[0], 1)
+            assert not control and not flags
             # A rejected replacement must not remove the existing filter.
             install(alias, [(0x60, 0, 0, 0), (0x16, 0, 0, 0)], errno.EINVAL)
             assert read_filter(alias)[0] == len(code)

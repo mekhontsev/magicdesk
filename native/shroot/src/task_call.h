@@ -5,14 +5,16 @@
 #include <sys/types.h>
 
 enum md_task_call_boundary { MD_TASK_CALL_USER, MD_TASK_CALL_ENTRY,
-    MD_TASK_CALL_EXIT, MD_TASK_CALL_SECCOMP };
+    MD_TASK_CALL_EXIT, MD_TASK_CALL_SECCOMP, MD_TASK_CALL_EMULATED_ENTRY };
 struct md_task_call_arguments { long number; unsigned long value[6]; };
 /* One task-affine syscall, driven by the supervisor event loop. The owner
  * retains the actor, argument storage and original event until completion.
  * No guest FD, helper thread or application-memory write is allocated.
  * The actor must be seized with TRACESYSGOOD and TRACESECCOMP. Completion uses
  * syscall exit and a synthetic interrupt, never a forced application signal.
- * USER, ENTRY, EXIT and SECCOMP boundaries are accepted. At a restart exit,
+ * EMULATED_ENTRY retains a SYSEMU entry's kernel skip state; unlike an ordinary
+ * ENTRY it cannot execute a replacement syscall before draining the skipped exit.
+ * At a restart exit,
  * the kernel first recovers its private original arguments at a stopped entry.
  * Re-entry uses the stable call gate, restoring the original PC before seccomp;
  * it never fetches a potentially replaced source instruction.

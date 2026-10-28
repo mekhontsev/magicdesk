@@ -490,11 +490,83 @@ static void wait_stopped(void) {
     assert(!kill(child,SIGCONT)); exited(child);
     assert(!ctl(id,0,GETVAL,0) && !ctl(id,0,GETNCNT,0) && !ctl(id,0,IPC_RMID,0));
 }
+static void metadata_is(int sem,int msg,int shm,pid_t writer,pid_t creator) {
+    int pid=ctl(sem,0,GETPID,0);
+    if (pid!=writer) fprintf(stderr,"GETPID=%d expected=%d self=%d\n",pid,writer,getpid());
+    assert(pid==writer && ctl(sem,1,GETPID,0)==writer);
+    struct msqid_ds queue; assert(!msgctl(msg,IPC_STAT,&queue));
+    assert(queue.msg_lspid==writer && queue.msg_lrpid==writer);
+    struct shmid_ds memory; assert(!shmctl(shm,IPC_STAT,&memory));
+    assert(memory.shm_cpid==creator && memory.shm_lpid==writer);
+}
+static void *metadata_thread(void *argument) {
+    int *ids=argument;
+    struct sembuf ops[]={{0,0,0},{1,0,0}};
+    assert(!semop(ids[0],ops,2));
+    struct { long type; char byte; } message={1,'p'};
+    assert(!msgsnd(ids[1],&message,1,IPC_NOWAIT));
+    assert(msgrcv(ids[1],&message,1,1,IPC_NOWAIT)==1);
+    void *map=shmat(ids[2],NULL,0); assert(map!=(void *)-1);
+    assert(!shmdt(map));
+    return NULL;
+}
+static void metadata_write(int sem,int msg,int shm,pid_t creator) {
+    unsigned short values[]={0,0};
+    assert(!semctl(sem,0,SETALL,(union argument){.array=values}));
+    assert(ctl(sem,0,GETPID,0)==getpid() && ctl(sem,1,GETPID,0)==getpid());
+    int ids[]={sem,msg,shm}; pthread_t thread;
+    assert(!pthread_create(&thread,NULL,metadata_thread,ids));
+    assert(!pthread_join(thread,NULL));
+    metadata_is(sem,msg,shm,getpid(),creator);
+    assert(!kill(ctl(sem,0,GETPID,0),0));
+}
+static void pid_metadata(const char *self,unsigned levels) {
+    int sem=semget(IPC_PRIVATE,2,0600),msg=msgget(IPC_PRIVATE,0600),shm=shmget(IPC_PRIVATE,4096,0600);
+    assert(sem>=0 && msg>=0 && shm>=0);
+    assert(!ctl(sem,0,GETPID,0));
+    metadata_write(sem,msg,shm,getpid());
+    int ready[2]; assert(!pipe2(ready,O_CLOEXEC));
+    int current=-1;
+    if (levels) { current=open("/proc/self/ns/pid",O_RDONLY|O_CLOEXEC); assert(current>=0); }
+    if (levels) assert(!unshare(CLONE_NEWPID));
+    pid_t child=fork(); assert(child>=0);
+    if (!child) {
+        close(ready[0]);
+        if (current>=0) close(current);
+        pid_t creator=levels ? 0 : getppid();
+        if (levels) assert(getpid()==1);
+        metadata_is(sem,msg,shm,creator,creator);
+        if (levels>1) pid_metadata(self,levels-1);
+        int owned=shmget(IPC_PRIVATE,4096,0600); assert(owned>=0);
+        assert(write(ready[1],&owned,sizeof(owned))==sizeof(owned)); close(ready[1]);
+        char s[32],q[32],m[32],c[32];
+        snprintf(s,sizeof(s),"%d",sem); snprintf(q,sizeof(q),"%d",msg);
+        snprintf(m,sizeof(m),"%d",shm); snprintf(c,sizeof(c),"%d",creator);
+        execl(self,self,"pid-metadata-exec",s,q,m,c,(char *)NULL); _exit(1);
+    }
+    close(ready[1]); int owned=-1;
+    assert(read(ready[0],&owned,sizeof(owned))==sizeof(owned)); close(ready[0]);
+    exited(child);
+    /* Restore the namespace for subsequent pthread_create after nested PID 1
+     * exits; CLONE_THREAD cannot join the child's now-dead namespace. */
+    if (current>=0) { assert(!setns(current,CLONE_NEWPID)); close(current); }
+    metadata_is(sem,msg,shm,child,getpid());
+    struct shmid_ds memory; assert(!shmctl(owned,IPC_STAT,&memory));
+    assert(memory.shm_cpid==child && !memory.shm_lpid);
+    assert(!shmctl(owned,IPC_RMID,NULL));
+    assert(!ctl(sem,0,IPC_RMID,0) && !msgctl(msg,IPC_RMID,NULL) && !shmctl(shm,IPC_RMID,NULL));
+}
 int main(int argc, char **argv) {
     assert(argc>=2); setbuf(stdout,NULL);
     // EVENT_WAIT: child exit, IPC readiness and signals; alarm fails deadlocks.
     alarm(20);
     if (!strcmp(argv[1],"atomic")) atomic_ops();
+    else if (!strcmp(argv[1],"pid-metadata")) pid_metadata(argv[0],2);
+    else if (!strcmp(argv[1],"pid-metadata-native")) pid_metadata(argv[0],0);
+    else if (!strcmp(argv[1],"pid-metadata-exec")) {
+        assert(argc==6 && !prctl(PR_SET_DUMPABLE,0));
+        metadata_write(atoi(argv[2]),atoi(argv[3]),atoi(argv[4]),atoi(argv[5]));
+    }
     else if (!strcmp(argv[1],"buffer-slots")) buffer_slots();
     else if (!strcmp(argv[1],"shm-slots")) shm_slots(0);
     else if (!strcmp(argv[1],"shm-denied")) shm_slots(1);

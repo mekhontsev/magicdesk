@@ -85,6 +85,14 @@ int md_fd_admission_seal(struct md_fd_admission *a) {
         }
         if (error) return a->error=error;
     }
+    /* Only existing aliases need a frozen table through selector installation.
+     * Unrelated owners must progress (including an inferior's debugger). A
+     * subsequent transfer into these tables reads the reserved requirements
+     * during its ordinary descriptor publication. */
+    for (struct table *t=a->tables;t;t=t->next) if (!t->count) {
+        int error=md_fd_order_complete(&t->turn);
+        if (error) return a->error=error;
+    }
     a->sealed=1; a->current=a->owners;
     return 0;
 }

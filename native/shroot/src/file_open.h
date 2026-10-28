@@ -2,6 +2,7 @@
 #define MD_FILE_OPEN_H
 #include <fcntl.h>
 #include <stdint.h>
+#include <stdatomic.h>
 #include <sys/stat.h>
 
 /* A deferred pin is an authorized O_PATH descriptor, not a data endpoint.
@@ -50,6 +51,8 @@ int md_open_device_node(unsigned index,const char **path,uint64_t *device);
 int md_complete_open(int, int, struct md_open_completion);
 struct md_open_observation { uint32_t initial_reader, writers; };
 int md_complete_open_observed(int, int, struct md_open_completion, struct md_open_observation *);
+int md_complete_open_interruptible(int, int, struct md_open_completion,
+    struct md_open_observation *, const atomic_int *);
 /* Reopen one retained native object; FIFO completion remains deferred. */
 int md_reopen_file(int fd, int flags, struct md_open_completion *);
 /* Already authorized regular/directory pin; the caller retains its ownership.

@@ -80,6 +80,7 @@ void md_broker_resample(struct md_namespace_broker *,pid_t,uintptr_t instruction
 void md_broker_forget(struct md_namespace_broker *, int pid);
 /* Bounded cold diagnostic; never waits for a worker-held lock. */
 void md_broker_describe(struct md_namespace_broker *,int fd);
+void md_broker_describe_task(struct md_namespace_broker *,pid_t,int fd);
 struct md_fd_origins;
 struct md_fd_object;
 /* Publish one already completed open before resuming its receiver. The caller

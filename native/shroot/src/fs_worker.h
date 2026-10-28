@@ -38,7 +38,7 @@ struct md_fs_work {
  * only a request: state==1 proves the worker has stopped all namespace work,
  * including broker memory writes. Completion uses the existing worker FD.
  * Other supervisors/services are independent. No nested or implicit pause. */
-struct md_fs_worker_pause { struct md_fs_worker *owner; int acknowledged; };
+struct md_fs_worker_pause { struct md_fs_worker *owner; int acknowledged; int64_t acknowledged_at; };
 int md_fs_worker_pause_begin(struct md_fs_worker *, struct md_fs_worker_pause *);
 int md_fs_worker_pause_state(const struct md_fs_worker_pause *);
 int md_fs_worker_pause_end(struct md_fs_worker_pause *);

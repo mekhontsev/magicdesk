@@ -176,6 +176,45 @@ static void socket_binds(const char *base) {
     assert(descriptors()==before);
     puts("PASS socket binds: readonly hardlink mount retains endpoint after unlink and permits connections");
 }
+static void readonly_root(const char *base) {
+    unsigned before=descriptors();
+    char path[PATH_MAX];
+    assert(snprintf(path,sizeof(path),"%s/storage-readonly-root",base)<PATH_MAX);
+    struct md_inode_store *store=NULL;
+    assert(!md_inode_store_open(path,1,&store));
+    put(store,"/target","unchanged");
+    assert(!md_inode_mkdir(store,-1,"/writable",0700));
+    struct md_identity root=md_identity_new(0,0); store->identity=&root;
+    struct md_fs_storage_cache storage={0};
+    struct md_filesystem fs={.store=store,.storage=&storage};
+    assert(!md_fs_mounts_open(&fs,NULL,0));
+    mount_call(&fs,MD_FS_MOUNT_BIND,MS_BIND,"/writable","/writable");
+    mount_call(&fs,MD_FS_MOUNT_REMOUNT,MS_REMOUNT|MS_BIND|MS_RDONLY,"/",NULL);
+    for (unsigned i=0;i<2;++i) {
+        const char *name=i ? "/writable/replacement" : "/writable/link";
+        struct md_fs_result r=call(&fs,(struct md_fs_request){.operation=MD_FS_SYMLINK,
+            .directory={-1,-1},.path={name,"/target"}},NULL);
+        assert(!r.error);
+    }
+    struct md_fs_result r=call(&fs,(struct md_fs_request){.operation=MD_FS_RENAME,
+        .directory={-1,-1},.path={"/writable/replacement","/writable/link"}},NULL);
+    if (r.error) fprintf(stderr,"writable child rename under readonly root: %d\n",r.error);
+    assert(!r.error);
+    r=call(&fs,(struct md_fs_request){.operation=MD_FS_UNLINK,
+        .directory={-1,-1},.path={"/writable/link",NULL}},NULL);
+    assert(!r.error);
+    contents(&fs,"/target",NULL,"unchanged");
+    r=call(&fs,(struct md_fs_request){.operation=MD_FS_UNLINK,
+        .directory={-1,-1},.path={"/target",NULL}},NULL);
+    assert(r.error==-EROFS);
+    r=call(&fs,(struct md_fs_request){.operation=MD_FS_RENAME,
+        .directory={-1,-1},.path={"/target","/renamed"}},NULL);
+    assert(r.error==-EROFS);
+    md_fs_mounts_close(&fs); md_fs_storage_close(&storage);
+    md_inode_store_close(store); md_identity_release(&root);
+    assert(descriptors()==before);
+    puts("PASS readonly root: writable child symlink replacement/unlink preserve target and root policy");
+}
 static int subscribe(struct md_filesystem *fs, int reader, const char *path) {
     struct md_fs_result r=call(fs,(struct md_fs_request){.operation=MD_FS_WATCH_PATH,
         .flags=IN_CREATE|IN_MOVED_FROM|IN_MOVED_TO|IN_DELETE,.directory={-1,reader},
@@ -319,6 +358,7 @@ static void deferred_storage(struct md_inode_store *main,const char *base) {
 void test_mount_storage(const char *base) {
     file_binds(base);
     socket_binds(base);
+    readonly_root(base);
     unsigned before=descriptors();
     char path[PATH_MAX], extra[PATH_MAX], moved[PATH_MAX];
     assert(snprintf(path,sizeof(path),"%s/storage-main",base)<PATH_MAX);

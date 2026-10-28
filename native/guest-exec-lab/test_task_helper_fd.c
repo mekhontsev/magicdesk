@@ -2,6 +2,7 @@
 #include "task_helper.h"
 #include "task_checkpoint.h"
 #include "task_quiesce.h"
+#include "task_wait.h"
 #include "adapter_frame.h"
 #include "fd_table_observation.h"
 #include "received_fds.h"
@@ -350,7 +351,8 @@ static void exercise_request(int protected, enum scenario scenario, unsigned exp
     int listener=accept_listener(sockets[0]);
     int status=wait_child(child); assert(WIFSTOPPED(status) && WSTOPSIG(status)==SIGSTOP && !(status>>16));
     struct user_pt_regs saved=registers(child); assert(saved.pc==(uintptr_t)caller_ready);
-    struct md_task_helper_callbacks callbacks={trace,newborn};
+    struct md_task_wait wait={0};
+    struct md_task_helper_callbacks callbacks={.trace=trace,.newborn=newborn,.wait=&wait};
     struct md_task_helpers *helpers=md_task_helpers_new(&callbacks); assert(helpers);
     struct md_interception_abi abi={.task_call=(uintptr_t)helper_call,.task_return=(uintptr_t)helper_return,
         .task_completed=(uintptr_t)helper_return,
@@ -496,8 +498,10 @@ static void exercise_request(int protected, enum scenario scenario, unsigned exp
                     assert(!md_task_helper_retiring(helpers,child,child));
                 }
                 int handled=md_task_helper_event(helpers,pid,status);
+                if (pid==child && event==PTRACE_EVENT_CLONE)
+                    assert(wait.members==1 && wait.cursor && wait.cursor->pid!=child);
                 if (WIFEXITED(status) || WIFSIGNALED(status))
-                    assert(!md_task_helper_retiring(helpers,child,pid));
+                    assert(!md_task_helper_retiring(helpers,child,pid) && !wait.members && !wait.cursor);
                 if (handled<0) fprintf(stderr,"helper event pid=%d owner=%d status=%x error=%d\n",pid,child,status,handled);
                 assert(handled>=0);
                 if (!handled) {
@@ -529,6 +533,7 @@ static void exercise_request(int protected, enum scenario scenario, unsigned exp
             }
         }
         assert(c.called==1 && !md_task_helpers_count(helpers) && !early_child);
+        assert(!wait.members && !wait.cursor);
         assert(scenario!=INTERRUPT_OWNER || owner_interrupted==1);
         assert(c.captured==(exported && scenario!=CLONE_DENIED && scenario!=CLONE_TRAPPED ? 1 : 0));
         if (c.files) {
@@ -559,6 +564,12 @@ static void exercise_request(int protected, enum scenario scenario, unsigned exp
             assert(c.result.value==1 && c.result.descriptor==-1 && !c.result.received);
         }
         else if (exported) {
+            if (c.result.value || c.result.descriptor!=-1 || !c.result.received
+                    || c.result.received->count!=exported || c.result.received->origins)
+                fprintf(stderr,"export protected=%d scenario=%d round=%u value=%ld fd=%d count=%u expected=%u origins=%p\n",
+                    protected,scenario,round,c.result.value,c.result.descriptor,
+                    c.result.received ? c.result.received->count : 0,exported,
+                    (void *)(c.result.received ? c.result.received->origins : NULL));
             assert(!c.result.value && c.result.descriptor==-1 && c.result.received
                 && c.result.received->count==exported && !c.result.received->origins);
             for (unsigned i=0;i<exported;++i) {

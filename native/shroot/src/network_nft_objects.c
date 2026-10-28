@@ -118,6 +118,7 @@ static int chains(struct md_network_filter *f,const struct nlmsghdr *h,uint32_t 
                     return -EBUSY;
         }
         for (size_t i=0;i<f->set_count;++i)
+          if ((f->sets[i].flags&NFT_SET_MAP) && f->sets[i].data_type==NFT_DATA_VERDICT)
             for (size_t j=0;j<f->sets[i].count;++j)
                 if (f->sets[i].elements[j].verdict.target==existing->handle) return -EBUSY;
         md_filter_chain_delete(f,(size_t)(existing-f->chains)); return 0;
@@ -266,6 +267,7 @@ static int emit_set(struct md_network_filter *f,const struct md_filter_set *s,co
     PUT(u64(o,NFTA_SET_HANDLE,s->handle)); PUT(u32(o,NFTA_SET_FLAGS,s->flags));
     PUT(u32(o,NFTA_SET_KEY_TYPE,s->key_type)); PUT(u32(o,NFTA_SET_KEY_LEN,s->key_size));
     if (s->flags&NFT_SET_MAP) PUT(u32(o,NFTA_SET_DATA_TYPE,s->data_type));
+    if (s->data_size) PUT(u32(o,NFTA_SET_DATA_LEN,s->data_size));
     if (s->userdata_size) PUT(md_network_message_attribute(o,NFTA_SET_USERDATA,s->userdata,s->userdata_size));
     return error;
 }
@@ -298,7 +300,7 @@ static int sets(struct md_network_filter *f,const struct nlmsghdr *h,uint32_t po
         if (!s) return -ENOENT;
         for (size_t i=0;i<f->rule_count;++i) for (unsigned j=0;j<f->rules[i].count;++j) {
             const struct md_filter_expression *e=&f->rules[i].expressions[j];
-            if ((e->code==MD_FILTER_LOOKUP || e->code==MD_FILTER_VERDICT_MAP) && e->target==s->handle) return -EBUSY;
+            if (md_filter_set_expression(e) && e->target==s->handle) return -EBUSY;
         }
         md_filter_set_delete(f,(size_t)(s-f->sets)); return 0;
     }
@@ -317,7 +319,13 @@ static int sets(struct md_network_filter *f,const struct nlmsghdr *h,uint32_t po
         error=required_number(&a[NFTA_SET_DATA_TYPE],&value.data_type);
         if (!error) error=number(&a[NFTA_SET_DATA_LEN],&length,0);
         if (error) return error;
-        if (value.data_type!=NFT_DATA_VERDICT || length) return -EOPNOTSUPP;
+        if (value.data_type==NFT_DATA_VERDICT) {
+            if (length) return -EINVAL;
+        } else {
+            if (value.data_type>=NFT_DATA_RESERVED_MASK || !length || length>sizeof(((struct md_filter_element *)0)->data))
+                return -EOPNOTSUPP;
+            value.data_size=(uint32_t)length;
+        }
     } else if (a[NFTA_SET_DATA_TYPE].data || a[NFTA_SET_DATA_LEN].data) return -EINVAL;
     if (a[NFTA_SET_DESC].data) {
         struct attribute b[NFTA_SET_DESC_MAX+1]; uint64_t hint=0;
@@ -354,7 +362,8 @@ static int emit_elements(struct md_network_filter *f,struct md_filter_set *s,con
         if ((s->flags&NFT_SET_MAP) && !s->elements[i].end) {
             size_t data=0;
             PUT(md_network_message_nest(o,NFTA_SET_ELEM_DATA,&data));
-            PUT(md_nft_emit_verdict(f,s->table,&s->elements[i].verdict,o));
+            if (s->data_size) PUT(md_network_message_attribute(o,NFTA_DATA_VALUE,s->elements[i].data,s->data_size));
+            else PUT(md_nft_emit_verdict(f,s->table,&s->elements[i].verdict,o));
             PUT(md_network_message_end_nest(o,data));
         }
         PUT(md_network_message_end_nest(o,item));
@@ -404,7 +413,13 @@ static int elements(struct md_network_filter *f,const struct nlmsghdr *h,uint32_
         struct md_filter_element element={.end=!!flags};
         memcpy(element.key,key[NFTA_DATA_VALUE].data,s->key_size);
         if (operation!=NFT_MSG_DELSETELEM && (s->flags&NFT_SET_MAP) && !element.end) {
-            error=md_nft_verdict(f,s->table,&b[NFTA_SET_ELEM_DATA],&element.verdict);
+            if (s->data_size) {
+                struct attribute value[NFTA_DATA_MAX+1];
+                error=nested(&b[NFTA_SET_ELEM_DATA],BIT(NFTA_DATA_VALUE),value,NFTA_DATA_MAX+1);
+                if (!error && (!value[NFTA_DATA_VALUE].data || value[NFTA_DATA_VALUE].flags
+                        || value[NFTA_DATA_VALUE].size!=s->data_size)) error=-EINVAL;
+                if (!error) memcpy(element.data,value[NFTA_DATA_VALUE].data,s->data_size);
+            } else error=md_nft_verdict(f,s->table,&b[NFTA_SET_ELEM_DATA],&element.verdict);
             if (error) return error;
         } else if (b[NFTA_SET_ELEM_DATA].data) return -EINVAL;
         size_t index=md_filter_set_position(s,element.key,element.end);

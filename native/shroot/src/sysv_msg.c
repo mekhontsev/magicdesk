@@ -6,6 +6,31 @@
 #include <string.h>
 #include <sys/syscall.h>
 
+static int save_process(struct md_ipc *s,struct md_ipc_pending *p,const struct msqid64_ds *st,int sending) {
+    sqlite3_stmt *q=NULL;
+    int r=md_ipc_query(s,sending ? "UPDATE objects SET info=?2,send_pids=?3 WHERE id=?1"
+        : "UPDATE objects SET info=?2,receive_pids=?3 WHERE id=?1",&q);
+    if (!r) {
+        sqlite3_bind_int(q,1,p->call.args[0]); sqlite3_bind_blob(q,2,st,sizeof(*st),SQLITE_STATIC);
+        r=md_ipc_pid_bind(q,3,p->process); if (!r) r=md_ipc_sql(sqlite3_step(q));
+    }
+    sqlite3_finalize(q); if (!r) s->changed=1; return r;
+}
+static int visible_processes(struct md_ipc *s,struct md_ipc_pending *p,struct msqid64_ds *st) {
+    sqlite3_stmt *q=NULL;
+    int r=md_ipc_query(s,"SELECT send_pids,receive_pids FROM objects WHERE id=?1",&q);
+    if (!r) {
+        sqlite3_bind_int(q,1,p->call.args[0]);
+        if (sqlite3_step(q)!=SQLITE_ROW) r=-EIO;
+        else {
+            int sent=md_ipc_pid_visible(q,0,p->process,st->msg_lspid);
+            int received=md_ipc_pid_visible(q,1,p->process,st->msg_lrpid);
+            if (sent<0 || received<0) r=sent<0 ? sent : received;
+            else { st->msg_lspid=sent; st->msg_lrpid=received; }
+        }
+    }
+    sqlite3_finalize(q); return r;
+}
 static long get(struct md_ipc *s, struct md_ipc_pending *p) {
     int key=p->call.args[0], flags=p->call.args[1], object=0;
     int r=md_ipc_get(s,MD_IPC_MSG,key,flags,&object);
@@ -37,7 +62,7 @@ static long send(struct md_ipc *s, struct md_ipc_pending *p, struct msqid64_ds *
     sqlite3_finalize(q);
     if (!r) {
         st->msg_qnum++; st->msg_cbytes+=p->size; st->msg_stime=time(NULL); st->msg_lspid=p->pid;
-        r=md_ipc_save(s,p->call.args[0],st,sizeof(*st));
+        r=save_process(s,p,st,1);
     }
     return r;
 }
@@ -75,7 +100,7 @@ static long receive(struct md_ipc *s, struct md_ipc_pending *p, struct msqid64_d
     sqlite3_finalize(q);
     if (!r) {
         st->msg_qnum--; st->msg_cbytes-=size; st->msg_rtime=time(NULL); st->msg_lrpid=p->pid;
-        r=md_ipc_save(s,a[0],st,sizeof(*st));
+        r=save_process(s,p,st,0);
     }
     return r ? r : (long)copied;
 }
@@ -90,6 +115,7 @@ long md_ipc_msg(struct md_ipc *s, struct md_ipc_pending *p) {
     unsigned command=(unsigned)a[1]&~IPC_64;
     if (command==IPC_STAT) {
         r=md_ipc_perm_access(s->user_namespace,&p->identity,&st.msg_perm,4);
+        if (!r) r=visible_processes(s,p,&st);
         md_ipc_perm_visible(&p->identity,&st.msg_perm);
         return r ? r : md_ipc_memory(p,a[2],&st,sizeof(st),1);
     }

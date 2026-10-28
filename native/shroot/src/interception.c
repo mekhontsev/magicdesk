@@ -172,6 +172,7 @@ long md_guest_dispatch(long nr, unsigned long a0, unsigned long a1, unsigned lon
     }
     if (scoped&MD_DISPATCH_NETWORK_DATA) {
         unsigned long args[]={a0,a1,a2,a3,a4,a5};
+        if (nr==SYS_recvmmsg) return md_socket_ancillary_batch(&md_files,args,prepared);
         return md_network_data_call(nr,args);
     }
     if (scoped&MD_DISPATCH_NETWORK_CONTROL) {
@@ -290,6 +291,26 @@ int md_interception_install(int inherited) {
              * later descriptor selectors and application filters still apply. */
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
             MD_DOMAIN_WAIT_CALLS(NATIVE)
+            /* A blocking epoll wait can acquire virtual interests after it
+             * starts. Admit its owner before sleeping, but leave zero-time
+             * native probes and owned task/adapter calls in the kernel. */
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_epoll_pwait2,1,0),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_epoll_pwait,0,14),
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)+4),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)(gate>>32),0,6),
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,instruction_pointer)),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)admit,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_USER_NOTIF),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)task,1,0),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,(uint32_t)gate,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW),
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_epoll_pwait2,3,0),
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[3])),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,0,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRACE|MD_INTERCEPT_READINESS),
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
             MD_DOMAIN_EXECUTION_CALLS(NATIVE)
             /* All service gates live in the fixed bootstrap text image.
              * Ordinary guest code skips this table with one high-IP check. */

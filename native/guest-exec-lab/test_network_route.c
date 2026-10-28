@@ -567,10 +567,28 @@ void test_network_route(void) {
         legacy_routes+=item->nlmsg_type==RTM_NEWROUTE;
     }
     assert(!length && legacy_routes>=2);
-    length=md_network_route(child,&root,dump_header,dump_header->nlmsg_len,91,MD_NETWORK_ROUTE_STRICT,
-        NULL,reply.bytes,sizeof(reply),NULL);
-    assert(length>0 && reply.align.nlmsg_type==NLMSG_ERROR);
-    assert(((struct nlmsgerr *)NLMSG_DATA(&reply.align))->error==-EOPNOTSUPP);
+    const unsigned protocols[]={RTPROT_UNSPEC,RTPROT_BOOT,RTPROT_KERNEL,RTPROT_RA,RTPROT_UNSPEC};
+    const unsigned types[]={RTN_UNICAST,RTN_UNSPEC,RTN_UNICAST,RTN_UNICAST,RTN_LOCAL};
+    const unsigned expected[]={2,1,1,0,0};
+    for (unsigned family=0;family<2;++family) for (unsigned filter=0;filter<5;++filter) {
+        struct rtmsg *selected=NLMSG_DATA(dump_header);
+        selected->rtm_family=family ? AF_UNSPEC : AF_INET;
+        selected->rtm_type=types[filter]; selected->rtm_protocol=protocols[filter];
+        length=md_network_route(child,&root,dump_header,dump_header->nlmsg_len,91,MD_NETWORK_ROUTE_STRICT,
+            NULL,reply.bytes,sizeof(reply),NULL);
+        assert(length>0);
+        unsigned routes=0;
+        for (struct nlmsghdr *item=&reply.align;NLMSG_OK(item,length);item=NLMSG_NEXT(item,length)) {
+            assert(item->nlmsg_type==RTM_NEWROUTE || item->nlmsg_type==NLMSG_DONE);
+            if (item->nlmsg_type==RTM_NEWROUTE) {
+                const struct rtmsg *route=NLMSG_DATA(item);
+                assert(!selected->rtm_type || selected->rtm_type==route->rtm_type);
+                assert(!selected->rtm_protocol || selected->rtm_protocol==route->rtm_protocol);
+                ++routes;
+            }
+        }
+        assert(!length && routes==expected[filter]);
+    }
     for (unsigned selection=0;selection<6;++selection) {
         dump_header=request(&dump_packet,RTM_GETROUTE,NLM_F_DUMP);
         dump_header->nlmsg_len=NLMSG_LENGTH(sizeof(struct rtmsg));

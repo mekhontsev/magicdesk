@@ -64,6 +64,7 @@ static void *thread(void *context) {
     for (unsigned i=0;i<128;++i) cycle(owner,i);
     return NULL;
 }
+static void *thread_initialize(void *context) { return context; }
 static void reap(pid_t pid,int killed) {
     int status; CHECK(waitpid(pid,&status,0)==pid);
     CHECK(killed ? WIFSIGNALED(status) && WTERMSIG(status)==SIGKILL : WIFEXITED(status) && WEXITSTATUS(status)==0);
@@ -78,6 +79,11 @@ static void cleanup(void) {
 }
 int test_fd_result_guest(const char *base,int mode) {
     CHECK(!(mode&~3));
+    /* Bionic can open its process-wide trace marker on the first pthread.
+     * Initialize threading before measuring IO-owned descriptor lifetime. */
+    pthread_t initialized;
+    CHECK(!pthread_create(&initialized,NULL,thread_initialize,NULL));
+    CHECK(!pthread_join(initialized,NULL));
     CHECK(snprintf(directory,sizeof(directory),"%s/result-custody-%ld",base,(long)getpid())<(int)sizeof(directory));
     CHECK(!mkdir(directory,0700));
     if (mode&1) CHECK(!prctl(PR_SET_DUMPABLE,0));

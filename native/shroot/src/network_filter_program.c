@@ -51,7 +51,7 @@ static int validate_chain(const struct md_network_filter *f,size_t chain,unsigne
                 if (error) return error;
                 if (height[target]+1>height[chain]) height[chain]=height[target]+1;
             }
-            if (e->code==MD_FILTER_LOOKUP || e->code==MD_FILTER_VERDICT_MAP) {
+            if (md_filter_set_expression(e)) {
                 int found=0;
                 for (size_t k=0;k<f->set_count;++k)
                     if (f->sets[k].handle==e->target && f->sets[k].table==c->table) found=1;
@@ -128,7 +128,9 @@ int md_filter_validate(const struct md_network_filter *f) {
     return 0;
 }
 static int account_counter(struct md_filter_packet *p,struct md_filter_counter *counter) {
-    if (p->unmediated) return -EBUSY;
+    /* Existing native streams cannot move into a relay. Counters observe
+     * mediated traffic; unlike marks and verdicts they do not change admission. */
+    if (p->unmediated) return 0;
     struct md_filter_accounting *a=p->accounting;
     if (!a) return 0;
     int error=md_filter_reserve((void **)&a->cells,&a->capacity,a->count+1,sizeof(*a->cells),1024);
@@ -142,7 +144,7 @@ static int reverse_path(const struct md_filter_packet *p,unsigned flags) {
             || p->packet_type==PACKET_BROADCAST || p->packet_type==PACKET_MULTICAST)) return 1;
     if (!p->route) return 0;
     unsigned query=NFTA_FIB_F_SADDR;
-    if (!(flags&XT_RPFILTER_LOOSE)) query|=NFTA_FIB_F_IIF;
+    if (!(flags&XT_RPFILTER_LOOSE) || md_ip_linklocal(p->source)) query|=NFTA_FIB_F_IIF;
     if (flags&XT_RPFILTER_VALID_MARK) query|=NFTA_FIB_F_MARK;
     struct md_filter_route_result route=p->route(p->route_context,p,query);
     if (route.type!=RTN_UNICAST && !(route.type==RTN_LOCAL && (flags&XT_RPFILTER_ACCEPT_LOCAL))) return 0;
@@ -270,6 +272,15 @@ static int evaluate_chain(struct md_network_filter *f,const struct md_filter_cha
                 if (!s) return -ENOENT;
                 int found=md_filter_set_lookup(s,src)!=NULL;
                 match=e->operation ? !found : found; break;
+            }
+            case MD_FILTER_DATA_MAP: {
+                struct md_filter_set *s=md_filter_set_find(f,c->table,NULL,e->target,0);
+                if (!s) return -ENOENT;
+                const struct md_filter_element *element=md_filter_set_lookup(s,src);
+                if (!element) { match=0; break; }
+                memcpy(dst,element->data,s->data_size);
+                memset(dst+s->data_size,0,((s->data_size+3)&~3U)-s->data_size);
+                break;
             }
             case MD_FILTER_NAT:
                 if (e->family && e->family!=p->destination.family) { match=0; break; }

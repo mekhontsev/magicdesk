@@ -88,14 +88,16 @@ static void priority_inheritance(int virtual) {
             errno=0;
             assert(syscall(SYS_futex,&word,operations[i]
                 |(flags&1 ? FUTEX_PRIVATE_FLAG : 0)|(flags&2 ? FUTEX_CLOCK_REALTIME : 0),
-                1,NULL,&other,0)==-1 && errno==ENOSYS);
+                1,NULL,&other,0)==-1
+                && errno==(operations[i]==FUTEX_UNLOCK_PI ? ENOSYS : EOPNOTSUPP));
             assert(!word && !other);
         }
     pthread_mutexattr_t attr;
     assert(!pthread_mutexattr_init(&attr));
     assert(!pthread_mutexattr_settype(&attr,PTHREAD_MUTEX_RECURSIVE));
-    assert(!pthread_mutexattr_setprotocol(&attr,PTHREAD_PRIO_INHERIT));
-    int error=pthread_mutex_init(&mutex,&attr);
+    int error=pthread_mutexattr_setprotocol(&attr,PTHREAD_PRIO_INHERIT);
+    assert(!error || (virtual && error==ENOTSUP));
+    if (!error) error=pthread_mutex_init(&mutex,&attr);
     if (virtual) {
         assert(error==ENOTSUP);
         assert(!pthread_mutexattr_setprotocol(&attr,PTHREAD_PRIO_NONE));

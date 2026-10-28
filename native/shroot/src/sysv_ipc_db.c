@@ -128,6 +128,10 @@ int md_ipc_open(const char *store, uint64_t namespace_id, struct md_user_namespa
         "CREATE INDEX IF NOT EXISTS waiters_object ON waiters(object,n,zero);");
     sqlite3_stmt *q=NULL;
     if (!r) r=md_ipc_exec(s,"BEGIN IMMEDIATE");
+    if (!r) r=md_ipc_database_blob_column(&s->database,"sems","pids");
+    if (!r) r=md_ipc_database_blob_column(&s->database,"undo","pids");
+    if (!r) r=md_ipc_database_blob_column(&s->database,"objects","send_pids");
+    if (!r) r=md_ipc_database_blob_column(&s->database,"objects","receive_pids");
     if (!r) r=md_ipc_database_boot(&s->database,"DELETE FROM objects; DELETE FROM owners;");
     if (!r) r=reap(s);
     if (!r) r=md_ipc_query(s,"INSERT INTO owners VALUES(?1,?2)",&q);

@@ -18,7 +18,7 @@ enum md_filter_opcode {
     MD_FILTER_IMMEDIATE, MD_FILTER_VERDICT, MD_FILTER_META, MD_FILTER_META_SET,
     MD_FILTER_PAYLOAD, MD_FILTER_COMPARE, MD_FILTER_RANGE, MD_FILTER_BITWISE,
     MD_FILTER_CT, MD_FILTER_CT_SET, MD_FILTER_FIB, MD_FILTER_LOOKUP,
-    MD_FILTER_NAT, MD_FILTER_MASQUERADE, MD_FILTER_VERDICT_MAP, MD_FILTER_COUNTER,
+    MD_FILTER_NAT, MD_FILTER_MASQUERADE, MD_FILTER_VERDICT_MAP, MD_FILTER_DATA_MAP, MD_FILTER_COUNTER,
     MD_FILTER_TRANSPORT, MD_FILTER_STATE_MATCH, MD_FILTER_MARK_MATCH, MD_FILTER_ADDRESS_TYPE,
     MD_FILTER_PACKET_TYPE, MD_FILTER_REVERSE_PATH, MD_FILTER_ICMP_MATCH, MD_FILTER_REJECT
 };
@@ -46,6 +46,9 @@ struct md_filter_expression {
         uint16_t nat_port;
     };
 };
+static inline int md_filter_set_expression(const struct md_filter_expression *e) {
+    return e->code==MD_FILTER_LOOKUP || e->code==MD_FILTER_VERDICT_MAP || e->code==MD_FILTER_DATA_MAP;
+}
 struct md_filter_chain {
     uint64_t table, handle;
     uint32_t id;
@@ -67,10 +70,14 @@ struct md_filter_rule {
     unsigned char userdata[256];
 };
 struct md_filter_verdict { unsigned operation; uint64_t target; };
-struct md_filter_element { unsigned char key[16]; unsigned end; struct md_filter_verdict verdict; };
+struct md_filter_element {
+    unsigned char key[16];
+    unsigned end;
+    union { struct md_filter_verdict verdict; unsigned char data[64]; };
+};
 struct md_filter_set {
     uint64_t table, handle;
-    uint32_t id, flags, key_type, key_size, data_type;
+    uint32_t id, flags, key_type, key_size, data_type, data_size;
     char name[256];
     struct md_filter_element *elements;
     size_t count, capacity, userdata_size;
@@ -90,7 +97,7 @@ struct md_filter_packet {
     unsigned snat, dnat, masquerade;
     struct md_ip_address masquerade_address;
     struct md_filter_accounting *accounting;
-    unsigned unmediated; /* Admission probe: reject reached per-packet effects. */
+    unsigned unmediated; /* Admission probe: reject mutations, skip counters. */
     void *route_context;
     struct md_filter_route_result (*route)(void *,const struct md_filter_packet *,unsigned);
 };

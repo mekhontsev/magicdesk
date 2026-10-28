@@ -59,6 +59,7 @@
 #include "fd_filter.h"
 #include "proc_file.h"
 #include "proc_namespace.h"
+#include <linux/futex.h>
 #include <linux/nsfs.h>
 #include "proc_sysctl.h"
 #include "user_sysctl.h"
@@ -106,6 +107,7 @@
 #include "pid_descriptor.h"
 #include "pid_calls.h"
 #include "process_image_view.h"
+#include "file_snapshot.h"
 #include <sys/signalfd.h>
 #include <sys/eventfd.h>
 #include <sys/timerfd.h>
@@ -131,7 +133,11 @@
 static struct md_interception_abi abi;
 static struct md_task_quiesce *entry_fence_barrier;
 static struct md_interception_memory *entry_fence_memory;
+static struct thread *entry_fence_owner;
 static int entry_fence_stage, entry_fence_error;
+static int entry_fence_protected;
+static uint64_t entry_fence_slots;
+static int64_t entry_fence_retry_at;
 static unsigned entry_fence_waiters;
 static int64_t entry_fence_deadline;
 #define ENTRY_QUIESCING (entry_fence_stage==1)
@@ -164,12 +170,12 @@ struct interception_statistics {
     uint64_t checkpoints[CHECKPOINT_COUNT];
     uint64_t buffer_commands[128];
     uint64_t event_polls, event_waits;
-    uint64_t quiesce_interrupts, memory_repairs, entry_fence_transitions, entry_fence_drains;
+    uint64_t quiesce_interrupts, memory_repairs, entry_fence_transitions, entry_fence_drains, entry_fence_quiescences;
     uint64_t notification_rebounds, notification_readmissions_retired;
     uint64_t direct_status, direct_open, direct_fallback, direct_admit, direct_retry, compact_close, native_io;
     uint64_t captured_writes, captured_receives, entry_receives;
     uint64_t untracked_close, unchanged_fd_flags;
-    struct md_cost rpc, event_collect, event_sleep;
+    struct md_cost event_collect, event_sleep;
     struct { uint64_t trace, notification; } calls[512];
 };
 static struct interception_statistics *statistics;
@@ -179,8 +185,8 @@ enum phase { IDLE, ALLOCATING, DISPATCHING, EXECUTING, OBSERVING,
     DELEGATE_CANCEL, LOADING_PATH, PROC_CANCEL, PROC_OPENING, STORING_IDS, DOMAIN_PATH,
     WATCH_CANCEL, WATCH_ENTRY, WATCH_READ, IPC_WAIT_ENTRY, IPC_WAITING,
     SOCKET_WAIT_ENTRY, SOCKET_WAITING, CALL_RESTART_ENTRY, CALL_RESTART_EXIT,
-    FILE_WAIT_ENTRY, FILE_WAITING, CONTROL_WAIT_ENTRY, CONTROL_WAITING, CLOSE_WAIT_ENTRY, CLOSE_WAITING,
-    WAIT_CANCEL_EXIT, EPOLL_CALL, EPOLL_WAIT,
+    FILE_WAIT_ENTRY, FILE_WAITING, FILE_INTERRUPTING, CONTROL_WAIT_ENTRY, CONTROL_WAITING, CLOSE_WAIT_ENTRY, CLOSE_WAITING,
+    WAIT_CANCEL_EXIT, EPOLL_PROBE, EPOLL_CALL, EPOLL_WAIT,
     IDENTITY_COPY, DEBUG_WAIT_ENTRY, DEBUG_WAIT_EXIT, DEBUG_PARK_ENTRY, DEBUG_PARK_EXIT,
     MEMORY_WAIT, RESULT_REPLAY_ENTRY, RESULT_REPLAY_EXIT, PROCESS_OBSERVING, PROCESS_TID_STORE,
     PROCESS_INFO_LOAD, PROCESS_INFO_STORE, PROCESS_VALUE_STORE, PROCESS_INIT_ENTRY, PROCESS_INIT_EXIT, PROC_LOOKUP,
@@ -197,6 +203,7 @@ struct metadata_operation {
     struct md_fd_channel *transport;
     struct md_fd_channel_capture capture;
     struct md_fd_order files;
+    struct md_fs_buffer_request *stat_call;
     struct user_pt_regs control;
     int waiting, checking;
     int proc_attempted, proc_directory, proc_stat, task_open;
@@ -207,6 +214,7 @@ struct metadata_operation {
 };
 struct mapping_owner {
     pid_t caller, group;
+    struct md_pid_identity *process;
     struct user_pt_regs continuation;
     struct md_shm_space *space;
     struct md_shm_mapping *pending;
@@ -292,7 +300,7 @@ struct task_action {
     void (*complete)(struct thread *,long);
     struct md_fd_order files;
     pid_t rejected_group, rejected_task;
-    int borrowed, remote, synthetic;
+    int borrowed, remote, synthetic, checkpoint_suspended;
     /* A short native close uses the same actor/quiescence owner as filter
      * installation. The table pin survives the originating task's death. */
     struct md_fd_loan *loan;
@@ -351,9 +359,13 @@ struct thread {
     struct md_interception_memory *memory_exposure;
     int memory_resume, memory_signal;
     struct md_svc_machine_thread machine;
-    int entry_fence_waiting, entry_fence_status, entry_fence_result;
+    int entry_fence_waiting, entry_fence_held, entry_fence_replay, entry_fence_dumpability;
+    int entry_fence_status, entry_fence_result;
     struct rusage entry_fence_usage;
     struct seccomp_notif *memory_notification;
+    uint64_t buffer_admission_id;
+    int buffer_admission_pending;
+    unsigned buffer_admission_yields;
     struct md_broker_completion *broker_completion;
     struct { int held, status, has_info; struct rusage usage; siginfo_t info; } broker_event;
     int retained_signal;
@@ -361,6 +373,7 @@ struct thread {
     int metadata_signal_restored;
     struct md_signal_delivery signal_delivery;
     int signal_shielded;
+    int signal_return_pending;
     struct thread *broker_next;
     struct md_interception_buffer buffer;
     struct md_interception_buffer cooperative_buffer;
@@ -377,6 +390,8 @@ struct thread {
     int result_replay;
     struct user_pt_regs buffer_registers;
     struct md_fd_install proc_delivery;
+    struct md_fs_buffer_request *proc_snapshot;
+    struct seccomp_notif proc_snapshot_notification;
     int proc_image_fd;
     struct md_proc_file *proc_file;
     int proc_splice_write;
@@ -411,6 +426,7 @@ struct thread {
     struct md_fd_selector *fork_selector;
     struct task_action *action;
     struct readiness_owner *readiness;
+    int64_t epoll_started;
     pid_t selector_exit;
     pid_t pid, tgid, parent;
     int ready, born, initial_stop, resume_lost, listening, terminal_stop;
@@ -573,6 +589,8 @@ static int memory_event(pid_t, int, const struct rusage *);
 static int64_t memory_deadline(void);
 static int memory_runnable(void);
 static int memory_available(pid_t);
+static int entry_fence_park(const struct thread *);
+static int entry_fence_adapt(const struct thread *);
 static void memory_discard(void);
 static int ipc_events=-1;
 static int socket_events=-1;
@@ -613,6 +631,7 @@ static void direct_complete(struct thread *,int);
 static void direct_status_complete(struct thread *,const struct md_fs_result *,int);
 static int buffer_cleanup(struct thread *);
 static void dispatch_complete(struct thread *,long);
+static void file_wait_complete(struct thread *);
 static long buffer_result_finish(struct thread *,long,long);
 static void report_statistics(void);
 static int debugger_allowed(pid_t, pid_t);
@@ -786,6 +805,7 @@ static int quiescence_busy(const struct mapping_owner *parent) {
 static void release_operation(struct thread *t) {
     retry_clear(t,RETRY_EXPORT);
     struct metadata_operation *op=&t->metadata;
+    md_fs_buffer_cancel(&op->stat_call);
     md_fd_channel_capture_cancel(&op->capture);
     md_fd_channel_release(op->transport); op->transport=NULL;
     if (op->descriptor>=0) { close(op->descriptor); op->descriptor=-1; }
@@ -800,6 +820,12 @@ static void completed_event_discard(struct thread *t) {
     t->broker_next=NULL; t->broker_event.held=0;
     free(t->metadata_restart); t->metadata_restart=NULL;
     t->metadata_signal_restored=0;
+}
+static int buffer_release(struct thread *t) {
+    int error=md_buffer_release(&t->buffer);
+    /* Prepared input belongs to this lease, not to the next adapter call. */
+    if (!error) t->dispatch_prepared=0;
+    return error;
 }
 static void receive_release(struct receive_owner *owner) {
     if (!owner) return;
@@ -890,6 +916,7 @@ static void adapter_discard(struct thread *t) {
     t->buffer_return_waiting=0;
     CHECK(md_broker_result_finish(broker,t->pid,NULL)>=0);
     CHECK(!md_fd_install_cancel(&t->proc_delivery));
+    md_fs_buffer_cancel(&t->proc_snapshot);
     if (t->proc_image_fd>=0) { close(t->proc_image_fd); t->proc_image_fd=-1; }
     if (t->control_mapping_fd>=0) { close(t->control_mapping_fd); t->control_mapping_fd=-1; }
     md_fs_buffer_cancel(&t->buffer_call);
@@ -899,8 +926,7 @@ static void adapter_discard(struct thread *t) {
     }
     md_fs_buffer_open_release(&t->buffer_open);
     md_ipc_transport_close(&t->ipc_transport);
-    CHECK(!md_buffer_release(&t->buffer));
-    t->dispatch_prepared=0;
+    CHECK(!buffer_release(t));
     t->buffer_waiting=0;
     t->buffer_rights_delivered=0;
     t->direct=DIRECT_NONE;
@@ -935,11 +961,43 @@ static struct md_task_checkpoints checkpoints={.trace=checkpoint_native_trace,
 static long native_trace(int request,pid_t pid,void *address,void *data) {
     return md_task_checkpoint_trace(&checkpoints,request,pid,address,data);
 }
+static void buffer_admission_yield(struct thread *t) {
+    if (!t || !t->buffer_admission_pending) return;
+    /* A shielded USER_NOTIF cannot take INTERRUPT until answered. No operation
+     * or FD is replayed: ADDFD_SEND has already invalidated a published token. */
+    struct seccomp_notif_resp reply={.id=t->buffer_admission_id,.val=MD_BUFFER_ADMIT_RETRY};
+    int sent=ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply);
+    CHECK(!sent || errno==ENOENT);
+    if (!sent) ++t->buffer_admission_yields;
+    if (t->memory_notification && t->memory_notification->id==reply.id) {
+        free(t->memory_notification); t->memory_notification=NULL;
+    }
+    t->buffer_admission_pending=0;
+}
+static int buffer_admission_quiescing(pid_t pid) {
+    return md_task_quiesce_interrupting(entry_fence_barrier,pid)
+        || md_task_quiesce_interrupting(memory_barrier,pid)
+        || md_task_quiesce_interrupting(mapping_barrier,pid)
+        || md_task_quiesce_interrupting(task_action_barrier,pid);
+}
 static long quiesce_trace(int request,pid_t pid,void *address,void *data) {
+    if (request==PTRACE_CONT || request==PTRACE_SYSCALL || request==PTRACE_SINGLESTEP) {
+        struct thread *t=find_thread(pid);
+        if (t) t->interrupt_pending=0;
+        /* A barrier and guest debugger can share one INTERRUPT stop. Release
+         * through normal admission so the debugger receives its pending stop
+         * before guest execution, after the barrier has relinquished ownership. */
+        if (entry_fence_park(t) || (t && md_debugger_traced(debugger,pid))) {
+            CHECK(!data);
+            t->memory_resume=1; t->kernel_stopped=1;
+            return 0;
+        }
+    }
     long result=native_trace(request,pid,address,data);
     if (result>=0 && request==PTRACE_INTERRUPT) {
         if (statistics) ++statistics->quiesce_interrupts;
         struct thread *t=find_thread(pid);
+        buffer_admission_yield(t);
         TRACE("PROBE quiesce-interrupt pid=%d phase=%d\n",pid,t ? (int)t->phase : -1);
         /* Quiescence can race an internal poll's entry stop and interrupt the
          * poll after the barrier releases. Retain the service wake through
@@ -1042,6 +1100,8 @@ static void entry_fence_cancel(struct thread *t) {
 }
 static void release_thread(struct thread *t) {
     entry_fence_cancel(t);
+    if (entry_fence_owner==t) entry_fence_owner=NULL;
+    t->entry_fence_held=0;
     md_svc_machine_forget(&t->machine);
     md_signal_delivery_clear(&t->signal_delivery);
     pid_birth_release(t);
@@ -1099,26 +1159,6 @@ static int duplicate_fd(pid_t pid, int descriptor) {
 static int read_string(pid_t pid, uintptr_t address, char *text, size_t capacity) {
     ssize_t size=md_task_read_string(pid,address,text,capacity,md_page_size);
     return size<0 ? (int)size : 0;
-}
-static int descriptor_stat(struct thread *t, int fd, struct stat *st, int native) {
-    /* Internal loader validation inspects the actual descriptor. Only the guest
-     * ABI receives catalogue ownership/mode; logical set-ID cannot authorize a
-     * host ELF or bypass the production loader's set-ID rejection. */
-    if (native || !t->endpoint[0]) return fstat(fd, st) ? -errno : 0;
-    struct md_fs_request request = {.actor = t->pid, .operation = MD_FS_FSTAT, .directory = {fd, -1}};
-    struct md_fs_response response;
-    int64_t begin = md_cost_begin(statistics ? &statistics->rpc : NULL);
-    int error = md_fs_call(t->endpoint, 5000, &request, &response);
-    md_cost_end(statistics ? &statistics->rpc : NULL, begin);
-    if (!error) error = response.result.error;
-    if (!error || error == -EXDEV) {
-        if (fstat(fd, st)) error = -errno;
-        else if (!error) {
-            md_fs_info_stat(&response.result.info,st);
-        }
-        else error = 0;
-    }
-    return error;
 }
 static void export_begin(struct thread *t, const struct seccomp_notif *q) {
     CHECK(t->phase == IDLE || t->phase == DISPATCHING);
@@ -1222,6 +1262,29 @@ static void export_control(struct thread *t, const struct user_pt_regs *regs) {
     export_progress(t);
 }
 static void store_next(struct thread *t);
+static void export_stat_complete(struct thread *t,const struct md_fs_result *result,int error) {
+    struct metadata_operation *op=&t->metadata;
+    if (!error && result) error=result->error;
+    if (error==-EXDEV) error=0;
+    else if (!error && result) md_fs_info_stat(&result->info,&op->value);
+    op->error=t->phase==PROC_OPENING && op->proc_stat && error==-EBADF ? -ENOENT : error;
+    op->stat_call=NULL;
+    replay(t);
+}
+static void export_stat_begin(struct thread *t) {
+    struct metadata_operation *op=&t->metadata;
+    int error=fstat(op->descriptor,&op->value) ? -errno : 0;
+    /* Loader admission uses native metadata. Guest metadata uses the same
+     * worker receipts as other captured requests: never synchronously wait for
+     * the worker while the supervisor may own its quiescence barrier. */
+    if (!error && t->endpoint[0] && (t->phase==PROC_OPENING
+            || op->request.data.instruction_pointer!=RAW_GATE)) {
+        error=md_fs_buffer_stat_begin(buffer_service,t->pid,t->resources.fs,op->descriptor,&op->stat_call);
+        if (!error) { op->descriptor=-1; return; }
+    }
+    close(op->descriptor); op->descriptor=-1;
+    export_stat_complete(t,NULL,error);
+}
 static void export_finish(struct thread *t) {
     struct metadata_operation *op = &t->metadata;
     struct user_pt_regs regs;
@@ -1241,15 +1304,14 @@ static void export_finish(struct thread *t) {
     if (!op->error) op->error=error;
     if (!op->error) {
         int fd=input.fd[0]; input.count=0;
-        if (t->phase == PROC_OPENING) {
-            op->error = descriptor_stat(t, fd, &op->value, 0); close(fd);
-        } else op->descriptor = fd;
-        if (!op->error && op->request.data.nr == SYS_fstat)
-            op->error = descriptor_stat(t, op->descriptor, &op->value,
-                op->request.data.instruction_pointer == RAW_GATE);
+        if (t->phase==PROC_OPENING && op->descriptor>=0) close(op->descriptor);
+        op->descriptor=fd;
     }
     if (t->phase == PROC_OPENING && op->proc_stat && op->error == -EBADF) op->error = -ENOENT;
     md_fd_channel_input_close(&input);
+    if (!op->error && (op->request.data.nr==SYS_fstat || t->phase==PROC_OPENING)) {
+        export_stat_begin(t); return;
+    }
     if (op->request.data.nr == SYS_fstat || t->phase == PROC_OPENING) replay(t); else load_path(t);
 }
 static void store_next(struct thread *t) {
@@ -1487,7 +1549,7 @@ static void shm_request(struct thread *t, const struct seccomp_notif *q) {
     if (op==MD_SHM_STAT || op==MD_SHM_OPEN || op==MD_SHM_ATTACHED || op==MD_SHM_ABORT) r=-EINVAL;
     unsigned long a[4] = {q->data.args[2],q->data.args[3],q->data.args[4],q->data.args[5]};
     struct shmid64_ds info;
-    long value = r ? r : md_shm_call(shm,t->shm_space,NULL,&t->identity,t->tgid,op,a,&info);
+    long value = r ? r : md_shm_call(shm,t->shm_space,NULL,&t->identity,t->tgid,t->resources.pid_group,op,a,&info);
     if (value < 0) reply.error = (int)value;
     else reply.val = value;
     CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno == ENOENT);
@@ -1513,7 +1575,7 @@ static void ipc_request(struct thread *t, const struct seccomp_notif *q) {
         if (t->ipc_cancel) {
             value=t->ipc_cancel; t->ipc_cancel=0;
             int error=md_ipc_cancel(ipc,&t->ipc_pending); if (error) value=error;
-        } else value=md_ipc_call(ipc,&t->ipc_pending,t->resources.sem_undo,&t->identity,t->pid,t->tgid,channel);
+        } else value=md_ipc_call(ipc,&t->ipc_pending,t->resources.sem_undo,&t->identity,t->pid,t->tgid,t->resources.pid_group,channel);
     } else if (!r) value=-EINVAL;
     if (value==MD_IPC_WAIT) reply.val=value;
     else if (value<0) reply.error=value;
@@ -1576,7 +1638,14 @@ static int machine_observe(struct thread *t,const struct user_pt_regs *regs) {
     int published=md_svc_registry_direct(registry,t->pid,access ? access->memory : -1,regs->pc-4,regs->regs[8]);
     if (published) TRACE("PROBE machine-entry pid=%d svc=%#llx nr=%llu publication=%d\n",
         t->pid,regs->pc-4,regs->regs[8],published);
-    return published==1 && (route==MD_ENTRY_WORKER || route==MD_ENTRY_FD || route==MD_ENTRY_VALUE);
+    return published==1 && (route==MD_ENTRY_WORKER || route==MD_ENTRY_FD || route==MD_ENTRY_VALUE
+        || route==MD_ENTRY_READINESS);
+}
+static void notification_release(struct thread *t) {
+    /* No operation was admitted. A signal or lazy-entry retry must discard
+     * both metadata export and typed descriptor discovery before re-entry. */
+    release_operation(t);
+    md_proc_file_release(t->proc_file); t->proc_file=NULL;
 }
 static void notification_interrupted(struct thread *t) {
     if (t->phase!=DELEGATE_CANCEL
@@ -1586,8 +1655,7 @@ static void notification_interrupted(struct thread *t) {
      * The kernel retains EINTR/SA_RESTART and the pending interrupt is harmless
      * in IDLE. Never execute the cancelled call in a signal handler's frame. */
     CHECK(ioctl(listener,SECCOMP_IOCTL_NOTIF_ID_VALID,&t->metadata.request.id)==-1 && errno==ENOENT);
-    release_operation(t);
-    md_proc_file_release(t->proc_file); t->proc_file=NULL;
+    notification_release(t);
     t->phase=IDLE;
     if (t->metadata_restart) t->metadata_restart->stage=METADATA_ENTRY;
     TRACE("PROBE notification interrupted pid=%d\n",t->pid);
@@ -1644,6 +1712,27 @@ static void proc_deliver(struct thread *t) {
     if (installed==MD_FD_INSTALL_CANCELLED) return;
     if (installed<0) {
         struct seccomp_notif_resp reply={.id=t->proc_delivery.notification,.error=installed};
+        CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno==ENOENT);
+    }
+}
+static void proc_snapshot_complete(struct thread *t,struct md_fs_buffer_request *request,int error) {
+    struct seccomp_notif *q=&t->proc_snapshot_notification;
+    struct md_fs_buffer_open opened={.fd=-1};
+    t->proc_snapshot=NULL;
+    if (!error && md_fs_buffer_open_take(request,&opened)!=1) error=-EIO;
+    if (!error) {
+        struct md_fd_object *pin=md_fd_native_pin_new(opened.fd);
+        error=pin ? md_fd_install_begin(&t->proc_delivery,t->resources.files,listener,q->id,
+            opened.fd,pin,(unsigned)q->data.args[3]&O_CLOEXEC,fd_wakeup) : -errno;
+        md_fd_object_release(pin);
+        if (!error) {
+            t->proc_image_fd=opened.fd; opened.fd=-1;
+            proc_deliver(t);
+        }
+    }
+    md_fs_buffer_open_release(&opened);
+    if (error) {
+        struct seccomp_notif_resp reply={.id=q->id,.error=error};
         CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno==ENOENT);
     }
 }
@@ -1930,13 +2019,18 @@ static int executable_capture(pid_t actor,struct md_program *image) {
     } else if (!image->identity.object[0]) return -ENOENT;
     return 0;
 }
-static int root_capture(pid_t actor,pid_t process,struct md_task_snapshot *snapshot) {
+static int proc_path_capture(pid_t actor,pid_t process,unsigned kind,struct md_task_snapshot *snapshot) {
+    if (kind!=MD_PROC_ROOT && kind!=MD_PROC_CWD) return -EINVAL;
     struct thread *t=find_thread(actor), *target=find_thread(process);
-    if (!t || !target || !target->born) return -ENOENT;
+    if (!t) return -ENOENT;
+    if (!target) return kind==MD_PROC_CWD ? -EXDEV : -ENOENT;
+    if (!target->born) return -ENOENT;
     if (target!=t && !proc_allowed(actor,process)) return -EACCES;
     char path[64],link[PATH_MAX];
-    snprintf(path,sizeof(path),"/proc/%d/root",process);
-    if (readlink(path,link,sizeof(link))<0) return -errno;
+    snprintf(path,sizeof(path),"/proc/%d/%s",process,kind==MD_PROC_ROOT ? "root" : "cwd");
+    /* Same-process proc access remains valid with dumpable=0. The supervisor
+     * is an external observer and must not impose its denial on that caller. */
+    if (t->tgid!=target->tgid && readlink(path,link,sizeof(link))<0) return -errno;
     if (md_domain_restricted(target->resources.fs)) return -EACCES;
     return md_task_registry_read(tasks,process,0,snapshot);
 }
@@ -2120,6 +2214,15 @@ static long cooperative_bind(struct thread *t) {
     }
     return (long)md_memory_buffer_address(t->memory,&t->cooperative_buffer);
 }
+static unsigned readiness_admission_purpose(const struct thread *t,const struct seccomp_data *call) {
+    const struct readiness_owner *o=t->readiness;
+    if (!o || o->done || call->nr!=(long)t->original.regs[8]) return 0;
+    for (unsigned i=0;i<6;++i) if (call->args[i]!=t->original.regs[i]) return 0;
+    if (o->retirement && o->loan_number<0) return MD_FS_BUFFER_EPOLL_LOAN;
+    if (!o->received && md_fd_order_state(&o->files)==MD_RESOURCE_ORDER_RUNNING)
+        return MD_FS_BUFFER_EPOLL_ADMIT;
+    return 0;
+}
 static void handle_notification(const struct seccomp_notif *request) {
     if (ioctl(listener,SECCOMP_IOCTL_NOTIF_ID_VALID,&request->id)) {
         CHECK(errno==ENOENT); return;
@@ -2129,10 +2232,28 @@ static void handle_notification(const struct seccomp_notif *request) {
     CHECK(mapped>=0);
     if (mapped) return;
     struct seccomp_notif q = *request;
-    CHECK(md_broker_filesystem_call(q.data.nr) || q.data.nr==SYS_prctl || q.data.nr==SYS_gettid);
     struct thread *t = find_thread((pid_t)q.pid);
     CHECK(t && t->born);
+    int replay=t->ready && q.data.instruction_pointer==abi.buffer_admit
+        && (q.data.nr==SYS_epoll_pwait || q.data.nr==SYS_epoll_pwait2);
+    CHECK(md_broker_filesystem_call(q.data.nr) || q.data.nr==SYS_prctl || q.data.nr==SYS_gettid || replay);
+    unsigned purpose=replay ? readiness_admission_purpose(t,&q.data) : q.data.args[0];
+    int buffer_admission=replay || (q.data.nr==SYS_gettid && t->ready
+        && q.data.instruction_pointer==abi.buffer_admit
+        && !q.data.args[1] && !q.data.args[2] && !q.data.args[3]
+        && !q.data.args[4] && !q.data.args[5]);
+    if (buffer_admission) {
+        t->buffer_admission_id=q.id; t->buffer_admission_pending=1;
+        if (buffer_admission_quiescing(t->pid)) { buffer_admission_yield(t); return; }
+    }
     if (mapping_notification(t,&q)) return;
+    if (t->proc_snapshot) {
+        if (md_notification_same_call(&t->proc_snapshot_notification.data,&q.data)) {
+            CHECK(!md_notification_rebind(listener,&t->proc_snapshot_notification,&q));
+            return;
+        }
+        md_fs_buffer_cancel(&t->proc_snapshot);
+    }
     if (t->phase==DELEGATE_CANCEL || t->phase==EXPORT_CANCEL || t->phase==PROC_CANCEL) {
         /* A process-directed signal can cancel USER_NOTIF yet be consumed by
          * a peer. The kernel restarts this SVC without a delivery stop here.
@@ -2156,7 +2277,8 @@ static void handle_notification(const struct seccomp_notif *request) {
         tracee_request(t,PTRACE_INTERRUPT,NULL,NULL,"completed-restarted-notification");
         return;
     }
-    if (!memory_available(t->pid)) {
+    if (!memory_available(t->pid) || (entry_fence_adapt(t) && md_broker_filesystem_call(q.data.nr)
+            && !(q.data.instruction_pointer>=checkpoints.begin && q.data.instruction_pointer<checkpoints.end))) {
         if (!t->memory_notification) { t->memory_notification=malloc(sizeof(*request)); CHECK(t->memory_notification); }
         else CHECK(t->memory_notification->id==request->id
             || (ioctl(listener,SECCOMP_IOCTL_NOTIF_ID_VALID,&t->memory_notification->id)<0 && errno==ENOENT));
@@ -2169,22 +2291,20 @@ static void handle_notification(const struct seccomp_notif *request) {
         delegate_begin(t,&q); return;
     }
     if (t->proc_delivery.files.table && t->proc_delivery.notification!=q.id) proc_deliver(t);
-    if (q.data.nr==SYS_gettid) {
+    if (q.data.nr==SYS_gettid || replay) {
         int value=-EPERM;
-        if (t->ready && q.data.instruction_pointer==abi.buffer_admit
-                && !q.data.args[1] && !q.data.args[2] && !q.data.args[3]
-                && !q.data.args[4] && !q.data.args[5]) {
-            if (q.data.args[0]==MD_ENTRY_BIND) {
+        if (buffer_admission) {
+            if (purpose==MD_ENTRY_BIND) {
                 long address=cooperative_bind(t);
                 struct seccomp_notif_resp reply={.id=q.id,
                     .val=address<0 ? 0 : address,.error=address<0 ? (int)address : 0};
                 CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno==ENOENT);
                 return;
-            } else if (q.data.args[0]==MD_FS_BUFFER_IMPORT)
+            } else if (purpose==MD_FS_BUFFER_IMPORT)
                 value=md_fd_return_install(&t->buffer_return,listener,q.id);
-            else if (q.data.args[0]==MD_FS_BUFFER_EXPORT)
+            else if (purpose==MD_FS_BUFFER_EXPORT)
                 value=md_fs_buffer_export_install(t->buffer_call,listener,q.id);
-            else if (q.data.args[0]==MD_FS_BUFFER_IPC_ADMIT) {
+            else if (purpose==MD_FS_BUFFER_IPC_ADMIT) {
                 struct md_fd_capture *capture=NULL;
                 struct md_fd_order *order=NULL;
                 if (t->outgoing && t->outgoing->brokered && t->outgoing->stage==OUTGOING_CAPTURE) {
@@ -2194,13 +2314,13 @@ static void handle_notification(const struct seccomp_notif *request) {
                 }
                 if (order && md_fd_order_state(order)==MD_RESOURCE_ORDER_RUNNING)
                     value=md_fd_capture_admit(capture,order->table,listener,q.id);
-            } else if (q.data.args[0]==MD_BUFFER_PIDFD_ADMIT && t->pidfd_capture.count
+            } else if (purpose==MD_BUFFER_PIDFD_ADMIT && t->pidfd_capture.count
                     && t->fd_job==MD_FD_USE && md_fd_order_state(&t->fd_order)==MD_RESOURCE_ORDER_RUNNING)
                 value=md_fd_capture_admit(&t->pidfd_capture,t->resources.files,listener,q.id);
-            else if (q.data.args[0]==MD_FS_BUFFER_EPOLL_ADMIT && t->readiness
+            else if (purpose==MD_FS_BUFFER_EPOLL_ADMIT && t->readiness
                     && md_fd_order_state(&t->readiness->files)==MD_RESOURCE_ORDER_RUNNING) {
                 value=md_fd_capture_admit(&t->readiness->capture,t->readiness->files.table,listener,q.id);
-            } else if (q.data.args[0]==MD_FS_BUFFER_EPOLL_LOAN && t->readiness
+            } else if (purpose==MD_FS_BUFFER_EPOLL_LOAN && t->readiness
                     && t->readiness->retirement && t->readiness->loan_number<0) {
                 struct readiness_owner *o=t->readiness;
                 value=md_fd_install_begin(&o->delivery,t->resources.files,listener,q.id,
@@ -2224,29 +2344,26 @@ static void handle_notification(const struct seccomp_notif *request) {
             /* Cmdline is public, unlike auxv/exe: differing guest IDs or
              * permitted capabilities do not require ptrace authority. The
              * namespace lookup and caller's native proc open precede this. */
-            int allowed=target && !md_domain_restricted(t->resources.fs)
-                && (q.data.args[2]==MD_PROC_CMDLINE || proc_allowed(t->pid,target->pid));
-            int fd=!allowed ? -EACCES
+            int allowed=!md_domain_restricted(t->resources.fs)
+                && (q.data.args[2]==MD_PROC_CMDLINE || (target && proc_allowed(t->pid,target->pid)));
+            int error=!allowed ? -EACCES
                 : q.data.instruction_pointer!=RAW_GATE || t->phase!=DISPATCHING
                     || t->proc_image_fd>=0 || q.data.args[4] || q.data.args[5] ? -EPERM
-                : md_process_image_view(target->pid,target->process_image,access ? access->memory : -1,(unsigned)q.data.args[2],
-                    (unsigned)q.data.args[3],t->endpoint,t->pid);
-            if (fd<0) reply.error=fd;
-            else {
-                /* Keep snapshot identity after dumpability changes, without
-                 * asking its receiver to export the result back for metadata. */
-                struct md_fd_object *pin=md_fd_native_pin_new(fd);
-                reply.error=pin ? md_fd_install_begin(&t->proc_delivery,t->resources.files,listener,q.id,
-                    fd,pin,(unsigned)q.data.args[3]&O_CLOEXEC,fd_wakeup) : -errno;
-                md_fd_object_release(pin);
-                if (!reply.error) {
-                    t->proc_image_fd=fd;
-                    /* EVENT_WAIT: destination table ownership; cancellation
-                     * closes only the retained provider FD, never a guest slot. */
-                    proc_deliver(t); return;
-                }
-                close(fd);
+                : md_file_snapshot_flags((unsigned)q.data.args[3]);
+            void *bytes=NULL;
+            ssize_t size=error ? error : md_process_image_snapshot((pid_t)q.data.args[1],target ? target->process_image : 0,
+                access ? access->memory : -1,(unsigned)q.data.args[2],&bytes);
+            if (size<0) error=(int)size;
+            else error=md_fs_buffer_snapshot_copy(buffer_service,t->pid,t->resources.fs,
+                (unsigned)q.data.args[3],bytes,(size_t)size,&t->proc_snapshot);
+            free(bytes);
+            if (!error) {
+                t->proc_snapshot_notification=q;
+                /* EVENT_WAIT: owned snapshot completion, then destination FD
+                 * publication. Task cancellation retires the exact request. */
+                return;
             }
+            reply.error=error;
             CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno==ENOENT);
         } else if (q.data.args[0] == MD_GUEST_FD_CHANNEL) {
             struct metadata_operation *op=&t->metadata;
@@ -2309,6 +2426,7 @@ static void handle_notification(const struct seccomp_notif *request) {
         export_begin(t, &q); return;
     }
     if (t->phase==IDLE && q.data.instruction_pointer!=RAW_GATE) {
+        if (t->endpoint[0]) { delegate_begin(t,&q); return; }
         struct md_fd_object *object=md_fd_origins_object(t->resources.files,(int)q.data.args[0],NULL);
         /* Native FD identity alone cannot recover a logical path or provider.
          * Discovery only chooses the adapter; it captures authority under the
@@ -2328,7 +2446,7 @@ static void handle_notification(const struct seccomp_notif *request) {
     int error = fd < 0 ? fd : 0;
     struct stat st;
     if (!error) {
-        error = descriptor_stat(t, fd, &st, q.data.instruction_pointer == RAW_GATE);
+        error = fstat(fd, &st) ? -errno : 0;
         close(fd);
     }
     if (ioctl(listener, SECCOMP_IOCTL_NOTIF_ID_VALID, &q.id)) { CHECK(errno == ENOENT); return; }
@@ -2570,7 +2688,7 @@ static int completed_notification_event(struct thread *t,int status,const struct
                 free(result); t->broker_completion=NULL;
                 return 1;
             }
-            CHECK(!md_buffer_release(&t->buffer));
+            CHECK(!buffer_release(t));
             t->broker_event.held=0; regs.regs[0]=error;
         } else regs.regs[0]=result->result.error;
         if (!set_registers(t->pid,&regs)) return 1;
@@ -3513,10 +3631,15 @@ static int fd_native_io(struct thread *t,const struct ptrace_syscall_info *info)
     /* Poll already classifies under this turn before native fallback. If no
      * object can provide readiness, the same decision needs no guest vector.
      * The kernel retains pointer, limit, timeout and signal-mask validation. */
-    int native=0;
+    int native=0,probe=0;
     if (epoll) {
         struct md_fd_object *object=md_fd_origins_object(t->resources.files,(int)info->seccomp.args[0],NULL);
-        native=md_control_epoll_native_wait(object);
+        int pure=md_control_epoll_native_wait(object);
+        native=pure
+            && (!md_control_epoll_from_object(object) || (nr==SYS_epoll_pwait && !(int)info->seccomp.args[3]));
+        probe=pure && !native && nr==SYS_epoll_pwait && t->phase==IDLE
+            && !info->seccomp.args[4] && !t->application_filter
+            && !t->machine.syscall_exit && !t->machine.retry_svc;
         md_fd_object_release(object);
     } else native=poll ? md_fd_origins_native_poll(&turn) : md_fd_origins_exclusive(&turn)
         && md_fd_origins_native_regular(&turn,(int)info->seccomp.args[0]);
@@ -3535,6 +3658,18 @@ static int fd_native_io(struct thread *t,const struct ptrace_syscall_info *info)
         }
     }
     CHECK(!md_fd_order_complete(&turn));
+    if (probe) {
+        /* A ready native queue needs neither an adapter stack nor a captured
+         * descriptor. Probe in the caller so signalfd and the application's
+         * output pointer retain kernel semantics. An empty result has no
+         * effect and falls through to owned blocking admission. */
+        struct user_pt_regs regs;
+        if (!registers(t->pid,&regs)) return 1;
+        t->original=regs; t->epoll_started=md_event_now();
+        regs.regs[3]=0;
+        if (set_registers(t->pid,&regs)) { t->phase=EPOLL_PROBE; resume(t->pid,0); }
+        return 1;
+    }
     if (!native) return 0;
     if (statistics) { ++statistics->native_io; ++statistics->calls[nr].trace; }
     resume(t->pid,0); return 1;
@@ -3560,6 +3695,7 @@ static void task_action_cleanup(void) {
     /* Tracees have been reaped; only metadata pins and borrowed spans remain. */
     struct task_action *active=task_action_execution;
     if (active) {
+        if (active->checkpoint_suspended) md_task_checkpoint_restore(&checkpoints,active->actor->pid);
         if (active->requester) active->requester->action=NULL;
         if (active->borrowed) CHECK(!md_task_quiesce_return(
             active->outer_barrier ? active->outer_barrier : task_action_barrier,active->actor->pid));
@@ -3621,6 +3757,7 @@ static void task_action_unpark(void) {
     /* A resource can become ready while a barrier prevents its continuation.
      * Its eventfd was already acknowledged then; releasing the barrier is the
      * new readiness event, even when no resource owner has anything left to signal. */
+    if (filesystem) memory_completions_pending=1;
     CHECK(!md_event_signal(fd_ready));
 }
 static void loan_failed(struct task_action *owner,long result) {
@@ -3632,6 +3769,9 @@ static void loan_failed(struct task_action *owner,long result) {
 static void task_action_call_complete(long result,int retry) {
     struct task_action *owner=task_action_execution;
     struct thread *actor=owner->actor;
+    if (owner->checkpoint_suspended) {
+        md_task_checkpoint_restore(&checkpoints,actor->pid); owner->checkpoint_suspended=0;
+    }
     if (owner->loan) {
         if (!retry && result!=-ESRCH) {
             struct md_fd_mutation close={.nr=owner->native.arguments.number,
@@ -3705,6 +3845,10 @@ static void task_action_call_start(struct task_action *owner) {
         }
         boundary=(enum md_task_call_boundary)info.op;
     }
+    int checkpoint=md_task_checkpoint_suspend(&checkpoints,actor->pid);
+    if (checkpoint<0) { task_action_call_complete(checkpoint,0); return; }
+    owner->checkpoint_suspended=1;
+    if (checkpoint && boundary==MD_TASK_CALL_ENTRY) boundary=MD_TASK_CALL_EMULATED_ENTRY;
     TRACE("PROBE selector-start requester=%d actor=%d remote=%d synthetic=%d kind=%u fd=%d boundary=%d pc=%llx nr=%llu value=%lld\n",
         owner->requester ? owner->requester->pid : 0,actor->pid,owner->remote,owner->synthetic,
         (unsigned)owner->kind,owner->number,boundary,
@@ -3773,7 +3917,7 @@ static int task_action_borrowable(struct thread *p,struct thread *requester) {
      * peer. Published debugger stops and pending interrupts remain excluded. */
     int debug_running=traced && md_debugger_running(debugger,p->pid);
     return p->ready && !birth_stop_pending(p) && !p->resume_lost && !p->terminal_stop
-        && !p->listening && !p->vfork_child && !p->interrupt_pending
+        && !p->listening && !p->vfork_child && !p->interrupt_pending && !p->signal_return_pending
         && !p->mapping && !p->memory_capture && !p->fd_running && (!traced || debug_held || debug_running)
         && (waiter || debug_held || (p->freezer_resume && debugger_at_boundary(p))
             || (!p->kernel_stopped && (p->phase==IDLE || p->phase==DISPATCHING
@@ -3856,7 +4000,8 @@ static void task_action_schedule(void) {
 }
 static int loan_borrow(struct task_action *owner,struct thread *p,int *alive,int *stopped) {
     if (!p || !p->pid || p->resources.files!=owner->loan_table || p->terminal_stop || p->resume_lost) return 0;
-    if (p!=owner->requester && p->pid!=owner->retirement.task && !task_action_borrowable(p,owner->requester)) {
+    if (p->signal_return_pending || (p!=owner->requester && p->pid!=owner->retirement.task
+            && !task_action_borrowable(p,owner->requester))) {
         *alive=1; return 0;
     }
     *stopped=p->kernel_stopped;
@@ -3974,12 +4119,13 @@ static int task_action_event(pid_t pid,int status,const struct rusage *usage) {
     int result=md_task_call_event(call,status);
     TRACE("PROBE task-action pid=%d status=%x stage=%u boundary=%d loan=%d ready=%d result=%ld\n",
         pid,status,call->stage,call->boundary,owner->loan!=NULL,result,call->result);
-    if (result==-EPROTO && diagnostics) {
+    if (result==-EPROTO) {
         struct ptrace_syscall_info info={0};
         struct user_pt_regs actual={0};
         registers(pid,&actual);
         native_trace(PTRACE_GET_SYSCALL_INFO,pid,(void *)sizeof(info),&info);
-        TRACE("PROBE task-action-mismatch op=%u pc=%llx/%llx nr=%llu/%llu x0=%llu/%llu x7=%llu/%llu\n",
+        fprintf(stderr,"guest-runtime: task-action mismatch pid=%d status=%x phase=%d stage=%u boundary=%d loan=%d active=%ld op=%u pc=%llx/%llx nr=%llu/%llu x0=%llu/%llu x7=%llu/%llu\n",
+            pid,status,t->phase,call->stage,call->boundary,owner->loan!=NULL,call->active_number,
             info.op,(unsigned long long)actual.pc,(unsigned long long)call->entry.pc,
             (unsigned long long)actual.regs[8],(unsigned long long)call->entry.regs[8],
             (unsigned long long)actual.regs[0],(unsigned long long)call->entry.regs[0],
@@ -4329,6 +4475,19 @@ static int readiness_inventory(struct readiness_owner *o) {
     return 0;
 }
 static void readiness_poll_load(struct thread *t);
+static void readiness_activated(struct md_fd_object *queue) {
+    /* Cold admission only: wake the exact waits that entered before this
+     * queue gained its virtual transport. Their owner retains the deadline,
+     * native result and temporary signal mask. No other task is stopped. */
+    for (struct thread *p=threads;p;p=p->next) {
+        struct readiness_owner *o=p->readiness;
+        if (p->pid && o && o->queue==queue && p->phase==EPOLL_WAIT
+                && !o->wait.job.started && !p->socket_waking) {
+            p->socket_waking=1;
+            tracee_request(p,PTRACE_INTERRUPT,NULL,NULL,"epoll-cold-admission");
+        }
+    }
+}
 static void readiness_start(struct thread *t) {
     retry_clear(t,RETRY_READINESS);
     struct readiness_owner *o=t->readiness;
@@ -4371,7 +4530,14 @@ static void readiness_start(struct thread *t) {
                 readiness_reply(t,md_control_epoll_ctl(queue,o->operation,o->number,o->target,provider,&o->event)); return;
             }
         } else {
-            if (md_control_epoll_native_wait(o->queue)) {
+            if (!queue) { readiness_reply(t,MD_EPOLL_NATIVE); return; }
+            struct md_epoll_frame *frame;
+            struct md_buffer_span span;
+            error=md_buffer_span(&t->buffer,&span);
+            if (error) { readiness_reply(t,error); return; }
+            frame=span.data;
+            if (md_control_epoll_native_wait(o->queue)
+                    && frame->timed && !frame->timeout.tv_sec && !frame->timeout.tv_nsec) {
                 readiness_reply(t,MD_EPOLL_NATIVE); return;
             }
             if (md_fd_origins_exclusive(&o->files)) {
@@ -4427,6 +4593,7 @@ static void readiness_start(struct thread *t) {
         if (error!=2) { readiness_reply(t,error); return; }
         error=md_control_epoll_admit_finish(queue,1); o->reserved=0;
         if (error) { readiness_reply(t,error); return; }
+        readiness_activated(o->queue);
         readiness_admission_release(o,0);
     }
     struct md_control_file provider=md_fd_object_readiness(o->target);
@@ -4459,6 +4626,20 @@ static void readiness_begin(struct thread *t,const struct user_pt_regs *r) {
     if (error) { buffer_reply(t,error); return; }
     o->continuation=*r;
     o->loan_number=-1;
+    if (t->original.regs[8]==SYS_epoll_pwait || t->original.regs[8]==SYS_epoll_pwait2) {
+        /* Reuse the admitted call for ADDFD, not an unrelated service syscall
+         * which an application filter may deny. The owner validates replay. */
+        struct md_epoll_frame *frame=span.data;
+        frame->admission.number=t->original.regs[8];
+        for (unsigned i=0;i<6;++i) frame->admission.value[i]=t->original.regs[i];
+    }
+    if (t->epoll_started) {
+        md_epoll_wait_initialize(&o->wait,span.data);
+        struct md_epoll_frame *frame=span.data;
+        if (frame->timed)
+            o->wait.deadline=t->epoll_started+frame->timeout.tv_sec*1000000000LL+frame->timeout.tv_nsec;
+        t->epoll_started=0;
+    }
     if (t->original.regs[8]==SYS_ppoll || t->original.regs[8]==SYS_pselect6) {
         struct md_poll_frame *f=span.data;
         o->poll_count=f->total;
@@ -4598,7 +4779,7 @@ static void close_wait_complete(struct thread *t) {
     close_return(t);
 }
 static void wait_cancel_entry(struct thread *t,enum phase next) {
-    CHECK(next==FILE_WAITING || next==CONTROL_WAITING || next==CLOSE_WAITING);
+    CHECK(next==FILE_WAITING || next==CONTROL_WAITING || next==CLOSE_WAITING || next==EPOLL_CALL);
     if (!skip(t->pid)) return;
     /* EVENT_WAIT: drain the skipped syscall's exit before restoring adapter
      * registers. At entry, seccomp/kernel return can still overwrite x0. */
@@ -5046,8 +5227,9 @@ static void socket_io_progress(struct thread *t) {
         struct md_ipc_io_message *io=out ? &((struct md_task_outgoing_frame *)span.data)->scratch.capture.io
             : &((struct md_task_receive_frame *)span.data)->io;
         if (in && in->request.batch_prepared && !in->io.initialized) {
-            result=md_ipc_io_prepare_batch(&in->io,io,in->received->fds[0],in->request.flags,
-                in->request.batch_prepared);
+            result=in->network.number
+                ? md_network_io_prepare_batch(&in->io,io,in->received->fds[0],in->request.flags,in->request.batch_prepared)
+                : md_ipc_io_prepare_batch(&in->io,io,in->received->fds[0],in->request.flags,in->request.batch_prepared);
             if (result) io->batch_count=0;
         }
         if (!result) waiting=in && in->network.number ? md_network_io_progress(&in->network,&in->io,&in->received,io,&result)
@@ -5090,9 +5272,19 @@ static void receive_start(struct thread *t) {
     if (!owner || owner->started) return;
     if (md_fd_order_state(&owner->files)!=MD_RESOURCE_ORDER_READY) { retry_wait(t,RETRY_RECEIVE); return; }
     int error=md_fd_order_start(&owner->files);
-    if (!error && owner->network.number) {
-        owner->network.endpoint=md_fd_origins_object(t->resources.files,owner->request.socket,NULL);
-        if (!md_network_endpoint_is(owner->network.endpoint)) error=-EBADF;
+    if (!error && (owner->network.number || owner->request.batch)) {
+        struct md_fd_object *object=md_fd_origins_object(t->resources.files,owner->request.socket,NULL);
+        if (md_network_endpoint_is(object)) {
+            owner->network.endpoint=object;
+            if (!owner->network.number) {
+                owner->brokered=1; owner->network.number=t->original.regs[8];
+                owner->network.identity=&t->identity;
+                memcpy(owner->network.args,t->original.regs,sizeof(owner->network.args));
+            }
+        } else {
+            md_fd_object_release(object);
+            if (owner->network.number) error=-EBADF;
+        }
     }
     if (!error) {
         error=md_fd_capture_native(t->pid,&owner->request.socket,1,&owner->received);
@@ -5212,10 +5404,19 @@ static void buffer_result_replay(struct thread *t) {
 }
 static void buffer_complete(struct md_fs_buffer_request *request, pid_t pid, int error) {
     struct thread *t=find_thread(pid);
+    if (t && t->proc_snapshot==request) {
+        proc_snapshot_complete(t,request,error); return;
+    }
+    if (t && t->metadata.stat_call==request) {
+        const struct md_fs_result *result=md_fs_buffer_status_result(request);
+        CHECK(result);
+        export_stat_complete(t,result,error); return;
+    }
     CHECK(t && t->buffer_call==request);
     if (md_fs_buffer_open_waiting(request)) {
         if (md_fs_buffer_open_ready(request)) {
-            if (t->phase==FILE_WAITING && !t->listening)
+            if (t->phase==FILE_INTERRUPTING) file_wait_complete(t);
+            else if (t->phase==FILE_WAITING && !t->listening)
                 tracee_request(t,PTRACE_INTERRUPT,NULL,NULL,"open-ready");
             return;
         }
@@ -5223,7 +5424,7 @@ static void buffer_complete(struct md_fs_buffer_request *request, pid_t pid, int
         if (t->direct==DIRECT_OPEN && !save_signal_mask(t,&t->mask,"open-wait-mask")) return;
         if (!shield(t)) return;
         /* EVENT_WAIT: child completion interrupts this empty native poll;
-         * guest signals cancel the owned open and retain kernel SA_RESTART. */
+         * guest signals request interruption without losing completed opens. */
         wait_poll_start(t,FILE_WAIT_ENTRY);
         return;
     }
@@ -5288,14 +5489,13 @@ static int buffer_cleanup(struct thread *t) {
     if (t->proc_image_fd>=0) { close(t->proc_image_fd); t->proc_image_fd=-1; }
     if (t->control_mapping_fd>=0) { close(t->control_mapping_fd); t->control_mapping_fd=-1; }
     t->buffer_rights_delivered=0;
-    int error=md_buffer_release(&t->buffer);
-    if (!error) t->dispatch_prepared=0;
-    return error;
+    return buffer_release(t);
 }
 static void dispatch_complete(struct thread *t,long value) {
     pid_t pid=t->pid;
     struct user_pt_regs regs;
     CHECK(t->phase==DISPATCHING && !t->control_pending);
+    t->epoll_started=0;
     if (t->dispatch_prepared) {
         /* Early argument failures may never claim the supplied input buffer. */
         CHECK(!buffer_cleanup(t));
@@ -5320,6 +5520,7 @@ static void dispatch_complete(struct thread *t,long value) {
     CHECK(!md_proc_file_io_cancel(&t->proc_io));
     md_proc_file_release(t->proc_file); t->proc_file=NULL; t->proc_waiting=t->proc_direct=0;
     if (t->pid_preflight || t->filter_preflight) {
+        if (t->filter_preflight && !value && entry_fence_owner==t) t->entry_fence_replay=1;
         if (t->filter_preflight) t->registration_revoked=1;
         t->pid_preflight=t->filter_preflight=0;
         regs=t->original;
@@ -5459,7 +5660,7 @@ static int proc_write_capture(struct thread *t,size_t *total) {
      * unreadable input falls back to the caller's existing copy path, without
      * ptrace force-reading pages or replaying a partially committed write. */
     if (process_vm_readv(t->pid,&local,1,vectors,captured,0)!=(ssize_t)size) {
-        CHECK(!md_buffer_release(&t->buffer)); return 0;
+        CHECK(!buffer_release(t)); return 0;
     }
     return 1;
 }
@@ -5481,7 +5682,7 @@ static void buffer_take(struct thread *t) {
     if (error==-EAGAIN) { retry_wait(t,RETRY_BUFFER); return; }
     t->buffer_waiting=0;
     uintptr_t address=error ? 0 : md_memory_buffer_address(t->memory,&t->buffer);
-    if (!error && !address) { CHECK(!md_buffer_release(&t->buffer)); error=-EINVAL; }
+    if (!error && !address) { CHECK(!buffer_release(t)); error=-EINVAL; }
     if (!error && start) { proc_io_begin(t); return; }
     buffer_reply(t,error ? error : (long)address);
 }
@@ -5786,7 +5987,9 @@ static void buffer_control(struct thread *t, const struct user_pt_regs *r) {
             result=r->regs[1] ? md_ipc_io_prepare_batch(op,io,fd,flags,(unsigned)r->regs[1])
                 : md_ipc_io_prepare(op,io,fd,flags,sending);
         } else if (r->regs[0]==MD_FS_BUFFER_IPC_IO_SELECT)
-            result=md_ipc_io_select(op,io,io->batch_index);
+            result=t->receive && t->receive->network.number
+                ? md_network_io_select(&t->receive->network,op,io,io->batch_index)
+                : md_ipc_io_select(op,io,io->batch_index);
         else if (io->transfer&~(MD_IPC_IO_CONTROL_BYTES|MD_IPC_IO_READ_BYTES)) result=-EINVAL;
         else result=md_ipc_io_copy(op,io,io->offset,io->length,
             !!(io->transfer&MD_IPC_IO_CONTROL_BYTES),!!(io->transfer&MD_IPC_IO_READ_BYTES));
@@ -6149,7 +6352,7 @@ static void buffer_control(struct thread *t, const struct user_pt_regs *r) {
         if (!result) result=md_buffer_span(&t->buffer,&span);
         if (!result) {
             unsigned long args[4]={r->regs[1],0,0,0};
-            result=md_shm_call(shm,t->shm_space,NULL,&t->identity,t->tgid,
+            result=md_shm_call(shm,t->shm_space,NULL,&t->identity,t->tgid,t->resources.pid_group,
                 MD_SHM_STAT,args,span.data);
         }
         break;
@@ -6193,9 +6396,10 @@ static void buffer_control(struct thread *t, const struct user_pt_regs *r) {
         struct md_fs_buffer_frame *frame=span.data;
         if (!proc && frame->transfer!=MD_FS_BUFFER_RIGHTS) { result=-EINVAL; break; }
         int flags=(proc ? md_proc_file_flags(t->proc_file) : t->buffer_open.flags)&O_CLOEXEC ? FD_CLOEXEC : 0;
+        struct md_fd_object *object=proc ? md_proc_file_object(t->proc_file) : md_fs_buffer_open_object(&t->buffer_open);
+        frame->reply.result.selectors=md_fd_object_selectors(object);
         result=md_fd_return_begin(&t->buffer_return,t->resources.files,proc ? t->proc_image_fd : t->buffer_open.fd,
-            proc ? md_proc_file_object(t->proc_file) : md_fs_buffer_open_object(&t->buffer_open),flags,
-            (void *)frame->receipt,fd_wakeup);
+            object,flags,(void *)frame->receipt,fd_wakeup);
         if (result) break;
         t->buffer_return_waiting=1;
         /* EVENT_WAIT: destination table and shared channel become available;
@@ -6430,8 +6634,11 @@ static int process_call(struct thread *t,struct user_pt_regs *r,unsigned long *c
     if (nr==SYS_futex) {
         /* The PID selector intercepts only PI operations. Passing a logical
          * owner TID to the native PI state can deadlock even after unlock.
-         * ENOSYS also lets libc's capability probe reject PI mutex creation. */
-        return_value(t,r,-ENOSYS); return 1;
+         * musl exposes LOCK_PI's error from mutexattr_setprotocol, so report
+         * unsupported protocol. glibc probes UNLOCK_PI and requires ENOSYS
+         * to reject PI mutex creation. Neither probe may modify the word. */
+        unsigned op=(unsigned)r->regs[1]&FUTEX_CMD_MASK;
+        return_value(t,r,op==FUTEX_UNLOCK_PI ? -ENOSYS : -EOPNOTSUPP); return 1;
     }
     if (nr==SYS_ioctl) {
         t->original=*r;
@@ -6795,10 +7002,11 @@ static int svc_client_alive(pid_t pid,void *memory) {
 }
 static int svc_clients_prepare(struct thread *t) {
     struct md_svc_registry *r=md_memory_svc(t->memory);
-    if (!r || r->disabled) return 1;
+    if (!r || (r->disabled && !r->frames_dirty)) return 1;
     const struct md_private_memory_access *access=md_memory_private_access(t->memory);
     int fd=access ? access->memory : -1;
-    int error=md_svc_registry_identity(r,t->pid,fd,md_memory_sole_owner(t->memory) ? t->pid : 0);
+    int error=md_svc_registry_prepare_fork(r,t->pid,fd);
+    if (!error) error=md_svc_registry_identity(r,t->pid,fd,md_memory_sole_owner(t->memory) ? t->pid : 0);
     if (!error) error=md_svc_registry_collect_clients(r,t->pid,fd,svc_client_alive,t->memory);
     if (error==-EIO || error==-EFAULT) {
         int displaced=md_task_checkpoint_displaced(&checkpoints,t->pid);
@@ -6816,6 +7024,15 @@ static void resume(pid_t pid, int sig) {
     if (t->retained_signal) {
         CHECK(!sig || sig==t->retained_signal);
         sig=t->retained_signal;
+    }
+    if (entry_fence_owner==t && t->phase==IDLE) {
+        if (t->entry_fence_replay) t->entry_fence_replay=0;
+        else entry_fence_owner=NULL;
+    }
+    if (entry_fence_park(t)) {
+        CHECK(!t->memory_resume || !sig || sig==t->memory_signal);
+        t->memory_resume=1; if (sig) t->memory_signal=sig;
+        return;
     }
     if (!memory_available(pid)) {
         CHECK(!t->memory_resume || !sig || sig==t->memory_signal);
@@ -6934,7 +7151,7 @@ static void resume(pid_t pid, int sig) {
             RAW_GATE,abi.watch_return,&ranges));
     }
     int publish_signal=md_signal_delivery_pending(&t->signal_delivery) && !t->signal_delivery.active
-        && !t->signal_shielded;
+        && !t->signal_shielded && !t->signal_return_pending;
     if (!sig && (t->machine.draining || publish_signal) && debugger_at_boundary(t)
             && !t->debug_call_active) {
         /* Carrier delivery resumes with CONT. A native syscall must first
@@ -6949,14 +7166,14 @@ static void resume(pid_t pid, int sig) {
     }
     t->kernel_resume=t->signal_delivery.active ? PTRACE_CONT : (t->metadata_restart && phase==IDLE
             && (t->metadata_restart->stage==METADATA_ENTRY || t->metadata_restart->stage==METADATA_WAIT))
-            || t->machine.syscall_exit || (phase==IDLE && t->machine.retry_svc)
+            || t->signal_return_pending || t->machine.syscall_exit || (phase==IDLE && t->machine.retry_svc)
             || t->direct==DIRECT_ADMIT || t->fd_running || phase == OBSERVING || phase==PROCESS_OBSERVING
             || phase==PROCESS_INIT_ENTRY || phase==PROCESS_INIT_EXIT || phase == EXPORT_ENTRY || phase == EXPORT_NOTIFY
             || phase == EXPORT_RETURN || phase == EXECUTING || phase == WATCH_CANCEL
             || phase == WATCH_ENTRY || phase == WATCH_READ || phase==DEBUG_WAIT_ENTRY || phase==DEBUG_WAIT_EXIT
             || phase==DEBUG_PARK_ENTRY || phase==DEBUG_PARK_EXIT
             || phase==IPC_WAIT_ENTRY || phase==IPC_WAITING || phase==SOCKET_WAIT_ENTRY || phase==SOCKET_WAITING
-            || phase==CALL_RESTART_ENTRY || phase==CALL_RESTART_EXIT || phase==EPOLL_CALL || phase==EPOLL_WAIT
+            || phase==CALL_RESTART_ENTRY || phase==CALL_RESTART_EXIT || phase==EPOLL_PROBE || phase==EPOLL_CALL || phase==EPOLL_WAIT
             || phase==FILE_WAIT_ENTRY || phase==FILE_WAITING
             || phase==CONTROL_WAIT_ENTRY || phase==CONTROL_WAITING || phase==CLOSE_WAIT_ENTRY || phase==CLOSE_WAITING
             || phase==WAIT_CANCEL_EXIT || phase==CLONE_ENTRY || phase==CLONE_ADMISSION
@@ -7033,7 +7250,7 @@ static int direct_begin(struct thread *t) {
         frame->input.flags=q.flags; frame->input.mode=q.mode; frame->input.attributes=q.attributes;
         error=md_fs_buffer_invoke(buffer_service,t->pid,t->resources.fs,q.operation,&t->buffer,&t->buffer_call);
     }
-    if (error) { CHECK(!md_buffer_release(&t->buffer)); return 0; }
+    if (error) { CHECK(!buffer_release(t)); return 0; }
     if (status && !skip(t->pid)) { md_fs_buffer_cancel(&t->buffer_call); return 1; }
     t->direct=status ? DIRECT_STATUS : DIRECT_OPEN; t->phase=DISPATCHING;
     t->direct_flags=q.flags; t->direct_mode=q.mode;
@@ -7105,7 +7322,9 @@ static uintptr_t dispatch_input(struct thread *t,unsigned policy) {
     int poll=(nr==SYS_ppoll || nr==SYS_pselect6) && count<=INT_MAX
         && (nr!=SYS_ppoll || count<=md_process_native_nofile(t->resources.process));
     int exec=(nr==SYS_execve || nr==SYS_execveat) && t->endpoint[0];
-    if (t->buffer.pool || (policy&MD_DISPATCH_NETWORK_DATA)
+    /* Network and device-event adapters own their buffer lifecycle; only the
+     * ordinary receive adapter consumes this prepared frame. */
+    if (t->buffer.pool || (policy&(MD_DISPATCH_NETWORK_DATA|MD_DISPATCH_NETWORK_CONTROL|MD_DISPATCH_DEVICE_EVENTS))
             || (nr!=SYS_recvmsg && nr!=SYS_recvmmsg && !poll && !exec)) return 0;
     /* Opportunistic admission, not a retained per-thread cache. Pool pressure
      * keeps the adapter's normal queued TAKE; unrelated calls allocate nothing. */
@@ -7119,12 +7338,12 @@ static uintptr_t dispatch_input(struct thread *t,unsigned policy) {
             ((struct md_task_receive_frame *)span.data)->prepared=0;
         }
     }
-    else CHECK(!md_buffer_release(&t->buffer));
+    else CHECK(!buffer_release(t));
     return address;
 }
 static int receive_prepared(struct thread *t,const struct user_pt_regs *continuation,unsigned policy) {
     if (t->original.regs[8]!=SYS_recvmsg || !t->dispatch_prepared || !t->endpoint[0]
-            || (policy&(MD_DISPATCH_NETWORK_DATA|MD_DISPATCH_NETWORK_CONTROL|MD_DISPATCH_OFFLINE_SOCKET))
+            || (policy&(MD_DISPATCH_NETWORK_DATA|MD_DISPATCH_NETWORK_CONTROL|MD_DISPATCH_DEVICE_EVENTS|MD_DISPATCH_OFFLINE_SOCKET))
             || t->receive || t->fd_order.table || t->fd_running || t->fs_order.fs
             || t->debug_options || t->debug_call_active || t->debug_step_call
             || md_debugger_traced(debugger,t->pid)) return 0;
@@ -7294,12 +7513,13 @@ static void mapping_complete(void *context, struct md_task_helper_result result)
     if (owner->file) {
         md_memory_mapping_finish(owner->memory,&owner->change,value);
         if (value>=0) CHECK(!md_shm_unmapped(owner->space,(uintptr_t)value,
-            (owner->request.size+md_page_size-1)&~(md_page_size-1),owner->group));
+            (owner->request.size+md_page_size-1)&~(md_page_size-1),owner->group,owner->process));
     } else if (value>=0) {
         unsigned long args[4]={(unsigned long)value};
-        CHECK(!md_shm_call(NULL,owner->space,&owner->pending,NULL,owner->group,MD_SHM_ATTACHED,args,NULL));
+        CHECK(!md_shm_call(NULL,owner->space,&owner->pending,NULL,owner->group,owner->process,MD_SHM_ATTACHED,args,NULL));
     } else CHECK(!md_shm_abort(&owner->pending));
     CHECK(!md_shm_space_release(owner->space));
+    md_pid_identity_release(owner->process);
     if (owner->request.source>=0) close(owner->request.source);
     if (owner->order.queue && md_resource_order_cancel(&owner->order)==1)
         CHECK(!md_resource_order_complete(&owner->order));
@@ -7494,9 +7714,27 @@ static void mapping_progress(void) {
             owner->caller,owner->direct.stage,owner->retiring,
             task_action_execution && task_action_execution->actor ? task_action_execution->actor->pid : 0);
         md_task_quiesce_describe(mapping_barrier,STDERR_FILENO);
-        for (struct thread *p=threads;p;p=p->next) if (p->pid && p->resources.files==owner->files.table)
-            fprintf(stderr,"Shroot: mapping peer pid=%d born=%d initial=%d stopped=%d phase=%d resume=%d terminal=%d\n",
-                p->pid,p->born,p->initial_stop,p->kernel_stopped,p->phase,p->kernel_resume,p->terminal_stop);
+        md_broker_describe(broker,STDERR_FILENO);
+        md_fs_buffer_describe(buffer_service,STDERR_FILENO);
+        for (struct thread *p=threads;p;p=p->next) if (p->pid && p->resources.files==owner->files.table) {
+            siginfo_t info={0};
+            int observed=native_trace(PTRACE_GETSIGINFO,p->pid,NULL,&info)<0 ? -errno : info.si_code;
+            fprintf(stderr,"Shroot: mapping peer pid=%d born=%d initial=%d stopped=%d phase=%d resume=%d terminal=%d nr=%lu stop=%d notification=%d readiness=%d\n",
+                p->pid,p->born,p->initial_stop,p->kernel_stopped,p->phase,p->kernel_resume,p->terminal_stop,
+                (unsigned long)p->original.regs[8],observed,p->memory_notification!=NULL,p->readiness!=NULL);
+            md_broker_describe_task(broker,p->pid,STDERR_FILENO);
+            if (observed<0) {
+                char path[80],state[256];
+                snprintf(path,sizeof(path),"/proc/%d/syscall",p->pid);
+                int fd=open(path,O_RDONLY|O_CLOEXEC);
+                ssize_t size=fd<0 ? -1 : read(fd,state,sizeof(state)-1);
+                if (fd>=0) close(fd);
+                if (size>=0) state[size]=0;
+                fprintf(stderr,"Shroot: admission peer=%d pending=%d yields=%u gate=%#lx syscall=%s\n",
+                    p->pid,p->buffer_admission_pending,p->buffer_admission_yields,
+                    (unsigned long)abi.buffer_admit,size>=0 ? state : "unavailable");
+            }
+        }
         errno=ETIMEDOUT; CHECK(0);
     }
     if (!owner->direct.stage && md_task_quiesce_ready(mapping_barrier)) {
@@ -7534,7 +7772,7 @@ static void mapping_begin(struct thread *t, struct user_pt_regs *regs) {
     if (!error && !owner) error=-ENOMEM;
     int fd=-1;
     if (!error) {
-        *owner=(struct mapping_owner){.caller=t->pid,.group=t->tgid,.continuation=*regs,
+        *owner=(struct mapping_owner){.caller=t->pid,.group=t->tgid,.process=md_pid_identity_retain(t->resources.pid_group),.continuation=*regs,
             .request={.source=-1},.file=file};
         owner->space=md_shm_space_fork(t->shm_space,1);
         owner->memory=md_memory_fork(t->memory,1);
@@ -7542,7 +7780,7 @@ static void mapping_begin(struct thread *t, struct user_pt_regs *regs) {
     }
     if (!error && !file) {
         unsigned long args[4]={t->original.regs[0],flags};
-        fd=(int)md_shm_call(shm,owner->space,&owner->pending,&t->identity,t->tgid,MD_SHM_OPEN,args,NULL);
+        fd=(int)md_shm_call(shm,owner->space,&owner->pending,&t->identity,t->tgid,t->resources.pid_group,MD_SHM_OPEN,args,NULL);
         if (fd<0) error=fd;
     }
     if (!error) {
@@ -7569,6 +7807,7 @@ static void mapping_begin(struct thread *t, struct user_pt_regs *regs) {
     if (owner) {
         CHECK(!md_shm_abort(&owner->pending));
         CHECK(!md_shm_space_release(owner->space));
+        md_pid_identity_release(owner->process);
         if (owner->request.source>=0) close(owner->request.source);
         md_memory_release(owner->memory);
         free(owner);
@@ -7905,6 +8144,17 @@ static void debugger_park_complete(struct thread *t) {
     md_debugger_wait_resumed(debugger,t->pid,waking && (interrupted || value==-ENOSYS || !value) ? 0
         : interrupted ? -512 : value<0 ? value : -EIO);
 }
+static void readiness_interrupted(struct thread *t) {
+    /* The kernel owns an atomic wait's temporary mask until signal return.
+     * FD cleanup and queued carriers must not shield this continuation before
+     * the next syscall entry proves the signal frame has been committed. */
+    t->signal_return_pending=1;
+    readiness_release(t); CHECK(!buffer_release(t));
+    struct user_pt_regs regs=t->original; regs.regs[0]=(uint64_t)-EINTR;
+    if (!set_registers(t->pid,&regs)) return;
+    md_memory_stack_return(t->memory,t->stack); t->stack=0;
+    t->phase=IDLE; resume(t->pid,0);
+}
 static void socket_wait_complete(struct thread *t) {
     struct user_pt_regs regs;
     if (!registers(t->pid,&regs)) return;
@@ -7914,15 +8164,7 @@ static void socket_wait_complete(struct thread *t) {
     int restart=md_syscall_restarting(value);
     int waking=t->socket_waking; t->socket_waking=0;
     if (t->readiness && restart && !waking) {
-        /* The interrupted ppoll owns saved_sigmask. Do not SETSIGMASK here:
-         * that clears the kernel's deferred restoration before signal delivery.
-         * No event was consumed, so release the adapter without running it. */
-        readiness_release(t);
-        CHECK(!md_buffer_release(&t->buffer));
-        regs=t->original; regs.regs[0]=(uint64_t)-EINTR;
-        if (!set_registers(t->pid,&regs)) return;
-        md_memory_stack_return(t->memory,t->stack); t->stack=0;
-        t->phase=IDLE; resume(t->pid,0); return;
+        readiness_interrupted(t); return;
     }
     if (!shield(t)) return;
     if (waking && (restart || value==0)) { socket_io_progress(t); return; }
@@ -7947,29 +8189,53 @@ static void socket_wait_complete(struct thread *t) {
     socket_complete(t,value);
 }
 static int readiness_native_event(struct thread *t,int status) {
-    if (t->phase!=EPOLL_CALL && t->phase!=EPOLL_WAIT) return 0;
     unsigned event=(unsigned)status>>16;
     int signal=WSTOPSIG(status);
+    if (t->phase==WAIT_CANCEL_EXIT && t->wait_resume==EPOLL_CALL) {
+        if (event || signal!=(SIGTRAP|0x80)) return 0;
+        struct ptrace_syscall_info info={0};
+        if (!tracee_request(t,PTRACE_GET_SYSCALL_INFO,(void *)sizeof(info),&info,"epoll-cancel-exit")) return 1;
+        struct readiness_owner *o=t->readiness;
+        CHECK(info.op==PTRACE_SYSCALL_INFO_EXIT && o && (o->evicting || o->finishing));
+        /* Only a drained exit can lend its continuation to FD retirement.
+         * Rewriting an entry to the adapter's PC would re-enter seccomp with
+         * the reply in x0 and mistake that value for a service command. */
+        t->phase=DISPATCHING; t->wait_resume=IDLE;
+        if (o->evicting) { o->parked=1; CHECK(!md_event_signal(fd_ready)); }
+        else readiness_reply(t,o->finish_result);
+        return 1;
+    }
+    if (t->phase!=EPOLL_CALL && t->phase!=EPOLL_WAIT) return 0;
     struct user_pt_regs regs;
     if (!event && signal==(SIGTRAP|0x80) && t->phase==EPOLL_CALL) {
-        struct ptrace_syscall_info info;
+        struct ptrace_syscall_info info={0};
         if (!registers(t->pid,&regs)
                 || !tracee_request(t,PTRACE_GET_SYSCALL_INFO,(void *)sizeof(info),&info,"epoll-call-entry")) return 1;
         struct readiness_owner *o=t->readiness;
-        CHECK(info.op==PTRACE_SYSCALL_INFO_ENTRY && info.instruction_pointer==abi.task_return
+        int entry=info.op==PTRACE_SYSCALL_INFO_ENTRY && info.instruction_pointer==abi.task_return
             && info.entry.nr==(unsigned long)o->native_call.number
-            && !memcmp(info.entry.args,o->native_call.value,sizeof(o->native_call.value)));
+            && !memcmp(info.entry.args,o->native_call.value,sizeof(o->native_call.value));
+        if (!entry) {
+            fprintf(stderr,"Shroot: readiness entry pid=%d op=%u pc=%#llx expectedPc=%#lx nr=%llu expectedNr=%ld regsPc=%#llx regsNr=%llu waking=%d filter=%d evicting=%d\n",
+                t->pid,info.op,(unsigned long long)info.instruction_pointer,(unsigned long)abi.task_return,
+                (unsigned long long)info.entry.nr,o->native_call.number,regs.pc,regs.regs[8],
+                t->socket_waking,t->application_filter,o->evicting);
+            for (unsigned i=0;i<6;++i)
+                fprintf(stderr,"Shroot: readiness argument %u observed=%#llx expected=%#lx register=%#llx\n",
+                    i,(unsigned long long)info.entry.args[i],o->native_call.value[i],regs.regs[i]);
+        }
+        CHECK(entry);
         if (o->evicting) {
-            if (skip(t->pid)) {
-                md_epoll_wait_cancel(&o->wait);
-                o->parked=1; t->phase=DISPATCHING;
-                CHECK(!md_event_signal(fd_ready));
-            }
+            md_epoll_wait_cancel(&o->wait);
+            wait_cancel_entry(t,EPOLL_CALL);
             return 1;
         }
-        int error=o->wait.blocking ? socket_watch(t) : 0;
+        int error=o->poll ? 0 : md_epoll_wait_observe(&o->wait,md_control_epoll_from_object(o->queue));
+        if (!error && o->wait.job.started) error=socket_watch(t);
         if (error) {
-            if (skip(t->pid)) { md_epoll_wait_cancel(&o->wait); readiness_reply(t,error); }
+            o->finishing=1; o->finish_result=error;
+            md_epoll_wait_cancel(&o->wait);
+            wait_cancel_entry(t,EPOLL_CALL);
             return 1;
         }
         if (restore_mask(t)) { t->phase=EPOLL_WAIT; resume(t->pid,0); }
@@ -7978,6 +8244,19 @@ static int readiness_native_event(struct thread *t,int status) {
     if (!(event==MD_TASK_CHECKPOINT_EVENT || (!event && signal==(SIGTRAP|0x80))
             || (event==PTRACE_EVENT_STOP && signal==SIGTRAP && t->socket_waking))) return 0;
     if (!registers(t->pid,&regs)) return 1;
+    if (event==PTRACE_EVENT_STOP && t->phase==EPOLL_CALL && regs.pc==abi.task_call) {
+        struct readiness_owner *o=t->readiness;
+        CHECK(regs.regs[8]==(unsigned long)o->native_call.number
+            && !memcmp(regs.regs,o->native_call.value,sizeof(o->native_call.value)));
+        /* A quiescence interrupt can precede SVC. No result exists yet;
+         * consume this service wake and retain the shield until real entry. */
+        t->socket_waking=0;
+        resume(t->pid,0); return 1;
+    }
+    if (regs.pc!=(event==MD_TASK_CHECKPOINT_EVENT ? abi.task_completed+4 : abi.task_return))
+        fprintf(stderr,"Shroot: readiness stop pid=%d phase=%d status=%#x pc=%#lx return=%#lx completed=%#lx nr=%lu value=%ld waking=%d\n",
+            t->pid,t->phase,status,(unsigned long)regs.pc,(unsigned long)abi.task_return,
+            (unsigned long)abi.task_completed,(unsigned long)regs.regs[8],(long)regs.regs[0],t->socket_waking);
     CHECK(regs.pc==(event==MD_TASK_CHECKPOINT_EVENT ? abi.task_completed+4 : abi.task_return));
     long value=(long)regs.regs[0];
     int restart=md_syscall_restarting(value);
@@ -7994,6 +8273,7 @@ static int readiness_native_event(struct thread *t,int status) {
             ready=md_buffer_span(&t->buffer,&span);
             if (!ready) {
                 struct md_epoll_frame *frame=span.data;
+                frame->native_output=0;
                 ready=o->poll ? md_poll_wait_interrupted(o->poll)
                     : md_control_epoll_collect(md_control_epoll_from_object(o->queue),frame->events,frame->capacity);
             }
@@ -8004,12 +8284,7 @@ static int readiness_native_event(struct thread *t,int status) {
             if (shield(t)) readiness_reply(t,ready);
             return 1;
         }
-        /* Preserve the kernel-owned temporary mask through signal delivery. */
-        readiness_release(t); CHECK(!md_buffer_release(&t->buffer));
-        regs=t->original; regs.regs[0]=(uint64_t)-EINTR;
-        if (!set_registers(t->pid,&regs)) return 1;
-        md_memory_stack_return(t->memory,t->stack); t->stack=0;
-        t->phase=IDLE; resume(t->pid,0); return 1;
+        readiness_interrupted(t); return 1;
     }
     if (!shield(t)) return 1;
     if (waking && (restart || value==-EINTR)) value=0;
@@ -8019,17 +8294,24 @@ static void file_wait_complete(struct thread *t) {
     struct user_pt_regs returned;
     if (!registers(t->pid,&returned)) return;
     if (!shield(t)) return;
+    if (!md_fs_buffer_open_ready(t->buffer_call)) {
+        /* EVENT_WAIT: the exact helper acknowledges interruption. Keep this
+         * task stopped, not the supervisor or other guest threads. A completed
+         * endpoint wins; only an unpaired open retains kernel SA_RESTART. */
+        t->phase=FILE_INTERRUPTING;
+        CHECK(!md_fs_buffer_open_interrupt(t->buffer_call));
+        return;
+    }
     t->phase=DISPATCHING;
-    if (md_fs_buffer_open_ready(t->buffer_call)) {
+    if (!md_fs_buffer_open_interrupted(t->buffer_call)) {
         /* Direct publication captures its own shield. Do not let it mistake
          * this wait's temporary mask for the application's saved mask. */
         if (t->direct==DIRECT_OPEN && !restore_mask(t)) return;
         CHECK(!md_fs_buffer_open_resume(t->buffer_call));
         return;
     }
-    /* The request independently retains its buffer until its child is reaped.
-     * No descriptor has entered the guest table and no pathname is replayed
-     * by the adapter. The kernel owns any application-requested restart. */
+    /* The helper confirmed that no endpoint was admitted. The kernel owns
+     * the application's restart decision; the adapter never replays a path. */
     CHECK(!buffer_cleanup(t)); t->direct=DIRECT_NONE;
     t->broker_event.held=0;
     long value=(long)returned.regs[0];
@@ -8086,7 +8368,7 @@ static int interrupted_operation(struct thread *t) {
     if (machine<0) errno=-machine;
     CHECK(machine>=0);
     if (machine) {
-        t->phase=IDLE;
+        notification_release(t); t->phase=IDLE;
         if (set_registers(t->pid,&regs)) resume(t->pid,0);
         return 1;
     }
@@ -8094,7 +8376,7 @@ static int interrupted_operation(struct thread *t) {
         /* The notification was cancelled before any effect. Only a newly
          * published site can enter here; an existing gate's fallback must
          * complete through Base instead of retrying the same gate forever. */
-        release_operation(t); t->phase=IDLE; regs.pc-=4;
+        notification_release(t); t->phase=IDLE; regs.pc-=4;
         if (set_registers(t->pid,&regs)) resume(t->pid,0);
         return 1;
     }
@@ -8211,24 +8493,68 @@ static void event_sources(struct pollfd events[EVENT_SOURCES]) {
         {ipc_events,POLLIN,0}, {socket_events,POLLIN,0}, {cancellation_timer,POLLIN,0}};
     memcpy(events,current,sizeof(current));
 }
+static int entry_fence_adapter_drained(const struct thread *t) {
+    return !t->metadata_restart && !t->fd_running && !t->fd_order.table && !t->fs_order.fs
+        && !t->signal_delivery.active && !t->machine.draining && !t->machine.syscall_exit
+        && !t->machine.signal_alias && !t->direct && !t->buffer_call && !t->buffer_waiting
+        && !t->broker_completion;
+}
+static int entry_fence_boundary(const struct thread *t) {
+    return t->phase==IDLE && entry_fence_adapter_drained(t);
+}
+static int entry_fence_drained(const struct thread *t) {
+    if (entry_fence_boundary(t)) return 1;
+    /* An admitted native readiness wait can depend on the filter installer.
+     * Its syscall has passed kernel admission; retain its owned completion
+     * across TSYNC instead of waiting for the application event. Dumpability
+     * still needs the full adapter boundary before remote access is revoked. */
+    if (entry_fence_protected || !entry_fence_adapter_drained(t)) return 0;
+    /* Native fallback and broker-owned reads have already admitted the original
+     * call and released task-affine preparation. A blocking inotify read may
+     * itself await the installer. MSG_PEEK is only a preparatory wait and must
+     * still drain before its task-affine operation can cross the transition. */
+    if (t->phase==WATCH_READ && t->watch_wait!=1) return 1;
+    return t->phase==EPOLL_WAIT && t->readiness
+        && t->readiness->native_caller && !t->readiness->evicting && !t->readiness->finishing;
+}
+static int entry_fence_park(const struct thread *t) {
+    return entry_fence_protected && entry_fence_memory && entry_fence_stage!=3 && t && t->memory==entry_fence_memory
+        && t->initial_stop && t!=entry_fence_owner && !t->entry_fence_waiting && !t->terminal_stop
+        && entry_fence_boundary(t);
+}
+static int entry_fence_adapt(const struct thread *t) {
+    return !entry_fence_protected && entry_fence_memory && entry_fence_stage!=3 && t
+        && t->memory==entry_fence_memory && t!=entry_fence_owner && !t->entry_fence_waiting
+        && entry_fence_boundary(t);
+}
 static int entry_fence_admission(struct thread *t,const struct user_pt_regs *r,int status,const struct rusage *usage) {
     struct md_svc_registry *registry=md_memory_svc(t->memory);
     int filter=(r->regs[8]==SYS_seccomp && r->regs[0]==SECCOMP_SET_MODE_FILTER)
         || (r->regs[8]==SYS_prctl && r->regs[0]==PR_SET_SECCOMP && r->regs[1]==SECCOMP_MODE_FILTER);
     int protected=r->regs[8]==SYS_prctl && r->regs[0]==PR_SET_DUMPABLE && !r->regs[1];
-    if (!registry || registry->entry_fence_drained || !t->entered || t->phase!=IDLE || r->pc==RAW_GATE
+    if (!t->entered || t->phase!=IDLE || r->pc==RAW_GATE || t==entry_fence_owner
             || (!filter && !protected)) return 0;
+    int unrestricted=0;
+    if (filter) {
+        int group=r->regs[8]==SYS_seccomp && (r->regs[1]&SECCOMP_FILTER_FLAG_TSYNC);
+        for (struct thread *p=threads;p;p=p->next) if (p->pid
+                && (p==t || (group && p->tgid==t->tgid)) && !p->application_filter) {
+            unrestricted=1; break;
+        }
+    }
+    if ((!registry || registry->entry_fence_drained) && !unrestricted) return 0;
     /* Revoke before taking the cold barrier. Calls already inside the adapter
      * finish before a new filter or loss of remote memory access. Explicit API
      * clients do not require patch ownership and retain their protected path. */
     if (filter) filter_revoke_entry(t,r);
     else CHECK(!md_svc_registry_revoke(registry,t->pid));
-    if (!md_svc_registry_resident(registry)) {
-        registry->entry_fence_drained=1;
+    if (!md_svc_registry_resident(registry) && !unrestricted) {
+        if (registry) registry->entry_fence_drained=1;
         return 0;
     }
     CHECK(!t->entry_fence_waiting);
     ++entry_fence_waiters; t->entry_fence_waiting=1; t->entry_fence_status=status;
+    t->entry_fence_dumpability=protected;
     if (usage) t->entry_fence_usage=*usage;
     return 1;
 }
@@ -8243,10 +8569,20 @@ static void entry_fence_progress(void) {
         if (!caller) return;
         entry_fence_memory=md_memory_fork(caller->memory,1); CHECK(entry_fence_memory);
         entry_fence_barrier=md_task_quiesce_new(quiesce_trace); CHECK(entry_fence_barrier);
-        entry_fence_stage=1; entry_fence_error=0; entry_fence_deadline=md_event_now()+5000000000LL;
+        entry_fence_protected=caller->entry_fence_dumpability;
+        entry_fence_stage=entry_fence_protected ? 1 : 2;
+        entry_fence_slots=0; entry_fence_retry_at=0;
+        entry_fence_error=0; entry_fence_deadline=md_event_now()+5000000000LL;
+        if (!entry_fence_protected) {
+            if (statistics) ++statistics->entry_fence_transitions;
+            return;
+        }
+        if (statistics) ++statistics->entry_fence_quiescences;
+        int resident=md_svc_registry_resident(md_memory_svc(entry_fence_memory));
         /* Only this mm owns the revoked text and resident gates. Unrelated
          * children can be at independent helper/exec boundaries. */
-        for (struct thread *p=threads;p;p=p->next) if (p->pid && p->memory==entry_fence_memory)
+        for (struct thread *p=threads;p;p=p->next) if (p->pid && p->memory==entry_fence_memory
+                && (resident || !entry_fence_boundary(p)))
             CHECK(!md_task_quiesce_add(entry_fence_barrier,p->pid,p->kernel_stopped || p->listening || p->vfork_child,
                 p->interrupt_pending || birth_stop_pending(p) ? 0 : p->kernel_resume));
         CHECK(!md_task_quiesce_stop(entry_fence_barrier));
@@ -8255,6 +8591,12 @@ static void entry_fence_progress(void) {
         if (!ENTRY_QUIESCING) {
             /* Admission stays revoked, but the requested kernel transition
              * must not commit before every resident entry has drained. */
+            for (struct thread *p=threads;p;p=p->next) if (p->pid && p->memory==entry_fence_memory
+                    && !p->entry_fence_waiting && !p->terminal_stop && !entry_fence_drained(p))
+                TRACE("PROBE entry-fence pending pid=%d phase=%d nr=%llu watch=%d draining=%d exit=%d alias=%d direct=%d buffer=%d waiting=%d broker=%d fd=%d fs=%d signal=%d\n",
+                    p->pid,p->phase,p->original.regs[8],p->watch_wait,p->machine.draining,p->machine.syscall_exit,!!p->machine.signal_alias,
+                    !!p->direct,!!p->buffer_call,p->buffer_waiting,!!p->broker_completion,
+                    !!p->fd_order.table,!!p->fs_order.fs,p->signal_delivery.active);
             entry_fence_error=-EBUSY; entry_fence_deadline=INT64_MAX;
             return;
         }
@@ -8271,6 +8613,7 @@ static void entry_fence_progress(void) {
     for (struct thread *p=threads;p;p=p->next) if (p->pid && p->memory==entry_fence_memory
             && !p->terminal_stop && !p->vfork_child) {
         struct md_task_quiesce_stop boundary;
+        if (!md_task_quiesce_contains(entry_fence_barrier,p->pid)) continue;
         int error=md_task_quiesce_borrow(entry_fence_barrier,p->pid,&boundary);
         if (error==-ESRCH) continue;
         CHECK(!error);
@@ -8279,7 +8622,7 @@ static void entry_fence_progress(void) {
             && (event==PTRACE_EVENT_EXEC || event==PTRACE_EVENT_EXIT);
         int syscall_stop=boundary.kind==MD_TASK_QUIESCE_EVENT
             && (event==PTRACE_EVENT_SECCOMP || WSTOPSIG(boundary.status)==(SIGTRAP|0x80));
-        if (!terminal && p->initial_stop)
+        if (registry && !terminal && p->initial_stop)
             CHECK(!md_svc_machine_drain(registry,&p->machine,p->pid,
                 p->phase==IDLE ? NULL : &p->original,syscall_stop));
         TRACE("PROBE entry-drain pid=%d boundary=%d status=%x phase=%d draining=%d resume=%d stopped=%d\n",
@@ -8295,19 +8638,52 @@ static pid_t entry_fence_take(int *status,struct rusage *usage) {
     if (!entry_fence_memory || ENTRY_QUIESCING) return 0;
     pid_t event=md_task_quiesce_take(entry_fence_barrier,status,usage);
     if (event) return event;
-    if (!entry_fence_error) {
+    if (entry_fence_owner) return 0;
+    if (entry_fence_stage!=3 && !entry_fence_error) {
+        if (!entry_fence_protected) {
+            int64_t now=md_event_now();
+            if (entry_fence_retry_at>now) return 0;
+            entry_fence_retry_at=0;
+            struct thread *reader=threads;
+            while (reader && (!reader->pid || reader->memory!=entry_fence_memory || !reader->entry_fence_waiting))
+                reader=reader->next;
+            uint64_t slots=0;
+            int error=reader ? md_svc_registry_occupied(md_memory_svc(entry_fence_memory),reader->pid,&slots) : 0;
+            if (error) entry_fence_error=error;
+            else if (slots) {
+                if (statistics) statistics->entry_fence_drains+=(unsigned)__builtin_popcountll(slots&~entry_fence_slots);
+                entry_fence_slots|=slots;
+                /* EVENT_WAIT: revoked frame owners release their slots; no
+                 * interrupt of native waits and no periodic warm-path work. */
+                entry_fence_retry_at=now+1000000;
+                return 0;
+            }
+        }
         for (struct thread *p=threads;p;p=p->next) if (p->pid && p->memory==entry_fence_memory
-                && (p->machine.draining || p->machine.syscall_exit)) return 0;
-        md_memory_svc(entry_fence_memory)->entry_fence_drained=1;
+                && !p->entry_fence_waiting && !p->terminal_stop && !p->vfork_child
+                && !entry_fence_drained(p)) return 0;
+        struct md_svc_registry *registry=md_memory_svc(entry_fence_memory);
+        if (registry) registry->entry_fence_drained=1;
     }
     for (struct thread *p=threads;p;p=p->next) if (p->pid && p->memory==entry_fence_memory && p->entry_fence_waiting) {
         entry_fence_cancel(p);
+        entry_fence_owner=p;
         p->entry_fence_result=entry_fence_error; *status=p->entry_fence_status;
+        if (usage) *usage=p->entry_fence_usage;
+        return p->pid;
+    }
+    if (entry_fence_stage!=3) {
+        entry_fence_stage=3;
+        task_action_unpark();
+    }
+    for (struct thread *p=threads;p;p=p->next) if (p->pid && p->entry_fence_held) {
+        p->entry_fence_held=0; *status=p->entry_fence_status;
         if (usage) *usage=p->entry_fence_usage;
         return p->pid;
     }
     md_task_quiesce_destroy(entry_fence_barrier); entry_fence_barrier=NULL;
     md_memory_release(entry_fence_memory); entry_fence_memory=NULL; entry_fence_stage=0; entry_fence_error=0;
+    entry_fence_protected=0; entry_fence_retry_at=0;
     return 0;
 }
 static pid_t deferred_event(int *status,struct rusage *usage) {
@@ -8423,6 +8799,18 @@ static pid_t kernel_event(int *status,struct rusage *usage) {
     md_cost_end(statistics ? &statistics->event_collect : NULL,start);
     return pid;
 }
+static int checkpoint_event(pid_t pid,int *status) {
+    /* A shielded admission may stop at syscall exit rather than EVENT_STOP.
+     * The checkpoint driver must not resume that stop behind an active barrier.
+     * Keep raw events queued and normalize them through this same path on replay.
+     * EVENT_STOP still normalizes a checkpoint-owned synthetic interrupt first. */
+    if ((unsigned)*status>>16!=PTRACE_EVENT_STOP
+            && ((ENTRY_QUIESCING && md_task_quiesce_waiting(entry_fence_barrier,pid))
+                || (memory_execution && md_task_quiesce_waiting(memory_barrier,pid))
+                || (mapping_execution && md_task_quiesce_waiting(mapping_barrier,pid))
+                || (task_action_execution && md_task_quiesce_waiting(task_action_barrier,pid)))) return 0;
+    return md_task_checkpoint_event(&checkpoints,pid,status);
+}
 static pid_t wait_event(int *status, struct rusage *usage) {
     enum { PROGRESS_BATCH=8 };
     static unsigned progress_budget;
@@ -8450,11 +8838,10 @@ static pid_t wait_event(int *status, struct rusage *usage) {
         --progress_budget;
         /* Progress can return a borrowed stop without generating SIGCHLD.
          * Drain that local event before trusting the kernel's empty queue. */
-        pid_t held=deferred_event(status,usage);
-        if (held) return held;
-        pid_t pid = kernel_event(status,usage);
+        pid_t pid=deferred_event(status,usage);
+        if (!pid) pid=kernel_event(status,usage);
         if (pid > 0) {
-            int checkpoint=md_task_checkpoint_event(&checkpoints,pid,status);
+            int checkpoint=checkpoint_event(pid,status);
             if (checkpoint==-ESRCH) continue;
             if (checkpoint<0) fprintf(stderr,"Shroot: checkpoint pid=%d status=%x error=%d\n",pid,*status,checkpoint);
             CHECK(checkpoint>=0);
@@ -8474,6 +8861,7 @@ static pid_t wait_event(int *status, struct rusage *usage) {
         if (memory_deadline()<bound) bound=memory_deadline();
         if (mapping_execution && mapping_execution->deadline<bound) bound=mapping_execution->deadline;
         if (entry_fence_memory && entry_fence_deadline<bound) bound=entry_fence_deadline;
+        if (entry_fence_retry_at && entry_fence_retry_at<bound) bound=entry_fence_retry_at;
         /* Dispatch may retire a source, notably bootstrap's listener on HUP.
          * A readiness snapshot cannot outlive its callbacks' descriptor owners. */
         event_sources(events);
@@ -8488,6 +8876,7 @@ static pid_t wait_event(int *status, struct rusage *usage) {
             entry_fence_progress();
             continue;
         }
+        if (outcome==-ETIMEDOUT && entry_fence_retry_at && bound==entry_fence_retry_at) continue;
         if (outcome==-ETIMEDOUT && bound==control_bound) {
             CHECK(control_owner);
             control_progress(control_owner);
@@ -8531,6 +8920,8 @@ struct memory_execution {
     int complete, calling, shielded, prior_shielded, global;
     long error;
     unsigned other_events;
+    unsigned progress_calls;
+    int64_t last_progress;
     char scratch[];
 };
 static int64_t memory_deadline(void) {
@@ -8548,7 +8939,8 @@ static void memory_discard(void) {
     free(execution);
 }
 static int memory_available(pid_t pid) {
-    return (!ENTRY_QUIESCING || !md_task_quiesce_contains(entry_fence_barrier,pid))
+    return (!entry_fence_memory || !entry_fence_park(find_thread(pid)))
+        && (!ENTRY_QUIESCING || !md_task_quiesce_contains(entry_fence_barrier,pid))
         && (!memory_execution || !md_task_quiesce_contains(memory_barrier,pid))
         && (!mapping_execution || !md_task_quiesce_contains(mapping_barrier,pid))
         && (!task_action_execution || !md_task_quiesce_contains(task_action_barrier,pid));
@@ -8594,7 +8986,6 @@ static void memory_finish(struct memory_execution *execution) {
     md_private_memory_scan_end(execution->scan);
     if (execution->pause.owner) CHECK(!md_fs_worker_pause_end(&execution->pause));
     CHECK(!md_task_quiesce_release(memory_barrier));
-    if (filesystem) memory_completions_pending=1;
     execution->timing[6]=md_event_now();
     TRACE("PROBE memory-repair pid=%d address=%#lx size=%zu pages=%zu result=%ld scope=%s otherEvents=%u\n",
         t->pid,(unsigned long)execution->mapping.address,execution->mapping.length,
@@ -8612,16 +9003,7 @@ static void memory_finish(struct memory_execution *execution) {
     }
     memory_execution=NULL;
     free(execution);
-    for (struct thread *peer=threads;peer;peer=peer->next) if (peer->pid) {
-        if (peer->memory_notification) {
-            struct seccomp_notif *notification=peer->memory_notification; peer->memory_notification=NULL;
-            handle_notification(notification); free(notification);
-        }
-        if (peer->memory_resume) {
-            int signal=peer->memory_signal; peer->memory_resume=peer->memory_signal=0;
-            resume(peer->pid,signal);
-        }
-    }
+    task_action_unpark();
     if (t->memory_files.table) CHECK(!md_fd_order_complete(&t->memory_files));
     CHECK(!md_resource_order_complete(&t->memory_order)); t->memory_action=0;
     t->memory_arguments_only=0;
@@ -8644,7 +9026,6 @@ static int memory_yield_retirement(struct memory_execution *execution) {
     if (execution->pause.owner) CHECK(!md_fs_worker_pause_end(&execution->pause));
     CHECK(!md_task_quiesce_release(memory_barrier));
     memory_discard();
-    if (filesystem) memory_completions_pending=1;
     task_action_unpark();
     return 1;
 }
@@ -8659,10 +9040,18 @@ static void memory_progress(void) {
             execution->actor->pid,execution->stage,(long long)(now-execution->timing[0])/1000,
             execution->timing[1] ? (long long)(execution->timing[1]-execution->timing[0])/1000 : -1LL,
             execution->pause.owner ? md_fs_worker_pause_state(&execution->pause) : -1,execution->other_events);
+        fprintf(stderr,"Shroot: memory progress calls=%u idleUs=%lld workerAckUs=%lld\n",
+            execution->progress_calls,(long long)(now-execution->last_progress)/1000,
+            execution->pause.acknowledged_at ? (long long)(execution->pause.acknowledged_at-execution->timing[0])/1000 : -1LL);
+        fprintf(stderr,"Shroot: memory workerUs=%lld validatedUs=%lld\n",
+            execution->timing[2] ? (long long)(execution->timing[2]-execution->timing[0])/1000 : -1LL,
+            execution->timing[3] ? (long long)(execution->timing[3]-execution->timing[0])/1000 : -1LL);
         md_task_quiesce_describe(memory_barrier,STDERR_FILENO);
+        md_task_helpers_describe(helpers,execution->actor->pid,STDERR_FILENO);
         md_broker_describe(broker,STDERR_FILENO);
         errno=ETIMEDOUT; CHECK(0);
     }
+    ++execution->progress_calls; execution->last_progress=now;
     struct thread *t=execution->actor;
     const struct md_private_memory_access *access=md_memory_private_access(t->memory);
     if (execution->stage==MEMORY_WRITERS) {
@@ -9020,7 +9409,7 @@ int main(int argc, char **argv) {
     int keep[] = {signal_fd, channel[0], command_owner};
     CHECK(!md_process_close_fds(keep, command_owner >= 0 ? 3 : 2));
     fd_exchanges=md_fd_exchanges_create(); CHECK(fd_exchanges);
-    const struct md_task_helper_callbacks helper_callbacks={.trace=native_trace,.newborn=helper_newborn};
+    const struct md_task_helper_callbacks helper_callbacks={.trace=native_trace,.newborn=helper_newborn,.wait=&task_wait};
     helpers=md_task_helpers_new(&helper_callbacks); CHECK(helpers);
     fd_ready=eventfd(0,EFD_CLOEXEC|EFD_NONBLOCK); CHECK(fd_ready>=0);
     CHECK(!md_resource_wakeup_create(fd_ready,&fd_wakeup));
@@ -9052,13 +9441,14 @@ int main(int argc, char **argv) {
         md_broker_control_query(broker,control_file_query);
         md_broker_native_observer(broker,cooperative_native_observe);
         md_broker_retirement_handler(broker,broker_retire);
-        buffer_service=md_fs_buffer_service_new(filesystem,tasks,fd_wakeup,buffer_complete); CHECK(buffer_service);
+        buffer_service=md_fs_buffer_service_new(filesystem,tasks,fd_wakeup,&task_wait,buffer_complete); CHECK(buffer_service);
         md_fs_buffer_admission(buffer_service,memory_available);
+        md_fs_buffer_restricted(buffer_service,checkpoint_restricted);
         md_fs_buffer_control_factory(buffer_service,md_proc_file_control_object);
         md_fs_buffer_control_query(buffer_service,control_file_query);
         md_fs_buffer_control_capture(buffer_service,control_file_capture);
         md_fs_buffer_exec_capture(buffer_service,executable_capture);
-        md_fs_buffer_root_capture(buffer_service,root_capture);
+        md_fs_buffer_path_capture(buffer_service,proc_path_capture);
         CHECK(!md_mount_copy_service_create(filesystem,mount_copy_complete,&mount_copy_service));
         const char *program = "", *cwd = "/";
         for (int i = argument+1; i+1 < argc; ++i) {
@@ -9113,6 +9503,16 @@ int main(int argc, char **argv) {
         if (ENTRY_QUIESCING && md_task_quiesce_contains(entry_fence_barrier,pid)) {
             CHECK(!quiesce_event(entry_fence_barrier,pid,status,&usage));
             continue;
+        }
+        if (WIFSTOPPED(status) && (unsigned)status>>16!=PTRACE_EVENT_EXIT
+                && (unsigned)status>>16!=PTRACE_EVENT_EXEC) {
+            struct thread *peer=find_thread(pid);
+            if (entry_fence_park(peer)) {
+                CHECK(!peer->entry_fence_held);
+                peer->entry_fence_held=1; peer->entry_fence_status=status; peer->entry_fence_usage=usage;
+                peer->kernel_stopped=1;
+                continue;
+            }
         }
         if (quiescence_repair_event(pid,status,&usage)) continue;
         if (memory_event(pid,status,&usage)) continue;
@@ -9183,6 +9583,14 @@ int main(int argc, char **argv) {
         unsigned event = (unsigned)status >> 16;
         CHECK(!t->resume_lost || event==PTRACE_EVENT_EXEC || event==PTRACE_EVENT_EXIT);
         int sig = WSTOPSIG(status);
+        if (t->signal_return_pending && !event && sig==(SIGTRAP|0x80)) {
+            struct ptrace_syscall_info info={0};
+            if (!tracee_request(t,PTRACE_GET_SYSCALL_INFO,(void *)sizeof(info),&info,"signal-return-entry")) continue;
+            if (info.op==PTRACE_SYSCALL_INFO_ENTRY) {
+                t->signal_return_pending=0;
+                CHECK(!md_event_signal(fd_ready));
+            }
+        }
         if (readiness_native_event(t,status)) continue;
         if (!event && sig!=(SIGTRAP|0x80) && t->phase==IDLE
                 && md_memory_svc(t->memory)) {
@@ -9226,6 +9634,12 @@ int main(int argc, char **argv) {
                 }
             }
             struct md_svc_registry *machine=md_memory_svc(t->memory);
+            if (machine) {
+                int error=md_svc_machine_retire(machine,pid,t->phase==IDLE ? NULL : &t->original);
+                if (error==-ESRCH) { t->resume_lost=1; continue; }
+                if (error) errno=-error;
+                CHECK(!error);
+            }
             if (machine && statistics && t->pid==t->tgid) {
                 struct md_svc_payload_state state;
                 if (!md_svc_registry_read(pid,machine->frames+MD_SVC_POOL_SIZE,&state,sizeof(state)))
@@ -9442,6 +9856,15 @@ int main(int argc, char **argv) {
                 if (skip(pid)) resume(pid,0);
                 continue;
             }
+            if (entry_fence_adapt(t)) {
+                if (!captured && !registers(pid,&regs)) continue;
+                captured=1;
+                if (!(regs.pc>=checkpoints.begin && regs.pc<checkpoints.end)) {
+                    CHECK(!t->entry_fence_held);
+                    t->entry_fence_held=1; t->entry_fence_status=status; t->entry_fence_usage=usage;
+                    continue;
+                }
+            }
             if (observed && t->resources.files && fd_native_io(t,observed)) continue;
             if (fd_close_compact(t,cookie,observed)) continue;
             if (cookie&MD_INTERCEPT_CLOSE) cookie=MD_INTERCEPT_FD;
@@ -9562,6 +9985,19 @@ int main(int argc, char **argv) {
                     || !shield(t) || !skip(pid)) continue;
             dispatch_with_stack(t);
         } else if (!event && sig == (SIGTRAP | 0x80)) {
+            if (t->phase==EPOLL_PROBE) {
+                struct user_pt_regs regs;
+                if (!registers(pid,&regs)) continue;
+                long value=(long)regs.regs[0];
+                regs.regs[3]=t->original.regs[3];
+                t->phase=IDLE;
+                if (value) {
+                    t->epoll_started=0;
+                    if (set_registers(pid,&regs)) resume(pid,0);
+                } else if (save_signal_mask(t,&t->mask,"epoll-probe-mask") && shield(t))
+                    dispatch_with_stack(t);
+                continue;
+            }
             if (t->phase==CLONE_ENTRY) {
                 struct ptrace_syscall_info info={0};
                 if (!tracee_request(t,PTRACE_GET_SYSCALL_INFO,(void *)sizeof(info),&info,"clone-replay-entry")) continue;
@@ -9920,7 +10356,7 @@ int main(int argc, char **argv) {
                     size_t length = t->original.regs[1], page = (size_t)getpagesize();
                     CHECK(length <= SIZE_MAX-(page-1));
                     uintptr_t address=t->original.regs[8]==SYS_mmap ? regs.regs[0] : t->original.regs[0];
-                    CHECK(!md_shm_unmapped(t->shm_space,address,(length+page-1)&~(page-1),t->tgid));
+                    CHECK(!md_shm_unmapped(t->shm_space,address,(length+page-1)&~(page-1),t->tgid,t->resources.pid_group));
                 }
                 TRACE("PROBE native syscall pid=%d nr=%llu arg0=%#llx arg1=%#llx result=%lld\n",
                     pid, t->original.regs[8], t->original.regs[0], t->original.regs[1], (long long)regs.regs[0]);
@@ -9986,7 +10422,12 @@ int main(int argc, char **argv) {
                 }
                 if (t->image_backings_ready && !md_memory_svc(t->memory)) {
                     struct md_svc_registry *registry=md_svc_machine_admit(pid,abi.svc_runtime);
-                    if (registry) CHECK(!md_memory_svc_set(t->memory,registry));
+                    if (registry) {
+                        CHECK(!md_memory_svc_set(t->memory,registry));
+                        if (!t->terminal_observation) {
+                            t->terminal_observation=1; t->trace_options_dirty=1;
+                        }
+                    }
                 }
                 t->process_image=regs.regs[2];
                 uint64_t entry=regs.regs[0], stack=regs.regs[1];
@@ -10111,7 +10552,8 @@ int main(int argc, char **argv) {
             if (debugger_at_boundary(t) && !native_trace(PTRACE_GETSIGINFO,pid,NULL,&debug_info)
                     && md_debugger_stop(debugger,pid,status,&debug_info,0)) continue;
             struct user_pt_regs regs;
-            if ((sig == SIGSYS || sig == SIGSEGV || sig == SIGBUS || sig == SIGABRT || sig == SIGILL)
+            if ((sig == SIGSYS || sig == SIGSEGV || sig == SIGBUS || sig == SIGABRT || sig == SIGILL
+                        || (diagnostics && sig == SIGTRAP))
                     && !registers(pid, &regs)) continue;
             if ((sig == SIGSEGV || sig == SIGBUS) && t->phase == DOMAIN_PATH
                     && regs.pc == LOAD_BYTE) {
@@ -10161,7 +10603,8 @@ int main(int argc, char **argv) {
                     continue;
                 }
             }
-            if (sig == SIGSYS || sig == SIGSEGV || sig == SIGABRT || sig == SIGILL) {
+            if (sig == SIGSYS || sig == SIGSEGV || sig == SIGABRT || sig == SIGILL
+                    || (diagnostics && sig == SIGTRAP)) {
                 siginfo_t info;
                 if (!tracee_request(t, PTRACE_GETSIGINFO, NULL, &info, "signal-info")) continue;
                 signals++;
@@ -10213,9 +10656,7 @@ static void report_statistics(void) {
         if (!getrusage(RUSAGE_SELF, &usage)) fprintf(stderr, "MD_CPU supervisor userUs=%llu systemUs=%llu\n",
             (unsigned long long)usage.ru_utime.tv_sec * 1000000 + usage.ru_utime.tv_usec,
             (unsigned long long)usage.ru_stime.tv_sec * 1000000 + usage.ru_stime.tv_usec);
-        fprintf(stderr, "MD_SUPERVISOR stops=%llu rpcCalls=%llu rpcNs=%llu\n",
-            (unsigned long long)statistics->stops, (unsigned long long)statistics->rpc.calls,
-            (unsigned long long)statistics->rpc.nanoseconds);
+        fprintf(stderr, "MD_SUPERVISOR stops=%llu\n", (unsigned long long)statistics->stops);
         fprintf(stderr, "MD_INTERCEPTION ptraceRequests=%llu unknown=%llu nativeSeeks=%llu\n",
             (unsigned long long)statistics->ptrace_requests, (unsigned long long)statistics->unknown,
             (unsigned long long)statistics->native_seeks);
@@ -10240,8 +10681,9 @@ static void report_statistics(void) {
             (unsigned long long)statistics->quiesce_interrupts,(unsigned long long)statistics->memory_repairs);
         fprintf(stderr,"MD_FD_NATIVE untrackedClose=%llu unchangedFlags=%llu\n",
             (unsigned long long)statistics->untracked_close,(unsigned long long)statistics->unchanged_fd_flags);
-        fprintf(stderr,"MD_ENTRY_FENCE transitions=%llu drains=%llu\n",
-            (unsigned long long)statistics->entry_fence_transitions,(unsigned long long)statistics->entry_fence_drains);
+        fprintf(stderr,"MD_ENTRY_FENCE transitions=%llu drains=%llu quiescences=%llu\n",
+            (unsigned long long)statistics->entry_fence_transitions,(unsigned long long)statistics->entry_fence_drains,
+            (unsigned long long)statistics->entry_fence_quiescences);
         fprintf(stderr,"MD_NOTIFICATION rebounds=%llu readmissionsRetired=%llu\n",
             (unsigned long long)statistics->notification_rebounds,
             (unsigned long long)statistics->notification_readmissions_retired);

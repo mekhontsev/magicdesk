@@ -26,11 +26,13 @@ _Static_assert(sizeof(((struct md_network_send *)0)->value)==sizeof(struct socka
 
 long md_network_open(const unsigned long *a) {
     long memory=md_adapter_buffer_take(); if (memory<0) return memory;
+    struct md_fs_buffer_frame *frame=(void *)memory;
     long result=md_guest_buffer_control(MD_BUFFER_NETWORK_OPEN,0,0);
-    if (!result) result=md_adapter_receive_fd((void *)memory,a[1]&SOCK_CLOEXEC,MD_FS_BUFFER_RIGHTS_BEGIN);
+    if (!result) result=md_adapter_receive_fd(frame,a[1]&SOCK_CLOEXEC,MD_FS_BUFFER_RIGHTS_BEGIN);
+    unsigned selectors=result>=0 ? frame->reply.result.selectors : 0;
     long released=md_adapter_buffer_release();
     if (result>=0) {
-        long armed=released ? released : md_fd_filter_arm(MD_FD_SELECTOR_PROC,(int)result);
+        long armed=released ? released : md_fd_filter_arm_mask(selectors,(int)result);
         if (armed<0) { RAW1(close,result); return armed; }
     }
     return result;
@@ -169,14 +171,16 @@ long md_network_data_call(long nr,const unsigned long *a) {
         result=output((void *)a[1],(void *)a[2],&frame->io.address,frame->io.address_size);
     long dropped=md_guest_buffer_control(MD_FS_BUFFER_RECEIVED_DROP,0,0);
     if (!result && dropped) result=dropped;
+    unsigned selectors=0;
     if (!result && (nr==SYS_accept || nr==SYS_accept4)) {
         struct md_fs_buffer_frame *delivery=(void *)address;
         delivery->transfer=MD_FS_BUFFER_RIGHTS;
         result=md_adapter_receive_fd(delivery,nr==SYS_accept4 ? a[3]&SOCK_CLOEXEC : 0,MD_FS_BUFFER_RIGHTS_BEGIN);
+        if (result>=0) selectors=delivery->reply.result.selectors;
     }
     long released=md_adapter_buffer_release();
     if (result>=0 && (nr==SYS_accept || nr==SYS_accept4)) {
-        long armed=released ? released : md_fd_filter_arm(MD_FD_SELECTOR_PROC,(int)result);
+        long armed=released ? released : md_fd_filter_arm_mask(selectors,(int)result);
         if (armed<0) { RAW1(close,result); return armed; }
     }
     return result ? result : released;

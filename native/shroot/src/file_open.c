@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "file_open.h"
+#include "interruptible_call.h"
 #include <errno.h>
 #include <limits.h>
 #include <linux/futex.h>
@@ -21,6 +22,8 @@ static long call(long nr, long a, long b, long c, long d, long e, long f) {
 #define call md_raw
 #endif
 #define C(n,a,b,c,d,e,f) call(SYS_##n,(long)(a),(long)(b),(long)(c),(long)(d),(long)(e),(long)(f))
+#define WAIT(n,a,b,c,d,e) (cancelled ? md_interruptible_syscall(SYS_##n,(long)(a),(long)(b), \
+    (long)(c),(long)(d),(long)(e),cancelled) : C(n,a,b,c,d,e,0))
 
 static const struct { unsigned major,minor; const char *path; int caller; } devices[]={
     {1,3,"/dev/null",0},{1,5,"/dev/zero",0},{1,7,"/dev/full",0},
@@ -130,8 +133,8 @@ int md_reopen_file(int fd, int flags, struct md_open_completion *completion) {
     }
     return md_open_pinned(fd,flags);
 }
-int md_complete_open_observed(int pin, int flags, struct md_open_completion completion,
-        struct md_open_observation *observation) {
+int md_complete_open_interruptible(int pin, int flags, struct md_open_completion completion,
+        struct md_open_observation *observation,const atomic_int *cancelled) {
     if (observation) *observation=(struct md_open_observation){0};
     if (pin < 0 || completion.kind == MD_OPEN_READY) return pin;
     if (completion.kind==MD_OPEN_DEVICE) {
@@ -145,7 +148,7 @@ int md_complete_open_observed(int pin, int flags, struct md_open_completion comp
     if (completion.kind == MD_OPEN_FIFO || completion.kind==MD_OPEN_CALLER) {
         /* EVENT_WAIT: native FIFO peer rendezvous or terminal open; a caller
          * signal cancels it. No namespace worker transaction is retained. */
-        long r = C(openat, AT_FDCWD, path, flags, 0, 0, 0);
+        long r = WAIT(openat, AT_FDCWD, path, flags, 0, 0);
         C(close, pin, 0, 0, 0, 0, 0);
         return (int)r;
     }
@@ -154,7 +157,7 @@ int md_complete_open_observed(int pin, int flags, struct md_open_completion comp
     long mapping = C(mmap, 0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, control, 0);
     long r = mapping < 0 && mapping >= -4095 ? mapping : 0;
     if (!r) generations = (void *)mapping;
-    if (!r) { r = C(flock, control, LOCK_EX, 0, 0, 0, 0); locked = !r; }
+    if (!r) { r = WAIT(flock, control, LOCK_EX, 0, 0, 0); locked = !r; }
     unsigned mode = flags & O_ACCMODE;
     unsigned peer = mode == O_RDONLY ? 1 : 0;
     uint32_t before = r ? 0 : __atomic_load_n(&generations[peer], __ATOMIC_ACQUIRE);
@@ -172,6 +175,8 @@ int md_complete_open_observed(int pin, int flags, struct md_open_completion comp
     if (!r && observation && mode==O_RDONLY && absent && (flags&O_NONBLOCK))
         *observation=(struct md_open_observation){.initial_reader=1,.writers=before};
     if (!r && mode == O_WRONLY && absent && (flags & O_NONBLOCK)) r = -ENXIO;
+    if (!r && absent && !(flags&O_NONBLOCK) && cancelled
+            && atomic_load_explicit(cancelled,memory_order_acquire)) r=-EINTR;
     if (!r) {
         for (unsigned side = 0; side < 2; side++) {
             if ((side == 0 && mode != O_WRONLY) || (side == 1 && mode != O_RDONLY)) {
@@ -181,19 +186,34 @@ int md_complete_open_observed(int pin, int flags, struct md_open_completion comp
             }
         }
     }
+    if (r && fd>=0) { C(close,fd,0,0,0,0,0); fd=-1; }
     if (locked) C(flock, control, LOCK_UN, 0, 0, 0, 0);
     /* EVENT_WAIT: another opener publishes its endpoint generation. Signals or
      * process cancellation terminate the wait; no SQLite/store lock is held. */
     while (!r && mode != O_RDWR && absent && !(flags & O_NONBLOCK)
             && __atomic_load_n(&generations[peer], __ATOMIC_ACQUIRE) == before) {
-        r = C(futex, &generations[peer], FUTEX_WAIT, before, 0, 0, 0);
+        r = WAIT(futex, &generations[peer], FUTEX_WAIT, before, 0, 0);
         if (r == -EAGAIN) r = 0;
+    }
+    if (r==-EINTR && fd>=0) {
+        /* Cancellation and peer admission serialize through the same gate.
+         * A peer which already observed our endpoint must not lose it merely
+         * because the owner has not consumed the helper's result yet. */
+        long lock;
+        do { lock=C(flock,control,LOCK_EX,0,0,0,0); } while (lock==-EINTR);
+        if (!lock && __atomic_load_n(&generations[peer],__ATOMIC_ACQUIRE)!=before) r=0;
+        if (r) { C(close,fd,0,0,0,0,0); fd=-1; }
+        if (!lock) C(flock,control,LOCK_UN,0,0,0,0);
     }
     if (generations) C(munmap, generations, 4096, 0, 0, 0, 0);
     C(close, control, 0, 0, 0, 0, 0);
     C(close, pin, 0, 0, 0, 0, 0);
     if (r && fd >= 0) C(close, fd, 0, 0, 0, 0, 0);
     return r ? (int)r : fd;
+}
+int md_complete_open_observed(int pin,int flags,struct md_open_completion completion,
+        struct md_open_observation *observation) {
+    return md_complete_open_interruptible(pin,flags,completion,observation,NULL);
 }
 int md_complete_open(int pin,int flags,struct md_open_completion completion) {
     return md_complete_open_observed(pin,flags,completion,NULL);

@@ -4,6 +4,7 @@
 #include "task_registry.h"
 #include "fs_wire.h"
 #include "resource_protocol.h"
+#include "pid_namespace.h"
 #include <assert.h>
 #include <dirent.h>
 #include <errno.h>
@@ -39,7 +40,7 @@ void test_shm_bridge(const char *root) {
     struct md_shm_space *space=md_shm_space_new(); assert(space);
     struct md_shm_mapping *pending=NULL;
     unsigned long a[4]={IPC_PRIVATE,4096,IPC_CREAT|0600,0};
-    int id=(int)md_shm_call(s,space,&pending,&task.identity,getpid(),MD_SHM_GET,a,NULL); assert(id>0);
+    int id=(int)md_shm_call(s,space,&pending,&task.identity,task.tgid,task.pid_group,MD_SHM_GET,a,NULL); assert(id>0);
     struct md_shm_bridge *bridge=NULL;
     assert(md_shm_bridge_pollfd(bridge)==-1);
     int channel=md_shm_bridge_connect(&bridge,&task); assert(channel>=0);
@@ -95,6 +96,7 @@ void test_shm_bridge(const char *root) {
     close(foreign); close(denied);
     md_shm_space_release(space);
     md_identity_release(&task.identity); md_ipc_namespace_release(original);
+    md_pid_identity_release(task.pid_group);
     assert(descriptors()==before);
     puts("PASS SHM broker: captured namespace/credentials, readonly export, errors, broker exit and no FD leaks");
 }

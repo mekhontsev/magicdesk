@@ -17,6 +17,10 @@ int md_task_quiesce_add(struct md_task_quiesce *, pid_t, int stopped, int resume
 int md_task_quiesce_stop(struct md_task_quiesce *);
 int md_task_quiesce_ready(const struct md_task_quiesce *);
 int md_task_quiesce_contains(struct md_task_quiesce *, pid_t);
+/* A participant's stop is still outstanding, not held or lent to a helper. */
+int md_task_quiesce_waiting(struct md_task_quiesce *, pid_t);
+/* A real interrupt was requested and its stop has not yet been collected. */
+int md_task_quiesce_interrupting(struct md_task_quiesce *, pid_t);
 void md_task_quiesce_describe(const struct md_task_quiesce *, int fd);
 int md_task_quiesce_event(struct md_task_quiesce *, pid_t, int, const struct rusage *);
 /* Temporarily lend a stopped participant to a task-affine operation. HELD

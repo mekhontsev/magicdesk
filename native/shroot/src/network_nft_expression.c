@@ -222,9 +222,9 @@ static int reg(const struct attribute *a,unsigned size,unsigned *offset,uint64_t
     int error=required_number(a,&id); if (error) return error;
     unsigned start=id>=NFT_REG_1 && id<=NFT_REG_4 ? (id-NFT_REG_1)*16
         : id>=NFT_REG32_00 && id<=NFT_REG32_15 ? (id-NFT_REG32_00)*4 : 64;
-    if (!size || size>16 || start>64-size) return -EINVAL;
+    if (!size || size>64 || start>64-size) return -EINVAL;
     unsigned covered=write ? (size+3)&~3U : size;
-    uint64_t mask=((UINT64_C(1)<<covered)-1)<<start;
+    uint64_t mask=(UINT64_MAX>>(64-covered))<<start;
     if (!write && (*initialized&mask)!=mask) return -EINVAL;
     if (write) *initialized|=mask;
     *offset=start; return 0;
@@ -379,12 +379,18 @@ static int expression(struct md_network_filter *f,uint64_t table,
         struct md_filter_set *s=md_nft_set(f,table,name,(uint32_t)id);
         if (!s) return -ENOENT;
         e->code=MD_FILTER_LOOKUP; e->target=s->handle; e->size=s->key_size; e->operation=flags;
+        REG(NFTA_LOOKUP_SREG,e->size,e->src,0);
         if (s->flags&NFT_SET_MAP) {
             NUM(NFTA_LOOKUP_DREG,value);
-            if (flags || value!=NFT_REG_VERDICT || s->data_type!=NFT_DATA_VERDICT) return -EOPNOTSUPP;
-            e->code=MD_FILTER_VERDICT_MAP;
+            if (flags) return -EINVAL;
+            if (s->data_size) {
+                e->code=MD_FILTER_DATA_MAP; e->aux=s->data_size;
+                REG(NFTA_LOOKUP_DREG,e->aux,e->dst,1);
+            } else {
+                if (value!=NFT_REG_VERDICT) return -EINVAL;
+                e->code=MD_FILTER_VERDICT_MAP;
+            }
         } else if (a[NFTA_LOOKUP_DREG].data) return -EINVAL;
-        REG(NFTA_LOOKUP_SREG,e->size,e->src,0);
     } else if (!strcmp(name,"nat")) {
         FIELDS(BIT(NFTA_NAT_TYPE)|BIT(NFTA_NAT_FAMILY)|BIT(NFTA_NAT_REG_ADDR_MIN)|BIT(NFTA_NAT_REG_ADDR_MAX)
             |BIT(NFTA_NAT_REG_PROTO_MIN)|BIT(NFTA_NAT_REG_PROTO_MAX)|BIT(NFTA_NAT_FLAGS));
@@ -437,6 +443,10 @@ int md_nft_expressions(struct md_network_filter *f,uint64_t table,struct md_filt
         if (!error) error=string(&a[NFTA_EXPR_NAME],&name);
         if (error) return error;
         if (!name || r->count==64) return -E2BIG;
+        /* An omitted expression payload is an empty attribute set. Each
+         * expression still validates its own required parameters. */
+        if (!a[NFTA_EXPR_DATA].data)
+            a[NFTA_EXPR_DATA]=(struct attribute){.data=item.data};
         struct md_filter_expression *e=&r->expressions[r->count];
         error=!strcmp(name,"target") ? target(f,table,&a[NFTA_EXPR_DATA],e)
             : !strcmp(name,"match") ? compat_match(f,table,&a[NFTA_EXPR_DATA],e)
@@ -521,13 +531,14 @@ int md_nft_emit_expressions(struct md_network_filter *f,const struct md_filter_r
             PUT(md_network_message_attribute(o,NFTA_COUNTER_PACKETS,&packets,sizeof(packets)));
             PUT(md_network_message_attribute(o,NFTA_COUNTER_BYTES,&bytes,sizeof(bytes)));
             PUT(md_network_message_end_nest(o,data));
-        } else if (e->code==MD_FILTER_LOOKUP || e->code==MD_FILTER_VERDICT_MAP) {
+        } else if (md_filter_set_expression(e)) {
             struct md_filter_set *s=md_filter_set_find(f,0,NULL,e->target,0);
             if (!s) return -ENOENT;
             PUT(md_network_message_nest(o,NFTA_EXPR_DATA,&data));
             PUT(md_network_message_attribute(o,NFTA_LOOKUP_SET,s->name,strlen(s->name)+1));
             PUT(u32(o,NFTA_LOOKUP_SREG,wire_register(e->src)));
             if (e->code==MD_FILTER_VERDICT_MAP) PUT(u32(o,NFTA_LOOKUP_DREG,NFT_REG_VERDICT));
+            if (e->code==MD_FILTER_DATA_MAP) PUT(u32(o,NFTA_LOOKUP_DREG,wire_register(e->dst)));
             if (e->operation) PUT(u32(o,NFTA_LOOKUP_FLAGS,e->operation));
             PUT(md_network_message_end_nest(o,data));
         } else if (e->code==MD_FILTER_VERDICT && ((int)e->operation==NFT_JUMP || (int)e->operation==NFT_GOTO)) {

@@ -47,6 +47,14 @@ static struct participant *find(struct md_task_quiesce *q,pid_t pid) {
 int md_task_quiesce_contains(struct md_task_quiesce *q,pid_t pid) {
     return find(q,pid)!=NULL;
 }
+int md_task_quiesce_waiting(struct md_task_quiesce *q,pid_t pid) {
+    struct participant *p=find(q,pid);
+    return p && !p->stopped;
+}
+int md_task_quiesce_interrupting(struct md_task_quiesce *q,pid_t pid) {
+    struct participant *p=find(q,pid);
+    return p && p->interrupted && !p->stopped;
+}
 static void stopped(struct md_task_quiesce *q,struct participant *p,int value) {
     value=!!value;
     if (p->stopped==value) return;
@@ -84,6 +92,9 @@ void md_task_quiesce_describe(const struct md_task_quiesce *q,int fd) {
     for (const struct participant *p=q->participants;p;p=p->next) if (!p->stopped)
         dprintf(fd,"guest-runtime: memory writer pid=%d resume=%d interrupted=%d\n",
             p->pid,p->resume,p->interrupted);
+    unsigned count=0;
+    for (const struct deferred *d=q->first;d && count<16;d=d->next,++count)
+        dprintf(fd,"Shroot: deferred writer event pid=%d status=%#x\n",d->pid,d->status);
 }
 int md_task_quiesce_event(struct md_task_quiesce *q,pid_t pid,int status,const struct rusage *usage) {
     struct participant *p=find(q,pid);

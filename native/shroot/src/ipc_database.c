@@ -19,6 +19,26 @@ int md_ipc_database_exec(struct md_ipc_database *d,const char *text) {
 int md_ipc_database_query(struct md_ipc_database *d,const char *text,sqlite3_stmt **q) {
     return md_database_error(d->handle,sqlite3_prepare_v2(d->handle,text,-1,q,NULL));
 }
+int md_ipc_database_blob_column(struct md_ipc_database *d,const char *table,const char *column) {
+    if (!d->locked) return -EINVAL;
+    sqlite3_stmt *q=NULL;
+    int r=md_ipc_database_query(d,"SELECT 1 FROM pragma_table_info(?1) WHERE name=?2",&q);
+    int found=0;
+    if (!r) {
+        sqlite3_bind_text(q,1,table,-1,SQLITE_STATIC);
+        sqlite3_bind_text(q,2,column,-1,SQLITE_STATIC);
+        int step=sqlite3_step(q);
+        found=step==SQLITE_ROW;
+        if (!found && step!=SQLITE_DONE) r=md_ipc_database_sql(step);
+    }
+    sqlite3_finalize(q);
+    if (!r && !found) {
+        char *sql=sqlite3_mprintf("ALTER TABLE \"%w\" ADD COLUMN \"%w\" BLOB",table,column);
+        r=sql ? md_ipc_database_exec(d,sql) : -ENOMEM;
+        sqlite3_free(sql);
+    }
+    return r;
+}
 static void owner_name(char name[64],int64_t id) { snprintf(name,64,"owner-%016llx",(long long)id); }
 int md_ipc_database_lease(struct md_ipc_database *d,int64_t *owner) {
     if (!d->locked) return -EINVAL;

@@ -17,6 +17,9 @@ struct md_epoll_wait {
 };
 void md_epoll_wait_initialize(struct md_epoll_wait *,const struct md_epoll_frame *);
 void md_epoll_wait_cancel(struct md_epoll_wait *);
+/* Start a virtual wake observer only once the queue has a transport. The
+ * caller repeats this at kernel entry to cover concurrent cold admission. */
+int md_epoll_wait_observe(struct md_epoll_wait *,struct md_control_epoll *);
 /* Prepare/consume a caller-context native wait. The owner retains the exact
  * caller slot through the operation; completed native output is in frame. */
 int md_epoll_wait_task(struct md_epoll_wait *,struct md_control_epoll *,

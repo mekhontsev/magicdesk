@@ -5,6 +5,7 @@
 #include <linux/filter.h>
 #include <linux/close_range.h>
 #include <linux/seccomp.h>
+#include <linux/sched.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -148,6 +149,42 @@ static void concurrent_admission(void) {
 }
 static volatile sig_atomic_t signalled;
 static void on_signal(int number) { assert(number==SIGUSR1); signalled=1; }
+static void native_ready(void) {
+    int ep=epoll_create1(EPOLL_CLOEXEC),fd=eventfd(1,EFD_CLOEXEC);
+    assert(ep>=0 && fd>=0);
+    struct epoll_event event={.events=EPOLLIN|EPOLLONESHOT,.data.u64=73},out;
+    assert(!epoll_ctl(ep,EPOLL_CTL_ADD,fd,&event));
+    for (unsigned round=0;round<8;++round) {
+        assert(!epoll_ctl(ep,EPOLL_CTL_MOD,fd,&event));
+        long result=round&1 ? syscall(SYS_epoll_pwait2,ep,&out,1,NULL,NULL,8)
+            : syscall(SYS_epoll_pwait,ep,&out,1,-1,NULL,8);
+        assert(result==1 && out.events==EPOLLIN && out.data.u64==73);
+        assert(!epoll_wait(ep,&out,1,0));
+        struct timespec zero={0};
+        assert(!syscall(SYS_epoll_pwait2,ep,&out,1,&zero,NULL,8));
+    }
+    assert(!epoll_ctl(ep,EPOLL_CTL_MOD,fd,&event));
+    struct timespec invalid={.tv_sec=-1};
+    assert(syscall(SYS_epoll_pwait2,ep,&out,1,&invalid,NULL,8)==-1 && errno==EINVAL);
+    assert(syscall(SYS_epoll_pwait2,ep,&out,1,(void *)1,NULL,8)==-1 && errno==EFAULT);
+    assert(syscall(SYS_epoll_pwait,ep,NULL,1,-1,NULL,8)==-1 && errno==EFAULT);
+    assert(syscall(SYS_epoll_pwait,ep,&out,0,-1,NULL,8)==-1 && errno==EINVAL);
+    struct sock_filter code[]={
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_epoll_pwait,0,3),
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[3])),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,0,0,1),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EACCES),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW),
+    };
+    struct sock_fprog policy={sizeof(code)/sizeof(*code),code};
+    assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+    assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&policy));
+    assert(syscall(SYS_epoll_pwait,ep,&out,1,0,NULL,8)==-1 && errno==EACCES);
+    assert(syscall(SYS_epoll_pwait,ep,&out,1,-1,NULL,8)==1 && out.data.u64==73);
+    close(ep); close(fd);
+    puts("PASS mixed epoll: native ready result, one-shot consumption, pointers and argument-sensitive filter");
+}
 static void native_wait_signals(void) {
     struct sigaction action={.sa_handler=on_signal}; sigemptyset(&action.sa_mask);
     assert(!sigaction(SIGUSR1,&action,NULL));
@@ -160,7 +197,7 @@ static void native_wait_signals(void) {
     timer_t timer;
     struct sigevent notification={.sigev_notify=SIGEV_SIGNAL,.sigev_signo=SIGUSR1};
     assert(!timer_create(CLOCK_MONOTONIC,&notification,&timer));
-    for (unsigned mode=0;mode<4;++mode) {
+    for (unsigned mode=0;mode<6;++mode) {
         signalled=0;
         struct itimerspec fire={.it_value={0,50000000},.it_interval={0,50000000}};
         assert(!timer_settime(timer,0,&fire,NULL));
@@ -171,8 +208,8 @@ static void native_wait_signals(void) {
          * the one-second syscall deadline must not replace signal delivery. */
         long result=mode==0 ? syscall(SYS_ppoll,&poll,1,&limit,NULL,8)
             : mode==1 ? syscall(SYS_pselect6,fd+1,&set,NULL,NULL,&limit,NULL)
-            : mode==2 ? syscall(SYS_epoll_pwait,ep,&event,1,1000,NULL,8)
-            : syscall(SYS_epoll_pwait2,ep,&event,1,&limit,NULL,8);
+            : mode==2 || mode==4 ? syscall(SYS_epoll_pwait,ep,&event,1,mode==4 ? -1 : 1000,NULL,8)
+            : syscall(SYS_epoll_pwait2,ep,&event,1,mode==5 ? NULL : &limit,NULL,8);
         int error=errno;
         struct itimerspec stopped={0};
         assert(!timer_settime(timer,0,&stopped,NULL));
@@ -192,12 +229,38 @@ static void signal_wait(int ep) {
     sigset_t blocked,saved,after;
     sigemptyset(&blocked); sigaddset(&blocked,SIGUSR1);
     assert(!sigprocmask(SIG_BLOCK,&blocked,&saved));
-    assert(!raise(SIGUSR1));
-    struct epoll_event out;
-    assert(epoll_pwait(ep,&out,1,1000,&saved)==-1 && errno==EINTR && signalled);
-    assert(!sigprocmask(SIG_SETMASK,NULL,&after) && sigismember(&after,SIGUSR1)==1);
+    for (unsigned round=0;round<16;++round) {
+        signalled=0;
+        assert(!raise(SIGUSR1));
+        struct epoll_event out={0};
+        int result=epoll_pwait(ep,&out,1,1000,&saved),error=errno;
+        if (result!=-1 || error!=EINTR || !signalled)
+            fprintf(stderr,"pending signal wait round=%u result=%d errno=%d signal=%d events=%#x data=%llu\n",
+                round,result,error,signalled,out.events,(unsigned long long)out.data.u64);
+        assert(result==-1 && error==EINTR && signalled);
+        assert(!sigprocmask(SIG_SETMASK,NULL,&after) && sigismember(&after,SIGUSR1)==1);
+    }
     assert(!sigprocmask(SIG_SETMASK,&saved,NULL));
     puts("PASS mixed epoll: atomic signal mask, EINTR and restoration");
+}
+static void interrupted_poll_clone(int fd) {
+    sigset_t blocked,saved,after;
+    sigemptyset(&blocked); sigaddset(&blocked,SIGUSR1);
+    assert(!sigprocmask(SIG_BLOCK,&blocked,&saved));
+    signalled=0;
+    assert(!raise(SIGUSR1));
+    struct pollfd source={fd,0,0};
+    struct timespec limit={1,0};
+    /* EVENT_WAIT: pending SIGUSR1 interrupts the virtual-source wait. The
+     * next adapter must not inherit its retired prepared-buffer ownership. */
+    assert(syscall(SYS_ppoll,&source,1,&limit,&saved,8)==-1 && errno==EINTR && signalled);
+    assert(!sigprocmask(SIG_SETMASK,NULL,&after) && sigismember(&after,SIGUSR1)==1);
+    assert(!sigprocmask(SIG_SETMASK,&saved,NULL));
+    struct clone_args args={.exit_signal=SIGCHLD};
+    pid_t child=syscall(SYS_clone3,&args,sizeof(args)); assert(child>=0);
+    if (!child) _exit(0);
+    int status; assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
+    puts("PASS interrupted poll: signal mask, buffer retirement and following clone3");
 }
 static void signal_ready(int ep) {
     sigset_t blocked,saved,after;
@@ -289,6 +352,42 @@ static void deny_seccomp(void) {
     struct sock_fprog program={sizeof(code)/sizeof(*code),code};
     assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
     assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+}
+static void cold_admission(int protected,int infinite) {
+    assert(!unshare(CLONE_NEWNS|CLONE_NEWUTS));
+    assert(!mount("proc","/proc","proc",0,NULL));
+    int fd=open("/proc/sys/kernel/hostname",O_RDONLY|O_CLOEXEC),ep=epoll_create1(EPOLL_CLOEXEC);
+    int ready[2]; assert(fd>=0 && ep>=0 && !pipe2(ready,O_CLOEXEC));
+    int alias=dup(ep); assert(alias>=0);
+    pid_t child=fork(); assert(child>=0);
+    if (!child) {
+        if (protected) { deny_seccomp(); assert(!prctl(PR_SET_DUMPABLE,0,0,0,0)); }
+        sigset_t blocked,saved,after;
+        sigemptyset(&blocked); sigaddset(&blocked,SIGUSR2);
+        assert(!sigprocmask(SIG_BLOCK,&blocked,&saved));
+        byte_write(ready[1]);
+        struct epoll_event event={0};
+        int count=infinite==2 ? syscall(SYS_epoll_pwait2,alias,&event,1,NULL,NULL,8)
+            : epoll_pwait(alias,&event,1,infinite ? -1 : 2000,infinite ? NULL : &saved);
+        if (count!=1) fprintf(stderr,"cold admission: count=%d errno=%d protected=%d\n",count,errno,protected);
+        assert(count==1 && event.data.u64==85 && (event.events&EPOLLERR));
+        assert(!sigprocmask(SIG_SETMASK,NULL,&after) && sigismember(&after,SIGUSR2));
+        assert(!epoll_wait(alias,&event,1,0));
+        _exit(0);
+    }
+    byte_read(ready[0]);
+    /* Test scheduling window: the child enters an empty native queue before
+     * its first virtual interest. Readiness itself is asserted by the event. */
+    assert(!poll(NULL,0,100));
+    struct epoll_event event={.events=EPOLLET|EPOLLONESHOT,.data.u64=85};
+    int added=epoll_ctl(ep,EPOLL_CTL_ADD,fd,&event);
+    if (added) fprintf(stderr,"cold admission ADD: errno=%d protected=%d\n",errno,protected);
+    assert(!added);
+    assert(!sethostname("cold-admission",14));
+    int status; assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
+    close(ready[0]); close(ready[1]); close(alias); close(ep); close(fd);
+    printf("PASS mixed epoll: blocked native wait receives first virtual interest protected=%d infinite=%d\n",
+        protected,infinite);
 }
 struct table_holder_context { int fd; pid_t parent; };
 static int table_holder(void *context) {
@@ -441,6 +540,7 @@ static void mixed(int filtered,int shared) {
     signal_ready(ep);
     signal_descriptor(ep);
     native_wait_signals();
+    interrupted_poll_clone(fd);
     if (shared) {
         byte_write(holder_pipe[1]);
         assert(waitpid(holder,&status,0)==holder && WIFEXITED(status) && !WEXITSTATUS(status));
@@ -519,6 +619,11 @@ static int filter_probe(void) {
 }
 int main(int argc,char **argv) {
     setbuf(stdout,NULL);
+    if (argc==2 && !strcmp(argv[1],"--native-ready")) { native_ready(); return 0; }
+    if (argc==2 && !strcmp(argv[1],"--cold-admission")) {
+        for (int infinite=0;infinite<3;++infinite) { cold_admission(0,infinite); cold_admission(1,infinite); }
+        return 0;
+    }
     if (argc==2 && !strcmp(argv[1],"--concurrent-admission")) { concurrent_admission(); return 0; }
     if (argc==2 && !strcmp(argv[1],"--poll-sandbox")) { poll_sandbox(0); return 0; }
     if (argc==2 && !strcmp(argv[1],"--poll-sandbox-protected")) { poll_sandbox(1); return 0; }

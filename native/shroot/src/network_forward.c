@@ -25,6 +25,7 @@ struct listener {
     uint64_t id, space;
     const void *endpoint;
     int fd, reserved, type, active, external, published, listening, endpoint_listening, v6only;
+    int upstream_fd, upstream_connecting;
     struct md_inet_address address, client, target;
     struct md_network_flow_path path;
     int64_t deadline;
@@ -116,6 +117,7 @@ static void drop_listener(struct md_network_forward *f,struct listener *l) {
     if (*at) { *at=l->next; --f->listeners; }
     if (l->fd>=0) { epoll_ctl(f->epoll,EPOLL_CTL_DEL,l->fd,NULL); close(l->fd); }
     if (l->reserved>=0) close(l->reserved);
+    if (l->upstream_fd>=0) close(l->upstream_fd);
     free(l);
 }
 static int socket_bound(int type,struct md_inet_address *address,int v6only) {
@@ -127,6 +129,25 @@ static int socket_bound(int type,struct md_inet_address *address,int v6only) {
     }
     if (md_inet_bind(fd,address,0)) { int error=-errno; close(fd); return error; }
     if (md_inet_name(fd,0,address)) { int error=-errno; close(fd); return error; }
+    return fd;
+}
+static int connect_target(const void *endpoint,int type,struct md_network_transport_policy policy,
+        const struct md_inet_address *target,struct md_inet_address *local,int *connecting) {
+    *local=(struct md_inet_address){.ip=md_ip_any(target->ip.family)};
+    *connecting=0;
+    int fd=socket_bound(type,local,1);
+    if (fd<0) return fd;
+    int error=0;
+    if (target->ip.family==AF_INET6) {
+        struct md_network_transport transport;
+        md_network_endpoint_transport(endpoint,&transport);
+        error=md_network_transport_apply(&transport,fd,type,policy);
+    }
+    if (!error && md_inet_connect(fd,target,0)) {
+        if (errno==EINPROGRESS) *connecting=1;
+        else error=-errno;
+    }
+    if (error) { close(fd); return error; }
     return fd;
 }
 static int check(struct md_network_forward *f,struct flow *c,unsigned direction) {
@@ -184,18 +205,13 @@ static struct flow *new_flow(struct md_network_forward *f,struct listener *l,int
         if (error) { free(c); errno=-error; return NULL; }
     }
     c->id=++f->next_id;
-    c->remote=(struct md_inet_address){.ip=md_ip_any(target->ip.family)};
-    c->fd[1]=socket_bound(c->type,&c->remote,1);
-    if (c->fd[1]<0) { errno=-c->fd[1]; goto failed; }
-    if (target->ip.family==AF_INET6) {
-        struct md_network_transport transport;
-        md_network_endpoint_transport(c->endpoint,&transport);
-        int result=md_network_transport_apply(&transport,c->fd[1],c->type,path->transport);
-        if (result) { errno=-result; goto failed; }
-    }
-    if (md_inet_connect(c->fd[1],target,0)) {
-        if (errno!=EINPROGRESS) goto failed;
-        c->connecting=1;
+    if (c->type==SOCK_STREAM && !l->external && l->upstream_fd>=0) {
+        c->fd[1]=l->upstream_fd; l->upstream_fd=-1;
+        c->connecting=l->upstream_connecting;
+        if (md_inet_name(c->fd[1],0,&c->remote)) goto failed;
+    } else {
+        c->fd[1]=connect_target(c->endpoint,c->type,path->transport,target,&c->remote,&c->connecting);
+        if (c->fd[1]<0) { errno=-c->fd[1]; goto failed; }
     }
     if (c->type==SOCK_STREAM) {
         c->buffer=calloc(2,sizeof(*c->buffer)); if (!c->buffer) goto failed;
@@ -209,6 +225,7 @@ static struct flow *new_flow(struct md_network_forward *f,struct listener *l,int
         if (!c->borrowed) epoll_ctl(f->epoll,EPOLL_CTL_DEL,front,NULL);
         c->fd[0]=-1; drop_flow(f,c); errno=-error; return NULL;
     }
+    if (c->type==SOCK_STREAM && !c->connecting) md_network_endpoint_connect_complete(c->endpoint,0);
     return c;
 failed:
     if (c->fd[1]>=0) { epoll_ctl(f->epoll,EPOLL_CTL_DEL,c->fd[1],NULL); close(c->fd[1]); }
@@ -246,11 +263,15 @@ static void tcp_accept(struct md_network_forward *f,struct listener *l) {
         int error=md_inet_name(fd,0,&local);
         if (!error) error=incoming_path(f,l,&client,&local,&path,&target);
         if (error) {
+            if (!l->external) md_network_endpoint_connect_complete(l->endpoint,error);
             if (error==-ECONNREFUSED) reset_stream(fd);
             close(fd); continue;
         }
         struct flow *c=new_flow(f,l,fd,&client,&path,&target,NULL);
-        if (!c) close(fd);
+        if (!c) {
+            if (!l->external) md_network_endpoint_connect_complete(l->endpoint,-errno);
+            close(fd);
+        }
         if (!l->external) { drop_listener(f,l); return; }
     }
 }
@@ -473,8 +494,10 @@ static void udp_accept(struct md_network_forward *f,struct listener *l) {
 static int stream_event(struct md_network_forward *f,struct flow *c,unsigned leg,uint32_t events) {
     if (c->connecting && leg && (events&(EPOLLOUT|EPOLLERR|EPOLLHUP))) {
         int error=0; socklen_t size=sizeof(error);
-        if (getsockopt(c->fd[1],SOL_SOCKET,SO_ERROR,&error,&size) || error) return -ECONNREFUSED;
+        if (getsockopt(c->fd[1],SOL_SOCKET,SO_ERROR,&error,&size)) return -errno;
+        if (error) return -error;
         c->connecting=0; c->deadline=INT64_MAX;
+        md_network_endpoint_connect_complete(c->endpoint,0);
     }
     if (events&EPOLLERR) return -ECONNRESET;
     if (c->connecting) return interests(f,c);
@@ -515,7 +538,12 @@ static void *run(void *context) {
             if (!id) {
                 uint64_t value; while (read(f->wake,&value,sizeof(value))>0) {}
                 struct flow *c=f->connections;
-                while (c) { struct flow *next=c->next; if (interests(f,c)) drop_flow(f,c); c=next; }
+                while (c) {
+                    struct flow *next=c->next;
+                    int error=interests(f,c);
+                    if (error) { md_network_endpoint_connect_complete(c->endpoint,error); drop_flow(f,c); }
+                    c=next;
+                }
             } else if (leg==2) {
                 struct listener *l=find_listener(f,id);
                 if (l && l->active) {
@@ -534,7 +562,10 @@ static void *run(void *context) {
                         if (events[i].events&EPOLLOUT) datagram_flush(f,c,1-leg);
                         if (events[i].events&EPOLLERR) { int error=0; socklen_t size=sizeof(error); getsockopt(c->fd[leg],SOL_SOCKET,SO_ERROR,&error,&size); }
                     }
-                    else if (stream_event(f,c,leg,events[i].events)) drop_flow(f,c);
+                    else {
+                        int error=stream_event(f,c,leg,events[i].events);
+                        if (error) { md_network_endpoint_connect_complete(c->endpoint,error); drop_flow(f,c); }
+                    }
                 }
             }
         }
@@ -542,13 +573,18 @@ static void *run(void *context) {
         struct flow *c=f->connections;
         while (c) {
             struct flow *next=c->next;
-            if (c->deadline<=now) drop_flow(f,c); else if (c->deadline<deadline) deadline=c->deadline;
+            if (c->deadline<=now) {
+                md_network_endpoint_connect_complete(c->endpoint,-ETIMEDOUT); drop_flow(f,c);
+            } else if (c->deadline<deadline) deadline=c->deadline;
             c=next;
         }
         struct listener *l=f->ports;
         while (l) {
             struct listener *next=l->next;
-            if (l->deadline<=now) drop_listener(f,l); else if (l->deadline<deadline) deadline=l->deadline;
+            if (l->deadline<=now) {
+                if (!l->external) md_network_endpoint_connect_complete(l->endpoint,-ETIMEDOUT);
+                drop_listener(f,l);
+            } else if (l->deadline<deadline) deadline=l->deadline;
             l=next;
         }
         timeout=deadline==INT64_MAX ? -1 : deadline-now>INT_MAX ? INT_MAX : (int)(deadline-now);
@@ -572,7 +608,7 @@ static int publish_reserved(struct md_network_forward *,struct listener *,int);
 static struct listener *new_listener(struct md_network_forward *f,uint64_t space,int type,struct md_inet_address address,int external,int listening,int v6only) {
     if (f->listeners==512 || f->next_id>UINT64_MAX/4) { errno=ENOSPC; return NULL; }
     struct listener *l=calloc(1,sizeof(*l)); if (!l) return NULL;
-    l->reserved=-1;
+    l->reserved=l->upstream_fd=-1;
     l->space=space; l->type=type; l->external=external; l->id=++f->next_id;
     l->address=address;
     l->v6only=v6only;
@@ -724,6 +760,18 @@ int md_network_forward_route(struct md_network_namespace *n,const void *endpoint
     struct md_inet_address address={.ip=md_ip_loopback(path->original.source.family)};
     struct listener *l=new_listener(f,n->inode,type,address,0,1,1);
     if (!l) return -errno;
+    if (type==SOCK_STREAM) {
+        error=md_network_endpoint_connect_begin(endpoint);
+        if (error) { drop_listener(f,l); return error; }
+        /* Retain the real connect and publish its eventual result through the
+         * endpoint. The local handshake alone is not connection completion. */
+        struct md_inet_address local;
+        l->upstream_fd=connect_target(endpoint,type,path->transport,target,&local,&l->upstream_connecting);
+        if (l->upstream_fd<0) {
+            error=l->upstream_fd; md_network_endpoint_connect_complete(endpoint,error);
+            drop_listener(f,l); return error;
+        }
+    }
     l->endpoint=endpoint; l->client=*client; l->client.ip=address.ip;
     l->target=*target; l->path=*path; l->active=1;
     *destination=l->address;

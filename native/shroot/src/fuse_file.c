@@ -273,6 +273,7 @@ static long file_flush(void *context,const struct md_control_actor *actor,struct
 static long file_seek(void *context,const struct md_control_actor *actor,int64_t offset,int whence,
         struct md_control_pending **out) {
     struct fuse_file *f=context;
+    if (whence==SEEK_SET || whence==SEEK_CUR) return -ENOSYS;
     if (whence!=SEEK_END || S_ISDIR(f->node->type)) return -EINVAL;
     if (!actor || !actor->identity || !f->opened) return -EBADF;
     struct file_io *io=calloc(1,sizeof(*io)); if (!io) return -ENOMEM;

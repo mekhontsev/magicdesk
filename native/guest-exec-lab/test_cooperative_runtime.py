@@ -12,7 +12,7 @@ def main():
     parser.add_argument('--entry-only', action='store_true')
     parser.add_argument('--diagnostics', action='store_true')
     add_machine_entry_argument(parser)
-    parser.add_argument('--case', choices=('all', 'birth-retirement', 'bursts', 'fd-discovery', 'site-discovery', 'cursor-lease'), default='all')
+    parser.add_argument('--case', choices=('all', 'birth-retirement', 'bursts', 'fd-discovery', 'site-discovery', 'proc-discovery', 'cursor-lease'), default='all')
     args = parser.parse_args()
     suite = Suite(Path('build/cooperative-runtime'), args.build, machine_entry=args.machine_entry)
     runner = [suite.runner, *suite.entry_options]
@@ -68,6 +68,14 @@ def main():
         # Distribution imports carry virtual ownership; a host-directory import
         # without it deliberately retains real Android permission semantics.
         suite.command([suite.base + '/service', '--import', root, suite.base + '/store', '--preserve-ownership'])
+        if args.case in ('all', 'proc-discovery'):
+            output = suite.command(['timeout', '30', *runner, '--store', suite.base + '/store',
+                                   '--user', '0:0', '--', '/bin/probe', '--proc-discovery'])
+            assert 'PASS native proc discovery:' in output
+            if args.case == 'proc-discovery':
+                suite.report['passed'] = True
+                suite.command(['rm', '-rf', suite.base])
+                return
         if args.case in ('all', 'site-discovery'):
             output = suite.command([*runner, '--statistics', '--store', suite.base + '/store',
                                    '--user', '0:0', '--', '/bin/probe', '--site-discovery'])

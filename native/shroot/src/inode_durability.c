@@ -7,12 +7,28 @@
 
 int mdi_sync(struct md_inode_store *s,int fd) {
     if (s->lifetime->temporary) return 0;
+    if (s->directory_sync_batch && fd==s->objects) {
+        s->directory_sync_batch=2;
+        return 0;
+    }
     struct md_cost *cost=!s->statistics ? NULL : fd==s->objects || fd==s->lifetime->root
         ? &s->statistics->sync_directory : &s->statistics->sync_object;
     int64_t begin=md_cost_begin(cost);
     int r=fsync(fd) ? -errno : 0;
     md_cost_end(cost,begin);
     return r;
+}
+int mdi_sync_batch_begin(struct md_inode_store *s) {
+    if (!s->locked || !s->write_transaction || sqlite3_get_autocommit(s->db)
+            || s->directory_sync_batch) return -EDEADLK;
+    s->directory_sync_batch=1;
+    return 0;
+}
+int mdi_sync_batch_end(struct md_inode_store *s,int result) {
+    unsigned pending=s->directory_sync_batch;
+    s->directory_sync_batch=0;
+    if (!pending || !s->locked || sqlite3_get_autocommit(s->db)) return -EDEADLK;
+    return result ? result : pending==2 ? mdi_sync(s,s->objects) : 0;
 }
 int mdi_checkpoint(struct md_inode_store *s) {
     if (!s->locked || !sqlite3_get_autocommit(s->db)) return -EDEADLK;

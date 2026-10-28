@@ -211,6 +211,27 @@ int md_svc_registry_resident(const struct md_svc_registry *r) {
     if (r) for (unsigned i=0;i<r->count;++i) if (r->sites[i].direct.gate) return 1;
     return 0;
 }
+static int frame_slots(const struct md_svc_registry *r,pid_t pid,uint64_t *out) {
+    *out=0;
+    _Static_assert(MD_SVC_SLOT_COUNT==64,"frame occupancy mask");
+    uint64_t slots[MD_SVC_SLOT_COUNT];
+    struct iovec remote[MD_SVC_SLOT_COUNT],local={slots,sizeof(slots)};
+    for (unsigned i=0;i<MD_SVC_SLOT_COUNT;++i)
+        remote[i]=(struct iovec){(void *)(r->frames+i*MD_SVC_SLOT_SIZE),sizeof(slots[i])};
+    if (process_vm_readv(pid,&local,1,remote,MD_SVC_SLOT_COUNT,0)!=(ssize_t)sizeof(slots))
+        for (unsigned i=0;i<MD_SVC_SLOT_COUNT;++i) {
+            int error=md_svc_registry_read(pid,(uintptr_t)remote[i].iov_base,&slots[i],sizeof(slots[i]));
+            if (error) return error;
+        }
+    for (unsigned i=0;i<MD_SVC_SLOT_COUNT;++i) if (slots[i]) *out|=UINT64_C(1)<<i;
+    return 0;
+}
+int md_svc_registry_occupied(const struct md_svc_registry *r,pid_t pid,uint64_t *out) {
+    if (!out || (r && !r->disabled)) return -EINVAL;
+    *out=0;
+    if (!r || !md_svc_registry_resident(r) || r->entry_fence_drained) return 0;
+    return frame_slots(r,pid,out);
+}
 int md_svc_registry_revoke(struct md_svc_registry *r,pid_t pid) {
     if (!r || r->disabled) return 0;
     r->disabled=1;
@@ -239,6 +260,24 @@ static int client_memory(pid_t pid,int fd,uintptr_t at,void *data,size_t size,in
     /* The retained proc description cannot follow PID reuse. Zero means that
      * its mm has no remaining users, even if a terminal event is still queued. */
     return n==(ssize_t)size ? 0 : n<0 ? -errno : !n ? -ESRCH : -EIO;
+}
+int md_svc_registry_prepare_fork(struct md_svc_registry *r,pid_t pid,int memory_fd) {
+    if (!r || !r->frames_dirty) return 0;
+    if (md_svc_registry_resident(r) && !r->entry_fence_drained) {
+        uint64_t slots,zero=0;
+        int error=frame_slots(r,pid,&slots);
+        if (error) return error;
+        while (slots) {
+            unsigned index=(unsigned)__builtin_ctzll(slots);
+            uintptr_t frame=r->frames+index*MD_SVC_SLOT_SIZE;
+            error=client_memory(pid,memory_fd,frame+MD_SVC_DIRECT_PENDING,&zero,sizeof(zero),1);
+            if (!error) error=client_memory(pid,memory_fd,frame,&zero,sizeof(zero),1);
+            if (error) return error;
+            slots&=slots-1;
+        }
+    }
+    r->frames_dirty=0;
+    return 0;
 }
 int md_svc_registry_identity(struct md_svc_registry *r,pid_t pid,int memory_fd,pid_t owner) {
     if (!r || r->disabled || (r->identity_known && r->sole_owner==owner)) return 0;
@@ -289,7 +328,7 @@ struct md_svc_registry *md_svc_registry_new(uintptr_t frames,uintptr_t dispatch)
 struct md_svc_registry *md_svc_registry_copy(const struct md_svc_registry *r) {
     if (!r) return NULL;
     struct md_svc_registry *copy=malloc(sizeof(*copy));
-    if (copy) { *copy=*r; copy->clients_dirty=1; copy->identity_known=0; }
+    if (copy) { *copy=*r; copy->clients_dirty=1; copy->frames_dirty=1; copy->identity_known=0; }
     return copy;
 }
 int md_svc_registry_pool(struct md_svc_registry *r,uintptr_t address) {

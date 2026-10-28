@@ -18,7 +18,7 @@ enum { EMULATING=1, SKIPPED_EXIT, NATIVE_ENTRY, MARKER_INTERRUPT };
 struct md_task_checkpoint {
     struct md_task_checkpoint *next;
     pid_t pid;
-    int scoped,stage;
+    int scoped,stage,suspended;
     uintptr_t marker;
     int registers_valid,event_valid,info_valid;
     long info_size;
@@ -55,6 +55,7 @@ static void forget(struct md_task_checkpoints *m,pid_t pid) {
 }
 long md_task_checkpoint_trace(struct md_task_checkpoints *m,int request,pid_t pid,void *address,void *data) {
     struct md_task_checkpoint *c=find(m,pid,0);
+    if (c && c->suspended) return m->trace(request,pid,address,data);
     if (c && (c->registers_valid || c->event_valid || c->info_valid)) {
         /* Each observation is handed off once within this stop. Only the
          * other retained observations may intervene; all other requests,
@@ -135,6 +136,7 @@ static int checkpoint_event(struct md_task_checkpoints *m,pid_t pid,int *status)
         c->scoped=1;
         return 0;
     }
+    if (c && c->suspended) return 0;
     if (event==PTRACE_EVENT_SECCOMP) {
         if (m->begin && (!c || !c->scoped)) return 0;
         struct ptrace_syscall_info info={0};
@@ -202,6 +204,18 @@ int md_task_checkpoint_event(struct md_task_checkpoints *m,pid_t pid,int *status
         if (displaced) return displaced>0 ? -ESRCH : displaced;
     }
     return result;
+}
+int md_task_checkpoint_suspend(struct md_task_checkpoints *m,pid_t pid) {
+    struct md_task_checkpoint *c=find(m,pid,1);
+    if (!c) return -ENOMEM;
+    if (c->suspended) return -EBUSY;
+    c->registers_valid=c->event_valid=c->info_valid=0;
+    c->suspended=1;
+    return c->stage==EMULATING;
+}
+void md_task_checkpoint_restore(struct md_task_checkpoints *m,pid_t pid) {
+    struct md_task_checkpoint *c=find(m,pid,0);
+    if (c) c->suspended=0;
 }
 void md_task_checkpoints_clear(struct md_task_checkpoints *m) {
     for (unsigned i=0;i<MD_TASK_CHECKPOINT_BUCKETS;++i)

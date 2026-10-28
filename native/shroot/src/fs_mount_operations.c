@@ -757,9 +757,11 @@ static void mounts_execute(struct md_filesystem *fs, const struct md_fs_request 
         md_fs_inode_execute(fs,q,out,output);
         fs->store->mount_boundary=previous;
         /* The inode transaction rejected the crossing before any mutation.
-         * Only that path (or an unannotated provider FD) needs a mount walk. */
+         * Readonly admission can precede its walk; a child mount may still be
+         * writable. Resolve that rejection before applying the base policy. */
         if (!guard.crossed && (out->error!=-EXDEV
-                && !(out->error==-EREMOTE && md_mount_namespace_managed_paths(fs->mounts)))) return;
+                && !(out->error==-EREMOTE && md_mount_namespace_managed_paths(fs->mounts))
+                && !(out->error==-EROFS && guard.filter))) return;
         *out=(struct md_fs_result){.fd=-1};
     }
     int pause_error=md_inode_operation_window_pause(fs->store);

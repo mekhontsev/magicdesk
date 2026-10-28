@@ -76,7 +76,10 @@ static struct md_filter_route_result filter_route(void *opaque,const struct md_f
     if (!index && native_local(context,address)) link=md_network_interface_find(n,1,NULL);
     struct md_filter_route_result result={.type=RTN_UNREACHABLE};
     if (link) {
-        result.type=address_type(context,address);
+        /* A link-local address on another link is not local to this route. */
+        result.type=md_ip_linklocal(address)
+            ? (md_network_interface_has(link,address) ? RTN_LOCAL : RTN_UNICAST)
+            : address_type(context,address);
         if (!(flags&NFTA_FIB_F_IIF) || link->info.index==p->input) {
             result.interface=link->info.index;
             memcpy(result.name,link->info.name,sizeof(result.name));

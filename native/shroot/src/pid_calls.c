@@ -45,7 +45,7 @@ long md_pid_signal_group(int selector,int signal) {
 }
 static long pidfd_capture(long state,struct md_pidfd_frame *frame,int fd) {
     static const struct md_descriptor_capture_protocol protocol={MD_BUFFER_PIDFD_ADMIT,
-        MD_BUFFER_PIDFD_READY,MD_BUFFER_PIDFD_SENT,MD_BUFFER_PIDFD_OBSERVED,MD_PIDFD_DONE};
+        MD_BUFFER_PIDFD_READY,MD_BUFFER_PIDFD_SENT,MD_BUFFER_PIDFD_OBSERVED,MD_PIDFD_DONE,NULL};
     state=md_descriptor_capture_inputs(state,&frame->capture,&fd,1,&protocol);
     return state==MD_PIDFD_DONE ? frame->result : state;
 }

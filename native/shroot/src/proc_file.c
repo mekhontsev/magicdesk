@@ -737,7 +737,7 @@ long md_proc_file_io_execute(struct md_proc_file_io *io, const struct md_identit
     if (io->operation==MD_PROC_FILE_SEEK) {
         int64_t offset=io->offset;
         if (f->flags&O_PATH) return io->result=-EBADF;
-        if (io->whence!=SEEK_SET && io->whence!=SEEK_CUR && f->control && f->control->seek) {
+        if (f->control && f->control->seek) {
             io->actor.wakeup=io->turn.wakeup;
             io->result=f->control->seek(f->control_context,&io->actor,offset,io->whence,&io->pending);
             if (io->pending) {
@@ -745,7 +745,7 @@ long md_proc_file_io_execute(struct md_proc_file_io *io, const struct md_identit
                 io->pending->dispose(io->pending); io->pending=NULL;
             } else if (io->result==-EINPROGRESS) io->result=-EPROTO;
             if (io->result>=0) f->position=io->result;
-            return io->result;
+            if (io->result!=-ENOSYS) return io->result;
         }
         if (io->whence==SEEK_END && f->control && f->control->descriptor) {
             struct stat st;

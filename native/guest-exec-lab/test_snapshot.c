@@ -33,7 +33,7 @@ static void value(struct md_inode_store *s, const char *path, const char *expect
     assert(!strcmp(data, expected)); close(fd);
 }
 static void source_object(struct md_inode_store *s, int retained, const struct stat *expected) {
-    char source[96]; assert(!md_inode_descriptor_source(s,retained,source,sizeof(source)));
+    char source[96]; assert(!md_inode_descriptor_source(s,retained,source,sizeof(source),1));
     int flags=O_PATH|O_NOFOLLOW|O_CLOEXEC;
     int reopened=open(source,flags); assert(reopened>=0);
     struct stat actual; assert(!fstat(reopened,&actual));

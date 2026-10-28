@@ -30,5 +30,11 @@ int md_task_checkpoint_event(struct md_task_checkpoints *,pid_t,int *);
  * can replace an already collected stop with EXIT without an ESRCH error.
  * Returns 1 only for a vanished actor or a confirmed terminal replacement. */
 int md_task_checkpoint_displaced(struct md_task_checkpoints *,pid_t);
+/* Lend an exact stopped boundary to a native-call owner. While suspended,
+ * requests and events pass through without changing checkpoint state. Returns
+ * 1 if an ENTRY observation is SYSEMU, 0 otherwise, or negative errno.
+ * The borrower must restore the exact boundary before returning ownership. */
+int md_task_checkpoint_suspend(struct md_task_checkpoints *,pid_t);
+void md_task_checkpoint_restore(struct md_task_checkpoints *,pid_t);
 void md_task_checkpoints_clear(struct md_task_checkpoints *);
 #endif

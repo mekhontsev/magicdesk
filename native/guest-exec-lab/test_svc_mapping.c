@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <linux/filter.h>
 #include <linux/seccomp.h>
+#include <poll.h>
 #include <pthread.h>
 #include <sched.h>
 #include <signal.h>
@@ -13,7 +14,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/epoll.h>
+#include <sys/inotify.h>
 #include <sys/prctl.h>
+#include <sys/select.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/time.h>
 #include <sys/wait.h>
@@ -283,13 +288,75 @@ static int exercise(void *unused) {
     return 0;
 }
 static void joined(pid_t child) {
-    int status;
-    assert(child>0 && waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
+    int status=0;
+    pid_t waited=child>0 ? waitpid(child,&status,0) : -1;
+    if (waited!=child || !WIFEXITED(status) || WEXITSTATUS(status))
+        fprintf(stderr,"mapping child=%d waited=%d status=%#x errno=%d\n",child,waited,status,errno);
+    assert(child>0 && waited==child && WIFEXITED(status) && !WEXITSTATUS(status));
 }
 static atomic_uint ready, finished;
 static long expected_uid;
 static int protected;
+enum { FILTER_WAITERS = 5 };
+static int waiters, wait_provider, wake_pipes[FILTER_WAITERS][2];
+static int watch_descriptor;
+static pid_t waiter_tids[FILTER_WAITERS];
 static const char *image_path;
+static void *waiting_peer(void *argument) {
+    unsigned index=(unsigned)(uintptr_t)argument;
+    int epoll=-1;
+    struct epoll_event event={.events=EPOLLIN,.data.fd=wake_pipes[index][0]};
+    sigset_t mask;
+    sigemptyset(&mask); sigaddset(&mask,SIGUSR2);
+    if (index==1) {
+        epoll=epoll_create1(EPOLL_CLOEXEC); assert(epoll>=0);
+        assert(!epoll_ctl(epoll,EPOLL_CTL_ADD,event.data.fd,&event));
+    }
+    waiter_tids[index]=(pid_t)syscall(SYS_gettid);
+    atomic_fetch_add(&ready,1);
+    if (index==4) {
+        char events[4096];
+        assert(read(watch_descriptor,events,sizeof(events))>0);
+        struct inotify_event *event=(void *)events;
+        assert((event->mask&IN_CREATE) && !strcmp(event->name,"filter-wait.event"));
+        return NULL;
+    }
+    if (index==1) {
+        int result=epoll_wait(epoll,&event,1,-1);
+        if (result!=1 || event.events!=EPOLLIN)
+            fprintf(stderr,"filter waiter epoll result=%d events=%x errno=%d\n",result,event.events,errno);
+        assert(result==1 && event.events==EPOLLIN);
+    }
+    else if (index==3) {
+        fd_set set; FD_ZERO(&set); FD_SET(wake_pipes[index][0],&set);
+        assert(pselect(wake_pipes[index][0]+1,&set,NULL,NULL,NULL,&mask)==1);
+        assert(FD_ISSET(wake_pipes[index][0],&set));
+    } else {
+        struct pollfd items[65];
+        for (unsigned i=0;i<65;++i) items[i]=(struct pollfd){.fd=-1};
+        unsigned count=index==2 ? 65 : 1;
+        items[count-1]=(struct pollfd){.fd=wake_pipes[index][0],.events=POLLIN};
+        int result=index==2 ? ppoll(items,count,NULL,&mask) : poll(items,count,-1);
+        assert(result==1 && items[count-1].revents==POLLIN);
+    }
+    assert(!pthread_sigmask(SIG_SETMASK,NULL,&mask) && !sigismember(&mask,SIGUSR2));
+    char byte=0;
+    assert(read(wake_pipes[index][0],&byte,1)==1 && byte=='x');
+    if (epoll>=0) assert(!close(epoll));
+    return NULL;
+}
+static void waiter_blocked(unsigned index,long number) {
+    char path[96],data[256];
+    snprintf(path,sizeof(path),"/proc/self/task/%d/syscall",waiter_tids[index]);
+    for (;;) {
+        int fd=open(path,O_RDONLY|O_CLOEXEC); assert(fd>=0);
+        ssize_t n=read(fd,data,sizeof(data)-1); assert(n>0);
+        assert(!close(fd)); data[n]=0;
+        long current=-1;
+        if (sscanf(data,"%ld",&current)==1 && current==number) return;
+        sched_yield();
+    }
+}
 static void *racing_peer(void *unused) {
     (void)unused;
     for (unsigned i=0;i<64;++i) assert(live_uid()==expected_uid);
@@ -307,15 +374,107 @@ static void *racing_peer(void *unused) {
     else assert(result==-EACCES);
     return NULL;
 }
+static void forked_filter(void) {
+    expected_uid=getuid(); protected=1;
+    pthread_t peers[4];
+    for (unsigned i=0;i<4;++i) assert(!pthread_create(&peers[i],NULL,racing_peer,NULL));
+    while (atomic_load(&ready)!=4) sched_yield();
+    for (unsigned round=0;round<24;++round) {
+        pid_t child=fork(); assert(child>=0);
+        if (!child) {
+            alarm(15);
+            struct sock_filter code[]={
+                BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+                BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_gettid,0,1),
+                BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_KILL_PROCESS),
+                BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)
+            };
+            struct sock_fprog program={sizeof(code)/sizeof(*code),code};
+            assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+            long result=syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,SECCOMP_FILTER_FLAG_TSYNC,&program);
+            if (result) fprintf(stderr,"fork filter round=%u result=%ld errno=%d\n",round,result,errno);
+            assert(!result);
+            _exit(0);
+        }
+        joined(child);
+    }
+    atomic_store(&finished,1);
+    for (unsigned i=0;i<4;++i) assert(!pthread_join(peers[i],NULL));
+    puts("PASS SVC fork filter: active parent peers, copied frames and child filter admission");
+}
+static int dying_peer(void *unused) {
+    (void)unused;
+    for (unsigned i=0;i<1024;++i) assert(live_uid()==expected_uid);
+    atomic_fetch_add(&ready,1);
+    for (;;) assert(live_uid()==expected_uid);
+}
+static void exited_filter(void) {
+    for (unsigned round=0;round<24;++round) {
+        pid_t child=fork(); assert(child>=0);
+        if (!child) {
+            alarm(15); expected_uid=getuid(); protected=1;
+            pthread_t peers[2];
+            for (unsigned i=0;i<2;++i) assert(!pthread_create(&peers[i],NULL,racing_peer,NULL));
+            size_t size=1024*1024;
+            void *stack=mmap(NULL,size,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+            assert(stack!=MAP_FAILED);
+            pid_t peer=clone(dying_peer,(char *)stack+size,CLONE_VM|SIGCHLD,NULL);
+            assert(peer>0);
+            while (atomic_load(&ready)!=3) sched_yield();
+            assert(!kill(peer,SIGKILL));
+            int status;
+            assert(waitpid(peer,&status,0)==peer && WIFSIGNALED(status) && WTERMSIG(status)==SIGKILL);
+            struct sock_filter code[]={BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+            struct sock_fprog program={1,code};
+            assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+            long result=syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,SECCOMP_FILTER_FLAG_TSYNC,&program);
+            if (result) fprintf(stderr,"exit filter round=%u result=%ld errno=%d\n",round,result,errno);
+            assert(!result);
+            atomic_store(&finished,1);
+            for (unsigned i=0;i<2;++i) assert(!pthread_join(peers[i],NULL));
+            _exit(0);
+        }
+        joined(child);
+    }
+    puts("PASS SVC exit filter: killed shared-mm peer and filter admission");
+}
 static void entry_transition_race(void) {
     for (unsigned round=0;round<24;++round) {
         pid_t child=fork(); assert(child>=0);
         if (!child) {
             alarm(20);
             expected_uid=getuid();
+            /* An unrelated FIFO requires full vector admission;
+             * the selected pipe must still wait in the native kernel. */
+            int provider=-1;
+            if (wait_provider) {
+                assert(!mkfifo("filter-wait.fifo",0600));
+                provider=open("filter-wait.fifo",O_RDONLY|O_NONBLOCK|O_CLOEXEC);
+                assert(provider>=0 && !unlink("filter-wait.fifo"));
+            }
             pthread_t peers[4];
+            pthread_t sleepers[FILTER_WAITERS];
+            int filtered_epoll=-1;
+            if (waiters) {
+                watch_descriptor=inotify_init1(IN_CLOEXEC); assert(watch_descriptor>=0);
+                assert(inotify_add_watch(watch_descriptor,".",IN_CREATE)>=0);
+                filtered_epoll=epoll_create1(EPOLL_CLOEXEC); assert(filtered_epoll>=0);
+                int source=provider>=0 ? provider : watch_descriptor;
+                struct epoll_event event={.events=EPOLLIN,.data.fd=source};
+                assert(!epoll_ctl(filtered_epoll,EPOLL_CTL_ADD,source,&event));
+            }
+            if (waiters) for (unsigned i=0;i<FILTER_WAITERS;++i) {
+                assert(!pipe2(wake_pipes[i],O_CLOEXEC));
+                assert(!pthread_create(&sleepers[i],NULL,waiting_peer,(void *)(uintptr_t)i));
+            }
             for (unsigned i=0;i<4;++i) assert(!pthread_create(&peers[i],NULL,racing_peer,NULL));
-            while (atomic_load(&ready)!=4) sched_yield();
+            while (atomic_load(&ready)!=4+(waiters ? FILTER_WAITERS : 0)) sched_yield();
+            if (waiters) {
+                /* Observe actual kernel admission, not a presumed startup delay. */
+                waiter_blocked(2,SYS_ppoll);
+                waiter_blocked(3,SYS_pselect6);
+                waiter_blocked(4,SYS_read);
+            }
             if (protected) {
                 assert(!prctl(PR_SET_DUMPABLE,0,0,0,0));
                 assert(!prctl(PR_GET_DUMPABLE,0,0,0,0));
@@ -336,7 +495,25 @@ static void entry_transition_race(void) {
                 if (result) fprintf(stderr,"filter race round=%u TSYNC result=%ld errno=%d\n",round,result,errno);
                 assert(!result);
             }
+            if (waiters) {
+                /* The shared table requires exact FD custody even when the
+                 * application denies the service's unrelated gettid call. */
+                struct epoll_event event;
+                assert(epoll_wait(filtered_epoll,&event,1,0)==0);
+                assert(epoll_wait(filtered_epoll,&event,1,1)==0);
+                struct timespec timeout={.tv_nsec=1000000};
+                assert(syscall(SYS_epoll_pwait2,filtered_epoll,&event,1,&timeout,NULL,8)==0);
+                assert(!close(filtered_epoll));
+            }
             atomic_store(&finished,1);
+            if (waiters) assert(!mkdir("filter-wait.event",0700));
+            if (waiters) for (unsigned i=0;i<FILTER_WAITERS;++i) {
+                assert(write(wake_pipes[i][1],"x",1)==1);
+                assert(!pthread_join(sleepers[i],NULL));
+                assert(!close(wake_pipes[i][0]) && !close(wake_pipes[i][1]));
+            }
+            if (waiters) assert(!close(watch_descriptor) && !rmdir("filter-wait.event"));
+            if (provider>=0) assert(!close(provider));
             for (unsigned i=0;i<4;++i) assert(!pthread_join(peers[i],NULL));
             if (protected) {
                 assert(!prctl(PR_GET_DUMPABLE,0,0,0,0));
@@ -367,6 +544,12 @@ int main(int argc,char **argv) {
     if (argc>1 && !strcmp(argv[1],"native-remap")) { native_remap(); return 0; }
     if (argc>1 && !strcmp(argv[1],"protected-race")) { protected=1; entry_transition_race(); return 0; }
     if (argc>1 && !strcmp(argv[1],"filter-race")) { entry_transition_race(); return 0; }
+    if (argc>1 && !strcmp(argv[1],"filter-wait")) { waiters=1; entry_transition_race(); return 0; }
+    if (argc>1 && !strcmp(argv[1],"filter-wait-provider")) {
+        waiters=wait_provider=1; entry_transition_race(); return 0;
+    }
+    if (argc>1 && !strcmp(argv[1],"filter-fork")) { forked_filter(); return 0; }
+    if (argc>1 && !strcmp(argv[1],"filter-exit")) { exited_filter(); return 0; }
     image_protection();
     pid_t image_child=fork(); assert(image_child>=0);
     if (!image_child) { image_protection(); _exit(0); }

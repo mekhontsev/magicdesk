@@ -214,6 +214,7 @@ def command(*argv, data=None):
 
 
 def guest():
+    data_maps()
     router_discovery()
     raw_udp()
     udp_reconnect()
@@ -358,6 +359,55 @@ table inet md_ipv6_test {{
         assert stream.getsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY) == 1
     (conf / 'bindv6only').write_text('0')
     print('PASS IPv6 sysctl changes without modifying IPv4', flush=True)
+
+
+def data_maps():
+    for family, nft_family, loopback, datatype in (
+            (socket.AF_INET, 'ip', '127.0.0.1', 'ipv4_addr'),
+            (socket.AF_INET6, 'ip6', '::1', 'ipv6_addr')):
+        with socket.socket(family) as tcp, socket.socket(family, socket.SOCK_DGRAM) as udp:
+            for stream in (tcp, udp):
+                stream.bind((loopback, 0))
+                stream.settimeout(5)
+            tcp.listen(1)
+            command('nft', '-f', '-', data=f'''
+table {nft_family} md_data_map {{
+ map ports {{ type inet_proto . inet_service : {datatype} . inet_service;
+  elements = {{ tcp . 38880 : {loopback} . {tcp.getsockname()[1]},
+                udp . 38880 : {loopback} . {udp.getsockname()[1]} }}
+ }}
+ chain output {{ type nat hook output priority dstnat; policy accept;
+  dnat to meta l4proto . th dport map @ports
+ }}
+}}
+''')
+            try:
+                with socket.socket(family) as client:
+                    client.settimeout(5)
+                    client.connect((loopback, 38880))
+                    accepted, _ = tcp.accept()
+                    with accepted:
+                        accepted.settimeout(5)
+                        client.sendall(b'tcp-map')
+                        assert accepted.recv(32) == b'tcp-map'
+                        accepted.sendall(b'reply')
+                        assert client.recv(32) == b'reply'
+                with socket.socket(family, socket.SOCK_DGRAM) as client:
+                    client.settimeout(5)
+                    client.sendto(b'udp-map', (loopback, 38880))
+                    payload, peer = udp.recvfrom(32)
+                    assert payload == b'udp-map'
+                    udp.sendto(b'reply', peer)
+                    payload, peer = client.recvfrom(32)
+                    assert payload == b'reply' and peer[:2] == (loopback, 38880), peer
+                listed = command('nft', 'list', 'map', nft_family, 'md_data_map', 'ports')
+                assert 'tcp . 38880' in listed and 'udp . 38880' in listed, listed
+                command('nft', 'delete', 'element', nft_family, 'md_data_map', 'ports', '{ udp . 38880 }')
+                listed = command('nft', 'list', 'map', nft_family, 'md_data_map', 'ports')
+                assert 'tcp . 38880' in listed and 'udp . 38880' not in listed, listed
+            finally:
+                command('nft', 'delete', 'table', nft_family, 'md_data_map')
+    print('PASS stock nft data maps: IPv4/IPv6 concatenated TCP/UDP DNAT, replies, dump and element removal', flush=True)
 
 
 def main():

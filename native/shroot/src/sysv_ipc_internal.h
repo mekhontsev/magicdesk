@@ -3,6 +3,7 @@
 #include "sysv_ipc.h"
 #include "ipc_permissions.h"
 #include "ipc_database.h"
+#include "ipc_pid.h"
 #include <linux/sem.h>
 #include <linux/msg.h>
 #include <sqlite3.h>
@@ -16,6 +17,7 @@ struct md_ipc_pending {
     struct md_identity identity;
     struct md_ipc_transport *transport;
     pid_t tid, pid;
+    struct md_pid_identity *process;
     uint64_t undo;
     int watcher, registered, number, zero, blocked;
     int64_t deadline;

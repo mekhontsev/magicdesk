@@ -150,13 +150,26 @@ static int dispatch(struct md_network_filter *f,const struct nlmsghdr *h,uint32_
     default: return md_nft_objects(f,h,port,out);
     }
 }
+static void discard_echoes(struct md_network_message *out) {
+    long remaining=(long)out->size;
+    size_t kept=0;
+    const struct nlmsghdr *h=(const void *)out->data;
+    while (NLMSG_OK(h,remaining)) {
+        size_t size=NLMSG_ALIGN(h->nlmsg_len);
+        if (h->nlmsg_type==NLMSG_ERROR) {
+            memmove((char *)out->data+kept,h,size); kept+=size;
+        }
+        h=(const void *)((const char *)h+size); remaining-=(long)size;
+    }
+    out->size=kept;
+}
 long md_network_nft(struct md_network_namespace *n,const struct md_identity *identity,const void *data,size_t size,
         uint32_t port,int capped,void *reply,size_t capacity,const struct md_network_publication *publication) {
     if (size<sizeof(struct nlmsghdr) || size>INT32_MAX) return -EINVAL;
     struct md_network_message out={.data=reply,.capacity=capacity};
-    const struct nlmsghdr *h=data,*failed=h,*last_operation=h;
+    const struct nlmsghdr *h=data,*failed=h,*first_operation=h,*batch_end=NULL;
     long remaining=(long)size;
-    int error=0,batch=h->nlmsg_type==NFNL_MSG_BATCH_BEGIN,ended=0;
+    int error=0,batch=h->nlmsg_type==NFNL_MSG_BATCH_BEGIN,ended=0,rejected=0;
     struct md_network_filter *next=NULL;
     struct md_network_forward_update *forward=NULL;
     pthread_mutex_lock(&n->fabric->lock);
@@ -177,40 +190,54 @@ long md_network_nft(struct md_network_namespace *n,const struct md_identity *ide
             next=md_network_filter_copy(n->filter);
             if (!next) { error=-ENOMEM; break; }
             next->generation=md_network_filter_next_generation(n->filter);
+            error=md_network_message_done(&out,h,port,0,0,capped);
+            if (error) break;
             continue;
         }
         if (h->nlmsg_type==NFNL_MSG_BATCH_END) {
             if (!batch || ended || h->nlmsg_len!=NLMSG_LENGTH(sizeof(struct nfgenmsg))
                     || remaining!=(long)NLMSG_ALIGN(h->nlmsg_len) || header->nfgen_family!=AF_UNSPEC
                     || (header->res_id && ntohs(header->res_id)!=NFNL_SUBSYS_NFTABLES)) { error=-EINVAL; break; }
-            ended=1; continue;
+            ended=1;
+            batch_end=h;
+            continue;
         }
-        last_operation=h;
+        if (first_operation==data) first_operation=h;
+        size_t before=out.size;
         if (!batch && NFNL_SUBSYS_ID(h->nlmsg_type)==NFNL_SUBSYS_NFT_COMPAT) error=compat_query(h,port,&out);
         else if (NFNL_SUBSYS_ID(h->nlmsg_type)!=NFNL_SUBSYS_NFTABLES) error=-EOPNOTSUPP;
         else if (batch==query(NFNL_MSG_TYPE(h->nlmsg_type))) error=-EINVAL;
         else error=dispatch(batch ? next : n->filter,h,port,&out);
-        if (error) break;
+        if (error && !batch) break;
+        int operation_error=error;
+        if (operation_error) { rejected=1; out.size=before; }
         int dump=!batch && (h->nlmsg_flags&NLM_F_DUMP)==NLM_F_DUMP;
-        error=md_network_message_done(&out,h,port,0,dump,capped);
+        error=md_network_message_done(&out,h,port,operation_error,dump,capped);
         if (error) break;
     }
     if (!error && (remaining || (batch && !ended))) { error=-EINVAL; failed=data; }
-    if (!error && batch) {
+    if (!error && batch && !rejected) {
         /* Anonymous sets have the lifetime of their installed lookup rules. */
         for (size_t i=0;i<next->set_count;) {
             int used=0;
             for (size_t j=0;j<next->rule_count && !used;++j)
                 for (unsigned k=0;k<next->rules[j].count;++k) {
                     const struct md_filter_expression *e=&next->rules[j].expressions[k];
-                    if ((e->code==MD_FILTER_LOOKUP || e->code==MD_FILTER_VERDICT_MAP)
-                            && e->target==next->sets[i].handle) used=1;
+                    if (md_filter_set_expression(e) && e->target==next->sets[i].handle) used=1;
                 }
             if (!used && (next->sets[i].flags&NFT_SET_ANONYMOUS)) md_filter_set_delete(next,i); else ++i;
         }
         error=md_network_filter_prepare(n,next,&forward);
-        if (error) failed=last_operation;
+        if (error) {
+            rejected=1;
+            discard_echoes(&out);
+            error=md_network_message_done(&out,first_operation,port,error,0,capped);
+            failed=first_operation;
+        } else error=md_network_message_done(&out,batch_end,port,0,0,capped);
     }
+    /* A batch failure rolls back mutations, not the individual acknowledgments.
+     * Callers may wait on every sequence before inspecting the batch result. */
+    if (rejected) discard_echoes(&out);
     if (error) {
         out.size=0;
         /* A malformed outer header cannot be echoed safely. */
@@ -221,7 +248,7 @@ long md_network_nft(struct md_network_namespace *n,const struct md_identity *ide
         if (encoded) { md_network_filter_free(next); pthread_mutex_unlock(&n->fabric->lock); return encoded; }
     }
     long result=publication && out.size ? publication->publish(publication->context,out.data,out.size) : (long)out.size;
-    if (!error && result>=0 && batch) {
+    if (!error && !rejected && result>=0 && batch) {
         next=md_network_filter_commit(n,next,forward); forward=NULL;
     }
     md_network_forward_abort(forward);

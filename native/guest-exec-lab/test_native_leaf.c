@@ -384,9 +384,12 @@ static void stable_source(struct md_inode_store *s,int dir) {
     struct stat before,after; assert(!fstat(fd,&before));
     char source[PATH_MAX];
     s->readonly=1;
-    assert(md_inode_descriptor_source(s,fd,source,sizeof(source))==-EXDEV && native_node(s,fd));
+    assert(md_inode_descriptor_source(s,fd,source,sizeof(source),1)==-EXDEV && native_node(s,fd));
     s->readonly=0;
-    assert(!md_inode_descriptor_source(s,fd,source,sizeof(source)));
+    sqlite3_int64 changes=sqlite3_total_changes64(s->db);
+    assert(md_inode_descriptor_source(s,fd,source,sizeof(source),0)==-EXDEV && native_node(s,fd));
+    assert(sqlite3_total_changes64(s->db)==changes);
+    assert(!md_inode_descriptor_source(s,fd,source,sizeof(source),1));
     assert(!native_node(s,fd));
     assert(!md_inode_rename(s,dir,"stable-source",dir,"renamed-source",0));
     assert(!md_inode_unlink(s,dir,"renamed-source",0));
@@ -396,8 +399,8 @@ static void stable_source(struct md_inode_store *s,int dir) {
     close(reopened); close(fd);
     fd=md_inode_create(s,dir,"unlinked-source",0644); assert(fd>=0);
     assert(!md_inode_unlink(s,dir,"unlinked-source",0));
-    assert(md_inode_descriptor_source(s,fd,source,sizeof(source))==-EXDEV); close(fd);
-    puts("PASS stable O_PATH source promotes the same inode and survives guest rename/unlink");
+    assert(md_inode_descriptor_source(s,fd,source,sizeof(source),1)==-EXDEV); close(fd);
+    puts("PASS O_PATH source discovery leaves native files unchanged; catalogue sources survive rename/unlink");
 }
 static void creation_events(struct md_inode_store *s,int dir) {
     int observer=md_inode_watch_create(s,IN_NONBLOCK); assert(observer>=0);

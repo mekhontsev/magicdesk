@@ -1116,7 +1116,8 @@ static void scalar_checkpoint(int protected,int restricted,unsigned command) {
     md_task_checkpoints_clear(&runtime);
     assert(!munmap((void *)output,4096)); close(start[0]); close(start[1]);
 }
-static void unified_checkpoint(int protected,int restricted,int denied,int invalid_number) {
+static int nested_task_call(pid_t,int,struct md_task_checkpoints *);
+static void unified_checkpoint(int protected,int restricted,int denied,int invalid_number,int injection) {
     volatile long *output=mmap(NULL,4096,PROT_READ|PROT_WRITE,MAP_SHARED|MAP_ANONYMOUS,-1,0);
     assert(output!=MAP_FAILED);
     int start[2],data[2]; assert(!pipe(start) && !pipe2(data,O_NONBLOCK));
@@ -1170,6 +1171,12 @@ static void unified_checkpoint(int protected,int restricted,int denied,int inval
     int status,native_stops=0;
     for (unsigned stops=0;;++stops) {
         assert(stops<16 && waitpid(pid,&status,0)==pid && WIFSTOPPED(status));
+        if ((int)stops==injection) {
+            printf("checkpoint borrowing protected=%d stage=%u status=%#x\n",protected,stops,status);
+            unsigned before=checkpoint_register_writes;
+            assert(!nested_task_call(pid,0,&runtime));
+            writes+=checkpoint_register_writes-before;
+        }
         unsigned before_registers=checkpoint_register_reads;
         int owned=md_task_checkpoint_event(&runtime,pid,&status);
         assert(owned>=0);
@@ -1256,14 +1263,25 @@ static void unified_checkpoint(int protected,int restricted,int denied,int inval
     md_task_checkpoints_clear(&runtime); assert(!runtime.count);
     assert(!munmap((void *)output,4096)); close(start[0]); close(start[1]); close(data[0]); close(data[1]);
 }
-static int nested_task_call(pid_t pid,int expect_rejected) {
+static struct md_task_checkpoints *borrowed_checkpoint;
+static long borrowed_trace(int request,pid_t pid,void *address,void *data) {
+    return borrowed_checkpoint ? md_task_checkpoint_trace(borrowed_checkpoint,request,pid,address,data)
+        : task_trace(request,pid,address,data);
+}
+static int nested_task_call(pid_t pid,int expect_rejected,struct md_task_checkpoints *runtime) {
     struct user_pt_regs saved=registers(pid);
     struct ptrace_syscall_info info={0};
     assert(ptrace(PTRACE_GET_SYSCALL_INFO,pid,(void *)sizeof(info),&info)>0);
     struct md_task_call call={0};
     struct md_task_call_arguments arguments={.number=SYS_getpid};
-    assert(!md_task_call_begin(&call,task_trace,pid,(enum md_task_call_boundary)info.op,
+    int emulated=runtime ? md_task_checkpoint_suspend(runtime,pid) : 0;
+    assert(emulated>=0);
+    enum md_task_call_boundary boundary=emulated && info.op==PTRACE_SYSCALL_INFO_ENTRY
+        ? MD_TASK_CALL_EMULATED_ENTRY : (enum md_task_call_boundary)info.op;
+    borrowed_checkpoint=runtime;
+    assert(!md_task_call_begin(&call,borrowed_trace,pid,boundary,
         &saved,(uintptr_t)checkpoint_syscall,(uintptr_t)checkpoint_syscall+4,&arguments));
+    unsigned repetitions=0;
     for (unsigned stops=0;;++stops) {
         int status; assert(stops<32 && waitpid(pid,&status,0)==pid);
         if (WIFSIGNALED(status)) {
@@ -1275,12 +1293,23 @@ static int nested_task_call(pid_t pid,int expect_rejected) {
             assert(WIFSIGNALED(exiting) && WTERMSIG(exiting)==SIGSYS);
             resume(pid,PTRACE_CONT,0); continue;
         }
+        if (runtime) assert(!md_task_checkpoint_event(runtime,pid,&status));
         int result=md_task_call_event(&call,status);
         if (result<0) fprintf(stderr,"nested call boundary=%u stage=%u status=%#x result=%d\n",info.op,call.stage,status,result);
         assert(result>=0);
-        if (result) break;
+        if (result) {
+            assert(!expect_rejected && call.result==pid);
+            if (runtime && !repetitions++) {
+                assert(!md_task_call_again(&call,&arguments)); continue;
+            }
+            break;
+        }
     }
-    assert(!expect_rejected && call.result==pid); return 0;
+    if (call.result!=pid) fprintf(stderr,"nested result boundary=%u result=%ld expected=%d\n",info.op,call.result,pid);
+    assert(!expect_rejected && call.result==pid);
+    if (runtime) md_task_checkpoint_restore(runtime,pid);
+    borrowed_checkpoint=NULL;
+    return 0;
 }
 static void chained_native_replay(int protected,int restart,int writing,int boundary,int disposition,int pending,int injected,int interposed) {
     struct replay_observation *out=mmap(NULL,4096,PROT_READ|PROT_WRITE,MAP_SHARED|MAP_ANONYMOUS,-1,0);
@@ -1376,7 +1405,7 @@ static void chained_native_replay(int protected,int restart,int writing,int boun
         call_info(pid,PTRACE_SYSCALL_INFO_SECCOMP);
     }
     int expect_rejected=0;
-    if (injected && boundary!=2 && nested_task_call(pid,expect_rejected)) goto rejected;
+    if (injected && boundary!=2 && nested_task_call(pid,expect_rejected,NULL)) goto rejected;
     set_mask(pid,shield);
     if (pending) {
         const int signals[]={SIGUSR1,SIGTRAP};
@@ -1400,7 +1429,7 @@ static void chained_native_replay(int protected,int restart,int writing,int boun
     resume(pid,PTRACE_SYSCALL,0); assert(stopped(pid)==(SIGTRAP|0x80));
     struct ptrace_syscall_info exited=call_info(pid,PTRACE_SYSCALL_INFO_EXIT);
     assert(exited.exit.rval==(writing ? 1 : -512));
-    if (injected && boundary==2 && nested_task_call(pid,expect_rejected)) goto rejected;
+    if (injected && boundary==2 && nested_task_call(pid,expect_rejected,NULL)) goto rejected;
     if (boundary==2 && writing) {
         assert(!syscall(SYS_tkill,pid,SIGUSR1)); set_mask(pid,shield&~bit(SIGUSR1));
     }
@@ -1783,6 +1812,15 @@ static void terminal_race(int protected,int entry) {
 int main(int argc,char **argv) {
     setvbuf(stdout,NULL,_IOLBF,0);
     alarm(60);
+    if (argc==1 || (argc==2 && !strcmp(argv[1],"--checkpoint-borrow"))) {
+        for (int protected=0;protected<2;++protected)
+            for (int denied=0;denied<2;++denied)
+                for (int invalid=0;invalid<2;++invalid)
+                    for (int stage=0;stage<(denied ? 5 : 6);++stage)
+                        unified_checkpoint(protected,1,denied,invalid,stage);
+        puts("PASS checkpoint borrowing: intermediate stages retain exact-once IO and registers");
+        if (argc==2) return 0;
+    }
     for (int kind=0;kind<3;++kind)
         for (int protected=0;protected<2;++protected)
             for (int code=0;code<2;++code) birth_terminal_race(kind,protected,code ? 77 : 0);
@@ -1822,7 +1860,7 @@ int main(int argc,char **argv) {
     for (int protected=0;protected<2;++protected)
         for (int restricted=0;restricted<2;++restricted)
             for (int denied=0;denied<2;++denied) for (int invalid=0;invalid<2;++invalid)
-                unified_checkpoint(protected,restricted,denied,invalid);
+                unified_checkpoint(protected,restricted,denied,invalid,-1);
     puts("PASS unified checkpoint owner: 16 cases; TRACE/SYSEMU, protected tasks, denied calls, exact-once IO, x0/x7, invalid incoming x8, SIG_IGN and blocked SIGTRAP");
     unsigned cases=0;
     for (int mode=BREAKPOINT;mode<=SYSEMU_CONTEXT;++mode)

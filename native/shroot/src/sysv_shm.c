@@ -2,6 +2,7 @@
 #include "sysv_shm.h"
 #include "ipc_database.h"
 #include "ipc_permissions.h"
+#include "ipc_pid.h"
 #include <errno.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -61,13 +62,30 @@ static int load_live(struct md_shm *s,int id,struct shmid64_ds *out) {
      * next maintenance transaction has not collected its backing file yet. */
     return !error && (out->shm_perm.mode&01000) && !out->shm_nattch ? -EINVAL : error;
 }
-static int save(struct md_shm *s, int id, const struct shmid64_ds *info) {
+static int save(struct md_shm *s,int id,const struct shmid64_ds *info,int update_pid,const struct md_pid_identity *process) {
     sqlite3_stmt *q = NULL;
-    int r = query(s,"UPDATE segments SET info=?2,key=?3,removed=?4 WHERE id=?1",&q);
+    int r = query(s,update_pid ? "UPDATE segments SET info=?2,key=?3,removed=?4,last_pids=?5 WHERE id=?1"
+        : "UPDATE segments SET info=?2,key=?3,removed=?4 WHERE id=?1",&q);
     if (!r) {
         sqlite3_bind_int(q,1,id); sqlite3_bind_blob(q,2,info,sizeof(*info),SQLITE_STATIC);
         sqlite3_bind_int(q,3,info->shm_perm.key); sqlite3_bind_int(q,4,!!(info->shm_perm.mode & 01000));
-        r = sql(sqlite3_step(q));
+        if (update_pid) r=md_ipc_pid_bind(q,5,process);
+        if (!r) r = sql(sqlite3_step(q));
+    }
+    sqlite3_finalize(q); return r;
+}
+static int visible_processes(struct md_shm *s,int segment,const struct md_pid_identity *observer,struct shmid64_ds *st) {
+    sqlite3_stmt *q=NULL;
+    int r=query(s,"SELECT creator_pids,last_pids FROM segments WHERE id=?1",&q);
+    if (!r) {
+        sqlite3_bind_int(q,1,segment);
+        if (sqlite3_step(q)!=SQLITE_ROW) r=-EIO;
+        else {
+            int creator=md_ipc_pid_visible(q,0,observer,st->shm_cpid);
+            int last=md_ipc_pid_visible(q,1,observer,st->shm_lpid);
+            if (creator<0 || last<0) r=creator<0 ? creator : last;
+            else { st->shm_cpid=creator; st->shm_lpid=last; }
+        }
     }
     sqlite3_finalize(q); return r;
 }
@@ -157,6 +175,8 @@ int md_shm_open(const char *store, uint64_t namespace_id, struct md_user_namespa
         "CREATE TABLE IF NOT EXISTS refs(owner INTEGER,space INTEGER,segment INTEGER,n INTEGER,PRIMARY KEY(owner,space,segment));"
         "CREATE INDEX IF NOT EXISTS refs_segment ON refs(segment);");
     if (!r) r = exec_sql(s,"BEGIN IMMEDIATE");
+    if (!r) r=md_ipc_database_blob_column(&s->database,"segments","creator_pids");
+    if (!r) r=md_ipc_database_blob_column(&s->database,"segments","last_pids");
     if (!r) r=md_ipc_database_boot(&s->database,
         "DELETE FROM refs; DELETE FROM owners; UPDATE segments SET removed=1;");
     if (!r) r = dead_owners(s);
@@ -275,7 +295,7 @@ int md_shm_intersects(const struct md_shm_space *m, uintptr_t address, size_t si
         if (p->address < end && p->address+p->size > address) return 1;
     return 0;
 }
-int md_shm_unmapped(struct md_shm_space *m, uintptr_t address, size_t size, pid_t pid) {
+int md_shm_unmapped(struct md_shm_space *m,uintptr_t address,size_t size,pid_t pid,const struct md_pid_identity *process) {
     if (!md_shm_intersects(m,address,size)) return 0;
     uintptr_t end = size > UINTPTR_MAX-address ? UINTPTR_MAX : address+size;
     int r = 0;
@@ -297,7 +317,7 @@ int md_shm_unmapped(struct md_shm_space *m, uintptr_t address, size_t size, pid_
             struct shmid64_ds st;
             r = refs(s,s->database.owner,m->id,p->segment,-1);
             if (!r) r = load(s,p->segment,&st);
-            if (!r) { st.shm_dtime = time(NULL); st.shm_lpid = pid; r = save(s,p->segment,&st); }
+            if (!r) { st.shm_dtime = time(NULL); st.shm_lpid = pid; r = save(s,p->segment,&st,1,process); }
             released=1;
         }
         r=finish(s,r);
@@ -312,7 +332,7 @@ int md_shm_unmapped(struct md_shm_space *m, uintptr_t address, size_t size, pid_
 static int permission(const struct md_shm *s, const struct md_identity *id, const struct shmid64_ds *st, unsigned mode) {
     return md_ipc_perm_access(s->user_namespace,id,&st->shm_perm,mode);
 }
-int md_shm_export(struct md_shm *s,const struct md_identity *id,pid_t pid,int segment,
+int md_shm_export(struct md_shm *s,const struct md_identity *id,pid_t pid,const struct md_pid_identity *process,int segment,
         int readonly,int descriptors[2],uint64_t *size) {
     descriptors[0]=descriptors[1]=-1; *size=0;
     if (readonly!=0 && readonly!=1) return -EINVAL;
@@ -339,7 +359,7 @@ int md_shm_export(struct md_shm *s,const struct md_identity *id,pid_t pid,int se
     }
     sqlite3_finalize(q);
     if (!error) error=refs(s,owner,0,segment,1);
-    if (!error) { st.shm_atime=time(NULL); st.shm_lpid=pid; error=save(s,segment,&st); }
+    if (!error) { st.shm_atime=time(NULL); st.shm_lpid=pid; error=save(s,segment,&st,1,process); }
     error=finish(s,error);
     if (error) {
         if (data>=0) close(data);
@@ -350,7 +370,7 @@ int md_shm_export(struct md_shm *s,const struct md_identity *id,pid_t pid,int se
     return error;
 }
 long md_shm_call(struct md_shm *s, struct md_shm_space *m, struct md_shm_mapping **pending,
-        const struct md_identity *id, pid_t pid, unsigned op, const unsigned long a[4], struct shmid64_ds *info) {
+        const struct md_identity *id,pid_t pid,const struct md_pid_identity *process,unsigned op,const unsigned long a[4],struct shmid64_ds *info) {
     if (op == MD_SHM_ABORT) return md_shm_abort(pending);
     if (op == MD_SHM_ATTACHED) {
         struct md_shm_mapping *p = *pending;
@@ -363,7 +383,7 @@ long md_shm_call(struct md_shm *s, struct md_shm_space *m, struct md_shm_mapping
     }
     if (op == MD_SHM_DETACH_SIZE || op == MD_SHM_DETACHED) {
         for (struct md_shm_mapping *p = m->maps; p; p = p->next) if (p->address == a[0])
-            return op == MD_SHM_DETACH_SIZE ? (long)p->size : md_shm_unmapped(m,p->address,p->size,pid);
+            return op == MD_SHM_DETACH_SIZE ? (long)p->size : md_shm_unmapped(m,p->address,p->size,pid,process);
         return -EINVAL;
     }
     int r = begin(s), fd = -1;
@@ -389,12 +409,13 @@ long md_shm_call(struct md_shm *s, struct md_shm_space *m, struct md_shm_mapping
         } else if (!r) {
             if (key && !(flags & IPC_CREAT)) r = -ENOENT;
             else if (!size || size > LONG_MAX - (unsigned long)getpagesize()) r = -EINVAL;
-            if (!r) r = query(s,"INSERT INTO segments(key,removed,info,namespace) VALUES(?1,0,?2,?3)",&q);
+            if (!r) r = query(s,"INSERT INTO segments(key,removed,info,namespace,creator_pids) VALUES(?1,0,?2,?3,?4)",&q);
             st.shm_perm.key = key; st.shm_perm.uid = st.shm_perm.cuid = id->uid.effective;
             st.shm_perm.gid = st.shm_perm.cgid = id->gid.effective; st.shm_perm.mode = flags&0777;
             st.shm_segsz = size; st.shm_ctime = time(NULL); st.shm_cpid = pid;
             if (!r) { sqlite3_bind_int(q,1,key); sqlite3_bind_blob(q,2,&st,sizeof(st),SQLITE_STATIC);
-                sqlite3_bind_int64(q,3,s->namespace_id); r = sql(sqlite3_step(q)); }
+                sqlite3_bind_int64(q,3,s->namespace_id); r=md_ipc_pid_bind(q,4,process);
+                if (!r) r = sql(sqlite3_step(q)); }
             sqlite3_finalize(q);
             if (!r) {
                 sqlite3_int64 next = sqlite3_last_insert_rowid(s->database.handle);
@@ -426,12 +447,13 @@ long md_shm_call(struct md_shm *s, struct md_shm_space *m, struct md_shm_mapping
             struct md_shm_mapping *p = !r ? calloc(1,sizeof(*p)) : NULL;
             if (!r && !p) r = -ENOMEM;
             if (!r) r = refs(s,s->database.owner,m->id,segment,1);
-            if (!r) { st.shm_atime = time(NULL); st.shm_lpid = pid; r = save(s,segment,&st); }
+            if (!r) { st.shm_atime = time(NULL); st.shm_lpid = pid; r = save(s,segment,&st,1,process); }
             if (!r) { *p = (struct md_shm_mapping){.space=m,.segment=segment,.authority=s,
                 .size=(st.shm_segsz+getpagesize()-1)&~(size_t)(getpagesize()-1)}; *pending = p; result = fd; }
             else free(p);
         } else if (!r && op == MD_SHM_STAT) {
             r = permission(s,id,&st,4);
+            if (!r) r=visible_processes(s,segment,process,&st);
             if (!r) { *info=st; md_ipc_perm_visible(id,&info->shm_perm); }
         } else if (!r && (op == MD_SHM_SET || op == MD_SHM_REMOVE)) {
             r=md_ipc_perm_owner(s->user_namespace,id,&st.shm_perm);
@@ -440,7 +462,7 @@ long md_shm_call(struct md_shm *s, struct md_shm_space *m, struct md_shm_mapping
                     r=md_ipc_perm_set(id,&st.shm_perm,(uint32_t)a[1],a[1]>>32,a[2]);
                     st.shm_ctime = time(NULL);
                 } else { st.shm_perm.mode |= 01000; st.shm_perm.key = IPC_PRIVATE; }
-                if (!r) r = save(s,segment,&st);
+                if (!r) r = save(s,segment,&st,0,NULL);
             }
         } else if (!r) r = -ENOTSUP;
     }

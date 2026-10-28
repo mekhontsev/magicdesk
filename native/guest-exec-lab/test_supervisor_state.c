@@ -6,6 +6,28 @@
 #include <assert.h>
 #include "fs_mount_internal.h"
 
+static void process_snapshot(void) {
+    char arguments[8192]; memset(arguments,'x',sizeof(arguments));
+    arguments[sizeof(arguments)-1]=0;
+    struct md_process_image view={.arguments=arguments,.argument_bytes=sizeof(arguments),
+        .auxv_bytes=2*sizeof(Elf64_auxv_t)};
+    Elf64_auxv_t aux[]={{.a_type=AT_PAGESZ,.a_un.a_val=4096},{.a_type=AT_NULL}};
+    memcpy(view.auxv,aux,sizeof(aux));
+    const unsigned kinds[]={MD_PROC_CMDLINE,MD_PROC_AUXV};
+    for (unsigned i=0;i<sizeof(kinds)/sizeof(*kinds);++i) {
+        unsigned kind=kinds[i];
+        const void *expected=kind==MD_PROC_CMDLINE ? (void *)arguments : (void *)aux;
+        size_t size=kind==MD_PROC_CMDLINE ? sizeof(arguments) : sizeof(aux);
+        void *bytes=NULL;
+        assert(md_process_image_snapshot(getpid(),(uintptr_t)&view,-1,kind,&bytes)==(ssize_t)size);
+        assert(!memcmp(bytes,expected,size)); free(bytes);
+    }
+    void *bytes=NULL;
+    assert(md_process_image_snapshot(getpid(),(uintptr_t)&view,-1,MD_PROC_EXE,&bytes)==-ENOTSUP && !bytes);
+    view.arguments=(void *)1;
+    assert(md_process_image_snapshot(getpid(),(uintptr_t)&view,-1,MD_PROC_CMDLINE,&bytes)==-EFAULT && !bytes);
+    puts("PASS process snapshot: worker-independent cmdline/auxv and invalid memory");
+}
 static int accounting_enabled, accounting_requested, adoption_error, adoption_calls;
 static pid_t wait_result=123;
 static struct md_fs_buffer_open adopted={.fd=-1};
@@ -250,6 +272,199 @@ static void readiness_admission_order(void) {
     md_control_epoll_release(queue); md_fd_selector_release(group); md_fd_origins_release(files);
     puts("PASS supervisor readiness: earlier table turn drains during cold admission");
 }
+static unsigned readiness_cancel_step;
+static struct user_pt_regs readiness_before_call;
+static unsigned readiness_entry_reads,readiness_entry_resumes;
+static long readiness_entry_trace(int request,pid_t pid,void *address,void *data) {
+    assert(pid==123);
+    if (request==PTRACE_GETREGSET) {
+        assert((uintptr_t)address==NT_PRSTATUS);
+        *(struct user_pt_regs *)((struct iovec *)data)->iov_base=readiness_before_call;
+        ++readiness_entry_reads;
+    } else {
+        assert(request==PTRACE_SYSCALL && !address && !data);
+        ++readiness_entry_resumes;
+    }
+    return 0;
+}
+static void readiness_entry_interrupt(void) {
+    uintptr_t call=abi.task_call,returned=abi.task_return;
+    abi.task_call=0x1000; abi.task_return=0x1004;
+    const long numbers[]={SYS_epoll_pwait,SYS_epoll_pwait2,SYS_ppoll};
+    for (unsigned i=0;i<sizeof(numbers)/sizeof(*numbers);++i) for (unsigned evict=0;evict<2;++evict) {
+        struct readiness_owner owner={.evicting=evict,
+            .native_call={.number=numbers[i],.value={35,0x4000,2,1000,0,8}}};
+        struct thread t={.pid=123,.phase=EPOLL_CALL,.kernel_stopped=1,
+            .socket_waking=1,.signal_shielded=1,.readiness=&owner};
+        readiness_before_call=(struct user_pt_regs){.pc=abi.task_call};
+        readiness_before_call.regs[8]=numbers[i];
+        memcpy(readiness_before_call.regs,owner.native_call.value,sizeof(owner.native_call.value));
+        readiness_entry_reads=readiness_entry_resumes=0;
+        thread_index[t.pid%THREAD_BUCKETS]=&t; checkpoints.trace=readiness_entry_trace;
+        int status=(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f;
+        assert(readiness_native_event(&t,status));
+        assert(readiness_entry_reads==1 && readiness_entry_resumes==1);
+        assert(t.phase==EPOLL_CALL && !t.socket_waking && !t.kernel_stopped && t.signal_shielded);
+        assert(!owner.done && !owner.finishing && !owner.parked && owner.evicting==(int)evict);
+        assert(!readiness_native_event(&t,(SIGUSR1<<8)|0x7f));
+        assert(readiness_entry_reads==1 && readiness_entry_resumes==1);
+        checkpoints.trace=checkpoint_native_trace; thread_index[t.pid%THREAD_BUCKETS]=NULL;
+    }
+    abi.task_call=call; abi.task_return=returned;
+    puts("PASS readiness entry interrupt: resume exact call, retain eviction and mask, consume only service wake");
+}
+static void readiness_signal_return(void) {
+    struct md_fd_origins *files=md_fd_origins_new(); assert(files);
+    struct thread t={.pid=123,.ready=1,.born=1,.initial_stop=1,.phase=IDLE,
+        .resources={.files=files}};
+    assert(task_action_borrowable(&t,NULL));
+    t.signal_return_pending=1;
+    assert(!task_action_borrowable(&t,NULL));
+    struct task_action owner={.loan_table=files};
+    for (unsigned mode=0;mode<3;++mode) {
+        owner.requester=mode==1 ? &t : NULL;
+        owner.retirement.task=mode==2 ? t.pid : 0;
+        int alive=0,stopped=7;
+        assert(!loan_borrow(&owner,&t,&alive,&stopped) && alive && stopped==7);
+    }
+    /* Even a queued carrier must not rewrite an atomic wait's pending mask. */
+    siginfo_t signal={.si_signo=SIGUSR2,.si_code=SI_USER};
+    assert(!md_signal_delivery_hold(&t.signal_delivery,&signal));
+    t.ready=0; t.kernel_stopped=1;
+    thread_index[t.pid%THREAD_BUCKETS]=&t; checkpoints.trace=readiness_entry_trace;
+    readiness_entry_reads=readiness_entry_resumes=0;
+    resume(t.pid,0);
+    assert(readiness_entry_resumes==1 && !readiness_entry_reads && !t.kernel_stopped);
+    assert(t.signal_return_pending && !t.signal_delivery.active
+        && md_signal_delivery_pending(&t.signal_delivery));
+    checkpoints.trace=checkpoint_native_trace; thread_index[t.pid%THREAD_BUCKETS]=NULL;
+    md_signal_delivery_clear(&t.signal_delivery); md_fd_origins_release(files);
+    puts("PASS readiness signal return: no borrowed FD action or carrier before next kernel entry");
+}
+static unsigned readiness_interrupted_step;
+static long readiness_interrupted_trace(int request,pid_t pid,void *address,void *data) {
+    assert(pid==123);
+    struct thread *t=find_thread(pid); assert(t);
+    switch (readiness_interrupted_step++) {
+    case 0:
+        assert(request==PTRACE_GETREGSET && (uintptr_t)address==NT_PRSTATUS);
+        *(struct user_pt_regs *)((struct iovec *)data)->iov_base=
+            (struct user_pt_regs){.regs={(uint64_t)-514}};
+        break;
+    case 1: {
+        assert(request==PTRACE_SETREGSET && (uintptr_t)address==NT_PRSTATUS);
+        struct user_pt_regs expected=t->original; expected.regs[0]=(uint64_t)-EINTR;
+        assert(!memcmp(((struct iovec *)data)->iov_base,&expected,sizeof(expected)));
+        assert(t->signal_return_pending && !t->readiness);
+        break;
+    }
+    case 2:
+        assert(request==PTRACE_SYSCALL && !address && !data);
+        assert(t->signal_return_pending && t->phase==IDLE && !t->signal_shielded);
+        break;
+    default: assert(!"unexpected mask change or injected call after interrupted wait");
+    }
+    return 0;
+}
+static void readiness_parked_signal_return(void) {
+    struct thread t={.pid=123,.phase=SOCKET_WAITING,.kernel_stopped=1,
+        .memory=md_memory_new(),.readiness=calloc(1,sizeof(struct readiness_owner))};
+    assert(t.memory && t.readiness);
+    t.original=(struct user_pt_regs){.pc=0x1004,.regs={7,0x2000,3,4000,0,8}};
+    t.original.regs[8]=SYS_epoll_pwait;
+    readiness_interrupted_step=0;
+    thread_index[t.pid%THREAD_BUCKETS]=&t; checkpoints.trace=readiness_interrupted_trace;
+    socket_wait_complete(&t);
+    assert(readiness_interrupted_step==3 && !t.kernel_stopped && t.signal_return_pending);
+    checkpoints.trace=checkpoint_native_trace; thread_index[t.pid%THREAD_BUCKETS]=NULL;
+    md_memory_release(t.memory);
+    puts("PASS readiness parked signal return: original EINTR, no mask rewrite and deferred cleanup");
+}
+static long readiness_cancel_error;
+static long readiness_cancel_trace(int request,pid_t pid,void *address,void *data) {
+    assert(pid==123);
+    switch (readiness_cancel_step++) {
+    case 0: {
+        assert(request==PTRACE_GETREGSET && (uintptr_t)address==NT_PRSTATUS);
+        struct user_pt_regs *regs=((struct iovec *)data)->iov_base;
+        *regs=(struct user_pt_regs){.pc=abi.task_return};
+        break;
+    }
+    case 1: {
+        assert(request==PTRACE_GET_SYSCALL_INFO);
+        struct ptrace_syscall_info *info=data;
+        *info=(struct ptrace_syscall_info){.op=PTRACE_SYSCALL_INFO_ENTRY,
+            .instruction_pointer=abi.task_return,.entry={.nr=SYS_epoll_pwait}};
+        break;
+    }
+    case 2:
+        assert(request==PTRACE_SETREGSET && (uintptr_t)address==NT_ARM_SYSTEM_CALL
+            && *(int *)((struct iovec *)data)->iov_base==-1);
+        break;
+    case 3:
+        assert(request==PTRACE_SYSCALL && !address && !data);
+        break;
+    case 4:
+        assert(request==PTRACE_GET_SYSCALL_INFO);
+        *(struct ptrace_syscall_info *)data=(struct ptrace_syscall_info){.op=PTRACE_SYSCALL_INFO_EXIT};
+        break;
+    case 5:
+        assert(request==PTRACE_SETREGSET && (uintptr_t)address==NT_PRSTATUS);
+        assert((long)((struct user_pt_regs *)((struct iovec *)data)->iov_base)->regs[0]==readiness_cancel_error);
+        break;
+    case 6:
+        assert(request==PTRACE_CONT && !address && !data);
+        break;
+    default: assert(!"unexpected readiness cancellation request");
+    }
+    return 0;
+}
+static void readiness_cancel_entry(void) {
+    struct readiness_owner owner={.evicting=1,.native_call={.number=SYS_epoll_pwait}};
+    struct thread t={.pid=123,.phase=EPOLL_CALL,.kernel_stopped=1,.readiness=&owner};
+    thread_index[t.pid%THREAD_BUCKETS]=&t;
+    checkpoints.trace=readiness_cancel_trace;
+    fd_ready=eventfd(0,EFD_CLOEXEC|EFD_NONBLOCK); assert(fd_ready>=0);
+    int status=((SIGTRAP|0x80)<<8)|0x7f;
+    assert(readiness_native_event(&t,status));
+    assert(t.phase==WAIT_CANCEL_EXIT && t.wait_resume==EPOLL_CALL && !owner.parked);
+    assert(readiness_cancel_step==4);
+    uint64_t events;
+    assert(read(fd_ready,&events,sizeof(events))==-1 && errno==EAGAIN);
+    /* A pending signal/interrupt cannot publish a still-entering wait. */
+    assert(!readiness_native_event(&t,(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f));
+    assert(!owner.parked && readiness_cancel_step==4);
+    t.kernel_stopped=1;
+    assert(readiness_native_event(&t,status));
+    assert(owner.parked && t.phase==DISPATCHING && t.wait_resume==IDLE && readiness_cancel_step==5);
+    assert(read(fd_ready,&events,sizeof(events))==sizeof(events) && events==1);
+    /* A failed observer registration has the same entry/exit fence, but
+     * returns its error instead of parking for another file-table owner. */
+    int previous_socket_events=socket_events;
+    socket_events=eventfd(0,EFD_CLOEXEC|EFD_NONBLOCK); assert(socket_events>=0);
+    struct md_control_epoll *queue=md_control_epoll_new(); assert(queue);
+    assert(md_control_epoll_admit_begin(queue)==1 && !md_control_epoll_admit_finish(queue,1));
+    owner=(struct readiness_owner){.native_call={.number=SYS_epoll_pwait},.wait={.blocking=1},
+        .queue=md_control_epoll_object(queue)};
+    t.phase=EPOLL_CALL; t.kernel_stopped=1; readiness_cancel_step=0;
+    assert(readiness_native_event(&t,status));
+    assert(t.phase==WAIT_CANCEL_EXIT && t.wait_resume==EPOLL_CALL && owner.finishing && !owner.done);
+    readiness_cancel_error=owner.finish_result; assert(readiness_cancel_error<0);
+    assert(readiness_cancel_step==4 && !owner.parked);
+    assert(read(fd_ready,&events,sizeof(events))==-1 && errno==EAGAIN);
+    t.kernel_stopped=1;
+    assert(readiness_native_event(&t,status));
+    assert(owner.done && !owner.parked && t.phase==DISPATCHING && t.wait_resume==IDLE);
+    assert(readiness_cancel_step==7);
+    assert(read(fd_ready,&events,sizeof(events))==-1 && errno==EAGAIN);
+    assert(!owner.wait.job.started);
+    md_control_epoll_release(queue);
+    close(socket_events); socket_events=previous_socket_events;
+    close(fd_ready); fd_ready=-1;
+    checkpoints.trace=checkpoint_native_trace;
+    thread_index[t.pid%THREAD_BUCKETS]=NULL;
+    puts("PASS epoll loan revocation: skipped entry drains before descriptor retirement or adapter reply");
+}
 static long duplicate_reply;
 static long duplicate_return_trace(int request,pid_t pid,void *address,void *data) {
     assert(request==PTRACE_SETREGSET && pid==123 && (uintptr_t)address==NT_PRSTATUS);
@@ -349,7 +564,32 @@ static void fd_native_retirement(void) {
     md_fs_anchor_release(origin);
     puts("PASS native FD retirement: real syscall continuation, metadata-free close, shared/changed/debugged observation, filtered no-op and wide command");
 }
+static void readiness_admission_identity(void) {
+    struct md_fd_origins *files=md_fd_origins_new(); assert(files);
+    struct readiness_owner owner={.loan_number=-1};
+    struct thread t={.readiness=&owner};
+    struct seccomp_data call={.nr=SYS_epoll_pwait,.args={3,0x1234,8,100,0x4567,8}};
+    t.original.regs[8]=call.nr;
+    for (unsigned i=0;i<6;++i) t.original.regs[i]=call.args[i];
+    assert(!readiness_admission_purpose(&t,&call));
+    assert(md_fd_order_begin(files,&owner.files,NULL)==1 && !md_fd_order_start(&owner.files));
+    assert(readiness_admission_purpose(&t,&call)==MD_FS_BUFFER_EPOLL_ADMIT);
+    for (unsigned i=0;i<6;++i) {
+        ++call.args[i]; assert(!readiness_admission_purpose(&t,&call)); --call.args[i];
+    }
+    ++call.nr; assert(!readiness_admission_purpose(&t,&call)); --call.nr;
+    owner.done=1; assert(!readiness_admission_purpose(&t,&call)); owner.done=0;
+    assert(!md_fd_order_complete(&owner.files));
+    struct task_action retirement={0}; owner.retirement=&retirement;
+    assert(readiness_admission_purpose(&t,&call)==MD_FS_BUFFER_EPOLL_LOAN);
+    owner.loan_number=9; assert(!readiness_admission_purpose(&t,&call));
+    t.readiness=NULL; assert(!readiness_admission_purpose(&t,&call));
+    md_fd_origins_release(files);
+    puts("PASS readiness admission: exact call identity, capture/loan ownership and completed-call rejection");
+}
 static void entry_fence_ownership(void) {
+    int previous=fd_ready;
+    fd_ready=eventfd(0,EFD_NONBLOCK|EFD_CLOEXEC); assert(fd_ready>=0);
     struct thread a={.pid=123,.entry_fence_waiting=1,.entry_fence_status=17},
         b={.pid=124,.entry_fence_waiting=1,.entry_fence_status=19};
     a.next=&b; threads=&a; entry_fence_waiters=2;
@@ -360,6 +600,9 @@ static void entry_fence_ownership(void) {
     int status; struct rusage usage;
     assert(entry_fence_take(&status,&usage)==123 && status==17);
     assert(a.entry_fence_result==-EBUSY && !a.entry_fence_waiting && entry_fence_waiters==1);
+    assert(entry_fence_owner==&a && !entry_fence_park(&a));
+    assert(!entry_fence_take(&status,&usage));
+    entry_fence_owner=NULL;
     /* Exit/exec cancels a waiter exactly once, before its slot can be reused. */
     entry_fence_cancel(&b); entry_fence_cancel(&b);
     assert(!entry_fence_waiters && !entry_fence_take(&status,&usage));
@@ -367,7 +610,38 @@ static void entry_fence_ownership(void) {
     threads=NULL;
     entry_fence_progress();
     assert(!entry_fence_memory);
-    puts("PASS supervisor entry fence: exact waiter retirement, cancellation and idle fast path");
+    struct thread peer={.phase=DISPATCHING,.initial_stop=1};
+    entry_fence_memory=md_memory_new(); assert(entry_fence_memory);
+    peer.memory=entry_fence_memory; entry_fence_stage=2; entry_fence_protected=1;
+    assert(!entry_fence_boundary(&peer) && !entry_fence_park(&peer));
+    peer.phase=IDLE;
+    assert(entry_fence_boundary(&peer) && entry_fence_park(&peer));
+    peer.machine.draining=1; assert(!entry_fence_park(&peer)); peer.machine.draining=0;
+    peer.direct=DIRECT_RESULT; assert(!entry_fence_park(&peer)); peer.direct=DIRECT_NONE;
+    peer.entry_fence_waiting=1; assert(!entry_fence_park(&peer)); peer.entry_fence_waiting=0;
+    entry_fence_protected=0;
+    assert(!entry_fence_park(&peer) && entry_fence_adapt(&peer));
+    entry_fence_stage=3; assert(!entry_fence_park(&peer));
+    assert(!entry_fence_adapt(&peer));
+    struct readiness_owner wait={.native_caller=1};
+    peer.readiness=&wait; peer.phase=EPOLL_WAIT; entry_fence_stage=2;
+    assert(entry_fence_drained(&peer) && !entry_fence_boundary(&peer) && !entry_fence_adapt(&peer));
+    entry_fence_protected=1; assert(!entry_fence_drained(&peer)); entry_fence_protected=0;
+    wait.evicting=1; assert(!entry_fence_drained(&peer)); wait.evicting=0;
+    wait.finishing=1; assert(!entry_fence_drained(&peer)); wait.finishing=0;
+    peer.machine.draining=1; assert(!entry_fence_drained(&peer)); peer.machine.draining=0;
+    peer.phase=EPOLL_CALL; assert(!entry_fence_drained(&peer));
+    peer.phase=SOCKET_WAITING; assert(!entry_fence_drained(&peer));
+    peer.readiness=NULL; peer.phase=WATCH_READ; peer.watch_wait=2;
+    assert(entry_fence_drained(&peer) && !entry_fence_boundary(&peer));
+    entry_fence_protected=1; assert(!entry_fence_drained(&peer)); entry_fence_protected=0;
+    peer.machine.syscall_exit=1; assert(!entry_fence_drained(&peer)); peer.machine.syscall_exit=0;
+    peer.watch_wait=1; assert(!entry_fence_drained(&peer));
+    peer.watch_wait=0; assert(entry_fence_drained(&peer));
+    peer.watch_wait=2; peer.phase=WATCH_ENTRY; assert(!entry_fence_drained(&peer));
+    md_memory_release(entry_fence_memory); entry_fence_memory=NULL; entry_fence_stage=0;
+    close(fd_ready); fd_ready=previous;
+    puts("PASS supervisor entry fence: waiter retirement, transition ownership, private drain and admission hold");
 }
 static void control_deadlines(void) {
     struct md_control_pending late={.deadline=500},early={.deadline=100};
@@ -552,9 +826,11 @@ static void prepared_input(void) {
     assert(!dispatch_input(&t,0) && !t.buffer.pool);
     strcpy(t.endpoint,"managed");
     unsigned calls[]={SYS_recvmsg,SYS_recvmmsg,SYS_ppoll,SYS_pselect6,SYS_execve,SYS_execveat};
+    unsigned adapters[]={MD_DISPATCH_NETWORK_DATA,MD_DISPATCH_NETWORK_CONTROL,MD_DISPATCH_DEVICE_EVENTS};
     for (unsigned i=0;i<sizeof(calls)/sizeof(*calls);++i) {
         t.original.regs[8]=calls[i]; t.original.regs[0]=t.original.regs[1]=8;
-        assert(!dispatch_input(&t,MD_DISPATCH_NETWORK_DATA) && !t.buffer.pool);
+        for (unsigned j=0;j<sizeof(adapters)/sizeof(*adapters);++j)
+            assert(!dispatch_input(&t,MD_DISPATCH_PATHS|adapters[j]) && !t.buffer.pool && !t.dispatch_prepared);
         assert(dispatch_input(&t,0)==0x100000 && t.dispatch_prepared);
         struct md_interception_buffer held={0};
         assert(md_buffers_take(pool,&held)==-EAGAIN);
@@ -791,6 +1067,78 @@ static void quiescent_birth(void) {
     checkpoints.trace=saved_trace; thread_index[bucket]=NULL;
     puts("PASS quiescent birth: initial child stop predates barrier, every birth event, late stop and exact replay");
 }
+static unsigned debugger_interrupts, debugger_continuations;
+static long debugger_result;
+static int debugger_test_group(pid_t pid) { return pid; }
+static int debugger_test_parent(pid_t pid) { (void)pid; return 0; }
+static int debugger_test_attachable(pid_t caller,pid_t target) { (void)caller; return target==123; }
+static int debugger_test_observe(pid_t pid) { (void)pid; return 0; }
+static int debugger_test_options(pid_t pid,unsigned long options) { (void)pid; (void)options; return 0; }
+static uid_t debugger_test_uid(pid_t pid) { (void)pid; return 0; }
+static void debugger_test_usage(pid_t pid,struct rusage *usage) { (void)pid; *usage=(struct rusage){0}; }
+static void debugger_test_complete(pid_t pid,struct user_pt_regs *r,long value) {
+    (void)pid; (void)r; debugger_result=value;
+}
+static long debugger_quiesce_trace(int request,pid_t pid,void *address,void *data) {
+    assert(pid==123 && !address && !data);
+    if (request==PTRACE_INTERRUPT) ++debugger_interrupts;
+    else {
+        assert(request==PTRACE_CONT || request==PTRACE_SYSCALL || request==PTRACE_SINGLESTEP);
+        ++debugger_continuations;
+    }
+    return 0;
+}
+static void debugger_quiescence(void) {
+    const int continuations[]={PTRACE_CONT,PTRACE_SYSCALL,PTRACE_SINGLESTEP};
+    for (unsigned mode=0;mode<3;++mode) {
+        struct thread t={.pid=123,.born=1,.initial_stop=1,.entered=1,.process_image=1};
+        assert(!debugger && !thread_index[t.pid%THREAD_BUCKETS]);
+        thread_index[t.pid%THREAD_BUCKETS]=&t;
+        checkpoints.trace=debugger_quiesce_trace;
+        debugger_interrupts=debugger_continuations=0;
+        struct md_task_quiesce *barrier=md_task_quiesce_new(quiesce_trace); assert(barrier);
+        assert(!md_task_quiesce_add(barrier,t.pid,0,continuations[mode]));
+        assert(!md_task_quiesce_stop(barrier) && debugger_interrupts==1);
+        assert(!quiesce_event(barrier,t.pid,(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f,NULL));
+        assert(md_task_quiesce_ready(barrier) && !md_task_quiesce_release(barrier));
+        assert(debugger_continuations==1 && !t.memory_resume && !t.interrupt_pending);
+        md_task_quiesce_destroy(barrier);
+        thread_index[t.pid%THREAD_BUCKETS]=NULL;
+    }
+    struct md_debugger_host host={.group=debugger_test_group,.parent=debugger_test_parent,
+        .attachable=debugger_test_attachable,.observe=debugger_test_observe,
+        .options=debugger_test_options,.interrupt=debugger_interrupt,.complete=debugger_test_complete,
+        .uid=debugger_test_uid,.usage=debugger_test_usage};
+    for (unsigned mode=0;mode<3;++mode) for (unsigned seized=0;seized<2;++seized) {
+        struct thread t={.pid=123,.born=1,.initial_stop=1,.entered=1,.process_image=1};
+        assert(!thread_index[t.pid%THREAD_BUCKETS]); thread_index[t.pid%THREAD_BUCKETS]=&t;
+        checkpoints.trace=debugger_quiesce_trace;
+        debugger_interrupts=debugger_continuations=0;
+        debugger=md_debugger_create(&host); assert(debugger);
+        struct md_task_quiesce *barrier=md_task_quiesce_new(quiesce_trace); assert(barrier);
+        assert(!md_task_quiesce_add(barrier,t.pid,0,continuations[mode]));
+        assert(!md_task_quiesce_stop(barrier) && debugger_interrupts==1);
+        struct user_pt_regs call={.regs={[8]=SYS_ptrace,[0]=seized ? PTRACE_SEIZE : PTRACE_ATTACH,[1]=t.pid}};
+        assert(md_debugger_call(debugger,getpid(),&call) && !debugger_result);
+        if (seized) {
+            call.regs[0]=PTRACE_INTERRUPT;
+            assert(md_debugger_call(debugger,getpid(),&call) && !debugger_result);
+        }
+        assert(debugger_interrupts==2 && t.interrupt_pending);
+        /* Both owners receive the same kernel interruption. Barrier release
+         * must return to dispatcher admission before any guest continuation. */
+        assert(!quiesce_event(barrier,t.pid,(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f,NULL));
+        assert(md_task_quiesce_ready(barrier) && !md_task_quiesce_release(barrier));
+        assert(!debugger_continuations && t.memory_resume && t.kernel_stopped && !t.interrupt_pending);
+        assert(md_debugger_boundary(debugger,t.pid));
+        assert(md_debugger_stopped_by(debugger,t.pid,getpid()));
+        md_task_quiesce_destroy(barrier);
+        md_debugger_destroy(debugger); debugger=NULL;
+        thread_index[t.pid%THREAD_BUCKETS]=NULL;
+    }
+    checkpoints.trace=checkpoint_native_trace;
+    puts("PASS debugger quiescence: attach/seize share barrier interrupt, all continuations retain pending stop");
+}
 static void event_accounting(void) {
     int source[2],previous_signal_fd=signal_fd;
     assert(!pipe2(source,O_NONBLOCK|O_CLOEXEC)); signal_fd=source[0];
@@ -943,13 +1291,155 @@ static void provider_wait_boundaries(void) {
         t.original.regs[0]=pid;
         assert(set_registers(pid,&t.original));
         assert(!ptrace(PTRACE_CONT,pid,NULL,NULL));
-        assert(waitpid(pid,&status,0)==pid && WIFEXITED(status) && !WEXITSTATUS(status));
+        assert(waitpid(pid,&status,0)==pid);
+        if (!WIFEXITED(status) || WEXITSTATUS(status))
+            fprintf(stderr,"provider wait phase=%d pending_exit=%u status=%#x\n",phases[p],pending_exit,status);
+        assert(WIFEXITED(status) && !WEXITSTATUS(status));
     }
     abi.raw_gate=saved_gate;
     puts("PASS provider wait: seccomp exit drain, post-exit entry, poll arguments and cancelled completion");
 }
+static unsigned checkpoint_trace_calls,checkpoint_op;
+static long checkpoint_barrier_trace(int request,pid_t pid,void *address,void *data) {
+    assert(pid==123); ++checkpoint_trace_calls;
+    if (request==PTRACE_GET_SYSCALL_INFO) {
+        struct ptrace_syscall_info *info=data;
+        *info=(struct ptrace_syscall_info){.op=checkpoint_op,.instruction_pointer=0x1204};
+    } else if (request==PTRACE_GETREGSET) {
+        assert((uintptr_t)address==NT_PRSTATUS);
+        struct iovec *io=data;
+        *(struct user_pt_regs *)io->iov_base=md_task_registers_entry(0x1204,0x8000,0);
+    } else assert(request==PTRACE_SETREGSET || request==PTRACE_SYSCALL || request==PTRACE_SYSEMU);
+    return 0;
+}
+static void checkpoint_quiescence(void) {
+    struct thread t={.pid=123,.application_filter=1};
+    thread_index[t.pid%THREAD_BUCKETS]=&t;
+    struct md_task_checkpoints saved=checkpoints;
+    checkpoints=(struct md_task_checkpoints){.trace=checkpoint_barrier_trace,
+        .restricted=checkpoint_restricted,.marker=checkpoint_marker,.begin=0x1000,.end=0x2000};
+    struct memory_execution memory={0}; struct mapping_owner mapping={0}; struct task_action action={0};
+    for (unsigned mode=0;mode<4;++mode) for (unsigned stage=0;stage<3;++stage)
+            for (unsigned borrowed=0;borrowed<2;++borrowed) {
+        struct user_pt_regs r=md_task_registers_entry(0x1200,0x8000,0);
+        assert(set_registers(t.pid,&r) && !native_trace(PTRACE_CONT,t.pid,NULL,NULL));
+        int status=(SIGTRAP|0x80)<<8|0x7f;
+        for (unsigned i=0;i<stage;++i) {
+            checkpoint_op=i==1 ? PTRACE_SYSCALL_INFO_EXIT : PTRACE_SYSCALL_INFO_ENTRY;
+            assert(checkpoint_event(t.pid,&status)==1);
+        }
+        checkpoint_op=stage==1 ? PTRACE_SYSCALL_INFO_EXIT : PTRACE_SYSCALL_INFO_ENTRY;
+        struct md_task_quiesce **barrier;
+        if (!mode) { entry_fence_stage=1; barrier=&entry_fence_barrier; }
+        else if (mode==1) { memory_execution=&memory; barrier=&memory_barrier; }
+        else if (mode==2) { mapping_execution=&mapping; barrier=&mapping_barrier; }
+        else { task_action_execution=&action; barrier=&task_action_barrier; }
+        *barrier=md_task_quiesce_new(no_trace); assert(*barrier);
+        assert(!md_task_quiesce_add(*barrier,t.pid,borrowed,PTRACE_CONT));
+        unsigned before=checkpoint_trace_calls;
+        if (borrowed) {
+            struct md_task_quiesce_stop boundary;
+            assert(!md_task_quiesce_borrow(*barrier,t.pid,&boundary));
+            assert(checkpoint_event(t.pid,&status)==1 && checkpoint_trace_calls>before);
+            assert(!md_task_quiesce_return(*barrier,t.pid));
+        } else {
+            assert(!checkpoint_event(t.pid,&status) && checkpoint_trace_calls==before);
+            assert(!md_task_quiesce_event(*barrier,t.pid,status,NULL));
+        }
+        assert(md_task_quiesce_ready(*barrier) && !md_task_quiesce_release(*barrier));
+        entry_fence_stage=0; memory_execution=NULL; mapping_execution=NULL; task_action_execution=NULL;
+        if (!borrowed) {
+            assert(md_task_quiesce_take(*barrier,&status,NULL)==t.pid);
+            assert(checkpoint_event(t.pid,&status)==1 && checkpoint_trace_calls>before);
+        }
+        assert(!md_task_quiesce_take(*barrier,&status,NULL));
+        md_task_quiesce_destroy(*barrier); *barrier=NULL;
+        md_task_checkpoints_clear(&checkpoints);
+    }
+    checkpoints=saved; thread_index[t.pid%THREAD_BUCKETS]=NULL;
+    puts("PASS checkpoint quiescence: all barriers retain and replay once; borrowed helpers progress");
+}
+static struct seccomp_notif admission_request(void) {
+    assert(!md_event_wait_fd(listener,POLLIN,md_event_now()+3000000000LL));
+    struct seccomp_notif q={0};
+    assert(!ioctl(listener,SECCOMP_IOCTL_NOTIF_RECV,&q));
+    return q;
+}
+static void admission_quiescence(void) {
+    extern char md_guest_buffer_admitted[];
+    uintptr_t saved=abi.buffer_admit;
+    abi.buffer_admit=(uintptr_t)md_guest_buffer_admitted;
+    for (unsigned early=0;early<2;++early) {
+        int channel[2]; assert(!socketpair(AF_UNIX,SOCK_SEQPACKET|SOCK_CLOEXEC,0,channel));
+        pid_t parent=getpid(),pid=fork(); assert(pid>=0);
+        if (!pid) {
+            assert(!prctl(PR_SET_PDEATHSIG,SIGKILL) && getppid()==parent);
+            close(channel[0]);
+            struct sock_filter code[]={
+                BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+                BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_gettid,0,1),
+                BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_USER_NOTIF),
+                BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)
+            };
+            struct sock_fprog program={sizeof(code)/sizeof(*code),code};
+            assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+            int fd=syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,SECCOMP_FILTER_FLAG_NEW_LISTENER,&program);
+            assert(fd>=0);
+            uint64_t mask=UINT64_MAX;
+            assert(!syscall(SYS_rt_sigprocmask,SIG_SETMASK,&mask,NULL,sizeof(mask)));
+            assert(write(channel[1],&fd,sizeof(fd))==sizeof(fd));
+            char go; assert(read(channel[1],&go,1)==1);
+            assert(md_guest_buffer_admit(42)==-EINTR);
+            fd=(int)md_guest_buffer_admit(43);
+            char byte=1; assert(fd>=0 && read(fd,&byte,1)==1 && !byte);
+            assert(!close(fd)); _exit(0);
+        }
+        close(channel[1]); int remote;
+        assert(read(channel[0],&remote,sizeof(remote))==sizeof(remote));
+        int pidfd=syscall(SYS_pidfd_open,pid,0); assert(pidfd>=0);
+        listener=syscall(SYS_pidfd_getfd,pidfd,remote,0); assert(listener>=0); close(pidfd);
+        assert(!ptrace(PTRACE_SEIZE,pid,NULL,(void *)(uintptr_t)PTRACE_O_EXITKILL));
+        assert(write(channel[0],"x",1)==1);
+        struct seccomp_notif q=admission_request();
+        assert(q.pid==(unsigned)pid && q.data.instruction_pointer==abi.buffer_admit && q.data.args[0]==42);
+        struct thread t={.pid=pid,.born=1,.ready=1,.phase=DISPATCHING};
+        thread_index[pid%THREAD_BUCKETS]=&t;
+        struct mapping_owner execution={0}; mapping_execution=&execution;
+        mapping_barrier=md_task_quiesce_new(quiesce_trace); assert(mapping_barrier);
+        assert(!md_task_quiesce_add(mapping_barrier,pid,0,PTRACE_CONT));
+        if (early) { handle_notification(&q); assert(t.memory_notification); }
+        assert(!md_task_quiesce_stop(mapping_barrier));
+        if (!early) handle_notification(&q);
+        assert(!t.memory_notification && !t.buffer_admission_pending);
+        int status;
+        /* EVENT_WAIT: the real kernel interrupt; the suite alarm bounds failure. */
+        assert(waitpid(pid,&status,0)==pid && WIFSTOPPED(status));
+        assert((unsigned)status>>16==PTRACE_EVENT_STOP && WSTOPSIG(status)==SIGTRAP);
+        assert(!md_task_quiesce_event(mapping_barrier,pid,status,NULL));
+        assert(md_task_quiesce_ready(mapping_barrier));
+        assert(!md_task_quiesce_release(mapping_barrier));
+        q=admission_request();
+        assert(q.data.args[0]==42 && q.data.instruction_pointer==abi.buffer_admit);
+        struct seccomp_notif_resp reply={.id=q.id,.error=-EINTR};
+        assert(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply));
+        q=admission_request(); assert(q.data.args[0]==43);
+        int source=open("/dev/zero",O_RDONLY|O_CLOEXEC); assert(source>=0);
+        struct seccomp_notif_addfd add={.id=q.id,.srcfd=source,
+            .flags=SECCOMP_ADDFD_FLAG_SEND,.newfd_flags=O_CLOEXEC};
+        assert(ioctl(listener,SECCOMP_IOCTL_NOTIF_ADDFD,&add)>=0); close(source);
+        t.buffer_admission_id=q.id; t.buffer_admission_pending=1;
+        buffer_admission_yield(&t); /* Expired publication cannot be replayed. */
+        assert(waitpid(pid,&status,0)==pid && WIFEXITED(status) && !WEXITSTATUS(status));
+        close(channel[0]); close(listener); listener=-1;
+        md_task_quiesce_destroy(mapping_barrier); mapping_barrier=NULL; mapping_execution=NULL;
+        thread_index[pid%THREAD_BUCKETS]=NULL;
+    }
+    abi.buffer_admit=saved;
+    puts("PASS internal admission: shielded quiescence before/after notification, exact retry, EINTR and one FD publication");
+}
 int main(void) {
     alarm(30);
+    process_snapshot();
     memory_context_capture();
     memory_observation_routes();
     processor_controls();
@@ -958,12 +1448,15 @@ int main(void) {
     native_capture();
     duplicate_retirement_order();
     fd_native_retirement();
-    barrier_admission(); readiness_admission_order(); entry_fence_ownership(); control_deadlines(); pid_collection_waiters(); terminal_buffer_completion(); buffered_io_pressure(); prepared_input(); captured_writes(); repair_events(); repair_retirement(); quiescent_birth(); event_accounting();
+    barrier_admission(); readiness_admission_order(); readiness_entry_interrupt(); readiness_signal_return(); readiness_parked_signal_return(); readiness_cancel_entry(); readiness_admission_identity(); entry_fence_ownership(); control_deadlines(); pid_collection_waiters(); terminal_buffer_completion(); buffered_io_pressure(); prepared_input(); captured_writes(); repair_events(); repair_retirement(); quiescent_birth(); event_accounting();
     for (unsigned mode=0;mode<4;++mode) {
         completed_open(mode,SIGUSR1); completed_open(mode,SIGRTMAX);
     }
     provider_wait_boundaries();
     image_entry_identity();
+    admission_quiescence();
+    checkpoint_quiescence();
+    debugger_quiescence();
     md_task_checkpoints_clear(&checkpoints);
     puts("PASS supervisor completed open: exhausted buffer, failed adoption and single standard/realtime delivery");
     return 0;

@@ -56,6 +56,7 @@ static void inventory(int *budget) {
     assert(!md_fd_order_complete(&running)); *budget=-1;
     assert(md_fd_admission_prepare(admit)==1 && !md_fd_admission_seal(admit));
     assert(md_fd_admission_add(admit,b,h)==-EBUSY);
+    require_free(empty);
     /* Both groups use table a; group g additionally uses b. Selector residues
      * 10 and 522 coincide, and shared table/group pairs install only once. */
     assert(accept(admit,budget)==5);

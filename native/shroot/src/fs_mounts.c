@@ -170,39 +170,49 @@ static int backing_dentry_path(struct md_filesystem *fs,int fd,struct md_view_mo
 static int location_path(struct md_filesystem *fs, int fd, struct md_view_mount *m,
         const struct md_view_mount *boundary,uint64_t dentry,int native_birth,char *out, size_t size) {
     if (!m) m=&fs->mounts->base;
-    /* A retained root names its own subtree even if its mount is detached.
-     * Only ancestors above that root are irrelevant; detached children still
-     * have no reachable pathname in this process's view. */
-    if (m==&fs->mounts->base && m->source<0) return backing_dentry_path(fs,fd,m,dentry,native_birth,out,size);
-    if (m->detached && m!=boundary) return -ENOENT;
-    char root[PATH_MAX], path[PATH_MAX], target[PATH_MAX];
-    struct stat st;
-    if (fstat(fd, &st)) return -errno;
-    if (m==boundary) {
-        if (!st.st_nlink) return -ENOENT;
-        return backing_dentry_path(fs,fd,m,dentry,native_birth,out,size);
+    /* Prepend each backing-relative suffix once. Mount depth must not consume
+     * worker stack or repeatedly copy the already-composed descendant path. */
+    char root[PATH_MAX], path[PATH_MAX], suffix[PATH_MAX];
+    size_t begin=sizeof(suffix)-1;
+    suffix[begin]=0;
+    for (;;) {
+        if (m==&fs->mounts->base && m->source<0) {
+            int r=backing_dentry_path(fs,fd,m,dentry,native_birth,path,sizeof(path));
+            if (r) return r;
+            break;
+        }
+        /* A retained root still names its subtree after detach. Children
+         * detached below that boundary have no reachable pathname. */
+        if (m->detached && m!=boundary) return -ENOENT;
+        struct stat st;
+        if (fstat(fd,&st)) return -errno;
+        if (m==boundary) {
+            if (!st.st_nlink) return -ENOENT;
+            int r=backing_dentry_path(fs,fd,m,dentry,native_birth,path,sizeof(path));
+            if (r) return r;
+            break;
+        }
+        /* Mount roots use their covered dentry; file binds need no backing
+         * name reconstruction and empty overmounts add no path component. */
+        if (!md_view_same(&st,&m->native)) {
+            if (!st.st_nlink) return -ENOENT;
+            int r=md_view_backing_path(fs,m->source,m,root,sizeof(root));
+            if (!r) r=backing_dentry_path(fs,fd,m,dentry,native_birth,path,sizeof(path));
+            if (r) return r;
+            if (!beneath(path,root)) return -EXDEV;
+            const char *part=!strcmp(path,root) ? "" : path+(strlen(root)==1 ? 0 : strlen(root));
+            size_t length=strlen(part);
+            if (length>begin) return -ERANGE;
+            begin-=length; memcpy(suffix+begin,part,length);
+        }
+        if (!m->parent) { strcpy(path,"/"); break; }
+        fd=m->target; m=m->parent; dentry=0; native_birth=0;
     }
-    /* A mount root is named by its covered dentry, not by the backing
-     * inode's aliases. File binds need no source-name reconstruction. */
-    if (md_view_same(&st,&m->native)) {
-        if (m->parent) return location_path(fs,m->target,m->parent,boundary,0,0,out,size);
-        if (size<2) return -ERANGE;
-        strcpy(out,"/"); return 0;
-    }
-    if (!st.st_nlink) return -ENOENT;
-    int r=md_view_backing_path(fs,m->source,m,root,sizeof(root));
-    if (!r) r=backing_dentry_path(fs,fd,m,dentry,native_birth,path,sizeof(path));
-    if (!r && !beneath(path, root)) r = -EXDEV;
-    if (!r) {
-        if (m->parent) r=location_path(fs,m->target,m->parent,boundary,0,0,target,sizeof(target));
-        else strcpy(target,"/");
-    }
-    if (!r) {
-        const char *suffix = !strcmp(path,root) ? "" : path + (strlen(root) == 1 ? 0 : strlen(root));
-        if (!strcmp(target,"/") && *suffix=='/') ++suffix;
-        if (snprintf(out, size, "%s%s", target, suffix) >= (int)size) r = -ERANGE;
-    }
-    return r;
+    size_t prefix=!strcmp(path,"/") && suffix[begin]=='/' ? 0 : strlen(path);
+    size_t length=sizeof(suffix)-1-begin;
+    if (prefix+length>=size) return -ERANGE;
+    memcpy(out,path,prefix); memcpy(out+prefix,suffix+begin,length+1);
+    return 0;
 }
 int md_view_path(struct md_filesystem *fs, int fd, struct md_view_mount *m, char *out, size_t size) {
     return md_view_dentry_path(fs,fd,m,0,0,out,size);

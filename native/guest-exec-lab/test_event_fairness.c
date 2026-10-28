@@ -78,8 +78,10 @@ int main(int argc, char **argv) {
         birth_races(!strcmp(argv[1],"birth-namespace")); return 0;
     }
     int descriptors=argc==2 && !strcmp(argv[1],"descriptors");
-    assert(argc==1 || descriptors);
-    enum { WORKERS = 16 };
+    int helpers=argc==2 && !strcmp(argv[1],"helpers");
+    assert(argc==1 || descriptors || helpers);
+    enum { CAPACITY = 48 };
+    unsigned workers=helpers ? CAPACITY : 16;
     state = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     assert(state != MAP_FAILED);
     atomic_init(state, 0);
@@ -87,8 +89,8 @@ int main(int argc, char **argv) {
     assert(!sigaction(SIGALRM, &action, NULL));
     int gate[2];
     assert(!pipe2(gate, O_CLOEXEC));
-    pid_t children[WORKERS];
-    for (unsigned i = 0; i < WORKERS; ++i) {
+    pid_t children[CAPACITY];
+    for (unsigned i = 0; i < workers; ++i) {
         children[i] = fork();
         assert(children[i] >= 0);
         if (!children[i]) {
@@ -111,8 +113,8 @@ int main(int argc, char **argv) {
         }
     }
     close(gate[0]);
-    char bytes[WORKERS] = {0};
-    assert(write(gate[1], bytes, sizeof(bytes)) == sizeof(bytes));
+    char bytes[CAPACITY] = {0};
+    assert(write(gate[1], bytes, workers) == (ssize_t)workers);
     close(gate[1]);
     /* These task-affine proc opens need worker completion, unlike the hot
      * identity calls. Neither stream may wait for the other to become idle. */
@@ -122,9 +124,21 @@ int main(int argc, char **argv) {
         char buffer[1024];
         assert(read(fd, buffer, sizeof(buffer)) > 0);
         assert(!close(fd));
+        if (helpers) {
+            /* A private mapping helper competes with more hot tasks than the
+             * general wait batch. Its checkpoints must not depend on idleness. */
+            size_t page=(size_t)sysconf(_SC_PAGESIZE);
+            fd=memfd_create("fair-helper",MFD_CLOEXEC);
+            assert(fd>=0 && !ftruncate(fd,page));
+            unsigned char *memory=mmap(NULL,page,PROT_READ|PROT_WRITE,MAP_PRIVATE,fd,0);
+            assert(memory!=MAP_FAILED && !close(fd));
+            memory[0]=(unsigned char)i;
+            assert(!mprotect(memory,page,PROT_READ|PROT_EXEC) && memory[0]==i);
+            assert(!munmap(memory,page));
+        }
     }
     unsigned previous = atomic_exchange(state, 1);
-    for (unsigned i = 0; i < WORKERS; ++i) {
+    for (unsigned i = 0; i < workers; ++i) {
         int status;
         /* EVENT_WAIT: every owned producer exits; outer deadline bounds cleanup. */
         assert(waitpid(children[i], &status, 0) == children[i]);

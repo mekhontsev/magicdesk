@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/stat.h>
+#include <poll.h>
 #include <sched.h>
 #include <stdio.h>
 #include <string.h>
@@ -11,6 +12,7 @@
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
 #include <sys/syscall.h>
+#include <sys/uio.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -32,6 +34,45 @@ static void same(int fd,const struct stat *expected) {
     assert(x.stx_ino==expected->st_ino && x.stx_mode==expected->st_mode
         && makedev(x.stx_dev_major,x.stx_dev_minor)==expected->st_dev
         && makedev(x.stx_rdev_major,x.stx_rdev_minor)==expected->st_rdev);
+}
+static void full_io(int fd) {
+    char data[65553];
+    memset(data,1,sizeof(data));
+    assert(read(fd,data,sizeof(data))==sizeof(data));
+    for (unsigned i=0;i<sizeof(data);++i) assert(!data[i]);
+    assert(write(fd,"x",1)<0 && errno==ENOSPC);
+    assert(write(fd,"",0)<0 && errno==ENOSPC);
+    assert(pwrite(fd,"x",1,19)<0 && errno==ENOSPC);
+    struct iovec iov[2]={{data,3},{data+3,5}};
+    assert(writev(fd,iov,2)<0 && errno==ENOSPC);
+    memset(data,1,8); assert(readv(fd,iov,2)==8);
+    for (unsigned i=0;i<8;++i) assert(!data[i]);
+    assert(pread(fd,data,8,31)==8);
+    assert(lseek(fd,99,SEEK_SET)==0 && lseek(fd,-99,SEEK_CUR)==0 && lseek(fd,99,SEEK_END)==0);
+    struct pollfd p={.fd=fd,.events=POLLIN|POLLOUT};
+    assert(poll(&p,1,0)==1 && p.revents==(POLLIN|POLLOUT));
+}
+static void full_transfer(int fd,const struct stat *st) {
+    int pair[2]; assert(!socketpair(AF_UNIX,SOCK_SEQPACKET,0,pair));
+    pid_t child=fork(); assert(child>=0);
+    char byte='x',control[CMSG_SPACE(sizeof(int))]={0};
+    struct iovec iov={&byte,1};
+    struct msghdr msg={.msg_iov=&iov,.msg_iovlen=1,.msg_control=control,.msg_controllen=sizeof(control)};
+    if (!child) {
+        close(pair[0]); close(fd);
+        /* EVENT_WAIT: exact descriptor message; the test alarm bounds failure. */
+        assert(recvmsg(pair[1],&msg,0)==1);
+        struct cmsghdr *c=CMSG_FIRSTHDR(&msg); assert(c && c->cmsg_type==SCM_RIGHTS);
+        int received; memcpy(&received,CMSG_DATA(c),sizeof(received));
+        same(received,st); full_io(received); close(received); _exit(0);
+    }
+    close(pair[1]);
+    struct cmsghdr *c=CMSG_FIRSTHDR(&msg); c->cmsg_level=SOL_SOCKET; c->cmsg_type=SCM_RIGHTS;
+    c->cmsg_len=CMSG_LEN(sizeof(fd)); memcpy(CMSG_DATA(c),&fd,sizeof(fd));
+    assert(sendmsg(pair[0],&msg,0)==1); close(pair[0]);
+    int status;
+    /* EVENT_WAIT: exact receiver exit; the test alarm bounds failure. */
+    assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
 }
 int test_device_nodes_guest(void) {
     alarm(45);
@@ -82,10 +123,18 @@ int test_device_nodes_guest(void) {
     memset(data,1,sizeof(data)); assert(read(zero,data,sizeof(data))==sizeof(data));
     for (unsigned i=0;i<sizeof(data);++i) assert(!data[i]); close(zero);
     assert(!mknod("full",S_IFCHR|0666,makedev(1,7)));
-    int native=open("/dev/full",O_WRONLY), native_error=errno;
-    int full=open("full",O_WRONLY);
-    if (native<0) assert(full<0 && errno==native_error);
-    else { assert(full>=0 && write(full,"x",1)<0 && errno==ENOSPC); close(full); close(native); }
+    int full=open("full",O_RDWR|O_NOFOLLOW); assert(full>=0);
+    struct stat full_st;
+    assert(!stat("full",&full_st)); same(full,&full_st); full_io(full);
+    int full_copy=dup(full); assert(full_copy>=0); full_io(full_copy); close(full_copy);
+    assert(!link("full","full-alias"));
+    snprintf(path,sizeof(path),"/proc/self/fd/%d",full);
+    again=open(path,O_RDWR); assert(again>=0); same(again,&full_st); full_io(again); close(again);
+    full_transfer(full,&full_st);
+    assert(!fchmod(full,0600)); assert(!stat("full-alias",&full_st)); same(full,&full_st);
+    assert(!unlink("full")); full_io(full);
+    int canonical=open("/dev/full",O_RDWR|O_NOFOLLOW); assert(canonical>=0);
+    full_io(canonical); close(canonical);
     assert(!mknod("unknown",S_IFCHR|0600,makedev(240,123)));
     assert(open("unknown",O_RDONLY)<0 && errno==ENXIO);
     int unknown=open("unknown",O_PATH); assert(unknown>=0); close(unknown);
@@ -96,6 +145,8 @@ int test_device_nodes_guest(void) {
     assert(open("whiteout",O_RDONLY)<0 && errno==ENXIO);
     assert(!mount(NULL,root,NULL,MS_REMOUNT|MS_NODEV,NULL));
     assert(open("alias",O_RDONLY)<0 && errno==EACCES);
+    assert(open("full-alias",O_RDONLY)<0 && errno==EACCES);
+    full_io(full); close(full);
     int pin=open("alias",O_PATH); assert(pin>=0); close(pin);
     assert(write(fd,"x",1)==1); close(fd); close(copy);
     assert(!mount(NULL,root,NULL,MS_REMOUNT,NULL));
@@ -103,6 +154,7 @@ int test_device_nodes_guest(void) {
     child=fork(); assert(child>=0);
     if (!child) {
         assert(!setuid(1234));
+        assert(open("full-alias",O_RDONLY)<0 && errno==EACCES);
         assert(mknod("forbidden",S_IFCHR|0666,makedev(1,3))<0 && errno==EPERM);
         _exit(0);
     }

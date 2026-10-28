@@ -1,11 +1,15 @@
 #define _GNU_SOURCE
 #include "file_open_job.h"
+#include "interruptible_call.h"
 #include "fs_wire.h"
 #include "raw.h"
 #include "directory_record.h"
 #include <errno.h>
 #include <limits.h>
 #include <signal.h>
+#include <pthread.h>
+#include <stdlib.h>
+#include <sys/mman.h>
 #include <sys/prctl.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -62,8 +66,19 @@ static int isolate(int pin, int control, int channel) {
 int md_open_job_start(struct md_open_job *job, int pin, int flags, struct md_open_completion completion) {
     if (!job || job->pid || pin<0 || (completion.kind!=MD_OPEN_PIPE && completion.kind!=MD_OPEN_FIFO)
             || (completion.kind==MD_OPEN_PIPE && completion.control<0)) return -EINVAL;
+    int prepared=md_interruptible_prepare();
+    if (prepared) return prepared;
+    atomic_int *interrupted=mmap(NULL,sizeof(*interrupted),PROT_READ|PROT_WRITE,MAP_SHARED|MAP_ANONYMOUS,-1,0);
+    if (interrupted==MAP_FAILED) return -errno;
+    atomic_init(interrupted,0);
     int pair[2];
-    if (socketpair(AF_UNIX,SOCK_SEQPACKET|SOCK_CLOEXEC|SOCK_NONBLOCK,0,pair)) return -errno;
+    if (socketpair(AF_UNIX,SOCK_SEQPACKET|SOCK_CLOEXEC|SOCK_NONBLOCK,0,pair)) {
+        int error=-errno; munmap(interrupted,sizeof(*interrupted)); return error;
+    }
+    sigset_t mask,previous;
+    sigemptyset(&mask); sigaddset(&mask,SIGUSR2);
+    int blocked=pthread_sigmask(SIG_BLOCK,&mask,&previous);
+    if (blocked) { close(pair[0]); close(pair[1]); munmap(interrupted,sizeof(*interrupted)); return -blocked; }
     pid_t parent=getpid(), child=fork();
     if (!child) {
         /* After fork from a multithreaded supervisor, only raw syscalls and
@@ -75,8 +90,10 @@ int md_open_job_start(struct md_open_job *job, int pin, int flags, struct md_ope
             RAW1(exit_group,125); __builtin_unreachable();
         }
         if (!r) r=isolate(pin,completion.kind==MD_OPEN_PIPE ? completion.control : -1,pair[1]);
+        uint64_t mask=~(1ULL<<(SIGUSR2-1));
+        if (!r) r=RAW4(rt_sigprocmask,SIG_SETMASK,&mask,0,8);
         struct open_result result={0};
-        if (!r) r=md_complete_open_observed(pin,flags|O_CLOEXEC,completion,&result.observation);
+        if (!r) r=md_complete_open_interruptible(pin,flags|O_CLOEXEC,completion,&result.observation,interrupted);
         struct md_fs_rights rights={0};
         result.error=r<0 ? (int)r : 0;
         if (!result.error) { rights.count=1; rights.fd[0]=(int)r; }
@@ -85,10 +102,17 @@ int md_open_job_start(struct md_open_job *job, int pin, int flags, struct md_ope
         __builtin_unreachable();
     }
     int error=child<0 ? -errno : 0;
+    int restored=pthread_sigmask(SIG_SETMASK,&previous,NULL);
+    if (restored) abort();
     close(pair[1]);
-    if (error) close(pair[0]);
-    else *job=(struct md_open_job){.pid=child,.channel=pair[0]};
+    if (error) { close(pair[0]); munmap(interrupted,sizeof(*interrupted)); }
+    else *job=(struct md_open_job){.pid=child,.channel=pair[0],.interrupted=interrupted};
     return error;
+}
+int md_open_job_interrupt(struct md_open_job *job) {
+    if (!job || !job->pid || job->cancelled) return -EINVAL;
+    if (atomic_exchange_explicit(job->interrupted,1,memory_order_acq_rel)) return 0;
+    return kill(job->pid,SIGUSR2) && errno!=ESRCH ? -errno : 0;
 }
 int md_open_job_cancel(struct md_open_job *job) {
     if (!job || !job->pid || job->cancelled) return 0;
@@ -112,5 +136,6 @@ int md_open_job_finish(struct md_open_job *job, int status,struct md_open_observ
         else { result=rights.fd[0]; rights.count=0; if (observation) *observation=reply.observation; }
         md_fs_close_rights(&rights); close(job->channel);
     }
+    munmap(job->interrupted,sizeof(*job->interrupted));
     *job=(struct md_open_job){0}; return result;
 }

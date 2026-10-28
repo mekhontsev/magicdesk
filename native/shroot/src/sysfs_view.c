@@ -15,7 +15,7 @@
 #include <string.h>
 #include <unistd.h>
 
-enum attribute { DIRECTORY, LINK, IFINDEX, IFLINK, MTU, TYPE, ADDRESS, BROADCAST, FLAGS, OPERSTATE, CARRIER, RETIRED, BRIDGE };
+enum attribute { DIRECTORY, LINK, IFINDEX, IFLINK, MTU, TYPE, ADDRESS, BROADCAST, FLAGS, OPERSTATE, CARRIER, RETIRED, BRIDGE, STP_STATE };
 static const struct node { const char *path; enum attribute attribute; const char *target; } nodes[]={
     {".",DIRECTORY,NULL}, {"block",DIRECTORY,NULL}, {"bus",DIRECTORY,NULL},
     {"dev",DIRECTORY,NULL}, {"dev/block",DIRECTORY,NULL}, {"dev/char",DIRECTORY,NULL},
@@ -30,7 +30,7 @@ static const struct node attributes[]={
     {"ifindex",IFINDEX,NULL}, {"iflink",IFLINK,NULL}, {"mtu",MTU,NULL}, {"type",TYPE,NULL},
     {"address",ADDRESS,NULL}, {"broadcast",BROADCAST,NULL}, {"flags",FLAGS,NULL},
     {"operstate",OPERSTATE,NULL}, {"carrier",CARRIER,NULL},
-    {"bridge",BRIDGE,NULL},
+    {"bridge",BRIDGE,NULL}, {"bridge/stp_state",STP_STATE,NULL},
 };
 enum { NODE_COUNT=sizeof(nodes)/sizeof(*nodes), ATTRIBUTE_COUNT=sizeof(attributes)/sizeof(*attributes) };
 struct interface {
@@ -119,8 +119,8 @@ static int remove_interface(struct md_sysfs *v,struct interface *link) {
     int directory=openat(parent,path,O_DIRECTORY|O_RDONLY|O_CLOEXEC);
     if (directory<0) return errno==ENOENT ? 0 : -errno;
     int error=0;
-    for (unsigned i=1;i<ATTRIBUTE_COUNT;++i)
-        if (unlinkat(directory,attributes[i].path,attributes[i].attribute==BRIDGE ? AT_REMOVEDIR : 0)
+    for (unsigned i=ATTRIBUTE_COUNT;i>1;--i)
+        if (unlinkat(directory,attributes[i-1].path,attributes[i-1].attribute==BRIDGE ? AT_REMOVEDIR : 0)
                 && errno!=ENOENT) { error=-errno; break; }
     close(directory);
     if (!error && unlinkat(parent,path,AT_REMOVEDIR) && errno!=ENOENT) error=-errno;
@@ -180,7 +180,8 @@ int md_sysfs_refresh(struct md_sysfs *v) {
             if (directory<0) return -errno;
             int error=0;
             for (unsigned i=0;i<ATTRIBUTE_COUNT && !error;++i) {
-                if (attributes[i].attribute==BRIDGE && wanted->kind!=MD_LINK_BRIDGE) continue;
+                if ((attributes[i].attribute==BRIDGE || attributes[i].attribute==STP_STATE)
+                        && wanted->kind!=MD_LINK_BRIDGE) continue;
                 error=materialize(v,directory,&attributes[i],&link->nodes[i]);
                 link->nodes[i].interface=link->index; link->nodes[i].lifetime=link->lifetime;
             }
@@ -283,6 +284,9 @@ static long read_open(void *data,const struct md_control_actor *actor,void *out,
     case CARRIER:
         if (!(info.flags&IFF_UP)) return -EINVAL;
         length=snprintf(text,sizeof(text),"%u\n",!!(info.flags&IFF_LOWER_UP)); break;
+    case STP_STATE:
+        /* Bridges forward without STP; enabling it is not accepted by netlink. */
+        length=snprintf(text,sizeof(text),"0\n"); break;
     default: return -EINVAL;
     }
     if ((uint64_t)offset>=(unsigned)length) return 0;

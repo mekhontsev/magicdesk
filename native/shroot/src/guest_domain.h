@@ -17,7 +17,7 @@
 
 /* No adaptation, observation or logical identity in any domain. Shared with
  * seccomp so these kernel operations need no userspace policy round trip. */
-#define MD_DOMAIN_WAIT_CALLS(X) X(ppoll) X(pselect6) X(epoll_pwait) X(epoll_pwait2) X(epoll_ctl)
+#define MD_DOMAIN_WAIT_CALLS(X) X(ppoll) X(pselect6) X(epoll_ctl)
 /* Execution state belongs to the kernel. These calls precede address-based
  * service gates in the base filter; PID/FD selectors and guest filters still
  * apply. gettid is deliberately absent: it also carries service checkpoints. */

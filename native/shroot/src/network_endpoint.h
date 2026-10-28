@@ -20,7 +20,8 @@ int md_network_endpoint_resolve(struct md_network_fabric *,struct md_network_flo
 struct md_network_packet_info { unsigned interface; struct md_ip_address source, destination; int hops, hops_set; };
 static inline int md_network_endpoint_option(unsigned level,unsigned option) {
     return md_network_transport_option(level,option) || md_network_multicast_option(level,option)
-        || (level==SOL_SOCKET && (option==SO_REUSEADDR || option==SO_REUSEPORT));
+        || (level==SOL_SOCKET && (option==SO_REUSEADDR || option==SO_REUSEPORT || option==SO_ERROR
+            || option==SO_BINDTOIFINDEX || option==SO_PRIORITY));
 }
 int md_network_endpoint_open(struct md_network_namespace *,uint32_t,int,int,int,struct md_fd_object **,int *);
 int md_network_endpoint_bind(struct md_fd_object *,int,const struct md_identity *,const struct sockaddr *,socklen_t);
@@ -34,10 +35,15 @@ int md_network_endpoint_destination_info(struct md_fd_object *,const struct sock
 int md_network_endpoint_name(struct md_fd_object *,int,int,struct sockaddr_storage *,socklen_t *);
 int md_network_endpoint_connected(struct md_fd_object *,int,const struct sockaddr *,socklen_t);
 int md_network_endpoint_autobind(struct md_fd_object *,int,const struct md_identity *,const struct sockaddr *,socklen_t,unsigned);
-int md_network_endpoint_sockopt(struct md_fd_object *,int,int,unsigned,unsigned,void *,socklen_t *);
+int md_network_endpoint_sockopt(struct md_fd_object *,int,const struct md_identity *,int,unsigned,unsigned,void *,socklen_t *);
 /* Caller holds the fabric lock; copy application settings to a new relay socket. */
 struct md_network_transport;
 void md_network_endpoint_transport(const void *,struct md_network_transport *);
+/* Relay callbacks run under the fabric lock; completion is shared by aliases. */
+int md_network_endpoint_connect_begin(const void *);
+void md_network_endpoint_connect_complete(const void *,int);
+int md_network_endpoint_connect_result(struct md_fd_object *,int *);
+void md_network_endpoint_connect_reported(struct md_fd_object *,int);
 const struct md_network_multicast *md_network_endpoint_multicast(const void *,unsigned);
 const void *md_network_endpoint_group_next(struct md_network_namespace *,struct md_network_interface *,
     const struct md_filter_packet *,int,const void *,struct md_inet_address *);

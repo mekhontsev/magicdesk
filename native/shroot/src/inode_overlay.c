@@ -16,6 +16,7 @@ struct merge {
     struct md_inode_store *index, *source;
     int user_xattr, upper;
     unsigned entries;
+    unsigned sources[MDI_SOURCES];
 };
 static int node_origin(struct merge *m, const struct mdi_node *source, const struct mdi_node *target) {
     sqlite3_stmt *q=NULL;
@@ -217,10 +218,16 @@ static int copy_node(struct merge *m, const struct mdi_node *source,
     if (r!=-ENOENT) return r;
     int fd=-1;
     if (source->kind==S_IFREG) {
-        int from=mdi_backing_directory(m->source,source), layer=0;
-        if (from<0) return from;
-        r=mdi_source_register(m->index,from,&layer);
-        if (!r) r=mdi_sources_open(m->index);
+        unsigned *registered=&m->sources[source->source];
+        int layer=(int)*registered-1;
+        r=0;
+        if (!*registered) {
+            int from=mdi_backing_directory(m->source,source);
+            if (from<0) return from;
+            r=mdi_source_register(m->index,from,&layer);
+            if (!r) r=mdi_sources_open(m->index);
+            if (!r) *registered=(unsigned)layer+1;
+        }
         if (!r) r=mdi_import_shared(m->index,layer,source->backing,target);
         if (r==-EEXIST) r=shared_alias(m,source,parent,target);
     } else if (source->kind==S_IFDIR || source->kind==S_IFLNK || source->kind==S_IFIFO || source->kind==S_IFSOCK
@@ -347,9 +354,15 @@ static int layer(struct md_inode_store *index, struct md_inode_store *source,
     if (!r && !source->readonly) r=mdi_leaf_materialize_tree(source,&from);
     if (!r && !shared) { r=mdi_begin(index,1); begun=!r; }
     if (!r) r=mdi_node(index,mdi_root(index),&to);
+    /* All new names remain unpublished until this writer commits. Flush their
+     * shared backing directory once before that commit; object contents keep
+     * their individual durability, and promotion runs before this batch. */
+    int batching=0;
+    if (!r) { r=mdi_sync_batch_begin(index); batching=!r; }
     struct merge m={.index=index,.source=source,.user_xattr=!!user_xattr,.upper=upper};
     if (!r) r=merge_directory(&m,&from,&to,0);
     if (shared && begun) release_scope(&borrowed,index);
+    if (batching) r=mdi_sync_batch_end(index,r);
     if (begun) r=mdi_commit(index,r);
     if (!shared) return mdi_finish(source,r);
     return r;

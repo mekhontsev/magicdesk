@@ -1,7 +1,6 @@
 #define _GNU_SOURCE
 #include "process_image_view.h"
 #include "proc_paths.h"
-#include "fs_rpc.h"
 #include "control_file.h"
 #include "program_files.h"
 #include "arguments.h"
@@ -96,12 +95,22 @@ int md_process_image_identity(pid_t pid,uintptr_t image,int memory,struct md_ima
     if (!error && out->object[sizeof(out->object)-1]) error=-EPROTO;
     return error;
 }
-int md_process_image_view(pid_t pid, uintptr_t image, int memory, unsigned kind, unsigned flags, const char *endpoint, pid_t caller) {
-    if (!image) return -ENOENT;
-    if (kind!=MD_PROC_AUXV && kind!=MD_PROC_CMDLINE && kind!=MD_PROC_EXE) return -ENOTSUP;
-    if (flags&O_DIRECTORY) return -ENOTDIR;
-    if ((flags&O_ACCMODE)!=O_RDONLY || (flags&O_TRUNC)) return -EACCES;
-    if ((flags&(O_CREAT|O_EXCL))==(O_CREAT|O_EXCL)) return -EEXIST;
+static int empty_cmdline(pid_t pid,unsigned kind,int error) {
+    if (kind!=MD_PROC_CMDLINE) return error;
+    /* A zombie can outlive its supervised thread and mm. Only kernel EOF is
+     * an empty public view; never read bytes from a potentially reused PID. */
+    char path[64],byte;
+    snprintf(path,sizeof(path),"/proc/%d/cmdline",pid);
+    int fd=open(path,O_RDONLY|O_CLOEXEC);
+    if (fd<0) return error;
+    ssize_t size=pread(fd,&byte,1,0);
+    close(fd);
+    return size==0 ? 0 : error;
+}
+ssize_t md_process_image_snapshot(pid_t pid, uintptr_t image, int memory, unsigned kind, void **out) {
+    if (!out || *out) return -EINVAL;
+    if (kind!=MD_PROC_AUXV && kind!=MD_PROC_CMDLINE) return -ENOTSUP;
+    if (!image) return empty_cmdline(pid,kind,-ENOENT);
     struct md_process_image *view=malloc(sizeof(*view));
     if (!view) return -ENOMEM;
     /* Cmdline is public even when ptrace access has been revoked. Never lend
@@ -110,36 +119,32 @@ int md_process_image_view(pid_t pid, uintptr_t image, int memory, unsigned kind,
     int r=copy(pid,image,view,sizeof(*view),memory);
     if (!r && (view->argument_bytes>MD_EXEC_BYTES || view->environment_bytes>MD_EXEC_BYTES
             || view->auxv_bytes>sizeof(view->auxv) || view->executable_object[32])) r=-EPROTO;
-    struct md_fs_request q={.actor=caller,.operation=kind==MD_PROC_EXE ? MD_FS_OPEN_OBJECT : MD_FS_TEMPORARY,
-        .directory={-1,-1},.path={view->executable_object,NULL}};
-    if (q.operation==MD_FS_TEMPORARY) q.path[0]=NULL;
-    else q.flags=flags&~(O_CREAT|O_EXCL|O_NOFOLLOW);
-    struct md_fs_response response;
-    if (!r) r=(int)md_fs_call(endpoint,5000,&q,&response);
-    if (!r) r=response.result.error;
-    int fd=r ? -1 : response.result.fd;
-    if (!r && q.operation==MD_FS_TEMPORARY) {
-        if (kind==MD_PROC_AUXV) {
-            if (write(fd,view->auxv,view->auxv_bytes)!=(ssize_t)view->auxv_bytes) r=-EIO;
-        } else {
-            char bytes[4096];
-            struct argument_source source={pid,memory};
-            size_t page_size=(size_t)sysconf(_SC_PAGESIZE);
-            for (size_t offset=0; !r;) {
-                long count=md_process_arguments_read(view,page_size,read_arguments,&source,bytes,sizeof(bytes),offset);
-                if (count<=0) { r=(int)count; break; }
-                if (write(fd,bytes,(size_t)count)!=count) r=-EIO;
-                offset+=(size_t)count;
-            }
+    size_t capacity=0,size=0;
+    size_t page_size=(size_t)sysconf(_SC_PAGESIZE);
+    if (!r) {
+        capacity=kind==MD_PROC_AUXV ? view->auxv_bytes : view->argument_bytes+view->environment_bytes;
+        if (kind==MD_PROC_CMDLINE && capacity>page_size) {
+            capacity=view->argument_bytes>page_size ? view->argument_bytes : page_size;
         }
-        if (!r) {
-            char path[64]; snprintf(path,sizeof(path),"/proc/self/fd/%d",fd);
-            int readable=open(path,(flags&~(O_CREAT|O_EXCL|O_NOFOLLOW))|O_CLOEXEC);
-            if (readable<0) r=-errno;
-            else { close(fd); fd=readable; }
+    }
+    char *bytes=r ? NULL : malloc(capacity ? capacity : 1);
+    if (!r && !bytes) r=-ENOMEM;
+    if (!r && kind==MD_PROC_AUXV) {
+        memcpy(bytes,view->auxv,view->auxv_bytes); size=view->auxv_bytes;
+    } else if (!r) {
+        struct argument_source source={pid,memory};
+        while (size<capacity) {
+            size_t count=capacity-size;
+            if (count>4096) count=4096;
+            long n=md_process_arguments_read(view,page_size,read_arguments,&source,bytes+size,count,size);
+            if (n<=0) { r=(int)n; break; }
+            size+=(size_t)n;
         }
     }
     free(view);
-    if (r && fd>=0) close(fd);
-    return r ? r : fd;
+    if (r) {
+        free(bytes);
+        if (!empty_cmdline(pid,kind,r)) return 0;
+    } else *out=bytes;
+    return r ? r : (ssize_t)size;
 }

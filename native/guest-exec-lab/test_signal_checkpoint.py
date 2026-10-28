@@ -69,6 +69,7 @@ def main():
         assert 'LIMIT regenerated job control:' in output
         assert 'PASS task injection admission:' in output
         assert 'PASS unified checkpoint owner:' in output
+        assert 'PASS checkpoint borrowing:' in output
         assert 'PASS scalar checkpoint:' in output
         suite.report['limitations'] = [line for line in output.splitlines() if line.startswith('LIMIT ')]
         assert output.count('1000_rounds_ms=') == 30

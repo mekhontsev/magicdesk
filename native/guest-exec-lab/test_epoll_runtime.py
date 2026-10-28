@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 from test_oci_services import Suite, add_machine_entry_argument
 
-MODES = ('mixed', 'filtered', 'shared', 'shared-filtered', 'concurrent-admission', 'close-filtered', 'retire-filtered',
+MODES = ('mixed', 'filtered', 'shared', 'shared-filtered', 'concurrent-admission', 'cold-admission', 'native-ready', 'close-filtered', 'retire-filtered',
          'poll-sandbox', 'poll-sandbox-protected')
 
 def main():

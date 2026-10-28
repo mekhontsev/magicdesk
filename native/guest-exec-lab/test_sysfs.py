@@ -191,6 +191,28 @@ def guest():
         assert sorted(os.listdir(net)) == ['lo']
         print('PASS sysfs veth creation, peers, live attributes, rename swaps and retired descriptors', flush=True)
 
+        ip('link', 'add', 'br-test', 'type', 'bridge')
+        bridge = net / 'br-test'
+        assert sorted(os.listdir(bridge / 'bridge')) == ['stp_state']
+        assert (bridge / 'bridge/stp_state').read_text() == '0\n'
+        assert not (lo / 'bridge').exists()
+        stp = os.open(bridge / 'bridge/stp_state', os.O_RDONLY)
+        inode = os.fstat(stp).st_ino
+        ip('link', 'set', 'br-test', 'name', 'br-renamed')
+        assert (net / 'br-renamed/bridge/stp_state').stat().st_ino == inode
+        assert os.pread(stp, 64, 0) == b'0\n'
+        denied(lambda: os.open(net / 'br-renamed/bridge/stp_state', os.O_WRONLY), errno.EROFS)
+        ip('link', 'delete', 'br-renamed')
+        assert sorted(os.listdir(net)) == ['lo']
+        denied(lambda: os.pread(stp, 64, 0), errno.ENODEV)
+        ip('link', 'add', 'br-test', 'type', 'bridge')
+        assert (bridge / 'bridge/stp_state').read_text() == '0\n'
+        denied(lambda: os.pread(stp, 64, 0), errno.ENODEV)
+        os.close(stp)
+        ip('link', 'delete', 'br-test')
+        assert sorted(os.listdir(net)) == ['lo']
+        print('PASS bridge sysfs state, readonly policy, rename and removal/recreation', flush=True)
+
         context = call(430, 'sysfs', 1)
         retained = os.open(lo / 'flags', os.O_RDONLY)
         link_up()

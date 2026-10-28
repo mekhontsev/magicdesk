@@ -21,8 +21,13 @@ int main(void) {
     struct md_task_quiesce *q=md_task_quiesce_new(trace); assert(q);
     assert(!md_task_quiesce_add(q,1,0,PTRACE_SYSCALL));
     assert(!md_task_quiesce_add(q,2,1,PTRACE_CONT));
+    assert(md_task_quiesce_waiting(q,1) && !md_task_quiesce_waiting(q,2));
+    assert(!md_task_quiesce_interrupting(q,1));
     assert(!md_task_quiesce_stop(q) && interrupts==1 && !md_task_quiesce_ready(q));
+    assert(md_task_quiesce_interrupting(q,1) && !md_task_quiesce_interrupting(q,2));
     assert(!md_task_quiesce_event(q,1,stop(SIGTRAP,PTRACE_EVENT_STOP),NULL));
+    assert(!md_task_quiesce_waiting(q,1));
+    assert(!md_task_quiesce_interrupting(q,1));
     assert(md_task_quiesce_ready(q));
     assert(!md_task_quiesce_release(q) && resumes==1 && resumed==1 && request==PTRACE_SYSCALL);
     int status; struct rusage usage;
@@ -91,6 +96,7 @@ int main(void) {
                 ? events : stop(SIGTRAP,PTRACE_EVENT_STOP),&saved));
         }
         assert(md_task_quiesce_ready(q) && !md_task_quiesce_borrow(q,9,&boundary));
+        assert(!md_task_quiesce_waiting(q,9) && !md_task_quiesce_interrupting(q,9));
         assert(boundary.kind==kind && boundary.status==(kind==MD_TASK_QUIESCE_EVENT ? events : 0));
         assert(!md_task_quiesce_ready(q) && md_task_quiesce_release(q)==-EBUSY);
         assert(md_task_quiesce_borrow(q,9,&boundary)==-EBUSY);

@@ -62,16 +62,17 @@ static int descriptor_source(struct md_inode_store *s, int fd, char *out, size_t
     }
     return -EXDEV;
 }
-int md_inode_descriptor_source(struct md_inode_store *s, int fd, char *out, size_t capacity) {
+int md_inode_descriptor_source(struct md_inode_store *s,int fd,char *out,size_t capacity,int promote) {
     int r=descriptor_source(s,fd,out,capacity);
-    if (r!=-EXDEV) return r;
+    /* Ordinary callers can receive the exact FD without a durable publication.
+     * Restricted callers may need a stable name to avoid a filtered recvmsg. */
+    if (r!=-EXDEV || !promote) return r;
     r=mdi_begin(s,0);
     if (r) return r;
     struct mdi_node node;
     r=mdi_fd(s,fd,&node);
     if (r==-ENOENT) r=-EXDEV;
     if (!r && node.native && !node.attached) r=-EXDEV;
-    /* A mutable native name cannot be exported for a later kernel reopen. */
     if (!r && node.native) r=mdi_leaf_promote(s,&node);
     r=mdi_finish(s,r);
     if (r==-EROFS) r=-EXDEV;

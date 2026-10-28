@@ -1,5 +1,8 @@
 #ifndef MD_INTERCEPTION_H
 #define MD_INTERCEPTION_H
+/* Internal admission only: outside Linux's errno range, never application EINTR. */
+#define MD_BUFFER_ADMIT_RETRY (-8192)
+#ifndef __ASSEMBLER__
 #include <stdint.h>
 
 #define MD_INTERCEPTION_MAGIC UINT64_C(0x4d44494e54455231)
@@ -94,6 +97,8 @@ struct md_interception_abi {
     uintptr_t task_completed,watch_completed;
 };
 long md_guest_buffer_admit(unsigned purpose);
+struct md_task_call_arguments;
+long md_guest_buffer_replay(const struct md_task_call_arguments *);
 void md_cooperative_revoke(void);
 
 enum { MD_INTERCEPTION_COOPERATIVE=1, MD_INTERCEPTION_MACHINE=2, MD_INTERCEPTION_STATISTICS=4 };
@@ -105,4 +110,5 @@ long md_pid_filter_install(void);
 int md_interception_map_image(int fd);
 __attribute__((noreturn)) void md_interception_enter_image(uintptr_t entry, uintptr_t stack,
     const void *image, void *aux, unsigned count, int machine);
+#endif
 #endif

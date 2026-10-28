@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "task_wait.h"
 #include "ipc_peer_service.h"
 #include "ipc_origins.h"
 #include "ipc_received.h"
@@ -1073,7 +1074,8 @@ static void transfer_inspection(const char *path, unsigned mode) {
     assert(resources.fs && resources.files && !md_task_registry_publish(tasks,getpid(),getpid(),&identity,&resources));
     int wake=eventfd(0,EFD_CLOEXEC|EFD_NONBLOCK); assert(wake>=0);
     struct md_resource_wakeup *token=NULL; assert(!md_resource_wakeup_create(wake,&token));
-    struct md_fs_buffer_service *service=md_fs_buffer_service_new(f.owner[1].worker,tasks,token,inspected_ready);
+    struct md_task_wait wait={0};
+    struct md_fs_buffer_service *service=md_fs_buffer_service_new(f.owner[1].worker,tasks,token,&wait,inspected_ready);
     assert(service);
     struct md_interception_buffers *pool=NULL;
     assert(!md_buffers_create(1,sizeof(struct md_fs_buffer_frame),sizeof(struct md_fs_buffer_frame),0,&pool));

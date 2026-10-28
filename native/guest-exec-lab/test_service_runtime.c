@@ -214,6 +214,30 @@ static void fifo_ready(int fd,int expected) {
 }
 static volatile sig_atomic_t fifo_signals;
 static void fifo_signal(int signal) { assert(signal==SIGUSR2); ++fifo_signals; }
+static void fifo_rendezvous(void) {
+    char path[128]; snprintf(path,sizeof(path),"/tmp/md-fifo-rendezvous-%d",getpid());
+    assert(!mkfifo(path,0600));
+    int pin=open(path,O_PATH|O_CLOEXEC); assert(pin>=0);
+    char proc[64]; snprintf(proc,sizeof(proc),"/proc/self/fd/%d",pin);
+    struct sigaction action={.sa_handler=fifo_signal,.sa_flags=SA_RESTART}, previous;
+    sigemptyset(&action.sa_mask); assert(!sigaction(SIGUSR2,&action,&previous));
+    for (unsigned i=0;i<128;++i) {
+        pid_t parent=getpid(),child=fork(); assert(child>=0);
+        if (!child) {
+            alarm(10); /* EVENT_WAIT: peer open; timeout exposes a lost rendezvous. */
+            int fd=open(proc,O_WRONLY|O_CLOEXEC); assert(fd>=0);
+            assert(!kill(parent,SIGUSR2));
+            assert(write(fd,"x",1)==1); close(fd); _exit(0);
+        }
+        alarm(10);
+        int fd=open(proc,O_RDONLY|O_CLOEXEC); assert(fd>=0);
+        char byte; assert(read(fd,&byte,1)==1 && byte=='x'); close(fd);
+        child_ok(child); alarm(0);
+    }
+    close(pin); assert(!unlink(path));
+    assert(fifo_signals==128 && !sigaction(SIGUSR2,&previous,NULL));
+    puts("PASS FIFO proc-fd rendezvous survives signals after peer admission");
+}
 static void fifo_interruption(int fd) {
     struct sigaction action={.sa_handler=fifo_signal},previous_action;
     sigemptyset(&action.sa_mask);
@@ -577,6 +601,7 @@ int main(int argc,char **argv) {
     if (!strcmp(argv[1],"creation-modes")) { creation_modes(); return 0; }
     if (!strcmp(argv[1],"fifo")) { fifos(argc>2 ? argv[2] : "/tmp"); return 0; }
     if (!strcmp(argv[1],"fifo-readiness")) { fifo_readiness(); return 0; }
+    if (!strcmp(argv[1],"fifo-rendezvous")) { fifo_rendezvous(); return 0; }
     if (!strcmp(argv[1],"all")) { mount_identity(); stack_boundary(); descriptors(); creation_modes(); fifos("/tmp"); descriptor_paths(argv[0]); copy_attributes(); access_lists(); capabilities(argv[0]); file_capabilities(argv[0]); memory(argv[0]); return 0; }
     assert(argc==3); int key=atoi(argv[2]);
     if (!strcmp(argv[1],"publish")) {

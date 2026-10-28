@@ -4,6 +4,7 @@
 #include "task_registry.h"
 #include "fs_wire.h"
 #include "resource_protocol.h"
+#include "pid_namespace.h"
 #include <errno.h>
 #include <stdlib.h>
 #include <sys/epoll.h>
@@ -17,6 +18,7 @@ struct channel {
     struct md_identity identity;
     struct md_ipc_namespace *namespace;
     struct md_shm *shm;
+    struct md_pid_identity *process;
     pid_t pid;
     struct lorie_resource_reply reply;
     int rights[2];
@@ -28,6 +30,7 @@ static void close_rights(struct channel *c) {
 static void retire(struct md_shm_bridge *b,struct channel *c) {
     epoll_ctl(b->epoll,EPOLL_CTL_DEL,c->fd,NULL); close(c->fd);
     close_rights(c); md_shm_close(c->shm);
+    md_pid_identity_release(c->process);
     md_identity_release(&c->identity); md_ipc_namespace_release(c->namespace);
     struct channel **p=&b->channels;
     while (*p!=c) p=&(*p)->next;
@@ -56,7 +59,7 @@ int md_shm_bridge_connect(struct md_shm_bridge **out,const struct md_task_snapsh
         int error=-errno; close(pair[0]); close(pair[1]); free(c); return error;
     }
     c->identity=md_identity_copy(&task->identity);
-    c->namespace=md_ipc_namespace_retain(task->ipc); c->pid=task->tgid;
+    c->namespace=md_ipc_namespace_retain(task->ipc); c->process=md_pid_identity_retain(task->pid_group); c->pid=task->tgid;
     c->next=b->channels; b->channels=c; ++b->count;
     return pair[1];
 }
@@ -74,7 +77,7 @@ static int dispatch(struct md_shm_bridge *b,struct channel *c) {
         if (!error && !c->shm)
             error=md_ipc_namespace_open_memory(c->namespace,&c->shm);
         c->reply=(struct lorie_resource_reply){0};
-        if (!error) error=md_shm_export(c->shm,&c->identity,c->pid,(int)q.id,
+        if (!error) error=md_shm_export(c->shm,&c->identity,c->pid,c->process,(int)q.id,
             !!(q.flags&LORIE_RESOURCE_READONLY),c->rights,&c->reply.size);
         c->reply.error=error; c->pending=1;
     }

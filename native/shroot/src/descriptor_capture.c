@@ -2,11 +2,11 @@
 #include "fd_capture.h"
 #include "adapter_buffer.h"
 #include "raw.h"
+#include "interception.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/socket.h>
 
-extern long md_guest_buffer_admit(unsigned);
 long md_descriptor_capture_inputs(long state,struct md_fd_capture_frame *f,const int *numbers,unsigned count,
         const struct md_descriptor_capture_protocol *p) {
     while (state>0 && state!=p->complete) {
@@ -17,7 +17,7 @@ long md_descriptor_capture_inputs(long state,struct md_fd_capture_frame *f,const
                 long valid=RAW2(fcntl,numbers[i],F_GETFD);
                 if (valid<0) return md_guest_buffer_control(p->sent,valid,0);
             }
-            long fd=md_guest_buffer_admit(p->admit);
+            long fd=p->replay ? md_guest_buffer_replay(p->replay) : md_guest_buffer_admit(p->admit);
             if (fd<0) return md_guest_buffer_control(p->sent,fd,0);
             state=md_guest_buffer_control(p->ready,0,0);
         } else if (state==MD_FD_CAPTURE_CHECK) {

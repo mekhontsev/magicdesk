@@ -19,7 +19,7 @@ enum { MD_SVC_PUBLISHED, MD_SVC_RETIRED };
 struct md_svc_registry {
     uintptr_t frames, dispatch, native_begin, native_end;
     struct md_svc_code_pool pools[MD_SVC_CODE_POOLS];
-    unsigned pool_count, count, disabled, entry_fence_drained, clients_dirty;
+    unsigned pool_count, count, disabled, entry_fence_drained, clients_dirty, frames_dirty;
     pid_t sole_owner;
     unsigned identity_known;
     struct md_svc_site sites[MD_SVC_SITES];
@@ -46,6 +46,12 @@ int md_svc_registry_retire(struct md_svc_registry *,struct md_svc_site *,pid_t);
 int md_svc_registry_revoke(struct md_svc_registry *,pid_t);
 /* Retired source instructions can still have peers inside resident gates. */
 int md_svc_registry_resident(const struct md_svc_registry *);
+/* After revocation, occupied frames bound pre-revocation API execution.
+ * New claims must observe revoked admission before issuing private calls. */
+int md_svc_registry_occupied(const struct md_svc_registry *,pid_t,uint64_t *);
+/* A copied mm has no peers. Clone and signal delivery leave private entry
+ * before application execution; discard copied claims before child resume. */
+int md_svc_registry_prepare_fork(struct md_svc_registry *,pid_t,int memory_fd);
 int md_svc_registry_unpatch(struct md_svc_registry *,pid_t,uintptr_t,size_t);
 /* Retry incomplete retirement through any stopped member of this same mm.
  * Liveness comes from the supervisor, never from a guest-writable handle. */

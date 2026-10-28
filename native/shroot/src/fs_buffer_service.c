@@ -29,10 +29,12 @@
 #include <stdatomic.h>
 #include <string.h>
 #include <sys/wait.h>
+#include "task_wait.h"
 #include <unistd.h>
 
 struct md_fs_buffer_service {
     struct md_fs_worker *worker;
+    struct md_task_wait *wait;
     struct md_task_registry *tasks;
     struct md_resource_wakeup *wake;
     struct md_fs_buffer_request *requests;
@@ -41,11 +43,13 @@ struct md_fs_buffer_service {
     md_control_query control_query;
     md_control_capture control_capture;
     md_exec_capture exec_capture;
-    md_root_capture root_capture;
+    md_proc_path_capture path_capture;
     void (*complete)(struct md_fs_buffer_request *, pid_t, int);
     int (*admit)(pid_t);
+    int (*restricted)(pid_t);
 };
 void md_fs_buffer_admission(struct md_fs_buffer_service *s,int (*admit)(pid_t)) { s->admit=admit; }
+void md_fs_buffer_restricted(struct md_fs_buffer_service *s,int (*restricted)(pid_t)) { s->restricted=restricted; }
 struct md_fs_buffer_request {
     struct md_fs_work work;
     struct md_fs_buffer_service *service;
@@ -59,6 +63,7 @@ struct md_fs_buffer_request {
     int status_only;
     struct md_fs_result status_result;
     int adopted;
+    int restricted;
     int64_t position;
     struct md_fs_context context;
     struct md_fs_continuation *continuation;
@@ -67,6 +72,7 @@ struct md_fs_buffer_request {
     struct md_fs_request request;
     struct md_fs_buffer_open opened;
     struct md_open_job opening;
+    struct md_task_wait_member wait_member;
     int opening_wait;
     int fifo_control;
     struct md_command_images images;
@@ -76,7 +82,7 @@ struct md_fs_buffer_request {
     struct md_program *proc_image;
     struct md_file_snapshot snapshot;
     enum { SNAPSHOT_NONE, SNAPSHOT_BEGIN, SNAPSHOT_APPEND, SNAPSHOT_FINISH } snapshot_phase;
-    int snapshot_waiting;
+    int snapshot_waiting, snapshot_owned;
     size_t snapshot_size;
     struct md_fs_anchor *input[2];
     struct md_task_snapshot *root[2];
@@ -127,6 +133,7 @@ int md_fs_buffer_open_take(struct md_fs_buffer_request *r, struct md_fs_buffer_o
     *out=r->opened; r->opened=(struct md_fs_buffer_open){.fd=-1}; return 1;
 }
 static void dispose(struct md_fs_buffer_request *r) {
+    md_task_wait_untrack(r->service->wait,&r->wait_member);
     if (r->continuation) r->continuation->destroy(r->continuation);
     md_exec_preparation_destroy(r->execution);
     if (r->fifo_control>=0) close(r->fifo_control);
@@ -264,6 +271,7 @@ static int complete(struct md_fs_work *work) {
     if (!r->cancelled && !r->error && r->opened.completion.kind && r->opened.completion.kind!=MD_OPEN_CALLER) {
         int error=md_open_job_start(&r->opening,r->opened.fd,r->request.flags,r->opened.completion);
         if (!error) {
+            md_task_wait_track(r->service->wait,&r->wait_member,r->opening.pid);
             close(r->opened.fd); r->opened.fd=-1;
             if (r->opened.completion.kind==MD_OPEN_PIPE) r->fifo_control=r->opened.completion.control;
             r->opened.completion=(struct md_open_completion){0};
@@ -298,6 +306,13 @@ int md_fs_buffer_open_waiting(const struct md_fs_buffer_request *r) {
 int md_fs_buffer_open_ready(const struct md_fs_buffer_request *r) {
     return md_fs_buffer_open_waiting(r) && !r->opening.pid;
 }
+int md_fs_buffer_open_interrupt(struct md_fs_buffer_request *r) {
+    if (!md_fs_buffer_open_waiting(r)) return -EINVAL;
+    return r->opening.pid ? md_open_job_interrupt(&r->opening) : 0;
+}
+int md_fs_buffer_open_interrupted(const struct md_fs_buffer_request *r) {
+    return md_fs_buffer_open_ready(r) && r->output->reply.result.error==-EINTR;
+}
 int md_fs_buffer_open_resume(struct md_fs_buffer_request *r) {
     if (!md_fs_buffer_open_ready(r)) return -EINVAL;
     r->opening_wait=0;
@@ -309,6 +324,7 @@ int md_fs_buffer_child(struct md_fs_buffer_service *s, pid_t pid, int status) {
     while (r && r->opening.pid!=pid) r=r->next;
     if (!r) return 0;
     if (!WIFEXITED(status) && !WIFSIGNALED(status)) return -EPROTO;
+    md_task_wait_untrack(s->wait,&r->wait_member);
     struct md_open_observation observation={0};
     int result=md_open_job_finish(&r->opening,status,&observation);
     if (result>=0) {
@@ -486,8 +502,8 @@ void md_fs_buffer_control_capture(struct md_fs_buffer_service *s,md_control_capt
 void md_fs_buffer_exec_capture(struct md_fs_buffer_service *s,md_exec_capture capture) {
     s->exec_capture=capture;
 }
-void md_fs_buffer_root_capture(struct md_fs_buffer_service *s,md_root_capture capture) {
-    s->root_capture=capture;
+void md_fs_buffer_path_capture(struct md_fs_buffer_service *s,md_proc_path_capture capture) {
+    s->path_capture=capture;
 }
 static int resolve_proc_objects(struct md_fs_buffer_request *r) {
     for (unsigned i=0;i<2;++i) if (r->proc_object[i]) {
@@ -581,6 +597,16 @@ static void run(struct md_fs_work *work, struct md_filesystem *fs, int error) {
     r->error=resolve_proc_objects(r);
     if (r->error) return;
     if (r->received) { r->error=inspect_received(r); return; }
+    if (r->snapshot_owned) {
+        r->error=md_file_snapshot_begin(&r->snapshot,fs->store,r->snapshot.flags);
+        if (!r->error) r->error=md_file_snapshot_append(&r->snapshot,r->path,r->snapshot_size);
+        if (!r->error) {
+            int fd=md_file_snapshot_finish(&r->snapshot);
+            if (fd<0) r->error=fd;
+            else { r->opened.fd=fd; r->opened.flags=r->snapshot.flags; }
+        }
+        return;
+    }
     if (r->status_only) {
         /* The walker still needs scratch space to report an unexecuted
          * provider boundary. Only its delegation marker leaves this worker. */
@@ -717,7 +743,7 @@ static void prepare_open(struct md_fs_buffer_request *r,struct md_filesystem *fs
                 snprintf(r->output->source,sizeof(r->output->source),"/proc/%d/fd/%d/.",getpid(),r->opened.fd);
             } else {
                 int source=md_inode_descriptor_source(fs->store,r->opened.fd,
-                    r->output->source,sizeof(r->output->source));
+                    r->output->source,sizeof(r->output->source),r->restricted);
                 if (source) {
                     if (source==-EXDEV) {
                         /* Reopening a proc magic link would lose NOFOLLOW,
@@ -742,11 +768,11 @@ static void prepare_open(struct md_fs_buffer_request *r,struct md_filesystem *fs
     reply->delivery=MD_FS_REPLIED;
 }
 struct md_fs_buffer_service *md_fs_buffer_service_new(struct md_fs_worker *worker,
-        struct md_task_registry *tasks, struct md_resource_wakeup *wake,
+        struct md_task_registry *tasks, struct md_resource_wakeup *wake, struct md_task_wait *wait,
         void (*callback)(struct md_fs_buffer_request *,pid_t,int)) {
-    if (!worker || !tasks || !wake || !callback) return NULL;
+    if (!worker || !tasks || !wake || !wait || !callback) return NULL;
     struct md_fs_buffer_service *s=calloc(1,sizeof(*s));
-    if (s) *s=(struct md_fs_buffer_service){.worker=worker,.tasks=tasks,.wake=wake,.complete=callback};
+    if (s) *s=(struct md_fs_buffer_service){.worker=worker,.tasks=tasks,.wake=wake,.wait=wait,.complete=callback};
     return s;
 }
 void md_fs_buffer_service_destroy(struct md_fs_buffer_service *s) {
@@ -760,6 +786,7 @@ static struct md_fs_buffer_request *request_new(struct md_fs_buffer_service *s,p
     if (!r) return NULL;
     atomic_init(&r->cancelled,0);
     r->service=s; r->actor=actor; r->opened.fd=r->control_descriptor=r->fifo_control=-1;
+    r->restricted=!s->restricted || s->restricted(actor);
     r->images=(struct md_command_images)MD_COMMAND_IMAGES_EMPTY;
     r->snapshot.fd=-1; r->captured[0]=r->captured[1]=-1;
     return r;
@@ -804,6 +831,48 @@ int md_fs_buffer_invoke_status(struct md_fs_buffer_service *s,pid_t actor,struct
 }
 const struct md_fs_result *md_fs_buffer_status_result(const struct md_fs_buffer_request *r) {
     return r && r->status_only ? &r->status_result : NULL;
+}
+static int submit_captured(struct md_fs_buffer_request *r,struct md_guest_domain *fs,
+        struct md_fs_buffer_request **out) {
+    struct md_fs_buffer_service *s=r->service;
+    int error=md_task_registry_read(s->tasks,r->actor,0,&r->context.task);
+    if (!error && r->context.task.fs!=fs) error=-ESTALE;
+    if (error) return error;
+    r->context.actor=r->actor; r->request.peer=r->context.peer=r->context.task.tgid;
+    r->context.authenticated=r->context.has_identity=1;
+    r->work=(struct md_fs_work){.run=run,.complete=complete,.ready=ready};
+    r->next=s->requests; s->requests=r;
+    error=md_fs_worker_submit(s->worker,&r->work);
+    if (error) return error;
+    r->submitted=1; *out=r;
+    return 0;
+}
+int md_fs_buffer_stat_begin(struct md_fs_buffer_service *s,pid_t actor,struct md_guest_domain *fs,
+        int descriptor,struct md_fs_buffer_request **out) {
+    if (!s || !out || *out || descriptor<0) return -EINVAL;
+    struct md_fs_buffer_request *r=request_new(s,actor,0);
+    if (!r) return -ENOMEM;
+    r->status_only=1; r->captured[0]=descriptor;
+    r->request=(struct md_fs_request){.actor=actor,.operation=MD_FS_FSTAT,
+        .directory={descriptor,-1},.path={"",""}};
+    int error=submit_captured(r,fs,out);
+    if (error) { r->captured[0]=-1; dispose(r); }
+    return error;
+}
+int md_fs_buffer_snapshot_copy(struct md_fs_buffer_service *s,pid_t actor,struct md_guest_domain *fs,
+        unsigned flags,const void *bytes,size_t size,struct md_fs_buffer_request **out) {
+    if (!s || !out || *out || (!bytes && size) || size>SIZE_MAX-sizeof(struct md_fs_buffer_request)) return -EINVAL;
+    int error=md_file_snapshot_flags(flags);
+    if (error) return error;
+    struct md_fs_buffer_request *r=request_new(s,actor,size);
+    if (!r) return -ENOMEM;
+    if (size) memcpy(r->path,bytes,size);
+    r->request=(struct md_fs_request){.actor=actor,.operation=MD_FS_TEMPORARY,.directory={-1,-1}};
+    r->snapshot.flags=flags; r->snapshot_size=size;
+    r->snapshot_owned=1; r->snapshot_phase=SNAPSHOT_FINISH;
+    error=submit_captured(r,fs,out);
+    if (error) dispose(r);
+    return error;
 }
 static int begin(struct md_fs_buffer_service *s, pid_t actor, struct md_guest_domain *fs, unsigned operation,
         const struct md_interception_buffer *buffer, struct md_fs_buffer_request **out, int executable,
@@ -1033,9 +1102,20 @@ static int capture_proc_object(struct md_fs_buffer_request *r,unsigned index) {
         r->request.capture[index]=(struct md_fs_task_capture){0};
         return 1;
     }
-    if ((kind!=MD_PROC_ROOT && kind!=MD_PROC_EXE) || !path.tail || *path.tail) return 0;
+    if ((kind!=MD_PROC_ROOT && kind!=MD_PROC_CWD && kind!=MD_PROC_EXE) || !path.tail || *path.tail) return 0;
     int error;
-    if (kind==MD_PROC_EXE) {
+    if (kind==MD_PROC_CWD) {
+        if (!r->service->path_capture) return -EOPNOTSUPP;
+        struct md_task_snapshot target={0};
+        error=r->service->path_capture(r->actor,path.process,kind,&target);
+        if (error==-EXDEV) return 0;
+        if (error) return error;
+        r->input[index]=target.cwd; target.cwd=NULL;
+        md_task_snapshot_release(&target);
+        if (!r->input[index]) return 0;
+        r->request.origin[index]=r->input[index];
+        r->request.directory[index]=md_fs_anchor_fd(r->input[index]);
+    } else if (kind==MD_PROC_EXE) {
         if (!r->service->exec_capture) return -EOPNOTSUPP;
         struct md_program *image=calloc(1,sizeof(*image));
         if (!image) return -ENOMEM;
@@ -1044,10 +1124,10 @@ static int capture_proc_object(struct md_fs_buffer_request *r,unsigned index) {
         snprintf(image->identity.path,sizeof(image->identity.path),"%s",capture->path);
         error=r->service->exec_capture(r->actor,image);
     } else {
-        if (!r->service->root_capture) return -EOPNOTSUPP;
+        if (!r->service->path_capture) return -EOPNOTSUPP;
         r->root[index]=calloc(1,sizeof(*r->root[index]));
         if (!r->root[index]) return -ENOMEM;
-        error=r->service->root_capture(r->actor,path.process,r->root[index]);
+        error=r->service->path_capture(r->actor,path.process,kind,r->root[index]);
     }
     if (error) return error;
     r->capture_mask&=~(1U<<index);

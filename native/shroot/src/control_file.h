@@ -91,8 +91,8 @@ struct md_control_file_ops {
      * bound as EOF. Zero retains single-operation/packet semantics. The host
      * retains one OFD turn until all pages are copied, EOF or an error. */
     size_t (*read_size)(void *);
-    /* Optional metadata-dependent seek; the descriptor host still owns the
-     * cursor and its OFD turn. SET/CUR remain local when no query is needed. */
+    /* Optional seek semantics; the descriptor host owns the cursor and OFD
+     * turn. ENOSYS delegates to its ordinary byte-offset handling. */
     long (*seek)(void *,const struct md_control_actor *,int64_t,int,struct md_control_pending **);
     /* Scalar descriptor commands share asynchronous lifetime and OFD ordering
      * with IO, but never consume or advance the file cursor. */
@@ -150,6 +150,9 @@ struct md_control_file_ops {
     /* True when the original application descriptor now supplies equivalent
      * native readiness. Existing virtual epoll subscriptions remain valid. */
     int (*poll_native)(void *);
+    /* Optional per-wait gate while native readiness is suppressed. Unlike an
+     * epoll subscription, poll/select can refresh this source after a wake. */
+    int (*poll_wait_descriptor)(void *,int *descriptor);
 };
 static inline struct md_control_file md_control_file_retain(struct md_control_file f) {
     if (f.ops) f.context=f.ops->retain(f.context);

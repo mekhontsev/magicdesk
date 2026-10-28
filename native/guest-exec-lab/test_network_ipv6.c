@@ -284,7 +284,7 @@ static void transport_policy(void) {
         uint32_t unchanged[2];
         assert(!md_network_parameter_read(launch.space,MD_NET_IPV6_MTU,scope,unchanged) && unchanged[0]==current[0]);
         int value=0; size=sizeof(value);
-        assert(!md_network_endpoint_sockopt(client,fd,0,IPPROTO_IPV6,IPV6_MTU,&value,&size) && value==1440);
+        assert(!md_network_endpoint_sockopt(client,fd,&root,0,IPPROTO_IPV6,IPV6_MTU,&value,&size) && value==1440);
         if (tcp) {
             ready(server); int peer=accept(server,NULL,NULL); assert(peer>=0);
             size=sizeof(value); assert(!getsockopt(fd,IPPROTO_TCP,TCP_MAXSEG,&value,&size) && value<=1380);
@@ -296,17 +296,17 @@ static void transport_policy(void) {
             assert(send(fd,bytes,sizeof(bytes),0)==-1 && errno==EMSGSIZE);
             assert(send(fd,"x",1,0)==1 && hops_received(server)==37);
             value=41; size=sizeof(value);
-            assert(!md_network_endpoint_sockopt(client,fd,1,IPPROTO_IPV6,IPV6_UNICAST_HOPS,&value,&size));
+            assert(!md_network_endpoint_sockopt(client,fd,&root,1,IPPROTO_IPV6,IPV6_UNICAST_HOPS,&value,&size));
             assert(!md_network_endpoint_autobind(client,fd,&root,(void *)&logical,sizeof(logical),0));
             assert(send(fd,"x",1,0)==1 && hops_received(server)==41);
             value=-1;
-            assert(!md_network_endpoint_sockopt(client,fd,1,IPPROTO_IPV6,IPV6_UNICAST_HOPS,&value,&size));
+            assert(!md_network_endpoint_sockopt(client,fd,&root,1,IPPROTO_IPV6,IPV6_UNICAST_HOPS,&value,&size));
             assert(send(fd,"x",1,0)==1 && hops_received(server)==37);
             value=1280;
-            assert(!md_network_endpoint_sockopt(client,fd,1,IPPROTO_IPV6,IPV6_MTU,&value,&size));
+            assert(!md_network_endpoint_sockopt(client,fd,&root,1,IPPROTO_IPV6,IPV6_MTU,&value,&size));
             assert(send(fd,bytes,1300,0)==-1 && errno==EMSGSIZE);
             value=0;
-            assert(!md_network_endpoint_sockopt(client,fd,1,IPPROTO_IPV6,IPV6_MTU,&value,&size));
+            assert(!md_network_endpoint_sockopt(client,fd,&root,1,IPPROTO_IPV6,IPV6_MTU,&value,&size));
             assert(send(fd,bytes,1300,0)==1300); ready(server);
             assert(recv(server,bytes,sizeof(bytes),0)==1300);
         }

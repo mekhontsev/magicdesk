@@ -419,7 +419,7 @@ static long host_call(const struct md_fs *fs, const char *exe, long nr, const un
         else if (nr!=SYS_openat) ref.kind=control;
     }
     if (ref.kind == MD_PROC_FOREIGN) {
-        if (ref.foreign_kind==MD_PROC_ROOT) {
+        if (ref.foreign_kind==MD_PROC_ROOT || ref.foreign_kind==MD_PROC_CWD) {
             if (!*ref.tail && link_operation(nr,a)) {
                 unsigned long args[6]; memcpy(args,a,sizeof(args));
                 args[path_index]=(unsigned long)path;
@@ -430,6 +430,10 @@ static long host_call(const struct md_fs *fs, const char *exe, long nr, const un
             memcpy(anchor,path,length); anchor[length]=0;
             struct md_namespace_operand operand={.descriptor=-1,.capture={anchor,O_PATH|O_DIRECTORY}};
             if (!*ref.tail && nr==SYS_readlinkat) {
+                if (ref.foreign_kind==MD_PROC_CWD) {
+                    long result=md_proc_control_metadata(&ref,nr,a);
+                    return result!=-EXDEV ? result : host_readlink(fs,&ref,path,a);
+                }
                 struct md_fs_request q={.operation=MD_FS_PATH,.mode=MD_FS_PATH_DISPLAY,
                     .directory={-1,-1},.capture={operand.capture}};
                 struct md_fs_response out;
@@ -442,7 +446,7 @@ static long host_call(const struct md_fs *fs, const char *exe, long nr, const un
             return md_namespace_path_call(fs,nr,a,operand,*relative ? relative : ".");
         }
         if (*ref.tail) return -ENOTSUP;
-        if (ref.foreign_kind==MD_PROC_FD || ref.foreign_kind==MD_PROC_CWD
+        if (ref.foreign_kind==MD_PROC_FD
                 || (ref.foreign_kind==MD_PROC_EXE && (nr==SYS_newfstatat || nr==SYS_statx))) {
             if (nr!=SYS_newfstatat && nr!=SYS_statx && nr!=SYS_readlinkat) return -ENOTSUP;
             long result=md_proc_control_metadata(&ref,nr,a);

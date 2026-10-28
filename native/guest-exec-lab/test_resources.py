@@ -610,7 +610,7 @@ def main():
             check("event fairness import", root + "/libmagicdesk_guest_service.so --import "
                   + root + "/fair-source " + root + "/fair-store --preserve-ownership")
             for user in ("0:0", "1000:1000"):
-                for workload in ("", "descriptors", "birth", "birth-namespace"):
+                for workload in ("", "descriptors", "birth", "birth-namespace", "helpers"):
                     check("guest event fairness " + user + " " + workload, "timeout -k 5 25 " + root
                           + "/libmagicdesk_guest_run.so " + ("--diagnostics " if args.diagnostics else "")
                           + "--user " + user + " --store "

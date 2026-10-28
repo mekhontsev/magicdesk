@@ -222,7 +222,7 @@ int md_network_routes(struct md_network_namespace *n,const struct nlmsghdr *h,ui
     if (!query || !dump || strict) {
         if (m->rtm_src_len || m->rtm_tos || (m->rtm_flags&~(query ? RTM_F_LOOKUP_TABLE : 0))) return -EOPNOTSUPP;
         if (value.prefix>(m->rtm_family==AF_INET6 ? 128 : 32)) return -EINVAL;
-        if (query && dump && (m->rtm_dst_len || m->rtm_protocol || m->rtm_scope || m->rtm_type || m->rtm_flags)) return -EOPNOTSUPP;
+        if (query && dump && (m->rtm_dst_len || m->rtm_scope || m->rtm_flags)) return -EOPNOTSUPP;
         if (!query && m->rtm_type!=RTN_UNICAST
                 && !(h->nlmsg_type==RTM_DELROUTE && m->rtm_type==RTN_UNSPEC)) return -EOPNOTSUPP;
         struct md_netlink_cursor cursor={RTM_RTA(m),h->nlmsg_len-NLMSG_LENGTH(sizeof(*m))};
@@ -262,17 +262,20 @@ int md_network_routes(struct md_network_namespace *n,const struct nlmsghdr *h,ui
     } else table=0;
     if (table && table!=RT_TABLE_MAIN) return query && dump ? 0 : -EOPNOTSUPP;
     if (query && dump) {
+        if (strict && m->rtm_type && m->rtm_type!=RTN_UNICAST) return 0;
         for (unsigned i=0;i<n->count;++i) for (unsigned j=0;j<n->links[i].address_count;++j) {
             if (value.interface && value.interface!=n->links[i].info.index) continue;
             const struct md_network_ip_assignment *a=&n->links[i].addresses[j];
             if (!md_network_address_has_route(a) || md_network_connected_index(&n->links[i],a)!=(int)j
                     || (m->rtm_family && m->rtm_family!=a->address.family)) continue;
             struct md_network_route_entry route=md_network_connected_route(&n->links[i],a);
+            if (strict && m->rtm_protocol && m->rtm_protocol!=route.protocol) continue;
             int error=md_network_route_reply(o,h,port,1,&n->links[i],&route,NULL);
             if (error) return error;
         }
         for (unsigned i=0;i<n->route_count;++i) {
             const struct md_network_route_entry *route=&n->routes[i];
+            if (strict && m->rtm_protocol && m->rtm_protocol!=route->protocol) continue;
             if (value.interface && value.interface!=route->interface) continue;
             if (m->rtm_family && m->rtm_family!=route->destination.family) continue;
             struct md_network_interface *link=md_network_interface_find(n,route->interface,NULL);

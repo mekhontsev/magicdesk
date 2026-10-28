@@ -18,6 +18,9 @@ int md_svc_machine_return(struct md_svc_registry *,struct md_svc_machine_thread 
  * existing owner. Both retire the temporary retry observer. */
 int md_svc_machine_retry(struct md_svc_machine_thread *,pid_t,struct user_pt_regs *observed);
 void md_svc_machine_forget(struct md_svc_machine_thread *);
+/* Terminal stop: release only the dying task's exact resident frame. No guest
+ * continuation is resumed, and unrelated shared-mm slots remain untouched. */
+int md_svc_machine_retire(struct md_svc_registry *,pid_t,const struct user_pt_regs *adapter);
 /* The supervisor retains resume ownership. A handled checkpoint requests one
  * syscall-exit stop; the common signal queue owns subsequent delivery. */
 int md_svc_machine_syscall(struct md_svc_registry *,struct md_svc_machine_thread *,pid_t,

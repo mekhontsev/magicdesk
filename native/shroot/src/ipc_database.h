@@ -13,6 +13,8 @@ struct md_ipc_database {
 int md_ipc_database_sql(int);
 int md_ipc_database_exec(struct md_ipc_database *,const char *);
 int md_ipc_database_query(struct md_ipc_database *,const char *,sqlite3_stmt **);
+/* Admission-only, under the gate. Existing transient objects retain their data. */
+int md_ipc_database_blob_column(struct md_ipc_database *,const char *table,const char *column);
 /* Success retains the gate for schema/admission; failure closes partial state.
  * Only a committed owner registration sets admitted, never a created lease. */
 int md_ipc_database_open(struct md_ipc_database *,const char *store,const char *kind,const char *name);

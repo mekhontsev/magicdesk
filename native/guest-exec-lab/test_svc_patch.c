@@ -23,12 +23,14 @@ static struct md_svc_payload_state payload;
 static int reads,writes,fail_write=-1,fail_read;
 static void *publication_code;
 static int publication_memory=-1;
+ssize_t __real_process_vm_readv(pid_t,const struct iovec *,unsigned long,const struct iovec *,unsigned long,unsigned long);
 ssize_t __wrap_process_vm_readv(pid_t pid,const struct iovec *local,unsigned long ln,
         const struct iovec *remote,unsigned long rn,unsigned long flags) {
     if (publication_code && pid==getpid()) {
         assert(ln==1 && rn==1 && !flags && remote->iov_base==publication_code && remote->iov_len<=8);
         memcpy(local->iov_base,remote->iov_base,remote->iov_len); return remote->iov_len;
     }
+    if (pid==getpid()) return __real_process_vm_readv(pid,local,ln,remote,rn,flags);
     assert((pid==111 || pid==222) && ln==1 && rn==1 && !flags);
     ++reads;
     if (fail_read) { errno=ESRCH; return -1; }
@@ -299,6 +301,45 @@ static void lazy_stack_guards(void) {
     puts("PASS SVC lazy stack guards: admission, isolated slots, fork inheritance and protection denial");
 }
 
+static void revoked_frames(void) {
+    char *frames=mmap(NULL,MD_SVC_POOL_SIZE,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+    assert(frames!=MAP_FAILED);
+    struct md_svc_registry r={.frames=(uintptr_t)frames,.count=1,.sites={{.direct={.gate=1}}}};
+    uint64_t occupied=UINT64_MAX;
+    assert(md_svc_registry_occupied(&r,getpid(),&occupied)==-EINVAL);
+    r.disabled=1;
+    assert(!md_svc_registry_occupied(&r,getpid(),&occupied) && !occupied);
+    *(uint64_t *)frames=1;
+    *(uint64_t *)(frames+63*MD_SVC_SLOT_SIZE)=2;
+    assert(!md_svc_registry_occupied(&r,getpid(),&occupied) && occupied==((UINT64_C(1)<<63)|1));
+    *(uint64_t *)frames=0;
+    assert(!md_svc_registry_occupied(&r,getpid(),&occupied) && occupied==(UINT64_C(1)<<63));
+    uintptr_t last=(uintptr_t)frames+63*MD_SVC_SLOT_SIZE;
+    *(uint64_t *)(last+MD_SVC_DIRECT_PENDING)=1;
+    *(uint64_t *)(last+MD_SVC_GUARD_STATE)=1;
+    pid_t child=fork(); assert(child>=0);
+    if (!child) {
+        struct md_svc_registry *copy=md_svc_registry_copy(&r);
+        assert(copy && copy->frames_dirty && !r.frames_dirty);
+        assert(md_svc_registry_prepare_fork(copy,getpid(),INT_MAX)==-EBADF && copy->frames_dirty);
+        int fd=open("/proc/self/mem",O_RDWR|O_CLOEXEC); assert(fd>=0);
+        assert(!md_svc_registry_prepare_fork(copy,getpid(),fd) && !copy->frames_dirty);
+        assert(!md_svc_registry_occupied(copy,getpid(),&occupied) && !occupied);
+        assert(!*(uint64_t *)(last+MD_SVC_DIRECT_PENDING));
+        assert(*(uint64_t *)(last+MD_SVC_GUARD_STATE)==1);
+        assert(!close(fd) && !munmap(frames,MD_SVC_POOL_SIZE));
+        assert(!md_svc_registry_prepare_fork(copy,getpid(),INT_MAX));
+        free(copy); _exit(0);
+    }
+    int status=0;
+    assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
+    assert(*(uint64_t *)last==2 && *(uint64_t *)(last+MD_SVC_DIRECT_PENDING)==1);
+    assert(!munmap(frames,MD_SVC_POOL_SIZE));
+    r.entry_fence_drained=1;
+    assert(!md_svc_registry_occupied(&r,getpid(),&occupied) && !occupied);
+    assert(!md_svc_registry_occupied(NULL,getpid(),&occupied) && !occupied);
+    puts("PASS SVC revoked frames: occupied slots, fork reset, exact release and retired observation");
+}
 int main(void) {
     client_retirement();
     code_staging();
@@ -306,6 +347,7 @@ int main(void) {
     publication_admission();
     guard_recovery();
     lazy_stack_guards();
+    revoked_frames();
     struct md_svc_registry empty={.count=2,.disabled=1};
     assert(!md_svc_registry_resident(NULL) && !md_svc_registry_resident(&empty));
     struct md_svc_registry registry={.frames=0x800000,.pool_count=1,.count=2,

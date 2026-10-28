@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Independent guest launches share FIFO streams, not only persisted names."""
 import argparse
+import hashlib
 from pathlib import Path
 import shlex
 import sys
@@ -71,6 +72,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('build', type=Path)
     parser.add_argument('--store', required=True)
+    parser.add_argument('--go-fixture', type=Path,
+                        help='Stock Go binary built from test_fifo_go.go by build_svc_go.py')
     args = parser.parse_args()
     suite = Suite(args.build, args.build)
     root = '/tmp/fifo-' + suite.report['id']
@@ -87,6 +90,21 @@ def main():
                        '--bind-ro',suite.base,root,'--deadline-seconds','60','--',root + '/' + fixture,'fifo'])
         suite.command([suite.runner,'--store',args.store,'--user','0:0',
                        '--bind-ro',suite.base,root,'--deadline-seconds','60','--',root + '/' + fixture,'fifo-readiness'])
+        for entry in (0, 1):
+            suite.command([suite.runner, '--store', args.store, '--user', '0:0',
+                           '--bind-ro', suite.base, root, '--env', f'SHROOT_MACHINE_ENTRY={entry}',
+                           '--deadline-seconds', '60', '--', root + '/' + fixture, 'fifo-rendezvous'])
+        if args.go_fixture:
+            suite.report['goFixtureSha256'] = hashlib.sha256(args.go_fixture.read_bytes()).hexdigest()
+            suite.transport.upload(suite.client, args.go_fixture, suite.base + '/fifo-go')
+            suite.command(['chmod', '700', suite.base + '/fifo-go'])
+            for entry in (0, 1):
+                for repeat in range(3):
+                    suite.command([suite.runner, '--store', args.store, '--user', '0:0',
+                                   '--bind-ro', suite.base, root, '--env', f'SHROOT_MACHINE_ENTRY={entry}',
+                                   '--deadline-seconds', '90', '--', root + '/fifo-go'], timeout=100)
+                    suite.report['cases'].append({'goFifo': True, 'entry': entry,
+                                                  'repeat': repeat, 'passed': True})
         suite.transport.upload(suite.client, Path(__file__), suite.base + '/fifo.py')
         suite.command(run('mkdir ' + shlex.quote(root + '/fixture')))
         def transferred(role):

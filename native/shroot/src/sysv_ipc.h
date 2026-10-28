@@ -7,6 +7,7 @@
 struct md_ipc;
 struct md_ipc_pending;
 struct md_ipc_undo;
+struct md_pid_identity;
 enum { MD_IPC_EXECUTE=1, MD_IPC_CLOSE };
 enum { MD_IPC_VALUE_MAX=65536 };
 struct md_ipc_packet {
@@ -29,7 +30,7 @@ struct md_ipc_undo *md_ipc_undo_new(void);
 struct md_ipc_undo *md_ipc_undo_fork(struct md_ipc_undo *, int shared);
 int md_ipc_undo_release(struct md_ipc *, struct md_ipc_undo *);
 long md_ipc_call(struct md_ipc *, struct md_ipc_pending **, struct md_ipc_undo *,
-    const struct md_identity *, pid_t tid, pid_t tgid, struct md_ipc_transport *);
+    const struct md_identity *, pid_t tid, pid_t tgid, struct md_pid_identity *, struct md_ipc_transport *);
 int md_ipc_cancel(struct md_ipc *, struct md_ipc_pending **);
 int md_ipc_wait_fd(const struct md_ipc_pending *);
 int64_t md_ipc_deadline(const struct md_ipc_pending *);

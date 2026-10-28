@@ -76,6 +76,30 @@ def main():
         suite.report['filterRace'] = records(filter_output, 'SVC_RUNTIME_STATS ')
         assert any(item['completed'] > 128 and item['revoked'] for item in suite.report['filterRace'])
         print('Integrated filter race PASS', flush=True)
+        for command in ([root + '/bin/mapping', 'filter-wait'],
+                        [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--statistics', '--', '/bin/mapping', 'filter-wait-provider'],
+                        [*guest, '--statistics', '--', '/bin/mapping', 'filter-wait-provider']):
+            output = suite.command(command, quiet=True, timeout=180)
+            assert 'PASS SVC filter race:' in output
+            if '--statistics' in command:
+                assert re.search(r'MD_ENTRY_FENCE transitions=24 drains=\d+ quiescences=0\b', output), output
+        print('Integrated filter waiting peers PASS', flush=True)
+        for command in ([root + '/bin/mapping', 'filter-fork'],
+                        [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--statistics', '--', '/bin/mapping', 'filter-fork'],
+                        [*guest, '--statistics', '--', '/bin/mapping', 'filter-fork']):
+            output = suite.command(command, quiet=True, timeout=180)
+            assert 'PASS SVC fork filter:' in output
+            if '--statistics' in command:
+                assert re.search(r'MD_ENTRY_FENCE transitions=24 drains=\d+ quiescences=0\b', output), output
+        print('Integrated fork filter PASS', flush=True)
+        for command in ([root + '/bin/mapping', 'filter-exit'],
+                        [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--statistics', '--', '/bin/mapping', 'filter-exit'],
+                        [*guest, '--statistics', '--', '/bin/mapping', 'filter-exit']):
+            output = suite.command(command, quiet=True, timeout=180)
+            assert 'PASS SVC exit filter:' in output
+            if '--statistics' in command:
+                assert re.search(r'MD_ENTRY_FENCE transitions=24 drains=\d+ quiescences=0\b', output), output
+        print('Integrated exit filter PASS', flush=True)
         for command in ([root + '/bin/mapping'], [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--'],
                         [*guest, '--statistics', '--']):
             if command[-1] == '--':
@@ -92,6 +116,8 @@ def main():
         print('Integrated protected race PASS', flush=True)
         for command in ([root + '/bin/process-image'], [*guest, '--env', 'SHROOT_MACHINE_ENTRY=0', '--', '/bin/process-image'],
                         [*guest, '--statistics', '--', '/bin/process-image']):
+            output = suite.command([*command, 'zombie'], quiet=True, timeout=60)
+            assert 'PASS zombie process image:' in output
             for mode in (['protected'] if len(command)==1 else ['protected', 'protected-other-user']):
                 output = suite.command([*command, mode], quiet=True, timeout=60)
                 assert 'PASS protected process image:' in output
