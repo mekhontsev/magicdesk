@@ -85,11 +85,24 @@ use `magicdesk download`; no Linux environment is required.
 
 ### Syscall Acceleration
 
-Shroot uses lazy AArch64 syscall entry by default in named environments and
-inode-store launches. It recognizes executed SVC sites in unmodified programs
-and routes eligible calls to the common syscall engine. This includes stock
-glibc, musl, static executables and Go binaries; no libc build, preload, private
-loader or additional OCI layer is required. Package-owned files are unchanged.
+Shroot uses **lazy SVC** by default in named environments and inode-store
+launches. `svc` is the AArch64 instruction used to enter the kernel for a
+syscall. Shroot discovers executed syscall sites at interception stops rather
+than scanning every executable byte as if it were an instruction.
+
+For an eligible site, Shroot prepares a private entry stub and replaces that
+single `svc` instruction in process memory with a branch. Publication does not
+stop neighboring threads. The stub checks the syscall number and routes the
+call to the shared syscall engine; later calls at that site can avoid the
+seccomp/ptrace round trip. Eligible native operations execute in the guest
+thread, while worker-owned operations use the shared-memory channel. The
+kernel still performs native IO: acceleration does not mean that every syscall
+becomes a purely userspace operation.
+
+This works with unmodified stock glibc, musl, static executables and Go binaries.
+Package-owned files on disk are unchanged; no libc build, preload, private
+loader or additional OCI layer is required. Mapping changes invalidate affected
+entries, and signal handling reconstructs the application's original context.
 
 **Shroot Base** is the ordinary seccomp/ptrace interception path. Unsupported
 sites and unavailable entry capabilities retain Base automatically. To select
@@ -113,10 +126,6 @@ and [integration evidence](../native/guest-exec-lab/svc-rewriting.md#product-bou
 Native `--statistics` reports `SVC_RUNTIME_STATS` and completed calls; ordinary
 launches do not enable timing instrumentation.
 
-The former source-built libc registry, loader substitution, `shroot libc`
-commands and installer libc options have been removed. Existing Linux stores
-do not require recreation or a package reinstall. Previously cached private
-builds are not selected; this change does not delete their files or user data.
 Mesa/Turnip, KWin and Weston builds remain recipe-owned and use the same default
 entry as other programs. Their `--jobs` setting is independent of syscall entry.
 
@@ -217,6 +226,9 @@ binds or extra controller daemons. Gamepad input follows the focused Android
 host. Desktop volume controls use a private guest PipeWire graph; Xfce and
 Plasma include their mixer integration. Individual applications connect directly
 to Android's audio service. See [audio](audio.md) and [gamepads](gamepads.md).
+Recipe-owned PipeWire and WirePlumber drop-ins keep a dedicated audio data loop
+with ordinary mutexes. Priority-inheritance futexes are unavailable with logical
+guest TIDs; native scheduling remains available within Android's permissions.
 
 Images and repository packages are trusted executable inputs, not sandboxed
 content. `--image REF` selects another OCI source of the same distribution and
@@ -401,6 +413,16 @@ options as the other recipes. Its immutable prefix is in `/nix/store`, not
 `/opt/magicdesk/mesa`. Session helpers, audio and application entries use the
 shared installer implementations. Stable XDG links expose the active system
 generation's applications and icons to MagicDesk's normal application search.
+Each helper and graphics patch is a separate Nix build input, so changing an
+audio helper does not invalidate KWin. PipeWire configuration uses its NixOS
+module when enabled; client-only profiles do not enable a daemon just to install
+the shared configuration.
+
+For Flatpak, enable `services.flatpak.enable` and the appropriate desktop portal
+in your NixOS configuration. The Turnip integration then adds the shared GL
+publisher to the packaged install/update triggers, including the system helper.
+It reuses the selected immutable Mesa output without modifying `/nix/store` or
+automatically compiling another driver. See [Flatpak GPU drivers](graphics.md#flatpak-gpu-drivers).
 
 #### SteamOS recovery image
 
@@ -965,6 +987,10 @@ published ports commit atomically; unsupported expressions fail explicitly.
 Unfiltered internal/outbound streams retain native data IO. Filtered/NAT flows
 use an event-driven relay with cached decisions, not syscall-by-syscall packet
 interpretation. Root-fabric published ports also use this relay.
+Outbound TCP relays start the actual upstream connection before returning a
+local endpoint, preserving immediate route/permission errors and client
+IPv4/IPv6 fallback. An asynchronous upstream failure may still arrive after
+the local connection succeeds; relay connection timing is not native TCP parity.
 
 In `routed`, explicit binds in the initial network namespace reserve the same
 port on Android, including loopback binds. Android can deny a privileged port
@@ -983,7 +1009,9 @@ native descriptors retain access. Logical ICMPv6 supports router/neighbor
 discovery and local echo; raw UDP supports guest DHCP clients. UDP broadcast and
 IPv4/IPv6 multicast use namespace-owned memberships and the shared forwarding
 worker. This is not arbitrary raw-IP internet access or packet-level forwarding.
-Routed `recvmmsg` and unsupported ancillary types fail explicitly.
+Routed IPv4/IPv6 sockets support `recvmmsg` batches with native timeout and
+partial-completion handling. Netlink/device-event `recvmmsg` and unsupported
+ancillary types fail explicitly.
 Packet information and supported TTL/hop-limit/TOS/traffic-class controls are
 family-aware; device-bound sockets retain logical interface ownership.
 Anonymous nftables counters count logical data transfers

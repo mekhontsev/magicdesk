@@ -53,13 +53,28 @@ exclusive and wake-lock requests return an explicit unsupported error.
 The enclosing descriptor custodian supplies confirmed OFD retirement, including
 aliases and queued transfers. Registration references alone cannot determine it.
 Cross-owner admission installs the selected queue's filters before activating
-virtual interests. Exclusive-table mixed epoll and selected FIFO poll/select
-reuse the task-affine native-wait owner, including signal delivery and cancellation;
-the provider helper observes only virtual wake descriptors. Poll vectors borrow
-contiguous slots from the existing mapped-buffer pool, while the file-table turn
-ends before blocking. Native-only processes retain ordinary waits, including
-`epoll_pwait2`, without supervisor stops. Shared-table epoll still uses its captured
-host collector; it does not yet have equivalent caller-context signal coverage.
+virtual interests. It releases unrelated file tables after capturing aliases;
+later descriptor transfers admit the reserved selectors through their ordinary
+publication owner. Only tables containing existing aliases remain held through
+selector installation. No file-table turn spans a blocking readiness wait.
+
+Blocking epoll and selected FIFO poll/select reuse the task-affine native-wait
+owner, including signal delivery and cancellation. Shared-table epoll captures
+the exact queue and borrows a caller descriptor for the wait; native readiness
+is still evaluated in the calling task. A provider helper observes only virtual
+wake descriptors and starts only when such a transport exists. Cold virtual
+admission interrupts already-blocked waits on that exact queue, preserving their
+original deadlines and temporary masks. Pure native queues need no helper or
+wake descriptor. The kernel writes their results directly to the application,
+preserving output-fault and one-shot consumption semantics. Mixed queues use the
+separate result buffer; transactional rollback after a fault copying that buffer
+is not implemented.
+
+Zero-time native epoll probes retain kernel handling. Lazy entry can complete an
+infinite unmasked wait with an immediate filtered probe; an empty result enters
+owned blocking admission. Base retains supervisor stops for blocking epoll,
+including an immediate-result probe where arguments and filter policy permit.
+Poll vectors borrow contiguous slots from the existing mapped-buffer pool.
 An interrupted caller-context wait collects already-ready virtual events before
 returning EINTR. Collected events are delivered once; if none exist, signal
 delivery retains the kernel-owned temporary mask without a ptrace mask rewrite.
@@ -215,11 +230,12 @@ Admission fails explicitly if the required native operation is denied. The last
 live thread of PID 1 closes the namespace and terminates its descendants;
 another child cannot silently recreate PID 1 in that namespace.
 
-PI futex commands are explicitly unavailable (ENOSYS) inside a logical PID
+PI futex commands are explicitly unavailable inside a logical PID
 namespace: their userspace owner words contain guest TIDs, which cannot safely
 be passed to the kernel's priority-inheritance state. This includes PI lock,
-unlock, trylock and PI requeue variants. Libc can reject PI mutex creation with
-ENOTSUP, allowing applications to choose ordinary mutexes. Already initialized
+unlock, trylock and PI requeue variants. Acquisition and requeue return
+EOPNOTSUPP; unlock returns ENOSYS for glibc's capability probe. Libc can reject
+PI mutex creation with ENOTSUP, allowing applications to choose ordinary mutexes. Already initialized
 PI mutexes do not become supported by entering a namespace. Native PID views
 retain kernel PI behavior, including a parent which only selected a namespace
 for future children. Ordinary futex waits, wakes and requeues are not trapped.
@@ -315,10 +331,13 @@ group with ` (deleted)`; v1 reports the hierarchy root. Exited members do not
 populate `cgroup.procs` or prevent removal. Already-open membership files retain
 the same provider independently of the task record.
 
-Foreign `/proc/PID/root` access captures the selected task's retained root and
-mount view after the process-access check. Traversal uses that root with the
-caller's credentials; no temporary root FD enters the guest table. Opened roots
-survive target exit and retain their view rather than resolving a reused PID.
+Foreign `/proc/PID/root` and `/proc/PID/cwd` access captures the selected task's
+retained path and mount view after the process-access check. Traversal uses that
+placement with the caller's credentials; no temporary path FD enters the guest
+table. Readlink describes the guest placement, including private tmpfs mounts,
+not its Android storage path. Opened directories survive target exit and retain
+their view rather than resolving a reused PID. Same-process access preserves
+Linux's dumpable=0 allowance; a different process still requires authorization.
 Status/stat snapshots also apply to supervised processes in the implicit proc
 provider, without requiring an explicit proc mount.
 
@@ -370,8 +389,12 @@ mounts. `host_fs_view` supplies a portable device projection with guest-owned
 Detached `open_tree` clones use the same composition and mount ownership.
 Guest device-node creation requires logical CAP_MKNOD and stores type/rdev in
 the inode provider without native mknod. Supported character numbers use explicit
-native endpoints; unknown numbers remain metadata-only and return ENXIO on data
-open. Native attached directories reject device creation with EPERM.
+native endpoints, except `1:7` (`/dev/full`): `full_device` supplies zero reads,
+ENOSPC writes and device seek semantics through the existing typed IO owner.
+This does not depend on Android granting access to its own `/dev/full`, and
+does not intercept ordinary file IO. Unknown numbers remain metadata-only and
+return ENXIO on data open. Native attached directories reject device creation
+with EPERM.
 The origin retains the logical carrier separately from endpoint identity, so
 fstat, chmod/chown, reopen and transferred descriptors use guest metadata.
 Callers may bind an existing native device onto a regular placeholder, including
@@ -466,7 +489,11 @@ aliases. Their mount provenance survives detach/rebind; selecting a regular
 file does not substitute its parent directory. Named readlink on a non-link
 returns EINVAL, including bind roots; empty-path descriptor readlink retains
 ENOENT. A mount-root path is reconstructed from its covered dentry, independently
-of ambiguous hardlink names in the backing store. Native proc/dev sources use the
+of ambiguous hardlink names in the backing store. Path reconstruction walks
+ancestors iteratively with fixed scratch space, prepending only each local
+suffix; mount depth does not consume worker stack. Retained-root boundaries,
+detached children and the caller's pathname capacity remain enforced.
+Native proc/dev sources use the
 task-local capture path. `mount_propagation` owns weak namespace-family
 membership and retained peer/master ancestry. `fs_mount_propagation` prepares
 attach/detach/move changes across peers and downstream slaves before publishing

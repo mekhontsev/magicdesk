@@ -298,7 +298,7 @@ an unavailable operation fails the native runtime, not unrelated app services.
 | Owner | Current contract |
 | --- | --- |
 | `task_checkpoint` | Exact marker table, scoped resume modes, complete x7 payload and typed completion event; ordinary guest calls do not acquire SYSEMU |
-| Register gates and C adapter returns | Normal service BRKs replaced by registered SVC markers; genuine SIGTRAP never means adapter completion |
+| Register gates and C adapter returns | Registered SVC markers carry service completion; genuine SIGTRAP never means adapter completion |
 | `task_helper`, readiness and memory repair | Consume the same typed event while retaining their existing clone, notification, cancellation and actor ownership |
 | `task_call` | Native entry/exit and exact continuation reconstruction; kernel restart_block and orig_x0 stay authoritative |
 | `signal_delivery` | Real delivery-stop chaining, first-info standard-signal coalescing and kernel-owned job-control cancellation |

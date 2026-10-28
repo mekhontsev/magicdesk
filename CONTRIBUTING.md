@@ -295,9 +295,10 @@ license notices. See [licensing and source availability](docs/licensing.md).
 Documentation describes the current contract, prerequisites and limitations.
 Keep module READMEs focused on purpose, ownership, verification and source/license
 information; link to the relevant guide for details. Put release differences in
-release notes, not feature descriptions. Preserve dated investigation evidence
-and the reasons for safety constraints, while removing incidental development
-history and duplicated explanations from current guides.
+release notes, not feature descriptions. Keep current verification evidence and
+the reasons for safety constraints. Fixed-bug stories, replaced mechanisms and
+step-by-step experiments belong in Git and run artifacts, not maintained guides.
+Remove resolved backlog items and duplicated explanations.
 
 Do not commit IDE metadata, `local.properties`, generated build output,
 keystores, device captures, or diagnostic reports containing local device

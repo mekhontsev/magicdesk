@@ -36,6 +36,14 @@ descriptors, reopened aliases and another process's descriptor table, including
 a freshly mounted PID-scoped proc. Typed descriptor placement remains separate
 from the anonymous carrier and retains namespace IO and ioctl semantics.
 
+The device-node checks require `/dev/full` semantics for the canonical path and
+guest-created aliases, independently of host device permissions: paged zero
+reads, ENOSPC writes, seeks, native readiness, metadata, descriptor transfer and
+nodev policy. `test_setid.py BUILD STORE` additionally closes stdin, stdout,
+stderr and all three before secure exec, including descriptor-based exec.
+The probe reports through a separate inherited pipe and checks libc's standard
+descriptor repair without relaxing credentials or `AT_SECURE`.
+
 The same mount-namespace suite's `user-limits` case checks live
 `max_user_namespaces` control files in initial and freshly mounted proc views:
 ancestor quotas, child-limit escalation denial, clone/unshare rollback, retained
@@ -144,6 +152,16 @@ Mutation-under-signal cases also verify close/EBADF and rename/unlink register
 preservation with ordinary and nondumpable callers, with and without SA_RESTART.
 `--case fs-dispatch` checks scalar mutation receipts without mapped output:
 owned operands, exact errors, cancellation before/after admission and FD balance.
+It also checks captured-fstat and immutable snapshot requests while the worker
+is paused and a file-table turn is held: asynchronous submission, cancellation,
+exact output and descriptor balance. Protected process-image checks repeat
+foreign cmdline reads under signals and verify byte content and EOF. The SVC
+suite installs TSYNC filters during filesystem work with native poll/epoll peers,
+requiring actual denials, intact waits and zero filter-fence quiescences in both
+Base and lazy modes. Fork cases install filters while the parent continues
+accelerated work, verifying copied-frame retirement without changing parent slots.
+Shared-mm exit cases kill one accelerated peer while other threads continue,
+then install a filter with no stale slot or interrupted native wait.
 Mount-namespace cases retain mutation coverage through `/proc/self/fd` aliases.
 Store fixtures require zero SQL transactions for native-name mutation and warm
 read scopes, while preserving external-writer visibility, lazy write rollback,
@@ -575,7 +593,9 @@ does not add hostile-caller authorization to the existing filesystem service.
 Deferred FIFO completion uses a short-lived supervisor child with an independent
 kernel file table, not a guest-side private socket. It closes unrelated inherited
 FDs before waiting; only the completed endpoint is delivered to the application.
-The supervisor cancels and reaps the exact child, discarding unreceived rights.
+Application signals request interruption; an already admitted endpoint retains
+its result, while an unpaired open retains kernel restart handling. Abandoning
+the request cancels and reaps the exact child, discarding unreceived rights.
 Guest-root changes retain the CLONE_FS turn through worker publication. The guest
 adapter no longer contains a filesystem RPC-client fallback. Native host clients
 still use RPC. Reexec image preparation and proc-image snapshot construction are

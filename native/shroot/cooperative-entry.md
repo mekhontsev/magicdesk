@@ -4,7 +4,6 @@ The namespace bootstrap exposes a libc-independent entry descriptor through the
 private `MD_AT_COOPERATIVE` auxiliary vector. The default lazy SVC frontend and
 focused protocol fixtures use this internal versioned contract. Stock programs
 need no hooks: observed, eligible syscall sites enter the same provider.
-Source-built libc integration and its deployment registry have been removed.
 `--env SHROOT_MACHINE_ENTRY=0` selects Base without removing the shared handler.
 
 - [Call Contract](#call-contract)
@@ -254,11 +253,21 @@ Full-context completion and native-call injection retain the post-syscall
 boundary needed to restore x7. FD-control commands retain that boundary too:
 selector installation can lend the stopped task to a native-call owner.
 
-The base filter resolves native waits and kernel execution-state operations
+The base filter resolves eligible native waits and kernel execution-state operations
 before consulting service addresses. This permits the kernel's syscall-number
 allow cache; stacked descriptor/PID selectors and application filters still
 apply. Memory operations with mapping provenance, FD IO and service `gettid`
-are not part of this unconditional path.
+are not part of this unconditional path. Blocking epoll is owned from entry to
+support the later addition of virtual interests. For an infinite unmasked epoll
+wait, lazy entry first performs a zero-time probe through the ordinary filtered
+kernel gate, not the raw service gate. Both ABIs use scalar epoll_pwait for this
+probe. A validated zero timespec in epoll_pwait2 completes there even when empty;
+the existing caller-owned copy context validates that argument without adding a
+descriptor or memory cache. A ready result completes without a worker
+exchange or descriptor cache; an empty result enters the blocking owner. Dynamic
+queue selectors still collect virtual events. Positive finite waits and temporary signal
+masks retain ordinary admission, and application filters revoke lazy entry as for
+other syscalls.
 See [protocol coverage](../guest-exec-lab/sandbox-research.md#signal-neutral-checkpoints).
 
 Known separate limitation: a fault in a fallback userspace memory copy can
@@ -613,7 +622,21 @@ An installed application seccomp filter disables **shared-memory execution**, no
 the entry API. Before
 attempting a filter installation, the supervisor revokes the relevant task or
 TSYNC thread group's authoritative eligibility. A failed installation leaves it
-disabled conservatively. Already admitted operations may complete; later requests
+disabled conservatively. Already admitted operations complete before kernel
+filter installation. The slot claim precedes the payload's acquire read of
+admission, and its release follows the final private operation. After revocation,
+observing all slots empty therefore retires pre-revocation API execution; later
+claims see revoked admission and cannot call the API. The caller leaves private
+entry before clone or signal-handler execution. Before a copied
+address space resumes, its inherited peer frame claims are cleared; CLONE_VM
+peers retain their live shared frames. Ordinary adapter operations
+are drained separately. A readiness wait already admitted by the kernel retains
+its completion owner across TSYNC; filter installation does not wait for the
+application event that may itself depend on the installer. This exception does
+not apply to a loss of remote-memory access through dumpability. At a terminal task stop, the same context decoder
+releases that task's frame without touching live peers. New public admissions
+remain held through filter
+commit or failure. Native sleeping threads are not interrupted. Later requests
 use the kernel continuation. A monotonic per-image hint disables new channel
 registration before any application filter, including inherited policy after
 exec. Fresh clients therefore do not issue a potentially forbidden helper.
@@ -757,8 +780,7 @@ contract, including deterministic live-token, identity mismatch, ioctl failure
 and interrupted-token-check cases; a successful check never installs another FD.
 
 The stock-libc runner measures real guest pointers, task identity, lifecycle
-and completion ownership. Superseded captured-request transports are removed;
-their timings are not a production baseline. See the
+and completion ownership. See the
 [measurement workflow](../guest-exec-lab/cooperative-entry.md).
 
 No storage-format change, runtime dependency, ART integration or kernel newer

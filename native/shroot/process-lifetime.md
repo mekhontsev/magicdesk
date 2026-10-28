@@ -64,6 +64,8 @@ is not used. A scan never proves quiescence; only the final wait result does.
 
 The frontend returns the root application's status after normal completion,
 `128 + signal` for requested cancellation, and 125 for supervision/service failure.
+The guardian records the supervisor's original fatal signal or failure status
+before normalizing that result to 125.
 A cleanup deadline expiring is failure, not successful termination. Service
 shutdown has its own bounded join and process-failure path.
 

@@ -153,6 +153,15 @@ loader-less DRI winsys advertises none, so flushing its offscreen images remains
 a no-op instead of dereferencing absent loader functions. The GLX fixture checks
 both GPU readback and actual X11 pixels, not just the renderer string.
 
+For Vulkan X11 surfaces without DRI3, the shared Mesa patch uses GPU rendering
+with CPU-readable presentation images when the X server supports Present.
+Readback is uploaded to ordinary X pixmaps; Present completion and idle events
+retain frame pacing and image ownership. This is not zero-copy presentation.
+DRI3 and native Wayland surfaces retain their existing paths. The XCB and Xlib
+fixtures exercise immediate, mailbox and FIFO presentation; SteamOS DDNet also
+renders through Turnip with this path. Installing the APK alone does not update
+the guest driver.
+
 The same patch implements Turnip KGSL calibrated timestamps with
 `IOCTL_KGSL_READ_CALIBRATED_TIMESTAMPS`. Extension discovery probes the selected
 device: if the ioctl is unavailable or denied, neither the KHR nor EXT calibrated
@@ -203,6 +212,14 @@ magicdesk-flatpak-gl
 
 These automatic paths only publish already-built libraries; they never install
 an SDK or compile a second Mesa, even when an SDK is already installed.
+NixOS uses the same publisher with Nix-resolved tools and immutable output
+identity. With `services.flatpak.enable`, its trigger directory retains the
+distribution's triggers and adds the GL publisher for both user installations
+and the system helper. The applications profile also exports this directory for
+direct Shroot sessions without PAM. Nix store contents remain unchanged.
+Graphics profiles share environment cleanup: reapplying or switching profiles
+removes only previously owned library paths and clears the prior driver
+overrides, retaining unrelated caller library paths.
 
 Each runtime sharing a GL branch must pass a sandboxed loader/dlopen check,
 including nested GBM backends, before
@@ -224,6 +241,9 @@ magicdesk-flatpak-gl --build-sdk
 
 No host libc or binary Python modules enter that SDK build. This is optional
 preparation, not part of the distribution installation or desktop launch.
+It requires the retained source/build configuration from the FHS Turnip recipe.
+Nix-managed Mesa does not retain that SDK build tree; an incompatible Nix output
+must be replaced with a compatible Mesa build, not silently rebuilt in Flatpak.
 
 The SDK must already be installed in the same user/system installation. A missing
 SDK produces its exact `flatpak install` command; run it, then repeat

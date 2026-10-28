@@ -1,8 +1,6 @@
 # Lazy SVC Entry
 
-This guide describes the current machine-entry contract and its regression
-fixtures. Superseded predecessor/call-edge, hardware-breakpoint, mirror-loader
-and source-built-libc experiments are removed; Git retains their history.
+This guide describes the machine-entry contract and its regression fixtures.
 
 - [Product Boundary](#product-boundary)
 - [Regression Commands](#regression-commands)
@@ -119,8 +117,8 @@ or another owner's native protocol.
 contract. `test_svc_patch.py` and `test_svc_libc.py`
 run the stock assembly/Go/libc fixtures directly, without the laboratory tracer.
 `test_cooperative_libc.py` compares stock-libc workloads under native, optional
-PRoot, Base and lazy entry. Explicit API callers remain correctness fixtures,
-not measurements of rebuilt libc. Source-built libc is not a supported launch mode.
+PRoot, Base and lazy entry. Explicit API callers are separate correctness
+fixtures, not stock-libc performance measurements.
 
 Source-instruction publication uses ptrace against private RX mappings. Bootstrap
 registers the initial program and interpreter mappings with `interception_memory`
@@ -161,8 +159,6 @@ installation. Signal-boundary and full cooperative tests remain separate checks.
 The protected-state race repeats the same live callers across 24 dumpability
 transitions and verifies the state and syscall results in the parent and child.
 Arbitrary externally mutable backing is not certified by this coverage.
-Source-built libc and its loader registry are removed; current fixtures compare
-stock programs under native execution, Base and default lazy entry.
 
 An interrupted kernel notification can restart at a newly published SVC gate.
 Only a registered gate's exact post-SVC PC is normalized to the original call;
@@ -174,14 +170,10 @@ and wait preparation use the same serviceability predicate. This avoids a
 duplicate filesystem effect, a recovery deadlock and a ready-but-unserviceable
 busy loop. Ordinary calls do not scan the site registry for this recovery.
 
-Protected-process discovery also exposed an independent Base proc bug:
-`cmdline` was gated by ptrace credentials and remote-memory reads, although
-Linux keeps it public after `dumpable=0`. The adapter now checks the actual proc
-open under caller authority, and the supervisor uses its existing exact-mm
-retained memory description for the live argument bytes when necessary.
-Guest capabilities or differing IDs no longer turn public `cmdline` into
-`auxv`; private image views retain their inspection checks. No new memory-FD
-cache or dumpability override is introduced. The process-image fixture verifies
+Public `cmdline` access after `dumpable=0` uses the actual proc open under
+caller authority. The supervisor's exact-mm retained memory description supplies
+live argument bytes when necessary; private image views such as `auxv` retain
+their inspection checks. The process-image fixture verifies
 post-protection argument edits and denied `auxv` natively, with Base and lazy
 entry, plus a differing guest-identity control.
 
@@ -215,8 +207,7 @@ Use its `--dynamic-loader`, `--dynamic-libc`, `--interpreter` and
 | Stock libc | ABI/contracts, 256 retired thread owners, optional asynchronous/blocked signal storms, dynamic loader variants |
 | Payload audit | Actual bootstrap driver has no hidden relocations; object bytes equal linked bytes |
 
-Do not weaken assertions when removing an obsolete experiment. In particular,
-the live filter/protection races require 24 transitions and nonzero resident
+The live filter/protection races require 24 transitions and nonzero resident
 drains; a successful filter install alone is not sufficient.
 
 ### Performance Controls
@@ -254,12 +245,11 @@ The corresponding workflow owners are in [desktop workflows](desktop-workflows.m
 and the [fixture guide](README.md). A passing native unit suite does not
 substitute for these application workflows.
 
-The pre-removal matrix recorded Chromium ANGLE/Zink/Turnip output; Firefox's
-privacy-masked renderer string did not establish GPU identity. Steam reached
-its login window, not authenticated gameplay. Silent PCM counters verified
-audio transport, not audible quality. Snap used snapd's degraded mode without
-AppArmor. These limitations still apply; this document is not a claim that a
-new source change has rerun that entire matrix.
+Use the [distribution matrix](validation-matrix.md) for current application
+results. Firefox's privacy-masked renderer string does not establish GPU
+identity; Steam login is not gameplay and silent PCM counters do not verify
+audible quality. Snap's degraded mode is not AppArmor enforcement. Passing a
+focused entry fixture does not certify those independent workflows.
 
 ## Admission Limits
 
@@ -267,5 +257,4 @@ Arbitrary self-modifying code, externally writable aliases, simultaneous
 debugger ownership, 64 KiB pages and SVE/SME/MTE/PAC/BTI are not certified by
 these tests. The guard layout supports 4/16 KiB pages; device coverage is 4 KiB.
 There is no claim of general instruction rewriting or unwind metadata.
-Unsupported sites retain Base. Removing old experiments does not broaden
-production admission or relax sandbox checks.
+Unsupported sites retain Base without relaxing sandbox checks.

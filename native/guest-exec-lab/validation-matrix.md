@@ -5,7 +5,7 @@ or a claim that all tests are automated. Keep every distribution printed by
 `sh scripts/install_linux.sh --list` in every table. Results do not transfer
 between distributions sharing a package manager, libc or init system.
 
-Last reconciled: 2026-10-24. Current device evidence uses NX809J, Android 16,
+Last reconciled: 2026-10-28. Current device evidence uses NX809J, Android 16,
 Linux 6.12.23, 4 KiB pages and Android shell UID 2000. This does not cover the
 minimum supported kernel 5.15, other firmware or Android root execution.
 
@@ -19,14 +19,18 @@ minimum supported kernel 5.15, other firmware or Android root execution.
 
 ## Reading Results
 
-Each cell is **Shroot / Shroot Base**, with independent results:
+Each paired cell is **Shroot (lazy SVC) / Shroot Base**, with independent
+results, not a ratio. `P/N` means Shroot passed and Base was not run;
+`N/N` means neither mode has a qualifying result for that scenario.
 
 | Code | Meaning |
 | --- | --- |
+| - | Outside the selected test scope for this distribution; no compatibility claim |
 | N | Not run; includes fixtures that still need implementation |
 | P | Passed the named scenario in the recorded run, not necessarily the latest build |
 | I | Incomplete: some assertions passed, but acceptance remains open |
-| F | Observed failure; retain its reproduction until a qualifying rerun passes |
+| F | Observed failure not attributed to a confirmed upstream defect; retain its reproduction until a qualifying rerun passes |
+| U | Observed failure attributed to a confirmed upstream defect; not a pass or a resolved limitation |
 | B | Blocked by a named prerequisite; not a pass or proof of an application defect |
 | H | Historical coverage only; current acceptance and exact entry-mode evidence need reconciliation |
 | NA | Not applicable, with an explicit distribution/package/hardware reason |
@@ -36,6 +40,20 @@ does not assert that nobody has ever run that workflow. H is not a pass in that
 entry mode. Do not infer NA from a distribution's init choice or an unattempted
 package install. Record unavailable distribution packages separately from a
 Shroot implementation failure; do not silently substitute another userspace.
+
+The current scope selects Snap browsers on Ubuntu and Steam/game workflows on
+SteamOS only. Other distributions are not required to run those workloads to
+complete their selected matrix. A single `-` excludes both entry modes from
+that scope; it is not NA (unsupported/not applicable), N (pending coverage),
+or a pass. Preserve existing failure evidence when changing scope. All other
+N cells remain uncovered unless their scope is explicitly changed.
+
+Use U only with an exact package version, failing receipt and diagnostic evidence
+identifying a published upstream defect or fix. A similar symptom alone remains F.
+Keep unaffected checks separate; an upstream fix or lab-patched pass does not
+promote the installed package to P without a qualifying rerun. Most current
+application receipts exercise Shroot only, so Base often remains N; shared code
+and unit-test coverage do not establish an unrun Base application result.
 
 Missing workload packages or dependencies (for example Podman or aardvark-dns)
 must not add source-build fallbacks to `install_linux.sh`. Lab-only source builds
@@ -58,26 +76,34 @@ systemd, Alpine OpenRC, or Void/Armtix runit. Focused service tests and default
 boot remain different assertions. Turnip requires rendered/read-back pixels,
 not just a completed Mesa build or successful device enumeration.
 
+Cell order: **Shroot (lazy SVC) / Base**; N = not run.
+
 | Recipe ID | Recipe setup | Package lifecycle | PID 1 boot | Service lifecycle | Turnip rendering |
 | --- | --- | --- | --- | --- | --- |
-| debian | P/N | I/N | P/N | P/N | I/N |
+| debian | P/N | P/N | P/N | P/N | P/N |
 | ubuntu | P/N | P/N | I/N | I/N | P/N |
 | alpine | P/N | P/N | P/N | P/N | P/N |
 | fedora | P/N | P/N | P/N | P/N | P/N |
-| arch | P/N | P/N | P/N | P/N | I/N |
-| opensuse | P/N | I/N | P/N | P/N | N/N |
-| openkylin | P/N | P/N | P/N | P/N | N/N |
-| deepin | P/N | N/N | P/N | P/N | N/N |
-| manjaro | P/N | N/N | P/N | P/N | N/N |
+| arch | P/N | P/N | P/N | P/N | P/N |
+| opensuse | P/N | P/N | P/N | P/N | P/N |
+| openkylin | P/N | P/N | P/N | P/N | P/N |
+| deepin | P/N | P/N | P/N | P/N | P/N |
+| manjaro | P/N | P/N | P/N | P/N | P/N |
 | void | P/N | N/N | P/N | P/N | I/N |
 | armtix | P/N | P/N | P/N | P/N | N/N |
-| nixos | P/N | I/N | P/N | P/N | P/N |
-| steamos | P/N | I/N | F/N | I/N | I/N |
+| nixos | P/N | P/N | P/N | P/N | P/N |
+| steamos | P/N | I/N | I/N | I/N | P/N |
 
 Package lifecycle means install, update/reinstall, verification and removal,
 including transaction hooks. A zero package-manager exit with failed hooks is
-not a pass. SteamOS default boot remains degraded; focused control-target tests
-do not certify a healthy default target. See [init contracts and limits](init-matrix.md).
+not a pass. SteamOS default boot passes on a private bridge but retains the
+routed host-port restriction and unsupported firewalld rules documented in its
+[evidence](distribution-evidence.md#steamos-recipedefault-boot).
+Focused control-target tests do not certify a healthy default target.
+Ubuntu reaches a healthy default target, but its packaged LXC and Podman
+shutdown units return errors with empty container lists; see the
+[Ubuntu boot evidence](distribution-evidence.md#ubuntu-default-boot).
+See [init contracts and limits](init-matrix.md).
 
 ### Boot And IPv6 Acceptance
 
@@ -105,7 +131,7 @@ All runs use default lazy entry; Base remains untested in this batch.
 | manjaro | P / P / P | `f7be656fa9da4364915e575d3af7b30f` | `28c08a0520b148459d0052b90d569b69` |
 | void | P / N / NA (runit) | `c9d13ce4051c47eb8157aecc1a0f29b2` | `d7281d10f2024a239cd902720e544e31` |
 | armtix | P / N / NA (runit) | `30d38d4aec124fc1835aa5e5995d0365` (*) | `2473bd1c2149472daa21744e1cbdca78` |
-| nixos | P / N / N | Recipe generation: `dc870a2ce87042b7b8a9b04be968c8da` under `build/nixos-boot-final-20261024/` | N |
+| nixos | P / P / P | Boot: `dc870a2ce87042b7b8a9b04be968c8da` under `build/nixos-boot-final-20261024/`; binfmt/networkd: [installed receipts](distribution-evidence.md#nixos-network-and-binfmt) | N (separate socket suite) |
 | steamos | F / N / N | `fa6234c4dadc46878677e15ed535fb97` | `0aebd5e239ad43f6b1f1a62cbf5e8249` |
 
 Fedora and openSUSE required their separately packaged networkd, installed in
@@ -189,8 +215,12 @@ wildcard UDP port 68 also requests an Android listener, subject to host
 privileged-port policy; private
 guest networking does not require that publication. Guest-owned resolvconf and
 a launch-owned read-only DNS mount must not manage the same file.
-Full `nixos-rebuild switch`, package lifecycle, containers and the wider desktop
-matrix remain unverified. Initial-image boot retains warnings for unavailable
+Full `nixos-rebuild switch` and the wider desktop matrix remain unverified.
+The ordinary-user package lifecycle uses the stock daemon and an isolated Nix
+profile; see [NixOS package evidence](distribution-evidence.md#nixos-package-lifecycle).
+The installed-generation container and system workloads
+are recorded in the [NixOS evidence](distribution-evidence.md#nixos).
+Initial-image boot retains warnings for unavailable
 BPF/cgroup firewalling. The recipe-generation boot also reports missing
 `accept_source_route`/`promote_secondaries` default sysctls and duplicate packaged
 D-Bus service names; these do not fail a unit in this run.
@@ -211,6 +241,8 @@ QEMU's column is the direct TCG kernel/initrd boot and clean-exit scenario.
 VM networking, firmware boot, disk persistence and KVM require separate checks;
 neither a TCG pass nor guest `/dev/kvm` absence establishes host KVM availability.
 
+Cell order: **Shroot (lazy SVC) / Base**; N = not run.
+
 | Recipe ID | Docker | Podman | Libvirt + QEMU | QEMU TCG boot |
 | --- | --- | --- | --- | --- |
 | debian | P/N | P/N | P/N | P/N |
@@ -224,8 +256,8 @@ neither a TCG pass nor guest `/dev/kvm` absence establishes host KVM availabilit
 | manjaro | P/N | P/N | P/N | P/N |
 | void | P/N | P/N | P/N | P/N |
 | armtix | P/N | P/N | P/N | P/N |
-| nixos | N/N | N/N | N/N | N/N |
-| steamos | P/N | P/N | N/N | P/N |
+| nixos | P/N | P/N | P/N | P/N |
+| steamos | P/N | P/N | B/N | P/N |
 
 ### Local IPv6 Container Acceptance
 
@@ -280,21 +312,24 @@ also needs file selection/readback, document grants, FUSE lifetime and cleanup.
 Record the packaging backend for each portal result; a Flatpak result does not
 certify Snap. Snap's documented degraded mode is not AppArmor enforcement.
 
+Cell order: **Shroot (lazy SVC) / Base**; N = not run, U = confirmed upstream defect.
+Snap is selected on Ubuntu only; `-` marks other distributions outside that scope.
+
 | Recipe ID | Flatpak Chromium | Flatpak Firefox | Snap Chromium | Snap Firefox | Document portal |
 | --- | --- | --- | --- | --- | --- |
-| debian | I/N | N/N | N/N | N/N | I/N |
+| debian | P/N | P/N | - | - | U/N |
 | ubuntu | N/N | N/N | P/N | P/N | P/N |
-| alpine | N/N | N/N | NA/NA | NA/NA | N/N |
-| fedora | N/N | I/N | N/N | N/N | I/N |
-| arch | N/N | N/N | N/N | N/N | N/N |
-| opensuse | N/N | N/N | N/N | N/N | N/N |
-| openkylin | N/N | N/N | N/N | N/N | N/N |
-| deepin | N/N | N/N | N/N | N/N | N/N |
-| manjaro | N/N | N/N | N/N | N/N | N/N |
-| void | P/N | P/N | N/N | N/N | P/N |
-| armtix | P/N | P/N | N/N | N/N | P/N |
-| nixos | N/N | N/N | N/N | N/N | N/N |
-| steamos | H/N | F/N | N/N | N/N | I/N |
+| alpine | P/N | P/N | NA/NA | NA/NA | U/N |
+| fedora | I/N | I/N | - | - | P/N |
+| arch | P/N | P/N | - | - | P/N |
+| opensuse | P/N | P/N | - | - | P/N |
+| openkylin | P/N | P/N | - | - | P/N |
+| deepin | P/N | P/N | - | - | P/N |
+| manjaro | P/N | P/N | - | - | U/N |
+| void | P/N | P/N | - | - | P/N |
+| armtix | P/N | P/N | - | - | P/N |
+| nixos | P/N | P/N | - | - | U/N |
+| steamos | P/N | P/N | - | - | P/N |
 
 ## Desktop And Development
 
@@ -304,22 +339,26 @@ file changes, integrated terminal, debugger, reload, sandbox and GPU checks.
 Distribution-packaged browsers are separate from their Flatpak/Snap versions.
 Audio needs audible continuity under load; counters alone are insufficient.
 Gamepads need real buttons, axes and reconnect. Steam login is not gameplay.
+Steam/game acceptance is selected on SteamOS only; `-` elsewhere does not
+assert that games cannot run there. Audio and gamepad coverage remain separate.
+
+Cell order: **Shroot (lazy SVC) / Base**; N = not run.
 
 | Recipe ID | Desktop | Native Chromium | Native Firefox | VS Code | Audio | Gamepad | Steam/game |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| debian | I/N | N/N | N/N | I/N | N/N | N/N | N/N |
-| ubuntu | I/N | N/N | N/N | P/N | N/N | N/N | N/N |
-| alpine | I/N | P/N | P/N | N/N | N/N | N/N | N/N |
-| fedora | I/N | N/N | N/N | I/N | N/N | N/N | N/N |
-| arch | I/N | N/N | N/N | N/N | N/N | N/N | N/N |
-| opensuse | N/N | N/N | N/N | N/N | N/N | N/N | N/N |
-| openkylin | N/N | N/N | N/N | N/N | N/N | N/N | N/N |
-| deepin | N/N | N/N | N/N | N/N | N/N | N/N | N/N |
-| manjaro | N/N | N/N | N/N | N/N | N/N | N/N | N/N |
-| void | I/N | N/N | N/N | P/N | N/N | N/N | N/N |
-| armtix | I/N | N/N | N/N | P/N | N/N | N/N | N/N |
-| nixos | I/N | N/N | N/N | N/N | N/N | N/N | N/N |
-| steamos | I/N | N/N | N/N | H/N | H/N | H/N | F/N |
+| debian | I/N | N/N | N/N | P/N | N/N | N/N | - |
+| ubuntu | I/N | N/N | N/N | P/N | N/N | N/N | - |
+| alpine | I/N | P/N | P/N | I/N | N/N | N/N | - |
+| fedora | I/N | N/N | N/N | P/N | N/N | N/N | - |
+| arch | I/N | N/N | N/N | I/N | N/N | N/N | - |
+| opensuse | I/N | N/N | N/N | P/N | N/N | N/N | - |
+| openkylin | I/N | N/N | N/N | P/N | N/N | N/N | - |
+| deepin | I/N | N/N | N/N | P/N | N/N | N/N | - |
+| manjaro | I/N | N/N | N/N | I/N | N/N | N/N | - |
+| void | I/N | N/N | N/N | P/N | N/N | N/N | - |
+| armtix | I/N | N/N | N/N | P/N | N/N | N/N | - |
+| nixos | I/N | N/N | I/N | P/N | N/N | N/N | - |
+| steamos | I/N | N/N | N/N | P/N | H/N | H/N | I/N |
 
 Preserve separate application/package versions in the receipt.
 Historical Fedora GNOME devkit/llvmpipe coverage does not certify GDM or hardware
@@ -333,21 +372,23 @@ small LTP selection alongside common runtime changes. A package installation
 alone does not satisfy a workload. The machinectl column identifies the outer
 OS owning machined and the stock nspawn unit; record the nested OS separately.
 
+Cell order: **Shroot (lazy SVC) / Base**; N = not run.
+
 | Recipe ID | nspawn command | machinectl boot/lifecycle | BuildKit | LXC | LTP core |
 | --- | --- | --- | --- | --- | --- |
-| debian | N/N | P/N | N/N | N/N | N/N |
+| debian | N/N | P/N | P/N | P/N | P/N |
 | ubuntu | N/N | P/N | P/N | P/N | P/N |
 | alpine | NA/NA | NA/NA | P/N | P/N | P/N |
-| fedora | N/N | P/N | P/N | P/N | I/N |
-| arch | I/N | P/N | P/N | P/N | N/N |
-| opensuse | N/N | P/N | P/N | P/N | I/N |
+| fedora | N/N | P/N | P/N | P/N | P/N |
+| arch | I/N | P/N | P/N | P/N | P/N |
+| opensuse | N/N | P/N | P/N | P/N | P/N |
 | openkylin | N/N | P/P | P/N | P/N | P/P |
 | deepin | N/N | P/N | P/N | P/N | P/N |
 | manjaro | N/N | P/N | P/N | P/N | P/N |
 | void | N/N | N/N | P/N | P/N | P/N |
 | armtix | N/N | N/N | P/N | P/N | P/N |
-| nixos | N/N | N/N | N/N | N/N | N/N |
-| steamos | N/N | P/N | P/N | F/N | P/N |
+| nixos | N/N | P/N | P/N | P/N | P/N |
+| steamos | N/N | P/N | P/N | P/N | P/N |
 
 ### Workload Contracts
 
@@ -434,14 +475,14 @@ Detailed receipts are grouped in [Distribution acceptance evidence](distribution
 | Void | [Void scenarios](distribution-evidence.md#void) |
 | Armtix | [Armtix scenarios](distribution-evidence.md#armtix) |
 | SteamOS | [SteamOS scenarios](distribution-evidence.md#steamos) |
-| NixOS | [Recipe and activation scope](#nixos-recipe-and-initial-image-probes) |
+| NixOS | [NixOS scenarios](distribution-evidence.md#nixos) and [recipe scope](#nixos-recipe-and-initial-image-probes) |
 | Shared checks | [Cross-distribution fixtures](distribution-evidence.md#shared-evidence) |
 
 Machinectl evidence does not cover nspawn command-mode bridge/publication or
 external DNS. Nested shutdown reports `/tmp: not mounted` for a locked inherited
 mount; retain that diagnostic without weakening mount restrictions.
 
-Historical evidence remains in the [init matrix](init-matrix.md),
+Test contracts and reproduction instructions are in the [init matrix](init-matrix.md),
 [desktop workflows](desktop-workflows.md) and
 [SVC acceptance](svc-rewriting.md#desktop-and-container-acceptance). Reconcile
 exact receipts and scope before replacing H with P.

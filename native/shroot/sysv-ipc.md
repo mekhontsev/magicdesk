@@ -20,6 +20,14 @@ SEM_UNDO belongs to a reference-counted group: CLONE_SYSVSEM shares it, ordinary
 fork does not, exec retains it, and the last exit applies it. SETVAL/SETALL clear
 the affected adjustments. Exit adjustments clamp values to the supported range.
 
+GETPID and the PID fields in message/shared-memory IPC_STAT are relative to
+the reader's PID namespace. Mutations capture the process's namespace-number
+chain through `ipc_pid`, reusing `pid_namespace` snapshots. Thread operations
+record the process, not the calling TID. Snapshots survive exec, reaping and
+native PID reuse; a process outside the reader's namespace appears as zero.
+Native-namespace readers retain native numbers. Translation never looks up a
+new live process by an old IPC object's numeric PID.
+
 Message queues support msgget, msgsnd, msgrcv and msgctl
 IPC_STAT/IPC_SET/IPC_RMID. Selection includes FIFO, exact type, the lowest type
 under a negative bound and MSG_EXCEPT. MSG_NOERROR permits truncation. E2BIG
@@ -46,6 +54,8 @@ FIFO message selection and typed selection have separate ordered indexes.
 Semaphore waiter and undo lookups are indexed by object as well as by owner;
 removing one set must not scan all other sets' bookkeeping. These rebuildable
 indexes are prepared during IPC admission, never in the per-call path.
+PID snapshot columns are admitted under the same gate and transaction, without
+recreating IPC objects or changing the installed environment's storage format.
 The initial namespace shares objects across launches within the same store and
 boot. CLONE_NEWIPC creates an empty namespace; object IDs from another namespace
 fail lookup even when its key is reused locally. Unshare releases the previous
@@ -76,6 +86,8 @@ with SA_RESTART. Applications must handle interrupted waits explicitly.
 
 Kernel lifetime locks identify abandoned launch leases without trusting PID
 reuse. A peer reaps a dead owner's undo adjustments and waiters transactionally.
+Recovery follows the dead owner's recorded object references across IPC namespaces;
+guest key and ID lookups remain restricted to the caller's namespace.
 Lease-close events wake already blocked peers after supervisor SIGKILL. Ordinary
 thread exit does no IPC transaction unless that undo group used SEM_UNDO.
 
@@ -95,15 +107,18 @@ workflows are included in the full resource suite.
 `test_sysv_runtime.py` covers vector rollback, wait/wakeup, signals, removal,
 timeouts, zero waiters, fork/exec/thread undo, SIGKILL, SETVAL clearing undo,
 message ordering/truncation/copy errors, queue capacity, permissions, nondumpable
-callers, independent launches and supervisor-death recovery. The process-group
-case verifies that a headless guest's group signal does not cancel its guardian.
+callers, independent launches and supervisor-death recovery.
+PID-metadata cases cover nested namespaces, thread operations, protected exec,
+ancestor visibility and reading a reaped child's metadata. Native model checks
+also exercise unrelated namespaces and native PID reuse.
+The process-group case verifies that a headless guest's group signal does not cancel its guardian.
 Full-table checks cover the maximum semaphore array, 8 KiB messages, shmctl
 metadata and blocked waits. Sixteen killed CLONE_FILES waiters leave the survivor's
 FD baseline intact. Forty simultaneous waiters exceed the shared slot capacity
 without starving the producer; a seccomp-denied ppoll returns its error and
 removes the waiter.
 The resource fixture also verifies failed admission, owner-ID collisions,
-malformed boot metadata and exact descriptor cleanup. Database tests cover
+cross-namespace dead-owner undo recovery, malformed boot metadata and exact descriptor cleanup. Database tests cover
 independent concurrent connections, retained-directory rename, WAL/rollback
 locking, rollback visibility and symlink rejection.
 Query-plan checks reject full-table scans and temporary sorting in queue

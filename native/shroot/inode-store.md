@@ -342,10 +342,15 @@ Recovery derives these projections from retained directory ownership, not a
 runtime-only writer callback. Open FDs and Landlock keys keep their original
 scope-qualified identity. No second journal or storage revision is needed.
 
-Hardlinks, mixed native/catalogue rename, pathname-based execution, attached file-watch
-registration and stable `O_PATH|O_NOFOLLOW` reopen sources promote before consuming
-catalogue identity. The latter cannot export a mutable native pathname; an
-unlinked native FD or a sealed store that cannot promote retains descriptor-transfer delivery.
+Hardlinks, mixed native/catalogue rename, pathname-based execution and attached
+file-watch registration promote before consuming catalogue identity.
+`O_PATH|O_NOFOLLOW` delivery reuses an existing stable catalogue source when
+available. Without an application seccomp filter, native leaves retain exact-FD
+transfer: opening a metadata handle neither exports a mutable pathname nor
+promotes or synchronizes the file. Restricted callers retain durable source
+publication, avoiding an additional `recvmsg` requirement. Filter installation
+drains admitted operations before committing the new restriction. Unlinked native
+FDs and sealed stores that cannot publish retain exact-descriptor transfer.
 Sealing, backup and
 overlay admission materialize the selected namespace before existing SQL-based
 snapshot/COW logic runs. Moving into a physical-permission directory promotes too.
@@ -650,6 +655,12 @@ independent of OCI parsing and launch-local directory attachments.
   credentials preserve native umask semantics and also allocate directly.
   Other types sync their containing directory before publishing a reference.
   Snapshots do not copy a source's allocation inventory.
+- Overlay construction batches synchronization of newly allocated entries in
+  the shared backing directory within one writer transaction. The directory
+  barrier must succeed before commit; failure rolls back namespace publication.
+  Native-leaf promotion precedes this batch, and individual object/data barriers
+  are unchanged. Source registrations are reused only within that merge under
+  the retained source lease, not cached across mounts or guest operations.
 - Catalogue link, unlink, rename, replacement and exchange each use one database transaction.
   Names are byte strings, not UTF-8 text or concatenated SQL. A same-inode rename
   preserves both names; NOREPLACE rejects an existing target.

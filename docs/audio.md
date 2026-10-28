@@ -91,6 +91,11 @@ The guest graph and Pulse request floor are 1024 frames at 48 kHz (about 21 ms),
 with a 60 ms tunnel target. This bounds scheduling pressure in an environment
 without hardware-clock ownership or guaranteed real-time scheduling. It does
 not change the Android output quantum or direct-client audio policy.
+The installer supplies matching PipeWire client/server and WirePlumber drop-ins
+for a dedicated data loop with ordinary mutexes (`loop.prio-inherit = false`).
+Shroot's logical TIDs cannot be used as native PI-futex owners. The private
+session uses the same policy; it does not disable the data thread or native
+scheduling permitted by Android. NixOS installs these files through activation.
 
 The wrapper uses private per-session runtime/configuration directories and
 PipeWire startup receipts and output-port events, not fixed sleeps. Applications

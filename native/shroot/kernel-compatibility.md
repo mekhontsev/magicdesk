@@ -163,6 +163,11 @@ decline before a data-open effect, not after it. A 112-boundary instruction-stop
 fixture checks actual open/close/flag results under shell UID 2000. Deferred
 FIFO completion uses the existing `ppoll`, ptrace interruption/restart and
 owned-child reaping, not a new cancellation syscall or polling timer.
+Its host helper shares the `interruptible_call` entry gate with native IO jobs:
+baseline SIGUSR2/rt_sigaction, shared anonymous mappings and futexes close the
+check/SVC race and preserve peer admission. `test_open_job` covers cancellation
+before entry, while unpaired and after the peer has opened; no guest signal
+disposition or per-read/write interception is added.
 `test_cooperative_runtime.py` covers admission, exhausted pools, signals,
 fork/exec, protected pointers, namespace changes, signal-handler memory
 abandonment, argument/IP filter policy and TSYNC revocation. The isolated musl
@@ -285,8 +290,9 @@ Their internal notification model uses baseline eventfd, epoll, atomic reference
 and a source mutex; it requires no kernel change above 5.15. Independent opens
 own generation cursors and lazy wake descriptors. The virtual-interest collector
 is connected to selected guest epoll queues. Native `epoll_pwait2`
-(Linux 5.11) shares the direct wait policy; unsupported or denied native calls
-retain their kernel error. No notification thread or periodic sampling is added.
+(Linux 5.11) shares caller-context wait ownership; unsupported or denied native
+calls retain their kernel error. Pure native waits allocate no notification
+helper; virtual sources use the existing cancellable IO job without sampling.
 Weak descriptor authorities use lazy eventfd notifications and userspace mutexes
 within the same baseline. Subscriptions borrow a strong reference only while
 accessing the provider; final release publishes expiry before destruction.
@@ -297,8 +303,9 @@ internal lifetime mechanism.
 Epoll creation custody and optional native-export reservations reuse the
 existing file-table terminal observation, SCM_RIGHTS and userspace atomics.
 They add no post-5.15 dependency, retained native epoll duplicate or kernel
-nesting level. `control-event` requires zero interception of ordinary control
-and wait calls (creation alone is observed); `ofd-order` covers export rollback
+nesting level. `control-event` requires zero interception of unfiltered native
+zero-time waits with lazy entry (creation alone is observed); Base blocking
+waits retain supervision for cold virtual admission. `ofd-order` covers export rollback
 and activation races, and `ipc-origins` covers independent receiver custody.
 Selector construction and staged epoll activation add no kernel API. The cold
 remote-admission fixture uses baseline ptrace register/signal-mask access and
@@ -331,6 +338,11 @@ native KILL_THREAD termination rather than restoring a saved blocking mask
 over it; a syscall-exit stop alone does not establish successful admission.
 These calls do not lend the signal-mask syscalls themselves. See the common
 checkpoint owner below for SYSEMU admission and device coverage.
+Borrowing a stopped checkpoint retains its decoder state. An emulated entry
+drains the kernel's skipped exit before injection and returns through SYSEMU;
+an ordinary entry still executes its replacement directly. Native fixtures
+cover every checkpoint stage, repeated borrowing, protected tasks, filter
+denials and exact-once guest IO. No newer kernel primitive is required.
 The bootstrap's classic seccomp program can encode an ordinary close's low-int
 FD in TRACE's 16-bit data, read through baseline PTRACE_GETEVENTMSG. Large and
 negative descriptors retain full capture. Ordinary close skips an entry register
@@ -390,6 +402,20 @@ Local typed SCM_RIGHTS custody adds a pipe EOF to the existing worker event loop
 it needs no newer kernel API, polling loop or additional worker thread.
 
 ### Process Birth And Proc Views
+
+PI futex words contain owner TIDs and cannot use native PI state inside a
+logical PID namespace. The PID selector leaves ordinary futex waits and wakes
+native, but rejects PI acquisition/requeue with EOPNOTSUPP and PI unlock with
+ENOSYS. The distinct unlock result preserves glibc's capability probe; musl
+propagates the acquisition result from `pthread_mutexattr_setprotocol`.
+Neither path changes the futex word or claims priority inheritance. The
+`test_thread_identity` fixture covers both libc probes, ordinary mutex fallback
+and protected tasks. This does not require host support newer than 5.15.
+The installer configures PipeWire clients, servers and WirePlumber with
+`context.data-loops` and `loop.prio-inherit = false`, including the private
+Android-audio graph and NixOS activation. This retains the data thread and
+ordinary mutex synchronization, not priority inheritance or guaranteed realtime
+scheduling. Guest packages remain unmodified.
 
 Guest PID namespaces likewise use retained userspace identities, not native
 CLONE_NEWPID authority. `pid_namespace` and the supervisor use baseline clone,
@@ -603,6 +629,20 @@ metadata export, a returned mount-table FD and bidirectional native-peer
 credentials. Unix PID snapshots use the existing logical process identities and
 SCM transport; no kernel PID namespace or newer credential API is required.
 None of these operations adds a post-5.15 dependency.
+Shielded internal FD admission uses NOTIF_SEND plus PTRACE_INTERRUPT to yield
+to an active task barrier. Its reserved userspace retry result is not a Linux
+errno; an application seccomp denial is returned unchanged. `supervisor-state`
+exercises the production gate and coordinator against real kernel notifications
+arriving before/after interruption, normal EINTR and atomic FD publication.
+This uses the existing 5.15 interfaces; the live device coverage is Linux 6.12.23,
+not a substitute for a minimum-kernel run.
+Epoll wait capture/loans reuse the same notification gate with the original
+syscall number and arguments, validated against the retained owner. They do not
+depend on application permission for `gettid`. `test_svc_mapping` covers
+post-TSYNC epoll_pwait/epoll_pwait2 with gettid set to KILL_PROCESS, plus native
+poll/select and inotify waits spanning installation. `supervisor-state` checks
+replay identity and ownership; the stock Go sandbox fixture exercises concurrent
+runtime waits. This changes no required kernel primitive.
 Filtered socket waits use ppoll, epoll and the existing ptrace signal-mask and
 syscall-register interfaces. Native WAITALL/batch jobs use pthreads, eventfd and
 a supervisor-local signal with an ARM64 syscall-entry cancellation gate. These
@@ -923,12 +963,10 @@ denial remains unknown liveness, never permission to discard provenance. The
 separate queued-pipe lifetime candidate uses baseline pipe/socket and poll/epoll
 operations and does not depend on socket diagnostics.
 
-The [entry/runtime fixtures](../guest-exec-lab/cooperative-entry.md) now exercise
+The [entry/runtime fixtures](../guest-exec-lab/cooperative-entry.md) exercise
 the production shared-memory channel, FD publication and cancellation owners.
 They add no post-5.15 dependency or separate transport implementation.
-Superseded private-engine FD relays and whole-loop read-lease experiments are
-removed. Their historical measurements do not establish sandbox admission or
-authorize reopening an ordinary proc FD link as generic descriptor transfer.
+An ordinary proc FD link is not a generic descriptor-transfer mechanism.
 
 ### Signal And Checkpoint Coverage
 
@@ -992,8 +1030,8 @@ receives inherited policy through its register handshake. Protected forks do
 not require PTRACE_POKEDATA or a retained writable memory descriptor for this
 step. The direct and managed `fs-export` fixtures cover this boundary.
 
-The former Base SIGTRAP-disposition failure now passes in the filesystem-signal
-suite, including ignored, blocked, seccomp and protected variants. Actual guest
+The filesystem-signal suite checks SIGTRAP disposition with ignored, blocked,
+seccomp and protected variants. Actual guest
 debugger single-step remains native; terminal BRKs after impossible bootstrap
 or exit returns are not normal protocol markers. A separate invalid-pointer
 limitation remains: fallback userspace LDR/STR faults can reset ignored/blocked

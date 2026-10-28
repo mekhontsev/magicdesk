@@ -69,6 +69,7 @@ Version-specific notes live in `docs/releases/VERSION.md`. Published notes retai
 their historical scope; drafts are explicitly marked as pending acceptance.
 Neither replaces the current feature or compatibility contract.
 
-Keep reproducible fixture instructions and useful rejected-design conclusions in
-their owning guides. Superseded implementation plans and step-by-step experiment
-logs belong in Git history or run artifacts, not in the current API reference.
+Keep reproducible fixture instructions, current evidence and the reasons for
+safety constraints in their owning guides. Fixed-bug stories, retired mechanisms
+and step-by-step experiments belong in Git or run artifacts, not maintained
+guides. Remove resolved items from backlogs instead of appending a fix history.

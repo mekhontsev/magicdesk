@@ -9,7 +9,9 @@ distribution init binaries. They are not installer recipes or hardware boots.
 - `test_os_boot.py`: packaged systemd default target, no degraded units,
   journal write/readback, system D-Bus request, logind restart and clean exit.
   Its observer supplements the default target rather than replacing it. Generator
-  failures are rejected independently of the manager's final running state.
+  failures and failed unit results across startup and shutdown are rejected
+  independently of the manager's final running state. A healthy startup alone
+  does not certify service teardown.
 - `test_systemd.py`: a focused target with system/user managers, sandboxed
   oneshot, notify, retained FD-store restart, socket and timer activation.
   The additional properties below exercise credentials and restricted proc.
@@ -62,6 +64,16 @@ vectors and mkinitcpio-style cp/rm batches pass the focused argument checks;
 complete kernel-image maintenance is not covered by userspace recipe completion.
 These recipes provide userspace, not a replacement Android kernel.
 
+The retained `installed_desktop.py` control/GUI fixture keeps the launch's
+preconfigured `eth0` addresses and routes through a private
+`/run/systemd/network/00-md-fixture-uplink.network`. It uses networkd's standard
+`KeepConfiguration=static` with DHCP and router solicitation disabled on that
+uplink; Shroot supplies neither a DHCP server nor an RA router there. Container
+links remain independently configurable. This fixture-only profile neither
+modifies `/etc` nor applies to `test_os_boot.py`, whose default-target acceptance
+still checks the distribution's own network configuration. Routed host-port
+publication retains Android permission checks, including privileged port 53.
+
 The stock-boot fixtures install init prerequisites beyond `install_linux.sh`'s
 base/GUI recipes. That installer currently does not boot system services:
 session `dbus-run-session` and a booted system bus are different requirements.
@@ -70,9 +82,9 @@ boot tests. Debian's Docker boot check uses the documented daemon configuration
 without iptables and with userland proxy; it does not verify Docker's netfilter
 backend.
 
-Passing boot is not full support for every daemon's resource policy. The
-2026-10-16 RTKit regression is fixed by per-guest-UID `RLIMIT_NPROC` accounting,
-not by disabling daemon protections. `test_rtkit.py` checks chroot, UID drop,
+Passing boot is not full support for every daemon's resource policy. RTKit uses
+per-guest-UID `RLIMIT_NPROC` accounting with its daemon protections enabled.
+`test_rtkit.py` checks chroot, UID drop,
 limit 3, both watchdog threads and a live D-Bus response. Fedora's stock unit
 also starts and restarts under `test_os_boot.py --rtkit` (systemd 259.9).
 Real-time scheduling still returns the host's `EPERM` on this shell executor;

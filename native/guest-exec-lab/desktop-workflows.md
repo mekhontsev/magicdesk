@@ -178,6 +178,13 @@ policy; they do not replace application acceptance.
 
 #### Interactive Browser Acceptance
 
+For retained `installed_desktop.py` sessions, `start --awake-display phone` (or
+`attach --awake-display phone` on the existing fixture) keeps an already unlocked
+phone awake with a bounded lease. The default retains only the virtual display;
+it does not prevent the phone from sleeping. Subsequent fixture commands renew
+the selected lease, and `stop` releases only that fixture's lease. Neither mode
+changes the system screen timeout or unlocks the phone.
+
 Inside the prepared Wayland/user-bus session, with the fixtures bound into the guest:
 
 ```sh
@@ -193,6 +200,16 @@ download path through Browse. Close normally. Acceptance requires all receipts,
 exact bytes and exit status zero, followed by a same-profile relaunch. Verify
 document export/read/write/revocation and portal shutdown/FUSE mount cleanup
 separately; a chooser can succeed through a toolkit fallback without document grants.
+
+On a fresh Plasma account, complete the ordinary KDE Wallet setup/unlock dialog
+before judging a browser's first navigation. The dialog can be behind the browser;
+pending key-store initialization can hold cookie-backed HTTP requests while
+internal pages and direct network probes still work. Use the test account's
+wallet, not `--password-store=basic` or a disabled secret service.
+`--entry base` and `--entry lazy` select the comparison mode without changing the
+acceptance checks; Flatpak receives the setting explicitly. Chromium's optional
+`--net-log` writes `netlog.json` inside the fixture work directory. It is diagnostic
+evidence, not a performance run.
 
 `--require-webgl` requires the known pixel, not a particular hardware renderer.
 Inspect Firefox's support report for hardware WebRender and content sandbox
@@ -732,58 +749,46 @@ Verify the actual editor, not just CLI exit status:
 - Close and relaunch normally; reject renderer/GPU crashes even if a recovered
   window looks correct. Keep GDB/extension testing as a separate workflow.
 
-Historical source-integration acceptance: Ubuntu's stock Code 1.142.0 (Electron),
-accelerated glibc 2.39, recipe Mesa 26.2.3
-and the production discovery node passed editor/save, external file change,
-integrated PTY and hardware-compositing checks on NX809J. Renderer seccomp
-remained installed. Its initial SIGTRAP exposed a common libc ABI defect:
-Shroot's thread storage had moved glibc's `pthread.tid`. That integration was
-corrected before these checks and has since been removed. Lazy entry leaves
-glibc's thread layout untouched. No Electron-specific bypass was added. Current
-stock-libc acceptance is in the [SVC matrix](svc-rewriting.md#product-boundary).
+Current stock-library application acceptance and exact receipts are in the
+[distribution matrix](validation-matrix.md) and its
+[evidence ledger](distribution-evidence.md).
+The automated `vscode-gui.py` fixture enables an ephemeral DevTools inspection
+port to identify renderers through `SystemInfo.getProcessInfo`, then independently
+checks their proc credentials and filters. A Flatpak portal can parent those
+renderers outside the CLI's process tree. This inspection option belongs only
+to the lab fixture, not the recipe or application launcher.
+Install `ms-vscode.cpptools` with the same `code` launcher supplied to the fixture
+and confirm it with `code --list-extensions`. Package wrappers may select their
+own extension directory; populating `~/.vscode/extensions` directly does not
+establish that the selected editor can load it. The fixture checks this
+prerequisite before opening an editor.
+
+Flatpak 1.16.6 and 1.18.4 pass the portal's instance-notification pipe outside the child
+FD-remapping plan; a requested child FD can overwrite that pipe. The lab-only
+[`flatpak-portal-instance-fd.patch`](fixtures/flatpak-portal-instance-fd.patch)
+uses Flatpak's existing remapper for that descriptor. A receipt using this
+portal must say so and cannot certify the unmodified distribution package.
+Do not build or replace Flatpak in the user installer to hide this prerequisite.
 Code 1.142.0's CLI process-memory table is not an acceptance metric: its bundled
 `mainImpl.js` converts `%MEM` to bytes in `Xp` and applies the percentage
 conversion again in `formatProcessItem`. `/proc`, `ps` and `free` remain the
 independent memory checks; do not compensate for that application conversion
 inside Shroot.
 
-SteamOS 0.3.0 also passed ordinary Code 1.142.0 editor/save, external-change,
-integrated-PTY and hardware-compositing checks under Plasma Wayland with the
-corrected accelerated glibc 2.39 (entry ABI 6). Renderer `NoNewPrivs: 1` and
-`Seccomp: 2` remained present. KWin retained `cap_sys_nice=ep` and reported
-OpenGL 4.6, Zink/Turnip and Mesa 26.2.3 after private-driver system discovery was
-repaired. Previously protected KWin lost `LD_LIBRARY_PATH`, selected the wrong
-driver and fell back to QPainter despite working WebGL in ordinary clients.
+Hardware acceptance covers compositor and browser separately: working WebGL in
+an ordinary client does not prove that a protected KWin process selected Turnip.
+Use the recipe's system driver discovery for protected processes and the
+[GPU publishers](../../docs/graphics.md#flatpak-gpu-drivers) for sandbox runtimes.
+The common GBM build resolves its backend through `$ORIGIN/gbm`.
+Keep renderer sandbox, GPU sandbox, composition and video decoding as distinct
+checks; none substitutes for the others.
 
-In the same installation, Flatpak Chromium 155.0.8059.39 initially used software
-composition because the copied GBM library searched the host's private `/opt`
-path for `dri_gbm.so`. The common Mesa recipe now uses `$ORIGIN/gbm` and the
-Flatpak helper admits nested backend libraries too. A normal browser launch,
-without extra GPU or sandbox switches, then reported hardware composition,
-Canvas, rasterization, WebGL and WebGPU with zero GPU-process crashes. The
-device experiment incrementally rebuilt GBM and repaired existing library
-search paths; it was not a complete clean Mesa build or a new SteamOS install.
-
-A subsequent session exposed a debugger/descriptor-table deadlock in Steam's
-crash collectors: each collector stopped its parent threads while sharing their
-FD table, then waited for a virtual proc descriptor's selector to be installed in
-those same stopped threads. The common [debugger ownership fix](../shroot/debugging.md#waits-and-process-identity)
-allows only that exact parked debugger request to borrow its acknowledged
-inferior stops. The regression reproduces a timeout before the fix and passes
-afterward; it is not a Steam-specific launch workaround.
-With the fix, three Chromium Zink pixel-readback/lifecycle cycles pass with the
-sandbox and GPU watchdog enabled. Ordinary Chromium and Code relaunches retain
-hardware composition. Flatpak Firefox 157.0.1 reports Wayland, hardware WebRender,
-one accelerated window and content sandbox level 6 through Zink/Turnip. Its
-VA-API/DMABuf video path remains unavailable; this does not claim hardware video
-decode or a complete Steam game workflow.
-Plasma's logout request closes its windows and compositor. Its former
-runtime-directory trap traversed the document portal's FUSE mount and reported
-EPERM/ECONNABORTED; the shared wrapper now detaches owned mounts first, verified
-by the `session` workflow above. Baloo and the lab's controller also outlived the
-observed session command and required explicit cleanup. Their process lifetime
-is separate from mount cleanup and from the debugger deadlock; this fixture does
-not claim that every Plasma background service exits on logout.
+Debugger/collector lifecycle uses the shared
+[debugger ownership contract](../shroot/debugging.md#waits-and-process-identity).
+The graphical wrapper detaches its owned mounts before removing the runtime
+directory, verified by the `session` workflow above. Process-tree cleanup is
+separate: compositor exit alone does not prove that every Plasma background
+service has exited.
 
 `test_egl_gbm.c` checks the installed Mesa's GBM allocation, EGL import, native
 GPU fences and 64 exact alternating frames. It accepts a node path; on the

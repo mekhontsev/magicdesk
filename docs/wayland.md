@@ -227,8 +227,14 @@ capture. Confinement requests remain unactivated: hiding Android's cursor does
 not implement visible-cursor confinement. Cursor-position hints are optional and
 do not warp Android's global pointer. Android supplies processed deltas; the
 relative protocol's unaccelerated field currently carries the same deltas.
-Nested compositors retain their own capture policy; KWin uses Right Ctrl to
-toggle its parent-window grab. The native `wayland-pointer-lock` fixture covers
+Nested compositors retain their own capture policy. The installer's KWin patch
+uses the pointer-enter position before delivering an immediate click; no later
+motion event is required after host focus returns. It also
+forwards the focused inner client's pointer lock to its parent window, including
+Xwayland games, and releases only the automatically acquired grab when that
+client unlocks. Right Ctrl remains a manual override, not a prerequisite for
+games. Persistent parent constraints allow capture to resume after the Android
+viewer regains focus. The native `wayland-pointer-lock` fixture covers
 acknowledgement, stale requests, persistent/one-shot locks and teardown; shared
 host tests cover capture eligibility and mouse/touchpad event conversion.
 

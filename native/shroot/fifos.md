@@ -46,9 +46,14 @@ the typed filesystem result. The mapped transport retains both in the supervisor
 table. Only those inputs and its private result channel survive initial descriptor
 cleanup. This channel is never installed in the guest. The existing SIGCHLD loop
 reaps completion, then atomic ADDFD_SEND publishes the single application endpoint.
-Cancellation kills the exact child; its kernel table and queued results are released
-even when the guest shared CLONE_FILES with a surviving peer. Parent death also
-terminates the helper. `close_range` cleanup falls back to native proc enumeration
+An application signal requests interruption and awaits the exact helper's result
+without blocking the supervisor. The shared `interruptible_call` gate preserves a
+completed native open; virtual peer admission and cancellation use the same
+rendezvous lock. An admitted endpoint is delivered once, whereas an unpaired
+open retains the kernel's signal/restart decision. Abandoning the guest request
+kills the exact child and releases its kernel table and queued rights, even with
+a surviving CLONE_FILES peer. Parent death also terminates the helper.
+`close_range` cleanup falls back to native proc enumeration
 when that syscall is unavailable; it is not a new kernel startup requirement.
 
 No filesystem worker, SQLite transaction, table or channel turn spans the wait.
@@ -107,7 +112,9 @@ mixed native signalfd. `test_fifo_runtime.py` exchanges data between independent
 launches, repeats after both owners exit, and transfers a reader between protected
 processes after sender exit and across receiver exec.
 `test_open_job` checks endpoint exchange, ENXIO/EOF, cancellation before and after
-result queuing, descriptor counts and exclusion of unrelated inherited FDs.
+result queuing, interruption before and after peer admission, descriptor counts
+and exclusion of unrelated inherited FDs. `test_fifo_go.go` exercises concurrent
+stock-Go proc-fd opens, native IO, netpoll and EOF with normal runtime preemption.
 Production resource checks forbid guest RPC syscalls, fill the guest descriptor
 table, check exact result-slot use and kill protected CLONE_FILES callers during
 unpaired opens without leaving private guest descriptors.

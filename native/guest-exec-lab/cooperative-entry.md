@@ -6,8 +6,7 @@
 Shroot uses lazy entry in stock programs by default. Shroot Base uses ordinary
 interception. Neither replaces package-owned libc files. The internal caller
 boundary uses ABI 8; explicit API fixtures exercise it independently of
-machine-code discovery. Superseded captured-request transports and private FD
-relay experiments live in Git history, not in a parallel laboratory engine.
+machine-code discovery.
 
 ## Runtime Checks
 
@@ -48,8 +47,8 @@ python native/guest-exec-lab/test_svc_libc.py BUILD OUTPUT/probe-stock --checks-
 
 The builder compiles only the probe. Dynamic checks require `--dynamic-loader`,
 `--dynamic-libc` and each required `--dynamic-extra` from the same sysroot.
-Stock musl needs only the workload compiled against musl. Do not reuse fixtures
-containing retired source hooks. Tests hash staged runtime and workload files.
+Stock musl needs only the workload compiled against musl. Tests hash staged
+runtime and workload files and require unmodified distribution libraries.
 
 `test_svc_libc.py` checks static/dynamic libc, thread retirement, fork/exec and
 real filters; `--signal-storm` adds asynchronous signal delivery. `--checks-only`
@@ -129,7 +128,7 @@ Retain these constraints when considering new optimizations:
   Native plans retain exact object pins.
 - Cancellation before a kernel effect can decline to Base; completed or unknown
   effects must not be replayed.
-- Fewer stops do not establish lower elapsed time. Historical laboratory best
-  samples, including the early roughly 48 ms open result, are not guarantees.
+- Fewer stops do not establish lower elapsed time. Compare complete interleaved
+  runs with the same workload, not the best individual samples.
 - Kernel version or a declared flag does not prove firmware semantics. Keep
   capability failures and fallbacks in the [kernel ledger](../shroot/kernel-compatibility.md).

@@ -88,7 +88,9 @@ traffic-control dumps are empty and their unsupported mutations fail explicitly.
 Strict queries validate complete headers and reject unsupported filters instead
 of silently ignoring them. Route dumps accept the header's table selector and
 the extended `RTA_TABLE` selector, with the latter taking precedence; unknown
-tables yield an empty dump, not the main table. Kernel-peer connect/getpeername retain netlink
+tables yield an empty dump, not the main table. Strict dumps also filter by
+protocol and route type; legacy dumps retain their unfiltered header semantics.
+Kernel-peer connect/getpeername retain netlink
 address semantics; non-kernel destinations are unsupported.
 `network_packet` owns queued datagram framing and translates requested packet
 information and kernel SCM_CREDENTIALS, including ancillary truncation. Protocol
@@ -151,6 +153,28 @@ accepted FD. Ordinary stream IO remains native. Shared payload/vector helpers
 serve both Unix ancillary transport and routed message IO; native networking
 does not allocate these routed owners.
 
+`network_connection` owns mediated TCP handshake completion and its readiness
+overlay. The relay retains the actual upstream connect; acceptance by the local
+carrier is not reported as a successful destination handshake. Blocking connects
+wait through the cancellable IO owner, while nonblocking callers use readiness
+and read-once `SO_ERROR`, shared by aliases. Errors returned directly by `connect`
+are consumed there rather than reported again through `SO_ERROR`.
+
+Permanent epoll subscriptions retain independent notifications; querying one
+observer never drains their shared wake source. Poll/select temporarily wait on
+the handshake completion gate, then return to native readiness. Neither this
+protocol nor its metadata retains a guest socket OFD or intercepts stream
+`read`/`write`. `test_network_connect.py` covers IPv4/IPv6 completion, refusal,
+mixed queues, multiple observers, edge/one-shot rearming and native data IO.
+
+Routed `recvmmsg` uses the same native batch receive as Unix sockets, including
+`MSG_WAITFORONE`, timeouts, partial completion and cancellation. Endpoint capture
+joins the descriptor-table turn; source addresses and packet information are
+translated before each completed message is published. The batch retains one
+native receive, not a loop of per-message receives. `test_routed_network.py`
+checks 128-message IPv4/IPv6 batches, omitted source buffers, packet information,
+peek/truncation, deferred socket errors and timeout handling in Base and lazy mode.
+
 `sendto`/`recvfrom` without a peer-address operand also retain the original
 kernel call, PC and signal mask, including on routed data endpoints. The
 supervisor and both socket adapters share that classification. Netlink and
@@ -163,14 +187,20 @@ IPv4 `IP_PKTINFO` and IPv6 `IPV6_PKTINFO` use logical interface and destination 
 including a missing `msg_name` and truncated ancillary buffers. Send accepts
 local source/interface selection consistent with the supported route; unknown
 interfaces, nonlocal sources and unsupported routing return explicit errors.
-Native TTL/TOS ancillary settings remain available. `SO_BINDTODEVICE` belongs to
+Native TTL/TOS ancillary settings remain available. `SO_BINDTODEVICE` and
+`SO_BINDTOIFINDEX` belong to
 the shared endpoint, retains interface identity through rename, and limits route
 selection and incoming endpoint lookup. Accepted TCP sockets inherit it. An idle
 bound socket can change the binding transactionally, releasing or restoring its
 external port reservation; existing direct/relayed flows reject retargeting with
 `EBUSY`. Bound flows use the existing relay so link deletion/down is checked;
-unbound sockets retain their existing fast path. Routed recvmmsg and unsupported
-outgoing ancillary types remain unsupported.
+unbound sockets retain their existing fast path. Unsupported outgoing ancillary
+types fail explicitly. Netlink and device-event carriers do not yet support
+`recvmmsg`. `SO_PRIORITY` retains the guest value with namespace-scoped
+`CAP_NET_ADMIN` checks outside 0..6 and inheritance by accepted TCP sockets.
+Guest priorities do not change Android qdisc scheduling; the logical fabric
+does not currently implement priority queues. These options are control-plane
+metadata, without additional work on ordinary payload reads or writes.
 
 `network_multicast` owns IPv4/IPv6 memberships, output interface, loopback and
 hop limits. UDP broadcast and multicast share the existing forwarding worker,
@@ -240,7 +270,7 @@ namespace. No operation opens Android's netfilter socket or changes its firewall
 Queries and mutations require CAP_NET_ADMIN in the namespace's user owner.
 
 The implemented ABI covers generation queries, tables, base/regular chains,
-rules, exact-key/interval sets and verdict maps, including dumps, deletion,
+rules, exact-key/interval sets, verdict maps and register-value maps, including dumps, deletion,
 userdata and handles. Ordered set lookup uses binary search; interval ends,
 adjacent ranges and the maximum-key sentinel retain their wire representation.
 `network_nft_objects` owns object operations; `network_nft_expression` validates
@@ -250,6 +280,12 @@ snapshot; stale generation, invalid attributes, unsupported operations, encoding
 failure or failed response publication cannot commit a partial batch. Only a
 successful batch advances the generation. Mutation replies and state replacement
 share the fabric lock; queries and ordinary data IO never clone the catalogue.
+Rollback preserves individual request acknowledgments; rejected mutation echoes
+and the successful end acknowledgment are not published. Value maps support up
+to 16-byte keys and 64-byte values, including overlapping source/destination
+registers and IPv4/IPv6 address-port tuples. External listener publication requires
+finite exact-key map destinations; interval-map keys used to select external
+ports or addresses are rejected explicitly.
 Rtnetlink additionally publishes asynchronous topology notifications before its
 ACK; its observed-state rollback boundary is described above.
 
@@ -263,7 +299,7 @@ chains reached through verdict maps. These checks do not run on packet IO.
 `network_filter_program` evaluates immediate/verdict, metadata, supported IPv4/IPv6
 address/protocol and TCP/UDP port or ICMP type/code payload, compare/range/bitwise,
 conntrack state/mark/status, local/source-route classification, reverse-path and
-packet-type predicates, set and verdict-map lookup, single-target
+packet-type predicates, set, verdict-map and register-value lookup, single-target
 DNAT/SNAT and masquerade operations. ACCEPT ends a chain, not a hook; later
 base chains may deny it. RETURN applies the base policy. Rule counters and
 optional base-chain policy counters retain their values in transactional
@@ -338,10 +374,13 @@ or extra per-payload syscall is involved.
 Direct unfiltered TCP and outgoing native UDP keep native connected IO only when
 neither direction has potentially denying hooks. Policy updates evaluate each
 retained tuple in both directions, including first-payload and established
-states. Unrelated rules do not revoke these streams. Reached counters or mark
-mutations require mediation; denying policy or these effects return atomic
-`EBUSY`. An update cannot retroactively move
-a kernel stream into a relay. Direct path records are bounded per endpoint and
+states. Unrelated rules do not revoke these streams. Denying policy or reached
+mark mutations return atomic `EBUSY`: an update cannot retroactively move
+a kernel stream into a relay. Counters do not change admission, so adding them
+does not revoke an existing native stream. They account for observed mediated
+traffic, not payload on already native connections; this is not complete kernel
+packet accounting. New flows reaching counters use mediation. Direct path
+records are bounded per endpoint and
 retained until socket close, including accepted stream owners. Relayed flows
 retain their original NAT binding, as do direct flows. Adding NAT chains and
 counters therefore cannot revoke an existing unmediated flow; non-NAT filter
@@ -463,6 +502,9 @@ keeps the native proc path and its permission failures.
 Mount authorization belongs to that network namespace's user owner. The limited
 tree contains the selected namespace's `class/net` inventory, relative device/subsystem links,
 identity/MTU/flags/operstate/carrier attributes and `fs/cgroup` for separate mounts.
+Bridges expose read-only `bridge/stp_state=0`: forwarding has no STP state
+machine, and netlink does not accept enabling one. Bridge-port sysfs attributes
+remain unavailable; callers may fall back to their readiness delay.
 `network_model` supplies the same atomic link snapshot to sysfs, ioctl and
 netlink, including veth peer indices and operational state. A veth has carrier
 only when both ends are up; a bridge needs an active port. Loopback retains

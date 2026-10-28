@@ -135,8 +135,23 @@ When mixed-table classification finds only native descriptors in the selected
 vector, it retires the input buffer and resumes the original wait directly;
 there is no output to copy or intermediate adapter acknowledgement.
 Short ppoll vectors can be classified directly from an ordered snapshot, without
-entering the adapter. Native epoll waits use the same provider predicate as the
-full path; queues preparing a virtual provider cannot take this shortcut.
+entering the adapter. Zero-time native epoll waits use the same provider predicate
+as the full path; queues preparing a virtual provider cannot take this shortcut.
+Blocking epoll retains a wait owner from entry so that a first virtual interest
+can wake an already-sleeping caller without losing its timeout or signal mask.
+An internal quiescence interrupt before the wait's SVC resumes the same entry
+under its signal shield; it is not a syscall result. Its service wake is consumed
+at that boundary, independently of subsequent application signals or FD eviction.
+After an interrupted caller-context wait, its temporary signal mask remains
+kernel-owned through delivery. That task cannot lend its continuation to FD
+retirement or publish retained signal carriers until its next syscall entry.
+This one-entry observation preserves the signal frame without single-stepping,
+stopping peers or adding observation to successful waits and ordinary data IO.
+An unmasked, unfiltered native epoll_pwait can first probe at timeout zero in the
+caller. A ready result needs only native entry/exit; an empty result proceeds to
+the owned wait with its original deadline. Application filters, debugger stops
+and masked waits retain full admission. Pure native waits publish output directly
+through the kernel, including its pointer validation and event consumption.
 Failed argument reads and unknown authorities retain normal adaptation.
 Adapted calls run on guarded scratch stacks leased by `interception_memory`, the
 address-space owner. CLONE_VM shares it; fork copies private scratch-stack mapping
@@ -155,9 +170,39 @@ mapping's own temporary FD inside that mapping's barrier. A competing `mprotect`
 exit is retained by the active owner, including one from an unrelated address
 space, and replayed with its original status and accounting after release.
 This defers that repair, not all work in the unrelated process. Ordinary events
-remain runnable. Entry revocation's subsequent drain phase permits progress
-again; it is not another stop-the-world interval.
+remain runnable. Dumpability revocation retains a cold stopped-task barrier
+while recovering resident contexts. Seccomp installation instead revokes entry
+and drains occupied private frames without interrupting native waits. New public
+adapter admissions wait until the installing task completes its kernel call;
+already started adapters continue to completion. This applies to Base as well
+as lazy SVC. Fully admitted native poll/select and broker-owned inotify reads
+can retain their wait ownership through filter installation; preparatory
+MSG_PEEK and private-memory transitions still drain. The revoked-slot observation has a bounded 1 ms retry only during
+that transition, because a slot's userspace release need not emit a kernel
+event. No slot observation or timer is added to ordinary syscall execution.
 Kernel events without debugger accounting explicitly carry zero `rusage`.
+An internal FD-admission notification may wait with application signals shielded.
+After requesting a real quiescence interrupt, the coordinator answers an
+unpublished internal token with a reserved retry value outside Linux's errno
+range. The common admission gate retries only that token after the kernel stop;
+ordinary `EINTR` and application operations are not replayed. Atomic ADDFD_SEND
+invalidates an already published token, so a competing barrier cannot duplicate
+its FD. Both queued and newly arriving notifications follow this protocol.
+Epoll capture/loan admission uses the original wait syscall and all six original
+arguments at the notification gate. The supervisor validates that identity and
+the live capture/loan owner; application filters still decide the call. This
+does not require an unrelated `gettid` permission or change ordinary data IO.
+Internal syscall-entry/exit stops are retained before checkpoint continuation;
+replayed and newly collected events use the same checkpoint driver. A barrier
+therefore cannot lose a stop to an internal syscall replay loop.
+A barrier release returns debugger-owned tasks through normal continuation
+admission: a shared kernel interrupt must publish the debugger's pending stop
+before resuming guest execution. Untraced releases retain direct continuation.
+When a native task call borrows such a stop, the checkpoint owner suspends its
+decoder until the exact boundary has been restored. SYSEMU entries retain their
+kernel skip state: injection drains that skipped exit before executing the
+borrowed call, then reconstructs an emulated entry without replaying guest IO.
+Ordinary data IO retains its native path.
 Deferred events retain their captured accounting across debugger attachment
 changes; replay neither queries it again nor inherits another event's values.
 Kernel collection advances at most two live TIDs in round-robin order, then
@@ -170,6 +215,9 @@ hint/MRU fast path. The bounded round-robin is necessary:
 `wait4(-1)` can repeatedly select hot children at the head of the kernel list,
 even with frequent general waits, while a coalesced signal loses another TID.
 Membership is updated at task admission/retirement, without a full task scan.
+Private mapping/descriptor helpers and deferred FIFO-open children belong to
+the same collection ring from confirmed birth through terminal reaping. They
+do not acquire guest task identities or depend on the general scan for progress.
 The signal source is refreshed when its hint queue is empty. A general wait
 still runs at the budget boundary and is the only way to establish an empty
 kernel queue; no timer or speculative sleep is added.
@@ -220,6 +268,14 @@ pending broker temporary-FD retirement. It releases its writer barrier and worke
 pause request, retaining the original syscall-exit event. Task-affine cleanup can
 then finish; replay revalidates the mapping and resumes repair, without executing
 the guest syscall again. Once mapping mutation starts, this handoff is forbidden.
+
+Protected descriptor metadata uses the filesystem worker's captured-request
+receipts, without a guest buffer or a second file-table turn. The request retains
+the exported descriptor and task context through completion or cancellation.
+Supervisor dispatch never synchronously queries its own filesystem worker:
+an unrelated metadata request must not block a mapping owner's worker-pause
+acknowledgement. Native loader validation remains a native `fstat`; guest metadata
+uses the shared filesystem provider.
 
 The same address-space owner retains shared adapter buffers. Namespace
 bootstrap obtains a size-sealed memfd through ADDFD_SEND, maps it and closes the
@@ -403,6 +459,10 @@ mapped slot; captured chunks build a worker-owned file. Only the completed
 read-only/O_PATH result is delivered. Rejected copying and terminal loss retire
 construction without a guest cleanup syscall. Kernel umask reads also stay on
 the worker, retaining live kernel semantics rather than a shadow fs_struct mask.
+Foreign cmdline/auxv inspection first captures authorized process bytes, then
+submits an owned snapshot to the same worker. It holds no task-memory pointer or
+file-table turn while queued. The supervisor continues memory repair and signal
+delivery instead of synchronously waiting on a worker it may have paused.
 Read-only and O_PATH snapshots publish retained origins with their result FD;
 later metadata does not require another guest slot. Path metadata and statfs
 likewise keep their temporary objects on the worker. Watch registration captures

@@ -220,6 +220,10 @@ extend into the contiguous environment area, bounded by one page and its first
 NUL. Ordinary argument lists retain their exact original byte count. This also
 applies to public cmdline reads of a non-dumpable process; it does not grant
 access to that process's auxv, executable or arbitrary memory.
+An unreaped zombie's cmdline is empty only after the native proc entry confirms
+EOF; a missing image record or a failed memory read alone never supplies empty
+content. Readable per-open snapshots retain their bytes after the target exits
+or is reaped; unlike a native proc descriptor, they are not live process views.
 Path metadata, access and O_PATH opens retain the actual proc inode and its
 lifetime, including openat2 resolution constraints; no snapshot is needed for
 those operations. A readable snapshot's fstat still describes its backing file,

@@ -28,7 +28,7 @@ PRoot process, external container manager or SELinux change is required.
 Lazy machine-code entry admits observed AArch64 SVC sites in unmodified programs,
 including stock libc and Go, by default for inode-store launches. It shares the
 [cooperative channel](cooperative-entry.md) and syscall owners, not a second
-implementation. No source-built libc registry or interpreter substitution remains.
+implementation.
 Application filters, protected-state transitions and debugger ownership revoke
 entry through the common admission boundary. Unavailable capabilities and
 unsupported sites retain Base interception; `--env SHROOT_MACHINE_ENTRY=0`
@@ -131,6 +131,9 @@ Resource-specific queues avoid repeatedly scanning every guest thread. Readiness
 or completion events, not settling delays, resume work; cancellation and optional
 deadlines share exact tree cleanup. A request can outlive its caller, so task exit
 does not authorize releasing worker storage or an unobserved descriptor result.
+Releasing a memory-admission barrier also rechecks retained worker completions
+and descriptor continuations: their original readiness notification may already
+have been consumed while admission was closed.
 
 See [process lifetime](process-lifetime.md), [interception](interception.md)
 and [process resources](process-resources.md) for scheduler, cancellation,

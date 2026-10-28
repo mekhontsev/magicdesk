@@ -118,6 +118,13 @@ share readiness and TCP/UDP assertions and run three boot/service/network/stop
 cycles, including forced termination. Retain original application sandbox
 policy; successful command-only startup is not boot acceptance.
 
+Graphical `installed_desktop.py` sessions hold a 30-minute awake lease on their
+own virtual display, renewed by `run`, `attach` and `capture`. A phone-screen
+lease does not keep that display active. Release a separately owned lease before
+starting the fixture; it never replaces another owner. After lease expiry,
+stop/restart the fixture before qualifying GUI results. `stop` removes the owned
+display and its lease; headless sessions acquire neither.
+
 The Docker and Podman network probes allocate paired TCP/UDP ports through an
 observer outside Shroot, then check publication, collision rejection, and port
 release. They do not assume fixed test ports are unused. Docker diagnostic
@@ -214,6 +221,9 @@ thread identities and multi-threaded setuid/setgid/setgroups, including strace
 both inside and outside a PID namespace. The store must contain strace and GDB.
 Signal information remains native while stopped and is translated separately
 for debugger observation and delivery to the target.
+Compile the fixture with both stock glibc and musl: `--pid-futex` also checks
+explicit PI rejection at either mutex attribute selection or initialization,
+followed by contended ordinary mutexes, including with `dumpable=0`.
 
 `test_setid.py BUILD STORE [--base | --machine-entry]` builds a small ELF and two
 competing shared libraries inside a disposable store with Python and a C
@@ -222,8 +232,8 @@ exec, descriptor exec and an unlinked executable, without `--admit-elf`.
 Assertions cover real/effective/saved/filesystem IDs, auxv, `AT_SECURE`, actual
 loader rejection of an untrusted `LD_LIBRARY_PATH`, `no_new_privs`, ptrace,
 unmapped user-namespace owners, `nosuid`, ignored script bits and failed exec.
-Historical coverage includes Ubuntu with Base and SteamOS/glibc and Alpine/musl.
-Current tests use stock libraries with default lazy entry or explicit Base. This is guest credential behavior, not Android privilege or
+Tests use stock libraries with default lazy entry or explicit Base. This is
+guest credential behavior, not Android privilege or
 complete kernel-equivalent isolation. The browser fixture separately verifies
 stock Chromium's set-ID sandbox and its no-new-privileges rejection.
 
@@ -258,7 +268,11 @@ The optional installed `file` utility is reported separately when unavailable.
 
 `test_epoll_runtime.py --build BUILD --store STORE --trace --machine-entry`
 runs mixed/native readiness, signal masks, shared-table races and denied
-retirement through guest strace. `test_debugger_runtime.py` also accepts
+retirement through guest strace. Cold-admission cases add a first virtual interest
+to an already-blocked finite or infinite epoll wait, including protected callers
+and epoll_pwait2. Native-ready cases cover one-shot consumption, invalid output
+pointers and argument-sensitive application filters. `--base` selects the same
+cases without lazy entry. `test_debugger_runtime.py` also accepts
 `--machine-entry`; `--case strace-detach-socket` verifies that detaching does not
 need data to arrive on a blocked socket. These regressions cover common Base
 owners, not just SVC publication.

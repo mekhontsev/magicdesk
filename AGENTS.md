@@ -4,6 +4,14 @@ Re-read this file after context compaction or session recovery before continuing
 repository work. Preserve unrelated uncommitted changes; Git history changes
 require the user's authorization.
 
+## Documentation
+
+Keep maintained Markdown focused on current behavior, ownership, limitations,
+instructions and qualifying test evidence. Do not accumulate fixed-bug stories,
+retired implementation descriptions or step-by-step experiment history; Git
+and run artifacts retain those details. Keep the rationale for current safety
+constraints. Release notes are the dedicated place for version-specific changes.
+
 ## Branch Workflow
 
 Use two permanent branches: `develop` for daily work and external pull requests,
