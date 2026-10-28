@@ -595,6 +595,8 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
                         result.stdout.index('libpipewire-module-pulse-tunnel'))
         self.assertIn('MAGICDESK_AUDIO_SESSION=active', result.stdout)
         self.assertIn('export DISABLE_RTKIT=1', result.stdout)
+        self.assertIn('loop_config > "$work/config/$config.d/90-magicdesk-loop.conf"', result.stdout)
+        self.assertIn('loop_config > "$work/wp/wireplumber.conf.d/90-magicdesk-loop.conf"', result.stdout)
         self.assertNotIn('module.rt.args', result.stdout)
         self.assertIn('EVENT_WAIT:', result.stdout)
         self.assertNotIn('sleep ', result.stdout)
@@ -607,11 +609,46 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
                                 env=dict(env, MAGICDESK_AUDIO_PULSE='/unused',
                                          MAGICDESK_AUDIO_SESSION='active'), timeout=5)
         self.assertEqual(19, nested.returncode)
+        config = subprocess.run(['bash', str(helper), '--print-loop-config'],
+                                capture_output=True, text=True, timeout=5)
+        self.assertEqual(0, config.returncode, config.stderr)
+        self.assertIn('context.data-loops = [', config.stdout)
+        self.assertIn('thread.name = data-loop.0 loop.prio-inherit = false', config.stdout)
+        self.assertNotIn('context.num-data-loops = 0', config.stdout)
         result = self.run_script('--yes', '--gui', 'plasma')
         self.assertEqual(0, result.returncode, result.stderr)
         setup = self.payload.read_text()
         self.assertIn('packages pipewire pipewire-bin pipewire-pulse wireplumber pipewire-alsa', setup)
         self.assertIn('Exec=magicdesk-desktop-session %s', setup)
+
+    def test_audio_loop_policy_is_shared_by_clients_servers_and_nixos(self):
+        setup = self.run_script('--print-system-setup').stdout
+        start = setup.index('install_audio_session() {\n')
+        end = setup.index('install_steam_game() {\n', start)
+        root = self.directory / 'audio-install'
+        (root / 'bin').mkdir(parents=True)
+        command = setup[start:end].replace('/usr/local/bin', str(root / 'bin'))
+        command = command.replace('/etc/pipewire', str(root / 'pipewire'))
+        command = command.replace('/etc/wireplumber', str(root / 'wireplumber'))
+        result = subprocess.run(['sh', '-eu', '-c', command + '\ninstall_audio_session\n'],
+                                capture_output=True, text=True, timeout=5)
+        self.assertEqual(0, result.returncode, result.stderr)
+        helper = root / 'bin/magicdesk-audio-session'
+        expected = subprocess.check_output(['bash', str(helper), '--print-loop-config'], text=True)
+        for name in ('client.conf', 'client-rt.conf', 'pipewire.conf', 'pipewire-pulse.conf'):
+            self.assertEqual(expected, (root / 'pipewire' / (name + '.d') /
+                                        '90-magicdesk-loop.conf').read_text())
+        self.assertEqual(expected, (root / 'wireplumber/wireplumber.conf.d/90-magicdesk-loop.conf').read_text())
+        nixos = self.run_script('--print-nixos-module').stdout
+        self.assertIn('$out/bin/magicdesk-audio-session --print-loop-config', nixos)
+        self.assertIn('for name in client.conf client-rt.conf pipewire.conf pipewire-pulse.conf;', nixos)
+        self.assertIn('ln -s ../../pipewire-loop.conf', nixos)
+        self.assertIn('services.pipewire.configPackages = lib.mkIf graphical [ tools ];', nixos)
+        self.assertIn('lib.optionalAttrs (!config.services.pipewire.enable)', nixos)
+        self.assertIn('"pipewire".source = "${tools}/share/pipewire";', nixos)
+        self.assertNotIn('"pipewire/${name}.d/', nixos)
+        self.assertIn('source = "${tools}/share/pipewire-loop.conf"', nixos)
+        self.assertIn('wireplumber/wireplumber.conf.d/90-magicdesk-loop.conf', nixos)
 
     def test_fedora_prepares_guest_nftables_frontend_after_extra_packages(self):
         result = self.run_script('--print-system-setup')
@@ -1498,6 +1535,40 @@ packages ninja meson pkgconf
             self.assertEqual([], self.calls())
         self.assertNotEqual(0, self.run_script('--print-kwin-patch', '6.4.0').returncode)
 
+    def test_kwin_patch_versions_forward_client_capture_and_retain_host_request(self):
+        for version in ('6.2.5', '6.3.6', '6.6.6'):
+            with self.subTest(version=version):
+                result = self.run_script('--print-kwin-patch', version, TEST_UID='10001')
+                self.assertEqual(0, result.returncode, result.stderr)
+                additions = '\n'.join(line[1:] for line in result.stdout.splitlines()
+                                      if line.startswith('+') and not line.startswith('+++'))
+                self.assertIn('&PointerInterface::focusedSurfaceChanged', additions)
+                self.assertIn('&LockedPointerV1Interface::lockedChanged', additions)
+                self.assertIn('PointerConstraints::LifeTime::Persistent', additions)
+                self.assertIn('!locked && m_automaticPointerLock', additions)
+                self.assertIn('m_automaticPointerLock = false;', additions)
+                self.assertIn('KWayland::Client::TouchPoint', additions)
+                self.assertEqual([], self.calls())
+
+    def test_kwin_patch_versions_use_enter_coordinates_without_waiting_for_motion(self):
+        for version in ('6.2.5', '6.3.6', '6.6.6'):
+            with self.subTest(version=version):
+                result = self.run_script('--print-kwin-patch', version, TEST_UID='10001')
+                self.assertEqual(0, result.returncode, result.stderr)
+                enter = result.stdout.split('connect(pointer, &Pointer::entered,', 1)[1]
+                enter = enter.split('connect(pointer, &Pointer::left,', 1)[0]
+                if version == '6.6.6':
+                    self.assertIn('findSubSurface(m_pointer->enteredSurface())', enter)
+                    self.assertIn('output->position() + relativeToSurface', enter)
+                    self.assertIn('subsurface ? subsurface->position() : QPoint()', enter)
+                    self.assertNotIn('output->geometry()', enter)
+                else:
+                    self.assertIn('+        const QPointF absolutePos = output->geometry().topLeft() + relativeToSurface;', enter)
+                    self.assertNotIn('findSubSurface', enter)
+                self.assertIn('std::chrono::steady_clock::now()', enter)
+                self.assertIn('+        Q_EMIT pointerMotionAbsolute(absolutePos, timestamp, this);', enter)
+                self.assertEqual([], self.calls())
+
     def test_steamos_update_failure_retains_environment_before_client_setup(self):
         result = self.run_script('--yes', '--resume', '--name', 'steam',
                                  TEST_DISTRO='steamos', TEST_FAIL='setup')
@@ -1842,7 +1913,61 @@ packages ninja meson pkgconf
         self.assertIn('X-MagicDesk-GraphicsMode = "desktop";', module)
         self.assertIn('/nix/var/nix/profiles/system/sw/share/$name', module)
         self.assertIn('. /etc/profile.d/magicdesk-graphics.sh', module)
+        self.assertIn('${./magicdesk-files/magicdesk-desktop-session}', module)
+        self.assertIn('${./magicdesk-files/magicdesk-audio-session}', module)
+        self.assertNotIn('files = ./magicdesk-files;', module)
         self.assertNotIn('mkForce', module)
+
+    def test_nixos_flatpak_uses_shared_publisher_and_packaged_triggers(self):
+        module = self.run_script('--print-nixos-module').stdout
+        setup = self.run_script('--print-nixos-setup').stdout
+        self.assertIn(self.run_script('--print-flatpak-gl-helper').stdout.strip(), setup)
+        self.assertIn('${./magicdesk-files/mesa-probe.c}', module)
+        self.assertIn('++ lib.optional turnip pkgs.stdenv.cc;', module)
+        self.assertIn('${lib.optionalString turnip', module)
+        self.assertIn('${pkgs.bubblewrap}/bin/bwrap', module)
+        self.assertIn('${config.services.flatpak.package}/share/flatpak/triggers/.', module)
+        self.assertIn('systemd.services.flatpak-system-helper.environment = lib.mkIf', module)
+        self.assertIn('environment.sessionVariables = lib.mkIf', module)
+        self.assertIn('export FLATPAK_TRIGGERSDIR=${flatpakTriggers}', module)
+        self.assertIn('graphical && config.services.flatpak.enable', module)
+        self.assertNotIn('graphical && turnip && config.services.flatpak.enable', module)
+        self.assertNotIn('flatpak.overrideAttrs', module)
+        self.assertIn('index=$1/exports/share/icons/hicolor/index.theme', module)
+        self.assertIn('test -f "$index" && ! test -L "$index"', module)
+        self.assertIn('${pkgs.coreutils}/bin/chmod u+w -- "$index"', module)
+        self.assertIn('exec ${config.services.flatpak.package}/share/flatpak/triggers/gtk-icon-cache.trigger "$@"', module)
+        graphics = self.run_script('--print-graphics-setup').stdout
+        source = graphics.split('cat > "$work/flatpak-gl-probe.c" <<\'PROBE\'\n', 1)[1].split('\nPROBE\n', 1)[0]
+        self.assertIn(source, setup)
+
+    def test_nixos_graphics_profile_uses_shared_owned_path_cleanup(self):
+        graphics = self.run_script('--print-graphics-setup').stdout
+        reset = graphics.split("reset_profile() {\ncat <<'PROFILE'\n", 1)[1].split('\nPROFILE\n', 1)[0]
+        setup = self.run_script('--print-nixos-setup').stdout
+        exported = setup.split("<<'NIXOS_GRAPHICS_RESET'\n", 1)[1].split('\nNIXOS_GRAPHICS_RESET\n', 1)[0]
+        self.assertEqual(reset, exported)
+        module = self.run_script('--print-nixos-module').stdout
+        self.assertIn('builtins.readFile ./magicdesk-files/graphics-profile-reset.sh', module)
+        self.assertIn('export MAGICDESK_GRAPHICS_LIBRARY_PATH=${lib.makeLibraryPath', module)
+        environment = dict(self.environment,
+            MAGICDESK_GRAPHICS_LIBRARY_PATH='/old/glvnd:/old/vulkan:/old/mesa/lib',
+            MAGICDESK_MESA_PREFIX='/old/mesa',
+            LD_LIBRARY_PATH='/custom:/old/glvnd:/old/vulkan:/old/mesa/lib:/custom/lib[*]',
+            VK_DRIVER_FILES='/old/turnip.json', VK_ICD_FILENAMES='/old/turnip.json',
+            PRESSURE_VESSEL_FILESYSTEMS_RO='/custom:/old/mesa')
+        result = subprocess.run(['sh', '-eu', '-c', reset + '\n' + reset + '\n'
+            'printf "%s|%s|%s|%s|%s" "$LD_LIBRARY_PATH" "$PRESSURE_VESSEL_FILESYSTEMS_RO" '
+            '"${MAGICDESK_GRAPHICS_LIBRARY_PATH-unset}" "${VK_DRIVER_FILES-unset}" "${VK_ICD_FILENAMES-unset}"'],
+            env=environment, capture_output=True, text=True, check=True, timeout=5)
+        self.assertEqual('/custom:/custom/lib[*]|/custom|unset|unset|unset', result.stdout)
+
+    def test_nixos_mesa_retains_relative_loader_paths_for_export(self):
+        setup = self.run_script('--print-nixos-setup').stdout
+        for option in ('-Dc_link_args=-Wl,-rpath,$ORIGIN:$ORIGIN/..',
+                       '-Dcpp_link_args=-Wl,-rpath,$ORIGIN:$ORIGIN/..',
+                       '-Dgbm-backends-path=$ORIGIN/gbm'):
+            self.assertIn('"' + option + '"', setup)
 
     def test_nixos_defaults_to_the_complete_plasma_module(self):
         result = self.run_script('--yes', '--distro', 'nixos')
@@ -1855,7 +1980,7 @@ packages ninja meson pkgconf
         self.assertNotIn('environment.plasma6.excludePackages', module)
         self.assertIn('pkgs.kdePackages.kwin.overrideAttrs', module)
         self.assertIn('kwin_prefix=${kwin}', module)
-        self.assertIn('patch --batch --forward --fuzz=0 -p1 < ${files}/kwin.patch', module)
+        self.assertIn('patch --batch --forward --fuzz=0 -p1 < ${./magicdesk-files/kwin.patch}', module)
         self.assertIn('cmakeFlagsArray+=("-DCMAKE_AUTOGEN_PARALLEL=$NIX_BUILD_CORES")', module)
         self.assertNotIn('patchFlags =', module)
         self.assertIn('cat > magicdesk-files/kwin.patch', self.payload.read_text())
@@ -2103,6 +2228,20 @@ packages ninja meson pkgconf
             self.assertIn(f"+      .{extension} = has_calibrated_timestamps,", result.stdout)
         self.assertEqual([], self.calls())
 
+    def test_vulkan_readback_keeps_present_events_and_gpu_rendering(self):
+        patch = self.run_script('--print-mesa-patch').stdout
+        self.assertIn('chain->cpu_present = wsi_device->sw || !wsi_conn->has_dri3;', patch)
+        self.assertIn('xcb_create_pixmap_checked(chain->conn, chain->depth,', patch)
+        self.assertIn('return x11_present_to_x11_dri3(chain, image_index, target_msc, present_mode);', patch)
+        self.assertIn('chain->image_info.image_type != WSI_IMAGE_TYPE_DRM', patch)
+        parsed = subprocess.run(['git', 'apply', '--numstat'], input=patch,
+                                text=True, capture_output=True, check=True)
+        self.assertIn('3\t0\tsrc/vulkan/wsi/wsi_common_drm.c', parsed.stdout)
+        self.assertIn('(chain->cpu_present || x11_needs_wait_for_fences(', patch)
+        self.assertIn('if (image->shm_fence)', patch)
+        self.assertNotIn('MDWSI', patch)
+        self.assertNotIn('+   wsi_device->sw =', patch)
+
     def test_gpu_recipe_is_fingerprinted_and_independent_of_parallelism(self):
         import hashlib
         for gpu, jobs in [("turnip", "2"), ("turnip", "4"), ("software", "2")]:
@@ -2285,7 +2424,7 @@ packages ninja meson pkgconf
         result = self.run_script("--yes", "--name", "debian", "--resume", "--gpu", "turnip")
         self.assertEqual(0, result.returncode, result.stderr)
         payload = Path(str(self.payload) + ".gpu").read_text()
-        recipe = payload[payload.index("# Remove only our previously exported library directory"):]
+        recipe = payload[payload.index("reset_profile() {"):]
         # Keep profile activation tests confined to their temporary filesystem.
         (self.directory / 'etc-magicdesk').mkdir(exist_ok=True)
         return recipe.replace('/etc/shroot', str(self.directory / 'etc-shroot')) \

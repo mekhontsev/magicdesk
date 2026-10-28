@@ -5,6 +5,7 @@ import fcntl
 import hashlib
 import http.server
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -15,13 +16,18 @@ PAGE = b'''<!doctype html><title>Shroot Browser GUI</title>
 <style>body{font:22px sans-serif;margin:30px}input,button,a{font:22px sans-serif;margin:12px}
 canvas{display:block;border:1px solid black}</style>
 <h1>Shroot Browser GUI</h1>
-<input placeholder="Keyboard input" oninput="report('input',this.value)">
+<input placeholder="Keyboard input" oninput="report('input',this.value)"
+ onfocus="report('focus',true)" onblur="report('focus',false)"
+ onkeydown="report('keydown',event.key)" onkeyup="report('keyup',event.key)">
 <button onclick="report('click','ok')">Click</button><br>
 <a href="/download" download="shroot-snap.txt">Download test file</a><br>
 <input type="file" onchange="this.files[0].text().then(v=>report('upload',v))">
 <canvas width="320" height="160" id="gpu"></canvas><pre id="result"></pre>
 <script>
 function report(type,value){fetch('/receipt',{method:'POST',body:JSON.stringify({type,value})})}
+document.addEventListener('pointerdown',event=>report('pointerdown',{
+ target:event.target.tagName,type:event.target.type||'',x:event.clientX,y:event.clientY,
+ screenX:event.screenX,screenY:event.screenY,rect:event.target.getBoundingClientRect().toJSON()}));
 const gl=document.getElementById('gpu').getContext('webgl2');
 if(gl){gl.clearColor(0,1,0,1);gl.clear(gl.COLOR_BUFFER_BIT);
 const pixel=new Uint8Array(4);gl.readPixels(2,2,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);
@@ -39,9 +45,13 @@ def main():
     parser.add_argument('--package', choices=('snap', 'flatpak', 'native'), default='snap')
     parser.add_argument('--common', type=Path)
     parser.add_argument('--reuse-work', type=Path, help='Relaunch the existing fixture profile without rewriting preferences')
-    parser.add_argument('--port', type=int, default=18080)
+    parser.add_argument('--port', type=int, default=0)
     parser.add_argument('--require-webgl', action='store_true')
+    parser.add_argument('--entry', choices=('default', 'base', 'lazy'), default='default')
+    parser.add_argument('--net-log', action='store_true', help='Record Chromium network diagnostics in the fixture directory')
     args = parser.parse_args()
+    if args.net_log and args.browser != 'chromium':
+        parser.error('--net-log requires Chromium')
     app_id = {'firefox': 'org.mozilla.firefox', 'chromium': 'org.chromium.Chromium'}[args.browser]
     if args.common is None:
         args.common = (Path.home() / 'snap' / args.browser / 'common' if args.package == 'snap'
@@ -76,8 +86,16 @@ def main():
                 'download': {'default_directory': str(work), 'prompt_for_download': False}}))
         options = ['--user-data-dir=' + str(profile), '--no-first-run', '--no-default-browser-check',
                    '--ozone-platform=wayland']
+        if args.net_log:
+            options.append('--log-net-log=' + str(work / 'netlog.json'))
     launcher = (['snap', 'run', args.browser] if args.package == 'snap'
                 else ['flatpak', 'run', app_id] if args.package == 'flatpak' else [args.browser])
+    environment = os.environ.copy()
+    if args.entry != 'default':
+        entry = '0' if args.entry == 'base' else '1'
+        environment['SHROOT_MACHINE_ENTRY'] = entry
+        if args.package == 'flatpak':
+            launcher.insert(2, '--env=SHROOT_MACHINE_ENTRY=' + entry)
     receipts = []
     downloads = []
     lock = threading.Lock()
@@ -121,9 +139,9 @@ def main():
     try:
         print('Type shroot, click Click, download, then select: ' + str(work / 'shroot-snap.txt'), flush=True)
         print('Close the browser normally to finish. Profile: ' + str(profile), flush=True)
-        command = launcher + options + ['http://127.0.0.1:' + str(args.port) + '/']
+        command = launcher + options + ['http://127.0.0.1:' + str(server.server_address[1]) + '/']
         print('Command: ' + json.dumps(command), flush=True)
-        result = subprocess.run(command)
+        result = subprocess.run(command, env=environment)
     finally:
         server.shutdown()
         worker.join()
@@ -140,6 +158,7 @@ def main():
     if args.require_webgl:
         checks['webgl'] = any(v and v.get('pixel') == [0, 255, 0, 255] for v in gpu)
     report = dict(passed=all(checks.values()), browser=args.browser, package=args.package,
+                  entry=args.entry,
                   command=command, checks=checks, gpu=gpu, work=str(work), reusedProfile=bool(args.reuse_work),
                   sha256=hashlib.sha256(DATA).hexdigest())
     (args.output / 'gui-report.json').write_text(json.dumps(report, indent=2) + '\n')

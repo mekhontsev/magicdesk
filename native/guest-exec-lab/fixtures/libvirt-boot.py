@@ -19,7 +19,9 @@ def main():
     parser.add_argument('initrd', type=Path)
     parser.add_argument('report', type=Path)
     args = parser.parse_args()
-    temporary = tempfile.TemporaryDirectory(prefix='md-libvirt-', dir='/var/lib/libvirt/images')
+    images = Path('/var/lib/libvirt/images')
+    images.mkdir(parents=True, exist_ok=True)
+    temporary = tempfile.TemporaryDirectory(prefix='md-libvirt-', dir=images)
     work = Path(temporary.name)
     work.chmod(0o755)
     name = 'md-libvirt-' + uuid.uuid4().hex
@@ -57,7 +59,6 @@ def main():
         ET.SubElement(domain, 'on_poweroff').text = 'destroy'
         ET.SubElement(domain, 'on_crash').text = 'destroy'
         devices = ET.SubElement(domain, 'devices')
-        ET.SubElement(devices, 'emulator').text = '/usr/bin/qemu-system-aarch64'
         serial = ET.SubElement(devices, 'serial', type='unix')
         console = str(work / 'serial.sock')
         ET.SubElement(serial, 'source', mode='connect', path=console)

@@ -3,6 +3,38 @@ const vscode = require('vscode');
 const assert = require('node:assert/strict');
 const net = require('node:net');
 
+async function rendererProcesses() {
+    // Portal-spawned renderers need not be descendants of the editor process.
+    // Ask this Electron instance, rather than infer identity from a ps tree.
+    const fs = require('node:fs');
+    const [port, path] = fs.readFileSync(process.env.MD_VSCODE_DATA + '/DevToolsActivePort', 'utf8').trim().split('\n');
+    const channel = new WebSocket('ws://127.0.0.1:' + port + path);
+    const events = [];
+    return new Promise((resolve, reject) => {
+        // EVENT_WAIT: exact DevTools response; EOF or deadline fails inspection.
+        const timer = setTimeout(() => finish(new Error('Electron process inspection timed out: '
+            + JSON.stringify({state: channel.readyState, events}))), 15000);
+        const finish = (error, result) => {
+            clearTimeout(timer);
+            channel.onclose = null;
+            channel.close();
+            if (error) reject(error); else resolve(result);
+        };
+        channel.onopen = () => {
+            events.push('open');
+            channel.send(JSON.stringify({id: 1, method: 'SystemInfo.getProcessInfo'}));
+        };
+        channel.onmessage = event => {
+            const reply = JSON.parse(event.data);
+            events.push({id: reply.id, method: reply.method});
+            if (reply.id === 1) finish(reply.error ? new Error(JSON.stringify(reply.error)) : null,
+                                      reply.result?.processInfo);
+        };
+        channel.onerror = () => finish(new Error('Electron process inspection connection failed'));
+        channel.onclose = () => finish(new Error('Electron process inspection disconnected'));
+    });
+}
+
 exports.activate = async function (context) {
     if (process.env.MD_VSCODE_RELOAD === '1' && !context.globalState.get('reloaded')) {
         await context.globalState.update('reloaded', true);
@@ -35,6 +67,7 @@ exports.activate = async function (context) {
         check();
     });
     try {
+        const debuggerPath = process.env.MD_DEBUGGER_PATH || '/usr/bin/gdb';
         assert(Object.keys(require('node:os').networkInterfaces()).length > 0);
         send('activated', {version: vscode.version, versions: process.versions, uid: process.getuid()});
         const folder = vscode.workspace.workspaceFolders[0];
@@ -92,16 +125,20 @@ exports.activate = async function (context) {
             watcher.dispose();
             terminal.dispose();
         }
-        send('workspace', {editorSaved: true, terminal: true, fileNotification: true});
+        const processes = await rendererProcesses();
+        const workspaceChecked = ack();
+        send('workspace', {editorSaved: true, terminal: true, fileNotification: true,
+                           processes});
+        await workspaceChecked;
         const uri = vscode.Uri.joinPath(folder.uri, 'main.c');
         await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
         vscode.debug.addBreakpoints([new vscode.SourceBreakpoint(new vscode.Location(uri, new vscode.Position(4, 0)))]);
         const started = await vscode.debug.startDebugging(folder, {
             type: 'cppdbg', name: 'Guest GDB', request: 'launch',
             program: folder.uri.fsPath + '/main', cwd: folder.uri.fsPath,
-            MIMode: 'gdb', miDebuggerPath: '/usr/bin/gdb',
+            MIMode: 'gdb', miDebuggerPath: debuggerPath,
             ...(process.env.MD_DEBUG_TRANSPORT === 'pipe' ? {
-                pipeTransport: {pipeProgram: '/bin/sh', pipeArgs: ['-c'], debuggerPath: '/usr/bin/gdb'}
+                pipeTransport: {pipeProgram: '/bin/sh', pipeArgs: ['-c'], debuggerPath}
             } : {}),
             externalConsole: false, avoidWindowsConsoleRedirection: true,
             stopAtEntry: false, logging: {engineLogging: true}

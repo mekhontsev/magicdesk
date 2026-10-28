@@ -233,7 +233,9 @@ KGSL calibrated timestamps use the kernel timestamp ioctl when available;
 unsupported kernels do not advertise that extension. Queue queries are unchanged.
 GLX loader capabilities follow the effective backend when Kopper is disabled.
 Zink retains GPU rendering with sw_winsys readback presentation when the client
-disables Kopper or the X server lacks DRI3. Direct Vulkan presentation is unchanged.
+disables Kopper or the X server lacks DRI3. Direct Vulkan uses GPU readback into
+ordinary X11 pixmaps when DRI3 is absent; Present retains pacing and buffer-release
+events. CPU images do not acquire DMA-BUF synchronization resources.
 Readback requires a presenting winsys; Kopper's loader-less DRI winsys does not
 advertise that callback, so offscreen flushes retain their original no-op behavior.
 Worker queues start on their first submitted job, not empty initialization, so
@@ -827,6 +829,261 @@ Explicit worker counts and normal parallel scheduling are retained after startup
 
     return &ws->base;
  }
+--- a/src/vulkan/wsi/wsi_common_x11.c
++++ b/src/vulkan/wsi/wsi_common_x11.c
+@@ -407,18 +407,6 @@
+    vk_free(&wsi_dev->instance_alloc, conn);
+ }
+
+-static bool
+-wsi_x11_check_for_dri3(struct wsi_x11_connection *wsi_conn)
+-{
+-   if (wsi_conn->has_dri3)
+-      return true;
+-   if (!wsi_conn->is_proprietary_x11) {
+-      mesa_logi("vulkan: No DRI3 support detected - required for presentation\n"
+-                "Note: you can probably enable DRI3 in your Xorg config\n");
+-   }
+-   return false;
+-}
+-
+ /**
+  * Get internal struct representing an xcb_connection_t.
+  *
+@@ -643,10 +631,8 @@
+    if (!wsi_conn)
+       return false;
+
+-   if (!wsi_device->sw) {
+-      if (!wsi_x11_check_for_dri3(wsi_conn))
+-         return false;
+-   }
++   if (!wsi_device->sw && !wsi_conn->has_dri3 && !wsi_conn->has_present)
++      return false;
+
+    if (!visual_supported(connection_get_visualtype(connection, visual_id)))
+       return false;
+@@ -718,11 +704,9 @@
+    if (!wsi_conn)
+       return VK_ERROR_OUT_OF_HOST_MEMORY;
+
+-   if (!wsi_device->sw) {
+-      if (!wsi_x11_check_for_dri3(wsi_conn)) {
+-         *pSupported = false;
+-         return VK_SUCCESS;
+-      }
++   if (!wsi_device->sw && !wsi_conn->has_dri3 && !wsi_conn->has_present) {
++      *pSupported = false;
++      return VK_SUCCESS;
+    }
+
+    if (!visual_supported(get_visualtype_for_window(conn, window, NULL, NULL))) {
+@@ -1240,6 +1224,8 @@
+
+ struct x11_swapchain {
+    struct wsi_swapchain                        base;
++   bool                                       cpu_present;
++   bool                                       has_present;
+
+    bool                                         has_dri3_modifiers;
+    bool                                         has_mit_shm;
+@@ -1775,7 +1761,8 @@
+        !wsi_device->x11.ignore_suboptimal)
+       options |= XCB_PRESENT_OPTION_SUBOPTIMAL;
+
+-   xshmfence_reset(image->shm_fence);
++   if (image->shm_fence)
++      xshmfence_reset(image->shm_fence);
+
+    if (!chain->base.image_info.explicit_sync) {
+       ++chain->sent_image_count;
+@@ -1841,17 +1828,21 @@
+ }
+ #endif
+ /**
+- * Send image to X server unaccelerated (software drivers).
++ * Upload a CPU-readable image without a DRI3 buffer import.
+  */
+ static VkResult
+-x11_present_to_x11_sw(struct x11_swapchain *chain, uint32_t image_index)
++x11_present_to_x11_sw(struct x11_swapchain *chain, uint32_t image_index,
++                      uint64_t target_msc, VkPresentModeKHR present_mode)
+ {
+    assert(!chain->base.image_info.explicit_sync);
+    struct x11_image *image = &chain->images[image_index];
++   xcb_drawable_t drawable = image->pixmap ? image->pixmap : chain->window;
+
+    /* Begin querying this before submitting the frame for improved async performance.
+     * In this _sw() mode we're expecting network round-trip delay, not just UNIX socket delay. */
+-   xcb_get_geometry_cookie_t geom_cookie = xcb_get_geometry(chain->conn, chain->window);
++   xcb_get_geometry_cookie_t geom_cookie = {0};
++   if (!image->pixmap)
++      geom_cookie = xcb_get_geometry(chain->conn, chain->window);
+
+    xcb_void_cookie_t cookie;
+    void *myptr = image->base.cpu_map;
+@@ -1866,7 +1857,7 @@
+          const uint8_t *data = (const uint8_t*)myptr + (rect.y * stride_b) + (rect.x * 4);
+          for (int j = 0; j < rect.height; j++) {
+             cookie = xcb_put_image(chain->conn, XCB_IMAGE_FORMAT_Z_PIXMAP,
+-                                   chain->window, chain->gc,
++                                   drawable, chain->gc,
+                                    rect.width,
+                                    1,
+                                    rect.x, rect.y + j,
+@@ -1879,7 +1870,7 @@
+       }
+    } else if (size < max_req_len) {
+       cookie = xcb_put_image(chain->conn, XCB_IMAGE_FORMAT_Z_PIXMAP,
+-                             chain->window,
++                             drawable,
+                              chain->gc,
+                              image->base.row_pitches[0] / 4,
+                              chain->extent.height,
+@@ -1894,7 +1885,7 @@
+       while (y_todo) {
+          int this_lines = MIN2(num_lines, y_todo);
+          cookie = xcb_put_image(chain->conn, XCB_IMAGE_FORMAT_Z_PIXMAP,
+-                                chain->window,
++                                drawable,
+                                 chain->gc,
+                                 image->base.row_pitches[0] / 4,
+                                 this_lines,
+@@ -1905,6 +1896,12 @@
+          y_start += this_lines;
+          y_todo -= this_lines;
+       }
++   }
++
++   if (image->pixmap) {
++#ifdef HAVE_X11_DRM
++      return x11_present_to_x11_dri3(chain, image_index, target_msc, present_mode);
++#endif
+    }
+
+    xcb_flush(chain->conn);
+@@ -2074,8 +2071,8 @@
+    x11_capture_trace(chain);
+
+    VkResult result;
+-   if (chain->base.wsi->sw && !chain->has_mit_shm)
+-      result = x11_present_to_x11_sw(chain, image_index);
++   if (chain->cpu_present && !chain->has_mit_shm)
++      result = x11_present_to_x11_sw(chain, image_index, target_msc, present_mode);
+    else
+ #ifdef HAVE_X11_DRM
+       result = x11_present_to_x11_dri3(chain, image_index, target_msc, present_mode);
+@@ -2522,7 +2519,7 @@
+
+       /* Not necessary to block when we have explicit sync */
+       bool need_fence_wait =
+-            x11_needs_wait_for_fences(chain->base.wsi, wsi_conn, present_mode) &&
++            (chain->cpu_present || x11_needs_wait_for_fences(chain->base.wsi, wsi_conn, present_mode)) &&
+             !chain->base.image_info.explicit_sync;
+
+       bool need_timing_fence_wait = x11_swapchain_present_timing_is_out_of_order_completion(
+@@ -2627,7 +2624,7 @@
+       return result;
+
+    image->update_region = None;
+-   if (chain->base.wsi->sw && !chain->has_mit_shm)
++   if (chain->cpu_present && !chain->has_mit_shm && !chain->has_present)
+       return VK_SUCCESS;
+
+ #ifdef HAVE_X11_DRM
+@@ -2638,7 +2635,22 @@
+    image->update_region = xcb_generate_id(chain->conn);
+    xcb_xfixes_create_region(chain->conn, image->update_region, 0, NULL);
+
+-   if (chain->base.wsi->sw) {
++   if (chain->cpu_present && !chain->has_mit_shm) {
++      image->pixmap = xcb_generate_id(chain->conn);
++      cookie = xcb_create_pixmap_checked(chain->conn, chain->depth,
++                                          image->pixmap, chain->window,
++                                          image->base.row_pitches[0] / 4,
++                                          pCreateInfo->imageExtent.height);
++      error = xcb_request_check(chain->conn, cookie);
++      if (error) {
++         free(error);
++         goto fail_image;
++      }
++      /* Present's IDLE event releases this ordinary pixmap; no DRI3 fence. */
++      return VK_SUCCESS;
++   }
++
++   if (chain->cpu_present) {
+       image->shmseg = xcb_generate_id(chain->conn);
+
+       xcb_shm_attach(chain->conn,
+@@ -2766,6 +2778,7 @@
+    xcb_discard_reply(chain->conn, cookie.sequence);
+
+ fail_image:
++   xcb_xfixes_destroy_region(chain->conn, image->update_region);
+    wsi_destroy_image(&chain->base, &image->base);
+
+ #else
+@@ -2780,11 +2793,14 @@
+                  struct x11_image *image)
+ {
+    xcb_void_cookie_t cookie;
+-   if (!chain->base.wsi->sw || chain->has_mit_shm) {
++   if (image->pixmap) {
+ #ifdef HAVE_X11_DRM
+-      cookie = xcb_sync_destroy_fence(chain->conn, image->sync_fence);
+-      xcb_discard_reply(chain->conn, cookie.sequence);
+-      xshmfence_unmap_shm(image->shm_fence);
++      if (image->sync_fence) {
++         cookie = xcb_sync_destroy_fence(chain->conn, image->sync_fence);
++         xcb_discard_reply(chain->conn, cookie.sequence);
++      }
++      if (image->shm_fence)
++         xshmfence_unmap_shm(image->shm_fence);
+ #endif
+
+       cookie = xcb_free_pixmap(chain->conn, image->pixmap);
+@@ -2913,7 +2929,7 @@
+ {
+    const struct wsi_device *wsi_device = chain->base.wsi;
+
+-   if (wsi_device->sw || !use_modifiers(wsi_device))
++   if (chain->cpu_present || !use_modifiers(wsi_device))
+       return false;
+
+    struct wsi_drm_image_params drm_image_params;
+@@ -3201,7 +3217,9 @@
+    struct wsi_base_image_params *image_params = NULL;
+    struct wsi_cpu_image_params cpu_image_params;
+    uint64_t *modifiers[2] = {NULL, NULL};
+-   if (wsi_device->sw) {
++   /* CPU presentation does not change the rendering device or other surfaces. */
++   chain->cpu_present = wsi_device->sw || !wsi_conn->has_dri3;
++   if (chain->cpu_present) {
+       cpu_image_params = (struct wsi_cpu_image_params) {
+          .base.image_type = WSI_IMAGE_TYPE_CPU,
+          .alloc_shm = wsi_conn->has_mit_shm ? &alloc_shm : NULL,
+@@ -3272,6 +3290,9 @@
+    chain->status = VK_SUCCESS;
+    chain->has_dri3_modifiers = wsi_conn->has_dri3_modifiers;
+    chain->has_mit_shm = wsi_conn->has_mit_shm;
++#ifdef HAVE_X11_DRM
++   chain->has_present = wsi_conn->has_present;
++#endif
+    chain->has_async_may_tear = present_caps & XCB_PRESENT_CAPABILITY_ASYNC_MAY_TEAR;
+    chain->has_reliable_msc = !wsi_conn->is_xwayland;
+
+--- a/src/vulkan/wsi/wsi_common_drm.c
++++ b/src/vulkan/wsi/wsi_common_drm.c
+@@ -367,6 +367,9 @@
+ VkResult
+ wsi_drm_init_swapchain_implicit_sync(struct wsi_swapchain *chain)
+ {
++   if (chain->image_info.image_type != WSI_IMAGE_TYPE_DRM)
++      return VK_SUCCESS;
++
+    /* We don't need implicit sync if explicit sync is available through the
+     * window system protocol.
+     */
 PATCH
 }
 
@@ -1706,8 +1963,186 @@ kwin_patch_6_6() {
 PATCH
 }
 
+kwin_pointer_patch() {
+    cat <<'PATCH'
+--- a/src/backends/wayland/wayland_backend.cpp
++++ b/src/backends/wayland/wayland_backend.cpp
+@@ -17,2 +17,7 @@
+ #include "wayland_qpainter_backend.h"
++#include "wayland/pointer.h"
++#include "wayland/pointerconstraints_v1.h"
++#include "wayland/seat.h"
++#include "wayland/surface.h"
++#include "wayland_server.h"
+
+PATCH
+    if [ "${1:-}" = 6.6.6 ]; then
+        cat <<'PATCH'
+@@ -89,8 +94,15 @@
+     connect(pointer, &Pointer::entered, this, [this](quint32 serial, const QPointF &relativeToSurface) {
+         WaylandOutput *output = m_seat->backend()->findOutput(m_pointer->enteredSurface());
+         Q_ASSERT(output);
+         output->cursor()->setPointer(m_pointer.get());
++        // Enter and motion use the same output/subsurface coordinate space.
++        const auto subsurface = m_seat->backend()->findSubSurface(m_pointer->enteredSurface());
++        const QPointF absolutePos = output->position() + relativeToSurface
++            + (subsurface ? subsurface->position() : QPoint());
++        const auto timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
++            std::chrono::steady_clock::now().time_since_epoch());
++        Q_EMIT pointerMotionAbsolute(absolutePos, timestamp, this);
+     });
+     connect(pointer, &Pointer::left, this, [this]() {
+         // wl_pointer.leave carries the wl_surface, but KWayland::Client::Pointer::left does not.
+         const auto outputs = m_seat->backend()->outputs();
+PATCH
+    else
+        cat <<'PATCH'
+@@ -85,8 +90,13 @@
+     connect(pointer, &Pointer::entered, this, [this](quint32 serial, const QPointF &relativeToSurface) {
+         WaylandOutput *output = m_seat->backend()->findOutput(m_pointer->enteredSurface());
+         Q_ASSERT(output);
+         output->cursor()->setPointer(m_pointer.get());
++        // Enter carries the position even when no motion follows before a click.
++        const QPointF absolutePos = output->geometry().topLeft() + relativeToSurface;
++        const auto timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
++            std::chrono::steady_clock::now().time_since_epoch());
++        Q_EMIT pointerMotionAbsolute(absolutePos, timestamp, this);
+     });
+     connect(pointer, &Pointer::left, this, [this]() {
+         // wl_pointer.leave carries the wl_surface, but KWayland::Client::Pointer::left does not.
+         const auto outputs = m_seat->backend()->outputs();
+PATCH
+    fi
+    cat <<'PATCH'
+@@ -190,3 +195,3 @@
+     });
+-    connect(touch, &Touch::sequenceStarted, this, [this](TouchPoint *tp) {
++    connect(touch, &Touch::sequenceStarted, this, [this](KWayland::Client::TouchPoint *tp) {
+         auto o = m_seat->backend()->findOutput(tp->surface());
+@@ -196,3 +201,3 @@
+     });
+-    connect(touch, &Touch::pointAdded, this, [this](TouchPoint *tp) {
++    connect(touch, &Touch::pointAdded, this, [this](KWayland::Client::TouchPoint *tp) {
+         auto o = m_seat->backend()->findOutput(tp->surface());
+@@ -202,6 +207,6 @@
+     });
+-    connect(touch, &Touch::pointRemoved, this, [this](TouchPoint *tp) {
++    connect(touch, &Touch::pointRemoved, this, [this](KWayland::Client::TouchPoint *tp) {
+         Q_EMIT touchUp(tp->id(), std::chrono::milliseconds(tp->time()), this);
+     });
+-    connect(touch, &Touch::pointMoved, this, [this](TouchPoint *tp) {
++    connect(touch, &Touch::pointMoved, this, [this](KWayland::Client::TouchPoint *tp) {
+         auto o = m_seat->backend()->findOutput(tp->surface());
+@@ -314,2 +319,5 @@
+     connect(seat, &WaylandSeat::deviceRemoved, this, &InputBackend::deviceRemoved);
++    connect(waylandServer()->seat()->pointer(), &PointerInterface::focusedSurfaceChanged,
++            m_backend, &WaylandBackend::watchPointerConstraints);
++    m_backend->watchPointerConstraints();
+ }
+@@ -543,6 +551,46 @@
+ {
+-    if (!supportsPointerLock()) {
++    m_automaticPointerLock = false;
++    setPointerLock(!m_pointerLockRequested);
++}
++
++void WaylandBackend::watchPointerConstraints()
++{
++    disconnect(m_surfaceConstraintsConnection);
++    disconnect(m_clientLockConnection);
++    if (auto surface = waylandServer()->seat()->focusedPointerSurface()) {
++        m_surfaceConstraintsConnection = connect(surface, &SurfaceInterface::pointerConstraintsChanged,
++                                                 this, &WaylandBackend::watchPointerConstraints);
++        if (auto lock = surface->lockedPointer()) {
++            m_clientLockConnection = connect(lock, &LockedPointerV1Interface::lockedChanged,
++                                             this, &WaylandBackend::updateClientPointerLock);
++        }
++    }
++    updateClientPointerLock();
++}
++
++void WaylandBackend::updateClientPointerLock()
++{
++    auto surface = waylandServer()->seat()->focusedPointerSurface();
++    auto lock = surface ? surface->lockedPointer() : nullptr;
++    const bool locked = lock && lock->isLocked();
++    if (m_clientPointerLocked == locked) {
++        return;
++    }
++    m_clientPointerLocked = locked;
++    // A manual grab outlives inner-client focus; an automatic grab does not.
++    if (locked && !m_pointerLockRequested) {
++        setPointerLock(true);
++        m_automaticPointerLock = m_pointerLockRequested;
++    } else if (!locked && m_automaticPointerLock) {
++        m_automaticPointerLock = false;
++        setPointerLock(false);
++    }
++}
++
++void WaylandBackend::setPointerLock(bool requested)
++{
++    if (m_pointerLockRequested == requested || !supportsPointerLock()) {
+         return;
+     }
+-    if (!m_seat) {
++    if (!m_seat || !m_seat->pointerDevice()) {
+         return;
+@@ -558,5 +606,5 @@
+     for (auto output : std::as_const(m_outputs)) {
+-        output->lockPointer(m_seat->pointerDevice()->nativePointer(), !m_pointerLockRequested);
++        output->lockPointer(pointer, requested);
+     }
+-    m_pointerLockRequested = !m_pointerLockRequested;
++    m_pointerLockRequested = requested;
+ }
+--- a/src/backends/wayland/wayland_backend.h
++++ b/src/backends/wayland/wayland_backend.h
+@@ -228,2 +228,3 @@
+     void togglePointerLock();
++    void watchPointerConstraints();
+
+@@ -257,2 +258,4 @@
+     void createOutputs();
++    void setPointerLock(bool requested);
++    void updateClientPointerLock();
+     void destroyOutputs();
+@@ -266,2 +269,6 @@
+     bool m_pointerLockRequested = false;
++    bool m_clientPointerLocked = false;
++    bool m_automaticPointerLock = false;
++    QMetaObject::Connection m_surfaceConstraintsConnection;
++    QMetaObject::Connection m_clientLockConnection;
+     std::unique_ptr<DrmDevice> m_drmDevice;
+--- a/src/backends/wayland/wayland_output.cpp
++++ b/src/backends/wayland/wayland_output.cpp
+@@ -307,3 +307,3 @@
+     Q_ASSERT(!m_pointerLock);
+-    m_pointerLock.reset(m_backend->display()->pointerConstraints()->lockPointer(surface(), pointer, nullptr, PointerConstraints::LifeTime::OneShot));
++    m_pointerLock.reset(m_backend->display()->pointerConstraints()->lockPointer(surface(), pointer, nullptr, PointerConstraints::LifeTime::Persistent));
+     if (!m_pointerLock->isValid()) {
+PATCH
+    if [ "${1:-}" = 6.6.6 ]; then
+        cat <<'PATCH'
+@@ -526,3 +526,3 @@
+     connect(m_pointerLock.get(), &LockedPointer::unlocked, this, [this]() {
+-        m_pointerLock.reset();
++        // Keep the request across host focus loss; manual release destroys it.
+         inhibitShortcuts(false);
+PATCH
+    else
+        cat <<'PATCH'
+@@ -319,3 +319,3 @@
+     connect(m_pointerLock.get(), &LockedPointer::unlocked, this, [this]() {
+-        m_pointerLock.reset();
++        // Keep the request across host focus loss; manual release destroys it.
+         m_hasPointerLock = false;
+PATCH
+    fi
+}
+
 kwin_patch() {
-    if [ "${1:-}" = 6.6.6 ]; then kwin_patch_6_6; return; fi
+    if [ "${1:-}" = 6.6.6 ]; then kwin_patch_6_6; kwin_pointer_patch "$1"; return; fi
     case "${1:-6.3.6}" in 6.2.5|6.3.6) ;; *) return 1 ;; esac
     cat <<'PATCH'
 KWin: nested DMA-BUF v3/EGL rendering without a DRM device.
@@ -2797,6 +3232,7 @@ PATCH
 PATCH
             ;;
     esac
+    kwin_pointer_patch
 }
 
 build_support() {
@@ -3042,6 +3478,35 @@ mesa_source() {
     printf '%s\n' 'version=26.2.3' 'archive_sha=1628058a8d2c0615975de5a15ab7bbb9638c50000b5bed9456ff423ea034a81f'
 }
 
+mesa_probe_source() {
+    cat <<'MESA_PROBE'
+#define _GNU_SOURCE
+#include <dlfcn.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+/* Resolve only stable C symbols from the target runtime. Linking the probe
+ * against the host libc would reject glibc runtimes when built on musl. */
+__attribute__((constructor)) static void probe(void) {
+    char *paths = getenv("MD_MESA_PROBE_LIBRARIES");
+    if (!paths || !*paths) _exit(2);
+    while (*paths) {
+        char *end = strchr(paths, '\n');
+        if (end) *end = 0;
+        void *library = dlopen(paths, RTLD_NOW | RTLD_LOCAL);
+        if (!library) { dprintf(2, "%s: %s\n", paths, dlerror()); _exit(1); }
+        dlclose(library);
+        if (!end) break;
+        paths = end + 1;
+    }
+    static const char ok[] = "MD_MESA_PROBE_OK\n";
+    if (write(1, ok, sizeof(ok) - 1) != sizeof(ok) - 1) _exit(2);
+    _exit(0);
+}
+MESA_PROBE
+}
+
 flatpak_gl_helper() {
     cat <<'FLATPAK_GL_PY'
 #!/usr/bin/env python3
@@ -3069,11 +3534,24 @@ CONFIG = Path('/etc/magicdesk/mesa-prefix')
 BUILD_CONFIG = Path('/etc/magicdesk/mesa-build.json')
 PROBE = Path('/usr/local/libexec/magicdesk-mesa-probe')
 EXTENSION = 'org.freedesktop.Platform.GL.host'
-FORMAT = '4'
+FORMAT = '5'
 
 
 class MesaABIError(ValueError):
     pass
+
+
+def build_identity(prefix):
+    marker = prefix / '.complete'
+    if marker.is_file():
+        identity = marker.read_text().strip()
+        if identity:
+            return identity
+    # Nix owns publication and immutability; do not modify its store to add a stamp.
+    resolved = prefix.resolve()
+    if resolved.parent == Path('/nix/store') and re.fullmatch(r'[0-9a-z]{32}-.+', resolved.name):
+        return str(resolved)
+    raise ValueError('Incomplete Mesa build: ' + str(prefix))
 
 
 def public_directory(path):
@@ -3155,6 +3633,11 @@ def relocate_json(source, target, root):
 
 def stage_bundle(prefix, directory, layout):
     shutil.copytree(prefix / 'lib', directory / 'lib', symlinks=True)
+    # Store outputs can be read-only. The unpublished copy must remain removable
+    # on admission failure; never change permissions in the source prefix.
+    for path in [directory / 'lib', *(directory / 'lib').rglob('*')]:
+        if path.is_dir() and not path.is_symlink():
+            path.chmod(0o755)
     # Development files are not part of a runtime extension.
     shutil.rmtree(directory / 'lib/pkgconfig', ignore_errors=True)
     root = '/usr/' + layout + '/host'
@@ -3197,8 +3680,11 @@ def verify_runtime(metadata, bundle):
 
 
 def sdk_build(base, prefix, metadata, cache):
+    if not BUILD_CONFIG.is_file():
+        raise ValueError('This Mesa installation has no retained SDK build sources; '
+                         'select a Mesa build compatible with the installed Flatpak runtime')
     config = json.loads(BUILD_CONFIG.read_text())
-    if config['identity'] != (prefix / '.complete').read_text().strip():
+    if config['identity'] != build_identity(prefix):
         raise ValueError('Mesa source selection does not match its build configuration')
     source = Path(config['source'])
     if not source.is_absolute() or not (source / '.patched').is_file():
@@ -3337,9 +3823,7 @@ def prepare(base, prefix, build_sdk=False):
         groups = runtime_groups(base) if prefix else {}
         failed = []
         if prefix:
-            identity = (prefix / '.complete').read_text().strip()
-            if not identity:
-                raise ValueError('Incomplete Mesa build')
+            identity = build_identity(prefix)
         for branch, runtimes in groups.items():
             link = destination / branch
             if os.path.lexists(link) and not owned(link):
@@ -3693,6 +4177,45 @@ if __name__ == '__main__':
 SNAP_GPU_PY
 }
 
+graphics_profile_reset() {
+    cat <<'PROFILE'
+if [ -n "${MAGICDESK_FEX_THUNKCONFIG:-}" ] && [ "${FEX_THUNKCONFIG:-}" = "$MAGICDESK_FEX_THUNKCONFIG" ]; then
+    unset FEX_THUNKCONFIG
+fi
+unset MAGICDESK_FEX_THUNKCONFIG
+_md_owned=${MAGICDESK_GRAPHICS_LIBRARY_PATH:-${MAGICDESK_MESA_PREFIX:+$MAGICDESK_MESA_PREFIX/lib}}
+if [ -n "$_md_owned" ]; then
+    _md_paths=${LD_LIBRARY_PATH:-}
+    _md_kept=
+    while [ -n "$_md_paths" ]; do
+        _md_item=${_md_paths%%:*}
+        case $_md_paths in *:*) _md_paths=${_md_paths#*:} ;; *) _md_paths= ;; esac
+        case :$_md_owned: in
+            *:"$_md_item":*) ;;
+            *) [ -z "$_md_item" ] || _md_kept=${_md_kept:+$_md_kept:}$_md_item ;;
+        esac
+    done
+    if [ -n "$_md_kept" ]; then export LD_LIBRARY_PATH=$_md_kept; else unset LD_LIBRARY_PATH; fi
+fi
+if [ -n "${MAGICDESK_MESA_PREFIX:-}" ]; then
+    _md_paths=${PRESSURE_VESSEL_FILESYSTEMS_RO:-}
+    _md_kept=
+    while [ -n "$_md_paths" ]; do
+        _md_item=${_md_paths%%:*}
+        case $_md_paths in *:*) _md_paths=${_md_paths#*:} ;; *) _md_paths= ;; esac
+        if [ -n "$_md_item" ] && [ "$_md_item" != "$MAGICDESK_MESA_PREFIX" ] && [ "$_md_item" != /opt/magicdesk/fex-thunks.json ]; then
+            _md_kept=${_md_kept:+$_md_kept:}$_md_item
+        fi
+    done
+    if [ -n "$_md_kept" ]; then export PRESSURE_VESSEL_FILESYSTEMS_RO=$_md_kept; else unset PRESSURE_VESSEL_FILESYSTEMS_RO; fi
+fi
+unset _md_owned _md_paths _md_kept _md_item MAGICDESK_GRAPHICS_LIBRARY_PATH
+unset MAGICDESK_MESA_PREFIX LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER MESA_LOADER_DRIVER_OVERRIDE
+unset LIBGL_DRIVERS_PATH GBM_BACKENDS_PATH LIBGL_KOPPER_DRI2 __EGL_VENDOR_LIBRARY_FILENAMES VK_DRIVER_FILES VK_ICD_FILENAMES
+unset MESA_VK_WSI_DEBUG
+PROFILE
+}
+
 # One payload is both fingerprinted and executed; the lab exports the same patch.
 graphics_setup() {
     distribution_support
@@ -3967,68 +4490,19 @@ temporary.write_text(json.dumps(dict(source=sys.argv[1], identity=sys.argv[2], j
 temporary.replace(path)
 MESA_BUILD_CONFIG
     cat > "$work/flatpak-gl-probe.c" <<'PROBE'
-#define _GNU_SOURCE
-#include <dlfcn.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-/* Resolve only stable C symbols from the target runtime. Linking the probe
- * against the host libc would reject glibc runtimes when built on musl. */
-__attribute__((constructor)) static void probe(void) {
-    char *paths = getenv("MD_MESA_PROBE_LIBRARIES");
-    if (!paths || !*paths) _exit(2);
-    while (*paths) {
-        char *end = strchr(paths, '\n');
-        if (end) *end = 0;
-        void *library = dlopen(paths, RTLD_NOW | RTLD_LOCAL);
-        if (!library) { dprintf(2, "%s: %s\n", paths, dlerror()); _exit(1); }
-        dlclose(library);
-        if (!end) break;
-        paths = end + 1;
-    }
-    static const char ok[] = "MD_MESA_PROBE_OK\n";
-    if (write(1, ok, sizeof(ok) - 1) != sizeof(ok) - 1) _exit(2);
-    _exit(0);
-}
+GPU_BODY
+    mesa_probe_source
+    cat <<'GPU_BODY'
 PROBE
     cc -O2 -shared -fPIC -nostdlib "$work/flatpak-gl-probe.c" -o "$work/flatpak-gl-probe"
     install -m 755 "$work/flatpak-gl-probe" /usr/local/libexec/magicdesk-mesa-probe
 fi
 
-# Remove only our previously exported library directory when re-sourcing a login profile.
 reset_profile() {
 cat <<'PROFILE'
-if [ -n "${MAGICDESK_FEX_THUNKCONFIG:-}" ] && [ "${FEX_THUNKCONFIG:-}" = "$MAGICDESK_FEX_THUNKCONFIG" ]; then
-    unset FEX_THUNKCONFIG
-fi
-unset MAGICDESK_FEX_THUNKCONFIG
-if [ -n "${MAGICDESK_MESA_PREFIX:-}" ]; then
-    _md_paths=${LD_LIBRARY_PATH:-}
-    _md_kept=
-    while [ -n "$_md_paths" ]; do
-        _md_item=${_md_paths%%:*}
-        case $_md_paths in *:*) _md_paths=${_md_paths#*:} ;; *) _md_paths= ;; esac
-        if [ -n "$_md_item" ] && [ "$_md_item" != "$MAGICDESK_MESA_PREFIX/lib" ]; then
-            _md_kept=${_md_kept:+$_md_kept:}$_md_item
-        fi
-    done
-    if [ -n "$_md_kept" ]; then export LD_LIBRARY_PATH=$_md_kept; else unset LD_LIBRARY_PATH; fi
-    _md_paths=${PRESSURE_VESSEL_FILESYSTEMS_RO:-}
-    _md_kept=
-    while [ -n "$_md_paths" ]; do
-        _md_item=${_md_paths%%:*}
-        case $_md_paths in *:*) _md_paths=${_md_paths#*:} ;; *) _md_paths= ;; esac
-        if [ -n "$_md_item" ] && [ "$_md_item" != "$MAGICDESK_MESA_PREFIX" ] && [ "$_md_item" != /opt/magicdesk/fex-thunks.json ]; then
-            _md_kept=${_md_kept:+$_md_kept:}$_md_item
-        fi
-    done
-    if [ -n "$_md_kept" ]; then export PRESSURE_VESSEL_FILESYSTEMS_RO=$_md_kept; else unset PRESSURE_VESSEL_FILESYSTEMS_RO; fi
-    unset _md_paths _md_kept _md_item
-fi
-unset MAGICDESK_MESA_PREFIX LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER MESA_LOADER_DRIVER_OVERRIDE
-unset LIBGL_DRIVERS_PATH GBM_BACKENDS_PATH LIBGL_KOPPER_DRI2 __EGL_VENDOR_LIBRARY_FILENAMES VK_DRIVER_FILES VK_ICD_FILENAMES
-unset MESA_VK_WSI_DEBUG
+GPU_BODY
+    graphics_profile_reset
+    cat <<'GPU_BODY'
 PROFILE
 }
 reset_profile > "$candidate"
@@ -4288,6 +4762,21 @@ audio_session() {
     cat <<'AUDIO'
 #!/bin/bash
 set -euo pipefail
+loop_config() {
+    # PI futex owner TIDs cannot represent Shroot's logical PID namespace.
+    # Keep a dedicated data loop, using ordinary mutexes and native scheduling.
+    cat <<'LOOP_CONFIG'
+context.properties = {
+    context.data-loops = [
+        { thread.name = data-loop.0 loop.prio-inherit = false }
+    ]
+}
+LOOP_CONFIG
+}
+if [[ ${1:-} == --print-loop-config ]]; then
+    loop_config
+    exit
+fi
 if [[ ${1:-} == --ready ]]; then
     printf '%s\n' "$2" >&3
     exit
@@ -4320,6 +4809,10 @@ trap 'exit 143' TERM
 mkdir -p "$work/config/pipewire.conf.d" "$work/config/pipewire-pulse.conf.d" "$work/wp/wireplumber.conf.d"
 cp /usr/share/pipewire/pipewire.conf /usr/share/pipewire/pipewire-pulse.conf "$work/config/"
 cp /usr/share/wireplumber/wireplumber.conf "$work/wp/"
+for config in pipewire.conf pipewire-pulse.conf; do
+    loop_config > "$work/config/$config.d/90-magicdesk-loop.conf"
+done
+loop_config > "$work/wp/wireplumber.conf.d/90-magicdesk-loop.conf"
 if [[ -d /usr/share/wireplumber/main.lua.d ]]; then
     # WirePlumber 0.4 (Ubuntu 24.04) uses Lua configuration, not feature profiles.
     for part in main.lua.d policy.lua.d bluetooth.lua.d common; do
@@ -4514,23 +5007,55 @@ let
   selected = name: builtins.elem name settings.desktops;
   graphical = settings.desktops != [];
   turnip = settings.gpu == "turnip";
-  files = ./magicdesk-files;
   tools = pkgs.runCommand "magicdesk-session-tools" {
-    nativeBuildInputs = [ pkgs.bash pkgs.python3 ];
+    nativeBuildInputs = [ pkgs.bash pkgs.python3 ] ++ lib.optional turnip pkgs.stdenv.cc;
   } ''
-    mkdir -p $out/bin
-    cp ${files}/magicdesk-desktop-session ${files}/magicdesk-audio-session $out/bin/
+    mkdir -p $out/bin $out/libexec
+    cp ${./magicdesk-files/magicdesk-desktop-session} $out/bin/magicdesk-desktop-session
+    cp ${./magicdesk-files/magicdesk-audio-session} $out/bin/magicdesk-audio-session
+    cp ${./magicdesk-files/magicdesk-flatpak-gl} $out/bin/magicdesk-flatpak-gl
+    ${lib.optionalString turnip ''
+      cc -O2 -shared -fPIC -nostdlib ${./magicdesk-files/mesa-probe.c} -o $out/libexec/magicdesk-mesa-probe
+    ''}
     chmod +x $out/bin/*
     substituteInPlace $out/bin/magicdesk-audio-session \
       --replace-fail /usr/share/pipewire ${pkgs.pipewire}/share/pipewire \
       --replace-fail /usr/share/wireplumber ${pkgs.wireplumber}/share/wireplumber
+    substituteInPlace $out/bin/magicdesk-flatpak-gl \
+      --replace-fail /usr/local/libexec/magicdesk-mesa-probe $out/libexec/magicdesk-mesa-probe \
+      --replace-fail "['bwrap'," "['${pkgs.bubblewrap}/bin/bwrap',"
     patchShebangs $out/bin
+    mkdir -p $out/share
+    $out/bin/magicdesk-audio-session --print-loop-config > $out/share/pipewire-loop.conf
+    for name in client.conf client-rt.conf pipewire.conf pipewire-pulse.conf; do
+      mkdir -p "$out/share/pipewire/$name.d"
+      ln -s ../../pipewire-loop.conf "$out/share/pipewire/$name.d/90-magicdesk-loop.conf"
+    done
+  '';
+  flatpakTriggers = pkgs.runCommand "magicdesk-flatpak-triggers" {} ''
+    mkdir -p $out
+    cp -r ${config.services.flatpak.package}/share/flatpak/triggers/. $out/
+    chmod u+w $out
+    rm $out/gtk-icon-cache.trigger
+    cp ${pkgs.writeShellScript "magicdesk-icon-cache.trigger" ''
+      set -eu
+      index=$1/exports/share/icons/hicolor/index.theme
+      # A copy from the immutable store retains mode 0444. Only the local
+      # regular file belongs to this installation; never chmod a symlink target.
+      if test -f "$index" && ! test -L "$index"; then
+        ${pkgs.coreutils}/bin/chmod u+w -- "$index"
+      fi
+      exec ${config.services.flatpak.package}/share/flatpak/triggers/gtk-icon-cache.trigger "$@"
+    ''} $out/gtk-icon-cache.trigger
+    cp ${pkgs.writeShellScript "magicdesk-gl.trigger" ''
+      exec ${tools}/bin/magicdesk-flatpak-gl "$@"
+    ''} $out/magicdesk-gl.trigger
   '';
   mesa = if turnip then pkgs.callPackage ./magicdesk-mesa.nix {} else pkgs.mesa;
   kwin = assert pkgs.kdePackages.kwin.version == "6.6.6";
     pkgs.kdePackages.kwin.overrideAttrs (old: {
       postPatch = (old.postPatch or "") + ''
-        patch --batch --forward --fuzz=0 -p1 < ${files}/kwin.patch
+        patch --batch --forward --fuzz=0 -p1 < ${./magicdesk-files/kwin.patch}
       '';
       preConfigure = (old.preConfigure or "") + ''
         cmakeFlagsArray+=("-DCMAKE_AUTOGEN_PARALLEL=$NIX_BUILD_CORES")
@@ -4606,19 +5131,34 @@ in {
     . /etc/profile.d/magicdesk-applications.sh
     . /etc/profile.d/magicdesk-graphics.sh
   '';
-  environment.etc = lib.mkIf graphical ({
+  services.pipewire.configPackages = lib.mkIf graphical [ tools ];
+  environment.sessionVariables = lib.mkIf (graphical && config.services.flatpak.enable) {
+    FLATPAK_TRIGGERSDIR = "${flatpakTriggers}";
+  };
+  systemd.services.flatpak-system-helper.environment = lib.mkIf (graphical && config.services.flatpak.enable) {
+    FLATPAK_TRIGGERSDIR = "${flatpakTriggers}";
+  };
+  # The service module owns /etc/pipewire when enabled (for example by Plasma).
+  # Other profiles still need client configuration, without starting a daemon.
+  environment.etc = lib.mkIf graphical ((lib.optionalAttrs (!config.services.pipewire.enable) {
+    "pipewire".source = "${tools}/share/pipewire";
+  }) // {
+    "wireplumber/wireplumber.conf.d/90-magicdesk-loop.conf".source = "${tools}/share/pipewire-loop.conf";
     "profile.d/magicdesk-applications.sh".text = ''
       export DISABLE_RTKIT=1
       export ALSA_PLUGIN_DIR=${pkgs.alsa-plugins}/lib/alsa-lib
+    '' + lib.optionalString config.services.flatpak.enable ''
+      export FLATPAK_TRIGGERSDIR=${flatpakTriggers}
     '';
     "asound.conf".text = ''
       pcm.!default { type pulse }
       ctl.!default { type pulse }
     '';
-    "profile.d/magicdesk-graphics.sh".text = ''
+    "profile.d/magicdesk-graphics.sh".text = builtins.readFile ./magicdesk-files/graphics-profile-reset.sh + ''
       export LIBGL_DRIVERS_PATH=${mesa}/lib/dri
       export __EGL_VENDOR_LIBRARY_FILENAMES=${mesa}/share/glvnd/egl_vendor.d/50_mesa.json
-      export LD_LIBRARY_PATH=${lib.makeLibraryPath [ pkgs.libglvnd pkgs.vulkan-loader mesa ]}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+      export MAGICDESK_GRAPHICS_LIBRARY_PATH=${lib.makeLibraryPath [ pkgs.libglvnd pkgs.vulkan-loader mesa ]}
+      export LD_LIBRARY_PATH=$MAGICDESK_GRAPHICS_LIBRARY_PATH''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
     '' + (if turnip then ''
       unset LIBGL_ALWAYS_SOFTWARE
       export MAGICDESK_MESA_PREFIX=${mesa} GALLIUM_DRIVER=zink MESA_LOADER_DRIVER_OVERRIDE=zink LIBGL_KOPPER_DRI2=true
@@ -4648,13 +5188,19 @@ in {
   system.activationScripts.magicdesk = lib.mkIf graphical {
     deps = [ "etc" ];
     text = ''
-      mkdir -p /usr/share/X11 /usr/local/bin
+      mkdir -p /usr/share/X11 /usr/local/bin /usr/local/libexec
       for name in applications icons pixmaps; do
         ln -sfn /nix/var/nix/profiles/system/sw/share/$name /usr/share/$name
       done
       ln -sfn ${pkgs.xkeyboard-config}/share/X11/xkb /usr/share/X11/xkb
       ln -sfn ${tools}/bin/magicdesk-desktop-session /usr/local/bin/magicdesk-desktop-session
       ln -sfn ${tools}/bin/magicdesk-audio-session /usr/local/bin/magicdesk-audio-session
+      ln -sfn ${tools}/bin/magicdesk-flatpak-gl /usr/local/bin/magicdesk-flatpak-gl
+      if test -f ${tools}/libexec/magicdesk-mesa-probe; then
+        ln -sfn ${tools}/libexec/magicdesk-mesa-probe /usr/local/libexec/magicdesk-mesa-probe
+      else
+        rm -f /usr/local/libexec/magicdesk-mesa-probe
+      fi
       install -d -o root -g root -m 1777 /tmp/.X11-unix /tmp/.ICE-unix
     '';
   };
@@ -4811,6 +5357,21 @@ NIXOS_SETUP
     audio_session
     cat <<'NIXOS_SETUP'
 NIXOS_AUDIO
+cat > magicdesk-files/magicdesk-flatpak-gl <<'NIXOS_FLATPAK'
+NIXOS_SETUP
+    flatpak_gl_helper
+    cat <<'NIXOS_SETUP'
+NIXOS_FLATPAK
+cat > magicdesk-files/graphics-profile-reset.sh <<'NIXOS_GRAPHICS_RESET'
+NIXOS_SETUP
+    graphics_profile_reset
+    cat <<'NIXOS_SETUP'
+NIXOS_GRAPHICS_RESET
+cat > magicdesk-files/mesa-probe.c <<'NIXOS_MESA_PROBE'
+NIXOS_SETUP
+    mesa_probe_source
+    cat <<'NIXOS_SETUP'
+NIXOS_MESA_PROBE
 cat > magicdesk-files/mesa-options <<'NIXOS_MESA_OPTIONS'
 NIXOS_SETUP
     mesa_options
@@ -4852,7 +5413,11 @@ in stdenv.mkDerivation {
   buildInputs = [ libdrm expat zstd zlib elfutils wayland wayland-protocols libglvnd
     vulkan-headers glslang libx11 libxext libxfixes libxxf86vm libxrandr libxshmfence libxcb ];
   mesonFlags = lib.filter (value: value != "")
-    (lib.splitString "\n" (builtins.readFile ./magicdesk-files/mesa-options));
+    (lib.splitString "\n" (builtins.readFile ./magicdesk-files/mesa-options)) ++ [
+      "-Dc_link_args=-Wl,-rpath,$ORIGIN:$ORIGIN/.."
+      "-Dcpp_link_args=-Wl,-rpath,$ORIGIN:$ORIGIN/.."
+      "-Dgbm-backends-path=$ORIGIN/gbm"
+    ];
   postInstall = ''
     python3 - "$out" <<'PY'
 import json
@@ -4937,7 +5502,17 @@ MD_ROOT_AGENT
 MD_DESKTOP_INSTALL
     printf "install_audio_session() {\ncat > /usr/local/bin/magicdesk-audio-session <<'MD_AUDIO_SESSION'\n"
     audio_session
-    printf 'MD_AUDIO_SESSION\nchmod 755 /usr/local/bin/magicdesk-audio-session\n}\n'
+    cat <<'MD_AUDIO_INSTALL'
+MD_AUDIO_SESSION
+chmod 755 /usr/local/bin/magicdesk-audio-session
+for config in client.conf client-rt.conf pipewire.conf pipewire-pulse.conf; do
+    mkdir -p "/etc/pipewire/$config.d"
+    /usr/local/bin/magicdesk-audio-session --print-loop-config > "/etc/pipewire/$config.d/90-magicdesk-loop.conf"
+done
+mkdir -p /etc/wireplumber/wireplumber.conf.d
+/usr/local/bin/magicdesk-audio-session --print-loop-config > /etc/wireplumber/wireplumber.conf.d/90-magicdesk-loop.conf
+}
+MD_AUDIO_INSTALL
     printf "install_steam_game() {\ncat > /usr/local/bin/magicdesk-steam-game <<'MD_STEAM_GAME'\n"
     steam_game
     printf 'MD_STEAM_GAME\nchmod 755 /usr/local/bin/magicdesk-steam-game\n}\n'

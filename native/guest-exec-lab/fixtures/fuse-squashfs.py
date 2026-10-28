@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 import threading
 import queue
+import select
 import time
 import traceback
 
@@ -191,6 +192,36 @@ try:
                 pass
         pending.result(timeout=30)
     print('PASS FUSE mapping completion/signal race over 64 independent opens', flush=True)
+    def mapping_waiters():
+        start = threading.Barrier(5)
+        done = threading.Event()
+        def waiter():
+            descriptor = os.eventfd(0, os.EFD_CLOEXEC)
+            count = 0
+            try:
+                with select.epoll() as epoll:
+                    epoll.register(descriptor, select.EPOLLIN)
+                    start.wait(timeout=10)
+                    while not done.is_set():
+                        assert epoll.poll(.001, 1) == []
+                        count += 1
+            finally:
+                os.close(descriptor)
+            return count
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            pending = [pool.submit(waiter) for _ in range(4)]
+            try:
+                start.wait(timeout=10)
+                with open(mount / 'file', 'rb') as stream:
+                    for _ in range(512):
+                        with mmap.mmap(stream.fileno(), mmap.PAGESIZE, flags=mmap.MAP_SHARED,
+                                       prot=mmap.PROT_READ) as mapped:
+                            assert mapped[:] == content[:mmap.PAGESIZE]
+            finally:
+                done.set()
+            assert all(future.result(timeout=10) > 0 for future in pending)
+        print('PASS FUSE shared mapping and concurrent native epoll admission', flush=True)
+    mapping_waiters()
     def confined_mapping_completion():
         class Filter(ctypes.Structure):
             _fields_ = [('code', ctypes.c_ushort), ('jt', ctypes.c_ubyte),
@@ -210,6 +241,7 @@ try:
                            prot=mmap.PROT_READ) as mapped:
                 assert mapped[0] == content[0]
         os.close(fd)
+        mapping_waiters()
     child = os.fork()
     if not child:
         try:

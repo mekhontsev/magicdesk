@@ -59,11 +59,73 @@ def attach_window(client, state, statefile):
     ready = wait('graphics_window_present')
     window = next(w['windowId'] for w in ready['session']['windows'] if w['mapped'] and not w['parentWindowId'])
     display = state['display']
-    client.call('graphics.open_window', dict(sessionId=state['sessionId'], windowId=window,
-                placement='display', displayId=display['id'], uniqueId=display['uniqueId']))
+    attached = any(host.get('attached') and host.get('windowId') == window
+                   and host.get('displayId') == display['id']
+                   for host in ready['session'].get('hosts', []))
+    if not attached:
+        client.call('graphics.open_window', dict(sessionId=state['sessionId'], windowId=window,
+                    placement='display', displayId=display['id'], uniqueId=display['uniqueId']))
     wait('graphics_host_attached', windowId=window)
     state['windowId'] = window
     statefile.write_text(json.dumps(state, indent=2))
+
+
+def keep_display_awake(client, state, statefile, display=None):
+    if state.get('headless'):
+        return
+    previous = state.get('awakeDisplayId', state['display']['id'])
+    selected = previous if display is None else display
+    if selected != previous and state.get('awakeLease'):
+        client.call('device.release_awake', dict(leaseId=state['awakeLease']))
+        del state['awakeLease']
+        statefile.write_text(json.dumps(state, indent=2))
+    request = dict(displayId=selected, durationMillis=1800000)
+    if state.get('awakeLease'):
+        request['leaseId'] = state['awakeLease']
+    lease = client.call('device.keep_awake', request)
+    assert lease['held'] and lease['displayId'] == request['displayId'], lease
+    state['awakeLease'] = lease['leaseId']
+    state['awakeDisplayId'] = selected
+    statefile.write_text(json.dumps(state, indent=2))
+
+
+def stop_owned_resources(client, shell, state, timeout=30):
+    store = state['environment']['store']
+    image = ([state['directory'] + '/libmagicdesk_guest_image.so'] if state.get('nativeBuild')
+             else [state['runner'], 'image'])
+
+    def launches():
+        return [item for line in shell(shlex.join([*image, 'launches', store])).splitlines()
+                if (item := json.loads(line))['label'] == state['id']]
+
+    for launch in launches():
+        shell(shlex.join([*image, 'stop', store, launch['launchId']]))
+    deadline = time.monotonic() + timeout
+    while launches():
+        remaining = deadline - time.monotonic()
+        assert remaining > 0, 'Owned guest launch did not stop'
+        # STATE_POLL: image stop only sends SIGTERM. Require registry disappearance
+        # before collecting logs; the deadline fails cleanup rather than claiming exit.
+        threading.Event().wait(min(0.1, remaining))
+    session = state.get('sessionId')
+    if session:
+        if any(item['sessionId'] == session for item in client.call('graphics.list')['sessions']):
+            client.call('graphics.stop', dict(sessionId=session))
+        # EVENT_WAIT: exact retained session disappears, otherwise cleanup fails.
+        assert client.call('wait_for_state', dict(condition='graphics_session_absent',
+            sessionId=session, timeoutMillis=30000))['matched']
+    display = state.get('display')
+    if display:
+        if any(item['id'] == display['id'] and item['uniqueId'] == display['uniqueId']
+               for item in client.call('list_displays')['displays']):
+            client.call('remove_display', dict(displayId=display['id'], uniqueId=display['uniqueId']))
+        # EVENT_WAIT: fixture display disappears, otherwise cleanup fails.
+        assert client.call('wait_for_state', dict(condition='display_absent',
+            displayId=display['id'], timeoutMillis=30000))['matched']
+    if state.get('awakeDisplayId') == 0 and state.get('awakeLease'):
+        lease = client.call('get_state')['automationAwake']
+        if lease.get('leaseId') == state['awakeLease']:
+            client.call('device.release_awake', dict(leaseId=state['awakeLease']))
 
 
 def main():
@@ -79,8 +141,13 @@ def main():
     parser.add_argument('--desktop', choices=('weston', 'plasma-wayland'), default='weston')
     parser.add_argument('--build', type=Path, help='Stage a native build; otherwise use the installed APK')
     parser.add_argument('--entry', choices=('lazy', 'base'), default='lazy')
+    parser.add_argument('--diagnostics', action='store_true', help='Trace the staged runtime; not for performance measurements')
+    parser.add_argument('--awake-display', choices=('phone', 'target'),
+                        help='Start/attach: retain the unlocked phone or only the virtual target (default)')
     parser.add_argument('value', nargs='?')
     args = parser.parse_args()
+    if args.awake_display and args.action not in ('start', 'attach'):
+        parser.error('--awake-display requires start or attach')
     if not re.fullmatch(r'[a-zA-Z0-9_-]+', args.name) or not re.fullmatch(r'[a-z_][a-z0-9_-]*', args.user):
         parser.error('Use a simple environment and guest account name')
     out = Path('build/installed-' + args.name)
@@ -94,30 +161,40 @@ def main():
         suite = Suite(out,args.build)
         client = suite.client
         before = client.call('get_state')
-        if not args.headless and (before['workspaces'] or before['graphics']):
+        if not args.headless and before['workspaces']:
             suite.finish()
-            parser.error('Stop the active graphics fixture before starting an isolated desktop fixture')
+            parser.error('Stop managed Desktop before starting an isolated desktop fixture')
         state = suite.report
         state.update(name=args.name, user=args.user, init=args.init, desktop=args.desktop,
-                     headless=args.headless, entryMode=args.entry, token=uuid.uuid4().hex,
+                     headless=args.headless, entryMode=args.entry, diagnostics=args.diagnostics, token=uuid.uuid4().hex,
                      rootPort=port(), userPort=port(), target=target)
         state['homeLeaseBefore'] = before['homeLease']
         try:
             info = suite.installed_environment(args.name)
             assert not info['launches'], 'Environment must be idle before boot'
+            store = info['store']
+            entry = 'SHROOT_MACHINE_ENTRY=' + ('0' if args.entry == 'base' else '1')
+            prefix = [suite.runner, '--store', store, '--user', '0:0', '--env', entry]
+            system = suite.command(prefix + ['--env', 'LC_ALL=C', '--', '/bin/sh', '-ec',
+                'if [ -e /nix/var/nix/profiles/system ]; then '
+                '/nix/var/nix/profiles/system/sw/bin/readlink -f /nix/var/nix/profiles/system; fi'], quiet=True).strip()
+            assert not system or (system.startswith('/nix/store/') and '\n' not in system), system
         except Exception as error:
             suite.report['preparationFailure'] = repr(error)
             suite.finish()
             raise
         state['environment'] = info
-        store = info['store']
-        entry = 'SHROOT_MACHINE_ENTRY=' + ('0' if args.entry == 'base' else '1')
-        prefix = [suite.runner, '--store', store, '--user', '0:0', '--env', entry]
+        binary = system + '/sw/bin' if system else '/usr/bin'
+        guest_path = (binary + ':' if system else '') + '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+        prefix += ['--env', 'PATH=' + guest_path]
+        state['system'] = system or None
         state['runner'] = suite.runner
         state['prefix'] = prefix
-        suite.command(prefix + ['--', '/bin/mkdir', '-p', target])
+        # Retain the exact owner even if preparation fails before guest launch.
+        statefile.write_text(json.dumps(state, indent=2))
+        suite.command(prefix + ['--', binary + '/mkdir' if system else '/bin/mkdir', '-p', target])
         boot, driver = installed_boot(target, state['rootPort'], state['token'], args.init,
-                                      None if args.headless else args.user)
+                                      None if args.headless else args.user, system or None)
         if args.headless:
             files = {'boot.sh': boot, 'session-controller.py':
                      (Path(__file__).with_name('fixtures') / 'session-controller.py').read_text()}
@@ -127,10 +204,11 @@ def main():
                 suite.transport.upload(client, path, suite.base + '/' + name)
             suite.command(['chmod', '755', suite.base])
             suite.command(['chmod', '644', suite.base + '/boot.sh', suite.base + '/session-controller.py'])
-            command = shlex.join(['/usr/bin/unshare', '--mount', '--pid', '--fork', '--mount-proc',
+            command = shlex.join([binary + '/unshare', '--mount', '--pid', '--fork', '--mount-proc',
                                   '--uts', '--ipc', '--cgroup', '/bin/sh', target + '/boot.sh'])
-            launch = shlex.join([*prefix, '--network', 'routed', '--env', 'MAGICDESK_GUEST_LABEL=' + state['id'],
-                                '--bind', suite.base, target, '--', '/usr/bin/script', '-q', '-e', '-c', command, '/dev/null'])
+            launch = shlex.join([*prefix, *(['--diagnostics'] if args.diagnostics else []),
+                                '--network', 'routed', '--env', 'MAGICDESK_GUEST_LABEL=' + state['id'],
+                                '--bind', suite.base, target, '--', binary + '/script', '-q', '-e', '-c', command, '/dev/null'])
             state['launch'] = launch
             statefile.write_text(json.dumps(state, indent=2))
             state['supervisorPid'] = int(suite.command(['/system/bin/sh', '-c',
@@ -141,7 +219,7 @@ def main():
             statefile.write_text(json.dumps(state, indent=2))
             print(statefile)
             return
-        account = suite.command(prefix + ['--', '/usr/bin/getent', 'passwd', args.user], quiet=True).strip().split(':')
+        account = suite.command(prefix + ['--', binary + '/getent', 'passwd', args.user], quiet=True).strip().split(':')
         assert len(account) == 7 and account[0] == args.user, 'Expected the selected guest account'
         state['userUid'] = int(account[2])
         assert state['userUid'] > 0, 'Desktop fixtures require an ordinary guest account'
@@ -149,7 +227,9 @@ def main():
         assert home.startswith('/home/')
         state['home'] = home
         user = shlex.quote(args.user)
-        control = '/usr/bin/python3 ' + target + '/session-controller.py ' + target
+        control = binary + '/python3 ' + target + '/session-controller.py ' + target
+        if args.desktop == 'plasma-wayland':
+            control = 'kde-inhibit --screenSaver ' + control
         autostart = ('#!/bin/sh\nset -eu\nenv > ' + target + '/desktop.env\n'
                      'magicdesk-desktop-session --ready\n'
                      'exec ' + control + ' ')
@@ -164,9 +244,10 @@ cp {target}/controller.desktop "$XDG_CONFIG_HOME/autostart/"
 '''
         session = f'''#!/bin/bash
 set -eux
-export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH={shlex.quote(guest_path)}
 export HOME={shlex.quote(home)} USER={user} LOGNAME={user}
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
+export MAGICDESK_AUDIO_PULSE="$(cat {target}/audio-endpoint)"
 {bus.rstrip()}
 export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
 {configuration}exec magicdesk-desktop-session {desktop}
@@ -177,7 +258,8 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
                  'weston.ini': '[core]\nxwayland=true\n[autolaunch]\npath=' + target + '/autostart.sh\n'}
         fixtures = Path(__file__).with_name('fixtures')
         for name in ('session-controller.py', 'sandbox-browser-gui.py', 'vscode-gui.py', 'vscode-debug.js',
-                     'flatpak-chromium-smoke.sh', 'flatpak-chromium-zink.sh', 'sandbox-document-portal.sh'):
+                     'flatpak-chromium-smoke.sh', 'flatpak-chromium-zink.sh', 'sandbox-document-portal.sh',
+                     'sandbox-portal-lifecycle.py'):
             files[name] = (fixtures / name).read_text()
         for name, content in files.items():
             path = out / name
@@ -188,21 +270,29 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
         suite.command(['chmod', '-R', 'a+rX', suite.base])
         classes = out / 'classes'
         state['sourceHashes'] = compile_recipe(classes)
-        boot_command = shlex.join(['/usr/bin/unshare', '--mount', '--pid', '--fork', '--mount-proc',
+        boot_command = shlex.join([binary + '/unshare', '--mount', '--pid', '--fork', '--mount-proc',
                                   '--uts', '--ipc', '--cgroup', '/bin/sh', target + '/boot.sh'])
-        command = shlex.join(['/usr/bin/script', '-q', '-e', '-c', boot_command, '/dev/null'])
+        command = shlex.join([binary + '/script', '-q', '-e', '-c', boot_command, '/dev/null'])
         recipe = subprocess.check_output(['java', '-cp', str(classes),
             'io.github.mekhontsev.magicdesk.GraphicalRecipe', 'routed', 'wayland', store, '/root', command, '0:0'], text=True)
+        connections = subprocess.check_output(['java', '-cp', str(classes),
+            'io.github.mekhontsev.magicdesk.GraphicalRecipe', 'connections'], text=True)
         wrapper = out / 'shroot'
-        wrapper.write_text('#!/system/bin/sh\nexec ' + shlex.join([suite.runner, '--network', 'routed', '--env', entry,
-            '--env', 'MAGICDESK_GUEST_LABEL=' + state['id'], '--bind', suite.base, target]) + ' "$@"\n')
+        wrapper.write_text('#!/system/bin/sh\nmd_run() {\n' + connections + 'exec '
+            + shlex.join([suite.runner, *(['--diagnostics'] if args.diagnostics else []),
+                '--network', 'routed', '--env', entry, '--env', 'PATH=' + guest_path,
+                '--env', 'MAGICDESK_GUEST_LABEL=' + state['id'], '--bind', suite.base, target])
+            + ' "$@"\n}\nmd_run "$@"\n')
         suite.transport.upload(client, wrapper, suite.base + '/shroot')
         suite.command(['chmod', '755', suite.base + '/shroot'])
         before = client.call('get_state')
-        assert not before['workspaces'] and not before['graphics']
+        # Independent protocol sessions may coexist. This fixture owns only
+        # its exact session and display; managed Desktop must remain absent.
+        assert not before['workspaces']
         state['homeLeaseBefore'] = before['homeLease']
         state['display'] = client.call('create_display', dict(type='virtual', width=1200, height=800, densityDpi=160))
         statefile.write_text(json.dumps(state, indent=2))
+        keep_display_awake(client, state, statefile, 0 if args.awake_display == 'phone' else None)
         state['sessionId'] = client.call('graphics.start', dict(protocol='wayland', backend='shell',
             connection='routed', wholeDesktop=True, name=args.name + ' ' + args.init, keyboardDirectory='guest:' + store))['sessionId']
         statefile.write_text(json.dumps(state, indent=2))
@@ -248,9 +338,12 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
 
     if args.action == 'attach':
         assert not state.get('closed') and not state.get('headless'), 'No retained graphical fixture'
+        selected = (0 if args.awake_display == 'phone' else state['display']['id']) if args.awake_display else None
+        keep_display_awake(client, state, statefile, selected)
         attach_window(client, state, statefile)
     elif args.action == 'run':
         assert args.root or not state.get('headless'), 'Headless fixture exposes only --root commands'
+        keep_display_awake(client, state, statefile)
         ident = uuid.uuid4().hex
         request = urllib.request.Request('http://127.0.0.1:' + str(state['rootPort' if args.root else 'userPort']),
             data=json.dumps(dict(id=ident, command=args.value, wait=args.wait)).encode(),
@@ -262,7 +355,7 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
         if args.wait:
             log=out / (ident + '.log')
             transport.download(client,state['directory'] + '/' + ident + '.log',log)
-            print(log.read_text())
+            print(log.read_text(errors='replace'))
             raise SystemExit(response['exitCode'])
     elif args.action == 'shell':
         print(shell(args.value.replace('@BASE@', state['directory'])))
@@ -278,6 +371,7 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
             transport.download(client, state['directory'] + '/' + path.as_posix(), destination, overwrite=True)
     elif args.action == 'capture':
         assert not state.get('headless'), 'Headless fixture has no display'
+        keep_display_awake(client, state, statefile)
         result = client.call_result('capture_screenshot', dict(displayId=state['display']['id']))
         path = out / (args.value or 'desktop.png')
         path.write_bytes(base64.b64decode(next(i['data'] for i in result['content'] if i['type'] == 'image')))
@@ -286,33 +380,18 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
         print(shell('tail -60 ' + shlex.quote(state['directory'] + '/boot.log')))
         print(json.dumps(client.call('graphics.list'), indent=2))
     elif args.action == 'stop':
-        store = state['environment']['store']
-        image = ([state['directory'] + '/libmagicdesk_guest_image.so'] if state.get('nativeBuild')
-                 else [state['runner'], 'image'])
-        launches = shell(shlex.join([*image, 'launches', store]))
-        for line in launches.splitlines():
-            launch = json.loads(line)
-            if launch['label'] == state['id']:
-                shell(shlex.join([*image, 'stop', store, launch['launchId']]))
-        if state.get('sessionId'):
-            client.call('graphics.stop', dict(sessionId=state['sessionId']))
-            assert client.call('wait_for_state', dict(condition='graphics_session_absent',
-                sessionId=state['sessionId'], timeoutMillis=30000))['matched']
-        if state.get('display'):
-            display = state['display']
-            client.call('remove_display', dict(displayId=display['id'], uniqueId=display['uniqueId']))
-            assert client.call('wait_for_state', dict(condition='display_absent',
-                displayId=display['id'], timeoutMillis=30000))['matched']
+        stop_owned_resources(client, shell, state)
         for name in ('boot.log', 'control.log', 'desktop.log', 'driver.log', 'desktop.env'):
             if shell('test ! -f ' + shlex.quote(state['directory'] + '/' + name) + ' || echo present').strip():
                 transport.download(client, state['directory'] + '/' + name, out / name, overwrite=True)
         after = client.call('get_state')
+        client.call('console.close', dict(sessionId=state['consoleId']))
+        state['closed'] = True
+        state['homeLeaseAfter'] = after['homeLease']
+        statefile.write_text(json.dumps(state, indent=2))
         assert after['homeLease'] == state['homeLeaseBefore']
         if not state.get('headless'):
             assert not after['workspaces']
-        client.call('console.close', dict(sessionId=state['consoleId']))
-        state['closed'] = True
-        statefile.write_text(json.dumps(state, indent=2))
 
 
 if __name__ == '__main__':

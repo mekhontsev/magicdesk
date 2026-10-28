@@ -13,7 +13,8 @@ import unittest
 class MesaProbeTest(unittest.TestCase):
     def setUp(self):
         script = Path(__file__).resolve().parents[1] / 'install_linux.sh'
-        source = script.read_text().split('cat > "$work/flatpak-gl-probe.c" <<\'PROBE\'\n', 1)[1].split('\nPROBE\n', 1)[0]
+        setup = subprocess.check_output(['sh', str(script), '--print-graphics-setup'], text=True)
+        source = setup.split('cat > "$work/flatpak-gl-probe.c" <<\'PROBE\'\n', 1)[1].split('\nPROBE\n', 1)[0]
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         path = Path(temporary.name)

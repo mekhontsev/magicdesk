@@ -15,7 +15,7 @@ directory = Path(directory)
 
 def execute(ident, command):
     with (directory / (ident + '.log')).open('w') as log:
-        result = subprocess.run(['/bin/bash', '-lc', command], stdout=log, stderr=subprocess.STDOUT)
+        result = subprocess.run(['bash', '-lc', command], stdout=log, stderr=subprocess.STDOUT)
     (directory / (ident + '.exit')).write_text(str(result.returncode) + '\n')
     return result.returncode
 

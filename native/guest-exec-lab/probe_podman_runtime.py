@@ -20,7 +20,9 @@ import sys
 
 
 def guest(options):
-    os.environ['PATH'] = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+    defaults = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+    os.environ['PATH'] = os.pathsep.join(dict.fromkeys(
+        path for path in (os.environ.get('PATH', '') + os.pathsep + defaults).split(os.pathsep) if path))
     report = {'options': options, 'commands': [], 'passed': False}
     base = Path(options['directory'])
     base.mkdir(parents=True, exist_ok=True)

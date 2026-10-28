@@ -127,19 +127,46 @@ rmdir /run/md-host-dev
 '''
 
 
-def installed_boot(target, port, token, init, desktop_user=None):
+def installed_boot(target, port, token, init, desktop_user=None, system=None):
     """One init/control owner; a desktop driver is an optional dependent service."""
     control_args = f'{target}/session-controller.py {target} {port} {token}'
-    services = [('control', '/usr/bin/python3', control_args)]
+    binary = system + '/sw/bin' if system else '/usr/bin'
+    bash = binary + '/bash' if system else '/bin/bash'
+    services = [('control', binary + '/python3', control_args)]
     if desktop_user is not None:
-        services.append(('desktop', '/bin/bash', f'{target}/driver.sh'))
+        services.append(('desktop', bash, f'{target}/driver.sh'))
     boot = PREPARE + '''
 mount --make-rshared /
 unset XDG_DATA_DIRS XDG_CONFIG_DIRS XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
 '''
+    if desktop_user is not None:
+        # System services do not inherit the graphical launcher's environment.
+        # Carry only its audio endpoint, not arbitrary host environment variables.
+        boot += 'printf "%s\\n" "${MAGICDESK_AUDIO_PULSE:-}" > ' + shlex.quote(target + '/audio-endpoint') + '\n'
+    if system is not None:
+        if init != 'systemd' or not system.startswith('/nix/store/'):
+            raise ValueError('Expected an installed NixOS system generation')
+        boot = boot.replace('export PATH=/usr/sbin:/usr/bin:/sbin:/bin',
+                            'export PATH=' + shlex.quote(binary + ':/usr/local/bin:/bin'))
+        boot = boot.replace('test "$$" = 1', 'test "$$" = 1\nmkdir -p /run /tmp /var/tmp')
+        boot += shlex.quote(system + '/activate') + '\n'
     user = shlex.quote(desktop_user) if desktop_user is not None else None
     driver = None
     if init == 'systemd':
+        # This retained fixture uses the launch's prepared uplink, not DHCP.
+        # Keep service-triggered networkd startup from replacing that owner;
+        # nested container links and default-target boot checks stay unchanged.
+        boot += '''mkdir -p /run/systemd/network
+cat > /run/systemd/network/00-md-fixture-uplink.network <<'EOF'
+[Match]
+Name=eth0
+[Network]
+DHCP=no
+IPv6AcceptRA=no
+LinkLocalAddressing=no
+KeepConfiguration=static
+EOF
+'''
         units = ' '.join('md-installed-' + name + '.service' for name, _, _ in services)
         boot += f'''mkdir -p /run/systemd/system
 cat > /run/systemd/system/md-installed.target <<EOF
@@ -150,10 +177,14 @@ After=dbus.socket {units}
 EOF
 '''
         for name, command, arguments in services:
+            # Let systemd activate the packaged bus through dependencies. Some
+            # distributions forbid manual starts of both its service and socket.
+            prerequisites = ('Requires=basic.target dbus.service systemd-logind.service systemd-user-sessions.service\n'
+                             'After=basic.target dbus.service systemd-logind.service systemd-user-sessions.service\n'
+                             if name == 'desktop' else '')
             boot += f'''cat > /run/systemd/system/md-installed-{name}.service <<EOF
 [Unit]
-DefaultDependencies=no
-Conflicts=shutdown.target
+{prerequisites}Conflicts=shutdown.target
 Before=shutdown.target
 [Service]
 Type=simple
@@ -162,14 +193,16 @@ StandardOutput=append:{target}/{name}.log
 StandardError=inherit
 EOF
 '''
-        boot += 'exec /usr/bin/setpriv --bounding-set=-sys_module /usr/lib/systemd/systemd --system --unit=md-installed.target --show-status=no --crash-shell=no --crash-reboot=no\n'
+            if system is not None:
+                boot += f'printf "%s\\n" "Environment=PATH={binary}:/usr/local/bin:/bin" >> /run/systemd/system/md-installed-{name}.service\n'
+        systemd = system + '/systemd/lib/systemd/systemd' if system else '/usr/lib/systemd/systemd'
+        boot += f'exec {binary}/setpriv --bounding-set=-sys_module {systemd} --system --unit=md-installed.target --show-status=no --crash-shell=no --crash-reboot=no\n'
         if user is not None:
             driver = f'''#!/bin/bash
 set -eux
 uid=$(id -u {user})
-systemctl start dbus.service systemd-logind.service systemd-user-sessions.service
 systemctl start user@$uid.service
-exec systemd-run --unit=md-installed-desktop-session --wait --collect --uid={user} --property=PAMName=login /bin/bash {target}/session.sh
+exec systemd-run --unit=md-installed-desktop-session --wait --collect --uid={user} --property=PAMName=login --property=StandardOutput=append:{target}/driver.log --property=StandardError=inherit {bash} {target}/session.sh
 '''
     elif init == 'openrc':
         boot += OPENRC_PREPARE + '''

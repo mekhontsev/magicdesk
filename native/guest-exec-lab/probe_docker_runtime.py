@@ -180,8 +180,10 @@ def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_
 
     def exercise_ports():
         from docker_network_fixture import observe, wait_service
-        names = ('md-port-first', 'md-port-second')
-        network = 'md-network-ports'
+        names = (base.name + '-first', base.name + '-second')
+        network = base.name + '-network'
+        conflict = base.name + '-conflict'
+        report['portConflictContainer'] = conflict
         ports = []
         family = ['--ipv6'] if ipv6 else []
         host = '[' + ipv6_host + ']' if ipv6 else '127.0.0.1'
@@ -212,7 +214,7 @@ def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_
             for name in names:
                 assert client('exec', name, 'python3', '/fixture.py', '--http', outbound)
             report['localOutboundPassed'] = True
-            assert not client('run', '--rm', '--name', 'md-port-conflict', '--network', network,
+            assert not client('run', '--rm', '--name', conflict, '--network', network,
                               '-p', f'{host}:{ports[0]}:8080', image, '/bin/true')
             assert 'already allocated' in report['commands'][-1]['output'] \
                 or 'address already in use' in report['commands'][-1]['output'], report['commands'][-1]
@@ -235,7 +237,7 @@ def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_
                         exitCode=diagnostic.returncode, output=(diagnostic.stdout + diagnostic.stderr)[-12000:]))
             raise
         finally:
-            removed = client('rm', '-f', *names, 'md-port-conflict')
+            removed = client('rm', '-f', *names, conflict)
             network_removed = client('network', 'rm', network)
             assert removed and network_removed, report['commands'][-2:]
         for port in ports:
@@ -420,7 +422,7 @@ def main():
             if args.internet_ipv6:
                 assert suite.report['probeResult'].get('internetIpv6Passed'), 'External IPv6 DNS/HTTPS failed'
             for item in suite.report['probeResult']['commands']:
-                if 'md-port-conflict' in item['command'] and 'run' in item['command']:
+                if suite.report['probeResult'].get('portConflictContainer') in item['command'] and 'run' in item['command']:
                     continue
                 if item['command'][3:5] == ['image', 'inspect']:
                     continue

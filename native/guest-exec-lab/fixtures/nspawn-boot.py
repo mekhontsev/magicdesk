@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -15,20 +16,26 @@ from network_exchange import exchange
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('machine')
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument('--machine')
+    source.add_argument('--archive', type=Path)
     parser.add_argument('report', type=Path)
     args = parser.parse_args()
-    assert re.fullmatch(r'[a-zA-Z0-9_-]+', args.machine)
-    machine = args.machine
+    machine = args.machine or 'md-fixture-' + uuid.uuid4().hex
+    assert re.fullmatch(r'[a-zA-Z0-9_-]+', machine)
+    image = Path('/var/lib/machines') / machine
+    created = False
     unit = 'systemd-nspawn@' + machine + '.service'
     report = dict(machine=machine, commands=[], rounds=[], passed=False)
     env = {**os.environ, 'LC_ALL': 'C'}
 
     def run(*argv, required=True, timeout=60):
         print('RUN', argv, flush=True)
+        start = time.monotonic()
         result = subprocess.run(argv, capture_output=True, text=True, env=env, timeout=timeout)
         report['commands'].append(dict(argv=argv, code=result.returncode,
-                                       stdout=result.stdout, stderr=result.stderr))
+                                       stdout=result.stdout, stderr=result.stderr,
+                                       elapsedMs=(time.monotonic() - start) * 1000))
         print(result.stdout + result.stderr, end='', flush=True)
         if required:
             assert result.returncode == 0, report['commands'][-1]
@@ -40,12 +47,19 @@ def main():
     def ready():
         def active(timeout):
             assert run('systemctl', 'is-active', unit, timeout=timeout).stdout.strip() == 'active'
-        wait_systemd(lambda timeout: run('systemctl', '-M', machine, 'is-system-running', '--wait',
+        # The machine transport uses the public bus. systemd 257's --wait
+        # installs a match but does not Subscribe; StartupFinished is then
+        # conditional on unrelated subscribers. Reconcile the actual state.
+        wait_systemd(lambda timeout: run('systemctl', '-M', machine, 'is-system-running',
                                          required=False, timeout=timeout), active)
 
     assert run('systemctl', 'is-active', unit, required=False).returncode != 0, 'Machine must be idle'
     started = False
     try:
+        if args.archive:
+            image.mkdir(parents=True)
+            created = True
+            run('tar', '-xpf', str(args.archive), '-C', str(image), timeout=180)
         report['versions'] = run('systemd-nspawn', '--version').stdout
         report['template'] = run('systemctl', 'cat', unit).stdout
         for repeat in range(3):
@@ -130,6 +144,8 @@ def main():
             if started:
                 run('machinectl', 'poweroff', machine, required=False)
                 run('systemctl', 'stop', unit, timeout=180)
+            if created:
+                shutil.rmtree(image)
         finally:
             args.report.write_text(json.dumps(report, indent=2) + '\n')
             print('NSPAWN_REPORT ' + str(args.report) + ' passed=' + str(report['passed']), flush=True)

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Prepare a dedicated OCI/CNI worker under the booted distribution's init."""
 import json
+import os
 from pathlib import Path
 import shlex
 import shutil
@@ -30,8 +31,13 @@ def main():
         daemon = shutil.which('buildkitd')
         assert daemon and shutil.which('buildctl'), 'BuildKit must be installed or supplied as an official archive'
         base = Path(__file__).parent
-        cni = next(p for p in (Path('/usr/lib/cni'), Path('/usr/libexec/cni'), Path('/opt/cni/bin'))
-                   if (p / 'bridge').is_file())
+        candidates = [Path('/usr/lib/cni'), Path('/usr/libexec/cni'), Path('/opt/cni/bin')]
+        host_local = shutil.which('host-local')
+        if host_local:
+            candidates.append(Path(host_local).resolve().parent)
+        plugins = ('bridge', 'host-local', 'loopback')
+        cni = next((p for p in candidates if all((p / name).is_file() for name in plugins)), None)
+        assert cni is not None, 'Missing packaged CNI bridge, host-local and loopback plugins'
         address = 'unix:///run/md-fixture-buildkit.sock'
         (base / 'buildkit.toml').write_text('''root = "/var/lib/md-fixture-buildkit"
 [grpc]
@@ -50,7 +56,8 @@ def main():
                            routes=[dict(dst='0.0.0.0/0')])), dict(type='loopback')])) + '\n')
         command = [daemon, '--config', str(base / 'buildkit.toml')]
         if init == 'systemd':
-            run('systemd-run', '--unit=md-fixture-buildkit', '--property=Delegate=yes', *command)
+            run('systemd-run', '--unit=md-fixture-buildkit', '--collect',
+                '--property=Delegate=yes', '--setenv=PATH=' + os.environ['PATH'], *command)
         elif init == 'runit':
             service = Path('/run/md-runit-services/md-fixture-buildkit')
             service.mkdir()

@@ -49,7 +49,9 @@ def main():
         return run(program, '-n', name, '-P', parent, *argv, **kwargs)
 
     def attached(*argv, **kwargs):
-        return lxc('lxc-attach', '--', *argv, **kwargs)
+        return lxc('lxc-attach', '--clear-env',
+                   '--set-var=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+                   '--', *argv, **kwargs)
 
     def active(timeout):
         assert lxc('lxc-info', '-sH', timeout=timeout).stdout.strip() == 'RUNNING'
@@ -59,13 +61,16 @@ def main():
 
     try:
         report['version'] = run('lxc-start', '--version').stdout
+        package = Path(shutil.which('lxc-start')).resolve().parent.parent
+        common = package / 'share/lxc/config/common.conf'
+        assert common.is_file(), 'Missing packaged LXC common policy: ' + str(common)
         run('tar', '-xpf', args.archive, '-C', root, timeout=300)
         run('ip', 'link', 'add', bridge, 'type', 'bridge')
         connected = True
         run('ip', 'link', 'set', bridge, 'up')
         run('ip', 'address', 'add', '10.231.246.1/30', 'dev', bridge)
         (directory / 'config').write_text(
-            'lxc.include = /usr/share/lxc/config/common.conf\n'
+            'lxc.include = ' + str(common) + '\n'
             'lxc.rootfs.path = dir:' + str(root) + '\n'
             'lxc.uts.name = ' + name + '\n'
             'lxc.net.0.type = veth\n'

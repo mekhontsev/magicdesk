@@ -54,6 +54,25 @@ class FlatpakGLTest(unittest.TestCase):
         self.helper.prepare(self.base, self.prefix)
         self.assertFalse(self.base.exists())
 
+    def test_immutable_store_identity_does_not_require_mutating_the_prefix(self):
+        (self.prefix / '.complete').unlink()
+        store_path = Path('/nix/store/' + 'a' * 32 + '-magicdesk-mesa-26.2.3')
+        with patch.object(Path, 'resolve', return_value=store_path):
+            self.assertEqual(str(store_path), self.helper.build_identity(self.prefix))
+        self.assertFalse((self.prefix / '.complete').exists())
+        with self.assertRaisesRegex(ValueError, 'Incomplete Mesa build'):
+            self.helper.build_identity(self.prefix)
+
+    def test_readonly_source_directories_do_not_prevent_failed_admission_cleanup(self):
+        self.runtime()
+        (self.prefix / 'lib').chmod(0o555)
+        self.addCleanup((self.prefix / 'lib').chmod, 0o755)
+        self.verify.side_effect = ValueError('incompatible')
+        with self.assertRaisesRegex(ValueError, 'incompatible'):
+            self.helper.prepare(self.base, self.prefix)
+        self.assertEqual(0o555, (self.prefix / 'lib').stat().st_mode & 0o777)
+        self.assertEqual([], list((self.base / '.magicdesk-gl').glob('.prepare-*')))
+
     def test_system_extension_parents_remain_readable_with_private_umask(self):
         self.runtime()
         before = os.umask(0o077)

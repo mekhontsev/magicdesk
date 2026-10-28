@@ -22,6 +22,9 @@ def run(*argv):
 def main():
     started = str(int(time.time()))
     run('systemctl', 'start', 'systemd-networkd.service')
+    pid = run('systemctl', 'show', '-p', 'MainPID', '--value', 'systemd-networkd').strip()
+    assert pid.isdecimal() and int(pid) > 0, pid
+    wait_online = Path('/proc', pid, 'exe').resolve(strict=True).with_name('systemd-networkd-wait-online')
     config = Path('/run/systemd/network/00-md-ipv6-ra.network')
     config.parent.mkdir(parents=True, exist_ok=True)
     assert not config.exists()
@@ -40,7 +43,6 @@ UseDNS=no
     tracer = None
     try:
         if os.environ.get('MD_NETWORKD_TRACE') == '1':
-            pid = run('systemctl', 'show', '-p', 'MainPID', '--value', 'systemd-networkd').strip()
             tracer = subprocess.Popen(['strace', '-f', '-s', '2048', '-e', 'trace=sendmsg,recvmsg',
                                        '-o', '/run/md-networkd.trace', '-p', pid], stderr=subprocess.PIPE)
             # EVENT_WAIT: ptrace attach confirmation; expiry fails diagnostics.
@@ -93,7 +95,7 @@ UseDNS=no
                 remaining = deadline - time.monotonic()
                 assert remaining > 0 and select.select([changes], [], [], remaining)[0], (addresses, routes, nexthops)
                 changes.recv(65536)
-            run('/usr/lib/systemd/systemd-networkd-wait-online', '--interface=mdra0:routable', '--ipv6', '--timeout=10')
+            run(str(wait_online), '--interface=mdra0:routable', '--ipv6', '--timeout=10')
             lookup = json.loads(run('ip', '-j', '-6', 'route', 'get', 'fd92:10::1234', 'oif', 'mdra0'))[0]
             metrics = lookup.get('metrics', {})
             if isinstance(metrics, list):

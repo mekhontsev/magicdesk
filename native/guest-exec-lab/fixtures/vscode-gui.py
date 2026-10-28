@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import select
 import signal
 import shutil
 import socket
@@ -46,9 +47,16 @@ def main():
         'workbench.startupEditor': 'none', 'C_Cpp.intelliSenseEngine': 'disabled'}))
     report = {'passed': False, 'work': str(work), 'stages': []}
     child = None
+    editor_fd = None
     try:
-        if not os.access('/usr/bin/gdb', os.X_OK):
-            raise RuntimeError('The VS Code debugger fixture requires /usr/bin/gdb')
+        debugger = shutil.which('gdb')
+        if not debugger:
+            raise RuntimeError('The VS Code debugger fixture requires gdb in PATH')
+        installed = subprocess.check_output(
+            [args.code, '--list-extensions'], text=True, timeout=args.timeout)
+        if 'ms-vscode.cpptools' not in installed.lower().splitlines():
+            raise RuntimeError('Install ms-vscode.cpptools through the selected code launcher; '
+                               'its extension directory is package-specific')
         subprocess.run(['gcc', '-g', '-O0', str(project / 'main.c'), '-o', str(project / 'main')], check=True)
         with socket.socket() as listener, (args.output / 'code.log').open('w') as log:
             listener.bind(('127.0.0.1', 0))
@@ -57,10 +65,12 @@ def main():
             token = uuid.uuid4().hex
             env = dict(os.environ, MD_VSCODE_PORT=str(listener.getsockname()[1]),
                        MD_VSCODE_TOKEN=token, MD_DEBUG_TRANSPORT='terminal',
+                       MD_DEBUGGER_PATH=debugger,
+                       MD_VSCODE_DATA=str(work / 'data'),
                        MD_VSCODE_RELOAD='1' if args.reload else '0', MD_VSCODE_CLOSE='1')
             report['reload'] = args.reload
             command = [args.code, '--wait', '--new-window', '--skip-welcome', '--skip-release-notes',
-                       '--log', 'trace',
+                       '--log', 'trace', '--remote-debugging-port=0',
                        '--disable-workspace-trust', '--user-data-dir=' + str(work / 'data'),
                        '--extensionDevelopmentPath=' + str(extension), str(project)]
             report['command'] = command
@@ -79,6 +89,10 @@ def main():
                     if record['stage'] == 'failed':
                         raise AssertionError(record['error'])
                     if record['stage'] == 'workspace':
+                        editors = [p['id'] for p in record['processes'] if p['type'] == 'browser']
+                        assert len(editors) == 1, record['processes']
+                        editor_fd = os.pidfd_open(editors[0])
+                        report['editorPid'] = editors[0]
                         status = subprocess.check_output([args.code, '--status',
                             '--user-data-dir=' + str(work / 'data')], env=env, text=True,
                             stderr=subprocess.STDOUT, timeout=max(1, deadline - time.monotonic()))
@@ -87,22 +101,18 @@ def main():
                         report['gpuFeatures'] = features
                         if args.require_gpu:
                             assert features.get('gpu_compositing') == 'enabled', status
-                        renderers = re.findall(r'^\s*\d+\s+\d+\s+(\d+)\s+window \[', status, re.MULTILINE)
-                        assert renderers, 'No live editor renderer in code --status'
+                        renderers = [p['id'] for p in record['processes'] if p['type'] == 'renderer']
+                        assert renderers, 'No live editor renderer in Electron process information'
                         report['rendererSandboxes'] = []
                         for pid in renderers:
-                            proc = Path('/proc') / pid
-                            arguments = (proc / 'cmdline').read_bytes().split(b'\0')
+                            proc = Path('/proc') / str(pid)
                             fields = dict(line.split(':', 1) for line in (proc / 'status').read_text().splitlines()
                                           if ':' in line)
                             state = {key: fields[key].strip() for key in ('Uid', 'NoNewPrivs', 'Seccomp')}
-                            report['rendererSandboxes'].append(dict(pid=int(pid),
-                                commandLine=b' '.join(arguments).decode(errors='replace'), **state))
-                            # Chromium's setproctitle replaces the argv vector
-                            # representation with a single space-separated title.
-                            assert b'--type=renderer' in b' '.join(arguments), arguments
+                            report['rendererSandboxes'].append(dict(pid=int(pid), **state))
                             assert state['NoNewPrivs'] == '1' and state['Seccomp'] == '2', state
                             assert int(state['Uid'].split()[0]) == os.getuid() != 0, state
+                        connection.sendall(b'workspace-checked\n')
                     if record['stage'] == 'breakpoint':
                         connection.sendall(b'continue\n')
                     if record['stage'] == 'passed':
@@ -111,6 +121,12 @@ def main():
                 else:
                     raise AssertionError('Extension ended without debugger completion')
             # EVENT_WAIT: normal user window closure; deadline is not a passing exit.
+            assert editor_fd is not None, 'Editor process identity was not observed'
+            closed = select.poll()
+            closed.register(editor_fd, select.POLLIN)
+            assert closed.poll(max(0, int((deadline - time.monotonic()) * 1000))), \
+                'Editor process did not exit after window closure'
+            report['editorExited'] = True
             report['exitCode'] = child.wait(timeout=max(1, deadline - time.monotonic()))
             assert report['exitCode'] == 0
             assert any(s['stage'] == 'workspace' for s in report['stages'])
@@ -119,6 +135,22 @@ def main():
         report['failure'] = repr(error)
         raise
     finally:
+        if editor_fd is not None:
+            if not report['passed']:
+                # Electron can outlive the CLI's process group. The pidfd
+                # identifies only the editor launched by this fixture.
+                try:
+                    signal.pidfd_send_signal(editor_fd, signal.SIGTERM)
+                    closed = select.poll()
+                    closed.register(editor_fd, select.POLLIN)
+                    # EVENT_WAIT: exact failed editor exit, then forced cleanup.
+                    if not closed.poll(10000):
+                        signal.pidfd_send_signal(editor_fd, signal.SIGKILL)
+                        if not closed.poll(10000):
+                            report['cleanupFailure'] = 'Editor did not exit after SIGKILL'
+                except ProcessLookupError:
+                    pass
+            os.close(editor_fd)
         if child and child.poll() is None:
             # The CLI owns an Electron child; terminate this fixture's process
             # group on failure rather than leaving its editor window running.

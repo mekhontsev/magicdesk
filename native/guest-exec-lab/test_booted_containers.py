@@ -51,13 +51,13 @@ def main():
             options = dict(directory='/tmp/md-podman-' + tag, cache='/var/lib/md-fixture-podman',
                 storage='overlay', network='bridge', image='docker.io/library/alpine:3.23',
                 cgroups='enabled', internet=args.internet, portsImage='docker.io/library/python:3.14-alpine',
+                ipv6=False, ipv6Host='::1', ipv6PublishHost='::1', internetIpv6=False,
                 trace=False, hostLimits=False, unlimitedPids=False, execRepeats=3, observer=observer.address)
             argv = ['python3', state['target'] + '/probe_podman_runtime.py', '--guest', json.dumps(options)]
             command = shlex.join(argv)
         if args.path_prefix:
             assert args.path_prefix.startswith('/') and ':' not in args.path_prefix
-            path = args.path_prefix + ':/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
-            command = shlex.join(['env', 'PATH=' + path, '/bin/sh', '-c', command])
+            command = 'PATH=' + shlex.quote(args.path_prefix) + ':"$PATH"; export PATH; ' + command
         request = urllib.request.Request('http://127.0.0.1:' + str(state['rootPort']),
             data=json.dumps(dict(id=tag, command=command, wait=True)).encode(),
             headers={'Authorization': 'Bearer ' + state['token']})
@@ -86,7 +86,7 @@ def main():
                 assert report['internetPassed'], report
             for item in report['commands']:
                 argv = item['command']
-                if 'md-port-conflict' in argv and 'run' in argv:
+                if report.get('portConflictContainer') in argv and 'run' in argv:
                     continue
                 if argv[3:5] == ['image', 'inspect']:
                     continue

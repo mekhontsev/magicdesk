@@ -211,6 +211,14 @@ def check_runit_boot(log):
     assert not re.search(r'\[\s*fail\s*\]', plain), plain
 
 
+def check_systemd_boot(log):
+    plain = re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', log)
+    assert not re.search(r'generator.*(?:failed|exit(?:ed)? (?:with )?(?:code|status))',
+                         plain, re.IGNORECASE), plain
+    failures = re.findall(r"\S+\.(?:service|mount|socket|scope|target): Failed with result '[^']+'", plain)
+    assert not failures, '\n'.join(failures)
+
+
 def main():
     from test_oci_services import Server, Suite
     from init_fixture import PREPARE, TRACE_SYSCALLS
@@ -351,8 +359,7 @@ printf ':md-boot:E::mdboot::/bin/true:P\\n' > /run/binfmt.d/md-boot.conf
                             '/usr/bin/script', '-q', '-e', '-c', shlex.join(boot), '/dev/null']
         if args.init == 'systemd':
             boot_log = suite.command(command, timeout=205)
-            assert not re.search(r'generator.*(?:failed|exit(?:ed)? (?:with )?(?:code|status))',
-                                 boot_log, re.IGNORECASE), boot_log
+            check_systemd_boot(boot_log)
         else:
             server = Server(suite, command)
             try:

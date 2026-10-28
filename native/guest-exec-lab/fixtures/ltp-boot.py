@@ -9,6 +9,7 @@ import pwd
 import re
 import signal
 import subprocess
+import tarfile
 import tempfile
 
 TESTS = ('dup/dup01', 'dup2/dup201', 'openat/openat01', 'pipe/pipe01',
@@ -24,6 +25,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source', type=Path)
     parser.add_argument('user')
+    parser.add_argument('--archive', type=Path)
     parser.add_argument('report', type=Path)
     args = parser.parse_args()
     account = pwd.getpwnam(args.user)
@@ -31,6 +33,22 @@ def main():
     report = dict(passed=False, uid=account.pw_uid, gid=account.pw_gid,
                   osRelease=Path('/etc/os-release').read_text(), tests=[])
     try:
+        if args.archive:
+            report['archiveSha256'] = digest(args.archive)
+            if not args.source.exists():
+                args.source.parent.mkdir(parents=True, exist_ok=True)
+                with tarfile.open(args.archive) as archive:
+                    members = archive.getmembers()
+                    assert all(Path(m.name).parts[0] == args.source.name for m in members)
+                    archive.extractall(args.source.parent, members=members, filter='data')
+            report['buildCommands'] = []
+            commands = ([['./configure']] if not (args.source / 'include/config.h').is_file() else [])
+            commands += [['make', '-j4', 'include-all', 'lib-all']]
+            commands += [['make', '-j4', '-C', 'testcases/kernel/syscalls/' + str(Path(t).parent)]
+                         for t in TESTS]
+            for command in commands:
+                report['buildCommands'].append(command)
+                subprocess.run(command, cwd=args.source, check=True, timeout=300)
         report['librarySha256'] = digest(args.source / 'lib/libltp.a')
         for selected in TESTS:
             binary = args.source / 'testcases/kernel/syscalls' / selected
@@ -39,7 +57,8 @@ def main():
             report['tests'].append(record)
             with tempfile.TemporaryDirectory(prefix='md-ltp-', dir='/var/tmp') as temporary:
                 os.chown(temporary, account.pw_uid, account.pw_gid)
-                env = dict(PATH='/usr/bin:/bin', HOME=temporary, TMPDIR=temporary, LC_ALL='C')
+                env = dict(PATH=os.environ.get('PATH', os.defpath), HOME=temporary,
+                           TMPDIR=temporary, LC_ALL='C')
                 command = [str(binary), '-i', '1']
                 print('RUN', command, flush=True)
                 with subprocess.Popen(command, cwd=temporary, env=env,

@@ -35,7 +35,9 @@ def main():
             descriptor = os.pidfd_open(pid)
             try:
                 executable = os.readlink('/proc/' + str(pid) + '/exe')
-                assert Path(executable).name == 'xdg-document-portal', executable
+                # Nix's packaged launcher execs its wrapped binary in the same PID.
+                assert Path(executable).name in ('xdg-document-portal',
+                                                 '.xdg-document-portal-wrapped'), executable
                 poll = select.poll()
                 poll.register(descriptor, select.POLLIN)
                 signal.pidfd_send_signal(descriptor, signal.SIGTERM)

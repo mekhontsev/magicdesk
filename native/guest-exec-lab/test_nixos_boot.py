@@ -153,10 +153,10 @@ def main():
     from test_oci_services import Suite
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--build', required=True, type=Path)
+    parser.add_argument('--build', type=Path, help='Stage native helpers; otherwise use the installed APK')
     parser.add_argument('--store', required=True)
-    parser.add_argument('--system', required=True, help='Installed NixOS system closure')
-    parser.add_argument('--python', required=True, help='Guest Python interpreter from this store')
+    parser.add_argument('--system', default='/nix/var/nix/profiles/system', help='Installed NixOS system closure or profile')
+    parser.add_argument('--python', help='Guest Python interpreter; defaults to the selected system profile')
     parser.add_argument('--entry', choices=('lazy', 'base'), default='lazy')
     parser.add_argument('--network', choices=('dhcp', 'preconfigured'), default='dhcp',
                         help='Use the initial image DHCP policy or the recipe preconfigured uplink')
@@ -166,13 +166,17 @@ def main():
     suite.report['entryMode'] = args.entry
     suite.report['store'] = args.store
     target = '/mnt/md-nixos-' + suite.report['id']
-    path = args.system + '/sw/bin:/bin'
-    environment = ['--env', 'PATH=' + path, '--env', 'SHROOT_MACHINE_ENTRY=' + ('1' if args.entry == 'lazy' else '0')]
-    boot = boot_script(args.system, args.python, target, args.network == 'dhcp')
-    suite.report['scope'] = dict(system=args.system, python=args.python, entry=args.entry,
-        network=args.network, hostNetworkChanges=False)
     verified = prepared = False
     try:
+        args.system = suite.command(suite.guest(args.store, '--user', '0:0', '--',
+            args.system + '/sw/bin/readlink', '-f', args.system), quiet=True).strip()
+        assert args.system.startswith('/nix/store/') and '\n' not in args.system, args.system
+        args.python = args.python or args.system + '/sw/bin/python3'
+        path = args.system + '/sw/bin:/bin'
+        environment = ['--env', 'PATH=' + path, '--env', 'SHROOT_MACHINE_ENTRY=' + ('1' if args.entry == 'lazy' else '0')]
+        boot = boot_script(args.system, args.python, target, args.network == 'dhcp')
+        suite.report['scope'] = dict(system=args.system, python=args.python, entry=args.entry,
+            network=args.network, hostNetworkChanges=False)
         suite.command(suite.guest(args.store, '--user', '0:0', *environment, '--', '/bin/sh', '-ec',
                                   'mkdir -p /mnt; mkdir "$1"', 'setup', target))
         prepared = True

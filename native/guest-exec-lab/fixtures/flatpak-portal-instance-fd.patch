@@ -1,0 +1,40 @@
+--- a/portal/flatpak-portal.c
++++ b/portal/flatpak-portal.c
+@@ -256,7 +256,6 @@
+ {
+   FdMapEntry *fd_map;
+   gsize       fd_map_len;
+-  int         instance_id_fd;
+   gboolean    set_tty;
+   int         tty;
+   int         env_fd;
+@@ -485,9 +484,6 @@
+ 
+   g_fdwalk_set_cloexec (3);
+ 
+-  if (data->instance_id_fd != -1)
+-    drop_cloexec (data->instance_id_fd);
+-
+   if (data->env_fd != -1)
+     drop_cloexec (data->env_fd);
+ 
+@@ -691,7 +687,6 @@
+   g_autoptr(GArray) expose_fds_ro = NULL;
+   glnx_autofd int instance_sandbox_fd = -1;
+ 
+-  child_setup_data.instance_id_fd = -1;
+   child_setup_data.env_fd = -1;
+ 
+   if (fd_list != NULL)
+@@ -1168,9 +1163,8 @@
+                                  INSTANCE_ID_BUFFER_SIZE - 1, G_PRIORITY_DEFAULT, NULL,
+                                  instance_id_read_finish, instance_id_read_data);
+ 
+-      g_ptr_array_add (flatpak_argv, g_strdup_printf ("--instance-id-fd=%d", pipe_fds[1]));
+-      child_setup_data.instance_id_fd = pipe_fds[1];
+-      max_fd = MAX(max_fd, pipe_fds[1]);
++      int instance_id_fd = fd_map_remap_fd (fd_map, &max_fd, pipe_fds[1]);
++      g_ptr_array_add (flatpak_argv, g_strdup_printf ("--instance-id-fd=%d", instance_id_fd));
+     }
+ 
+   if (devel)

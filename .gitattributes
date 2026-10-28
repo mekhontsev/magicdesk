@@ -3,4 +3,4 @@
 # Batch launchers retain their checked-in CRLF.
 *.bat -text
 # Unified-diff context prefixes blank and tab-indented source lines with a space.
-native/shroot/libc/*.patch whitespace=-blank-at-eol,-space-before-tab
+*.patch whitespace=-blank-at-eol,-space-before-tab
