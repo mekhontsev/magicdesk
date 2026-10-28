@@ -26,10 +26,11 @@ static double cpu(const struct rusage *r) {
 int main(int argc,char **argv) {
     assert(argc==3 || argc==4);
     unsigned count=(unsigned)strtoul(argv[2],NULL,10);
-    assert(count && count<=1000000);
+    assert(count && count<=10000000);
     unsigned blocks=argc==4 ? (unsigned)strtoul(argv[3],NULL,10) : 1;
     assert(blocks && blocks<=64);
-    int idle=!strcmp(argv[1],"idle"),epoll=!strcmp(argv[1],"epoll");
+    int blocking=!strcmp(argv[1],"epoll-ready");
+    int idle=!strcmp(argv[1],"idle"),epoll=blocking || !strcmp(argv[1],"epoll");
     int cycle=!strcmp(argv[1],"file-cycle"),opening=!strcmp(argv[1],"file-open");
     int files=cycle || opening || !strcmp(argv[1],"file-stat");
     int memory=!strcmp(argv[1],"memory");
@@ -75,7 +76,7 @@ int main(int argc,char **argv) {
                 *(volatile unsigned char *)address=(unsigned char)i;
                 assert(!munmap(address,size));
             } else if (epoll) {
-                assert(epoll_wait(queue,&received,1,0)==1);
+                assert(epoll_wait(queue,&received,1,blocking ? -1 : 0)==1);
                 assert(received.events==EPOLLIN && received.data.u64==42);
             } else {
                 struct timespec timeout={.tv_sec=idle ? 2 : 0};

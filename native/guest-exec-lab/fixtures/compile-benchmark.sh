@@ -34,8 +34,8 @@ case "${1:-build}" in
         make --version
         cat /etc/os-release
         sha256sum sqlite3.c shell.c sqlite3.h sqlite3ext.h Makefile verify-library.c
-        printf 'MD_COMPILER '; sha256sum "$(readlink -f "$(command -v gcc)")"
-        printf 'MD_CC1 '; sha256sum "$(gcc -print-prog-name=cc1)"
+        printf 'MD_COMPILER %s\n' "$(sha256sum "$(readlink -f "$(command -v gcc)")")"
+        printf 'MD_CC1 %s\n' "$(sha256sum "$(gcc -print-prog-name=cc1)")"
         sha256sum run.sh runtime-workloads.c readiness-benchmark.c
         exit 0
         ;;

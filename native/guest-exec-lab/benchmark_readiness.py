@@ -22,7 +22,7 @@ def main():
     parser.add_argument('--cpu-mask', type=lambda value: int(value, 16),
                         help='Optional native taskset hexadecimal mask for controlled comparisons')
     parser.add_argument('--workload', action='append', choices=(
-        'poll', 'epoll', 'idle', 'python-start', 'ls-start', 'file-stat', 'file-open', 'file-cycle'),
+        'poll', 'epoll', 'epoll-ready', 'idle', 'python-start', 'ls-start', 'file-stat', 'file-open', 'file-cycle'),
         help='Limit a focused repeat; defaults to the complete matrix')
     parser.add_argument('--output', type=Path, default=Path('build/readiness-performance'))
     args = parser.parse_args()
@@ -64,6 +64,7 @@ def main():
                                else sum(map(int, counts)) == 0), (name, output)
         workloads = {'poll': [target + '/benchmark', 'poll', str(args.iterations)],
                      'epoll': [target + '/benchmark', 'epoll', str(args.iterations)],
+                     'epoll-ready': [target + '/benchmark', 'epoll-ready', str(args.iterations)],
                      'idle': [target + '/benchmark', 'idle', '1'],
                      'python-start': ['/usr/bin/python3', '-c', 'import ssl,asyncio,sqlite3,multiprocessing'],
                      'ls-start': ['/usr/bin/ls', '--version']}
@@ -72,7 +73,7 @@ def main():
             workloads[workload] = [target + '/benchmark', workload, '1024', str(args.file_blocks)]
         if args.workload:
             workloads = {name: command for name, command in workloads.items() if name in args.workload}
-        measured = {'poll', 'epoll', 'idle', 'file-stat', 'file-open', 'file-cycle'}
+        measured = {'poll', 'epoll', 'epoll-ready', 'idle', 'file-stat', 'file-open', 'file-cycle'}
         suite.report['samples'] = samples = []
         order = list(modes)
         for round_number in range(args.rounds):

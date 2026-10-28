@@ -106,8 +106,8 @@ def main():
         parser.error("--cpu-mask must be positive")
     if args.rounds < 1 or args.warmups < 0 or len(set(args.modes)) != len(args.modes):
         parser.error("positive rounds, nonnegative warmups and distinct modes required")
-    if not 1 <= args.jobs <= 8 or not 1 <= args.iterations <= 1000000 or not 1 <= args.file_blocks <= 64:
-        parser.error("jobs must be 1-8, iterations 1-1000000 and file-blocks 1-64")
+    if not 1 <= args.jobs <= 8 or not 1 <= args.iterations <= 10000000 or not 1 <= args.file_blocks <= 64:
+        parser.error("jobs must be 1-8, iterations 1-10000000 and file-blocks 1-64")
     if "guest-baseline" in args.modes and not args.baseline_runtime:
         parser.error("guest-baseline requires --baseline-runtime")
     if args.baseline_store and "guest-baseline" not in args.modes:
