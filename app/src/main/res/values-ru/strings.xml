@@ -1190,4 +1190,20 @@
     <string name="run_command_permission_description">Разрешает этому приложению выполнять произвольные команды с выбранными правами shell, root или Termux, в том числе в средах Shroot. Давайте доступ только доверенным приложениям. Это не песочница.</string>
     <string name="terminal_move_here">Перенести сюда</string>
     <string name="terminal_move_confirm">Сеанс %1$s открыт в другом окне. Перенести его сюда?</string>
+    <string name="console_session_files">Файлы сессии</string>
+    <string name="console_files_add">Добавить файлы</string>
+    <string name="console_files_delete">Удалить выбранные копии?</string>
+    <string name="console_files_insert">Вставить пути</string>
+    <string name="console_files_directory">Добавить папку</string>
+    <string name="console_files_camera">Сделать фото</string>
+    <string name="console_files_clipboard">Файлы из буфера обмена</string>
+    <string name="console_files_clipboard_empty">В буфере обмена нет файлов</string>
+    <string name="console_files_empty">Нет файлов сессии</string>
+    <string name="console_files_importing">Импорт: %1$s</string>
+    <plurals name="console_files_count">
+        <item quantity="one">%d вложение</item>
+        <item quantity="few">%d вложения</item>
+        <item quantity="many">%d вложений</item>
+        <item quantity="other">%d вложения</item>
+    </plurals>
 </resources>

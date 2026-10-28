@@ -46,6 +46,7 @@ int md_guest_command_access(const char *store, struct md_fs_attachment *attachme
     if (!r && setenv("PATH", search, 1)) r = -errno;
     free(search);
     if (r) { close(fd); return r; }
-    *attachment = (struct md_fs_attachment){.source=source, .target=MD_COMMAND_GUEST_DIRECTORY, .readonly=1};
+    *attachment = (struct md_fs_attachment){.source=source, .target=MD_COMMAND_GUEST_DIRECTORY,
+        .flags=MD_FS_ATTACHMENT_READONLY};
     return fd;
 }

@@ -40,7 +40,7 @@ final class ContentUriTransfer {
                 (item, cancelled) -> importTextToShellDirectory(destination, item, cancelled));
     }
 
-    private static String displayName(
+    static String displayName(
             final ContentResolver resolver,
             final Uri uri,
             final String fallback) {
@@ -61,6 +61,29 @@ final class ContentUriTransfer {
             // Providers are not required to expose OpenableColumns.
         }
         return fallback;
+    }
+
+    static ParcelFileDescriptor materialize(android.content.Context context, Uri uri,
+            BooleanSupplier cancelled, long limit) throws IOException {
+        java.io.File file = java.io.File.createTempFile("content-transfer-", ".data", context.getCacheDir());
+        ParcelFileDescriptor result = null;
+        boolean complete = false;
+        try {
+            result = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
+            try (var output = java.nio.file.Files.newOutputStream(file.toPath())) {
+                // Keep only descriptors during provider I/O; process death leaves no staging file.
+                java.nio.file.Files.delete(file.toPath());
+                try (InputStream input = context.getContentResolver().openInputStream(uri)) {
+                    if (input == null) throw new IOException("Content is unavailable");
+                    ContentStreamCopy.copy(input, output, cancelled, limit);
+                }
+            }
+            complete = true;
+            return result;
+        } finally {
+            if (!complete && result != null) result.close();
+            java.nio.file.Files.deleteIfExists(file.toPath());
+        }
     }
 
     private static ShellFileInfo importUri(

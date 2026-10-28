@@ -8,6 +8,11 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public final class TmuxSessionProviderTest {
+    @Test public void onlySuccessfulDiscoveryCanRetireSessionFiles() {
+        assertFalse(TmuxSessionProvider.parse("__MAGICDESK_TMUX_AVAILABLE__\n").complete);
+        assertFalse(TmuxSessionProvider.parse("__MAGICDESK_TMUX_AVAILABLE__\n$0\twork\t1\t0\t1\n").complete);
+        assertTrue(TmuxSessionProvider.parse("__MAGICDESK_TMUX_AVAILABLE__\n__MAGICDESK_TMUX_COMPLETE__\n").complete);
+    }
     @Test public void paneRootsAreDeduplicatedAndOwnedBySession() {
         final var snapshot = TmuxSessionProvider.parse("__MAGICDESK_TMUX_AVAILABLE__\n"
                 + "$0\twork\t2\t1\t1234\n$1\tother\t1\t0\t1235\n"

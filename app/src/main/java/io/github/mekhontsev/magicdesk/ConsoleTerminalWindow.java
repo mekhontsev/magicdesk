@@ -22,7 +22,7 @@ final class ConsoleTerminalWindow {
     private FrameLayout mTerminalContainer;
     private TextView mShellStatus;
     private TextView mSessions;
-    private ImageButton mShowToolbar, mClear, mCopy, mPaste, mHistory, mCreateShortcut, mOpenFiles;
+    private ImageButton mShowToolbar, mClear, mCopy, mPaste, mHistory, mCreateShortcut, mOpenFiles, mAttachments;
     private TextView mEmpty;
     private android.widget.ProgressBar mProgress;
     private LinearLayout mToolbar;
@@ -101,6 +101,9 @@ final class ConsoleTerminalWindow {
                 R.string.console_open_working_directory,
                 view -> mActions.openSelectedPathOrWorkingDirectory());
         mToolbar.addView(mOpenFiles, buttonParams());
+        mAttachments = createIconButton(R.drawable.ic_attachment, R.string.console_session_files,
+                view -> mActions.showSessionFiles());
+        mToolbar.addView(mAttachments, buttonParams());
         final ImageButton hideToolbar = createIconButton(
                 R.drawable.ic_arrow_up,
                 R.string.console_hide_toolbar,
@@ -223,6 +226,7 @@ final class ConsoleTerminalWindow {
         mHistory.setEnabled(attached);
         mCreateShortcut.setEnabled(attached);
         mOpenFiles.setEnabled(ready);
+        mAttachments.setEnabled(ready);
     }
 
     void updateSession(String label, boolean attached) {

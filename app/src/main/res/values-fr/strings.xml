@@ -1179,4 +1179,18 @@
     <string name="run_command_permission_description">Autorise cette application à exécuter des commandes arbitraires avec les droits shell, root ou Termux sélectionnés, y compris dans les environnements Shroot. Réservez cet accès aux applications de confiance. Ce service ne constitue pas un bac à sable.</string>
     <string name="terminal_move_here">Déplacer ici</string>
     <string name="terminal_move_confirm">%1$s est ouverte dans une autre fenêtre. Déplacer cette session ici ?</string>
+    <string name="console_session_files">Fichiers de la session</string>
+    <string name="console_files_add">Ajouter des fichiers</string>
+    <string name="console_files_delete">Supprimer les copies sélectionnées ?</string>
+    <string name="console_files_insert">Insérer les chemins</string>
+    <string name="console_files_directory">Importer un dossier</string>
+    <string name="console_files_camera">Prendre une photo</string>
+    <string name="console_files_clipboard">Fichiers du presse-papiers</string>
+    <string name="console_files_clipboard_empty">Aucun fichier dans le presse-papiers</string>
+    <string name="console_files_empty">Aucun fichier de session</string>
+    <string name="console_files_importing">Importation : %1$s</string>
+    <plurals name="console_files_count">
+        <item quantity="one">%d pièce jointe</item>
+        <item quantity="other">%d pièces jointes</item>
+    </plurals>
 </resources>

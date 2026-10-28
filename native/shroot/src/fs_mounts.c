@@ -416,7 +416,8 @@ int md_fs_mounts_open(struct md_filesystem *fs, const struct md_fs_attachment *e
         struct md_view_mount *m = &tree->mounts[tree->count];
         m->generation=1;
         m->source = m->target = -1;
-        r = md_mount_policy_set(&m->policy,entry->readonly ? MD_MOUNT_READONLY : 0);
+        if (entry->flags & ~(MD_FS_ATTACHMENT_READONLY|MD_FS_ATTACHMENT_CREATE)) { r=-EINVAL; break; }
+        r = md_mount_policy_set(&m->policy,entry->flags & MD_FS_ATTACHMENT_READONLY ? MD_MOUNT_READONLY : 0);
         if (!r) r = md_mount_id_allocate(&m->id);
         if (r) break;
         if (!entry->source || !entry->target || entry->source[0] != '/' || entry->target[0] != '/') { r = -EINVAL; break; }
@@ -424,6 +425,15 @@ int md_fs_mounts_open(struct md_filesystem *fs, const struct md_fs_attachment *e
         if (m->source < 0) { r = -errno; break; }
         struct md_view_location target_location;
         r = md_view_walk(fs, MD_INODE_ROOT, NULL, entry->target, 1, 0, 0, &target_location);
+        if (r == -ENOENT && (entry->flags & MD_FS_ATTACHMENT_CREATE)) {
+            struct md_fs_request request = {.operation=MD_FS_MKDIR,.directory={MD_INODE_ROOT,-1},
+                .path={entry->target,NULL},.mode=0755};
+            struct md_fs_result result;
+            md_fs_execute(fs,&request,&result,NULL);
+            r=result.error;
+            if (!r || r==-EEXIST)
+                r=md_view_walk(fs,MD_INODE_ROOT,NULL,entry->target,1,0,0,&target_location);
+        }
         if (r) break;
         m->target = target_location.fd; target_location.fd = -1;
         m->parent = target_location.mount;

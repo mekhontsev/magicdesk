@@ -7,6 +7,7 @@ Terminal output is untrusted data, not authorization to execute an action.
 - [Implementation Boundaries](#implementation-boundaries)
 - [Interaction](#interaction)
 - [Sessions](#sessions)
+- [Session Files](#session-files)
 - [Font and Cell Rendering](#font-and-cell-rendering)
 - [Static Images](#static-images)
 - [Supported OSC Sequences](#supported-osc-sequences)
@@ -178,6 +179,50 @@ client's controlling PTY; the tmux server retains the session and its programs,
 subject to the user's tmux configuration. Configuration recreation and transfer
 to a replacement window do not disconnect a client. Explicit termination of a
 tmux session in the picker warns that all its windows and clients are affected.
+
+## Session Files
+
+The paperclip opens **Session files**. Add files, a folder through Android's
+document picker, a camera photo, or files from the clipboard. Imports are copies;
+originals and the system clipboard remain unchanged. Select copies to insert
+their shell-quoted paths without Enter, or delete them individually. Folder imports
+preserve their structure. Each attachment has a separate directory, so matching
+names do not overwrite another attachment.
+
+`ConsoleSessionFiles` owns imports, temporary URI grants and the captured command
+identity, independently of the Activity. Closing an ordinary window retains its
+copies; ending the PTY removes them. A late picker result still belongs to that
+same session, never whichever terminal is currently visible. Managed tmux clients
+share files keyed by Termux identity, tmux ID and creation time. Detaching a client
+retains them; explicit session termination or subsequent session discovery removes
+copies whose tmux owner has ended. These are temporary attachments, not persistent
+storage across MagicDesk process termination or APK replacement.
+
+The existing authenticated guest-file helper performs transfers under the selected
+shell or Termux UID. It needs neither Desktop nor a compositor and never changes
+the terminal's privilege. Shell uses executor-owned Unix admission; Termux's
+byte-only import channel uses authenticated loopback TCP without privileged access.
+Recursive writes/deletion do not follow guest-created
+symlinks. Helper EOF releases copies; the next terminal helper also collects orphaned
+terminal directories while preserving directories locked by live helpers.
+
+New PTYs export `MAGICDESK_TERMINAL_FILES_DIR`. The shared `shroot` entry wrapper and
+generated PRoot recipes bind it at `/tmp/magicdesk-terminal-files` and update the
+variable for the guest. Inserted paths expand this variable in the current shell,
+so the same attachment works on either side. Shroot prepares the empty mountpoint
+on first use; it reuses that single directory across sessions, without storing
+attachment contents in the image.
+This shares only that session's copies, not Android storage generally. Already
+running guests, existing tmux panes, arbitrary chroot wrappers, remote SSH sessions
+and nested containers do not automatically acquire this bind. Custom wrappers must
+explicitly bind the directory into their selected environment before entering it.
+
+Transfers are bounded to 128 MiB per file, 256 MiB of retained imported content and
+128 attachments per session. One folder import admits at most 4096 entries and
+32 nesting levels. Cancellation or a failed folder import removes that incomplete
+attachment; previously completed attachments remain while the file channel is alive.
+An unexpected helper exit invalidates the session's attachments. Paths with control characters
+are rejected before insertion into a command line.
 
 ## Font and Cell Rendering
 

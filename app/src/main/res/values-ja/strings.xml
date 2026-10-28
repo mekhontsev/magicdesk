@@ -1157,4 +1157,17 @@
     <string name="run_command_permission_description">選択された shell、root、Termux の権限で、このアプリが任意のコマンドを実行できるようにします。Shroot 環境も対象です。信頼できるアプリにのみ許可してください。サンドボックスではありません。</string>
     <string name="terminal_move_here">ここに移動</string>
     <string name="terminal_move_confirm">%1$s は別のウィンドウで開いています。このセッションをここに移動しますか？</string>
+    <string name="console_session_files">セッションのファイル</string>
+    <string name="console_files_add">ファイルを追加</string>
+    <string name="console_files_delete">選択したコピーを削除しますか？</string>
+    <string name="console_files_insert">パスを挿入</string>
+    <string name="console_files_directory">フォルダをインポート</string>
+    <string name="console_files_camera">写真を撮影</string>
+    <string name="console_files_clipboard">クリップボードのファイル</string>
+    <string name="console_files_clipboard_empty">クリップボードにファイルがありません</string>
+    <string name="console_files_empty">セッションのファイルはありません</string>
+    <string name="console_files_importing">インポート中: %1$s</string>
+    <plurals name="console_files_count">
+        <item quantity="other">添付ファイル %d 件</item>
+    </plurals>
 </resources>

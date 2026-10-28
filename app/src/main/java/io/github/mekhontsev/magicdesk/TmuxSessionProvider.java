@@ -19,17 +19,43 @@ final class TmuxSessionProvider {
             "__MAGICDESK_TMUX_AVAILABLE__";
     private static final String UNAVAILABLE_MARKER =
             "__MAGICDESK_TMUX_UNAVAILABLE__";
+    private static final String COMPLETE_MARKER = "__MAGICDESK_TMUX_COMPLETE__";
     private static final Pattern SESSION_ID = Pattern.compile("\\$[0-9]+");
+    private record FilesKey(String packageName, int uid, String id, long created) { }
+    private static final java.util.Map<FilesKey, ConsoleSessionFiles> FILES = new java.util.HashMap<>();
+
+    static synchronized ConsoleSessionFiles files(Context context, String id, long created) {
+        var endpoint = TermuxIntegration.inspect(context);
+        endpoint.requireAvailable();
+        return FILES.computeIfAbsent(new FilesKey(endpoint.packageName, endpoint.uid, id, created),
+                ignored -> new ConsoleSessionFiles(context, DesktopExecBackend.TERMUX));
+    }
+
+    private static void reconcileFiles(TermuxIntegration.Endpoint endpoint, Snapshot snapshot) {
+        // Failed queries (including no server) must not destroy retained attachments.
+        if (!snapshot.complete) return;
+        var removed = new ArrayList<ConsoleSessionFiles>();
+        synchronized (TmuxSessionProvider.class) {
+            FILES.entrySet().removeIf(entry -> {
+                var key = entry.getKey();
+                if (!key.packageName.equals(endpoint.packageName) || key.uid != endpoint.uid) return false;
+                var session = snapshot.find(key.id);
+                if (session != null && session.createdSeconds == key.created) return false;
+                removed.add(entry.getValue()); return true;
+            });
+        }
+        for (var files : removed) files.close();
+    }
     private static final String LIST_COMMAND =
             "if ! command -v tmux >/dev/null 2>&1; then\n"
             + "  printf '" + UNAVAILABLE_MARKER + "\\n'\n"
             + "  exit 0\n"
             + "fi\n"
             + "printf '" + AVAILABLE_MARKER + "\\n'\n"
-            + "tmux list-sessions -F '"
+            + "if tmux list-sessions -F '"
             + "#{session_id}\t#{session_name}\t#{session_windows}"
             + "\t#{session_attached}\t#{session_created}' "
-            + "2>/dev/null || true\n"
+            + "2>/dev/null; then printf '" + COMPLETE_MARKER + "\\n'; fi\n"
             + "tmux list-clients -F 'CLIENT\t#{client_pid}\t#{session_id}' 2>/dev/null || true\n"
             + "tmux list-panes -a -F 'PANE\t#{pane_pid}\t#{session_id}' 2>/dev/null || true";
 
@@ -76,7 +102,9 @@ final class TmuxSessionProvider {
                             return;
                         }
                         try {
-                            callback.onResult(parse(result.stdout), null);
+                            var snapshot = parse(result.stdout);
+                            reconcileFiles(endpoint, snapshot);
+                            callback.onResult(snapshot, null);
                         } catch (IllegalArgumentException parseError) {
                             callback.onResult(null, parseError);
                         }
@@ -132,10 +160,12 @@ final class TmuxSessionProvider {
         final List<Session> sessions = new ArrayList<>();
         final java.util.Map<Long, String> clients = new java.util.LinkedHashMap<>();
         final java.util.Map<String, java.util.Set<Integer>> panes = new java.util.LinkedHashMap<>();
+        boolean complete = false;
         for (int index = 1; index < lines.length; index++) {
             if (lines[index].isEmpty()) {
                 continue;
             }
+            if (COMPLETE_MARKER.equals(lines[index])) { complete = true; continue; }
             final String[] fields = lines[index].split("\t", -1);
             if (fields.length == 3 && "PANE".equals(fields[0])) {
                 final int pid = Integer.parseInt(fields[1]);
@@ -172,7 +202,7 @@ final class TmuxSessionProvider {
                         "invalid tmux session metadata", error);
             }
         }
-        return new Snapshot(true, "", sessions, clients, panes);
+        return new Snapshot(true, complete, "", sessions, clients, panes);
     }
 
     static String attachCommand(final String sessionId) {
@@ -235,7 +265,17 @@ final class TmuxSessionProvider {
     }
 
     static void end(Context context, Session session, java.util.function.Consumer<Throwable> callback) {
-        run(context, sessionCommand(session, "tmux kill-session -t " + ShellCommandLine.quote(session.id)), callback);
+        run(context, sessionCommand(session, "tmux kill-session -t " + ShellCommandLine.quote(session.id)), failure -> {
+            if (failure == null) {
+                var endpoint = TermuxIntegration.inspect(context);
+                ConsoleSessionFiles files;
+                synchronized (TmuxSessionProvider.class) {
+                    files = FILES.remove(new FilesKey(endpoint.packageName, endpoint.uid, session.id, session.createdSeconds));
+                }
+                if (files != null) files.close();
+            }
+            callback.accept(failure);
+        });
     }
 
     static String sessionCommand(Session session, String command) {
@@ -284,6 +324,7 @@ final class TmuxSessionProvider {
 
     static final class Snapshot {
         final boolean available;
+        final boolean complete;
         final String detail;
         final List<Session> sessions;
         final java.util.Map<Long, String> clients;
@@ -291,10 +332,12 @@ final class TmuxSessionProvider {
 
         private Snapshot(
                 final boolean available,
+                final boolean complete,
                 final String detail,
                 final List<Session> sessions, final java.util.Map<Long, String> clients,
                 final java.util.Map<String, java.util.Set<Integer>> panes) {
             this.available = available;
+            this.complete = complete;
             this.detail = detail == null ? "" : detail;
             this.sessions = Collections.unmodifiableList(
                     new ArrayList<>(sessions));
@@ -305,7 +348,7 @@ final class TmuxSessionProvider {
         }
 
         static Snapshot unavailable(final String detail) {
-            return new Snapshot(false, detail, Collections.emptyList(), java.util.Map.of(), java.util.Map.of());
+            return new Snapshot(false, false, detail, Collections.emptyList(), java.util.Map.of(), java.util.Map.of());
         }
 
         Session findName(String name) {

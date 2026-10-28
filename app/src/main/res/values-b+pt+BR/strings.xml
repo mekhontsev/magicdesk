@@ -1179,4 +1179,18 @@
     <string name="run_command_permission_description">Permite que este aplicativo execute comandos arbitrários com a identidade shell, root ou Termux selecionada, inclusive em ambientes Shroot. Conceda acesso apenas a aplicativos confiáveis. Não é um ambiente isolado.</string>
     <string name="terminal_move_here">Mover para cá</string>
     <string name="terminal_move_confirm">%1$s está aberta em outra janela. Mover esta sessão para cá?</string>
+    <string name="console_session_files">Arquivos da sessão</string>
+    <string name="console_files_add">Adicionar arquivos</string>
+    <string name="console_files_delete">Excluir as cópias selecionadas?</string>
+    <string name="console_files_insert">Inserir caminhos</string>
+    <string name="console_files_directory">Importar pasta</string>
+    <string name="console_files_camera">Tirar foto</string>
+    <string name="console_files_clipboard">Arquivos da área de transferência</string>
+    <string name="console_files_clipboard_empty">Nenhum arquivo na área de transferência</string>
+    <string name="console_files_empty">Nenhum arquivo da sessão</string>
+    <string name="console_files_importing">Importando: %1$s</string>
+    <plurals name="console_files_count">
+        <item quantity="one">%d anexo</item>
+        <item quantity="other">%d anexos</item>
+    </plurals>
 </resources>

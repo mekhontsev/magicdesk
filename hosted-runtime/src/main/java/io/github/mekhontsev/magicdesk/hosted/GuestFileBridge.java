@@ -11,34 +11,54 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 
 /** Session-scoped file descriptors opened by the guest, without a host-root path resolver. */
-final class GuestFileBridge implements Closeable {
+public final class GuestFileBridge implements Closeable {
     private final LocalServerSocket listener;
+    private final java.net.ServerSocket loopback;
     private final byte[] token;
     private final Object requests = new Object();
     private volatile Connection pending, connection;
     private volatile boolean closed;
+    private final java.util.concurrent.CompletableFuture<Void> ready = new java.util.concurrent.CompletableFuture<>();
     private final java.util.concurrent.atomic.AtomicBoolean offered = new java.util.concurrent.atomic.AtomicBoolean();
 
-    GuestFileBridge(String endpoint, String secret) throws IOException {
+    public GuestFileBridge(String endpoint, String secret) throws IOException {
+        this(endpoint, secret, false);
+    }
+
+    /** Byte-only imports across app UIDs; descriptor export retains Unix admission. */
+    public static GuestFileBridge loopback(String secret) throws IOException {
+        return new GuestFileBridge("", secret, true);
+    }
+
+    public String endpoint() {
+        if (loopback == null) throw new IllegalStateException("Not a loopback file channel");
+        return "tcp:" + loopback.getLocalPort();
+    }
+
+    private GuestFileBridge(String endpoint, String secret, boolean tcp) throws IOException {
         token = secret.getBytes(StandardCharsets.US_ASCII);
         if (token.length != 64) throw new IOException("Invalid guest file authorization");
         listener = endpoint.isEmpty() ? null : new LocalServerSocket(endpoint);
-        if (listener != null) new Thread(this::accept, "GuestFiles-admission").start();
+        loopback = tcp ? new java.net.ServerSocket(0, 4, java.net.InetAddress.getByName("127.0.0.1")) : null;
+        if (listener != null || loopback != null) new Thread(this::accept, "GuestFiles-admission").start();
     }
 
     private void accept() {
         try {
             while (!closed) {
-                try (LocalSocket candidate = listener.accept()) {
+                if (loopback != null) try (var candidate = loopback.accept()) {
+                    candidate.setTcpNoDelay(true);
+                    if (admit(ParcelFileDescriptor.fromSocket(candidate))) return;
+                } else try (LocalSocket candidate = listener.accept()) {
                     if (admit(ParcelFileDescriptor.dup(candidate.getFileDescriptor()))) return;
                 }
             }
         } catch (IOException ignored) { }
-        finally { try { listener.close(); } catch (IOException ignored) { } }
+        finally { closeListeners(); }
     }
 
-    void offer(ParcelFileDescriptor descriptor) {
-        if (listener != null) { HostedSocketAdmission.discard(descriptor); throw new IllegalStateException("Local admission owns this bridge"); }
+    public void offer(ParcelFileDescriptor descriptor) {
+        if (listener != null || loopback != null) { HostedSocketAdmission.discard(descriptor); throw new IllegalStateException("Local admission owns this bridge"); }
         if (closed || connection != null || !offered.compareAndSet(false, true)) { HostedSocketAdmission.discard(descriptor); return; }
         try {
             new Thread(() -> { try { admit(descriptor); } finally { offered.set(false); } }, "GuestFiles-authorization").start();
@@ -47,7 +67,7 @@ final class GuestFileBridge implements Closeable {
 
     private boolean admit(ParcelFileDescriptor descriptor) {
         Connection candidate;
-        try { candidate = new Connection(descriptor, listener != null); }
+        try { candidate = new Connection(descriptor, listener != null || loopback != null); }
         catch (IOException error) { HostedSocketAdmission.discard(descriptor); return false; }
         synchronized (this) {
             if (closed || pending != null || connection != null) { disconnect(candidate); return false; }
@@ -64,6 +84,7 @@ final class GuestFileBridge implements Closeable {
             }
             candidate.getOutputStream().write(0);
             retained = true;
+            ready.complete(null);
             return true;
         } catch (IOException ignored) { return false; }
         finally {
@@ -72,7 +93,71 @@ final class GuestFileBridge implements Closeable {
         }
     }
 
+    public void awaitReady() throws IOException {
+        // EVENT_WAIT: authenticated helper admission; expiry fails this attachment channel.
+        try { ready.get(15, java.util.concurrent.TimeUnit.SECONDS); }
+        catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new IOException(error); }
+        catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException error) { throw new IOException("File helper did not connect", error); }
+    }
+
+    public String directory() throws IOException { return request(6, ".", null); }
+    public void mkdir(String relative) throws IOException { request(3, relative, null); }
+    public void remove(String relative) throws IOException { request(5, relative, null); }
+    public void put(String relative, ParcelFileDescriptor file) throws IOException { request(4, relative, file); }
+
+    private String request(int operation, String path, ParcelFileDescriptor file) throws IOException {
+        byte[] encoded = path.getBytes(StandardCharsets.UTF_8);
+        if (encoded.length == 0 || encoded.length > 4096 || path.indexOf('\0') >= 0)
+            throw new IOException("Invalid import path");
+        synchronized (requests) {
+            Connection socket = connection;
+            if (closed || socket == null) throw new IOException("File helper is not connected");
+            try {
+                var output = new DataOutputStream(socket.getOutputStream());
+                output.writeByte(operation); output.writeInt(encoded.length); output.write(encoded);
+                var input = new java.io.DataInputStream(socket.getInputStream());
+                if (file != null) {
+                    long size = file.getStatSize();
+                    if (size < 0 || size > 128L * 1024 * 1024) throw new IOException("Invalid import size");
+                    output.writeLong(size);
+                    if (input.readUnsignedByte() != 0) throw new GuestFileException("Cannot create imported file");
+                    sendFileBody(output, file, size);
+                }
+                if (input.readUnsignedByte() != 0) throw new GuestFileException("File operation failed");
+                if (operation != 6) return "";
+                int length = input.readInt();
+                if (length <= 0 || length > 4096) throw new IOException("Invalid import directory");
+                byte[] value = new byte[length]; input.readFully(value);
+                String directory = new String(value, StandardCharsets.UTF_8);
+                if (!directory.startsWith("/") || directory.indexOf('\0') >= 0) throw new IOException("Invalid import directory");
+                return directory;
+            } catch (GuestFileException error) { throw error; }
+            catch (IOException error) { close(); throw error; }
+        }
+    }
+
+    private void sendFile(DataOutputStream output, ParcelFileDescriptor source, long size) throws IOException {
+        if (size < 0 || size > 128L * 1024 * 1024) throw new IOException("Invalid import size");
+        output.writeLong(size);
+        sendFileBody(output, source, size);
+    }
+
+    private void sendFileBody(DataOutputStream output, ParcelFileDescriptor source, long size) throws IOException {
+        try (var input = new ParcelFileDescriptor.AutoCloseInputStream(ParcelFileDescriptor.dup(source.getFileDescriptor()))) {
+            byte[] bytes = new byte[65536];
+            long remaining = size;
+            while (remaining > 0) {
+                if (closed) throw new IOException("File exchange closed");
+                int count = input.read(bytes, 0, (int)Math.min(remaining, bytes.length));
+                if (count < 0) throw new IOException("Incomplete guest file transfer");
+                output.write(bytes, 0, count); remaining -= count;
+            }
+            if (input.read() != -1) throw new IOException("Imported file grew during transfer");
+        }
+    }
+
     ParcelFileDescriptor open(String path) throws IOException {
+        if (loopback != null) throw new IOException("Descriptor export requires Unix admission");
         byte[] encoded = path.getBytes(StandardCharsets.UTF_8);
         if (!path.startsWith("/") || path.indexOf('\0') >= 0 || encoded.length > 4096)
             throw new IOException("Invalid guest file path");
@@ -109,18 +194,8 @@ final class GuestFileBridge implements Closeable {
             try {
                 DataOutputStream output = new DataOutputStream(socket.getOutputStream());
                 output.writeByte(2);
-                output.writeInt(encoded.length); output.write(encoded); output.writeLong(size);
-                try (var input = new ParcelFileDescriptor.AutoCloseInputStream(ParcelFileDescriptor.dup(source.getFileDescriptor()))) {
-                    byte[] bytes = new byte[65536];
-                    long remaining = size;
-                    while (remaining > 0) {
-                        if (closed) throw new IOException("File exchange closed");
-                        int count = input.read(bytes, 0, (int)Math.min(remaining, bytes.length));
-                        if (count < 0) throw new IOException("Incomplete guest file transfer");
-                        output.write(bytes, 0, count); remaining -= count;
-                    }
-                    if (input.read() != -1) throw new IOException("Imported file grew during transfer");
-                }
+                output.writeInt(encoded.length); output.write(encoded);
+                sendFile(output, source, size);
                 var response = new java.io.DataInputStream(socket.getInputStream());
                 if (response.readUnsignedByte() != 0) throw new IOException("Guest rejected file import");
                 int length = response.readInt();
@@ -140,9 +215,15 @@ final class GuestFileBridge implements Closeable {
 
     @Override public void close() {
         synchronized (this) { closed = true; }
-        if (listener != null) try { listener.close(); } catch (IOException ignored) { }
+        ready.completeExceptionally(new IOException("File exchange closed"));
+        closeListeners();
         disconnect(pending);
         disconnect(connection);
+    }
+
+    private void closeListeners() {
+        if (listener != null) try { listener.close(); } catch (IOException ignored) { }
+        if (loopback != null) try { loopback.close(); } catch (IOException ignored) { }
     }
 
     private static void disconnect(Connection socket) {

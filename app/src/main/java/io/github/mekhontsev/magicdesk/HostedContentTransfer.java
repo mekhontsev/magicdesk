@@ -7,11 +7,9 @@ import android.os.RemoteException;
 import android.provider.OpenableColumns;
 import io.github.mekhontsev.magicdesk.hosted.HostedDataSource;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BooleanSupplier;
@@ -110,14 +108,6 @@ final class HostedContentTransfer {
     }
 
     private ParcelFileDescriptor materialize(Uri uri) throws IOException {
-        File file = File.createTempFile("hosted-transfer-", ".data", context.getCacheDir());
-        try {
-            try (InputStream input = context.getContentResolver().openInputStream(uri);
-                 var output = Files.newOutputStream(file.toPath())) {
-                if (input == null) throw new IOException("Content is unavailable");
-                ContentStreamCopy.copy(input, output, stopped, HostedDataSource.MAX_BYTES);
-            }
-            return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
-        } finally { Files.deleteIfExists(file.toPath()); }
+        return ContentUriTransfer.materialize(context, uri, stopped, HostedDataSource.MAX_BYTES);
     }
 }

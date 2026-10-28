@@ -13,7 +13,8 @@ public final class GuestRuntimeCommand {
             + "\"${MAGICDESK_GUEST_HOME:-$MAGICDESK_RUNTIME/guest-environments}\" \"$@\"; }\n"
             + "md_image() { md_action=$1; md_store=$2; shift 2\n"
             + "case \"$md_action\" in run|exec|login)\n"
-            + LinuxAudioEnvironment.shrootArguments() + GamepadWire.shrootArguments() + ";; esac\n"
+            + LinuxAudioEnvironment.shrootArguments() + GamepadWire.shrootArguments()
+            + TerminalFilesEnvironment.shrootArguments() + ";; esac\n"
             + "exec \"$md_guest/libmagicdesk_guest_image.so\" \"$md_action\" \"$md_store\" \"$@\"; }\n"
             + "case \"${1-}\" in\n"
             + "  run|exec|login) md_action=$1; shift\n"
@@ -34,6 +35,7 @@ public final class GuestRuntimeCommand {
             + "  *) \"$md_guest/libmagicdesk_guest_supervisor.so\" \"$md_guest/libmagicdesk_guest_bootstrap.so\" --probe >/dev/null || exit $?\n"
             + LinuxAudioEnvironment.shrootArguments()
             + GamepadWire.shrootArguments()
+            + TerminalFilesEnvironment.shrootArguments()
             + "     exec \"$md_guest/libmagicdesk_guest_run.so\" \"$@\" ;;\n"
             + "esac\n";
     private GuestRuntimeCommand() { }

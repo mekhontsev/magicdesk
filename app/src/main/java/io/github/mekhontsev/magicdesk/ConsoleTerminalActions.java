@@ -49,6 +49,18 @@ final class ConsoleTerminalActions implements ConsoleTerminalView.Actions, AutoC
         mTerminalView.clearSelection();
     }
 
+    void showSessionFiles() {
+        final var session = mSession.get();
+        if (session == null || session.files() == null) return;
+        ConsoleSessionFilesDialog.show(mActivity, session.files(), paths -> {
+            if (mClosed || mSession.get() != session) return;
+            String text = session.files().shellPaths(paths);
+            if (text.isEmpty()) return;
+            session.paste(text + " ");
+            mTerminalView.requestFocus();
+        });
+    }
+
     @Override public void showLink(final com.termux.terminal.TerminalHyperlink link) {
         final TerminalLink target = TerminalLink.parse(link.uri());
         final AlertDialog.Builder dialog = UiDialogs.builder(mActivity)

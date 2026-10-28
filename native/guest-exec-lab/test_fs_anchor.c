@@ -361,6 +361,21 @@ void test_fs_anchor(const char *base) {
     snprintf(path,sizeof(path),"%s/absolute",host[0]); assert(!symlink("/mnt/child/value",path));
     snprintf(path,sizeof(path),"%s/confined",host[0]); assert(!symlink("/child/value",path));
     struct md_inode_store *s; assert(!md_inode_store_open(store,1,&s));
+    struct md_fs_attachment prepared={.source=host[0],.target="/prepared"};
+    struct md_filesystem preparation={.store=s};
+    assert(md_fs_mounts_open(&preparation,&prepared,1)==-ENOENT);
+    prepared.flags=MD_FS_ATTACHMENT_CREATE;
+    assert(!md_fs_mounts_open(&preparation,&prepared,1));
+    struct md_fs_result imported=request(&preparation,NULL,-1,MD_FS_OPEN,"/prepared/value",O_RDONLY,0,NULL);
+    assert(!imported.error && imported.fd>=0); close(imported.fd);
+    md_fs_mounts_close(&preparation);
+    assert(!md_fs_mounts_open(&preparation,&prepared,1));
+    md_fs_mounts_close(&preparation);
+    prepared.target="/missing-parent/child";
+    assert(md_fs_mounts_open(&preparation,&prepared,1)==-ENOENT);
+    int existing=md_inode_create(s,-1,"/not-directory",0600); assert(existing>=0); close(existing);
+    prepared.target="/not-directory";
+    assert(md_fs_mounts_open(&preparation,&prepared,1)==-ENOTDIR);
     assert(!md_inode_mkdir(s,-1,"/mnt",0700)); assert(!md_inode_mkdir(s,-1,"/jail",0700));
     struct md_filesystem original={.store=s}, current={.store=s};
     struct md_fs_attachment entries[]={{host[0],"/mnt",0},{host[1],"/mnt/child",1}};
@@ -459,4 +474,5 @@ void test_fs_anchor(const char *base) {
     puts("PASS captured FD identity, reopen, reused-number rejection, flock/OFD release and source-view lifetime");
     puts("PASS empty-view inode origins, completed FIFO identity/EOF and failed capture descriptor cleanup");
     puts("PASS same-view inode origins retain one path walk, stale-base checks and absolute/scoped path rules");
+    puts("PASS explicit mountpoint preparation, idempotence, missing-parent and non-directory rejection");
 }

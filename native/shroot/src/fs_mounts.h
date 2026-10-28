@@ -6,9 +6,11 @@
 /* Namespace resource bound, shared by placement, copies and graph transport.
  * Slots have stable addresses; detached slots recycle only after their leases end. */
 #define MD_FS_MOUNTS_MAX 4096
-struct md_fs_attachment { const char *source, *target; int readonly; };
+enum { MD_FS_ATTACHMENT_READONLY=1, MD_FS_ATTACHMENT_CREATE=2 };
+struct md_fs_attachment { const char *source, *target; unsigned flags; };
 /* Explicit native directories, scoped to one launch. No mount syscall, identity
- * change, source creation or persisted configuration is performed here. */
+ * change, source creation or persisted configuration is performed here.
+ * CREATE explicitly admits an empty guest mountpoint (existing parent required). */
 int md_fs_mounts_open(struct md_filesystem *, const struct md_fs_attachment *, unsigned count);
 /* Immutable per-launch file, attached over an existing regular guest file.
  * Contents and lifetime belong to the mount, never the persistent store. */

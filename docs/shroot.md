@@ -769,6 +769,9 @@ accept user, environment, cwd, hostname and directory-attachment options.
 one launch. Declare nested targets parent first; each retains its own read-only
 policy. The same [network profile](#network-modes) is accepted by run, exec,
 login and the low-level `--store` runner, including launches that start an OS init.
+`--bind-create HOST GUEST` additionally creates an empty guest directory when the
+target is absent; its parent must already exist. The directory remains in the
+store after exit, but the attachment and its host contents are launch-scoped.
 
 Login uses `/etc/passwd` for home and shell. Numeric users absent from that file
 use `/`, `/bin/sh` and a numeric username; no account is created. Image launches

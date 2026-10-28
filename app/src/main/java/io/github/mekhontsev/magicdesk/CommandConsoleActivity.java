@@ -411,12 +411,18 @@ public final class CommandConsoleActivity extends Activity
             }
             if (id == null || id.isEmpty()) id = ConsoleTerminalRegistry.nextId();
             final String command = takeAutoRunCommand(request);
-            final TerminalTransport.Factory transport = terminalTransportFactory(requestedBackend);
             final ConsoleTerminalSession next = ConsoleTerminalRegistry.acquire(id,
                     request.getBooleanExtra(EXTRA_ATTACH_ONLY, false) ? null
-                            : listener -> new ConsoleTerminalSession(initialDirectory(request),
+                            : listener -> {
+                                var files = tmuxId == null ? new ConsoleSessionFiles(getApplicationContext(), requestedBackend)
+                                        : TmuxSessionProvider.files(getApplicationContext(), tmuxId, tmuxCreated);
+                                var session = new ConsoleTerminalSession(initialDirectory(request),
                                     mTerminalView.columns(), mTerminalView.rows(), mTerminalView.cellWidth(),
-                                    mTerminalView.cellHeight(), requestedBackend, command, transport, listener));
+                                    mTerminalView.cellHeight(), requestedBackend, command,
+                                    terminalTransportFactory(requestedBackend, files), listener);
+                                session.setFiles(files, tmuxId == null);
+                                return session;
+                            });
             if (tmuxId != null) ConsoleTerminalRegistry.bindTmux(id, tmuxId, tmuxCreated);
             // Registration revokes both former bindings before this window adopts the session.
             ConsoleTerminalRegistry.register(this, next, mTerminalView, id);
@@ -456,14 +462,16 @@ public final class CommandConsoleActivity extends Activity
         updateActions();
     }
 
-    private TerminalTransport.Factory terminalTransportFactory(DesktopExecBackend backend) {
+    private TerminalTransport.Factory terminalTransportFactory(DesktopExecBackend backend, ConsoleSessionFiles files) {
         final Context application = getApplicationContext();
         return (directory, rows, columns, startupCommand) -> {
             var audio = LinuxAudio.prepare(application, new CommandExecution(application, backend));
             try {
+                var environment = new java.util.LinkedHashMap<>(audio.environment());
+                environment.putAll(files.prepare());
                 TerminalTransport terminal = backend == DesktopExecBackend.TERMUX
-                        ? TermuxPtyTransport.open(application, directory, rows, columns, startupCommand, audio.environment())
-                        : ShellAccess.openPty(directory, rows, columns, audio.environment());
+                        ? TermuxPtyTransport.open(application, directory, rows, columns, startupCommand, environment)
+                        : ShellAccess.openPty(directory, rows, columns, environment);
                 return new ScopedTerminalTransport(terminal, audio);
             } catch (IOException | RuntimeException error) { audio.close(); throw error; }
         };

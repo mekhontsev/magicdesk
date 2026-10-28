@@ -40,10 +40,12 @@ void md_boot(uintptr_t *stack) {
         if (md_equal(argv[program], "--statistics")) { statistics = 1; program++; continue; }
         if (md_equal(argv[program], "--magicdesk") && !commands) { commands = 1; program++; continue; }
         if (program + 1 >= argc) md_die("missing launch option value", -EINVAL);
-        if (md_equal(argv[program], "--bind") || md_equal(argv[program], "--bind-ro")) {
+        if (md_equal(argv[program], "--bind") || md_equal(argv[program], "--bind-ro")
+                || md_equal(argv[program], "--bind-create")) {
             if (program+2 >= argc || attachment_count == MD_FS_MOUNTS_MAX) md_die("invalid directory attachment", -EINVAL);
             attachments[attachment_count++] = (struct md_fs_attachment){.source=argv[program+1],
-                .target=argv[program+2], .readonly=md_equal(argv[program], "--bind-ro")};
+                .target=argv[program+2], .flags=md_equal(argv[program], "--bind-ro") ? MD_FS_ATTACHMENT_READONLY
+                    : md_equal(argv[program], "--bind-create") ? MD_FS_ATTACHMENT_CREATE : 0};
             program += 3; continue;
         }
         if (md_socket_route_option_valid(argv[program])) {
@@ -142,7 +144,8 @@ void md_boot(uintptr_t *stack) {
         n+=md_network_profile_arguments(&network,args+n);
         if (gamepad_endpoint) { args[n++]="--gamepad-endpoint"; args[n++]=(char *)gamepad_endpoint; }
         for (unsigned i = 0; i < attachment_count; ++i) {
-            args[n++] = attachments[i].readonly ? "--bind-ro" : "--bind";
+            args[n++] = attachments[i].flags & MD_FS_ATTACHMENT_READONLY ? "--bind-ro"
+                : attachments[i].flags & MD_FS_ATTACHMENT_CREATE ? "--bind-create" : "--bind";
             args[n++] = (char *)attachments[i].source; args[n++] = (char *)attachments[i].target;
         }
         args[n++] = "--store"; args[n++] = (char *)store;

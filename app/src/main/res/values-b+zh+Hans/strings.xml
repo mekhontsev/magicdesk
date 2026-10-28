@@ -1157,4 +1157,17 @@
     <string name="run_command_permission_description">允许此应用以所选的 shell、root 或 Termux 身份执行任意命令，包括在 Shroot 环境中。请仅向可信应用授权。这不是沙盒。</string>
     <string name="terminal_move_here">移到此处</string>
     <string name="terminal_move_confirm">%1$s 已在另一个窗口中打开。要将此会话移到此处吗？</string>
+    <string name="console_session_files">会话文件</string>
+    <string name="console_files_add">添加文件</string>
+    <string name="console_files_delete">删除所选副本？</string>
+    <string name="console_files_insert">插入路径</string>
+    <string name="console_files_directory">导入文件夹</string>
+    <string name="console_files_camera">拍照</string>
+    <string name="console_files_clipboard">剪贴板中的文件</string>
+    <string name="console_files_clipboard_empty">剪贴板中没有文件</string>
+    <string name="console_files_empty">没有会话文件</string>
+    <string name="console_files_importing">正在导入：%1$s</string>
+    <plurals name="console_files_count">
+        <item quantity="other">%d 个附件</item>
+    </plurals>
 </resources>

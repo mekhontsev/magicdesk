@@ -99,6 +99,11 @@ final class ConsoleTerminalSession {
     private TerminalProcessInfo mForegroundProcess =
             TerminalProcessInfo.unknown();
     private TerminalTransport mTransport;
+    private ConsoleSessionFiles mFiles;
+    private boolean mOwnsFiles;
+
+    void setFiles(ConsoleSessionFiles files, boolean owned) { mFiles = files; mOwnsFiles = owned; }
+    ConsoleSessionFiles files() { return mFiles; }
     private long mProcessId = -1L;
     private PtyEndpoint mOutputEndpoint;
     private int mColumns;
@@ -418,6 +423,7 @@ final class ConsoleTerminalSession {
         mPendingOutput.close();
         mMainHandler.removeCallbacks(mDrainOutput);
         mRequests.close();
+        if (mOwnsFiles && mFiles != null) mFiles.close();
         if (transport != null) {
             transport.close();
         }

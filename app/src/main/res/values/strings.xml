@@ -1168,4 +1168,18 @@
     <string name="run_command_permission_description">Allows this app to run arbitrary commands with the selected shell, root or Termux identity, including Shroot environments. Grant only to apps you trust. This is not a sandbox.</string>
     <string name="terminal_move_here">Move here</string>
     <string name="terminal_move_confirm">%1$s is open in another window. Move this session here?</string>
+    <string name="console_session_files">Session files</string>
+    <string name="console_files_add">Add files</string>
+    <string name="console_files_delete">Delete selected copies?</string>
+    <string name="console_files_insert">Insert paths</string>
+    <string name="console_files_directory">Import folder</string>
+    <string name="console_files_camera">Take photo</string>
+    <string name="console_files_clipboard">Files from clipboard</string>
+    <string name="console_files_clipboard_empty">No files in clipboard</string>
+    <string name="console_files_empty">No session files</string>
+    <string name="console_files_importing">Importing: %1$s</string>
+    <plurals name="console_files_count">
+        <item quantity="one">%d attachment</item>
+        <item quantity="other">%d attachments</item>
+    </plurals>
 </resources>

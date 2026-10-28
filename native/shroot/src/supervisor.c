@@ -9324,10 +9324,13 @@ int main(int argc, char **argv) {
     if (argument<argc && !strcmp(argv[argument],"--gamepad-endpoint")) {
         CHECK(argument+2<argc && *argv[argument+1]); gamepad_endpoint=argv[argument+1]; argument+=2;
     }
-    while (argument < argc && (!strcmp(argv[argument], "--bind") || !strcmp(argv[argument], "--bind-ro"))) {
+    while (argument < argc && (!strcmp(argv[argument], "--bind") || !strcmp(argv[argument], "--bind-ro")
+            || !strcmp(argv[argument], "--bind-create"))) {
         CHECK(argument+2 < argc && attachment_count < MD_FS_MOUNTS_MAX);
         attachments[attachment_count++] = (struct md_fs_attachment){
-            .source=argv[argument+1], .target=argv[argument+2], .readonly=!strcmp(argv[argument], "--bind-ro")};
+            .source=argv[argument+1], .target=argv[argument+2],
+            .flags=!strcmp(argv[argument], "--bind-ro") ? MD_FS_ATTACHMENT_READONLY
+                : !strcmp(argv[argument], "--bind-create") ? MD_FS_ATTACHMENT_CREATE : 0};
         argument += 3;
     }
     const char *store = NULL, *endpoint = NULL;

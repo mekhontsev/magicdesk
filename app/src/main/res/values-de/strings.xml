@@ -1168,4 +1168,18 @@
     <string name="run_command_permission_description">Erlaubt dieser App, beliebige Befehle mit der ausgewählten Shell-, Root- oder Termux-Identität auszuführen, auch in Shroot-Umgebungen. Nur vertrauenswürdigen Apps erlauben. Dies ist keine Sandbox.</string>
     <string name="terminal_move_here">Hierher verschieben</string>
     <string name="terminal_move_confirm">%1$s ist in einem anderen Fenster geöffnet. Diese Sitzung hierher verschieben?</string>
+    <string name="console_session_files">Sitzungsdateien</string>
+    <string name="console_files_add">Dateien hinzufügen</string>
+    <string name="console_files_delete">Ausgewählte Kopien löschen?</string>
+    <string name="console_files_insert">Pfade einfügen</string>
+    <string name="console_files_directory">Ordner importieren</string>
+    <string name="console_files_camera">Foto aufnehmen</string>
+    <string name="console_files_clipboard">Dateien aus der Zwischenablage</string>
+    <string name="console_files_clipboard_empty">Keine Dateien in der Zwischenablage</string>
+    <string name="console_files_empty">Keine Sitzungsdateien</string>
+    <string name="console_files_importing">Import: %1$s</string>
+    <plurals name="console_files_count">
+        <item quantity="one">%d Anhang</item>
+        <item quantity="other">%d Anhänge</item>
+    </plurals>
 </resources>

@@ -14,9 +14,48 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.List;
 
-/** Read-only URI grants for explicitly exported app-generated content, without privileged storage. */
+/** Read-only exports and explicitly leased camera outputs, without privileged storage. */
 public final class GeneratedContentProvider extends ContentProvider {
     private static final String SUFFIX = ".generated-content";
+    private static final java.util.Map<String, File> CAPTURES = new java.util.HashMap<>();
+    private static boolean capturesPrepared;
+
+    static final class Capture implements AutoCloseable {
+        final Uri uri;
+        private final Context context;
+        private final String id;
+        Capture(Context context, String id) {
+            this.context = context.getApplicationContext(); this.id = id;
+            uri = new Uri.Builder().scheme("content").authority(context.getPackageName() + SUFFIX)
+                    .appendPath(id).appendPath("Photo.jpg").build();
+        }
+        @Override public void close() {
+            File file;
+            synchronized (CAPTURES) { file = CAPTURES.remove(id); }
+            context.revokeUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    | android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            if (file != null) file.delete();
+        }
+    }
+
+    static Capture capture(Context context) throws IOException {
+        synchronized (CAPTURES) {
+            File directory = new File(context.getCacheDir(), "capture-content");
+            java.nio.file.Files.createDirectories(directory.toPath());
+            if (!capturesPrepared) {
+                File[] stale = directory.listFiles();
+                if (stale == null) throw new IOException("Camera cache unavailable");
+                for (File file : stale) java.nio.file.Files.deleteIfExists(file.toPath());
+                capturesPrepared = true;
+            }
+            if (CAPTURES.size() >= 16) throw new IOException("Too many pending captures");
+            String id = "capture-" + java.util.UUID.randomUUID();
+            File file = new File(directory, id);
+            if (!file.createNewFile()) throw new IOException("Cannot create camera output");
+            CAPTURES.put(id, file);
+            return new Capture(context, id);
+        }
+    }
 
     static Uri publish(Context context, String name, GeneratedContentStore.Writer writer) throws IOException {
         String displayName = ShellFileNamePolicy.validate(name);
@@ -35,6 +74,11 @@ public final class GeneratedContentProvider extends ContentProvider {
         }
         try { ShellFileNamePolicy.validate(path.get(1)); }
         catch (IllegalArgumentException error) { throw new FileNotFoundException("invalid content name"); }
+        if (path.get(0).startsWith("capture-")) synchronized (CAPTURES) {
+            File file = CAPTURES.get(path.get(0));
+            if (file == null) throw new FileNotFoundException("Camera output closed");
+            return file;
+        }
         return GeneratedContentStore.resolve(directory(getContext()), path.get(0), System.currentTimeMillis());
     }
 
@@ -66,8 +110,12 @@ public final class GeneratedContentProvider extends ContentProvider {
     }
 
     @Override public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
-        if (!"r".equals(mode)) throw new FileNotFoundException("export is read-only");
-        return ParcelFileDescriptor.open(resolve(uri), ParcelFileDescriptor.MODE_READ_ONLY);
+        synchronized (CAPTURES) {
+            File file = resolve(uri);
+            if (!"r".equals(mode) && !CAPTURES.containsKey(uri.getPathSegments().get(0)))
+                throw new FileNotFoundException("export is read-only");
+            return ParcelFileDescriptor.open(file, ParcelFileDescriptor.parseMode(mode));
+        }
     }
 
     @Override public Uri insert(Uri uri, ContentValues values) { throw new UnsupportedOperationException("read-only"); }
