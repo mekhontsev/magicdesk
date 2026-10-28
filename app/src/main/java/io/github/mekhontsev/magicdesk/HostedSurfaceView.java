@@ -107,6 +107,8 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         super.onPointerCaptureChange(captured);
         pointerInput.release();
         pointerCapture.changed(captured);
+        DesktopAutomationEventJournal.record("hosted_input", "pointer_capture", true,
+                "captured=" + captured + " serial=" + pointerCapture.serial());
     }
 
     @Override public boolean onCapturedPointerEvent(MotionEvent event) {

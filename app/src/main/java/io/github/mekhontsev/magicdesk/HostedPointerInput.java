@@ -72,6 +72,7 @@ final class HostedPointerInput {
 
     boolean captured(MotionEvent event, long serial) {
         if (serial == 0 || output == null || !viewport.available()) return false;
+        observe(event, "captured");
         if (event.isFromSource(InputDevice.SOURCE_TOUCHPAD)) {
             // Captured touchpads deliver contact positions, not mouse deltas.
             captureSerial = serial;

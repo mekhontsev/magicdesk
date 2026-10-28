@@ -64,6 +64,8 @@ struct Client {
     struct zwp_text_input_manager_v3 *text_manager;
     struct zwp_text_input_v3 *text;
     struct wl_surface *cursor;
+    struct wl_buffer *cursor_buffer;
+    int cursor_stage;
     bool preedit, committed, fullscreen, maximized, deleted;
     bool data_device_manager;
     int key_down, key_up, button_down, button_up;
@@ -167,6 +169,20 @@ static void pointer_frame(void *data, struct wl_pointer *pointer) {
     } else xdg_toplevel_set_app_id(client->toplevel, "pointer-moved");
 }
 
+static void cursor_step(void *data, struct wl_callback *callback, uint32_t serial);
+static const struct wl_callback_listener cursor_step_listener = {.done = cursor_step};
+
+static void cursor_step(void *data, struct wl_callback *callback, uint32_t serial) {
+    (void)serial;
+    struct Client *client = data;
+    wl_callback_destroy(callback);
+    // A nested compositor hides its cursor by committing an empty surface.
+    wl_surface_attach(client->cursor, client->cursor_stage++ == 0 ? NULL : client->cursor_buffer, 0, 0);
+    wl_surface_commit(client->cursor);
+    if (client->cursor_stage == 1)
+        wl_callback_add_listener(wl_display_sync(client->display), &cursor_step_listener, client);
+}
+
 static void pointer_enter(void *data, struct wl_pointer *pointer, uint32_t serial,
         struct wl_surface *surface, wl_fixed_t x, wl_fixed_t y) {
     (void)pointer; (void)serial;
@@ -211,6 +227,9 @@ static void pointer_enter(void *data, struct wl_pointer *pointer, uint32_t seria
         }
         wl_surface_attach(client->cursor, buffer, 0, 0);
         wl_surface_commit(client->cursor);
+        client->cursor_buffer = buffer;
+        if (!dma_cursor)
+            wl_callback_add_listener(wl_display_sync(client->display), &cursor_step_listener, client);
         xdg_toplevel_set_fullscreen(client->toplevel, NULL);
         xdg_toplevel_set_maximized(client->toplevel);
         xdg_toplevel_set_minimized(client->toplevel);
@@ -509,6 +528,7 @@ static void run_client(const char *socket) {
     wl_surface_commit(client.surface);
     while (!client.closed) assert(wl_display_dispatch(client.display) >= 0);
     if (client.cursor) wl_surface_destroy(client.cursor);
+    if (client.cursor_buffer) wl_buffer_destroy(client.cursor_buffer);
     if (client.text) zwp_text_input_v3_destroy(client.text);
     if (client.text_manager) zwp_text_input_manager_v3_destroy(client.text_manager);
     xdg_toplevel_destroy(client.toplevel);
@@ -533,7 +553,7 @@ static void run_client(const char *socket) {
 struct Host {
     uint64_t window;
     bool mapped, destroyed;
-    bool text_enabled, cursor_seen;
+    bool text_enabled, cursor_seen, cursor_hidden, cursor_restored;
     uint64_t editor;
     uint64_t capture_serial;
     int capture_requests, capture_releases;
@@ -644,10 +664,15 @@ static void capture_event(void *data, MdwOutput *output, uint64_t serial) {
 static void cursor_event(void *data, MdwOutput *output, const uint32_t *pixels,
         int width, int height, int x, int y, bool hidden) {
     (void)output;
-    if (!pixels) return;
+    struct Host *host = data;
+    if (!pixels) {
+        if (hidden && host->cursor_seen) host->cursor_hidden = true;
+        return;
+    }
     assert(width == 4 && height == 4 && x == 1 && y == 2 && !hidden);
     for (int i = 0; i < 16; ++i) assert(pixels[i] == 0xffff0000);
-    ((struct Host *)data)->cursor_seen = true;
+    host->cursor_seen = true;
+    if (host->cursor_hidden) host->cursor_restored = true;
 }
 
 int main(int argc, char **argv) {
@@ -806,7 +831,7 @@ int main(int argc, char **argv) {
             }
         }
         if (input_sent && !pointer_lock_test && !closing && (!interaction ||
-                (host.cursor_seen && minimize_seen && host.gestures == 2 && !strcmp(host.app_id, "io.magicdesk.committed")))) {
+                (host.cursor_seen && (dma_cursor || host.cursor_restored) && minimize_seen && host.gestures == 2 && !strcmp(host.app_id, "io.magicdesk.committed")))) {
             assert(mdw_output_focus(output, false));
             assert(!mdw_output_key(output, KEY_A, false));
             assert(mdw_window_close(server, host.window));

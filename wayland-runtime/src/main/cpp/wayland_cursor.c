@@ -47,7 +47,8 @@ static void frame_done(struct MdwCursor *cursor) {
 static void fallback(struct MdwCursor *cursor) {
     if (cursor->owner && cursor->server->events.cursor)
         cursor->server->events.cursor(cursor->server->events.context,
-            cursor->owner, NULL, 0, 0, 0, 0, cursor->hidden);
+            cursor->owner, NULL, 0, 0, 0, 0,
+            cursor->hidden || (cursor->surface && !cursor->surface->buffer));
     frame_done(cursor);
 }
 
