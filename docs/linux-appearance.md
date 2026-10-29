@@ -57,6 +57,11 @@ provider if admission fails. Without a bus address, the wrapper uses an already
 installed `dbus-run-session`; if that command is unavailable, it launches the
 application without a portal. No D-Bus daemon is bundled in the APK.
 
+The same executable has a separate automation mode for
+[AT-SPI2 and typed D-Bus](automation.md#linux-scope). Appearance ownership does
+not grant automation access, and a whole-desktop session can use automation
+without receiving this appearance provider.
+
 PRoot application recipes bind the helper at `/tmp/magicdesk-linux-settings` and
 forward `MAGICDESK_APPEARANCE_SOCKET` and `MAGICDESK_APPEARANCE_TOKEN` before
 invoking it inside the guest's session bus. Prepared chroot entry scripts follow

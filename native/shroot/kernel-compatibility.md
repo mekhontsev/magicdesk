@@ -172,8 +172,9 @@ fork/exec, protected pointers, namespace changes, signal-handler memory
 abandonment, argument/IP filter policy and TSYNC revocation. The isolated musl
 integration additionally checks real libc threads, cancellation and exec,
 cwd/dirfd replacement, FIFO signals/restarts and exact FD retirement.
-The version-6 internal entry boundary uses a bounded userspace offer-table lookup, a fixed
-opaque handle and caller-compiled actions with ordinary unwind metadata.
+The [internal entry boundary](cooperative-entry.md) uses a bounded userspace
+offer-table lookup, a fixed opaque handle and caller-compiled actions with
+ordinary unwind metadata.
 Runtime progress/feedback reuse the existing channel;
 there is no new allocation syscall, loader dependency or kernel capability.
 

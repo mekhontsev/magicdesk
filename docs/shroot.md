@@ -271,8 +271,15 @@ in login profiles or applied to subsequent init-system launches. GUI setup creat
 root-owned, sticky X11/ICE socket directories for direct non-root desktop sessions.
 `--create-user developer` creates a password-locked
 ordinary account; choose it with `login --user developer` or a shortcut's User
-field. It does not change the image's default account. `--locale ru_RU.UTF-8`
-prepares guest locale data; `--timezone system` snapshots Android's IANA zone.
+field. It does not change the image's default account. New installations default
+to `--locale system`, which snapshots the current Android user's first locale
+and prepares the corresponding UTF-8 guest locale. `--locale en_US.UTF-8`
+selects a locale explicitly; `--locale keep` and the default on `--resume`
+preserve the guest setting. If Android's locale is unavailable or cannot be
+mapped unambiguously to a Linux language/region name, the installer reports this
+and preserves the guest locale. The distribution must supply the selected locale
+data; `system` does not add translations missing upstream.
+`--timezone system` snapshots Android's IANA zone.
 The selected login locale clears the inherited shell `LC_ALL` override.
 On apt-based images it also retains translations during package installation;
 packages already installed with translations excluded need reinstallation to
@@ -573,8 +580,8 @@ profile installs the official `vulkan-swrast` and matching `llvm17-libs` package
 alongside the image's newer LLVM, then runs Zink over Lavapipe. Vulkan and
 surfaceless EGL probes must succeed before the profile is replaced. No Mesa
 build is required. Legacy X11 MIT-SHM attaches guest SysV segments through a
-namespace-scoped FD bridge to the app-UID server, so the profile no longer needs
-`MESA_VK_WSI_DEBUG=noshm`. Pixel data stays in shared mappings. This is CPU
+namespace-scoped FD bridge to the app-UID server without disabling MIT-SHM.
+Pixel data stays in shared mappings. This is CPU
 rendering, not Turnip or hardware acceleration.
 Neither profile replaces Android libraries, distribution
 drivers or the APK renderer, and no privileged identity switch is performed.
@@ -1167,12 +1174,10 @@ an external page; `chrome://sandbox` reported Flatpak, PID/network namespaces an
 Seccomp-BPF with TSYNC, with installed filters also observed on renderer processes.
 Bubblewrap's `--disable-userns` uses enforced per-user, ancestor-scoped namespace
 quotas, not a successful no-op. These checks do not establish kernel-equivalent
-isolation or complete Flatpak support. The initial run used software graphics;
-a subsequent local Flatpak GL extension with the installer's patched Mesa passed
-three hardware Zink/Turnip WebGL pixel checks without GPU-process crashes, plus
-Wayland GUI presentation, pointer input and normal closure. Sandbox and watchdog
-remained enabled. The Turnip recipe now prepares the local GL.host extension
-automatically, with runtime ABI admission and install/update triggers; see
+isolation or complete Flatpak support. Turnip checks cover hardware Zink/Turnip
+WebGL pixels, Wayland presentation, pointer input and normal closure, retaining
+the sandbox and watchdog. The Turnip recipe prepares the local GL.host extension
+with runtime ABI admission and install/update triggers; see
 [Flatpak GPU drivers](graphics.md#flatpak-gpu-drivers). Ordinary Flatpak launches
 also pass the GPU checks without test-only driver selection or environment flags.
 Shroot supplies a guest `/dev/fuse` and asynchronous FUSE mounts without native
@@ -1200,11 +1205,14 @@ sandbox enabled. Prepared Turnip/Zink can be supplied through the official
 paths into its namespace. See [Snap GPU drivers](graphics.md#snap-gpu-drivers)
 for preparation and the distinction between WebGL and browser composition.
 
-CPU topology is now available through the shared read-only native sysfs projection,
-also checked inside Flatpak. Initial Discover setup also needed guest system
-services and a user remote not yet fully covered by the installation recipe.
+CPU topology is available through the shared read-only native sysfs projection,
+also checked inside Flatpak. Discover and portal workflows require the guest's
+system and session services; a headless browser pass does not verify them.
 The [Flatpak browser fixture](../native/guest-exec-lab/desktop-workflows.md#flatpak-chromium)
 also checks JavaScript and repeated normal exits inside that desktop session.
+Per-OS browser, portal and desktop results belong in the
+[distribution matrix](../native/guest-exec-lab/validation-matrix.md), with exact
+builds and remaining limitations in its evidence ledger.
 An independently activated KDE service can keep a separate supervised launch
 alive after the browser exits; that is not itself evidence of a browser hang.
 

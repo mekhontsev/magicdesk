@@ -597,8 +597,8 @@ Application signals request interruption; an already admitted endpoint retains
 its result, while an unpaired open retains kernel restart handling. Abandoning
 the request cancels and reaps the exact child, discarding unreceived rights.
 Guest-root changes retain the CLONE_FS turn through worker publication. The guest
-adapter no longer contains a filesystem RPC-client fallback. Native host clients
-still use RPC. Reexec image preparation and proc-image snapshot construction are
+adapter uses mapped requests; native host clients use RPC. Reexec image
+preparation and proc-image snapshot construction are
 worker-owned. Snapshot chunks use the existing mapped slot; each is copied into
 request-owned storage before submission. No resource turn or SQLite transaction
 spans task-local copying. Cancellation before, during or between worker actions

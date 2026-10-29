@@ -182,6 +182,14 @@ shell and installed tools. Both provide:
 - current-directory tracking and a direct action to open that directory in
   Files.
 
+The paperclip opens **Session files**: import copies of files, folders, camera
+photos or clipboard files, then insert their shell-quoted paths without executing
+a command. Delete copies individually or let session termination remove them;
+closing only the window retains them. Supported Shroot/PRoot launchers expose
+the same session directory in the guest. Existing guests and remote shells do
+not gain access automatically; see [session files](terminal-integration.md#session-files)
+for limits and custom-wrapper integration.
+
 Android Console saves command history in `~/.local/state/shell_history` for
 recall in new sessions with Up/Down or `fc -l`. Shell and root histories are
 separate. The shell retains 2000 commands for recall and compacts its history

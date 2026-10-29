@@ -36,8 +36,9 @@ from the source files into `assets/licenses/mksh/NOTICE.txt`.
 
 ## D-Bus Client Library
 
-The Linux appearance helper statically links libdbus 1.16.2 from hash-verified
-upstream sources. A build-only patch omits test fixtures in the client-only
+The shared Linux settings/automation helper statically links libdbus 1.16.2
+for appearance, AT-SPI2 and D-Bus operations, from hash-verified upstream sources.
+A build-only patch omits test fixtures in the client-only
 configuration; the library sources are unchanged. The APK includes neither
 `dbus-daemon` nor the D-Bus command-line tools. Copyright and license texts are packaged under
 `assets/licenses/dbus`.

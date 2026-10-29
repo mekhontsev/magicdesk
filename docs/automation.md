@@ -18,6 +18,27 @@ to launch shell, Termux and Shroot commands through the same execution, terminal
 and graphics services. It has its own Android permission and local opt-in;
 it does not consume MCP grants or expose the automation tool catalog.
 
+- [Local MCP Server](#local-mcp-server)
+- [Permissions](#permissions)
+- [Built-In CLI](#built-in-cli)
+- [Script Dialogs And Notifications](#script-dialogs-and-notifications)
+- [Result Contract](#result-contract)
+- [State and Observation](#state-and-observation)
+- [Display Preparation](#display-preparation)
+- [Control And Tool Commands](#control-and-tool-commands)
+- [Semantic UI Automation](#semantic-ui-automation)
+- [Linux Scope](#linux-scope)
+- [Typed D-Bus](#typed-d-bus)
+- [Appearance](#appearance)
+- [File Transfers and Updates](#file-transfers-and-updates)
+- [Android Integration](#android-integration)
+- [Events and Waits](#events-and-waits)
+- [Security Boundary](#security-boundary)
+- [Android App Functions](#android-app-functions)
+- [Self-Tests](#self-tests)
+
+## Appearance
+
 Native [appearance](appearance.md) has shared schema, validation, read/apply,
 preview/confirm/cancel, preset and reset operations. Version 6 describes light/dark
 mode and per-tone palettes, semantic control styles, 1-4 native panels on any edge,
@@ -55,24 +76,6 @@ never travel inline in the MCP configuration document.
 `appearance.prune` explicitly removes unused app-private bundles with control
 permission; current, committed, preview and staged resources remain protected by
 the shared appearance store. It returns removed digests and count.
-
-- [Local MCP Server](#local-mcp-server)
-- [Permissions](#permissions)
-- [Built-In CLI](#built-in-cli)
-- [Script Dialogs And Notifications](#script-dialogs-and-notifications)
-- [Result Contract](#result-contract)
-- [State and Observation](#state-and-observation)
-- [Display Preparation](#display-preparation)
-- [Control And Tool Commands](#control-and-tool-commands)
-- [Semantic UI Automation](#semantic-ui-automation)
-- [Linux Scope](#linux-scope)
-- [Typed D-Bus](#typed-d-bus)
-- [File Transfers and Updates](#file-transfers-and-updates)
-- [Android Integration](#android-integration)
-- [Events and Waits](#events-and-waits)
-- [Security Boundary](#security-boundary)
-- [Android App Functions](#android-app-functions)
-- [Self-Tests](#self-tests)
 
 ## Local MCP Server
 

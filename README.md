@@ -102,8 +102,7 @@ AGSL shaders. Import/export themes as JSON or resource ZIPs. Styles apply to
 MagicDesk, not third-party applications; Linux light/dark propagation and the
 temporary Android-wide Desktop theme are separate controls.
 
-The interface supports English, Russian, Simplified Chinese, Spanish, German,
-Japanese, Brazilian Portuguese and French. **App language** changes MagicDesk's
+The interface supports eight languages. **App language** changes MagicDesk's
 language without changing Linux applications.
 
 See [appearance and theme format](docs/appearance.md) and
@@ -140,6 +139,8 @@ Termux sessions share the renderer, controls and automation API.
 - Persistent Android-shell recall through bundled upstream mksh.
 - Touch scrolling, selection handles, Android keyboard resizing and paragraph copy.
 - One picker for retained shell/Termux PTYs and discovered tmux sessions.
+- Session files from Android's picker, camera or clipboard, with quoted paths
+  for shell and supported guest sessions. Copies are removed when the session ends.
 
 Closing an ordinary terminal window detaches it; explicitly ending the session
 terminates its programs. Closing a managed tmux window releases its client, not
@@ -298,8 +299,9 @@ the download into `sh`.
 The current branch's recipes cover Debian, Ubuntu, Alpine, Fedora, Arch Linux
 ARM, openSUSE, openKylin, Deepin, Manjaro ARM, Void, Armtix, NixOS and SteamOS
 ARM64. Choose an environment name, applications or a desktop, and optional
-graphics preparation. Compiler parallelism defaults to four jobs. Source builds
-and compatibility vary by recipe.
+graphics preparation. New installations use the current Android locale when it
+has an unambiguous Linux mapping; resume retains the guest locale. Compiler
+parallelism defaults to four jobs. Source builds and compatibility vary by recipe.
 
 NixOS prepares and activates a NixOS system generation. Its Plasma X11 and Wayland
 launchers have HDMI checks with Zink/Turnip, keyboard input and close/reopen;

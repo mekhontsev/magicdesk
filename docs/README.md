@@ -13,6 +13,7 @@ coverage, not a chronological development log.
 | Files, content, task management and independent tools | [Workstation tools](workstation-tools.md) |
 | Consoles, retained sessions and tmux | [Terminal integration](terminal-integration.md) |
 | Install Linux, run applications and containers | [Shroot](shroot.md) |
+| Compare Shroot, PRoot and native execution | [Benchmarks and measurement scope](shroot-benchmarks.md) |
 | Launch recipes and shortcuts | [Desktop entries](desktop-entries.md) |
 | Themes, panels, wallpapers and customization | [Native appearance](appearance.md) |
 | Diagnose firmware behavior and report a problem | [Compatibility](compatibility.md) |
@@ -59,6 +60,7 @@ self-tests do not replace protocol, installer or guest-runtime workflows.
 ## Evidence And Project Policy
 
 - [Device-porting workflow](ai-assisted-device-porting.md)
+- [Paused graphics-adaptation research](../native/guest-exec-lab/README.md#graphics-adaptation-paused)
 - [Nubia vendor API audit](nubia-vendor-audit.md)
 - [Chrome custom-caption investigation](chrome-custom-caption-investigation.md)
 - [Independent XR resolution add-on](xr-resolution-fix.md)

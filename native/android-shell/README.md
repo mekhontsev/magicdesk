@@ -53,14 +53,9 @@ helper process, or shutdown-only save. Power-loss durability is not promised.
 History variables are not exported into other shells, especially guest Bash.
 The terminal's OSC-marked history/output menu remains session-local and independent.
 
-## Deferred Verification
+## Verification
 
-Installed MagicDesk has exercised bundled-shell startup and ordinary commands,
-including the resumed SteamOS installer. Complete device and unit tests are
-deferred until that installation ends; observed startup is not history coverage.
-Do not replace the APK or terminate an existing terminal to run these checks.
-
-After that, run the focused `AndroidShellTest`, `ShellExecutionEnvironmentTest`,
+Run the focused `AndroidShellTest`, `ShellExecutionEnvironmentTest`,
 `TerminalShellIntegrationTest`, `HostScriptsTest`, native PTY fixtures and APK
 packaging checks. Rebuild mksh before running the isolated execution/history
 fixture on an Android host:
@@ -70,6 +65,7 @@ python native/android-shell/test_history.py --shell app/build/androidShell/libma
 ```
 
 It uses private temporary homes and new subprocesses, never a user terminal.
+Do not replace the APK or terminate an existing terminal just to run this fixture.
 It checks `sh`/`mksh` identity, no-shebang execution with an isolated PATH, explicit
 and missing interpreters, and noninteractive rc/history exclusion.
 Verify new Console sessions under UID 2000 independently of Desktop: arrow-key
