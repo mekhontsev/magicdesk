@@ -6,7 +6,7 @@ final class TerminalFilesEnvironment {
     static final String GUEST_DIRECTORY = "/tmp/magicdesk-terminal-files";
 
     static String quoteRelativePath(String relative) {
-        return "\"${" + DIRECTORY + ":?Session files unavailable}\"/" + ShellCommandLine.quote(relative);
+        return "\"${" + DIRECTORY + "}\"/" + ShellCommandLine.quote(relative);
     }
 
     static String shrootArguments() {

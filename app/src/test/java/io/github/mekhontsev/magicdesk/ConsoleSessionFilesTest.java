@@ -27,6 +27,11 @@ public final class ConsoleSessionFilesTest {
         assertEquals(List.of("original"), arguments(TerminalFilesEnvironment.prootArguments(), ""));
     }
 
+    @Test public void insertedPathContainsOnlyTheDirectoryVariableAndQuotedFilename() {
+        assertEquals("\"${MAGICDESK_TERMINAL_FILES_DIR}\"/'attachment/Photo.jpg'",
+                TerminalFilesEnvironment.quoteRelativePath("attachment/Photo.jpg"));
+    }
+
     @Test public void insertedPathUsesTheCurrentShellNamespaceWithoutExecutingItsName() throws Exception {
         assumeFalse(System.getProperty("os.name").startsWith("Windows"));
         String relative = "attachment/it's $(false); file.txt";
