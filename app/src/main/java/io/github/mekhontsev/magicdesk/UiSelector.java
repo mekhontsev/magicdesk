@@ -5,14 +5,14 @@ import org.json.JSONObject;
 import java.util.Set;
 
 /** Exact, conjunctive matching. No regex, coordinate guessing or ambiguous first-match actions. */
-final class AndroidUiSelector {
+final class UiSelector {
     private static final Set<String> TEXT = Set.of(
             "package", "resourceId", "className", "text", "description");
     private static final Set<String> FLAGS = Set.of(
             "enabled", "visible", "focused", "selected", "checked", "editable", "scrollable");
     private final JSONObject mCriteria;
 
-    AndroidUiSelector(final JSONObject criteria) throws JSONException {
+    UiSelector(final JSONObject criteria) throws JSONException {
         if (criteria == null || criteria.length() == 0) {
             throw new IllegalArgumentException("selector must contain at least one criterion");
         }

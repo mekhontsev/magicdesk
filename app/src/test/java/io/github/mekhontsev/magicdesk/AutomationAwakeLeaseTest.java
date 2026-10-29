@@ -68,7 +68,7 @@ public final class AutomationAwakeLeaseTest {
                     static AutomationDeviceState capture(Context c) { return new AutomationDeviceState(); }
                     String phoneUiUnavailableReason() { return reason; }
                 }
-                static class AndroidUiSelector {
+                static class UiSelector {
                     static int integer(JSONObject a, String k, int d, int min, int max) {
                         int v = a.has(k) ? (Integer)a.values.get(k) : d;
                         if (v < min || v > max) throw new IllegalArgumentException();

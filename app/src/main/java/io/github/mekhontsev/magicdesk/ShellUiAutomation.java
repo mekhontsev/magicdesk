@@ -161,7 +161,7 @@ final class ShellUiAutomation implements AutoCloseable {
                 throw new IllegalArgumentException("condition must be present or absent");
             }
             final long deadline = SystemClock.uptimeMillis()
-                    + AndroidUiSelector.integer(args, "timeoutMillis", 5000, 0, 60000);
+                    + UiSelector.integer(args, "timeoutMillis", 5000, 0, 60000);
             for (;;) {
                 final long generation;
                 synchronized (mEvents) { generation = mGeneration; }
@@ -169,7 +169,7 @@ final class ShellUiAutomation implements AutoCloseable {
                     checkOpen();
                     final AndroidUiSnapshot snapshot = capture(scope);
                     final JSONArray matches = snapshot.nodes;
-                    final boolean satisfied = AndroidUiSelector.satisfied(condition.equals("present"),
+                    final boolean satisfied = UiSelector.satisfied(condition.equals("present"),
                             matches.length(), snapshot.complete(), snapshot.stable());
                     if (satisfied || SystemClock.uptimeMillis() >= deadline) {
                         retain(snapshot);

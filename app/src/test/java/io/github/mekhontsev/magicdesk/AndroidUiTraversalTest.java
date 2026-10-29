@@ -37,11 +37,11 @@ public final class AndroidUiTraversalTest {
                     void getBoundsInScreen(Rect r) {}
                     AccessibilityNodeInfo getRoot(int flags) { return root; }
                 }
-                record AndroidUiSelector(String text) {
+                record UiSelector(String text) {
                     boolean matches(JSONObject node) { return text.equals(node.values.get("text")); }
                     boolean couldMatchRedacted(JSONObject node) { return false; }
                 }
-                record AndroidUiScope(int maxNodes, AndroidUiSelector selector) {}
+                record AndroidUiScope(int maxNodes, UiSelector selector) {}
                 static class AndroidUiWindows {
                     record Identity(int displayId,int windowId,Integer taskId) {}
                     record Window(AccessibilityWindowInfo info,Identity identity) {}
@@ -70,7 +70,7 @@ public final class AndroidUiTraversalTest {
                 }
                 static Fixture capture(AccessibilityNodeInfo root,int max,String selector) throws Exception {
                     var f=new Fixture();
-                    f.mScope=new AndroidUiScope(max,selector==null?null:new AndroidUiSelector(selector));
+                    f.mScope=new AndroidUiScope(max,selector==null?null:new UiSelector(selector));
                     f.captureWindow(new AndroidUiWindows.Window(new AccessibilityWindowInfo(root),
                             new AndroidUiWindows.Identity(0,1,42)),null);
                     return f;

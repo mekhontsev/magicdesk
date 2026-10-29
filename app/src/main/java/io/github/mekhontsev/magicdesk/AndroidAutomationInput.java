@@ -33,10 +33,10 @@ final class AndroidAutomationInput {
             xs[i] = requiredInt(points.getJSONObject(i), "x", 32768);
             ys[i] = requiredInt(points.getJSONObject(i), "y", 32768);
         }
-        final int duration = AndroidUiSelector.integer(args, "durationMillis",
+        final int duration = UiSelector.integer(args, "durationMillis",
                 path ? 400 : type.equals("long_press") ? 600 : 0, 0, 5000);
         final int hold = type.equals("drag")
-                ? AndroidUiSelector.integer(args, "holdMillis", 600, 0, 2000) : 0;
+                ? UiSelector.integer(args, "holdMillis", 600, 0, 2000) : 0;
         final long down = SystemClock.uptimeMillis();
         float x = xs[0], y = ys[0];
         boolean pressed = false;
@@ -139,7 +139,7 @@ final class AndroidAutomationInput {
     }
 
     private static int requiredInt(final JSONObject args, final String key, final int maximum) {
-        final int value = AndroidUiSelector.integer(args, key, -1, 0, maximum);
+        final int value = UiSelector.integer(args, key, -1, 0, maximum);
         if (value < 0) throw new IllegalArgumentException(key + " is required");
         return value;
     }

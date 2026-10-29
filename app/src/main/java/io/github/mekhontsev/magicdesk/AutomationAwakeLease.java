@@ -21,8 +21,8 @@ final class AutomationAwakeLease implements AutoCloseable {
 
     @SuppressWarnings("deprecation")
     synchronized JSONObject acquire(final JSONObject args) throws JSONException, java.io.IOException {
-        final int duration = AndroidUiSelector.integer(args, "durationMillis", 300000, 1000, 1800000);
-        final int display = AndroidUiSelector.integer(args, "displayId",
+        final int duration = UiSelector.integer(args, "durationMillis", 300000, 1000, 1800000);
+        final int display = UiSelector.integer(args, "displayId",
                 args.has("leaseId") ? mDisplayId : 0, 0, Integer.MAX_VALUE);
         final boolean held = state().getBoolean("held");
         if (held) {

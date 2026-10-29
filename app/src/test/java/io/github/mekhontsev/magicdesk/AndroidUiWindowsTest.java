@@ -34,7 +34,7 @@ public class AndroidUiWindowsTest {
             assertFalse(result.available());
             assertFalse(result.complete());
             assertFalse(result.unavailableReason().isEmpty());
-            assertFalse(AndroidUiSelector.satisfied(false, 0, result.complete(), true));
+            assertFalse(UiSelector.satisfied(false, 0, result.complete(), true));
         }
     }
 

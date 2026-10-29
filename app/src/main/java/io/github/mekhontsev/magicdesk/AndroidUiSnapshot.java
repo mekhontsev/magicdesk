@@ -113,7 +113,7 @@ final class AndroidUiSnapshot implements AutoCloseable {
                 try {
                     final JSONObject observed = describe(node)
                             .put("displayId", owner.displayId()).put("taskId", taskIdValue(owner.taskId()));
-                    final AndroidUiSelector selector = mScope.selector();
+                    final UiSelector selector = mScope.selector();
                     if (selector != null && selector.couldMatchRedacted(observed)) mRedactedMatch = true;
                     String elementId = null;
                     // Match the complete accessibility value, not its shortened wire preview.
@@ -220,7 +220,7 @@ final class AndroidUiSnapshot implements AutoCloseable {
         if (!field.equals("text") && !field.equals("description")) {
             throw new IllegalArgumentException("field must be text or description");
         }
-        return AndroidUiText.page(field.equals("text") ? node.getText() : node.getContentDescription(),
+        return UiText.page(field.equals("text") ? node.getText() : node.getContentDescription(),
                 node.isPassword(), args).put("elementId", elementId).put("snapshotId", id)
                 .put("field", field).put("capturedAtUptimeMillis", createdAt);
     }
@@ -253,8 +253,8 @@ final class AndroidUiSnapshot implements AutoCloseable {
             if (value.length() > 32768) throw new IllegalArgumentException("text exceeds 32768 characters");
             arguments.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
         } else if (action.equals("select_text")) {
-            final int start = AndroidUiSelector.integer(args, "start", -1, 0, 32768);
-            final int end = AndroidUiSelector.integer(args, "end", -1, 0, 32768);
+            final int start = UiSelector.integer(args, "start", -1, 0, 32768);
+            final int end = UiSelector.integer(args, "end", -1, 0, 32768);
             if (start < 0 || end < start) throw new IllegalArgumentException("invalid text selection");
             arguments.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, start);
             arguments.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, end);

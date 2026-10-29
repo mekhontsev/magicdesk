@@ -4,11 +4,11 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /** Pages are UTF-16 offsets into one snapshot, never a mixture of live editor revisions. */
-final class AndroidUiText {
+final class UiText {
     static JSONObject page(final CharSequence text, final boolean redacted, final JSONObject args)
             throws JSONException {
-        final int offset = AndroidUiSelector.integer(args, "offset", 0, 0, Integer.MAX_VALUE);
-        final int limit = AndroidUiSelector.integer(args, "limit", 32768, 1, 32768);
+        final int offset = UiSelector.integer(args, "offset", 0, 0, Integer.MAX_VALUE);
+        final int limit = UiSelector.integer(args, "limit", 32768, 1, 32768);
         if (redacted) {
             return new JSONObject().put("redacted", true).put("text", JSONObject.NULL)
                     .put("totalLength", JSONObject.NULL).put("nextOffset", JSONObject.NULL);
