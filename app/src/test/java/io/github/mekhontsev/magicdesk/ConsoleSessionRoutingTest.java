@@ -76,12 +76,16 @@ public final class ConsoleSessionRoutingTest {
                     static String usefulMessage(Throwable e) { return e.getMessage(); }
                 }
                 static class TerminalTransport { interface Factory {} }
+                static class ConsoleSessionFiles {
+                    ConsoleSessionFiles(Object context, DesktopExecBackend backend) {}
+                }
                 static class ConsoleTerminalSession {
                     final DesktopExecBackend backend; final String startup; int starts;
                     ConsoleTerminalSession(String dir,int c,int r,int cw,int ch,DesktopExecBackend b,
                             String command,TerminalTransport.Factory f,Object listener) { backend=b;startup=command; }
                     DesktopExecBackend backend() { return backend; }
                     String title() { return ""; }
+                    void setFiles(ConsoleSessionFiles files, boolean owned) {}
                 }
                 static class ConsoleTerminalRegistry {
                     record Snapshot(String id, int taskId, DesktopExecBackend backend) {}
@@ -103,7 +107,12 @@ public final class ConsoleSessionRoutingTest {
                     }
                     static void focused(String id,Window window) {}
                 }
-                static class TmuxSessionProvider { static boolean isSessionId(String id) { return true; } }
+                static class TmuxSessionProvider {
+                    static boolean isSessionId(String id) { return true; }
+                    static ConsoleSessionFiles files(Object context, String id, long created) {
+                        return new ConsoleSessionFiles(context, DesktopExecBackend.TERMUX);
+                    }
+                }
                 static class MagicDeskRuntime { static void startTools(Window w,boolean shell) {} }
                 static class Toast { static final int LENGTH_LONG=1;
                     static Toast makeText(Object w,String text,int duration) { return new Toast(); } void show() {} }
@@ -118,10 +127,11 @@ public final class ConsoleSessionRoutingTest {
                     boolean mTerminalFailed,mPermissionRequested; Intent intent; int task=1;
                     int getTaskId(){return task;} boolean isFinishing(){return false;} boolean isDestroyed(){return false;}
                     boolean hasWindowFocus(){return true;}
+                    Object getApplicationContext(){return this;}
                     void setIntent(Intent value){intent=value;}
                     void onTitleChanged(String title) {} void onMetadataChanged() {} void updateShellStatus() {} void updateActions() {}
                     void maybeStartSession(){mSession.starts++;}
-                    TerminalTransport.Factory terminalTransportFactory(DesktopExecBackend b){return null;}
+                    TerminalTransport.Factory terminalTransportFactory(DesktopExecBackend b, ConsoleSessionFiles files){return null;}
                     static String terminalId(Intent intent){return intent.id;}
                     static DesktopExecBackend backend(Intent intent){return intent.backend;}
                     static String initialDirectory(Intent intent){return "/";}

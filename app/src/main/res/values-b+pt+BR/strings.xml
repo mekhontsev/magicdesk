@@ -1191,6 +1191,7 @@
     <string name="console_files_importing">Importando: %1$s</string>
     <plurals name="console_files_count">
         <item quantity="one">%d anexo</item>
+        <item quantity="many">%d anexos</item>
         <item quantity="other">%d anexos</item>
     </plurals>
 </resources>
