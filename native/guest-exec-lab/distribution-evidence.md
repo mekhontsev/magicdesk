@@ -21,6 +21,7 @@ regression tests instead of accumulating an incident history.
 - [Void](#void)
 - [Armtix](#armtix)
 - [SteamOS](#steamos)
+- [NixOS](#nixos)
 - [Shared Evidence](#shared-evidence)
 
 NixOS recipe/activation and pending graphical acceptance are tracked in the
@@ -517,8 +518,16 @@ tracked lab patch and run at its test path; the packaged binary and installer
 remain unchanged. The upstream archive's SHA-512 is
 `698fcc892fba0d944519ad7ed4bb4b12aa809e2e2682636c7cdfbd5f6d65571fdaa1e240d02b3df641c405e0ecaeb35d22adaab50a4347521bb6ca98d6bd5b93`,
 matching Alpine's v3.23 APKBUILD. The stock portal was restored for the browser
-receipts above. Full stock VS Code acceptance remains incomplete; CLI lifetime
-alone does not establish editor lifetime or readiness.
+receipts above. Stock acceptance is **U (upstream FD collision)**. The 2026-10-29
+rerun uses packaged Flatpak 1.16.6-r0, portal SHA-256
+`fc88777dfdeda9b07a75f32dac2c5b4f0988db61cb4a7ed6c21cf312b348ff72`.
+`alpine-vscode-stock-fast-20261029/gui-report.json` records launcher exit before
+editor readiness; `2f600596c673461682c4043e15d8fb29.log` records the instance-ID
+descriptor failure. The FD remapping collision also reproduces in a native
+Termux subprocess without Shroot (`build/flatpak-portal-fd-native.py`): the
+environment FD replaces the instance pipe, then closes it. Including the pipe
+in the existing remapper preserves it. This source-level attribution does not
+claim upstream maintainer acknowledgement; CLI lifetime alone is not GUI readiness.
 
 ## Fedora
 
@@ -844,7 +853,13 @@ renderer UID 1001/NoNewPrivs 1/Seccomp 2 and normal editor exit. Reports:
 `arch-vscode-patched-repeat/gui-report.json`. Both use the explicitly lab-built
 portal above; the second requires no manual intervention. The stock portal was
 restored afterward (`d73f2c747cc848f6bc05908bfff645f6.log`). This does not qualify
-the unmodified Arch VS Code/portal combination.
+the unmodified Arch VS Code/portal combination. Stock acceptance is **U (upstream
+FD collision)**. The 2026-10-29 rerun retains packaged Flatpak 1.18.4-2, portal
+SHA-256 `3fe55303b6a39a8a67f398a248b98c209c1d4f4d8f5b1b79b0eb237f21385951`.
+`arch-vscode-stock-20261029/gui-report.json` records the editor-readiness timeout;
+`b0d52e8875534ca694348347f4c6401e.log` rejects instance-ID FD 22. The native
+control described under Alpine reproduces the same remapping defect without
+Shroot. The user installer and packaged portal remain unchanged.
 
 Weston 15.0.1 retains clipboard data between guest clients (`wl-paste` reads
 Firefox's exact support report), but Android/guest clipboard transfer has not
@@ -1624,6 +1639,20 @@ exit by pidfd after forwarded `steam -shutdown`. These paths are under
 `build/installed-steamos/`. This does not certify audible continuity,
 relative-pointer capture or repeated full game launches on later native builds.
 
+`build/steam-resume-repro/acceptance.json` records the 2026-10-29 retained
+Plasma X11 workload with staged Release supervisor
+`2dbd0085e20f3071d0892bcf4c63c8aa6f3e6b1cef9073e569ad2f3c65d0b482`.
+Chromium creates and closes 400 tabs; a second 160-tab series runs with Steam
+and DDNet's local Tutorial scene. Ten Android-injected letters are read back
+exactly before/after that series. MCP command plus readback takes 67-100 ms;
+browser input-event to next-frame callbacks take 2.1-8.2 ms. These are distinct
+measurements, not physical-key-to-pixel latency. Game, Steam, KWin and Plasma
+retain their process identities. Game-console quit removes its window, and
+forwarded Steam shutdown is confirmed by the original client's pidfd.
+The receipt includes CPU frequencies/temperature; `desktop.log` retains the
+session output. Physical pointer capture, audible continuity and the installed
+APK are not certified by this staged-native run.
+
 The 30-case SysV suite separately passes, including nested PID metadata under
 Base/lazy entry (`build/sysv-steamos-recovery/oci-services-aaac4757ff2447ee81a6bf1a2d971e57.json`).
 The independent-launch FIFO suite passes in
@@ -1676,6 +1705,19 @@ fixture admits only the test peer's ephemeral TCP port in the stock NixOS
 firewall and removes that rule afterwards. It does not disable the firewall.
 The retained fixture was stopped through its normal cleanup path. These
 system-workload results do not certify the full NixOS GUI or package lifecycle.
+
+### NixOS Input
+
+`nixos-mcp-input-20261029.json` records the production catalog Plasma Wayland
+launch on installed APK build
+`b1ea0359a5de5f3d33ce228bc16e7ed2fecebb7f60752281a75811dc66e05b74`.
+Android key injection enters `nix`, newline and `Abc` in native Wayland Mousepad;
+AT-SPI reads back the exact text. The GUI file chooser opens `/etc/os-release`
+and its 594-character readback matches the guest file. Ctrl+Alt+T opens Konsole.
+This is the existing guest-root catalog profile, KWin 6.6.6 and Mesa 26.2.3,
+not ordinary-user browser or physical-keyboard acceptance. Initial Start clicks
+did not activate the menu until pointer motion; the root profile has window
+switching disabled. Full desktop acceptance remains incomplete.
 
 ### NixOS Network And Binfmt
 

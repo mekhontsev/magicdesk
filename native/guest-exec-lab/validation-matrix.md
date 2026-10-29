@@ -48,8 +48,9 @@ that scope; it is not NA (unsupported/not applicable), N (pending coverage),
 or a pass. Preserve existing failure evidence when changing scope. All other
 N cells remain uncovered unless their scope is explicitly changed.
 
-Use U only with an exact package version, failing receipt and diagnostic evidence
-identifying a published upstream defect or fix. A similar symptom alone remains F.
+Use U only with an exact package version, failing receipt and diagnostic evidence:
+a published upstream defect/fix, or an isolated reproduction outside Shroot
+matching the upstream source. A similar symptom alone remains F.
 Keep unaffected checks separate; an upstream fix or lab-patched pass does not
 promote the installed package to P without a qualifying rerun. Most current
 application receipts exercise Shroot only, so Base often remains N; shared code
@@ -188,6 +189,8 @@ PNGs, record the loaded panel and desktop and KWin 6.6.6 OpenGL composition
 through Zink/Turnip on Adreno 840, Mesa 26.2.3. Konsole opens through Ctrl+Alt+T;
 X11 keyboard input executes `pwd`. Close/reopen retires the owned guest launches.
 The broader desktop, audio and application acceptance remains incomplete.
+The [NixOS input receipt](distribution-evidence.md#nixos-input) covers native
+Wayland text entry and GUI file readback, with its remaining pointer/shortcut scope.
 The separate boot results below belong to the initial image.
 
 | Scenario | Shroot / Base | Evidence |
@@ -351,9 +354,9 @@ Cell order: **Shroot (lazy SVC) / Base**; N = not run.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | debian | I/N | N/N | N/N | P/N | N/N | N/N | - |
 | ubuntu | I/N | N/N | N/N | P/N | N/N | N/N | - |
-| alpine | I/N | P/N | P/N | I/N | N/N | N/N | - |
+| alpine | I/N | P/N | P/N | U/N | N/N | N/N | - |
 | fedora | U/N | N/N | N/N | P/N | N/N | N/N | - |
-| arch | I/N | N/N | N/N | I/N | N/N | N/N | - |
+| arch | I/N | N/N | N/N | U/N | N/N | N/N | - |
 | opensuse | I/N | N/N | N/N | P/N | N/N | N/N | - |
 | openkylin | I/N | N/N | N/N | P/N | N/N | N/N | - |
 | deepin | I/N | N/N | N/N | P/N | N/N | N/N | - |

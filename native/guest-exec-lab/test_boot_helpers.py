@@ -4,11 +4,13 @@ from pathlib import Path
 import io
 import errno
 import json
+import os
 import runpy
 import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import Mock, call, patch
 import urllib.error
@@ -27,6 +29,37 @@ from systemd_ready import wait_systemd
 
 
 class BootHelpers(unittest.TestCase):
+    @unittest.skipUnless(hasattr(os, 'pidfd_open'), 'Requires Python Linux pidfd support')
+    def test_editor_readiness_observes_exact_launcher_exit(self):
+        accept = runpy.run_path(str(Path(__file__).with_name('fixtures') /
+                                   'vscode-gui.py'))['accept_editor']
+        for code in (0, 7):
+            with self.subTest(code=code), socket.socket() as listener:
+                listener.bind(('127.0.0.1', 0))
+                listener.listen()
+                with subprocess.Popen([sys.executable, '-c', f'raise SystemExit({code})']) as child:
+                    with self.assertRaisesRegex(RuntimeError, f'readiness: {code}'):
+                        accept(listener, child, time.monotonic() + 5)
+
+    @unittest.skipUnless(hasattr(os, 'pidfd_open'), 'Requires Python Linux pidfd support')
+    def test_editor_readiness_accepts_connection_and_bounds_missing_event(self):
+        accept = runpy.run_path(str(Path(__file__).with_name('fixtures') /
+                                   'vscode-gui.py'))['accept_editor']
+        with socket.socket() as listener:
+            listener.bind(('127.0.0.1', 0))
+            listener.listen()
+            with subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.read()'],
+                                  stdin=subprocess.PIPE) as child:
+                try:
+                    with self.assertRaises(TimeoutError):
+                        accept(listener, child, time.monotonic())
+                    with socket.create_connection(listener.getsockname()) as peer:
+                        with accept(listener, child, time.monotonic() + 5) as connection:
+                            peer.sendall(b'fixture')
+                            self.assertEqual(b'fixture', connection.recv(7))
+                finally:
+                    child.stdin.close()
+
     def test_nspawn_leader_matches_parent_and_namespace_without_procps(self):
         children = runpy.run_path(str(Path(__file__).with_name('fixtures') /
                                      'nspawn-command-boot.py'))['namespace_children']

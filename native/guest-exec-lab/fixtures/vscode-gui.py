@@ -15,6 +15,24 @@ import time
 import uuid
 
 
+def accept_editor(listener, child, deadline):
+    # EVENT_WAIT: extension connection or exact CLI exit; neither a dead launcher
+    # nor an expired deadline can establish editor readiness.
+    process_fd = os.pidfd_open(child.pid)
+    try:
+        ready = select.poll()
+        ready.register(listener, select.POLLIN)
+        ready.register(process_fd, select.POLLIN)
+        events = dict(ready.poll(max(0, int((deadline - time.monotonic()) * 1000))))
+        if listener.fileno() in events:
+            return listener.accept()[0]
+        if process_fd in events:
+            raise RuntimeError(f'Code launcher exited before editor readiness: {child.wait()}')
+        raise TimeoutError('Editor extension did not connect before the deadline')
+    finally:
+        os.close(process_fd)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
@@ -77,8 +95,7 @@ def main():
             child = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT,
                                      start_new_session=True)
             deadline = time.monotonic() + args.timeout
-            # EVENT_WAIT: extension socket and debugger records; EOF/deadline fails.
-            connection, _ = listener.accept()
+            connection = accept_editor(listener, child, deadline)
             with connection, connection.makefile('r') as stream:
                 connection.settimeout(max(1, deadline - time.monotonic()))
                 for line in stream:
