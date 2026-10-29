@@ -6959,6 +6959,20 @@ static int debugger_at_boundary(const struct thread *t) {
     return t->phase==IDLE && !t->metadata_restart && !t->fd_running && !t->fd_order.table && !t->fs_order.fs
         && !t->signal_delivery.active;
 }
+static int debugger_boundary(struct thread *t) {
+    struct md_svc_registry *machine=md_memory_svc(t->memory);
+    if (machine && md_debugger_traced(debugger,t->pid)) {
+        /* An interrupt can land inside a resident entry, outside the syscall
+         * adapter. Retire that frame before exposing registers to the debugger;
+         * a running payload finishes through its existing return checkpoint. */
+        CHECK(!md_svc_registry_revoke(machine,t->pid));
+        int deferred=md_svc_machine_flush(machine,&t->machine,t->pid);
+        if (deferred==-ESRCH) { t->resume_lost=1; return 1; }
+        CHECK(deferred>=0);
+        if (deferred) { t->machine.draining=1; return 0; }
+    }
+    return md_debugger_boundary(debugger,t->pid);
+}
 static int freezer_parked(const struct thread *t) {
     return t->phase==WATCH_READ || t->phase==IPC_WAITING || t->phase==SOCKET_WAITING || t->phase==FILE_WAITING
         || t->phase==CONTROL_WAITING || t->phase==CLOSE_WAITING || t->phase==EPOLL_WAIT
@@ -7125,7 +7139,7 @@ static void resume(pid_t pid, int sig) {
             if (!registers(pid,&regs)) return;
             if (debug_syscall_exit(t,&regs)) return;
         }
-        if (md_debugger_boundary(debugger,pid)) return;
+        if (debugger_boundary(t)) return;
     }
     if (debugger_at_boundary(t) && t->debug_step_call) {
         t->debug_step_call=0;
@@ -9797,7 +9811,7 @@ int main(int argc, char **argv) {
             if (wake) { CHECK(sig == SIGTRAP); t->listening = 0; group_wakes++; }
             if (interrupted_operation(t)) continue;
             if (wake) { resume(pid, 0); continue; }
-            if (t->initial_stop && debugger_at_boundary(t) && t->entered && md_debugger_boundary(debugger,pid)) {
+            if (t->initial_stop && debugger_at_boundary(t) && t->entered && debugger_boundary(t)) {
                 t->initial_stop=1; continue;
             }
             CHECK(sig == SIGTRAP);

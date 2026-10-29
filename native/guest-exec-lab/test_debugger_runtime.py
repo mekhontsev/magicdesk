@@ -90,16 +90,20 @@ try:
         '-ex', 'attach '+str(child.pid), '-ex', 'echo MD_ATTACHED\\n',
         '-ex', 'python assert len(gdb.selected_inferior().threads()) == '
                + ('41' if target == 'gdb-thread-target' else '1'),
-        '-ex', 'thread apply all bt 4', '-ex', 'echo MD_BACKTRACE\\n',
+        '-ex', 'thread apply all bt 8', '-ex', 'echo MD_BACKTRACE\\n',
         '-ex', 'python assert int(gdb.parse_and_eval("magic_value")) == 42',
         '-ex', 'set var magic_value=43', '-ex', 'detach', '-ex', 'echo MD_DETACHED\\n'],
         capture_output=True, text=True, timeout=20)
     print(result.stdout, result.stderr)
     assert result.returncode == 0
+    if target == 'gdb-poll-target':
+        assert 'gdb_poll_target' in result.stdout, result.stdout
+        assert 'corrupt stack' not in result.stdout, result.stdout
     output, _ = child.communicate('x', timeout=10)
     assert child.returncode == 0 and 'PASS '+target in output
     assert all(stage in result.stdout for stage in ('MD_ATTACHED', 'MD_BACKTRACE', 'MD_DETACHED'))
-    print('PASS gdb-attach' + ('-threads' if target == 'gdb-thread-target' else ''))
+    suffix = {'gdb-thread-target': '-threads', 'gdb-poll-target': '-poll'}.get(target, '')
+    print('PASS gdb-attach' + suffix)
 except subprocess.TimeoutExpired as error:
     print(error.stdout, error.stderr, flush=True)
     raise
@@ -269,6 +273,7 @@ def commands(*, proot=False):
     cases.append(('strace-detach-socket', ['python3', '-c', STRACE_DETACH, '--socket']))
     cases.append(('gdb-attach', ['python3', '-c', GDB_ATTACH]))
     cases.append(('gdb-attach-threads', ['python3', '-c', GDB_ATTACH, 'gdb-thread-target']))
+    cases.append(('gdb-attach-poll', ['python3', '-c', GDB_ATTACH, 'gdb-poll-target']))
     cases.append(('gdb-active-io', ['python3', '-c', GDB_IO]))
     cases.append(('gdb-attach-fork', ['python3', '-c', GDB_FORK, *([] if proot else ['--selector'])]))
     cases.append(('gdb-shm', ['python3', '-c', GDB_SHM]))

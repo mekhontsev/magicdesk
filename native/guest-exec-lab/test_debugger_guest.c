@@ -4,6 +4,7 @@
 #include <elf.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <pthread.h>
 #include <sched.h>
 #include <signal.h>
@@ -540,6 +541,19 @@ static void gdb_target(int threaded, int forks) {
         assert(!pthread_barrier_destroy(&ready_barrier));
     }
 }
+static void gdb_poll_target(void) {
+    struct pollfd input = {.fd = STDIN_FILENO, .events = POLLIN};
+    struct timespec zero = {0};
+    for (unsigned i = 0; i < 64; ++i) assert(ppoll(&input, 1, &zero, NULL) == 0);
+    puts("READY"); fflush(stdout);
+    /* EVENT_WAIT: the debugger releases stdin after inspecting the suspended
+     * caller. Warm the same libc entry before its blocking invocation. */
+    int result;
+    do result = ppoll(&input, 1, NULL, NULL); while (result < 0 && errno == EINTR);
+    assert(result == 1 && (input.revents & POLLIN));
+    char c;
+    assert(read(STDIN_FILENO, &c, 1) == 1 && magic_value == 43);
+}
 static atomic_int io_exit;
 static atomic_uint io_calls;
 static char io_directory[]="/tmp/md-debugger-io.XXXXXX";
@@ -639,6 +653,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[1], "shared-files-debugger")) shared_files_debugger_test();
     else if (!strcmp(argv[1], "perf-event")) { if (!perf_test()) return 0; }
     else if (!strcmp(argv[1], "gdb-target")) gdb_target(0, 0);
+    else if (!strcmp(argv[1], "gdb-poll-target")) gdb_poll_target();
     else if (!strcmp(argv[1], "gdb-thread-target")) gdb_target(1, 0);
     else if (!strcmp(argv[1], "gdb-fork-target")) gdb_target(1, 1);
     else if (!strcmp(argv[1], "strace-target")) { magic_value=43; gdb_target(1, 0); }
