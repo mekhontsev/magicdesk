@@ -17,6 +17,8 @@ remain authoritative. This adds no persistent store format or APK dependency.
 
 - `fuse_device` owns the typed character device and daemon IO. Final device
   closure aborts pending operations instead of leaving a sleeping worker.
+  Pending requests retain their abort error; new operations on a disconnected
+  mount return `ENOTCONN`, including through bind aliases and cached names.
 - `fuse_transport` owns bounded requests, unique IDs, replies, cancellation and
   notification delivery. Completion callbacks run outside the connection lock.
   Invalidation handlers run under that lock to serialize context teardown;
@@ -41,6 +43,9 @@ Namespace clones and bind mounts retain the provider. Lazy unmount removes its
 placement but preserves open descriptions. Last-anchor release schedules mount
 collection on the filesystem event loop; ordinary workloads need no periodic
 collection. The provider closes only when its remaining owners are gone.
+The same owner retains the mount's source label and `fuse[.subtype]` identity;
+both mount-table formats escape these fields. Auto-unmount helpers can therefore
+verify their filesystem through namespace clones and recursive bind mounts.
 
 ## Protocol and Policy
 

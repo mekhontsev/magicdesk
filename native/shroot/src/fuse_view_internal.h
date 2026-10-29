@@ -44,6 +44,7 @@ struct fuse_view {
     struct md_user_namespace *user_namespace;
     struct md_pid_namespace *pid_namespace;
     dev_t device;
+    char *type,*source;
     int root;
     unsigned count;
     struct fuse_node *by_id[NODE_BUCKETS],*by_fd[NODE_BUCKETS],*root_node;

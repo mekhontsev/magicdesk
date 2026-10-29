@@ -57,4 +57,28 @@ static inline int md_fuse_options_parse(const char *text,struct md_fuse_options 
     }
     return (seen&15)==15 ? 0 : -EINVAL;
 }
+struct md_fuse_mount {
+    const char *type,*source;
+    struct md_fuse_options options;
+};
+enum { MD_FUSE_MOUNT_MAX=3*PATH_MAX };
+/* Captured mount payload: type, source, options, each NUL-terminated. Source
+ * is a filesystem label, not a path operand or an authority for the device FD. */
+static inline int md_fuse_mount_parse(const void *data,size_t size,struct md_fuse_mount *out) {
+    if (!data || !size || size>MD_FUSE_MOUNT_MAX) return -EINVAL;
+    const char *at=data,*fields[3];
+    size_t lengths[3];
+    for (unsigned i=0;i<3;++i) {
+        fields[i]=at;
+        size_t n=0;
+        while (n<size && n<PATH_MAX && at[n]) ++n;
+        if (n==size || n==PATH_MAX) return -EINVAL;
+        lengths[i]=n; at+=n+1; size-=n+1;
+    }
+    if (size || !(md_fuse_option_key(fields[0],lengths[0],"fuse")
+            || (lengths[0]>5 && fields[0][0]=='f' && fields[0][1]=='u'
+                && fields[0][2]=='s' && fields[0][3]=='e' && fields[0][4]=='.'))) return -EINVAL;
+    out->type=fields[0]; out->source=fields[1];
+    return md_fuse_options_parse(fields[2],&out->options);
+}
 #endif

@@ -34,6 +34,7 @@ static long reply(struct md_fuse_connection *c,uint64_t unique,int error) {
 static void dispose(struct md_fuse_request *r) { md_fuse_request_cancel(r); md_fuse_request_release(r); }
 static void basics(void) {
     struct md_fuse_connection *c=NULL; assert(!md_fuse_connection_new(&c));
+    assert(!md_fuse_connection_error(c));
     int fd=eventfd(0,EFD_NONBLOCK|EFD_CLOEXEC); assert(fd>=0);
     struct md_resource_wakeup *wake=NULL; assert(!md_resource_wakeup_create(fd,&wake));
     char data[256];
@@ -68,8 +69,10 @@ static void basics(void) {
     md_fuse_connection_abort(c,-ECONNABORTED);
     assert(md_fuse_connection_read(c,data,sizeof(data))==-ENODEV);
     assert(md_fuse_connection_poll(c)==POLLERR);
+    assert(md_fuse_connection_error(c)==-ENOTCONN);
+    assert(md_fuse_connection_claim(c)==-ENOTCONN);
     struct fuse_in_header h={.opcode=FUSE_LOOKUP};
-    assert(md_fuse_request_submit(c,&h,NULL,0,0,0,NULL,&a)==-ECONNABORTED && !a);
+    assert(md_fuse_request_submit(c,&h,NULL,0,0,0,NULL,&a)==-ENOTCONN && !a);
     md_resource_wakeup_release(wake); close(fd); md_fuse_connection_release(c);
 }
 static void cancellation(void) {
@@ -87,6 +90,10 @@ static void cancellation(void) {
     md_fuse_connection_read_commit(c,sizeof(struct fuse_in_header)+5);
     assert(md_fuse_request_result(a,NULL,0)==-ECONNABORTED);
     assert(md_fuse_request_result(b,NULL,0)==-ECONNABORTED);
+    assert(md_fuse_connection_error(c)==-ENOTCONN);
+    struct fuse_in_header h={.opcode=FUSE_LOOKUP};
+    struct md_fuse_request *late=NULL;
+    assert(md_fuse_request_submit(c,&h,NULL,0,0,0,NULL,&late)==-ENOTCONN && !late);
     md_fuse_connection_release(c); /* Requests retain the disconnected owner. */
     dispose(a); dispose(b);
 }

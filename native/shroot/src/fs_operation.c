@@ -6,6 +6,7 @@
 #include "proc_paths.h"
 #include "filesystem_ioctl.h"
 #include "inode_store.h"
+#include "fuse_options.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/limits.h>
@@ -167,7 +168,7 @@ int md_fs_request_validate(const struct md_fs_request *q) {
             || q->mode==MD_FS_MOUNT_MOVE_FD;
         int fuse=q->mode==MD_FS_MOUNT_FUSE;
         if ((!*a && !(descriptors&1)) || q->mode<MD_FS_MOUNT_BIND || q->mode>MD_FS_MOUNT_BINFMT
-                || q->capacity || q->offset || q->value_size>PATH_MAX
+                || q->capacity || q->offset || q->value_size>(fuse ? MD_FUSE_MOUNT_MAX : PATH_MAX)
                 || (pair ? (!*b && !(descriptors&2)) : fuse ? *b || !(descriptors&2) : *b || (descriptors&2))
                 || (q->mode!=MD_FS_MOUNT_TMPFS && q->mode!=MD_FS_MOUNT_RAMFS && q->mode!=MD_FS_MOUNT_OVERLAY && q->mode!=MD_FS_MOUNT_PROC
                     && q->mode!=MD_FS_MOUNT_DEVPTS && q->mode!=MD_FS_MOUNT_CGROUP
@@ -177,6 +178,10 @@ int md_fs_request_validate(const struct md_fs_request *q) {
         if (q->mode==MD_FS_MOUNT_SETATTR)
             return q->value_size!=sizeof(struct mount_attr)
                 || (q->flags&~(AT_EMPTY_PATH|AT_RECURSIVE|AT_SYMLINK_NOFOLLOW|AT_NO_AUTOMOUNT)) ? -EINVAL : 0;
+        if (fuse) {
+            struct md_fuse_mount mount;
+            return md_fuse_mount_parse(q->value,q->value_size,&mount);
+        }
         return q->value_size && strnlen(q->value,q->value_size)!=q->value_size-1 ? -EINVAL : 0;
     }
     if (q->operation==MD_FS_XATTR || q->operation==MD_FS_FXATTR || q->operation==MD_FS_XATTR_OBJECT) {

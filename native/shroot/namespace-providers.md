@@ -348,6 +348,10 @@ returned as a substitute. The existing live mount-table provider owns reads,
 poll notifications and lifetime after target exit. Self observations retain
 their direct path without another process capture. Constrained openat2 first
 checks the original dirfd/path/resolve request in the caller.
+Logical mount entries follow public mount-ID order, independently of reusable
+internal slots. A newly attached mount follows the existing entries; a table
+opened before the change but not yet read observes the new snapshot. This
+supports consumers which identify recursive bind additions by their table suffix.
 
 Foreign FD/cwd metadata and readlink use the same process-access policy. Native
 magic-link capture retains the selected object across worker execution; socket

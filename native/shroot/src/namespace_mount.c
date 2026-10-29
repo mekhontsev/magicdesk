@@ -7,7 +7,7 @@
 #include <sys/syscall.h>
 
 long md_namespace_mount(const struct md_fs *fs, long nr, const unsigned long *a) {
-    char target[PATH_MAX], source[PATH_MAX], data[PATH_MAX];
+    char target[PATH_MAX], source[PATH_MAX], data[MD_FUSE_MOUNT_MAX];
     source[0]=data[0]=0;
     struct md_fs_request q={.operation=MD_FS_MOUNT,.directory={AT_FDCWD,-1},
         .path={target,NULL}};
@@ -32,7 +32,7 @@ long md_namespace_mount(const struct md_fs *fs, long nr, const unsigned long *a)
              * Recursive policy changes belong to mount_setattr instead. */
             q.flags&=~MS_REC;
             if (!(q.flags&MS_BIND) && a[4]) {
-                r=md_read_string(data,sizeof(data),(const char *)a[4]);
+                r=md_read_string(data,PATH_MAX,(const char *)a[4]);
                 if (r>=0) { q.value=data; q.value_size=(uint32_t)md_length(data)+1; }
             }
         }
@@ -50,8 +50,8 @@ long md_namespace_mount(const struct md_fs *fs, long nr, const unsigned long *a)
             /* REC belongs to bind/propagation, not a new superblock. Linux
              * discards it before invoking the filesystem's mount operation. */
             q.flags&=~MS_REC;
-            char type[32];
-            r=md_read_string(type,sizeof(type),(const char *)a[2]);
+            const char *type=data;
+            r=md_read_string(data,PATH_MAX,(const char *)a[2]);
             if (r<0) return r;
             if (md_equal(type,"tmpfs")) q.mode=MD_FS_MOUNT_TMPFS;
             else if (md_equal(type,"ramfs")) q.mode=MD_FS_MOUNT_RAMFS;
@@ -66,12 +66,22 @@ long md_namespace_mount(const struct md_fs *fs, long nr, const unsigned long *a)
             else if (md_equal(type,"fuse") || (type[0]=='f' && type[1]=='u' && type[2]=='s'
                     && type[3]=='e' && type[4]=='.' && type[5])) q.mode=MD_FS_MOUNT_FUSE;
             else return -ENODEV;
-            if (a[4]) r=md_read_string(data,sizeof(data),(const char *)a[4]);
-            if (r>=0 && a[4]) { q.value=data; q.value_size=(uint32_t)md_length(data)+1; }
-            if (r>=0 && q.mode==MD_FS_MOUNT_FUSE) {
-                struct md_fuse_options options;
-                r=md_fuse_options_parse(q.value,&options);
-                if (r>=0) { q.directory[1]=options.descriptor; q.path[1]=""; }
+            if (q.mode==MD_FS_MOUNT_FUSE) {
+                size_t used=md_length(data)+1;
+                data[used]=0;
+                if (a[0]) r=md_read_string(data+used,PATH_MAX,(const char *)a[0]);
+                if (r<0) return r;
+                used+=md_length(data+used)+1;
+                data[used]=0;
+                if (a[4]) r=md_read_string(data+used,PATH_MAX,(const char *)a[4]);
+                if (r<0) return r;
+                q.value=data; q.value_size=(uint32_t)(used+md_length(data+used)+1);
+                struct md_fuse_mount mount;
+                r=md_fuse_mount_parse(q.value,q.value_size,&mount);
+                if (r>=0) { q.directory[1]=mount.options.descriptor; q.path[1]=""; }
+            } else if (a[4]) {
+                r=md_read_string(data,PATH_MAX,(const char *)a[4]);
+                if (r>=0) { q.value=data; q.value_size=(uint32_t)md_length(data)+1; }
             }
         }
     }

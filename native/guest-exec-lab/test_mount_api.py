@@ -495,6 +495,25 @@ if sys.argv[-1] == '0':
         os.close(watched)
         print('PASS live mount table, epoll notification, reread and unmount', flush=True)
 
+        for table in ('/proc/mounts', '/proc/self/mountinfo'):
+            paths = [root / ('ordered-' + str(i)) for i in range(3)]
+            for path in paths:
+                path.mkdir()
+            for path in paths[:2]:
+                call(40, 'tmpfs', str(path), 'tmpfs', 0, 0)
+            call(39, str(paths[0]), 2)
+            before = Path(table).read_text().splitlines()
+            with open(table) as opened:
+                call(40, 'tmpfs', str(paths[2]), 'tmpfs', 0, 0)
+                after = opened.read().splitlines()
+            assert after[:len(before)] == before, (table, before, after)
+            assert len(after) == len(before) + 1 and (' ' + str(paths[2]) + ' ') in after[-1]
+            for path in paths[1:]:
+                call(39, str(path), 2)
+            for path in paths:
+                path.rmdir()
+        print('PASS new mounts append after existing entries despite retired slot reuse', flush=True)
+
         mounted = root / 'mounted'
         mounted.mkdir()
         alias = root / 'alias'

@@ -1016,10 +1016,12 @@ static void lease_permissions(struct md_fs_context *context) {
     struct md_fs_output output={.control=capture,.control_context=&device};
     md_fs_context_execute(context,&q,&r,&output); assert(!r.error && r.fd>=0);
     int fd=r.fd;
-    char options[128];
-    snprintf(options,sizeof(options),"fd=%d,rootmode=40000,user_id=0,group_id=0,default_permissions",fd);
+    char options[128]="fuse\0";
+    const size_t prefix=sizeof("fuse\0");
+    size_t size=prefix+snprintf(options+prefix,sizeof(options)-prefix,
+        "fd=%d,rootmode=40000,user_id=0,group_id=0,default_permissions",fd)+1;
     q=(struct md_fs_request){.operation=MD_FS_MOUNT,.mode=MD_FS_MOUNT_FUSE,.directory={-1,fd},
-        .path={"/fuse-permissions",""},.control=device,.value=options,.value_size=strlen(options)+1};
+        .path={"/fuse-permissions",""},.control=device,.value=options,.value_size=size};
     md_fs_context_execute(context,&q,&r,NULL); assert(!r.error); close(fd);
     struct md_fuse_connection *connection=md_fuse_device_connection(device); assert(connection);
     r=run(context,connection,MD_FS_STAT,"/",0,NULL,0);
@@ -1064,11 +1066,32 @@ static void lease_permissions(struct md_fs_context *context) {
     context->task.identity.uid.fs=0;
     assert(!run_request(context,connection,&q,(struct md_fs_output){0}).error && getattrs==attrs);
     md_control_file_release(device);
-    assert(run(context,NULL,MD_FS_STAT,"/fuse-permissions/file",0,NULL,0).error==-ECONNABORTED);
+    assert(run(context,NULL,MD_FS_STAT,"/fuse-permissions/file",0,NULL,0).error==-ENOTCONN);
+    struct md_proc_file *opened=NULL;
+    q=(struct md_fs_request){.operation=MD_FS_OPEN,.directory={-1,-1},
+        .path={"/fuse-permissions",NULL},.flags=O_RDONLY|O_DIRECTORY};
+    r=run_request(context,NULL,&q,(struct md_fs_output){.control=capture_file,.control_context=&opened});
+    assert(r.error==-ENOTCONN && !opened);
     context->task.identity.caps.effective=caps; entry_seconds=0; attr_seconds=0;
     q=(struct md_fs_request){.operation=MD_FS_CHMOD,.directory={-1,-1},.path={"/",NULL},.mode=parent_mode};
     assert(!run_request(context,NULL,&q,(struct md_fs_output){0}).error);
     puts("PASS FUSE name leases preserve parent access, file permissions and daemon disconnect");
+}
+static void mount_identity(struct md_filesystem *fs) {
+    for (unsigned info=0;info<2;++info) {
+        int fd=md_fs_mount_table(fs,info,0); assert(fd>=0);
+        FILE *table=fdopen(fd,"r"); assert(table);
+        char *line=NULL; size_t size=0; unsigned found=0;
+        while (getline(&line,&size,table)>0) {
+            if (!strstr(line," /fuse ") && !strstr(line," /fuse-readonly ")) continue;
+            assert(strstr(line,info ? " - fuse.fixture fixture\\040\\011\\012\\134 "
+                                   : "fixture\\040\\011\\012\\134 /fuse"));
+            if (!info) assert(strstr(line," fuse.fixture "));
+            ++found;
+        }
+        assert(!ferror(table) && found==2); free(line); fclose(table);
+    }
+    puts("PASS FUSE mount tables preserve subtype and escaped source across bind mounts");
 }
 void md_test_fuse_filesystem(struct md_filesystem *fs) {
     image_cache_bounds();
@@ -1082,9 +1105,15 @@ void md_test_fuse_filesystem(struct md_filesystem *fs) {
     struct md_fs_output output={.control=capture,.control_context=&device};
     md_fs_context_execute(&context,&q,&r,&output); assert(!r.error && r.fd>=0 && device.ops);
     int fd=r.fd;
-    char options[128]; snprintf(options,sizeof(options),"fd=%d,rootmode=40000,user_id=0,group_id=0",fd);
+    char options[128]="fuse.fixture\0fixture \t\n\\";
+    const size_t prefix=sizeof("fuse.fixture\0fixture \t\n\\");
+    size_t size=prefix+snprintf(options+prefix,sizeof(options)-prefix,
+        "fd=%d,rootmode=40000,user_id=0,group_id=0",fd)+1;
     q=(struct md_fs_request){.operation=MD_FS_MOUNT,.mode=MD_FS_MOUNT_FUSE,.directory={-1,fd},
-        .path={"/fuse",""},.control=device,.value=options,.value_size=strlen(options)+1};
+        .path={"/fuse",""},.control=device,.value=options,.value_size=size};
+    for (unsigned n=0;n<size;++n) { q.value_size=n; assert(md_fs_request_validate(&q)==-EINVAL); }
+    q.value_size=size+1; assert(md_fs_request_validate(&q)==-EINVAL);
+    q.value_size=size; options[0]='x'; assert(md_fs_request_validate(&q)==-EINVAL); options[0]='f';
     assert(!md_fs_request_validate(&q));
     md_fs_context_execute(&context,&q,&r,NULL);
     if (r.error) fprintf(stderr,"FUSE mount: %d\n",r.error);
@@ -1107,6 +1136,7 @@ void md_test_fuse_filesystem(struct md_filesystem *fs) {
     q=(struct md_fs_request){.operation=MD_FS_MOUNT,.mode=MD_FS_MOUNT_BIND,.flags=MS_BIND,
         .directory={-1,-1},.path={"/fuse-readonly","/fuse"}};
     assert(!run_request(&context,connection,&q,(struct md_fs_output){0}).error);
+    mount_identity(fs);
     struct md_fs_anchor *retained=NULL;
     struct md_fs_request capture_path={.operation=MD_FS_TASK_PATH,.directory={-1,-1},
         .path={"/fuse-readonly",NULL},.mode=MD_FS_TASK_CHDIR};
@@ -1148,6 +1178,8 @@ void md_test_fuse_filesystem(struct md_filesystem *fs) {
     struct md_fs_continuation *old=pending; pending=NULL;
     md_fs_context_resume(&context,old,&r,&output);
     assert(!md_fs_continuation_pending(old,&pending,&r) && r.error==-ECONNABORTED);
+    assert(run(&context,NULL,MD_FS_STAT,"/fuse/file",0,NULL,0).error==-ENOTCONN);
+    assert(run(&context,NULL,MD_FS_STAT,"/fuse-readonly/file",0,NULL,0).error==-ENOTCONN);
     r=run(&context,NULL,MD_FS_STAT,"/",0,NULL,0); assert(!r.error);
     md_fs_context_end(&context);
     printf("PASS FUSE filesystem: mount, INIT, lookup, symlinks, metadata, statfs and daemon exit (%u packets)\n",requests);

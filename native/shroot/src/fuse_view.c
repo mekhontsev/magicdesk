@@ -34,6 +34,14 @@ dev_t md_fuse_view_device(struct md_provider_tree *tree) {
     struct fuse_view *v=md_provider_tree_context(tree,&view_ops);
     return v ? v->device : 0;
 }
+const char *md_fuse_view_type(struct md_provider_tree *tree) {
+    struct fuse_view *v=md_provider_tree_context(tree,&view_ops);
+    return v ? v->type : NULL;
+}
+const char *md_fuse_view_label(struct md_provider_tree *tree) {
+    struct fuse_view *v=md_provider_tree_context(tree,&view_ops);
+    return v ? v->source : NULL;
+}
 int md_fuse_view_options(struct md_provider_tree *tree,const struct md_identity *id,char *out,size_t size) {
     struct fuse_view *v=md_provider_tree_context(tree,&view_ops);
     if (!v) return -EINVAL;
@@ -70,6 +78,7 @@ void md_fuse_view_release(void *context) {
     md_fuse_session_release(v->session);
     md_user_namespace_release(v->user_namespace); md_pid_namespace_release(v->pid_namespace);
     if (v->root>=0) md_temporary_directory_release(v->root);
+    free(v->type); free(v->source);
     pthread_mutex_destroy(&v->lock); free(v);
 }
 static unsigned bucket(uint64_t n) { return (unsigned)(n^(n>>32))%NODE_BUCKETS; }
@@ -540,12 +549,15 @@ int md_fuse_view_source(struct md_filesystem *fs,const struct md_fs_request *q,s
     if (q->flags&~MD_FS_MOUNT_FLAGS) return -EOPNOTSUPP;
     struct md_fuse_connection *connection=md_fuse_device_connection(q->control);
     if (!connection) return -EINVAL;
-    struct md_fuse_options options;
-    int error=md_fuse_options_parse(q->value_size ? q->value : NULL,&options);
+    struct md_fuse_mount mount;
+    int error=md_fuse_mount_parse(q->value,q->value_size,&mount);
     if (error) return error;
+    struct md_fuse_options options=mount.options;
     struct fuse_view *v=calloc(1,sizeof(*v)); if (!v) return -ENOMEM;
     error=pthread_mutex_init(&v->lock,NULL); if (error) { free(v); return -error; }
     atomic_init(&v->references,1); atomic_init(&v->no_flush,0); v->root=-1; v->name_epoch=1;
+    v->type=strdup(mount.type); v->source=strdup(*mount.source ? mount.source : "none");
+    if (!v->type || !v->source) { md_fuse_view_release(v); return -ENOMEM; }
     /* A superblock has its own public device identity. Carriers only locate
      * private nodes; bind mounts retain this identity across namespaces. */
     unsigned device;

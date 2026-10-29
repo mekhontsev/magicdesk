@@ -14,6 +14,8 @@ int md_fuse_connection_new(struct md_fuse_connection **);
 struct md_fuse_connection *md_fuse_connection_retain(struct md_fuse_connection *);
 void md_fuse_connection_release(struct md_fuse_connection *);
 void md_fuse_connection_abort(struct md_fuse_connection *,int error);
+/* Admission status: zero while connected, -ENOTCONN after abort. Pending
+ * request results retain the reason supplied to connection_abort(). */
 int md_fuse_connection_error(struct md_fuse_connection *);
 /* One superblock owns each device connection. Descriptor duplication is not a new connection. */
 int md_fuse_connection_claim(struct md_fuse_connection *);

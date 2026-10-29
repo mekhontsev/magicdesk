@@ -53,6 +53,11 @@ int md_fs_native_mount(struct md_filesystem *fs, uint64_t native, uint64_t *gues
 }
 
 struct table_path { const struct md_view_mount *mount; char *path; };
+static int path_order(const void *left,const void *right) {
+    unsigned a=((const struct table_path *)left)->mount->id;
+    unsigned b=((const struct table_path *)right)->mount->id;
+    return (a>b)-(a<b);
+}
 static void paths_release(struct table_path *paths,unsigned count) {
     for (unsigned i=0;i<count;++i) free(paths[i].path);
     free(paths);
@@ -76,7 +81,12 @@ static int paths_capture(struct md_filesystem *fs,const struct md_view_mount *se
         else ++*count;
     }
     if (r) { paths_release(paths,*count); *count=0; }
-    else *out=paths;
+    else {
+        /* Slots are reusable; public IDs are monotonic. Preserve namespace
+         * insertion order so new mounts follow entries already seen by readers. */
+        if (*count>1) qsort(paths,*count,sizeof(*paths),path_order);
+        *out=paths;
+    }
     return r;
 }
 static int native_covered(const struct md_filesystem *fs,const struct table_path *paths,
@@ -165,10 +175,12 @@ static void entry(FILE *stream, unsigned info, unsigned id, unsigned parent, dev
             if (master) fprintf(stream," master:%u",md_mount_group_id(master));
             if (links->unbindable) fputs(" unbindable",stream);
         }
-        fprintf(stream," - %s %s %s%s\n",type,source,super_readonly ? "ro" : "rw",super_options);
+        fputs(" - ",stream); escaped(stream,type); fputc(' ',stream); escaped(stream,source);
+        fprintf(stream," %s%s\n",super_readonly ? "ro" : "rw",super_options);
     } else {
         if (super_readonly) memcpy(options,"ro",2);
-        fprintf(stream,"%s ",source); escaped(stream,path); fprintf(stream," %s %s%s 0 0\n",type,options,super_options);
+        escaped(stream,source); fputc(' ',stream); escaped(stream,path); fputc(' ',stream); escaped(stream,type);
+        fprintf(stream," %s%s 0 0\n",options,super_options);
     }
 }
 static int super_readonly(struct md_filesystem *fs,const struct md_view_mount *mount) {
@@ -189,12 +201,16 @@ static const char *filesystem_type(const struct md_view_mount *mount) {
     if (mount && mount->backing==MD_MOUNT_SYSFS) return "sysfs";
     if (mount && mount->provider) {
         unsigned long type=md_provider_tree_filesystem(mount->provider);
-        return type==FUSE_SUPER_MAGIC ? "fuse" : type==SYSFS_MAGIC ? "sysfs"
+        return type==FUSE_SUPER_MAGIC ? md_fuse_view_type(mount->provider) : type==SYSFS_MAGIC ? "sysfs"
             : type==BINFMTFS_MAGIC ? "binfmt_misc" : "tmpfs";
     }
     if (mount && mount->backing==MD_MOUNT_MQUEUE) return "mqueue";
     if (mount && mount->cgroup) return md_cgroup_legacy(mount->cgroup) ? "cgroup" : "cgroup2";
     return !md_view_inode(mount) ? "none" : md_filesystem_name(mount->storage ? mount->storage->filesystem_kind : MD_FILESYSTEM_INODE);
+}
+static const char *filesystem_source(const struct md_view_mount *mount) {
+    if (mount && md_fuse_view_matches(mount->provider)) return md_fuse_view_label(mount->provider);
+    return md_view_inode(mount) ? "guest" : "attachment";
 }
 static int filesystem_options(struct md_filesystem *fs,const struct md_view_mount *mount,char *out,size_t size) {
     if (mount && mount->backing==MD_MOUNT_PROC) return md_procfs_options(mount,fs->store->identity,out,size);
@@ -232,7 +248,7 @@ int md_fs_mount_table(struct md_filesystem *fs, unsigned info, unsigned flags) {
             char options[128]; r=filesystem_options(fs,m,options,sizeof(options));
             if (!r) entry(stream,info,m->id,m->parent ? m->parent->id : m->id,
                 md_fuse_view_matches(m->provider) ? md_fuse_view_device(m->provider) : root.st_dev,"/",filesystem_type(m),
-                md_view_inode(m) ? "guest" : "attachment",md_mount_policy_flags(&m->policy),readonly,options,&m->links,&members);
+                filesystem_source(m),md_mount_policy_flags(&m->policy),readonly,options,&m->links,&members);
         } else entry(stream,info,fs->mounts->base.id,fs->mounts->base.id,root.st_dev,"/","guestfs","guest",
             md_mount_policy_flags(&fs->mounts->base.policy),readonly,"",&fs->mounts->base.links,&members);
         if (!fs->store->root_id && !fs->native_root && selected==&fs->mounts->base) {
@@ -251,7 +267,7 @@ int md_fs_mount_table(struct md_filesystem *fs, unsigned info, unsigned flags) {
         if (!r) r=filesystem_options(fs,m,options,sizeof(options));
         if (!r) entry(stream,info,m->id,m->parent ? m->parent->id : fs->mounts->base.id,
             st.st_dev,paths[i].path,filesystem_type(m),
-            md_view_inode(m) ? "guest" : "attachment",md_mount_policy_flags(&m->policy),readonly,options,&m->links,&members);
+            filesystem_source(m),md_mount_policy_flags(&m->policy),readonly,options,&m->links,&members);
     }
     paths_release(paths,count);
     if (!r && (fflush(stream) || ferror(stream))) r=-EIO;

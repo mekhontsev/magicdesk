@@ -102,11 +102,12 @@ void md_fuse_connection_abort(struct md_fuse_connection *c,int error) {
         complete_abandoned(r); md_fuse_request_release(r); }
 }
 int md_fuse_connection_error(struct md_fuse_connection *c) {
-    pthread_mutex_lock(&c->lock); int error=c->error; pthread_mutex_unlock(&c->lock); return error;
+    pthread_mutex_lock(&c->lock); int error=c->error ? -ENOTCONN : 0;
+    pthread_mutex_unlock(&c->lock); return error;
 }
 int md_fuse_connection_claim(struct md_fuse_connection *c) {
     pthread_mutex_lock(&c->lock);
-    int error=c->error ? c->error : c->claimed ? -EBUSY : 0;
+    int error=c->error ? -ENOTCONN : c->claimed ? -EBUSY : 0;
     if (!error) c->claimed=1;
     pthread_mutex_unlock(&c->lock); return error;
 }
@@ -141,7 +142,9 @@ int md_fuse_request_submit(struct md_fuse_connection *c,const struct fuse_in_hea
     r->connection=md_fuse_connection_retain(c); r->wakeup=md_resource_wakeup_retain(wakeup);
     r->input_size=input; r->capacity=capacity; r->no_reply=no_reply;
     pthread_mutex_lock(&c->lock);
-    int error=c->error;
+    /* Existing requests retain their abort result; new operations observe
+     * a disconnected endpoint, as with Linux fuse_get_req(). */
+    int error=c->error ? -ENOTCONN : 0;
     if (!error && (c->count==MD_FUSE_REQUEST_MAX || input+capacity>MD_FUSE_QUEUE_BYTES-c->bytes)) error=-EAGAIN;
     if (!error && c->sequence==UINT64_MAX) error=-EOVERFLOW;
     if (!error) {

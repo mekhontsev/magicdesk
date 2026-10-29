@@ -14,6 +14,8 @@ int md_fuse_view_source(struct md_filesystem *,const struct md_fs_request *,stru
 int md_fuse_view_matches(struct md_provider_tree *);
 dev_t md_fuse_view_device(struct md_provider_tree *);
 int md_fuse_view_options(struct md_provider_tree *,const struct md_identity *,char *,size_t);
+const char *md_fuse_view_type(struct md_provider_tree *);
+const char *md_fuse_view_label(struct md_provider_tree *);
 int md_fs_fuse_operation(struct md_filesystem *,const struct md_fs_request *,
     const struct md_view_location *,const struct md_view_location *,struct md_fs_result *,const struct md_fs_output *);
 #endif
