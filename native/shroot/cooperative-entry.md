@@ -500,15 +500,16 @@ A release-published request has a monotonic sequence and one response receipt.
 Conditional wakeups use sequentially consistent wait registration and state
 publication. The existing worker drains a round-robin burst, bounded by 32
 requests and a 100 us between-request budget, then services other work. An idle
-channel does not add a periodic polling loop. Each endpoint uses a bounded 25 us
-spin; four unsuccessful spins select immediate parking for 128 subsequent waits.
+channel does not add a periodic polling loop. The worker uses a bounded 25 us
+spin; the caller uses at most 32768 state-check iterations, without reading a
+clock. Four unsuccessful spins select immediate parking for 128 subsequent waits.
 Caller feedback is independent for an open plan, completion of its native
 effect, and an ordinary reply. A slow creation therefore cannot put unrelated
-short metadata replies into the same cooldown. All phases retain the same time
-limit; no additional worker or supervisor spin is introduced.
-Only progress actually observed within the spin budget counts as a hit. A reply
-already ready after a blocking wake, or seen after descheduling beyond the
-deadline, cannot reset the miss history. The notification wake is acknowledged
+short metadata replies into the same cooldown. All caller phases retain the same
+iteration limit; no additional worker or supervisor spin is introduced.
+Only progress observed before parking counts as a caller hit. The worker also
+requires progress before its deadline. A reply already ready after a blocking
+wake cannot reset the miss history. The notification wake is acknowledged
 after its immediate work (or resource-queue admission), avoiding a redundant
 client wake/park. This is local feedback, not CPU-affinity or scheduler policy.
 When an FD request is already visible, an idle worker yields to its listener
@@ -522,21 +523,18 @@ operation wakes a parked worker if the caller has already published its next
 request. Registration replies may resume the caller before supervisor-side
 retirement; that overlap must not require a later unrelated syscall to progress.
 The broker fixture forces this ordering and waits without any further guest IO.
-Clock reads are batched every eight empty worker iterations and 32 guest
-iterations; the budget remains time-based, not a presumed fixed iteration cost.
+Worker clock reads are batched every eight empty iterations. The caller bounds
+active work rather than wall time: iteration duration depends on CPU and cache
+behavior. It never replenishes the budget after a wake or spurious futex return.
 At the request/time burst limit, the worker releases the store window and may
 spend at most another 25 us retiring native effects it already admitted. It does
 not consume a new request or predict a following close. With no outstanding
 effect this final drain neither spins nor reads the clock.
 
-The bootstrap resolves `__kernel_clock_gettime@LINUX_2.6.39` from the kernel's
-`AT_SYSINFO_EHDR` once, before guest threads exist. Bounded guest spinning uses
-that monotonic vDSO clock instead of an auxiliary syscall on every clock sample.
-An absent symbol, unsupported image layout/version, or failed vDSO call retains
-the raw clock syscall; failure of both selects parking. No ARM counter frequency
-or fixed address is assumed. A cooldown which already selected immediate parking
-does not read the clock. This changes neither application time syscalls nor
-filter admission, and adds no libc dependency to the bootstrap.
+Guest spinning depends only on the owned channel state and a local counter;
+application-owned clock mappings, hardware timer access and clock syscalls are
+not prerequisites. The worker's clock belongs to its separate address space.
+Application time syscalls, deadlines and filter admission remain unchanged.
 
 The caller does not abandon accepted output memory on a wall-clock timeout.
 Response/owner closure completes its event wait; launch cancellation terminates

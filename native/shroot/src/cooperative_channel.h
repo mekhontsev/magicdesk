@@ -30,7 +30,7 @@ static inline int md_entry_native_fd(int number,const uint64_t args[6]) {
 }
 
 /* Bootstrap-only initialization, before any guest thread exists. */
-void md_cooperative_init(const void *vdso,size_t first_page);
+void md_cooperative_init(void);
 
 /* Private interpretation of the fixed entry handle. Progress/feedback lives
  * in the runtime-owned channel, independently of a caller's TLS layout. */

@@ -2,7 +2,6 @@
 #include "interception.h"
 #include "raw.h"
 #include "spin_policy.h"
-#include "vdso.h"
 #include "file_open.h"
 #include "fs_syscall_strings.h"
 #include <errno.h>
@@ -12,15 +11,13 @@
 #include <time.h>
 
 extern long md_guest_entry_kernel(long,const uint64_t *);
-static md_vdso_clock_fn vdso_clock;
 static unsigned char offers[512];
 static unsigned char strings[512];
 static uintptr_t registration_allowed=1;
 void md_cooperative_revoke(void) {
     __atomic_store_n(&registration_allowed,0,__ATOMIC_RELEASE);
 }
-void md_cooperative_init(const void *vdso,size_t first_page) {
-    vdso_clock=md_vdso_clock(vdso,first_page);
+void md_cooperative_init(void) {
     for (unsigned i=0;i<sizeof(offers);++i) {
         enum md_entry_route route=md_entry_route(i);
         offers[i]=(route!=MD_ENTRY_CALLER ? MD_ENTRY_ORDINARY : 0)
@@ -32,12 +29,6 @@ void md_cooperative_init(const void *vdso,size_t first_page) {
 static enum md_entry_outcome kernel_call(struct md_entry_call *call) {
     if (!call->kernel) call->kernel=md_guest_entry_kernel;
     return MD_ENTRY_KERNEL_CALL;
-}
-static uint64_t now(void) {
-    struct timespec ts;
-    if ((!vdso_clock || vdso_clock(CLOCK_MONOTONIC,&ts))
-            && RAW2(clock_gettime,CLOCK_MONOTONIC,&ts)<0) return 0;
-    return (uint64_t)ts.tv_sec*1000000000ULL+ts.tv_nsec;
 }
 static void capture_paths(struct md_entry_channel *c,const struct md_entry_call *call) {
     unsigned selectors=(unsigned)call->number<sizeof(strings) ? strings[call->number] : 0;
@@ -280,19 +271,17 @@ static enum md_entry_outcome progress(struct md_entry_client *client,struct md_e
     int descriptor=!!(flags&CALL_DESCRIPTOR);
     long descriptor_result=call->result;
     enum md_entry_outcome outcome=MD_ENTRY_UNKNOWN;
-    unsigned budget=0, parked=0, checks=0, spun=0, native_sent=!!(flags&CALL_NATIVE_SENT);
+    unsigned budget=0, parked=0, checks=0, native_sent=!!(flags&CALL_NATIVE_SENT);
     /* The native plan and its publication are independent waits. A slow
      * creation must not disable bounded spinning for short metadata replies. */
     enum md_entry_wait kind=md_entry_wait_kind(call->number,native_sent);
     struct md_spin_policy policy=c->feedback[kind];
-    uint64_t spin=0, time=0;
     for (;;) {
         unsigned state=atomic_load_explicit(&c->state,memory_order_acquire);
         if (state==MD_ENTRY_NATIVE && !native_sent) {
             /* Receiving the offered effect is the response to this wait. Its
              * caller-side execution and retirement are a separate phase. */
-            if (budget && (spun || parked))
-                md_spin_observed(&policy,!parked,now(),spin);
+            if (budget) md_spin_result(&policy,!parked);
             c->feedback[kind]=policy;
             if (atomic_load_explicit(&c->native.state,memory_order_acquire)==MD_NATIVE_READY) {
                 /* Reenter libc's cancellation check before the effect, never
@@ -327,12 +316,14 @@ static enum md_entry_outcome progress(struct md_entry_client *client,struct md_e
             break;
         }
         if (state==MD_ENTRY_CLOSED) break;
-        if (!checks) {
-            budget=md_spin_budget(&policy,25000);
-            time=budget ? now() : 0; spin=time ? time+budget : 0;
-        } else if (budget && (!(checks%32) || parked)) time=now();
-        ++checks;
-        if (time && time<spin) { spun=1; __asm__ volatile("yield" ::: "memory"); continue; }
+        /* Bound active work without borrowing the application's clock mappings.
+         * A wake resumes the same wait; it never replenishes the spin budget. */
+        if (!checks && !parked) budget=md_spin_budget(&policy,32768);
+        if (checks<budget) {
+            ++checks;
+            __asm__ volatile("yield" ::: "memory");
+            continue;
+        }
         parked=1;
         atomic_store_explicit(&c->sleeping,1,memory_order_seq_cst);
         state=atomic_load_explicit(&c->state,memory_order_seq_cst);
@@ -344,10 +335,8 @@ static enum md_entry_outcome progress(struct md_entry_client *client,struct md_e
         }
         atomic_store_explicit(&c->sleeping,0,memory_order_seq_cst);
     }
-    /* A response already ready after the notification wake is not evidence
-     * that spinning helped. Nor is a response observed after descheduling. */
-    if (budget && (spun || parked))
-        md_spin_observed(&policy,!parked && outcome==MD_ENTRY_COMPLETED,now(),spin);
+    /* A response ready after parking is not evidence that spinning helped. */
+    if (budget) md_spin_result(&policy,!parked && outcome==MD_ENTRY_COMPLETED);
     c->feedback[kind]=policy;
     /* DECLINED is an explicit pre-execution transfer of ownership. Once the
      * worker accepts a call, UNKNOWN is terminal and must never enter here. */

@@ -17,6 +17,8 @@ def main():
     parser.add_argument('--store', required=True)
     parser.add_argument('--rounds', type=int, default=5)
     parser.add_argument('--iterations', type=int, default=10000)
+    parser.add_argument('--entry-mode', choices=('both', 'base', 'lazy'), default='both',
+                        help='Compare both modes, or interleave only the selected mode')
     parser.add_argument('--file-blocks', type=int, default=1,
                         help='Consecutive 1024-operation file blocks per launch (1-64); retain first and tail timings')
     parser.add_argument('--cpu-mask', type=lambda value: int(value, 16),
@@ -55,8 +57,9 @@ def main():
         placement = [] if args.cpu_mask is None else ['/system/bin/taskset', format(args.cpu_mask, 'x')]
         modes = {}
         for name, runner in [('current', suite.runner), ('reference', reference + '/libmagicdesk_guest_run.so')]:
-            modes[name + '-base'] = [runner, *base, '--env', 'SHROOT_MACHINE_ENTRY=0']
-            modes[name + '-lazy'] = [runner, *base, '--env', 'SHROOT_MACHINE_ENTRY=1']
+            for mode, enabled in (('base', '0'), ('lazy', '1')):
+                if args.entry_mode in ('both', mode):
+                    modes[name + '-' + mode] = [runner, *base, '--env', 'SHROOT_MACHINE_ENTRY=' + enabled]
         for name, prefix in modes.items():
             output = suite.command([*prefix, '--statistics', '--', target + '/benchmark', 'file-stat', '1024'])
             counts = re.findall(r'cooperativeCompleted=(\d+)', output)

@@ -21,7 +21,6 @@ def main():
         suite.command(['mkdir', '-p', root + '/bin', root + '/tmp'])
         for name, destination in (('service', suite.base + '/service'),
                                   ('cooperative_guest', root + '/bin/probe'),
-                                  ('test_vdso', suite.base + '/vdso'),
                                   ('test_signal_delivery', suite.base + '/signals'),
                                   ('test_cooperative_native', suite.base + '/native-journal'),
                                   ('test_guest_copy', suite.base + '/guest-copy'),
@@ -59,7 +58,6 @@ def main():
             suite.command(['timeout', '120', suite.base + '/mounts', suite.base + '/mount-store'])
             suite.command(['timeout', '120', suite.base + '/publication', suite.base + '/publication-store'])
             suite.command(['timeout', '120', suite.base + '/native-leaf', suite.base + '/leaf-store'])
-            suite.command(['timeout', '10', suite.base + '/vdso'])
             suite.command(['timeout', '90', suite.base + '/buffers'])
             suite.command(['timeout', '120', suite.base + '/dispatch', suite.base + '/dispatch-store'], quiet=True)
             output = suite.command(['timeout', '90', suite.base + '/dispatch', '--broker-directory',

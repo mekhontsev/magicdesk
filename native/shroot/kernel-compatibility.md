@@ -78,14 +78,13 @@ and existing socket/relay owners. They introduce no newer host dependency.
 
 ### Clock And Capability Admission
 
-Cooperative-entry spin timing optionally uses the arm64
-[`__kernel_clock_gettime@LINUX_2.6.39` vDSO ABI](https://man7.org/linux/man-pages/man7/vdso.7.html).
-`vdso.c` resolves its versioned export from the kernel's `AT_SYSINFO_EHDR`;
-`cooperative_entry.c` falls back to the existing clock syscall when unavailable
-or unsuccessful. Both predate 5.15. `test_vdso` covers bounded symbol/version
-lookup, absent/unsupported layouts and a live monotonic-clock comparison;
-cooperative runtime/libc fixtures cover execution, cancellation and filter
-fallback. This optional optimization adds no shared-service prerequisite.
+Cooperative-entry callers use iteration-bounded spinning followed by the existing
+futex handshake, without a borrowed clock mapping or hardware timer dependency.
+The separate worker retains its monotonic clock and time-bounded service budget.
+These mechanisms predate 5.15. Cooperative runtime/libc fixtures cover execution,
+cancellation and filter fallback; the debugger fixture also runs stock Callgrind,
+whose loader removes the initial vDSO mapping. No shared-service prerequisite is
+added.
 
 Admission uses actual operations under the selected executor identity, not an
 Android-version inference or `uname`-only capability check. Kernel configuration,

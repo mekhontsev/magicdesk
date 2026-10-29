@@ -40,17 +40,15 @@ void md_boot(uintptr_t *kernel_stack) {
     size_t envc = 0; while (env[envc]) ++envc;
     Elf64_auxv_t *aux = (Elf64_auxv_t *)(env + envc + 1);
     size_t auxc = 0;
-    const void *vdso=NULL;
     unsigned long capabilities=0;
     while (aux[auxc].a_type) {
         if (aux[auxc].a_type == AT_PAGESZ) md_page_size = aux[auxc].a_un.a_val;
-        if (aux[auxc].a_type == AT_SYSINFO_EHDR) vdso=(const void *)aux[auxc].a_un.a_val;
         if (aux[auxc].a_type == AT_HWCAP) capabilities=aux[auxc].a_un.a_val;
         ++auxc;
     }
     if (md_page_size < 4096 || md_page_size > 65536 || (md_page_size & (md_page_size - 1)))
         md_die("invalid page size", -EINVAL);
-    md_cooperative_init(vdso,md_page_size);
+    md_cooperative_init();
     if (!md_launch_identity(RAW0(getuid), RAW0(geteuid), RAW0(getgid), RAW0(getegid)))
         md_die("guest runtime requires the selected shell or root identity", -EACCES);
     if (argc == 2 && md_equal(argv[1], "--probe")) {
