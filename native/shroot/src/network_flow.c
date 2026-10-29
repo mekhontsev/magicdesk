@@ -173,8 +173,12 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
     else if (md_network_address_type(n,p->destination)==RTN_BROADCAST) p->packet_type=PACKET_BROADCAST;
     struct md_network_route_entry origin={0};
     struct md_network_interface *out=md_network_route_lookup(n,p->destination,output,&origin);
-    if (!external) path->transport=md_network_route_transport(out,&origin);
     if (!external && md_ip_unspecified(p->source)) p->source=md_network_route_source(n,out,&origin,p->destination);
+    /* The FIB owner selects the source and scoped binding; local OUTPUT
+     * traverses loopback even when the address belongs to another link. */
+    if (!external && out && md_network_interface_has(out,p->destination))
+        out=md_network_interface_find(n,1,NULL);
+    if (!external) path->transport=md_network_route_transport(out,&origin);
     interface(p,out,0);
     p->fib_type=address_type(&context,p->destination);
     path->original=*p;

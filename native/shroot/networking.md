@@ -144,6 +144,12 @@ explicit binds (including port zero) and listeners reserve real Android ports
 through separate forwarding frontends; automatic outgoing binds do not publish
 a listener. Guest backing sockets use ephemeral native ports. Conflicts and
 final release belong to the same endpoint/forwarding owners.
+Local OUTPUT uses loopback interface metadata, independently of the FIB owner
+used for source selection and scoped endpoint binding. DNAT reroutes the
+translated destination through the same flow owner. Nftables element deletion
+selects by key; an echoed value does not change the match or retain a verdict
+target. Both contracts are covered by native network tests and the nspawn
+command/publication lifecycle fixture.
 
 `network_io` uses the shared exact-description capture and cancellable IO owner
 for control, connect/accept and addressed TCP/UDP calls. No table/fabric turn

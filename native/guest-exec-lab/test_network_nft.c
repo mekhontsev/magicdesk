@@ -159,6 +159,17 @@ static void data_maps(void) {
         assert(s->count==1 && !memcmp(s->elements[0].key,key,sizeof(key))
             && !memcmp(s->elements[0].data,value,data_size));
 
+        /* systemd echoes the map value when deleting. Linux selects by key,
+         * even when that value has already changed since the client's dump. */
+        memset(s->elements[0].data,0,data_size);
+        dump->nlmsg_type=(NFNL_SUBSYS_NFTABLES<<8)|NFT_MSG_DELSETELEM;
+        dump->nlmsg_flags=NLM_F_REQUEST;
+        assert(!md_nft_objects(n->filter,dump,43,&o) && !s->count);
+        assert(md_nft_objects(n->filter,dump,43,&o)==-ENOENT);
+        dump->nlmsg_type=(NFNL_SUBSYS_NFTABLES<<8)|NFT_MSG_NEWSETELEM;
+        dump->nlmsg_flags=NLM_F_CREATE;
+        assert(!md_nft_objects(n->filter,dump,43,&o) && s->count==1);
+
         /* Decode an overlapping register lookup, including an IPv6 tuple wider
          * than one legacy 16-byte register. The source must be initialized first. */
         o.size=0; add(&o,(NFNL_SUBSYS_NFTABLES<<8)|NFT_MSG_NEWRULE,0,family);
@@ -412,6 +423,52 @@ static void native_fib_publication(void) {
         n->filter=NULL; md_network_namespace_release(n);
     }
     puts("PASS native FIB publication: IPv4/IPv6 local ownership, DNAT stages, port-only redirect, raw isolation and retained replies");
+}
+static void local_output_publication(void) {
+    for (unsigned v6=0;v6<2;++v6) for (unsigned udp=0;udp<2;++udp) {
+        struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+        assert(n);
+        struct md_ip_address host,target;
+        assert(!md_network_profile_ip(v6 ? "2001:db8::1" : "192.0.2.1",&host));
+        assert(!md_network_profile_ip(v6 ? "2001:db8:2::1" : "198.51.100.1",&target));
+        struct md_network_interface *owner=md_network_route_find(n,target,NULL);
+        assert(owner && owner->info.index!=1);
+        unsigned bound=owner->info.index;
+        assert(!md_network_interface_address(owner,(struct md_network_ip_assignment){
+            .address=host,.prefix=v6 ? 64 : 24,.scope=RT_SCOPE_UNIVERSE},0,0));
+        struct md_filter_packet original={.source=md_ip_any(host.family),.destination=host,
+            .source_port=htons(32000),.destination_port=htons(18080),
+            .protocol=udp ? IPPROTO_UDP : IPPROTO_TCP,.state=8},p=original;
+        struct md_network_flow_path path;
+        assert(!md_network_flow_route(n,&p,0,0,&path) && path.destination==n->inode);
+        assert(md_ip_equal(p.source,host) && !path.mediated);
+        assert(path.steps[0].packet.output==1 && !strcmp(path.steps[0].packet.output_name,"lo"));
+        assert(path.steps[path.count-1].packet.input==bound);
+        struct md_filter_chain chain={.handle=1,.hook=NF_INET_LOCAL_OUT,.nat=1,.policy=NF_ACCEPT};
+        struct md_filter_rule rule={.chain=1,.count=3,.expressions={
+            {.code=MD_FILTER_META,.key=NFT_META_OIF,.size=4},
+            {.code=MD_FILTER_COMPARE,.operation=NFT_CMP_EQ,.size=4,.value={1}},
+            {.code=MD_FILTER_NAT,.operation=NFT_NAT_DNAT,.constant=1,.key=1,.aux=1,.nat_port=htons(8080)}}};
+        memcpy(rule.expressions[2].value,target.bytes,md_ip_size(target));
+        struct md_network_filter_table table={.family=NFPROTO_INET};
+        struct md_network_filter filter={.tables=&table,.count=1,.chains=&chain,.chain_count=1,.rules=&rule,.rule_count=1};
+        assert(!md_filter_validate(&filter));
+        n->filter=&filter;
+        for (unsigned scoped=0;scoped<2;++scoped) {
+            p=original;
+            assert(!md_network_flow_route(n,&p,0,scoped ? bound : 0,&path));
+            assert(p.dnat && md_ip_equal(p.destination,target) && md_ip_equal(p.source,host));
+            assert(p.destination_port==htons(8080) && path.steps[0].packet.output==1);
+            assert(path.steps[path.count-1].packet.output==bound);
+            assert(!md_network_flow_check(n->fabric,&path,0));
+            assert(!md_network_flow_check(n->fabric,&path,1));
+        }
+        p=original; p.destination=target;
+        assert(!md_network_flow_route(n,&p,0,0,&path) && !p.dnat && !path.mediated);
+        assert(path.steps[0].packet.output==bound);
+        n->filter=NULL; md_network_namespace_release(n);
+    }
+    puts("PASS local-output interface: IPv4/IPv6 TCP/UDP, source selection, scoped output, DNAT reroute and retained replies");
 }
 static void native_nat_update(void) {
     struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
@@ -1294,6 +1351,7 @@ void test_network_nft(void) {
     reverse_policy();
     nat_hook_order();
     native_fib_publication();
+    local_output_publication();
     native_nat_update();
     native_disjoint_update();
     struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);

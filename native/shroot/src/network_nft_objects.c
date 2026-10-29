@@ -412,6 +412,8 @@ static int elements(struct md_network_filter *f,const struct nlmsghdr *h,uint32_
         if (!key[NFTA_DATA_VALUE].data || key[NFTA_DATA_VALUE].flags || key[NFTA_DATA_VALUE].size!=s->key_size) return -EINVAL;
         struct md_filter_element element={.end=!!flags};
         memcpy(element.key,key[NFTA_DATA_VALUE].data,s->key_size);
+        /* Deletion selects only the key. Clients may echo the old value,
+         * which neither participates in matching nor acquires verdict edges. */
         if (operation!=NFT_MSG_DELSETELEM && (s->flags&NFT_SET_MAP) && !element.end) {
             if (s->data_size) {
                 struct attribute value[NFTA_DATA_MAX+1];
@@ -421,7 +423,7 @@ static int elements(struct md_network_filter *f,const struct nlmsghdr *h,uint32_
                 if (!error) memcpy(element.data,value[NFTA_DATA_VALUE].data,s->data_size);
             } else error=md_nft_verdict(f,s->table,&b[NFTA_SET_ELEM_DATA],&element.verdict);
             if (error) return error;
-        } else if (b[NFTA_SET_ELEM_DATA].data) return -EINVAL;
+        } else if (operation!=NFT_MSG_DELSETELEM && b[NFTA_SET_ELEM_DATA].data) return -EINVAL;
         size_t index=md_filter_set_position(s,element.key,element.end);
         int found=index<s->count && s->elements[index].end==element.end
             && !memcmp(element.key,s->elements[index].key,s->key_size);
