@@ -13,14 +13,14 @@ HELPERS = ("uinput_bridge", "pty_bridge", "mksh", "service_launcher", "process_s
 
 
 class VerifyApksTest(unittest.TestCase):
-    def verify(self, *extra_entries, omit_helper=None):
+    def verify(self, *extra_entries, omit_helper=None, pty_bytes=0):
         with tempfile.TemporaryDirectory() as directory:
             apk = Path(directory) / "fixture.apk"
             with zipfile.ZipFile(apk, "w") as archive:
                 for helper in HELPERS:
                     if helper == omit_helper:
                         continue
-                    archive.writestr(f"lib/arm64-v8a/libmagicdesk_{helper}.so", b"")
+                    archive.writestr(f"lib/arm64-v8a/libmagicdesk_{helper}.so", bytes(pty_bytes) if helper == "pty_bridge" else b"")
                 archive.writestr("lib/arm64-v8a/libXlorie.so", b"")
                 for entry in extra_entries:
                     archive.writestr(entry, b"")
@@ -44,6 +44,11 @@ class VerifyApksTest(unittest.TestCase):
                 result = self.verify(omit_helper=helper)
                 self.assertNotEqual(0, result.returncode)
                 self.assertIn(f"Core APK is missing libmagicdesk_{helper}.so", result.stderr)
+
+    def test_rejects_helper_too_large_for_termux_transfer(self):
+        result = self.verify(pty_bytes=512 * 1024 + 1)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("PTY helper exceeds the Termux transfer limit", result.stderr)
 
 
 if __name__ == "__main__":

@@ -88,12 +88,6 @@ android {
         jniLibs {
             // Shell launches the extracted helpers from nativeLibraryDir.
             useLegacyPackaging = true
-            keepDebugSymbols += [
-                    '**/libmagicdesk_uinput_bridge.so',
-                    '**/libmagicdesk_pty_bridge.so',
-                    '**/libmagicdesk_guest_files.so',
-                    '**/libmagicdesk_service_launcher.so'
-            ]
         }
     }
 
@@ -112,6 +106,7 @@ android.sourceSets.main.assets.srcDir layout.buildDirectory.dir('generated/proje
 tasks.named('preBuild').configure { dependsOn packageProjectLicenses }
 
 apply from: rootProject.file('gradle/native-helpers.gradle')
+apply from: rootProject.file('gradle/native-packaging.gradle')
 apply from: rootProject.file('gradle/launcher-template.gradle')
 
 def compileTestSupport = tasks.register('compileTestSupport', JavaCompile) {

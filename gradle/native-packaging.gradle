@@ -1,0 +1,18 @@
+// AGP uses the desktop NDK stripper. Termux has a native LLVM tool instead.
+// Operate on AGP's packaging copies, retaining compiler outputs for diagnostics.
+def prefix = providers.environmentVariable('PREFIX').orNull
+if (prefix != null && prefix.startsWith('/data/data/com.termux/')) {
+    def stripper = file("${prefix}/bin/llvm-strip")
+    def process = providers
+    tasks.matching { it.name.startsWith('strip') && it.name.endsWith('DebugSymbols') }.configureEach {
+        inputs.file(stripper).withPropertyName('termuxNativeStripper')
+        doLast {
+            def libraries = outputs.files.asFileTree.matching { include '**/*.so' }.files.sort()
+            if (!libraries.isEmpty()) {
+                process.exec {
+                    commandLine([stripper.absolutePath, '--strip-unneeded'] + libraries.collect { it.absolutePath })
+                }.result.get().assertNormalExitValue()
+            }
+        }
+    }
+}

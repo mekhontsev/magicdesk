@@ -35,6 +35,13 @@ for helper in uinput_bridge pty_bridge mksh service_launcher process_signal gues
         }
 done
 
+# Termux receives this helper through its bounded RUN_COMMAND Binder request.
+pty_bytes=$(unzip -p "$core_apk" lib/arm64-v8a/libmagicdesk_pty_bridge.so | wc -c)
+if [ "$pty_bytes" -gt 524288 ]; then
+    printf 'Core APK PTY helper exceeds the Termux transfer limit: %s bytes\n' "$pty_bytes" >&2
+    exit 1
+fi
+
 if printf '%s\n' "$core_contents" | grep -q '\.ko$'; then
     printf 'Core APK must not contain a kernel module\n' >&2
     exit 1

@@ -98,8 +98,12 @@ If Gradle cannot locate the Android SDK, create an untracked
 sdk.dir=/absolute/path/to/android-sdk
 ```
 
-Termux builds use `$PREFIX/bin/clang` and do not require the desktop NDK
-toolchain. On Linux, Wayland's pinned native dependencies are cross-compiled
+Termux builds use `$PREFIX/bin/clang` and `$PREFIX/bin/llvm-strip` and do not
+require the desktop NDK toolchain. APK packaging strips debug sections and
+unneeded symbols on every build host; compiler outputs remain available in
+build directories for diagnostics. Dynamic loader symbols and unwind data are
+retained. `scripts/verify-apks.sh` also checks the PTY helper's transfer size.
+On Linux, Wayland's pinned native dependencies are cross-compiled
 with the NDK as part of the Gradle build. The host protocol scanner is built
 separately; no system Wayland development libraries are required. On Windows,
 provide an exported ARM64 runtime from a Linux/Termux build through
