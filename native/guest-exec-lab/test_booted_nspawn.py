@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the full machinectl fixture in a retained installed systemd environment.
+"""Run machinectl boot or command-only nspawn in an installed systemd environment.
 
 Use an existing machine or a disposable image extracted from a supplied rootfs
 with systemd, dbus, iproute2 and Python. No unit overrides or sandbox switches
@@ -16,7 +16,13 @@ def main():
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument('--machine')
     source.add_argument('--archive', type=Path)
+    parser.add_argument('--command', action='store_true', help='test command mode using an existing machine image')
     args = parser.parse_args()
+    if args.command:
+        if not args.machine:
+            parser.error('--command requires --machine')
+        run_fixture(args.session, 'nspawn-command', ['--machine', args.machine])
+        return
     if args.archive:
         run_fixture(args.session, 'nspawn', ['--archive', args.archive], [args.archive])
     else:

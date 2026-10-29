@@ -117,6 +117,10 @@ its own container from a systemd/D-Bus/iproute2/Python rootfs. The latter two
 share readiness and TCP/UDP assertions and run three boot/service/network/stop
 cycles, including forced termination. Retain original application sandbox
 policy; successful command-only startup is not boot acceptance.
+Add `--command` to the nspawn fixture to check command mode with an existing
+machine image: private users/PID/mount/network namespaces, read-only and writable
+binds, outbound and published TCP/UDP, normal exit, killed leader, and removal
+of nftables publications and veth interfaces across three launches.
 
 Graphical `installed_desktop.py` sessions hold a 30-minute awake lease on their
 own virtual display, renewed by `run`, `attach` and `capture`. A phone-screen

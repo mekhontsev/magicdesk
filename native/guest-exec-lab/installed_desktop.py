@@ -75,6 +75,13 @@ def keep_display_awake(client, state, statefile, display=None):
         return
     previous = state.get('awakeDisplayId', state['display']['id'])
     selected = previous if display is None else display
+    if state.get('awakeLease'):
+        current = client.call('get_state')['automationAwake']
+        if not current.get('held'):
+            del state['awakeLease']
+            statefile.write_text(json.dumps(state, indent=2))
+        elif current.get('leaseId') != state['awakeLease']:
+            raise RuntimeError('another awake lease is held')
     if selected != previous and state.get('awakeLease'):
         client.call('device.release_awake', dict(leaseId=state['awakeLease']))
         del state['awakeLease']
@@ -275,8 +282,11 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
         command = shlex.join([binary + '/script', '-q', '-e', '-c', boot_command, '/dev/null'])
         recipe = subprocess.check_output(['java', '-cp', str(classes),
             'io.github.mekhontsev.magicdesk.GraphicalRecipe', 'routed', 'wayland', store, '/root', command, '0:0'], text=True)
-        connections = subprocess.check_output(['java', '-cp', str(classes),
+        # The installed shroot wrapper owns connection forwarding; a staged
+        # native runner needs these arguments supplied by the fixture.
+        connections = (subprocess.check_output(['java', '-cp', str(classes),
             'io.github.mekhontsev.magicdesk.GraphicalRecipe', 'connections'], text=True)
+            if args.build else '')
         wrapper = out / 'shroot'
         wrapper.write_text('#!/system/bin/sh\nmd_run() {\n' + connections + 'exec '
             + shlex.join([suite.runner, *(['--diagnostics'] if args.diagnostics else []),

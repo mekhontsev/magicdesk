@@ -5,7 +5,7 @@ or a claim that all tests are automated. Keep every distribution printed by
 `sh scripts/install_linux.sh --list` in every table. Results do not transfer
 between distributions sharing a package manager, libc or init system.
 
-Last reconciled: 2026-10-28. Current device evidence uses NX809J, Android 16,
+Last reconciled: 2026-10-29. Current device evidence uses NX809J, Android 16,
 Linux 6.12.23, 4 KiB pages and Android shell UID 2000. This does not cover the
 minimum supported kernel 5.15, other firmware or Android root execution.
 
@@ -89,8 +89,8 @@ Cell order: **Shroot (lazy SVC) / Base**; N = not run.
 | openkylin | P/N | P/N | P/N | P/N | P/N |
 | deepin | P/N | P/N | P/N | P/N | P/N |
 | manjaro | P/N | P/N | P/N | P/N | P/N |
-| void | P/N | N/N | P/N | P/N | I/N |
-| armtix | P/N | P/N | P/N | P/N | N/N |
+| void | P/N | U/N | P/N | P/N | P/N |
+| armtix | P/N | P/N | P/N | P/N | P/N |
 | nixos | P/N | P/N | P/N | P/N | P/N |
 | steamos | P/N | I/N | I/N | I/N | P/N |
 
@@ -311,6 +311,9 @@ composition/WebGL and crashes, not only a renderer string. Portal acceptance
 also needs file selection/readback, document grants, FUSE lifetime and cleanup.
 Record the packaging backend for each portal result; a Flatpak result does not
 certify Snap. Snap's documented degraded mode is not AppArmor enforcement.
+Portal lifecycle coverage distinguishes graceful daemon exit, auto-unmount after
+daemon death and whole-service restart. The expanded Fedora receipt covers all
+three; older graceful-exit receipts do not imply coverage of the other two.
 
 Cell order: **Shroot (lazy SVC) / Base**; N = not run, U = confirmed upstream defect.
 Snap is selected on Ubuntu only; `-` marks other distributions outside that scope.
@@ -320,7 +323,7 @@ Snap is selected on Ubuntu only; `-` marks other distributions outside that scop
 | debian | P/N | P/N | - | - | U/N |
 | ubuntu | N/N | N/N | P/N | P/N | P/N |
 | alpine | P/N | P/N | NA/NA | NA/NA | U/N |
-| fedora | I/N | I/N | - | - | P/N |
+| fedora | P/N | P/N | - | - | P/N |
 | arch | P/N | P/N | - | - | P/N |
 | opensuse | P/N | P/N | - | - | P/N |
 | openkylin | P/N | P/N | - | - | P/N |
@@ -349,7 +352,7 @@ Cell order: **Shroot (lazy SVC) / Base**; N = not run.
 | debian | I/N | N/N | N/N | P/N | N/N | N/N | - |
 | ubuntu | I/N | N/N | N/N | P/N | N/N | N/N | - |
 | alpine | I/N | P/N | P/N | I/N | N/N | N/N | - |
-| fedora | I/N | N/N | N/N | P/N | N/N | N/N | - |
+| fedora | U/N | N/N | N/N | P/N | N/N | N/N | - |
 | arch | I/N | N/N | N/N | I/N | N/N | N/N | - |
 | opensuse | I/N | N/N | N/N | P/N | N/N | N/N | - |
 | openkylin | I/N | N/N | N/N | P/N | N/N | N/N | - |
@@ -376,19 +379,21 @@ Cell order: **Shroot (lazy SVC) / Base**; N = not run.
 
 | Recipe ID | nspawn command | machinectl boot/lifecycle | BuildKit | LXC | LTP core |
 | --- | --- | --- | --- | --- | --- |
-| debian | N/N | P/N | P/N | P/N | P/N |
-| ubuntu | N/N | P/N | P/N | P/N | P/N |
+| debian | P/P | P/N | P/N | P/N | P/N |
+| ubuntu | P/P | P/N | P/N | P/N | P/N |
 | alpine | NA/NA | NA/NA | P/N | P/N | P/N |
-| fedora | N/N | P/N | P/N | P/N | P/N |
-| arch | I/N | P/N | P/N | P/N | P/N |
-| opensuse | N/N | P/N | P/N | P/N | P/N |
-| openkylin | N/N | P/P | P/N | P/N | P/P |
-| deepin | N/N | P/N | P/N | P/N | P/N |
-| manjaro | N/N | P/N | P/N | P/N | P/N |
+| fedora | P/P | P/N | P/N | P/N | P/N |
+| arch | P/P | P/N | P/N | P/N | P/N |
+| opensuse | P/P | P/N | P/N | P/N | P/N |
+| openkylin | P/P | P/P | P/N | P/N | P/P |
+| deepin | P/P | P/N | P/N | P/N | P/N |
+| manjaro | P/P | P/N | P/N | P/N | P/N |
 | void | N/N | N/N | P/N | P/N | P/N |
 | armtix | N/N | N/N | P/N | P/N | P/N |
-| nixos | N/N | P/N | P/N | P/N | P/N |
-| steamos | N/N | P/N | P/N | P/N | P/N |
+| nixos | P/P | P/N | P/N | P/N | P/N |
+| steamos | P/P | P/N | P/N | P/N | P/N |
+
+The command-mode results have separate [per-distribution receipts](distribution-evidence.md#nspawn-command-mode).
 
 ### Workload Contracts
 

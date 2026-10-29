@@ -25,9 +25,10 @@ canvas{display:block;border:1px solid black}</style>
 <canvas width="320" height="160" id="gpu"></canvas><pre id="result"></pre>
 <script>
 function report(type,value){fetch('/receipt',{method:'POST',body:JSON.stringify({type,value})})}
-document.addEventListener('pointerdown',event=>report('pointerdown',{
+for(const type of ['pointerdown','pointerup','click']) document.addEventListener(type,event=>report(type,{
  target:event.target.tagName,type:event.target.type||'',x:event.clientX,y:event.clientY,
- screenX:event.screenX,screenY:event.screenY,rect:event.target.getBoundingClientRect().toJSON()}));
+ screenX:event.screenX,screenY:event.screenY,button:event.button,buttons:event.buttons,
+ trusted:event.isTrusted,time:event.timeStamp,rect:event.target.getBoundingClientRect().toJSON()}));
 const gl=document.getElementById('gpu').getContext('webgl2');
 if(gl){gl.clearColor(0,1,0,1);gl.clear(gl.COLOR_BUFFER_BIT);
 const pixel=new Uint8Array(4);gl.readPixels(2,2,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);

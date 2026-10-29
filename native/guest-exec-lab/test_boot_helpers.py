@@ -19,6 +19,7 @@ from test_os_boot import check_runit_boot, check_systemd_boot
 from test_nixos_boot import boot_script
 from test_snap import PREPARE as SNAP_PREPARE
 from test_booted_libvirt import prepare_libvirt
+import test_booted_nspawn
 
 sys.path.insert(0, str(Path(__file__).with_name('fixtures')))
 from network_exchange import exchange, inbound_port
@@ -26,6 +27,37 @@ from systemd_ready import wait_systemd
 
 
 class BootHelpers(unittest.TestCase):
+    def test_nspawn_leader_matches_parent_and_namespace_without_procps(self):
+        children = runpy.run_path(str(Path(__file__).with_name('fixtures') /
+                                     'nspawn-command-boot.py'))['namespace_children']
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for pid, parent, namespace in ((11, 10, 'pid:[2]'), (12, 9, 'pid:[2]'),
+                                           (13, 10, 'pid:[1]')):
+                task = root / str(pid)
+                (task / 'ns').mkdir(parents=True)
+                (task / 'status').write_text(f'Name:\tchild\nPPid:\t{parent}\n')
+                (task / 'ns/pid').symlink_to(namespace)
+            (root / '14').mkdir()  # A child may disappear during enumeration.
+            (root / 'self').symlink_to('11')
+            self.assertEqual([11], children(10, 'pid:[2]', root))
+            self.assertEqual([], children(9, 'pid:[1]', root))
+
+    def test_nspawn_command_uses_separate_fixture(self):
+        with patch.object(sys, 'argv', ['nspawn', '--session', 'session.json',
+                                      '--machine', 'test-image', '--command']), \
+                patch.object(test_booted_nspawn, 'run_fixture') as launch:
+            test_booted_nspawn.main()
+            launch.assert_called_once_with(Path('session.json'), 'nspawn-command', ['--machine', 'test-image'])
+
+    def test_nspawn_command_rejects_archive_before_launch(self):
+        with patch.object(sys, 'argv', ['nspawn', '--session', 'session.json',
+                                      '--archive', 'rootfs.tar', '--command']), \
+                patch.object(test_booted_nspawn, 'run_fixture') as launch, \
+                patch.object(sys, 'stderr', io.StringIO()), self.assertRaises(SystemExit):
+            test_booted_nspawn.main()
+        launch.assert_not_called()
+
     def test_fixture_attach_reuses_only_its_live_window_on_selected_display(self):
         for hosts, opens in (([], True),
                              ([dict(attached=True, windowId=3, displayId=7)], False),
@@ -73,6 +105,8 @@ class BootHelpers(unittest.TestCase):
         client.call.assert_called_once_with('device.keep_awake',
                                            dict(displayId=7, durationMillis=1800000))
         self.assertEqual('fixture-lease', json.loads(statefile.write_text.call_args.args[0])['awakeLease'])
+        client.call.side_effect = [dict(automationAwake=dict(held=True, leaseId='fixture-lease')),
+                                  dict(held=True, displayId=7, leaseId='fixture-lease')]
         keep_display_awake(client, state, statefile)
         client.call.assert_called_with('device.keep_awake',
             dict(displayId=7, durationMillis=1800000, leaseId='fixture-lease'))
@@ -90,10 +124,14 @@ class BootHelpers(unittest.TestCase):
 
     def test_graphical_fixture_can_switch_its_lease_to_phone(self):
         client, statefile = Mock(), Mock()
-        client.call.return_value = dict(held=True, displayId=0, leaseId='phone-lease')
+        client.call.side_effect = [dict(automationAwake=dict(held=True, leaseId='fixture-lease')),
+                                  {}, dict(held=True, displayId=0, leaseId='phone-lease'),
+                                  dict(automationAwake=dict(held=True, leaseId='phone-lease')),
+                                  dict(held=True, displayId=0, leaseId='phone-lease')]
         state = dict(display=dict(id=7), awakeLease='fixture-lease')
         keep_display_awake(client, state, statefile, 0)
         self.assertEqual([
+            call('get_state'),
             call('device.release_awake', dict(leaseId='fixture-lease')),
             call('device.keep_awake', dict(displayId=0, durationMillis=1800000)),
         ], client.call.call_args_list)
@@ -105,12 +143,32 @@ class BootHelpers(unittest.TestCase):
 
     def test_graphical_fixture_retains_old_lease_if_release_fails(self):
         client, statefile = Mock(), Mock()
-        client.call.side_effect = RuntimeError('lease ownership changed')
+        client.call.side_effect = [dict(automationAwake=dict(held=True, leaseId='fixture-lease')),
+                                  RuntimeError('lease ownership changed')]
         state = dict(display=dict(id=7), awakeLease='fixture-lease')
         with self.assertRaises(RuntimeError):
             keep_display_awake(client, state, statefile, 0)
         self.assertEqual('fixture-lease', state['awakeLease'])
-        self.assertEqual(1, client.call.call_count)
+        self.assertEqual(2, client.call.call_count)
+        statefile.write_text.assert_not_called()
+
+    def test_graphical_fixture_reacquires_expired_lease(self):
+        client, statefile = Mock(), Mock()
+        client.call.side_effect = [dict(automationAwake=dict(held=False)),
+                                  dict(held=True, displayId=7, leaseId='new-lease')]
+        state = dict(display=dict(id=7), awakeLease='expired-lease')
+        keep_display_awake(client, state, statefile)
+        client.call.assert_called_with('device.keep_awake',
+                                       dict(displayId=7, durationMillis=1800000))
+        self.assertEqual('new-lease', state['awakeLease'])
+
+    def test_graphical_fixture_does_not_replace_successor_lease(self):
+        client, statefile = Mock(), Mock()
+        client.call.return_value = dict(automationAwake=dict(held=True, leaseId='other-lease'))
+        state = dict(display=dict(id=7), awakeLease='expired-lease')
+        with self.assertRaisesRegex(RuntimeError, 'another awake lease'):
+            keep_display_awake(client, state, statefile)
+        client.call.assert_called_once_with('get_state')
         statefile.write_text.assert_not_called()
 
     def test_installed_nixos_uses_selected_generation(self):

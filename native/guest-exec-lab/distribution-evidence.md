@@ -232,9 +232,10 @@ cancellation and cleanup pass. Rootless/containerd workers remain untested
 
 ### Ubuntu LTP core
 
-`build/installed-ubuntu-fuse/oci-services-3d557e66a2b7460c8cdc237c7648c468.json`;
+`build/installed-ubuntu-fuse/oci-services-3acf3b49e1084f26bbdd2f1b68f7d549.json`;
 reviewed 20250930 built with the Ubuntu compiler/glibc, all seven tests pass as the
-installed ordinary user `ubuntu`, UID 1000
+installed ordinary user `ubuntu`, UID 1000. This 2026-10-29 run uses supervisor
+`b0148a1e87610d7ccceece4054d25fa70205a25f398532aba009f98eea97a2a3`.
 
 ### Ubuntu cold Snap Chromium
 
@@ -246,17 +247,14 @@ helper deadline is unchanged; substantial cold-start margin remains open.
 
 ### Ubuntu Snap Chromium GUI
 
-`build/installed-ubuntu-fuse/ubuntu-chromium-mounted-20261027/gui-report.json` and
-`ubuntu-chromium-relaunch-20261027/gui-report.json`; stock Chromium 156.0.8078.47
+`build/installed-ubuntu-fuse/ubuntu-chromium-20261029/gui-report.json` and
+`ubuntu-chromium-relaunch-20261029/gui-report.json`; stock Chromium 156.0.8078.47
 revision 3572, guest UID 1000 and Wayland. Input, download/chooser readback, WebGL
 pixels, normal close and same-profile relaunch pass, using Zink/Turnip on Adreno 840.
-The staged session `0b1a33089aa240b3b483448d9edff751` uses supervisor
-`4d767e676e7f44d7f62a19cbf9d076bba0e719bc79c588a14bd7e24a6e691cdd`;
-it does not certify later proc-cwd changes. Renderer inspection
-`a43f604cf4f141e699180beee209119a.log` records UID 1000, seccomp, NNP and nested PIDs.
-These receipts do not recapture the `chrome://gpu` composition/sandbox counters.
-The separate `ubuntu-chromium-sandbox-final` and `ubuntu-chromium-sandbox-relaunch`
-GPU reports cover those counters on their recorded runtime. Recipe Mesa uses the
+The staged session `4e76303e2d1e4239a5701813b7ae6f73` uses supervisor
+`b0148a1e87610d7ccceece4054d25fa70205a25f398532aba009f98eea97a2a3`.
+The first directory's `gpu.txt` records hardware composition/rasterization,
+`Sandboxed: true` and zero GPU-process crashes. Recipe Mesa uses the
 common deferred-queue patch and the standard GPU content publisher;
 `bb4e82b4e74a479b8ecbb46e50a02424.log` checks matching installed/published library
 hashes. `ab2742619b54423a994fd4edef28a78a.log` covers two package/connection switches
@@ -275,22 +273,29 @@ document-portal GUI acceptance
 
 ### Ubuntu Snap Firefox
 
-`build/installed-ubuntu-fuse/ubuntu-firefox-20261027/gui-report.json` covers fresh
-Firefox 158.0.1-1 revision 9112. Ordinary UID 1000, stock sandbox, input, download,
-chooser/readback, WebGL green pixels and normal exit pass. Firefox masks its
-WebGL renderer string; that string alone does not identify the physical GPU.
-`9e8b345a456142ab87914ca5e852ada4.log` records content-process UID 1000, NNP
-and seccomp. Same-profile relaunch also passes in
-`ubuntu-firefox-relaunch-cwd-20261027/gui-report.json`, with the current proc-path
-runtime (supervisor `89f3906ac152537a10a485acd80161755becc7d37a913387836e65419ee21181`).
+`build/installed-ubuntu-fuse/ubuntu-firefox-20261029/gui-report.json` and
+`ubuntu-firefox-relaunch-20261029/gui-report.json` cover fresh and reused profiles
+of Firefox 158.0.1-1 revision 9112. Ordinary UID 1000, input, download,
+chooser/readback, WebGL green pixels and normal exit pass on the same staged
+runtime as Chromium above. The first directory's `support.json` records hardware
+WebRender on Zink/Turnip Adreno 840, content sandbox level 6, seccomp TSYNC and an
+empty sandbox syscall log. The privacy-reduced WebGL renderer string is not GPU
+identity. The fresh run opened the chooser by keyboard after two ineffective mouse
+activations; repeated mouse activation, including Recent-file selection, passes in
+the relaunch. Its `receipts.jsonl` retains pointer down/up/click ordering; the
+initial activation discrepancy has no diagnosed cause yet.
 Package refresh/hook coverage is separate in `build/ubuntu-firefox-refresh-resolved.log`.
 
 ### Ubuntu Snap portal
 
-`build/installed-ubuntu-fuse/ubuntu-portal-cwd-20261027.json`; two ordinary-user Snap
-document grant/read/write/revoke and SIGTERM/reactivation rounds pass,
-including exact portal exit and FUSE mount removal. Firefox GUI receipts
-separately cover chooser/readback. This rerun uses the current proc-path runtime.
+`build/installed-ubuntu-fuse/ubuntu-portal-disconnect-ready-20261029.json` (Firefox)
+and `ubuntu-chromium-portal-20261029.json` (Chromium) use stock
+xdg-desktop-portal 1.18.4-1ubuntu2.24.04.3 and libfuse3 3.14.0-5build1 on the
+staged runtime above. Each passes real Snap document grant/read/write/revoke,
+two SIGTERM/reactivation rounds, daemon SIGKILL with helper auto-unmount, and
+whole user-service restart/stop with subsequent D-Bus activation. Exact daemon
+and helper exits and FUSE mount removal are asserted. Browser GUI receipts
+separately cover chooser/readback.
 
 ### Ubuntu VS Code
 
@@ -329,19 +334,22 @@ not certify the default OS target
 
 ## Alpine
 
-The current OpenRC system-workload and Flatpak GUI reruns use staged supervisor
+The broader OpenRC system-workload reruns use staged supervisor
 `729b3c3b988519fa72d1a6cbc4f038ef72c918b70358c5f2491095fef88ac578`.
 System receipts below are `build/installed-alpine-turnip/oci-services-ID.json`:
 
 | Workload | Passing receipt ID |
 | --- | --- |
-| Docker 29.5.2 / OpenRC | `04ff797374fd4321812dfbd728f2930f` |
-| Podman 5.7.0 | `8f6ae5c4fa2c40fead06d7d70515fd0e` |
 | Managed Libvirt/QEMU | `fc0fdbdf10d9441bb2606d6a7a94e644` |
 | Direct QEMU TCG | `41590da972504ea7bb4da1c136173b5b` |
 | BuildKit build/cache/secret/export/cancel | `d4b8e4b89a2c46c892074ff0e8735f8f` |
 | LXC lifecycle and bridge | `c73b29ff9da94cc7ba41c1565f9a75eb` |
 | LTP core as ordinary user | `259c87c578e84fe98cb5163dc574cd30` |
+
+Docker, Podman, Firefox and focused portal results below use the 2026-10-29
+staged Release supervisor
+`a5d46e41c30ee2af9da368e39cc55012d00106eb5649e9ec292002e52cf19ae3`.
+They do not transfer the broader suite to that build.
 
 The 2026-10-26 rerun retains the recipe-installed musl environment and OpenRC.
 System receipts contain their staged native hashes; the graphical rerun uses
@@ -368,28 +376,20 @@ bare-metal runlevels
 
 ### Booted Alpine Docker
 
-Current supervisor
-`729b3c3b988519fa72d1a6cbc4f038ef72c918b70358c5f2491095fef88ac578`
-passes the stock Docker 29.5.2/OpenRC workflow:
-`build/installed-alpine-turnip/oci-services-04ff797374fd4321812dfbd728f2930f.json`.
-
-`build/installed-alpine-turnip/oci-services-8385eed645a34a66a39a347dc9e01a12.json`;
+`build/installed-alpine-turnip/oci-services-d63a3c032c9e4334bb6fc6ffc266d683.json`;
 Docker 29.5.2, stock OpenRC service without daemon.json, default containerd
 snapshotter/overlayfs and iptables-nft frontend; bridge TCP/UDP, peer names, local
-outbound, binds/exec, port conflicts and release. External internet/DNS are not
-revalidated in this run. Explicit nftables/no-userland-proxy configuration is a
-separate test profile
+outbound, binds/exec, port conflicts and release pass. Both containers also pass
+internet access and 20 external DNS requests each; the service remains running
+after test cleanup. Explicit nftables/no-userland-proxy configuration is a
+separate test profile.
 
 ### Booted Alpine Podman
 
-Podman 5.7.0 repeats the full local bridge/container contract with supervisor
-`729b3c3b988519fa72d1a6cbc4f038ef72c918b70358c5f2491095fef88ac578`:
-`build/installed-alpine-turnip/oci-services-8f6ae5c4fa2c40fead06d7d70515fd0e.json`.
-
-`build/installed-alpine-turnip/oci-services-564387232ecd4f7bb484033df4e491d6.json`;
+`build/installed-alpine-turnip/oci-services-41f2b93881024d66af9694326c65c8d1.json`;
 OpenRC, Podman 5.7.0, overlay, bridge with iptables frontend, stock seccomp and enabled
-cgroups; TCP/UDP, peer names, local outbound, binds/exec, conflicts and port release.
-External internet/DNS are not revalidated in this run. Installing its
+cgroups; TCP/UDP, peer names, local outbound, binds/exec, conflicts and port release
+pass, including internet access and 20 external DNS requests per container. Installing its
 unconditional INPUT counter while Chromium already owns direct connections remains
 blocked with EBUSY; this pass starts Podman before browser traffic
 
@@ -455,6 +455,13 @@ not certify document grants or Flatpak
 
 ### Alpine Flatpak browsers and portal
 
+The 2026-10-29 `alpine-firefox-20261029/gui-report.json` and
+`alpine-firefox-relaunch-20261029/gui-report.json`, under
+`build/installed-alpine-turnip/`, pass all six GUI assertions for stock Firefox
+159.0, with fresh and reused profiles. The first directory's `support.json`
+confirms hardware WebRender, Zink/Turnip on Adreno 840, content sandbox level 6
+and an empty sandbox syscall log. No browser sandbox bypass is used.
+
 The staged 2026-10-27 session uses stock Flatpak 1.16.6-r0 and its portal.
 With supervisor `729b3c3b988519fa72d1a6cbc4f038ef72c918b70358c5f2491095fef88ac578`,
 `alpine-chromium-debugger-recovery/gui-report.json` and
@@ -483,15 +490,18 @@ are independently qualified above and below.
 With supervisor `89f3906ac152537a10a485acd80161755becc7d37a913387836e65419ee21181`,
 `37bb4743dcb8427692bfa82eba768e4e.log` covers stock `flatpak enter` into a live
 private working directory plus document grants/read/write/revoke. Portal lifecycle
-is **U (upstream defect)**: `alpine-portal-cwd-20261027.json` records a second-round
-SIGTERM timeout with packaged xdg-desktop-portal 1.20.3-r4.
-`a567ae7a25174a2c8f8943525dc1ed4c.log` shows `g_main_loop_quit` taking its
+is **U (upstream defect)**: `alpine-portal-20261029.json` records a second-round
+SIGTERM timeout with packaged xdg-desktop-portal 1.20.3-r4 and libfuse 3.18.3-r0.
+`00357410390d4f88bb3f5f825dec66e4.log` shows `g_main_loop_quit` taking its
 interrupted main-context mutex from the signal handler, matching upstream
 [shutdown deadlock #1896](https://github.com/flatpak/xdg-desktop-portal/pull/1896).
 The current Alpine v3.23 package still contains that handler; the installed
 binary passes `apk audit`. No delivery timing change in Shroot or installer
 source build substitutes for the upstream fix. Forced cleanup of the failed
 test process is not a passing portal exit.
+The separate `alpine-portal-auto-unmount-20261029.json` passes actual sandbox
+grants/read/write/revocation, daemon SIGKILL, surviving helper exit and automatic
+mount removal. It does not certify graceful shutdown or change the U status.
 
 ### Alpine Flatpak VS Code
 
@@ -512,9 +522,12 @@ alone does not establish editor lifetime or readiness.
 
 ## Fedora
 
-The 2026-10-26 boot, system-workload and GUI reruns below use staged Release supervisor
+The 2026-10-29 browser update, machinectl, LXC, Libvirt/QEMU,
+BuildKit and LTP reruns use staged Release supervisor
+`b0148a1e87610d7ccceece4054d25fa70205a25f398532aba009f98eea97a2a3`,
+default lazy entry and Android shell UID 2000. The older receipts use
 `f54519b2c71a2b55d79eed69fd9af3eaeb056a0085a787dce9f58497a57c5bc6`,
-default lazy entry and Android shell UID 2000. Base is not covered by this batch.
+unless specified separately. Base is not covered by this batch.
 
 ### Fedora recipe and packages
 
@@ -532,29 +545,42 @@ Full recipe discovery and desktop acceptance remain separate.
 
 ### Fedora Flatpak Firefox
 
-`build/installed-fedora-turnip/fedora-firefox-20261026/gui-report.json` and
-`fedora-firefox-relaunch-20261026/gui-report.json`; Firefox 158.0.1 with the
-matching lab-built SDK Mesa, ordinary sandbox and normal vsync. Fresh and
+`build/installed-fedora-turnip/fedora-firefox-update-20261029/gui-report.json` and
+`fedora-firefox-update-relaunch-20261029/gui-report.json`; Firefox 159.0 with
+SDK Mesa 26.2.3, ordinary sandbox and normal vsync. Fresh and
 same-profile launches pass keyboard/pointer, download, GUI file selection/readback,
-WebGL pixels and normal close. Its privacy-masked WebGL renderer is not hardware
-composition evidence. Package update lifecycle and hardware WebRender remain
-separate acceptance work. Selection from GTK Recent after a portal restart has
-also produced a read-permission error; the passing rerun selected the source file
-by its full path. That Recent-entry workflow is not certified.
+WebGL pixels and normal close. `fedora-firefox-update-relaunch-20261029/support.json` confirms
+hardware WebRender through Zink/Turnip on Adreno 840, Wayland and effective
+content sandbox level 6. The WebGL page's privacy-masked renderer alone is not
+hardware evidence. Ordinary Flatpak update from 158.0.1 to 159.0 is recorded in
+`ace6f2b3e42d45a5b7d9bc61ec633859.log`.
+
+`fedora-firefox-current-gl-20261029/gui-report.json` additionally passes all six
+checks after selecting the same current immutable Mesa prefix as Chromium below.
 
 ### Fedora Flatpak Chromium
 
-`build/installed-fedora-turnip/fedora-chromium-20261026/gui-report.json` and
-`fedora-chromium-relaunch-20261026/gui-report.json`; Chromium 156.0.8078.47,
+`build/installed-fedora-turnip/fedora-chromium-current-gl-fresh-20261029/gui-report.json` and
+`fedora-chromium-current-gl-relaunch-20261029/gui-report.json`; Chromium 156.0.8078.73,
 ordinary UID 1000, stock Flatpak launcher, no sandbox-disabling switches. Both
 runs pass input, download, chooser/readback, exact green WebGL pixels and normal
-close; the second reuses the profile. `fedora-chromium-20261026/gpu.txt` reports
-hardware composition through Zink/Turnip on Adreno 840 and zero GPU-process
-crashes, but its GPU `Sandboxed` field is false. This is not full GPU-sandbox
-acceptance. `fedora-chromium-sandbox-20261026.png` separately records
+close; the second reuses the profile. `fedora-chromium-current-gl-fresh-20261029/gpu.txt`
+reports hardware composition through Zink/Turnip on Adreno 840, GPU sandbox
+enabled and zero GPU-process crashes. This uses the current recipe's Mesa queue
+patch, lab-built in the matching SDK; publication and library hashes are in
+`fedora-mesa-publication.json`. The selected immutable prefix is
+`/opt/magicdesk/mesa/26.2.3-d6f0e8f2b2c05a07fa1a60537509f700b018a3a97fad45fa8e615bdccebf443a`.
+Current helper format 5 and the installed Flatpak trigger retain that selection
+(`90cd41da371643cda837120a718e18a3.log`, `608c7809c9bb423cb572b15522492a9f.log`).
+The host ABI probe also passes; the SDK build additionally requires the packaged
+`xcb-util-keysyms` dependency in Fedora. This is explicit lab SDK preparation,
+not a second automatic Mesa compilation in the recipe.
+The ordinary Flatpak update from 156.0.8078.47 is recorded in
+`ace6f2b3e42d45a5b7d9bc61ec633859.log`.
+`fedora-chromium-sandbox-20261026.png` separately records
 `chrome://sandbox`: Flatpak layer 1, PID/network namespaces and seccomp-BPF/TSYNC
 reported active. Live renderer status in `123de3b6e6444d07ab9a73c346deb40d.log`
-confirms UID 1000, NNP=1 and Seccomp=2. Package update lifecycle remains untested.
+confirms UID 1000, NNP=1 and Seccomp=2.
 
 ### Fedora default boot/services
 
@@ -572,26 +598,36 @@ additionally covers hostnamectl on a later staged runtime
 
 ### Booted Fedora Docker
 
-`build/installed-fedora-turnip/oci-services-230b55d48f2d47a3aea023809c770f7c.json`;
+`build/installed-fedora-turnip/oci-services-4d3af74ecbd846d38873e493f4210927.json`;
 stock Docker 29.8.2 service, containerd 2.3.5 overlayfs snapshotter, runc 1.5.2 and
-recipe-selected iptables-nft frontend. Cold image pull, IPv4 bridge, TCP/UDP
+recipe-selected iptables-nft frontend, supervisor `7ae767cc...` as in the nspawn
+receipt below. Image availability, IPv4 bridge, TCP/UDP
 publication, peer IP/names, binds/exec, conflicts/release and internet with 20 external
 DNS queries per container pass; native Docker nftables backend and IPv6 are not covered
 
 ### Booted Fedora Podman
 
-`build/installed-fedora-turnip/oci-services-910d61acf6fd4130a07f4c9d42372b08.json`;
-stock seccomp, enabled cgroups, overlay and bridge. TCP/UDP publication, local outbound,
+`build/installed-fedora-turnip/oci-services-121d49b963a1493faea0bd3a9e601c5b.json`;
+Podman 5.8.9, stock seccomp, enabled cgroups, overlay and bridge. TCP/UDP publication, local outbound,
 peer IP/names, binds/repeated exec, conflicts/release and internet with 20 external DNS
-queries per container pass
+queries per container pass; supervisor `7ae767cc...` as in the nspawn receipt below
 
 ### Fedora desktop/VS Code
 
-`build/installed-fedora-turnip/fedora-vscode-20261026/gui-report.json`; Weston/user
+`build/installed-fedora-turnip/fedora-vscode-current-20261029/gui-report.json`; Weston/user
 systemd session and VS Code 1.140.0 editor/save, external watcher, PTY, GDB
 breakpoint/step/locals, window reload and normal close pass. Hardware composition
 and WebGL are enabled; the ordinary-user renderer retains seccomp and NNP.
 Recipe discovery and a full desktop lifecycle remain separate.
+
+Stock Weston 15.0.1-2.fc44 aborts at `surface-state.c:282` on
+`comp->view_list_needs_rebuild` during a Chromium surface transition
+(`build/installed-fedora-turnip/fedora-weston-20261029.log`, 2026-10-29 12:14:56).
+This matches the documented Chromium/aarch64 subsurface-without-views case in
+[the upstream fix carried by meta-arago](https://patchwork.yoctoproject.org/project/arago/patch/20260601170844.1723390-1-t-lannynd@ti.com/)
+and [Weston MR 2085](https://gitlab.freedesktop.org/wayland/weston/-/merge_requests/2085).
+The installed Fedora package has no available update in its current repositories;
+the desktop cell is U, independently of completed browser runs.
 
 ### Fedora Turnip
 
@@ -601,42 +637,46 @@ Flatpak/Snap driver bundle
 
 ### Fedora Flatpak portal
 
-`build/installed-fedora-turnip/fedora-portal-20261026.json` (Firefox) and
-`fedora-chromium-portal-20261026.json` (Chromium); ordinary-user Flatpak export,
+`build/installed-fedora-turnip/fedora-firefox-portal-20261029.json` (Firefox) and
+`fedora-portal-20261029.json` (Chromium); ordinary-user Flatpak export,
 read/write through the live sandbox and immediate revocation pass. Each package
-passes two rounds of exact portal process exit, FUSE mount removal and D-Bus
-reactivation. Browser GUI receipts separately cover chooser/readback.
+passes two graceful exact-process exits, SIGKILL with surviving helper
+auto-unmount, whole-unit restart/stop, FUSE mount removal and D-Bus reactivation.
+Jobs `eac09b93d510433caf3f6ba797956e7b` and
+`8614b656c50443eba6be25081c364d6f`; stock portal 1.22.1 and libfuse 3.18.3,
+supervisor `a5d46e41c30ee2af9da368e39cc55012d00106eb5649e9ec292002e52cf19ae3`.
+Browser GUI receipts separately cover chooser/readback.
 
 ### Fedora machinectl
 
-`build/installed-fedora-turnip/oci-services-4b9353227ccf4187b799a5b549ad7b75.json`;
+`build/installed-fedora-turnip/oci-services-42295e8715e1497fb171b3f98026040e.json`;
 stock systemd 259.10 unit boots nested Debian with private users/veth, shell/services,
 20 TCP and 20 UDP exchanges per round, poweroff, killed-leader restart and cleanup
 across three boots
 
 ### Fedora LXC
 
-`build/installed-fedora-turnip/oci-services-f8b91773ac2e41fc81738536767e652a.json`; LXC
+`build/installed-fedora-turnip/oci-services-3119039b443948b7ac503d9ccf413209.json`; LXC
 6.0.6, stock common policy/seccomp, guest-root nested Debian, attach/services, mounts,
 20 TCP and 20 UDP bridge exchanges per round, normal/forced stop and cleanup across
 three boots. Unprivileged LXC and external networking remain untested
 
 ### Fedora Libvirt/QEMU
 
-`build/installed-fedora-turnip/oci-services-d0d5b6fa456c447f9d10fbf1bb4ed4b6.json`;
+`build/installed-fedora-turnip/oci-services-4c23de9a21e145daa6dfb4e2b82f7a26.json`;
 stock modular libvirt 12.0.0 and QEMU 10.2.2, define/start paused, serial, resume, real
 kernel/initrd TCG boot, poweroff/undefine and fixture cleanup. VM networking and KVM
 untested
 
 ### Fedora direct QEMU
 
-`build/installed-fedora-turnip/oci-services-f94db9599501476281516df117d958bb.json`;
+`build/installed-fedora-turnip/oci-services-802abdce85bb48ab88220927ea08a5cc.json`;
 QEMU 10.2.2, ARM64 kernel/initramfs serial boot and clean exit with TCG. KVM and VM
 networking are not covered
 
 ### Fedora BuildKit
 
-`build/installed-fedora-turnip/oci-services-1ce0f46f57814c5fa90eb0b6fdb26e77.json`;
+`build/installed-fedora-turnip/oci-services-19dcba1953e84b3cb4499308d750ebf0.json`;
 official BuildKit 0.34.1 ARM64 archive SHA-256
 `c8c97b84baf89dfe0ea85063ac24ad88eb909979ea476ce3ef9e8e11e60ebef8`, Fedora CNI 1.9.1,
 TOML-configured OCI/overlayfs/CNI worker with sandbox.
@@ -645,7 +685,7 @@ external networking untested
 
 ### Fedora LTP core
 
-`build/installed-fedora-turnip/oci-services-93b694186f684385809ad5ff6d9d185e.json`;
+`build/installed-fedora-turnip/oci-services-626fca1ec5764e338714117f9a203c67.json`;
 reviewed 20250930 sources built with Fedora compiler/libc in the persistent lab-only
 `/opt/md-ltp-build` tree. All seven selected binaries pass as guest UID 1000,
 including the ARM64 `epoll_create1` ABI; no failed, broken or skipped checks.
@@ -1271,6 +1311,35 @@ acceptance remain open
 stock runit stages and default services, restart with a new service PID, and
 owned-process cleanup pass
 
+### Void Package Lifecycle
+
+XBPS 0.60.7_1 verifies the official `hello-2.12.3_1` signature, installs,
+executes, reinstalls, verifies and removes the package with its info-file hooks:
+`build/installed-void-turnip/b82d69c342c54a4bb909c30f31e66783.log` and
+`729b46e396c14b92973f64e8f124900e.log`. The archive and signature were downloaded
+with curl into a private cache; this does not certify XBPS network downloads.
+
+Stock downloads fail on this Android uplink: IPv6 `connect` returns
+`EHOSTUNREACH`, and XBPS stops without trying the available IPv4 address.
+`xbps-fetch.trace` and `1b06ec4481e846518b1b21ba72aa3382.log` retain the failure;
+the same IPv6 error occurs in a native UID-2000 probe outside Shroot and in Base.
+This matches the fatal-error branch in upstream
+[Happy Eyeballs](https://github.com/void-linux/xbps/blob/master/lib/fetch/common.c)
+and the published [XBPS download report](https://github.com/void-linux/xbps/issues/683).
+The aggregate remains U, not a pass; Shroot does not rewrite native network errors
+or disable IPv6 to accommodate the downloader.
+
+### Void Turnip
+
+`build/installed-void-turnip/94b76b52eef54088adf38867f75d3e0a.log`:
+ordinary UID 1000, installed Mesa 26.2.3, Zink/Turnip Adreno 840, Wayland and
+surfaceless EGL each pass three context/create/render/readback/teardown rounds.
+Device identity stays stable and does not advertise a nonexistent DRM device.
+`20d6d61952a247eeb187338632ab7242.log` separately verifies the stock softpipe
+control, with the hardware-profile overrides removed. These runs use Release
+supervisor `b0148a1e87610d7ccceece4054d25fa70205a25f398532aba009f98eea97a2a3`
+and lazy SVC; they do not rebuild Mesa or certify a new APK.
+
 ### Void Docker
 
 `build/installed-void-turnip/oci-services-1913fb5f08494da79807691ad344479c.json`; stock
@@ -1323,12 +1392,21 @@ chooser/readback, WebGL pixels, normal close and same-profile relaunch pass.
 `build/void-flatpak-update-current.log` records successful stock update checks. Chromium
 renders through ANGLE/Zink/Turnip
 
+Release supervisor `b0148a1e87610d7ccceece4054d25fa70205a25f398532aba009f98eea97a2a3`
+also passes all six GUI assertions in `void-chromium-20261029/gui-report.json`
+and `void-firefox-relaunch-20261029/gui-report.json`: Chromium 156.0.8078.47
+with a fresh profile and Firefox 158.0.1 with its retained profile, respectively.
+Both keep their stock Flatpak sandbox. These narrower reruns do not refresh the
+package-update assertion above.
+
 ### Void portal
 
-`build/installed-void-turnip/void-portal-lifecycle.json`; ordinary-user document
-export, live sandbox read/write, revocation denial and export cleanup pass. Two
-SIGTERM/D-Bus-reactivation rounds remove the document FUSE mount; GUI chooser/readback
-is covered by both browser reports
+`build/installed-void-turnip/void-portal-20261029.json`; stock portal 1.22.1_1,
+libfuse 3.18.3_1 and UID 1000. Document export, live Flatpak Firefox sandbox
+read/write, revocation denial and export cleanup pass. Two SIGTERM/D-Bus-reactivation
+rounds and SIGKILL/helper auto-unmount all remove the document FUSE mount.
+This uses the same Release supervisor as the Turnip receipt. GUI chooser/readback
+is covered separately by the browser reports.
 
 ### Void VS Code
 
@@ -1354,6 +1432,18 @@ verification and removal. No workload source build is added to the recipe
 `build/compat-contract-tests/oci-services-30d38d4aec124fc1835aa5e5995d0365.json`; stock
 runit stages and default services, service start/restart/stop and owned-process cleanup
 pass without startup failures
+
+### Armtix Turnip
+
+`build/installed-armtix-turnip/ad5739c8ae9a4ed4af5ddc703c9ca32b.log`:
+ordinary UID 1001, installed Mesa 26.2.3, Zink/Turnip Adreno 840, three successful
+EGL context/render/readback/teardown rounds each for Wayland and surfaceless.
+The separate stock softpipe control also passes both platforms; hardware-profile
+overrides are removed only for that control. Device identities and software flags
+remain correct across teardown/reinitialization, without a fictitious DRM node.
+Release supervisor is
+`b0148a1e87610d7ccceece4054d25fa70205a25f398532aba009f98eea97a2a3`, lazy SVC.
+No graphics rebuild is part of this rerun.
 
 ### Armtix Docker
 
@@ -1390,9 +1480,9 @@ normal/forced-stop lifecycle rounds pass
 
 ### Armtix LTP core
 
-`build/installed-armtix-turnip/oci-services-c42605e1c1114363924976170920b1ba.json`; all
+`build/installed-armtix-turnip/oci-services-308e2453181e40b3bd3f77da2d606a05.json`; all
 seven pinned LTP 20250930 binaries built with the distribution compiler/libc pass as UID
-1000, with no FAIL/BROK/TCONF
+1001, with no FAIL/BROK/TCONF, using the Release supervisor recorded above
 
 ### Armtix VS Code
 
@@ -1415,9 +1505,11 @@ covers the stock update check
 
 ### Armtix portal
 
-`build/installed-armtix-turnip/armtix-portal-lifecycle.json`; UID 1001, two document
-export/read/write/revoke and SIGTERM/reactivation rounds pass, with FUSE mount removal.
-Both browser reports cover GUI chooser/readback.
+`build/installed-armtix-turnip/armtix-portal-20261029.json`; UID 1001, stock portal
+1.22.1-2 and libfuse 3.18.3-1, using the same Release supervisor as the Turnip test.
+Document export/read/write/revoke, two SIGTERM/reactivation rounds and a SIGKILL
+helper auto-unmount round pass, with FUSE mount removal. Both browser reports
+separately cover GUI chooser/readback.
 `build/armtix-browser-complete-stop.log` records normal fixture cleanup without changing
 HOME
 
@@ -1726,6 +1818,47 @@ loader `/lib/ld-linux-aarch64.so.1`, absent on this distribution. No global
 loader alias or sandbox exception is part of this fixture.
 
 ## Shared Evidence
+
+### nspawn Command Mode
+
+The 2026-10-29 runs use Release supervisor
+`7ae767cc254d330ef26a76057bbd822484b057cca175000d0767fb1ea2004b74`,
+each distribution's stock nspawn and a nested Debian command image. All pass
+three launches in each entry mode: normal exit, SIGKILL of the container leader
+and relaunch.
+Assertions retain private user/PID/mount/network namespaces, shifted root,
+seccomp, writable/read-only binds, 20 outbound and published exchanges per
+TCP/UDP protocol, and NAT-map/veth/port cleanup. Receipts are
+`build/installed-ENV/oci-services-ID.json`.
+
+| Recipe | ENV | systemd-nspawn | Shroot receipt ID | Base receipt ID |
+| --- | --- | --- | --- | --- |
+| debian | debian-turnip | 257.13 | `bd4c6e35ca594a6eba982f847aeb3451` | `64aac048014d4c84905e2455c8e0da97` |
+| ubuntu | ubuntu-fuse | 255.4 | `b27fe81c8ffc416e8a65a4718e47c0f6` | `0544d3fd1fe34fd2bbf83b732b05e6b1` |
+| fedora | fedora-turnip | 259.10 | `f8446c19e42e4b32a89b522fe62bba1b` | `ff054613f1fa49f09e809bf27de977f0` |
+| arch | arch-turnip | 262.1 | `fa9ceec6da504330b2d49d9edb2f82b9` | `3e7f834eda92406ab6106c7ba5a01da5` |
+| opensuse | opensuse-turnip | 261.4 | `fc90db30cee943a7bf6c81435ea1e6d6` | `fc5e93dd21ed4a23bed18548b20495d4` |
+| openkylin | openkylin-turnip | 259.5 | `c2556f65e47445ac9fb8eb634df59c47` | `e58cb99cfddc417eb4b6807e5e094255` |
+| deepin | deepin-turnip | 255.2 | `bdad9d62637b4303ae5181e1b29cfc9c` | `a36e56aa852b42dabbcf04d3b73691a1` |
+| manjaro | manjaro-turnip | 255.3 | `ff9c958b41f14739a29c3e93dcf6384f` | `ee35eedc7b22410da661ce07e1c15b5a` |
+| nixos | nixos-recipe | 260.5 | `d0e5fdf69e2948a493b14b8812a6138c` | `c79d04e42f0043f5a0f64e75e8259277` |
+| steamos | steamos | 257.7 | `c984360eeaae4186a3c4c499b66bee0c` | `5b428392b98641bbba3b85e0cf16bd36` |
+
+Native ownership/network tests pass in
+`build/nspawn-local-route-20261029/final-units/oci-services-f1078c6db17b4fe5ae1e14f7ad6973ed.json`.
+The separate IPv6 socket/nft/route suite passes in lazy mode
+(`app/build/shroot/oci-services-62c2a31f7e864a71979d80e80f47866a.json`)
+and Base (`oci-services-adb7ec45fcc3462881081a17c8ee1913.json` in the same directory).
+
+Six interleaved performance pairs are retained in
+`build/nspawn-local-route-20261029/performance-long/oci-services-a1215ea7886647a9b65ffeca51bf01ef.json`.
+Against supervisor `b0148a1e...`, median lazy-entry elapsed time is 0.934x for
+stat, 1.015x for open/close, 1.002x for file cycles, 1.057x for poll, 1.004x for
+epoll and 1.075x for ready epoll. Files use 64 consecutive 1024-operation blocks;
+readiness uses one million calls. CPU placement is unrestricted and frequency
+evidence is retained; these device observations are not a fixed-frequency claim.
+
+### Entry And Resource Contracts
 
 Supervisor `edfcac0e8f18fde5e2c3f929c0634ce36625ad697003c85b8decbe4045537d26`
 passes the complete SVC suite in
