@@ -617,9 +617,44 @@ static int filter_probe(void) {
     puts("PASS readiness selector admission under inherited service filters");
     return 0;
 }
+static void native_wait_capacity(void) {
+    enum { WAITERS=64 };
+    assert(!filter_probe());
+    int ready[2],fd=eventfd(0,EFD_CLOEXEC|EFD_SEMAPHORE);
+    assert(fd>=0 && !pipe2(ready,O_CLOEXEC));
+    pid_t children[WAITERS];
+    for (unsigned i=0;i<WAITERS;++i) {
+        children[i]=fork(); assert(children[i]>=0);
+        if (children[i]) continue;
+        close(ready[0]);
+        int ep=epoll_create1(EPOLL_CLOEXEC); assert(ep>=0);
+        struct epoll_event event={.events=EPOLLIN,.data.u64=73},out;
+        assert(!epoll_ctl(ep,EPOLL_CTL_ADD,fd,&event));
+        byte_write(ready[1]);
+        /* EVENT_WAIT: the parent releases all waiters only after every child
+         * is ready. The launch deadline fails transport-capacity deadlocks. */
+        long result=i&1 ? syscall(SYS_epoll_pwait2,ep,&out,1,NULL,NULL,8)
+            : syscall(SYS_epoll_pwait,ep,&out,1,-1,NULL,8);
+        assert(result==1 && out.events==EPOLLIN && out.data.u64==73);
+        uint64_t one; assert(read(fd,&one,sizeof(one))==sizeof(one) && one==1);
+        close(ep); _exit(0);
+    }
+    close(ready[1]);
+    for (unsigned i=0;i<WAITERS;++i) byte_read(ready[0]);
+    int directory=open("/tmp",O_RDONLY|O_DIRECTORY|O_CLOEXEC); assert(directory>=0);
+    close(directory);
+    uint64_t count=WAITERS; assert(write(fd,&count,sizeof(count))==sizeof(count));
+    for (unsigned i=0;i<WAITERS;++i) {
+        int status;
+        assert(waitpid(children[i],&status,0)==children[i] && status==0);
+    }
+    close(ready[0]); close(fd);
+    puts("PASS mixed epoll: 64 filtered forked native waits leave shared transport available");
+}
 int main(int argc,char **argv) {
     setbuf(stdout,NULL);
     if (argc==2 && !strcmp(argv[1],"--native-ready")) { native_ready(); return 0; }
+    if (argc==2 && !strcmp(argv[1],"--native-capacity")) { native_wait_capacity(); return 0; }
     if (argc==2 && !strcmp(argv[1],"--cold-admission")) {
         for (int infinite=0;infinite<3;++infinite) { cold_admission(0,infinite); cold_admission(1,infinite); }
         return 0;

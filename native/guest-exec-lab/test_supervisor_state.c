@@ -31,6 +31,37 @@ static void process_snapshot(void) {
 static int accounting_enabled, accounting_requested, adoption_error, adoption_calls;
 static pid_t wait_result=123;
 static struct md_fs_buffer_open adopted={.fd=-1};
+static unsigned lost_stop_reads;
+static int lost_stop_code, lost_stop_error;
+static long lost_stop_trace(int request,pid_t pid,void *address,void *data) {
+    assert(request==PTRACE_GETSIGINFO && pid==123 && !address);
+    ++lost_stop_reads;
+    if (lost_stop_error) { errno=lost_stop_error; return -1; }
+    *(siginfo_t *)data=(siginfo_t){.si_signo=SIGTRAP,.si_code=lost_stop_code};
+    return 0;
+}
+static void lost_stop_delivery(void) {
+    struct thread t={.pid=123};
+    checkpoints.trace=lost_stop_trace;
+    assert(!lost_stop_event(&t,PTRACE_EVENT_SECCOMP) && !lost_stop_reads);
+    t.resume_lost=1;
+    assert(!lost_stop_event(&t,PTRACE_EVENT_EXIT) && !lost_stop_reads);
+    assert(!lost_stop_event(&t,PTRACE_EVENT_EXEC) && !lost_stop_reads);
+    const unsigned events[]={PTRACE_EVENT_EXIT,PTRACE_EVENT_EXEC};
+    for (unsigned i=0;i<2;++i) {
+        lost_stop_code=SIGTRAP|(events[i]<<8);
+        assert(lost_stop_event(&t,PTRACE_EVENT_SECCOMP));
+        assert(t.resume_lost && t.pid==123 && !t.terminal_stop);
+    }
+    lost_stop_error=ESRCH;
+    assert(lost_stop_event(&t,0) && t.resume_lost && lost_stop_reads==3);
+    lost_stop_error=0; lost_stop_code=SIGTRAP|(PTRACE_EVENT_SECCOMP<<8);
+    assert(!md_task_stop_displaced(lost_stop_trace,t.pid));
+    lost_stop_error=EIO;
+    assert(md_task_stop_displaced(lost_stop_trace,t.pid)==-EIO);
+    lost_stop_error=0; checkpoints.trace=checkpoint_native_trace;
+    puts("PASS lost stop: stale broker event discarded, terminal ownership retained, live/mismatched stops not hidden");
+}
 static struct user_pt_regs memory_saved;
 static unsigned memory_reads;
 static int memory_read_error;
@@ -312,6 +343,33 @@ static void readiness_entry_interrupt(void) {
     }
     abi.task_call=call; abi.task_return=returned;
     puts("PASS readiness entry interrupt: resume exact call, retain eviction and mask, consume only service wake");
+}
+static unsigned readiness_terminal_queries;
+static long readiness_terminal_trace(int request,pid_t pid,void *address,void *data) {
+    assert(pid==123);
+    if (request==PTRACE_GETREGSET) {
+        assert((uintptr_t)address==NT_PRSTATUS);
+        *(struct user_pt_regs *)((struct iovec *)data)->iov_base=readiness_before_call;
+    } else if (request==PTRACE_GET_SYSCALL_INFO) {
+        *(struct ptrace_syscall_info *)data=(struct ptrace_syscall_info){.op=PTRACE_SYSCALL_INFO_NONE};
+    } else {
+        assert(request==PTRACE_GETSIGINFO && !address);
+        ++readiness_terminal_queries;
+        *(siginfo_t *)data=(siginfo_t){.si_signo=SIGTRAP,.si_code=SIGTRAP|(PTRACE_EVENT_EXIT<<8)};
+    }
+    return 0;
+}
+static void readiness_terminal_replacement(void) {
+    struct readiness_owner owner={.native_call={.number=SYS_epoll_pwait}};
+    struct thread t={.pid=123,.phase=EPOLL_CALL,.readiness=&owner};
+    readiness_before_call=(struct user_pt_regs){.pc=abi.task_return};
+    readiness_before_call.regs[8]=SYS_epoll_pwait;
+    thread_index[t.pid%THREAD_BUCKETS]=&t; checkpoints.trace=readiness_terminal_trace;
+    assert(readiness_native_event(&t,((SIGTRAP|0x80)<<8)|0x7f));
+    assert(readiness_terminal_queries==1 && t.resume_lost && t.readiness==&owner);
+    assert(!t.terminal_stop && !owner.done && !owner.finishing);
+    checkpoints.trace=checkpoint_native_trace; thread_index[t.pid%THREAD_BUCKETS]=NULL;
+    puts("PASS readiness terminal replacement: missing syscall snapshot retains exact exit cleanup");
 }
 static void readiness_signal_return(void) {
     struct md_fd_origins *files=md_fd_origins_new(); assert(files);
@@ -861,6 +919,33 @@ static void prepared_input(void) {
     md_process_member_release(t.resources.process);
     md_identity_release(&identity); md_memory_release(t.memory);
     puts("PASS prepared input: recv/poll/exec admission, native limits, unmapped and exhausted pool, early cleanup");
+}
+static void readiness_transport_pressure(void) {
+    struct readiness_owner *owner=calloc(1,sizeof(*owner)); assert(owner);
+    struct thread t={.memory=md_memory_new(),.readiness=owner};
+    assert(t.memory && !md_memory_buffers_prepare(t.memory,1,sizeof(struct md_epoll_frame),0,0));
+    struct md_interception_buffers *pool=md_memory_buffers(t.memory);
+    assert(!md_memory_buffers_mapped(t.memory,0x100000,md_buffers_size(pool)));
+    owner->detached=calloc(1,sizeof(*owner->detached)); assert(owner->detached);
+    owner->detached->events[0].data.u64=73;
+    owner->detached->timeout.tv_sec=19;
+    struct md_interception_buffer held={0};
+    assert(!md_buffers_take(pool,&held));
+    assert(!readiness_restore(&t,READINESS_RESTORE_REPLY,1));
+    assert(owner->restoring==READINESS_RESTORE_REPLY && owner->restore_result==1);
+    assert(t.retries[1].mask==RETRY_READINESS && !t.buffer.pool && owner->detached);
+    struct md_buffer_span span;
+    assert(!readiness_frame(&t,&span) && span.data==owner->detached);
+    assert(!md_buffer_release(&held));
+    retry_clear(&t,RETRY_READINESS);
+    assert(readiness_restore(&t,READINESS_RESTORE_REPLY,1));
+    assert(!owner->detached && !owner->restoring && t.buffer.pool);
+    assert(!readiness_frame(&t,&span));
+    struct md_epoll_frame *frame=span.data;
+    assert(frame->events[0].data.u64==73 && frame->timeout.tv_sec==19);
+    assert(!md_buffer_release(&t.buffer));
+    free(owner); md_memory_release(t.memory);
+    puts("PASS readiness transport: exact detached result survives capacity wait and reattachment");
 }
 static void image_entry_identity(void) {
     tasks=md_task_registry_create(); assert(tasks);
@@ -1439,6 +1524,9 @@ static void admission_quiescence(void) {
 }
 int main(void) {
     alarm(30);
+    lost_stop_delivery();
+    readiness_transport_pressure();
+    readiness_terminal_replacement();
     process_snapshot();
     memory_context_capture();
     memory_observation_routes();

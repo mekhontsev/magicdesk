@@ -338,6 +338,10 @@ struct readiness_owner {
     int loan_number, evicting, parked, finishing;
     long finish_result;
     int operation,number,reserved,sealed,classified,done,io_waiting;
+    struct md_epoll_frame *detached;
+    enum { READINESS_ATTACHED, READINESS_RESTORE_WAIT, READINESS_RESTORE_LOAN,
+        READINESS_RESTORE_REPLY } restoring;
+    long restore_result;
 };
 enum retry_kind {
     RETRY_TASK_ACTION=1u<<0, RETRY_MAPPING=1u<<1, RETRY_MEMORY=1u<<2,
@@ -530,6 +534,7 @@ static void readiness_capture(struct thread *,unsigned,long);
 static void readiness_progress(struct thread *);
 static int readiness_native_event(struct thread *,int);
 static void readiness_deliver(struct thread *);
+static void readiness_task_progress(struct thread *,int,long);
 static void readiness_loan_closed(pid_t,long);
 static int readiness_evict(struct thread *,struct md_fd_loan *);
 static int fd_loans_ready(struct thread *);
@@ -1018,6 +1023,13 @@ static long quiesce_trace(int request,pid_t pid,void *address,void *data) {
 static int tracee_request(struct thread *t, int request, void *address, void *data, const char *operation) {
     if (t->resume_lost) return 0;
     if (native_trace(request, t->pid, address, data)>=0) {
+        if (request==PTRACE_GET_SYSCALL_INFO
+                && ((struct ptrace_syscall_info *)data)->op==PTRACE_SYSCALL_INFO_NONE) {
+            int displaced=md_task_stop_displaced(checkpoints.trace,t->pid);
+            if (displaced<0) errno=-displaced;
+            CHECK(displaced>=0);
+            if (displaced) { t->resume_lost=1; return 0; }
+        }
         if (request==PTRACE_INTERRUPT) t->interrupt_pending=1;
         return 1;
     }
@@ -1033,6 +1045,16 @@ static int tracee_request(struct thread *t, int request, void *address, void *da
      * missing events. Never substitute registers, mask or a successful resume. */
     TRACE("PROBE lost-stop pid=%d phase=%d operation=%s\n", t->pid, t->phase, operation);
     t->resume_lost = 1; return 0;
+}
+static int lost_stop_event(struct thread *t,unsigned event) {
+    if (!t->resume_lost || event==PTRACE_EVENT_EXEC || event==PTRACE_EVENT_EXIT) return 0;
+    /* A broker observation can lose the stop before returning that same event
+     * to the dispatcher. Discard only a confirmed stale observation; retain
+     * the task and all cleanup ownership for its exact terminal event. */
+    int displaced=md_task_stop_displaced(checkpoints.trace,t->pid);
+    if (displaced<0) errno=-displaced;
+    CHECK(displaced==1);
+    return 1;
 }
 static struct thread *find_thread(pid_t pid) {
     if (pid <= 0) return NULL;
@@ -4279,7 +4301,8 @@ static void fd_control(struct thread *t, struct user_pt_regs *r) {
 }
 static void buffer_reply_signal(struct thread *t, long result, const siginfo_t *signal) {
     struct user_pt_regs r=t->buffer_registers;
-    if (r.regs[0]==MD_BUFFER_PROC_START) r.regs[1]=md_memory_buffer_address(t->memory,&t->buffer);
+    if (r.regs[0]==MD_BUFFER_PROC_START || r.regs[0]==MD_BUFFER_EPOLL_WAIT)
+        r.regs[1]=md_memory_buffer_address(t->memory,&t->buffer);
     r.regs[0]=result;
     if (signal) CHECK(!md_signal_delivery_hold(&t->signal_delivery,signal));
     if (set_registers(t->pid,&r)) resume(t->pid,0);
@@ -4327,9 +4350,29 @@ static void readiness_release(struct thread *t) {
     readiness_admission_release(o,0);
     if (o->files.table && md_fd_order_cancel(&o->files)==1) CHECK(!md_fd_order_complete(&o->files));
     md_fd_object_release(o->target); md_fd_object_release(o->queue);
-    free(o); t->readiness=NULL;
+    free(o->detached); free(o); t->readiness=NULL;
 }
 static void readiness_reply(struct thread *t,long result);
+static int readiness_frame(struct thread *t,struct md_buffer_span *span) {
+    if (!t->readiness->detached) return md_buffer_span(&t->buffer,span);
+    *span=(struct md_buffer_span){.data=t->readiness->detached,.size=sizeof(*t->readiness->detached)};
+    return 0;
+}
+static int readiness_restore(struct thread *t,int continuation,long result) {
+    struct readiness_owner *o=t->readiness;
+    if (!o->detached) return 1;
+    int error=md_buffers_take_sized(md_memory_buffers(t->memory),sizeof(*o->detached),&t->buffer);
+    if (error==-EAGAIN) {
+        o->restoring=continuation; o->restore_result=result;
+        retry_wait(t,RETRY_READINESS); return 0;
+    }
+    if (error) { readiness_reply(t,error); return 0; }
+    struct md_buffer_span span;
+    CHECK(!md_buffer_span(&t->buffer,&span));
+    memcpy(span.data,o->detached,sizeof(*o->detached));
+    free(o->detached); o->detached=NULL; o->restoring=READINESS_ATTACHED;
+    return 1;
+}
 static void readiness_poll_elapsed(struct thread *t,struct md_poll_frame *frame) {
     int64_t now=md_event_now(),started=t->readiness->poll_started;
     frame->elapsed=started>=0 && now>=started ? now-started : 0;
@@ -4360,6 +4403,13 @@ static void readiness_reply(struct thread *t,long result) {
         struct md_buffer_span span;
         if (!md_buffer_span(&t->buffer,&span)) readiness_poll_elapsed(t,span.data);
     }
+    if (o->detached) {
+        if (result<=0 || o->detached->native_output) {
+            dispatch_complete(t,buffer_result_finish(t,0,result));
+            adapter_progress(); return;
+        }
+        if (!readiness_restore(t,READINESS_RESTORE_REPLY,result)) return;
+    }
     buffer_reply(t,result);
 }
 static void readiness_deliver(struct thread *t) {
@@ -4376,6 +4426,7 @@ static void readiness_deliver(struct thread *t) {
 }
 static void readiness_request_loan(struct thread *t) {
     struct readiness_owner *o=t->readiness;
+    if (!readiness_restore(t,READINESS_RESTORE_LOAN,0)) return;
     if (!o->retirement) {
         struct task_action *s=calloc(1,sizeof(*s));
         if (!s) { readiness_reply(t,-ENOMEM); return; }
@@ -4492,6 +4543,14 @@ static void readiness_activated(struct md_fd_object *queue) {
 static void readiness_start(struct thread *t) {
     retry_clear(t,RETRY_READINESS);
     struct readiness_owner *o=t->readiness;
+    if (o->restoring) {
+        int continuation=o->restoring; long value=o->restore_result;
+        if (!readiness_restore(t,continuation,value)) return;
+        if (continuation==READINESS_RESTORE_LOAN) readiness_request_loan(t);
+        else if (continuation==READINESS_RESTORE_REPLY) readiness_reply(t,value);
+        else readiness_task_progress(t,0,0);
+        return;
+    }
     if (o->delivery.files.table) { readiness_deliver(t); return; }
     TRACE("PROBE readiness-start pid=%d classified=%d admission=%d sealed=%d files=%d activation=%d\n",
         t->pid,o->classified,o->admission!=NULL,o->sealed,md_fd_order_state(&o->files),
@@ -5190,7 +5249,7 @@ static void operation_park(struct thread *t,struct user_pt_regs regs,int64_t dea
 static void readiness_task_progress(struct thread *t,int completed,long value) {
     struct readiness_owner *o=t->readiness;
     struct md_buffer_span span;
-    long result=md_buffer_span(&t->buffer,&span);
+    long result=readiness_frame(t,&span);
     uintptr_t address=md_memory_buffer_address(t->memory,&t->buffer);
     int waiting=!result && (o->poll ? md_poll_wait_task(o->poll,&o->wait,span.data,address,
             completed,value,&o->native_call,&result)
@@ -5204,6 +5263,24 @@ static void readiness_task_progress(struct thread *t,int completed,long value) {
         CHECK(!md_event_signal(fd_ready)); return;
     }
     if (!waiting) { readiness_reply(t,result); return; }
+    if (!o->poll) {
+        struct md_epoll_frame *frame=span.data;
+        int independent=frame->native_output && !frame->masked
+            && (o->native_call.number==SYS_epoll_pwait || !frame->timed);
+        if (o->detached && !independent) {
+            if (readiness_restore(t,READINESS_RESTORE_WAIT,0)) readiness_task_progress(t,0,0);
+            return;
+        }
+        if (!o->detached && independent) {
+            /* A native wait writes directly to the application's output and
+             * uses no transport pointers. Sleeping with a shared pool slot
+             * would exhaust it across forked clients and block their wakeups. */
+            o->detached=malloc(sizeof(*frame));
+            if (!o->detached) { readiness_reply(t,-ENOMEM); return; }
+            memcpy(o->detached,frame,sizeof(*frame));
+            CHECK(!buffer_release(t));
+        }
+    }
     struct user_pt_regs regs=o->continuation;
     regs.pc=abi.task_call; regs.regs[8]=o->native_call.number;
     memcpy(regs.regs,o->native_call.value,sizeof(o->native_call.value));
@@ -8285,7 +8362,7 @@ static int readiness_native_event(struct thread *t,int status) {
         long ready=o->wait.virtual_count;
         if (!ready) {
             struct md_buffer_span span;
-            ready=md_buffer_span(&t->buffer,&span);
+            ready=readiness_frame(t,&span);
             if (!ready) {
                 struct md_epoll_frame *frame=span.data;
                 frame->native_output=0;
@@ -9599,7 +9676,7 @@ int main(int argc, char **argv) {
         CHECK(WIFSTOPPED(status));
         if (statistics) statistics->stops++;
         unsigned event = (unsigned)status >> 16;
-        CHECK(!t->resume_lost || event==PTRACE_EVENT_EXEC || event==PTRACE_EVENT_EXIT);
+        if (lost_stop_event(t,event)) continue;
         int sig = WSTOPSIG(status);
         if (t->signal_return_pending && !event && sig==(SIGTRAP|0x80)) {
             struct ptrace_syscall_info info={0};
@@ -10197,7 +10274,7 @@ int main(int argc, char **argv) {
                 struct ptrace_syscall_info info;
                 struct user_pt_regs regs;
                 if (!registers(pid,&regs)) continue;
-                CHECK(native_trace(PTRACE_GET_SYSCALL_INFO,pid,(void *)sizeof(info),&info)>=0);
+                if (!tracee_request(t,PTRACE_GET_SYSCALL_INFO,(void *)sizeof(info),&info,"syscall-exit")) continue;
                 if (info.op==PTRACE_SYSCALL_INFO_ENTRY) {
                     if (t->debug_replay_entry) { t->debug_replay_entry=0; resume(pid,0); continue; }
                     t->debug_call_active=md_debugger_syscall_mode(debugger,pid);

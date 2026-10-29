@@ -139,6 +139,15 @@ entering the adapter. Zero-time native epoll waits use the same provider predica
 as the full path; queues preparing a virtual provider cannot take this shortcut.
 Blocking epoll retains a wait owner from entry so that a first virtual interest
 can wake an already-sleeping caller without losing its timeout or signal mask.
+Unmasked native epoll_pwait and untimed epoll_pwait2 waits retain their frame
+in the supervisor and release the shared transport slot before sleeping. Their
+native arguments contain only application pointers or scalar values. Native
+completion returns directly; admission of a virtual provider reacquires a slot
+through the existing event-driven retry queue, retaining the deadline and exact
+continuation. The adapter receives the current slot address, never a released
+one. Masked waits, timed epoll_pwait2 and virtual-output waits retain their mapped
+frames while the kernel or adapter needs them. Pool size is not a process-count
+limit for the independent native waits.
 An internal quiescence interrupt before the wait's SVC resumes the same entry
 under its signal shield; it is not a syscall result. Its service wake is consumed
 at that boundary, independently of subsequent application signals or FD eviction.
@@ -231,6 +240,8 @@ is expensive when a desktop has many sleeping threads.
 Group exit can replace an already collected seccomp or syscall-entry stop with
 a terminal stop even when ptrace still succeeds. An inconsistent protocol event
 therefore checks the current stop's exact signal information before rejecting it.
+A successful syscall-info read reporting NONE uses that same cold check;
+successful ptrace access alone does not prove that a saved syscall stop survives.
 A confirmed EXIT/EXEC replacement retires only the stale observation; its terminal
 event keeps the normal dispatch path. Ordinary valid stops need no extra query.
 Birth messages require a current-stop check before publishing any PID. If group

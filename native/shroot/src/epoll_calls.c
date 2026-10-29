@@ -46,7 +46,9 @@ long md_epoll_call(long nr,const unsigned long *a) {
                 : md_guest_buffer_admit(MD_FS_BUFFER_EPOLL_LOAN);
             if (result<0) break;
         }
-        result=md_guest_buffer_control(MD_BUFFER_EPOLL_WAIT,0,0);
+        struct md_adapter_input reply=md_guest_buffer_start(MD_BUFFER_EPOLL_WAIT,0,0);
+        result=reply.value;
+        f=reply.buffer;
     }
     if (result>0 && result!=MD_EPOLL_NATIVE && nr!=SYS_epoll_ctl) {
         if (result>f->capacity) result=-EPROTO;

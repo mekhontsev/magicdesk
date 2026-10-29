@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "task_call.h"
+#include "task_stop.h"
 #include "syscall_result.h"
 #include "interception.h"
 #include "signal_protocol.h"
@@ -144,7 +145,7 @@ int md_task_call_resume(struct md_task_call *f,int signal) {
 int md_task_call_expects_interrupt(const struct md_task_call *f) {
     return f && f->stage && f->stage!=COMPLETE && (f->restart_pending || f->stage==USER_RESTORING);
 }
-int md_task_call_event(struct md_task_call *f,int status) {
+static int task_call_event(struct md_task_call *f,int status) {
     if (!f || !f->stage || f->stage==COMPLETE) return -EINVAL;
     if (WIFEXITED(status) || WIFSIGNALED(status)) return -ESRCH;
     if (!WIFSTOPPED(status)) return -EPROTO;
@@ -271,4 +272,12 @@ int md_task_call_event(struct md_task_call *f,int status) {
     f->stage=f->boundary==MD_TASK_CALL_EXIT ? EXIT_REENTERING : REENTERING;
     return trace(f,f->boundary==MD_TASK_CALL_EXIT || f->boundary==MD_TASK_CALL_EMULATED_ENTRY
         ? PTRACE_SYSEMU : PTRACE_SYSCALL,NULL,NULL);
+}
+int md_task_call_event(struct md_task_call *f,int status) {
+    int result=task_call_event(f,status);
+    if (result==-EPROTO) {
+        int displaced=md_task_stop_displaced(f->trace,f->actor);
+        if (displaced) return displaced>0 ? -ESRCH : displaced;
+    }
+    return result;
 }

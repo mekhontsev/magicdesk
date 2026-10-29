@@ -1788,6 +1788,17 @@ static void terminal_race(int protected,int entry) {
         assert(waitpid(actor,&original,__WALL)==actor && WSTOPSIG(original)==(SIGTRAP|0x80));
         assert(!md_task_stop_displaced(task_trace,actor));
     }
+    struct md_task_call injected={0};
+    if (entry==3) {
+        struct user_pt_regs saved=registers(actor);
+        struct md_task_call_arguments args={.number=SYS_gettid};
+        assert(!md_task_call_begin(&injected,task_trace,actor,MD_TASK_CALL_SECCOMP,&saved,
+            (uintptr_t)checkpoint_syscall,(uintptr_t)checkpoint_syscall+4,&args));
+        assert(waitpid(actor,&original,__WALL)==actor && WSTOPSIG(original)==(SIGTRAP|0x80));
+        struct ptrace_syscall_info info={0};
+        assert(ptrace(PTRACE_GET_SYSCALL_INFO,actor,sizeof(info),&info)>0
+            && info.op==PTRACE_SYSCALL_INFO_EXIT);
+    }
     assert(write(channel[1],"x",1)==1);
     /* EVENT_WAIT: exit_group replaces the sibling's already-collected entry;
      * the process alarm bounds this exact terminal observation. */
@@ -1799,7 +1810,8 @@ static void terminal_race(int protected,int entry) {
     if (entry==2) {
         assert(!md_task_birth_terminal(task_trace,actor,SYS_clone,CLONE_THREAD));
     }
-    assert(md_task_checkpoint_event(&runtime,actor,&original)==-ESRCH);
+    if (entry==3) assert(md_task_call_event(&injected,original)==-ESRCH);
+    else assert(md_task_checkpoint_event(&runtime,actor,&original)==-ESRCH);
     resume(actor,PTRACE_CONT,0); resume(child,PTRACE_CONT,0);
     unsigned reaped=0; pid_t pid;
     while ((pid=waitpid(-1,&status,__WALL))>0) {
@@ -1826,7 +1838,7 @@ int main(int argc,char **argv) {
             for (int code=0;code<2;++code) birth_terminal_race(kind,protected,code ? 77 : 0);
     puts("PASS birth stop replacement: 12 controls; clone/fork/vfork, dumpable=0, zero/nonzero exit, surviving children");
     for (int protected=0;protected<2;++protected)
-        for (int entry=0;entry<3;++entry) terminal_race(protected,entry);
+        for (int entry=0;entry<4;++entry) terminal_race(protected,entry);
     puts("PASS terminal stop replacement: exit_group, collected seccomp/SYSEMU, dumpable=0, exact terminal reaping");
     if (argc==2 && !strcmp(argv[1],"--terminal-race")) return 0;
     if (argc==2 && !strcmp(argv[1],"--copy-fault")) {
