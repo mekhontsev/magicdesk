@@ -64,7 +64,9 @@ the shared appearance store. It returns removed digests and count.
 - [State and Observation](#state-and-observation)
 - [Display Preparation](#display-preparation)
 - [Control And Tool Commands](#control-and-tool-commands)
-- [Android UI Automation](#android-ui-automation)
+- [Semantic UI Automation](#semantic-ui-automation)
+- [Linux Scope](#linux-scope)
+- [Typed D-Bus](#typed-d-bus)
 - [File Transfers and Updates](#file-transfers-and-updates)
 - [Android Integration](#android-integration)
 - [Events and Waits](#events-and-waits)
@@ -110,6 +112,8 @@ curl -sS http://127.0.0.1:8765/mcp \
 
 The server supports MCP `initialize`, `ping`, `tools/list`, `tools/call`,
 `resources/list`, and `resources/read`. It does not require an MCP session ID.
+After an APK update adds commands, refresh the client's tool catalog or reconnect
+the client if it caches discovery. Keep the existing endpoint and token.
 
 ### Direct Network Access
 
@@ -201,12 +205,17 @@ These observations can contain application names and are not anonymous data.
 Each listener independently grants:
 
 - `control`: desktop, application, window and semantic UI actions;
-- `input_tests`: synthetic input, self-tests and package force-stop;
-- `content`: capture, clipboard, notification contents, Activity results and
+- `input_tests`: accessibility actions, synthetic input, awake leases, self-tests
+  and package force-stop;
+- `linux_accessibility`: explicit activation of Linux accessibility and
+  screen-reader status through `ui.prepare`, disabled by default;
+- `content`: UI inspection/text/waits, Linux session discovery, capture,
+  clipboard, notification contents, Activity results and
   script dialogs/notifications (including their user responses);
 - `files_read`: filesystem listing and downloads;
 - `files_write`: uploads, creation and replacement;
-- `shell`: shell/terminal/tmux and background Intent/desktop-entry commands;
+- `shell`: shell/terminal/tmux, Linux session inspection/launch, raw D-Bus access
+  and background Intent/desktop-entry commands;
 - `update`: replacement of the MagicDesk APK.
 
 These are command capabilities, not isolated sandboxes: shell, input, UI control,
@@ -216,6 +225,12 @@ already accepted operations may finish. Disabling MCP resets permissions and
 disables its network access. Command sessions belong to the shared runtime,
 not a listener; explicit session close or runtime exit releases them.
 Tokens remain private and stable.
+
+Linux accessibility activation is separate from launching a program with
+accessibility flags. The checkbox neither rewrites commands nor restarts apps.
+`linux.launch` and raw `dbus.*` require `shell`; clients with this broad grant can
+also configure accessibility themselves. `linux_accessibility` is not a
+confinement boundary against an authorized shell.
 
 ## Built-In CLI
 
@@ -1079,7 +1094,8 @@ File commands use the separate read/write grants:
 Shell-granted commands are:
 
 - `magicdesk.console.open`, `magicdesk.console.execute`,
-  `magicdesk.console.status`, and `magicdesk.console.close`;
+  `magicdesk.console.status`, `magicdesk.console.list`,
+  `magicdesk.console.cancel`, and `magicdesk.console.close`;
 - `magicdesk.terminal.open`, `magicdesk.terminal.list`,
   `magicdesk.terminal.status`, `magicdesk.terminal.read`,
   `magicdesk.terminal.write`, `magicdesk.terminal.send_key`,
@@ -1091,6 +1107,12 @@ Shell-granted commands are:
 has its own current directory and environment, and is owned by the shared
 command runtime. At most eight such sessions may exist at once.
 Console IDs are opaque and cannot select another session after a process restart.
+`console.open` with `linuxSessionId` from `linux.list` enters that connected
+session's user, namespaces and display environment. Omit it for Android shell.
+There is no global current distribution or implicit fallback. `console.list`
+shows retained identities and availability. `console.cancel` cancels owned jobs
+but retains the console ID; its next command starts a fresh shell in the same
+environment and last known directory. Shell-local exports are lost on cancel.
 `console.execute` normally returns bounded combined text output and exit status.
 Its optional `stdout` object selects exactly one `terminalId` or `tmuxTarget`.
 Omit `mimeType` to send raw terminal bytes; `image/png` encodes PNG as Kitty.
@@ -1222,31 +1244,38 @@ client. Reopening the same tmux session reuses an existing MagicDesk connection;
 the returned tmux id is resolved even for a newly created session.
 These tools do not expose ordinary Termux application tabs.
 
-## Android UI Automation
+## Semantic UI Automation
 
-These commands work without Desktop on Android 14+. UI access and injected
-input require a ready privileged service, not a root device or a new accessibility service.
-UI inspection and waits require exactly one of Android `displayId` (including 0)
-or `taskId`. Gestures and key chords still require an explicit `displayId`.
+These commands work without Desktop on Android 14+. Android UI access and injected
+input require a ready privileged service, not root or a new accessibility service.
+Inspection and waits select exactly one Android `displayId` (including 0),
+`taskId`, or connected Linux `sessionId`. Native Termux Linux automation does not
+require Shizuku. Gestures and key chords still require an explicit Android `displayId`.
 Prefer the existing semantic MagicDesk controls for Start, taskbar and menus.
 
 | Tool | Contract |
 | --- | --- |
-| `ui.inspect` | Read accessibility windows/nodes of a display or task, optionally narrowed to a window or subtree and filtered by an exact selector. |
-| `ui.read_text` | Read full text/description in bounded pages from a retained node's snapshot. |
+| `linux.list` | List connected Linux automation sessions and their captured executor/graphics identity. |
+| `linux.inspect` | Read captured guest UID, directory, shell and display context; requires `shell`. |
+| `ui.inspect` | Read accessibility nodes of an Android display/task or a Linux session, optionally narrowed and filtered by an exact selector. |
+| `ui.read_text` | Read retained text/description in bounded pages from a node's snapshot. Linux retention limits apply. |
 | `ui.perform` | Click, long-click, focus, set/select text, scroll or reveal a node using an advertised action. |
 | `ui.wait` | Wait for exact selector presence/absence, including expected text and state flags. |
-| `ui.release` | Release the Android automation connection and cancel its pending UI waits. |
+| `ui.release` | Release Android observation, or observation for the supplied Linux `sessionId`; cancel its pending UI waits. Does not stop applications. |
+| `ui.prepare` | Explicitly activate Linux accessibility status; requires `linux_accessibility`. |
+| `linux.launch` | Launch exact argv and optional environment in a connected Linux session; requires `shell`. |
 | `input.gesture` | Explicit-display touch tap, long press, swipe or drag through bounded point lists. |
 | `input.key_chord` | Press ordered Android key names, release them in reverse order, including on failure. |
 | `device.keep_awake` | Acquire or renew bounded display work. Phone mode needs no shell; owned virtual-display mode requires shell, not Desktop. |
 | `device.release_awake` | Release the exact lease token. |
 
-`ui.inspect`, `ui.wait` and `ui.read_text` require the `content` permission. They can read text
+`linux.list`, `ui.inspect`, `ui.wait` and `ui.read_text` require the `content` permission. They can read text
 from other apps; password text and descriptions are redacted. The other commands
-require `input_tests`. These grants are independent for local and network
+require `input_tests`, except `ui.prepare`, `linux.inspect` and `linux.launch` as listed above. These grants are independent for local and network
 clients. UI strings and entered text are not logged or added to diagnostics.
 Content revoked during a wait is not returned to the client.
+
+### Android Scope
 
 Example sequence after locating the intended editor (three separate tool calls,
 shown as an array):
@@ -1293,6 +1322,7 @@ No match falls back to another application. Task-addressed inspection relies on
 the hidden AOSP `AccessibilityWindowInfo.getTaskId` accessor already present in
 Android 14; if mapping is unavailable, ordinary display inspection remains usable.
 A Linux host task exposes only its Android accessibility tree, not toolkit widgets.
+Use the Linux session scope below for those widgets.
 
 Both inspect and wait accept `windowId` or `rootElementId` (mutually exclusive)
 within the selected display or task. A subtree handle is refreshed and its window
@@ -1362,6 +1392,121 @@ The debug-only `DebugUiAutomationActivity` supplies a harmless editor, long-text
 action, password, mutable button identity and 320-row list for verification through
 these same APIs. It does not register elements in MagicDesk's UI registry and
 is not included in release APKs.
+
+### Linux Scope
+
+Start a Linux application or desktop through its normal MagicDesk graphical
+launcher, then call `linux.list`. Each connected agent has its own `sessionId`,
+`graphicsSessionId`, executor UID and environment identity. Restarting the guest
+creates a new identity. No process-environment scanning, global distribution
+selection or privilege switch is performed. Missing `dbus-run-session`,
+`org.a11y.Bus` or toolkit bridges are guest dependencies, not a reason to use
+another bus. Native Termux, Shroot and PRoot share the same protocol where their
+installed software supports it; PRoot limitations are not emulated away.
+
+```json
+[
+  {"tool":"linux.list","arguments":{}},
+  {"tool":"ui.inspect","arguments":{"sessionId":"<linux session>","selector":{"name":"Apply","enabled":true}}},
+  {"tool":"ui.perform","arguments":{"elementId":"<returned handle>","action":"click"}},
+  {"tool":"ui.wait","arguments":{"sessionId":"<linux session>","selector":{"text":"Saved"},"timeoutMillis":5000}}
+]
+```
+
+Linux selectors additionally accept exact `name`, `role`, `accessibleId` and
+`applicationId` (a unique AT-SPI bus owner). An optional `applicationId` or
+`rootElementId` narrows traversal. Android task/window/display IDs do not select
+Linux widgets. Bounds are explicitly `linux_screen_pixels`, not Android gesture
+coordinates. Roles and `atspi:NAME` actions come from the toolkit; use returned
+actions rather than assuming every toolkit names equivalent controls alike.
+Common actions are `click`, `focus`, `set_text` and `select_text` when advertised.
+
+Traversal is bounded to 4096 candidates, depth 40, three seconds and 256 returned
+nodes. Retained text is limited to 32768 codepoints per node and 256 Ki UTF-16
+units per snapshot; `textComplete` exposes truncation. Password-role values and
+lengths are redacted. Classification depends on the application's AT-SPI data;
+toolkits that omit a password role cannot be reliably classified by appearance.
+Four snapshots retain handles for at most 60 seconds. Structural events, owner
+loss and identity changes reject stale actions. Absence requires a stable,
+complete accessible tree; even a complete tree covers only applications that
+registered accessibility, not every visible window. `ui.release(sessionId)`
+releases observations/handles, not the graphical session or application.
+
+`ui.prepare(sessionId)` explicitly requests accessibility status activation and
+requires `linux_accessibility`, disabled by default. It neither restarts apps
+nor rewrites their arguments. Applications that choose accessibility only at
+startup may need an explicit new launch, for example:
+
+```json
+{"tool":"linux.launch","arguments":{"sessionId":"<linux session>","argv":["chromium","--force-renderer-accessibility"]}}
+```
+
+`linux.launch` accepts exact argv and optional explicit environment, under the
+independent `shell` grant. It runs in the guest session, not inside an existing
+application's sandbox. For containers supply their normal launcher, such as
+`["flatpak","run","org.chromium.Chromium","--force-renderer-accessibility"]`.
+Normal sandbox accessibility proxies must allow the AT-SPI connection. No
+`--no-sandbox`, host-bus escape, patched browser or automatic flag insertion is
+used. Accepted launch means exec succeeded, not that its UI is ready. Use
+`console.open(linuxSessionId=...)` for commands whose output/exit status matters.
+
+For a persistent shell in that same session, make these separate calls:
+
+```json
+[
+  {"tool":"console.open","arguments":{"linuxSessionId":"<linux session>"}},
+  {"tool":"console.execute","arguments":{"sessionId":"<returned console id>","command":"id; pwd"}},
+  {"tool":"console.close","arguments":{"sessionId":"<returned console id>"}}
+]
+```
+
+Linux automation IDs, graphics session IDs and console IDs are distinct. Use the
+ID returned by each operation; a guest disconnect invalidates its automation
+connection and cancels dependent consoles without switching to Android shell.
+
+Device coverage: native Termux Qt and GTK4 over both X11 and Wayland, Debian GTK3 under UID-2000 Shroot,
+and Firefox in Debian Flatpak have been exercised on Android 16, including
+semantic actions and event-driven observation. The common console tests cover
+captured UID/display, persistent state, cancellation and peer loss without host
+fallback. Termux's GTK3 package
+disables its ATK bridge; installing that package alone does not expose GTK3 UI.
+API 34 and PRoot device coverage remain separate from these results. Prepared
+root chroots retain the executor UID for abstract-socket admission; a login
+that changes the real UID needs an explicitly mapped delegated endpoint.
+
+`python native/linux-settings/test_bus.py` checks the native wire protocol on a
+private D-Bus session. `python native/linux-settings/test_device.py --protocol
+x11` (or `wayland`) runs the real Qt/GTK4 fixtures through the configured MCP
+connection and closes its own graphical sessions. It requires the corresponding
+Termux Python toolkit packages and an awake, unlocked device. Use `--session ID
+--toolkit gtk` to run the shared checks inside an explicitly selected guest.
+
+### Typed D-Bus
+
+All `dbus.*` commands require `shell`, including observation: arbitrary services
+may expose private data or execute actions. Select an exact Linux session and
+`bus` (`session`, `system` or `accessibility`). `dbus.list` lists names;
+`dbus.introspect` returns a destination/path's interface XML; `dbus.call` supplies
+destination, path, interface, member and typed `arguments`.
+
+```json
+{"tool":"dbus.call","arguments":{"sessionId":"<linux session>","bus":"session","destination":"org.freedesktop.DBus","path":"/org/freedesktop/DBus","interface":"org.freedesktop.DBus","member":"GetNameOwner","arguments":[{"type":"s","value":"org.a11y.Bus"}]}}
+```
+
+Values use D-Bus signatures. Scalars return strings to preserve full-width
+integers; arrays/structs/dict entries contain typed children, and a variant
+contains one typed value. Unix FDs are opaque session-local `fd:N` handles,
+usable in typed calls and released with `dbus.release(fd=...)`, not host paths.
+Frames are limited to 1 MiB, 16384 values, depth 32 and 64 retained FDs.
+
+`dbus.subscribe(rule=...)` retains a match rule and returns a subscription ID
+and sequence. `dbus.events(after=..., wait=true)` observes the shared connection
+event stream, tagged by bus; it is not filtered per subscription. Retention is
+256 events/1 MiB and `overflow` requires resynchronization. Release each rule
+with `dbus.release(subscriptionId=...)`; at most 32 explicit rules are retained.
+Disconnect closes all descriptors, subscriptions and dependent console streams.
+This low-level shell authority can perform equivalent accessibility activation;
+the UI preparation checkbox is not a restriction on arbitrary shell/D-Bus use.
 
 ## File Transfers and Updates
 

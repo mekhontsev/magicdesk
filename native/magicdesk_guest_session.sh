@@ -76,4 +76,8 @@ if [ "$md_protocol" = x11-routed ]; then
     printf '%s' "$MAGICDESK_X11_AUTHORITY" | base64 -d > "$XAUTHORITY"
     unset MAGICDESK_X11_AUTHORITY
 fi
-dbus-run-session -- "$@"
+if [ -n "${MAGICDESK_AUTOMATION_HELPER:-}" ] && [ -n "${MAGICDESK_AUTOMATION_SOCKET:-}" ] && [ -n "${MAGICDESK_AUTOMATION_TOKEN:-}" ]; then
+    dbus-run-session -- "$MAGICDESK_AUTOMATION_HELPER" --automation "$@"
+else
+    dbus-run-session -- "$@"
+fi

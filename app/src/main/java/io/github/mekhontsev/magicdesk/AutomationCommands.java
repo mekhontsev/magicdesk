@@ -17,14 +17,15 @@ final class AutomationCommands implements AutoCloseable {
             new DesktopAutomationTerminalWindows();
     private final DesktopAutomationTmuxSessions mTmux;
     private final AutomationFileTransfers mTransfers;
-    private final AndroidUiAutomation mAndroidUi;
+    private final UiAutomation mUi;
+    private final DbusAutomation mDbus = new DbusAutomation();
     private UserInteractions mInteractions;
     private boolean mClosed;
 
     AutomationCommands(final Context context) {
         mContext = context.getApplicationContext();
         mAutomation = new DesktopAutomationController(mContext);
-        mAndroidUi = new AndroidUiAutomation(mContext);
+        mUi = new UiAutomation(mContext);
         mTmux = new DesktopAutomationTmuxSessions(mContext, mTerminals);
         mTransfers = new AutomationFileTransfers(mContext.getFilesDir().toPath().resolve("automation-transfers"),
                 new ShellAutomationTransferStorage());
@@ -33,7 +34,8 @@ final class AutomationCommands implements AutoCloseable {
     @Override
     public void close() {
         synchronized (this) { mClosed = true; if (mInteractions != null) mInteractions.close(); }
-        mAndroidUi.close();
+        mUi.close();
+        mDbus.close();
         mConsole.closeAll();
     }
 
@@ -80,12 +82,13 @@ final class AutomationCommands implements AutoCloseable {
                 || name.equals("interaction.result") || name.equals("interaction.close")) {
             return DesktopAutomationResult.success("ok", interactions().execute(name, args));
         }
-        if (name.startsWith("ui.") || name.startsWith("input.") || name.startsWith("device.")) {
+        if (name.startsWith("ui.") || name.startsWith("input.") || name.startsWith("device.") || name.startsWith("dbus.") || name.startsWith("linux.")) {
             try {
-                final JSONObject result = mAndroidUi.execute(name, args);
+                final JSONObject result = name.startsWith("dbus.") ? mDbus.execute(name, args)
+                        : name.startsWith("linux.") ? LinuxSessionCommands.execute(name, args) : mUi.execute(name, args);
                 if (result.has("accepted") && !result.getBoolean("accepted")) {
                     return DesktopAutomationResult.failure(DesktopAutomationErrorCode.ACTION_FAILED,
-                            "Android declined the UI action", false, result);
+                            "Application declined the UI action", false, result);
                 }
                 return DesktopAutomationResult.success("ok", result);
             } catch (java.io.IOException error) {
@@ -117,7 +120,7 @@ final class AutomationCommands implements AutoCloseable {
                 return AutomationWorkspace.setTaskState(args);
             case "get_state":
                 data = mAutomation.stateReader().state();
-                data.put("automationAwake", mAndroidUi.awakeState());
+                data.put("automationAwake", mUi.awakeState());
                 return DesktopAutomationResult.success("ok", data);
             case "get_pointer_state":
                 data = mAutomation.stateReader().pointerState(args);
@@ -168,6 +171,10 @@ final class AutomationCommands implements AutoCloseable {
                     return mFiles.rename(args);
                 case "console.open":
                     return consoles.open(args);
+                case "console.list":
+                    return consoles.list();
+                case "console.cancel":
+                    return consoles.cancel(args);
                 case "console.execute":
                     return consoles.execute(mContext, args);
                 case "console.status":

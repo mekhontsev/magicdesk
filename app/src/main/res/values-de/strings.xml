@@ -842,6 +842,7 @@
     <string name="settings_mcp_network_access">Netzwerk-MCP-Berechtigungen</string>
     <string name="mcp_permission_control">Desktop- und Anwendungssteuerung</string>
     <string name="mcp_permission_input">UI-Aktionen, Gesten, Wachhaltefreigaben, Selbsttests und erzwungenes Beenden</string>
+    <string name="mcp_permission_linux_accessibility">Linux-Barrierefreiheit zwangsweise aktivieren</string>
     <string name="mcp_permission_content">App-UI-Text, Bildschirmaufnahme, Zwischenablage, Benachrichtigungen und Skriptdialoge</string>
     <string name="mcp_permission_files_read">Dateien herunterladen und lesen</string>
     <string name="mcp_permission_files_write">Dateien hochladen, erstellen und ersetzen</string>

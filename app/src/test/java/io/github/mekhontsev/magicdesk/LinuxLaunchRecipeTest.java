@@ -281,6 +281,22 @@ public final class LinuxLaunchRecipeTest {
     }
 
     private List<String> arguments(DesktopApplicationShortcut shortcut, Path launcher) throws Exception {
+        return arguments(shortcut, launcher, java.util.Map.of());
+    }
+
+    @Test public void automationHelpersAreMappedTogetherInsideProotOnly() throws Exception {
+        var shortcut = recipe("app", "", LinuxLaunchRecipe.Presentation.APPLICATION);
+        var args = arguments(shortcut, unixHome().resolve("proot-distro"), java.util.Map.of(
+                "MAGICDESK_AUTOMATION_HELPER", "/apk/helper dir/libmagicdesk_linux_settings.so",
+                "MAGICDESK_AUTOMATION_SOCKET", "automation", "MAGICDESK_AUTOMATION_TOKEN", "nonce"));
+        assertTrue(args.contains("/apk/helper dir:/tmp/magicdesk-automation"));
+        assertTrue(args.contains("MAGICDESK_AUTOMATION_HELPER=/tmp/magicdesk-automation/libmagicdesk_linux_settings.so"));
+        assertTrue(args.contains("MAGICDESK_AUTOMATION_SOCKET=automation"));
+        assertTrue(args.contains("MAGICDESK_AUTOMATION_TOKEN=nonce"));
+        assertFalse(shortcut.graphics.fileEnvironment().isEmpty());
+    }
+
+    private List<String> arguments(DesktopApplicationShortcut shortcut, Path launcher, java.util.Map<String, String> environment) throws Exception {
         assumeTrue(!System.getProperty("os.name").startsWith("Windows"));
         String shell = System.getenv("PREFIX") == null ? "/bin/sh" : System.getenv("PREFIX") + "/bin/sh";
         Path mock = Files.writeString(launcher, "#!" + shell + "\nprintf '%s\\0' \"$@\"\n");
@@ -299,6 +315,7 @@ public final class LinuxLaunchRecipeTest {
         builder.environment().put("MAGICDESK_APPEARANCE_HELPER", "/apk/settings");
         builder.environment().put("MAGICDESK_APPEARANCE_SOCKET", "appearance");
         builder.environment().put("MAGICDESK_APPEARANCE_TOKEN", "preference-secret");
+        builder.environment().putAll(environment);
         var result = BoundedProcessRunner.run(builder.start(), 5000, 16384);
         assertEquals(result.output, 0, result.exitCode);
         return Arrays.asList(result.output.split("\0"));

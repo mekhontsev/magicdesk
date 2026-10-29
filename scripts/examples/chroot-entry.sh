@@ -33,6 +33,9 @@ guest_file_socket=
 guest_file_token=
 guest_appearance_socket=
 guest_appearance_token=
+guest_automation_helper=
+guest_automation_socket=
+guest_automation_token=
 guest_audio_native=
 guest_audio_pulse=
 if [ -n "${MAGICDESK_AUDIO_PIPEWIRE:-}" ] && [ -n "${MAGICDESK_AUDIO_PULSE:-}" ]; then
@@ -68,6 +71,13 @@ if [ -n "$guest_session" ] && [ -n "${MAGICDESK_GUEST_FILES_HELPER:-}" ]; then
 fi
 
 # The guest chooses its login shell and home. No passwords or host loader variables cross the boundary.
+if [ -n "$guest_session" ] && [ -n "${MAGICDESK_AUTOMATION_HELPER:-}" ]; then
+    mkdir -p "$root/tmp/magicdesk-automation"
+    mount --bind "${MAGICDESK_AUTOMATION_HELPER%/*}" "$root/tmp/magicdesk-automation"
+    guest_automation_helper=/tmp/magicdesk-automation/libmagicdesk_linux_settings.so
+    guest_automation_socket=$MAGICDESK_AUTOMATION_SOCKET
+    guest_automation_token=$MAGICDESK_AUTOMATION_TOKEN
+fi
 if [ -n "$guest_session" ] && [ -n "${MAGICDESK_APPEARANCE_HELPER:-}" ]; then
     touch "$root/tmp/magicdesk-linux-settings"
     mount --bind "$MAGICDESK_APPEARANCE_HELPER" "$root/tmp/magicdesk-linux-settings"
@@ -79,6 +89,8 @@ exec /system/bin/chroot "$root" /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bi
     WAYLAND_DISPLAY="$guest_wayland" XDG_SESSION_TYPE="$guest_session" \
     MAGICDESK_GUEST_FILES_SOCKET="$guest_file_socket" MAGICDESK_GUEST_FILES_TOKEN="$guest_file_token" \
     MAGICDESK_APPEARANCE_SOCKET="$guest_appearance_socket" MAGICDESK_APPEARANCE_TOKEN="$guest_appearance_token" \
+    MAGICDESK_AUTOMATION_HELPER="$guest_automation_helper" MAGICDESK_AUTOMATION_SOCKET="$guest_automation_socket" \
+    MAGICDESK_AUTOMATION_TOKEN="$guest_automation_token" \
     PIPEWIRE_REMOTE="$guest_audio_native" PULSE_SERVER="${guest_audio_pulse:+unix:$guest_audio_pulse}" \
     MAGICDESK_AUDIO_PIPEWIRE="$guest_audio_native" MAGICDESK_AUDIO_PULSE="$guest_audio_pulse" \
     /bin/sh -c '

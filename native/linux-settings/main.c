@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #endif
 #include "portal.h"
+#include "bus_agent.h"
 #include <errno.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -93,6 +94,11 @@ static void launch(char **command) {
 }
 
 int main(int argc, char **argv) {
+    if (argc >= 3 && !strcmp(argv[1], "--automation")) {
+        if (md_bus_agent_start()) perror("Linux automation unavailable");
+        execvp(argv[2], argv + 2);
+        perror("Linux automation application"); return 127;
+    }
     if (argc < 3 || strcmp(argv[1], "--")) {
         fprintf(stderr, "Usage: magicdesk-linux-settings -- PROGRAM ARG...\n");
         return 2;

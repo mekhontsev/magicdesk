@@ -832,6 +832,7 @@
     <string name="settings_mcp_network_access">ネットワーク MCP の権限</string>
     <string name="mcp_permission_control">デスクトップとアプリの操作</string>
     <string name="mcp_permission_input">UI 操作、ジェスチャー、スリープ抑止、自動テスト、強制停止</string>
+    <string name="mcp_permission_linux_accessibility">Linux アクセシビリティを強制的に有効化</string>
     <string name="mcp_permission_content">アプリの UI テキスト、画面キャプチャ、クリップボード、通知、スクリプトダイアログ</string>
     <string name="mcp_permission_files_read">ファイルのダウンロードと読み取り</string>
     <string name="mcp_permission_files_write">ファイルのアップロード、作成、置換</string>

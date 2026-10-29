@@ -9,6 +9,7 @@ final class McpAccessPolicy {
     enum Permission {
         CONTROL("control", R.string.mcp_permission_control),
         INPUT_TESTS("input_tests", R.string.mcp_permission_input),
+        LINUX_ACCESSIBILITY("linux_accessibility", R.string.mcp_permission_linux_accessibility),
         CONTENT("content", R.string.mcp_permission_content),
         FILES_READ("files_read", R.string.mcp_permission_files_read),
         FILES_WRITE("files_write", R.string.mcp_permission_files_write),
@@ -59,9 +60,11 @@ final class McpAccessPolicy {
 
     static Permission required(final String name) {
         return switch (name) {
-            case "graphics.start", "graphics.execute", "graphics.stop",
+            case "ui.prepare" -> Permission.LINUX_ACCESSIBILITY;
+            case "dbus.list", "dbus.introspect", "dbus.call", "dbus.subscribe", "dbus.events", "dbus.release", "linux.launch", "linux.inspect",
+                    "graphics.start", "graphics.execute", "graphics.stop",
                     "guest.list", "guest.inspect", "guest.start", "guest.status", "guest.cancel", "guest.launches", "guest.stop",
-                    "console.open", "console.execute", "console.status", "console.close",
+                    "console.open", "console.execute", "console.status", "console.close", "console.list", "console.cancel",
                     "terminal.open", "terminal.list", "terminal.status", "terminal.read",
                     "terminal.write", "terminal.send_key", "terminal.close", "terminal.attach",
                     "terminal.detach", "terminal.emit", "tmux.list", "tmux.open", "tmux.panes", "tmux.emit"
@@ -81,7 +84,7 @@ final class McpAccessPolicy {
                     "clipboard.read_text", "clipboard.write_text", "clipboard.clear",
                     "clipboard.open", "clipboard.share", "list_notifications",
                     "get_intent_result", "get_activity_history" -> Permission.CONTENT;
-            case "ui.inspect", "ui.wait", "ui.read_text", "graphics.inspect_window" -> Permission.CONTENT;
+            case "linux.list", "ui.inspect", "ui.wait", "ui.read_text", "graphics.inspect_window" -> Permission.CONTENT;
             case "appearance.apply", "appearance.preset", "appearance.reset", "appearance.preview", "appearance.confirm", "appearance.cancel", "appearance.import", "appearance.prune",
                     "graphics.open_window", "graphics.set_workspace", "graphics.set_scale", "start_desktop", "close_desktop", "create_display", "remove_display",
                     "graphics.close_window", "graphics.detach_viewer", "set_task_state",

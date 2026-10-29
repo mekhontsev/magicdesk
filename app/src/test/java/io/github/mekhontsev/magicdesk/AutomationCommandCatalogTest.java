@@ -127,9 +127,11 @@ public final class AutomationCommandCatalogTest {
             assertTrue(properties.has("taskId"));
             assertTrue(properties.has("displayId"));
             assertFalse(schema.optJSONArray("required") != null && schema.getJSONArray("required").toString().contains("displayId"));
-            assertEquals(2, schema.getJSONArray("oneOf").length());
+            assertEquals(3, schema.getJSONArray("oneOf").length());
             assertEquals("[\"displayId\"]", schema.getJSONArray("oneOf").getJSONObject(0).getJSONArray("required").toString());
             assertEquals("[\"taskId\"]", schema.getJSONArray("oneOf").getJSONObject(1).getJSONArray("required").toString());
+            assertEquals("[\"sessionId\"]", schema.getJSONArray("oneOf").getJSONObject(2).getJSONArray("required").toString());
+            assertTrue(properties.has("applicationId"));
             final var result = dataProperties(tools, name);
             assertTrue(result.has("taskId"));
             assertTrue(result.has("targetAvailable"));

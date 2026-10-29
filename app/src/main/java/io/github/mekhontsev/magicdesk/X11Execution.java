@@ -42,7 +42,7 @@ final class X11Execution {
     }
 
     Closeable startServer(X11LaunchSpec spec, CommandExecution.Completion completion) throws IOException {
-        services = LinuxLaunchServices.prepare(context, commands);
+        services = LinuxLaunchServices.prepare(context, commands, spec.id, spec.fileEnvironment);
         try {
             Closeable server = startServerProcess(spec, (code, output, error) -> {
                 services.close(); completion.complete(code, output, error);

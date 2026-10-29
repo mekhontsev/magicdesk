@@ -718,40 +718,40 @@ final class AutomationCommandCatalog {
     private static void addAndroidUiTools(final JSONArray tools) throws JSONException {
         final JSONObject display = integerProperty("Exact Android display id from list_displays, including 0. No Desktop required.");
         final JSONObject selector = new JSONObject();
-        for (final String key : java.util.List.of("package", "resourceId", "className", "text", "description")) {
+        for (final String key : java.util.List.of("package", "resourceId", "className", "text", "description", "name", "role", "accessibleId", "applicationId")) {
             selector.put(key, stringProperty("Exact full " + key + " match, up to 32768 UTF-16 units; all criteria must match the same node."));
         }
         for (final String key : java.util.List.of("enabled", "visible", "focused", "selected", "checked", "editable", "scrollable")) {
             selector.put(key, booleanProperty("Expected " + key + " state."));
         }
-        tools.put(readTool("ui.inspect", "Inspect Android UI",
-                "Read fresh Android accessibility windows/nodes on exactly one displayId or taskId, without activating it. A task includes only windows with confirmed Android task ownership. Optionally narrow to windowId or rootElementId. An inaccessible target remains incomplete, never another app. Selectors search up to 4096 nodes. Previews are bounded; use ui.read_text for full text. complete describes stable traversal, not rendering. Password text is redacted. Handles expire after 60 seconds or four newer snapshots. Prefer MagicDesk semantic controls for its own UI.",
+        addLinuxAutomationTools(tools);
+        tools.put(readTool("ui.inspect", "Inspect UI",
+                "Read accessibility nodes without activation. Select exactly one Android displayId/taskId or Linux sessionId from linux.list. Linux AT-SPI scopes optional applicationId to an exact unique bus owner; complete covers registered accessible applications, not every graphical window. Linux-only selectors: name, role, accessibleId, applicationId. Bounds are explicitly Linux screen pixels, not Android coordinates. Inaccessible/truncated trees never prove absence. Up to 4096 nodes, depth 40, three-second traversal; retained Linux text is bounded to 32768 codepoints per node and 256 Ki UTF-16 units per snapshot. Password values are redacted. Handles expire after 60 seconds or four newer snapshots. Prefer semantic controls.",
                 objectSchema(androidUiScopeProperties().put("selector", objectSchema(selector).put("minProperties", 1)))
-                        .put("oneOf", new JSONArray().put(requiredOnly("displayId")).put(requiredOnly("taskId")))))
-                .put(readTool("ui.read_text", "Read Android UI text",
+                        .put("oneOf", new JSONArray().put(requiredOnly("displayId")).put(requiredOnly("taskId")).put(requiredOnly("sessionId")))))
+                .put(readTool("ui.read_text", "Read UI text",
                         "Read text or description from one retained snapshot element without preview truncation. Pages use UTF-16 offsets in that same immutable revision; nextOffset=null ends it. No live refresh: inspect/wait again for current text. Password values and lengths stay redacted. Handles have the same expiry as ui.inspect.",
                         objectSchema(new JSONObject().put("elementId", stringProperty("Handle from ui.inspect/ui.wait."))
                                 .put("field", enumProperty("Default text.", "text", "description"))
                                 .put("offset", integerProperty("UTF-16 offset, default 0."))
                                 .put("limit", integerProperty("Page length 1-32768 UTF-16 units, default 32768. Unicode-safe boundaries; limit=1 may return a two-unit character.")), "elementId")))
-                .put(actionTool("ui.perform", "Act on Android UI element",
+                .put(actionTool("ui.perform", "Act on UI element",
                         "Perform an advertised accessibility action on an elementId from ui.inspect/ui.wait. Refreshes window ownership and node identity; rejects moved/reassigned windows and expired handles, with no coordinate fallback. set_text preserves Unicode and line breaks. accepted is not proof of visual completion; verify using ui.wait.",
                         objectSchema(new JSONObject().put("elementId", stringProperty("Short-lived opaque node handle."))
-                                .put("action", enumProperty("Use an action from the node's actions list.", "click", "long_click", "focus", "clear_focus",
-                                        "set_text", "select_text", "scroll_forward", "scroll_backward", "scroll_up", "scroll_down",
-                                        "scroll_left", "scroll_right", "show_on_screen"))
+                                .put("action", stringProperty("Exact action advertised by this node: Android actions, shared click/focus/set_text/select_text, or Linux atspi:NAME. No coordinate fallback."))
                                 .put("text", stringProperty("Required for set_text, up to 32768 characters; empty clears the field."))
                                 .put("start", integerProperty("Selection start for select_text."))
                                 .put("end", integerProperty("Selection end for select_text.")), "elementId", "action")))
-                .put(readTool("ui.wait", "Wait for Android UI",
-                        "Wait on accessibility events for exact full-text/state matches in exactly one displayId or taskId, optionally a window or subtree. Fresh task observations follow its current display without activation. Searches up to 4096 nodes per observation. Returns matched/timedOut, not a claimed action result. Missing/inaccessible targets, incomplete or redacted observations never prove absence. No periodic UI polling.",
+                .put(readTool("ui.wait", "Wait for UI",
+                        "Event-driven exact selector match in one Android display/task or Linux session/application. Returns matched/timedOut, not a claimed action result. Missing/inaccessible targets, incomplete or redacted observations never prove absence. No periodic polling. ui.release cancels waits for the selected backend/session.",
                         objectSchema(androidUiScopeProperties()
                                 .put("selector", objectSchema(selector).put("minProperties", 1))
                                 .put("condition", enumProperty("Default present.", "present", "absent"))
                                 .put("timeoutMillis", integerProperty("0-60000 ms, default 5000.")), "selector")
-                                .put("oneOf", new JSONArray().put(requiredOnly("displayId")).put(requiredOnly("taskId")))))
-                .put(actionTool("ui.release", "Release Android UI connection",
-                        "Release UI node handles and Android UiAutomation, cancelling outstanding UI waits. Also released after 60 idle seconds or client process death. Does not disable existing accessibility services.", emptySchema()))
+                                .put("oneOf", new JSONArray().put(requiredOnly("displayId")).put(requiredOnly("taskId")).put(requiredOnly("sessionId")))))
+                .put(actionTool("ui.release", "Release UI observation",
+                        "Release handles and cancel waits. With sessionId releases that Linux AT-SPI observation; otherwise releases Android UiAutomation. Does not close applications, the Linux session, or existing accessibility services.",
+                        objectSchema(new JSONObject().put("sessionId", stringProperty("Exact Linux session from linux.list; omit for Android.")))))
                 .put(actionTool("input.gesture", "Inject touch gesture",
                         "Inject a bounded touch gesture on an explicit display without Desktop. Uses screen pixels; prefer ui.perform when the app exposes an action. A drag holds first, then moves. Does not reposition the hardware mouse cursor.",
                         objectSchema(new JSONObject().put("displayId", display)
@@ -777,11 +777,52 @@ final class AutomationCommandCatalog {
     }
 
     private static JSONObject androidUiScopeProperties() throws JSONException {
-        return new JSONObject().put("displayId", integerProperty("Exact Android display id, including 0. Mutually exclusive with taskId; one is required. No Desktop required."))
+        return new JSONObject().put("sessionId", stringProperty("Linux session identity from linux.list; excludes displayId/taskId/windowId."))
+                .put("applicationId", stringProperty("Linux-only exact unique D-Bus owner from a node. Omit to inspect registered applications."))
+                .put("displayId", integerProperty("Exact Android display id, including 0. Mutually exclusive with taskId/sessionId. No Desktop required."))
                 .put("taskId", integerProperty("Exact Android task id. Mutually exclusive with displayId. Only accessibility windows owned by this task; no focus or display changes."))
                 .put("windowId", integerProperty("Optional Android accessibility window id from ui.inspect. Excludes rootElementId."))
                 .put("rootElementId", stringProperty("Optional retained handle: refresh and inspect only its subtree. Excludes windowId; must belong to the selected display/task. Reinspect after window movement."))
                 .put("maxNodes", integerProperty("Maximum returned nodes/matches, 1-256, default 200. Traversal is separately bounded to 4096 nodes, depth 40, 3 seconds."));
+    }
+
+    private static void addLinuxAutomationTools(JSONArray tools) throws JSONException {
+        JSONObject session = stringProperty("Exact connected Linux session from linux.list, not a graphics session id. Restart creates a new identity.");
+        tools.put(readTool("linux.list", "List Linux sessions", "List connected Linux sessions with their captured graphics/executor identity. No bus activation or process scanning. Includes native Termux, PRoot and Shroot when launched through shared graphics services.", emptySchema()))
+                .put(readTool("linux.inspect", "Inspect Linux session", "Read captured guest UID, agent PID, working directory, shell and display endpoints. No arbitrary environment disclosure or implicit elevation.",
+                        objectSchema(new JSONObject().put("sessionId", session), "sessionId")))
+                .put(actionTool("ui.prepare", "Enable Linux accessibility", "Explicitly enable the selected session's accessibility service and screen-reader status. Does not restart applications or promise they expose a tree.",
+                        objectSchema(new JSONObject().put("sessionId", session), "sessionId")))
+                .put(actionTool("linux.launch", "Launch Linux application", "Launch the exact argv in the selected guest session/user, not in the sandbox of an existing application. No shell expansion, added flags, toolkit detection, accessibility activation or restart. Supply any required accessibility flags explicitly; use flatpak run or snap run in argv for containers. Requires shell permission, independently of ui.prepare.",
+                        objectSchema(new JSONObject().put("sessionId", session)
+                                .put("argv", arrayProperty("Executable and arguments. 1-128 strings; argv plus environment limited to 65536 characters.", stringProperty("Argument.")))
+                                .put("environment", new JSONObject().put("type", "object").put("maxProperties", 32)
+                                        .put("additionalProperties", stringProperty("Explicit environment value; inherited environment otherwise unchanged."))), "sessionId", "argv")));
+        for (String operation : java.util.List.of("list", "introspect", "call", "subscribe", "events", "release")) {
+            JSONObject properties = new JSONObject().put("sessionId", session)
+                    .put("bus", enumProperty("Default session. Accessibility resolves through org.a11y.Bus in this guest only.", "session", "system", "accessibility"))
+                    .put("timeoutMillis", integerProperty("1-10000 ms, default 3000."));
+            java.util.ArrayList<String> required = new java.util.ArrayList<>(java.util.List.of("sessionId"));
+            if (operation.equals("call") || operation.equals("introspect")) {
+                properties.put("destination", stringProperty("D-Bus unique or well-known destination.")).put("path", stringProperty("D-Bus object path."));
+                required.add("destination"); required.add("path");
+            }
+            if (operation.equals("call")) {
+                properties.put("interface", stringProperty("D-Bus interface.")).put("member", stringProperty("Method name."))
+                        .put("arguments", arrayProperty("Typed values {type: signature, value: scalar or array of typed values}. Scalars are strings (including 64-bit integers), booleans or numbers. Variants contain one typed value. UNIX_FD uses a retained fd:N handle from this same session; release explicitly.",
+                                objectSchema(new JSONObject().put("type", stringProperty("Single D-Bus signature."))
+                                        .put("value", new JSONObject()), "type", "value")));
+                required.add("interface"); required.add("member");
+            }
+            if (operation.equals("subscribe")) { properties.put("rule", stringProperty("D-Bus signal match rule, up to 4096 characters. Normal bus policy applies; not a privileged monitor.")); required.add("rule"); }
+            if (operation.equals("events")) properties.put("after", integerProperty("Last received sequence, default 0. Overflow explicitly means events were lost."))
+                    .put("wait", booleanProperty("Wait for an event up to timeoutMillis; default false. Returns session events across its subscribed buses."));
+            if (operation.equals("release")) properties.put("subscriptionId", stringProperty("Subscription to remove; excludes fd."))
+                    .put("fd", stringProperty("Retained UNIX_FD handle to close; excludes subscriptionId."));
+            tools.put(actionTool("dbus." + operation, "Linux D-Bus " + operation,
+                    "Typed diagnostic access to the selected guest bus. Requires shell permission, including observation because arbitrary services can expose private data. No host-bus fallback. Connections die with the guest agent. Limits: 1 MiB frame, 16384 values, depth 32, 64 retained FDs, 32 explicit subscriptions. Release resources when done.",
+                    objectSchema(properties, required.toArray(String[]::new))));
+        }
     }
 
     private static void addTransferTools(JSONArray tools) throws JSONException {
@@ -929,10 +970,13 @@ final class AutomationCommandCatalog {
                 .put(actionTool(
                         "console.open",
                         "Open headless shell session",
-                        "Open a bounded persistent headless Android shell session for deterministic commands.",
+                        "Open a bounded persistent headless shell. Omit linuxSessionId for Android shell; select an exact linux.list session for native Termux, PRoot or Shroot, retaining its user, namespaces and display environment. Does not start or switch distributions.",
                         objectSchema(new JSONObject().put(
                                 "directory", stringProperty(
-                                        "Initial absolute working directory.")))))
+                                        "Initial absolute working directory; defaults to the selected environment."))
+                                .put("linuxSessionId", stringProperty("Exact connected Linux session; omit for Android shell.")))))
+                .put(readTool("console.list", "List headless consoles", "List retained console identities, environment and current directory.", emptySchema()))
+                .put(actionTool("console.cancel", "Cancel console command", "Cancel the current command and its owned jobs. Retain the console id; the next command starts a fresh shell in the same captured environment and last known directory.", sessionSchema()))
                 .put(actionTool(
                         "console.execute",
                         "Execute headless shell command",
@@ -1480,6 +1524,27 @@ final class AutomationCommandCatalog {
             throws JSONException {
         final JSONObject properties = new JSONObject();
         switch (toolName) {
+            case "linux.list":
+            case "console.list":
+                properties.put("sessions", arrayProperty("Connected or retained sessions.", openObjectProperty("Session identity and context.")));
+                break;
+            case "linux.inspect":
+                properties.put("sessionId", stringProperty("Exact connected Linux identity."))
+                        .put("graphicsSessionId", stringProperty("Owning graphical session."))
+                        .put("environment", stringProperty("Captured environment identity."))
+                        .put("executorUid", integerProperty("Android executor identity."))
+                        .put("guestUid", integerProperty("Guest identity, possibly virtualized by its runtime."))
+                        .put("agentPid", integerProperty("Agent PID in its guest namespace."))
+                        .put("directory", stringProperty("Captured initial directory."))
+                        .put("shell", stringProperty("Guest shell."))
+                        .put("display", stringProperty("Captured DISPLAY, empty when unset."))
+                        .put("waylandDisplay", stringProperty("Captured WAYLAND_DISPLAY, empty when unset."));
+                break;
+            case "linux.launch":
+                properties.put("sessionId", stringProperty("Selected Linux session."))
+                        .put("accepted", booleanProperty("Exec succeeded; not application readiness."))
+                        .put("pid", integerProperty("PID in the guest namespace."));
+                break;
             case "guest.list":
                 properties.put("environments", arrayProperty("Named environments.", openObjectProperty("Environment.")
                         .put("properties", new JSONObject().put("name", stringProperty("Library name."))
@@ -1629,7 +1694,10 @@ final class AutomationCommandCatalog {
                                 .put("actionId", stringProperty("Selected notification action ID."))));
                 break;
             case "ui.inspect":
-                properties.put("displayId", nullableIntegerProperty("Observed display; null when a task has no accessible windows or its location is ambiguous."))
+                properties.put("backend", stringProperty("atspi for Linux; Android observations retain Android fields."))
+                        .put("sessionId", stringProperty("Linux session identity, when selected."))
+                        .put("applicationId", stringProperty("Selected Linux application owner, empty for registered applications."))
+                        .put("displayId", nullableIntegerProperty("Observed display; null when a task has no accessible windows or its location is ambiguous."))
                         .put("taskId", nullableIntegerProperty("Requested task id, or null for display scope."))
                         .put("targetAvailable", booleanProperty("At least one window matches the requested scope; its tree may still be unavailable."))
                         .put("unavailableReason", stringProperty("Scope availability/ownership limitation, empty when confirmed."))
@@ -1641,7 +1709,9 @@ final class AutomationCommandCatalog {
                         .put("windows", arrayProperty("Accessibility windows.", openObjectProperty("Window.")));
                 break;
             case "ui.wait":
-                properties.put("displayId", nullableIntegerProperty("Observed display; null when a task has no accessible windows or its location is ambiguous."))
+                properties.put("backend", stringProperty("atspi for Linux."))
+                        .put("sessionId", stringProperty("Linux session identity, when selected."))
+                        .put("displayId", nullableIntegerProperty("Observed display; null when a task has no accessible windows or its location is ambiguous."))
                         .put("taskId", nullableIntegerProperty("Requested task id, or null for display scope."))
                         .put("targetAvailable", booleanProperty("At least one window matches the requested scope; its tree may still be unavailable."))
                         .put("unavailableReason", stringProperty("Scope availability/ownership limitation, empty when confirmed."))
@@ -2069,8 +2139,11 @@ final class AutomationCommandCatalog {
                 break;
             case "console.open":
             case "console.status":
+            case "console.cancel":
             case "console.close":
                 properties.put("sessionId", stringProperty("Session id."))
+                        .put("linuxSessionId", nullableStringProperty("Captured Linux session, null for Android."))
+                        .put("available", booleanProperty("Captured execution context remains available."))
                         .put("workingDirectory", stringProperty(
                                 "Current directory."));
                 break;

@@ -68,7 +68,12 @@ final class LinuxLaunchRecipe {
                 ? ": \"${DISPLAY:?Missing X11 display}\" \"${XAUTHORITY:?Missing X11 authorization}\"; "
                 : ": \"${WAYLAND_DISPLAY:?Missing Wayland display}\" \"${MAGICDESK_WAYLAND_RUNTIME:?Missing Wayland runtime}\"; ");
         final boolean proot = environment.kind() == Kind.PROOT;
-        if (proot) host.append("md_login() { if [ -n \"${MAGICDESK_AUDIO_PIPEWIRE:-}\" ] && [ -n \"${MAGICDESK_AUDIO_PULSE:-}\" ]; then "
+        if (proot) host.append("md_login() { if [ -n \"${MAGICDESK_AUTOMATION_HELPER:-}\" ] && [ -n \"${MAGICDESK_AUTOMATION_SOCKET:-}\" ]; then "
+                + "set -- --bind \"${MAGICDESK_AUTOMATION_HELPER%/*}:/tmp/magicdesk-automation\""
+                + " --env MAGICDESK_AUTOMATION_HELPER=/tmp/magicdesk-automation/libmagicdesk_linux_settings.so"
+                + " --env \"MAGICDESK_AUTOMATION_SOCKET=$MAGICDESK_AUTOMATION_SOCKET\""
+                + " --env \"MAGICDESK_AUTOMATION_TOKEN=$MAGICDESK_AUTOMATION_TOKEN\" \"$@\"; fi; "
+                + "if [ -n \"${MAGICDESK_AUDIO_PIPEWIRE:-}\" ] && [ -n \"${MAGICDESK_AUDIO_PULSE:-}\" ]; then "
                 + "set -- " + LinuxAudioEnvironment.prootArguments() + " \"$@\"; fi; "
                 + TerminalFilesEnvironment.prootArguments() + "exec proot-distro login --isolated \"$@\"; }; ");
         host.append(proot ? "md_login" : "exec " + q(environment.target()));

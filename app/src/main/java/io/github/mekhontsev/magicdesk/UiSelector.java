@@ -12,7 +12,9 @@ final class UiSelector {
             "enabled", "visible", "focused", "selected", "checked", "editable", "scrollable");
     private final JSONObject mCriteria;
 
-    UiSelector(final JSONObject criteria) throws JSONException {
+    UiSelector(final JSONObject criteria) throws JSONException { this(criteria, Set.of()); }
+
+    UiSelector(final JSONObject criteria, final Set<String> backendTextFields) throws JSONException {
         if (criteria == null || criteria.length() == 0) {
             throw new IllegalArgumentException("selector must contain at least one criterion");
         }
@@ -20,7 +22,7 @@ final class UiSelector {
         while (keys.hasNext()) {
             final String key = keys.next();
             final Object value = criteria.get(key);
-            if (TEXT.contains(key)) {
+            if (TEXT.contains(key) || backendTextFields.contains(key)) {
                 if (!(value instanceof String) || ((String) value).length() > 32768) {
                     throw new IllegalArgumentException("invalid selector string: " + key);
                 }
@@ -45,11 +47,11 @@ final class UiSelector {
     }
 
     boolean couldMatchRedacted(final JSONObject node) {
-        if (!node.optBoolean("password") || !mCriteria.has("text") && !mCriteria.has("description")) return false;
+        if (!node.optBoolean("password") || !mCriteria.has("text") && !mCriteria.has("description") && !mCriteria.has("name")) return false;
         final var keys = mCriteria.keys();
         while (keys.hasNext()) {
             final String key = keys.next();
-            if (!key.equals("text") && !key.equals("description")
+            if (!key.equals("text") && !key.equals("description") && !key.equals("name")
                     && !mCriteria.opt(key).equals(node.opt(key))) return false;
         }
         return true;

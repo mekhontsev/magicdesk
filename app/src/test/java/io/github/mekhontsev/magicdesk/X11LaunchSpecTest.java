@@ -60,7 +60,7 @@ public final class X11LaunchSpecTest {
         assertEquals("export DISPLAY=':17' XAUTHORITY=" + ShellCommandLine.quote(a.authorityFile)
                 + " MAGICDESK_X11_RUNTIME=" + ShellCommandLine.quote(a.directory)
                 + " MAGICDESK_X11_TMPDIR=" + ShellCommandLine.quote(a.temporaryDirectory)
-                + "\n" + command, a.clientCommand("17", command));
+                + "\n" + LinuxAutomationEnvironment.command(command, "/bin/sh"), a.clientCommand("17", command));
     }
 
     @Test public void commandChildPreservesStdinAndFailureStatus() throws Exception {

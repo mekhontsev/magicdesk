@@ -90,7 +90,8 @@ final class X11LaunchSpec {
                 + appearance.exports()
                 + (endpoint.isEmpty() ? "" : " MAGICDESK_GRAPHICS_ENDPOINT=" + q(endpoint)
                         + " MAGICDESK_X11_AUTHORITY=" + q(stdin.trim()))
-                + "\n" + appearance.command(command, shell);
+                + "\n" + (fileEnvironment.isEmpty() ? LinuxAutomationEnvironment.command(appearance.command(command, shell), shell)
+                        : appearance.command(command, shell));
     }
 
     static byte[] authority(byte[] cookie) {

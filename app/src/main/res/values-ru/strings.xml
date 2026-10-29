@@ -862,6 +862,7 @@
     <string name="settings_mcp_network_access">Сетевые разрешения MCP</string>
     <string name="mcp_permission_control">Управление рабочим столом и приложениями</string>
     <string name="mcp_permission_input">Действия с интерфейсом, жесты, удержание бодрствования, самотесты и остановка приложений</string>
+    <string name="mcp_permission_linux_accessibility">Принудительное включение доступности Linux</string>
     <string name="mcp_permission_content">Текст интерфейса, снимки экрана, буфер обмена, уведомления и диалоги скриптов</string>
     <string name="mcp_permission_files_read">Скачивание и чтение файлов</string>
     <string name="mcp_permission_files_write">Загрузка, создание и замена файлов</string>

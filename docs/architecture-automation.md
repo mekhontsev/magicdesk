@@ -70,7 +70,7 @@ Shared command, observation and diagnostic ownership. For the public tool contra
   captured display/window/task identities before actions and subtree refreshes;
   moved windows require fresh handles. Retained text reads stay immutable.
   Exact selectors search up to 4096 candidates before projecting bounded text
-  previews; `AndroidUiText` pages full retained text independently of traversal.
+  previews; shared `UiText` pages retained text independently of traversal.
   Password values and lengths remain redacted. Public API 34 cache invalidation
   precedes each capture; event generations distinguish concurrent changes from
   stable traversal. Missing, unstable or truncated traversal cannot prove absence.
@@ -87,6 +87,43 @@ Shared command, observation and diagnostic ownership. For the public tool contra
   bounded event journal plus final state and task snapshots. It adds no task
   observer and no persistent log. Exact UI waits use journal notifications and
   a bounded recheck for `View` state changes that Android does not publish.
+
+### Linux Sessions And UI
+
+- `UiAutomation` dispatches the shared semantic contract to Android or
+  `LinuxUiAutomation`; `UiSelector` and `UiText` own common matching and paging.
+  `AtSpiClient` owns toolkit protocol details, not display placement or input
+  injection. Linux handles retain a unique bus owner, object identity and event
+  generation. Actions refresh identity; observation never falls back to pixels.
+  Event subscriptions use AT-SPI interfaces, not toolkit-specific object paths.
+  A capture changed by an event is reconciled immediately; otherwise waits sleep
+  on the connection event future. There is no periodic UI scan.
+- `LinuxLaunchServices` prepares optional automation alongside audio and gamepad
+  services. `LinuxAutomationLaunch` admits bounded, authenticated connections
+  through `ExecutorEndpointBroker`, shared with Linux audio. The existing
+  `linux-settings` helper hosts libdbus inside the selected guest session, after
+  its login identity, namespace and D-Bus address are established. Native Termux
+  uses the same helper; PRoot and prepared chroots only map its directory and
+  environment. Missing guest services do not trigger host-bus fallback.
+- `LinuxBusConnection` owns one connected process generation, its bounded typed
+  replies/events and dependent console streams. Transport loss invalidates that
+  identity. `ExecutorSocketChannel` waits on data or local cancellation, with a
+  deadline only while assembling a started frame. Socket authorization and
+  options remain with the captured executor. `DbusAutomation` is the raw typed
+  diagnostic adapter; arbitrary bus calls require shell authority.
+- `LinuxSessionCommands` exposes connected identities, captured launch context
+  and exact-argv launch. `LinuxCommandStream` reuses the existing static PTY
+  helper's pipe-shell protocol for headless consoles inside that same guest.
+  `DesktopAutomationConsoleSessions` retains directory, environment, output and
+  cancellation semantics across Android and Linux, without another job runner.
+  Guest loss cancels dependent streams; it never switches execution to Android.
+- Explicit `ui.prepare` may enable guest accessibility status under the separate
+  MCP `linux_accessibility` grant. It never edits launch flags or restarts apps.
+  Explicit launcher flags and environment use ordinary shell authority through
+  `linux.launch` or consoles. A grant cannot manufacture an accessibility tree
+  that an application/toolkit does not publish. Neither adapter is a Shroot
+  syscall interception layer or a workaround for PRoot kernel limitations.
+
 ### MCP And CLI Transports
 
 - `MagicDeskMcpRuntime` is owned by `MagicDeskRuntimeService`. When explicitly

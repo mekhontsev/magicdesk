@@ -9,7 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
-/** Bounded set of explicitly gated persistent shell sessions for MCP. */
+/** Bounded persistent shells shared by command adapters; the selected identity never changes. */
 final class DesktopAutomationConsoleSessions {
     private static final int MAX_SESSIONS = 8;
     private boolean mClosed;
@@ -17,13 +17,13 @@ final class DesktopAutomationConsoleSessions {
     DesktopAutomationConsoleSessions() { this(true); }
     DesktopAutomationConsoleSessions(boolean inheritCommandChannel) { mInheritCommandChannel = inheritCommandChannel; }
 
-    private final Map<String, ShellCommandSession> mSessions =
+    private record Entry(ShellCommandSession shell, LinuxAutomationLaunch.Target linux) { }
+    private final Map<String, Entry> mSessions =
             new LinkedHashMap<>();
 
     synchronized DesktopAutomationResult open(final JSONObject arguments) {
         try {
             if (mClosed) throw new IOException("console owner is closed");
-            requireShell();
             if (mSessions.size() >= MAX_SESSIONS) {
                 return DesktopAutomationResult.failure(
                         DesktopAutomationErrorCode.ACTION_FAILED,
@@ -31,15 +31,20 @@ final class DesktopAutomationConsoleSessions {
             }
             final JSONObject args = arguments == null
                     ? new JSONObject() : arguments;
+            final var linux = args.has("linuxSessionId") ? LinuxAutomationLaunch.target(args.getString("linuxSessionId")) : null;
+            if (linux == null) requireShell();
             final String directory = args.optString(
-                    "directory", ShellDesktopDirectory.ABSOLUTE_PATH);
+                    "directory", linux == null ? ShellDesktopDirectory.ABSOLUTE_PATH : linux.bus().context().getString("directory"));
             final String id = "console-" + UUID.randomUUID().toString().replace("-", "");
-            final ShellCommandSession session =
-                    new ShellCommandSession(directory, mInheritCommandChannel);
-            mSessions.put(id, session);
+            String token = UUID.randomUUID().toString().replace("-", "");
+            final ShellCommandSession session = linux == null ? new ShellCommandSession(directory, mInheritCommandChannel)
+                    : new ShellCommandSession(directory, new ShellCommandExecutor("__MAGICDESK_CWD_" + token + "__",
+                            () -> new LinuxCommandStream(linux)), token);
+            final Entry entry = new Entry(session, linux);
+            mSessions.put(id, entry);
             return DesktopAutomationResult.success(
                     "console session opened",
-                    sessionJson(id, session));
+                    sessionJson(id, entry));
         } catch (IllegalArgumentException | JSONException error) {
             return invalid(error);
         } catch (IOException | RuntimeException error) {
@@ -50,7 +55,7 @@ final class DesktopAutomationConsoleSessions {
     DesktopAutomationResult execute(final Context context, final JSONObject arguments) {
         final String id;
         final String command;
-        final ShellCommandSession session;
+        final Entry entry;
         TerminalOutputStream stdout = null;
         ShellCommandOutput.Result result = null;
         boolean dispatched = false;
@@ -60,14 +65,14 @@ final class DesktopAutomationConsoleSessions {
             id = required(args, "sessionId");
             command = required(args, "command");
             synchronized (this) {
-                session = mSessions.get(id);
+                entry = mSessions.get(id);
             }
-            if (session == null) {
+            if (entry == null) {
                 return DesktopAutomationResult.failure(
                         DesktopAutomationErrorCode.INVALID_ARGUMENT,
                         "console session not found", false);
             }
-            requireShell();
+            requireCurrent(entry);
             if (args.has("stdout")) {
                 final JSONObject target = args.getJSONObject("stdout");
                 final String mime = target.has("mimeType") ? target.getString("mimeType") : null;
@@ -81,7 +86,7 @@ final class DesktopAutomationConsoleSessions {
                 stdout = destination.stream(context, mime);
             }
             dispatched = true;
-            result = session.execute(command, stdout);
+            result = entry.shell.execute(command, stdout);
             if (stdout != null) stdout.finish();
             final JSONObject data = new JSONObject()
                     .put("sessionId", id)
@@ -125,14 +130,14 @@ final class DesktopAutomationConsoleSessions {
             final JSONObject args = arguments == null
                     ? new JSONObject() : arguments;
             final String id = required(args, "sessionId");
-            final ShellCommandSession session =
+            final Entry session =
                     mSessions.remove(id);
             if (session == null) {
                 return DesktopAutomationResult.failure(
                         DesktopAutomationErrorCode.INVALID_ARGUMENT,
                         "console session not found", false);
             }
-            session.close();
+            session.shell.close();
             return DesktopAutomationResult.success(
                     "console session closed",
                     new JSONObject().put("sessionId", id));
@@ -147,7 +152,7 @@ final class DesktopAutomationConsoleSessions {
             final JSONObject args = arguments == null
                     ? new JSONObject() : arguments;
             final String id = required(args, "sessionId");
-            final ShellCommandSession session = mSessions.get(id);
+            final Entry session = mSessions.get(id);
             if (session == null) {
                 return DesktopAutomationResult.failure(
                         DesktopAutomationErrorCode.INVALID_ARGUMENT,
@@ -163,20 +168,42 @@ final class DesktopAutomationConsoleSessions {
 
     synchronized void closeAll() {
         mClosed = true;
-        for (final ShellCommandSession session
+        for (final Entry session
                 : mSessions.values()) {
-            session.close();
+            session.shell.close();
         }
         mSessions.clear();
     }
 
     private static JSONObject sessionJson(
             final String id,
-            final ShellCommandSession session)
+            final Entry session)
             throws JSONException {
         return new JSONObject()
                 .put("sessionId", id)
-                .put("workingDirectory", session.workingDirectory());
+                    .put("workingDirectory", session.shell.workingDirectory())
+                    .put("linuxSessionId", session.linux == null ? JSONObject.NULL : session.linux.bus().id)
+                    .put("available", session.linux == null ? ShellAccess.isReady() : session.linux.bus().alive());
+    }
+
+    synchronized DesktopAutomationResult list() throws JSONException {
+        var list = new org.json.JSONArray();
+        for (var entry : mSessions.entrySet()) list.put(sessionJson(entry.getKey(), entry.getValue()));
+        return DesktopAutomationResult.success("console sessions", new JSONObject().put("sessions", list));
+    }
+
+    DesktopAutomationResult cancel(JSONObject args) throws JSONException {
+        String id = required(args, "sessionId");
+        Entry entry;
+        synchronized (this) { entry = mSessions.get(id); }
+        if (entry == null) return DesktopAutomationResult.failure(DesktopAutomationErrorCode.INVALID_ARGUMENT, "console session not found", false);
+        entry.shell.cancelCurrentCommand();
+        return DesktopAutomationResult.success("console command cancelled", sessionJson(id, entry));
+    }
+
+    private static void requireCurrent(Entry entry) throws IOException {
+        if (entry.linux == null) requireShell();
+        else if (!entry.linux.bus().alive()) throw new IOException("Linux session ended; open a console in a new session explicitly");
     }
 
     private static String required(

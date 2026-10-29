@@ -8,6 +8,17 @@ import org.json.JSONObject;
 import org.junit.Test;
 
 public final class McpAccessPolicyTest {
+    @Test public void accessibilityActivationAndExplicitLaunchAreIndependent() {
+        var activation = new McpAccessPolicy(Set.of("linux_accessibility"));
+        assertTrue(activation.allows("ui.prepare"));
+        for (String operation : Set.of("linux.launch", "ui.inspect", "ui.perform", "dbus.call"))
+            assertFalse(activation.allows(operation));
+        var shell = new McpAccessPolicy(Set.of("shell"));
+        assertTrue(shell.allows("linux.launch"));
+        assertFalse(shell.allows("ui.prepare"));
+        for (var permissions : java.util.List.of(Set.<String>of(), Set.of("input_tests"), Set.of("content")))
+            assertFalse(new McpAccessPolicy(permissions).allows("ui.prepare"));
+    }
     @Test public void themeFileImportRequiresControlAndFileReadTogether() {
         for (var grants : java.util.List.of(Set.<String>of(), Set.of("control"), Set.of("files_read"), Set.of("content"), Set.of("files_write"))) {
             assertFalse(new McpAccessPolicy(grants).allows("appearance.import"));

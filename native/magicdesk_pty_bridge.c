@@ -951,12 +951,14 @@ static int peer_output_command(int argc, char **argv) {
 }
 
 #include "magicdesk_pipe_shell.h"
+#include "magicdesk_unix_connect.h"
 
 int main(int argc, char **argv) {
     if (argc == 3 && strcmp(argv[1], "--pipe-shell") == 0) return pipe_shell_command(argv[2]);
-    if (argc == 5 && strcmp(argv[1], "--pipe-socket") == 0) {
+    if (argc == 5 && (strcmp(argv[1], "--pipe-socket") == 0 || strcmp(argv[1], "--pipe-unix") == 0)) {
         if (!valid_token(argv[3]) || argv[4][0] != '/') return 2;
-        int peer = connect_loopback(strtol(argv[2], NULL, 10));
+        int peer = strcmp(argv[1], "--pipe-unix") == 0 ? md_unix_connect(argv[2])
+                : connect_loopback(strtol(argv[2], NULL, 10));
         if (peer < 0) return 1;
         if (write_frame(peer, FRAME_HELLO, argv[3], (uint32_t) strlen(argv[3]))
                 || dup2(peer, STDIN_FILENO) < 0 || dup2(peer, STDOUT_FILENO) < 0) {

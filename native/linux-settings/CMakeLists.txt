@@ -49,7 +49,7 @@ ExternalProject_Add(dbus
     BUILD_BYPRODUCTS ${prefix}/lib/libdbus-1.a)
 ExternalProject_Add_StepDependencies(dbus configure ${CMAKE_CURRENT_BINARY_DIR}/android.ini)
 ExternalProject_Add_StepDependencies(dbus patch ${CMAKE_CURRENT_SOURCE_DIR}/dbus-client-only.patch)
-add_executable(magicdesk-linux-settings main.c portal.c)
+add_executable(magicdesk-linux-settings main.c portal.c bus_agent.c bus_wire.c)
 add_dependencies(magicdesk-linux-settings dbus)
 target_include_directories(magicdesk-linux-settings PRIVATE ${prefix}/include/dbus-1.0 ${prefix}/lib/dbus-1.0/include)
 target_compile_options(magicdesk-linux-settings PRIVATE -std=c17 -O2 -Wall -Wextra -Werror -fno-pie)

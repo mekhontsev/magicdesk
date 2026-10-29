@@ -852,6 +852,7 @@
     <string name="settings_mcp_network_access">Permissões de rede do MCP</string>
     <string name="mcp_permission_control">Controle da área de trabalho e aplicativos</string>
     <string name="mcp_permission_input">Ações de interface, gestos, manter acordado, autotestes e parada forçada</string>
+    <string name="mcp_permission_linux_accessibility">Forçar a ativação da acessibilidade do Linux</string>
     <string name="mcp_permission_content">Texto da interface, captura de tela, área de transferência, notificações e diálogos de scripts</string>
     <string name="mcp_permission_files_read">Baixar e ler arquivos</string>
     <string name="mcp_permission_files_write">Enviar, criar e substituir arquivos</string>

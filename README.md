@@ -413,6 +413,13 @@ state/events, display and window control, Android actions, terminals, graphics,
 files, clipboard, themes, dialogs, notifications, APK updates and self-tests.
 They work independently of Desktop where the operation permits it.
 
+Linux sessions also expose [semantic UI automation](docs/automation.md#linux-scope)
+through AT-SPI2, [typed D-Bus access](docs/automation.md#typed-d-bus), exact-argument
+application launches and persistent guest consoles. Native Termux, Shroot and
+PRoot use the same interface where guest services support it. Accessibility
+activation has a separate opt-in; application flags remain explicit, and
+application sandboxes are not disabled.
+
 MCP is disabled by default. Local and optional network listeners have separate
 tokens and grants; the full command catalog remains discoverable even when a
 service is unavailable. The CLI needs neither an enabled MCP server nor Python.

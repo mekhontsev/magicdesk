@@ -1,10 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.os.Binder;
 import android.os.IBinder;
@@ -34,8 +32,6 @@ final class LinuxAudio implements Closeable {
         @Override public void onBindingDied(ComponentName name) { failed(new IOException("Audio service binding died")); }
     };
     private ILinuxAudioLease lease;
-    private IExecutorUnixEndpoints broker;
-    private Closeable brokerCommand;
     private ExecutorSocketEndpoint nativeEndpoint, pulseEndpoint;
     private String nativePath, pulsePath;
 
@@ -64,8 +60,10 @@ final class LinuxAudio implements Closeable {
             var lease = audio.resources.reserve();
             audio.lease = await(audio.connected, "audio service").acquire("audio-" + UUID.randomUUID(), audio.lifetime);
             lease.attach(() -> { try { audio.lease.close(); } catch (RemoteException ignored) { } });
-            ExecutorSocketEndpoint.Factory factory = commands.termux == null ? ShellAccess::openUnixEndpoint
-                    : audio.startBroker(commands)::open;
+            var brokerSlot = audio.resources.reserve();
+            var broker = new ExecutorEndpointBroker(context, commands, audio::failed);
+            brokerSlot.attach(broker);
+            ExecutorSocketEndpoint.Factory factory = broker.factory;
             var nativeEndpoint = audio.resources.reserve();
             audio.nativeEndpoint = new ExecutorSocketEndpoint(commands.uid, 0, factory,
                     fd -> audio.lease.accept(0, fd), audio::failed);
@@ -87,39 +85,6 @@ final class LinuxAudio implements Closeable {
             audio.close();
             throw new IOException("Cannot prepare Linux audio", error);
         }
-    }
-
-    private IExecutorUnixEndpoints startBroker(CommandExecution commands) throws IOException {
-        String nonce = UUID.randomUUID().toString();
-        CompletableFuture<IExecutorUnixEndpoints> ready = new CompletableFuture<>();
-        BroadcastReceiver receiver = new BroadcastReceiver() {
-            @Override public void onReceive(Context ignored, Intent intent) {
-                if (getSentFromUid() != commands.uid || !nonce.equals(intent.getStringExtra("nonce"))) return;
-                var extras = intent.getExtras();
-                IBinder binder = extras == null ? null : extras.getBinder("endpoints");
-                if (binder != null) ready.complete(IExecutorUnixEndpoints.Stub.asInterface(binder));
-            }
-        };
-        context.registerReceiver(receiver, new IntentFilter(ExecutorUnixEndpointsMain.ACTION), Context.RECEIVER_EXPORTED);
-        try {
-            String command = "exec env -u LD_PRELOAD -u LD_LIBRARY_PATH CLASSPATH=" + q(context.getApplicationInfo().sourceDir)
-                    + " /system/bin/app_process -Xnoimage-dex2oat / --nice-name=magicdesk-audio-admission "
-                    + ExecutorUnixEndpointsMain.class.getName() + " " + q(context.getPackageName())
-                    + " " + q(commands.termux.packageName) + " " + q(nonce);
-            var commandSlot = resources.reserve();
-            brokerCommand = commands.start(command, "", "Linux audio admission", null, (code, output, error) -> {
-                IOException failure = new IOException("Audio admission exited: " + code + " " + output, error);
-                ready.completeExceptionally(failure);
-                if (!closed.get()) failed(failure);
-            });
-            commandSlot.attach(brokerCommand);
-            var brokerSlot = resources.reserve();
-            broker = await(ready, "executor audio admission");
-            brokerSlot.attach(() -> { try { broker.close(); } catch (RemoteException ignored) { } });
-            broker.retain(lifetime);
-            return broker;
-        } catch (RemoteException error) { throw new IOException("Audio admission died", error); }
-        finally { context.unregisterReceiver(receiver); }
     }
 
     String exports() {
@@ -180,5 +145,4 @@ final class LinuxAudio implements Closeable {
             throw new IOException(operation + " unavailable", error);
         }
     }
-    private static String q(String value) { return ShellCommandLine.quote(value); }
 }

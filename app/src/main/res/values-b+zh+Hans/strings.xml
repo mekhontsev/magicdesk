@@ -832,6 +832,7 @@
     <string name="settings_mcp_network_access">网络 MCP 权限</string>
     <string name="mcp_permission_control">桌面与应用控制</string>
     <string name="mcp_permission_input">界面操作、手势、保持唤醒、自检及强行停止</string>
+    <string name="mcp_permission_linux_accessibility">强制启用 Linux 无障碍功能</string>
     <string name="mcp_permission_content">应用界面文字、截屏、剪贴板、通知及脚本对话框</string>
     <string name="mcp_permission_files_read">下载与读取文件</string>
     <string name="mcp_permission_files_write">上传、创建与替换文件</string>

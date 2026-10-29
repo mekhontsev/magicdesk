@@ -24,6 +24,9 @@ final class GuestGraphicalConnection {
         String prepare = files ? quoted(new GuestLaunchPlan(plan.environment(), plan.directory(),
                 List.of("/bin/sh", "-lc", "mkdir -p /tmp/magicdesk-helpers")).arguments()) + "; " : "";
         String fileOptions = files ? " --bind-ro \"${MAGICDESK_GUEST_LIBRARIES:?Missing helpers}\" /tmp/magicdesk-helpers"
+                + " --env \"MAGICDESK_AUTOMATION_SOCKET=${MAGICDESK_AUTOMATION_SOCKET:-}\""
+                + " --env \"MAGICDESK_AUTOMATION_TOKEN=${MAGICDESK_AUTOMATION_TOKEN:-}\""
+                + " --env MAGICDESK_AUTOMATION_HELPER=/tmp/magicdesk-helpers/libmagicdesk_linux_settings.so"
                 + " --env \"MAGICDESK_GUEST_FILES_SOCKET=$MAGICDESK_GUEST_FILES_SOCKET\""
                 + " --env \"MAGICDESK_GUEST_FILES_TOKEN=$MAGICDESK_GUEST_FILES_TOKEN\"" : "";
         return "set -eu; " + prepare + "exec " + quoted(plan.launcherArguments()) + fileOptions

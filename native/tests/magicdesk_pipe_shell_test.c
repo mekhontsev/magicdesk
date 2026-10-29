@@ -40,20 +40,29 @@ static size_t frame(int fd, int *kind, uint8_t *bytes) {
     return size;
 }
 
-static struct fixture start_socket(void) {
-    int listener = socket(AF_INET, SOCK_STREAM, 0);
+static struct fixture start_socket(int unix_socket) {
+    int listener = socket(unix_socket ? AF_UNIX : AF_INET, SOCK_STREAM, 0);
     assert(listener >= 0);
     struct sockaddr_in address = {.sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK)};
-    assert(bind(listener, (struct sockaddr *) &address, sizeof(address)) == 0 && listen(listener, 1) == 0);
-    socklen_t size = sizeof(address);
-    assert(getsockname(listener, (struct sockaddr *) &address, &size) == 0);
-    char port[16]; snprintf(port, sizeof(port), "%u", ntohs(address.sin_port));
+    char endpoint[64];
+    if (unix_socket) {
+        struct sockaddr_un local = {.sun_family = AF_UNIX};
+        snprintf(endpoint, sizeof(endpoint), "md-pipe-test-%ld", (long)getpid());
+        memcpy(local.sun_path + 1, endpoint, strlen(endpoint));
+        assert(bind(listener, (struct sockaddr *)&local, offsetof(struct sockaddr_un, sun_path) + 1 + strlen(endpoint)) == 0);
+    } else {
+        assert(bind(listener, (struct sockaddr *) &address, sizeof(address)) == 0);
+        socklen_t size = sizeof(address);
+        assert(getsockname(listener, (struct sockaddr *) &address, &size) == 0);
+        snprintf(endpoint, sizeof(endpoint), "%u", ntohs(address.sin_port));
+    }
+    assert(listen(listener, 1) == 0);
     char token[] = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     const pid_t pid = fork();
     assert(pid >= 0);
     if (!pid) {
         close(listener);
-        char *args[] = {"bridge", "--pipe-socket", port, token,
+        char *args[] = {"bridge", unix_socket ? "--pipe-unix" : "--pipe-socket", endpoint, token,
                 access("/system/bin/sh", X_OK) == 0 ? "/system/bin/sh" : "/bin/sh", NULL};
         _exit(bridge_main(5, args));
     }
@@ -95,7 +104,7 @@ int main(void) {
     const size_t size = frame(f.output, &kind, bytes);
     assert(kind == PIPE_STDOUT && size == 6 && memcmp(bytes, "kept:/", 6) == 0);
     for (int attempt = 0; attempt < 8; attempt++) {
-        if (attempt != 0) f = attempt % 2 ? start_socket() : start();
+        if (attempt != 0) f = attempt % 3 ? start_socket(attempt % 3 == 2) : start();
         // Install ignored HUP before fork so every iteration needs SIGKILL.
         command = "trap '' HUP; (while :; do :; done) & printf '%s\\n' $!; wait\n";
         assert(write_all(f.input, command, strlen(command)) == 0);
