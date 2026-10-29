@@ -26,10 +26,6 @@ long md_task_checkpoint_trace(struct md_task_checkpoints *,int,pid_t,void *,void
 /* 1 consumed an intermediate stop; 0 publishes the original or typed
  * checkpoint event. Negative errno retains the actor for caller cleanup. */
 int md_task_checkpoint_event(struct md_task_checkpoints *,pid_t,int *);
-/* Slow-path validation after an inconsistent stop observation. Group death
- * can replace an already collected stop with EXIT without an ESRCH error.
- * Returns 1 only for a vanished actor or a confirmed terminal replacement. */
-int md_task_checkpoint_displaced(struct md_task_checkpoints *,pid_t);
 /* Lend an exact stopped boundary to a native-call owner. While suspended,
  * requests and events pass through without changing checkpoint state. Returns
  * 1 if an ENTRY observation is SYSEMU, 0 otherwise, or negative errno.

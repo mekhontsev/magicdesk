@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "task_checkpoint.h"
+#include "task_stop.h"
 #include <asm/ptrace.h>
 #include <elf.h>
 #include <errno.h>
@@ -36,13 +37,6 @@ static struct md_task_checkpoint *find(struct md_task_checkpoints *m,pid_t pid,i
 }
 static int trace(struct md_task_checkpoints *m,int request,pid_t pid,void *address,void *data) {
     return m->trace(request,pid,address,data)<0 ? -errno : 0;
-}
-int md_task_checkpoint_displaced(struct md_task_checkpoints *m,pid_t pid) {
-    siginfo_t info={0};
-    int error=trace(m,PTRACE_GETSIGINFO,pid,NULL,&info);
-    if (error) return error==-ESRCH ? 1 : error;
-    return info.si_signo==SIGTRAP && (info.si_code==(SIGTRAP|(PTRACE_EVENT_EXIT<<8))
-        || info.si_code==(SIGTRAP|(PTRACE_EVENT_EXEC<<8)));
 }
 static int regs(struct md_task_checkpoints *m,pid_t pid,int request,struct user_pt_regs *r) {
     struct iovec io={r,sizeof(*r)};
@@ -200,7 +194,7 @@ static int checkpoint_event(struct md_task_checkpoints *m,pid_t pid,int *status)
 int md_task_checkpoint_event(struct md_task_checkpoints *m,pid_t pid,int *status) {
     int result=checkpoint_event(m,pid,status);
     if (result==-EPROTO) {
-        int displaced=md_task_checkpoint_displaced(m,pid);
+        int displaced=md_task_stop_displaced(m->trace,pid);
         if (displaced) return displaced>0 ? -ESRCH : displaced;
     }
     return result;

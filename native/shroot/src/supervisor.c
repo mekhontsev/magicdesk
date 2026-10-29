@@ -17,6 +17,7 @@
 #include "notification_result.h"
 #include "signal_delivery.h"
 #include "task_checkpoint.h"
+#include "task_stop.h"
 #include "task_registers.h"
 #include "task_birth.h"
 #include "signal_protocol.h"
@@ -7023,7 +7024,7 @@ static int svc_clients_prepare(struct thread *t) {
     if (!error) error=md_svc_registry_identity(r,t->pid,fd,md_memory_sole_owner(t->memory) ? t->pid : 0);
     if (!error) error=md_svc_registry_collect_clients(r,t->pid,fd,svc_client_alive,t->memory);
     if (error==-EIO || error==-EFAULT) {
-        int displaced=md_task_checkpoint_displaced(&checkpoints,t->pid);
+        int displaced=md_task_stop_displaced(checkpoints.trace,t->pid);
         if (displaced>0) error=-ESRCH;
         else if (displaced<0) error=displaced;
     }
@@ -9980,7 +9981,7 @@ int main(int argc, char **argv) {
             }
             if (cookie==MD_INTERCEPT_READINESS) cookie=MD_INTERCEPT_DISPATCH;
             if (cookie != MD_INTERCEPT_DISPATCH || !t->ready || t->phase != IDLE) {
-                int displaced=md_task_checkpoint_displaced(&checkpoints,pid);
+                int displaced=md_task_stop_displaced(checkpoints.trace,pid);
                 CHECK(displaced>=0);
                 if (displaced) { t->resume_lost=1; continue; }
                 unsigned long raw_cookie=0;

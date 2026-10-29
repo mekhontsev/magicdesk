@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "task_call.h"
 #include "task_checkpoint.h"
+#include "task_stop.h"
 #include "task_birth.h"
 #include "adapter_buffer.h"
 #include "fs_buffer.h"
@@ -1736,8 +1737,7 @@ static void birth_terminal_race(int kind,int protected,int code) {
     int terminal=0;
     assert(md_task_birth_read(task_trace,actor,event,SYS_clone,&terminal)==(long)newborn && terminal);
     assert(md_task_birth_terminal(task_trace,actor,SYS_clone,ULONG_MAX)==(long)newborn);
-    struct md_task_checkpoints runtime={.trace=task_trace};
-    assert(md_task_checkpoint_displaced(&runtime,actor)==1);
+    assert(md_task_stop_displaced(task_trace,actor)==1);
     /* A separate process survives its creator's group death. */
     resume((pid_t)newborn,PTRACE_CONT,0);
     resume(actor,PTRACE_CONT,0); resume(child,PTRACE_CONT,0);
@@ -1776,7 +1776,7 @@ static void terminal_race(int protected,int entry) {
     }
     struct md_task_checkpoints runtime={.trace=task_trace,.restricted=checkpoint_policy,.marker=checkpoint_site};
     int original=status;
-    assert(!md_task_checkpoint_displaced(&runtime,actor));
+    assert(!md_task_stop_displaced(task_trace,actor));
     assert(!md_task_checkpoint_event(&runtime,actor,&status) && status==original);
     if (entry==1) {
         struct user_pt_regs regs=registers(actor);
@@ -1786,7 +1786,7 @@ static void terminal_race(int protected,int entry) {
         checkpoint_restricted=1;
         assert(!md_task_checkpoint_trace(&runtime,PTRACE_CONT,actor,NULL,NULL));
         assert(waitpid(actor,&original,__WALL)==actor && WSTOPSIG(original)==(SIGTRAP|0x80));
-        assert(!md_task_checkpoint_displaced(&runtime,actor));
+        assert(!md_task_stop_displaced(task_trace,actor));
     }
     assert(write(channel[1],"x",1)==1);
     /* EVENT_WAIT: exit_group replaces the sibling's already-collected entry;
@@ -1795,7 +1795,7 @@ static void terminal_race(int protected,int entry) {
     assert(waitpid(actor,&status,__WALL)==actor && (unsigned)status>>16==PTRACE_EVENT_EXIT);
     unsigned long cookie=1;
     assert(!ptrace(PTRACE_GETEVENTMSG,actor,NULL,&cookie) && !cookie);
-    assert(md_task_checkpoint_displaced(&runtime,actor)==1);
+    assert(md_task_stop_displaced(task_trace,actor)==1);
     if (entry==2) {
         assert(!md_task_birth_terminal(task_trace,actor,SYS_clone,CLONE_THREAD));
     }

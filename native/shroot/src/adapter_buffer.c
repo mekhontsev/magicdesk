@@ -30,7 +30,6 @@ long md_adapter_buffer_finish(long copied,long result) {
     return md_guest_buffer_control(MD_BUFFER_FINISH,(unsigned long)copied,(unsigned long)result);
 }
 struct md_adapter_input md_adapter_buffer_start(size_t length) {
-    extern struct md_adapter_input md_guest_buffer_start(unsigned,unsigned long,unsigned long);
     return enabled ? md_guest_buffer_start(MD_BUFFER_PROC_START,length,0)
         : (struct md_adapter_input){.value=-ENOTSUP};
 }

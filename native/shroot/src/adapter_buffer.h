@@ -34,6 +34,7 @@ long md_adapter_buffer_release(void);
 long md_adapter_buffer_finish(long copied, long result);
 /* Operations without an input payload can acquire and execute together. */
 struct md_adapter_input md_adapter_buffer_start(size_t length);
+struct md_adapter_input md_guest_buffer_start(unsigned, unsigned long, unsigned long);
 long md_guest_buffer_control(unsigned, unsigned long, unsigned long);
 struct md_fs_buffer_frame;
 long md_adapter_receive_fd(struct md_fs_buffer_frame *, unsigned flags, unsigned begin);
