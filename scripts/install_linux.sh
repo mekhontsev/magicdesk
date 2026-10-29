@@ -33,7 +33,8 @@ defaults to automatic Turnip detection and a Wayland Plasma desktop.
   --gpu software  Use the distribution's software renderer
   --gpu turnip  Build private Mesa/Zink/Turnip for a supported Adreno KGSL GPU
   --jobs N      Compiler jobs (Mesa/KWin/Weston and Nix), 1-8 (default: 4)
-  --locale L    UTF-8 locale, e.g. ru_RU.UTF-8, or keep (default)
+  --locale L    system (Android locale; default for new installs), keep,
+                or a UTF-8 locale such as en_US.UTF-8; resume defaults to keep
   --timezone Z  IANA zone, system (Android zone), or keep (default)
   --create-user USER  Create an optional guest account, with a locked password
                 Select it later with login --user or the shortcut User field;
@@ -6277,6 +6278,29 @@ ask() {
     IFS= read -r answer || fail 'Input closed.'
     answer=${answer:-$2}
 }
+android_locale() (
+    # Read the active user's preference, not the app language or shell's LANG.
+    locales=
+    if command -v settings >/dev/null 2>&1; then
+        locales=$(settings --user current get system system_locales 2>/dev/null) || locales=
+    fi
+    case "$locales" in
+        ''|null)
+            if command -v getprop >/dev/null 2>&1; then
+                locales=$(getprop persist.sys.locale 2>/dev/null) || locales=
+            fi ;;
+    esac
+    tag=${locales%%,*}
+    # Formatting extensions do not select another language/region. Do not guess
+    # POSIX modifiers for script/variant tags or a region for language-only tags.
+    base=${tag%%-u-*}
+    if printf '%s\n' "$base" | LC_ALL=C grep -Eq '^[a-z]{2,3}-[A-Z]{2}$'; then
+        printf '%s_%s.UTF-8\n' "${base%-*}" "${base#*-}"
+    else
+        printf 'Android locale has no unambiguous Linux mapping; retaining the guest locale. Use --locale to override.\n' >&2
+        printf 'keep\n'
+    fi
+)
 ask_dns() {
     printf '\n%s\n' \
         '  auto      Current network (recommended)' \
@@ -6474,7 +6498,10 @@ if [ "$yes" = no ]; then
     if { [ "$gpu" = turnip ] || [ "$gpu" = auto ] || [ "$gui" = plasma ] || [ "$gui" = weston ]; } && [ "$jobs_selected" = no ]; then
         ask 'Compiler jobs for Mesa/KWin/Weston (1-8)' "$jobs"; jobs=$answer
     fi
-    if [ -z "$locale_name" ]; then ask 'Locale, e.g. ru_RU.UTF-8; keep leaves it unchanged' keep; locale_name=$answer; fi
+    if [ -z "$locale_name" ]; then
+        default_locale=system; [ "$resume" = no ] || default_locale=keep
+        ask 'Locale: system (Android), keep, or UTF-8 locale' "$default_locale"; locale_name=$answer
+    fi
     if [ -z "$zone" ]; then ask 'Timezone: system, IANA zone, or keep' keep; zone=$answer; fi
     if [ -z "$fonts" ]; then
         default_fonts=basic; [ "$resume" = no ] || default_fonts=keep
@@ -6505,7 +6532,9 @@ elif [ "$distro" = nixos ]; then
     gui=${gui:-plasma}; fonts=${fonts:-basic}
 else gui=${gui:-apps}; fonts=${fonts:-basic}; fi
 gpu=${gpu:-keep}
-locale_name=${locale_name:-keep}
+if [ "$resume" = yes ]; then locale_name=${locale_name:-keep}
+else locale_name=${locale_name:-system}; fi
+[ "$locale_name" != system ] || locale_name=$(android_locale)
 zone=${zone:-keep}
 dns=${dns:-system}
 case "$name" in ''|[!A-Za-z0-9]*|*[!A-Za-z0-9_.-]*) fail 'Invalid environment name.' ;; esac

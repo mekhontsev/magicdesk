@@ -46,7 +46,7 @@ public final class FrameworkKeyboardLayoutApiTest {
                         return noSelection ? null : new Selection();
                     }
                     public void setKeyboardLayoutOverrideForInputDevice(Identifier id, String value) {
-                        check(id == keyboard.id && value.equals("ru"), "override target");
+                        check(id == keyboard.id && value.equals("de"), "override target");
                         calls.add("override");
                         if (denied) throw new SecurityException("denied");
                     }
@@ -72,14 +72,14 @@ public final class FrameworkKeyboardLayoutApiTest {
                     api.apply(keyboard, 10, ime, subtype, "en");
                     check(calls.equals(List.of("read")), "current layout was rewritten");
                     calls.clear();
-                    api.apply(keyboard, 10, ime, subtype, "ru");
+                    api.apply(keyboard, 10, ime, subtype, "de");
                     check(calls.equals(List.of("read", "override", "set", "read")), "write order/verification");
                     selected = "en"; stalled = true; calls.clear();
-                    try { api.apply(keyboard, 10, ime, subtype, "ru"); throw new AssertionError("false success"); }
+                    try { api.apply(keyboard, 10, ime, subtype, "de"); throw new AssertionError("false success"); }
                     catch (IllegalStateException expected) { }
                     check(calls.equals(List.of("read", "override", "set", "read")), "unexpected retry");
                     denied = true; calls.clear();
-                    try { api.apply(keyboard, 10, ime, subtype, "ru"); throw new AssertionError("denied accepted"); }
+                    try { api.apply(keyboard, 10, ime, subtype, "de"); throw new AssertionError("denied accepted"); }
                     catch (InvocationTargetException error) { check(error.getCause() instanceof SecurityException, "cause"); }
                     check(calls.equals(List.of("read", "override")), "continued after denied write");
                 }

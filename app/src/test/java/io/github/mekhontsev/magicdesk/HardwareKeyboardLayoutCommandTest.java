@@ -3,14 +3,14 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 public final class HardwareKeyboardLayoutCommandTest {
-    @Test public void startupUsesCurrentRussianRatherThanTheFirstEnglishLayout() throws Exception {
+    @Test public void startupUsesCurrentLayoutRatherThanTheFirstConfiguredLanguage() throws Exception {
         verify("""
                 current = 1;
                 Result result = execute("sync");
-                check(result.descriptor.equals("ru"), "startup selected another language");
-                check(result.code.equals("RU"), "startup label disagrees with Android");
+                check(result.descriptor.equals("de"), "startup selected another language");
+                check(result.code.equals("DE"), "startup label disagrees with Android");
                 check(switches == 0, "startup switched the IME");
-                check(applied.equals(List.of("ru", "ru")), "keyboards did not share the live selection");
+                check(applied.equals(List.of("de", "de")), "keyboards did not share the live selection");
                 """);
     }
 
@@ -22,12 +22,12 @@ public final class HardwareKeyboardLayoutCommandTest {
                 """);
     }
 
-    @Test public void firstShortcutSwitchesLanguageEvenAcrossDuplicateRussianImes() throws Exception {
+    @Test public void firstShortcutSwitchesLanguageEvenAcrossDuplicateImes() throws Exception {
         verify("""
                 current = 1;
                 Result result = execute("next");
-                check(result.code.equals("EN"), "first shortcut only resynchronized Russian");
-                check(switches == 2, "did not skip the second Russian IME");
+                check(result.code.equals("EN"), "first shortcut only resynchronized the current language");
+                check(switches == 2, "did not skip the duplicate-language IME");
                 check(applied.equals(List.of("en", "en")), "applied an intermediate language");
                 """);
     }
@@ -35,7 +35,7 @@ public final class HardwareKeyboardLayoutCommandTest {
     @Test public void englishShortcutStopsAtTheFirstDifferentLanguage() throws Exception {
         verify("""
                 Result result = execute("next");
-                check(result.code.equals("RU"), "shortcut skipped the target language");
+                check(result.code.equals("DE"), "shortcut skipped the target language");
                 check(switches == 1, "shortcut performed another unnecessary switch");
                 """);
     }
@@ -68,7 +68,7 @@ public final class HardwareKeyboardLayoutCommandTest {
                 stalledSwitch = true;
                 Result result = execute("next");
                 check(switches == states.size(), "unbounded IME switching");
-                check(result.code.equals("RU"), "published a language Android did not select");
+                check(result.code.equals("DE"), "published a language Android did not select");
                 """);
     }
 
@@ -99,7 +99,7 @@ public final class HardwareKeyboardLayoutCommandTest {
     @Test public void failedExplicitSelectionIsBoundedAndDoesNotReportSuccess() throws Exception {
         verify("""
                 stalledSwitch = true;
-                try { executeSelection("select", "ru"); throw new AssertionError("unapplied choice succeeded"); }
+                try { executeSelection("select", "de"); throw new AssertionError("unapplied choice succeeded"); }
                 catch (IllegalStateException expected) { }
                 check(switches == states.size() && applied.isEmpty(), "failed selection not bounded");
                 """);
@@ -110,7 +110,9 @@ public final class HardwareKeyboardLayoutCommandTest {
                 current = 1;
                 var value = snapshot();
                 check(value.physicalDevices() == 2 && value.choices().size() == 2, "incorrect choices");
-                check(value.choices().get(1).selected(), "current Russian layout not selected");
+                check(value.choices().stream().filter(choice -> choice.selected())
+                        .map(choice -> choice.descriptor()).toList().equals(List.of("de")),
+                        "selection does not match the current layout");
                 check(switches == 0 && applied.isEmpty(), "opening menu changed Android input");
                 """);
     }
@@ -179,7 +181,7 @@ public final class HardwareKeyboardLayoutCommandTest {
                 }
                 static List<InputDevice> keyboards = new ArrayList<>(List.of(new InputDevice(), new InputDevice()));
                 static List<ImeState> states = List.of(new ImeState("ime-a", "en"),
-                        new ImeState("ime-b", "ru"), new ImeState("ime-a", "ru"));
+                        new ImeState("ime-b", "de"), new ImeState("ime-a", "de"));
                 static List<String> applied = new ArrayList<>();
                 static int current, switches, imeReads;
                 static boolean missingSubtype, stalledSwitch;

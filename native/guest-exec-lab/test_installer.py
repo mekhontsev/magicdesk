@@ -16,6 +16,8 @@ def main():
     parser.add_argument('--gpu', choices=('keep', 'auto', 'software', 'turnip'), default='keep')
     parser.add_argument('--jobs', type=int, choices=range(1, 9), default=2)
     parser.add_argument('--dns', default='auto')
+    parser.add_argument('--locale', default='en_US.UTF-8', help='Explicit guest locale to verify')
+    parser.add_argument('--timezone', default='UTC', help='Explicit IANA timezone to verify')
     parser.add_argument('--package', action='append', default=[])
     parser.add_argument('--timeout', type=int, default=7200,
                         help='Installer command failure bound, including a source GPU build')
@@ -35,7 +37,7 @@ def main():
     assert state['shell']['uid'] == 2000
     report = {'app': state['app'], 'distro': args.distro, 'gui': args.gui, 'name': args.name, 'library': args.library,
               'ipv4': args.ipv4, 'gpu': args.gpu, 'jobs': args.jobs,
-              'dns': args.dns, 'packages': args.package,
+              'dns': args.dns, 'packages': args.package, 'locale': args.locale, 'timezone': args.timezone,
               'checks': [], 'passed': False}
     console = client.call('console.open', {'directory': '/data/local/tmp/magicdesk'})['sessionId']
     try:
@@ -56,7 +58,7 @@ def main():
         script = '/data/local/tmp/magicdesk/installer-test-' + args.name + '-' + digest + '.sh'
         report['upload'] = transport.upload(client, source, script, overwrite=True)
         invocation = ['sh', script, '--yes', '--name', args.name, '--distro', args.distro,
-                      '--gui', args.gui, '--locale', 'ru_RU.UTF-8', '--timezone', 'Asia/Krasnoyarsk',
+                      '--gui', args.gui, '--locale', args.locale, '--timezone', args.timezone,
                       '--create-user', 'mdtester', '--fonts', 'basic', '--package', 'jq',
                       '--gpu', args.gpu, '--jobs', str(args.jobs)]
         for package in args.package:
@@ -69,8 +71,8 @@ def main():
         inspect = command(['shroot', 'inspect', args.name])
         report['environment'] = json.loads(inspect)
         checks = ('set -eu\ncat /etc/os-release\n'
-                  'test "$(cat /etc/locale.conf)" = LANG=ru_RU.UTF-8\n'
-                  'test "$(readlink /etc/localtime)" = /usr/share/zoneinfo/Asia/Krasnoyarsk\n'
+                  'test "$(cat /etc/locale.conf)" = ' + shlex.quote('LANG=' + args.locale) + '\n'
+                  'test "$(readlink /etc/localtime)" = ' + shlex.quote('/usr/share/zoneinfo/' + args.timezone) + '\n'
                   'test "$(id -u mdtester)" -ge 1000\n'
                   'jq -n 42\n'
                   'if command -v mousepad; then command -v thunar; command -v xfce4-terminal; '
@@ -88,14 +90,16 @@ def main():
                        '  [ "$found" = yes ] || { echo "Missing library: $library" >&2; exit 1; }\n'
                        'done\n')
         command(['shroot', 'exec', args.name, '--user', 'root', '--', '/bin/sh', '-c', checks])
+        login_locale_check = ('set -eu; test "$LANG" = ' + shlex.quote(args.locale) + '; '
+                              'test "${LC_ALL:-$LANG}" = ' + shlex.quote(args.locale) + '; ')
         command(['shroot', 'login', args.name, '--user', 'mdtester', '--', '/bin/sh', '-lc',
-                 'set -eu; test "$LANG" = ru_RU.UTF-8; test "${LC_ALL:-$LANG}" = ru_RU.UTF-8; '
+                 login_locale_check +
                  'locale; test "$HOME" = /home/mdtester; '
                  'printf retained > "$HOME/installer-sentinel"'])
         resume = ['sh', script, '--yes', '--name', args.name, '--resume']
         command(resume)
         command(['shroot', 'login', args.name, '--user', 'mdtester', '--', '/bin/sh', '-lc',
-                 'set -eu; test "$LANG" = ru_RU.UTF-8; test "${LC_ALL:-$LANG}" = ru_RU.UTF-8; '
+                 login_locale_check +
                  'test "$(cat "$HOME/installer-sentinel")" = retained'])
         report['passed'] = True
     finally:

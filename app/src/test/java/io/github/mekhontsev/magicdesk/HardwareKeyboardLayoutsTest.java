@@ -10,7 +10,7 @@ public final class HardwareKeyboardLayoutsTest {
     @Test public void snapshotPreservesChoiceIdentityLabelsAndSelection() throws Exception {
         final var snapshot = new HardwareKeyboardLayouts(2, List.of(
                 new HardwareKeyboardLayouts.Choice("provider/layout:en", "English (US)", false),
-                new HardwareKeyboardLayouts.Choice("provider/layout:ru", "Russian \"PC\"", true)));
+                new HardwareKeyboardLayouts.Choice("provider/layout:de", "German \"PC\"", true)));
         assertEquals(snapshot, HardwareKeyboardLayouts.fromJson(snapshot.toJson()));
     }
 

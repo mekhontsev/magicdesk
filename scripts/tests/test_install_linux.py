@@ -41,6 +41,15 @@ if Path(sys.argv[0]).name == "id":
     print(os.environ.get("TEST_UID", "2000"))
     sys.exit(0)
 args = sys.argv[1:]
+if Path(sys.argv[0]).name == "settings":
+    assert args == ["--user", "current", "get", "system", "system_locales"]
+    print(os.environ.get("TEST_ANDROID_LOCALES", "null"))
+    sys.exit(int(os.environ.get("TEST_SETTINGS_STATUS", "0")))
+if Path(sys.argv[0]).name == "getprop":
+    values = {"persist.sys.locale": os.environ.get("TEST_ANDROID_LOCALE", ""),
+              "persist.sys.timezone": "UTC"}
+    print(values[args[0]])
+    sys.exit(int(os.environ.get("TEST_GETPROP_STATUS", "0")))
 if Path(sys.argv[0]).name == "magicdesk" and args and args[0] == "get_state":
     with open(os.environ["TEST_VERSION_LOG"], "a") as log:
         log.write(json.dumps(args) + "\n")
@@ -132,6 +141,9 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
         (self.directory / "id").chmod(0o755)
         shutil.copyfile(stub, self.directory / "magicdesk")
         (self.directory / "magicdesk").chmod(0o755)
+        for command in ("settings", "getprop"):
+            shutil.copyfile(stub, self.directory / command)
+            (self.directory / command).chmod(0o755)
         self.environment = dict(os.environ, HOME=str(self.directory), PATH=str(self.directory) + os.pathsep + os.environ["PATH"],
                                 TEST_LOG=str(self.log), TEST_PAYLOAD=str(self.payload), TMPDIR=str(self.directory),
                                 TEST_DNS_LOG=str(self.dns_log),
@@ -2088,15 +2100,74 @@ packages ninja meson pkgconf
                 self.assertFalse(any(c[0] in ('download', 'install') for c in self.calls()))
 
     def test_settings_are_literal_arguments_and_additional_packages_accumulate(self):
-        result = self.run_script("--yes", "--distro", "ubuntu", "--protocol", "wayland", "--locale", "ru_RU.UTF-8",
-                                 "--timezone", "Asia/Krasnoyarsk", "--create-user", "developer", "--fonts", "cjk",
+        result = self.run_script("--yes", "--distro", "ubuntu", "--protocol", "wayland", "--locale", "fr_FR.UTF-8",
+                                 "--timezone", "Europe/Paris", "--create-user", "developer", "--fonts", "cjk",
                                  "--cache", "clean", "--package", "git", "--package", "gdb")
         self.assertEqual(0, result.returncode, result.stderr)
-        self.assertEqual(["apps", "wayland", "ru_RU.UTF-8", "Asia/Krasnoyarsk", "developer", "cjk", "clean", "git gdb"],
+        self.assertEqual(["apps", "wayland", "fr_FR.UTF-8", "Europe/Paris", "developer", "cjk", "clean", "git gdb"],
                          self.system_setup_call()[-8:])
         self.assertIn("--user developer", result.stdout)
         self.assertIn("--bind", result.stdout)
         self.assertIn("--magicdesk", result.stdout)
+
+    def test_new_install_uses_first_current_android_locale_for_every_recipe(self):
+        for distro in ('debian', 'ubuntu', 'alpine', 'fedora', 'arch', 'opensuse',
+                       'openkylin', 'deepin', 'manjaro', 'void', 'armtix', 'steamos', 'nixos'):
+            with self.subTest(distro=distro):
+                self.log.unlink(missing_ok=True)
+                result = self.run_script('--yes', '--distro', distro,
+                                         TEST_ANDROID_LOCALES='pt-BR,en-US', TEST_ANDROID_LOCALE='de-DE')
+                self.assertEqual(0, result.returncode, result.stderr)
+                setup = self.system_setup_call()
+                self.assertEqual('pt_BR.UTF-8', setup[setup.index('-s') + 4])
+                self.assertIn('Locale=pt_BR.UTF-8', result.stdout)
+
+    def test_android_locale_property_is_only_a_missing_settings_fallback(self):
+        for locales, status in (('null', '0'), ('', '0'), ('ja-JP', '1')):
+            with self.subTest(locales=locales, status=status):
+                self.log.unlink(missing_ok=True)
+                result = self.run_script('--yes', TEST_ANDROID_LOCALES=locales,
+                                         TEST_SETTINGS_STATUS=status, TEST_ANDROID_LOCALE='fr-CA')
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertEqual('fr_CA.UTF-8', self.system_setup_call()[-6])
+
+    def test_locale_does_not_guess_region_script_or_another_preferred_language(self):
+        for tag in ('', 'null', 'de', 'sr-Latn-RS', 'es-419', 'en-US-POSIX', 'bad,en-US', '$(id)'):
+            with self.subTest(tag=tag):
+                self.log.unlink(missing_ok=True)
+                result = self.run_script('--yes', TEST_ANDROID_LOCALES=tag)
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertEqual('keep', self.system_setup_call()[-6])
+                self.assertIn('retaining the guest locale', result.stderr)
+
+    def test_locale_ignores_android_formatting_extensions(self):
+        result = self.run_script('--yes', TEST_ANDROID_LOCALES='en-GB-u-hc-h12')
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual('en_GB.UTF-8', self.system_setup_call()[-6])
+
+    def test_explicit_locale_and_resume_do_not_follow_android_changes(self):
+        for options, expected in ((('--locale', 'keep'), 'keep'),
+                                  (('--locale', 'C.UTF-8'), 'C.UTF-8'),
+                                  (('--locale', 'de_DE.UTF-8'), 'de_DE.UTF-8'),
+                                  (('--resume', '--name', 'work'), 'keep'),
+                                  (('--resume', '--name', 'work', '--locale', 'system'), 'ja_JP.UTF-8')):
+            with self.subTest(options=options):
+                self.log.unlink(missing_ok=True)
+                result = self.run_script('--yes', *options, TEST_ANDROID_LOCALES='ja-JP')
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertEqual(expected, self.system_setup_call()[-6])
+
+    @unittest.skipUnless(hasattr(os, 'openpty'), 'PTY required')
+    def test_interactive_locale_defaults_to_android_but_resume_preserves_guest(self):
+        output = self.questions(b'debian\nwork\nnone\nkeep\n\nkeep\nkeep\nn\ny\n',
+                                TEST_ANDROID_LOCALES='de-DE')
+        self.assertIn('Locale: system (Android), keep, or UTF-8 locale [system]', output)
+        self.assertEqual('de_DE.UTF-8', self.system_setup_call()[-6])
+        self.log.unlink()
+        output = self.questions(b'\n\n\nkeep\nkeep\nn\ny\n',
+                                args=('--resume', '--name', 'work'), TEST_ANDROID_LOCALES='ja-JP')
+        self.assertIn('Locale: system (Android), keep, or UTF-8 locale [keep]', output)
+        self.assertEqual('keep', self.system_setup_call()[-6])
 
     def test_resume_detects_distribution_but_rejects_mismatch(self):
         result = self.run_script("--yes", "--name", "work", "--resume", TEST_DISTRO="alpine")
@@ -2655,11 +2726,11 @@ packages ninja meson pkgconf
 
     @unittest.skipUnless(hasattr(os, "openpty"), "PTY required")
     def test_advanced_questions_select_real_options_without_command_flags(self):
-        output = self.questions(b"ubuntu\ninteractive\napps\nsoftware\nru_RU.UTF-8\nAsia/Krasnoyarsk\ncjk\ny\n"
+        output = self.questions(b"ubuntu\ninteractive\napps\nsoftware\nfr_FR.UTF-8\nEurope/Paris\ncjk\ny\n"
                             b"developer\nwayland\ngit gdb\n192.0.2.1\nclean\ny\n")
         install = next(c for c in self.calls() if c[0] == 'install')
         self.assertEqual(['--rootfs', '--name', 'interactive', '--dns', '192.0.2.1'], install[2:])
-        self.assertEqual(["apps", "wayland", "ru_RU.UTF-8", "Asia/Krasnoyarsk", "developer", "cjk", "clean", "git gdb"],
+        self.assertEqual(["apps", "wayland", "fr_FR.UTF-8", "Europe/Paris", "developer", "cjk", "clean", "git gdb"],
                          self.system_setup_call()[-8:])
         self.assertIn("Guest account=developer | extra packages=git gdb", output)
 
