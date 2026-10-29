@@ -158,10 +158,10 @@ The NixOS recipe and the separate 2026-10-23 probe use the official ARM64 LXC ro
 The imported image and writable probe instance are separate; no foreign
 userspace, altered activation script or disabled service substitutes for NixOS.
 
-The earlier console-only recipe's `nixos-rebuild boot`, stock activation and
-repeat `--resume` passed with the staged runtime. Receipt:
+The console-only recipe check covers `nixos-rebuild boot`, stock activation and
+repeat `--resume` with the staged runtime. Passing receipt:
 `build/nixos-installer/oci-services-1670e8248a534650937601c95b4bf8c9.json`.
-A subsequent `shroot login` resolves the selected profile through
+After activation, `shroot login` resolves the selected profile through
 `/run/current-system`, finds Python 3.13.15 and retains `sandbox = true`.
 The recipe prepares private API mounts for activation and builders together.
 The current installer uses command-local `sandbox=false` and
@@ -188,7 +188,8 @@ its early splash captures alone are not desktop-readiness evidence. Follow-up
 PNGs, record the loaded panel and desktop and KWin 6.6.6 OpenGL composition
 through Zink/Turnip on Adreno 840, Mesa 26.2.3. Konsole opens through Ctrl+Alt+T;
 X11 keyboard input executes `pwd`. Close/reopen retires the owned guest launches.
-The broader desktop, audio and application acceptance remains incomplete.
+Full desktop acceptance remains incomplete; individual application results
+are recorded separately in the evidence ledger.
 The [NixOS input receipt](distribution-evidence.md#nixos-input) covers native
 Wayland text entry and GUI file readback, with its remaining pointer/shortcut scope.
 The separate boot results below belong to the initial image.
@@ -360,7 +361,7 @@ Cell order: **Shroot (lazy SVC) / Base**; N = not run.
 | opensuse | I/N | N/N | N/N | P/N | N/N | N/N | - |
 | openkylin | I/N | N/N | N/N | P/N | N/N | N/N | - |
 | deepin | I/N | N/N | N/N | P/N | N/N | N/N | - |
-| manjaro | I/N | N/N | N/N | I/N | N/N | N/N | - |
+| manjaro | P/N | F/N | P/N | I/N | I/N | N/N | - |
 | void | I/N | N/N | N/N | P/N | N/N | N/N | - |
 | armtix | I/N | N/N | N/N | P/N | N/N | N/N | - |
 | nixos | I/N | N/N | I/N | P/N | N/N | N/N | - |

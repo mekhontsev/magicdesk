@@ -29,7 +29,9 @@ for(const type of ['pointerdown','pointerup','click']) document.addEventListener
  target:event.target.tagName,type:event.target.type||'',x:event.clientX,y:event.clientY,
  screenX:event.screenX,screenY:event.screenY,button:event.button,buttons:event.buttons,
  trusted:event.isTrusted,time:event.timeStamp,rect:event.target.getBoundingClientRect().toJSON()}));
-const gl=document.getElementById('gpu').getContext('webgl2');
+const canvas=document.getElementById('gpu');
+canvas.addEventListener('webglcontextlost',()=>report('gpu-context-lost',true));
+const gl=canvas.getContext('webgl2');
 if(gl){gl.clearColor(0,1,0,1);gl.clear(gl.COLOR_BUFFER_BIT);
 const pixel=new Uint8Array(4);gl.readPixels(2,2,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);
 const ext=gl.getExtension('WEBGL_debug_renderer_info');
@@ -37,6 +39,14 @@ const info={renderer:ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):gl.getPara
 document.getElementById('result').textContent=JSON.stringify(info);report('gpu',info);}
 else report('gpu',null);
 </script>'''
+
+
+def webgl_checks(receipts):
+    gpu = [r['value'] for r in receipts if r.get('type') == 'gpu']
+    return {
+        'webgl': bool(gpu) and all(v and v.get('pixel') == [0, 255, 0, 255] for v in gpu),
+        'webglContext': not any(r.get('type') == 'gpu-context-lost' for r in receipts),
+    }
 
 
 def main():
@@ -157,7 +167,7 @@ def main():
     }
     gpu = [r['value'] for r in receipts if r.get('type') == 'gpu']
     if args.require_webgl:
-        checks['webgl'] = any(v and v.get('pixel') == [0, 255, 0, 255] for v in gpu)
+        checks.update(webgl_checks(receipts))
     report = dict(passed=all(checks.values()), browser=args.browser, package=args.package,
                   entry=args.entry,
                   command=command, checks=checks, gpu=gpu, work=str(work), reusedProfile=bool(args.reuse_work),

@@ -19,8 +19,10 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 socket_mode = len(sys.argv) > 1 and sys.argv[1] == '--socket'
+temporary = tempfile.TemporaryDirectory(prefix='md-strace-detach-')
 pair = socket.socketpair() if socket_mode else None
 program = ['python3', '-u', '-c',
     'import socket; s=socket.socket(fileno=0); print("READY"); '
@@ -32,7 +34,7 @@ if pair:
 tracer = None
 try:
     assert child.stdout.readline().strip() == 'READY'
-    tracer = subprocess.Popen(['strace', '-f', '-o', '/tmp/md-strace-detach.log',
+    tracer = subprocess.Popen(['strace', '-f', '-o', temporary.name+'/trace.log',
                                '-p', str(child.pid)], stderr=subprocess.PIPE)
     with selectors.DefaultSelector() as selector:
         selector.register(tracer.stderr, selectors.EVENT_READ)
@@ -75,6 +77,7 @@ finally:
             process.wait(timeout=10)
     if pair:
         pair[0].close()
+    temporary.cleanup()
 '''
 GDB_ATTACH = r'''
 import subprocess
@@ -169,6 +172,7 @@ finally:
     child.wait(timeout=10)
 '''
 GDB_FORK = r'''
+import ctypes
 import os
 from pathlib import Path
 import select
@@ -179,7 +183,9 @@ import time
 # A retired virtual source leaves the selector installed, as inherited from init.
 # PRoot compares the same target lifecycle without Shroot's virtual source.
 if '--selector' in sys.argv[1:]:
-    fd = os.open('/proc/sys/kernel/hostname', os.O_RDONLY)
+    libc = ctypes.CDLL(None, use_errno=True)
+    fd = libc.inotify_init1(os.O_CLOEXEC | os.O_NONBLOCK)
+    assert fd >= 0, ctypes.get_errno()
     with select.epoll() as queue:
         queue.register(fd, select.EPOLLIN | select.EPOLLERR)
     os.close(fd)
@@ -268,7 +274,7 @@ print('PASS gdb-jit')
 
 def commands(*, proot=False):
     cases = [(name, [TARGET, name]) for name in ('attach', 'seize', 'trace-exit', 'syscall', 'syscall-edit-close', 'syscall-exec', 'syscall-signal', 'credential-transition', 'mixed',
-                                               'kill-stopped', 'owner-exit', 'exitkill', 'thread-exec', 'syscall-thread-exec', 'clone-untraced', 'shared-files-debugger', 'perf-event')]
+                                               'kill-stopped', 'owner-exit', 'exitkill', 'thread-exec', 'syscall-thread-exec', 'clone-untraced', 'shared-files-debugger', 'self-dump-threads', 'self-dump-io', 'perf-event')]
     cases.append(('strace-detach', ['python3', '-c', STRACE_DETACH]))
     cases.append(('strace-detach-socket', ['python3', '-c', STRACE_DETACH, '--socket']))
     cases.append(('gdb-attach', ['python3', '-c', GDB_ATTACH]))

@@ -541,6 +541,62 @@ static void gdb_target(int threaded, int forks) {
         assert(!pthread_barrier_destroy(&ready_barrier));
     }
 }
+static pid_t dump_threads[41];
+static int dump_active_io;
+static void *gdb_io_worker(void *argument);
+static atomic_int io_exit;
+static atomic_uint io_calls;
+static char io_directory[]="/tmp/md-debugger-io.XXXXXX";
+static void *dump_worker(void *argument) {
+    size_t index=(size_t)argument;
+    dump_threads[index]=(pid_t)syscall(SYS_gettid);
+    return dump_active_io ? gdb_io_worker(argument) : gdb_worker(NULL);
+}
+static int dump_collector(void *unused) {
+    (void)unused;
+    for (unsigned i=0;i<41;++i) {
+        assert(!ptrace(PTRACE_ATTACH,dump_threads[i],NULL,NULL));
+        /* EVENT_WAIT: each attach publishes its own stop, including a parent
+         * waiting for this collector. The fixture alarm bounds missing events. */
+        assert(waitpid(dump_threads[i],NULL,__WALL)==dump_threads[i]);
+    }
+    for (unsigned i=0;i<41;++i) {
+        struct user_pt_regs regs;
+        struct iovec io={&regs,sizeof(regs)};
+        assert(!ptrace(PTRACE_GETREGSET,dump_threads[i],NT_PRSTATUS,&io));
+        assert(io.iov_len==sizeof(regs));
+        assert(!ptrace(PTRACE_DETACH,dump_threads[i],NULL,NULL));
+    }
+    return 0;
+}
+static void self_dump_threads(int active_io) {
+    pthread_t workers[40];
+    dump_active_io=active_io;
+    if (active_io) assert(mkdtemp(io_directory));
+    dump_threads[0]=getpid();
+    assert(!pthread_barrier_init(&ready_barrier,NULL,41));
+    for (size_t i=0;i<40;++i) assert(!pthread_create(&workers[i],NULL,dump_worker,(void *)(i+1)));
+    pthread_barrier_wait(&ready_barrier);
+    size_t size=1024*1024;
+    char *stack=malloc(size); assert(stack);
+    for (unsigned shared=0;shared<2;++shared) for (unsigned round=0;round<8;++round) {
+        int flags=SIGCHLD|CLONE_UNTRACED|(shared ? CLONE_VM|CLONE_FS|CLONE_FILES : 0);
+        pid_t child=clone(dump_collector,stack+size,flags,NULL); assert(child>0);
+        exited(child,0);
+    }
+    free(stack);
+    atomic_store(&io_exit,1);
+    assert(!pthread_mutex_lock(&workers_lock));
+    workers_exit=1;
+    assert(!pthread_cond_broadcast(&workers_done));
+    assert(!pthread_mutex_unlock(&workers_lock));
+    for (unsigned i=0;i<40;++i) assert(!pthread_join(workers[i],NULL));
+    assert(!pthread_barrier_destroy(&ready_barrier));
+    if (active_io) {
+        assert(atomic_load(&io_calls)>0);
+        assert(!rmdir(io_directory));
+    }
+}
 static void gdb_poll_target(void) {
     struct pollfd input = {.fd = STDIN_FILENO, .events = POLLIN};
     struct timespec zero = {0};
@@ -554,9 +610,6 @@ static void gdb_poll_target(void) {
     char c;
     assert(read(STDIN_FILENO, &c, 1) == 1 && magic_value == 43);
 }
-static atomic_int io_exit;
-static atomic_uint io_calls;
-static char io_directory[]="/tmp/md-debugger-io.XXXXXX";
 static void *gdb_io_worker(void *argument) {
     char path[128], renamed[128];
     snprintf(path,sizeof(path),"%s/%zu",io_directory,(size_t)argument);
@@ -655,6 +708,8 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[1], "gdb-target")) gdb_target(0, 0);
     else if (!strcmp(argv[1], "gdb-poll-target")) gdb_poll_target();
     else if (!strcmp(argv[1], "gdb-thread-target")) gdb_target(1, 0);
+    else if (!strcmp(argv[1], "self-dump-threads")) self_dump_threads(0);
+    else if (!strcmp(argv[1], "self-dump-io")) self_dump_threads(1);
     else if (!strcmp(argv[1], "gdb-fork-target")) gdb_target(1, 1);
     else if (!strcmp(argv[1], "strace-target")) { magic_value=43; gdb_target(1, 0); }
     else if (!strcmp(argv[1], "gdb-io-target")) gdb_io_target();

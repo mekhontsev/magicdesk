@@ -16,19 +16,24 @@ import uuid
 
 
 def accept_editor(listener, child, deadline):
-    # EVENT_WAIT: extension connection or exact CLI exit; neither a dead launcher
-    # nor an expired deadline can establish editor readiness.
+    # EVENT_WAIT: extension connection or failed CLI exit. VS Code releases its
+    # CLI wait marker on window reload, before the new extension host connects.
     process_fd = os.pidfd_open(child.pid)
     try:
         ready = select.poll()
         ready.register(listener, select.POLLIN)
         ready.register(process_fd, select.POLLIN)
-        events = dict(ready.poll(max(0, int((deadline - time.monotonic()) * 1000))))
-        if listener.fileno() in events:
-            return listener.accept()[0]
-        if process_fd in events:
-            raise RuntimeError(f'Code launcher exited before editor readiness: {child.wait()}')
-        raise TimeoutError('Editor extension did not connect before the deadline')
+        while True:
+            events = dict(ready.poll(max(0, int((deadline - time.monotonic()) * 1000))))
+            if process_fd in events:
+                code = child.wait()
+                if code:
+                    raise RuntimeError(f'Code launcher exited before editor readiness: {code}')
+                ready.unregister(process_fd)
+            if listener.fileno() in events:
+                return listener.accept()[0]
+            if not events:
+                raise TimeoutError('Editor extension did not connect before the deadline')
     finally:
         os.close(process_fd)
 

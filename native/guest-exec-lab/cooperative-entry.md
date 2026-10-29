@@ -5,7 +5,9 @@
 
 Shroot uses lazy entry in stock programs by default. Shroot Base uses ordinary
 interception. Neither replaces package-owned libc files. The internal caller
-boundary uses ABI 8; explicit API fixtures exercise it independently of
+boundary uses the version declared by `MD_ENTRY_VERSION` in
+[`cooperative_entry.h`](../shroot/src/cooperative_entry.h); explicit API fixtures
+exercise it independently of
 machine-code discovery.
 
 ## Runtime Checks

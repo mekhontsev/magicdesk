@@ -2,6 +2,7 @@
 """Failed GUI-fixture admission must leave prior browser evidence intact."""
 import fcntl
 from pathlib import Path
+import runpy
 import socket
 import subprocess
 import sys
@@ -10,6 +11,20 @@ import unittest
 
 
 class BrowserFixture(unittest.TestCase):
+    def test_webgl_requires_readback_and_retained_context(self):
+        checks = runpy.run_path(str(Path(__file__).with_name('fixtures') /
+                                   'sandbox-browser-gui.py'))['webgl_checks']
+        rendered = {'type': 'gpu', 'value': {'pixel': [0, 255, 0, 255]}}
+        for receipts, expected in (
+                ([], False),
+                ([{'type': 'gpu', 'value': None}], False),
+                ([rendered], True),
+                ([rendered, {'type': 'gpu-context-lost', 'value': True}], False),
+                ([rendered, {'type': 'gpu', 'value': None}], False),
+                ([{'type': 'gpu', 'value': {'pixel': [0, 0, 0, 0]}}], False)):
+            with self.subTest(receipts=receipts):
+                self.assertEqual(expected, all(checks(receipts).values()))
+
     def check_rejected(self, work, *options):
         result = subprocess.run([sys.executable,
             str(Path(__file__).with_name('fixtures') / 'sandbox-browser-gui.py'),

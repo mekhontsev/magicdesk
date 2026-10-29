@@ -8,6 +8,9 @@ fixtures do not define a separate runtime or installation interface.
 - [Choose A Suite](#choose-a-suite)
 - [Evidence Rules](#evidence-rules)
 - [Installer Acceptance](#installer-acceptance)
+- [Network Fixtures](#network-fixtures)
+- [Process And Resource Fixtures](#process-and-resource-fixtures)
+- [Graphical Acceptance](#graphical-acceptance)
 - [Named Environment Workflows](#named-environment-workflows)
 - [Prepared Runtime Fixtures](#prepared-runtime-fixtures)
 
@@ -67,6 +70,13 @@ automatically registered in the Android default-library catalog. Test
 `--gui apps` and a whole-desktop profile separately; installing application
 packages does not verify a desktop-session launcher.
 
+`test_installer.py` records its explicit `--locale` and `--timezone` selections
+(defaults: `en_US.UTF-8` and `UTC`). These controlled fixture defaults are not
+the installer's Android-locale default. Test that default separately through
+interactive setup, including the keep-on-resume behavior.
+
+### Recipe Setup And Graphics
+
 `test_installer_setup.py BUILD STORE [--dns ADDRESS]` runs the actual guest
 payload emitted by `install_linux.sh --print-system-setup` in a disposable store.
 It records the payload hash, uses the production offline resolver owner when DNS
@@ -90,16 +100,7 @@ running beside GUI observation so MCP's request workers remain available.
 unmodified sandbox, Landlock denials, synchronization, package installation,
 reinstallation, file verification and removal of a fixture-installed package.
 
-`test_launch_network.py --store STORE --build BUILD` checks the common launch
-network profile under UID 2000: run/exec/login/low-level entrypoints, offline
-loopback, isolated DNS views, concurrent bridge TCP/UDP publications, outgoing
-TCP/UDP, a real libc DNS query, conflicts, cancellation and abnormal exit.
-The store needs Python 3 and an installed resolver; `--cli-only` needs only a
-shell and cat (also tested on Alpine). `--native-tests` includes the resource,
-mount and filesystem-worker suites, including partial port-reservation rollback.
-Traffic assertions use local native peers, independently of internet stability.
-`test_os_boot.py --network bridge --dns IP` applies the same profile to stock
-init boot; its default remains routed. Reports identify the native binaries.
+### Retained Sessions And Booted Workloads
 
 Retained recipe-installed sessions can run `test_booted_containers.py --session
 build/installed-NAME/session.json --engine podman --internet` (or `--engine
@@ -128,6 +129,23 @@ lease does not keep that display active. Release a separately owned lease before
 starting the fixture; it never replaces another owner. After lease expiry,
 stop/restart the fixture before qualifying GUI results. `stop` removes the owned
 display and its lease; headless sessions acquire neither.
+
+## Network Fixtures
+
+### Launch Profiles
+
+`test_launch_network.py --store STORE --build BUILD` checks the common launch
+network profile under UID 2000: run/exec/login/low-level entrypoints, offline
+loopback, isolated DNS views, concurrent bridge TCP/UDP publications, outgoing
+TCP/UDP, a real libc DNS query, conflicts, cancellation and abnormal exit.
+The store needs Python 3 and an installed resolver; `--cli-only` needs only a
+shell and cat (also tested on Alpine). `--native-tests` includes the resource,
+mount and filesystem-worker suites, including partial port-reservation rollback.
+Traffic assertions use local native peers, independently of internet stability.
+`test_os_boot.py --network bridge --dns IP` applies the same profile to stock
+init boot; its default remains routed. Reports identify the native binaries.
+
+### Container Publication And IPv6
 
 The Docker and Podman network probes allocate paired TCP/UDP ports through an
 observer outside Shroot, then check publication, collision rejection, and port
@@ -173,6 +191,9 @@ recipe prerequisite or a production VPN bypass.
 assertions natively and in guest `routed`/`bridge` modes, in addition to its local
 address/route, ICMPv6, dual-stack socket, nftables and port-publication checks.
 Omit `--internet` for deterministic local coverage.
+
+### Multicast, DHCP And NixOS Boot
+
 `test_network_multicast.py BUILD STORE` checks IPv4/IPv6 membership, reuse,
 namespace fanout, leave, loopback, hops, filtering and unicast responses with
 both entry modes. `test_network_dhcp.py BUILD STORE [--ipv6]` runs packaged
@@ -191,6 +212,9 @@ its launch-owned uplink, retaining the common systemd service and shutdown
 assertions without expecting a DHCP unit. `--entry base` repeats the boot without lazy entry. The fixture
 server is not a production DHCP service or an Android uplink test; neither
 Android addresses nor routes, DNS or privileged ports are changed.
+
+### Routing, Firewall And Performance
+
 `test_routed_network.py` adds libc interface lookup, IPv4 packet information
 with absent/truncated receive buffers, a datagram queued before sender close,
 and receiver-close/rebind without reusing stale reply mappings.
@@ -219,6 +243,8 @@ observer with protocol IO and three stop/start cycles. Avahi must answer mDNS
 over both families; CUPS must answer an IPP request within the fixture's normal
 readiness bound; firewalld must enforce a live rule. Unsupported service rules
 remain a failure, not a reason to mask the service or enlarge its timeout.
+
+## Process And Resource Fixtures
 
 `test_thread_identity_runtime.py BUILD STORE FIXTURE --debuggers` checks libc
 thread identities and multi-threaded setuid/setgid/setgroups, including strace
@@ -281,6 +307,8 @@ cases without lazy entry. `test_debugger_runtime.py` also accepts
 need data to arrive on a blocked socket. These regressions cover common Base
 owners, not just SVC publication.
 
+## Graphical Acceptance
+
 The GUI extension fixture `fixtures/vscode-gui.py` drives
 `fixtures/vscode-debug.js` through an existing recipe desktop: editor/save and
 watcher changes, window reload, integrated terminal, GDB variable update and
@@ -329,6 +357,118 @@ Neither fixture reboots the device or requires a Desktop session. Reports are
 `build/environment-catalog.json` and `build/environment-recovery.json`.
 
 ## Prepared Runtime Fixtures
+
+### Graphics Adaptation (Paused)
+
+This research is paused, not integrated into the installer or APK. Its goal is
+to retain full Mesa builds while using distribution KWin/Weston packages with
+small locally compiled fixes. The current KWin prototype admits exact builds;
+automatic adaptation to previously unknown package builds is not implemented.
+
+`test_kwin_binary_adaptation.py --name steamos` is an offline ELF-adaptation
+experiment for the hash-pinned stock KWin 6.2.5 library. It compiles a small
+DMA-heap allocator/fence module against installed KWin headers, rewrites a
+private copy's virtual dispatch relocation and allocator entry, and checks
+stock swapchain GPU rendering, mapped pixels, synchronization and object
+ownership in three processes. It requires the recipe Turnip/Mesa profile,
+KWin development headers, C++/binutils, Python venv and access to the pinned
+LIEF wheel. Results and adapted artifacts go to
+`build/kwin-binary-adaptation`; device work files are removed unless `--keep`
+is supplied. `--directory` reuses only a retained directory from this fixture.
+It does not replace installed libraries, start a desktop, adapt unknown builds,
+or establish that the complete KWin/Mesa source patches can be removed.
+
+`test_kwin_binary_module.py --name NAME --adapt --keep` extends that experiment
+with a partial KWin module and a separate Qt platform plugin. The cached source
+and compiler configurations cover `steamos` (6.2.5) and `nixos-recipe` (6.6.6).
+`debian-turnip` prepares 6.3.6 from the verified archive
+`build/kwin-6.3.6.tar.xz` and installed development packages. Only protocol
+generation, its small code generator and selected fragments are built.
+It checks shared C++ object layouts against the release headers and redirects
+selected entries in a private stock ELF copy. Qt type metadata remains shared
+with the stock library; NixOS retains its package-generated Qt/QML launcher.
+Protected ELF entries retain BTI landing pads and the new module uses BTI/PAC
+when the original library does. The original GNU property note is unchanged;
+see the [AArch64 ABI requirements](https://github.com/ARM-software/abi-aa/blob/main/sysvabi64/sysvabi64.rst#982-tool-requirements-for-generating-bti-instructions).
+`--rebuild` measures a fresh fragment build, not a complete KWin build.
+Reports and binaries are retained under `build/kwin-binary-module/NAME`; device files
+are removed by default unless `--keep` is supplied.
+
+Run `test_kwin_binary_desktop.py --name NAME --directory WORK --case qpa` and then
+`--case egl --cleanup` (SteamOS/Debian) or `--case vulkan --cleanup` (NixOS) against the
+printed retained directory. The fixtures use
+an independent awake virtual display, verify actual pixels, the selected modules
+and Turnip renderer, and require a zero process exit status. GPU cases require
+changing pixels, not just a mapped window. No other awake lease or launch of the
+tested environment may be active. `--gdb PATH` is a separate diagnostic launch.
+All three KWin versions pass Qt-window and animated GPU-client checks on the test device.
+The tests do not alter the installed compositor or launch Android Desktop.
+
+This is an exact-build AArch64 proof, not a signature patcher for arbitrary
+packages. Full Plasma sessions, screencasting, pointer-lock/focus lifecycle and
+other KWin versions need separate coverage. The added dispatch table is writable;
+production integration must provide read-only relocation protection and package
+update admission before replacing recipe builds. Mesa remains recipe-built.
+The recipe's optional private GLVND fallback is outside this experiment.
+
+`test_weston_child_guard.py --name NAME` checks a small public-API interposer
+against the stock Weston 13 library. Its probe uses cached release headers but
+the interposer itself needs only the C compiler and `libdl`; it knows no private
+structure offsets. `test_weston_child_desktop.py --name NAME --stock` requires
+the unguarded popup/focus crash; omit `--stock` to require visible popup windows
+and a clean exit with the interposer. Both controls pass on `ubuntu-fuse` and
+`manjaro-turnip` with stock Weston 13.0.0 and recipe Turnip. Results are under
+`build/weston-child-guard/NAME`. These fixtures do not replace the installed
+Weston or claim to implement every change in a newer Weston release.
+
+#### Evidence and Continuation
+
+The retained device evidence covers the following AArch64 builds on Android 16
+(nubia NX809J). These are focused graphics checks, not the full distribution
+application matrix.
+
+| Environment | Stock component | Passing checks | Report directory under `build/` |
+| --- | --- | --- | --- |
+| `steamos` | KWin 6.2.5 | Qt window, animated EGL, clean exit | `kwin-binary-module/steamos` |
+| `debian-turnip` | KWin 6.3.6 | Qt window, animated EGL, clean exit, BTI/PAC retained | `kwin-binary-module/debian-turnip` |
+| `nixos-recipe` | KWin 6.6.6 | Qt window, animated Vulkan, clean exit | `kwin-binary-module/nixos-recipe` |
+| `ubuntu-fuse` | Weston 13.0.0 | Stock negative control, guarded popup/focus, clean exit | `weston-child-guard/ubuntu-fuse` |
+| `manjaro-turnip` | Weston 13.0.0 | Stock negative control, guarded popup/focus, clean exit | `weston-child-guard/manjaro-turnip` |
+
+KWin's `desktop-*-state.json` contains each final client result; `module-profile.json`,
+`module-result.json` and `adapt-result.json` record inputs, compilation and ELF
+checks. Weston records its build in `result.json` and GUI controls separately in
+`stock/` and `guarded/`. The run JSON, logs and screenshots are evidence, not
+installable distributions. Alpine, Arch, Fedora, openSUSE and Armtix have not
+been checked with this adaptation method.
+
+Resume by investigating one analyzer that recognizes supported implementation
+patterns from the installed ELF and, where needed, matching source/debug data.
+Select a transformation by observed interfaces and code structure rather than
+an exact version, hard-coded address or a whitelist of package hashes. Symbols
+already locate KWin entries dynamically; the exact-build admission and manual
+source profiles are the parts still to generalize. Finding an entry alone does
+not establish C++ object-layout or behavioral compatibility. Reject ambiguous
+matches rather than removing the current checks without a replacement.
+
+The next qualification is the same analyzer on multiple package builds without
+per-build manual edits, followed by the Qt/GPU checks above. Full desktop,
+pointer-lock, screencast, package-update handling and read-only dispatch remain
+separate requirements before changing recipes. No new runtime interception of
+ordinary system calls is part of this approach.
+
+A local checkpoint is saved outside disposable build output at
+`~/magicdesk-research/graphics-adaptation-20261029.tar.gz`. It contains the lab
+sources, installer patch definitions, retained reports/screenshots/modules and
+the Debian source archive/preparation helper. Its repository baseline is
+`636a8dab1ef4eb94720733dedb8a4f754c55b8ec`; extract it only into a separate checkout
+of that baseline, not over an unrelated worktree. This is a local research
+backup, not a commit, release or backup of installed guest environments.
+Temporary device work directories were removed. Re-running requires the
+prepared guests and compiler/source caches described by the fixture profiles;
+the archive does not contain complete SteamOS/NixOS build environments.
+
+### Rootfs Fixtures
 
 `prepare.mjs` authenticates Debian archive metadata and packages, then extracts
 an isolated test rootfs without maintainer scripts or host installation.

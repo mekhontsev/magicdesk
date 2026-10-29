@@ -249,8 +249,8 @@ blocked and TRACEEXIT was not enabled.
 
 The TSYNC fixture pauses the actor with thread-directed STOP. A process-directed
 STOP could select the untraced filter-installation peer, cause a group stop and
-deadlock the acknowledgement protocol. The bounded test no longer relies on
-which thread the kernel selects for that process-directed signal.
+deadlock the acknowledgement protocol. Thread-directed delivery makes the
+acknowledgement independent of process-directed signal selection.
 
 ### Checkpoint Cost
 

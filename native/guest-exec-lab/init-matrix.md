@@ -40,29 +40,19 @@ python native/guest-exec-lab/test_os_boot.py --build app/build/shroot \
 
 ## Extended Matrix
 
-| Userspace | Manager | Default boot | Focused services |
-| --- | --- | --- | --- |
-| Debian 13 | systemd 257.13 | Pass with explicit `--drop-capability sys_module`, including journal/D-Bus/logind and configured Docker | Pass, including additional restrictions and timer |
-| Fedora 44 | systemd 259.9 | Pass with explicit `--drop-capability sys_module`, including journal/dbus-broker/logind | Pass, including additional restrictions and timer |
-| Alpine 3.23.6 | OpenRC 0.63 | Pass with the fixture's container runlevels | syslog/crond restart, stop and exact launch cleanup pass |
-| openSUSE Tumbleweed | systemd 261.2 | Pass, including journal/D-Bus/logind | Pass, including additional restrictions and timer |
-| openKylin 3.0 | systemd 259.5-ok1.5 | Pass with explicit `--drop-capability sys_module` | Pass, including additional restrictions and timer |
-| Deepin crimson | systemd 255.2-4deepin31 | Pass, including journal/D-Bus/logind | Pass, including additional restrictions and timer |
-| Manjaro ARM | systemd 255.3-1-arch | Pass, including journal/D-Bus/logind | Pass, including additional restrictions and timer |
-| Void aarch64 glibc | runit | Stock stages reach the supervisor | Lifecycle and exact launch cleanup pass |
-| Armtix aarch64 | runit | Stock stages reach the supervisor after installing `libutempter` | Lifecycle and exact launch cleanup pass |
+The [distribution matrix](validation-matrix.md#installation-and-init) owns
+current per-OS boot and service status, including SteamOS, Ubuntu, Arch and
+NixOS. Its [evidence ledger](distribution-evidence.md) records package versions,
+native hashes, launch policy and remaining failures. Do not maintain a second
+status table here or equate a focused service target with default-target boot.
 
-Debian and openKylin without the explicit capability drop are degraded by
-`systemd-modules-load`. The test does not mask or whitelist that failed unit.
-Dropping `CAP_SYS_MODULE` is container policy, not permission to modify Android's
-kernel. Void/Armtix stock stages report denied hardware probes, including
-`/proc/cmdline`; Armtix additionally reports sysctl and `binfmt_misc` failures.
-Reaching runsvdir is not a claim of complete hardware setup. Armtix's package
-transaction installs its userspace updates, but post-transaction hooks attempt
-Android device ownership changes and lengthy initramfs generation. Long exec
-vectors and mkinitcpio-style cp/rm batches pass the focused argument checks;
-complete kernel-image maintenance is not covered by userspace recipe completion.
-These recipes provide userspace, not a replacement Android kernel.
+`--drop-capability sys_module` is an explicit fixture option, not an implicit
+workaround. Record it when used; the test must not mask or whitelist a failed
+`systemd-modules-load` unit. Dropping `CAP_SYS_MODULE` is guest container policy,
+not permission to modify Android's kernel. Runit supervisor readiness likewise
+does not certify every hardware probe or package hook. These recipes provide
+userspace, not a replacement Android kernel; initramfs and kernel-image
+maintenance need separate acceptance.
 
 The retained `installed_desktop.py` control/GUI fixture keeps the launch's
 preconfigured `eth0` addresses and routes through a private
@@ -74,13 +64,13 @@ modifies `/etc` nor applies to `test_os_boot.py`, whose default-target acceptanc
 still checks the distribution's own network configuration. Routed host-port
 publication retains Android permission checks, including privileged port 53.
 
-The stock-boot fixtures install init prerequisites beyond `install_linux.sh`'s
-base/GUI recipes. That installer currently does not boot system services:
-session `dbus-run-session` and a booted system bus are different requirements.
-Use `test_installer_setup.py` for its actual base payload, separately from these
-boot tests. Debian's Docker boot check uses the documented daemon configuration
-without iptables and with userland proxy; it does not verify Docker's netfilter
-backend.
+The stock-boot fixtures may install prerequisites beyond the selected
+`install_linux.sh` profile. Session `dbus-run-session`, NixOS activation and a
+booted system bus are different requirements; recipe completion alone does not
+certify a persistent init session. Use `test_installer_setup.py` for the guest
+setup payload, separately from boot tests. Booted Docker/Podman fixtures default
+to the packaged service. Diagnostic daemon profiles and their network assertions
+are described in [network fixtures](README.md#network-fixtures).
 
 Passing boot is not full support for every daemon's resource policy. RTKit uses
 per-guest-UID `RLIMIT_NPROC` accounting with its daemon protections enabled.

@@ -1191,11 +1191,33 @@ networking remain untested
 
 ## Manjaro
 
+The 2026-10-29 native-browser, desktop, audio and VS Code checks use installed
+APK build `b1ea0359a5de5f3d33ce228bc16e7ed2fecebb7f60752281a75811dc66e05b74`,
+supervisor `7e75f7fef838e706b770d1750b57beb184de0bef7cee6f76f78ce3bbe62ac58a`,
+the installed recipe Weston 13.0.4 and Mesa 26.2.3. Browser/editor fixtures run
+as guest UID 1000 with lazy entry; Android execution remains UID 2000. Missing
+browser packages came from the binary repository, without rebuilding graphics
+libraries or applications. Unless qualified otherwise, application receipts
+below are under `build/installed-manjaro-turnip/`.
+
 ### Manjaro recipe
 
 `build/installer-manjaro-turnip.json`; official ARM64 rootfs, Weston, Turnip,
-locale/timezone, ordinary user and resume preserving data. Full desktop discovery,
-close/reopen and audio acceptance remain open.
+locale/timezone, ordinary user and resume preserving data.
+
+`build/installer-graphics-manjaro-turnip.json` passes all seven production
+catalog launches: Mousepad, Thunar and Xfce Terminal over both X11 and Wayland,
+plus Weston Desktop. `build/manjaro-desktop-lifecycle.json` verifies pointer
+launch of a terminal, keyboard file creation, exact Mousepad AT-SPI readback,
+viewer closure retaining the running terminal, reopening with working input,
+and graphics stop retiring the owned guest launch. These catalog checks use
+the configured guest-root profile, not the ordinary-user browser fixture.
+System and user failed-unit lists are empty after the GUI checks
+(`31b5e25e45ce401483ba8ec166dcbdc2.log`).
+
+`build/installer-audio-manjaro-turnip.json` passes private PipeWire/Pulse mixer
+controls, mute/unmute, silent Android playback and cleanup. Audible continuity
+under load is not checked, so audio acceptance remains incomplete.
 
 Package lifecycle: `build/installed-manjaro-turnip/63f45355190d4987aaf7ecd505cdeae7.log`
 verifies stock `ed` 1.20.1-1 installation, execution, reinstall, `pacman -Qkk`,
@@ -1204,9 +1226,34 @@ is installed from the same distribution repository for the editor fixture.
 This 2026-10-28 receipt uses supervisor
 `b4c46a039508a1fbae9aea49bef167ff76fdd40306cd1b235a4df42b222d49c5`.
 
+### Manjaro Native Browsers
+
+Binary installation receipt `f85d507225b045c6b39a0087ebd4e52a.log` completes
+all transaction hooks for the repository's Firefox 123.0-1 and Chromium
+122.0.6261.69-1. These old repository versions are tested against local pages;
+the results do not certify current upstream releases.
+
+Firefox passes keyboard, pointer, download, exact chooser readback, WebGL pixels
+and normal exit in `manjaro-native-firefox-first/gui-report.json`. The
+same-profile `manjaro-native-firefox-repeat/gui-report.json` additionally
+requires that the WebGL context remain intact. `manjaro-native-firefox-webrender.png`
+records hardware WebRender; `9b94424dea4442af9ba0fdbafd095274.log` verifies
+content processes at UID 1000, NNP=1 and seccomp=2.
+
+Chromium 122 fails GPU acceptance: `manjaro-native-chromium-repeat/gui-report.json`
+passes ordinary GUI actions and initial pixel readback, then records context
+loss. `e51ed15292bb4e15a71d0935d80f986c.log` shows repeated GBM plane-export
+ENOTTY errors and GPU-process exits. The packaged
+[Chromium GBM path](https://raw.githubusercontent.com/chromium/chromium/122.0.6261.69/ui/gfx/linux/gbm_wrapper.cc)
+uses `drmPrimeHandleToFD`; Shroot's discovery render node implements
+`DRM_IOCTL_VERSION`, not GEM handle export. This is an unsupported interoperation
+path (**F**), not an established upstream defect. Renderer sandboxing remains
+enabled (`2c52af2f19bd4014a1deb3486f609275.log`); no software-renderer or sandbox
+bypass is used to turn this into a pass.
+
 ### Manjaro Flatpak browsers
 
-Retained fixture `4d45ea3d1bf64244aa6b814b29b83b4e` uses the supervisor above,
+Retained fixture `4d45ea3d1bf64244aa6b814b29b83b4e` uses supervisor `b4c46a0395...`,
 stock Weston 13.0.0 and the current production Turnip recipe. Mesa 26.2.3
 preparation job `8a4ad026ccb84fbf83dce803a29cd52a` builds once on the host and
 publishes GL.host for runtime 25.08; no additional SDK Mesa build is used.
@@ -1225,6 +1272,14 @@ One immediate click/type run lost its initial character
 (`manjaro-chromium-repeat/gui-report.json`); its input-ordering cause remains
 unresolved. The qualifying repeat confirms visible field focus before typing.
 
+The installed-APK rerun on 2026-10-29 passes all seven checks, including retained
+WebGL context, in `manjaro-flatpak-chromium-context/gui-report.json` (job
+`0178be08e0b84ce3b460be3e43dc7af3`). `manjaro-flatpak-chromium-gpu-current.txt`
+records hardware composition/rasterization, Zink/Turnip and zero GPU-process
+crashes. `af805feed776444ebdfa6ee0878c4dfe.log` verifies renderer UID 1000,
+NNP=1 and seccomp=2. This uses the installed recipe Weston 13.0.4, separately
+from the retained fixture above.
+
 Firefox 159.0 passes the same six GUI checks in
 `manjaro-firefox-first/gui-report.json` and `manjaro-firefox-repeat/gui-report.json`,
 jobs `6d5199fbcaad4be899f1adb2d9610458` and `c04a04fa3f1d4f2285f21ce6782ffe5d`.
@@ -1238,7 +1293,7 @@ Stock xdg-desktop-portal 1.18.2-1 / Flatpak 1.15.6-2 pass two live-sandbox
 export/read/write/revoke rounds and `flatpak enter` working-directory checks,
 but the second SIGTERM teardown fails its unchanged 15-second bound:
 `build/installed-manjaro-turnip/manjaro-portal-lifecycle.json`, job
-`1d053dbc967640188da98e6cc9b2f264` on the native build above.
+`1d053dbc967640188da98e6cc9b2f264` on supervisor `b4c46a0395...`.
 Guest GDB receipt `31851e80ca1643d6a7d3239a0f10789f.log` shows the signal handler
 inside `g_main_loop_quit`, blocked on the main-context mutex already owned by
 the interrupted `g_main_loop_run`. This matches upstream
@@ -1252,9 +1307,9 @@ independently of browser GUI or FUSE IO acceptance.
 Official Microsoft ARM64 archive 1.143.1, cpptools 1.34.4 and packaged GDB 14.1
 pass editor/save, external file events, integrated terminal, window reload,
 breakpoint/locals/step/exit and normal editor closure in
-`build/installed-manjaro-turnip/manjaro-vscode-protocol/gui-report.json` and
-`manjaro-vscode-repeat/gui-report.json`, jobs `a024b979d3ff46f584809a8234a6b78f`
-and `30f587db02a04f82a9b25626ab8dd0fc`. Hardware composition is enabled;
+`manjaro-vscode-apk-handoff/gui-report.json` and
+`manjaro-vscode-apk-repeat/gui-report.json`, jobs `37dbcd7d2e29430782e7ffef443029fc`
+and `8513faff5fa34955b973c86818739522`. Hardware composition is enabled;
 the renderer retains UID 1000, NNP=1 and seccomp=2. The archive SHA-256 is
 `e84bf20d112fdb73c29b85b317ba50d5a48bea05c0711509669c8466639e9eb6`.
 
@@ -1262,9 +1317,9 @@ Acceptance remains incomplete: `manjaro-vscode-current/gui-report.json`, job
 `ad567cc1960a4461ab7cbcb24ad92eaf`, times out on the fixture's DevTools WebSocket
 inspection. HTTP on that exact Electron endpoint and a standalone Node WebSocket
 client both succeed (`5488a83f59ac49efafc1aeba428ab3e1.log`,
-`754ff318c6104804884549b675ee6fcf.log`). The two full reruns keep the original
-timeout; they do not establish the first failure's cause. All use the retained
-fixture and supervisor recorded above.
+`754ff318c6104804884549b675ee6fcf.log`). That observation uses the retained
+fixture and supervisor `b4c46a0395...`. The installed-APK reruns keep the
+original timeout; they do not establish this intermittent failure's cause.
 `b76b060b86e546fca7e4b501c0ef1cfc.log` independently passes TCP completion,
 refusal, SO_ERROR, pre-connect subscriptions, edge/oneshot readiness, multiple
 observers and native read/write for IPv4 and IPv6 in that session.

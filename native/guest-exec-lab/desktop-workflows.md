@@ -211,7 +211,8 @@ acceptance checks; Flatpak receives the setting explicitly. Chromium's optional
 `--net-log` writes `netlog.json` inside the fixture work directory. It is diagnostic
 evidence, not a performance run.
 
-`--require-webgl` requires the known pixel, not a particular hardware renderer.
+`--require-webgl` requires the known pixel and no reported WebGL context loss
+during the workflow, not a particular hardware renderer.
 Inspect Firefox's support report for hardware WebRender and content sandbox
 level; its renderer name may be privacy-masked. For Chromium, inspect hardware
 composition separately from ANGLE/Zink WebGL. The
@@ -411,10 +412,11 @@ Flatpak Chromium and DDNet through Steam/FEX with a local tutorial server.
 Chromium retained its Flatpak/renderer seccomp sandbox and Zink/Turnip hardware
 composition; this does not certify GPU-process sandboxing. At a reported
 battery temperature of 41 C and CPU policy ceilings of 1.7856/1.4976 GHz,
-repeated submenu changes took 37-56 ms. The earlier post-launch pass took
-183-656 ms. Android-injected omnibox keys took 148-157 ms after a 351 ms first
-sample; native XTest input took 114-163 ms after a 274 ms first sample. These
-are workload observations, not native comparisons or a universal latency bound.
+repeated submenu changes took 37-56 ms, versus 183-656 ms immediately after
+launch. Android-injected omnibox keys took 148-157 ms after a 351 ms first sample;
+native XTest input took 114-163 ms after a 274 ms first sample. These are
+cold/warm workload observations, not a before/after-fix comparison, native
+comparison or universal latency bound.
 Post-launch outliers and general-wait kernel scanning remain performance work.
 
 Creating and closing 160 disposable Chromium tabs with the game running left
@@ -422,7 +424,7 @@ the same supervisor, Plasma, browser and game alive. A bounded 180-second
 SIGKILL trace recorded no signal addressed to those processes and no dropped
 trace events. Keep this separate from the deterministic birth/exit, signal-mask,
 descriptor-publication and fairness fixtures: a stress pass alone cannot prove
-that all process-lifetime races are fixed. The relevant ownership contracts are
+correct process lifetime under every ordering. The relevant ownership contracts are
 in [interception](../shroot/interception.md).
 
 ## Libc, IPC And Desktop Checks

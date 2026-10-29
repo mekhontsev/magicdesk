@@ -6,6 +6,7 @@ import errno
 import json
 import os
 import runpy
+import select
 import socket
 import subprocess
 import sys
@@ -33,13 +34,44 @@ class BootHelpers(unittest.TestCase):
     def test_editor_readiness_observes_exact_launcher_exit(self):
         accept = runpy.run_path(str(Path(__file__).with_name('fixtures') /
                                    'vscode-gui.py'))['accept_editor']
-        for code in (0, 7):
+        for code in (7, 23):
             with self.subTest(code=code), socket.socket() as listener:
                 listener.bind(('127.0.0.1', 0))
                 listener.listen()
                 with subprocess.Popen([sys.executable, '-c', f'raise SystemExit({code})']) as child:
                     with self.assertRaisesRegex(RuntimeError, f'readiness: {code}'):
                         accept(listener, child, time.monotonic() + 5)
+
+    @unittest.skipUnless(hasattr(os, 'pidfd_open'), 'Requires Python Linux pidfd support')
+    def test_editor_readiness_survives_successful_cli_handoff(self):
+        accept = runpy.run_path(str(Path(__file__).with_name('fixtures') /
+                                   'vscode-gui.py'))['accept_editor']
+        for connected in (False, True):
+            with self.subTest(connected=connected):
+                self.check_successful_cli_handoff(accept, connected)
+
+    def check_successful_cli_handoff(self, accept, connected):
+        with socket.socket() as listener:
+            listener.bind(('127.0.0.1', 0))
+            listener.listen()
+            with subprocess.Popen([sys.executable, '-c', 'pass']) as child:
+                observer = os.pidfd_open(child.pid)
+                try:
+                    ready = select.poll()
+                    ready.register(observer, select.POLLIN)
+                    # Observe exit without reaping: accept_editor owns wait().
+                    self.assertTrue(ready.poll(5000))
+                finally:
+                    os.close(observer)
+                if connected:
+                    with socket.create_connection(listener.getsockname()) as peer:
+                        peer.sendall(b'reloaded')
+                        with accept(listener, child, time.monotonic() + 5) as connection:
+                            self.assertEqual(b'reloaded', connection.recv(8))
+                else:
+                    with self.assertRaises(TimeoutError):
+                        accept(listener, child, time.monotonic())
+                self.assertEqual(0, child.returncode)
 
     @unittest.skipUnless(hasattr(os, 'pidfd_open'), 'Requires Python Linux pidfd support')
     def test_editor_readiness_accepts_connection_and_bounds_missing_event(self):
