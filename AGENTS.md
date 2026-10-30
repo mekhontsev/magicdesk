@@ -24,7 +24,9 @@ require the user's authorization.
 
 CI verifies both branches and PRs targeting either one. Only successful pushes
 to `develop` update the rolling `development` prerelease; that tag is not a
-branch. `main` requires the Linux `build` and `windows-smoke` checks. `develop`
+branch. `main` requires the Linux `build` and `windows-smoke` checks for ordinary
+contributors; administrators may merge release commits before CI, but publication
+always requires successful checks on the exact main commit. `develop`
 accepts direct commits; failed CI prevents publication, not further fixes.
 
 ## Device Support Work
@@ -236,15 +238,18 @@ masking Android 15 semantics on a newer phone does not emulate Android 14.
 When the user asks to publish a MagicDesk release, treat the release tag and
 the next development cycle as one task.
 
-1. Merge the verified `develop` state into `main` without squashing. Verify the
-   resulting `main` commit in CI and run the required device checks.
+1. Merge the prepared state into `main` without squashing. Verify the resulting
+   `main` commit in CI and run the required device checks. Do not require a
+   preliminary develop build for the release; main CI builds the final signed APK.
 2. Verify that the tag matches `magicDeskVersionName` in `gradle.properties`,
    then tag that `main` commit, push, and verify the signed GitHub release.
+   Publish the exact verified main artifact without rebuilding it.
 3. Choose the next development version with the user if it was not already
    specified.
 4. Merge `main` back into `develop`, run
    `scripts/start-next-version.sh VERSION VERSION_CODE` on `develop`, commit
-   the version change, and push it.
+   the version change, and push it. This starts the next develop build only
+   after release publication.
 
 `main` retains the released version. Do not report the release task complete
 until `develop` has the next version and a higher versionCode. Do not increment

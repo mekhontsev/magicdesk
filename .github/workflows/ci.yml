@@ -116,10 +116,13 @@ jobs:
           ORG_GRADLE_PROJECT_MAGICDESK_RELEASE_KEY_PASSWORD: ${{ secrets.MAGICDESK_RELEASE_KEY_PASSWORD }}
         shell: bash
         run: |
-          short_sha=$(printf '%s' "$GITHUB_SHA" | cut -c1-7)
-          version_suffix="dev.$GITHUB_RUN_NUMBER.$short_sha"
+          version_args=()
+          if [[ "$GITHUB_REF" == refs/heads/develop ]]; then
+            short_sha=$(printf '%s' "$GITHUB_SHA" | cut -c1-7)
+            version_args=(-PMAGICDESK_VERSION_SUFFIX="dev.$GITHUB_RUN_NUMBER.$short_sha")
+          fi
           ./gradlew --no-daemon \
-            -PMAGICDESK_VERSION_SUFFIX="$version_suffix" \
+            "${version_args[@]}" \
             :app:testDebugUnitTest \
             :terminal-emulator:testDebugUnitTest \
             :terminal-emulator:lintRelease \
@@ -212,7 +215,7 @@ jobs:
             sha256sum ./*.apk ./*-source.tar.gz > SHA256SUMS
           )
 
-      - name: Upload signed development APKs
+      - name: Upload signed branch APKs
         if: github.event_name == 'push'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:

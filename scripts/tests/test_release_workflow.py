@@ -210,15 +210,36 @@ class WorkflowBoundaryTest(unittest.TestCase):
         self.assertIn("VERSION_CHANNEL: ${{ github.base_ref || github.ref_name }}", workflow)
         self.assertNotIn("pull_request_target:", workflow)
 
-    def test_release_validates_before_signing(self):
+    def test_release_promotes_only_verified_main_artifacts(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
         self.assertLess(workflow.index("Verify release origin and version"),
-                        workflow.index("Restore release keystore"))
+                        workflow.index("Download verified main artifacts"))
         self.assertIn("fetch-depth: 0", workflow)
         self.assertIn("scripts/verify-version.py --channel release", workflow)
         self.assertLess(workflow.index("Require successful main CI"),
-                        workflow.index("Restore release keystore"))
+                        workflow.index("Download verified main artifacts"))
         self.assertIn('-f branch=main -f head_sha="$GITHUB_SHA" -f event=push', workflow)
+        self.assertIn('-f status=success', workflow)
+        self.assertIn('--name "magicdesk-main-$CI_RUN_NUMBER"', workflow)
+        self.assertIn('download/BUILD.txt)" = "$GITHUB_SHA"', workflow)
+        self.assertIn('download/BUILD.txt)" = "$CI_RUN_ID"', workflow)
+        self.assertIn('sha256sum --check SHA256SUMS', workflow)
+        self.assertIn('test "$app_version" = "$version"', workflow)
+        self.assertIn('test "$app_code" = "$version_code"', workflow)
+        self.assertIn('apksigner" verify --verbose', workflow)
+        self.assertLess(workflow.index("Verify signature and APK boundaries"),
+                        workflow.index("Publish GitHub release"))
+        self.assertNotIn('gradlew', workflow)
+        self.assertNotIn('secrets.MAGICDESK_RELEASE_', workflow)
+        self.assertIn('cancel-in-progress: false', workflow)
+
+    def test_main_build_has_release_version_and_develop_has_suffix(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        signed = workflow.split("      - name: Lint and build signed APKs\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn('version_args=()', signed)
+        self.assertIn('if [[ "$GITHUB_REF" == refs/heads/develop ]]; then', signed)
+        self.assertIn('version_args=(-PMAGICDESK_VERSION_SUFFIX=', signed)
+        self.assertIn('"${version_args[@]}"', signed)
 
 
 if __name__ == "__main__":

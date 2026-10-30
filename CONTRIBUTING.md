@@ -25,26 +25,32 @@ Maintainers can commit directly to `develop`; per-task branches are not required
 Keep changes reviewable and separate no-functional-change (NFC) refactoring from
 new behavior. CI verifies both branches and their pull requests, including
 documentation-only changes so required checks always complete. Linux `build`
-and `windows-smoke` checks are required before updating `main`. Both branches
-reject force pushes and deletion; no second reviewer is required.
+and `windows-smoke` checks are required for ordinary updates to `main`.
+Administrators may merge a release into `main` before CI; publication still
+requires both checks on that exact commit. Both branches reject force pushes
+and deletion; no second reviewer is required.
 
 Only a successful `develop` push updates the release-signed development APK.
 The rolling prerelease keeps its existing `development` tag and download URL;
 it is not a third branch. PR builds do not receive signing credentials. Changes
 must pass both Linux and Windows jobs before the development APK is published.
 
-To release, merge `develop` into `main` with an ordinary merge, verify that exact
-`main` commit in CI and complete the device checks required by the changed
-subsystems. Tag it `vVERSION`, matching `magicDeskVersionName`. The release
-workflow checks tag/version identity, ancestry in `main`, versionCode and a
-successful main CI run for that exact commit before signing. Manual signed
-release builds must also run on `main`.
+To release, merge the prepared changes into `main` with an ordinary merge.
+Main CI runs Linux and Windows checks and builds the signed APK with its final
+version; a preliminary `develop` build is not required. Complete the device
+checks required by the changed subsystems, then tag `vVERSION`, matching
+`magicDeskVersionName`. The release workflow checks tag/version identity,
+ancestry in `main`, successful main CI, artifact commit/run identity, checksums
+and APK signature/version. It publishes that verified APK without rebuilding.
+Manual promotion must also run on `main`. Missing or expired CI artifacts
+require rerunning main CI, not a separate unchecked release build.
 
 After publishing, merge `main` back into `develop`, then run
 `scripts/start-next-version.sh VERSION VERSION_CODE` there and publish the
 version-bump commit. `main` keeps the released version; `develop` must have a
 newer version and versionCode. Ordinary pushes do not bump either value.
-CI adds a unique suffix to signed branch artifacts.
+CI adds a unique suffix only to signed `develop` artifacts. Push the next
+development cycle after release publication, not as a prerequisite to it.
 
 Urgent fixes may start on `main`, but must be merged back into `develop`.
 Preserve common ancestry between permanent branches: do not squash their merges,
