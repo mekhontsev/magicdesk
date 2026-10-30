@@ -139,8 +139,9 @@ Termux sessions share the renderer, controls and automation API.
 - Persistent Android-shell recall through bundled upstream mksh.
 - Touch scrolling, selection handles, Android keyboard resizing and paragraph copy.
 - One picker for retained shell/Termux PTYs and discovered tmux sessions.
-- Session files from Android's picker, camera or clipboard, with quoted paths
-  for shell and supported guest sessions. Copies are removed when the session ends.
+- Session files and folders from Android's picker, camera or clipboard, with
+  quoted paths for shell and supported guest sessions. Delete copies individually
+  or end their session to remove them together.
 
 Closing an ordinary terminal window detaches it; explicitly ending the session
 terminates its programs. Closing a managed tmux window releases its client, not
@@ -237,15 +238,19 @@ Verified scenarios include:
 | --- | --- |
 | Distributions | glibc/musl, package managers, independent environments, OCI layers and copy-on-write storage |
 | Services | systemd as guest PID 1, user managers, socket/timer activation, OpenRC and runit lifecycle |
-| Containers | Docker Engine and Podman, overlay storage, supported nftables bridge/NAT, IPv4/IPv6, TCP/UDP publication and peers |
+| Containers | Docker Engine, Podman, LXC and systemd-nspawn, overlay storage, nested boot and machinectl lifecycle on systemd distributions |
+| Image builds | BuildKit multistage builds, cache reuse/invalidation, cache/secret mounts and exported-image execution |
+| Networking | Routed and bridge IPv4/IPv6, supported nftables filtering/NAT, TCP/UDP publication and container peers |
+| Virtual machines | QEMU TCG kernel/initrd boot and libvirt-managed start, pause/resume and shutdown; not a KVM claim |
 | Application sandboxes | Stock Chromium and Bubblewrap workflows with their filters retained, not `--no-sandbox` |
 | Packaged applications | Selected Flatpak and Snap browser workflows, FUSE-backed document portals; Snap runs with reduced confinement, not strict AppArmor isolation |
 | Filesystem restrictions | Supported Landlock ABI 1 policies, including pacman's filesystem sandbox |
-| Development | Compilers, GDB/LLDB/gdbserver, strace and graphical editors |
+| Development | Compilers, GDB/LLDB/gdbserver, strace and VS Code workflows |
 
 Coverage is [per distribution and scenario](native/guest-exec-lab/validation-matrix.md),
-not a guarantee that every service or package works. Docker and Podman have
-[documented launch requirements](docs/shroot.md#services-and-containers).
+not a guarantee that every service or package works. Packages come from the guest;
+the installer does not build missing container engines for users. Docker and
+Podman have [documented launch requirements](docs/shroot.md#services-and-containers).
 Logical resource limits remain subject to Android's physical ceilings.
 
 Shroot's default lazy SVC entry accelerates eligible calls in unmodified ARM64
@@ -303,6 +308,10 @@ graphics preparation. New installations use the current Android locale when it
 has an unambiguous Linux mapping; resume retains the guest locale. Compiler
 parallelism defaults to four jobs. Source builds and compatibility vary by recipe.
 
+**Current network** saves the selected executor's Android DNS addresses once;
+it does not follow later network changes. DNS remains editable inside Linux.
+See [network choices and resume](docs/shroot.md#linux-installer).
+
 NixOS prepares and activates a NixOS system generation. Its Plasma X11 and Wayland
 launchers have HDMI checks with Zink/Turnip, keyboard input and close/reopen;
 broader application coverage remains incomplete. SteamOS uses Valve's ARM64
@@ -318,8 +327,9 @@ installation is required. See [installation and resume](docs/shroot.md#linux-ins
 ### Linux Graphics Acceleration
 
 The optional Turnip recipe builds Mesa inside the Linux environment for
-supported Adreno GPUs with accessible KGSL. Zink supplies OpenGL over Vulkan;
-the embedded X11/Wayland host presents the result through Android. This does
+supported Adreno GPUs with accessible KGSL. Depending on the desktop profile,
+the recipe also builds compatible KWin or Weston components. Zink supplies OpenGL
+over Vulkan; the embedded X11/Wayland host presents the result through Android. This does
 not replace Android's graphics driver or require managed Desktop.
 
 Software rendering remains available. GPU admission uses capability probes,
@@ -328,6 +338,15 @@ installed environment's Mesa: use the installer's resume option when updating
 that stack. Hardware composition, video decoding and game compatibility are
 separate capabilities. See [GPU setup](docs/shroot.md#graphics-drivers) and
 [graphics integration](docs/graphics.md).
+
+Flatpak and Snap GPU integration reuses that Mesa through local driver
+extensions. An incompatible Flatpak runtime may need an explicitly requested
+SDK build; the installer does not automatically build a second Mesa.
+See [Flatpak GPU drivers](docs/graphics.md#flatpak-gpu-drivers).
+
+Shroot graphical sessions also receive supported Android gamepads, including
+buttons, axes, hotplug and rumble, through a launch-scoped bridge. Input follows
+the focused host window. See [gamepad support and limits](docs/gamepads.md).
 
 ### Linux Shell Components
 
