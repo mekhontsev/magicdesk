@@ -1140,7 +1140,7 @@ transition; acceleration stays revoked. The protected-state race also verifies
 fork inheritance. The initial quiescence failure retains
 fail-closed cancellation. These operations are all within the 5.15 baseline.
 Arbitrary externally mutable backing and untested architectures remain outside
-this coverage. Entry admission fails back to Base; no libc build is required.
+this coverage. Entry admission falls back to Base.
 
 The deterministic instruction-boundary fixture alone uses `svc_text.c` to
 prepare a private RX memfd view with a retained shared RW writer. It uses

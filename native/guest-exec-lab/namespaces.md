@@ -333,7 +333,7 @@ must observe normal completion inside a PID namespace.
 The fixture also checks explicit PI-futex rejection in a logical PID namespace,
 libc's PI-mutex admission and ordinary-mutex fallback, with private/shared and
 clock flags and nondumpable callers. The native PID view retains working PI
-mutexes. Both workflows use stock libc, without a separate preparation stage.
+mutexes. Both workflows use stock distribution libraries.
 
 `test_desktop_services_runtime.py BUILD STORE` checks a stock system D-Bus daemon,
 authentication from the `developer` account and PipeWire's real `pw-cli info 0`

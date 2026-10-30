@@ -23,7 +23,7 @@ Java class name or environment-variable switch selects an implementation.
 The bootstrap also publishes the internal [cooperative entry](cooperative-entry.md)
 used by lazy SVC rewriting in unmodified programs. It reuses the same worker and
 execution context. Unsupported sites and application-filtered execution retain
-Base admission; no source-level libc patch is required.
+Base admission.
 The dispatch gate receives policy and the retained typed-descriptor kind in x9
 and moves them to the C argument register in userspace. Descriptor classification
 belongs to the supervisor's ordered OFD capture; the adapter does not ask for

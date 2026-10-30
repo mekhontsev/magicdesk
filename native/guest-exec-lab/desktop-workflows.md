@@ -116,7 +116,7 @@ the supervised launch, and do not disable descendant ownership to pass a test.
 ### Ubuntu Firefox Snap
 
 Use an installed Ubuntu recipe environment, stock systemd/snapd, its ordinary
-user session and the recipe's Weston/Turnip profile. Stock libc is sufficient.
+user session and the recipe's Weston/Turnip profile.
 The [distribution matrix](validation-matrix.md) owns current pass/fail status;
 [Ubuntu evidence](distribution-evidence.md#ubuntu) records exact builds, cold-start
 measurements, GUI runs, refresh and portal cleanup. Earlier successful runs are

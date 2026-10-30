@@ -255,8 +255,7 @@ Logical resource limits remain subject to Android's physical ceilings.
 
 Shroot's default lazy SVC entry accelerates eligible calls in unmodified ARM64
 programs, including stock glibc, musl and Go binaries, without changing their
-files. **No libc compilation, loader replacement or extra container layer is
-needed.** Shroot Base is the seccomp/ptrace fallback for unsupported sites and
+files. Shroot Base is the seccomp/ptrace fallback for unsupported sites and
 application-filtered execution, and can be selected explicitly for diagnosis.
 See [acceleration](docs/shroot.md#syscall-acceleration).
 

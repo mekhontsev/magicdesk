@@ -691,8 +691,8 @@ protocol rather than a second syscall implementation.
 
 The stock musl/glibc fixtures exercise cancellation, signal abandonment,
 FIFO restart, FD counts and static/dynamic linking. They compile only the small
-test workload against distribution libraries. Entry changes rebuild Shroot,
-not libc. The [SVC guide](../guest-exec-lab/svc-rewriting.md#product-boundary)
+test workload against distribution libraries. The
+[SVC guide](../guest-exec-lab/svc-rewriting.md#product-boundary)
 documents publication, signal semantics and verification boundaries.
 
 ## Verification And Performance
@@ -761,7 +761,7 @@ mismatch silently falling back to syscalls is not a valid comparison.
 so shared adapter changes are measured separately from cooperative acceleration.
 `--busybox PATH` runs an unmodified musl-linked BusyBox through both modes in the
 isolated store: shell pipelines, traversal, archive/restore, hashes, metadata,
-hardlinks and symlinks. It does not replace an installed environment's libc.
+hardlinks and symlinks.
 `--condition` records charging or other session conditions.
 Reports retain both mode medians and median within-round ratios; a ratio of
 independent medians can mislead when storage latency changes during the series.

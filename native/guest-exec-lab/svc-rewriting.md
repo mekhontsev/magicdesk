@@ -195,7 +195,7 @@ python native/guest-exec-lab/test_svc_libc.py BUILD STOCK_LIBC_PROBE --checks-on
 
 `build_svc_go.py` builds stock Go/cgo fixtures; run the same SVC suite with
 each artifact. `build_svc_glibc.py` compiles a small test program against a stock
-sysroot, not libc itself. The libc runner also accepts a stock musl probe.
+sysroot. The libc runner also accepts a stock musl probe.
 Use its `--dynamic-loader`, `--dynamic-libc`, `--interpreter` and
 `--dynamic-extra` arguments for dynamic libc checks.
 

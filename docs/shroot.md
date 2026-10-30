@@ -100,8 +100,7 @@ kernel still performs native IO: acceleration does not mean that every syscall
 becomes a purely userspace operation.
 
 This works with unmodified stock glibc, musl, static executables and Go binaries.
-Package-owned files on disk are unchanged; no libc build, preload, private
-loader or additional OCI layer is required. Mapping changes invalidate affected
+Package-owned files on disk are unchanged. Mapping changes invalidate affected
 entries, and signal handling reconstructs the application's original context.
 
 **Shroot Base** is the ordinary seccomp/ptrace interception path. Unsupported
@@ -138,17 +137,15 @@ docker pull --platform linux/arm64 alpine:3.23
 docker run --rm -it --platform linux/arm64 alpine:3.23 sh
 ```
 
-Alpine uses its own stock musl. No preparation in SteamOS or MagicDesk's Shell,
-library copy, Dockerfile change or extra layer is needed. The same mechanism
-applies to nested Podman processes and survives package updates without rebuilding
-libc. Keep the engine's normal seccomp policy: when it installs a filter, the
-container uses Base admission. Do not disable that policy merely to claim a
-higher benchmark result.
+The container's programs use the same entry admission as other guest processes,
+including after package updates. This also applies to nested Podman processes.
+Keep the engine's normal seccomp policy: when it installs a filter, the container
+uses Base admission. Do not disable that policy merely to claim a higher
+benchmark result.
 
 For reproducible comparisons, pin the image digest and retain identical mounts,
 sandbox policy and storage. Report actual entry completions separately from
-elapsed time; seeing the stock libc in `/proc/self/maps` is expected and is not
-an acceleration measurement.
+elapsed time; loaded-library listings are not an acceleration measurement.
 
 ### Linux installer
 
@@ -1091,7 +1088,6 @@ For both engines, guest root is still real Android UID 2000. Enabled cgroups
 provide logical membership and permissive settings, not enforced resource or
 device limits.
 
-Nested containers use their stock libc, without a registry or preparation step.
 See [Alpine containers inside SteamOS](#alpine-containers-inside-steamos) for an
 example and the distinction between lazy entry and filtered Base admission.
 
