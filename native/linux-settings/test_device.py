@@ -5,6 +5,8 @@ import concurrent.futures
 import importlib.util
 import json
 from pathlib import Path
+import shlex
+import socket
 import time
 import tomllib
 import uuid
@@ -164,6 +166,7 @@ def test_native(c, protocol):
                                                 "command": "exec sleep 900"})["sessionId"]
             owned.append(graphics)
             session = await_target(c, graphics)
+            test_bus_reuse(c, graphics, session)
             test_console(c, session)
             test_ui(c, session, toolkit)
             if toolkit == "qt":
@@ -202,6 +205,31 @@ def test_native(c, protocol):
     finally:
         for session in reversed(owned):
             c.call("graphics.stop", {"sessionId": session})
+
+
+def test_bus_reuse(c, graphics, session):
+    endpoint = "md-bus-reuse-" + uuid.uuid4().hex
+    script = "import os,socket; s=socket.socket(socket.AF_UNIX); s.connect(" + repr("\0" + endpoint) + "); s.sendall(os.environ['DBUS_SESSION_BUS_ADDRESS'].encode()); s.close()"
+    address = None
+    with socket.socket(socket.AF_UNIX) as listener:
+        listener.bind("\0" + endpoint)
+        listener.listen(1)
+        listener.settimeout(10)
+        for _ in range(20):
+            c.call("graphics.execute", {"sessionId": graphics, "command": shlex.join(["python3", "-c", script])})
+            # EVENT_WAIT: exact command receipt; failure does not imply successful execution.
+            peer, _ = listener.accept()
+            with peer:
+                peer.settimeout(5)
+                with peer.makefile("rb") as result:
+                    observed = result.read(4096)
+            assert observed, "Missing session bus"
+            if address is None:
+                address = observed
+            assert observed == address, "Each command started a different session bus"
+        targets = [s["sessionId"] for s in c.call("linux.list")["sessions"] if s["graphicsSessionId"] == graphics]
+        assert targets == [session], targets
+    print(json.dumps({"busReuse": graphics, "commands": 20, "agents": 1}), flush=True)
 
 
 def main():

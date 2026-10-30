@@ -1407,6 +1407,12 @@ selection or privilege switch is performed. Missing `dbus-run-session`,
 another bus. Native Termux, Shroot and PRoot share the same protocol where their
 installed software supports it; PRoot limitations are not emulated away.
 
+For native launches, the graphical session owns its private D-Bus and agent.
+They survive a short launcher that detaches its GUI process; subsequent commands
+reuse the live bus. Stopping the graphical session or losing its authenticated
+owner connection releases these services. Guest desktops retain their own bus
+lifetime. Closing an Android viewer alone does not stop a retained session.
+
 ```json
 [
   {"tool":"linux.list","arguments":{}},

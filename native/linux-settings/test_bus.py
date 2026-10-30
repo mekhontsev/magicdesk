@@ -1,8 +1,11 @@
 """Typed bridge checks on a private session bus; no Android or user bus changes."""
 import contextlib
+import ctypes
 import importlib.util
 import os
 from pathlib import Path
+import select
+import signal
 import socket
 import struct
 import subprocess
@@ -12,6 +15,17 @@ import unittest
 import uuid
 
 HELPER = Path(os.environ.get("MAGICDESK_SETTINGS_HELPER", "app/build/linuxSettings/libmagicdesk_linux_settings.so")).resolve()
+
+
+def pidfd_open(pid):
+    if hasattr(os, "pidfd_open"):
+        return os.pidfd_open(pid)
+    # Android Python omits pidfd_open; 434 is shared by the ARM64 and x86-64 test hosts.
+    libc = ctypes.CDLL(None, use_errno=True)
+    fd = libc.syscall(ctypes.c_long(434), ctypes.c_int(pid), ctypes.c_uint(0))
+    if fd < 0:
+        raise OSError(ctypes.get_errno(), "pidfd_open")
+    return fd
 
 
 def number(value):
@@ -114,6 +128,55 @@ def agent():
         assert process.returncode == 0, errors
 
 
+@contextlib.contextmanager
+def native_session(command=None, admit=True, extra_env=None, ignore_sigchld=False):
+    endpoint = "md-session-test-" + uuid.uuid4().hex
+    token = "cd" * 32
+    with socket.socket(socket.AF_UNIX) as server:
+        server.bind("\0" + endpoint)
+        server.listen(1)
+        server.settimeout(5)
+        env = dict(os.environ, MAGICDESK_AUTOMATION_SOCKET=endpoint,
+                   MAGICDESK_AUTOMATION_TOKEN=token, MAGICDESK_AUTOMATION_HELPER=str(HELPER))
+        env.pop("MAGICDESK_SESSION_BUS_ADDRESS", None)
+        env.pop("DBUS_SESSION_BUS_ADDRESS", None)
+        env.update(extra_env or {})
+        command = command or [sys.executable, "-c", "import os;assert not any(k.startswith('MAGICDESK_AUTOMATION_') for k in os.environ);print(os.environ['DBUS_SESSION_BUS_ADDRESS'])"]
+        process = subprocess.Popen([str(HELPER), "--session", *command], env=env,
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   preexec_fn=(lambda: signal.signal(signal.SIGCHLD, signal.SIG_IGN)) if ignore_sigchld else None)
+        peer, pidfd = None, None
+        try:
+            peer, _ = server.accept()
+            peer.settimeout(5)
+            auth = b""
+            while len(auth) < 64:
+                chunk = peer.recv(64 - len(auth))
+                assert chunk, "Admission closed"
+                auth += chunk
+            assert auth == token.encode()
+            peer.sendall(b"\0" if admit else b"\1")
+            hello = receive(peer) if admit else None
+            if hello:
+                assert hello["kind"] == 3, hello
+                pidfd = pidfd_open(int(hello["values"][1][1]))
+            yield peer, process, hello
+        finally:
+            if peer:
+                peer.close()
+            try:
+                process.communicate(timeout=8)
+                if pidfd is not None:
+                    # EVENT_WAIT: closing the session owner must terminate the bus agent.
+                    assert select.select([pidfd], [], [], 8)[0], "Session agent leaked"
+            finally:
+                if pidfd is not None:
+                    os.close(pidfd)
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate()
+
+
 class BusTest(unittest.TestCase):
     def call(self, peer, member, args=(), interface="org.freedesktop.DBus", path="/org/freedesktop/DBus",
              destination="org.freedesktop.DBus", bus=0, timeout=1000):
@@ -134,6 +197,68 @@ class BusTest(unittest.TestCase):
             result = self.call(peer, "GetConnectionCredentials", [("s", "org.freedesktop.DBus")])
             self.assertEqual(result["kind"], 0, result)
             self.assertEqual(result["values"][0][0], "a{sv}")
+
+    def test_native_bus_survives_launcher_and_closes_with_owner(self):
+        with native_session() as (peer, process, hello):
+            output, errors = process.communicate(timeout=5)
+            self.assertEqual(process.returncode, 0, errors)
+            self.assertEqual(output.decode().strip(), hello["values"][7][1])
+            self.assertEqual(self.call(peer, "GetId")["kind"], 0)
+            pid = int(self.call(peer, "GetConnectionUnixProcessID", [("s", "org.freedesktop.DBus")])["values"][0][1])
+            with os.fdopen(pidfd_open(pid), "rb", buffering=0) as bus:
+                peer.shutdown(socket.SHUT_RDWR)
+                self.assertTrue(select.select([bus], [], [], 8)[0], "Private bus leaked after owner closed")
+
+    def test_native_bus_reuse_does_not_spawn_more_agents(self):
+        with native_session() as (peer, process, hello):
+            output, errors = process.communicate(timeout=5)
+            self.assertEqual(process.returncode, 0, errors)
+            address = output.decode().strip()
+            bus_id = self.call(peer, "GetId")["values"]
+            env = dict(os.environ, MAGICDESK_SESSION_BUS_ADDRESS=address,
+                       MAGICDESK_AUTOMATION_SOCKET="invalid", MAGICDESK_AUTOMATION_TOKEN="invalid")
+            for _ in range(20):
+                result = subprocess.run([str(HELPER), "--session", "dbus-send", "--session", "--print-reply",
+                                         "--dest=org.freedesktop.DBus", "/", "org.freedesktop.DBus.GetId"],
+                                        env=env, capture_output=True, timeout=5)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(bus_id[0][1], result.stdout.decode())
+            self.assertEqual(self.call(peer, "GetId")["values"], bus_id)
+
+    def test_native_bus_rejected_owner_does_not_start_application(self):
+        with native_session(admit=False) as (_, process, _):
+            output, errors = process.communicate(timeout=5)
+            self.assertNotEqual(process.returncode, 0)
+            self.assertEqual(output, b"")
+            self.assertIn(b"Linux session bus unavailable", errors)
+
+    def test_native_bus_missing_command_reports_failure(self):
+        with native_session(command=["/no-such-magicdesk-test-executable"]) as (peer, process, _):
+            _, errors = process.communicate(timeout=5)
+            self.assertEqual(process.returncode, 127, errors)
+            self.assertEqual(self.call(peer, "GetId")["kind"], 0)
+
+    def test_native_bus_preserves_ignored_sigchld_and_failed_start_cleanup(self):
+        command = [sys.executable, "-c", "import signal;assert signal.getsignal(signal.SIGCHLD)==signal.SIG_IGN"]
+        for admit in (True, False):
+            with native_session(command=command, admit=admit, ignore_sigchld=True) as (_, process, _):
+                _, errors = process.communicate(timeout=5)
+                self.assertEqual(process.returncode, 0 if admit else 1, errors)
+
+    def test_native_bus_replaces_inherited_activation_context(self):
+        stale = dict.fromkeys(("DBUS_SESSION_BUS_PID", "DBUS_SESSION_BUS_WINDOWID",
+                               "DBUS_STARTER_ADDRESS", "DBUS_STARTER_BUS_TYPE"), "stale")
+        command = [sys.executable, "-c", "import os;assert all(k not in os.environ for k in " + repr(list(stale))
+                   + ");print(os.environ['DBUS_SESSION_BUS_ADDRESS'])"]
+        with native_session(command=command, extra_env=stale) as (_, process, hello):
+            output, errors = process.communicate(timeout=5)
+            self.assertEqual(process.returncode, 0, errors)
+            address = hello["values"][7][1]
+            self.assertEqual(output.decode().strip(), address)
+            env = dict(os.environ, **stale, MAGICDESK_SESSION_BUS_ADDRESS=address)
+            result = subprocess.run([str(HELPER), "--session", *command], env=env, capture_output=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, output)
 
     def test_errors_and_invalid_types_do_not_kill_connection(self):
         with agent() as peer:

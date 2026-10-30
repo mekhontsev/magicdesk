@@ -45,6 +45,7 @@ final class LinuxBusConnection implements Closeable {
     }
 
     boolean alive() { return !closed.get() && hello.isDone() && !hello.isCompletedExceptionally(); }
+    String privateBusAddress() { return alive() ? context.optString("privateBusAddress") : ""; }
     void awaitReady() throws IOException { await(hello, 5000); }
     JSONObject context() throws IOException, JSONException {
         awaitReady(); return new JSONObject(context.toString());
@@ -114,7 +115,7 @@ final class LinuxBusConnection implements Closeable {
                     JSONArray values = message.data().getJSONArray("values");
                     context = new JSONObject().put("guestUid", values.getJSONObject(0).getLong("value"))
                             .put("agentPid", values.getJSONObject(1).getLong("value"));
-                    String[] names = {"directory", "shell", "pipeHelper", "display", "waylandDisplay"};
+                    String[] names = {"directory", "shell", "pipeHelper", "display", "waylandDisplay", "privateBusAddress"};
                     for (int i = 0; i < names.length; ++i) context.put(names[i], values.getJSONObject(i + 2).getString("value"));
                     hello.complete(null);
                 }
