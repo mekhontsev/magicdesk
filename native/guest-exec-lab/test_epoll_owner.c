@@ -121,7 +121,7 @@ static void export_admission(int *budget) {
     struct md_identity id=md_identity_new(0,0);
     struct md_uts_namespace *uts=md_uts_namespace_new(); assert(uts);
     struct md_control_file provider=md_proc_sysctl_new(MD_PROC_FILE_HOSTNAME,NULL,uts); assert(provider.ops);
-    struct md_proc_file *source=md_proc_file_open_control(provider.ops,provider.context,&id,O_RDONLY);
+    struct md_proc_file *source=md_proc_file_open_control(provider.ops,provider.context,&(struct md_control_opener){.identity=&id},O_RDONLY);
     md_control_file_release(provider); assert(source);
     struct md_fd_object *target=md_proc_file_object(source);
     provider=md_proc_file_control(source);
@@ -187,7 +187,7 @@ static void target_retirement(int *budget) {
     struct md_identity id=md_identity_new(0,0);
     struct md_uts_namespace *uts=md_uts_namespace_new(); assert(uts);
     struct md_control_file provider=md_proc_sysctl_new(MD_PROC_FILE_HOSTNAME,NULL,uts); assert(provider.ops);
-    struct md_proc_file *source=md_proc_file_open_control(provider.ops,provider.context,&id,O_RDONLY);
+    struct md_proc_file *source=md_proc_file_open_control(provider.ops,provider.context,&(struct md_control_opener){.identity=&id},O_RDONLY);
     md_control_file_release(provider); assert(source);
     struct md_fd_origins *files=md_fd_origins_new(); assert(files);
     struct md_fd_origin_update update;
@@ -300,7 +300,7 @@ static void uncertain_wakeup(int *budget) {
     struct md_identity id=md_identity_new(0,0);
     struct md_uts_namespace *uts=md_uts_namespace_new(); assert(uts);
     struct md_control_file provider=md_proc_sysctl_new(MD_PROC_FILE_HOSTNAME,NULL,uts); assert(provider.ops);
-    struct md_proc_file *source=md_proc_file_open_control(provider.ops,provider.context,&id,O_RDONLY);
+    struct md_proc_file *source=md_proc_file_open_control(provider.ops,provider.context,&(struct md_control_opener){.identity=&id},O_RDONLY);
     md_control_file_release(provider); assert(source);
     struct md_fd_origin_update update;
     assert(!md_fd_origins_prepare_object(files,md_control_epoll_object(q),0,&update));
@@ -549,7 +549,7 @@ void test_epoll_owner(int *budget) {
     struct md_identity id=md_identity_new(0,0);
     struct md_uts_namespace *uts=md_uts_namespace_new(); assert(uts);
     struct md_control_file provider=md_proc_sysctl_new(MD_PROC_FILE_HOSTNAME,NULL,uts); assert(provider.ops);
-    struct md_proc_file *source=md_proc_file_open_control(provider.ops,provider.context,&id,O_RDONLY);
+    struct md_proc_file *source=md_proc_file_open_control(provider.ops,provider.context,&(struct md_control_opener){.identity=&id},O_RDONLY);
     md_control_file_release(provider); assert(source);
     struct epoll_event event={.events=EPOLLPRI,.data.u64=UINT64_MAX},out;
     assert(!md_control_epoll_ctl(q,EPOLL_CTL_ADD,40,md_proc_file_object(source),md_proc_file_control(source),&event));

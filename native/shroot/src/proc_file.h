@@ -31,11 +31,11 @@ static inline int md_proc_file_cgroup_kind(enum md_proc_file_kind kind) {
 }
 int md_proc_file_control_access(const struct md_proc_file *,const struct md_identity *,unsigned);
 struct md_proc_file *md_proc_file_open_control(const struct md_control_file_ops *,void *,
-    const struct md_identity *,int flags);
+    const struct md_control_opener *,int flags);
 /* Retained typed authority and optional per-open carrier for filesystem
  * publication. On failure neither ownership is transferred. */
 struct md_fd_object *md_proc_file_control_object(const struct md_control_file_ops *,void *,
-    const struct md_identity *,int flags,struct md_fs_anchor *,int *descriptor);
+    const struct md_control_opener *,int flags,struct md_fs_anchor *,int *descriptor);
 struct md_fs_anchor *md_proc_file_origin(const struct md_proc_file *);
 int md_proc_file_control_stat(const struct md_proc_file *,struct stat *);
 struct md_control_file md_proc_file_control(const struct md_proc_file *);
@@ -92,7 +92,7 @@ struct md_proc_file_node md_proc_file_get_node(const struct md_proc_file *);
 enum md_proc_file_kind md_proc_file_kind(const struct md_proc_file *);
 int md_proc_file_filesystem_paths(const struct md_proc_file *);
 struct md_proc_file *md_proc_file_reopen(const struct md_proc_file *,
-    const struct md_identity *, int flags);
+    const struct md_control_opener *, int flags);
 struct md_fd_object *md_proc_file_object(struct md_proc_file *);
 struct md_proc_file *md_proc_file_from_object(struct md_fd_object *);
 /* Map opens retain the target user namespace and opener credentials. Sysctl

@@ -49,7 +49,7 @@ static int capture(void *context,const struct md_control_file_ops *ops,void *nod
         struct md_fs_anchor *origin) {
     (void)id; (void)origin;
     struct md_control_file *file=context;
-    void *opened=(flags&O_PATH) || !ops->open ? ops->retain(node) : ops->open(node,flags);
+    void *opened=(flags&O_PATH) || !ops->open ? ops->retain(node) : ops->open(node,&(struct md_control_opener){.identity=id},flags);
     if (!opened) return -errno;
     *file=(struct md_control_file){ops,opened}; return 0;
 }

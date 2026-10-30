@@ -24,7 +24,7 @@ static struct md_proc_file *open_sysctl(struct md_uts_namespace *uts,
         const struct md_identity *id,enum md_proc_file_kind kind) {
     struct md_control_file provider=md_proc_sysctl_new(kind,NULL,uts); assert(provider.ops);
     int flags=kind<=MD_PROC_FILE_DOMAINNAME ? O_RDWR : O_RDONLY;
-    struct md_proc_file *file=md_proc_file_open_control(provider.ops,provider.context,id,flags|O_CLOEXEC);
+    struct md_proc_file *file=md_proc_file_open_control(provider.ops,provider.context,&(struct md_control_opener){.identity=id},flags|O_CLOEXEC);
     md_control_file_release(provider); assert(file); return file;
 }
 static void mask(struct md_control_file f,int changed) {
@@ -45,7 +45,7 @@ static void epoll_sysctl(void) {
     struct md_identity id=md_identity_new(0,0);
     struct md_uts_namespace *uts=md_uts_namespace_new(); assert(uts);
     struct md_proc_file *a=open_sysctl(uts,&id,MD_PROC_FILE_HOSTNAME);
-    struct md_proc_file *b=md_proc_file_reopen(a,&id,O_RDONLY); assert(b);
+    struct md_proc_file *b=md_proc_file_reopen(a,&(struct md_control_opener){.identity=&id},O_RDONLY); assert(b);
     struct md_proc_file *constant=open_sysctl(uts,&id,MD_PROC_FILE_OSTYPE);
     struct md_control_epoll *q=md_control_epoll_new(); assert(q);
     struct epoll_event events[4];
@@ -88,7 +88,7 @@ static void carriers(void) {
     struct md_identity id=md_identity_new(0,0);
     struct md_uts_namespace *uts=md_uts_namespace_new(); assert(uts);
     struct md_proc_file *a=open_sysctl(uts,&id,MD_PROC_FILE_HOSTNAME);
-    struct md_proc_file *b=md_proc_file_reopen(a,&id,O_RDONLY); assert(b);
+    struct md_proc_file *b=md_proc_file_reopen(a,&(struct md_control_opener){.identity=&id},O_RDONLY); assert(b);
     assert(descriptors()==before);
     pthread_barrier_t gate; assert(!pthread_barrier_init(&gate,NULL,6));
     struct capture captures[6]; pthread_t threads[6];
@@ -121,7 +121,7 @@ void test_control_poll(void) {
     struct md_identity id=md_identity_new(0,0);
     struct md_uts_namespace *uts=md_uts_namespace_new(); assert(uts);
     struct md_proc_file *a=open_sysctl(uts,&id,MD_PROC_FILE_HOSTNAME);
-    struct md_proc_file *b=md_proc_file_reopen(a,&id,O_RDONLY); assert(b);
+    struct md_proc_file *b=md_proc_file_reopen(a,&(struct md_control_opener){.identity=&id},O_RDONLY); assert(b);
     struct md_proc_file *dup=md_proc_file_retain(a);
     struct md_proc_file *domain=open_sysctl(uts,&id,MD_PROC_FILE_DOMAINNAME);
     struct md_control_file ac=md_proc_file_control(a),bc=md_proc_file_control(b);
@@ -138,7 +138,7 @@ void test_control_poll(void) {
     ready(wake,1);
     mask(ac,1); ready(wake,0);
     mask(md_proc_file_control(dup),0); mask(bc,1); mask(dc,0);
-    struct md_proc_file *late=md_proc_file_reopen(a,&id,O_RDONLY); assert(late);
+    struct md_proc_file *late=md_proc_file_reopen(a,&(struct md_control_opener){.identity=&id},O_RDONLY); assert(late);
     mask(md_proc_file_control(late),0);
     struct md_uts_namespace *child=md_uts_namespace_copy(uts,NULL); assert(child);
     assert(!md_uts_namespace_set(child,0,"child-value",11));

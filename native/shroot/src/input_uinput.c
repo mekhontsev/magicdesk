@@ -141,7 +141,8 @@ int md_uinput_node(struct md_uinput *u,struct md_control_file *out) {
     struct ui_handle *h=handle_new(u,0); if (!h) return -errno;
     *out=(struct md_control_file){&operations,h}; return 0;
 }
-static void *open_device(void *context,int flags) {
+static void *open_device(void *context,const struct md_control_opener *opener,int flags) {
+    (void)opener;
     struct ui_state *s=((struct ui_handle *)context)->state;
     if (flags&(O_TRUNC|O_DIRECTORY|O_CREAT)) { errno=EINVAL; return NULL; }
     pthread_mutex_lock(&s->owner->lock);

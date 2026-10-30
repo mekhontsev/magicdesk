@@ -20,7 +20,7 @@ static long control(struct md_control_file f,unsigned cmd,unsigned long value,vo
     return n ? n : f.ops->ioctl(f.context,NULL,cmd,value,data,spec.size);
 }
 static struct md_control_file open_node(struct md_control_file node) {
-    struct md_control_file f={node.ops,node.ops->open(node.context,O_RDWR|O_NONBLOCK)};
+    struct md_control_file f={node.ops,node.ops->open(node.context,NULL,O_RDWR|O_NONBLOCK)};
     assert(f.context); return f;
 }
 static struct input_event receive(struct md_control_file f) {
@@ -115,7 +115,7 @@ int main(void) {
     assert(idle.ops->readable(idle.context));
     assert(idle.ops->read(idle.context,NULL,&peek,sizeof(peek),0)==-ENODEV);
     struct pollfd stopped={idle_fd,POLLIN,0}; assert(poll(&stopped,1,0)==1 && stopped.revents&POLLHUP);
-    assert(!node.ops->open(node.context,O_RDWR) && errno==ENODEV);
+    assert(!node.ops->open(node.context,NULL,O_RDWR) && errno==ENODEV);
     md_control_file_release(idle); md_control_file_release(node); md_uinput_release(u);
     md_input_disconnect(bus); md_input_bus_release(bus); close(wake); close(fd); close(idle_fd);
     puts("PASS uinput: create, data, FF handshake, reject, cancel, erase, recreate, owner close, session stop");

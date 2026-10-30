@@ -502,7 +502,7 @@ void test_network_endpoint(void) {
     assert(!strstr(text,needle));
     assert(table.ops->read(table.context,&actor,text,sizeof(text),bytes)==0);
     assert(table.ops->access(table.context,&identity,W_OK)==-EACCES);
-    void *reopened=table.ops->open(table.context,O_RDONLY);
+    void *reopened=table.ops->open(table.context,&(struct md_control_opener){.identity=&identity},O_RDONLY);
     assert(reopened && reopened!=table.context);
     table.ops->release(reopened); md_control_file_release(table);
     table=md_network_proc_new(offline,MD_NET_TABLE_TCP6);

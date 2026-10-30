@@ -797,7 +797,7 @@ static void terminal_buffer_completion(void) {
         assert(!md_buffers_take(pool,&t.buffer));
         struct md_proc_file *file=NULL;
         if (mode!=3) {
-            file=md_proc_file_open_control(&ops,&probe,&t.identity,O_RDONLY); assert(file);
+            file=md_proc_file_open_control(&ops,&probe,&(struct md_control_opener){.identity=&t.identity},O_RDONLY); assert(file);
             assert(md_proc_file_io_begin(&t.proc_io,file,MD_PROC_FILE_READ,0,0,0,4,NULL)==1);
             struct md_buffer_span span; assert(!md_buffer_span(&t.buffer,&span));
             assert(md_proc_file_io_execute(&t.proc_io,&t.identity,NULL,span.data,span.size,4096)==4);
@@ -826,7 +826,7 @@ static void terminal_buffer_completion(void) {
         struct thread t={.buffer_open.fd=-1,.proc_image_fd=-1,.control_mapping_fd=-1};
         struct completion_probe probe={.task=&t};
         assert(!md_buffers_take(pool,&t.buffer));
-        struct md_proc_file *file=md_proc_file_open_control(&ops,&probe,&t.identity,O_RDWR); assert(file);
+        struct md_proc_file *file=md_proc_file_open_control(&ops,&probe,&(struct md_control_opener){.identity=&t.identity},O_RDWR); assert(file);
         assert(md_proc_file_io_begin(&t.proc_io,file,seek ? MD_PROC_FILE_SEEK : MD_PROC_FILE_WRITE,
             0,seek ? 7 : 0,SEEK_SET,seek ? 0 : 4,NULL)==1);
         struct md_buffer_span span; assert(!md_buffer_span(&t.buffer,&span));
@@ -991,7 +991,7 @@ static void captured_writes(void) {
     assert(t.memory && !md_memory_buffers_prepare(t.memory,1,sizeof(struct md_fs_buffer_frame),0,0));
     const struct md_control_file_ops ops={.retain=completion_retain,.release=completion_release,
         .access=completion_access,.write=completion_write};
-    t.proc_file=md_proc_file_open_control(&ops,&t,&t.identity,O_WRONLY); assert(t.proc_file);
+    t.proc_file=md_proc_file_open_control(&ops,&t,&(struct md_control_opener){.identity=&t.identity},O_WRONLY); assert(t.proc_file);
     char bytes[MD_CONTROL_IO_MAX]; memset(bytes,'x',sizeof(bytes)); memcpy(bytes,"data",4);
     size_t total;
     for (unsigned vector=0;vector<2;++vector) {

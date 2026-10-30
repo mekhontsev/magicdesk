@@ -279,7 +279,8 @@ int md_input_node(struct md_input_bus *bus,unsigned slot,int joystick,struct md_
     if (!error) *out=(struct md_control_file){&operations,r};
     return error;
 }
-static void *open_reader(void *context,int flags) {
+static void *open_reader(void *context,const struct md_control_opener *opener,int flags) {
+    (void)opener;
     struct input_reader *node=context; struct md_input_bus *bus=node->bus;
     if (flags&(O_TRUNC|O_DIRECTORY|O_CREAT)) { errno=EINVAL; return NULL; }
     pthread_mutex_lock(&bus->lock);

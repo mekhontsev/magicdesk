@@ -12,6 +12,13 @@ struct md_resource_wakeup;
 struct md_control_pending;
 struct md_fs_context;
 struct md_fs_continuation;
+struct md_network_namespace;
+/* Borrowed admission context. Per-open providers retain only the resources
+ * they need; dup/fork keep the resulting OFD, not the current caller's state. */
+struct md_control_opener {
+    const struct md_identity *identity;
+    struct md_network_namespace *network;
+};
 struct md_control_fs_operation {
     long (*run)(void *,struct md_fs_context *,struct md_fs_continuation **);
     void (*destroy)(void *);
@@ -130,7 +137,7 @@ struct md_control_file_ops {
     /* Kernel-pipe transfers may use the same IO/copy acknowledgement owner. */
     int splice;
     /* Optional independent per-open state; dup/fork retain the same context. */
-    void *(*open)(void *,int flags);
+    void *(*open)(void *,const struct md_control_opener *,int flags);
     int (*ioctl_spec)(void *,unsigned command,struct md_control_ioctl *);
     long (*ioctl)(void *,const struct md_control_actor *,unsigned command,
         unsigned long value,void *data,size_t size);

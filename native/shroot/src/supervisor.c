@@ -1997,7 +1997,8 @@ static int control_file_capture(pid_t actor,const char *path,struct md_fd_object
         if (md_proc_file_sysctl(type)) {
             struct md_control_file control=md_proc_sysctl_new(type,NULL,t->resources.uts);
             if (!control.ops) return -errno;
-            file=md_proc_file_open_control(control.ops,control.context,&t->identity,O_PATH);
+            file=md_proc_file_open_control(control.ops,control.context,
+                &(struct md_control_opener){.identity=&t->identity,.network=t->resources.network},O_PATH);
             md_control_file_release(control);
         } else {
         struct md_namespace_reference ref=md_namespace_reference_capture(
@@ -2110,7 +2111,8 @@ static void proc_file_request(struct thread *t, const struct seccomp_notif *q) {
         struct md_proc_file *file=NULL;
         if (!view.ops) { if (!reply.error) reply.error=-errno; }
         else {
-            file=md_proc_file_open_control(view.ops,view.context,&t->identity,flags);
+            file=md_proc_file_open_control(view.ops,view.context,
+                &(struct md_control_opener){.identity=&t->identity,.network=t->resources.network},flags);
             if (!file) reply.error=-errno;
             else reply.error=proc_file_publish(t,q,file);
         }
@@ -2125,7 +2127,8 @@ static void proc_file_request(struct thread *t, const struct seccomp_notif *q) {
         else if (target->executable_origin || !target->executable) reply.error=-EXDEV;
         else {
             struct md_control_file view=md_process_executable_view(target->executable);
-            file=md_proc_file_open_control(view.ops,view.context,&t->identity,flags);
+            file=md_proc_file_open_control(view.ops,view.context,
+                &(struct md_control_opener){.identity=&t->identity,.network=t->resources.network},flags);
             if (!file) reply.error=-errno;
             else {
                 reply.error=proc_file_publish(t,q,file);
@@ -2173,7 +2176,8 @@ static void proc_file_request(struct thread *t, const struct seccomp_notif *q) {
                 : md_proc_file_task_access(&t->identity,&st,mode,1);
             if (!error && (flags&O_NOATIME) && !(flags&O_PATH)) error=md_file_noatime(&st,&t->identity);
             struct md_proc_file *file=NULL;
-            if (!error && source) file=md_proc_file_reopen(source,&t->identity,flags);
+            if (!error && source) file=md_proc_file_reopen(source,
+                &(struct md_control_opener){.identity=&t->identity,.network=t->resources.network},flags);
             else if (!error && namespace) {
                 struct md_namespace_reference ref=md_namespace_reference_capture(
                     (enum md_namespace_kind)(file_kind-MD_PROC_FILE_NS_USER),selected.resources,selected.identity->user_namespace);
@@ -2181,7 +2185,8 @@ static void proc_file_request(struct thread *t, const struct seccomp_notif *q) {
             } else if (!error && sysctl) {
                 struct md_control_file control=md_proc_sysctl_new(file_kind,NULL,t->resources.uts);
                 if (control.ops) {
-                    file=md_proc_file_open_control(control.ops,control.context,&t->identity,flags);
+                    file=md_proc_file_open_control(control.ops,control.context,
+                        &(struct md_control_opener){.identity=&t->identity,.network=t->resources.network},flags);
                     md_control_file_release(control);
                 }
             } else if (!error) file=md_proc_file_open(selected.identity->user_namespace,file_kind,&t->identity,flags);

@@ -42,8 +42,8 @@ struct md_fuse_connection *md_fuse_device_connection(struct md_control_file f) {
 int md_fuse_device_is_node(struct md_control_file f) {
     return f.ops==&operations && !((struct device *)f.context)->connection;
 }
-static void *open_device(void *context,int flags) {
-    (void)context;
+static void *open_device(void *context,const struct md_control_opener *opener,int flags) {
+    (void)opener; (void)context;
     if ((flags&O_ACCMODE)!=O_RDWR || (flags&(O_CREAT|O_TRUNC|O_DIRECTORY))) { errno=EINVAL; return NULL; }
     struct device *d=create(); if (!d) return NULL;
     int error=md_fuse_connection_new(&d->connection);

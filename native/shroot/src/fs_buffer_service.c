@@ -487,7 +487,8 @@ static int control_open(void *context,const struct md_control_file_ops *ops,void
     struct md_fs_buffer_request *r=context;
     if (!r->service->control) return -EOPNOTSUPP;
     if (r->opened.object) return -EBUSY;
-    r->opened.object=r->service->control(ops,data,identity,flags,origin,&r->control_descriptor);
+    const struct md_control_opener opener={.identity=identity,.network=r->context.task.network};
+    r->opened.object=r->service->control(ops,data,&opener,flags,origin,&r->control_descriptor);
     return r->opened.object ? 0 : -errno;
 }
 void md_fs_buffer_control_factory(struct md_fs_buffer_service *s,md_control_factory factory) {
