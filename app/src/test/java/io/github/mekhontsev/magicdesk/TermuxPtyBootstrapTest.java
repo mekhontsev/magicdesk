@@ -2,15 +2,15 @@ package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Base64;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.Rule;
@@ -21,53 +21,94 @@ public final class TermuxPtyBootstrapTest {
     @Rule
     public final TemporaryFolder temporary = new TemporaryFolder();
 
-    @Test(timeout = 10_000L)
-    public void concurrentLaunchDoesNotRemoveAnotherLaunchesTemporaryHelper() throws Exception {
-        assumeTrue(!System.getProperty("os.name").startsWith("Windows"));
-        final String prefix = System.getenv("PREFIX");
-        final Path shell = prefix == null ? Path.of("/bin/sh") : Path.of(prefix, "bin", "sh");
-        assertTrue(Files.isExecutable(shell));
-        final Path directory = Files.createDirectories(temporary.getRoot().toPath().resolve(".local/libexec"));
-        final Path target = directory.resolve("magicdesk-pty-current");
-        final Path old = Files.createFile(target.resolveSibling("magicdesk-pty-old"));
-        final byte[] encoded = Base64.getEncoder().encode(
-                ("#!" + shell + "\nexit 0\n").getBytes(StandardCharsets.UTF_8));
-        // The first decoder announces that its temporary output is open, then
-        // waits for stdin EOF. The second launch runs its real cleanup meanwhile.
-        final Process first = start(shell, target,
-                "base64() { printf 'decoding\\n' >&2; command base64 \"$@\"; }\n");
-        try {
-            assertEquals("decoding", new BufferedReader(new InputStreamReader(
-                    first.getInputStream(), StandardCharsets.UTF_8)).readLine());
-            final Process second = start(shell, target, "");
-            try {
-                second.getOutputStream().write(encoded);
-                final var result = BoundedProcessRunner.run(second, 3_000L, 8192);
-                assertEquals(result.output, 0, result.exitCode);
-            } finally {
-                stop(second);
-            }
-            first.getOutputStream().write(encoded);
-            final var result = BoundedProcessRunner.run(first, 3_000L, 8192);
-            assertEquals(result.output, 0, result.exitCode);
-            assertFalse(Files.exists(old));
-            try (var files = Files.list(target.getParent())) {
-                assertEquals(1L, files.count());
-            }
-        } finally {
-            stop(first);
+    @Test public void bridgeArgumentsCarryOnlyThePackagedHelperPath() {
+        String helper = "/data/app/package/lib/arm64/libmagicdesk_pty_bridge.so";
+        String setup = CommandShellEnvironment.termuxSetup("12345:token",
+                "/data/app/package/base.apk", "/data/app/package/lib/arm64");
+        String[] pty = TermuxIntegration.ptyBridgeArguments(setup, 12345, "a".repeat(64),
+                24, 80, "/home/test", "", helper);
+        String[] pipe = TermuxIntegration.commandBridgeArguments(12345, "a".repeat(64), helper);
+        assertEquals(helper, pty[pty.length - 1]);
+        assertEquals(helper, pipe[pipe.length - 1]);
+        for (String[] arguments : new String[][]{pty, pipe}) {
+            assertTrue("Service arguments must not carry a native binary",
+                    Arrays.stream(arguments).mapToInt(String::length).sum() < 8192);
         }
     }
 
-    private static Process start(final Path shell, final Path target, final String setup)
-            throws Exception {
-        final ProcessBuilder builder = new ProcessBuilder(shell.toString(), "-c", setup + TermuxIntegration.PTY_BOOTSTRAP,
-                "magicdesk-test", "1", "token", "24", "80", "/tmp", "", target.getFileName().toString())
-                .redirectErrorStream(true);
-        builder.environment().put("HOME", target.getParent().getParent().getParent().toString());
+    @Test(timeout = 10_000L)
+    public void ptyBootstrapRunsPackagedHelperWithoutReadingStdin() throws Exception {
+        Path shell = shell();
+        Path helper = helper(shell, 512 * 1024);
+        byte[] original = Files.readAllBytes(helper);
+        String command = "printf '%s' '$not_expanded; command'";
+        String[] arguments = TermuxIntegration.ptyBridgeArguments("", 12345, "token", 24, 80,
+                "/home/with spaces", command, helper.toString());
+        // Test the production bootstrap without loading the host's login profile.
+        arguments[0] = "-c";
+        assertEquals(String.join("\n", "--socket", "12345", "token", "24", "80",
+                        "/home/with spaces", shell.toString(), shell.toString(), command) + "\n",
+                run(shell, arguments));
+        assertArrayEquals(original, Files.readAllBytes(helper));
+        assertFalse(Files.exists(temporary.getRoot().toPath().resolve(".local/libexec")));
+    }
+
+    @Test(timeout = 10_000L)
+    public void commandBootstrapRunsPackagedHelperWithoutReadingStdin() throws Exception {
+        Path shell = shell();
+        Path helper = helper(shell, 0);
+        String[] arguments = TermuxIntegration.commandBridgeArguments(12345, "token", helper.toString());
+        assertEquals(String.join("\n", "--pipe-socket", "12345", "token", shell.toString()) + "\n",
+                run(shell, arguments));
+        assertFalse(Files.exists(temporary.getRoot().toPath().resolve(".local/libexec")));
+    }
+
+    @Test public void allTermuxHelperLaunchesKeepBinaryBytesOutOfBinder() throws Exception {
+        String integration = RuntimeSourceFixture.methods("TermuxIntegration", "runPtyBridge", "runCommandBridge");
+        String launcher = Files.readString(Path.of(RuntimeSourceFixture.MAIN + "TermuxPtyBridgeLauncher.java"));
+        String output = RuntimeSourceFixture.methods("PtyPeerOutput", "runTermux");
+        assertFalse(integration.contains("EXTRA_STDIN"));
+        assertFalse(integration.contains(".encoded()"));
+        assertFalse(launcher.contains("Base64"));
+        assertFalse(launcher.contains("readAllBytes"));
+        assertTrue(output.contains("TermuxPtyBridgeLauncher.path(context)"));
+        assertTrue(RuntimeSourceFixture.methods("TermuxCommandStream", "connect")
+                .contains("TermuxPtyBridgeLauncher.path(context)"));
+    }
+
+    private Path helper(Path shell, int padding) throws Exception {
+        Path helper = temporary.getRoot().toPath().resolve("packaged helper '[$].so");
+        Files.writeString(helper, "#!" + shell + "\nprintf '%s\\n' \"$@\"\nexit 0\n#" + "x".repeat(padding));
+        assertTrue(helper.toFile().setExecutable(true, true));
+        return helper;
+    }
+
+    private static Path shell() {
+        assumeTrue(!System.getProperty("os.name").startsWith("Windows"));
+        String prefix = System.getenv("PREFIX");
+        Path shell = prefix == null ? Path.of("/bin/bash") : Path.of(prefix, "bin", "bash");
+        assertTrue(Files.isExecutable(shell));
+        return shell;
+    }
+
+    private String run(Path shell, String[] arguments) throws Exception {
+        var command = new ArrayList<String>();
+        command.add(shell.toString());
+        command.addAll(Arrays.asList(arguments));
+        ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true);
+        builder.environment().put("HOME", temporary.getRoot().toString());
         builder.environment().put("PREFIX", shell.getParent().getParent().toString());
         builder.environment().put("SHELL", shell.toString());
-        return builder.start();
+        Process process = builder.start();
+        try {
+            // EVENT_WAIT: helper exit while stdin remains open; expiry rejects a bootstrap reading stdin.
+            assertTrue("Bootstrap waited for a binary on stdin", process.waitFor(3, TimeUnit.SECONDS));
+            var result = BoundedProcessRunner.run(process, 3_000L, 8192);
+            assertEquals(result.output, 0, result.exitCode);
+            return result.output;
+        } finally {
+            stop(process);
+        }
     }
 
     private static void stop(final Process process) throws Exception {

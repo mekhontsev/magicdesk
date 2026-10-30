@@ -62,13 +62,12 @@ final class PtyPeerOutput {
         if (Looper.myLooper() == Looper.getMainLooper()) throw new IOException("PTY operation cannot block UI");
         final var endpoint = TermuxIntegration.inspect(context);
         endpoint.requireAvailable();
-        final var helper = TermuxPtyBridgeLauncher.readHelper(context);
-        final String script = "set -eu\ntarget=\"${HOME:?}/.local/libexec/" + helper.target() + "\"\n"
-                + TermuxPtyBridgeLauncher.INSTALL_HELPER + command;
+        final String script = "set -eu\ntarget="
+                + ShellCommandLine.quote(TermuxPtyBridgeLauncher.path(context)) + "\n" + command;
         final CompletableFuture<TermuxIntegration.CommandResult> completed = new CompletableFuture<>();
         TermuxIntegration.runBackgroundShellCommandForResult(context, endpoint, script,
                 "MagicDesk PTY output", endpoint.homeDirectory, RESULT_TIMEOUT_MILLIS,
-                helper.encoded(), (result, error) -> {
+                (result, error) -> {
                     if (error != null) completed.completeExceptionally(error); else completed.complete(result);
                 });
         // This waits for Termux's result callback, not for rendering. A timeout

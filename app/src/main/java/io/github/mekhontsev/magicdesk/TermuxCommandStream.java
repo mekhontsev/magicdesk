@@ -42,8 +42,8 @@ final class TermuxCommandStream implements CommandStream {
             current.requireAvailable();
             if (current.uid != endpoint.uid || !current.packageName.equals(endpoint.packageName))
                 throw new IOException("Termux identity changed");
-            var helper = TermuxPtyBridgeLauncher.readHelper(context);
-            TermuxIntegration.runCommandBridge(context, endpoint, listener.getLocalPort(), token, helper);
+            TermuxIntegration.runCommandBridge(context, endpoint, listener.getLocalPort(), token,
+                    TermuxPtyBridgeLauncher.path(context));
             while (android.os.SystemClock.uptimeMillis() < deadline) {
                 int remaining = (int) Math.max(1, deadline - android.os.SystemClock.uptimeMillis());
                 listener.setSoTimeout(remaining);

@@ -318,8 +318,11 @@ device) captured at PTY creation. The registry exposes that identity only while
 the session remains ready and live. `PtyPeerOutput` performs bounded, one-shot
 slave writes using the same native helper under the PTY's existing execution
 identity. `TmuxPanes` adds on-demand default-server discovery and verifies pane
-membership before using that same writer. Termux helper installation is shared
-with relay startup, not a second bootstrap implementation. No persistent output
+membership before using that same writer. Termux relays and peer writes execute
+the helper directly from the installed APK's native directory under the Termux
+UID. RUN_COMMAND carries its path and launch arguments, never the binary in
+Intent extras; helper growth therefore does not consume Binder's transaction
+budget. No persistent output
 worker, alternate renderer path, privilege fallback or replay mechanism exists.
 `DesktopAutomationPtyOutput` adapts both paths for the shared MCP/CLI executor;
 delivery receipts distinguish complete, partial and unconfirmed writes.
@@ -328,7 +331,7 @@ Termux service resolution is restricted to the selected package and the
 standard `com.termux.RUN_COMMAND` action. A unique exported service must retain
 the command/result protocol and a permission MagicDesk supports. A renamed
 custom permission is reported as incompatible, not bypassed. Shell paths use
-the protocol's `$PREFIX/` expansion; helper installation uses Termux's own
+the protocol's `$PREFIX/` expansion; shell startup uses Termux's own
 `HOME`/`PREFIX` environment. Absolute initial directories use the selected
 application's Android data directory and Termux's `files/home` layout, including
 the current Android user.

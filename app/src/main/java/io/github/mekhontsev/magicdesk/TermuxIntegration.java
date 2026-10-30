@@ -39,14 +39,14 @@ final class TermuxIntegration {
     private static final String RUNNER_APP_SHELL = "app-shell";
     static final String PTY_BOOTSTRAP =
             "set -eu\n"
-            + "target=\"${HOME:?}/.local/libexec/$7\"\n"
-            + TermuxPtyBridgeLauncher.INSTALL_HELPER
             + TerminalShellIntegration.termuxBootstrap()
-            + "exec \"$target\" --socket \"$1\" \"$2\" \"$3\" "
+            + "exec \"$7\" --socket \"$1\" \"$2\" \"$3\" "
             + "\"$4\" \"$5\" "
             + "\"${SHELL:-${PREFIX:?}/bin/bash}\" "
             + "\"${PREFIX:?}/bin/bash\" "
             + "\"$6\"";
+    static final String COMMAND_BOOTSTRAP =
+            "exec \"$3\" --pipe-socket \"$1\" \"$2\" \"${PREFIX:?}/bin/bash\"";
 
     private TermuxIntegration() {
     }
@@ -185,13 +185,8 @@ final class TermuxIntegration {
             final String command,
             final String label,
             final String workingDirectory) {
-        runBackgroundShellCommand(activity, inspect(activity), command, label, workingDirectory, null);
-    }
-
-    static void runBackgroundShellCommand(final Context context, final Endpoint endpoint,
-            final String command, final String label, final String workingDirectory, final String stdin) {
-        context.startForegroundService(commandIntent(endpoint, command, label, workingDirectory)
-                .putExtra(EXTRA_BACKGROUND, true).putExtra(EXTRA_STDIN, stdin));
+        activity.startForegroundService(commandIntent(inspect(activity), command, label, workingDirectory)
+                .putExtra(EXTRA_BACKGROUND, true));
     }
 
     static TermuxCommandResultReceiver.Registration runBackgroundShellCommandForResult(
@@ -202,8 +197,8 @@ final class TermuxIntegration {
             final String workingDirectory,
             final long timeoutMillis,
             final ResultCallback callback) {
-        return runBackgroundShellCommandForResult(context, endpoint, command, label,
-                workingDirectory, timeoutMillis, null, callback);
+        return runForResult(context, commandIntent(endpoint, command, label, workingDirectory),
+                timeoutMillis, callback);
     }
 
     static TermuxCommandResultReceiver.Registration runBackgroundShellCommandForResult(
@@ -254,8 +249,7 @@ final class TermuxIntegration {
             final int columns,
             final String workingDirectory,
             final String startupCommand,
-            final String target,
-            final String encodedHelper,
+            final String helperPath,
             final java.util.Map<String, String> environment) {
         endpoint.requireAvailable();
         final Intent intent = new Intent(ACTION_RUN_COMMAND)
@@ -263,21 +257,11 @@ final class TermuxIntegration {
                 .putExtra(
                         EXTRA_COMMAND_PATH,
                         "$PREFIX/bin/bash")
-                .putExtra(EXTRA_ARGUMENTS, new String[]{
-                        "-lc",
+                .putExtra(EXTRA_ARGUMENTS, ptyBridgeArguments(
                         AutomationCommandRuntime.get(context).prepareTermux(endpoint)
-                                + TerminalLaunchEnvironment.exports(environment) + PTY_BOOTSTRAP,
-                        "magicdesk-termux-pty",
-                        Integer.toString(port),
-                        token,
-                        Integer.toString(rows),
-                        Integer.toString(columns),
-                        DesktopExecWorkingDirectory.normalize(workingDirectory),
-                        DesktopExecCommand.normalize(startupCommand),
-                        target
-                })
-                .putExtra(EXTRA_STDIN, encodedHelper)
-                // Install from Termux's home. The bridge validates the requested
+                                + TerminalLaunchEnvironment.exports(environment),
+                        port, token, rows, columns, workingDirectory, startupCommand, helperPath))
+                // Start from Termux's home. The bridge validates the requested
                 // cwd before launching a shell or publishing a ready PTY.
                 .putExtra(EXTRA_WORKDIR, "~/")
                 .putExtra(EXTRA_RUNNER, RUNNER_APP_SHELL)
@@ -286,15 +270,25 @@ final class TermuxIntegration {
         context.startForegroundService(intent);
     }
 
+    static String[] ptyBridgeArguments(String setup, int port, String token, int rows, int columns,
+            String workingDirectory, String startupCommand, String helperPath) {
+        return new String[]{"-lc", setup + PTY_BOOTSTRAP, "magicdesk-termux-pty",
+                Integer.toString(port), token, Integer.toString(rows), Integer.toString(columns),
+                DesktopExecWorkingDirectory.normalize(workingDirectory),
+                DesktopExecCommand.normalize(startupCommand), helperPath};
+    }
+
+    static String[] commandBridgeArguments(int port, String token, String helperPath) {
+        return new String[]{"--noprofile", "--norc", "-c", COMMAND_BOOTSTRAP,
+                "magicdesk-command", Integer.toString(port), token, helperPath};
+    }
+
     static void runCommandBridge(Context context, Endpoint endpoint, int port, String token,
-            TermuxPtyBridgeLauncher.Helper helper) {
-        String bootstrap = "set -eu\ntarget=\"${HOME:?}/.local/libexec/$3\"\n"
-                + TermuxPtyBridgeLauncher.INSTALL_HELPER
-                + "exec \"$target\" --pipe-socket \"$1\" \"$2\" \"${PREFIX:?}/bin/bash\"";
+            String helperPath) {
         context.startForegroundService(shellIntent(endpoint,
-                new String[]{"--noprofile", "--norc", "-c", bootstrap, "magicdesk-command", Integer.toString(port), token, helper.target()},
+                commandBridgeArguments(port, token, helperPath),
                 "MagicDesk command", endpoint.homeDirectory)
-                .putExtra(EXTRA_STDIN, helper.encoded()).putExtra(EXTRA_BACKGROUND, true));
+                .putExtra(EXTRA_BACKGROUND, true));
     }
 
     private static Intent commandIntent(
