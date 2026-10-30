@@ -19,6 +19,7 @@ void md_network_ethernet_attach(struct md_network_ethernet *,struct md_network_n
 void md_network_ethernet_detach(struct md_network_ethernet *);
 int md_network_ethernet_transmit(struct md_network_namespace *,struct md_network_interface *,
     const struct md_network_ethernet *,const void *,size_t);
+int md_network_ethernet_receive(struct md_network_namespace *,struct md_network_interface *,const void *,size_t);
 long md_network_ethernet_call(struct md_network_ethernet *,long,const unsigned long *,void *,size_t,size_t,
     const struct md_network_send *);
 #endif

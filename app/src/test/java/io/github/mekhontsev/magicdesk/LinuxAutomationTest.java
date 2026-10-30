@@ -8,6 +8,15 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public final class LinuxAutomationTest {
+    @Test public void nativeLauncherUsesSessionOwnedBusWithoutChangingArguments() {
+        String command = "exec code-oss --new-window '/tmp/a b'";
+        String wrapped = LinuxAutomationEnvironment.command(command, "/bin/sh");
+        assertTrue(wrapped.contains("exec \"$MAGICDESK_AUTOMATION_HELPER\" --session '/bin/sh' -c "
+                + ShellCommandLine.quote(command)));
+        assertFalse(wrapped.contains("exec dbus-run-session"));
+        assertTrue(wrapped.endsWith("\nelse\n" + command + "\nfi\n"));
+    }
+
     @Test public void frameDeadlineStartsAfterFirstByteIncludingTruncatedHeader() throws Exception {
         var started = new java.util.concurrent.atomic.AtomicInteger();
         assertThrows(EOFException.class, () -> LinuxBusWire.read(new DataInputStream(new ByteArrayInputStream(new byte[0])), started::incrementAndGet));

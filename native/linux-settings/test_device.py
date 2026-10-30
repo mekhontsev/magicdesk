@@ -5,6 +5,8 @@ import concurrent.futures
 import importlib.util
 import json
 from pathlib import Path
+import shlex
+import socket
 import time
 import tomllib
 import uuid
@@ -101,6 +103,61 @@ def test_ui(c, session, toolkit):
     print(json.dumps({"toolkit": toolkit, "sessionId": session, "nodes": len(all_nodes["nodes"]), "complete": all_nodes["complete"]}), flush=True)
 
 
+def test_deadlines(c, session):
+    fixture = """
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton
+app = QApplication([])
+window = QWidget()
+window.setWindowTitle('AT-SPI deadline fixture')
+layout = QVBoxLayout(window)
+for index in range(1000):
+    layout.addWidget(QPushButton('Deadline row %03d' % index))
+window.show()
+app.exec()
+"""
+    launch = c.call("linux.launch", {"sessionId": session, "argv": ["python3", "-c", fixture],
+                    "environment": {"QT_LINUX_ACCESSIBILITY_ALWAYS_ON": "1", "QT_ACCESSIBILITY": "1"}})
+    console = c.call("console.open", {"linuxSessionId": session})["sessionId"]
+    pid = int(launch["pid"])
+    try:
+        found = c.call("ui.wait", {"sessionId": session, "selector": {"name": "Deadline row 000"}, "timeoutMillis": 15000})
+        assert found["matched"], found
+        application = found["matches"][0]["applicationId"]
+        scope = dict(sessionId=session, applicationId=application)
+        whole = c.call("ui.inspect", dict(scope, selector={"name": "Deadline row 999"}))
+        assert whole["complete"] and whole["visitedNodes"] == 1002 and len(whole["nodes"]) == 1, whole
+        last = c.call("ui.wait", dict(scope, selector={"name": "Deadline row 999"}, timeoutMillis=60000))
+        assert last["matched"] and last["visitedNodes"] == 1002, last
+        short = c.call("ui.wait", dict(scope, selector={"name": "absent-deadline-fixture"}, timeoutMillis=50))
+        assert short["timedOut"] and not short["complete"] and short["truncationReason"] == "deadline", short
+        assert short["durationMillis"] < 250 and short["visitedNodes"] < 1002, short
+        first = c.call("ui.wait", dict(scope, selector={"name": "Deadline row 000"}, timeoutMillis=5000))
+        assert first["matched"] and first["visitedNodes"] == 3 and first["truncationReason"] == "match", first
+
+        def signal(name):
+            result = c.call("console.execute", {"sessionId": console, "command": "kill -" + name + " " + str(pid)})
+            assert result["exitCode"] == 0, result
+
+        signal("STOP")
+        try:
+            stalled = c.call("ui.inspect", scope)
+            assert not stalled["complete"] and stalled["errors"], stalled
+            assert any(application in error and "GetAll" in error and "NoReply" in error for error in stalled["errors"]), stalled
+            healthy = c.call("ui.wait", {"sessionId": session, "selector": {"name": "Apply fixture"}, "timeoutMillis": 3000})
+            assert healthy["matched"], healthy
+        finally:
+            signal("CONT")
+        resumed = c.call("ui.wait", dict(scope, selector={"name": "Deadline row 000"}, timeoutMillis=5000))
+        assert resumed["matched"], resumed
+        print(json.dumps({"deadlines": "passed", "fullTreeMillis": whole["durationMillis"],
+                          "visitedNodes": whole["visitedNodes"], "lastMatchMillis": last["durationMillis"],
+                          "shortWaitMillis": short["durationMillis"], "firstMatchMillis": first["durationMillis"],
+                          "timeoutAttribution": stalled["errors"], "recovered": True}), flush=True)
+    finally:
+        c.call("console.execute", {"sessionId": console, "command": "kill -CONT " + str(pid) + "; kill -TERM " + str(pid)})
+        c.call("console.close", {"sessionId": console})
+
+
 def test_native(c, protocol):
     owned = []
     try:
@@ -109,8 +166,11 @@ def test_native(c, protocol):
                                                 "command": "exec sleep 900"})["sessionId"]
             owned.append(graphics)
             session = await_target(c, graphics)
+            test_bus_reuse(c, graphics, session)
             test_console(c, session)
             test_ui(c, session, toolkit)
+            if toolkit == "qt":
+                test_deadlines(c, session)
         targets = c.call("linux.list")["sessions"]
         assert len([t for t in targets if t["graphicsSessionId"] in owned]) == 2, targets
         session = await_target(c, owned[0])
@@ -145,6 +205,31 @@ def test_native(c, protocol):
     finally:
         for session in reversed(owned):
             c.call("graphics.stop", {"sessionId": session})
+
+
+def test_bus_reuse(c, graphics, session):
+    endpoint = "md-bus-reuse-" + uuid.uuid4().hex
+    script = "import os,socket; s=socket.socket(socket.AF_UNIX); s.connect(" + repr("\0" + endpoint) + "); s.sendall(os.environ['DBUS_SESSION_BUS_ADDRESS'].encode()); s.close()"
+    address = None
+    with socket.socket(socket.AF_UNIX) as listener:
+        listener.bind("\0" + endpoint)
+        listener.listen(1)
+        listener.settimeout(10)
+        for _ in range(20):
+            c.call("graphics.execute", {"sessionId": graphics, "command": shlex.join(["python3", "-c", script])})
+            # EVENT_WAIT: exact command receipt; failure does not imply successful execution.
+            peer, _ = listener.accept()
+            with peer:
+                peer.settimeout(5)
+                with peer.makefile("rb") as result:
+                    observed = result.read(4096)
+            assert observed, "Missing session bus"
+            if address is None:
+                address = observed
+            assert observed == address, "Each command started a different session bus"
+        targets = [s["sessionId"] for s in c.call("linux.list")["sessions"] if s["graphicsSessionId"] == graphics]
+        assert targets == [session], targets
+    print(json.dumps({"busReuse": graphics, "commands": 20, "agents": 1}), flush=True)
 
 
 def main():

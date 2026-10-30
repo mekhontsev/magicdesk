@@ -1407,6 +1407,12 @@ selection or privilege switch is performed. Missing `dbus-run-session`,
 another bus. Native Termux, Shroot and PRoot share the same protocol where their
 installed software supports it; PRoot limitations are not emulated away.
 
+For native launches, the graphical session owns its private D-Bus and agent.
+They survive a short launcher that detaches its GUI process; subsequent commands
+reuse the live bus. Stopping the graphical session or losing its authenticated
+owner connection releases these services. Guest desktops retain their own bus
+lifetime. Closing an Android viewer alone does not stop a retained session.
+
 ```json
 [
   {"tool":"linux.list","arguments":{}},
@@ -1424,16 +1430,28 @@ coordinates. Roles and `atspi:NAME` actions come from the toolkit; use returned
 actions rather than assuming every toolkit names equivalent controls alike.
 Common actions are `click`, `focus`, `set_text` and `select_text` when advertised.
 
-Traversal is bounded to 4096 candidates, depth 40, three seconds and 256 returned
-nodes. Retained text is limited to 32768 codepoints per node and 256 Ki UTF-16
-units per snapshot; `textComplete` exposes truncation. Password-role values and
-lengths are redacted. Classification depends on the application's AT-SPI data;
+Traversal is bounded to 4096 candidates, depth 40 and 256 returned nodes.
+`ui.inspect` has no total traversal deadline while applications keep answering.
+Each application method must reply within one second; bus subscription and
+registry setup calls have a three-second reply timeout. Unrelated events do not
+extend these bounds. Retained text is limited to 32768 codepoints per node and
+256 Ki UTF-16 units per snapshot; `textComplete` exposes truncation. Password-role
+values and lengths are redacted. Classification depends on the application's AT-SPI data;
 toolkits that omit a password role cannot be reliably classified by appearance.
-Four snapshots retain handles for at most 60 seconds. Structural events, owner
-loss and identity changes reject stale actions. Absence requires a stable,
+Four snapshots retain handles for at most 60 seconds after publication.
+Structural events, owner loss and identity changes reject stale actions. Absence requires a stable,
 complete accessible tree; even a complete tree covers only applications that
 registered accessibility, not every visible window. `ui.release(sessionId)`
 releases observations/handles, not the graphical session or application.
+
+`ui.wait` retains its explicit total timeout, shared with subscription setup and
+tree traversal; progress does not extend the requested wait. A stable matching
+element can satisfy a presence wait without scanning unrelated
+branches; absence still requires a complete tree. `durationMillis` and
+`truncationReason` distinguish a traversal limit from a remote D-Bus failure.
+Errors identify the application owner, object and method. After a remote call
+times out, the current snapshot skips that application's remaining nodes so
+other applications can still be inspected; the next observation retries it.
 
 `ui.prepare(sessionId)` explicitly requests accessibility status activation and
 requires `linux_accessibility`, disabled by default. It neither restarts apps

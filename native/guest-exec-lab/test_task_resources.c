@@ -465,10 +465,12 @@ void test_network_endpoint(void);
 void test_network_nft(void);
 void test_network_launch(void);
 void test_network_ipv6(void);
+void test_network_tun(void);
 void test_task_registry_exit(void);
 void test_task_mapping(void);
-int main(void) {
+int main(int argc,char **argv) {
     alarm(60);
+    if(argc==2 && !strcmp(argv[1],"--tun")) { test_network_tun(); return 0; }
     test_task_mapping();
     test_ipc_database();
     test_task_registry_exit();
@@ -481,6 +483,7 @@ int main(void) {
     test_network_nft();
     test_network_launch();
     test_network_ipv6();
+    test_network_tun();
     struct md_identity identity=md_identity_new(0,0);
     struct md_task_resources r; assert(!md_resources_init(&r,NULL));
     struct md_resource_change change;

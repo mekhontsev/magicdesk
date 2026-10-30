@@ -23,35 +23,39 @@ final class AtSpiClient {
 
     AtSpiClient(LinuxBusConnection bus) { this.bus = bus; }
 
-    synchronized void observe() throws IOException, JSONException {
+    void observe() throws IOException, JSONException { observe(deadline()); }
+
+    synchronized void observe(long deadline) throws IOException, JSONException {
         if (observing) return;
-        bus.request(2, 2, new JSONObject().put("rule", RULE), 3000);
-        matchRules.add(RULE);
-        try {
-            bus.request(2, 2, new JSONObject().put("rule", OWNER_RULE), 3000);
-            matchRules.add(OWNER_RULE);
-            for (String rule : List.of(WINDOW_RULE, FOCUS_RULE)) {
-                bus.request(2, 2, new JSONObject().put("rule", rule), 3000);
+        // Keep acknowledged registrations across a short observation deadline.
+        // The next observation resumes setup; explicit release owns cleanup.
+        for (String rule : List.of(RULE, OWNER_RULE, WINDOW_RULE, FOCUS_RULE)) {
+            if (!matchRules.contains(rule)) {
+                bus.request(2, 2, new JSONObject().put("rule", rule), remaining(deadline));
                 matchRules.add(rule);
             }
-            for (String event : List.of("object:", "window:", "focus:")) {
-                try { registry("RegisterEvent", args(v("s", event), v("as", new JSONArray()), v("s", ""))); }
+        }
+        for (String event : List.of("object:", "window:", "focus:")) {
+            if (!registeredEvents.contains(event)) {
+                try { registry("RegisterEvent", modernRegistry
+                        ? args(v("s", event), v("as", new JSONArray()), v("s", ""))
+                        : args(v("s", event), v("as", new JSONArray())), deadline); }
                 catch (LinuxBusConnection.BusError error) {
                     if (!error.name.equals("org.freedesktop.DBus.Error.InvalidArgs")) throw error;
                     modernRegistry = false;
-                    registry("RegisterEvent", args(v("s", event), v("as", new JSONArray())));
+                    registry("RegisterEvent", args(v("s", event), v("as", new JSONArray())), deadline);
                 }
                 registeredEvents.add(event);
             }
-            String owner = scalar(bus.call(2, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
-                    "GetNameOwner", args(v("s", REGISTRY)), 3000), 0);
-            root = new Ref(owner, ROOT); observing = true;
-        } catch (IOException | JSONException error) { release(); throw error; }
+        }
+        String owner = scalar(bus.call(2, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                "GetNameOwner", args(v("s", REGISTRY)), remaining(deadline)), 0);
+        root = new Ref(owner, ROOT); observing = true;
     }
 
     synchronized void release() {
         for (String event : registeredEvents) try {
-            registry("DeregisterEvent", modernRegistry ? args(v("s", event), v("s", "")) : args(v("s", event)));
+            registry("DeregisterEvent", modernRegistry ? args(v("s", event), v("s", "")) : args(v("s", event)), deadline());
         } catch (IOException | JSONException ignored) { }
         registeredEvents.clear();
         for (String rule : matchRules) try {
@@ -60,9 +64,9 @@ final class AtSpiClient {
         matchRules.clear(); observing = false; root = null;
     }
 
-    List<Ref> applications() throws IOException, JSONException {
-        observe();
-        return references(array(call(root, "Accessible", "GetChildren", new JSONArray(), deadline()), 0));
+    List<Ref> applications(long deadline) throws IOException, JSONException {
+        observe(deadline);
+        return references(array(call(root, "Accessible", "GetChildren", new JSONArray(), deadline), 0));
     }
 
     Node read(Ref ref, long deadline) throws IOException, JSONException {
@@ -174,13 +178,24 @@ final class AtSpiClient {
         return result;
     }
     JSONArray call(Ref ref, String iface, String member, JSONArray args, long deadline) throws IOException, JSONException {
-        long remaining = deadline - android.os.SystemClock.uptimeMillis();
-        if (remaining <= 0) throw new IOException("AT-SPI observation deadline");
-        return bus.call(2, ref.destination, ref.path, iface.contains(".") ? iface : PREFIX + iface,
-                member, args, (int)Math.min(1000, remaining));
+        String name = iface.contains(".") ? iface : PREFIX + iface;
+        int timeout = Math.min(1000, remaining(deadline));
+        try { return bus.call(2, ref.destination, ref.path, name, member, args, timeout); }
+        catch (LinuxBusConnection.BusError error) {
+            throw new LinuxBusConnection.BusError(error.name,
+                    ref.destination + " " + ref.path + " " + name + "." + member + " (" + timeout + " ms): " + error.getMessage());
+        }
     }
-    private void registry(String member, JSONArray args) throws IOException, JSONException {
-        bus.call(2, REGISTRY, REGISTRY_PATH, REGISTRY, member, args, 3000);
+    private void registry(String member, JSONArray args, long deadline) throws IOException, JSONException {
+        bus.call(2, REGISTRY, REGISTRY_PATH, REGISTRY, member, args, remaining(deadline));
+    }
+    static final class ObservationDeadline extends IOException {
+        ObservationDeadline() { super("AT-SPI observation deadline"); }
+    }
+    static int remaining(long deadline) throws ObservationDeadline {
+        long remaining = deadline - android.os.SystemClock.uptimeMillis();
+        if (remaining <= 0) throw new ObservationDeadline();
+        return (int)Math.min(3000, remaining);
     }
     static long deadline() { return android.os.SystemClock.uptimeMillis() + 3000; }
     static JSONArray args(JSONObject... values) { JSONArray array = new JSONArray(); for (JSONObject value : values) array.put(value); return array; }

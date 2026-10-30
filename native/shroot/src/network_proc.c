@@ -131,8 +131,8 @@ static long read_value(void *context,const struct md_control_actor *actor,void *
     if (n>size) n=size;
     memcpy(out,f->text+offset,n); return (long)n;
 }
-static void *open_file(void *context,int flags) {
-    (void)flags;
+static void *open_file(void *context,const struct md_control_opener *opener,int flags) {
+    (void)opener; (void)flags;
     struct network_proc *f=context;
     return md_network_proc_new(f->network,f->table).context;
 }

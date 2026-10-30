@@ -726,7 +726,7 @@ final class AutomationCommandCatalog {
         }
         addLinuxAutomationTools(tools);
         tools.put(readTool("ui.inspect", "Inspect UI",
-                "Read accessibility nodes without activation. Select exactly one Android displayId/taskId or Linux sessionId from linux.list. Linux AT-SPI scopes optional applicationId to an exact unique bus owner; complete covers registered accessible applications, not every graphical window. Linux-only selectors: name, role, accessibleId, applicationId. Bounds are explicitly Linux screen pixels, not Android coordinates. Inaccessible/truncated trees never prove absence. Up to 4096 nodes, depth 40, three-second traversal; retained Linux text is bounded to 32768 codepoints per node and 256 Ki UTF-16 units per snapshot. Password values are redacted. Handles expire after 60 seconds or four newer snapshots. Prefer semantic controls.",
+                "Read accessibility nodes without activation. Select exactly one Android displayId/taskId or Linux sessionId from linux.list. Linux AT-SPI scopes optional applicationId to an exact unique bus owner; complete covers registered accessible applications, not every graphical window. Linux-only selectors: name, role, accessibleId, applicationId. Bounds are explicitly Linux screen pixels, not Android coordinates. Inaccessible/truncated trees never prove absence. Up to 4096 nodes, depth 40; Linux calls have a one-second reply timeout (three seconds for setup), not a total traversal deadline. Unrelated events do not extend call timeouts. Retained Linux text is bounded to 32768 codepoints per node and 256 Ki UTF-16 units per snapshot. Password values are redacted. Handles expire 60 seconds after publication or after four newer snapshots. Prefer semantic controls.",
                 objectSchema(androidUiScopeProperties().put("selector", objectSchema(selector).put("minProperties", 1)))
                         .put("oneOf", new JSONArray().put(requiredOnly("displayId")).put(requiredOnly("taskId")).put(requiredOnly("sessionId")))))
                 .put(readTool("ui.read_text", "Read UI text",
@@ -743,7 +743,7 @@ final class AutomationCommandCatalog {
                                 .put("start", integerProperty("Selection start for select_text."))
                                 .put("end", integerProperty("Selection end for select_text.")), "elementId", "action")))
                 .put(readTool("ui.wait", "Wait for UI",
-                        "Event-driven exact selector match in one Android display/task or Linux session/application. Returns matched/timedOut, not a claimed action result. Missing/inaccessible targets, incomplete or redacted observations never prove absence. No periodic polling. ui.release cancels waits for the selected backend/session.",
+                        "Event-driven exact selector match in one Android display/task or Linux session/application. Returns matched/timedOut, not a claimed action result. timeoutMillis bounds the entire wait, including Linux subscription setup and traversal; progress does not extend it. Missing/inaccessible targets, incomplete or redacted observations never prove absence. No periodic polling. ui.release cancels waits for the selected backend/session.",
                         objectSchema(androidUiScopeProperties()
                                 .put("selector", objectSchema(selector).put("minProperties", 1))
                                 .put("condition", enumProperty("Default present.", "present", "absent"))
@@ -1695,6 +1695,9 @@ final class AutomationCommandCatalog {
                 break;
             case "ui.inspect":
                 properties.put("backend", stringProperty("atspi for Linux; Android observations retain Android fields."))
+                        .put("durationMillis", integerProperty("Linux observation duration, including subscription setup."))
+                        .put("truncationReason", stringProperty("Linux traversal limit or early match, empty when not limited; remote failures are in errors."))
+                        .put("errors", arrayProperty("Linux D-Bus failures with owner, object and method.", stringProperty("Failure detail.")))
                         .put("sessionId", stringProperty("Linux session identity, when selected."))
                         .put("applicationId", stringProperty("Selected Linux application owner, empty for registered applications."))
                         .put("displayId", nullableIntegerProperty("Observed display; null when a task has no accessible windows or its location is ambiguous."))
@@ -1710,6 +1713,9 @@ final class AutomationCommandCatalog {
                 break;
             case "ui.wait":
                 properties.put("backend", stringProperty("atspi for Linux."))
+                        .put("durationMillis", integerProperty("Duration of the final Linux observation, not the full wait."))
+                        .put("truncationReason", stringProperty("Linux traversal limit or early match, empty when not limited; remote failures are in errors."))
+                        .put("errors", arrayProperty("Linux D-Bus failures with owner, object and method.", stringProperty("Failure detail.")))
                         .put("sessionId", stringProperty("Linux session identity, when selected."))
                         .put("displayId", nullableIntegerProperty("Observed display; null when a task has no accessible windows or its location is ambiguous."))
                         .put("taskId", nullableIntegerProperty("Requested task id, or null for display scope."))

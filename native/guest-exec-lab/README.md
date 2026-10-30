@@ -215,6 +215,51 @@ Android addresses nor routes, DNS or privileged ports are changed.
 
 ### Routing, Firewall And Performance
 
+`probe_podman_runtime.py BUILD STORE --rootless-user USER --exercise-ports
+--internet` runs stock Podman as an existing disposable guest user with
+subuid/subgid ranges and the distribution's UID-map/slirp4netns packages.
+Only private API mounts are prepared as guest root. Containers retain normal
+seccomp and cgroup settings. The rootless default network is `slirp4netns`;
+tests cover external TCP/UDP ports, outbound IO, conflicts and teardown.
+Named-peer DNS checks apply to the separate bridge mode, not isolated slirp
+networks. The fixture ends its Podman pause process with `podman system migrate`.
+
+`probe_docker_runtime.py BUILD STORE --rootless-user USER --storage-driver overlay2
+--cgroup v2 --exercise-ports --internet` starts the distribution's
+`dockerd-rootless.sh` through stock RootlessKit, slirp4netns and UID-map helpers
+as an ordinary guest user. It requires rootless and seccomp security options,
+then checks two containers, published TCP/UDP, peer IP/name lookup, outbound IO,
+port conflicts and teardown. The named diagnostic `rootless*` profiles without
+`--rootless-user` only enter a guest user namespace; they do not substitute for
+this ordinary-user integration test.
+
+`test_lwip_context` checks namespace-local protocol state and memory limits;
+the `test_task_resources` target includes `test_network_tun.c` for TUN/TAP ABI,
+queue ownership, IPv4/IPv6 TCP/UDP, fragment reassembly and raw ICMP.
+
+`probe_packet_runtime.py` exercises real packet applications in an installed
+recipe environment (Debian by default), using the staged native build as shell
+UID 2000. TUN uses unmodified ARM64 tun2socks and GOST executables; place them
+in `ASSETS` as `tun2socks-linux-arm64` and `gost`. TAP requires the distribution's
+`qemu-system-aarch64`, a trusted Alpine ARM64 kernel/initramfs pair with
+virtio-net modules, and the static `packet_vm` test target:
+
+```sh
+python native/guest-exec-lab/probe_packet_runtime.py --kind tun --assets ASSETS
+cmake --build build/shroot-image-tests --target packet_vm
+python native/guest-exec-lab/probe_packet_runtime.py --kind tap \
+  --kernel vmlinuz-virt --initramfs initramfs-virt
+```
+
+Use `--build BUILD`, `--environment NAME` and `--base` as needed. The report
+records native and input hashes. No package is installed by the fixture, and
+no host interface is configured. TUN separates the proxy and client namespaces,
+tests IPv4/IPv6 TCP/UDP with payload verification and half-close, and rejects a
+route bypass before/after tun2socks runs. TAP tests the same transports in both
+directions against a real VM kernel, retaining QEMU's automatic TAP feature
+negotiation. All services, staged files and temporary initramfs trees are cleaned
+up; receipts remain under `build/packet-apps`.
+
 `test_routed_network.py` adds libc interface lookup, IPv4 packet information
 with absent/truncated receive buffers, a datagram queued before sender close,
 and receiver-close/rebind without reusing stale reply mappings.

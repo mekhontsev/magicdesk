@@ -72,16 +72,11 @@ final class IndependentApplicationsDialog {
 
     private static List<Entry> entries(Activity activity, List<TaskRepository.TaskEntry> tasks) {
         final LauncherAppRepository repository = new LauncherAppRepository(activity);
-        final List<AppItem> known = new ArrayList<>();
+        final List<AppItem> known = ApplicationCatalog.get(activity).androidApps(true);
         final List<Entry> entries = new ArrayList<>();
-        for (final var task : tasks) {
-            if (!repository.owns(task)) continue;
-            final AppIdentity application = repository.profile().application(task);
-            final AppReference reference = AppReference.forTask(application, task);
-            final AppItem app = reference == null ? null : repository.findOrLoad(
-                    known, application, reference.launchTarget(), true);
-            if (app != null && !known.contains(app)) known.add(app);
-            entries.add(new Entry(task, BuiltInWindowRegistry.present(activity, app, task),
+        for (final var task : RunningTasks.select(tasks, repository.profile(), -1, null)) {
+            final AppItem app = repository.findOrLoadTask(known, task, true);
+            entries.add(new Entry(task, app,
                     TaskTitle.resolve(activity, app, task), TaskTitle.detail(activity, task)));
         }
         return entries;

@@ -1,5 +1,7 @@
 #define _GNU_SOURCE
 #include "network_ethernet.h"
+#include "network_tun.h"
+#include "network_stack.h"
 #include "network_internal.h"
 #include "network_raw6.h"
 #include "network_raw4.h"
@@ -87,6 +89,11 @@ struct frame_delivery { const struct md_network_ethernet *sender; const struct e
 static void frame_visit(void *context,struct md_network_namespace *n,struct md_network_interface *link,int outgoing) {
     const struct frame_delivery *d=context;
     deliver(n,link,d->sender,d->frame,d->size,outgoing);
+    if (outgoing && link->kind==MD_LINK_TAP) md_network_tun_output(n,link->info.index,d->frame,d->size);
+    if (!outgoing && md_network_stack_has_link(n,link->info.index)) {
+        if(!link->master) md_network_stack_input(n,link,d->frame,d->size);
+        return;
+    }
     if (!outgoing && d->frame->h_proto==htons(ETH_P_IPV6)) md_network_raw6_receive(n,link,d->frame,d->size);
     if (!outgoing && d->frame->h_proto==htons(ETH_P_IP)) md_network_raw4_receive(n,link,d->frame,d->size);
 }
@@ -97,6 +104,15 @@ int md_network_ethernet_transmit(struct md_network_namespace *space,struct md_ne
     int link_local=!memcmp(frame->h_dest,reserved,sizeof(reserved)) && frame->h_dest[5]<=15;
     struct frame_delivery delivery={s,frame,size};
     return md_network_link_walk(space,source,link_local,frame_visit,&delivery);
+}
+int md_network_ethernet_receive(struct md_network_namespace *space,struct md_network_interface *source,
+        const void *data,size_t size) {
+    if(size<ETH_HLEN) return -EINVAL;
+    const struct ethhdr *frame=data;
+    static const unsigned char reserved[5]={1,0x80,0xc2,0,0};
+    int link_local=!memcmp(frame->h_dest,reserved,sizeof(reserved)) && frame->h_dest[5]<=15;
+    struct frame_delivery delivery={NULL,frame,size};
+    return md_network_link_ingress(space,source,link_local,frame_visit,&delivery);
 }
 static long send_frame(struct md_network_ethernet *s,const void *data,size_t size,const struct md_network_send *destination) {
     if (destination && destination->control_size) return -EOPNOTSUPP;

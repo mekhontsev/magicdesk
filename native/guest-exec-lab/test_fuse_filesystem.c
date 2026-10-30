@@ -49,7 +49,7 @@ static int attribute_present,malformed_names;
 static int capture(void *context,const struct md_control_file_ops *ops,void *node,
         const struct md_identity *id,int flags,struct md_fs_anchor *origin) {
     (void)id; (void)origin;
-    void *opened=ops->open(node,flags); if (!opened) return -errno;
+    void *opened=ops->open(node,&(struct md_control_opener){.identity=id},flags); if (!opened) return -errno;
     *(struct md_control_file *)context=(struct md_control_file){ops,opened}; return 0;
 }
 static struct fuse_attr attr(uint64_t node) {
@@ -260,7 +260,7 @@ static struct md_fs_result run(struct md_fs_context *context,struct md_fuse_conn
 static int capture_file(void *context,const struct md_control_file_ops *ops,void *node,
         const struct md_identity *id,int flags,struct md_fs_anchor *origin) {
     (void)origin;
-    struct md_proc_file *file=md_proc_file_open_control(ops,node,id,flags);
+    struct md_proc_file *file=md_proc_file_open_control(ops,node,&(struct md_control_opener){.identity=id},flags);
     if (!file) return -errno;
     *(struct md_proc_file **)context=file; return 0;
 }

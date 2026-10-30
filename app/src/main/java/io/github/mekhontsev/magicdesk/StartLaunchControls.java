@@ -80,6 +80,7 @@ final class StartLaunchControls {
     }
 
     LinearLayout view() { return mView; }
+    void setExistingWindow(boolean existing) { mNew.setEnabled(!existing); }
     void refresh() {
         if (!mMode.available(DesktopRuntimeBridge.hasWorkspace(mDisplay.target().displayId()))) {
             mMode = Mode.DEFAULT;
@@ -96,7 +97,7 @@ final class StartLaunchControls {
         return new StartDisplaySelector.Target(target.displayId(), target.uniqueId(), mMode.placement);
     }
     DesktopLaunchPresentation presentation() {
-        return DesktopLaunchPresentation.forMode(mMode.windowMode).withInstancePolicy(mNew.isChecked()
+        return DesktopLaunchPresentation.forMode(mMode.windowMode).withInstancePolicy(mNew.isEnabled() && mNew.isChecked()
                 ? DesktopTaskInstancePolicy.CREATE_NEW : DesktopTaskInstancePolicy.REUSE_EXISTING);
     }
     void dismiss() {

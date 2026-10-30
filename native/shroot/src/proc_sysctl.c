@@ -217,8 +217,8 @@ static void *at(void *context,struct md_fs_anchor *origin) {
 static struct md_fs_anchor *origin(void *context) {
     return ((struct sysctl_file *)context)->origin;
 }
-static void *open_value(void *context,int flags) {
-    (void)flags;
+static void *open_value(void *context,const struct md_control_opener *opener,int flags) {
+    (void)opener; (void)flags;
     struct sysctl_file *f=context;
     return create(f->kind,f->origin,f->changes.source).context;
 }

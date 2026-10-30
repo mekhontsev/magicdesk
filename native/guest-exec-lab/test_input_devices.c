@@ -17,7 +17,7 @@ static void output(void *context,const struct md_input_rumble *command) {
 }
 static struct md_control_file open_device(struct md_input_bus *bus,int joy) {
     struct md_control_file node={0}; assert(!md_input_node(bus,0,joy,&node));
-    struct md_control_file file={node.ops,node.ops->open(node.context,O_RDWR|O_NONBLOCK)};
+    struct md_control_file file={node.ops,node.ops->open(node.context,NULL,O_RDWR|O_NONBLOCK)};
     assert(file.context); md_control_file_release(node); return file;
 }
 static long control(struct md_control_file file,unsigned command,unsigned long value,void *data) {

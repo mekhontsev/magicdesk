@@ -34,7 +34,7 @@ int md_network_parameter_read(struct md_network_namespace *,enum md_network_para
 int md_network_parameter_write(struct md_network_namespace *,enum md_network_parameter,uint64_t,const uint32_t values[2]);
 /* Policy state belongs to the selected managed namespace, never Android. */
 struct md_control_file md_network_sysctl_new(struct md_network_namespace *,enum md_network_parameter,const char *,struct md_fs_anchor *);
-enum md_network_link_kind { MD_LINK_LOOPBACK, MD_LINK_UPLINK, MD_LINK_BRIDGE, MD_LINK_VETH };
+enum md_network_link_kind { MD_LINK_LOOPBACK, MD_LINK_UPLINK, MD_LINK_BRIDGE, MD_LINK_VETH, MD_LINK_TUN, MD_LINK_TAP };
 struct md_network_link {
     enum md_network_link_kind kind;
     unsigned index, flags, mtu, type, state, tx_queue_length;

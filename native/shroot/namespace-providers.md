@@ -193,7 +193,14 @@ before preparing a candidate. Mount entry resolves the selected namespace's
 effective root and cwd on the filesystem worker, then publishes both with the
 selected view. Failure discards the candidate. Old dirfds retain their original
 view. IPC entry separates SEM_UNDO and releases adjustments against the old
-authority. Pidfd-based multi-namespace entry is not implemented.
+authority. A pidfd plus a nonzero namespace mask selects a live task's resources
+through the shared exact-descriptor capture path, including duplicated or
+previously unannotated pidfds. Credentials and all selected namespaces form one
+candidate: user entry is prepared first, subsequent checks use that authority,
+and mount resolution completes before any part is published. Invalid masks,
+dead targets or denied entry leave the caller unchanged. Time namespaces remain
+unsupported. The same admission and rollback owners serve namespace FDs and
+pidfds; ordinary filesystem IO does not participate.
 
 ## PID and Proc Views
 

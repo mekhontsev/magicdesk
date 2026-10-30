@@ -14,7 +14,7 @@ final class LinuxUiAutomation implements AutoCloseable {
     private final LinkedHashMap<String, Snapshot> snapshots = new LinkedHashMap<>();
     private record Session(AtSpiClient client, CompletableFuture<Void> released) { }
     private record Handle(AtSpiClient.Node node, long generation) { }
-    private record Snapshot(String id, Session session, long created, Map<String, Handle> handles) { }
+    private record Snapshot(String id, Session session, long created, long retainedAt, Map<String, Handle> handles) { }
     private record Pending(AtSpiClient.Ref ref, String parent, int depth) { }
 
     static boolean handles(String id) { return id.startsWith("atspi-"); }
@@ -41,12 +41,15 @@ final class LinuxUiAutomation implements AutoCloseable {
         if (operation.equals("ui.prepare")) return prepare(session);
         if (operation.equals("ui.inspect")) return inspect(session, args);
         if (!operation.equals("ui.wait")) throw new IllegalArgumentException("Unknown UI operation");
+        return waitFor(session, args);
+    }
+
+    private JSONObject waitFor(Session session, JSONObject args) throws IOException, JSONException {
         if (!args.has("selector")) throw new IllegalArgumentException("ui.wait requires selector");
         boolean present = args.optString("condition", "present").equals("present");
         long until = SystemClock.uptimeMillis() + UiSelector.integer(args, "timeoutMillis", 5000, 0, 60000);
         for (;;) {
-            if (session.released.isDone()) throw new IOException("UI observation released");
-            JSONObject observation = inspect(session, args);
+            JSONObject observation = inspect(session, args, until, present);
             boolean matched = UiSelector.satisfied(present, observation.getJSONArray("nodes").length(),
                     observation.getBoolean("complete"), observation.getBoolean("stable"));
             long remaining = until - SystemClock.uptimeMillis();
@@ -77,47 +80,86 @@ final class LinuxUiAutomation implements AutoCloseable {
     }
     private void expire() {
         long now = SystemClock.uptimeMillis();
-        snapshots.values().removeIf(snapshot -> now - snapshot.created > 60000 || snapshot.session.released.isDone() || !snapshot.session.client.bus.alive());
+        snapshots.values().removeIf(snapshot -> now - snapshot.retainedAt > 60000 || snapshot.session.released.isDone() || !snapshot.session.client.bus.alive());
     }
 
     private JSONObject inspect(Session session, JSONObject args) throws IOException, JSONException {
+        // AtSpiClient bounds each unanswered call; responsive traversal has no elapsed-time cutoff.
+        return inspect(session, args, Long.MAX_VALUE, false);
+    }
+
+    private static void requireActive(Session session) throws IOException {
+        if (session.released.isDone()) throw new IOException("UI observation released");
+        if (Thread.currentThread().isInterrupted()) throw new IOException("UI observation interrupted");
+        if (!session.client.bus.alive()) throw new IOException("Linux UI session ended");
+    }
+
+    private JSONObject inspect(Session session, JSONObject args, long deadline, boolean stopOnMatch) throws IOException, JSONException {
+        requireActive(session);
         for (String incompatible : List.of("displayId", "taskId", "windowId"))
             if (args.has(incompatible)) throw new IllegalArgumentException("Linux session cannot use " + incompatible);
         int limit = UiSelector.integer(args, "maxNodes", 200, 1, 256);
         UiSelector selector = args.has("selector") ? new UiSelector(args.getJSONObject("selector"), Set.of("name", "role", "accessibleId", "applicationId")) : null;
-        session.client.observe();
-        long generation = session.client.bus.generation(), created = SystemClock.uptimeMillis(), deadline = created + 3000;
+        long created = SystemClock.uptimeMillis();
         String snapshotId = "atspi-" + UUID.randomUUID();
         Map<String, Handle> handles = new LinkedHashMap<>();
         JSONArray nodes = new JSONArray(), failures = new JSONArray();
         ArrayDeque<Pending> pending = new ArrayDeque<>();
         String application = args.optString("applicationId", "");
+        String truncationReason = "";
+        boolean observing = false, discovered = false;
+        try {
+            session.client.observe(deadline);
+            observing = true;
+        } catch (AtSpiClient.ObservationDeadline error) {
+            truncationReason = "deadline";
+        } catch (IOException error) {
+            failures.put(ShellAccess.usefulMessage(error));
+            if (SystemClock.uptimeMillis() >= deadline) truncationReason = "deadline";
+        }
+        long generation = session.client.bus.generation();
         if (args.has("rootElementId")) {
             Snapshot previous = snapshot(args.getString("rootElementId"));
             if (previous.session != session) throw new IllegalArgumentException("UI element belongs to another Linux session");
             Handle handle = previous.handles.get(args.getString("rootElementId")); requireUnchanged(session, handle);
             if (!application.isEmpty() && !application.equals(handle.node.ref().destination())) throw new IllegalArgumentException("Wrong application owner");
-            pending.add(new Pending(handle.node.ref(), null, 0));
-        } else for (AtSpiClient.Ref ref : session.client.applications()) {
-            if (application.isEmpty() || ref.destination().equals(application)) pending.add(new Pending(ref, null, 0));
+            if (observing) { pending.add(new Pending(handle.node.ref(), null, 0)); discovered = true; }
+        } else if (observing) try {
+            for (AtSpiClient.Ref ref : session.client.applications(deadline)) {
+                if (application.isEmpty() || ref.destination().equals(application)) pending.add(new Pending(ref, null, 0));
+            }
+            discovered = true;
+        } catch (AtSpiClient.ObservationDeadline error) {
+            truncationReason = "deadline";
+        } catch (IOException error) {
+            failures.put(ShellAccess.usefulMessage(error));
+            if (SystemClock.uptimeMillis() >= deadline) truncationReason = "deadline";
         }
         boolean available = !pending.isEmpty(), complete = available, redacted = false, textTruncated = false;
         Set<AtSpiClient.Ref> visited = new HashSet<>();
+        Set<String> unresponsive = new HashSet<>();
         int textBudget = 256 * 1024;
         while (!pending.isEmpty()) {
-            if (nodes.length() >= limit || visited.size() >= 4096 || SystemClock.uptimeMillis() >= deadline || textBudget <= 0) { complete = false; break; }
+            requireActive(session);
+            if (SystemClock.uptimeMillis() >= deadline) { truncationReason = "deadline"; complete = false; break; }
+            if (nodes.length() >= limit) { truncationReason = "max_nodes"; complete = false; break; }
+            if (visited.size() >= 4096) { truncationReason = "candidate_limit"; complete = false; break; }
+            if (textBudget <= 0) { truncationReason = "text_budget"; complete = false; break; }
             Pending next = pending.removeFirst();
+            // A timed-out application must not spend the remaining observation
+            // budget once per sibling. Retry it on the next explicit observation.
+            if (unresponsive.contains(next.ref.destination())) { complete = false; continue; }
             if (!visited.add(next.ref)) { complete = false; continue; }
             try {
                 AtSpiClient.Node node = session.client.read(next.ref, deadline);
-                if (!node.textComplete()) complete = false;
+                if (!node.textComplete()) { complete = false; truncationReason = "text_limit"; }
                 if (selector != null && selector.couldMatchRedacted(node.data())) redacted = true;
                 String elementId = null;
                 if (selector == null || selector.matches(node.data())) {
                     int retained = 0;
                     for (String field : List.of("text", "description", "name"))
                         if (!node.data().isNull(field)) retained += node.data().getString(field).length();
-                    if (retained > textBudget) { complete = false; break; }
+                    if (retained > textBudget) { truncationReason = "text_budget"; complete = false; break; }
                     textBudget -= retained;
                     elementId = snapshotId + ":" + handles.size();
                     handles.put(elementId, new Handle(node, generation));
@@ -131,31 +173,47 @@ final class LinuxUiAutomation implements AutoCloseable {
                         textTruncated |= length < full.length();
                     }
                     nodes.put(data.put("elementId", elementId).put("parentId", next.parent == null ? JSONObject.NULL : next.parent).put("depth", next.depth));
+                    if (stopOnMatch && session.client.bus.generation() == generation) {
+                        truncationReason = "match"; complete = false; break;
+                    }
                 }
                 List<AtSpiClient.Ref> children = AtSpiClient.references(node.children());
-                if (next.depth >= 40) { if (!children.isEmpty()) complete = false; continue; }
+                if (next.depth >= 40) {
+                    if (!children.isEmpty()) { complete = false; truncationReason = "depth_limit"; }
+                    continue;
+                }
                 for (AtSpiClient.Ref child : children) {
-                    if (pending.size() + visited.size() >= 4096) { complete = false; break; }
+                    if (pending.size() + visited.size() >= 4096) { complete = false; truncationReason = "candidate_limit"; break; }
                     pending.addLast(new Pending(child, elementId, next.depth + 1));
                 }
+            } catch (AtSpiClient.ObservationDeadline error) {
+                truncationReason = "deadline"; complete = false; break;
             } catch (IOException error) {
                 complete = false;
+                if (SystemClock.uptimeMillis() >= deadline) truncationReason = "deadline";
+                if (error instanceof LinuxBusConnection.BusError busError
+                        && Set.of("org.freedesktop.DBus.Error.NoReply", "org.freedesktop.DBus.Error.Timeout")
+                                .contains(busError.name)) unresponsive.add(next.ref.destination());
                 if (failures.length() < 8) failures.put(ShellAccess.usefulMessage(error));
             }
         }
         long end = session.client.bus.generation();
         boolean stable = generation == end;
+        long retainedAt = SystemClock.uptimeMillis();
         synchronized (this) {
-            expire(); snapshots.put(snapshotId, new Snapshot(snapshotId, session, created, handles));
+            requireActive(session);
+            expire(); snapshots.put(snapshotId, new Snapshot(snapshotId, session, created, retainedAt, handles));
             while (snapshots.size() > 4) snapshots.remove(snapshots.keySet().iterator().next());
         }
         return new JSONObject().put("backend", "atspi").put("sessionId", session.client.bus.id).put("applicationId", application)
                 .put("snapshotId", snapshotId).put("nodes", nodes).put("windows", new JSONArray())
-                .put("targetAvailable", available).put("unavailableReason", available ? "" : "no_accessible_application")
+                .put("targetAvailable", available).put("unavailableReason", available ? ""
+                        : discovered ? "no_accessible_application" : "observation_incomplete")
                 .put("complete", complete && stable && !redacted).put("hierarchyComplete", complete).put("stable", stable)
                 .put("generationStart", generation).put("generationEnd", end).put("redactedMatchPossible", redacted)
                 .put("textTruncated", textTruncated).put("visitedNodes", visited.size()).put("handleLifetimeMillis", 60000)
-                .put("capturedAtUptimeMillis", created).put("errors", failures);
+                .put("capturedAtUptimeMillis", created).put("durationMillis", retainedAt - created)
+                .put("truncationReason", truncationReason).put("errors", failures);
     }
 
     private static void requireUnchanged(Session session, Handle handle) throws IOException, JSONException {

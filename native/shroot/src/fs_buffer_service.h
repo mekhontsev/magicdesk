@@ -52,7 +52,7 @@ struct md_fs_buffer_service *md_fs_buffer_service_new(struct md_fs_worker *, str
  * implementation; filesystem providers only supply control-file semantics. */
 /* The factory may transfer a per-open poll/mapping carrier through descriptor.
  * It replaces the namespace placeholder only after path/origin validation. */
-typedef struct md_fd_object *(*md_control_factory)(const struct md_control_file_ops *,void *,const struct md_identity *,int,struct md_fs_anchor *,int *descriptor);
+typedef struct md_fd_object *(*md_control_factory)(const struct md_control_file_ops *,void *,const struct md_control_opener *,int,struct md_fs_anchor *,int *descriptor);
 void md_fs_buffer_control_factory(struct md_fs_buffer_service *,md_control_factory);
 /* 1 selects a borrowed provider, 0 is an ordinary FD, negative denies a typed
  * descriptor that cannot serve this operation. Never fall back to its carrier. */

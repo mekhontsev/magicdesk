@@ -68,12 +68,22 @@ MagicDesk's local `x11-runtime` module. X11 and Wayland use MagicDesk's shared
 ## Guest Runtime SQLite
 
 The experimental native guest filesystem service statically links unmodified
-SQLite 3.50.4. The amalgamation archive and SHA-256 are pinned in
+SQLite 3.51.3. The amalgamation archive and SHA-256 are pinned in
 [`native/shroot/CMakeLists.txt`](native/shroot/CMakeLists.txt).
 SQLite is public domain; its dedication is packaged under
 `assets/licenses/guest-runtime/sqlite.txt`. It is not linked into the bootstrap
 or syscall handler. Debian fixture packages are development inputs and are not
 included in the APK.
+
+## Guest Packet Stack
+
+Shroot statically links lwIP 2.2.1 under its BSD-style license. The source
+archive at commit `77dcd25a72509eb83f72b033d219b1d40cd8eb95` and its SHA-256
+are pinned in [`native/shroot/lwip/CMakeLists.txt`](native/shroot/lwip/CMakeLists.txt).
+The adjacent `context.patch` moves mutable protocol state into independent
+namespace contexts. Upstream's copyright and license text is packaged at
+`assets/licenses/guest-images/lwip.txt`. This native packet stack is not loaded
+into ART or the freestanding syscall bootstrap.
 
 ## Guest Image Import
 

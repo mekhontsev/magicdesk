@@ -77,8 +77,14 @@ final class LinuxAutomationLaunch implements Closeable {
 
     String exports() {
         if (closed.get()) return "";
+        String privateBus = "";
+        for (LinuxBusConnection connection : connections) {
+            privateBus = connection.privateBusAddress();
+            if (!privateBus.isEmpty()) break;
+        }
         return TerminalLaunchEnvironment.exports(Map.of("MAGICDESK_AUTOMATION_SOCKET", endpoint.name,
-                "MAGICDESK_AUTOMATION_TOKEN", token, "MAGICDESK_AUTOMATION_HELPER", helper));
+                "MAGICDESK_AUTOMATION_TOKEN", token, "MAGICDESK_AUTOMATION_HELPER", helper,
+                "MAGICDESK_SESSION_BUS_ADDRESS", privateBus));
     }
 
     static Target target(String id) throws IOException {

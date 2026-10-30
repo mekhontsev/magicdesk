@@ -4,6 +4,8 @@
 #include "network_message.h"
 #include <linux/netlink.h>
 struct md_network_fabric;
+struct ifreq;
+struct md_network_route_ioctl;
 enum md_network_target_kind { MD_NETWORK_TARGET_NONE, MD_NETWORK_TARGET_FD, MD_NETWORK_TARGET_PID };
 struct md_network_target_reference { enum md_network_target_kind kind; int value; };
 /* Resolves guest descriptors or guest-visible PIDs, never host PID/path input. */
@@ -22,6 +24,12 @@ int md_network_route_set_address(struct md_network_namespace *,const struct md_i
 int md_network_route_set_flags(struct md_network_namespace *,const struct md_identity *,const char *,unsigned);
 int md_network_route_set_mtu(struct md_network_namespace *,const struct md_identity *,const char *,unsigned);
 int md_network_route_attach_bridge(struct md_network_namespace *,const struct md_identity *,const char *,unsigned);
+int md_network_route_address_ioctl(struct md_network_namespace *,const struct md_identity *,unsigned,struct ifreq *);
+int md_network_route_legacy(struct md_network_namespace *,const struct md_identity *,unsigned,const struct md_network_route_ioctl *);
+/* Device-owner lifecycle, under the fabric lock. Creation has already committed;
+ * final close cannot depend on allocating a topology rollback journal. */
+void md_network_route_link_created(struct md_network_namespace *,unsigned);
+void md_network_route_link_removed(struct md_network_namespace *,unsigned);
 enum { MD_NETWORK_ROUTE_CAPPED_ACK=1, MD_NETWORK_ROUTE_STRICT=2 };
 long md_network_route(struct md_network_namespace *,const struct md_identity *,
     const struct nlmsghdr *,size_t,uint32_t,unsigned options,const struct md_network_target *,void *,size_t,

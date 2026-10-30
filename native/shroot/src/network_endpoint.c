@@ -100,7 +100,9 @@ int md_network_endpoint_is(const struct md_fd_object *o) { return o && o->type==
 struct md_network_namespace *md_network_endpoint_namespace(const struct md_fd_object *o) {
     return md_network_endpoint_is(o) ? ((const struct md_network_endpoint *)o)->space : NULL;
 }
-int md_network_endpoint_enabled(const struct md_network_namespace *n) { return n && n->fabric->endpoints_enabled; }
+int md_network_endpoint_enabled(const struct md_network_namespace *n) {
+    return n && (n->fabric->endpoints_enabled || atomic_load_explicit(&n->packet_enabled,memory_order_acquire));
+}
 unsigned md_network_endpoint_family(const struct md_fd_object *o) {
     return md_network_endpoint_is(o) ? ((const struct md_network_endpoint *)o)->family : AF_UNSPEC;
 }

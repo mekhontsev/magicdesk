@@ -10,8 +10,10 @@
 #include <string.h>
 #include <sys/mount.h>
 #include <sys/msg.h>
+#include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -60,10 +62,61 @@ static void *thread_entry(void *data) {
     assert(setns(fd[0],CLONE_NEWUSER)<0 && errno==EINVAL);
     return NULL;
 }
+static void pidfd_namespaces(int logical_pid) {
+    pid_t caller=fork(); assert(caller>=0);
+    if (caller) { finished(caller); return; }
+    if (logical_pid) assert(!unshare(CLONE_NEWPID));
+    assert(!setgid(1000) && !setuid(1000));
+    int ready[2], finish[2]; assert(!pipe(ready) && !pipe(finish));
+    pid_t target=fork(); assert(target>=0);
+    if (!target) {
+        close(ready[0]); close(finish[1]);
+        assert(!unshare(CLONE_NEWUSER|CLONE_NEWNS|CLONE_NEWUTS|CLONE_NEWIPC|CLONE_NEWNET));
+        map("/proc/self/uid_map","0 1000 1\n"); map("/proc/self/setgroups","deny\n");
+        map("/proc/self/gid_map","0 1000 1\n");
+        assert(!sethostname("pidfd-joined",12));
+        assert(!mount("tmpfs","/tmp/setns","tmpfs",0,"mode=0755"));
+        int fd=open("/tmp/setns/pidfd",O_CREAT|O_RDWR,0600); assert(fd>=0); close(fd);
+        char byte;
+        /* The creating parent retains authority in this descendant user
+         * namespace even when the target is nondumpable. */
+        assert(!prctl(PR_SET_DUMPABLE,0));
+        assert(write(ready[1],"x",1)==1);
+        /* EVENT_WAIT: parent completes live-target admission before owner exit. */
+        assert(read(finish[0],&byte,1)==1); _exit(0);
+    }
+    close(ready[1]); close(finish[0]); char byte;
+    /* EVENT_WAIT: child's namespace setup, bounded by the fixture alarm. */
+    assert(read(ready[0],&byte,1)==1); close(ready[0]);
+    int pidfd=syscall(SYS_pidfd_open,target,0); assert(pidfd>=0);
+    int copy=dup(pidfd); assert(copy>=0); close(pidfd); pidfd=copy;
+    assert(setns(pidfd,0)<0 && errno==EINVAL);
+    assert(setns(pidfd,CLONE_FILES)<0 && errno==EINVAL);
+    assert(setns(finish[1],CLONE_NEWUSER)<0 && errno==EINVAL);
+    assert(setns(pidfd,CLONE_NEWNET)<0 && errno==EPERM);
+    int original=open("/proc/self/ns/user",O_RDONLY); assert(original>=0);
+    struct stat before, after; assert(!fstat(original,&before));
+    /* The selected cgroup namespace belongs to the ancestor: reject the whole
+     * candidate after preparing user/UTS/IPC, without publishing any of them. */
+    assert(setns(pidfd,CLONE_NEWUSER|CLONE_NEWUTS|CLONE_NEWIPC|CLONE_NEWCGROUP)<0 && errno==EPERM);
+    assert(!stat("/proc/self/ns/user",&after) && before.st_ino==after.st_ino);
+    assert(getuid()==1000 && access("/tmp/setns/pidfd",F_OK)<0 && errno==ENOENT);
+    char hostname[128]; assert(!gethostname(hostname,sizeof(hostname)) && strcmp(hostname,"pidfd-joined"));
+    assert(!setns(pidfd,CLONE_NEWUSER|CLONE_NEWNS|CLONE_NEWUTS|CLONE_NEWIPC|CLONE_NEWNET));
+    assert(getuid()==0 && !access("/tmp/setns/pidfd",F_OK));
+    assert(!gethostname(hostname,sizeof(hostname)) && !strcmp(hostname,"pidfd-joined"));
+    assert(setns(pidfd,CLONE_NEWUSER)<0 && errno==EINVAL);
+    assert(setns(original,CLONE_NEWUSER)<0 && errno==EPERM); close(original);
+    assert(write(finish[1],"x",1)==1); close(finish[1]); finished(target);
+    assert(setns(pidfd,CLONE_NEWNET)<0 && errno==ESRCH); close(pidfd);
+    _exit(0);
+}
 void test_setns_guest(void) {
     alarm(60); setbuf(stdout,NULL);
     assert(!chmod("/",0755) && !chmod("/tmp",01777));
     assert(!mkdir("/tmp/setns",0755));
+    pidfd_namespaces(0);
+    pidfd_namespaces(1);
     int old[4]; namespaces(old);
     int sockets[2]; assert(!socketpair(AF_UNIX,SOCK_SEQPACKET|SOCK_CLOEXEC,0,sockets));
     pid_t producer=fork(); assert(producer>=0);
@@ -121,5 +174,6 @@ void test_setns_guest(void) {
     }
     finished(consumer);
     for (unsigned i=0;i<4;++i) { close(old[i]); close(next[i]); }
-    puts("PASS guest setns: SCM-held namespaces, owner exit, root/cwd replacement, IPC/UTS state, user entry and authority checks");
+    assert(!rmdir("/tmp/setns"));
+    puts("PASS guest setns: pidfd atomic entry/rollback, SCM-held namespaces, owner exit, root/cwd, IPC/UTS and authority");
 }

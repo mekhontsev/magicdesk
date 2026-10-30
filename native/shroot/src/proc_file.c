@@ -90,8 +90,8 @@ static long closed(struct md_fd_object *object,const struct md_control_actor *ac
 static const struct md_fd_object_type type={.destroy=destroy,.selectors=1U<<MD_FD_SELECTOR_PROC,
     .selector_mask=selectors,.readiness=readiness,.origin=origin,.close=closed};
 struct md_fd_object *md_proc_file_control_object(const struct md_control_file_ops *ops,void *context,
-        const struct md_identity *id,int flags,struct md_fs_anchor *placement,int *descriptor) {
-    struct md_proc_file *file=md_proc_file_open_control(ops,context,id,flags);
+        const struct md_control_opener *opener,int flags,struct md_fs_anchor *placement,int *descriptor) {
+    struct md_proc_file *file=md_proc_file_open_control(ops,context,opener,flags);
     if (!file) return NULL;
     if (ops->descriptor && !(flags&O_PATH)) {
         int fd=md_proc_file_descriptor(file);
@@ -133,8 +133,10 @@ struct md_proc_file *md_proc_file_open(struct md_user_namespace *target,
     return f;
 }
 struct md_proc_file *md_proc_file_open_control(const struct md_control_file_ops *ops,void *context,
-        const struct md_identity *id,int flags) {
-    if (ops==&task_ops) return md_proc_file_reopen(context,id,flags);
+        const struct md_control_opener *opener,int flags) {
+    if (!opener || !opener->identity) { errno=EINVAL; return NULL; }
+    const struct md_identity *id=opener->identity;
+    if (ops==&task_ops) return md_proc_file_reopen(context,opener,flags);
     int mode=(flags&O_PATH) ? 0 : (flags&O_ACCMODE)==O_RDWR ? R_OK|W_OK
         : (flags&O_ACCMODE)==O_WRONLY ? W_OK : R_OK;
     if (!(flags&O_PATH) && (flags&O_TRUNC)) mode|=W_OK;
@@ -159,7 +161,7 @@ struct md_proc_file *md_proc_file_open_control(const struct md_control_file_ops 
         ? (enum md_proc_file_kind)(MD_PROC_FILE_NS_USER+ref->kind) : md_proc_sysctl_kind(ops,context),id,
         directory ? flags&~O_DIRECTORY : flags);
     if (f) {
-        void *opened=ops->open && !(flags&O_PATH) ? ops->open(context,flags) : ops->retain(context);
+        void *opened=ops->open && !(flags&O_PATH) ? ops->open(context,opener,flags) : ops->retain(context);
         if (!opened) { int saved=errno; md_proc_file_release(f); errno=saved; return NULL; }
         f->control=ops; f->control_context=opened;
         f->control_directory=directory; atomic_store_explicit(&f->flags,flags,memory_order_relaxed);
@@ -208,7 +210,8 @@ struct md_proc_file *md_proc_file_open_namespace(const struct md_namespace_refer
         const struct md_identity *opener, int flags) {
     struct md_control_file control=md_namespace_file_new(ref);
     if (!control.ops) return NULL;
-    struct md_proc_file *f=md_proc_file_open_control(control.ops,control.context,opener,flags);
+    struct md_proc_file *f=md_proc_file_open_control(control.ops,control.context,
+        &(struct md_control_opener){.identity=opener},flags);
     md_control_file_release(control);
     return f;
 }
@@ -249,16 +252,17 @@ int md_proc_file_filesystem_paths(const struct md_proc_file *f) {
     return f && f->control && f->control->filesystem_paths;
 }
 struct md_proc_file *md_proc_file_reopen(const struct md_proc_file *f,
-        const struct md_identity *opener, int flags) {
+        const struct md_control_opener *opener, int flags) {
+    if (!opener || !opener->identity) { errno=EINVAL; return NULL; }
     if (f->placement && !f->control && !(flags&O_PATH)) {
         unsigned mode=(flags&O_ACCMODE)==O_RDWR ? R_OK|W_OK : (flags&O_ACCMODE)==O_WRONLY ? W_OK : R_OK;
         if (flags&O_TRUNC) mode|=W_OK;
         int error=(mode&W_OK) && (md_fs_anchor_policy(f->placement)&MD_MOUNT_READONLY) ? -EROFS
-            : md_proc_file_task_access(opener,&f->metadata,mode,1);
+            : md_proc_file_task_access(opener->identity,&f->metadata,mode,1);
         if (error) { errno=-error; return NULL; }
     }
     struct md_proc_file *next=f->control ? md_proc_file_open_control(f->control,f->control_context,opener,flags)
-        : md_proc_file_open(f->target,f->kind,opener,flags);
+        : md_proc_file_open(f->target,f->kind,opener->identity,flags);
     if (next) {
         next->node=f->node; md_proc_file_pid_view(next,f->pid_view); md_proc_file_cgroup(next,f->cgroup);
         md_proc_file_place(next,f->placement,&f->metadata);

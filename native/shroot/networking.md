@@ -6,6 +6,7 @@ Namespace-local network configuration, supported nftables flow filtering and NAT
 
 - [Launch Profiles](#launch-profiles)
 - [Network Namespaces](#network-namespaces)
+- [TUN/TAP Packet Transport](#tuntap-packet-transport)
 - [Namespace-Owned Sysctls](#namespace-owned-sysctls)
 - [Namespace-Owned Sysfs](#namespace-owned-sysfs)
 
@@ -101,7 +102,7 @@ at enqueue, so delivery after sender exit cannot adopt a reused PID. Receivers
 translate that snapshot in their own PID/user namespaces. Interface name/index,
 flags and MTU ioctls use the socket's creation namespace, including the AF_UNIX
 control sockets used by libc's `if_nametoindex`.
-Flag and MTU setters enter the netlink mutation owner, preserving capability
+Flag, MTU, IPv4 address/netmask and legacy route setters enter the netlink mutation owner, preserving capability
 checks, topology publication and observer notifications. Unsupported flag
 changes fail explicitly; read-only flags are not overwritten by legacy ioctls.
 Control descriptor selection joins the close/dup table turn, including capture
@@ -126,9 +127,10 @@ Link-local bridge control frames are not flooded to other ports. Protocol-zero
 sockets remain inactive until a protocol is selected. Bindings and memberships
 retain interface lifetimes across renames, but not namespace removal/recreation.
 Virtual Ethernet links have no hardware multicast filter; memberships are
-reference-counted with the socket, as on a software veth device. No FDB learning,
-packet mmap/rings, host-interface capture or reconstruction of translated TCP/UDP
-as Ethernet frames is claimed. Unimplemented packet options return an error.
+reference-counted with the socket, as on a software veth device. TUN/TAP routes
+use the packet stack below for TCP/UDP framing. Ordinary native endpoint routes
+do not synthesize Ethernet traffic. No FDB learning, packet mmap/rings or
+host-interface capture is claimed. Unimplemented packet options return an error.
 These queues are independent of the ordinary TCP/UDP endpoint fast path.
 `test_network_ethernet.py` covers raw/cooked delivery, filtering, source identity,
 permissions and retained namespace authority with Base and lazy entry;
@@ -242,8 +244,10 @@ It also supports raw UDPv6, including `IPV6_CHECKSUM`, on that fabric.
 selection and broadcast permission. Raw UDP and ordinary UDP share endpoint
 lookup, live filtering and retained reverse NAT; replies reach both ordinary
 UDP endpoints and admitted raw observers. No packet privileges are requested
-from Android. General IP forwarding, fragmentation and arbitrary raw IPv6
-protocols are not implied. `test_network_dhcp.py` runs an unmodified dhcpcd in
+from Android. Packet-stack links support IPv4/IPv6 fragmentation and reassembly;
+the lightweight Ethernet control path without a packet stack does not. General
+IP forwarding and arbitrary raw IPv6 protocols are not implied.
+`test_network_dhcp.py` runs an unmodified dhcpcd in
 a separate guest namespace against a fixture server, checking IPv4/IPv6 lease
 and renewal, DNS options, installed routes and bidirectional UDP. This exercises
 DHCP transport, not a built-in Shroot DHCP server or Android network control.
@@ -266,6 +270,62 @@ UDP `AF_UNSPEC` disconnect resets the selected source and private flow mapping;
 the original explicit binding remains distinct from the previous route's source.
 External IPv6 TCP/UDP uses native backing sockets and requires an IPv6 route
 permitted to the executor by Android/VPN policy; Shroot does not alter that policy.
+
+### TUN/TAP Packet Transport
+
+`network_tun` publishes the guest `/dev/net/tun` control device. Opening it
+captures the caller's network namespace through `md_control_opener`; dup, fork
+and SCM_RIGHTS retain that same open description. Creating an interface checks
+guest `CAP_NET_ADMIN` in its namespace owner. Persistent devices can grant
+attachment to an owner/group. Final queue closure removes a nonpersistent link
+and its routes through the shared topology owner.
+
+Supported ABI: TUN IP packets, TAP Ethernet frames, optional `tun_pi`, one
+packet per read, truncation flags, nonblocking readiness, persistence, owner/group,
+carrier control and multiqueue attach/detach. Packet consumption commits only
+after guest output copying succeeds. Each queue is bounded by 1024 packets and
+4 MiB. Unsupported offloads, virtio-net headers, steering programs and device
+moves fail explicitly; `TUNGETFEATURES` advertises only implemented features.
+This is not Android's VPN service and never opens the host TUN device.
+
+`network_stack` owns a lazy lwIP context for each packet-enabled namespace.
+TCP, UDP, ICMP, ARP, IPv6 neighbor discovery, retransmissions and fragment
+reassembly use that context. The pinned upstream source has a focused state
+patch: protocol lists, sequence state, timers and caches are namespace-owned.
+A scoped thread-local pointer selects a context during callbacks; it contains
+no shared protocol state. A build-time symbol audit rejects mutable globals
+outside that selector. Dynamic stack allocations are capped at 64 MiB per
+namespace and reclaimed together on retirement, including unfinished fragments.
+
+The existing fabric event loop drives bounded packet batches, nonblocking
+channel IO and a monotonic protocol timer. No thread is created per stack or
+connection. Queueing prevents recursive cross-namespace stack entry.
+`network_stack_channel` connects packet TCP/UDP to the existing endpoint,
+filter/NAT and native-socket forwarding owners. TCP acceptance retains the
+remote handshake result; write acknowledgement follows admitted buffering.
+Graceful relay retirement waits until the packet owner has drained its carrier
+and queued FIN. Exhausted relay descriptors leave epoll while this completes;
+the packet owner's completion wakes retirement without a delay or HUP spin.
+`network_stack_packet` validates reassembled transport and delivers raw
+observations without a second IP reassembler.
+
+Shroot remains the address/route authority; lwIP does not run DHCP, DNS or SLAAC
+configuration. Current stack interfaces mirror one primary IPv4 address and up
+to 16 IPv6 addresses. TAP bridge forwarding uses the shared Ethernet topology.
+This is packet termination and socket forwarding, not a general IP router.
+Ordinary native socket/file payload reads and writes do not enter this stack.
+
+`test_lwip_context` covers concurrent independent contexts, repeated tuples,
+fragmentation, TCP/UDP and retirement. `test_network_tun` covers packet ABI,
+permissions, queue lifetime, raw ICMP and IPv4/IPv6 TCP/UDP between both packet
+and native endpoints. The rootless mode of `probe_podman_runtime.py` checks
+stock slirp4netns, UID mappings, container DNS/HTTP, TCP/UDP publication and
+cleanup with the normal container seccomp policy.
+`probe_packet_runtime.py` checks stock tun2socks through a SOCKS5 TCP/UDP proxy
+and stock QEMU TCG through TAP/virtio-net. Both cover IPv4/IPv6, bulk transfers,
+fragmentation and TCP half-close; QEMU additionally runs the peer inside a real
+Linux kernel and checks connections initiated in both directions. These use the
+same packet and relay owners, without application-specific runtime handling.
 
 ### Nftables and Flow Forwarding
 

@@ -129,7 +129,8 @@ int md_ipc_io_prepare(struct md_ipc_io *op, struct md_ipc_io_message *io, int fd
         md_ipc_io_release(op); return -ENOMEM;
     }
     op->initialized=1; op->sending=sending; op->stream=type==SOCK_STREAM;
-    op->nonblocking=!!((mode&O_NONBLOCK) || (flags&MSG_DONTWAIT));
+    /* The error queue is a snapshot, even on an otherwise blocking socket. */
+    op->nonblocking=!!((mode&O_NONBLOCK) || (flags&MSG_DONTWAIT) || (!sending && (flags&MSG_ERRQUEUE)));
     if (!sending && op->stream && !op->nonblocking) {
         int low=1; length=sizeof(low);
         if (getsockopt(fd,SOL_SOCKET,SO_RCVLOWAT,&low,&length)) {

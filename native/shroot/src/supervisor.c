@@ -642,6 +642,8 @@ static long buffer_result_finish(struct thread *,long,long);
 static void report_statistics(void);
 static int debugger_allowed(pid_t, pid_t);
 static int proc_allowed(pid_t, pid_t);
+static int inspect_allowed(pid_t, pid_t, int);
+static void setns_complete(struct thread *,int);
 static pid_t visible_pid(struct thread *,pid_t);
 static pid_t native_pid(struct thread *,pid_t);
 static void ipc_unwatch(struct thread *);
@@ -1997,7 +1999,8 @@ static int control_file_capture(pid_t actor,const char *path,struct md_fd_object
         if (md_proc_file_sysctl(type)) {
             struct md_control_file control=md_proc_sysctl_new(type,NULL,t->resources.uts);
             if (!control.ops) return -errno;
-            file=md_proc_file_open_control(control.ops,control.context,&t->identity,O_PATH);
+            file=md_proc_file_open_control(control.ops,control.context,
+                &(struct md_control_opener){.identity=&t->identity,.network=t->resources.network},O_PATH);
             md_control_file_release(control);
         } else {
         struct md_namespace_reference ref=md_namespace_reference_capture(
@@ -2110,7 +2113,8 @@ static void proc_file_request(struct thread *t, const struct seccomp_notif *q) {
         struct md_proc_file *file=NULL;
         if (!view.ops) { if (!reply.error) reply.error=-errno; }
         else {
-            file=md_proc_file_open_control(view.ops,view.context,&t->identity,flags);
+            file=md_proc_file_open_control(view.ops,view.context,
+                &(struct md_control_opener){.identity=&t->identity,.network=t->resources.network},flags);
             if (!file) reply.error=-errno;
             else reply.error=proc_file_publish(t,q,file);
         }
@@ -2125,7 +2129,8 @@ static void proc_file_request(struct thread *t, const struct seccomp_notif *q) {
         else if (target->executable_origin || !target->executable) reply.error=-EXDEV;
         else {
             struct md_control_file view=md_process_executable_view(target->executable);
-            file=md_proc_file_open_control(view.ops,view.context,&t->identity,flags);
+            file=md_proc_file_open_control(view.ops,view.context,
+                &(struct md_control_opener){.identity=&t->identity,.network=t->resources.network},flags);
             if (!file) reply.error=-errno;
             else {
                 reply.error=proc_file_publish(t,q,file);
@@ -2173,7 +2178,8 @@ static void proc_file_request(struct thread *t, const struct seccomp_notif *q) {
                 : md_proc_file_task_access(&t->identity,&st,mode,1);
             if (!error && (flags&O_NOATIME) && !(flags&O_PATH)) error=md_file_noatime(&st,&t->identity);
             struct md_proc_file *file=NULL;
-            if (!error && source) file=md_proc_file_reopen(source,&t->identity,flags);
+            if (!error && source) file=md_proc_file_reopen(source,
+                &(struct md_control_opener){.identity=&t->identity,.network=t->resources.network},flags);
             else if (!error && namespace) {
                 struct md_namespace_reference ref=md_namespace_reference_capture(
                     (enum md_namespace_kind)(file_kind-MD_PROC_FILE_NS_USER),selected.resources,selected.identity->user_namespace);
@@ -2181,7 +2187,8 @@ static void proc_file_request(struct thread *t, const struct seccomp_notif *q) {
             } else if (!error && sysctl) {
                 struct md_control_file control=md_proc_sysctl_new(file_kind,NULL,t->resources.uts);
                 if (control.ops) {
-                    file=md_proc_file_open_control(control.ops,control.context,&t->identity,flags);
+                    file=md_proc_file_open_control(control.ops,control.context,
+                        &(struct md_control_opener){.identity=&t->identity,.network=t->resources.network},flags);
                     md_control_file_release(control);
                 }
             } else if (!error) file=md_proc_file_open(selected.identity->user_namespace,file_kind,&t->identity,flags);
@@ -3276,6 +3283,9 @@ static void mount_copy_complete(struct md_mount_copy_request *request, int actor
     if (!t || t->mount_copy!=request) return;
     t->mount_copy=NULL;
     if (!error) error=md_mount_copy_take(request,&t->resource_change.next.mounts,&t->resource_change.next.fs);
+    if (t->fd_job==MD_FD_USE && t->original.regs[8]==SYS_setns) {
+        setns_complete(t,error); return;
+    }
     if (error) {
         CHECK(!md_resources_unshare_finish(&t->resources,&t->identity,&t->resource_change,error));
         fd_discard(t); return_value(t,&t->fd_registers,error); return;
@@ -3312,7 +3322,8 @@ static void fd_start(struct thread *t) {
     }
     if ((!t->fd_job || t->fd_job==MD_FD_DUPLICATE_BEGIN) && !fd_loans_ready(t)) return;
     int needs_fs=t->fd_job==MD_FD_INPUT ? (int)r->regs[2]==AT_FDCWD || (int)r->regs[3]==AT_FDCWD
-        : !t->fd_job && (t->fd_cwd || md_clone_call(r->regs[8]) || r->regs[8]==SYS_setns
+        : t->fd_job==MD_FD_USE ? t->original.regs[8]==SYS_setns
+        : !t->fd_job && (t->fd_cwd || md_clone_call(r->regs[8])
             || (r->regs[8]==SYS_unshare && (r->regs[0]&(CLONE_FS|CLONE_NEWNS|CLONE_NEWUSER))));
     if (needs_fs) {
         if (!t->fs_order.fs) {
@@ -3359,23 +3370,6 @@ static void fd_start(struct thread *t) {
         return;
     }
     int error=0;
-    if (r->regs[8]==SYS_setns) {
-        struct md_proc_file *file=proc_file_capture(t,(int)r->regs[0]);
-        const struct md_namespace_reference *ref=md_proc_file_namespace_reference(file);
-        if (!ref || (file && (md_proc_file_flags(file)&O_PATH))) error=(int)r->regs[0]<0 ? -EBADF : -EINVAL;
-        if (!error && ref->kind==MD_NAMESPACE_USER)
-            for (struct thread *other=threads;other;other=other->next)
-                if (other!=t && other->pid && other->tgid==t->tgid) { error=-EINVAL; break; }
-        if (!error) error=md_resources_setns_prepare(&t->resources,&t->identity,ref,
-            (unsigned)r->regs[1],&t->resource_change);
-        md_proc_file_release(file);
-        if (!error && t->resource_change.join_mounts) {
-            error=md_mount_join_submit(mount_copy_service,t->pid,t->resource_change.join_mounts,&t->mount_copy);
-            /* EVENT_WAIT: selected namespace root/cwd resolution; cancellation
-             * discards the unpublished context without changing task state. */
-            if (!error) return;
-        }
-    }
     if (r->regs[8]==SYS_execve || r->regs[8]==SYS_execveat || r->regs[8]==SYS_unshare
             || (r->regs[8]==SYS_close_range && (r->regs[2]&CLOSE_RANGE_UNSHARE)))
         error=resources_unshare_prepare(t,r->regs[8]==SYS_unshare ? r->regs[0] : CLONE_FILES);
@@ -3450,10 +3444,6 @@ static void fd_native_start(struct thread *t) {
             md_resources_unshare_finish(&t->resources,&t->identity,&t->resource_change,error);
             fd_discard(t); return_value(t,r,error); return;
         }
-    }
-    if (r->regs[8]==SYS_setns) {
-        CHECK(!md_resources_unshare_finish(&t->resources,&t->identity,&t->resource_change,0));
-        fd_discard(t); return_value(t,r,0); return;
     }
     unsigned long args[6];
     for (unsigned i=0;i<6;++i) args[i]=r->regs[i];
@@ -4280,7 +4270,10 @@ static void fd_control(struct thread *t, struct user_pt_regs *r) {
     } else if (operation==MD_FD_RELEASE) {
         if (id || r->regs[2] || r->regs[3] || t->fd_job!=MD_FD_USE
                 || md_fd_order_state(&t->fd_order)!=MD_RESOURCE_ORDER_RUNNING) result=-EINVAL;
-        else { CHECK(!md_fd_order_complete(&t->fd_order)); t->fd_job=0; }
+        else {
+            if (t->fs_order.fs) CHECK(!md_fs_order_complete(&t->fs_order));
+            CHECK(!md_fd_order_complete(&t->fd_order)); t->fd_job=0;
+        }
     } else if (!id || id!=md_fd_exchange_id(t->fd_exchange)) result=-ESTALE;
     else if (operation==MD_FD_SENT || operation==MD_FD_RECEIVED) {
         if (t->fd_job!=(operation==MD_FD_SENT ? MD_FD_INPUT : MD_FD_RECEIVE)
@@ -6283,9 +6276,10 @@ static void buffer_control(struct thread *t, const struct user_pt_regs *r) {
         buffer_descriptor_begin(t,r); return;
     }
     case MD_BUFFER_PIDFD_NAMESPACE:
-        if (t->phase!=DISPATCHING || t->proc_file || t->original.regs[8]!=SYS_ioctl
+        if (t->phase!=DISPATCHING || t->proc_file
+                || (t->original.regs[8]!=SYS_ioctl && t->original.regs[8]!=SYS_setns)
                 || r->regs[1]!=t->original.regs[0] || r->regs[2]!=t->original.regs[1]
-                || !md_pidfd_namespace_command((unsigned)r->regs[2])) break;
+                || (t->original.regs[8]==SYS_ioctl && !md_pidfd_namespace_command((unsigned)r->regs[2]))) break;
         pidfd_begin(t,r); return;
     case MD_BUFFER_CLONE_CGROUP: {
         if (t->phase!=DISPATCHING || t->original.regs[8]!=SYS_clone3
@@ -6586,15 +6580,36 @@ static int init_signal_suppressed(const struct thread *from,const struct thread 
      * namespace. Other signals retain blocking/handler semantics at delivery. */
     return md_pid_identity_namespace(from->resources.pid)==md_pid_identity_namespace(to->resources.pid);
 }
+static void setns_complete(struct thread *t,int error) {
+    CHECK(!md_resources_unshare_finish(&t->resources,&t->identity,&t->resource_change,error));
+    struct md_buffer_span span; CHECK(!md_buffer_span(&t->buffer,&span));
+    ((struct md_pidfd_frame *)span.data)->result=error;
+    buffer_reply(t,MD_PIDFD_DONE);
+}
+static void setns_prepared(struct thread *t,int error) {
+    if (!error && t->resource_change.join_mounts) {
+        error=md_mount_join_submit(mount_copy_service,t->pid,t->resource_change.join_mounts,&t->mount_copy);
+        /* EVENT_WAIT: selected namespace root/cwd resolution. Cancellation
+         * discards the entire unpublished namespace/credential candidate. */
+        if (!error) return;
+    }
+    setns_complete(t,error);
+}
 static void pidfd_result(struct thread *t,struct md_pid_identity *identity,pid_t native,long error) {
     struct md_buffer_span span; CHECK(!md_buffer_span(&t->buffer,&span));
     struct md_pidfd_frame *frame=span.data;
     int namespace=t->original.regs[8]==SYS_ioctl;
+    int joining=t->original.regs[8]==SYS_setns;
     struct thread *target=native>0 ? find_thread(native) : NULL;
+    if (!error && joining && !native) error=-EINVAL;
     if (!error && (native<0 || (identity && (!target || target->resources.pid_group!=identity)))) error=-ESRCH;
     if (!error && target && !target->born) error=-ESRCH;
     if (!error && !target) error=namespace ? MD_CALL_NATIVE : -ESRCH;
-    else if (!error && namespace) {
+    else if (!error && joining) {
+        if (!inspect_allowed(t->pid,target->pid,0)) error=-EPERM;
+        else error=md_resources_setns_process_prepare(&t->resources,&t->identity,&target->resources,
+            target->identity.user_namespace,(unsigned)t->original.regs[1],&t->resource_change);
+    } else if (!error && namespace) {
         unsigned command=(unsigned)t->original.regs[1];
         if (t->original.regs[2]) error=-EINVAL;
         else if (target!=t && !proc_allowed(t->pid,target->pid)) error=-EACCES;
@@ -6616,6 +6631,7 @@ static void pidfd_result(struct thread *t,struct md_pid_identity *identity,pid_t
         else if (t->original.regs[2] && (code>=0 || code==SI_TKILL) && target->tgid!=t->tgid) error=-EPERM;
         else error=init_signal_suppressed(t,target,signal);
     }
+    if (joining) { setns_prepared(t,(int)error); return; }
     frame->result=error;
     buffer_reply(t,MD_PIDFD_DONE);
 }
@@ -6639,6 +6655,21 @@ static void pidfd_begin(struct thread *t,const struct user_pt_regs *r) {
     (void)r;
     if (!t->buffer.pool || t->pidfd_capture.count || t->fd_job!=MD_FD_USE
             || md_fd_order_state(&t->fd_order)!=MD_RESOURCE_ORDER_RUNNING) { buffer_reply(t,-EINVAL); return; }
+    if (t->original.regs[8]==SYS_setns) {
+        if (md_fs_order_state(&t->fs_order)!=MD_RESOURCE_ORDER_RUNNING) { buffer_reply(t,-EINVAL); return; }
+        struct md_proc_file *file=proc_file_capture(t,(int)t->original.regs[0]);
+        const struct md_namespace_reference *ref=md_proc_file_namespace_reference(file);
+        unsigned types=(unsigned)t->original.regs[1];
+        int error=0;
+        if (file && (md_proc_file_flags(file)&O_PATH)) error=-EBADF;
+        if (!error && (ref ? ref->kind==MD_NAMESPACE_USER : !!(types&CLONE_NEWUSER)))
+            for (struct thread *other=threads;other;other=other->next)
+                if (other!=t && other->pid && other->tgid==t->tgid) { error=-EINVAL; break; }
+        if (!error && ref) error=md_resources_setns_prepare(&t->resources,&t->identity,ref,types,&t->resource_change);
+        int handled=error || ref;
+        md_proc_file_release(file);
+        if (handled) { setns_prepared(t,error); return; }
+    }
     struct md_fd_object *object=md_fd_origins_object(t->resources.files,(int)t->original.regs[0],NULL);
     struct md_pid_identity *identity=md_pid_descriptor_identity(object);
     if (identity) {
@@ -6872,7 +6903,7 @@ static int domain_call(struct thread *t, struct user_pt_regs *r, unsigned long c
         resume(t->pid,0); return 1;
     }
     if (t->phase==IDLE && !t->pid_filter
-            && (((nr==SYS_clone || nr==SYS_unshare) && (r->regs[0]&CLONE_NEWPID)) || nr==SYS_setns)) {
+            && ((nr==SYS_clone || nr==SYS_unshare) && (r->regs[0]&CLONE_NEWPID))) {
         t->original=*r; t->pid_preflight=1;
         if (save_signal_mask(t,&t->mask,"pid-filter-mask")
                 && shield(t) && skip(t->pid)) dispatch_with_stack(t);
@@ -6930,7 +6961,12 @@ static int domain_call(struct thread *t, struct user_pt_regs *r, unsigned long c
         fd_begin(t,r,0);
         return 1;
     }
-    if (nr == SYS_setns) { fd_begin(t,r,0); return 1; }
+    if (nr == SYS_setns) {
+        t->original=*r;
+        if (save_signal_mask(t,&t->mask,"namespace-entry-mask") && shield(t) && skip(t->pid))
+            dispatch_with_stack(t);
+        return 1;
+    }
     if (nr==SYS_clone3 && !t->clone_prepared) {
         CHECK(t->phase==IDLE);
         t->original=*r;

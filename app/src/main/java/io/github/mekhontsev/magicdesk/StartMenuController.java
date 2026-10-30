@@ -117,8 +117,8 @@ final class StartMenuController implements StartMenuContent.Host {
     @Override public boolean mouseMotion(final MotionEvent event) {
         return mActivity.handleDesktopMouseGenericEvent(event, true);
     }
-    @Override public void appContext(final View view, final AppItem app, final Runnable removeRecent) {
-        mActivity.registerStartContextTarget(view, app, mContent::destination, mContent::presentation, removeRecent);
+    @Override public void appContext(final View view, final StartMenuEntry entry, final Runnable removeRecent) {
+        mActivity.registerStartContextTarget(view, entry.app, mContent::destination, mContent::presentation, removeRecent);
     }
     @Override public void fileContext(final View view, final DesktopFile file) {
         mActivity.registerFileContextTarget(view, file);

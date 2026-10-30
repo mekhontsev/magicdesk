@@ -23,7 +23,7 @@ void md_test_fuse_filesystem(struct md_filesystem *);
 static int capture(void *context,const struct md_control_file_ops *ops,void *node,
         const struct md_identity *id,int flags,struct md_fs_anchor *origin) {
     (void)id; (void)origin;
-    void *opened=flags&O_PATH ? ops->retain(node) : ops->open(node,flags);
+    void *opened=flags&O_PATH ? ops->retain(node) : ops->open(node,&(struct md_control_opener){.identity=id},flags);
     if (!opened) return -errno;
     *(struct md_control_file *)context=(struct md_control_file){ops,opened}; return 0;
 }

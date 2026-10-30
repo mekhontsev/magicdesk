@@ -408,7 +408,8 @@ static int control_open(void *context,const struct md_control_file_ops *ops,void
     struct operation *op=context;
     if (!op->owner->control) return -EOPNOTSUPP;
     if (op->output_object) return -EBUSY;
-    op->output_object=op->owner->control(ops,data,identity,flags,origin,&op->control_descriptor);
+    const struct md_control_opener opener={.identity=identity,.network=op->context.task.network};
+    op->output_object=op->owner->control(ops,data,&opener,flags,origin,&op->control_descriptor);
     return op->output_object ? 0 : -errno;
 }
 static void execute(struct operation *op,

@@ -18,6 +18,8 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/un.h>
+#include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 typedef struct { int socket, failed; unsigned matches[3]; DBusConnection *bus[3]; MdBusFds fds; } Agent;
@@ -76,15 +78,27 @@ static DBusHandlerResult signal_filter(DBusConnection *connection, DBusMessage *
     if (bus < 3 && response(a, 0, 2, bus, message, NULL, NULL)) a->failed = 1;
     return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 }
-static DBusConnection *connect_bus(Agent *a, unsigned bus, DBusError *error) {
+static int64_t monotonic_millis(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+}
+static int remaining_timeout(int64_t deadline, DBusError *error) {
+    int64_t remaining = deadline - monotonic_millis();
+    if (remaining > 0) return (int)remaining;
+    dbus_set_error_const(error, DBUS_ERROR_TIMEOUT, "D-Bus request deadline exceeded");
+    return 0;
+}
+static DBusConnection *connect_bus(Agent *a, unsigned bus, DBusError *error, int64_t deadline) {
     if (a->bus[bus]) return a->bus[bus];
     DBusConnection *connection = NULL;
     if (bus < 2) connection = dbus_bus_get_private(bus == 0 ? DBUS_BUS_SESSION : DBUS_BUS_SYSTEM, error);
     else {
-        DBusConnection *session = connect_bus(a, 0, error); if (!session) return NULL;
+        DBusConnection *session = connect_bus(a, 0, error, deadline); if (!session) return NULL;
+        int timeout = remaining_timeout(deadline, error); if (!timeout) return NULL;
         DBusMessage *request = dbus_message_new_method_call("org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus", "GetAddress");
         if (!request) { dbus_set_error_const(error, DBUS_ERROR_NO_MEMORY, "Cannot allocate accessibility request"); return NULL; }
-        DBusMessage *reply = dbus_connection_send_with_reply_and_block(session, request, 3000, error);
+        DBusMessage *reply = dbus_connection_send_with_reply_and_block(session, request, timeout, error);
         dbus_message_unref(request); if (!reply) return NULL;
         const char *address = NULL;
         if (dbus_message_get_args(reply, error, DBUS_TYPE_STRING, &address, DBUS_TYPE_INVALID)) {
@@ -162,6 +176,7 @@ done:
 static int request(Agent *a, MdBusWire *w) {
     uint32_t id = md_bus_read_u32(w), op = md_bus_read_u32(w), bus = md_bus_read_u32(w), timeout = md_bus_read_u32(w);
     if (w->failed || !id || bus >= 3 || timeout < 1 || timeout > 10000) return -1;
+    int64_t deadline = monotonic_millis() + timeout;
     if (op == 6) return launch(a, w, id);
     DBusError error = DBUS_ERROR_INIT;
     DBusMessage *message = NULL, *reply = NULL;
@@ -185,14 +200,15 @@ static int request(Agent *a, MdBusWire *w) {
     } else if (op == 4) {
         if (a->bus[bus]) { dbus_connection_close(a->bus[bus]); dbus_connection_unref(a->bus[bus]); a->bus[bus] = NULL; a->matches[bus] = 0; }
     } else {
-        DBusConnection *connection = connect_bus(a, bus, &error);
-        if (connection) {
-            if (op == 1) reply = dbus_connection_send_with_reply_and_block(connection, message, (int)timeout, &error);
+        DBusConnection *connection = connect_bus(a, bus, &error, deadline);
+        int remaining = connection ? remaining_timeout(deadline, &error) : 0;
+        if (remaining) {
+            if (op == 1) reply = dbus_connection_send_with_reply_and_block(connection, message, remaining, &error);
             else {
                 message = dbus_message_new_method_call(DBUS_SERVICE_DBUS, DBUS_PATH_DBUS, DBUS_INTERFACE_DBUS,
                         op == 2 ? "AddMatch" : "RemoveMatch");
                 if (!message || !dbus_message_append_args(message, DBUS_TYPE_STRING, &text, DBUS_TYPE_INVALID)) goto invalid;
-                reply = dbus_connection_send_with_reply_and_block(connection, message, (int)timeout, &error);
+                reply = dbus_connection_send_with_reply_and_block(connection, message, remaining, &error);
                 if (reply) { if (op == 2) ++a->matches[bus]; else if (a->matches[bus]) --a->matches[bus]; }
             }
         }
@@ -207,7 +223,7 @@ done:
     if (reply) dbus_message_unref(reply);
     dbus_error_free(&error); return result;
 }
-static int hello(Agent *a) {
+static int hello(Agent *a, const char *private_bus) {
     DBusMessage *message = dbus_message_new_signal("/org/magicdesk/automation", "org.magicdesk.Automation", "Ready");
     if (!message) return -1;
     dbus_uint32_t uid = getuid(), pid = getpid();
@@ -225,16 +241,17 @@ static int hello(Agent *a) {
     int result = -1;
     if (dbus_message_append_args(message, DBUS_TYPE_UINT32, &uid, DBUS_TYPE_UINT32, &pid,
             DBUS_TYPE_STRING, &cwd, DBUS_TYPE_STRING, &shell, DBUS_TYPE_STRING, &pipe,
-            DBUS_TYPE_STRING, &display, DBUS_TYPE_STRING, &wayland, DBUS_TYPE_INVALID))
+            DBUS_TYPE_STRING, &display, DBUS_TYPE_STRING, &wayland,
+            DBUS_TYPE_STRING, &private_bus, DBUS_TYPE_INVALID))
         result = response(a, 0, 3, 0, message, NULL, NULL);
     dbus_message_unref(message); return result;
 }
-int md_bus_agent_serve(int socket) {
+static int serve(int socket, const char *private_bus) {
     Agent a = {.socket = socket}; md_bus_fds_init(&a.fds);
     struct timeval timeout = {.tv_sec = 5};
     if (setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout))
             || setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout))) return 1;
-    if (hello(&a)) return 1;
+    if (hello(&a, private_bus)) return 1;
     while (!a.failed) {
         struct pollfd items[4] = {{.fd = socket, .events = POLLIN}};
         int queued = 0;
@@ -271,10 +288,9 @@ int md_bus_agent_serve(int socket) {
 }
 static volatile sig_atomic_t owner_socket = -1;
 static void owner_died(int signal) { (void)signal; if (owner_socket >= 0) shutdown(owner_socket, SHUT_RDWR); }
-int md_bus_agent_start(void) {
+static int connect_owner(void) {
     const char *endpoint = getenv("MAGICDESK_AUTOMATION_SOCKET"), *token = getenv("MAGICDESK_AUTOMATION_TOKEN");
-    if (!endpoint && !token) return 0;
-    if (!endpoint || !token || strlen(token) != 64 || strlen(endpoint) > 106 || !*endpoint) return -1;
+    if (!endpoint || !token || strlen(token) != 64 || strlen(endpoint) > 106 || !*endpoint) { errno = EINVAL; return -1; }
     int socket_fd = md_unix_connect(endpoint);
     if (socket_fd < 0) return -1;
     struct timeval timeout = {.tv_sec = 5};
@@ -284,6 +300,17 @@ int md_bus_agent_start(void) {
             || transfer(socket_fd, (void *)token, 64, 1) || transfer(socket_fd, &accepted, 1, 0) || accepted) {
         close(socket_fd); return -1;
     }
+    return socket_fd;
+}
+static void clear_admission(void) {
+    unsetenv("MAGICDESK_AUTOMATION_SOCKET"); unsetenv("MAGICDESK_AUTOMATION_TOKEN");
+    unsetenv("MAGICDESK_AUTOMATION_HELPER");
+    unsetenv("MAGICDESK_SESSION_BUS_ADDRESS");
+}
+int md_bus_agent_start(void) {
+    if (!getenv("MAGICDESK_AUTOMATION_SOCKET") && !getenv("MAGICDESK_AUTOMATION_TOKEN")) return 0;
+    int socket_fd = connect_owner();
+    if (socket_fd < 0) return -1;
     pid_t parent = getpid(), worker = fork();
     if (worker < 0) { close(socket_fd); return -1; }
     if (!worker) {
@@ -295,10 +322,107 @@ int md_bus_agent_start(void) {
         int null = open("/dev/null", O_RDWR | O_CLOEXEC);
         for (int i = 0; i < 3; ++i) { if (null >= 0) dup2(null, i); else close(i); }
         if (null > 2) close(null);
-        _exit(md_bus_agent_serve(socket_fd));
+        _exit(serve(socket_fd, ""));
     }
     close(socket_fd);
-    unsetenv("MAGICDESK_AUTOMATION_SOCKET"); unsetenv("MAGICDESK_AUTOMATION_TOKEN");
-    unsetenv("MAGICDESK_AUTOMATION_HELPER");
+    clear_admission();
     return 0;
+}
+
+int md_bus_session_serve(int ready) {
+    const char *address = getenv("DBUS_SESSION_BUS_ADDRESS");
+    int socket_fd = -1, result = 1;
+    if (ready < 3 || fcntl(ready, F_SETFD, FD_CLOEXEC) < 0 || !address || !*address
+            || strlen(address) >= 4095 || strchr(address, '\n')) goto done;
+    socket_fd = connect_owner();
+    if (socket_fd < 0) goto done;
+    size_t length = strlen(address);
+    /* The readiness record fits within PIPE_BUF and is sent only after authenticated admission. */
+    char record[4096]; memcpy(record, address, length); record[length++] = '\n';
+    ssize_t written;
+    do { written = write(ready, record, length); } while (written < 0 && errno == EINTR);
+    if (written != (ssize_t)length) goto done;
+    close(ready); ready = -1;
+    /* Session ownership, not launcher parent death, terminates this agent and dbus-run-session. */
+    result = serve(socket_fd, address);
+done:
+    if (ready >= 3) close(ready);
+    if (socket_fd >= 0) close(socket_fd);
+    return result;
+}
+
+static int session_address(const char *address) {
+    if (setenv("DBUS_SESSION_BUS_ADDRESS", address, 1)) return -1;
+    /* Match dbus-run-session: activation metadata must not identify an inherited bus. */
+    unsetenv("DBUS_SESSION_BUS_PID"); unsetenv("DBUS_SESSION_BUS_WINDOWID");
+    unsetenv("DBUS_STARTER_ADDRESS"); unsetenv("DBUS_STARTER_BUS_TYPE");
+    return 0;
+}
+
+int md_bus_session_start(const char *helper) {
+    const char *shared = getenv("MAGICDESK_SESSION_BUS_ADDRESS");
+    if (shared && *shared) {
+        int result = session_address(shared);
+        clear_admission();
+        return result;
+    }
+    int ready[2];
+    if (pipe2(ready, O_CLOEXEC)) return -1;
+    struct sigaction child_action = {.sa_handler = SIG_DFL}, previous_child_action;
+    sigemptyset(&child_action.sa_mask);
+    /* Keep the child waitable until startup commits, even if the caller ignores SIGCHLD. */
+    if (sigaction(SIGCHLD, &child_action, &previous_child_action)) {
+        int error = errno; close(ready[0]); close(ready[1]); errno = error; return -1;
+    }
+    pid_t worker = fork();
+    if (!worker) {
+        close(ready[0]);
+        /* Detached launchers may close their UNIX session. The authenticated owner socket
+         * still cancels this private bus; no daemon or temporary socket is globally retained. */
+        if (setsid() < 0 || close_inherited(ready[1]) || fcntl(ready[1], F_SETFD, 0)) _exit(1);
+        struct sigaction action = {.sa_handler = SIG_DFL}; sigemptyset(&action.sa_mask);
+        sigaction(SIGCHLD, &action, NULL); sigaction(SIGTERM, &action, NULL); sigaction(SIGHUP, &action, NULL);
+        sigprocmask(SIG_SETMASK, &action.sa_mask, NULL);
+        int null = open("/dev/null", O_RDWR | O_CLOEXEC);
+        if (null < 0) _exit(1);
+        for (int fd = 0; fd < 3; ++fd) if (dup2(null, fd) < 0) _exit(1);
+        if (null > 2) close(null);
+        char descriptor[32]; snprintf(descriptor, sizeof(descriptor), "%d", ready[1]);
+        execlp("dbus-run-session", "dbus-run-session", "--", helper, "--session-agent", descriptor, (char *)NULL);
+        _exit(127);
+    }
+    close(ready[1]);
+    char address[4096]; size_t length = 0;
+    int result = -1;
+    int64_t deadline = monotonic_millis() + 10000;
+    while (worker > 0 && length < sizeof(address) - 1) {
+        int64_t remaining = deadline - monotonic_millis();
+        if (remaining <= 0) { errno = ETIMEDOUT; break; }
+        struct pollfd event = {.fd = ready[0], .events = POLLIN};
+        /* EVENT_WAIT: private bus address after owner admission; expiry cancels only this startup. */
+        int polled = poll(&event, 1, (int)remaining);
+        if (polled < 0 && errno == EINTR) continue;
+        if (polled <= 0) { if (!polled) errno = ETIMEDOUT; break; }
+        ssize_t n = read(ready[0], address + length, sizeof(address) - 1 - length);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) { if (!n) errno = EPIPE; break; }
+        length += (size_t)n;
+        if (address[length - 1] == '\n') {
+            address[--length] = 0;
+            if (length && !strchr(address, '\n')) result = session_address(address);
+            else errno = EPROTO;
+            break;
+        }
+    }
+    int error = errno;
+    close(ready[0]);
+    if (result && worker > 0) {
+        /* The unreaped child reserves the process-group identity throughout failed startup. */
+        kill(-worker, SIGKILL); kill(worker, SIGKILL);
+        while (waitpid(worker, NULL, 0) < 0 && errno == EINTR) { }
+    }
+    sigaction(SIGCHLD, &previous_child_action, NULL);
+    clear_admission();
+    errno = error;
+    return result;
 }

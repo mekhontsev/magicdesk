@@ -2,6 +2,7 @@
 #include "network_calls.h"
 #include "network_endpoint.h"
 #include "network_packet.h"
+#include "network_ioctl.h"
 #include "adapter_buffer.h"
 #include "fs_buffer.h"
 #include "fd_filter.h"
@@ -294,7 +295,7 @@ static long control_call(long nr,const unsigned long *a,int events) {
     } else if (nr==SYS_writev) {
         message.msg_iov=(void *)a[1]; message.msg_iovlen=a[2];
     }
-    else if (nr==SYS_ioctl) { size=sizeof(struct ifreq); input=(void *)a[2]; }
+    else if (nr==SYS_ioctl) { size=md_network_route_ioctl(a[1]) ? sizeof(struct md_network_route_ioctl) : sizeof(struct ifreq); input=(void *)a[2]; }
     else if (nr==SYS_bind || nr==SYS_connect) { size=a[2]; input=(void *)a[1]; }
     else if (nr==SYS_write || nr==SYS_sendto) {
         size=a[2]; input=(void *)a[1];
@@ -348,9 +349,17 @@ static long control_call(long nr,const unsigned long *a,int events) {
             offset+=message.msg_iov[i].iov_len;
         }
         md_socket_vectors_close(&vectors);
+    } else if (nr==SYS_ioctl && md_network_route_ioctl(a[1])) {
+        struct md_network_route_ioctl *r=data; memset(r,0,sizeof(*r));
+        result=md_read_memory(&r->route,input,sizeof(r->route));
+        if(!result && r->route.rt_dev) {
+            result=md_read_string(r->device,sizeof(r->device),r->route.rt_dev);
+            if(result>=0) result=0;
+        }
+        r->route.rt_dev=NULL;
     } else if (size) result=md_read_memory(data,input,size);
     if (!result) result=md_guest_buffer_control(MD_BUFFER_NETWORK_CALL,size,0);
-    if (!result && nr==SYS_ioctl && a[1]!=SIOCSIFHWADDR && a[1]!=SIOCBRADDIF)
+    if (!result && nr==SYS_ioctl && !md_network_route_ioctl(a[1]) && a[1]!=SIOCSIFHWADDR && a[1]!=SIOCBRADDIF)
         result=md_write_memory((void *)a[2],data,size);
     else if (result>=0 && !events && nr==SYS_getsockopt && a[1]==SOL_SOCKET && a[2]==SO_GET_FILTER) {
         unsigned count=(unsigned)result/sizeof(struct sock_filter);

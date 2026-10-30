@@ -4,7 +4,7 @@ package io.github.mekhontsev.magicdesk;
 final class LinuxAutomationEnvironment {
     static String command(String command, String shell) {
         return "if command -v dbus-run-session >/dev/null 2>&1 && [ -n \"${MAGICDESK_AUTOMATION_HELPER:-}\" ]; then\n"
-                + "exec dbus-run-session -- \"$MAGICDESK_AUTOMATION_HELPER\" --automation "
+                + "exec \"$MAGICDESK_AUTOMATION_HELPER\" --session "
                 + ShellCommandLine.quote(shell) + " -c " + ShellCommandLine.quote(command)
                 + "\nelse\n" + command + "\nfi\n";
     }

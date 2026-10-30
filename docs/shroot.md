@@ -1025,6 +1025,26 @@ Anonymous nftables counters count logical data transfers
 and payload bytes, not physical network packets. See
 [network contracts](../native/shroot/networking.md#network-namespaces).
 
+### TUN/TAP Applications
+
+Guest `/dev/net/tun` supports TUN IP packets and TAP Ethernet frames without
+Android root or Android's VPN service. Interfaces belong to the opening guest
+network namespace; creating one requires guest `CAP_NET_ADMIN`. They can serve
+applications beyond container engines:
+
+- Stock tun2socks can send routed guest TCP/UDP through a SOCKS5 proxy. Keep a
+  separate route to the proxy itself so it does not loop back into the tunnel.
+- Stock QEMU can attach a virtual machine to a TAP interface with virtio-net.
+  The VM can initiate and receive IPv4/IPv6 TCP/UDP connections through Shroot.
+
+The Debian [integration evidence](../native/guest-exec-lab/distribution-evidence.md#debian-packet-applications)
+covers both applications in default and Base modes, including large transfers,
+fragmentation and connection shutdown. QEMU uses software CPU emulation (TCG),
+not KVM. This does not certify every VPN, bridge protocol or QEMU configuration.
+Virtio-net headers and offloads are not advertised by TUN/TAP; QEMU negotiates
+the available features. Ordinary file/socket IO remains native. See the
+[packet transport contract](../native/shroot/networking.md#tuntap-packet-transport).
+
 ### Docker Engine
 
 Shroot can run stock Docker Engine, containerd and runc inside a guest-root
@@ -1083,6 +1103,35 @@ a routed Shroot launch. No `--network host` bypass or Podman-specific runtime
 branch supplies bridge connectivity. This does not certify arbitrary nftables
 rules or general rootless-Podman configurations; supported operations and flow
 semantics are described in the [network contracts](../native/shroot/networking.md#nftables-and-flow-forwarding).
+
+Rootless Podman can use stock `slirp4netns` through the guest `/dev/net/tun`.
+Install the distribution's Podman, slirp4netns and UID-map helper packages,
+and configure `/etc/subuid` and `/etc/subgid` for the ordinary guest user as on
+Linux. Run from that user's session:
+
+```sh
+podman run --rm --network slirp4netns docker.io/library/alpine:3.23 \
+  sh -c 'id; wget -qO- http://example.com'
+```
+
+Debian coverage includes image pulls, two rootless containers, incoming TCP/UDP
+ports, outbound DNS/HTTP, occupied-port rejection and cleanup, with stock
+seccomp and no Android root. Private sysfs/cgroup mounts must be prepared by
+the guest init or launch owner. Without a delegated cgroup subtree, Podman may
+warn that it cannot place conmon there; the guest user's filesystem permissions
+are not bypassed. This evidence covers slirp4netns, not every Podman networking
+backend. TUN/TAP and packet-stack limits are documented in the
+[native network contract](../native/shroot/networking.md#tuntap-packet-transport).
+
+Rootless Docker uses the distribution's `dockerd-rootless.sh`, RootlessKit,
+slirp4netns and UID-map helpers, with subordinate IDs configured for the user.
+Start it from that user's session with a private, writable `XDG_RUNTIME_DIR`;
+the client connects to `$XDG_RUNTIME_DIR/docker.sock`. Debian coverage uses
+Docker 26.1.5, RootlessKit 2.0.2 and overlay2, retaining slirp4netns sandbox,
+seccomp and host-loopback protection. Two-container TCP/UDP publication, peer
+IP/name lookup, outbound DNS/HTTP, port conflicts and shutdown pass without
+Android root. This is separate from guest-root Docker and does not certify
+every RootlessKit driver or cgroup delegation setup.
 
 For both engines, guest root is still real Android UID 2000. Enabled cgroups
 provide logical membership and permissive settings, not enforced resource or

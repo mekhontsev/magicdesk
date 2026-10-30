@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import shlex
 import shutil
 import subprocess
 import sys
@@ -50,7 +51,18 @@ def wait_daemon_api(endpoint, report, timeout=45):
 def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_runtime=False,
           no_new_keyring=False, trace_filesystem=False, create_count=0, trace_network=False, observer='',
           storage_driver='vfs', data_root='', userland_proxy=True, internet=False, endpoint='', ipv6=False,
-          internet_ipv6=False, ipv6_host='::1'):
+          internet_ipv6=False, ipv6_host='::1', rootless_user=''):
+    if rootless_user and os.getuid() == 0:
+        import pwd
+        assert pwd.getpwnam(rootless_user).pw_uid != 0, 'Select an ordinary guest user'
+        subprocess.run(['mount', '-t', 'sysfs', 'sysfs', '/sys'], check=True)
+        if cgroup != 'none':
+            assert cgroup == 'v2', 'Rootless Docker requires cgroup v2'
+            subprocess.run(['mount', '-t', 'cgroup2', 'none', '/sys/fs/cgroup'], check=True)
+        command = shlex.join([sys.executable, *sys.argv])
+        os.execvp('su', ['su', '--login', '--shell', '/bin/sh', '--command', command, rootless_user])
+    if rootless_user:
+        assert os.getuid() != 0, 'Rootless Docker must start as an ordinary guest user'
     defaults = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
     os.environ['PATH'] = os.pathsep.join(dict.fromkeys(
         path for path in (os.environ.get('PATH', '') + os.pathsep + defaults).split(os.pathsep) if path))
@@ -65,7 +77,7 @@ def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_
                             'exitCode': result.returncode, 'output': result.stdout})
         if result.returncode:
             raise RuntimeError(preparation[-1])
-    if cgroup != 'none':
+    if cgroup != 'none' and not rootless_user:
         root = Path('/sys/fs/cgroup')
         root.mkdir(parents=True, exist_ok=True)
         if cgroup == 'v2':
@@ -75,6 +87,10 @@ def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_
             (root / 'devices').mkdir()
             mount('-t', 'cgroup', '-o', 'devices', 'none', str(root / 'devices'))
     base = Path(tempfile.mkdtemp(prefix='md-docker-'))
+    if rootless_user:
+        runtime = base / 'runtime'
+        runtime.mkdir(mode=0o700)
+        os.environ['XDG_RUNTIME_DIR'] = str(runtime)
     external = bool(endpoint)
     if external:
         assert cgroup == 'none' and not any((trace, trace_runtime, trace_filesystem, trace_network,
@@ -89,6 +105,11 @@ def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_
             '--exec-root', str(base / 'run')]
     if profile in ROOTLESS_PROFILES:
         argv += ['--rootless', '--group', '0']
+    if rootless_user:
+        script = shutil.which('dockerd-rootless.sh') or '/usr/share/docker.io/contrib/dockerd-rootless.sh'
+        assert Path(script).is_file(), 'Install the distribution rootless Docker scripts'
+        argv[0] = script
+        argv += ['--storage-driver=' + storage_driver]
     if profile in ('no-network', 'rootless-no-firewall', 'rootless-no-network', 'routed'):
         argv += ['--iptables=false', '--ip6tables=false', '--ip-forward=false',
                  '--ip-masq=false']
@@ -126,6 +147,7 @@ def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_
     elif trace:
         argv = ['strace', '-f', '-yy', '-s', '256', '-e', 'trace=fchown,fchownat', *argv]
     report = {'profile': profile, 'cgroup': cgroup, 'cgroupns': cgroupns, 'preparation': preparation,
+              'guestUid': os.getuid(), 'rootlessUser': rootless_user,
               'newKeyringDisabled': no_new_keyring,
               'command': [] if external else argv, 'externalDaemon': external, 'endpoint': endpoint,
               'directory': str(base),
@@ -249,8 +271,11 @@ def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_
         event = wait_daemon_api(endpoint, report) if external else records.get(timeout=45)
         if event == 'ready':
             report['apiReady'] = client('version', '--format', '{{json .Server}}')
-            client('info', '--format', 'driver={{.Driver}} cgroup={{.CgroupDriver}} '
-                   'memoryLimit={{.MemoryLimit}}')
+            assert client('info', '--format', '{{json .}}')
+            if rootless_user:
+                info = json.loads(report['commands'][-1]['output'])
+                assert 'name=rootless' in info['SecurityOptions'], info['SecurityOptions']
+                assert any('seccomp' in option for option in info['SecurityOptions']), info['SecurityOptions']
             if report['apiReady'] and (client('image', 'inspect', image) or client('pull', image)):
                 for number in range(create_count):
                     name = 'md-copy-' + str(number)
@@ -262,7 +287,7 @@ def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_
                 for network in ('host', 'none'):
                     client('run', '--rm', '--network', network, '--cgroupns', cgroupns, image,
                            '/bin/sh', '-c', 'echo DOCKER_CONTAINER_EXECUTED; id')
-                if profile in NETWORK_PROFILES or external:
+                if profile in NETWORK_PROFILES or external or rootless_user:
                     if observer:
                         exercise_ports()
                     else:
@@ -336,7 +361,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('build', type=Path)
     parser.add_argument('store')
-    parser.add_argument('--profile', choices=PROFILES, default='rootless-no-network')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--profile', choices=PROFILES)
+    mode.add_argument('--rootless-user', default='', help='Run the stock rootless launcher as this guest user')
     parser.add_argument('--image', help='Defaults to Python for port tests, BusyBox otherwise')
     parser.add_argument('--storage-driver', choices=('vfs', 'overlay2'), default='vfs')
     parser.add_argument('--data-root', default='', help='Reuse this disposable daemon image cache')
@@ -361,12 +388,13 @@ def main():
                         help='Verify TCP/UDP publication from outside Shroot; use a Python image')
     add_machine_entry_argument(parser)
     args = parser.parse_args()
+    args.profile = args.profile or ('rootless' if args.rootless_user else 'rootless-no-network')
     if args.ipv6 and not args.exercise_ports:
         parser.error('--ipv6 requires --exercise-ports')
     if (args.internet_ipv6 or args.ipv6_host != '::1') and not args.ipv6:
         parser.error('--internet-ipv6 and --ipv6-host require --ipv6')
-    if args.exercise_ports and args.profile not in NETWORK_PROFILES:
-        parser.error('--exercise-ports requires --profile routed, iptables or nftables')
+    if args.exercise_ports and args.profile not in NETWORK_PROFILES and not args.rootless_user:
+        parser.error('--exercise-ports requires a network profile or --rootless-user')
     if args.image is None:
         args.image = 'python:3.14-alpine' if args.exercise_ports else 'busybox:1.37.0'
     suite = Suite(args.build, args.build, machine_entry=args.machine_entry)
@@ -386,11 +414,11 @@ def main():
         created = True
         deadline = 1800 if observer else 900
         runner = prefix + ['--bind-ro', suite.base, target, '--deadline-seconds', str(deadline), '--']
-        if args.profile in NETWORK_PROFILES:
+        if args.profile in NETWORK_PROFILES or args.rootless_user:
             runner = prefix + ['--network', 'routed', *runner[len(prefix):]]
         suite.report['versions'] = suite.command(runner + ['/bin/sh', '-ec',
             'dockerd --version; docker --version; containerd --version; runc --version'])
-        if args.profile in ROOTLESS_PROFILES:
+        if args.profile in ROOTLESS_PROFILES and not args.rootless_user:
             runner += ['/usr/bin/unshare', '--user', '--map-users=0:0:65536',
                        '--map-groups=0:0:65536', '--mount']
             # Mounting cgroups in a user namespace requires a cgroup namespace
@@ -404,7 +432,7 @@ def main():
                                         str(int(args.trace_network)), observer.address if observer else '',
                                         args.storage_driver, args.data_root,
                                         str(int(args.userland_proxy)), str(int(args.internet)), str(int(args.ipv6)),
-                                        str(int(args.internet_ipv6)), args.ipv6_host],
+                                        str(int(args.internet_ipv6)), args.ipv6_host, args.rootless_user],
                                quiet=True, timeout=deadline + 30)
         reports = [line.removeprefix('DOCKER_REPORT ') for line in output.splitlines()
                    if line.startswith('DOCKER_REPORT ')]
@@ -449,6 +477,7 @@ if __name__ == '__main__':
               bool(int(sys.argv[16])) if len(sys.argv)>16 else False,
               ipv6=bool(int(sys.argv[17])) if len(sys.argv)>17 else False,
               internet_ipv6=bool(int(sys.argv[18])) if len(sys.argv)>18 else False,
-              ipv6_host=sys.argv[19] if len(sys.argv)>19 else '::1')
+              ipv6_host=sys.argv[19] if len(sys.argv)>19 else '::1',
+              rootless_user=sys.argv[20] if len(sys.argv)>20 else '')
     else:
         main()

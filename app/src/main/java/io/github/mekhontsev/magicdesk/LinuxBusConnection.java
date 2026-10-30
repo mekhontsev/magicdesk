@@ -45,6 +45,7 @@ final class LinuxBusConnection implements Closeable {
     }
 
     boolean alive() { return !closed.get() && hello.isDone() && !hello.isCompletedExceptionally(); }
+    String privateBusAddress() { return alive() ? context.optString("privateBusAddress") : ""; }
     void awaitReady() throws IOException { await(hello, 5000); }
     JSONObject context() throws IOException, JSONException {
         awaitReady(); return new JSONObject(context.toString());
@@ -57,13 +58,15 @@ final class LinuxBusConnection implements Closeable {
 
     JSONObject request(int op, int bus, JSONObject args, int timeout) throws IOException, JSONException {
         if (timeout < 1 || timeout > 10000) throw new IllegalArgumentException("timeoutMillis must be 1..10000");
+        long deadline = android.os.SystemClock.uptimeMillis() + timeout;
         try {
             // EVENT_WAIT: bounded admission to the single guest command channel; expiry does not submit work.
             if (!command.tryLock(timeout, TimeUnit.MILLISECONDS)) throw new IOException("Linux automation busy");
         } catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new IOException("Interrupted", error); }
         try {
-            awaitReady();
+            await(hello, remaining(deadline));
             if (closed.get()) throw new IOException("Linux session ended");
+            timeout = remaining(deadline);
             int requestId = ++serial;
             if (requestId == 0) requestId = ++serial;
             byte[] frame = LinuxBusWire.request(requestId, op, bus, timeout, args);
@@ -78,6 +81,12 @@ final class LinuxBusConnection implements Closeable {
             catch (IOException error) { close(); throw error; }
             finally { pending.remove(requestId); }
         } finally { command.unlock(); }
+    }
+
+    private static int remaining(long deadline) throws IOException {
+        long remaining = deadline - android.os.SystemClock.uptimeMillis();
+        if (remaining <= 0) throw new IOException("Linux automation command admission deadline");
+        return (int)remaining;
     }
 
     JSONArray call(int bus, String destination, String path, String iface, String member, JSONArray args, int timeout)
@@ -106,7 +115,7 @@ final class LinuxBusConnection implements Closeable {
                     JSONArray values = message.data().getJSONArray("values");
                     context = new JSONObject().put("guestUid", values.getJSONObject(0).getLong("value"))
                             .put("agentPid", values.getJSONObject(1).getLong("value"));
-                    String[] names = {"directory", "shell", "pipeHelper", "display", "waylandDisplay"};
+                    String[] names = {"directory", "shell", "pipeHelper", "display", "waylandDisplay", "privateBusAddress"};
                     for (int i = 0; i < names.length; ++i) context.put(names[i], values.getJSONObject(i + 2).getString("value"));
                     hello.complete(null);
                 }

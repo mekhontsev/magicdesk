@@ -94,6 +94,19 @@ static void launch(char **command) {
 }
 
 int main(int argc, char **argv) {
+    if (argc == 3 && !strcmp(argv[1], "--session-agent")) {
+        char *end; errno = 0;
+        long fd = strtol(argv[2], &end, 10);
+        if (errno || !*argv[2] || *end || fd < 3 || fd > 0x7fffffff) return 2;
+        return md_bus_session_serve((int)fd);
+    }
+    if (argc >= 3 && !strcmp(argv[1], "--session")) {
+        if (md_bus_session_start(argv[0])) {
+            perror("Linux session bus unavailable"); return 1;
+        }
+        execvp(argv[2], argv + 2);
+        perror("Linux session application"); return 127;
+    }
     if (argc >= 3 && !strcmp(argv[1], "--automation")) {
         if (md_bus_agent_start()) perror("Linux automation unavailable");
         execvp(argv[2], argv + 2);

@@ -2,6 +2,7 @@
 #define MD_NETWORK_RAW4_H
 #include "network_packet.h"
 #include "network_ip.h"
+#include "network_raw_observe.h"
 struct md_network_namespace;
 struct md_network_interface;
 /* The control socket owns the native receive queue; the fabric owns routing. */
