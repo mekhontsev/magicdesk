@@ -41,7 +41,7 @@ final class StartMenuContent {
         DesktopAutomationUiRegistry automation();
         void open(StartMenuEntry result);
         void dismiss();
-        default void appContext(View view, AppItem app, Runnable removeRecent) { }
+        default void appContext(View view, StartMenuEntry entry, Runnable removeRecent) { }
         default void fileContext(View view, DesktopFile file) { }
         default void populateTools(LinearLayout parent, int spacing, boolean capture) { }
         default void requestSearchFocus() { }
@@ -218,7 +218,7 @@ final class StartMenuContent {
         refresh.setBackgroundColor(android.graphics.Color.TRANSPARENT);
         refresh.setContentDescription(mActivity.getString(R.string.action_refresh));
         refresh.setTooltipText(mActivity.getString(R.string.action_refresh));
-        refresh.setOnClickListener(view -> mCatalog.refreshApplications());
+        refresh.setOnClickListener(view -> refreshEntries());
         mSearchRow.addView(refresh, new LinearLayout.LayoutParams(dp(48), dp(48)));
         mHost.automation().register(refresh, "start.refresh", "button", mActivity.getString(R.string.action_refresh));
         mClearRecent = new android.widget.ImageButton(mActivity);
@@ -285,6 +285,7 @@ final class StartMenuContent {
             mContent.addView(mSearchRow, searchParams);
             final var launchParams = new LinearLayout.LayoutParams(-1, dp(52));
             launchParams.topMargin = dp(8);
+            mLaunchControls.setExistingWindow(mMode == MENU_RUNNING);
             mContent.addView(mLaunchControls.view(), launchParams);
         }
 
@@ -305,6 +306,11 @@ final class StartMenuContent {
         }
         prepare(mFocusable);
         mHost.onSectionShown(mode);
+    }
+
+    private void refreshEntries() {
+        if (mMode == MENU_RUNNING) mHost.onSectionShown(mMode);
+        else mCatalog.refreshApplications();
     }
 
     boolean isUtilityVisible() {
@@ -458,7 +464,7 @@ final class StartMenuContent {
         mBody.removeAllViews();
 
         final var androidApps = mCatalog.snapshot().android();
-        if ((mMode == MENU_APPS || !mSearchQuery.trim().isEmpty()) && !androidApps.ready()) {
+        if (mMode != MENU_RUNNING && (mMode == MENU_APPS || !mSearchQuery.trim().isEmpty()) && !androidApps.ready()) {
             final TextView status = new TextView(mActivity);
             status.setText(androidApps.error().isEmpty()
                     ? mActivity.getString(R.string.apps_loading) : androidApps.error());
@@ -673,7 +679,17 @@ final class StartMenuContent {
                         LinearLayout.LayoutParams.WRAP_CONTENT);
         labelParams.setMargins(0, dp(4), 0, 0);
         tile.addView(label, labelParams);
-        var views = new EntryViews(icon, label, null); tile.setTag(views);
+        final TextView detail;
+        if (application.task != null) {
+            detail = new TextView(mActivity);
+            detail.setGravity(Gravity.CENTER);
+            detail.setTextSize(10);
+            detail.setSingleLine(true);
+            detail.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+            UiAppearance.text(detail, UiColor.MUTED);
+            tile.addView(detail, new LinearLayout.LayoutParams(-1, -2));
+        } else detail = null;
+        var views = new EntryViews(icon, label, detail); tile.setTag(views);
         bindEntry(tile, views, application, false);
         return tile;
     }
@@ -904,7 +920,7 @@ final class StartMenuContent {
         final RecentLaunchScope scope = mLaunchControls.recentScope();
         final Runnable removeRecent = entry.recent == null ? null : () ->
                 RecentApplications.remove(mActivity, scope, entry.recent, this::recentEditCompleted);
-        if (entry.app != null) mHost.appContext(view, entry.app, removeRecent);
+        if (entry.app != null) mHost.appContext(view, entry, removeRecent);
         else if (entry.desktopApplication != null) {
             var application = entry.desktopApplication;
             if (application.desktopFile != null) mHost.fileContext(view, application.desktopFile);

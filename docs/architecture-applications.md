@@ -1090,13 +1090,19 @@ history records, not source shortcuts, pins or running tasks. Edits share the
 launch-history IO queue and notify visible Start instances; the action retains
 the scope selected when it was opened even if the destination changes.
 
-Fullscreen Start also has a separate Running tab. Ordinary HOME Running is
-derived from its local tasks through `HomeRecentApps`. It includes
-launchable phone applications opened from notifications, filters HOME and
-shell surfaces, and deduplicates application identities in snapshot order.
-Phone HOME requests a typed task snapshot only when resumed or when Running is selected;
-stopped instances discard pending results. An unavailable snapshot is an error,
-not a fabricated empty history. The phone uses only application search, without
+Fullscreen Start also has a separate Running tab. `RunningTasks` selects live
+application tasks in snapshot order: HOME uses its local display, independent
+Applications includes all displays for window transfer. Selection is profile-scoped
+and excludes HOME and shell infrastructure, not windows without launcher entries.
+Each task stays distinct, including multiple terminals or Linux windows of one
+application or root task. `LauncherAppRepository.findOrLoadTask` resolves metadata
+and the live `BuiltInWindowRegistry` presentation for Running, independent windows,
+and Desktop switchers. Running resolves metadata on its existing task worker;
+rendering does not query packages. Refresh and tab selection request a new typed
+snapshot, as does resume; stopped instances discard pending results. Clicks and
+context-menu actions retain the exact task and destination, and New window is
+disabled for Running. An unavailable snapshot is an error, not a fabricated empty
+history. The phone uses only application search, without
 constructing the desktop file-search worker. `ApplicationCatalog` is shared by
 all Start windows in the application process/profile. Android discovery uses
 `LauncherAppRepository` on a worker, invalidated by `LauncherApps.Callback` and

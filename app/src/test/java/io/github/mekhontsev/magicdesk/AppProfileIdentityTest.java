@@ -72,8 +72,7 @@ public final class AppProfileIdentityTest {
         assertTrue(app.matchesTask(task(10, 3)));
         assertFalse(app.matchesTask(task(0, 3)));
         assertFalse(app.matchesTask(task(-1, 3)));
-        assertTrue(HomeRecentApps.select(List.of(task(0, 0)), List.of(app), "", 0,
-                new AppProfile(10, 19)).isEmpty());
+        assertTrue(RunningTasks.select(List.of(task(0, 0)), new AppProfile(10, 19), 0, "").isEmpty());
     }
 
     @Test

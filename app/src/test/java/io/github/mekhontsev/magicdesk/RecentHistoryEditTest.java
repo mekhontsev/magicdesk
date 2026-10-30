@@ -88,7 +88,7 @@ public final class RecentHistoryEditTest {
     @Test public void startKeepsExistingContextActionsAndCapturesSelectedScope() throws Exception {
         var context = RuntimeSourceFixture.methods("StartMenuContent", "bindContextMenu");
         assertTrue(context.contains("final RecentLaunchScope scope = mLaunchControls.recentScope()"));
-        assertTrue(context.contains("mHost.appContext(view, entry.app, removeRecent)"));
+        assertTrue(context.contains("mHost.appContext(view, entry, removeRecent)"));
         assertTrue(context.contains("action_remove_recent"));
         assertTrue(context.contains("action_delete_shortcut"));
         var confirmation = RuntimeSourceFixture.methods("StartMenuContent", "confirmClearRecent");

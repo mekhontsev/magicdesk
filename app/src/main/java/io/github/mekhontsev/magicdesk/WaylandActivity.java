@@ -100,7 +100,7 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
         if (session.stopped() || current == null) { finishAndRemoveTask(); return; }
         if (HostedStartupWindow.temporary(this) && !current.mapped()) { detachHostedWindow(); return; }
         content.constraints(current.constraints(), session.unitScale(this));
-        String title = current.title().isBlank() ? session.name : current.title();
+        String title = session.desktop || current.title().isBlank() ? session.name : current.title();
         present(title);
         status.setText(session.error());
         status.setVisibility(session.error().isEmpty() ? View.GONE : View.VISIBLE);

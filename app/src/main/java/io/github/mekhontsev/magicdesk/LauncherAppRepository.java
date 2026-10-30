@@ -102,6 +102,20 @@ final class LauncherAppRepository {
         return task != null && mProfile.owns(task.userId);
     }
 
+    AppItem findOrLoadTask(final List<AppItem> apps, final TaskRepository.TaskEntry task,
+            final boolean universalFreeform) {
+        if (!owns(task)) return null;
+        final AppIdentity application = mProfile.application(task);
+        final var builtIn = BuiltInDesktopAppCatalog.find(task);
+        final var target = builtIn == null ? AppLaunchTarget.packageDefault(task.packageName) : builtIn.launchTarget;
+        AppItem app = findOrLoad(apps, application, target, universalFreeform);
+        // A live task remains selectable even when its package metadata is unavailable.
+        if (app == null) app = new AppItem(mProfile, task.packageName, task.packageName,
+                universalFreeform, AppItem.FULLSCREEN_REASON_NONE,
+                mPackageManager.getDefaultActivityIcon(), target);
+        return BuiltInWindowRegistry.present(mContext, app, task);
+    }
+
     AppItem findOrLoad(
             final List<AppItem> apps,
             final AppIdentity application,

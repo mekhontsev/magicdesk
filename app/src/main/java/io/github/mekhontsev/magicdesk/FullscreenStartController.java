@@ -29,7 +29,7 @@ final class FullscreenStartController implements StartMenuContent.Host {
     private StartMenuContent mStart;
     private final DesktopAutomationUiRegistry mAutomation = new DesktopAutomationUiRegistry();
     private final ApplicationCatalog mCatalog;
-    private List<TaskRepository.TaskEntry> mRunningTasks = Collections.emptyList();
+    private List<StartMenuEntry> mRunningEntries = Collections.emptyList();
     private String mRunningError = "";
     private boolean mRunningLoading;
     private int mRunningGeneration;
@@ -159,32 +159,14 @@ final class FullscreenStartController implements StartMenuContent.Host {
     @Override public List<AppItem> apps() { return mCatalog.androidApps(false); }
     @Override public boolean hasRunningSection() { return true; }
     @Override public List<StartMenuEntry> runningEntries() {
-        if (!ShellAccess.isReady()) return List.of();
+        if (!ShellAccess.isReady() || (mHome && !hasActiveHomeLease())) return List.of();
         final List<StartMenuEntry> entries = new java.util.ArrayList<>();
-        if (mHome) {
-            final DesktopHomeRoleLease.State lease = activeLease();
-            final var repository = new LauncherAppRepository(mActivity);
-            if (lease != null) for (final var entry : HomeRecentApps.select(
-                    mRunningTasks, apps(), lease.previousHome.packageName, mDisplayId, repository.profile())) {
-                final var reference = entry.reference();
-                final AppItem app = repository.findOrLoad(apps(), reference.application, reference.launchTarget(), false);
-                final var task = entry.task();
-                if (app != null) entries.add(StartMenuEntry.task(app, task,
-                        TaskTitle.resolve(mActivity, app, task), TaskTitle.detail(mActivity, task)));
-            }
-        } else {
-            final LauncherAppRepository repository = new LauncherAppRepository(mActivity);
-            for (final TaskRepository.TaskEntry task : mRunningTasks) {
-                if (!TaskRepository.isTransferable(task)) { continue; }
-                final AppItem app = LauncherAppRepository.find(apps(),
-                        AppReference.forTask(repository.profile().application(task), task));
-                if (app != null) {
-                    entries.add(StartMenuEntry.task(app, task, TaskTitle.resolve(mActivity, app, task),
-                            mActivity.getString(task.displayId == mStart.destination().displayId()
-                                    ? R.string.display_show_task : R.string.display_move_task,
-                                    task.displayId, task.taskId)));
-                }
-            }
+        for (final var entry : mRunningEntries) {
+            final var task = entry.task;
+            final String placement = mActivity.getString(task.displayId == mStart.destination().displayId()
+                    ? R.string.display_show_task : R.string.display_move_task, task.displayId, task.taskId);
+            entries.add(StartMenuEntry.task(entry.app, task, entry.label,
+                    entry.detail.isEmpty() ? placement : entry.detail + " | " + placement));
         }
         return entries;
     }
@@ -207,7 +189,7 @@ final class FullscreenStartController implements StartMenuContent.Host {
         else { mActivity.finish(); }
     }
 
-    @Override public void appContext(android.view.View view, AppItem app, Runnable removeRecent) {
+    @Override public void appContext(android.view.View view, StartMenuEntry entry, Runnable removeRecent) {
         view.setOnContextClickListener(anchor -> anchor.performLongClick());
         view.setOnLongClickListener(anchor -> {
             final android.widget.PopupMenu menu = new android.widget.PopupMenu(mActivity, anchor);
@@ -216,17 +198,17 @@ final class FullscreenStartController implements StartMenuContent.Host {
             if (removeRecent != null) menu.getMenu().add(R.string.action_remove_recent)
                     .setOnMenuItemClickListener(item -> { removeRecent.run(); return true; });
             menu.getMenu().add(R.string.action_open).setOnMenuItemClickListener(item -> {
-                launch(StartMenuEntry.app(app), target, selected); return true;
+                launch(entry, target, selected); return true;
             });
             menu.getMenu().add(R.string.action_open_fullscreen).setOnMenuItemClickListener(item -> {
-                launch(StartMenuEntry.app(app), target,
+                launch(entry, target,
                         DesktopLaunchPresentation.forMode(DesktopLaunchMode.FULLSCREEN)
                                 .withInstancePolicy(selected.instancePolicy)); return true;
             });
             menu.getMenu().add(R.string.action_open_floating)
                     .setEnabled(DesktopRuntimeBridge.hasWorkspace(target.displayId()))
                     .setOnMenuItemClickListener(item -> {
-                        launch(StartMenuEntry.app(app), new StartDisplaySelector.Target(
+                        launch(entry, new StartDisplaySelector.Target(
                                 target.displayId(), target.uniqueId(), "desktop"),
                                 DesktopLaunchPresentation.forMode(DesktopLaunchMode.WINDOWED)
                                         .withInstancePolicy(selected.instancePolicy)); return true;
@@ -286,7 +268,7 @@ final class FullscreenStartController implements StartMenuContent.Host {
         if (!ShellAccess.isReady()) {
             ++mRunningGeneration;
             mRunningLoading = false;
-            mRunningTasks = Collections.emptyList();
+            mRunningEntries = Collections.emptyList();
             mRunningError = mActivity.getString(R.string.capability_access_required);
             return;
         }
@@ -296,11 +278,26 @@ final class FullscreenStartController implements StartMenuContent.Host {
         }
         final int generation = ++mRunningGeneration;
         mRunningLoading = true;
-        // One snapshot per HOME resume or explicit Running selection also sees
-        // phone applications opened from notifications and other launchers.
+        // Snapshot and metadata resolution share the worker. Rendering never queries packages.
         TaskCommandQueue.execute(() -> {
             final TaskRepository.Snapshot snapshot = mHome
                     ? TaskRepository.loadNow(mDisplayId) : TaskRepository.loadAllNow();
+            final List<StartMenuEntry> entries = new java.util.ArrayList<>();
+            String error = snapshot.available ? "" : snapshot.error;
+            if (snapshot.available) try {
+                final var repository = new LauncherAppRepository(mActivity);
+                final var apps = apps();
+                for (final var task : RunningTasks.select(snapshot.tasks, repository.profile(),
+                        mHome ? mDisplayId : -1, mHome ? lease.previousHome.packageName : null)) {
+                    final AppItem app = repository.findOrLoadTask(apps, task, false);
+                    if (app != null) entries.add(StartMenuEntry.task(app, task,
+                            TaskTitle.resolve(mActivity, app, task), TaskTitle.detail(mActivity, task)));
+                }
+            } catch (RuntimeException failure) {
+                entries.clear();
+                error = ShellAccess.usefulMessage(failure);
+            }
+            final String loadError = error;
             mActivity.runOnUiThread(() -> {
                     if (generation != mRunningGeneration || !mStarted
                             || mActivity.isFinishing() || mActivity.isDestroyed()) {
@@ -310,9 +307,9 @@ final class FullscreenStartController implements StartMenuContent.Host {
                     if (mHome && !hasActiveHomeLease()) {
                         return;
                     }
-                    mRunningTasks = snapshot.available ? snapshot.tasks : Collections.emptyList();
-                    mRunningError = snapshot.available ? ""
-                            : mActivity.getString(R.string.phone_recent_unavailable, snapshot.error);
+                    mRunningEntries = List.copyOf(entries);
+                    mRunningError = loadError.isEmpty() ? ""
+                            : mActivity.getString(R.string.phone_recent_unavailable, loadError);
                     mStart.prepare(true);
                 });
         });

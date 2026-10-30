@@ -1669,19 +1669,7 @@ public abstract class DesktopShellActivity extends Activity
     AppItem findOrLoadApp(
             final List<AppItem> apps,
             final TaskRepository.TaskEntry task) {
-        if (!mLauncherApps.owns(task)) {
-            return null;
-        }
-        final BuiltInDesktopAppCatalog.Entry builtIn =
-                BuiltInDesktopAppCatalog.find(task);
-        final AppItem app = builtIn != null
-                ? mLauncherApps.findOrLoad(
-                        apps,
-                        appProfile().application(task),
-                        builtIn.launchTarget,
-                        isUniversalFreeformEnabled())
-                : findOrLoadApp(apps, appProfile().application(task));
-        return BuiltInWindowRegistry.present(this, app, task);
+        return mLauncherApps.findOrLoadTask(apps, task, isUniversalFreeformEnabled());
     }
 
     AppItem findOrLoadApp(

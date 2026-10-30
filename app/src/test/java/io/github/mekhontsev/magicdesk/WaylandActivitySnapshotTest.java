@@ -17,6 +17,7 @@ public final class WaylandActivitySnapshotTest {
             static class Presentation { boolean isClosed() { return false; } }
             static class Session {
                 String name="Wayland";
+                boolean desktop;
                 int reads;
                 Presentation presentation=new Presentation();
                 List<WaylandSession.Window> catalog=List.of(new WaylandSession.Window(7,true,"Browser"));
@@ -65,6 +66,9 @@ public final class WaylandActivitySnapshotTest {
                 Fixture pending=new Fixture(); pending.pendingLaunch=true; pending.window=0;
                 pending.session.catalog=List.of(); pending.changed();
                 check(!pending.finishing && pending.pendingLaunch,"empty pending launch was closed");
+                Fixture desktop=new Fixture(); desktop.session.desktop=true;
+                desktop.session.name="Distribution Desktop"; desktop.changed();
+                check("Distribution Desktop".equals(desktop.title),"whole desktop exposed the nested compositor title");
             }
             """ + RuntimeSourceFixture.methods("WaylandActivity", "changed"));
     }
