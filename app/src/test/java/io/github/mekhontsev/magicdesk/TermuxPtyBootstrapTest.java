@@ -6,7 +6,6 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -47,7 +46,7 @@ public final class TermuxPtyBootstrapTest {
         // Test the production bootstrap without loading the host's login profile.
         arguments[0] = "-c";
         assertEquals(String.join("\n", "--socket", "12345", "token", "24", "80",
-                        "/home/with spaces", shell.toString(), shell.toString(), command) + "\n",
+                        "/home/with spaces", shell.toString(), shell.getParent().getParent() + "/bin/bash", command) + "\n",
                 run(shell, arguments));
         assertArrayEquals(original, Files.readAllBytes(helper));
         assertFalse(Files.exists(temporary.getRoot().toPath().resolve(".local/libexec")));
@@ -58,7 +57,8 @@ public final class TermuxPtyBootstrapTest {
         Path shell = shell();
         Path helper = helper(shell, 0);
         String[] arguments = TermuxIntegration.commandBridgeArguments(12345, "token", helper.toString());
-        assertEquals(String.join("\n", "--pipe-socket", "12345", "token", shell.toString()) + "\n",
+        assertEquals(String.join("\n", "--pipe-socket", "12345", "token",
+                        shell.getParent().getParent() + "/bin/bash") + "\n",
                 run(shell, arguments));
         assertFalse(Files.exists(temporary.getRoot().toPath().resolve(".local/libexec")));
     }

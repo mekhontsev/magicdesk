@@ -45,10 +45,9 @@ class VerifyApksTest(unittest.TestCase):
                 self.assertNotEqual(0, result.returncode)
                 self.assertIn(f"Core APK is missing libmagicdesk_{helper}.so", result.stderr)
 
-    def test_rejects_helper_too_large_for_termux_transfer(self):
+    def test_helper_size_is_not_a_binder_transfer_limit(self):
         result = self.verify(pty_bytes=512 * 1024 + 1)
-        self.assertNotEqual(0, result.returncode)
-        self.assertIn("PTY helper exceeds the Termux transfer limit", result.stderr)
+        self.assertEqual(0, result.returncode, result.stderr)
 
 
 if __name__ == "__main__":
