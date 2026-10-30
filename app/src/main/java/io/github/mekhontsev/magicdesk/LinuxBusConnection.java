@@ -57,13 +57,15 @@ final class LinuxBusConnection implements Closeable {
 
     JSONObject request(int op, int bus, JSONObject args, int timeout) throws IOException, JSONException {
         if (timeout < 1 || timeout > 10000) throw new IllegalArgumentException("timeoutMillis must be 1..10000");
+        long deadline = android.os.SystemClock.uptimeMillis() + timeout;
         try {
             // EVENT_WAIT: bounded admission to the single guest command channel; expiry does not submit work.
             if (!command.tryLock(timeout, TimeUnit.MILLISECONDS)) throw new IOException("Linux automation busy");
         } catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new IOException("Interrupted", error); }
         try {
-            awaitReady();
+            await(hello, remaining(deadline));
             if (closed.get()) throw new IOException("Linux session ended");
+            timeout = remaining(deadline);
             int requestId = ++serial;
             if (requestId == 0) requestId = ++serial;
             byte[] frame = LinuxBusWire.request(requestId, op, bus, timeout, args);
@@ -78,6 +80,12 @@ final class LinuxBusConnection implements Closeable {
             catch (IOException error) { close(); throw error; }
             finally { pending.remove(requestId); }
         } finally { command.unlock(); }
+    }
+
+    private static int remaining(long deadline) throws IOException {
+        long remaining = deadline - android.os.SystemClock.uptimeMillis();
+        if (remaining <= 0) throw new IOException("Linux automation command admission deadline");
+        return (int)remaining;
     }
 
     JSONArray call(int bus, String destination, String path, String iface, String member, JSONArray args, int timeout)

@@ -18,6 +18,7 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/un.h>
+#include <time.h>
 #include <unistd.h>
 
 typedef struct { int socket, failed; unsigned matches[3]; DBusConnection *bus[3]; MdBusFds fds; } Agent;
@@ -76,15 +77,27 @@ static DBusHandlerResult signal_filter(DBusConnection *connection, DBusMessage *
     if (bus < 3 && response(a, 0, 2, bus, message, NULL, NULL)) a->failed = 1;
     return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 }
-static DBusConnection *connect_bus(Agent *a, unsigned bus, DBusError *error) {
+static int64_t monotonic_millis(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+}
+static int remaining_timeout(int64_t deadline, DBusError *error) {
+    int64_t remaining = deadline - monotonic_millis();
+    if (remaining > 0) return (int)remaining;
+    dbus_set_error_const(error, DBUS_ERROR_TIMEOUT, "D-Bus request deadline exceeded");
+    return 0;
+}
+static DBusConnection *connect_bus(Agent *a, unsigned bus, DBusError *error, int64_t deadline) {
     if (a->bus[bus]) return a->bus[bus];
     DBusConnection *connection = NULL;
     if (bus < 2) connection = dbus_bus_get_private(bus == 0 ? DBUS_BUS_SESSION : DBUS_BUS_SYSTEM, error);
     else {
-        DBusConnection *session = connect_bus(a, 0, error); if (!session) return NULL;
+        DBusConnection *session = connect_bus(a, 0, error, deadline); if (!session) return NULL;
+        int timeout = remaining_timeout(deadline, error); if (!timeout) return NULL;
         DBusMessage *request = dbus_message_new_method_call("org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus", "GetAddress");
         if (!request) { dbus_set_error_const(error, DBUS_ERROR_NO_MEMORY, "Cannot allocate accessibility request"); return NULL; }
-        DBusMessage *reply = dbus_connection_send_with_reply_and_block(session, request, 3000, error);
+        DBusMessage *reply = dbus_connection_send_with_reply_and_block(session, request, timeout, error);
         dbus_message_unref(request); if (!reply) return NULL;
         const char *address = NULL;
         if (dbus_message_get_args(reply, error, DBUS_TYPE_STRING, &address, DBUS_TYPE_INVALID)) {
@@ -162,6 +175,7 @@ done:
 static int request(Agent *a, MdBusWire *w) {
     uint32_t id = md_bus_read_u32(w), op = md_bus_read_u32(w), bus = md_bus_read_u32(w), timeout = md_bus_read_u32(w);
     if (w->failed || !id || bus >= 3 || timeout < 1 || timeout > 10000) return -1;
+    int64_t deadline = monotonic_millis() + timeout;
     if (op == 6) return launch(a, w, id);
     DBusError error = DBUS_ERROR_INIT;
     DBusMessage *message = NULL, *reply = NULL;
@@ -185,14 +199,15 @@ static int request(Agent *a, MdBusWire *w) {
     } else if (op == 4) {
         if (a->bus[bus]) { dbus_connection_close(a->bus[bus]); dbus_connection_unref(a->bus[bus]); a->bus[bus] = NULL; a->matches[bus] = 0; }
     } else {
-        DBusConnection *connection = connect_bus(a, bus, &error);
-        if (connection) {
-            if (op == 1) reply = dbus_connection_send_with_reply_and_block(connection, message, (int)timeout, &error);
+        DBusConnection *connection = connect_bus(a, bus, &error, deadline);
+        int remaining = connection ? remaining_timeout(deadline, &error) : 0;
+        if (remaining) {
+            if (op == 1) reply = dbus_connection_send_with_reply_and_block(connection, message, remaining, &error);
             else {
                 message = dbus_message_new_method_call(DBUS_SERVICE_DBUS, DBUS_PATH_DBUS, DBUS_INTERFACE_DBUS,
                         op == 2 ? "AddMatch" : "RemoveMatch");
                 if (!message || !dbus_message_append_args(message, DBUS_TYPE_STRING, &text, DBUS_TYPE_INVALID)) goto invalid;
-                reply = dbus_connection_send_with_reply_and_block(connection, message, (int)timeout, &error);
+                reply = dbus_connection_send_with_reply_and_block(connection, message, remaining, &error);
                 if (reply) { if (op == 2) ++a->matches[bus]; else if (a->matches[bus]) --a->matches[bus]; }
             }
         }

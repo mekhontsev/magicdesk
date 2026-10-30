@@ -1,11 +1,13 @@
 """Typed bridge checks on a private session bus; no Android or user bus changes."""
 import contextlib
+import importlib.util
 import os
 from pathlib import Path
 import socket
 import struct
 import subprocess
 import sys
+import time
 import unittest
 import uuid
 
@@ -113,9 +115,10 @@ def agent():
 
 
 class BusTest(unittest.TestCase):
-    def call(self, peer, member, args=(), interface="org.freedesktop.DBus", path="/org/freedesktop/DBus"):
-        request = number(17) + number(1) + number(0) + number(1000)
-        request += text("org.freedesktop.DBus") + text(path) + text(interface) + text(member)
+    def call(self, peer, member, args=(), interface="org.freedesktop.DBus", path="/org/freedesktop/DBus",
+             destination="org.freedesktop.DBus", bus=0, timeout=1000):
+        request = number(17) + number(1) + number(bus) + number(timeout)
+        request += text(destination) + text(path) + text(interface) + text(member)
         request += number(len(args)) + b"".join(value(*arg) for arg in args)
         peer.sendall(number(len(request)) + request)
         while True:
@@ -169,6 +172,42 @@ class BusTest(unittest.TestCase):
                 self.assertEqual(result["id"], 19)
                 self.assertEqual(result["kind"], expected, result)
             self.assertEqual(self.call(peer, "GetId")["kind"], 0)
+
+    @unittest.skipUnless(importlib.util.find_spec("gi"), "requires the GLib D-Bus fixture")
+    def test_accessibility_address_and_method_share_one_timeout(self):
+        service = """
+import os
+from gi.repository import Gio, GLib
+connection = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+xml = '<node><interface name="org.a11y.Bus"><method name="GetAddress"><arg type="s" direction="out"/></method><method name="Slow"><arg type="s" direction="out"/></method></interface></node>'
+info = Gio.DBusNodeInfo.new_for_xml(xml).interfaces[0]
+def handle(conn, sender, path, interface, method, params, invocation):
+    def reply():
+        invocation.return_value(GLib.Variant('(s)', (os.environ['DBUS_SESSION_BUS_ADDRESS'],)))
+        return False
+    GLib.timeout_add(150, reply)
+connection.register_object('/org/a11y/bus', info, handle, None, None)
+Gio.bus_own_name_on_connection(connection, 'org.a11y.Bus', Gio.BusNameOwnerFlags.NONE, None, None)
+GLib.MainLoop().run()
+"""
+        with agent() as peer:
+            argv = [sys.executable, "-c", service]
+            data = number(19) + number(6) + number(0) + number(1000)
+            data += number(len(argv)) + b"".join(text(arg) for arg in argv) + number(0)
+            peer.sendall(number(len(data)) + data)
+            launched = receive(peer)
+            self.assertEqual(launched["kind"], 0, launched)
+            deadline = time.monotonic() + 5
+            while self.call(peer, "NameHasOwner", [("s", "org.a11y.Bus")])["values"][0][1] != "true":
+                self.assertLess(time.monotonic(), deadline, "fixture bus name not acquired")
+                time.sleep(.01)  # Bounded test-service startup, not production observation polling.
+            started = time.monotonic()
+            result = self.call(peer, "Slow", interface="org.a11y.Bus", path="/org/a11y/bus",
+                               destination="org.a11y.Bus", bus=2, timeout=250)
+            self.assertEqual(result["kind"], 1, result)
+            self.assertIn(result["error"], ("org.freedesktop.DBus.Error.NoReply", "org.freedesktop.DBus.Error.Timeout"))
+            self.assertLess(time.monotonic() - started, 1, result)
+            self.assertEqual(self.call(peer, "GetId", bus=2)["kind"], 0)
 
 
 if __name__ == "__main__":
