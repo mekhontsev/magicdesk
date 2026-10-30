@@ -20,5 +20,8 @@ void md_network_stack_retire(struct md_network_namespace *);
 int md_network_stack_connect(struct md_network_fabric *,const struct md_network_flow_path *,int,
     struct md_stack_channel **);
 int md_network_stack_result(struct md_stack_channel *);
+/* Graceful relay retirement must leave queued payload and FIN with the packet
+ * owner before closing the native carrier. Errors still retire immediately. */
+int md_network_stack_write_closed(struct md_stack_channel *);
 void md_network_stack_close(struct md_stack_channel *);
 #endif

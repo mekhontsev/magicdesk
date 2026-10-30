@@ -1025,6 +1025,26 @@ Anonymous nftables counters count logical data transfers
 and payload bytes, not physical network packets. See
 [network contracts](../native/shroot/networking.md#network-namespaces).
 
+### TUN/TAP Applications
+
+Guest `/dev/net/tun` supports TUN IP packets and TAP Ethernet frames without
+Android root or Android's VPN service. Interfaces belong to the opening guest
+network namespace; creating one requires guest `CAP_NET_ADMIN`. They can serve
+applications beyond container engines:
+
+- Stock tun2socks can send routed guest TCP/UDP through a SOCKS5 proxy. Keep a
+  separate route to the proxy itself so it does not loop back into the tunnel.
+- Stock QEMU can attach a virtual machine to a TAP interface with virtio-net.
+  The VM can initiate and receive IPv4/IPv6 TCP/UDP connections through Shroot.
+
+The Debian [integration evidence](../native/guest-exec-lab/distribution-evidence.md#debian-packet-applications)
+covers both applications in default and Base modes, including large transfers,
+fragmentation and connection shutdown. QEMU uses software CPU emulation (TCG),
+not KVM. This does not certify every VPN, bridge protocol or QEMU configuration.
+Virtio-net headers and offloads are not advertised by TUN/TAP; QEMU negotiates
+the available features. Ordinary file/socket IO remains native. See the
+[packet transport contract](../native/shroot/networking.md#tuntap-packet-transport).
+
 ### Docker Engine
 
 Shroot can run stock Docker Engine, containerd and runc inside a guest-root

@@ -237,6 +237,29 @@ this ordinary-user integration test.
 the `test_task_resources` target includes `test_network_tun.c` for TUN/TAP ABI,
 queue ownership, IPv4/IPv6 TCP/UDP, fragment reassembly and raw ICMP.
 
+`probe_packet_runtime.py` exercises real packet applications in an installed
+recipe environment (Debian by default), using the staged native build as shell
+UID 2000. TUN uses unmodified ARM64 tun2socks and GOST executables; place them
+in `ASSETS` as `tun2socks-linux-arm64` and `gost`. TAP requires the distribution's
+`qemu-system-aarch64`, a trusted Alpine ARM64 kernel/initramfs pair with
+virtio-net modules, and the static `packet_vm` test target:
+
+```sh
+python native/guest-exec-lab/probe_packet_runtime.py --kind tun --assets ASSETS
+cmake --build build/shroot-image-tests --target packet_vm
+python native/guest-exec-lab/probe_packet_runtime.py --kind tap \
+  --kernel vmlinuz-virt --initramfs initramfs-virt
+```
+
+Use `--build BUILD`, `--environment NAME` and `--base` as needed. The report
+records native and input hashes. No package is installed by the fixture, and
+no host interface is configured. TUN separates the proxy and client namespaces,
+tests IPv4/IPv6 TCP/UDP with payload verification and half-close, and rejects a
+route bypass before/after tun2socks runs. TAP tests the same transports in both
+directions against a real VM kernel, retaining QEMU's automatic TAP feature
+negotiation. All services, staged files and temporary initramfs trees are cleaned
+up; receipts remain under `build/packet-apps`.
+
 `test_routed_network.py` adds libc interface lookup, IPv4 packet information
 with absent/truncated receive buffers, a datagram queued before sender close,
 and receiver-close/rebind without reusing stale reply mappings.

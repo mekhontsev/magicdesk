@@ -43,7 +43,7 @@ struct flow {
     struct flow *next;
     uint64_t id, listener, space, checked[2];
     const void *endpoint, *receiver;
-    int fd[2], borrowed, type, connecting, eof[2], denied[2], receiver_closed;
+    int fd[2], borrowed, type, connecting, eof[2], denied[2], receiver_closed, draining;
     struct md_stack_channel *packet_channel;
     struct md_stack_channel *front_channel;
     struct md_inet_address client, remote, gateway;
@@ -197,6 +197,18 @@ static int interests(struct md_network_forward *f,struct flow *c) {
     if (c->type==SOCK_STREAM && (check(f,c,0)==-ECONNREFUSED || check(f,c,1)==-ECONNREFUSED)) {
         for (unsigned leg=0;leg<2;++leg) if (c->fd[leg]>=0) reset_stream(c->fd[leg]);
         return -ECONNREFUSED;
+    }
+    if (c->type==SOCK_STREAM && c->eof[0] && c->eof[1] && !c->buffer[0].end && !c->buffer[1].end) {
+        if (md_network_stack_write_closed(c->front_channel) && md_network_stack_write_closed(c->packet_channel))
+            return -ECONNRESET;
+        /* Packet owners still drain their carriers and queue FIN. Retain their
+         * lifetime, but remove EOF legs so EPOLLHUP cannot spin this event loop. */
+        if (!c->draining) {
+            for (unsigned leg=0;leg<2;++leg)
+                if (epoll_ctl(f->epoll,EPOLL_CTL_DEL,c->fd[leg],NULL)) return -errno;
+            c->draining=1;
+        }
+        return 0;
     }
     for (unsigned leg=0;leg<2;++leg) {
         if ((!leg && c->borrowed) || c->fd[leg]<0) continue;
@@ -556,7 +568,7 @@ static int stream_event(struct md_network_forward *f,struct flow *c,unsigned leg
             else if (bytes<0 && errno!=EAGAIN && errno!=EWOULDBLOCK && errno!=EINTR) return -errno;
         }
     }
-    return c->eof[0] && c->eof[1] && !c->buffer[0].end && !c->buffer[1].end ? -ECONNRESET : interests(f,c);
+    return interests(f,c);
 }
 static void *run(void *context) {
     struct md_network_forward *f=context;

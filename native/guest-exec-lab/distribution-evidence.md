@@ -82,10 +82,30 @@ native build. This slirp profile does not provide shared peer-name DNS.
 stock libvirt service, managed TCG kernel/initrd boot, paused start/resume, serial,
 poweroff, undefine and cleanup. VM networking and KVM remain untested.
 
-### Debian direct QEMU TCG
+### Debian Packet Applications
 
-`build/installed-debian-turnip/oci-services-0060b7593fed45d3b53a2aad41fc9b44.json`;
-kernel/initrd serial boot, not KVM or VM networking
+2026-10-30, recipe Debian, shell UID 2000; receipts under
+`build/packet-apps/results/oci-services-ID.json`:
+
+| Application | Default Entry | Base |
+| --- | --- | --- |
+| tun2socks 2.7.0 / GOST 3.3.2 | `ae8be610b7ab4daeabff79c036a92d4c` | `4d73fa6f166049e7997ba1743fc41575` |
+| QEMU 10.0.13 TAP / virtio-net | `c423ab86de594dfeaf0fafa448970b11` | `796bb7ed19b54faa90069af4aa941ae4` |
+
+TUN: separate client/proxy namespaces, SOCKS5 TCP/UDP, IPv4/IPv6, 1 MiB
+payload verification, half-close and UDP datagrams up to 16 KB. Disabling the
+tun2socks process prevents connectivity; traffic cannot bypass the tested path.
+TAP: real Alpine Linux 6.18.52 ARM64 kernel in QEMU TCG, automatically negotiated
+TAP capabilities, ARP/IPv6 neighbor discovery, TCP/UDP in both directions,
+fragmentation, half-close and normal VM poweroff. The inner kernel version is
+not a Shroot host requirement. Peers are fixture-local; these receipts do not
+cover external VPN services, KVM or libvirt-managed TAP configuration.
+
+The same packet-runtime build also passes the complete resource suite
+(`build/packet-apps/unit-results/oci-services-6ad4ed877cce4764b42416f4a0d8df4d.json`)
+and the ordinary-user Docker network matrix, including external DNS/HTTP and
+clean daemon exit
+(`build/shroot-image-tests/oci-services-035f10b64d5e4c469278583b836db99f.json`).
 
 ### Debian machinectl
 

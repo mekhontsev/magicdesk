@@ -303,6 +303,9 @@ connection. Queueing prevents recursive cross-namespace stack entry.
 `network_stack_channel` connects packet TCP/UDP to the existing endpoint,
 filter/NAT and native-socket forwarding owners. TCP acceptance retains the
 remote handshake result; write acknowledgement follows admitted buffering.
+Graceful relay retirement waits until the packet owner has drained its carrier
+and queued FIN. Exhausted relay descriptors leave epoll while this completes;
+the packet owner's completion wakes retirement without a delay or HUP spin.
 `network_stack_packet` validates reassembled transport and delivers raw
 observations without a second IP reassembler.
 
@@ -318,6 +321,11 @@ permissions, queue lifetime, raw ICMP and IPv4/IPv6 TCP/UDP between both packet
 and native endpoints. The rootless mode of `probe_podman_runtime.py` checks
 stock slirp4netns, UID mappings, container DNS/HTTP, TCP/UDP publication and
 cleanup with the normal container seccomp policy.
+`probe_packet_runtime.py` checks stock tun2socks through a SOCKS5 TCP/UDP proxy
+and stock QEMU TCG through TAP/virtio-net. Both cover IPv4/IPv6, bulk transfers,
+fragmentation and TCP half-close; QEMU additionally runs the peer inside a real
+Linux kernel and checks connections initiated in both directions. These use the
+same packet and relay owners, without application-specific runtime handling.
 
 ### Nftables and Flow Forwarding
 

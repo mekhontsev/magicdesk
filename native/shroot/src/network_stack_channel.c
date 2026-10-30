@@ -117,7 +117,10 @@ static void ready(void *context,uint32_t events) {
             if(error==ERR_MEM || error==ERR_BUF) error=ERR_OK;
         } else if(!bytes) {
             error=tcp_shutdown(c->tcp,0,1);
-            if(!error) c->write_closed=1;
+            if(!error) {
+                c->write_closed=1;
+                md_network_forward_wake(c->owner->space->fabric);
+            }
             if(error==ERR_MEM) c->blocked=1;
             else if(error) fail(c,md_stack_error(error));
             break;
@@ -131,6 +134,7 @@ static void ready(void *context,uint32_t events) {
     interests(c); md_stack_arm(c->owner); md_lwip_leave(previous);
 }
 int md_network_stack_result(struct md_stack_channel *c) { return c ? c->result : 0; }
+int md_network_stack_write_closed(struct md_stack_channel *c) { return !c || c->write_closed; }
 static struct md_stack_channel *new_channel(struct md_stack_interface *i,int type,int *peer) {
     struct md_stack_channel *c=calloc(1,sizeof(*c)); if(!c) { *peer=-ENOMEM; return NULL; }
     c->owner=i->owner; c->index=i->index; c->policy=i->policy; c->fd=-1; c->tail=&c->head;

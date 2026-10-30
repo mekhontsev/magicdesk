@@ -239,6 +239,20 @@ static void cable_close(struct cable *cable,struct md_network_namespace *spaces[
     assert(!pthread_join(cable->thread,NULL)); close(cable->stop);
     for(unsigned i=0;i<2;++i) { md_control_file_release(cable->tun[i]); md_network_namespace_release(spaces[i]); }
 }
+static int tcp_observed(int raw,int ipv6) {
+    int fin=0;
+    for(;;) {
+        unsigned char packet[sizeof(struct md_network_packet)+8192];
+        ssize_t size=recv(raw,packet,sizeof(packet),MSG_DONTWAIT);
+        if(size<0) { assert(errno==EAGAIN || errno==EWOULDBLOCK); return fin; }
+        size_t header=sizeof(struct md_network_packet);
+        assert((size_t)size>header);
+        if(!ipv6) header+=(packet[header]&15)*4;
+        assert((size_t)size>=header+20);
+        assert(!(packet[header+13]&4));
+        fin|=packet[header+13]&1;
+    }
+}
 static void transfer(int tap,int ipv6,int type,int native_server) {
     struct md_identity root=md_identity_new(0,0);
     struct md_network_namespace *spaces[2];
@@ -247,7 +261,9 @@ static void transfer(int tap,int ipv6,int type,int native_server) {
     cable_setup(&cable,&root,spaces,addresses,tap,ipv6);
     struct md_network_namespace *server=spaces[1],*client=spaces[0];
     struct md_fd_object *observer=NULL; int raw=-1;
-    if(type==SOCK_DGRAM) assert(!md_network_socket_open(client,&root,addresses[0].family,SOCK_RAW,IPPROTO_UDP,&observer,&raw));
+    if(type==SOCK_DGRAM || !ipv6)
+        assert(!md_network_socket_open(client,&root,addresses[0].family,SOCK_RAW,
+            type==SOCK_DGRAM ? IPPROTO_UDP : IPPROTO_TCP,&observer,&raw));
     struct md_fd_object *server_endpoint=NULL;
     struct native_echo echo={.fd=-1,.type=type};
     if(native_server) {
@@ -283,6 +299,7 @@ static void transfer(int tap,int ipv6,int type,int native_server) {
     assert(!connect(fd,(void *)&native,length));
     assert(!md_network_endpoint_connected(endpoint,fd,(void *)&logical,size));
     unsigned char sent[8192],received[8192]; memset(sent,0x6b,sizeof(sent));
+    int fin=0;
     for(unsigned round=0;round<8;++round) {
         assert(send(fd,sent,sizeof(sent),MSG_NOSIGNAL)==sizeof(sent));
         size_t count=0;
@@ -295,7 +312,8 @@ static void transfer(int tap,int ipv6,int type,int native_server) {
             if(type==SOCK_DGRAM) assert(count==sizeof(received));
         }
         assert(!memcmp(sent,received,sizeof(sent)));
-        if(raw>=0) {
+        if(type==SOCK_STREAM) { if(raw>=0) fin|=tcp_observed(raw,ipv6); }
+        else {
             unsigned char packet[sizeof(struct md_network_packet)+20+8+sizeof(sent)];
             struct pollfd ready={.fd=raw,.events=POLLIN};
             /* EVENT_WAIT: reassembled transport is also delivered to raw observers. */
@@ -303,6 +321,19 @@ static void transfer(int tap,int ipv6,int type,int native_server) {
             size_t header=sizeof(struct md_network_packet)+(ipv6 ? 0 : 20)+8;
             assert(recv(raw,packet,sizeof(packet),0)==(ssize_t)(header+sizeof(sent)));
             assert(!memcmp(packet+header,sent,sizeof(sent)));
+        }
+    }
+    if(type==SOCK_STREAM) {
+        assert(!shutdown(fd,SHUT_WR));
+        struct pollfd ready={.fd=fd,.events=POLLIN};
+        /* EVENT_WAIT: both packet legs finish gracefully, without a relay reset. */
+        assert(poll(&ready,1,5000)==1);
+        assert(recv(fd,received,1,0)==0);
+        while(raw>=0 && !fin) {
+            struct pollfd observed={.fd=raw,.events=POLLIN};
+            /* EVENT_WAIT: packet-side FIN, not only EOF on the local carrier. */
+            assert(poll(&observed,1,5000)==1);
+            fin|=tcp_observed(raw,ipv6);
         }
     }
     close(fd); md_fd_object_release(endpoint);
