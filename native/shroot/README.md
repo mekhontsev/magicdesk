@@ -22,8 +22,8 @@ and evidence, rather than installation recipes.
 
 The bootstrap maps an ARM64 ELF and its optional interpreter, constructs its
 initial stack/auxv, and enters the distribution's stock glibc/musl loader. Static
-ELF and raw SVC programs use the same entry admission. No preload library, patched libc,
-PRoot process, external container manager or SELinux change is required.
+ELF and raw SVC programs use the same entry admission. No PRoot process, external
+container manager or SELinux change is required.
 
 Lazy machine-code entry admits observed AArch64 SVC sites in unmodified programs,
 including stock libc and Go, by default for inode-store launches. It shares the

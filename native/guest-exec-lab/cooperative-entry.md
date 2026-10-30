@@ -4,11 +4,10 @@
 [Lazy SVC entry](svc-rewriting.md)
 
 Shroot uses lazy entry in stock programs by default. Shroot Base uses ordinary
-interception. Neither replaces package-owned libc files. The internal caller
-boundary uses the version declared by `MD_ENTRY_VERSION` in
+interception. The internal caller boundary uses the version declared by
+`MD_ENTRY_VERSION` in
 [`cooperative_entry.h`](../shroot/src/cooperative_entry.h); explicit API fixtures
-exercise it independently of
-machine-code discovery.
+exercise it independently of machine-code discovery.
 
 ## Runtime Checks
 
@@ -39,8 +38,8 @@ current build. Ordinary reads must retain selective interception.
 
 ## Stock Libc Workloads
 
-`test_cooperative_libc.c` is an ordinary workload, not a libc patch. Compile it
-against an existing distribution sysroot:
+Compile the `test_cooperative_libc.c` workload against an existing distribution
+sysroot:
 
 ```sh
 python native/guest-exec-lab/build_svc_glibc.py STOCK_SYSROOT OUTPUT --environment ubuntu

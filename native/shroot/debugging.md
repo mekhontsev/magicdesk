@@ -29,8 +29,7 @@ Exec admission always selects the distribution's original `PT_INTERP`.
 Stock `libthread_db` matches libc's private thread layout and realtime signal
 handling. Debugger ownership revokes lazy SVC entry in the inferior; other
 untraced processes retain their normal admission. This is shared by all
-distributions and needs no GDB wrapper or sandbox override. Attaching to an
-already-running process does not replace its loaded libc.
+distributions and needs no GDB wrapper or sandbox override.
 
 The supervisor retains interception, image admission and process lifetime.
 Guest stops and kernel stops are distinct: bootstrap setup and adapter instructions
@@ -197,10 +196,8 @@ function output and Callgrind instruction counts.
 The `shared-files-debugger` case stops two `CLONE_FILES` children, then opens
 virtual proc and inotify descriptors in their debugger. It requires unchanged
 registers, siginfo and masks, no extra wait events, successful detach and normal
-child exits. The pre-fix supervisor timed out on this case; both base execution
-and accelerated libc in a PID namespace pass with owner-scoped stop borrowing.
-The same fixture also passes natively under Android's shell identity. The
-`task_quiesce` and `fd_filter_remote` fixtures cover the underlying borrowed-stop
+child exits. The same fixture also passes natively under Android's shell identity.
+The `task_quiesce` and `fd_filter_remote` fixtures cover the underlying borrowed-stop
 restoration, protected targets, restart boundaries and rejected seccomp operations.
 The `syscall-exec` case requires paired entry/exit stops with the exec event
 between them and a successful exec result. The strace workflow checks decoded
