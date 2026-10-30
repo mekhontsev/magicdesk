@@ -456,6 +456,12 @@ application-side proc open, including protected callers with filtered
 `openat`/`clone`. Capture does not require `pidfd_getfd` or reading protected
 caller memory from the supervisor. Retained logical identities do not block
 reuse of a reaped PID.
+`setns(pidfd, namespace_mask)` (Linux 5.8) uses this capture path and prepares
+one logical resource/credential transaction. It does not call native setns or
+require newer pidfd ioctls. `test_resources.py --case mount-namespace` covers
+native and tracked pidfds, duplication, descendant authority, dead targets and
+multi-namespace rollback in Base and lazy modes. Stock RootlessKit's `nsenter`
+setup is covered by the rootless Docker probe.
 Nested debugger waits use baseline ppoll, PTRACE_INTERRUPT and ptrace register/
 signal-mask operations. Kernel-owned syscall restart is shared with socket IO;
 there is no new kernel requirement or permanent helper. Native-versus-guest

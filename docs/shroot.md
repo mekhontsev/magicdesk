@@ -1103,6 +1103,16 @@ are not bypassed. This evidence covers slirp4netns, not every Podman networking
 backend. TUN/TAP and packet-stack limits are documented in the
 [native network contract](../native/shroot/networking.md#tuntap-packet-transport).
 
+Rootless Docker uses the distribution's `dockerd-rootless.sh`, RootlessKit,
+slirp4netns and UID-map helpers, with subordinate IDs configured for the user.
+Start it from that user's session with a private, writable `XDG_RUNTIME_DIR`;
+the client connects to `$XDG_RUNTIME_DIR/docker.sock`. Debian coverage uses
+Docker 26.1.5, RootlessKit 2.0.2 and overlay2, retaining slirp4netns sandbox,
+seccomp and host-loopback protection. Two-container TCP/UDP publication, peer
+IP/name lookup, outbound DNS/HTTP, port conflicts and shutdown pass without
+Android root. This is separate from guest-root Docker and does not certify
+every RootlessKit driver or cgroup delegation setup.
+
 For both engines, guest root is still real Android UID 2000. Enabled cgroups
 provide logical membership and permissive settings, not enforced resource or
 device limits.

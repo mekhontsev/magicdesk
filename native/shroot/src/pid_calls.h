@@ -22,5 +22,6 @@ enum { MD_PIDFD_DONE=4 };
 struct md_pidfd_frame { struct md_fd_capture_frame capture; long result; int code; };
 long md_pidfd_signal(const unsigned long *);
 long md_pidfd_namespace(const unsigned long *);
+long md_setns(const unsigned long *);
 long md_pid_terminal(const unsigned long *);
 #endif

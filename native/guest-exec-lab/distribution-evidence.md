@@ -58,6 +58,24 @@ conflicts and release, external HTTP and repeated DNS requests
 overrides; TCP/UDP/peer names/local outbound/binds/repeated exec/conflicts/port release;
 external HTTP and repeated DNS requests
 
+### Debian Rootless Containers
+
+`build/shroot-image-tests/oci-services-455690e60d384049bf3173f3f20d12ca.json`;
+Docker 26.1.5, RootlessKit 2.0.2 and slirp4netns 1.2.1, ordinary guest UID 1000,
+overlay2, rootless/seccomp security options, stock sandbox and host-loopback
+protection. Two containers, published TCP/UDP, peer IP/names, local outbound,
+external DNS/HTTP, occupied-port rejection and cleanup pass. Guest API mounts
+are prepared before dropping to the user; cgroups retain their documented
+permissive semantics, not native resource enforcement.
+The same matrix passes in Base mode with the retained image cache:
+`build/shroot-image-tests/oci-services-cee84332ef414dd5a5b8bb1c22e58ea4.json`.
+
+`build/podman-results/oci-services-6ac1a5d96d9448c5bd61671fbcbca338.json`;
+stock Podman as the same ordinary user, overlay, slirp4netns and enabled
+cgroups/seccomp. Two containers, incoming TCP/UDP, local outbound, external
+DNS/HTTP, port conflicts, teardown and pause-process release pass on the same
+native build. This slirp profile does not provide shared peer-name DNS.
+
 ### Debian managed Libvirt/QEMU
 
 `build/installed-debian-turnip/oci-services-011c5918bd524993ae10e90090ed8e51.json`;

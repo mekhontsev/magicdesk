@@ -224,6 +224,15 @@ tests cover external TCP/UDP ports, outbound IO, conflicts and teardown.
 Named-peer DNS checks apply to the separate bridge mode, not isolated slirp
 networks. The fixture ends its Podman pause process with `podman system migrate`.
 
+`probe_docker_runtime.py BUILD STORE --rootless-user USER --storage-driver overlay2
+--cgroup v2 --exercise-ports --internet` starts the distribution's
+`dockerd-rootless.sh` through stock RootlessKit, slirp4netns and UID-map helpers
+as an ordinary guest user. It requires rootless and seccomp security options,
+then checks two containers, published TCP/UDP, peer IP/name lookup, outbound IO,
+port conflicts and teardown. The named diagnostic `rootless*` profiles without
+`--rootless-user` only enter a guest user namespace; they do not substitute for
+this ordinary-user integration test.
+
 `test_lwip_context` checks namespace-local protocol state and memory limits;
 the `test_task_resources` target includes `test_network_tun.c` for TUN/TAP ABI,
 queue ownership, IPv4/IPv6 TCP/UDP, fragment reassembly and raw ICMP.

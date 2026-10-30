@@ -105,7 +105,11 @@ static long dispatch_files(const struct md_fs *fs, long nr, unsigned long a0, un
         md_cooperative_revoke();
         return md_fd_filter_prepare_sandbox();
     }
-    if (nr==SYS_unshare || nr==SYS_clone || nr==SYS_setns) return md_pid_filter_install();
+    if (nr==SYS_unshare || nr==SYS_clone) return md_pid_filter_install();
+    if (nr==SYS_setns) {
+        long result=md_pid_filter_install();
+        return result ? result : md_setns(args);
+    }
     if (nr==SYS_kill && (int)a0<=0) return md_pid_signal_group((int)a0,(int)a1);
     if (nr==SYS_pidfd_send_signal) return md_pidfd_signal(args);
     if (nr==SYS_ioctl && md_pidfd_namespace_command((unsigned)a1)) return md_pidfd_namespace(args);

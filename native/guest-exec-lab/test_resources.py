@@ -80,8 +80,10 @@ def main():
               + root + "/store --deadline-seconds 90 -- /bin/test devpts-pid", "PASS guest devpts: PID namespace")
         check("guest PID namespace lifecycle", root + "/libmagicdesk_guest_run.so --user 0:0 --diagnostics --store "
               + root + "/store --deadline-seconds 90 -- /bin/test pid-namespace", "PASS guest PID namespaces:")
-        check("guest namespace entry", root + "/libmagicdesk_guest_run.so --user 0:0 --diagnostics --store "
-              + root + "/store --deadline-seconds 90 -- /bin/test setns", "PASS guest setns:")
+        for entry in (0, 1):
+            check(f"guest namespace entry={entry}", root + "/libmagicdesk_guest_run.so --user 0:0"
+                  + f" --env SHROOT_MACHINE_ENTRY={entry} --diagnostics --store "
+                  + root + "/store --deadline-seconds 90 -- /bin/test setns", "PASS guest setns:")
         check("guest overlay filesystems", root + "/libmagicdesk_guest_run.so --user 0:0 --diagnostics --store "
               + root + "/store --deadline-seconds 90 -- /bin/test overlay", "PASS guest overlay:")
         for entry in (0, 1):

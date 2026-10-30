@@ -222,16 +222,12 @@ int md_resources_unshare_finish(struct md_task_resources *r,
     *change = (struct md_resource_change){0};
     return invalid ? -EINVAL : error;
 }
-int md_resources_setns_prepare(const struct md_task_resources *r, const struct md_identity *id,
-        const struct md_namespace_reference *target, unsigned type, struct md_resource_change *change) {
-    *change=(struct md_resource_change){0};
-    if (!target || !id || (type && type!=md_namespace_reference_type(target))) return -EINVAL;
+static int setns_add(const struct md_task_resources *r, const struct md_identity *id,
+        const struct md_namespace_reference *target, struct md_resource_change *change) {
     if (target->kind==MD_NAMESPACE_USER) {
         if (md_domain_shared(r->fs)) return -EINVAL;
         change->identity=md_identity_copy(id); change->identity_pending=1;
-        int error=md_identity_join_user_namespace(&change->identity,target->value.user);
-        if (error) md_resources_unshare_finish(NULL,NULL,change,error);
-        return error;
+        return md_identity_join_user_namespace(&change->identity,target->value.user);
     }
     const struct md_user_namespace *owner=md_namespace_reference_owner(target);
     if (!md_identity_capable(id,CAP_SYS_ADMIN) || !md_identity_capable_in(id,owner,CAP_SYS_ADMIN)) return -EPERM;
@@ -255,6 +251,34 @@ int md_resources_setns_prepare(const struct md_task_resources *r, const struct m
         change->next.pid_children=md_pid_namespace_retain(target->value.pid);
         change->pid_children_pending=1; break;
     default: return -EINVAL;
+    }
+    return 0;
+}
+int md_resources_setns_prepare(const struct md_task_resources *r, const struct md_identity *id,
+        const struct md_namespace_reference *target, unsigned type, struct md_resource_change *change) {
+    *change=(struct md_resource_change){0};
+    if (!target || !id || (type && type!=md_namespace_reference_type(target))) return -EINVAL;
+    int error=setns_add(r,id,target,change);
+    if (error) md_resources_unshare_finish(NULL,NULL,change,error);
+    return error;
+}
+int md_resources_setns_process_prepare(const struct md_task_resources *r, const struct md_identity *id,
+        const struct md_task_resources *target, struct md_user_namespace *user,
+        unsigned types, struct md_resource_change *change) {
+    *change=(struct md_resource_change){0};
+    if (!types || (types&~(md_resources_namespace_flags(~0UL)|CLONE_NEWTIME))) return -EINVAL;
+    if (types&CLONE_NEWTIME) return -EOPNOTSUPP;
+    /* Retain one candidate before publication. In particular, later admission
+     * uses the selected user namespace without changing the caller on failure. */
+    static const enum md_namespace_kind kinds[]={MD_NAMESPACE_USER,MD_NAMESPACE_MOUNT,
+        MD_NAMESPACE_UTS,MD_NAMESPACE_IPC,MD_NAMESPACE_PID,MD_NAMESPACE_CGROUP,MD_NAMESPACE_NETWORK};
+    for (unsigned i=0;i<sizeof(kinds)/sizeof(*kinds);++i) {
+        struct md_namespace_reference ref={.kind=kinds[i]};
+        if (!(types&md_namespace_reference_type(&ref))) continue;
+        ref=md_namespace_reference_capture(kinds[i],target,user);
+        int error=setns_add(r,change->identity_pending ? &change->identity : id,&ref,change);
+        md_namespace_reference_release(&ref);
+        if (error) { md_resources_unshare_finish(NULL,NULL,change,error); return error; }
     }
     return 0;
 }

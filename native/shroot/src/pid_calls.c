@@ -87,3 +87,16 @@ long md_pidfd_namespace(const unsigned long *a) {
     }
     return result;
 }
+long md_setns(const unsigned long *a) {
+    long result=md_adapter_buffer_take();
+    if (result<0) return result;
+    struct md_pidfd_frame *frame=(void *)result;
+    result=md_fd_control(MD_FD_USE,0,0,0);
+    if (!result) {
+        result=pidfd_capture(md_guest_buffer_control(MD_BUFFER_PIDFD_NAMESPACE,a[0],a[1]),frame,(int)a[0]);
+        long released=md_fd_control(MD_FD_RELEASE,0,0,0);
+        if (!result) result=released;
+    }
+    md_adapter_buffer_release();
+    return result;
+}

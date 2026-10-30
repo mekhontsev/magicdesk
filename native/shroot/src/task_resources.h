@@ -44,6 +44,10 @@ struct md_namespace_reference;
  * membership is checked by the supervisor before USER admission. */
 int md_resources_setns_prepare(const struct md_task_resources *, const struct md_identity *,
     const struct md_namespace_reference *, unsigned type, struct md_resource_change *);
+/* The caller authenticates the exact live pidfd target before taking this
+ * resource snapshot. All selected namespaces publish through one change. */
+int md_resources_setns_process_prepare(const struct md_task_resources *, const struct md_identity *,
+    const struct md_task_resources *, struct md_user_namespace *, unsigned types, struct md_resource_change *);
 
 int md_resources_init(struct md_task_resources *, struct md_mount_namespace *);
 int md_resources_fork(const struct md_task_resources *, unsigned long flags,
