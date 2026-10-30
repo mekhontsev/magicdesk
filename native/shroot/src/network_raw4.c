@@ -4,6 +4,7 @@
 #include "network_ethernet.h"
 #include "network_flow.h"
 #include "network_forward.h"
+#include "network_stack.h"
 #include <errno.h>
 #include <linux/if_ether.h>
 #include <net/if.h>
@@ -74,13 +75,19 @@ static void receive(struct md_network_namespace *n,const struct md_network_inter
         }
         if (md_network_forward_datagram(n,link->info.index,&packet,h.ttl,payload+sizeof(u),bytes-sizeof(u))) return;
     } else if (udp && md_network_flow_packet_policy(n,link,&packet,1,size-header)) return;
+    md_network_raw4_observe(n,link,(const char *)frame+ETH_HLEN,size);
+}
+void md_network_raw4_observe(struct md_network_namespace *n,const struct md_network_interface *link,
+        const void *data,size_t size) {
+    if(!n->raw4 || size<sizeof(struct iphdr)) return;
+    struct iphdr h; memcpy(&h,data,sizeof(h));
     struct md_network_packet envelope={.ip={.interface=link->info.index,.hops=h.ttl}};
     memcpy(envelope.ip.source,&h.saddr,4); memcpy(envelope.ip.destination,&h.daddr,4);
     envelope.ip.local4=md_network_interface_has(link,md_ip_v4(h.daddr))
         ? (uint32_t)h.daddr : md_network_interface_source(link,md_ip_v4(h.saddr)).v4;
     struct timeval now; gettimeofday(&now,NULL);
     envelope.ip.seconds=now.tv_sec; envelope.ip.microseconds=now.tv_usec;
-    struct iovec vectors[]={{&envelope,sizeof(envelope)},{(char *)frame+ETH_HLEN,size}};
+    struct iovec vectors[]={{&envelope,sizeof(envelope)},{(void *)data,size}};
     struct msghdr message={.msg_iov=vectors,.msg_iovlen=2};
     for (struct md_network_raw4 *s=n->raw4;s;s=s->next) {
         if (s->protocol==IPPROTO_RAW || s->protocol!=h.protocol
@@ -143,8 +150,9 @@ static long send_packet(struct md_network_raw4 *s,const void *data,size_t size,c
     struct ethhdr e={.h_proto=htons(ETH_P_IP)};
     memcpy(e.h_source,link->info.address,ETH_ALEN);
     int error=0;
+    int stack=md_network_stack_has_link(s->space,link->info.index) && !md_network_interface_has(link,destination);
     if (is_broadcast) memset(e.h_dest,255,ETH_ALEN);
-    else {
+    else if(!stack) {
         struct md_network_interface *peer=md_network_interface_has(link,destination) ? link
             : md_network_neighbor(s->space,link,destination);
         if (!peer) error=-ENETUNREACH;
@@ -157,10 +165,12 @@ static long send_packet(struct md_network_raw4 *s,const void *data,size_t size,c
         memcpy(frame+ETH_HLEN+offsetof(struct iphdr,check),&check,sizeof(check));
         size_t ip_header=h.ihl*4U;
         struct md_filter_packet packet=packet_tuple(&h,frame+ETH_HLEN+ip_header,length-ETH_HLEN-ip_header);
-        error=md_network_flow_packet_policy(s->space,link,&packet,0,length-ETH_HLEN-ip_header);
+        error=stack && h.protocol==IPPROTO_ICMP ? 0
+            : md_network_flow_packet_policy(s->space,link,&packet,0,length-ETH_HLEN-ip_header);
         if (!error && link->kind!=MD_LINK_LOOPBACK && md_network_interface_has(link,destination))
             md_network_raw4_receive(s->space,link,frame,length);
-        else if (!error) error=md_network_ethernet_transmit(s->space,link,NULL,frame,length);
+        else if (!error) error=stack ? md_network_stack_send_ip(s->space,link->info.index,frame+ETH_HLEN,length-ETH_HLEN)
+            : md_network_ethernet_transmit(s->space,link,NULL,frame,length);
     }
     free(frame); return error ? error : (long)size;
 }

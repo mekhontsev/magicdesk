@@ -2,6 +2,7 @@
 #include "device_tree.h"
 #include "provider_tree.h"
 #include "fuse_device.h"
+#include "network_tun.h"
 #include "render_device.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -56,8 +57,8 @@ struct md_provider_tree *md_device_tree_new(int parent,int hide_native_input) {
     struct md_provider_tree *tree=md_provider_tree_new(parent,lower,opaque,hide_native_input ? 1 : 0,&operations,r);
     error=errno; close(lower); release(r);
     if (!tree) { errno=error; return NULL; }
-    const char *dirs[]={"shm","pts","input"};
-    unsigned count=hide_native_input ? 3 : 2;
+    const char *dirs[]={"shm","pts","net","input"};
+    unsigned count=hide_native_input ? 4 : 3;
     for (unsigned i=0;i<count;++i) if (mkdirat(md_provider_tree_root(tree),dirs[i],0755)) {
         error=errno; md_provider_tree_release(tree); errno=error; return NULL;
     }
@@ -70,32 +71,33 @@ int md_device_tree_portable(const struct md_provider_tree *tree) {
     int portable=!r->local && r->nodes;
     pthread_mutex_unlock(&r->lock); return portable;
 }
+static int import_node(struct registry *r,int upper,const char *path,unsigned render,int required) {
+    struct stat identity;
+    if(fstatat(upper,path,&identity,AT_SYMLINK_NOFOLLOW)) return !required && errno==ENOENT ? 0 : -errno;
+    if(!S_ISREG(identity.st_mode)) return -EPROTO;
+    struct node *n=calloc(1,sizeof(*n)); if(!n) return -ENOMEM;
+    n->identity=identity;
+    int error=render ? md_render_device_restore(render,&n->file)
+        : !strcmp(path,"fuse") ? md_fuse_device_node(&n->file) : md_tun_device_node(&n->file);
+    if(error) { free(n); return error; }
+    n->next=r->nodes; r->nodes=n; return 0;
+}
 struct md_provider_tree *md_device_tree_import(int upper) {
     struct registry *r=registry_new(0); if (!r) return NULL;
-    int error=0;
-    for (unsigned i=0;!error && i<=64;++i) {
-        if (i==1) {
-            struct stat directory;
-            if (fstatat(upper,"dri",&directory,AT_SYMLINK_NOFOLLOW)) {
-                if (errno!=ENOENT) error=-errno;
-                break;
-            }
-            if (!S_ISDIR(directory.st_mode)) { error=-EPROTO; break; }
+    int error=import_node(r,upper,"fuse",0,1);
+    const char *directories[]={"net","dri"};
+    for(unsigned d=0;!error && d<2;++d) {
+        struct stat directory;
+        if(fstatat(upper,directories[d],&directory,AT_SYMLINK_NOFOLLOW)) {
+            if(errno!=ENOENT) error=-errno;
+            continue;
         }
-        char path[32]="fuse";
-        if (i) snprintf(path,sizeof(path),"dri/renderD%u",127+i);
-        struct stat identity;
-        if (fstatat(upper,path,&identity,AT_SYMLINK_NOFOLLOW)) {
-            if (i && errno==ENOENT) continue;
-            error=-errno; break;
+        if(!S_ISDIR(directory.st_mode)) { error=-EPROTO; break; }
+        if(!d) error=import_node(r,upper,"net/tun",0,0);
+        else for(unsigned minor=128;!error && minor<=191;++minor) {
+            char path[32]; snprintf(path,sizeof(path),"dri/renderD%u",minor);
+            error=import_node(r,upper,path,minor,0);
         }
-        if (!S_ISREG(identity.st_mode)) { error=-EPROTO; break; }
-        struct node *n=calloc(1,sizeof(*n));
-        if (!n) { error=-ENOMEM; break; }
-        n->identity=identity;
-        error=i ? md_render_device_restore(127+i,&n->file) : md_fuse_device_node(&n->file);
-        if (error) { free(n); break; }
-        n->next=r->nodes; r->nodes=n;
     }
     int lower=error ? -1 : open("/dev",O_PATH|O_DIRECTORY|O_CLOEXEC);
     if (!error && lower<0) error=-errno;
@@ -117,6 +119,7 @@ int md_device_tree_publish(struct md_provider_tree *tree,const char *path,struct
     if (!error) {
         char render[32]; snprintf(render,sizeof(render),"dri/renderD%u",md_render_device_minor(file));
         if (!((!strcmp(path,"fuse") && md_fuse_device_is_node(file))
+                || (!strcmp(path,"net/tun") && md_tun_device_is_node(file))
                 || (!strcmp(path,render) && md_render_device_is_node(file)))) r->local=1;
         n->next=r->nodes; r->nodes=n;
     }

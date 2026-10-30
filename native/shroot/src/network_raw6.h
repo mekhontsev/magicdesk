@@ -2,6 +2,7 @@
 #define MD_NETWORK_RAW6_H
 #include "network_packet.h"
 #include "network_multicast.h"
+#include "network_raw_observe.h"
 #include <netinet/icmp6.h>
 struct md_network_namespace;
 struct md_network_interface;

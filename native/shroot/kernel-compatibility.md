@@ -52,6 +52,16 @@ publication, cancellation and watches. No kernel minimum or storage change.
 
 ### Input And Network Providers
 
+Guest TUN/TAP uses namespace-owned lwIP and the typed device provider, not
+host `/dev/net/tun`, Android VPN APIs or host `CAP_NET_ADMIN`. Its advertised
+ioctls predate 5.15. Socketpairs, eventfd, timerfd and epoll drive bounded IO on
+the existing network loop; no newer kernel primitive is required. Unsupported
+offloads and device options fail explicitly. Coverage: `test_lwip_context`,
+`test_network_tun` and rootless `probe_podman_runtime.py` with stock slirp4netns.
+The common socket IO owner treats `MSG_ERRQUEUE` as an immediate query, including
+on blocking sockets; an empty error queue returns `EAGAIN` without an IO waiter.
+`supervisor_state` covers IPv4/IPv6 error-queue admission.
+
 The optional gamepad bus uses baseline Unix stream/datagram socketpairs,
 eventfd, poll/epoll, SCM credentials and the existing typed descriptor transport.
 Evdev/joydev/uinput and udev discovery are guest providers; no native uinput

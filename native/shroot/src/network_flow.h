@@ -14,6 +14,8 @@ struct md_network_flow_path {
     struct md_network_flow_step steps[16];
     unsigned count, mediated;
     uint64_t destination, generation;
+    uint64_t packet_space;
+    unsigned packet_output;
     /* Native publication owns this host-local address only in its ingress
      * namespace. DNAT and child namespaces must not inherit that ownership. */
     uint64_t native_space;

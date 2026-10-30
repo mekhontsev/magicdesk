@@ -10,8 +10,8 @@ static void enqueue(struct hop *queue,size_t *count,struct md_network_namespace 
     for (size_t i=0;i<*count;++i) if (queue[i].space==n && queue[i].link==link && queue[i].outgoing==outgoing) return;
     queue[(*count)++]=(struct hop){n,link,outgoing};
 }
-int md_network_link_walk(struct md_network_namespace *space,struct md_network_interface *source,int link_local,
-        md_network_link_visitor visitor,void *context) {
+static int walk(struct md_network_namespace *space,struct md_network_interface *source,int link_local,
+        md_network_link_visitor visitor,void *context,int outgoing) {
     size_t capacity=0;
     for (struct md_network_namespace *n=space->fabric->spaces;n;n=n->next) {
         if (n->count>(SIZE_MAX/sizeof(struct hop)-capacity)/2) return -EOVERFLOW;
@@ -20,7 +20,7 @@ int md_network_link_walk(struct md_network_namespace *space,struct md_network_in
     struct hop *queue=calloc(capacity,sizeof(*queue));
     if (!queue) return -ENOMEM;
     size_t count=0;
-    enqueue(queue,&count,space,source,1);
+    enqueue(queue,&count,space,source,outgoing);
     for (size_t at=0;at<count;++at) {
         struct hop hop=queue[at];
         struct md_network_interface *link=hop.link;
@@ -44,3 +44,7 @@ int md_network_link_walk(struct md_network_namespace *space,struct md_network_in
     }
     free(queue); return 0;
 }
+int md_network_link_walk(struct md_network_namespace *space,struct md_network_interface *source,int link_local,
+        md_network_link_visitor visitor,void *context) { return walk(space,source,link_local,visitor,context,1); }
+int md_network_link_ingress(struct md_network_namespace *space,struct md_network_interface *source,int link_local,
+        md_network_link_visitor visitor,void *context) { return walk(space,source,link_local,visitor,context,0); }

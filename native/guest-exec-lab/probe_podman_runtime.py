@@ -23,7 +23,15 @@ def guest(options):
     defaults = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
     os.environ['PATH'] = os.pathsep.join(dict.fromkeys(
         path for path in (os.environ.get('PATH', '') + os.pathsep + defaults).split(os.pathsep) if path))
+    if options.get('rootlessUser') and not options.get('prepared'):
+        subprocess.run(['mount', '-t', 'sysfs', 'sysfs', '/sys'], check=True)
+        subprocess.run(['mount', '-t', 'cgroup2', 'none', '/sys/fs/cgroup'], check=True)
+        options['prepared'] = True
+        command = shlex.join([sys.executable, __file__, '--guest', json.dumps(options)])
+        os.execvp('su', ['su', '--login', '--shell', '/bin/sh', '--command', command, options['rootlessUser']])
     report = {'options': options, 'commands': [], 'passed': False}
+    if options.get('rootlessUser'):
+        assert os.getuid() != 0, 'Rootless fixture must run as an ordinary guest user'
     base = Path(options['directory'])
     base.mkdir(parents=True, exist_ok=True)
     if options.get('captureNft'):
@@ -120,7 +128,8 @@ def guest(options):
 
     def exercise_ports():
         from docker_network_fixture import observe, wait_service
-        network = 'md-podman-ports'
+        managed_network = options['network'] == 'bridge'
+        network = 'md-podman-ports' if managed_network else options['network']
         names = ('md-podman-first', 'md-podman-second')
         ports = []
         image = options['portsImage']
@@ -131,9 +140,10 @@ def guest(options):
             return observe(options['observer'], ipv6=ipv6, **request)
         if run(prefix + ['image', 'exists', image], required=False).get('exitCode') != 0:
             run(prefix + ['pull', image], timeout=180)
-        if run(prefix + ['network', 'exists', network], required=False).get('exitCode') == 0:
+        if managed_network and run(prefix + ['network', 'exists', network], required=False).get('exitCode') == 0:
             run(prefix + ['network', 'rm', '-f', network])
-        run(prefix + ['network', 'create', *family, network])
+        if managed_network:
+            run(prefix + ['network', 'create', *family, network])
         tracer = None
         try:
             for name in names:
@@ -145,12 +155,13 @@ def guest(options):
                               '--mount', 'type=bind,src=' + str(Path(__file__).with_name('docker_network_fixture.py'))
                               + ',dst=/fixture.py,readonly', image, 'python3', '/fixture.py', name, *family])
                 wait_service(prefix + ['logs', '-f', name])
-                if options['trace'] and tracer is None:
+                if options['trace'] and managed_network and tracer is None:
                     tracer = trace_dns()
                 report.setdefault('portChecks', []).append(external(operation='exchange', port=port, token=name, repeats=20))
-            for source, target in (names, tuple(reversed(names))):
-                run(prefix + ['exec', source, 'python3', '/fixture.py', '--client', target, '8080', target, '20', *family])
-            report['namedPeerExchangePassed'] = True
+            if managed_network:
+                for source, target in (names, tuple(reversed(names))):
+                    run(prefix + ['exec', source, 'python3', '/fixture.py', '--client', target, '8080', target, '20', *family])
+                report['namedPeerExchangePassed'] = True
             outbound = observe(options['observer'], operation='outbound')['url']
             for _ in range(options['execRepeats']):
                 for name in names:
@@ -189,7 +200,7 @@ def guest(options):
         finally:
             try:
                 removed = run(prefix + ['rm', '-f', '--ignore', *names, 'md-podman-conflict'], required=False)
-                network_removed = run(prefix + ['network', 'rm', network], required=False)
+                network_removed = run(prefix + ['network', 'rm', network], required=False) if managed_network else None
             finally:
                 if tracer:
                     try:
@@ -200,15 +211,16 @@ def guest(options):
                         tracer.communicate(timeout=10)
                         report['traceShutdownFailure'] = 'Tracer survived network teardown'
             if 'portFailure' not in report:
-                assert removed.get('exitCode') == 0 and network_removed.get('exitCode') == 0, 'Network cleanup failed'
+                assert removed.get('exitCode') == 0 and (network_removed is None or network_removed.get('exitCode') == 0), 'Network cleanup failed'
                 assert 'traceShutdownFailure' not in report, report['traceShutdownFailure']
         for port in ports:
             report['portChecks'].append(external(operation='released', port=port))
         report['portPublicationPassed'] = True
 
     try:
-        run(['mount', '-t', 'sysfs', 'sysfs', '/sys'])
-        run(['mount', '-t', 'cgroup2', 'none', '/sys/fs/cgroup'])
+        if not options.get('prepared'):
+            run(['mount', '-t', 'sysfs', 'sysfs', '/sys'])
+            run(['mount', '-t', 'cgroup2', 'none', '/sys/fs/cgroup'])
         run(prefix + ['info', '--format', 'json'])
         if run(prefix + ['image', 'exists', options['image']], required=False).get('exitCode') != 0:
             run(prefix + ['pull', options['image']], timeout=180)
@@ -234,6 +246,9 @@ def guest(options):
         if created:
             cleanup = run(prefix + ['rm', '-f', '--ignore', name], required=False)
             report['passed'] &= cleanup.get('exitCode') == 0
+        if options.get('rootlessUser'):
+            cleanup = run(prefix + ['system', 'migrate'], required=False)
+            report['passed'] &= cleanup.get('exitCode') == 0
         report['traceErrors'] = []
         for trace in sorted(base.glob('trace-*.log')):
             report['traceErrors'] += [trace.name + ': ' + line for line in trace.read_text(errors='replace').splitlines()
@@ -251,7 +266,9 @@ def main():
     parser.add_argument('build', type=Path)
     parser.add_argument('store')
     parser.add_argument('--storage', choices=('overlay', 'vfs'), default='overlay')
-    parser.add_argument('--network', choices=('bridge', 'host', 'none'), default='bridge')
+    parser.add_argument('--network', choices=('bridge', 'slirp4netns', 'host', 'none'),
+                        help='Default: bridge, or slirp4netns with --rootless-user')
+    parser.add_argument('--rootless-user', help='Existing disposable guest user with subuid/subgid ranges and stock uidmap/slirp4netns')
     parser.add_argument('--cgroups', choices=('enabled', 'disabled'), default='enabled',
                         help='Explicit diagnostic mode; disabled does not certify cgroup support')
     parser.add_argument('--image', default='docker.io/library/alpine:3.23')
@@ -274,8 +291,13 @@ def main():
     parser.add_argument('--unlimited-pids', action='store_true', help='Explicitly disable the optional pids-controller limit')
     add_machine_entry_argument(parser)
     args = parser.parse_args()
-    if args.exercise_ports and args.network != 'bridge':
-        parser.error('--exercise-ports requires bridge')
+    args.network = args.network or ('slirp4netns' if args.rootless_user else 'bridge')
+    if args.exercise_ports and args.network not in ('bridge', 'slirp4netns'):
+        parser.error('--exercise-ports requires bridge or slirp4netns')
+    if args.ipv6 and args.network != 'bridge':
+        parser.error('--ipv6 currently exercises the bridge network')
+    if args.trace and args.rootless_user:
+        parser.error('--trace cannot preserve the rootless uidmap set-ID exec boundary')
     if args.ipv6 and not args.exercise_ports:
         parser.error('--ipv6 requires --exercise-ports')
     if (args.internet_ipv6 or args.ipv6_host != '::1' or args.ipv6_publish_host is not None) and not args.ipv6:
@@ -303,6 +325,7 @@ def main():
                    # Podman 4 limits runroot (including "-run") to 50 bytes.
                    'cache': args.cache or '/tmp/md-pc-' + suite.report['id'],
                    'storage': args.storage, 'network': args.network, 'image': args.image,
+                   'rootlessUser': args.rootless_user,
                    'cgroups': args.cgroups,
                    'internet': args.internet, 'portsImage': args.ports_image,
                    'ipv6': args.ipv6, 'ipv6Host': args.ipv6_host, 'internetIpv6': args.internet_ipv6,

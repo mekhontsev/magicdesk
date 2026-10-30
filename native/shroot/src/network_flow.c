@@ -210,6 +210,10 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
         }
         if (!error) error=hook(n,NF_INET_POST_ROUTING,p,path);
         if (error) break;
+        if (out->kind==MD_LINK_TUN || out->kind==MD_LINK_TAP) {
+            path->packet_space=n->inode; path->packet_output=out->info.index; path->mediated=1;
+            break;
+        }
         if (out->kind==MD_LINK_UPLINK) {
             if (n->mode!=MD_NETWORK_ROUTED) error=-ENETUNREACH;
             else if (md_ip_multicast(p->destination)
@@ -224,6 +228,16 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
             if (input && input->master) input=md_network_interface_find(next,input->master,NULL);
         } else if (out->kind==MD_LINK_BRIDGE) {
             input=bridge_peer(n,out,md_ip_unspecified(route.gateway) ? p->destination : route.gateway,&next);
+            if(!input && n->stack) {
+                int packet_port=0;
+                for(unsigned k=0;k<n->count;++k)
+                    if(n->links[k].master==out->info.index && n->links[k].kind==MD_LINK_TAP
+                            && (n->links[k].info.flags&IFF_UP)) packet_port=1;
+                if(packet_port) {
+                    path->packet_space=n->inode; path->packet_output=out->info.index; path->mediated=1;
+                    break;
+                }
+            }
             if (input && ingress_port) {
                 struct md_network_interface *in=md_network_interface_find(n,ingress_port,NULL);
                 struct md_network_interface *port=md_network_interface_find(n,input->peer,NULL);

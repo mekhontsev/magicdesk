@@ -161,6 +161,23 @@ static void svc_client_lifetime(void) {
     md_memory_release(other); md_memory_release(memory);
     puts("PASS SVC client lifetime: exact mm, lost stop retains owner, terminal event and reap retire it");
 }
+static void receive_error_queue(void) {
+    const int families[]={AF_INET,AF_INET6};
+    for (unsigned i=0;i<2;++i) {
+        int fd=socket(families[i],SOCK_DGRAM|SOCK_CLOEXEC,0); assert(fd>=0);
+        struct md_received_fds *fds=NULL;
+        assert(!md_received_fds_reserve(&fds,1));
+        fds->fds[fds->count++]=fd;
+        struct md_ipc_io op={0};
+        struct md_ipc_io_message *io=calloc(1,sizeof(*io)); assert(io);
+        io->size=16; io->control_size=128; io->address_size=sizeof(io->address);
+        long result=0;
+        assert(!md_ipc_io_receive(&op,&fds,io,MSG_ERRQUEUE,&result));
+        assert(result==-EAGAIN && op.nonblocking && !op.job.started);
+        md_ipc_io_release(&op); md_received_fds_release(fds); free(io);
+    }
+    puts("PASS empty IP error queue: immediate EAGAIN on blocking IPv4/IPv6 sockets");
+}
 static void receive_layouts(void) {
     struct md_ipc_io_message *io=calloc(1,sizeof(*io)); assert(io);
     struct md_ipc_io op={0};
@@ -1523,6 +1540,7 @@ static void admission_quiescence(void) {
     puts("PASS internal admission: shielded quiescence before/after notification, exact retry, EINTR and one FD publication");
 }
 int main(void) {
+    receive_error_queue();
     alarm(30);
     lost_stop_delivery();
     readiness_transport_pressure();

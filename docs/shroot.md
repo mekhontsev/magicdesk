@@ -1084,6 +1084,25 @@ branch supplies bridge connectivity. This does not certify arbitrary nftables
 rules or general rootless-Podman configurations; supported operations and flow
 semantics are described in the [network contracts](../native/shroot/networking.md#nftables-and-flow-forwarding).
 
+Rootless Podman can use stock `slirp4netns` through the guest `/dev/net/tun`.
+Install the distribution's Podman, slirp4netns and UID-map helper packages,
+and configure `/etc/subuid` and `/etc/subgid` for the ordinary guest user as on
+Linux. Run from that user's session:
+
+```sh
+podman run --rm --network slirp4netns docker.io/library/alpine:3.23 \
+  sh -c 'id; wget -qO- http://example.com'
+```
+
+Debian coverage includes image pulls, two rootless containers, incoming TCP/UDP
+ports, outbound DNS/HTTP, occupied-port rejection and cleanup, with stock
+seccomp and no Android root. Private sysfs/cgroup mounts must be prepared by
+the guest init or launch owner. Without a delegated cgroup subtree, Podman may
+warn that it cannot place conmon there; the guest user's filesystem permissions
+are not bypassed. This evidence covers slirp4netns, not every Podman networking
+backend. TUN/TAP and packet-stack limits are documented in the
+[native network contract](../native/shroot/networking.md#tuntap-packet-transport).
+
 For both engines, guest root is still real Android UID 2000. Enabled cgroups
 provide logical membership and permissive settings, not enforced resource or
 device limits.

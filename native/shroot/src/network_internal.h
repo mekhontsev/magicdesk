@@ -81,6 +81,9 @@ struct md_network_namespace {
     struct md_network_raw6 *raw6;
     struct md_network_raw4 *raw4;
     struct md_network_filter *filter;
+    struct md_network_tun *tunnels;
+    struct md_network_stack *stack;
+    atomic_bool packet_enabled;
 };
 /* Weak listeners are removed under the fabric lock before final FD release.
  * Only committed topology changes are broadcast. Delivery never blocks. */

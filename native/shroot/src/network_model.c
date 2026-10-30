@@ -2,6 +2,8 @@
 #include "network_internal.h"
 #include "network_filter.h"
 #include "network_forward.h"
+#include "network_tun.h"
+#include "network_stack.h"
 #include "namespace_identity.h"
 #include <errno.h>
 #include <limits.h>
@@ -309,6 +311,7 @@ static struct md_network_namespace *create(struct md_user_namespace *owner,enum 
     } else atomic_fetch_add_explicit(&fabric->references,1,memory_order_relaxed);
     n->fabric=fabric; n->mode=mode; n->owner=md_user_namespace_retain(owner);
     atomic_init(&n->references,1);
+    atomic_init(&n->packet_enabled,0);
     n->unprivileged_port=1024; n->ping_groups[0]=1;
     n->local_ports[0]=32768; n->local_ports[1]=60999;
     n->tcp_keepalive[0]=7200; n->tcp_keepalive[1]=75; n->tcp_keepalive[2]=9;
@@ -362,6 +365,8 @@ void md_network_namespace_release(struct md_network_namespace *n) {
     struct md_network_fabric *f=n->fabric;
     pthread_mutex_lock(&f->lock);
     md_network_forward_retire(n);
+    md_network_stack_retire(n);
+    md_network_tun_retire(n);
     for (unsigned i=0;i<n->count;++i) {
         struct md_network_namespace *peer=md_network_interface_owner(f,n->links[i].peer);
         if (peer && peer!=n) remove_one(peer,n->links[i].peer);
@@ -390,11 +395,14 @@ struct md_network_link md_network_interface_snapshot(struct md_network_namespace
     struct md_network_link out=link->info;
     out.kind=link->kind;
     int carrier=!!(out.flags&IFF_UP);
-    if (link->kind==MD_LINK_VETH) carrier=veth_carrier(n,link);
+    if (link->kind==MD_LINK_TUN || link->kind==MD_LINK_TAP) carrier=carrier && md_network_tun_carrier(n,out.index);
+    else if (link->kind==MD_LINK_VETH) carrier=veth_carrier(n,link);
     else if (link->kind==MD_LINK_BRIDGE) {
         carrier=0;
         if (out.flags&IFF_UP) for (unsigned i=0;i<n->count;++i)
-            if (n->links[i].master==out.index && veth_carrier(n,&n->links[i])) { carrier=1; break; }
+            if (n->links[i].master==out.index && (n->links[i].kind==MD_LINK_TAP
+                    ? md_network_tun_carrier(n,n->links[i].info.index) && (n->links[i].info.flags&IFF_UP)
+                    : veth_carrier(n,&n->links[i]))) { carrier=1; break; }
     }
     out.state=!(out.flags&IFF_UP) ? IF_OPER_DOWN
         : carrier ? (link->kind==MD_LINK_LOOPBACK ? IF_OPER_UNKNOWN : IF_OPER_UP)

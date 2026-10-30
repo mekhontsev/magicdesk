@@ -215,6 +215,19 @@ Android addresses nor routes, DNS or privileged ports are changed.
 
 ### Routing, Firewall And Performance
 
+`probe_podman_runtime.py BUILD STORE --rootless-user USER --exercise-ports
+--internet` runs stock Podman as an existing disposable guest user with
+subuid/subgid ranges and the distribution's UID-map/slirp4netns packages.
+Only private API mounts are prepared as guest root. Containers retain normal
+seccomp and cgroup settings. The rootless default network is `slirp4netns`;
+tests cover external TCP/UDP ports, outbound IO, conflicts and teardown.
+Named-peer DNS checks apply to the separate bridge mode, not isolated slirp
+networks. The fixture ends its Podman pause process with `podman system migrate`.
+
+`test_lwip_context` checks namespace-local protocol state and memory limits;
+the `test_task_resources` target includes `test_network_tun.c` for TUN/TAP ABI,
+queue ownership, IPv4/IPv6 TCP/UDP, fragment reassembly and raw ICMP.
+
 `test_routed_network.py` adds libc interface lookup, IPv4 packet information
 with absent/truncated receive buffers, a datagram queued before sender close,
 and receiver-close/rebind without reusing stale reply mappings.

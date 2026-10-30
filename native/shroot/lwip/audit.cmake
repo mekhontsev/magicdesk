@@ -1,0 +1,11 @@
+execute_process(COMMAND "${NM}" --defined-only --format=posix "${ARCHIVE}"
+    RESULT_VARIABLE result OUTPUT_VARIABLE symbols ERROR_VARIABLE error)
+if(NOT result EQUAL 0)
+    message(FATAL_ERROR "lwIP state audit: ${error}")
+endif()
+string(REPLACE "\n" ";" lines "${symbols}")
+foreach(line IN LISTS lines)
+    if(line MATCHES "^([^ ]+) [BbCcDdGgSs] " AND NOT CMAKE_MATCH_1 STREQUAL "md_lwip_current")
+        message(FATAL_ERROR "lwIP has shared mutable state: ${line}")
+    endif()
+endforeach()

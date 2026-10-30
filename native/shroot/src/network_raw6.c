@@ -4,6 +4,7 @@
 #include "network_ethernet.h"
 #include "network_flow.h"
 #include "network_forward.h"
+#include "network_stack.h"
 #include <errno.h>
 #include <linux/if_ether.h>
 #include <net/if.h>
@@ -105,21 +106,7 @@ static void receive(struct md_network_namespace *n,struct md_network_interface *
             if (md_network_forward_datagram(n,link->info.index,&packet,h.ip6_hlim,data+sizeof(header),size-sizeof(header))) return;
         }
     } else if (packet_policy(n,link,&h,data,size,1)) return;
-    struct md_network_packet envelope={.ip={.interface=link->info.index,.hops=h.ip6_hlim}};
-    memcpy(envelope.ip.source,&h.ip6_src,16); memcpy(envelope.ip.destination,&h.ip6_dst,16);
-    struct timeval now; gettimeofday(&now,NULL);
-    envelope.ip.seconds=now.tv_sec; envelope.ip.microseconds=now.tv_usec;
-    struct iovec vectors[]={{&envelope,sizeof(envelope)},{(void *)data,size}};
-    struct msghdr message={.msg_iov=vectors,.msg_iovlen=2};
-    for (struct md_network_raw6 *s=n->raw6;s;s=s->next) {
-        if (s->protocol!=h.ip6_nxt || (s->device && (s->device!=link->info.index || s->device_policy!=link->policy_id))
-                || (s->local_scope && (s->local_scope!=link->info.index || s->local_policy!=link->policy_id))
-                || (!IN6_IS_ADDR_UNSPECIFIED(&s->local) && !md_ip_equal(ip(&s->local),destination))
-                || (s->connected && !md_ip_equal(ip(&s->remote),source))
-                || (md_ip_multicast(destination) && !s->multicast.all && !md_network_multicast_joined(&s->multicast,link,destination))
-                || (s->protocol==IPPROTO_ICMPV6 && ICMP6_FILTER_WILLBLOCK(data[0],&s->filter))) continue;
-        if (sendmsg(s->peer,&message,MSG_DONTWAIT|MSG_NOSIGNAL)<0 && errno!=ECONNREFUSED) s->overflow=1;
-    }
+    md_network_raw6_observe(n,link,source,destination,h.ip6_nxt,h.ip6_hlim,data,size);
     if (h.ip6_nxt!=IPPROTO_ICMPV6) return;
     if (data[0]==ICMP6_ECHO_REQUEST && !data[1] && local && !md_ip_unspecified(source)) {
         unsigned char *body=malloc(size);
@@ -140,6 +127,25 @@ static void receive(struct md_network_namespace *n,struct md_network_interface *
         memcpy(body+8,target.bytes,16); body[24]=ND_OPT_TARGET_LINKADDR; body[25]=1;
         memcpy(body+26,link->info.address,6);
         reply(n,link,ether,&h,body,sizeof(body),target);
+    }
+}
+void md_network_raw6_observe(struct md_network_namespace *n,struct md_network_interface *link,
+        struct md_ip_address source,struct md_ip_address destination,unsigned protocol,unsigned hops,const void *data,size_t size) {
+    if(!n->raw6) return;
+    struct md_network_packet envelope={.ip={.interface=link->info.index,.hops=hops}};
+    memcpy(envelope.ip.source,source.bytes,16); memcpy(envelope.ip.destination,destination.bytes,16);
+    struct timeval now; gettimeofday(&now,NULL);
+    envelope.ip.seconds=now.tv_sec; envelope.ip.microseconds=now.tv_usec;
+    struct iovec vectors[]={{&envelope,sizeof(envelope)},{(void *)data,size}};
+    struct msghdr message={.msg_iov=vectors,.msg_iovlen=2};
+    for(struct md_network_raw6 *s=n->raw6;s;s=s->next) {
+        if((unsigned)s->protocol!=protocol || (s->device && (s->device!=link->info.index || s->device_policy!=link->policy_id))
+                || (s->local_scope && (s->local_scope!=link->info.index || s->local_policy!=link->policy_id))
+                || (!IN6_IS_ADDR_UNSPECIFIED(&s->local) && !md_ip_equal(ip(&s->local),destination))
+                || (s->connected && !md_ip_equal(ip(&s->remote),source))
+                || (md_ip_multicast(destination) && !s->multicast.all && !md_network_multicast_joined(&s->multicast,link,destination))
+                || (s->protocol==IPPROTO_ICMPV6 && (!size || ICMP6_FILTER_WILLBLOCK(*(const unsigned char *)data,&s->filter)))) continue;
+        if(sendmsg(s->peer,&message,MSG_DONTWAIT|MSG_NOSIGNAL)<0 && errno!=ECONNREFUSED) s->overflow=1;
     }
 }
 void md_network_raw6_receive(struct md_network_namespace *n,struct md_network_interface *link,
@@ -234,9 +240,10 @@ static long send_packet(struct md_network_raw6 *s,const void *data,size_t size,c
     if (!frame) return -ENOMEM;
     struct ethhdr ether={.h_proto=htons(ETH_P_IPV6)};
     memcpy(ether.h_source,link->info.address,6);
-    int found=md_ip_multicast(destination);
-    if (found) { ether.h_dest[0]=ether.h_dest[1]=0x33; memcpy(ether.h_dest+2,destination.bytes+12,4); }
-    else {
+    int stack=md_network_stack_has_link(s->space,link->info.index) && !md_network_interface_has(link,destination);
+    int found=stack || md_ip_multicast(destination);
+    if (md_ip_multicast(destination)) { ether.h_dest[0]=ether.h_dest[1]=0x33; memcpy(ether.h_dest+2,destination.bytes+12,4); }
+    else if(!stack) {
         struct md_network_interface *neighbor=md_network_interface_has(link,destination) ? link
             : md_network_neighbor(s->space,link,destination);
         if (neighbor) { memcpy(ether.h_dest,neighbor->info.address,6); found=1; }
@@ -258,12 +265,13 @@ static long send_packet(struct md_network_raw6 *s,const void *data,size_t size,c
             if (!check && s->protocol==IPPROTO_UDP) check=UINT16_MAX;
             memcpy(body+s->checksum,&check,2);
         }
-        error=packet_policy(s->space,link,&h,body,size,0);
+        error=stack && h.ip6_nxt==IPPROTO_ICMPV6 ? 0 : packet_policy(s->space,link,&h,body,size,0);
         if (!error && link->kind!=MD_LINK_LOOPBACK && (md_network_interface_has(link,destination)
                 || (md_ip_multicast(destination) && s->multicast.loop)))
             md_network_raw6_receive(s->space,link,frame,length);
         if (!error && (!md_network_interface_has(link,destination) || link->kind==MD_LINK_LOOPBACK))
-            error=md_network_ethernet_transmit(s->space,link,NULL,frame,length);
+            error=stack ? md_network_stack_send_ip(s->space,link->info.index,frame+ETH_HLEN,length-ETH_HLEN)
+                : md_network_ethernet_transmit(s->space,link,NULL,frame,length);
     }
     free(frame); return error ? error : (long)size;
 }
