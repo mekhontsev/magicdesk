@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 static unsigned fd_count(void) {
@@ -27,7 +28,7 @@ static void invalid_buffers(MdgDevice *device, int fd) {
     b = valid; b.offset++; assert(!mdg_image_linear_dmabuf(device, &b, NULL));
     b = valid; b.stride = WIDTH * 4 - 1; assert(!mdg_image_linear_dmabuf(device, &b, NULL));
     b = valid; b.format = (MdgFormat)-1; assert(!mdg_image_linear_dmabuf(device, &b, NULL));
-    int regular = memfd_create("not-a-dma-buf", MFD_CLOEXEC); assert(regular >= 0);
+    int regular = syscall(SYS_memfd_create, "not-a-dma-buf", MFD_CLOEXEC); assert(regular >= 0);
     assert(ftruncate(regular, ALLOCATION) == 0);
     b = valid; b.fd = regular;
     unsigned before = fd_count();

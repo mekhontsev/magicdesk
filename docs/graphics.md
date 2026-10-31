@@ -9,6 +9,7 @@ Termux, a DRM device, or EGL. The Android baseline is API 34.
 - [Linux Buffer Import](#linux-buffer-import)
 - [Protocol Adapters](#protocol-adapters)
 - [Completion And Failure](#completion-and-failure)
+- [Validation](#validation)
 
 ## Boundaries
 
@@ -384,6 +385,8 @@ Output failures reject their presentation receipt rather than granting input
 admission without pixels. Renderer teardown records backend/frame counters for
 diagnosis without per-frame logging.
 
+## Validation
+
 Native fixtures compare GPU/software colors, partial updates, RGBA/BGRA imports,
 clipping, blending, lifetime and transforms. The Wayland renderer fixture compares
 its results to wlroots' Pixman implementation. Android instrumentation checks the
@@ -409,3 +412,21 @@ that no unsupported global is exposed. Android instrumentation accepts
 `-e dmabuf true` with `wayland-window-test` to verify GPU-produced client pixels
 through the compositor, cross-UID transport and Android Surface, with input and
 closure through the same host contracts as SHM clients.
+
+The Android-only `graphics-native-handle-test` probes the optional VNDK
+`AHardwareBuffer_createFromHandle` entry point without adding a production
+dependency on it. A separate process sends Android allocation metadata, native
+handle FDs and a producer fence. The consumer clones the handle, closes the
+received FDs, releases the AHardwareBuffer wrapper and verifies GPU/software
+sampling after the producer exits, for RGBA, RGBX and BGRA. Missing entry points
+return the explicit capability-skip status 77; failed imports or pixels fail.
+
+MagicDesk does not advertise `android_wlegl`. Its
+[protocol](https://github.com/libhybris/libhybris/blob/master/hybris/platforms/common/wayland-android.xml)
+transports Android allocation metadata but has no acquire/release-fence messages.
+A production adapter needs a compatible client allocator and completion-safe
+buffer recycling, not only a successful handle import. Recipe Mesa clients use
+the existing linear DMA-BUF path; an Android native-handle protocol alone does
+not change their allocations. The private import capability is defined by
+[AOSP's VNDK contract](https://android.googlesource.com/platform/frameworks/native/+/refs/heads/main/libs/nativewindow/include/vndk/hardware_buffer.h),
+not guaranteed by Android API level or vendor identity.
