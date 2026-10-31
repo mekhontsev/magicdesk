@@ -539,13 +539,19 @@ static void routing_policy(int fd) {
             unsigned expected=i ? 0 : families[family]==AF_INET ? 3 : families[family]==AF_INET6 ? 2 : 5;
             assert(!remaining && done==1 && rules==expected);
         }
-    struct { struct nlmsghdr header; struct fib_rule_hdr body; } change={
+    struct { struct nlmsghdr header; struct fib_rule_hdr body; struct rtattr attribute; unsigned priority; } change={
         .header={.nlmsg_len=sizeof(change),.nlmsg_type=RTM_NEWRULE,.nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK},
-        .body={.family=AF_INET,.table=RT_TABLE_MAIN,.action=FR_ACT_TO_TBL}};
-    assert(sendto(fd,&change,sizeof(change),0,(void *)&kernel,sizeof(kernel))==sizeof(change));
+        .body={.family=AF_INET,.table=RT_TABLE_MAIN,.action=FR_ACT_TO_TBL},
+        .attribute={.rta_len=RTA_LENGTH(sizeof(unsigned)),.rta_type=FRA_PRIORITY},.priority=1234};
     union { struct nlmsghdr align; char bytes[256]; } answer;
-    assert(recv(fd,answer.bytes,sizeof(answer.bytes),0)>=(ssize_t)NLMSG_LENGTH(sizeof(struct nlmsgerr)));
-    assert(answer.align.nlmsg_type==NLMSG_ERROR && ((struct nlmsgerr *)NLMSG_DATA(&answer.align))->error==-EOPNOTSUPP);
+    for (unsigned step=0;step<3;++step) {
+        change.header.nlmsg_type=step==1 ? RTM_DELRULE : RTM_NEWRULE;
+        if (step==2) change.body.action=FR_ACT_GOTO;
+        assert(sendto(fd,&change,sizeof(change),0,(void *)&kernel,sizeof(kernel))==sizeof(change));
+        assert(recv(fd,answer.bytes,sizeof(answer.bytes),0)>=(ssize_t)NLMSG_LENGTH(sizeof(struct nlmsgerr)));
+        assert(answer.align.nlmsg_type==NLMSG_ERROR
+            && ((struct nlmsgerr *)NLMSG_DATA(&answer.align))->error==(step==2 ? -EOPNOTSUPP : 0));
+    }
 }
 static void offline_network(void) {
     int host=open("/proc/self/ns/net",O_RDONLY|O_CLOEXEC); assert(host>=0);

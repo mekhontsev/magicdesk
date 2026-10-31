@@ -1788,14 +1788,6 @@ static uid_t process_signal_uid(struct thread *observer,pid_t sender,uid_t fallb
 }
 static int proc_node_stat(struct proc_owner target, enum md_proc_file_kind kind,
         struct md_proc_file_node *node, struct stat *value) {
-    char path[64];
-    if (md_proc_file_directory(kind)) {
-        snprintf(path,sizeof(path),"/proc/%d%s",target.pid,kind==MD_PROC_FILE_NS_DIRECTORY ? "/ns" : "");
-        if (stat(path,value)) return -errno;
-        *node=(struct md_proc_file_node){value->st_dev,value->st_ino,target.pid};
-        value->st_uid=target.identity->uid.effective; value->st_gid=target.identity->gid.effective;
-        return 0;
-    }
     if (md_proc_file_namespace(kind)) {
         if (!target.resources || (kind==MD_PROC_FILE_NS_PID_CHILDREN
                 && !md_pid_namespace_initialized(target.resources->pid_children)))
@@ -1873,8 +1865,7 @@ static int proc_node_metadata(struct thread *t, const struct md_proc_metadata_re
     } else if (q->kind) {
         if (!md_proc_control_kind(q->kind)) return -EINVAL;
         if (q->kind==MD_PROC_NS_UNSUPPORTED) return -ENOENT;
-        if (!target.identity) return q->kind==MD_PROC_PROCESS_DIRECTORY
-            || q->kind==MD_PROC_STATUS || q->kind==MD_PROC_STAT || q->kind==MD_PROC_LIMITS ? -EXDEV : -ENOENT;
+        if (!target.identity) return md_proc_native_task(q->kind) ? -EXDEV : -ENOENT;
         kind=(enum md_proc_file_kind)(q->kind-MD_PROC_UID_MAP);
     } else {
         if (q->process!=t->pid) return -EPERM;
@@ -1907,15 +1898,8 @@ static int proc_node_metadata(struct thread *t, const struct md_proc_metadata_re
     out->kind=(unsigned)kind;
     if (namespace && file) md_namespace_reference_stat(md_proc_file_namespace_reference(file),value);
     else if (namespace && target.pid!=t->pid && !proc_allowed(t->pid,target.pid)) error=-EACCES;
+    else if (!namespace && !sysctl && file) error=md_proc_file_retained_stat(file,target.identity,value);
     else if (sysctl || target.identity) error=proc_node_stat(target,kind,&current,value);
-    if (!namespace && !sysctl && file && (!target.identity || error==-ENOENT || current.inode!=node.inode || current.device!=node.device)) {
-        *value=(struct stat){.st_dev=node.device,
-            .st_ino=md_proc_file_directory(kind) || md_proc_file_process(kind) ? node.inode
-                : (node.inode<<2)|((unsigned)kind+1)|UINT64_C(0x8000000000000000),
-            .st_mode=md_proc_file_directory(kind) ? S_IFDIR|0500 : S_IFREG|(md_proc_file_process(kind) ? 0444 : 0644),
-            .st_nlink=1,.st_blksize=getpagesize()};
-        error=0;
-    }
     if (!error && namespace) {
         if (q->nofollow || (file && (md_proc_file_flags(file)&(O_NOFOLLOW|O_PATH))==(O_NOFOLLOW|O_PATH)))
             value->st_mode=S_IFLNK|0777;
@@ -2146,8 +2130,7 @@ static void proc_file_request(struct thread *t, const struct seccomp_notif *q) {
         struct md_proc_file *source=operation==MD_PROC_FILE_REOPEN && target
             ? proc_file_capture(target,(int)q->data.args[3]) : NULL;
         if (source) kind=(enum md_proc_kind)(MD_PROC_UID_MAP+md_proc_file_kind(source));
-        if (!selected.identity) reply.error=operation==MD_PROC_FILE_OPEN && (kind==MD_PROC_PROCESS_DIRECTORY
-            || kind==MD_PROC_STATUS || kind==MD_PROC_STAT || kind==MD_PROC_LIMITS) ? -EXDEV : -ENOENT;
+        if (!selected.identity) reply.error=operation==MD_PROC_FILE_OPEN && md_proc_native_task(kind) ? -EXDEV : -ENOENT;
         else if (operation==MD_PROC_FILE_REOPEN && !source) reply.error=-EBADF;
         else if (!source && kind==MD_PROC_NS_UNSUPPORTED) reply.error=-ENOENT;
         else if ((!source && !md_proc_control_kind(kind)) || t->proc_image_fd>=0) reply.error=-EINVAL;

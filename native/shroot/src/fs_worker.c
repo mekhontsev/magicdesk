@@ -179,6 +179,7 @@ static int runtime_open(struct md_fs_worker *w,struct worker_runtime *runtime) {
     if (!error) error=md_fs_sysfs_prepare(fs,&runtime->sysfs);
     if (!error) error=md_fs_devices_prepare(fs,w->input && w->input->endpoint,&runtime->devices);
     fs->devices=runtime->devices;
+    if (!error) error=md_fs_proc_prepare(fs);
     if (!error) {
         w->device_events=md_device_events_new();
         if (!w->device_events) error=-errno;

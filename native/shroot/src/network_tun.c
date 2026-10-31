@@ -253,10 +253,16 @@ static int set_interface(struct queue *q,const struct md_identity *id,struct ifr
     int admin=md_identity_capable_in(id,n->owner,CAP_NET_ADMIN);
     if(link) {
         if(flags&IFF_TUN_EXCL) return -EBUSY;
-        if(!t || ((t->flags^flags)&(IFF_TUN|IFF_TAP|IFF_NO_PI|IFF_MULTI_QUEUE|IFF_VNET_HDR))) return -EINVAL;
+        if(!t || ((t->flags^flags)&(IFF_TUN|IFF_TAP|IFF_MULTI_QUEUE))) return -EINVAL;
         if(!admin && !((t->uid!=UINT32_MAX && id->uid.effective==t->uid)
                 || (t->gid!=UINT32_MAX && md_identity_in_group(id,t->gid)))) return -EPERM;
         if(!(flags&IFF_MULTI_QUEUE) && t->queues) return -EBUSY;
+        /* The first queue negotiates framing on a persistent device. Later
+         * multiqueue attachments retain the already active device format. */
+        if(!t->queues) {
+            unsigned features=IFF_NO_PI|IFF_ONE_QUEUE|IFF_VNET_HDR;
+            t->flags=(t->flags&~features)|(flags&features);
+        }
     } else {
         if(!admin) return -EPERM;
         error=md_network_stack_prepare(n); if(error) return error;

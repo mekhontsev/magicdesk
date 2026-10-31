@@ -5,11 +5,12 @@ import ctypes
 import errno
 import os
 from pathlib import Path
+import stat
 import sys
 import tempfile
 
 
-def guest():
+def guest(native_pid, native_cgroup):
     libc = ctypes.CDLL(None, use_errno=True)
     libc.syscall.restype = ctypes.c_long
     libc.mount.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p,
@@ -23,7 +24,34 @@ def guest():
             nr, args, result, ctypes.get_errno(), error)
         return result
 
+    def external_task(root):
+        for name in ('status', 'stat', 'limits', 'cgroup'):
+            path = str(native_pid) + '/' + name
+            expected = os.stat(path, dir_fd=root)
+            for scoped in (False, True):
+                if scoped:
+                    how = (ctypes.c_uint64 * 3)(os.O_RDONLY | os.O_CLOEXEC, 0, 0xb)
+                    fd = call(437, root, path, ctypes.addressof(how), ctypes.sizeof(how))
+                else:
+                    fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC, dir_fd=root)
+                try:
+                    info = os.fstat(fd)
+                    assert (info.st_dev, info.st_ino) == (expected.st_dev, expected.st_ino)
+                    data = os.read(fd, 65536)
+                    assert data
+                    if name == 'cgroup':
+                        assert data.decode().strip() == native_cgroup.strip(), data
+                finally:
+                    os.close(fd)
+
+    initial = os.open('/proc', os.O_PATH | os.O_DIRECTORY)
+    try:
+        external_task(initial)
+    finally:
+        os.close(initial)
+
     def scoped_controls(root):
+        external_task(root)
         def opened(path, resolve=0xb, error=None):
             how = (ctypes.c_uint64 * 3)(os.O_RDONLY | os.O_CLOEXEC, 0, resolve)
             fd = call(437, root, path, ctypes.addressof(how), ctypes.sizeof(how), error=error)
@@ -67,15 +95,25 @@ def guest():
                 os.close(root)
             entries = os.listdir(directory)
             for name in ('sysrq-trigger', 'kcore', 'kmsg', 'keys', 'asound', 'kallsyms'):
-                assert name not in entries, name
-                for lookup in (os.stat, lambda p: os.open(p, os.O_PATH)):
+                assert name in entries, name
+                path = directory + '/' + name
+                info = os.stat(path)
+                assert stat.S_IMODE(info.st_mode) == 0, info
+                assert (stat.S_ISDIR if name == 'asound' else stat.S_ISREG)(info.st_mode)
+                pinned = os.open(path, os.O_PATH | os.O_CLOEXEC)
+                try:
+                    assert os.fstat(pinned).st_ino == info.st_ino
+                finally:
+                    os.close(pinned)
+                for flags in (os.O_RDONLY, os.O_WRONLY) if name != 'asound' else (os.O_RDONLY,):
                     try:
-                        lookup(directory + '/' + name)
+                        fd = os.open(path, flags)
                     except OSError as error:
-                        assert error.errno == errno.ENOENT, error
+                        assert error.errno == errno.EACCES, error
                     else:
+                        os.close(fd)
                         raise AssertionError('host kernel control was exposed: ' + name)
-            print('PASS mounted proc omits unsupported host-kernel controls', flush=True)
+            print('PASS mounted proc retains inaccessible kernel-control mount targets', flush=True)
             for name in ('irq', 'bus', 'fs', 'version'):
                 target = directory + '/' + name
                 print('LOOKUP', target, flush=True)
@@ -117,8 +155,11 @@ def main():
     try:
         suite.transport.upload(suite.client, Path(__file__), suite.base + '/test.py')
         suite.command(prefix + ['--', '/bin/mkdir', target])
-        suite.command(prefix + ['--bind-ro', suite.base, target, '--deadline-seconds', '60', '--',
-                                '/usr/bin/unshare', '--mount', '/usr/bin/python3', target + '/test.py', '--guest'],
+        # The exec wrapper remains outside the supervised guest tree. Compare
+        # its native proc text without inventing a guest identity for it.
+        suite.command(['/system/bin/sh', '-c', 'exec "$@" --guest "$$" "$(cat /proc/$$/cgroup)"',
+                       'proc-fixture', *prefix, '--bind-ro', suite.base, target, '--deadline-seconds', '60', '--',
+                       '/usr/bin/unshare', '--mount', '/usr/bin/python3', target + '/test.py'],
                       timeout=80)
         suite.report['passed'] = True
     finally:
@@ -129,4 +170,4 @@ def main():
 
 
 if __name__ == '__main__':
-    guest() if sys.argv[1:] == ['--guest'] else main()
+    guest(int(sys.argv[2]), sys.argv[3]) if sys.argv[1:2] == ['--guest'] else main()

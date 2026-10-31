@@ -20,7 +20,7 @@ enum md_filter_opcode {
     MD_FILTER_PAYLOAD, MD_FILTER_COMPARE, MD_FILTER_RANGE, MD_FILTER_BITWISE,
     MD_FILTER_CT, MD_FILTER_CT_SET, MD_FILTER_FIB, MD_FILTER_LOOKUP,
     MD_FILTER_NAT, MD_FILTER_MASQUERADE, MD_FILTER_VERDICT_MAP, MD_FILTER_DATA_MAP, MD_FILTER_COUNTER,
-    MD_FILTER_TRANSPORT, MD_FILTER_STATE_MATCH, MD_FILTER_MARK_MATCH, MD_FILTER_ADDRESS_TYPE,
+    MD_FILTER_TRANSPORT, MD_FILTER_STATE_MATCH, MD_FILTER_MARK_MATCH, MD_FILTER_CONNMARK_MATCH, MD_FILTER_ADDRESS_TYPE,
     MD_FILTER_PACKET_TYPE, MD_FILTER_REVERSE_PATH, MD_FILTER_ICMP_MATCH, MD_FILTER_REJECT
 };
 struct md_filter_counter { uint64_t packets, bytes; };
@@ -55,7 +55,7 @@ struct md_filter_chain {
     uint64_t table, handle;
     uint32_t id;
     char name[256];
-    int hook, priority, nat;
+    int hook, priority, nat, reroute;
     unsigned policy;
     unsigned counters;
     struct md_filter_counter counter;

@@ -28,6 +28,7 @@ int md_network_route_attach_bridge(struct md_network_namespace *,const struct md
 int md_network_route_bridge(struct md_network_namespace *,const struct md_identity *,struct md_network_bridge_ioctl *);
 int md_network_route_address_ioctl(struct md_network_namespace *,const struct md_identity *,unsigned,struct ifreq *);
 int md_network_route_legacy(struct md_network_namespace *,const struct md_identity *,unsigned,const struct md_network_route_ioctl *);
+int md_network_route_legacy6(struct md_network_namespace *,const struct md_identity *,unsigned,const void *);
 /* Device-owner lifecycle, under the fabric lock. Creation has already committed;
  * final close cannot depend on allocating a topology rollback journal. */
 void md_network_route_link_created(struct md_network_namespace *,unsigned);

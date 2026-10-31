@@ -144,6 +144,7 @@ struct md_proc_path md_proc_path_for(const char *path,int tid,int tgid) {
                     p=name+length;
                     if (word(&p,"route_localnet")) out.kind=MD_PROC_NET_ROUTE_LOCALNET;
                     else if (word(&p,"rp_filter")) out.kind=MD_PROC_NET_RP_FILTER;
+                    else if (word(&p,"src_valid_mark")) out.kind=MD_PROC_NET_SRC_VALID_MARK;
                     else if (word(&p,"arp_notify")) out.kind=MD_PROC_NET_ARP_NOTIFY;
                     else return out;
                     memcpy(out.interface,name,length);

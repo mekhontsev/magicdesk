@@ -1043,6 +1043,15 @@ applications beyond container engines:
   that contract.
 - Packaged OpenVPN can carry IPv4/IPv6 TCP/UDP through a TLS tunnel, with guest
   route and DNS hooks restored on disconnect. This does not change Android's VPN.
+- WireGuard-go, OpenConnect/ocserv and strongSwan's userspace `kernel-libipsec`
+  backend use the same TUN, routing and socket owners. The IPsec profile does
+  not require host kernel XFRM.
+- Tailscale's ordinary TUN mode is checked with a private Headscale control
+  plane and IPv4/IPv6 peers, not just its userspace-proxy mode.
+
+Guest routing supports separate tables, source/destination rules and masked
+packet/connection marks. These settings belong to the selected guest network
+namespace; they do not modify Android's routes or socket marks.
 
 The Debian [integration evidence](../native/guest-exec-lab/distribution-evidence.md#debian-packet-applications)
 covers the exact entry modes and configurations, including large transfers,

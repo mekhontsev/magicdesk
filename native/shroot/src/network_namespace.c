@@ -76,7 +76,8 @@ static uint32_t *scoped_value(struct md_network_namespace *n,enum md_network_par
     else for (unsigned i=0;i<n->count;++i)
         if (n->links[i].policy_id==scope) { policy=&n->links[i].policy; break; }
     return !policy ? NULL : kind==MD_NET_ROUTE_LOCALNET ? &policy->route_localnet
-        : kind==MD_NET_RP_FILTER ? &policy->rp_filter : &policy->arp_notify;
+        : kind==MD_NET_RP_FILTER ? &policy->rp_filter
+        : kind==MD_NET_SRC_VALID_MARK ? &policy->src_valid_mark : &policy->arp_notify;
 }
 int md_network_parameter_read(struct md_network_namespace *n,enum md_network_parameter kind,uint64_t scope,uint32_t out[2]) {
     if (!md_network_namespace_managed(n)) return -EXDEV;
@@ -94,7 +95,7 @@ int md_network_parameter_read(struct md_network_namespace *n,enum md_network_par
     case MD_NET_IPV6_FORWARD: case MD_NET_IPV6_DISABLE: case MD_NET_IPV6_DAD: case MD_NET_IPV6_RA:
     case MD_NET_IPV6_AUTOCONF:
     case MD_NET_IPV6_MTU: case MD_NET_IPV6_HOPS: case MD_NET_IPV6_ADDRGEN: case MD_NET_IPV6_PRIVACY:
-    case MD_NET_ROUTE_LOCALNET: case MD_NET_RP_FILTER: case MD_NET_ARP_NOTIFY: {
+    case MD_NET_ROUTE_LOCALNET: case MD_NET_RP_FILTER: case MD_NET_SRC_VALID_MARK: case MD_NET_ARP_NOTIFY: {
         uint32_t *value=scoped_value(n,kind,scope);
         if (!value) error=-ENODEV;
         else { out[0]=*value; out[1]=0; }
@@ -189,7 +190,7 @@ int md_network_parameter_write(struct md_network_namespace *n,enum md_network_pa
         else *value=in[0];
         break;
     }
-    case MD_NET_ROUTE_LOCALNET: case MD_NET_RP_FILTER: case MD_NET_ARP_NOTIFY: {
+    case MD_NET_ROUTE_LOCALNET: case MD_NET_RP_FILTER: case MD_NET_SRC_VALID_MARK: case MD_NET_ARP_NOTIFY: {
         uint32_t *value=scoped_value(n,kind,scope);
         if (!value) error=-ENODEV;
         else if (in[0]>(kind==MD_NET_RP_FILTER ? 2U : 1U)) error=-EINVAL;
@@ -271,8 +272,7 @@ struct md_network_namespace *md_network_socket_namespace(const struct md_fd_obje
 int md_network_interface_ioctl(unsigned long command) {
     return md_network_arp_ioctl(command) || command==SIOCDEVPRIVATE || command==SIOCGIFCONF || command==SIOCGIFNAME || command==SIOCGIFINDEX || command==SIOCGIFFLAGS || command==SIOCGIFMTU
         || command==SIOCGIFHWADDR || command==SIOCSIFHWADDR || command==SIOCBRADDIF || command==SIOCGIFTXQLEN
-        || command==SIOCSIFFLAGS || command==SIOCSIFMTU || command==SIOCGIFADDR || command==SIOCSIFADDR
-        || command==SIOCGIFNETMASK || command==SIOCSIFNETMASK || md_network_route_ioctl(command);
+        || command==SIOCSIFFLAGS || command==SIOCSIFMTU || md_network_address_ioctl(command) || md_network_family_ioctl(command);
 }
 int md_network_netlink_destination(const struct md_network_send *destination,uint32_t *groups) {
     *groups=0;
@@ -438,6 +438,17 @@ long md_network_socket_call(struct md_fd_object *object, const struct md_identit
         return result;
     }
     if (nr==SYS_ioctl) {
+        if (md_network_family_ioctl(a[1])) {
+            unsigned family=md_network_endpoint_is(object) ? md_network_endpoint_family(object) : s->family;
+            size_t bytes=family==AF_INET6 ? (md_network_route_ioctl(a[1]) ? sizeof(struct in6_rtmsg) : sizeof(struct in6_ifreq))
+                : md_network_route_ioctl(a[1]) ? sizeof(struct md_network_route_ioctl) : sizeof(struct ifreq);
+            /* A zero-sized request queries the exact socket ABI before guest
+             * copying. Revalidate it after descriptor capture on the real call. */
+            if (!size) return (long)bytes;
+            if (size!=bytes) return -EINVAL;
+            if (family==AF_INET6) return md_network_route_legacy6(space,identity,a[1],data);
+            if (a[1]==SIOCDIFADDR) return -ENOTTY;
+        }
         if(md_network_arp_ioctl(a[1])) {
             if(size!=sizeof(struct arpreq)) return -EINVAL;
             if(a[1]!=SIOCGARP && !md_identity_capable_in(identity,space->owner,CAP_NET_ADMIN)) return -EPERM;
@@ -480,7 +491,7 @@ long md_network_socket_call(struct md_fd_object *object, const struct md_identit
         if (a[1]==SIOCBRADDIF) return md_network_route_attach_bridge(space,identity,r->ifr_name,(unsigned)r->ifr_ifindex);
         if (a[1]==SIOCSIFFLAGS) return md_network_route_set_flags(space,identity,r->ifr_name,(unsigned short)r->ifr_flags);
         if (a[1]==SIOCSIFMTU) return md_network_route_set_mtu(space,identity,r->ifr_name,(unsigned)r->ifr_mtu);
-        if(a[1]==SIOCGIFADDR || a[1]==SIOCSIFADDR || a[1]==SIOCGIFNETMASK || a[1]==SIOCSIFNETMASK)
+        if(md_network_address_ioctl(a[1]))
             return md_network_route_address_ioctl(space,identity,a[1],r);
         if (a[1]==SIOCSIFHWADDR) {
             if (r->ifr_hwaddr.sa_family!=ARPHRD_ETHER) return -EINVAL;

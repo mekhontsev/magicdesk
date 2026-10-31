@@ -24,7 +24,7 @@
 
 struct cable {
     struct md_control_file tun[2];
-    int stop;
+    int stop, frame_limit;
     pthread_t thread;
 };
 static void *cable_run(void *context) {
@@ -42,7 +42,7 @@ static void *cable_run(void *context) {
             for(unsigned budget=0;budget<64;++budget) {
                 long size=a.ops->read(a.context,NULL,packet,sizeof(packet),0);
                 if(size==-EAGAIN) break;
-                assert(size>0); a.ops->read_commit(a.context,size);
+                assert(size>0 && size<=c->frame_limit); a.ops->read_commit(a.context,size);
                 assert(b.ops->write(b.context,NULL,packet,size,0)==size);
             }
         }
@@ -345,7 +345,9 @@ static void lifecycle(void) {
     assert(!control(f,&root,TUNSETOWNER,1000,NULL));
     assert(!control(f,&root,TUNSETPERSIST,1,NULL));
     struct md_control_file second=open_tun(n,&user);
+    req.ifr_flags=IFF_TAP|IFF_MULTI_QUEUE|IFF_VNET_HDR;
     assert(!control(second,&user,TUNSETIFF,0,&req));
+    assert(req.ifr_flags==(IFF_TAP|IFF_NO_PI|IFF_MULTI_QUEUE));
     req.ifr_flags=IFF_DETACH_QUEUE;
     assert(!control(second,&user,TUNSETQUEUE,0,&req));
     assert(second.ops->read(second.context,NULL,data,sizeof(data),0)==-EBADFD);
@@ -353,8 +355,9 @@ static void lifecycle(void) {
     assert(!control(second,&user,TUNSETQUEUE,0,&req));
     md_control_file_release(second); md_control_file_release(f);
     assert(md_network_interface_find(n,0,"tap0"));
-    f=open_tun(n,&root); req.ifr_flags=IFF_TAP|IFF_NO_PI|IFF_MULTI_QUEUE;
+    f=open_tun(n,&root); req.ifr_flags=IFF_TAP|IFF_MULTI_QUEUE|IFF_VNET_HDR;
     assert(!control(f,&root,TUNSETIFF,0,&req));
+    assert(req.ifr_flags==(IFF_TAP|IFF_MULTI_QUEUE|IFF_VNET_HDR));
     assert(!control(f,&root,TUNSETPERSIST,0,NULL));
     md_control_file_release(f);
     assert(!md_network_interface_find(n,0,"tap0"));
@@ -431,6 +434,7 @@ static void *native_echo_run(void *context) {
 }
 static void cable_setup(struct cable *cable,struct md_identity *root,struct md_network_namespace *spaces[2],
         struct md_ip_address addresses[2],int tap,int ipv6) {
+    cable->frame_limit=1280+(tap ? 14 : 0);
     cable->stop=eventfd(0,EFD_NONBLOCK|EFD_CLOEXEC); assert(cable->stop>=0);
     for(unsigned k=0;k<2;++k) {
         spaces[k]=md_network_namespace_new(NULL,MD_NETWORK_PRIVATE); assert(spaces[k]);
@@ -439,12 +443,15 @@ static void cable_setup(struct cable *cable,struct md_identity *root,struct md_n
         assert(!control(cable->tun[k],root,TUNSETIFF,0,&req));
         pthread_mutex_lock(&spaces[k]->fabric->lock);
         struct md_network_interface *link=md_network_interface_find(spaces[k],0,req.ifr_name); assert(link);
-        link->info.flags|=IFF_UP; link->info.mtu=1280;
+        link->info.flags|=IFF_UP;
         addresses[k]=md_ip_v4(htonl(0x0a170001+k));
         if(ipv6) { addresses[k]=md_ip_any(AF_INET6); addresses[k].bytes[0]=0xfd; addresses[k].bytes[1]=0x23; addresses[k].bytes[15]=(unsigned char)(k+1); }
         assert(!md_network_interface_address(link,(struct md_network_ip_assignment){.address=addresses[k],.prefix=ipv6 ? 64 : 24,.flags=IFA_F_PERMANENT},0,0));
         spaces[k]->routes[spaces[k]->route_count++]=(struct md_network_route_entry){.destination=md_ip_network(addresses[k],ipv6 ? 64 : 24),
             .prefix=ipv6 ? 64 : 24,.gateway=md_ip_any(addresses[k].family),.interface=link->info.index};
+        md_network_forward_changed(spaces[k]->fabric);
+        /* Configuration after link-up must update both IP families. */
+        link->info.mtu=1280;
         md_network_forward_changed(spaces[k]->fabric);
         pthread_mutex_unlock(&spaces[k]->fabric->lock);
     }

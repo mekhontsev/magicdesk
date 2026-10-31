@@ -5,12 +5,12 @@
 #include "network_transport.h"
 #include <pthread.h>
 
-struct md_network_ipv4_policy { uint32_t route_localnet, rp_filter, arp_notify; };
+struct md_network_ipv4_policy { uint32_t route_localnet, rp_filter, src_valid_mark, arp_notify; };
 struct md_network_ipv6_policy {
     uint32_t forwarding, disabled, accept_dad, accept_ra, autoconf, mtu, hop_limit, addr_gen_mode, use_tempaddr;
 };
 struct md_network_ip_assignment {
-    struct md_ip_address address;
+    struct md_ip_address address, peer;
     unsigned prefix, scope, flags, route_metric;
     /* Monotonic deadlines in milliseconds; zero denotes infinite lifetime. */
     int64_t preferred_until, valid_until;
@@ -18,15 +18,23 @@ struct md_network_ip_assignment {
     struct in6_addr temporary_parent;
     int64_t temporary_preferred, temporary_valid, regenerate_at;
 };
+static inline struct md_ip_address md_network_address_destination(const struct md_network_ip_assignment *a) {
+    return md_ip_unspecified(a->peer) ? a->address : a->peer;
+}
 struct md_network_route_entry {
     struct md_ip_address destination, gateway, source;
-    unsigned prefix, interface, metric, protocol, scope, nexthop;
+    unsigned prefix, interface, metric, protocol, scope, nexthop, table;
     int64_t valid_until;
     unsigned char preference;
     struct md_network_route_metrics metrics;
 };
 struct md_network_nexthop { uint32_t id, interface, flags, protocol; struct md_ip_address gateway; };
-enum { MD_NETWORK_MAX_ADDRESSES=16, MD_NETWORK_MAX_ROUTES=256 };
+struct md_network_rule {
+    struct md_ip_address source, destination;
+    uint32_t priority, table, mark, mask, flags;
+    unsigned source_prefix, destination_prefix, action, protocol;
+};
+enum { MD_NETWORK_MAX_ADDRESSES=16, MD_NETWORK_MAX_ROUTES=256, MD_NETWORK_MAX_RULES=128 };
 struct md_network_interface {
     struct md_network_link info;
     enum md_network_link_kind kind;
@@ -53,7 +61,7 @@ struct md_network_fabric {
     struct md_network_namespace *spaces;
     struct md_network_endpoint *endpoints;
     int endpoints_enabled;
-    uint64_t policy_generation;
+    uint64_t policy_generation, endpoint_generation;
     struct md_network_forward *forward;
     int64_t configuration_deadline;
 };
@@ -69,6 +77,8 @@ struct md_network_namespace {
     unsigned count, capacity;
     unsigned route_count;
     struct md_network_route_entry routes[MD_NETWORK_MAX_ROUTES];
+    unsigned rule_count;
+    struct md_network_rule rules[MD_NETWORK_MAX_RULES];
     unsigned nexthop_count;
     int64_t configuration_deadline;
     struct md_network_nexthop nexthops[MD_NETWORK_MAX_ROUTES];
@@ -114,6 +124,7 @@ int md_network_interface_move(struct md_network_namespace *,unsigned,struct md_n
 int md_network_bridge_forward(const struct md_network_interface *ingress,const struct md_network_interface *egress);
 struct md_network_namespace *md_network_interface_owner(struct md_network_fabric *,unsigned);
 struct md_network_interface *md_network_route_lookup(struct md_network_namespace *,struct md_ip_address,unsigned,struct md_network_route_entry *);
+struct md_network_interface *md_network_route_table(struct md_network_namespace *,struct md_ip_address,unsigned,uint32_t,struct md_network_route_entry *);
 static inline struct md_network_interface *md_network_route_find(struct md_network_namespace *n,
         struct md_ip_address ip,struct md_network_route_entry *route) {
     return md_network_route_lookup(n,ip,0,route);
@@ -129,5 +140,5 @@ void md_network_interface_up(struct md_network_interface *);
 void md_network_interface_ipv6_flush(struct md_network_namespace *,struct md_network_interface *);
 int md_network_address_duplicate(struct md_network_namespace *,const struct md_network_interface *,struct md_ip_address);
 struct md_network_interface *md_network_neighbor(struct md_network_namespace *,const struct md_network_interface *,struct md_ip_address);
-int md_network_ingress(struct md_network_namespace *,const struct md_network_interface *,struct md_ip_address,struct md_ip_address);
+int md_network_ingress(struct md_network_namespace *,const struct md_network_interface *,struct md_ip_address,struct md_ip_address,uint32_t);
 #endif

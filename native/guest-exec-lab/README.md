@@ -251,6 +251,10 @@ cmake --build build/shroot-image-tests --target packet_vm
 python native/guest-exec-lab/probe_packet_runtime.py --kind tap \
   --kernel vmlinuz-virt --initramfs initramfs-virt
 python native/guest-exec-lab/probe_packet_runtime.py --kind vpn --installed
+python native/guest-exec-lab/probe_packet_runtime.py --kind wireguard
+python native/guest-exec-lab/probe_packet_runtime.py --kind openconnect
+python native/guest-exec-lab/probe_packet_runtime.py --kind ipsec --network bridge
+python native/guest-exec-lab/probe_packet_runtime.py --kind tailscale --network bridge --assets ASSETS
 ```
 
 Use `--build BUILD`, `--environment NAME` and `--base` as needed. `--installed`
@@ -262,6 +266,24 @@ route bypass before/after tun2socks runs. TAP tests the same transports in both
 directions against a real VM kernel, retaining QEMU's automatic TAP feature
 negotiation. VPN requires packaged OpenVPN/OpenSSL/iproute2: an ephemeral TLS
 peer tests both address families, DNS hooks, route isolation and restoration.
+`--container-image IMAGE` runs the OpenVPN consumer in a pre-pulled Python
+Podman image, using `--container-cache` and `--container-runroot` for its test
+storage. Container seccomp remains enabled. WireGuard requires packaged
+wireguard-go/wireguard-tools and covers encrypted bulk traffic, SIGKILL and restart.
+OpenConnect requires openconnect/ocserv and OpenSSL: certificate-authenticated
+DTLS, IPv4/IPv6, DNS and disconnect restoration. IPsec uses stock strongSwan's
+kernel-libipsec/kernel-netlink/VICI plugins, not kernel XFRM. Its private bridge
+permits IKE's guest ports 500/4500 without binding privileged Android ports.
+Tailscale assets are stock ARM64 `tailscale`, `tailscaled` and `headscale` binaries.
+Its private TLS control plane, embedded DERP and two ordinary TUN clients require
+no account or changes to Android's network. These application fixtures require
+actual payload exchange; daemon startup alone is not a pass.
+`--load` adds four concurrent TCP streams per family, small-message latency,
+16 MiB per direction, slow receivers, half-close and descriptor-release checks.
+Receipts retain CPU frequencies and whole-launch wall/user/system time separately
+from client-only CPU and exchange timings. It is a bounded workload, not an
+Internet-throughput claim. The option applies to direct consumers; an OCI image
+must explicitly retain `MD_PACKET_LOAD` to run it inside that container.
 `test_booted_libvirt.py --session SESSION --kernel KERNEL --initrd INITRD
 --network --network-forward nat` checks a managed bridge/TAP with DHCP/DNS,
 bidirectional VM traffic and cleanup. The echo peer lives beyond a routed veth

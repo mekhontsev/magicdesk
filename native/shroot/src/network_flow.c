@@ -1,5 +1,6 @@
 #include "network_flow.h"
 #include "network_forward.h"
+#include "network_policy.h"
 #include <errno.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter/nf_tables.h>
@@ -102,7 +103,9 @@ static struct md_filter_route_result filter_route(void *opaque,const struct md_f
     struct md_ip_address address=flags&NFTA_FIB_F_SADDR ? p->source : p->destination;
     unsigned index=flags&NFTA_FIB_F_OIF ? p->output : 0;
     if (address.family==AF_INET6 && (flags&NFTA_FIB_F_IIF)) index=p->input;
-    struct md_network_interface *link=md_network_route_lookup(n,address,index,NULL);
+    struct md_network_interface *link=md_network_policy_route(n,
+        flags&NFTA_FIB_F_SADDR ? p->destination : p->source,address,
+        flags&NFTA_FIB_F_MARK ? p->mark : 0,index,NULL,NULL);
     if (!index && native_local(context,address)) link=md_network_interface_find(n,1,NULL);
     struct md_filter_route_result result={.type=RTN_UNREACHABLE};
     if (link) {
@@ -184,9 +187,9 @@ int md_network_flow_group_output(struct md_network_namespace *n,struct md_networ
 int md_network_flow_group_input(struct md_network_namespace *n,struct md_network_interface *in,
         struct md_network_flow_path *path) {
     struct md_filter_packet p=path->translated;
-    int error=md_network_ingress(n,in,p.source,p.destination);
     interface(&p,in,1); interface(&p,NULL,0);
-    if (!error) error=hook(n,NF_INET_PRE_ROUTING,&p,path);
+    int error=hook(n,NF_INET_PRE_ROUTING,&p,path);
+    if (!error) error=md_network_ingress(n,in,p.source,p.destination,p.mark);
     if (!error) error=hook(n,NF_INET_LOCAL_IN,&p,path);
     if (!error && (p.snat || p.dnat)) error=-EOPNOTSUPP;
     path->translated=p; path->destination=n->inode; return error;
@@ -204,7 +207,9 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
     if (md_ip_multicast(p->destination)) p->packet_type=PACKET_MULTICAST;
     else if (md_network_address_type(n,p->destination)==RTN_BROADCAST) p->packet_type=PACKET_BROADCAST;
     struct md_network_route_entry origin={0};
-    struct md_network_interface *out=md_network_route_lookup(n,p->destination,selected,&origin);
+    int route_error=0;
+    struct md_network_interface *out=md_network_policy_route(n,p->source,p->destination,p->mark,selected,&origin,&route_error);
+    if (!external && !out) return route_error;
     if (!external && md_ip_unspecified(p->source)) p->source=md_network_route_source(n,out,&origin,p->destination);
     /* The FIB owner selects the source and scoped binding; local OUTPUT
      * traverses loopback even when the address belongs to another link. */
@@ -220,7 +225,10 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
         : md_ip_is_loopback(p->source) ? md_network_interface_find(n,1,NULL) : md_network_route_find(n,p->source,NULL),1);
     int error=hook(n,external ? NF_INET_PRE_ROUTING : NF_INET_LOCAL_OUT,p,path);
     while (!error) {
+        struct md_network_route_entry route={0};
+        out=md_network_policy_route(n,p->source,p->destination,p->mark,n==from ? selected : 0,&route,&route_error);
         struct md_network_interface *local=md_network_local_interface(n,p->destination,1);
+        if (!out || route.table!=RT_TABLE_LOCAL) local=NULL;
         if (local && md_ip_linklocal(p->destination) && n==from && output && local->info.index!=output) local=NULL;
         context.space=n;
         if (local || native_local(&context,p->destination)) {
@@ -229,9 +237,7 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
             error=hook(n,NF_INET_LOCAL_IN,p,path);
             path->destination=n->inode; break;
         }
-        struct md_network_route_entry route;
-        out=md_network_route_lookup(n,p->destination,n==from ? selected : 0,&route);
-        if (!out || !(out->info.flags&IFF_UP)) { error=-ENETUNREACH; break; }
+        if (!out || !(out->info.flags&IFF_UP)) { error=route_error ? route_error : -ENETUNREACH; break; }
         struct md_network_transport_policy transport=md_network_route_transport(out,&route);
         if (transport.mtu && (!path->transport.mtu || transport.mtu<path->transport.mtu)) path->transport.mtu=transport.mtu;
         interface(p,out,0);
@@ -285,20 +291,48 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
             }
         }
         if (!next || !input || !(input->info.flags&IFF_UP)) { error=-ENETUNREACH; break; }
-        error=md_network_ingress(next,input,p->source,p->destination);
-        if (error) break;
         ingress_port=out->kind==MD_LINK_VETH ? out->peer : 0;
         n=next; arrived=1; external=0;
         interface(p,input,1); interface(p,md_network_route_find(n,p->destination,NULL),0);
         p->fib_type=md_network_address_type(n,p->destination);
         error=hook(n,NF_INET_PRE_ROUTING,p,path);
+        if (!error) error=md_network_ingress(n,input,p->source,p->destination,p->mark);
     }
     path->translated=*p; return error;
+}
+static int routing_admits(struct md_network_namespace *n,const struct md_network_flow_path *path,
+        const struct md_filter_packet *p,unsigned hook) {
+    if (hook!=NF_INET_POST_ROUTING && hook!=NF_INET_LOCAL_IN) return 0;
+    if (md_ip_multicast(p->destination) || md_network_address_type(n,p->destination)==RTN_BROADCAST
+            || (path->native_space==n->inode && md_ip_equal(path->native_address,p->destination))) return 0;
+    struct md_network_route_entry route={0}; int error;
+    struct md_network_interface *link=md_network_policy_route(n,p->source,p->destination,p->mark,
+        md_ip_linklocal(p->destination) ? (p->output ? p->output : p->input) : 0,&route,&error);
+    if (!link) return error;
+    return (hook==NF_INET_LOCAL_IN ? route.table!=RT_TABLE_LOCAL : link->info.index!=p->output) ? -ENETUNREACH : 0;
+}
+int md_network_flow_routing_admits(struct md_network_namespace *n,const struct md_network_flow_path *path) {
+    for (unsigned i=0;i<path->count;++i) {
+        const struct md_network_flow_step *s=&path->steps[i];
+        if (s->space!=n->inode || s->bridge_ingress || (s->hook!=NF_INET_POST_ROUTING && s->hook!=NF_INET_LOCAL_IN)) continue;
+        int error=routing_admits(n,path,&s->packet,s->hook);
+        if (error) return error;
+    }
+    return 0;
 }
 static int check_path(struct md_network_fabric *f,struct md_network_flow_path *path,int reverse,
         struct md_network_namespace *override,struct md_network_filter *filter,int initial,struct md_filter_accounting *accounting) {
     path->rejection[!!reverse]=(struct md_network_rejection){0};
-    unsigned mark=0;
+    unsigned mark=reverse ? 0 : path->original.mark;
+    if (!override && path->generation!=f->policy_generation)
+        for (unsigned i=0;i<path->count;++i) {
+            int seen=0;
+            for (unsigned j=0;j<i;++j) seen|=path->steps[j].space==path->steps[i].space;
+            if (seen) continue;
+            struct md_network_namespace *n=md_network_space_find(f,path->steps[i].space);
+            int error=n ? md_network_flow_routing_admits(n,path) : -ENETUNREACH;
+            if (error) return error;
+        }
     for (unsigned k=0;k<path->count;++k) {
         unsigned i=reverse ? path->count-k-1 : k;
         struct md_network_flow_step *s=&path->steps[i];
@@ -346,6 +380,9 @@ static int check_path(struct md_network_fabric *f,struct md_network_flow_path *p
          * evaluator skips NAT chains for them, including counters and jumps;
          * only live filter chains can revoke their native data path. */
         p.unmediated=override==n;
+        /* Mark changes are harmless to a native connection only while its
+         * effective route and every subsequent filter still admit the tuple. */
+        if (override && !s->bridge_ingress && routing_admits(n,path,&p,hook)) return -EBUSY;
         int error=md_filter_evaluate_transition(n==override ? filter : n->filter,hook,&p,
             retained ? &rewrite : NULL,NULL);
         if (error) { path->rejection[!!reverse]=p.rejection; return error; }

@@ -319,7 +319,7 @@ static int omitted(const struct md_view_mount *mount,const struct proc_policy *p
 }
 static const char network_conf[]="/proc/sys/net/ipv4/conf";
 static const char network_conf6[]="/proc/sys/net/ipv6/conf";
-static const char *const network_conf4_names[]={"route_localnet","rp_filter","arp_notify"};
+static const char *const network_conf4_names[]={"route_localnet","rp_filter","src_valid_mark","arp_notify"};
 static const char *const network_conf6_names[]={"forwarding","disable_ipv6","accept_dad","accept_ra",
     "autoconf","mtu","hop_limit","addr_gen_mode","use_tempaddr"};
 static int network_directory(struct md_filesystem *fs,const char *path) {
@@ -530,8 +530,10 @@ ssize_t md_procfs_getdents(struct md_filesystem *fs,const struct md_view_mount *
     enum md_proc_kind kind=ref.kind==MD_PROC_FOREIGN ? ref.foreign_kind : ref.kind;
     struct md_task_credentials task;
     if (kind==MD_PROC_NS_DIRECTORY && !md_task_registry_credentials(fs->tasks,ref.process,&task)) {
-        struct stat st;
-        if (fstat(fd,&st)) return -errno;
+        md_identity_release(&task.identity);
+        struct stat st,current;
+        if (fstat(fd,&st) || stat(path,&current)) return -errno;
+        if (st.st_dev!=current.st_dev || st.st_ino!=current.st_ino) return -ENOENT;
         int64_t position=lseek(fd,0,SEEK_CUR);
         if (position<0) return -errno;
         ssize_t size=md_proc_file_namespace_entries(st.st_ino,&position,data,capacity);

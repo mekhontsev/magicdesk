@@ -356,6 +356,13 @@ static long control_call(long nr,const unsigned long *a,int events) {
     request->destination=destination;
     void *data=request->data;
     long result=0;
+    if (nr==SYS_ioctl && md_network_family_ioctl(a[1])) {
+        long bytes=md_guest_buffer_control(MD_BUFFER_NETWORK_CALL,0,0);
+        if (bytes<=0 || bytes>MD_NETWORK_BUFFER_SIZE) {
+            md_adapter_buffer_release(); return bytes<0 ? bytes : -EOVERFLOW;
+        }
+        size=(size_t)bytes;
+    }
     if (gathered) {
         size_t offset=0;
         for (size_t i=0;!result && i<message.msg_iovlen;++i) {
@@ -373,7 +380,7 @@ static long control_call(long nr,const unsigned long *a,int events) {
         struct md_network_bridge_ioctl *r=data; memset(r,0,sizeof(*r));
         memcpy(r->name,bridge.ifr_name,IFNAMSIZ); memcpy(r->args,bridge_args,sizeof(r->args));
         if (r->args[0]==BRCTL_GET_BRIDGE_INFO) r->args[1]=0;
-    } else if (nr==SYS_ioctl && md_network_route_ioctl(a[1])) {
+    } else if (nr==SYS_ioctl && md_network_route_ioctl(a[1]) && size==sizeof(struct md_network_route_ioctl)) {
         struct md_network_route_ioctl *r=data; memset(r,0,sizeof(*r));
         result=md_read_memory(&r->route,input,sizeof(r->route));
         if(!result && r->route.rt_dev) {
@@ -391,7 +398,7 @@ static long control_call(long nr,const unsigned long *a,int events) {
     } else if (!result && nr==SYS_ioctl && a[1]==SIOCDEVPRIVATE) {
         if (bridge_args[0]==BRCTL_GET_BRIDGE_INFO)
             result=md_write_memory((void *)bridge_args[1],&((struct md_network_bridge_ioctl *)data)->info,sizeof(struct __bridge_info));
-    } else if (!result && nr==SYS_ioctl && !md_network_route_ioctl(a[1]) && a[1]!=SIOCSIFHWADDR && a[1]!=SIOCBRADDIF
+    } else if (!result && nr==SYS_ioctl && !md_network_family_ioctl(a[1]) && a[1]!=SIOCSIFHWADDR && a[1]!=SIOCBRADDIF
             && a[1]!=SIOCSARP && a[1]!=SIOCDARP)
         result=md_write_memory((void *)a[2],data,size);
     else if (result>=0 && !events && nr==SYS_getsockopt && a[1]==SOL_SOCKET && a[2]==SO_GET_FILTER) {

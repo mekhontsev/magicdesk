@@ -38,4 +38,5 @@ int md_network_flow_packet_policy(struct md_network_namespace *,const struct md_
 int md_network_flow_check(struct md_network_fabric *,struct md_network_flow_path *,int);
 int md_network_flow_accounting(struct md_network_fabric *,struct md_network_flow_path *,int,int,struct md_filter_accounting *);
 int md_network_flow_admits(struct md_network_namespace *,struct md_network_filter *,const struct md_network_flow_path *);
+int md_network_flow_routing_admits(struct md_network_namespace *,const struct md_network_flow_path *);
 #endif

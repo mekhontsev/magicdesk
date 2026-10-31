@@ -84,7 +84,13 @@ The journal exists only for mutations, not queries or data IO. Netlink carriers
 provide kernel readiness and queue options without changing Android interfaces.
 `network_message` supplies common bounded replies and ACKs; `network_generic`
 publishes the nlctrl family catalogue without claiming absent kernel families.
-Route rule queries expose the IPv4/IPv6 local/main/default policy; neighbor and
+`network_policy` owns namespace-local IPv4/IPv6 routing rules. Ordered priorities,
+source/destination prefixes, masked marks and inversion select an explicit table
+or return unreachable/prohibit/blackhole. Empty tables fall through; local and
+main rules are installed for a new namespace, with an IPv4 default-table rule.
+Tables share the existing bounded route catalogue, transaction journal and
+netlink publication. Rule deletion, rollback and notifications follow the same
+owner as routes. Unsupported selectors/actions fail explicitly. Neighbor and
 traffic-control dumps are empty and their unsupported mutations fail explicitly.
 Strict queries validate complete headers and reject unsupported filters instead
 of silently ignoring them. Route dumps accept the header's table selector and
@@ -102,9 +108,13 @@ at enqueue, so delivery after sender exit cannot adopt a reused PID. Receivers
 translate that snapshot in their own PID/user namespaces. Interface name/index,
 flags and MTU ioctls use the socket's creation namespace, including the AF_UNIX
 control sockets used by libc's `if_nametoindex`.
-Flag, MTU, IPv4 address/netmask and legacy route setters enter the netlink mutation owner, preserving capability
+Flag, MTU, IPv4 local/peer/netmask and IPv6 legacy address/route setters enter the netlink mutation owner, preserving capability
 checks, topology publication and observer notifications. Unsupported flag
 changes fail explicitly; read-only flags are not overwritten by legacy ioctls.
+The socket's logical family determines the legacy ioctl structure size before
+guest memory is copied, including raw IPv6 sockets backed by another transport.
+Point-to-point local and peer addresses remain distinct in dumps, source selection
+and connected routes.
 Control descriptor selection joins the close/dup table turn, including capture
 of a namespace FD, and ends before guest output copying.
 
@@ -279,6 +289,9 @@ and SCM_RIGHTS retain that same open description. Creating an interface checks
 guest `CAP_NET_ADMIN` in its namespace owner. Persistent devices can grant
 attachment to an owner/group. Final queue closure removes a nonpersistent link
 and its routes through the shared topology owner.
+The first queue on an unattached persistent device negotiates packet/header
+framing. Additional multiqueue attachments retain the active device format;
+device type and multiqueue mode cannot be changed by reattachment.
 
 Supported ABI: TUN IP packets, TAP Ethernet frames, optional `tun_pi`, one
 packet per read, truncation flags, nonblocking readiness, persistence, owner/group,
@@ -318,7 +331,8 @@ they do not create a second neighbor catalogue. Writes require namespace
 `CAP_NET_ADMIN`; proxy ARP is unsupported.
 
 Shroot remains the address/route authority; lwIP does not run DHCP, DNS or SLAAC
-configuration. Current stack interfaces mirror one primary IPv4 address and up
+configuration or independent IPv6 MTU updates. Both families use the link MTU
+published by Shroot, including changes after link-up. Current stack interfaces mirror one primary IPv4 address and up
 to 16 IPv6 addresses. TAP bridge forwarding uses the shared Ethernet topology.
 This is packet termination and socket forwarding, not a general IP router.
 Ordinary native socket/file payload reads and writes do not enter this stack.
@@ -376,7 +390,11 @@ conntrack state/mark/status, local/source-route classification, reverse-path and
 packet-type predicates, set, verdict-map and register-value lookup, single-target
 DNAT, single-address SNAT and masquerade operations. Source NAT supports inclusive
 TCP/UDP port ranges for both address families. ACCEPT ends a chain, not a hook; later
-base chains may deny it. RETURN applies the base policy. Rule counters and
+base chains may deny it. RETURN applies the base policy.
+`route` OUTPUT chains repeat route selection after a mark/address change and
+publish the selected output to later chains. They use the same policy-routing
+owner as socket admission; unsupported route-chain hooks fail at installation.
+Rule counters and
 optional base-chain policy counters retain their values in transactional
 snapshots. Cached flow decisions retain counter references for one generation,
 without walking rules for each transfer. A base-chain counter applies only when
@@ -424,6 +442,11 @@ queries advertise these supported adapters and distinguish an absent extension
 (`ENOENT`) from an unsupported revision (`EPROTONOSUPPORT`). This lets clients
 negotiate an older supported ABI without misdiagnosing a missing module.
 Revision-zero ICMP/ICMPv6 matches retain type/code bounds and inversion;
+revision-one `connmark`/`CONNMARK` share the flow's conntrack mark and masked
+set/save/restore operations with native nft expressions. Packet and conntrack
+marks remain distinct. `SO_MARK` belongs to the logical endpoint, requires guest
+CAP_NET_ADMIN and participates in routing; it never sets Android's socket mark.
+Changing a mark after the socket has retained a data path returns `EBUSY`.
 `pkttype` and `rpfilter` use the common packet and route model. FIB queries share
 that model for address type, output interface/name and interface presence.
 TCP flags/options, NAT address pools, DNAT port ranges,
@@ -478,8 +501,9 @@ or extra per-payload syscall is involved.
 Direct unfiltered TCP and outgoing native UDP keep native connected IO only when
 neither direction has potentially denying hooks. Policy updates evaluate each
 retained tuple in both directions, including first-payload and established
-states. Unrelated rules do not revoke these streams. Denying policy or reached
-mark mutations return atomic `EBUSY`: an update cannot retroactively move
+states. Unrelated rules do not revoke these streams. Mark/conntrack updates are
+evaluated on a private copy, including the resulting route and later filters.
+Denying policy or a changed effective route returns atomic `EBUSY`: an update cannot retroactively move
 a kernel stream into a relay. Counters do not change admission, so adding them
 does not revoke an existing native stream. They account for observed mediated
 traffic, not payload on already native connections; this is not complete kernel
@@ -493,7 +517,10 @@ cache decisions by fabric policy generation and revalidate in both directions
 after rules/topology changes. Private UDP uses the same relay even without
 filter rules: its queued source identity must survive sending-socket closure.
 The retained tuple does not authorize delivery to a reused native port; closed
-peers cannot receive new traffic. Addressed UDP reuses its established translation
+peers cannot receive new traffic. A listener-to-connected-worker handoff resolves
+the eligible receiver again only when the endpoint catalogue changes. Queued
+datagrams retain their chosen target; queued replies retain their admitted native
+tuple even if that sender closes. Addressed UDP reuses its established translation
 instead of interpreting NEW/NAT for each send. Removed/down interfaces and
 disabled forwarding stop mediated traffic; established direct native IO is not
 intercepted by such topology updates.
@@ -529,7 +556,8 @@ Detaching a port or moving it to another namespace clears its bridge settings.
 
 `network_sysctl` supplies the managed namespace's
 `ip_unprivileged_port_start`, `ping_group_range`, `ip_local_port_range` and
-`ip_forward`, plus per-interface `route_localnet`, `rp_filter` and `arp_notify`.
+`ip_forward`, plus per-interface `route_localnet`, `rp_filter`, `src_valid_mark`
+and `arp_notify`.
 Validated updates share one namespace lock, including overlapping port bounds.
 Opening captures the network owner; subsequent setns does not retarget that FD.
 Writes require CAP_NET_ADMIN in its user owner, without touching host sysctls.
@@ -548,7 +576,9 @@ yields ENODEV even after the same interface returns. Name reuse cannot redirect
 it. Topology rollback restores the prior policy lifetime alongside its values.
 `conf/default` initializes newly created interfaces;
 `conf/all` participates in ingress policy. Strict and loose reverse-path checks
-and loopback-source/destination policy apply at logical routing boundaries.
+and loopback-source/destination policy apply at logical routing boundaries,
+after PREROUTING. `src_valid_mark` includes the restored packet mark in the
+reverse route lookup; the effective value combines `conf/all` and the interface.
 The fabric resolves live addresses directly, without an ARP neighbor cache;
 `arp_notify` does not emit packets onto Android's physical network.
 
@@ -574,7 +604,10 @@ one topology transaction, including rollback when response publication fails.
 Renaming is independent of cross-namespace move support. IPv4/IPv6 routes retain
 prefix, metric, preference, interface/nexthop and lifetime for lookup, queries,
 notifications and matching deletion. Multiple routes use longest-prefix and
-metric selection; arbitrary policy-routing table mutation remains unsupported.
+metric selection within the selected table; rules choose tables independently
+of prefix length. Established mediated paths recheck routing on topology changes.
+A routing update that would redirect an existing native direct stream fails
+atomically with `EBUSY`; payload IO does not acquire a new interception path.
 
 Native rlimits retain the launch identity's real kernel ceilings. Virtual root
 does not grant Android CAP_SYS_RESOURCE: requests exceeding a hard limit keep

@@ -255,22 +255,22 @@ static int evaluate_chain(struct md_network_filter *f,const struct md_filter_cha
                 }
                 if (e->size<=4) memcpy(dst,&value,4);
                 break;
-            case MD_FILTER_META_SET:
-                if (p->unmediated) return -EBUSY;
+            case MD_FILTER_META_SET: case MD_FILTER_CT_SET: {
+                unsigned *destination=e->code==MD_FILTER_META_SET ? &p->mark : &p->ctmark;
                 if (e->constant) {
                     uint32_t mask;
                     memcpy(&value,e->value,4); memcpy(&mask,e->mask,4);
-                    p->mark=(p->mark&~mask)^value;
-                } else memcpy(&p->mark,src,4);
+                    if (e->constant==2) value=(e->code==MD_FILTER_META_SET ? p->ctmark : p->mark)&e->aux;
+                    *destination=(*destination&~mask)^value;
+                } else memcpy(destination,src,4);
                 break;
+            }
             case MD_FILTER_CT:
                 value=e->key==NFT_CT_STATE ? p->state : e->key==NFT_CT_MARK ? p->ctmark : p->status;
                 memcpy(dst,&value,4); break;
-            case MD_FILTER_CT_SET:
-                if (p->unmediated) return -EBUSY;
-                memcpy(&p->ctmark,src,4); break;
             case MD_FILTER_STATE_MATCH: match=!!(p->state&e->key)!=!!e->operation; break;
-            case MD_FILTER_MARK_MATCH: match=((p->mark&e->aux)==e->key)!=!!e->operation; break;
+            case MD_FILTER_MARK_MATCH: case MD_FILTER_CONNMARK_MATCH:
+                match=(((e->code==MD_FILTER_CONNMARK_MATCH ? p->ctmark : p->mark)&e->aux)==e->key)!=!!e->operation; break;
             case MD_FILTER_PACKET_TYPE: match=(p->packet_type==e->key)!=!!e->operation; break;
             case MD_FILTER_REVERSE_PATH:
                 match=reverse_path(p,e->key)!=!!(e->key&XT_RPFILTER_INVERT); break;
@@ -380,6 +380,8 @@ int md_filter_evaluate_transition(struct md_network_filter *f,unsigned hook,stru
         }
         if (selected==count) return 0;
         struct md_filter_chain *c=&f->chains[selected];
+        unsigned initial_mark=p->mark;
+        struct md_ip_address initial_source=p->source,initial_destination=p->destination;
         int mapped=(hook==NF_INET_PRE_ROUTING || hook==NF_INET_LOCAL_OUT) ? p->dnat : p->snat;
         int verdict=c->nat && (retained || p->state!=8 || mapped) ? NF_ACCEPT : evaluate_chain(f,c,p,0);
         if (nat_priority && c->nat && !mapped && (p->dnat || p->snat)) *nat_priority=c->priority;
@@ -391,6 +393,13 @@ int md_filter_evaluate_transition(struct md_network_filter *f,unsigned hook,stru
             verdict=(int)c->policy;
         }
         if (verdict!=NF_ACCEPT) return verdict==NF_DROP ? -EACCES : verdict<0 ? verdict : -EOPNOTSUPP;
+        if (c->reroute && (p->mark!=initial_mark || !md_ip_equal(p->source,initial_source)
+                || !md_ip_equal(p->destination,initial_destination))) {
+            if (!p->route) return -EOPNOTSUPP;
+            struct md_filter_route_result route=p->route(p->route_context,p,NFTA_FIB_F_DADDR|NFTA_FIB_F_MARK);
+            if (!route.interface) return -ENETUNREACH;
+            p->output=route.interface; memcpy(p->output_name,route.name,sizeof(p->output_name));
+        }
         previous_priority=c->priority; previous_index=selected; started=1;
     }
 }

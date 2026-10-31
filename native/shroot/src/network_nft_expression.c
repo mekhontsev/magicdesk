@@ -9,6 +9,7 @@
 #include <linux/netfilter/xt_comment.h>
 #include <linux/netfilter/xt_conntrack.h>
 #include <linux/netfilter/xt_mark.h>
+#include <linux/netfilter/xt_connmark.h>
 #include <linux/netfilter/xt_addrtype.h>
 #include <linux/netfilter/xt_pkttype.h>
 #include <linux/netfilter/xt_rpfilter.h>
@@ -21,6 +22,7 @@
 int md_nft_compat_revision(unsigned family,const char *name,unsigned revision,unsigned target) {
     static const struct { const char *name; unsigned target,revisions; } extensions[]={
         {"MARK",1,1U<<2},{"mark",0,1U<<1},{"addrtype",0,1U<<1},{"conntrack",0,1U<<3},
+        {"CONNMARK",1,1U<<1},{"connmark",0,1U<<1},
         {"DNAT",1,7},{"SNAT",1,7},{"MASQUERADE",1,1},{"REJECT",1,1},
         {"tcp",0,1},{"udp",0,1},{"comment",0,1},{"pkttype",0,1},{"rpfilter",0,1},
         {"icmp",0,1},{"icmp6",0,1}};
@@ -99,6 +101,19 @@ static int target(struct md_network_filter *f,uint64_t table,const struct attrib
         memcpy(e->value,&info.mark,4); memcpy(e->mask,&info.mask,4);
         return 0;
     }
+    if (!strcmp(name,"CONNMARK")) {
+        struct xt_connmark_tginfo1 info;
+        if (!wire->data || wire->flags || wire->size!=((sizeof(info)+7)&~(size_t)7)) return -EINVAL;
+        memcpy(&info,wire->data,sizeof(info));
+        if (info.mode>XT_CONNMARK_RESTORE) return -EOPNOTSUPP;
+        e->code=info.mode==XT_CONNMARK_RESTORE ? MD_FILTER_META_SET : MD_FILTER_CT_SET;
+        e->key=info.mode==XT_CONNMARK_RESTORE ? NFT_META_MARK : NFT_CT_MARK;
+        e->constant=info.mode==XT_CONNMARK_SET ? 1 : 2;
+        uint32_t mask=info.mode==XT_CONNMARK_RESTORE ? info.nfmask : info.ctmask;
+        e->aux=info.mode==XT_CONNMARK_RESTORE ? info.ctmask : info.nfmask;
+        memcpy(e->mask,&mask,4); memcpy(e->value,&info.ctmark,4);
+        return 0;
+    }
     struct nf_nat_range range;
     unsigned family=table_family(f,table)==NFPROTO_IPV6 ? AF_INET6 : AF_INET;
     unsigned bytes=family==AF_INET6 ? 16 : 4;
@@ -173,12 +188,13 @@ static int compat_match(struct md_network_filter *f,uint64_t table,const struct 
             |(info.flags&XT_ADDRTYPE_INVERT_DEST ? MD_FILTER_INVERT_DESTINATION : 0);
         return 0;
     }
-    if (!strcmp(name,"mark")) {
+    if (!strcmp(name,"mark") || !strcmp(name,"connmark")) {
         struct xt_mark_mtinfo1 info;
         if (!wire->data || wire->flags || wire->size!=((sizeof(info)+7)&~(size_t)7)) return -EINVAL;
         memcpy(&info,wire->data,sizeof(info));
         if (info.invert>1) return -EINVAL;
-        e->code=MD_FILTER_MARK_MATCH; e->key=info.mark; e->aux=info.mask; e->operation=info.invert;
+        e->code=!strcmp(name,"connmark") ? MD_FILTER_CONNMARK_MATCH : MD_FILTER_MARK_MATCH;
+        e->key=info.mark; e->aux=info.mask; e->operation=info.invert;
         return 0;
     }
     if (!strcmp(name,"comment")) {

@@ -13,7 +13,9 @@ struct md_fs_anchor;
 struct md_fs_request;
 struct md_fs_result;
 struct md_fs_output;
-void md_fs_proc_task(struct md_filesystem *,struct md_fs_anchor *,const char *,
+struct md_control_file;
+int md_fs_proc_control_stat(struct md_filesystem *,struct md_control_file,struct stat *);
+int md_fs_proc_task(struct md_filesystem *,struct md_fs_anchor *,const char *,
     const struct md_fs_request *,struct md_fs_result *,const struct md_fs_output *);
 struct md_provider_tree *md_procfs_new(int parent,const char *options,const struct md_identity *);
 /* One-time host capability admission: 1 available, 0 unavailable, negative errno. */

@@ -745,12 +745,21 @@ application overrides/reset and TCP MSS; stock networkd boot tests verify the
 effective route and connected socket values.
 
 Managed netlink control also implements the baseline nlctrl family catalogue,
-strict route query validation, kernel-peer connect, policy-rule queries and
+strict route query validation, kernel-peer connect, policy-rule transactions and
 SO_PASSCRED/NETLINK_PKTINFO reply metadata. These are userspace protocol owners;
 they do not open privileged host netlink sockets or require newer kernel APIs.
 `--case mount-namespace` and `--case ofd-order` cover validation, duplication,
 ancillary metadata, membership and unsupported operations. Default systemd boot
 and the Podman probe exercise stock NetworkManager and netavark clients.
+
+`network_policy` owns guest IPv4/IPv6 tables, source/destination prefixes,
+masked marks, inversion and terminal denial rules. `SO_MARK` checks guest
+CAP_NET_ADMIN (the 5.15 contract), without setting an Android socket mark.
+CONNMARK and `src_valid_mark` share the filter/route owners. IPv6 legacy address
+and route ioctls use their family-specific wire sizes before copying guest data.
+These add no host dependency. `test_network_route`, `test_network_nft` and
+`test_network_ipv6.py` cover admission, rollback, isolation and marked routing;
+real VPN fixtures exercise the same owners with stock userspace.
 
 Classic socket filters use baseline `SO_ATTACH_FILTER`, `SO_GET_FILTER`,
 `SO_DETACH_FILTER` and `SO_LOCK_FILTER` on private AF_UNIX queues. `socket_filter`

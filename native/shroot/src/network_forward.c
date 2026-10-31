@@ -37,17 +37,18 @@ struct listener {
     int group_hops;
 };
 struct stream_buffer { size_t begin, end; unsigned char data[65536]; };
-struct datagram { struct datagram *next; size_t size; unsigned char data[]; };
+struct datagram_target { const void *receiver; struct md_inet_address address; };
+struct datagram { struct datagram *next; size_t size; struct datagram_target target; unsigned char data[]; };
 struct datagram_queue { struct datagram *head, *tail; size_t bytes, count; };
 struct flow {
     struct flow *next;
     struct md_network_forward *owner;
-    uint64_t id, listener, space, checked[2];
+    uint64_t id, listener, space, checked[2], receiver_generation;
     const void *endpoint, *receiver;
     int fd[2], borrowed, type, connecting, eof[2], denied[2], receiver_closed, draining;
     struct md_stack_channel *packet_channel;
     struct md_stack_channel *front_channel;
-    struct md_inet_address client, remote, gateway;
+    struct md_inet_address client, remote, gateway, target;
     struct md_network_flow_path path;
     struct stream_buffer *buffer;
     struct datagram_queue datagrams[2];
@@ -171,7 +172,7 @@ static int socket_bound(int type,struct md_inet_address *address,int v6only) {
     return fd;
 }
 static int connect_target(const void *endpoint,int type,struct md_network_transport_policy policy,
-        const struct md_inet_address *target,struct md_inet_address *local,int *connecting) {
+        const struct md_inet_address *target,struct md_inet_address *local,int *connecting,int unconnected) {
     *local=(struct md_inet_address){.ip=md_ip_any(target->ip.family)};
     *connecting=0;
     int fd=socket_bound(type,local,1);
@@ -182,7 +183,7 @@ static int connect_target(const void *endpoint,int type,struct md_network_transp
         md_network_endpoint_transport(endpoint,&transport);
         error=md_network_transport_apply(&transport,fd,type,policy);
     }
-    if (!error && md_inet_connect(fd,target,0)) {
+    if (!error && !unconnected && md_inet_connect(fd,target,0)) {
         if (errno==EINPROGRESS) *connecting=1;
         else error=-errno;
     }
@@ -266,8 +267,10 @@ static struct flow *new_flow(struct md_network_forward *f,struct listener *l,int
     c->fd[0]=front; c->fd[1]=-1; c->type=l->type; c->borrowed=l->external && l->type==SOCK_DGRAM;
     c->listener=l->external ? l->id : 0; c->space=l->space; c->endpoint=l->external ? NULL : l->endpoint;
     c->client=*client; c->path=*path; c->gateway=l->address;
+    c->target=*target;
     c->front_family=l->address.ip.family;
     c->receiver=receiver;
+    c->receiver_generation=UINT64_MAX;
     if (!receiver && c->type==SOCK_DGRAM && path->destination && !path->packet_space) {
         struct md_inet_address ignored;
         int error=md_network_endpoint_resolve(f->fabric,path,c->type,&ignored,&c->receiver);
@@ -284,7 +287,8 @@ static struct flow *new_flow(struct md_network_forward *f,struct listener *l,int
         if (c->fd[1]<0) { errno=-c->fd[1]; goto failed; }
         c->connecting=c->type==SOCK_STREAM;
     } else {
-        c->fd[1]=connect_target(c->endpoint,c->type,path->transport,target,&c->remote,&c->connecting);
+        c->fd[1]=connect_target(c->endpoint,c->type,path->transport,target,&c->remote,&c->connecting,
+            c->type==SOCK_DGRAM && path->destination);
         if (c->fd[1]<0) { errno=-c->fd[1]; goto failed; }
     }
     if (c->type==SOCK_STREAM) {
@@ -382,10 +386,14 @@ static int packet_reply(struct md_network_forward *f,struct flow *c,const void *
     ssize_t sent=md_inet_sendto(c->fd[0],data,size,MSG_DONTWAIT|MSG_NOSIGNAL,&target,0);
     return sent<0 ? -errno : (size_t)sent==size ? 0 : -EIO;
 }
-static int datagram_send(struct md_network_forward *f,struct flow *c,unsigned direction,const void *data,size_t size) {
+static int local_datagram(const struct flow *c) {
+    return c->path.destination && !c->packet_channel;
+}
+static int datagram_send(struct md_network_forward *f,struct flow *c,unsigned direction,const void *data,size_t size,
+        const struct datagram_target *target) {
     /* A retained tuple describes queued packets, not authority to deliver to a
      * new socket which happens to reuse the closed peer's native port. */
-    if ((!direction && c->receiver_closed)
+    if ((!direction && (local_datagram(c) ? !target->receiver : c->receiver_closed))
             || (direction && !c->borrowed && !c->endpoint && !c->packet_input && !c->front_channel)) return -ECONNREFUSED;
     if (c->group) {
         if (direction) return -EOPNOTSUPP;
@@ -399,6 +407,10 @@ static int datagram_send(struct md_network_forward *f,struct flow *c,unsigned di
         if (!receiver) return -ECONNREFUSED;
     }
     if (direction && c->packet_input) return packet_reply(f,c,data,size);
+    if (!direction && local_datagram(c)) {
+        ssize_t sent=md_inet_sendto(c->fd[1],data,size,MSG_DONTWAIT|MSG_NOSIGNAL,&target->address,0);
+        return sent<0 ? -errno : (size_t)sent==size ? 0 : -EIO;
+    }
     if (direction && c->front_channel) {
         ssize_t sent=send(c->fd[0],data,size,MSG_DONTWAIT|MSG_NOSIGNAL);
         return sent<0 ? -errno : (size_t)sent==size ? 0 : -EIO;
@@ -419,15 +431,33 @@ static int datagram_submit(struct md_network_forward *f,struct flow *c,unsigned 
     int denied=c->group ? 0 : check(f,c,direction);
     if (!c->group) account(c,direction,size);
     if (denied) return -EACCES;
+    struct datagram_target target={0};
+    if (!direction && local_datagram(c)) {
+        int error=0;
+        if (c->group) {
+            target.receiver=c->receiver;
+            /* Multicast fanout already selected this specific subscriber. */
+            target.address=c->target;
+        }
+        if (!c->group) {
+            if (c->receiver_generation!=f->fabric->endpoint_generation || c->receiver_closed) {
+                error=md_network_endpoint_resolve(f->fabric,&c->path,SOCK_DGRAM,&c->target,&c->receiver);
+                if (!error) c->receiver_generation=f->fabric->endpoint_generation;
+            }
+            target=(struct datagram_target){.receiver=c->receiver,.address=c->target};
+        }
+        if (error || !target.receiver) { ++f->dropped_datagrams; return 0; }
+        c->receiver=target.receiver; c->receiver_closed=0;
+    }
     struct datagram_queue *q=&c->datagrams[direction];
     if (!q->head) {
-        int error=datagram_send(f,c,direction,data,size);
+        int error=datagram_send(f,c,direction,data,size,&target);
         if (!error) { c->deadline=now_ms()+30000; return 0; }
         if (error!=-EAGAIN && error!=-EWOULDBLOCK && error!=-EINTR) { ++f->dropped_datagrams; return 0; }
     }
     struct datagram *d=q->count<64 && size<=262144-q->bytes ? malloc(sizeof(*d)+size) : NULL;
     if (!d) { ++f->dropped_datagrams; return 0; }
-    d->next=NULL; d->size=size; memcpy(d->data,data,size);
+    d->next=NULL; d->size=size; d->target=target; memcpy(d->data,data,size);
     if (q->tail) q->tail->next=d; else q->head=d;
     q->tail=d; q->bytes+=size; ++q->count;
     c->deadline=now_ms()+30000;
@@ -439,7 +469,7 @@ static void datagram_flush(struct md_network_forward *f,struct flow *c,unsigned 
     struct datagram_queue *q=&c->datagrams[direction];
     for (unsigned budget=0;q->head && budget<16;++budget) {
         struct datagram *d=q->head;
-        int error=check(f,c,direction) ? -EACCES : datagram_send(f,c,direction,d->data,d->size);
+        int error=check(f,c,direction) ? -EACCES : datagram_send(f,c,direction,d->data,d->size,&d->target);
         if (error==-EAGAIN || error==-EWOULDBLOCK || error==-EINTR) break;
         if (error && error!=-EACCES) ++f->dropped_datagrams;
         q->head=d->next; q->bytes-=d->size; --q->count; free(d);
@@ -457,6 +487,11 @@ static void udp_receive(struct md_network_forward *f,struct flow *c,unsigned leg
         if (bytes<0) return;
         if (c->group) continue;
         if (!leg && !c->front_channel && !same(&source,&c->client)) continue;
+        if (leg && local_datagram(c)
+                /* The admitted native tuple outlives close: its reply may already
+                 * be queued. New handoff tuples still require a live receiver. */
+                && !same(&source,&c->target)
+                && !md_network_endpoint_reply(f->fabric,&c->path,&source)) continue;
         datagram_submit(f,c,leg,data,(size_t)bytes);
         if (c->datagrams[leg].count>=64 || c->datagrams[leg].bytes>=262144) break;
     }
@@ -882,7 +917,7 @@ int md_network_forward_route(struct md_network_namespace *n,const void *endpoint
         if (path->packet_space) {
             l->upstream_fd=md_network_stack_connect(n->fabric,path,type,&l->packet_channel);
             l->upstream_connecting=1;
-        } else l->upstream_fd=connect_target(endpoint,type,path->transport,target,&local,&l->upstream_connecting);
+        } else l->upstream_fd=connect_target(endpoint,type,path->transport,target,&local,&l->upstream_connecting,0);
         if (l->upstream_fd<0) {
             error=l->upstream_fd; md_network_endpoint_connect_complete(endpoint,error);
             drop_listener(f,l); return error;
@@ -1039,7 +1074,7 @@ int md_network_forward_destination(struct md_network_namespace *n,const void *en
             *native=c->gateway; return 1;
         }
         if (c->path.destination==n->inode
-                && (type!=SOCK_DGRAM || c->receiver==endpoint)
+                && (type!=SOCK_DGRAM || !c->receiver_closed)
                 && local->port==c->path.translated.destination_port
                 && (md_ip_unspecified(local->ip) || md_ip_equal(local->ip,c->path.translated.destination))
                 && md_ip_equal(destination->ip,c->path.translated.source) && destination->port==c->path.translated.source_port) {
@@ -1076,6 +1111,8 @@ void md_network_forward_endpoint_disconnected(struct md_network_namespace *n,con
         int sender=c->endpoint==endpoint, receiver=c->receiver==endpoint;
         if (sender) c->endpoint=NULL;
         if (receiver) { c->receiver=NULL; c->receiver_closed=1; }
+        for (struct datagram *d=c->datagrams[0].head;d;d=d->next)
+            if (d->target.receiver==endpoint) d->target.receiver=NULL;
         if ((sender || receiver) && (c->type!=SOCK_DGRAM || (!c->endpoint && !c->receiver && !c->borrowed)))
             drop_flow(f,c);
         /* A surviving private peer may still receive already queued data.

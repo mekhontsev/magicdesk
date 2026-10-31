@@ -243,15 +243,25 @@ options fail explicitly. Saved overlay credentials do not establish
 kernel-equivalent confinement for unadapted native access.
 
 Proc mounts are selected process views, not a complete virtual kernel procfs.
-Lookup and directory enumeration omit host-global `sysrq-trigger`, `kcore`,
-`kmsg` and `keys`: no guest kernel-control, raw-memory, kernel-log or global-key
-provider exists. Other native permission errors remain errors, not missing files.
+The initial `/proc` uses the same provider as explicit proc mounts, with native
+PID numbering until a PID-scoped mount is requested. Process directories share
+the typed map-entry catalogue; network directories and sysctls select the
+caller's network namespace. Mounted lookup, relative directory opens and
+enumeration do not fall back to Android's interface inventory.
+Host-global `sysrq-trigger`, `kcore`, `kmsg`, `keys`, `kallsyms` and `asound`
+are inaccessible placeholders, not Android kernel controls. Their names and
+O_PATH handles remain available as container mount targets; data access fails
+with EACCES until a guest mount covers them. Other native permission errors
+remain errors, not missing files.
 Protected self-proc access is completed in the actual caller after the walker
 admits the selected mount and path. Final no-follow magic-link metadata and
 O_PATH capture retain their mount identity and openat2 restrictions. Only an
 unfiltered native directory may delegate getdents to its caller; logical PID
 filtering is not bypassed. None of these paths changes dumpability.
 Native proc descriptors outside these mounted views are unchanged.
+Unmanaged processes retain native admission for process directories and
+`status`, `stat`, `limits` and `cgroup`; these reads do not invent guest identity
+or cgroup membership for Android tasks.
 Foreign `/proc/PID/mem` and signalfd sender translation remain outside this contract.
 Inherited native proc descriptors retain their original view. Internal helper
 threads are filtered in a logical PID proc mount, not in Android's native procfs.

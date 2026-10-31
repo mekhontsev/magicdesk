@@ -80,6 +80,7 @@ int md_fs_mount_overlay(struct md_filesystem *, const struct md_fs_request *, st
 int md_fs_private_mounts_parent(struct md_inode_store *);
 int md_fs_provider_mount(struct md_filesystem *,struct md_provider_tree *,const char *);
 int md_fs_sysfs_prepare(struct md_filesystem *,struct md_provider_tree **);
+int md_fs_proc_prepare(struct md_filesystem *);
 
 enum { MD_VIEW_BUCKETS = 4096, MD_VIEW_OBJECT_LIMIT = 65536 };
 static inline int md_view_base(const struct md_mount_namespace *view, const struct md_view_mount *m) {
