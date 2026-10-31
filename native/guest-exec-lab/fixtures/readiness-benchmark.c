@@ -1,6 +1,8 @@
 #define _GNU_SOURCE
 #include <assert.h>
 #include <fcntl.h>
+#include <linux/filter.h>
+#include <linux/seccomp.h>
 #include <poll.h>
 #include <sched.h>
 #include <stdint.h>
@@ -10,6 +12,8 @@
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
+#include <sys/ioctl.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -34,7 +38,9 @@ int main(int argc,char **argv) {
     int cycle=!strcmp(argv[1],"file-cycle"),opening=!strcmp(argv[1],"file-open");
     int files=cycle || opening || !strcmp(argv[1],"file-stat");
     int memory=!strcmp(argv[1],"memory");
-    assert(files || memory || idle || epoll || !strcmp(argv[1],"poll"));
+    int duplicate=!strcmp(argv[1],"fd-dup"),metadata=!strcmp(argv[1],"fd-stat");
+    int flags=!strcmp(argv[1],"fd-flags"),control=!strcmp(argv[1],"fd-ioctl");
+    assert(files || memory || idle || epoll || duplicate || metadata || flags || control || !strcmp(argv[1],"poll"));
     assert(files || blocks==1);
     char directory[]="/tmp/md-readiness-XXXXXX";
     int dir=-1;
@@ -51,6 +57,12 @@ int main(int argc,char **argv) {
     struct epoll_event event={.events=EPOLLIN,.data.u64=42},received;
     assert(!epoll_ctl(queue,EPOLL_CTL_ADD,fd,&event));
     struct pollfd p={.fd=fd,.events=POLLIN};
+    if (getenv("MD_BENCH_FILTER")) {
+        struct sock_filter instruction=BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW);
+        struct sock_fprog filter={.len=1,.filter=&instruction};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+        assert(!prctl(PR_SET_SECCOMP,SECCOMP_MODE_FILTER,&filter));
+    }
     struct {
         double elapsed, cpu;
         long voluntary, involuntary;
@@ -69,6 +81,15 @@ int main(int argc,char **argv) {
                 } else {
                     struct stat st; assert(!fstatat(dir,"file",&st,0) && S_ISREG(st.st_mode));
                 }
+            } else if (duplicate) {
+                int copy=fcntl(fd,F_DUPFD_CLOEXEC,0);
+                assert(copy>=0 && !close(copy));
+            } else if (metadata) {
+                struct stat st; assert(!fstat(fd,&st));
+            } else if (flags) {
+                assert(fcntl(fd,F_GETFL)>=0);
+            } else if (control) {
+                assert(!ioctl(fd,FIONBIO,&(int){1}));
             } else if (memory) {
                 size_t size=(size_t)getpagesize()*16;
                 void *address=mmap(NULL,size,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);

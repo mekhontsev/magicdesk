@@ -324,7 +324,13 @@ int main(int argc, char **argv) {
         create("protected");
         one(fd, IN_CREATE, "protected");
         CHECK(prctl(PR_GET_DUMPABLE) == 0);
+        int nonblocking=0;
+        CHECK(!ioctl(fd,FIONBIO,&nonblocking) && !(fcntl(fd,F_GETFL)&O_NONBLOCK));
+        nonblocking=1;
+        CHECK(!ioctl(fd,FIONBIO,&nonblocking) && (fcntl(fd,F_GETFL)&O_NONBLOCK));
         int bytes = -1; CHECK(!ioctl(fd, FIONREAD, &bytes) && !bytes);
+        bytes=-1;
+        CHECK(!syscall(SYS_ioctl,fd,(UINT64_C(1)<<32)|FIONREAD,&bytes) && !bytes);
         create("vector");
         struct iovec v = {buffer.bytes, sizeof(buffer.bytes)};
         CHECK(readv(fd, &v, 1) == 32 && !strcmp(buffer.align.name, "vector"));

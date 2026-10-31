@@ -166,6 +166,11 @@ Before an application installs seccomp, readiness selectors are prepared for
 future virtual FDs, because the application may forbid further filter installation.
 That sandbox path adds admission overhead even to native waits; ordinary
 unfiltered workloads retain selective interception.
+When all destination selectors are already prepared, descriptor duplication
+uses the native mutation owner directly. It still orders shared-table changes,
+retires internal loans and publishes only the kernel's actual result. Ordinary
+ioctls need no watch discovery; only FIONREAD reaches that owner after typed
+device, terminal and filesystem classification.
 Inherited stdio can retain metadata-only O_PATH identity pins; these neither
 keep pipes open for data IO nor supply filesystem authority. Filtered result
 publication replays the original syscall admission and consumes the retained

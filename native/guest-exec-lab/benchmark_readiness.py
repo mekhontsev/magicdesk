@@ -21,10 +21,13 @@ def main():
                         help='Compare both modes, or interleave only the selected mode')
     parser.add_argument('--file-blocks', type=int, default=1,
                         help='Consecutive 1024-operation file blocks per launch (1-64); retain first and tail timings')
+    parser.add_argument('--application-filter', action='store_true',
+                        help='Install an application ALLOW filter before the measured fixture loop')
     parser.add_argument('--cpu-mask', type=lambda value: int(value, 16),
                         help='Optional native taskset hexadecimal mask for controlled comparisons')
     parser.add_argument('--workload', action='append', choices=(
-        'poll', 'epoll', 'epoll-ready', 'idle', 'python-start', 'ls-start', 'file-stat', 'file-open', 'file-cycle'),
+        'poll', 'epoll', 'epoll-ready', 'idle', 'python-start', 'ls-start', 'file-stat', 'file-open', 'file-cycle',
+        'fd-dup', 'fd-stat', 'fd-flags', 'fd-ioctl'),
         help='Limit a focused repeat; defaults to the complete matrix')
     parser.add_argument('--output', type=Path, default=Path('build/readiness-performance'))
     args = parser.parse_args()
@@ -49,6 +52,7 @@ def main():
         suite.report['scope'] = dict(store=args.store,
             fixture='same guest binary and installed userspace; no timing diagnostics',
             cpuMask=None if args.cpu_mask is None else format(args.cpu_mask, 'x'),
+            applicationFilter=args.application_filter,
             timing='loop wall/caller CPU; time -p covers full launch and reaped descendants',
             fileBlocks=args.file_blocks,
             blockScope='first block follows fixture setup, not a dropped filesystem cache; tail is the last half',
@@ -65,6 +69,9 @@ def main():
             counts = re.findall(r'cooperativeCompleted=(\d+)', output)
             assert counts and (sum(map(int, counts)) > 0 if name.endswith('-lazy')
                                else sum(map(int, counts)) == 0), (name, output)
+        if args.application_filter:
+            for prefix in modes.values():
+                prefix.extend(['--env', 'MD_BENCH_FILTER=1'])
         workloads = {'poll': [target + '/benchmark', 'poll', str(args.iterations)],
                      'epoll': [target + '/benchmark', 'epoll', str(args.iterations)],
                      'epoll-ready': [target + '/benchmark', 'epoll-ready', str(args.iterations)],
@@ -74,9 +81,12 @@ def main():
         file_workloads = {'file-stat', 'file-open', 'file-cycle'}
         for workload in ('file-stat', 'file-open', 'file-cycle'):
             workloads[workload] = [target + '/benchmark', workload, '1024', str(args.file_blocks)]
+        for workload in ('fd-dup', 'fd-stat', 'fd-flags', 'fd-ioctl'):
+            workloads[workload] = [target + '/benchmark', workload, str(args.iterations)]
         if args.workload:
             workloads = {name: command for name, command in workloads.items() if name in args.workload}
-        measured = {'poll', 'epoll', 'epoll-ready', 'idle', 'file-stat', 'file-open', 'file-cycle'}
+        measured = {'poll', 'epoll', 'epoll-ready', 'idle', 'file-stat', 'file-open', 'file-cycle',
+                    'fd-dup', 'fd-stat', 'fd-flags', 'fd-ioctl'}
         suite.report['samples'] = samples = []
         order = list(modes)
         for round_number in range(args.rounds):

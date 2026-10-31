@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "fd_native_pin.h"
+#include "watch_calls.h"
 #include "file_permissions.h"
 #include "host_identity.h"
 #include "network_launch.h"
@@ -963,6 +964,7 @@ static int checkpoint_entry_marker(uintptr_t pc,unsigned long command) {
     /* Full-register completion and task-context injection retain their
      * post-syscall stop; scalar C returns need no interrupt round trip. */
     if (abi.ready && pc==abi.ready+4) return 1;
+    if (abi.fd_control && pc==abi.fd_control+4) return md_fd_control_scalar(command);
     return abi.buffer_control && pc==abi.buffer_control+4
         && (md_adapter_buffer_scalar(command) || md_fs_buffer_scalar(command));
 }
@@ -1649,10 +1651,21 @@ static void delegate_begin(struct thread *t, const struct seccomp_notif *q) {
     t->phase = DELEGATE_CANCEL;
     tracee_request(t, PTRACE_INTERRUPT, NULL, NULL, "interrupt-delegation");
 }
+static int machine_discovery(struct thread *t) {
+    struct md_svc_registry *registry=md_memory_svc(t->memory);
+    return registry && !registry->disabled && t->entered && !t->application_filter
+        && !t->cooperative_blocked && !t->debug_options && !md_memory_exposed(t->memory);
+}
+static int machine_context(struct thread *t,const struct ptrace_syscall_info *info) {
+    struct md_svc_registry *registry=md_memory_svc(t->memory);
+    if (t->phase!=IDLE || !registry) return 0;
+    /* Revocation stops discovery, not recovery of an already resident entry. */
+    return !info || (machine_discovery(t) && md_entry_supported((int)info->seccomp.nr))
+        || md_svc_registry_context(registry,info->instruction_pointer,info->stack_pointer);
+}
 static int machine_observe(struct thread *t,const struct user_pt_regs *regs) {
     struct md_svc_registry *registry=md_memory_svc(t->memory);
-    if (!registry || registry->disabled || !t->entered || t->application_filter || t->cooperative_blocked
-            || t->debug_options || md_memory_exposed(t->memory) || !md_entry_supported((int)regs->regs[8])
+    if (!machine_discovery(t) || !md_entry_supported((int)regs->regs[8])
             || regs->pc<4 || regs->pc==RAW_GATE) return 0;
     enum md_entry_route route=md_entry_route((int)regs->regs[8]);
     if (route==MD_ENTRY_TASK) return 0;
@@ -3598,6 +3611,20 @@ static int fd_close_compact(struct thread *t,unsigned long cookie,const struct p
     t->fd_cwd=t->fd_capture=0; t->fd_running=1;
     if (statistics) { ++statistics->compact_close; ++statistics->calls[SYS_close].trace; }
     resume(t->pid,0); return 1;
+}
+static int fd_duplicate_prepared(struct thread *t,const struct user_pt_regs *r,unsigned long cookie) {
+    long nr=r->regs[8];
+    if (cookie!=MD_INTERCEPT_DISPATCH || t->phase!=IDLE || !t->ready
+            || !t->resources.files || t->fd_job || t->fd_running || t->fd_order.table
+            || t->fs_order.fs || t->debug_options || t->debug_call_active || t->debug_step_call
+            || md_debugger_traced(debugger,t->pid)) return 0;
+    if (nr!=SYS_dup && nr!=SYS_dup3 && !(nr==SYS_fcntl
+            && ((unsigned)r->regs[1]==F_DUPFD || (unsigned)r->regs[1]==F_DUPFD_CLOEXEC))) return 0;
+    /* All possible destinations already have every provider selector. There
+     * is no adapter discovery or filter installation left to do. The normal
+     * mutation owner still serializes the table, retires loans and publishes
+     * the copied authority only after the actual kernel result. */
+    return md_fd_selector_has_mask(t->fd_selector,MD_FD_SANDBOX_SELECTORS,-1)==1;
 }
 static int fd_native_io(struct thread *t,const struct ptrace_syscall_info *info) {
     if (info->arch!=AUDIT_ARCH_AARCH64
@@ -8167,7 +8194,12 @@ static void proc_lookup_start(struct thread *t) {
                 : spec.writing ? MD_PROC_FILE_WRITE : MD_PROC_FILE_READ);
         if (error) { md_proc_file_release(file); return_value(t,&regs,error); return; }
         t->proc_file=file;
-    } else if (!filesystem && nr!=SYS_read && nr!=SYS_readv && nr!=SYS_ioctl && nr!=SYS_splice && nr!=SYS_tee && nr!=SYS_sendfile) {
+    } else if (!filesystem && nr!=SYS_read && nr!=SYS_readv
+            && (nr!=SYS_ioctl || md_watch_ioctl_native(nr,regs.regs[1]))
+            && nr!=SYS_splice && nr!=SYS_tee && nr!=SYS_sendfile) {
+        /* Without a typed control, only FIONREAD can require watch adaptation.
+         * Other ioctls already passed their domain owners; execute at the
+         * original PC/mask, without a cancel/replay trip through WATCH_ENTRY. */
         resume(t->pid,0); return;
     }
     t->watch_wait=0;
@@ -9951,9 +9983,7 @@ int main(int argc, char **argv) {
             /* Discovery and resident recovery need full context. Ordinary IO
              * outside those regions can use the existing syscall observation,
              * including its original pointers and native wait semantics. */
-            int captured=t->phase==IDLE && registry && (!observed
-                || md_entry_supported((int)observed->seccomp.nr)
-                || md_svc_registry_context(registry,observed->instruction_pointer,observed->stack_pointer));
+            int captured=machine_context(t,observed);
             if (captured) {
                 if (!registers(pid,&regs)) continue;
                 int native_entry=0;
@@ -10002,6 +10032,10 @@ int main(int argc, char **argv) {
             }
             if (cookie==MD_INTERCEPT_TASK) { return_value(t,&regs,-EPERM); continue; }
             if (cookie==MD_INTERCEPT_OBSERVE && entry_fence_admission(t,&regs,status,&usage)) continue;
+            if (fd_duplicate_prepared(t,&regs,cookie)) {
+                if (statistics) ++statistics->calls[regs.regs[8]].trace;
+                fd_begin(t,&regs,MD_INTERCEPT_FD); continue;
+            }
             if (regs.regs[8]==SYS_ptrace && t->phase==IDLE)
                 TRACE("PROBE guest debugger caller=%d request=%llu target=%llu address=%#llx data=%#llx traced=%d\n",
                     pid,regs.regs[0],regs.regs[1],regs.regs[2],regs.regs[3],

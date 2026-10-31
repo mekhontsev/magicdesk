@@ -6,6 +6,7 @@
 #include <linux/seccomp.h>
 #include <stddef.h>
 #include <sys/mman.h>
+#include <sys/ioctl.h>
 #include <sys/syscall.h>
 
 /* Runtime gates normally share one code mapping. Group their high words so
@@ -86,6 +87,12 @@ int md_fd_filter_build(enum md_fd_selector_kind kind,int fd,
     return finish(gates,out); \
 } while (0)
     if (kind==MD_FD_SELECTOR_WATCH) COPY_PROGRAM(
+        /* Other ioctls have no watch semantics; provider filters own theirs. */
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_ioctl,0,4),
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[1])),
+        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,FIONREAD,1,0),
+        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW),
+        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
         BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_read,5,0),
         BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_readv,4,0),
         BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_ioctl,3,0),

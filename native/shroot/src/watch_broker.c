@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "watch_broker.h"
+#include "watch_calls.h"
 #include "inode_watch.h"
 #include "interception.h"
 #include <errno.h>
@@ -81,6 +82,10 @@ struct md_watch_broker *md_watch_broker_create(void) {
 }
 int md_watch_broker_submit(struct md_watch_broker *b, struct md_inode_store *s, int listener,
         const struct seccomp_notif *q, int reader) {
+    if (md_watch_ioctl_native(q->data.nr,q->data.args[1])) {
+        if (reader>=0) close(reader);
+        return reply(listener,q->id,0,SECCOMP_USER_NOTIF_FLAG_CONTINUE);
+    }
     if (reader < 0) return reply(listener, q->id,
         reader == -EPERM || reader == -EACCES ? MD_WATCH_TASK_AFFINE : reader, 0);
     if (!md_inode_watch_contains(s, reader)) {
@@ -89,8 +94,7 @@ int md_watch_broker_submit(struct md_watch_broker *b, struct md_inode_store *s, 
     }
     if (q->data.nr != SYS_read && q->data.nr != SYS_readv) {
         long result = -EINVAL;
-        int flags = 0;
-        if (q->data.nr == SYS_ioctl && q->data.args[1] == FIONREAD) {
+        if (q->data.nr == SYS_ioctl && (unsigned)q->data.args[1] == FIONREAD) {
             result = md_inode_watch_bytes(s, reader);
             if (result >= 0) {
                 int bytes = (int)result;
@@ -99,9 +103,9 @@ int md_watch_broker_submit(struct md_watch_broker *b, struct md_inode_store *s, 
                 result = n == sizeof(bytes) ? 0 : n < 0 && (errno == EPERM || errno == EACCES)
                     ? MD_WATCH_TASK_AFFINE : -EFAULT;
             }
-        } else if (q->data.nr == SYS_ioctl) { result = 0; flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE; }
+        }
         close(reader);
-        return reply(listener, q->id, result, flags);
+        return reply(listener, q->id, result, 0);
     }
     struct watch_read *r = b->free;
     if (r) b->free = r->next;

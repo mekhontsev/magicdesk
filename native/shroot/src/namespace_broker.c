@@ -3,6 +3,7 @@
 #include "namespace_broker.h"
 #include "fs_engine.h"
 #include "watch_broker.h"
+#include "watch_calls.h"
 #include "task_descriptor.h"
 #include "ofd_order.h"
 #include "fd_install.h"
@@ -1562,7 +1563,8 @@ static int receive_one(struct md_namespace_broker *b,struct md_filesystem *fs,
     if (watch) {
         pthread_mutex_unlock(&b->lock);
         int closed=md_execution_window_end(window);
-        int fd = duplicate(task, q.pid, (int)q.data.args[q.data.nr == SYS_sendfile ? 1 : 0]);
+        int fd = md_watch_ioctl_native(q.data.nr,q.data.args[1]) ? -1
+            : duplicate(task, q.pid, (int)q.data.args[q.data.nr == SYS_sendfile ? 1 : 0]);
         pthread_mutex_lock(&b->lock);
         task_release(task);
         pthread_mutex_unlock(&b->lock);
