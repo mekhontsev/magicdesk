@@ -26,6 +26,7 @@
 #include <sys/mman.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 #include <wayland-client.h>
 
@@ -36,6 +37,15 @@ static bool dma_client;
 static bool dma_cursor;
 static bool pointer_lock_test;
 static bool single_pixel;
+static bool pacing;
+enum { PACING_FRAMES = 120 };
+static int64_t pacing_times[PACING_FRAMES];
+
+static int64_t monotonic_ns(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (int64_t)now.tv_sec * 1000000000 + now.tv_nsec;
+}
 
 struct Client {
     struct wl_display *display;
@@ -70,6 +80,7 @@ struct Client {
     bool data_device_manager;
     int key_down, key_up, button_down, button_up;
     int width, height, frames;
+    bool pacing_started;
     bool closed;
     uint32_t initial_monitor;
     int monitors;
@@ -196,8 +207,8 @@ static void pointer_enter(void *data, struct wl_pointer *pointer, uint32_t seria
             NULL, ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT);
         zwp_locked_pointer_v1_add_listener(client->lock, &lock_listener, client);
     }
-    assert(fabs(wl_fixed_to_double(x) - (bounded_client_size ? 300 : minimum_client_size ? 40 : interaction ? 10 : fixed_client_size ? 40 : 20)) < .01
-        && fabs(wl_fixed_to_double(y) - (bounded_client_size ? 75 : minimum_client_size ? 60 : interaction ? 7.5 : fixed_client_size ? 30 : 15)) < .01);
+    assert(fabs(wl_fixed_to_double(x) - (pacing ? client->width * .25 : bounded_client_size ? 300 : minimum_client_size ? 40 : interaction ? 10 : fixed_client_size ? 40 : 20)) < .01
+        && fabs(wl_fixed_to_double(y) - (pacing ? client->height * .25 : bounded_client_size ? 75 : minimum_client_size ? 60 : interaction ? 7.5 : fixed_client_size ? 30 : 15)) < .01);
     if (interaction) {
         client->cursor = wl_compositor_create_surface(client->compositor);
         wl_pointer_set_cursor(pointer, serial, client->cursor, 1, 2);
@@ -395,11 +406,32 @@ static void global_remove(void *data, struct wl_registry *registry, uint32_t nam
 }
 static const struct wl_registry_listener registry_listener = {global, global_remove};
 
+static void animate(struct Client *client);
+static int compare_time(const void *a, const void *b) {
+    int64_t x = *(const int64_t *)a, y = *(const int64_t *)b;
+    return (x > y) - (x < y);
+}
+
 static void frame_done(void *data, struct wl_callback *callback, uint32_t time) {
     (void)time;
     struct Client *client = data;
     client->frames++;
     wl_callback_destroy(callback);
+    if (pacing && client->frames <= PACING_FRAMES) {
+        pacing_times[client->frames - 1] = monotonic_ns();
+        if (client->frames < PACING_FRAMES) animate(client);
+        else {
+            int64_t intervals[PACING_FRAMES - 1];
+            for (int i = 1; i < PACING_FRAMES; ++i) intervals[i - 1] = pacing_times[i] - pacing_times[i - 1];
+            qsort(intervals, PACING_FRAMES - 1, sizeof(*intervals), compare_time);
+            printf("{\"frames\":%d,\"elapsedMs\":%.3f,\"intervalP50Ms\":%.3f,\"intervalP95Ms\":%.3f,\"intervalMaxMs\":%.3f}\n",
+                PACING_FRAMES, (pacing_times[PACING_FRAMES - 1] - pacing_times[0]) / 1e6,
+                intervals[(PACING_FRAMES - 1) / 2] / 1e6, intervals[(PACING_FRAMES - 1) * 95 / 100] / 1e6,
+                intervals[PACING_FRAMES - 2] / 1e6);
+            fflush(stdout);
+            xdg_toplevel_set_app_id(client->toplevel, "io.magicdesk.pacing.done");
+        }
+    }
 }
 static const struct wl_callback_listener frame_listener = {frame_done};
 
@@ -439,6 +471,18 @@ static struct wl_buffer *client_buffer(struct Client *client) {
     uint32_t *pixels = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, descriptor, 0);
     assert(pixels != MAP_FAILED);
     for (size_t index = 0; index < size / 4; ++index) pixels[index] = 0xff1267ab;
+    if (pacing) {
+        // Encode commit time/sequence in opaque RGB pixels for Android ImageReader.
+        uint64_t time = monotonic_ns();
+        uint8_t payload[12];
+        for (int i = 0; i < 8; ++i) payload[i] = time >> (8 * i);
+        uint32_t sequence = client->frames;
+        for (int i = 0; i < 4; ++i) payload[8 + i] = sequence >> (8 * i);
+        for (int i = 0; i < 4; ++i)
+            for (int y = 40; y < 44; ++y) for (int x = 8 + i * 4; x < 12 + i * 4; ++x)
+                pixels[y * client->width + x] = 0xff000000u | ((uint32_t)payload[i * 3] << 16) |
+                    ((uint32_t)payload[i * 3 + 1] << 8) | payload[i * 3 + 2];
+    }
     struct wl_shm_pool *pool = wl_shm_create_pool(client->shm, descriptor, size);
     struct wl_buffer *buffer = wl_shm_pool_create_buffer(pool, 0, client->width,
         client->height, stride, WL_SHM_FORMAT_ARGB8888);
@@ -447,6 +491,14 @@ static struct wl_buffer *client_buffer(struct Client *client) {
     munmap(pixels, size);
     return buffer;
 }
+static void animate(struct Client *client) {
+    struct wl_buffer *buffer = client_buffer(client);
+    wl_buffer_add_listener(buffer, &buffer_listener, NULL);
+    wl_surface_attach(client->surface, buffer, 0, 0);
+    wl_surface_damage_buffer(client->surface, 0, 0, client->width, client->height);
+    wl_callback_add_listener(wl_surface_frame(client->surface), &frame_listener, client);
+    wl_surface_commit(client->surface);
+}
 static void configure(void *data, struct xdg_surface *surface, uint32_t serial) {
     struct Client *client = data;
     xdg_surface_ack_configure(surface, serial);
@@ -454,7 +506,10 @@ static void configure(void *data, struct xdg_surface *surface, uint32_t serial) 
     wl_buffer_add_listener(buffer, &buffer_listener, NULL);
     wl_surface_attach(client->surface, buffer, 0, 0);
     wl_surface_damage_buffer(client->surface, 0, 0, client->width, client->height);
-    wl_callback_add_listener(wl_surface_frame(client->surface), &frame_listener, client);
+    if (!pacing || !client->pacing_started) {
+        wl_callback_add_listener(wl_surface_frame(client->surface), &frame_listener, client);
+        client->pacing_started = true;
+    }
     wp_presentation_feedback_add_listener(wp_presentation_feedback(client->presentation, client->surface),
         &feedback_listener, client);
     wl_surface_commit(client->surface);
@@ -676,6 +731,7 @@ static void cursor_event(void *data, MdwOutput *output, const uint32_t *pixels,
 }
 
 int main(int argc, char **argv) {
+    if (argc == 2 && !strcmp(argv[1], "--pacing-client")) { pacing = true; run_client(NULL); return 0; }
     if (argc == 2 && !strcmp(argv[1], "--dma-client")) { dma_client = true; run_client(NULL); return 0; }
     if (argc == 2 && !strcmp(argv[1], "--client")) { run_client(NULL); return 0; }
     fixed_client_size = argc == 2 && !strcmp(argv[1], "--fixed-size");
@@ -843,6 +899,10 @@ int main(int argc, char **argv) {
     mdw_output_destroy(output);
     assert(!server->initial_output_borrowed);
     assert(!server->initial_output->swapchain && !server->initial_output->renderer);
+    // EVENT_WAIT: let the client complete its final registry roundtrip and disconnect.
+    // Window destruction alone does not mean the client has finished using the display.
+    while (!wl_list_empty(wl_display_get_client_list(server->display)))
+        assert(mdw_server_dispatch(server, -1) >= 0);
     mdw_server_destroy(server);
     int status;
     assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);

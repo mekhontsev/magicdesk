@@ -16,7 +16,11 @@
 #include <unistd.h>
 #include <wayland-client.h>
 
+static int initial_width = 900, initial_height = 700;
+static bool resize_panel;
+
 struct Monitor {
+    struct Client *client;
     struct wl_output *output;
     struct zxdg_output_v1 *xdg;
     uint32_t global;
@@ -118,7 +122,8 @@ static void layer_configure(void *data, struct zwlr_layer_surface_v1 *surface,
         width = 64;
         height = 24;
     } else {
-        assert((client->workspace ? width >= 64 : width == 64) && height == 24);
+        unsigned expected_width = resize_panel && client->configures == 2 ? 1000 : 64;
+        assert((client->workspace ? width >= 64 : width == expected_width) && height == 24);
         client->configures++;
     }
     struct wl_region *input = wl_compositor_create_region(client->compositor);
@@ -143,7 +148,7 @@ static void layer_closed(void *data, struct zwlr_layer_surface_v1 *surface) {
         return;
     }
     assert(client->app_keys == 2 && client->panel_keys == 2 && client->buttons == 2);
-    assert(client->frames > 0 && client->configures == 2);
+    assert(client->frames > 0 && client->configures == (resize_panel ? 3 : 2));
     if (client->deferred_layout)
         assert(client->initial_configures == 2 && client->configuration_roundtrips == 2);
     client->closed = true;
@@ -289,7 +294,10 @@ static void output_size(void *data, struct zxdg_output_v1 *output, int32_t width
 }
 static void output_done(void *data, struct zxdg_output_v1 *output) {
     (void)output;
-    ((struct Monitor *)data)->updates++;
+    struct Monitor *monitor = data;
+    monitor->updates++;
+    if (monitor->width == 1000 && monitor->height == 750 && monitor->client->toplevel)
+        xdg_toplevel_set_app_id(monitor->client->toplevel, "io.magicdesk.monitor.resized");
 }
 static void output_name(void *data, struct zxdg_output_v1 *output, const char *name) {
     (void)output;
@@ -337,6 +345,7 @@ static void global(void *data, struct wl_registry *registry, uint32_t name,
     } else if (!strcmp(interface, "wl_output")) {
         assert(client->outputs < 8);
         struct Monitor *monitor = &client->monitors[client->outputs++];
+        monitor->client = client;
         monitor->global = name;
         monitor->output = wl_registry_bind(registry, name, &wl_output_interface, 1);
         bind_output_metadata(client);
@@ -361,7 +370,7 @@ static void run_client(const char *socket, bool workspace, bool home, bool defer
     assert(client.compositor && client.shm && client.shell && client.xdg && client.outputs == 1);
     assert(client.output_manager && !strcmp(client.monitors[0].name, "MagicDesk"));
     assert(client.monitors[0].description[0] && client.monitors[0].updates > 0);
-    if (!workspace) assert(client.monitors[0].width == 900 && client.monitors[0].height == 700);
+    if (!workspace) assert(client.monitors[0].width == initial_width && client.monitors[0].height == initial_height);
     client.app = wl_compositor_create_surface(client.compositor);
     client.app_surface = xdg_wm_base_get_xdg_surface(client.xdg, client.app);
     xdg_surface_add_listener(client.app_surface, &app_listener, &client);
@@ -379,7 +388,8 @@ static void run_client(const char *socket, bool workspace, bool home, bool defer
         assert(client.outputs == 2 && !client.monitors[0].removed && !client.monitors[1].removed);
         assert(client.monitors[0].width == 1000 && client.monitors[0].height == 750);
         assert(client.monitors[0].updates >= 2);
-        assert(client.monitors[1].width == 40 && client.monitors[1].height == 30);
+        assert(client.monitors[1].width == (resize_panel ? 80 : 40)
+            && client.monitors[1].height == (resize_panel ? 60 : 30));
         assert(client.monitors[1].updates > 0 && client.monitors[1].name[0]);
     }
     zwlr_layer_surface_v1_destroy(client.layer);
@@ -457,6 +467,12 @@ static bool can_render(void *data, MdwOutput *output) {
 }
 
 int main(int argc, char **argv) {
+    if (argc == 4 && !strcmp(argv[1], "--client")) {
+        resize_panel = true;
+        initial_width = atoi(argv[2]); initial_height = atoi(argv[3]);
+        assert(initial_width > 0 && initial_height > 0);
+        run_client(NULL, false, false, false); return 0;
+    }
     if (argc == 2 && !strcmp(argv[1], "--client")) { run_client(NULL, false, false, false); return 0; }
     if (argc == 2 && !strcmp(argv[1], "--workspace-client")) { run_client(NULL, true, false, false); return 0; }
     if (argc == 2 && !strcmp(argv[1], "--home-client")) { run_client(NULL, true, true, false); return 0; }

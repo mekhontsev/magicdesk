@@ -31,6 +31,7 @@ struct Bridge {
     jobject owner;
     jmethodID window, window_gesture, shell, geometry, toplevel_action, frame, wanted, can_render, error, text_input, cursor, pointer_capture;
     jmethodID content_offer, content_request, content_reply, drag_event;
+    jmethodID request_frame;
 };
 
 static void content_offer(void *context, int channel, uint64_t id, MdwOutput *output, const char *types) {
@@ -281,6 +282,18 @@ static bool can_render(void *context, MdwOutput *output) {
     return !(*env)->ExceptionCheck(env) && ready;
 }
 
+static void request_frame(void *context) {
+    struct Bridge *bridge = context;
+    if (!(*bridge->env)->ExceptionCheck(bridge->env))
+        (*bridge->env)->CallVoidMethod(bridge->env, bridge->owner, bridge->request_frame);
+}
+
+JNIEXPORT void JNICALL JNI(nativeFrame)(JNIEnv *env, jclass type, jlong handle, jlong time_ns) {
+    (void)env; (void)type;
+    struct Bridge *bridge = (void *)(intptr_t)handle;
+    mdw_server_frame(bridge->server, time_ns);
+}
+
 JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner, jint width, jint height, jdouble scale) {
     struct Bridge *bridge = calloc(1, sizeof(*bridge));
     if (!bridge) return 0;
@@ -296,6 +309,7 @@ JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner, jint width,
     if (!(*env)->ExceptionCheck(env)) bridge->frame = (*env)->GetMethodID(env, type, "onFrame", "(JLandroid/hardware/HardwareBuffer;IIII)V");
     if (!(*env)->ExceptionCheck(env)) bridge->wanted = (*env)->GetMethodID(env, type, "frameWanted", "(J)Z");
     if (!(*env)->ExceptionCheck(env)) bridge->can_render = (*env)->GetMethodID(env, type, "canRender", "(J)Z");
+    if (!(*env)->ExceptionCheck(env)) bridge->request_frame = (*env)->GetMethodID(env, type, "requestFrame", "()V");
     if (!(*env)->ExceptionCheck(env)) bridge->error = (*env)->GetMethodID(env, type, "onError", "(Ljava/lang/String;)V");
     if (!(*env)->ExceptionCheck(env)) bridge->text_input = (*env)->GetMethodID(env, type, "onTextInput", "(JJJ[BIIIIZFFFFZ)V");
     if (!(*env)->ExceptionCheck(env)) bridge->cursor = (*env)->GetMethodID(env, type, "onCursor", "(J[IIIIIZ)V");
@@ -323,6 +337,12 @@ JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner, jint width,
         .content_offer = content_offer, .content_request = content_request, .content_reply = content_reply, .drag_event = drag_event};
     mdw_server_set_events(bridge->server, &events);
     return (jlong)(intptr_t)bridge;
+}
+
+JNIEXPORT void JNICALL JNI(nativeUseFrameClock)(JNIEnv *env, jclass type, jlong handle, jboolean enabled) {
+    (void)env; (void)type;
+    struct Bridge *bridge = (void *)(intptr_t)handle;
+    mdw_server_set_frame_clock(bridge->server, enabled ? request_frame : NULL, bridge);
 }
 
 JNIEXPORT jint JNICALL JNI(nativeEventFd)(JNIEnv *env, jclass type, jlong handle) {

@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk.wayland;
 import android.hardware.HardwareBuffer;
+import android.hardware.display.DisplayManager;
 import io.github.mekhontsev.magicdesk.hosted.HostedFrame;
 
 import android.app.BroadcastOptions;
@@ -16,6 +17,8 @@ import android.os.RemoteException;
 import android.system.Os;
 import android.system.OsConstants;
 import android.util.LongSparseArray;
+import android.view.Choreographer;
+import android.view.Display;
 import io.github.mekhontsev.magicdesk.hosted.HostedProcessContext;
 import io.github.mekhontsev.magicdesk.hosted.HostedServerLifecycle;
 import io.github.mekhontsev.magicdesk.hosted.HostedFileExchange;
@@ -39,6 +42,31 @@ public final class WaylandServer extends IWaylandServer.Stub {
     private final Runnable deadline = this::expireAdmission;
     private IWaylandEvents owner;
     private long handle, lastOutput, lastClient, shellRevision;
+    private Choreographer choreographer;
+    private DisplayManager displays;
+    private boolean frameRequested, displayClock;
+    private final DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
+        @Override public void onDisplayAdded(int id) { updateFrameClock(); }
+        @Override public void onDisplayRemoved(int id) { updateFrameClock(); }
+        @Override public void onDisplayChanged(int id) { updateFrameClock(); }
+    };
+    private final boolean measureFrames = "1".equals(System.getenv("MAGICDESK_WAYLAND_MEASURE_FRAMES"));
+    private long measuredFrames, dispatchNanos, renderNanos, maxDispatchNanos, maxRenderNanos;
+    private final Choreographer.FrameCallback frameCallback = time -> {
+        frameRequested = false;
+        if (handle == 0) return;
+        long started = measureFrames ? System.nanoTime() : 0;
+        nativeFrame(handle, time);
+        if (measureFrames) {
+            long dispatch = Math.max(0, started - time), render = System.nanoTime() - started;
+            measuredFrames++;
+            dispatchNanos += dispatch;
+            renderNanos += render;
+            maxDispatchNanos = Math.max(maxDispatchNanos, dispatch);
+            maxRenderNanos = Math.max(maxRenderNanos, render);
+        }
+        if (nativeDispatch(handle) < 0) onError("Wayland frame dispatch failed");
+    };
     private ParcelFileDescriptor eventDescriptor;
     private final HostedFileExchange contentFiles;
     private final io.github.mekhontsev.magicdesk.hosted.HostedAppearanceBridge appearance =
@@ -101,6 +129,20 @@ public final class WaylandServer extends IWaylandServer.Stub {
                     Integer.parseInt(required("MAGICDESK_WAYLAND_HEIGHT")),
                     Double.parseDouble(required("MAGICDESK_WAYLAND_SCALE")));
             if (handle == 0) throw new IllegalStateException("Cannot start Wayland compositor");
+            try {
+                displays = context.getSystemService(DisplayManager.class);
+                choreographer = Choreographer.getInstance();
+                if (displays != null) displays.registerDisplayListener(displayListener, handler);
+                updateFrameClock();
+            } catch (RuntimeException error) {
+                if (displays != null) displays.unregisterDisplayListener(displayListener);
+                if (choreographer != null) choreographer.removeFrameCallback(frameCallback);
+                frameRequested = displayClock = false;
+                nativeUseFrameClock(handle, false);
+                displays = null;
+                choreographer = null;
+                android.util.Log.w("MagicDeskWayland", "Using independent frame clock", error);
+            }
             if ("1".equals(System.getenv("MAGICDESK_WAYLAND_GUEST_SOCKET"))) exportGuestSocket();
             eventDescriptor = ParcelFileDescriptor.fromFd(nativeEventFd(handle));
             Looper.myQueue().addOnFileDescriptorEventListener(eventDescriptor.getFileDescriptor(),
@@ -118,6 +160,24 @@ public final class WaylandServer extends IWaylandServer.Stub {
             onError(error.getMessage());
             shutdown();
         }
+    }
+
+    private void requestFrame() {
+        if (frameRequested) return;
+        frameRequested = true;
+        choreographer.postFrameCallback(frameCallback);
+    }
+
+    private void updateFrameClock() {
+        if (handle == 0) return;
+        Display display = displays == null ? null : displays.getDisplay(Display.DEFAULT_DISPLAY);
+        boolean enabled = choreographer != null && display != null && display.getState() == Display.STATE_ON;
+        if (displayClock == enabled) return;
+        if (choreographer != null) choreographer.removeFrameCallback(frameCallback);
+        frameRequested = false;
+        displayClock = enabled;
+        // External/virtual outputs must progress even when the default display stops vsync.
+        nativeUseFrameClock(handle, enabled);
     }
 
     private void exportGuestSocket() throws IOException {
@@ -549,6 +609,9 @@ public final class WaylandServer extends IWaylandServer.Stub {
     }
 
     private void shutdown() {
+        if (displays != null) displays.unregisterDisplayListener(displayListener);
+        if (choreographer != null) choreographer.removeFrameCallback(frameCallback);
+        frameRequested = false;
         contentFiles.close();
         if (eventDescriptor != null) {
             Looper.myQueue().removeOnFileDescriptorEventListener(eventDescriptor.getFileDescriptor());
@@ -556,6 +619,11 @@ public final class WaylandServer extends IWaylandServer.Stub {
             eventDescriptor = null;
         }
         if (handle != 0) { nativeStop(handle); handle = 0; }
+        if (measuredFrames > 0) System.out.println("frame_clock samples=" + measuredFrames
+                + " dispatchMeanMs=" + dispatchNanos / (measuredFrames * 1e6)
+                + " dispatchMaxMs=" + maxDispatchNanos / 1e6
+                + " renderMeanMs=" + renderNanos / (measuredFrames * 1e6)
+                + " renderMaxMs=" + maxRenderNanos / 1e6);
         System.exit(0);
     }
 
@@ -589,6 +657,8 @@ public final class WaylandServer extends IWaylandServer.Stub {
     private static native void nativeAcceptClient(long server, int fd);
     private static native String nativeSocket(long server);
     private static native void nativeStop(long server);
+    private static native void nativeFrame(long server, long timeNanos);
+    private static native void nativeUseFrameClock(long server, boolean enabled);
     private static native long nativeOpenOutput(long server, long window, int width, int height);
     private static native boolean nativeResize(long output, int width, int height);
     private static native boolean nativeViewport(long output, int x, int y, int width, int height);

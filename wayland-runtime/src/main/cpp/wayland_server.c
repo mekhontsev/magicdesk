@@ -1,4 +1,5 @@
 #include "wayland_internal.h"
+#include "wayland_clock.h"
 #include "hosted_window_size.h"
 #include <stdlib.h>
 #include <string.h>
@@ -8,7 +9,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <wayland-server-core.h>
-#include <wlr/backend/headless.h>
+#include <wlr/backend.h>
 #include <wlr/interfaces/wlr_keyboard.h>
 #include <wlr/render/allocator.h>
 #include <wlr/render/swapchain.h>
@@ -53,6 +54,7 @@ struct MdwOutput {
     int source_ready_fd;
     struct wl_listener frame, commit;
     bool presenting;
+    bool has_presented;
     bool visible;
     int viewport_width, viewport_height;
     int requested_width, requested_height;
@@ -189,6 +191,7 @@ static int source_ready(int fd, uint32_t mask, void *data) {
 static void output_frame(struct wl_listener *listener, void *data) {
     (void)data;
     MdwOutput *output = wl_container_of(listener, output, frame);
+    if (!mdw_clock_frame_ready(output->output)) return;
     /* A new scene update can supersede a producer that has not completed. */
     cancel_source_wait(output);
     if (!output->visible || !output->view || !output->view->surface->mapped) return;
@@ -212,6 +215,14 @@ static void output_frame(struct wl_listener *listener, void *data) {
         }
         return;
     }
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    // Once primary-output selection is established, unblock the client's next
+    // frame before composing this one. Buffer ownership/fences remain unchanged.
+    if (output->has_presented) {
+        wlr_scene_output_send_frame_done(output->scene_output, &now);
+        wl_display_flush_clients(output->server->display);
+    }
     output->presenting = true;
     bool committed = output->parent || output->dependents
         ? mdw_scene_render_family(output->scene_output, output->view->surface, output->parent != NULL)
@@ -233,9 +244,8 @@ static void output_frame(struct wl_listener *listener, void *data) {
         report_error(output->server, "scene commit failed");
         return;
     }
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    wlr_scene_output_send_frame_done(output->scene_output, &now);
+    if (!output->has_presented) wlr_scene_output_send_frame_done(output->scene_output, &now);
+    output->has_presented = true;
 }
 
 static void release_output(MdwOutput *output) {
@@ -555,7 +565,7 @@ MdwServer *mdw_server_create(void) {
     server->output_layout = wlr_output_layout_create(server->display);
     if (!server->output_layout ||
             !wlr_xdg_output_manager_v1_create(server->display, server->output_layout)) goto fail;
-    server->backend = wlr_headless_backend_create(wl_display_get_event_loop(server->display));
+    server->backend = mdw_clock_create(wl_display_get_event_loop(server->display));
     if (!server->backend) goto fail;
     server->renderer = mdw_renderer_create();
     if (!server->renderer || !wlr_renderer_init_wl_display(server->renderer, server->display)) goto fail;
@@ -608,7 +618,7 @@ struct wlr_output *mdw_monitor_acquire(MdwServer *server, int width, int height)
         server->initial_output_borrowed = true;
         return server->initial_output;
     }
-    return wlr_headless_add_output(server->backend, width, height);
+    return mdw_clock_output(server->backend, width, height);
 }
 
 void mdw_monitor_release(MdwServer *server, struct wlr_output *output) {
@@ -628,7 +638,7 @@ void mdw_monitor_release(MdwServer *server, struct wlr_output *output) {
 bool mdw_server_initial_output(MdwServer *server, int width, int height, double scale) {
     if (!server || width < 1 || height < 1 || width > 16384 || height > 16384 ||
             !isfinite(scale) || scale < .25 || scale > 16 || server->initial_output) return false;
-    struct wlr_output *output = wlr_headless_add_output(server->backend, width, height);
+    struct wlr_output *output = mdw_clock_output(server->backend, width, height);
     if (!output) return false;
     wlr_output_set_name(output, "MagicDesk");
     wlr_output_set_description(output, "MagicDesk logical monitor");
@@ -677,6 +687,15 @@ void mdw_server_set_events(MdwServer *server, const MdwEvents *events) {
     server->events = events ? *events : (MdwEvents){0};
 }
 
+void mdw_server_set_frame_clock(MdwServer *server, void (*request)(void *), void *context) {
+    mdw_clock_set_host(server->backend, request, context);
+}
+
+void mdw_server_frame(MdwServer *server, int64_t time_ns) {
+    mdw_clock_tick(server->backend, time_ns);
+    wl_display_flush_clients(server->display);
+}
+
 static MdwOutput *create_output(MdwServer *server, uint64_t id, int width, int height, bool configure) {
     struct MdwView *view = find_view(server, id);
     if (!view || width < 1 || height < 1 || width > 4096 || height > 4096) return NULL;
@@ -688,7 +707,7 @@ static MdwOutput *create_output(MdwServer *server, uint64_t id, int width, int h
     output->scale = output->render_scale = 1;
     bool monitor = configure && view->configure;
     output->output = monitor ? mdw_monitor_acquire(server, width, height)
-        : wlr_headless_add_output(server->backend, width, height);
+        : mdw_clock_output(server->backend, width, height);
     if (!output->output) { free(output); return NULL; }
     // Only application hosts are monitors. Shell and dependent render targets
     // borrow their owner's coordinates; advertising them causes monitor churn.
@@ -768,7 +787,7 @@ bool mdw_output_scale(MdwOutput *output, double scale) {
 }
 
 static bool commit_geometry(MdwOutput *output, struct wlr_output_state *state) {
-    // The headless backend consumes no pixels. Supply its modeset buffer without
+    // The frame-clock backend consumes no pixels. Supply its modeset buffer without
     // wlroots' implicit GPU clear; only output_frame submits and publishes pixels.
     // Geometry must remain independent of a previous frame's completion fence.
     struct wlr_output *native = output->output;

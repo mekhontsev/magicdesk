@@ -120,6 +120,9 @@ MdwServer *mdw_server_create(void);
 // workspace hosts borrow it; creating it acquires no rendering or input owner.
 bool mdw_server_initial_output(MdwServer *server, int width, int height, double scale);
 void mdw_server_set_events(MdwServer *server, const MdwEvents *events);
+/* Optional one-shot host clock; null retains the native event-loop timer. */
+void mdw_server_set_frame_clock(MdwServer *server, void (*request)(void *), void *context);
+void mdw_server_frame(MdwServer *server, int64_t time_ns);
 const char *mdw_server_socket(const MdwServer *server);
 int mdw_server_fd(MdwServer *server);
 int mdw_server_connect(MdwServer *server);
