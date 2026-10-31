@@ -105,9 +105,9 @@ for device in null zero full random urandom tty; do
     touch /dev/$device
     mount --bind /run/md-host-dev/$device /dev/$device
 done
-# Keep launch-provided FUSE and graphics devices in every init scenario.
+# Keep launch-provided FUSE, graphics and packet devices in every init scenario.
 # Never expose arbitrary Android devices through the private /dev mount.
-for node in fuse kgsl-3d0 dma_heap dri; do
+for node in fuse kgsl-3d0 dma_heap dri net; do
     if [ -d /run/md-host-dev/$node ]; then mkdir -p /dev/$node
     elif [ -e /run/md-host-dev/$node ]; then touch /dev/$node
     else continue
@@ -127,9 +127,9 @@ rmdir /run/md-host-dev
 '''
 
 
-def installed_boot(target, port, token, init, desktop_user=None, system=None):
+def installed_boot(target, port, token, init, desktop_user=None, system=None, control_address='127.0.0.1'):
     """One init/control owner; a desktop driver is an optional dependent service."""
-    control_args = f'{target}/session-controller.py {target} {port} {token}'
+    control_args = f'{target}/session-controller.py {target} {port} {token} {control_address}'
     binary = system + '/sw/bin' if system else '/usr/bin'
     bash = binary + '/bash' if system else '/bin/bash'
     services = [('control', binary + '/python3', control_args)]

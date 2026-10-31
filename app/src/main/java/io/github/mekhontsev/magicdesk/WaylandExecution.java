@@ -19,6 +19,7 @@ final class WaylandExecution {
     final String token;
     final CommandExecution commands;
     final int serverUid;
+    final io.github.mekhontsev.magicdesk.hosted.HostedRenderer renderer;
     private final Context context;
     private final String keyboard;
     private final String directory;
@@ -38,6 +39,7 @@ final class WaylandExecution {
     WaylandExecution(Context context, DesktopExecBackend backend, String keyboardDirectory, String fileEnvironment,
             boolean desktop, GraphicalConnectionMode connectionMode) {
         this.context = context.getApplicationContext();
+        renderer = GraphicalPreferences.renderer(context);
         var metrics = context.getResources().getDisplayMetrics();
         initialWidth = Math.max(1, Math.min(16384, metrics.widthPixels));
         initialHeight = Math.max(1, Math.min(16384, metrics.heightPixels));
@@ -79,6 +81,7 @@ final class WaylandExecution {
         var info = context.getApplicationInfo();
         var environment = new LinkedHashMap<String, String>();
         environment.put("CLASSPATH", info.sourceDir);
+        environment.put(io.github.mekhontsev.magicdesk.hosted.HostedRenderer.ENVIRONMENT, renderer.id);
         environment.put("MAGICDESK_WAYLAND_PACKAGE", context.getPackageName());
         environment.put("MAGICDESK_WAYLAND_EXECUTOR", executorPackage);
         environment.put("MAGICDESK_WAYLAND_SESSION", id);

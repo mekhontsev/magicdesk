@@ -291,7 +291,35 @@
  #endif /* ARP_QUEUEING */
      /* send the queued IP packet */
      ethernet_output(netif, p, (struct eth_addr *)(netif->hwaddr), ethaddr, ETHTYPE_IP);
-@@ -541,7 +555,7 @@
+@@ -493,6 +507,27 @@
+   return ERR_OK;
+ }
+ 
++int md_lwip_arp(struct netif *netif, const ip4_addr_t *ip, struct eth_addr *mac,
++                unsigned operation, int *permanent)
++{
++  s16_t i = etharp_find_entry(ip, ETHARP_FLAG_FIND_ONLY, netif);
++  if (operation == MD_LWIP_ARP_SET) {
++    if (i >= 0 && !*permanent && md_state_arp_table[i].state == ETHARP_STATE_STATIC)
++      etharp_free_entry(i);
++    return etharp_update_arp_entry(netif, ip, mac, ETHARP_FLAG_TRY_HARD |
++                                   (*permanent ? ETHARP_FLAG_STATIC_ENTRY : 0));
++  }
++  if (i < 0 || md_state_arp_table[i].state < ETHARP_STATE_STABLE)
++    return ERR_VAL;
++  if (operation == MD_LWIP_ARP_DELETE) {
++    etharp_free_entry(i);
++  } else {
++    *mac = md_state_arp_table[i].ethaddr;
++    *permanent = md_state_arp_table[i].state == ETHARP_STATE_STATIC;
++  }
++  return ERR_OK;
++}
++
+ #if ETHARP_SUPPORT_STATIC_ENTRIES
+ /** Add a new static entry to the ARP table. If an entry exists for the
+  * specified IP address, this entry is overwritten.
+@@ -541,7 +576,7 @@
      return (err_t)i;
    }
  
@@ -755,7 +783,27 @@
    }
  #endif /* LWIP_MULTICAST_TX_OPTIONS */
  
-@@ -721,7 +735,8 @@
+@@ -635,6 +649,7 @@
+ #endif /* LWIP_IGMP || IP_ACCEPT_LINK_LAYER_ADDRESSING */
+   {
+-    if ((ip4_addr_isbroadcast(ip4_current_src_addr(), inp)) ||
++    if ((ip4_addr_isbroadcast(ip4_current_src_addr(), inp) &&
++         !ip4_addr_isany_val(*ip4_current_src_addr())) ||
+         (ip4_addr_ismulticast(ip4_current_src_addr()))) {
+       /* packet source is not valid */
+       LWIP_DEBUGF(IP_DEBUG | LWIP_DBG_TRACE | LWIP_DBG_LEVEL_WARNING, ("ip4_input: packet source is not valid.\n"));
+@@ -648,6 +663,10 @@
+     }
+   }
+ 
++  /* The fabric owns address admission, including routed and group destinations.
++   * Keep validation/reassembly here before its transport input callback. */
++  if (netif == NULL && md_lwip_current->input &&
++      !ip4_addr_isloopback(ip4_current_dest_addr())) netif = inp;
+   /* packet not for us? */
+   if (netif == NULL) {
+     /* packet not for us, route or discard */
+@@ -721,7 +740,8 @@
  
  #if LWIP_RAW
    /* raw input did not eat the packet? */
@@ -1002,7 +1050,18 @@
  #include "lwip/ip6_addr.h"
  #include "lwip/ip6_frag.h"
  #include "lwip/icmp6.h"
-@@ -1053,7 +1054,8 @@
+@@ -679,6 +680,10 @@
+     goto ip6_input_cleanup;
+   }
+ 
++  /* The fabric owns address/group admission after reassembly and validation. */
++  if (netif == NULL && md_lwip_current->input &&
++      !ip6_addr_isloopback(ip6_current_dest_addr()) &&
++      !ip6_addr_isloopback(ip6_current_src_addr())) netif = inp;
+   /* packet not for us? */
+   if (netif == NULL) {
+     /* packet not for us, route or discard */
+@@ -1053,7 +1059,8 @@
    /* p points to IPv6 header again for raw_input. */
    pbuf_add_header_force(p, hlen_tot);
    /* raw input did not eat the packet? */

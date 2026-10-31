@@ -21,7 +21,8 @@ enum md_proc_file_kind { MD_PROC_FILE_UID_MAP, MD_PROC_FILE_GID_MAP, MD_PROC_FIL
     MD_PROC_FILE_CONTROL };
 struct md_proc_file;
 static inline int md_proc_file_task(enum md_proc_file_kind kind) {
-    return (unsigned)kind<=MD_PROC_FILE_SETGROUPS || (kind>=MD_PROC_FILE_STATUS && kind<=MD_PROC_FILE_CGROUPS);
+    return (unsigned)kind<=MD_PROC_FILE_SETGROUPS || kind==MD_PROC_FILE_PROCESS_DIRECTORY
+        || (kind>=MD_PROC_FILE_STATUS && kind<=MD_PROC_FILE_CGROUPS);
 }
 struct md_cgroup_member;
 struct md_cgroup_namespace;
@@ -39,6 +40,7 @@ struct md_fd_object *md_proc_file_control_object(const struct md_control_file_op
 struct md_fs_anchor *md_proc_file_origin(const struct md_proc_file *);
 int md_proc_file_control_stat(const struct md_proc_file *,struct stat *);
 struct md_control_file md_proc_file_control(const struct md_proc_file *);
+struct md_proc_file *md_proc_file_from_control(struct md_control_file);
 unsigned long md_proc_file_filesystem(const struct md_proc_file *);
 int md_proc_file_mapping(const struct md_proc_file *,unsigned protection,unsigned flags);
 int md_proc_file_fcntl(struct md_proc_file *,int command,unsigned long argument,long *result);
@@ -84,6 +86,7 @@ const struct md_namespace_reference *md_proc_file_namespace_reference(const stru
 struct md_proc_file_node { uint64_t device, inode; int process; };
 int md_proc_file_task_stat(int,const struct md_identity *,enum md_proc_file_kind,
     struct md_proc_file_node *,struct stat *);
+int md_proc_file_retained_stat(const struct md_proc_file *,const struct md_identity *,struct stat *);
 int md_proc_file_task_access(const struct md_identity *,const struct stat *,unsigned,int effective);
 void md_proc_file_place(struct md_proc_file *,struct md_fs_anchor *,const struct stat *);
 /* Descriptor-host identity of the proc entry, independent of the carrier FD. */

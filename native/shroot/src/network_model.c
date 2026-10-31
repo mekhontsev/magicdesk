@@ -4,6 +4,8 @@
 #include "network_forward.h"
 #include "network_tun.h"
 #include "network_stack.h"
+#include "network_route_ip.h"
+#include "network_policy.h"
 #include "namespace_identity.h"
 #include <errno.h>
 #include <limits.h>
@@ -39,7 +41,7 @@ struct md_ip_address md_network_interface_source(const struct md_network_interfa
         if (a->address.family!=target.family || (a->flags&(IFA_F_TENTATIVE|IFA_F_DADFAILED))) continue;
         if (md_ip_linklocal(a->address)!=md_ip_linklocal(target) && !md_ip_multicast(target)) continue;
         unsigned candidate=1+(!(a->flags&IFA_F_DEPRECATED) ? 8 : 0)
-            +(md_ip_prefix(a->address,target,a->prefix) ? 1 : 0)+(md_ip_equal(a->address,target) ? 16 : 0)
+            +(md_ip_prefix(md_network_address_destination(a),target,a->prefix) ? 1 : 0)+(md_ip_equal(a->address,target) ? 16 : 0)
             +(a->address.family==AF_INET6 && (!!(a->flags&IFA_F_TEMPORARY)==(link->ipv6.use_tempaddr>1)) ? 2 : 0);
         if (candidate>score) { best=a->address; score=candidate; }
     }
@@ -85,7 +87,8 @@ int md_network_interface_address(struct md_network_interface *link,struct md_net
     if (md_ip_unspecified(address.address) || address.prefix>md_ip_size(address.address)*8) return -EINVAL;
     for (unsigned i=0;i<link->address_count;++i) if (md_ip_equal(link->addresses[i].address,address.address)) {
         if (remove) {
-            if (link->addresses[i].prefix!=address.prefix) return -EADDRNOTAVAIL;
+            if (link->addresses[i].prefix!=address.prefix || (!md_ip_unspecified(address.peer)
+                    && !md_ip_equal(link->addresses[i].peer,address.peer))) return -EADDRNOTAVAIL;
             memmove(link->addresses+i,link->addresses+i+1,(--link->address_count-i)*sizeof(*link->addresses));
         } else if (exclusive) return -EEXIST;
         else link->addresses[i]=address;
@@ -150,30 +153,34 @@ struct md_network_interface *md_network_neighbor(struct md_network_namespace *n,
 int md_network_address_duplicate(struct md_network_namespace *n,const struct md_network_interface *link,struct md_ip_address ip) {
     return md_network_neighbor(n,link,ip)!=NULL;
 }
-struct md_network_interface *md_network_route_lookup(struct md_network_namespace *n,struct md_ip_address ip,
-        unsigned output,struct md_network_route_entry *result) {
+struct md_network_interface *md_network_route_table(struct md_network_namespace *n,struct md_ip_address ip,
+        unsigned output,unsigned table,struct md_network_route_entry *result) {
     struct md_network_interface *best=NULL;
     struct md_network_route_entry selected={.destination=md_ip_any(ip.family),.gateway=md_ip_any(ip.family)};
     unsigned prefix=0,metric=UINT32_MAX;
-    for (unsigned i=0;i<n->count;++i) {
+    for (unsigned i=0;(table==RT_TABLE_LOCAL || table==RT_TABLE_MAIN) && i<n->count;++i) {
         struct md_network_interface *l=&n->links[i];
         if (!(l->info.flags&IFF_UP) || (output && output!=l->info.index)
                 || (md_ip_is_loopback(ip) && l->kind!=MD_LINK_LOOPBACK)) continue;
         for (unsigned j=0;j<l->address_count;++j) {
             const struct md_network_ip_assignment *a=&l->addresses[j];
             if (a->address.family!=ip.family || (a->flags&(IFA_F_TENTATIVE|IFA_F_DADFAILED))) continue;
-            unsigned bits=md_ip_equal(a->address,ip) ? md_ip_size(ip)*8 : a->prefix;
-            if ((md_ip_equal(a->address,ip) || !(a->flags&IFA_F_NOPREFIXROUTE))
-                    && md_ip_prefix(a->address,ip,bits) && (!best || bits>prefix)) {
+            int local=md_ip_equal(a->address,ip)
+                || (l->kind==MD_LINK_LOOPBACK && ip.family==AF_INET && md_ip_is_loopback(ip));
+            if (table==RT_TABLE_LOCAL && !local) continue;
+            if (table==RT_TABLE_MAIN) local=0;
+            unsigned bits=local ? md_ip_size(ip)*8 : a->prefix;
+            if ((local || !(a->flags&IFA_F_NOPREFIXROUTE))
+                    && (local || md_ip_prefix(md_network_address_destination(a),ip,bits)) && (!best || bits>prefix)) {
                 best=l; prefix=bits; metric=a->route_metric ? a->route_metric : ip.family==AF_INET6 ? 256 : 0;
-                selected=(struct md_network_route_entry){.destination=md_ip_network(a->address,bits),
-                    .gateway=md_ip_any(ip.family),.prefix=bits,.interface=l->info.index,.metric=metric,
-                    .protocol=RTPROT_KERNEL,.scope=RT_SCOPE_LINK};
+                selected=md_network_connected_route(l,a);
+                if (local) { selected.destination=ip; selected.prefix=bits; selected.table=RT_TABLE_LOCAL; }
             }
         }
     }
     for (unsigned i=0;i<n->route_count;++i) {
         const struct md_network_route_entry *r=&n->routes[i];
+        if ((r->table ? r->table : RT_TABLE_MAIN)!=table) continue;
         unsigned preference=r->preference==1 ? 2 : r->preference==3 ? 0 : 1;
         unsigned previous=selected.preference==1 ? 2 : selected.preference==3 ? 0 : 1;
         if (!md_ip_prefix(ip,r->destination,r->prefix) || (best && (r->prefix<prefix
@@ -185,7 +192,7 @@ struct md_network_interface *md_network_route_lookup(struct md_network_namespace
                 || md_ip_unspecified(md_network_route_source(n,l,r,ip))) continue;
         best=l; selected=*r; prefix=r->prefix; metric=r->metric;
     }
-    if (!best && md_ip_multicast(ip) && (output || ip.family==AF_INET6))
+    if (table==RT_TABLE_MAIN && !best && md_ip_multicast(ip) && (output || ip.family==AF_INET6))
         for (unsigned i=0;i<n->count;++i) {
             struct md_network_interface *l=&n->links[i];
             if (!(l->info.flags&IFF_UP) || (output ? output!=l->info.index : l->kind==MD_LINK_LOOPBACK)
@@ -201,6 +208,11 @@ struct md_network_interface *md_network_route_lookup(struct md_network_namespace
         if (!md_ip_unspecified(selected.source)) result->source=md_network_route_source(n,best,&selected,ip);
     }
     return best;
+}
+struct md_network_interface *md_network_route_lookup(struct md_network_namespace *n,struct md_ip_address ip,
+        unsigned output,struct md_network_route_entry *result) {
+    if (result) *result=(struct md_network_route_entry){0};
+    return md_network_policy_route(n,md_ip_any(ip.family),ip,0,output,result,NULL);
 }
 int md_network_interface_reserve(struct md_network_namespace *n,unsigned extra) {
     if (extra>256-n->count) return -ENOSPC;
@@ -232,7 +244,8 @@ int md_network_interface_add(struct md_network_namespace *n,enum md_network_link
     if (error) return error;
     unsigned id=kind==MD_LINK_LOOPBACK ? 1 : n->fabric->next_index++;
     struct md_network_interface *link=&n->links[n->count++];
-    *link=(struct md_network_interface){.kind=kind,.policy=n->defaults,.ipv6=n->defaults6,.policy_id=++n->next_policy,.info={.index=id,
+    *link=(struct md_network_interface){.kind=kind,.bridge_forward_delay=kind==MD_LINK_BRIDGE ? 1500 : 0,
+        .policy=n->defaults,.ipv6=n->defaults6,.policy_id=++n->next_policy,.info={.index=id,
         .flags=kind==MD_LINK_LOOPBACK ? IFF_LOOPBACK : IFF_BROADCAST|IFF_MULTICAST,
         .mtu=kind==MD_LINK_LOOPBACK ? 65536 : 1500,
         .type=kind==MD_LINK_LOOPBACK ? ARPHRD_LOOPBACK : ARPHRD_ETHER,.state=IF_OPER_DOWN}};
@@ -310,6 +323,7 @@ static struct md_network_namespace *create(struct md_user_namespace *owner,enum 
         fabric->endpoints_enabled=mode==MD_NETWORK_ROUTED;
     } else atomic_fetch_add_explicit(&fabric->references,1,memory_order_relaxed);
     n->fabric=fabric; n->mode=mode; n->owner=md_user_namespace_retain(owner);
+    md_network_policy_init(n);
     atomic_init(&n->references,1);
     atomic_init(&n->packet_enabled,0);
     n->unprivileged_port=1024; n->ping_groups[0]=1;
@@ -437,7 +451,7 @@ int md_network_link_snapshot(struct md_network_namespace *n,uint64_t *generation
     pthread_mutex_unlock(&n->fabric->lock); return result;
 }
 int md_network_ingress(struct md_network_namespace *n,const struct md_network_interface *in,
-        struct md_ip_address source,struct md_ip_address destination) {
+        struct md_ip_address source,struct md_ip_address destination,uint32_t mark) {
     if (!in) return -ENETUNREACH;
     if (source.family==AF_INET6) return in->kind!=MD_LINK_LOOPBACK
         && (md_ip_is_loopback(source) || md_ip_is_loopback(destination)) ? -ENETUNREACH : 0;
@@ -445,7 +459,8 @@ int md_network_ingress(struct md_network_namespace *n,const struct md_network_in
             && (md_ip_is_loopback(source) || md_ip_is_loopback(destination))) return -ENETUNREACH;
     unsigned filter=n->all.rp_filter>in->policy.rp_filter ? n->all.rp_filter : in->policy.rp_filter;
     if (filter) {
-        struct md_network_interface *reverse=md_network_route_find(n,source,NULL);
+        struct md_network_interface *reverse=md_network_policy_route(n,destination,source,
+            n->all.src_valid_mark || in->policy.src_valid_mark ? mark : 0,0,NULL,NULL);
         if (!reverse || (filter==1 && reverse->info.index!=in->info.index)) return -ENETUNREACH;
     }
     return 0;

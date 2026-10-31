@@ -1007,6 +1007,9 @@
     <string name="console_font_size">字号</string>
     <string name="console_font_size_value">%1$d sp</string>
     <string name="settings_section_console">控制台</string>
+    <string name="graphics_renderer">渲染器</string>
+    <string name="graphics_renderer_automatic">自动</string>
+    <string name="graphics_renderer_software">软件</string>
     <string name="settings_console_font_size">默认字号</string>
     <string name="console_copy_failed">剪贴板不可用</string>
     <string name="console_open_working_directory">在文件中打开当前目录</string>

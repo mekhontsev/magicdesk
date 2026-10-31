@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 import shlex
 from test_oci_services import Suite
+from benchmark_cpu import observe_suite_cpu
 
 
 def main():
@@ -54,11 +55,14 @@ for _ in range(3):
 '''
             workloads.append(('lsof', code))
         for name, code in workloads:
-            if args.compare_installed:
-                print('INSTALLED ' + name, flush=True)
-                suite.command(['shroot', *base[1:], '--', '/usr/bin/python3', '-c', code])
-            print('CANDIDATE ' + name, flush=True)
-            suite.command(base + (['--statistics'] if args.profile else []) + ['--', '/usr/bin/python3', '-c', code])
+            candidates = [('installed', ['shroot', *base[1:]])] if args.compare_installed else []
+            candidates.append(('candidate', base + (['--statistics'] if args.profile else [])))
+            for candidate, runner in candidates:
+                print(candidate.upper() + ' ' + name, flush=True)
+                with observe_suite_cpu(suite) as cpu:
+                    output = suite.command(runner + ['--', '/usr/bin/python3', '-c', code])
+                suite.report.setdefault('measurements', []).append(
+                    dict(workload=name, candidate=candidate, cpu=cpu, output=output))
         suite.report['passed'] = True
     finally:
         try:

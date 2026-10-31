@@ -76,6 +76,20 @@ static void routes(void) {
     packet=(struct md_filter_packet){.destination=md_ip_v4(htonl(0xc0000201)),.destination_port=htons(80),.protocol=6};
     assert(!md_network_flow_route(a.space,&packet,0,0,&path));
     assert(!path.mediated && !path.destination && packet.source.v4==htonl(0x0a580002));
+    for (unsigned ipv6=0;ipv6<2;++ipv6) {
+        struct md_network_family_config config;
+        assert(!md_network_profile_family(&p,ipv6 ? AF_INET6 : AF_INET,&config));
+        struct md_network_interface *input=md_network_local_interface(a.gateway,config.gateway,1);
+        assert(input);
+        packet=(struct md_filter_packet){.source=config.address,.source_port=htons(32000),
+            .destination_port=htons(443),.protocol=IPPROTO_TCP,.state=8};
+        assert(!md_network_profile_ip(ipv6 ? "2001:db8::1" : "192.0.2.1",&packet.destination));
+        assert(!md_network_flow_route(a.gateway,&packet,1,input->info.index,&path));
+        assert(!path.destination && packet.input==input->info.index && packet.output!=input->info.index);
+        int forwarded=0;
+        for (unsigned i=0;i<path.count;++i) forwarded|=path.steps[i].hook==NF_INET_FORWARD;
+        assert(forwarded);
+    }
     struct md_fd_object *sa=NULL,*sb=NULL; int fa=-1,fb=-1;
     struct md_identity identity=md_identity_new(0,0);
     struct sockaddr_in local={.sin_family=AF_INET,.sin_port=htons(80)};
@@ -399,7 +413,7 @@ static void reject_streams(void) {
         struct md_filter_chain chain={.table=1,.handle=2,.hook=NF_INET_LOCAL_IN,.policy=NF_ACCEPT,.counters=1};
         struct md_filter_rule rule={.chain=2,.count=2,.expressions={
             {.code=MD_FILTER_TRANSPORT,.transport={.protocol=IPPROTO_TCP,.source={0,65535},.destination={0,65535}}},
-            {.code=MD_FILTER_REJECT}}};
+            {.code=MD_FILTER_REJECT,.key=MD_REJECT_TCP}}};
         struct md_network_filter filter={.tables=&table,.count=1,.chains=&chain,.chain_count=1,.rules=&rule};
         pthread_mutex_lock(&n->fabric->lock);
         n->filter=&filter; md_network_forward_changed(n->fabric);
@@ -427,4 +441,92 @@ static void reject_streams(void) {
     }
     puts("PASS TCP REJECT: IPv4/IPv6 native clients receive prompt RST for new and established connections");
 }
-void test_network_launch(void) { parsing(); routes(); addressing(); ports(); partial_rollback(); reserved_publication(); loopback_origin(); reject_streams(); }
+static void reject_admission(void) {
+    for(unsigned ipv6=0;ipv6<2;++ipv6) for(unsigned tcp=0;tcp<2;++tcp) {
+        struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED); assert(n);
+        struct md_identity root=md_identity_new(0,0);
+        struct md_network_filter_table table={.handle=1,.family=NFPROTO_INET};
+        struct md_filter_chain chain={.table=1,.handle=2,.hook=NF_INET_LOCAL_OUT,.policy=NF_ACCEPT};
+        struct md_filter_rule rule={.chain=2,.count=1,.expressions={{.code=MD_FILTER_REJECT,.key=MD_REJECT_ICMPX}}};
+        struct md_network_filter filter={.tables=&table,.count=1,.chains=&chain,.chain_count=1,.rules=&rule,.rule_count=1};
+        struct md_inet_address target={.ip=md_ip_loopback(ipv6 ? AF_INET6 : AF_INET),.port=htons(32123)};
+        struct sockaddr_storage wire,translated; socklen_t size,length;
+        assert(!md_inet_encode(&target,0,&wire,&size));
+        struct md_fd_object *endpoint; int fd;
+        assert(!md_network_endpoint_open(n,0,target.ip.family,tcp ? SOCK_STREAM : SOCK_DGRAM,0,&endpoint,&fd));
+        assert(!md_network_endpoint_autobind(endpoint,fd,&root,(void *)&wire,size,0));
+        const int errors[]={-ENETUNREACH,-ECONNREFUSED,-EHOSTUNREACH,-EACCES};
+        for(unsigned code=0;code<4;++code) {
+            pthread_mutex_lock(&n->fabric->lock);
+            n->filter=&filter; rule.expressions[0].aux=code; md_network_forward_changed(n->fabric);
+            pthread_mutex_unlock(&n->fabric->lock);
+            assert(md_network_endpoint_destination(endpoint,(void *)&wire,size,&translated,&length)==errors[code]);
+        }
+        pthread_mutex_lock(&n->fabric->lock);
+        n->filter=NULL; md_network_forward_changed(n->fabric);
+        pthread_mutex_unlock(&n->fabric->lock);
+        close(fd); md_fd_object_release(endpoint); md_network_namespace_release(n); md_identity_release(&root);
+    }
+    puts("PASS ICMP refusal admission: IPv4/IPv6 TCP/UDP receive typed errors without payload interception");
+}
+static void source_nat_ports(void) {
+    for (unsigned ipv6=0;ipv6<2;++ipv6) for (unsigned tcp=0;tcp<2;++tcp) for (unsigned snat=0;snat<2;++snat) {
+        struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED); assert(n);
+        int type=tcp ? SOCK_STREAM : SOCK_DGRAM;
+        struct md_inet_address target={.ip=md_ip_loopback(AF_INET)};
+        int server=socket(AF_INET,type|SOCK_CLOEXEC,0); assert(server>=0);
+        assert(!md_inet_bind(server,&target,0) && !md_inet_name(server,0,&target));
+        if (tcp) assert(!listen(server,8));
+        struct md_network_filter_table table={.handle=1,.family=NFPROTO_INET};
+        struct md_filter_chain chain={.table=1,.handle=2,.hook=NF_INET_POST_ROUTING,.nat=1,.policy=NF_ACCEPT};
+        struct md_filter_rule rule={.chain=2,.count=1,.expressions={{
+            .code=snat ? MD_FILTER_NAT : MD_FILTER_MASQUERADE,.operation=NFT_NAT_SNAT,
+            .constant=1,.aux=1,.nat_port=htons(40000),.port_range=1,.port_max=htons(40001)}}};
+        struct md_network_filter filter={.tables=&table,.count=1,.chains=&chain,.chain_count=1,.rules=&rule,.rule_count=1};
+        struct md_filter_packet original={.source_port=htons(80),.destination_port=htons(443),
+            .protocol=tcp ? IPPROTO_TCP : IPPROTO_UDP,.state=8};
+        assert(!md_network_profile_ip(ipv6 ? "2001:db8::1" : "192.0.2.1",&original.destination));
+        struct md_network_flow_path paths[2],path;
+        struct md_fd_object owners[3]={{0}};
+        struct md_inet_address client={.ip=md_ip_loopback(ipv6 ? AF_INET6 : AF_INET),.port=htons(31000)},gateway;
+        pthread_mutex_lock(&n->fabric->lock);
+        n->filter=&filter; md_network_forward_changed(n->fabric);
+        for (unsigned i=0;i<2;++i) {
+            struct md_filter_packet p=original;
+            assert(!md_network_flow_route(n,&p,0,0,&paths[i]));
+            assert(p.source_port==htons(40000+i));
+            assert(!md_network_forward_route(n,&owners[i],type,&client,&target,&paths[i],&gateway));
+        }
+        struct md_filter_packet p=original;
+        assert(md_network_flow_route(n,&p,0,0,&path)==-EADDRNOTAVAIL);
+        /* Distinct peers and protocols may reuse the same translated port. */
+        p=original; p.destination_port=htons(444);
+        assert(!md_network_flow_route(n,&p,0,0,&path) && p.source_port==htons(40000));
+        p=original; p.protocol=tcp ? IPPROTO_UDP : IPPROTO_TCP;
+        assert(!md_network_flow_route(n,&p,0,0,&path) && p.source_port==htons(40000));
+        rule.expressions[0].nat_port=htons(41000); rule.expressions[0].port_max=htons(41001);
+        md_network_forward_changed(n->fabric);
+        for (unsigned i=0;i<2;++i) {
+            assert(!md_network_flow_check(n->fabric,&paths[i],0));
+            assert(!md_network_flow_check(n->fabric,&paths[i],1));
+            assert(paths[i].translated.source_port==htons(40000+i));
+        }
+        p=original;
+        assert(!md_network_flow_route(n,&p,0,0,&path) && p.source_port==htons(41000));
+        rule.expressions[0].nat_port=htons(40000); rule.expressions[0].port_max=htons(40001);
+        md_network_forward_changed(n->fabric);
+        md_network_forward_endpoint_closed(n,&owners[0]);
+        p=original; assert(!md_network_flow_route(n,&p,0,0,&path) && p.source_port==htons(40000));
+        struct md_inet_address invalid={0};
+        assert(md_network_forward_route(n,&owners[2],type,&client,&invalid,&path,&gateway)<0);
+        p=original; assert(!md_network_flow_route(n,&p,0,0,&path) && p.source_port==htons(40000));
+        assert(!md_network_forward_route(n,&owners[2],type,&client,&target,&path,&gateway));
+        p=original; assert(md_network_flow_route(n,&p,0,0,&path)==-EADDRNOTAVAIL);
+        md_network_forward_endpoint_closed(n,&owners[1]); md_network_forward_endpoint_closed(n,&owners[2]);
+        n->filter=NULL; md_network_forward_changed(n->fabric);
+        pthread_mutex_unlock(&n->fabric->lock);
+        close(server); md_network_namespace_release(n);
+    }
+    puts("PASS source NAT ranges: IPv4/IPv6 TCP/UDP, pending connects, collisions, exhaustion, retained bindings, rollback and release");
+}
+void test_network_launch(void) { parsing(); routes(); addressing(); ports(); partial_rollback(); reserved_publication(); loopback_origin(); reject_streams(); reject_admission(); source_nat_ports(); }

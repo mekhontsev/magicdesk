@@ -226,7 +226,7 @@ networks. The fixture ends its Podman pause process with `podman system migrate`
 
 `probe_docker_runtime.py BUILD STORE --rootless-user USER --storage-driver overlay2
 --cgroup v2 --exercise-ports --internet` starts the distribution's
-`dockerd-rootless.sh` through stock RootlessKit, slirp4netns and UID-map helpers
+`dockerd-rootless.sh` (or Alpine's `dockerd-rootless`) through stock RootlessKit, slirp4netns and UID-map helpers
 as an ordinary guest user. It requires rootless and seccomp security options,
 then checks two containers, published TCP/UDP, peer IP/name lookup, outbound IO,
 port conflicts and teardown. The named diagnostic `rootless*` profiles without
@@ -235,7 +235,8 @@ this ordinary-user integration test.
 
 `test_lwip_context` checks namespace-local protocol state and memory limits;
 the `test_task_resources` target includes `test_network_tun.c` for TUN/TAP ABI,
-queue ownership, IPv4/IPv6 TCP/UDP, fragment reassembly and raw ICMP.
+queue ownership, virtio-net layout/checksum/segmentation, ARP ioctls,
+IPv4/IPv6 TCP/UDP, fragment reassembly and raw ICMP.
 
 `probe_packet_runtime.py` exercises real packet applications in an installed
 recipe environment (Debian by default), using the staged native build as shell
@@ -249,15 +250,47 @@ python native/guest-exec-lab/probe_packet_runtime.py --kind tun --assets ASSETS
 cmake --build build/shroot-image-tests --target packet_vm
 python native/guest-exec-lab/probe_packet_runtime.py --kind tap \
   --kernel vmlinuz-virt --initramfs initramfs-virt
+python native/guest-exec-lab/probe_packet_runtime.py --kind vpn --installed
+python native/guest-exec-lab/probe_packet_runtime.py --kind wireguard
+python native/guest-exec-lab/probe_packet_runtime.py --kind openconnect
+python native/guest-exec-lab/probe_packet_runtime.py --kind ipsec --network bridge
+python native/guest-exec-lab/probe_packet_runtime.py --kind tailscale --network bridge --assets ASSETS
 ```
 
-Use `--build BUILD`, `--environment NAME` and `--base` as needed. The report
+Use `--build BUILD`, `--environment NAME` and `--base` as needed. `--installed`
+uses the APK runtime; TAP still takes its test executable from `--build`. The report
 records native and input hashes. No package is installed by the fixture, and
 no host interface is configured. TUN separates the proxy and client namespaces,
 tests IPv4/IPv6 TCP/UDP with payload verification and half-close, and rejects a
 route bypass before/after tun2socks runs. TAP tests the same transports in both
 directions against a real VM kernel, retaining QEMU's automatic TAP feature
-negotiation. All services, staged files and temporary initramfs trees are cleaned
+negotiation. VPN requires packaged OpenVPN/OpenSSL/iproute2: an ephemeral TLS
+peer tests both address families, DNS hooks, route isolation and restoration.
+`--container-image IMAGE` runs the OpenVPN consumer in a pre-pulled Python
+Podman image, using `--container-cache` and `--container-runroot` for its test
+storage. Container seccomp remains enabled. WireGuard requires packaged
+wireguard-go/wireguard-tools and covers encrypted bulk traffic, SIGKILL and restart.
+OpenConnect requires openconnect/ocserv and OpenSSL: certificate-authenticated
+DTLS, IPv4/IPv6, DNS and disconnect restoration. IPsec uses stock strongSwan's
+kernel-libipsec/kernel-netlink/VICI plugins, not kernel XFRM. Its private bridge
+permits IKE's guest ports 500/4500 without binding privileged Android ports.
+Tailscale assets are stock ARM64 `tailscale`, `tailscaled` and `headscale` binaries.
+Its private TLS control plane, embedded DERP and two ordinary TUN clients require
+no account or changes to Android's network. These application fixtures require
+actual payload exchange; daemon startup alone is not a pass.
+`--load` adds four concurrent TCP streams per family, small-message latency,
+16 MiB per direction, slow receivers, half-close and descriptor-release checks.
+Receipts retain CPU frequencies and whole-launch wall/user/system time separately
+from client-only CPU and exchange timings. It is a bounded workload, not an
+Internet-throughput claim. The option applies to direct consumers; an OCI image
+must explicitly retain `MD_PACKET_LOAD` to run it inside that container.
+`test_booted_libvirt.py --session SESSION --kernel KERNEL --initrd INITRD
+--network --network-forward nat` checks a managed bridge/TAP with DHCP/DNS,
+bidirectional VM traffic and cleanup. The echo peer lives beyond a routed veth
+in a separate namespace and verifies the translated IPv4 source and port range.
+`--network-forward open` checks the same topology without NAT; IPv6 uses routed
+traffic. ICMP REJECT is not substituted with DROP.
+All services, staged files and temporary initramfs trees are cleaned
 up; receipts remain under `build/packet-apps`.
 
 `test_routed_network.py` adds libc interface lookup, IPv4 packet information

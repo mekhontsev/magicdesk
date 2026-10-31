@@ -42,7 +42,7 @@ static pid_t remember(struct md_task_wait *w, pid_t pid, int status) {
  * and the recent working set. A miss is useful to all three, not a reason to
  * query the same task again before the general queue check. */
 struct queried {
-    pid_t tasks[2+sizeof(((struct md_task_wait *)0)->hints)/sizeof(pid_t)
+    pid_t tasks[1+sizeof(((struct md_task_wait *)0)->hints)/sizeof(pid_t)
         +sizeof(((struct md_task_wait *)0)->recent)/sizeof(pid_t)];
     unsigned count;
 };
@@ -103,20 +103,17 @@ pid_t md_task_wait_ready(struct md_task_wait *w, int *status, struct rusage *usa
     if (w->members>64) directed_budget=w->members<1024 ? w->members : 1024;
     /* wait4(-1) scans from the same child-list head: even frequent general
      * waits can starve an unnotified stop behind perpetually hot children.
-     * Advance a bounded round-robin independently of lossy SIGCHLD/MRU hints.
+     * Advance one round-robin member per discovery pass, independently of
+     * lossy SIGCHLD/MRU hints, before checking the recent active tasks.
      * A single tracee keeps the original fast path; no full task scan occurs. */
-    if (w->cursor && w->cursor->next!=w->cursor) {
-        struct md_task_wait_member *begin=w->cursor;
-        for (unsigned i=0;i<2 && w->directed<directed_budget;++i) {
-            pid_t selected=w->cursor->pid;
-            w->cursor=w->cursor->next;
-            first_query(&queried,selected);
-            ++w->directed;
-            pid_t pid=wait4(selected,status,__WALL|WNOHANG,usage);
-            if (pid>0) return remember(w,pid,*status);
-            if (pid<0 && errno!=ECHILD && errno!=ESRCH) return pid;
-            if (w->cursor==begin) break;
-        }
+    if (w->cursor && w->cursor->next!=w->cursor && w->directed<directed_budget) {
+        pid_t selected=w->cursor->pid;
+        w->cursor=w->cursor->next;
+        first_query(&queried,selected);
+        ++w->directed;
+        pid_t pid=wait4(selected,status,__WALL|WNOHANG,usage);
+        if (pid>0) return remember(w,pid,*status);
+        if (pid<0 && errno!=ECHILD && errno!=ESRCH) return pid;
     }
     while (w->count && w->directed < directed_budget) {
         unsigned capacity=sizeof(w->hints)/sizeof(*w->hints);

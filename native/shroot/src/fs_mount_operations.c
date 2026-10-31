@@ -209,7 +209,7 @@ static int descriptor(struct md_filesystem *fs, const struct md_fs_request *q,
     if (origin && origin->child) {
         if (q->operation==MD_FS_FSTAT && q->control.ops) {
             struct stat st;
-            out->error=q->control.ops->stat(q->control.context,&st);
+            out->error=md_fs_proc_control_stat(fs,q->control,&st);
             if (!out->error) {
                 md_fs_stat_info(&st,&out->info); md_fs_anchor_mount_info(origin,&out->info);
             }

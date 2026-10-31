@@ -209,7 +209,12 @@ static void parent_mapping(void) {
     assert(write(release[1],"r",1)==1); completed(child);
     char map[64];
     assert(pread(fd,map,sizeof(map),0)==33 && !memcmp(map,"         0       1000          1\n",33));
-    assert(!fstat(fd,&after) && before.st_ino==after.st_ino && !after.st_uid);
+    int result=fstat(fd,&after);
+    if (result || before.st_ino!=after.st_ino || after.st_uid)
+        fprintf(stderr,"retained uid_map: result=%d errno=%d inode=%llu/%llu uid=%u/%u\n",
+            result,errno,(unsigned long long)before.st_ino,(unsigned long long)after.st_ino,
+            before.st_uid,after.st_uid);
+    assert(!result && before.st_ino==after.st_ino && !after.st_uid);
     assert(!close(fd));
     assert(!close(ready[0]) && !close(ready[1]) && !close(release[0]) && !close(release[1]));
 }
@@ -354,7 +359,13 @@ int test_user_namespace_guest(int argc, char **argv) {
     if (resolved<0) perror("openat2 numeric proc uid_map");
     assert(resolved>=0 && !close(resolved));
     assert(syscall(SYS_openat2,AT_FDCWD,"/proc/self/uid_map",&how,sizeof(how))<0 && errno==ELOOP);
-    assert(syscall(SYS_openat2,AT_FDCWD,"/proc/../system/bin/sh",&how,sizeof(how))<0 && errno==EOPNOTSUPP);
+    resolved=(int)syscall(SYS_openat2,AT_FDCWD,"/proc/../system/bin/sh",&how,sizeof(how));
+    if (resolved>=0 || errno!=ENOENT) fprintf(stderr,"proc parent escape fd=%d errno=%d\n",resolved,errno);
+    assert(resolved<0 && errno==ENOENT);
+    resolved=(int)syscall(SYS_openat2,AT_FDCWD,"/proc/../bin/test",&how,sizeof(how));
+    assert(resolved>=0 && !fstat(resolved,&st) && !stat("/bin/test",&path_st));
+    assert(st.st_dev==path_st.st_dev && st.st_ino==path_st.st_ino && !close(resolved));
+    assert(!fstat(fd,&st));
     int directory=open("/proc/self",O_PATH|O_DIRECTORY|O_CLOEXEC); assert(directory>=0);
     resolved=openat(directory,"uid_map",O_RDONLY|O_CLOEXEC); assert(resolved>=0);
     assert(!fstat(resolved,&path_st) && path_st.st_ino==st.st_ino);

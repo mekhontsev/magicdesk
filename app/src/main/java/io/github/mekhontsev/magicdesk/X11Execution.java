@@ -38,7 +38,8 @@ final class X11Execution {
         return new X11LaunchSpec(context.getApplicationInfo().sourceDir, context.getApplicationInfo().nativeLibraryDir,
                 context.getPackageName(), serverPackage, parent, commands.termux == null ? "" : prefix + "/tmp",
                 keyboard, commands.termux == null, dpi, application, fileEnvironment,
-                commands.termux == null ? AndroidShell.path(context) : prefix + "/bin/sh", LinuxAppearance.read(context));
+                commands.termux == null ? AndroidShell.path(context) : prefix + "/bin/sh", LinuxAppearance.read(context),
+                GraphicalPreferences.renderer(context));
     }
 
     Closeable startServer(X11LaunchSpec spec, CommandExecution.Completion completion) throws IOException {

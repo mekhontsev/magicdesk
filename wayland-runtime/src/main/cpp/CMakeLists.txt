@@ -50,7 +50,7 @@ if(NOT EXISTS "${LAYER_XML}")
 endif()
 mdw_protocol(wlr-layer-shell-unstable-v1 ${LAYER_XML})
 mdw_protocol(wlr-foreign-toplevel-management-unstable-v1 ${MDW_WLR_PROTOCOL_DIR}/wlr-foreign-toplevel-management-unstable-v1.xml)
-add_library(magicdesk_wayland STATIC wayland_server.c wayland_renderer.c wayland_dmabuf.c wayland_input.c wayland_cursor.c wayland_pointer.c wayland_content.c content_stream.c wayland_shell.c wayland_scene.c wayland_geometry.c wayland_popup.c wayland_toplevels.c
+add_library(magicdesk_wayland STATIC wayland_server.c wayland_clock.c wayland_renderer.c wayland_dmabuf.c wayland_input.c wayland_cursor.c wayland_pointer.c wayland_content.c content_stream.c wayland_shell.c wayland_scene.c wayland_geometry.c wayland_popup.c wayland_toplevels.c
 	${CMAKE_CURRENT_BINARY_DIR}/linux-dmabuf-v1-protocol.h
 	${CMAKE_CURRENT_BINARY_DIR}/xdg-shell-protocol.h
 	${CMAKE_CURRENT_BINARY_DIR}/text-input-unstable-v3-protocol.h
@@ -82,11 +82,18 @@ if(MDW_BUILD_JNI)
 	target_link_options(magicdesk_wayland_executor PRIVATE -Wl,-z,defs -Wl,-z,max-page-size=16384 -Wl,--exclude-libs,ALL)
 endif()
 enable_testing()
+add_executable(wayland-clock-test ../../../tests/native/clock.c)
+target_link_libraries(wayland-clock-test PRIVATE magicdesk_wayland)
+target_compile_options(wayland-clock-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME wayland-clock COMMAND wayland-clock-test)
+set_tests_properties(wayland-clock PROPERTIES TIMEOUT 5)
 add_executable(wayland-renderer-test ../../../tests/native/renderer.c)
 target_link_libraries(wayland-renderer-test PRIVATE magicdesk_wayland)
 target_compile_definitions(wayland-renderer-test PRIVATE WLR_USE_UNSTABLE)
 target_compile_options(wayland-renderer-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME wayland-renderer COMMAND wayland-renderer-test)
+add_test(NAME wayland-renderer-software COMMAND wayland-renderer-test --software)
+set_tests_properties(wayland-renderer-software PROPERTIES TIMEOUT 15)
 set_tests_properties(wayland-renderer PROPERTIES TIMEOUT 15)
 add_executable(wayland-dmabuf-test ../../../tests/native/dmabuf.c
     ${CMAKE_CURRENT_BINARY_DIR}/linux-dmabuf-v1-client-protocol.h)

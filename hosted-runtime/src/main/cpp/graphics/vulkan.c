@@ -93,6 +93,8 @@ static bool pipeline(Gpu *gpu) {
 }
 
 bool mdg_vk_create(MdgDevice *device) {
+    VkPhysicalDevice *physical = NULL;
+    VkPhysicalDeviceProperties selected = {0};
     Gpu *gpu = calloc(1, sizeof(*gpu));
     if (!gpu) return false;
     device->gpu = gpu;
@@ -120,14 +122,19 @@ bool mdg_vk_create(MdgDevice *device) {
     INSTANCE(GetPhysicalDeviceExternalBufferProperties);
     INSTANCE(CreateDevice); INSTANCE(GetDeviceProcAddr);
 #undef INSTANCE
-    uint32_t count = 16;
-    VkPhysicalDevice physical[16];
+    uint32_t count = 0;
+    // Query first: some drivers cannot safely enumerate handles when no GPU is available.
+    if (EnumeratePhysicalDevices(gpu->instance, &count, NULL) != VK_SUCCESS || !count) goto fail;
+    physical = calloc(count, sizeof(*physical));
+    if (!physical) goto fail;
+    uint32_t capacity = count;
     VkResult enumerated = EnumeratePhysicalDevices(gpu->instance, &count, physical);
-    if (enumerated != VK_SUCCESS && enumerated != VK_INCOMPLETE) goto fail;
+    if ((enumerated != VK_SUCCESS && enumerated != VK_INCOMPLETE) || count > capacity) goto fail;
     const char *required[] = {VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME,
         VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME, VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME,
         VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     for (unsigned i = 0; i < count && !gpu->device; ++i) {
+        if (!physical[i]) goto fail;
         VkPhysicalDeviceProperties properties;
         GetPhysicalDeviceProperties(physical[i], &properties);
         if (properties.apiVersion < VK_API_VERSION_1_1) continue;
@@ -183,6 +190,7 @@ bool mdg_vk_create(MdgDevice *device) {
         gpu->physical = physical[i];
         GetPhysicalDeviceMemoryProperties(physical[i], &gpu->memory);
         snprintf(device->name, sizeof(device->name), "Vulkan: %.240s", properties.deviceName);
+        selected = properties;
     }
     if (!gpu->device) goto fail;
 #define LOAD(name) gpu->name = (PFN_vk##name)GetDeviceProcAddr(gpu->device, "vk" #name); if (!gpu->name) goto fail;
@@ -195,8 +203,15 @@ bool mdg_vk_create(MdgDevice *device) {
     static const uint8_t white[] = {255, 255, 255, 255};
     gpu->white = mdg_image_cpu(device, 1, 1, 4, MDG_RGBA, white);
     if (!gpu->white || !gpu->white->gpu) goto fail;
+    snprintf(device->description, sizeof(device->description),
+        "backend=vulkan, device=%.240s, vendorId=0x%04x, deviceId=0x%04x, api=%u.%u.%u, driverVersion=0x%08x",
+        selected.deviceName, selected.vendorID, selected.deviceID,
+        VK_VERSION_MAJOR(selected.apiVersion), VK_VERSION_MINOR(selected.apiVersion),
+        VK_VERSION_PATCH(selected.apiVersion), selected.driverVersion);
+    free(physical);
     return true;
 fail:
+    free(physical);
     mdg_vk_destroy(device);
     strcpy(device->name, "software");
     return false;

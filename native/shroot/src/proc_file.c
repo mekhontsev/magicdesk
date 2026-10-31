@@ -180,6 +180,9 @@ struct md_control_file md_proc_file_control(const struct md_proc_file *f) {
         : md_proc_file_task(f->kind) ? (struct md_control_file){&task_ops,(void *)f}
         : (struct md_control_file){0};
 }
+struct md_proc_file *md_proc_file_from_control(struct md_control_file file) {
+    return file.ops==&task_ops ? file.context : NULL;
+}
 unsigned long md_proc_file_filesystem(const struct md_proc_file *f) {
     return f && f->control ? f->control->filesystem : 0;
 }
@@ -277,6 +280,13 @@ void md_proc_file_place(struct md_proc_file *f,struct md_fs_anchor *placement,co
 int md_proc_file_task_stat(int pid,const struct md_identity *identity,enum md_proc_file_kind kind,
         struct md_proc_file_node *node,struct stat *value) {
     char path[64];
+    if (md_proc_file_directory(kind)) {
+        snprintf(path,sizeof(path),"/proc/%d%s",pid,kind==MD_PROC_FILE_NS_DIRECTORY ? "/ns" : "");
+        if (stat(path,value)) return -errno;
+        *node=(struct md_proc_file_node){value->st_dev,value->st_ino,pid};
+        value->st_uid=identity->uid.effective; value->st_gid=identity->gid.effective;
+        return 0;
+    }
     snprintf(path,sizeof(path),"/proc/%d/%s",pid,md_proc_file_process_name(kind));
     if (stat(path,value)) return -errno;
     *node=(struct md_proc_file_node){value->st_dev,value->st_ino,pid};
@@ -300,6 +310,19 @@ int md_proc_file_task_access(const struct md_identity *id,const struct stat *st,
     if ((mode&W_OK) && S_ISDIR(st->st_mode)) return -EACCES;
     struct md_identity actor=md_identity_access(id,effective);
     return md_file_permissions(st,mode,&actor);
+}
+int md_proc_file_retained_stat(const struct md_proc_file *f,const struct md_identity *identity,struct stat *st) {
+    struct md_proc_file_node current={0};
+    int error=identity ? md_proc_file_task_stat(f->node.process,identity,f->kind,&current,st) : -ENOENT;
+    if (error && error!=-ENOENT) return error;
+    if (!identity || error || current.inode!=f->node.inode || current.device!=f->node.device) {
+        *st=(struct stat){.st_dev=f->node.device,
+            .st_ino=md_proc_file_directory(f->kind) || md_proc_file_process(f->kind) ? f->node.inode
+                : (f->node.inode<<2)|((unsigned)f->kind+1)|UINT64_C(0x8000000000000000),
+            .st_mode=md_proc_file_directory(f->kind) ? S_IFDIR|0500 : S_IFREG|(md_proc_file_process(f->kind) ? 0444 : 0644),
+            .st_nlink=1,.st_blksize=getpagesize()};
+    }
+    return 0;
 }
 static void *task_retain(void *context) { return md_proc_file_retain(context); }
 static void task_release(void *context) { md_proc_file_release(context); }

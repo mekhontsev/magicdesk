@@ -23,6 +23,16 @@ def check_errno(expected, directory, name, buffer, count):
     assert ctypes.get_errno() == expected, (name, ctypes.get_errno(), expected)
 
 
+def ptrace_capability(enabled):
+    header = (ctypes.c_uint32 * 2)(0x20080522, 0)
+    data = (ctypes.c_uint32 * 6)()
+    assert libc.capget(header, data) == 0, ctypes.get_errno()
+    previous = bool(data[0] & (1 << 19))
+    data[0] = data[0] | (1 << 19) if enabled else data[0] & ~(1 << 19)
+    assert libc.capset(header, data) == 0, ctypes.get_errno()
+    return previous
+
+
 def managed_process_reads(root, protected, attached):
     for restricted in ('none', 'dumpable', 'identity'):
         ready_r, ready_w = os.pipe()
@@ -47,9 +57,14 @@ def managed_process_reads(root, protected, attached):
                 os._exit(99)
         os.close(ready_w)
         os.close(done_r)
+        authority = None
         try:
             # EVENT_WAIT: child publishes its protection/identity before observation.
             assert os.read(ready_r, 1) == b'r'
+            # This fixture starts as guest root. Test credential rejection
+            # without CAP_SYS_PTRACE, which explicitly authorizes foreign UIDs.
+            if restricted == 'identity':
+                authority = ptrace_capability(False)
             for fd in (file, alias, namespace, left.fileno()):
                 path = f'/proc/{child}/fd/{fd}'
                 # Native descriptions retain kernel dumpability checks. An
@@ -72,6 +87,8 @@ def managed_process_reads(root, protected, attached):
                     assert stat.S_ISLNK(os.lstat(path).st_mode)
             print(f'PASS managed proc reads: observer_protected={protected} target={restricted}', flush=True)
         finally:
+            if authority is not None:
+                ptrace_capability(authority)
             os.write(done_w, b'd')
             pid, status = os.waitpid(child, 0)
             assert pid == child and status == 0, (pid, status)

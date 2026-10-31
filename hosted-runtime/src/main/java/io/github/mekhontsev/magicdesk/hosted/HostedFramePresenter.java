@@ -28,8 +28,9 @@ public final class HostedFramePresenter implements AutoCloseable {
     public static final class SurfaceLease implements AutoCloseable {
         private long handle;
 
-        public SurfaceLease(Surface surface) throws IOException {
-            handle = surface == null ? 0 : nativeAcquire(surface);
+        public SurfaceLease(Surface surface, HostedRenderer renderer) throws IOException {
+            java.util.Objects.requireNonNull(renderer);
+            handle = surface == null ? 0 : nativeAcquire(surface, renderer.softwareOnly());
             if (surface != null && handle == 0) throw new IOException("Cannot retain Android Surface");
         }
 
@@ -78,7 +79,7 @@ public final class HostedFramePresenter implements AutoCloseable {
         });
     }
 
-    private static native long nativeAcquire(Surface surface);
+    private static native long nativeAcquire(Surface surface, boolean softwareOnly);
     private static native void nativeRelease(long surface);
     private static native boolean nativePresent(long surface, HardwareBuffer buffer, int descriptor, int fence, int width, int height);
     private static native void nativeClear(long surface);

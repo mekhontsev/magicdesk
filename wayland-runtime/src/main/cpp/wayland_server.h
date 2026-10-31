@@ -115,12 +115,17 @@ typedef enum { MDW_DRAG_BEGIN, MDW_DRAG_ENTER, MDW_DRAG_MOVE, MDW_DRAG_LEAVE,
 void mdw_content_drag(MdwServer *server, MdwOutput *output, MdwDragAction action,
     uint64_t offer, double x, double y, bool accepted);
 
-MdwServer *mdw_server_create(void);
+MdwServer *mdw_server_create(bool software_only);
 // Initial geometry of the session's persistent primary monitor. Application and
 // workspace hosts borrow it; creating it acquires no rendering or input owner.
 bool mdw_server_initial_output(MdwServer *server, int width, int height, double scale);
 void mdw_server_set_events(MdwServer *server, const MdwEvents *events);
+/* Optional one-shot host clock; null retains the native event-loop timer. */
+void mdw_server_set_frame_clock(MdwServer *server, void (*request)(void *), void *context);
+void mdw_server_frame(MdwServer *server, int64_t time_ns);
 const char *mdw_server_socket(const MdwServer *server);
+/* Immutable startup metadata; no driver queries. */
+const char *mdw_server_renderer_description(const MdwServer *server);
 int mdw_server_fd(MdwServer *server);
 int mdw_server_connect(MdwServer *server);
 // Consumes a connected Unix FD, including on rejection. Serialized with protocol dispatch.

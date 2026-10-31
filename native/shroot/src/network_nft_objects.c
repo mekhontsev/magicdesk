@@ -59,7 +59,7 @@ static int emit_chain(struct md_network_filter *f,const struct md_filter_chain *
     for (size_t i=0;i<f->rule_count;++i) if (f->rules[i].chain==c->handle) ++use;
     PUT(u32(o,NFTA_CHAIN_USE,use));
     if (c->hook>=0) {
-        PUT(text(o,NFTA_CHAIN_TYPE,c->nat ? "nat" : "filter"));
+        PUT(text(o,NFTA_CHAIN_TYPE,c->nat ? "nat" : c->reroute ? "route" : "filter"));
         PUT(u32(o,NFTA_CHAIN_POLICY,c->policy)); PUT(u32(o,NFTA_CHAIN_FLAGS,NFT_CHAIN_BASE));
         size_t nesting=0;
         PUT(md_network_message_nest(o,NFTA_CHAIN_HOOK,&nesting));
@@ -143,11 +143,13 @@ static int chains(struct md_network_filter *f,const struct nlmsghdr *h,uint32_t 
         const char *type=NULL;
         if (!error) error=string(&a[NFTA_CHAIN_TYPE],&type);
         if (error) return error;
-        if (!type || (strcmp(type,"filter") && strcmp(type,"nat")) || hook>=NF_INET_NUMHOOKS
+        if (!type || (strcmp(type,"filter") && strcmp(type,"nat") && strcmp(type,"route")) || hook>=NF_INET_NUMHOOKS
                 || (t->family!=NFPROTO_INET && t->family!=NFPROTO_IPV4 && t->family!=NFPROTO_IPV6)) return -EOPNOTSUPP;
-        c.nat=!strcmp(type,"nat"); c.hook=(int)hook; c.priority=(int32_t)priority;
+        c.nat=!strcmp(type,"nat"); c.reroute=!strcmp(type,"route"); c.hook=(int)hook; c.priority=(int32_t)priority;
         if (c.nat && hook==NF_INET_FORWARD) return -EOPNOTSUPP;
-        if (existing && (c.hook!=existing->hook || c.nat!=existing->nat || c.priority!=existing->priority)) return -EOPNOTSUPP;
+        if (c.reroute && hook!=NF_INET_LOCAL_OUT) return -EOPNOTSUPP;
+        if (existing && (c.hook!=existing->hook || c.nat!=existing->nat || c.reroute!=existing->reroute
+                || c.priority!=existing->priority)) return -EOPNOTSUPP;
     } else if (a[NFTA_CHAIN_TYPE].data || (!existing && (flags || a[NFTA_CHAIN_POLICY].data))) return -EINVAL;
     if (a[NFTA_CHAIN_COUNTERS].data) {
         if (c.hook<0) return -EOPNOTSUPP;

@@ -63,6 +63,7 @@ public final class X11Session implements AutoCloseable {
     private boolean connected;
     private int nextOutputId;
     private long nativeHandle;
+    private final String rendererDescription;
     private final X11DataExchange dataExchange;
     private boolean windowsChanged;
     private int dpi;
@@ -74,7 +75,8 @@ public final class X11Session implements AutoCloseable {
     private record Inspection(long window, int limit, ArrayList<X11WindowInspection.Node> nodes,
             CompletableFuture<X11WindowInspection> result, Runnable timeout) { }
 
-    public X11Session(Executor callbacks, Listener listener) {
+    public X11Session(io.github.mekhontsev.magicdesk.hosted.HostedRenderer renderer, Executor callbacks, Listener listener) {
+        java.util.Objects.requireNonNull(renderer);
         this.callbacks = java.util.Objects.requireNonNull(callbacks);
         this.listener = java.util.Objects.requireNonNull(listener);
         thread.start();
@@ -97,16 +99,19 @@ public final class X11Session implements AutoCloseable {
             if (!handler.post(send) && copy != null) try { copy.close(); } catch (java.io.IOException ignored) { }
         });
         try {
-            call(() -> {
-                nativeHandle = nativeCreate();
+            rendererDescription = call(() -> {
+                nativeHandle = nativeCreate(renderer.softwareOnly());
                 if (nativeHandle == 0) throw new IllegalStateException("Cannot initialize X11 renderer");
-                return null;
+                return nativeRendererDescription(nativeHandle);
             });
         } catch (RuntimeException e) {
             thread.quitSafely();
             throw e;
         }
     }
+
+    /** Immutable metadata from normal renderer initialization, not a driver query. */
+    public String rendererDescription() { return rendererDescription; }
 
     /** Takes ownership of the descriptor supplied by this session's server. */
     public void connect(ParcelFileDescriptor descriptor) {
@@ -721,7 +726,8 @@ public final class X11Session implements AutoCloseable {
         }
     }
 
-    private native long nativeCreate();
+    private native long nativeCreate(boolean softwareOnly);
+    private static native String nativeRendererDescription(long handle);
     private static native boolean nativeConnect(long handle, int fd);
     private static native void nativeSurface(long handle, int output, Surface surface, boolean release);
     private static native void nativeBind(long handle, int output, int window);

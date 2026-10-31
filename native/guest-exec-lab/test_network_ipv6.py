@@ -4,11 +4,80 @@ import argparse
 import ctypes
 import errno
 import json
+import mmap
+import os
 from pathlib import Path
 import socket
+import stat
 import struct
 import subprocess
 import sys
+
+
+def legacy_ioctl():
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.ioctl.argtypes = (ctypes.c_int, ctypes.c_ulong, ctypes.c_void_p)
+    libc.mprotect.argtypes = (ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int)
+    class Route(ctypes.Structure):
+        _fields_ = [('destination', ctypes.c_ubyte * 16), ('source', ctypes.c_ubyte * 16),
+                    ('gateway', ctypes.c_ubyte * 16), ('type', ctypes.c_uint32),
+                    ('prefix', ctypes.c_uint16), ('source_prefix', ctypes.c_uint16),
+                    ('metric', ctypes.c_uint32), ('info', ctypes.c_ulong),
+                    ('flags', ctypes.c_uint32), ('index', ctypes.c_int)]
+    index = socket.if_nametoindex('lo')
+    with mmap.mmap(-1, 2 * mmap.PAGESIZE) as memory:
+        base = ctypes.addressof(ctypes.c_char.from_buffer(memory))
+        assert libc.mprotect(base + mmap.PAGESIZE, mmap.PAGESIZE, 0) == 0
+        try:
+            for kind, protocol in ((socket.SOCK_STREAM, 0), (socket.SOCK_RAW, socket.IPPROTO_UDP)):
+                with socket.socket(socket.AF_INET6, kind, protocol) as stream:
+                    address = struct.pack('=16sIi', socket.inet_pton(socket.AF_INET6, 'fd42:9::1'), 128, index)
+                    route = Route(prefix=64, metric=123, flags=1, index=index)
+                    route.destination[:] = socket.inet_pton(socket.AF_INET6, 'fd42:10::')
+                    for request, data in ((0x8916, address), (0x890B, bytes(route)),
+                                          (0x890C, bytes(route)), (0x8936, address)):
+                        pointer = base + mmap.PAGESIZE - len(data)
+                        ctypes.memmove(pointer, data, len(data))
+                        assert libc.ioctl(stream.fileno(), request, pointer) == 0, (request, ctypes.get_errno())
+                        assert ctypes.string_at(pointer, len(data)) == data, 'input ioctl overwrote caller memory'
+        finally:
+            assert libc.mprotect(base + mmap.PAGESIZE, mmap.PAGESIZE, mmap.PROT_READ | mmap.PROT_WRITE) == 0
+    print('PASS IPv6 legacy ioctl: exact guarded address/route ABI on native and raw sockets', flush=True)
+
+
+def routing_policy():
+    for family, flag, address in ((socket.AF_INET, '-4', '127.0.0.1'), (socket.AF_INET6, '-6', '::1')):
+        command('ip', flag, 'rule', 'add', 'pref', '50', 'fwmark', '0x1200/0xff00', 'lookup', 'local')
+        command('ip', flag, 'rule', 'add', 'pref', '100', 'prohibit')
+        command('ip', flag, 'rule', 'del', 'pref', '0', 'lookup', 'local')
+        try:
+            with socket.socket(family, socket.SOCK_DGRAM) as server:
+                server.setsockopt(socket.SOL_SOCKET, 36, 0x1201)  # SO_MARK
+                server.settimeout(5)
+                server.bind((address, 0))
+                with socket.socket(family, socket.SOCK_DGRAM) as blocked:
+                    try:
+                        blocked.sendto(b'denied', server.getsockname())
+                    except OSError as error:
+                        assert error.errno == errno.EACCES, error
+                    else:
+                        raise AssertionError('prohibit rule did not deny socket traffic')
+                with socket.socket(family, socket.SOCK_DGRAM) as client:
+                    client.setsockopt(socket.SOL_SOCKET, 36, 0x1201)
+                    assert client.getsockopt(socket.SOL_SOCKET, 36) == 0x1201
+                    client.settimeout(5)
+                    client.sendto(b'policy', server.getsockname())
+                    data, peer = server.recvfrom(32)
+                    assert data == b'policy'
+                    server.sendto(b'reply', peer)
+                    assert client.recv(32) == b'reply'
+            route = json.loads(command('ip', flag, '-j', 'route', 'get', address, 'mark', '0x1201'))
+            assert route[0]['dev'] == 'lo', route
+        finally:
+            command('ip', flag, 'rule', 'add', 'pref', '0', 'lookup', 'local')
+            command('ip', flag, 'rule', 'del', 'pref', '50')
+            command('ip', flag, 'rule', 'del', 'pref', '100')
+    print('PASS policy routing: stock ip rules, SO_MARK IPv4/IPv6 traffic and immediate prohibit', flush=True)
 
 
 def router_discovery():
@@ -213,7 +282,46 @@ def command(*argv, data=None):
     return result.stdout
 
 
+def proc_directories():
+    roots = [os.open('/proc/sys/net/' + family + '/conf', os.O_RDONLY | os.O_DIRECTORY)
+             for family in ('ipv4', 'ipv6')]
+    command('ip', 'link', 'add', 'mdproc', 'type', 'bridge')
+    try:
+        for root, leaf in zip(roots, ('src_valid_mark', 'disable_ipv6')):
+            assert 'mdproc' in os.listdir(root)
+            for flags in (os.O_RDONLY | os.O_DIRECTORY, os.O_PATH | os.O_DIRECTORY,
+                          os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW):
+                child = os.open('mdproc', flags, dir_fd=root)
+                try:
+                    assert stat.S_ISDIR(os.fstat(child).st_mode)
+                    fd = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=child)
+                    try:
+                        assert os.read(fd, 16) == b'0\n'
+                    finally:
+                        os.close(fd)
+                finally:
+                    os.close(child)
+    finally:
+        command('ip', 'link', 'del', 'mdproc')
+        for root in roots:
+            try:
+                assert 'mdproc' not in os.listdir(root)
+                try:
+                    os.stat('mdproc', dir_fd=root, follow_symlinks=False)
+                except FileNotFoundError:
+                    pass
+                else:
+                    raise AssertionError('removed interface retained in proc')
+            finally:
+                os.close(root)
+    print('PASS proc interface directories: relative opens, nofollow, metadata and removal', flush=True)
+
+
 def guest():
+    proc_directories()
+    command('unshare', '-m', '--', sys.executable, __file__, '--proc-guest')
+    legacy_ioctl()
+    routing_policy()
     data_maps()
     router_discovery()
     raw_udp()
@@ -464,4 +572,8 @@ def main():
 
 
 if __name__ == '__main__':
-    guest() if sys.argv[1:] == ['--guest'] else main()
+    if sys.argv[1:] == ['--proc-guest']:
+        command('mount', '-t', 'proc', 'proc', '/proc')
+        proc_directories()
+    else:
+        guest() if sys.argv[1:] == ['--guest'] else main()

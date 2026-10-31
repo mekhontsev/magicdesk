@@ -118,6 +118,7 @@ struct md_proc_path md_proc_path_for(const char *path,int tid,int tgid) {
                         else if (word(&p,"disable_ipv6")) out.kind=MD_PROC_NET_IPV6_DISABLE;
                         else if (word(&p,"accept_dad")) out.kind=MD_PROC_NET_IPV6_DAD;
                         else if (word(&p,"accept_ra")) out.kind=MD_PROC_NET_IPV6_RA;
+                        else if (word(&p,"autoconf")) out.kind=MD_PROC_NET_IPV6_AUTOCONF;
                         else if (word(&p,"mtu")) out.kind=MD_PROC_NET_IPV6_MTU;
                         else if (word(&p,"hop_limit")) out.kind=MD_PROC_NET_IPV6_HOPS;
                         else if (word(&p,"addr_gen_mode")) out.kind=MD_PROC_NET_IPV6_ADDRGEN;
@@ -143,6 +144,7 @@ struct md_proc_path md_proc_path_for(const char *path,int tid,int tgid) {
                     p=name+length;
                     if (word(&p,"route_localnet")) out.kind=MD_PROC_NET_ROUTE_LOCALNET;
                     else if (word(&p,"rp_filter")) out.kind=MD_PROC_NET_RP_FILTER;
+                    else if (word(&p,"src_valid_mark")) out.kind=MD_PROC_NET_SRC_VALID_MARK;
                     else if (word(&p,"arp_notify")) out.kind=MD_PROC_NET_ARP_NOTIFY;
                     else return out;
                     memcpy(out.interface,name,length);

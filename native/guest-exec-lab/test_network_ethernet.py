@@ -13,6 +13,39 @@ import subprocess
 import sys
 
 
+def interface_addresses():
+    class Ifconf(ctypes.Structure):
+        _fields_ = [('length', ctypes.c_int), ('buffer', ctypes.c_void_p)]
+    libc = ctypes.CDLL(None, use_errno=True)
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as channel:
+        def query(value, error=0):
+            result = libc.ioctl(channel.fileno(), 0x8912, ctypes.byref(value))
+            assert (ctypes.get_errno() if result < 0 else 0) == error
+        value = Ifconf(-1, None)
+        query(value)
+        length = value.length
+        assert length >= 80 and length % 40 == 0
+        buffer = ctypes.create_string_buffer(length + 40)
+        value = Ifconf(length, ctypes.addressof(buffer))
+        query(value)
+        entries = {}
+        for offset in range(0, value.length, 40):
+            name = buffer.raw[offset:offset + 16].split(b'\0', 1)[0].decode()
+            assert struct.unpack_from('=H', buffer, offset + 16)[0] == socket.AF_INET
+            entries[name] = socket.inet_ntoa(buffer.raw[offset + 20:offset + 24])
+        assert entries['md-raw-a'] == '192.0.2.1' and entries['md-raw-b'] == '192.0.2.2', entries
+        for size in (-1, 0, 39, 40, 79):
+            ctypes.memset(buffer, 0xa5, len(buffer))
+            value = Ifconf(size, ctypes.addressof(buffer))
+            query(value)
+            assert value.length == max(0, size) // 40 * 40
+            assert buffer.raw[value.length:] == b'\xa5' * (len(buffer) - value.length)
+        query(Ifconf(length, 1), errno.EFAULT)
+        assert libc.ioctl(channel.fileno(), 0x8912, ctypes.c_void_p(1)) == -1
+        assert ctypes.get_errno() == errno.EFAULT
+    print('PASS SIOCGIFCONF: guest addresses, sizing, whole entries and invalid pointers', flush=True)
+
+
 def raw_ipv4():
     def ip(*args):
         subprocess.run(['ip', *args], check=True)
@@ -22,6 +55,7 @@ def raw_ipv4():
         for name, address in (('md-raw-a', '192.0.2.1/24'), ('md-raw-b', '192.0.2.2/24')):
             ip('addr', 'add', address, 'dev', name)
             ip('link', 'set', name, 'up')
+        interface_addresses()
         with socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_UDP) as sender, \
                 socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_UDP) as receiver:
             sender.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, b'md-raw-a\0')

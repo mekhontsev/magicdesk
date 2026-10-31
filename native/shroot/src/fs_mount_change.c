@@ -16,6 +16,7 @@
 #include <linux/mount.h>
 #include <linux/magic.h>
 #include <sys/statvfs.h>
+#include <sys/vfs.h>
 #include <unistd.h>
 
 int md_view_require_root(struct md_filesystem *fs,const struct md_view_location *p) {
@@ -344,10 +345,17 @@ static int bind(struct md_filesystem *fs, const struct md_fs_request *q,
     }
     if (!r) {
         slots[prepared++]=(unsigned)root_slot;
+        enum md_mount_backing backing=devices ? MD_MOUNT_PROVIDER : native_source ? MD_MOUNT_NATIVE
+            : source.mount ? source.mount->backing : MD_MOUNT_INODE;
+        if (native_source) {
+            struct statfs type;
+            if (fstatfs(source.fd,&type)) r=-errno;
+            else if (type.f_type==PROC_SUPER_MAGIC) backing=MD_MOUNT_PROC;
+        }
         int device_fd=devices ? openat(md_provider_tree_root(devices),".",O_PATH|O_DIRECTORY|O_CLOEXEC) : -1;
         int source_fd=devices ? device_fd : source.fd;
-        r=devices && device_fd<0 ? -errno : prepare(&pending[root_slot],source_fd,target ? target->fd : source_fd,target ? target->mount : NULL,
-            devices ? MD_MOUNT_PROVIDER : native_source ? MD_MOUNT_NATIVE : source.mount ? source.mount->backing : MD_MOUNT_INODE,
+        if (!r) r=devices && device_fd<0 ? -errno : prepare(&pending[root_slot],source_fd,target ? target->fd : source_fd,target ? target->mount : NULL,
+            backing,
             !devices && source.mount ? source.mount->storage : NULL,
             policy);
         if (device_fd>=0) close(device_fd);

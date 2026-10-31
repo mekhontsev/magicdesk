@@ -38,6 +38,20 @@ its remaining descendants and reports supervision failure.
 
 ## Cancellation
 
+`task_wait.c` owns nonblocking trace-event collection. SIGCHLD and recent TIDs
+are bounded hints, not proof of readiness. A separate round-robin cursor checks
+one member per discovery pass so a hot prefix cannot starve an unnotified stop.
+General waits collect a bounded batch before any of its tasks resumes; buffered
+statuses transfer exactly once, including during cancellation. Only an empty
+general wait establishes a drained queue, invalidated by SIGCHLD. Buffered
+delivery needs no extra signal read; the shared event loop still services all
+signal and resource sources within its progress budget.
+
+Pending selector installations use the shared intrusive continuation queue,
+not a scan of all tracees. Completion and cancellation remove their owned
+nodes; callbacks can cancel peers or queue a later pass. Temporary descriptor
+retirements retain their separate custody list and scheduling priority.
+
 Supervisors use signalfd, pidfds and ppoll. The caller's original signal mask and
 watched dispositions are restored in the guest before exec. There are no
 signal-handler locks or periodic process scans. The syscall supervisor maintains

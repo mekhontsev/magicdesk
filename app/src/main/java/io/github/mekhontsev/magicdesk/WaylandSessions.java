@@ -107,13 +107,16 @@ final class WaylandSessions {
                     if ("attach".equals(phase)) {
                         if (serverIdentity != null) throw new SecurityException("Wayland server already attached");
                         serverIdentity = binder;
-                        renderer = new WaylandSession(IWaylandServer.Stub.asInterface(binder), execution.serverUid, Session.this);
+                        renderer = new WaylandSession(IWaylandServer.Stub.asInterface(binder), execution.serverUid,
+                                execution.renderer, Session.this);
                     } else if ("ready".equals(phase)) {
                         if (!binder.equals(serverIdentity) || renderer == null || !state.equals("STARTING"))
                             throw new SecurityException("Unknown Wayland readiness announcement");
                         socket = intent.getStringExtra("display");
                         if (socket == null || !socket.matches("wayland-[0-9]+"))
                             throw new SecurityException("Invalid Wayland socket name");
+                        GraphicalDiagnostics.record(context, GraphicalDiagnostics.Protocol.WAYLAND,
+                                execution.renderer, intent.getStringExtra("rendererDescription"));
                         unregister();
                         if (execution.hasRoutedEndpoint()) startRoutedEndpoint();
                         else if (execution.needsBroker()) startBroker(intent.getStringExtra("memoryLabel"));

@@ -83,7 +83,7 @@ static int stop_server(int fd, uint32_t mask, void *data) {
 static void *serve(void *data) {
     struct Server *s = data;
     s->display = wl_display_create(); assert(s->display);
-    s->renderer = s->software ? wlr_pixman_renderer_create() : mdw_renderer_create(); assert(s->renderer);
+    s->renderer = s->software ? wlr_pixman_renderer_create() : mdw_renderer_create(false); assert(s->renderer);
     s->capable = !s->software && mdg_device_linear_dmabuf(mdw_renderer_device(s->renderer));
     assert(wlr_renderer_init_wl_display(s->renderer, s->display));
     assert(mdw_dmabuf_init(s->display, s->renderer));

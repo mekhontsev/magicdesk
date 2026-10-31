@@ -1040,6 +1040,9 @@
     <string name="console_font_size">Размер шрифта</string>
     <string name="console_font_size_value">%1$d sp</string>
     <string name="settings_section_console">Консоль</string>
+    <string name="graphics_renderer">Рендерер</string>
+    <string name="graphics_renderer_automatic">Автоматически</string>
+    <string name="graphics_renderer_software">Программный</string>
     <string name="settings_console_font_size">Размер шрифта по умолчанию</string>
     <string name="console_copy_failed">Буфер обмена недоступен</string>
     <string name="console_open_working_directory">Открыть текущую папку в файлах</string>

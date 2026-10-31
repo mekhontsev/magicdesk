@@ -14,7 +14,7 @@ int main(void) {
     assert(mkdtemp(directory));
     assert(setenv("XDG_RUNTIME_DIR", directory, 1) == 0);
     for (int iteration = 0; iteration < 2; ++iteration) {
-        MdwServer *server = mdw_server_create();
+        MdwServer *server = mdw_server_create(false);
         assert(server);
         assert(!mdw_server_initial_output(server, 0, 700, 1));
         assert(!mdw_server_initial_output(server, 900, 700, 0));

@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "network_ip.h"
+#include "network_reject.h"
 
 /* Namespace-owned ruleset catalogue. Mutations prepare a private snapshot;
  * publication and replacement run under the owning network fabric lock. */
@@ -19,7 +20,7 @@ enum md_filter_opcode {
     MD_FILTER_PAYLOAD, MD_FILTER_COMPARE, MD_FILTER_RANGE, MD_FILTER_BITWISE,
     MD_FILTER_CT, MD_FILTER_CT_SET, MD_FILTER_FIB, MD_FILTER_LOOKUP,
     MD_FILTER_NAT, MD_FILTER_MASQUERADE, MD_FILTER_VERDICT_MAP, MD_FILTER_DATA_MAP, MD_FILTER_COUNTER,
-    MD_FILTER_TRANSPORT, MD_FILTER_STATE_MATCH, MD_FILTER_MARK_MATCH, MD_FILTER_ADDRESS_TYPE,
+    MD_FILTER_TRANSPORT, MD_FILTER_STATE_MATCH, MD_FILTER_MARK_MATCH, MD_FILTER_CONNMARK_MATCH, MD_FILTER_ADDRESS_TYPE,
     MD_FILTER_PACKET_TYPE, MD_FILTER_REVERSE_PATH, MD_FILTER_ICMP_MATCH, MD_FILTER_REJECT
 };
 struct md_filter_counter { uint64_t packets, bytes; };
@@ -38,6 +39,7 @@ struct md_filter_expression {
     enum md_filter_opcode code;
     unsigned src, dst, size, key, operation, aux;
     unsigned constant, family; /* NAT address/port in value instead of registers. */
+    unsigned port_range, port_max; /* Maximum register offset, or network-order constant. */
     uint64_t target;
     unsigned char value[16], mask[16];
     union {
@@ -53,7 +55,7 @@ struct md_filter_chain {
     uint64_t table, handle;
     uint32_t id;
     char name[256];
-    int hook, priority, nat;
+    int hook, priority, nat, reroute;
     unsigned policy;
     unsigned counters;
     struct md_filter_counter counter;
@@ -92,6 +94,7 @@ struct md_filter_packet {
     unsigned protocol, state, mark, ctmark, status;
     unsigned input, output, fib_type, source_fib_type;
     unsigned packet_type;
+    struct md_network_rejection rejection;
     unsigned char transport[4], transport_size;
     char input_name[16], output_name[16];
     unsigned snat, dnat, masquerade;
@@ -100,6 +103,7 @@ struct md_filter_packet {
     unsigned unmediated; /* Admission probe: reject mutations, skip counters. */
     void *route_context;
     struct md_filter_route_result (*route)(void *,const struct md_filter_packet *,unsigned);
+    int (*source_nat)(void *,struct md_filter_packet *,uint16_t,uint16_t);
 };
 struct md_filter_rewrite {
     struct md_ip_address source, destination;

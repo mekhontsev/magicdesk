@@ -387,6 +387,8 @@ static void managed_proc_reads(const char *store) {
     ssize_t length=readlink(path,expected,sizeof(expected)); assert(length>0);
     struct stat native; assert(!fstat(sockets[0],&native));
     struct md_inode_boundary boundary={.path=path,.capacity=sizeof(path)};
+    struct md_pid_namespace *private=md_pid_namespace_new(NULL,id.user_namespace); assert(private);
+    const uint64_t views[]={0,md_pid_namespace_inode(NULL),md_pid_namespace_inode(private)};
     struct md_fs_output output={.data=data,.capacity=sizeof(data)};
     struct md_fd_order busy={0};
     const struct md_fd_object_type provider={.destroy=native_provider_release};
@@ -420,12 +422,13 @@ static void managed_proc_reads(const char *store) {
             actor.identity.uid.fs=1001;
         }
         if (scenario==6) assert(!prctl(PR_SET_DUMPABLE,0));
-        for (unsigned op=0;op<3;++op) {
+        for (unsigned view=0;view<3;++view) for (unsigned op=0;op<3;++op) {
+            boundary.proc_namespace=views[view];
             struct md_fs_request q={.operation=op==2 ? MD_FS_READLINK : MD_FS_STAT,
                 .flags=op==1 ? AT_SYMLINK_NOFOLLOW : 0};
             struct md_fs_result out={.fd=-1,.error=-EREMOTE};
             md_fs_native_boundary(&fs,&boundary,&q,&out,&output);
-            if ((scenario>=1 && scenario<=3) || scenario==6) {
+            if (view==2 || (scenario>=1 && scenario<=3) || scenario==6) {
                 if (out.error!=-EREMOTE)
                     fprintf(stderr,"proc boundary scenario=%u operation=%u result=%d\n",scenario,op,out.error);
                 assert(out.error==-EREMOTE); continue;
@@ -440,6 +443,7 @@ static void managed_proc_reads(const char *store) {
         if (scenario==3) assert(!md_fd_origins_close_range(resources.files,sockets[0],sockets[0],0));
     }
     assert(!prctl(PR_SET_DUMPABLE,dumpable));
+    md_pid_namespace_release(private);
     assert(!close(sockets[0]) && !close(sockets[1]));
     md_task_registry_destroy(tasks); md_fd_origins_release(resources.files);
     md_domain_release(resources.fs); md_identity_release(&id);

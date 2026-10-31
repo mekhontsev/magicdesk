@@ -190,8 +190,7 @@ Use **Refresh** after installing packages.
 
 Choose the destination and window mode as for Android applications. Launching an
 existing entry returns to its window; **New window** requests another instance,
-subject to the application's rules. **Add to Android launcher** exports an
-installed Linux entry as a small APK shortcut, with Android confirmation.
+subject to the application's rules.
 
 X11 and Wayland share Android clipboard/file exchange, audio, interface scaling
 and window hosting. Supported dialogs and popups can extend beyond their parent
@@ -200,6 +199,26 @@ confirmation; force close is separate.
 
 See [desktop entries](docs/desktop-entries.md), [audio](docs/audio.md),
 [X11](docs/x11.md) and [Wayland](docs/wayland.md).
+
+### Linux Apps In Your Android Launcher
+
+Launch Mousepad, GIMP or Firefox directly from your usual **Android app drawer**,
+alongside Android apps, with the Linux application's name and icon. This is not
+just a home-screen shortcut: you no longer need to open MagicDesk's app list first.
+MagicDesk launches the Linux application in its own Android window.
+
+In **Apps** or Desktop's **Start**, long-press or right-click an installed Linux
+application and choose **Add to Android launcher**. MagicDesk creates and signs a
+small launcher APK locally; confirm its installation in Android. The APK is only
+a launcher, not a copy of the Linux application or its environment.
+
+Available on Android 14+ without managed Desktop. Ordinary Termux-hosted apps
+need neither root nor Shizuku, and no MCP server is required. Other environments
+retain their normal execution requirements.
+
+Uninstall the launcher entry like any Android app; the Linux application remains
+installed. If its source entry is removed, the launcher can no longer open it.
+See [Android launcher exports](docs/desktop-entries.md#android-launcher-exports).
 
 ### Whole Linux Desktops Too
 

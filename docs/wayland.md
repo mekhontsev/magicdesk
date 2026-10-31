@@ -167,6 +167,14 @@ remains explicit, without a different UID or system-policy fallback.
   its `ANativeWindow` writes. Output closure releases the presenter independently
   from client/session closure. Window metadata crosses Binder only when changed;
   pixel-only commits do not rebuild the window catalog.
+- A demand-driven output clock coalesces damage across visible outputs. Android
+  supplies one-shot Choreographer ticks while its default display is on; an
+  independent 60 Hz deadline source takes over when that display is unavailable
+  or off. Both stop at idle. This is a shared scheduling clock, not per-monitor
+  physical-vsync synchronization. Output credit, visibility and GPU fences still
+  admit each output separately. Once scene output selection is established,
+  frame callbacks are flushed before composition so clients can prepare their
+  next frame concurrently. Clock changes retain pending damage.
 - A presentation generation identifies an output viewport and its retained
   Android Surface. Stale frames are acknowledged without presentation, and stale
   viewport failures cannot reject a newer request. `FramePresentation` completes
@@ -185,13 +193,15 @@ remains explicit, without a different UID or system-policy fallback.
 The compositor uses the [shared Vulkan/software renderer](graphics.md) through
 wlroots' renderer/allocator interfaces, without a wlroots fork. Frame transport
 and Android presentation remain separate from launch, input and placement policy.
+The shared renderer setting is captured once per session and applies to both
+the compositor and every Android presenter, including replacement viewers.
 Optional `linux-dmabuf` v3 admission supports explicit linear RGB allocations
 through the [shared GPU importer](graphics.md#linux-buffer-import), without a
 DRM node. SHM/software remains the compatibility path; GPU drivers are not a
 startup requirement.
 
 Standard `single-pixel-buffer-v1` buffers use wlroots' shared scene renderer,
-including viewport scaling. `presentation-time` reports the headless output's
+including viewport scaling. `presentation-time` reports the hosted output's
 software presentation event; it does not claim hardware-clock, vblank or physical
 scanout completion. Scene sampling and feedback lifetime remain owned by wlroots.
 
@@ -654,6 +664,21 @@ am instrument --no-restart -w \
 Require an explicit `passed` result; instrumentation completion alone is not a
 pass. Android Activity focus changes, general application compatibility, and
 operation on API 34 still require device validation.
+
+For cadence and transport measurements, add `-e pacing true`, optionally with
+`-e width 1280 -e height 720`. The fixture encodes a monotonic commit timestamp
+in its pixels and checks the image received by Android. It reports client frame
+intervals, commit-to-ImageReader latency and optional server dispatch/render
+timing. This does not measure physical scanout latency. The server timing probe
+is enabled only by `MAGICDESK_WAYLAND_MEASURE_FRAMES=1`.
+`wayland-runtime/tests/measure_runtime.py` records repeated runs, CPU-frequency snapshots and
+optionally alternates an ABI-compatible executor library with `--baseline`.
+The native `wayland-clock` fixture checks coalescing, independent outputs,
+idle suppression, clock replacement and destruction with pending requests.
+On the tested Android 16 device, three 1280x720 installed-APK runs at the
+reported 120 Hz mode measured median frame intervals of 8.33-8.38 ms, with
+image/input/closure assertions passing. Selecting a 144 Hz limit did not make
+Android report that active mode; 144 Hz and physical scanout remain unverified.
 
 The shell variant drives a real layer-shell client through JNI/Binder and the
 common layout adapter, using an isolated scope rather than Desktop. It checks

@@ -14,8 +14,8 @@
 #include <unistd.h>
 
 int md_inode_runtime_prepare(struct md_inode_store *s) {
-    const char *paths[] = {"/dev", "/dev/shm", "/sys"};
-    const mode_t modes[] = {0755, 01777, 0755};
+    const char *paths[] = {"/dev", "/dev/shm", "/sys", "/proc"};
+    const mode_t modes[] = {0755, 01777, 0755, 0755};
     int r = mdi_begin(s,1);
     if (r) return r;
     for (unsigned i=0; !r && i<sizeof(paths)/sizeof(*paths); i++) {

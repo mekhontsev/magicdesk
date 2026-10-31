@@ -1018,6 +1018,9 @@
     <string name="console_font_size_value">%1$d sp</string>
     <string name="console_font_size_preview" translatable="false">Aa</string>
     <string name="settings_section_console">Console</string>
+    <string name="graphics_renderer">Renderer</string>
+    <string name="graphics_renderer_automatic">Automatic</string>
+    <string name="graphics_renderer_software">Software</string>
     <string name="settings_console_font_size">Default font size</string>
     <string name="console_copy_failed">Clipboard unavailable</string>
     <string name="console_open_working_directory">Open current folder in Files</string>

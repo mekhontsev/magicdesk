@@ -55,9 +55,13 @@ publication, cancellation and watches. No kernel minimum or storage change.
 Guest TUN/TAP uses namespace-owned lwIP and the typed device provider, not
 host `/dev/net/tun`, Android VPN APIs or host `CAP_NET_ADMIN`. Its advertised
 ioctls predate 5.15. Socketpairs, eventfd, timerfd and epoll drive bounded IO on
-the existing network loop; no newer kernel primitive is required. Unsupported
+the existing network loop; no newer kernel primitive is required. Virtio-net
+headers, endian/size controls, checksum completion and TCPv4/TCPv6 segmentation
+are implemented in the packet adapter, not delegated to a host TUN driver.
+Legacy bridge, interface-list and ARP ioctls also predate 5.15. Unsupported
 offloads and device options fail explicitly. Coverage: `test_lwip_context`,
-`test_network_tun` and rootless `probe_podman_runtime.py` with stock slirp4netns.
+`test_network_tun`, `test_network_ethernet.py`, rootless Docker/Podman with stock
+slirp4netns, OpenVPN and a libvirt-managed VM network.
 The common socket IO owner treats `MSG_ERRQUEUE` as an immediate query, including
 on blocking sockets; an empty error queue returns `EAGAIN` without an IO waiter.
 `supervisor_state` covers IPv4/IPv6 error-queue admission.
@@ -141,7 +145,9 @@ The baseline includes pidfds, selective ptrace, seccomp notifications,
 `openat2`, `faccessat2`, `close_range` and shared/sealed memfds. The native read
 provider uses `openat2(RESOLVE_NO_SYMLINKS, O_PATH|O_NOFOLLOW)` to pin admitted
 task-independent paths. A missing or denied operation retains task-affine
-dispatch; self aliases and private proc views do not use this optimization.
+dispatch; self aliases and private PID views do not use this optimization.
+Both implicit proc paths and mounted native-PID views use it after logical
+mount/access admission; a namespace inode alone does not imply PID translation.
 These flags predate the 5.15 baseline. In particular,
 atomic `SECCOMP_ADDFD_FLAG_SEND` is a required FD-publication primitive, available
 since Linux 5.14. Separate ADDFD and reply calls are not an equivalent fallback:
@@ -741,12 +747,21 @@ application overrides/reset and TCP MSS; stock networkd boot tests verify the
 effective route and connected socket values.
 
 Managed netlink control also implements the baseline nlctrl family catalogue,
-strict route query validation, kernel-peer connect, policy-rule queries and
+strict route query validation, kernel-peer connect, policy-rule transactions and
 SO_PASSCRED/NETLINK_PKTINFO reply metadata. These are userspace protocol owners;
 they do not open privileged host netlink sockets or require newer kernel APIs.
 `--case mount-namespace` and `--case ofd-order` cover validation, duplication,
 ancillary metadata, membership and unsupported operations. Default systemd boot
 and the Podman probe exercise stock NetworkManager and netavark clients.
+
+`network_policy` owns guest IPv4/IPv6 tables, source/destination prefixes,
+masked marks, inversion and terminal denial rules. `SO_MARK` checks guest
+CAP_NET_ADMIN (the 5.15 contract), without setting an Android socket mark.
+CONNMARK and `src_valid_mark` share the filter/route owners. IPv6 legacy address
+and route ioctls use their family-specific wire sizes before copying guest data.
+These add no host dependency. `test_network_route`, `test_network_nft` and
+`test_network_ipv6.py` cover admission, rollback, isolation and marked routing;
+real VPN fixtures exercise the same owners with stock userspace.
 
 Classic socket filters use baseline `SO_ATTACH_FILTER`, `SO_GET_FILTER`,
 `SO_DETACH_FILTER` and `SO_LOCK_FILTER` on private AF_UNIX queues. `socket_filter`

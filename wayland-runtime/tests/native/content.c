@@ -214,7 +214,7 @@ static void drag(void *data, MdwOutput *output, uint64_t offer, bool finished, b
 int main(void) {
     char path[4096]; snprintf(path, sizeof(path), "%s/mdw-content-XXXXXX", getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp");
     assert(mkdtemp(path) && setenv("XDG_RUNTIME_DIR", path, 1) == 0);
-    struct Host h = {.server = mdw_server_create()}; assert(h.server);
+    struct Host h = {.server = mdw_server_create(false)}; assert(h.server);
     MdwEvents events = {.window = window, .content_offer = offer, .content_reply = reply,
         .content_request = request, .drag_event = drag, .context = &h};
     mdw_server_set_events(h.server, &events); mdw_content_enable(h.server, true);

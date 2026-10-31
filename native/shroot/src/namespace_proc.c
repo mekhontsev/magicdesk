@@ -101,7 +101,7 @@ long md_namespace_host_open_resolved(const struct md_fs *fs,int base,const char 
         if (checked<0) return checked;
         RAW1(close,checked);
         long result=md_proc_control_open(&ref,(int)how->flags,proc_namespace);
-        return result==-EXDEV && md_proc_network_control(kind)
+        return result==-EXDEV && (md_proc_native_task(kind) || md_proc_network_control(kind))
             ? RAW4(openat2,base,path,how,sizeof(*how)) : result;
     }
     if (kind==MD_PROC_MOUNTS || kind==MD_PROC_MOUNTINFO) {
@@ -397,13 +397,11 @@ static long host_call(const struct md_fs *fs, const char *exe, long nr, const un
         if (*ref.tail) return -ENOTDIR;
         /* Process text is virtualized, but its inode and watch lifetime still
          * belong to procfs. Capture the native target under caller authority. */
-        int process_watch=nr==SYS_inotify_add_watch && (control==MD_PROC_PROCESS_DIRECTORY
-            || control==MD_PROC_STATUS || control==MD_PROC_STAT || control==MD_PROC_LIMITS);
+        int process_watch=nr==SYS_inotify_add_watch && md_proc_native_task(control);
         long result=process_watch ? -EXDEV
             : nr==SYS_openat ? md_proc_control_open(&ref,(int)a[2],proc_namespace)
             : md_proc_control_metadata(&ref,nr,a);
-        if (result!=-EXDEV || (control!=MD_PROC_PROCESS_DIRECTORY && control!=MD_PROC_STATUS
-                && control!=MD_PROC_STAT && control!=MD_PROC_LIMITS && !md_proc_network_control(control))) return result;
+        if (result!=-EXDEV || (!md_proc_native_task(control) && !md_proc_network_control(control))) return result;
         ref.kind=MD_PROC_NONE;
     }
     if (control==MD_PROC_MOUNTS || control==MD_PROC_MOUNTINFO) {

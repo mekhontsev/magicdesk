@@ -3,6 +3,8 @@
 #include "network_tun.h"
 #include "network_ethernet.h"
 #include "lwip/etharp.h"
+#include <linux/if_arp.h>
+#include <linux/sockios.h>
 #include "lwip/ethip6.h"
 #include "lwip/ip.h"
 #include "lwip/timeouts.h"
@@ -227,6 +229,33 @@ int md_network_stack_input(struct md_network_namespace *n,struct md_network_inte
     int empty=!s->head;
     *s->tail=p; s->tail=&p->next; ++s->packets; s->bytes+=size;
     if(empty) { uint64_t one=1; ssize_t ignored=write(s->event,&one,sizeof(one)); (void)ignored; }
+    return 0;
+}
+int md_network_stack_arp(struct md_network_namespace *n,unsigned command,struct arpreq *request) {
+    if(request->arp_pa.sa_family!=AF_INET) return -EAFNOSUPPORT;
+    if(!memchr(request->arp_dev,0,sizeof(request->arp_dev))) return -ENODEV;
+    struct sockaddr_in address; memcpy(&address,&request->arp_pa,sizeof(address));
+    struct md_network_interface *link=request->arp_dev[0] ? md_network_interface_find(n,0,request->arp_dev)
+        : md_network_route_find(n,md_ip_v4(address.sin_addr.s_addr),NULL);
+    if(!link) return -ENODEV;
+    struct md_stack_interface *i=n->stack ? md_stack_interface(n->stack,link->info.index) : NULL;
+    if(!i || !i->ethernet) return -EOPNOTSUPP;
+    if(command==SIOCSARP && (request->arp_flags&~(ATF_COM|ATF_PERM))) return -EOPNOTSUPP;
+    if(command==SIOCSARP && request->arp_ha.sa_family!=ARPHRD_ETHER) return -EINVAL;
+    struct eth_addr mac; memcpy(mac.addr,request->arp_ha.sa_data,6);
+    if(command==SIOCSARP && (mac.addr[0]&1)) return -EINVAL;
+    ip4_addr_t ip={.addr=address.sin_addr.s_addr};
+    int permanent=!!(request->arp_flags&ATF_PERM);
+    unsigned operation=command==SIOCSARP ? MD_LWIP_ARP_SET : command==SIOCDARP ? MD_LWIP_ARP_DELETE : MD_LWIP_ARP_GET;
+    struct md_lwip_context *previous=md_lwip_enter(n->stack->context);
+    int result=md_lwip_arp(&i->netif,&ip,&mac,operation,&permanent);
+    md_stack_arm(n->stack); md_lwip_leave(previous);
+    if(result) return result==ERR_VAL && command!=SIOCSARP ? -ENXIO : md_stack_error(result);
+    if(command==SIOCGARP) {
+        request->arp_flags=ATF_COM|(permanent ? ATF_PERM : 0);
+        request->arp_ha.sa_family=ARPHRD_ETHER; memcpy(request->arp_ha.sa_data,mac.addr,6);
+        memcpy(request->arp_dev,link->info.name,IFNAMSIZ);
+    }
     return 0;
 }
 void md_network_stack_retire(struct md_network_namespace *n) {

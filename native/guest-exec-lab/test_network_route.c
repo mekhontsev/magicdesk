@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "network_ioctl.h"
 #include "network_route.h"
 #include "network_internal.h"
 #include "network_route_ip.h"
@@ -6,10 +7,12 @@
 #include "network_profile.h"
 #include "network_packet.h"
 #include "network_endpoint.h"
+#include "network_policy.h"
 #include "test_network_fixture.h"
 #include "guest_identity.h"
 #include "sysfs_view.h"
 #include <assert.h>
+#include <arpa/inet.h>
 #include <errno.h>
 #include <linux/rtnetlink.h>
 #include <linux/fib_rules.h>
@@ -131,7 +134,204 @@ static void route_metrics(void) {
     md_identity_release(&root); md_network_namespace_release(n);
     puts("PASS IPv6 route metrics: parsing, dump, active connection rollback and unsupported/duplicate rejection");
 }
+static void point_to_point(void) {
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+    struct md_identity root=md_identity_new(0,0),user=md_identity_new(1000,1000);
+    unsigned index;
+    assert(!md_network_interface_add(n,MD_LINK_TUN,"point0",&index));
+    struct md_network_interface *link=md_network_interface_find(n,index,NULL);
+    link->info.flags=IFF_UP|IFF_POINTOPOINT|IFF_NOARP;
+    for (unsigned family=0;family<2;++family) {
+        struct md_ip_address local,peer,other;
+        assert(!md_network_profile_ip(family ? "fd42:10::1" : "198.18.10.1",&local));
+        assert(!md_network_profile_ip(family ? "fd42:20::2" : "198.18.20.2",&peer));
+        assert(!md_network_profile_ip(family ? "fd42:20::3" : "198.18.20.3",&other));
+        unsigned bytes=md_ip_size(local),prefix=bytes*8;
+        struct packet packet,reply;
+        struct nlmsghdr *h=request(&packet,RTM_NEWADDR,NLM_F_CREATE|NLM_F_EXCL);
+        h->nlmsg_len=NLMSG_LENGTH(sizeof(struct ifaddrmsg));
+        *(struct ifaddrmsg *)NLMSG_DATA(h)=(struct ifaddrmsg){.ifa_family=local.family,.ifa_prefixlen=prefix,.ifa_index=index};
+        attr(h,IFA_LOCAL,local.bytes,bytes); struct rtattr *peer_attr=attr(h,IFA_ADDRESS,peer.bytes,bytes);
+        assert(ack(n,&user,h,NULL)==-EPERM);
+        assert(!ack(n,&root,h,NULL));
+        link=md_network_interface_find(n,index,NULL);
+        assert(md_network_interface_has(link,local) && !md_network_interface_has(link,peer));
+        struct md_network_route_entry route;
+        assert(md_network_route_lookup(n,peer,index,&route)==link);
+        assert(md_ip_equal(route.destination,peer) && md_ip_equal(route.source,local) && route.prefix==prefix);
+        assert(!md_network_route_lookup(n,other,index,NULL));
+        assert(md_ip_equal(md_network_interface_source(link,peer),local));
+        const struct md_network_ip_assignment *assignment=&link->addresses[family];
+        assert(md_network_connected_index(link,assignment)==(int)family);
+        struct md_network_message out={.data=reply.bytes,.capacity=sizeof(reply)};
+        assert(!md_network_address_reply(&out,h,91,1,link,assignment));
+        struct ifaddrmsg *wire=NLMSG_DATA(&reply.align);
+        unsigned length=reply.align.nlmsg_len-NLMSG_LENGTH(sizeof(*wire)),seen=0;
+        for (struct rtattr *a=IFA_RTA(wire);RTA_OK(a,length);a=RTA_NEXT(a,length)) {
+            if (a->rta_type==IFA_LOCAL) { assert(!memcmp(RTA_DATA(a),local.bytes,bytes)); seen|=1; }
+            if (a->rta_type==IFA_ADDRESS) { assert(!memcmp(RTA_DATA(a),peer.bytes,bytes)); seen|=2; }
+        }
+        assert(seen==3);
+        h->nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_REPLACE;
+        memcpy(RTA_DATA(peer_attr),other.bytes,bytes);
+        struct md_network_publication refusal={.publish=reject_response};
+        assert(md_network_route(n,&root,h,h->nlmsg_len,91,0,NULL,reply.bytes,sizeof(reply),&refusal)==-EAGAIN);
+        link=md_network_interface_find(n,index,NULL);
+        assert(md_network_route_lookup(n,peer,index,NULL)==link && !md_network_route_lookup(n,other,index,NULL));
+        h->nlmsg_type=RTM_DELADDR;
+        assert(ack(n,&root,h,NULL)==-EADDRNOTAVAIL);
+        link=md_network_interface_find(n,index,NULL);
+    }
+    struct ifreq request={0}; strcpy(request.ifr_name,"point0");
+    struct sockaddr_in *address=(void *)&request.ifr_dstaddr;
+    *address=(struct sockaddr_in){.sin_family=AF_INET,.sin_addr.s_addr=htonl(0xc6121e02)};
+    assert(md_network_route_address_ioctl(n,&user,SIOCSIFDSTADDR,&request)==-EPERM);
+    assert(!md_network_route_address_ioctl(n,&root,SIOCSIFDSTADDR,&request));
+    struct md_ip_address peer=md_ip_v4(address->sin_addr.s_addr),local=link->addresses[0].address;
+    assert(!md_network_route_address_ioctl(n,&user,SIOCGIFDSTADDR,&request) && address->sin_addr.s_addr==peer.v4);
+    assert(md_network_route_lookup(n,peer,index,NULL)==link && !md_network_interface_has(link,peer));
+    assert(!md_network_route_address_ioctl(n,&user,SIOCGIFADDR,&request) && address->sin_addr.s_addr==local.v4);
+    *address=(struct sockaddr_in){.sin_family=AF_INET,.sin_addr.s_addr=htonl(0xe0000001)};
+    assert(md_network_route_address_ioctl(n,&root,SIOCSIFDSTADDR,&request)==-EINVAL);
+    assert(md_ip_equal(link->addresses[0].peer,peer));
+    assert(!md_network_route_set_flags(n,&root,"point0",IFF_UP|IFF_RUNNING));
+    link=md_network_interface_find(n,index,NULL);
+    assert((link->info.flags&(IFF_UP|IFF_POINTOPOINT|IFF_NOARP))==(IFF_UP|IFF_POINTOPOINT));
+    struct md_fd_object *socket; int fd;
+    assert(!md_network_endpoint_open(n,0,AF_INET6,SOCK_DGRAM,0,&socket,&fd));
+    unsigned long args[6]={(unsigned)fd,SIOCSIFADDR};
+    struct in6_ifreq ip6={.ifr6_prefixlen=128,.ifr6_ifindex=(int)index};
+    assert(inet_pton(AF_INET6,"fd42:30::1",&ip6.ifr6_addr)==1);
+    assert(md_network_socket_call(socket,&root,SYS_ioctl,args,&ip6,sizeof(ip6),0,1,NULL,NULL,NULL)==sizeof(ip6));
+    assert(md_network_socket_call(socket,&root,SYS_ioctl,args,&ip6,sizeof(ip6),sizeof(ip6)-1,1,NULL,NULL,NULL)==-EINVAL);
+    assert(md_network_socket_call(socket,&user,SYS_ioctl,args,&ip6,sizeof(ip6),sizeof(ip6),1,NULL,NULL,NULL)==-EPERM);
+    assert(!md_network_socket_call(socket,&root,SYS_ioctl,args,&ip6,sizeof(ip6),sizeof(ip6),1,NULL,NULL,NULL));
+    struct in6_rtmsg rt6={.rtmsg_dst_len=64,.rtmsg_metric=1,.rtmsg_ifindex=(int)index};
+    assert(inet_pton(AF_INET6,"fd42:40::5678",&rt6.rtmsg_dst)==1);
+    args[1]=SIOCADDRT;
+    assert(md_network_socket_call(socket,&root,SYS_ioctl,args,&rt6,sizeof(rt6),0,1,NULL,NULL,NULL)==sizeof(rt6));
+    assert(!md_network_socket_call(socket,&root,SYS_ioctl,args,&rt6,sizeof(rt6),sizeof(rt6),1,NULL,NULL,NULL));
+    struct md_network_route_entry route;
+    link=md_network_interface_find(n,index,NULL);
+    assert(md_network_route_lookup(n,md_ip_load(AF_INET6,&rt6.rtmsg_dst),index,&route)==link && route.prefix==64 && route.metric==1);
+    args[1]=SIOCDELRT;
+    assert(!md_network_socket_call(socket,&root,SYS_ioctl,args,&rt6,sizeof(rt6),sizeof(rt6),1,NULL,NULL,NULL));
+    args[1]=SIOCDIFADDR;
+    assert(!md_network_socket_call(socket,&root,SYS_ioctl,args,&ip6,sizeof(ip6),sizeof(ip6),1,NULL,NULL,NULL));
+    close(fd); md_fd_object_release(socket);
+    md_identity_release(&root); md_identity_release(&user); md_network_namespace_release(n);
+    puts("PASS point-to-point IPv4/IPv6: local/peer identity, routes, dumps, typed ioctl ABI, authority and atomic rollback");
+}
+static void policy_routes(unsigned family) {
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+    struct md_identity root=md_identity_new(0,0),user=md_identity_new(1000,1000);
+    unsigned uplink=md_network_interface_find(n,0,"eth0")->info.index,index=0;
+    assert(!md_network_interface_add(n,MD_LINK_BRIDGE,"policy0",&index));
+    struct md_network_interface *link=md_network_interface_find(n,index,NULL);
+    link->info.flags|=IFF_UP; md_network_interface_up(link);
+    struct md_ip_address source,destination,other;
+    assert(!md_network_profile_ip(family==AF_INET ? "198.18.0.2" : "fd42:8::2",&source));
+    assert(!md_network_profile_ip(family==AF_INET ? "198.51.100.1" : "fd42:7::1",&destination));
+    assert(!md_network_profile_ip(family==AF_INET ? "203.0.113.1" : "fd42:9::1",&other));
+    unsigned width=md_ip_size(source),bits=width*8,table=65536,priority=220,mark=0x1200,mask=0xff00;
+    assert(!md_network_interface_address(link,(struct md_network_ip_assignment){.address=source,.prefix=bits},0,0));
+    struct packet p,reply;
+    struct nlmsghdr *query=request(&p,RTM_GETRULE,NLM_F_DUMP);
+    ((struct ifinfomsg *)NLMSG_DATA(query))->ifi_family=family;
+    long bytes=md_network_route(n,&user,query,query->nlmsg_len,91,0,NULL,reply.bytes,sizeof(reply),NULL);
+    assert(bytes>0);
+    unsigned defaults=0;
+    for (struct nlmsghdr *message=&reply.align;NLMSG_OK(message,bytes);message=NLMSG_NEXT(message,bytes)) {
+        if (message->nlmsg_type!=RTM_NEWRULE) continue;
+        const struct fib_rule_hdr *rule=NLMSG_DATA(message);
+        unsigned table_attribute=0;
+        int remaining=message->nlmsg_len-NLMSG_LENGTH(sizeof(*rule));
+        for (struct rtattr *a=(void *)((char *)rule+NLMSG_ALIGN(sizeof(*rule)));RTA_OK(a,remaining);a=RTA_NEXT(a,remaining))
+            if (a->rta_type==FRA_TABLE) {
+                uint32_t table; assert(RTA_PAYLOAD(a)==sizeof(table)); memcpy(&table,RTA_DATA(a),sizeof(table));
+                assert(table==rule->table); ++table_attribute;
+            }
+        assert(rule->family==family && table_attribute==1); ++defaults;
+    }
+    assert(defaults==(family==AF_INET ? 3U : 2U));
+    struct nlmsghdr *h=request(&p,RTM_NEWROUTE,NLM_F_CREATE|NLM_F_EXCL);
+    h->nlmsg_len=NLMSG_LENGTH(sizeof(struct rtmsg));
+    *(struct rtmsg *)NLMSG_DATA(h)=(struct rtmsg){.rtm_family=family,.rtm_dst_len=bits,.rtm_type=RTN_UNICAST};
+    attr(h,RTA_TABLE,&table,4); attr(h,RTA_DST,destination.bytes,width); attr(h,RTA_OIF,&index,4);
+    assert(!ack(n,&root,h,NULL));
+    assert(md_network_route_lookup(n,destination,0,NULL)->info.index==uplink);
+    struct md_network_route_entry route={0};
+    assert(md_network_route_table(n,destination,0,table,&route)->info.index==index && route.table==table);
+    h=request(&p,RTM_NEWRULE,NLM_F_CREATE|NLM_F_EXCL); h->nlmsg_len=NLMSG_LENGTH(sizeof(struct fib_rule_hdr));
+    *(struct fib_rule_hdr *)NLMSG_DATA(h)=(struct fib_rule_hdr){.family=family,.action=FR_ACT_TO_TBL,.src_len=bits,.res1=RTPROT_BOOT};
+    attr(h,FRA_TABLE,&table,4); attr(h,FRA_PRIORITY,&priority,4); attr(h,FRA_SRC,source.bytes,width);
+    attr(h,FRA_FWMARK,&mark,4); attr(h,FRA_FWMASK,&mask,4);
+    assert(ack(n,&user,h,NULL)==-EPERM);
+    struct md_network_publication refusal={.publish=reject_response};
+    unsigned original=n->rule_count;
+    assert(md_network_route(n,&root,h,h->nlmsg_len,91,0,NULL,reply.bytes,sizeof(reply),&refusal)==-EAGAIN);
+    assert(n->rule_count==original);
+    int queue[2]; assert(!socketpair(AF_UNIX,SOCK_DGRAM|SOCK_CLOEXEC,0,queue));
+    unsigned group=family==AF_INET6 ? RTNLGRP_IPV6_RULE : RTNLGRP_IPV4_RULE;
+    struct md_network_listener observer={.peer=queue[0],.protocol=NETLINK_ROUTE,.groups=1U<<(group-1)};
+    n->listeners=&observer;
+    assert(md_network_route(n,&root,h,h->nlmsg_len,91,0,NULL,reply.bytes,sizeof(reply),&refusal)==-EAGAIN);
+    assert(n->rule_count==original+1);
+    unsigned char event[1024];
+    assert(recv(queue[1],event,sizeof(event),MSG_DONTWAIT)>(ssize_t)sizeof(struct md_network_packet));
+    struct nlmsghdr header; memcpy(&header,event+sizeof(struct md_network_packet),sizeof(header));
+    assert(header.nlmsg_type==RTM_NEWRULE);
+    assert(ack(n,&root,h,NULL)==-EEXIST);
+    int error;
+    assert(md_network_policy_route(n,source,destination,mark|1,0,&route,&error)->info.index==index && !error);
+    assert(md_network_policy_route(n,source,destination,0,0,NULL,NULL)->info.index==uplink);
+    assert(md_network_policy_route(n,other,destination,mark,0,NULL,NULL)->info.index==uplink);
+    assert(md_network_policy_route(n,source,other,mark,0,NULL,NULL)->info.index==uplink);
+    if (family==AF_INET) {
+        n->all.rp_filter=1;
+        link=md_network_interface_find(n,uplink,NULL);
+        assert(!md_network_ingress(n,link,destination,source,mark));
+        n->all.src_valid_mark=1;
+        assert(md_network_ingress(n,link,destination,source,mark)==-ENETUNREACH);
+        assert(!md_network_ingress(n,md_network_interface_find(n,index,NULL),destination,source,mark));
+        n->all.rp_filter=n->all.src_valid_mark=0;
+    }
+    struct md_network_namespace *child=md_network_namespace_copy(n,NULL);
+    assert(child->rule_count==original && !child->route_count);
+    md_network_namespace_release(child);
+    h->nlmsg_type=RTM_DELRULE;
+    unsigned realm=1; struct rtattr *realm_attribute=attr(h,FRA_FLOW,&realm,sizeof(realm));
+    assert(ack(n,&root,h,NULL)==-EOPNOTSUPP && n->rule_count==original+1);
+    realm=0; memcpy(RTA_DATA(realm_attribute),&realm,sizeof(realm));
+    unsigned char protocol=RTPROT_STATIC;
+    struct rtattr *protocol_attribute=attr(h,FRA_PROTOCOL,&protocol,1);
+    assert(ack(n,&root,h,NULL)==-ENOENT && n->rule_count==original+1);
+    protocol=RTPROT_BOOT; memcpy(RTA_DATA(protocol_attribute),&protocol,1);
+    assert(!ack(n,&root,h,NULL) && n->rule_count==original);
+    assert(recv(queue[1],event,sizeof(event),MSG_DONTWAIT)>(ssize_t)sizeof(struct md_network_packet));
+    memcpy(&header,event+sizeof(struct md_network_packet),sizeof(header)); assert(header.nlmsg_type==RTM_DELRULE);
+    assert(ack(n,&root,h,NULL)==-ENOENT);
+    h=request(&p,RTM_NEWRULE,NLM_F_CREATE); h->nlmsg_len=NLMSG_LENGTH(sizeof(struct fib_rule_hdr));
+    *(struct fib_rule_hdr *)NLMSG_DATA(h)=(struct fib_rule_hdr){.family=family,.action=FR_ACT_PROHIBIT,.flags=FIB_RULE_INVERT};
+    attr(h,FRA_PRIORITY,&priority,4); attr(h,FRA_FWMARK,&mark,4); attr(h,FRA_FWMASK,&mask,4);
+    assert(!ack(n,&root,h,NULL));
+    assert(!md_network_policy_route(n,source,destination,0,0,NULL,&error) && error==-EACCES);
+    assert(md_network_policy_route(n,source,destination,mark,0,NULL,NULL)->info.index==uplink);
+    assert(md_network_policy_route(n,source,source,0,0,&route,NULL)->info.index==index && route.table==RT_TABLE_LOCAL);
+    struct md_fd_object *socket; int fd;
+    assert(!md_network_endpoint_open(n,0,family,SOCK_DGRAM,0,&socket,&fd));
+    socklen_t size=4;
+    assert(md_network_endpoint_sockopt(socket,fd,&user,1,SOL_SOCKET,SO_MARK,&mark,&size)==-EPERM);
+    assert(!md_network_endpoint_sockopt(socket,fd,&root,1,SOL_SOCKET,SO_MARK,&mark,&size));
+    uint32_t value=0; assert(!md_network_endpoint_sockopt(socket,fd,&user,0,SOL_SOCKET,SO_MARK,&value,&size) && value==mark);
+    close(fd); md_fd_object_release(socket);
+    n->listeners=NULL; close(queue[0]); close(queue[1]);
+    md_identity_release(&root); md_identity_release(&user); md_network_namespace_release(n);
+}
 void test_network_route(void) {
+    policy_routes(AF_INET); policy_routes(AF_INET6);
+    puts("PASS routing policy: tables, source/mark/mask/invert, priority, fallback, denial, namespace, authority and publication");
+    point_to_point();
     route_metrics();
     struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
     struct md_network_namespace *child=md_network_namespace_copy(n,NULL);
@@ -186,6 +386,35 @@ void test_network_route(void) {
     assert(md_network_interface_find(n,endpoint,NULL)->info.tx_queue_length==77);
     struct md_fd_object *socket=md_network_socket_new(n);
     assert(socket && md_network_interface_ioctl(SIOCGIFHWADDR) && md_network_interface_ioctl(SIOCSIFHWADDR));
+    struct md_network_bridge_ioctl br={.name="br-test",.args={BRCTL_SET_BRIDGE_FORWARD_DELAY,0}};
+    unsigned long bridge_io[6]={0,SIOCDEVPRIVATE};
+    assert(md_network_socket_call(socket,&user,SYS_ioctl,bridge_io,&br,sizeof(br),sizeof(br),1,NULL,NULL,NULL)==-EPERM);
+    assert(!md_network_socket_call(socket,&root,SYS_ioctl,bridge_io,&br,sizeof(br),sizeof(br),1,NULL,NULL,NULL));
+    br.args[0]=BRCTL_GET_BRIDGE_INFO;
+    assert(!md_network_socket_call(socket,&user,SYS_ioctl,bridge_io,&br,sizeof(br),sizeof(br),1,NULL,NULL,NULL));
+    assert(!br.info.forward_delay && !br.info.stp_enabled);
+    br.args[0]=BRCTL_SET_BRIDGE_STP_STATE; br.args[1]=1;
+    assert(md_network_socket_call(socket,&root,SYS_ioctl,bridge_io,&br,sizeof(br),sizeof(br),1,NULL,NULL,NULL)==-EOPNOTSUPP);
+    br.args[1]=0;
+    assert(!md_network_socket_call(socket,&root,SYS_ioctl,bridge_io,&br,sizeof(br),sizeof(br),1,NULL,NULL,NULL));
+    uint64_t scope; uint32_t automatic[2]={0};
+    assert(!md_network_parameter_scope(n,MD_NET_IPV6_AUTOCONF,"br-test",&scope));
+    assert(!md_network_parameter_write(n,MD_NET_IPV6_AUTOCONF,scope,automatic));
+    automatic[0]=1;
+    assert(md_network_parameter_write(n,MD_NET_IPV6_AUTOCONF,scope,automatic)==-EOPNOTSUPP);
+    assert(!md_network_parameter_read(n,MD_NET_IPV6_AUTOCONF,scope,automatic) && !automatic[0]);
+    unsigned char conf_buffer[sizeof(struct md_network_ifconf)+8*sizeof(struct ifreq)];
+    struct md_network_ifconf *conf=(void *)conf_buffer;
+    unsigned long conf_io[6]={0,SIOCGIFCONF};
+    conf->capacity=-1;
+    assert(!md_network_socket_call(socket,&user,SYS_ioctl,conf_io,conf,sizeof(conf_buffer),sizeof(*conf),1,NULL,NULL,NULL));
+    int conf_size=conf->length; assert(conf_size>0 && conf_size<=8*(int)sizeof(struct ifreq));
+    conf->capacity=sizeof(struct ifreq)-1;
+    assert(!md_network_socket_call(socket,&user,SYS_ioctl,conf_io,conf,sizeof(conf_buffer),sizeof(*conf),1,NULL,NULL,NULL));
+    assert(!conf->length);
+    conf->capacity=sizeof(conf_buffer)-sizeof(*conf);
+    assert(!md_network_socket_call(socket,&user,SYS_ioctl,conf_io,conf,sizeof(conf_buffer),sizeof(*conf),1,NULL,NULL,NULL));
+    assert(conf->length==conf_size && conf->entries[0].ifr_addr.sa_family==AF_INET);
     struct ifreq mac={0}; strcpy(mac.ifr_name,"veth-guest");
     mac.ifr_hwaddr.sa_family=ARPHRD_ETHER;
     const unsigned char address[6]={2,3,4,5,6,7};

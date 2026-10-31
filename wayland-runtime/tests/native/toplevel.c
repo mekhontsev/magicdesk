@@ -141,7 +141,7 @@ int main(void) {
     char path[4096];
     snprintf(path, sizeof(path), "%s/mdw-toplevel-XXXXXX", getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp");
     assert(mkdtemp(path) && setenv("XDG_RUNTIME_DIR", path, 1) == 0);
-    struct Host h = {.server = mdw_server_create()};
+    struct Host h = {.server = mdw_server_create(false)};
     assert(h.server);
     MdwEvents events = {.context = &h, .shell = shell, .toplevel_action = action};
     mdw_server_set_events(h.server, &events);

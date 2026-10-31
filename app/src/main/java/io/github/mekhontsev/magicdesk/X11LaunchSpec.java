@@ -20,6 +20,7 @@ final class X11LaunchSpec {
     final String keyboardDirectory;
     final String fileEnvironment;
     final HostedGuestFiles guestFiles;
+    final io.github.mekhontsev.magicdesk.hosted.HostedRenderer renderer;
     private final LinuxAppearanceLaunch appearance;
     private final String shell;
     final java.util.Map<String, String> environment;
@@ -27,7 +28,8 @@ final class X11LaunchSpec {
 
     X11LaunchSpec(String apk, String nativeLibraryDirectory, String hostPackage, String executorPackage,
             String runtimeParent, String temporaryDirectory, String keyboardDirectory, boolean sharedFiles,
-            int dpi, boolean application, String fileEnvironment, String shell, int colorScheme) {
+            int dpi, boolean application, String fileEnvironment, String shell, int colorScheme,
+            io.github.mekhontsev.magicdesk.hosted.HostedRenderer renderer) {
         if (dpi < 24 || dpi > 1536) throw new IllegalArgumentException("Invalid X11 DPI");
         byte[] secret = new byte[32], cookie = new byte[16];
         SecureRandom random = new SecureRandom();
@@ -35,6 +37,7 @@ final class X11LaunchSpec {
         random.nextBytes(cookie);
         this.fileEnvironment = fileEnvironment;
         this.shell = shell;
+        this.renderer = java.util.Objects.requireNonNull(renderer);
         appearance = new LinuxAppearanceLaunch(nativeLibraryDirectory, application, !fileEnvironment.isEmpty(), colorScheme);
         guestFiles = new HostedGuestFiles(nativeLibraryDirectory, !fileEnvironment.isEmpty());
         token = Base64.getUrlEncoder().withoutPadding().encodeToString(secret);
@@ -46,6 +49,7 @@ final class X11LaunchSpec {
         java.util.Map<String, String> env = new java.util.LinkedHashMap<>();
         env.put("CLASSPATH", apk);
         env.put("MAGICDESK_X11_LIBRARY", nativeLibraryDirectory + "/libXlorie.so");
+        env.put("MAGICDESK_X11_DISABLE_VULKAN_COPY", renderer.softwareOnly() ? "1" : "0");
         env.put("MAGICDESK_X11_PACKAGE", hostPackage);
         env.put("MAGICDESK_X11_EXECUTOR", executorPackage);
         env.put("MAGICDESK_X11_CONTENT_DIR", directory + "/content");

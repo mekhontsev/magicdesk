@@ -66,6 +66,7 @@ final class SettingsView {
         void setDesktopEnabled(boolean enabled);
 
         void configureConsoleFontSize();
+        void configureGraphicsRenderer();
 
         void openDeviceSetup();
 
@@ -108,6 +109,7 @@ final class SettingsView {
     private final java.util.EnumMap<IntegrationPackage, TextView> mIntegrationPackages =
             new java.util.EnumMap<>(IntegrationPackage.class);
     private TextView mConsoleFontSize;
+    private TextView mGraphicsRenderer;
     private TextView mShellBackend;
     private TextView mMaximumAccess;
     private TextView mLimitsStatus;
@@ -167,6 +169,13 @@ final class SettingsView {
         mConsoleFontSize.setTextSize(12);
         addAction(content, R.drawable.ic_font_size, R.string.settings_console_font_size,
                 mActions::configureConsoleFontSize, mConsoleFontSize);
+
+        addSection(content, R.string.graphics_title);
+        mGraphicsRenderer = new TextView(mActivity);
+        UiAppearance.text(mGraphicsRenderer, UiColor.MUTED);
+        mGraphicsRenderer.setTextSize(12);
+        addAction(content, R.drawable.ic_quick_controls, R.string.graphics_renderer,
+                mActions::configureGraphicsRenderer, mGraphicsRenderer);
 
         addSection(content, R.string.settings_section_input);
         mKeyboardOnAppDisplay = addSwitch(content, R.string.settings_keyboard_on_app_display);
@@ -385,6 +394,7 @@ final class SettingsView {
                 : mActivity.getString(R.string.settings_integration_restart_pending, configuredBackend.label));
         mConsoleFontSize.setText(mActivity.getString(R.string.console_font_size_value,
                 ConsolePreferences.fontSizeSp(mActivity)));
+        mGraphicsRenderer.setText(GraphicalPreferences.rendererLabel(GraphicalPreferences.renderer(mActivity)));
         for (final IntegrationPackage integration : IntegrationPackage.values()) {
             final String saved = integration.configured(mActivity);
             mIntegrationPackages.get(integration).setText(integration.restartRequired(mActivity)

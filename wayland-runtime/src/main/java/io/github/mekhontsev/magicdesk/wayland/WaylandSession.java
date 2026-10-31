@@ -58,6 +58,7 @@ public final class WaylandSession implements AutoCloseable {
 
     private final IWaylandServer server;
     private final int executorUid;
+    private final io.github.mekhontsev.magicdesk.hosted.HostedRenderer renderer;
     private final Listener listener;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final HandlerThread thread = new HandlerThread("WaylandControl");
@@ -327,7 +328,9 @@ public final class WaylandSession implements AutoCloseable {
         return true;
     }
 
-    public WaylandSession(IWaylandServer server, int executorUid, Listener listener) throws RemoteException {
+    public WaylandSession(IWaylandServer server, int executorUid,
+            io.github.mekhontsev.magicdesk.hosted.HostedRenderer renderer, Listener listener) throws RemoteException {
+        this.renderer = java.util.Objects.requireNonNull(renderer);
         this.server = java.util.Objects.requireNonNull(server);
         this.executorUid = executorUid;
         this.listener = java.util.Objects.requireNonNull(listener);
@@ -674,7 +677,7 @@ public final class WaylandSession implements AutoCloseable {
             CompletableFuture<Void> completion = new CompletableFuture<>();
             long generation = presentation.begin(completion);
             final HostedFramePresenter.SurfaceLease lease;
-            try { lease = new HostedFramePresenter.SurfaceLease(surface); }
+            try { lease = new HostedFramePresenter.SurfaceLease(surface, renderer); }
             catch (IOException | RuntimeException error) {
                 presentation.fail(generation, error);
                 failed(error.getMessage(), generation);

@@ -16,16 +16,26 @@
 #include <string.h>
 #include <unistd.h>
 
-void md_fs_proc_task(struct md_filesystem *fs,struct md_fs_anchor *origin,const char *path,
+int md_fs_proc_control_stat(struct md_filesystem *fs,struct md_control_file control,struct stat *st) {
+    struct md_proc_file *file=md_proc_file_from_control(control);
+    if (!file) return control.ops->stat(control.context,st);
+    struct md_task_credentials target;
+    int error=md_task_registry_credentials(fs->tasks,md_proc_file_get_node(file).process,&target);
+    if (error && error!=-ESRCH) return error;
+    int result=md_proc_file_retained_stat(file,error ? NULL : &target.identity,st);
+    if (!error) md_identity_release(&target.identity);
+    return result;
+}
+int md_fs_proc_task(struct md_filesystem *fs,struct md_fs_anchor *origin,const char *path,
         const struct md_fs_request *q,struct md_fs_result *out,const struct md_fs_output *output) {
     struct md_proc_path ref=md_proc_path_for(path,0,0);
     enum md_proc_kind selected=ref.kind==MD_PROC_FOREIGN ? ref.foreign_kind : ref.kind;
     enum md_proc_file_kind kind=(enum md_proc_file_kind)(selected-MD_PROC_UID_MAP);
-    if (!md_proc_file_task(kind) || !fs->actor) return;
+    if (!md_proc_file_task(kind) || !fs->actor) return 0;
     struct md_task_snapshot target;
     int error=md_task_registry_proc(fs->tasks,ref.process,&target);
     /* External Android processes retain native inspection and admission. */
-    if (error==-ESRCH) return;
+    if (error==-ESRCH) return 0;
     struct stat st;
     struct md_proc_file_node node;
     if (!error) error=md_proc_file_task_stat(ref.process,&target.identity,kind,&node,&st);
@@ -72,8 +82,27 @@ void md_fs_proc_task(struct md_filesystem *fs,struct md_fs_anchor *origin,const 
     }
     if (error) out->error=error;
     md_task_snapshot_release(&target);
+    return 1;
 }
 
+int md_fs_proc_prepare(struct md_filesystem *fs) {
+    int parent=md_fs_private_mounts_parent(fs->store);
+    if (parent<0) return parent;
+    struct md_provider_tree *tree=md_procfs_new(parent,NULL,fs->store->identity);
+    int error=tree ? 0 : -errno;
+    close(parent);
+    struct md_view_location target={.fd=-1,.parent=-1};
+    if (!error) error=md_view_walk(fs,AT_FDCWD,NULL,"/proc",1,0,MD_VIEW_MOUNT_TARGET,&target);
+    /* The initial mount retains native PID numbering. Its network directories
+     * and controls use the same task-selected provider as a guest proc mount. */
+    struct md_mount_source source={.fd=tree ? md_provider_tree_root(tree) : -1,
+        .backing=MD_MOUNT_PROC,.provider=tree,
+        .policy=MD_MOUNT_NOSUID|MD_MOUNT_NODEV|MD_MOUNT_NOEXEC};
+    if (!error) error=md_view_attach_source(fs,&source,&target,NULL);
+    md_view_location_close(&target);
+    md_provider_tree_release(tree);
+    return error;
+}
 int md_fs_proc_operation(struct md_filesystem *fs,struct md_mount_namespace *view,
         struct md_view_mount *mount,int fd,const struct md_fs_request *q,
         struct md_fs_result *out,const struct md_fs_output *output) {
@@ -127,6 +156,14 @@ int md_fs_proc_operation(struct md_filesystem *fs,struct md_mount_namespace *vie
     int network=md_network_namespace_managed(fs->actor->network);
     int network_control=network && md_proc_network_sysctl(ref.kind);
     enum md_proc_kind selected=ref.kind==MD_PROC_FOREIGN ? ref.foreign_kind : ref.kind;
+    if (selected==MD_PROC_PROCESS_DIRECTORY && (q->operation==MD_FS_OPEN || q->operation==MD_FS_REOPEN)) {
+        struct md_fs_anchor *origin=NULL;
+        r=md_view_anchor_duplicate(fs,view,mount,fd,&origin);
+        int handled=r ? 1 : md_fs_proc_task(fs,origin,path,q,out,output);
+        md_fs_anchor_release(origin);
+        if (r) out->error=r;
+        if (handled) return 1;
+    }
     if (selected==MD_PROC_PROCESS_DIRECTORY && (q->operation==MD_FS_STAT || q->operation==MD_FS_FSTAT)) {
         struct stat st;
         r=fstat(fd,&st) ? -errno : md_procfs_ownership(fs,path,&st);

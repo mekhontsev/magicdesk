@@ -5,7 +5,7 @@ struct wlr_renderer;
 struct wlr_allocator;
 struct wlr_buffer;
 struct wlr_dmabuf_attributes;
-struct wlr_renderer *mdw_renderer_create(void);
+struct wlr_renderer *mdw_renderer_create(bool software_only);
 struct wlr_allocator *mdw_allocator_create(struct wlr_renderer *renderer);
 MdgImage *mdw_buffer_image(struct wlr_buffer *buffer);
 MdgDevice *mdw_renderer_device(struct wlr_renderer *renderer);

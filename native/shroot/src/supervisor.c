@@ -288,6 +288,7 @@ struct receive_owner {
     struct md_network_io network;
 };
 struct task_action {
+    struct md_pending_node pending;
     union { struct md_task_filter filter; struct md_task_call native; };
     struct md_interception_buffer buffer;
     struct user_pt_regs continuation;
@@ -521,6 +522,7 @@ struct thread {
 static struct thread *threads;
 static struct thread *broker_events;
 static unsigned task_action_calls;
+static struct md_pending_queue task_action_queue;
 static struct task_action *task_action_execution;
 static struct task_action *loan_retirements;
 static struct md_task_quiesce *task_action_barrier;
@@ -1788,14 +1790,6 @@ static uid_t process_signal_uid(struct thread *observer,pid_t sender,uid_t fallb
 }
 static int proc_node_stat(struct proc_owner target, enum md_proc_file_kind kind,
         struct md_proc_file_node *node, struct stat *value) {
-    char path[64];
-    if (md_proc_file_directory(kind)) {
-        snprintf(path,sizeof(path),"/proc/%d%s",target.pid,kind==MD_PROC_FILE_NS_DIRECTORY ? "/ns" : "");
-        if (stat(path,value)) return -errno;
-        *node=(struct md_proc_file_node){value->st_dev,value->st_ino,target.pid};
-        value->st_uid=target.identity->uid.effective; value->st_gid=target.identity->gid.effective;
-        return 0;
-    }
     if (md_proc_file_namespace(kind)) {
         if (!target.resources || (kind==MD_PROC_FILE_NS_PID_CHILDREN
                 && !md_pid_namespace_initialized(target.resources->pid_children)))
@@ -1873,8 +1867,7 @@ static int proc_node_metadata(struct thread *t, const struct md_proc_metadata_re
     } else if (q->kind) {
         if (!md_proc_control_kind(q->kind)) return -EINVAL;
         if (q->kind==MD_PROC_NS_UNSUPPORTED) return -ENOENT;
-        if (!target.identity) return q->kind==MD_PROC_PROCESS_DIRECTORY
-            || q->kind==MD_PROC_STATUS || q->kind==MD_PROC_STAT || q->kind==MD_PROC_LIMITS ? -EXDEV : -ENOENT;
+        if (!target.identity) return md_proc_native_task(q->kind) ? -EXDEV : -ENOENT;
         kind=(enum md_proc_file_kind)(q->kind-MD_PROC_UID_MAP);
     } else {
         if (q->process!=t->pid) return -EPERM;
@@ -1907,15 +1900,8 @@ static int proc_node_metadata(struct thread *t, const struct md_proc_metadata_re
     out->kind=(unsigned)kind;
     if (namespace && file) md_namespace_reference_stat(md_proc_file_namespace_reference(file),value);
     else if (namespace && target.pid!=t->pid && !proc_allowed(t->pid,target.pid)) error=-EACCES;
+    else if (!namespace && !sysctl && file) error=md_proc_file_retained_stat(file,target.identity,value);
     else if (sysctl || target.identity) error=proc_node_stat(target,kind,&current,value);
-    if (!namespace && !sysctl && file && (!target.identity || error==-ENOENT || current.inode!=node.inode || current.device!=node.device)) {
-        *value=(struct stat){.st_dev=node.device,
-            .st_ino=md_proc_file_directory(kind) || md_proc_file_process(kind) ? node.inode
-                : (node.inode<<2)|((unsigned)kind+1)|UINT64_C(0x8000000000000000),
-            .st_mode=md_proc_file_directory(kind) ? S_IFDIR|0500 : S_IFREG|(md_proc_file_process(kind) ? 0444 : 0644),
-            .st_nlink=1,.st_blksize=getpagesize()};
-        error=0;
-    }
     if (!error && namespace) {
         if (q->nofollow || (file && (md_proc_file_flags(file)&(O_NOFOLLOW|O_PATH))==(O_NOFOLLOW|O_PATH)))
             value->st_mode=S_IFLNK|0777;
@@ -2146,8 +2132,7 @@ static void proc_file_request(struct thread *t, const struct seccomp_notif *q) {
         struct md_proc_file *source=operation==MD_PROC_FILE_REOPEN && target
             ? proc_file_capture(target,(int)q->data.args[3]) : NULL;
         if (source) kind=(enum md_proc_kind)(MD_PROC_UID_MAP+md_proc_file_kind(source));
-        if (!selected.identity) reply.error=operation==MD_PROC_FILE_OPEN && (kind==MD_PROC_PROCESS_DIRECTORY
-            || kind==MD_PROC_STATUS || kind==MD_PROC_STAT || kind==MD_PROC_LIMITS) ? -EXDEV : -ENOENT;
+        if (!selected.identity) reply.error=operation==MD_PROC_FILE_OPEN && md_proc_native_task(kind) ? -EXDEV : -ENOENT;
         else if (operation==MD_PROC_FILE_REOPEN && !source) reply.error=-EBADF;
         else if (!source && kind==MD_PROC_NS_UNSUPPORTED) reply.error=-ENOENT;
         else if ((!source && !md_proc_control_kind(kind)) || t->proc_image_fd>=0) reply.error=-EINVAL;
@@ -3687,8 +3672,17 @@ static int fd_native_io(struct thread *t,const struct ptrace_syscall_info *info)
     if (statistics) { ++statistics->native_io; ++statistics->calls[nr].trace; }
     resume(t->pid,0); return 1;
 }
+static struct task_action *task_action_new(struct thread *t) {
+    CHECK(!t->action);
+    struct task_action *owner=calloc(1,sizeof(*owner));
+    if (!owner) return NULL;
+    owner->requester=t; t->action=owner; ++task_action_calls;
+    md_pending_add(&task_action_queue,&owner->pending);
+    return owner;
+}
 static void task_action_release(struct task_action *owner) {
     CHECK(owner!=task_action_execution);
+    md_pending_cancel(&owner->pending);
     CHECK(!md_buffer_release(&owner->buffer));
     md_fd_selector_release(owner->group);
     md_fd_selector_release(owner->selected_group);
@@ -3996,6 +3990,15 @@ static void task_action_start(struct thread *t) {
     }
     task_action_call_start(owner);
 }
+static void task_action_progress(struct md_pending_node *node,void *context) {
+    (void)context;
+    struct task_action *owner=(struct task_action *)node;
+    /* Retain blocked work before dispatch: completion may free this owner or
+     * cancel another queued action. New actions wait for the next pass. */
+    md_pending_add(&task_action_queue,node);
+    if (!task_action_execution && owner->requester && owner->requester->pid)
+        task_action_start(owner->requester);
+}
 static void task_action_schedule(void) {
     if (!task_action_calls || memory_execution) return;
     if (task_action_execution) {
@@ -4006,10 +4009,7 @@ static void task_action_schedule(void) {
         next=s->next; loan_start(s);
         if (task_action_execution) return;
     }
-    for (struct thread *t=threads;t;t=t->next) if (t->pid && t->action) {
-        task_action_start(t);
-        if (task_action_execution) return;
-    }
+    CHECK(!md_pending_dispatch(&task_action_queue,task_action_progress,NULL));
 }
 static int loan_borrow(struct task_action *owner,struct thread *p,int *alive,int *stopped) {
     if (!p || !p->pid || p->resources.files!=owner->loan_table || p->terminal_stop || p->resume_lost) return 0;
@@ -4233,10 +4233,8 @@ static void fd_control(struct thread *t, struct user_pt_regs *r) {
             if (operation==MD_FD_SELECTOR_INSTALL && result>=0) {
                 if (result) result=0;
                 else if (t->action) result=-EBUSY;
-                else if (!(t->action=calloc(1,sizeof(*t->action)))) result=-ENOMEM;
+                else if (!task_action_new(t)) result=-ENOMEM;
                 else {
-                    ++task_action_calls;
-                    t->action->requester=t;
                     t->action->continuation=*r;
                     t->action->kind=(enum md_fd_selector_kind)id;
                     t->action->number=(int)r->regs[2];
@@ -4634,11 +4632,9 @@ static void readiness_start(struct thread *t) {
         error=md_fd_admission_next(o->admission,&o->request);
         TRACE("PROBE readiness-selector pid=%d result=%d fd=%d kind=%d\n",t->pid,error,o->request.number,o->request.kind);
         if (error==1) {
-            CHECK(!t->action);
-            struct task_action *s=calloc(1,sizeof(*s));
+            struct task_action *s=task_action_new(t);
             if (!s) { readiness_reply(t,-ENOMEM); return; }
-            ++task_action_calls; t->action=s;
-            s->requester=t; s->continuation=o->continuation;
+            s->continuation=o->continuation;
             s->kind=o->request.kind; s->number=o->request.number;
             s->selected_group=md_fd_selector_fork(o->request.group,1); s->complete=readiness_selected;
             task_action_start(t); return;
@@ -8917,9 +8913,9 @@ static int publish_birth(struct thread *t,pid_t child,unsigned event) {
 static pid_t kernel_event(int *status,struct rusage *usage) {
     int64_t start=md_cost_begin(statistics ? &statistics->event_collect : NULL);
     int accounting=md_debugger_active(debugger);
-    /* Refresh the lossy TID hint before paying for a general kernel scan.
+    /* Refresh the lossy TID hint before a kernel query, not for an owned batch.
      * The periodic source budget still services all other event owners. */
-    if (!task_wait.count && !task_wait.drained) drain();
+    if (!task_wait.pending_count && !task_wait.count && !task_wait.drained) drain();
     pid_t pid=md_task_wait_ready(&task_wait,status,accounting ? usage : NULL);
     /* Deferred events may outlive a debugger attachment. Absent accounting
      * must be explicit, not a previous event's or uninitialized stack data. */

@@ -18,6 +18,7 @@
 #include <linux/netfilter/xt_comment.h>
 #include <linux/netfilter/xt_conntrack.h>
 #include <linux/netfilter/xt_mark.h>
+#include <linux/netfilter/xt_connmark.h>
 #include <linux/netfilter/xt_addrtype.h>
 #include <linux/netfilter/xt_pkttype.h>
 #include <linux/netfilter/xt_rpfilter.h>
@@ -25,6 +26,7 @@
 #include <linux/netfilter_ipv6/ip6t_REJECT.h>
 #include <linux/if_packet.h>
 #include <linux/rtnetlink.h>
+#include <linux/fib_rules.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <stdio.h>
@@ -535,7 +537,7 @@ static void native_disjoint_update(void) {
                 assert(!md_network_flow_admits(n,&filter,&path));
                 rule.expressions[0].transport.destination[0]=rule.expressions[0].transport.destination[1]=reverse ? 32800 : 443;
                 assert(md_network_flow_admits(n,&filter,&path)
-                    ==(effects[i]==MD_FILTER_COUNTER ? 0 : -EBUSY));
+                    ==(effects[i]==MD_FILTER_VERDICT ? -EBUSY : 0));
                 if (effects[i]==MD_FILTER_COUNTER) {
                     struct md_filter_packet fresh=packet;
                     struct md_network_flow_path successor;
@@ -884,7 +886,7 @@ static void compat_nat(void) {
             assert(!md_network_message_end_nest(&o,entry));
             struct md_filter_rule rule={.chain=2};
             int error=md_nft_expressions(&f,1,&rule,o.data+start,o.size-start);
-            if (variant>=3) { assert(error==(variant==7 ? -EINVAL : -EOPNOTSUPP)); continue; }
+            if (variant>=3 && !(variant==4 && snat)) { assert(error==(variant==7 ? -EINVAL : -EOPNOTSUPP)); continue; }
             assert(!error && rule.count==1 && rule.expressions[0].code==MD_FILTER_NAT);
             f.rules=&rule; f.rule_count=1;
             for (unsigned udp=0;udp<2;++udp) {
@@ -915,7 +917,7 @@ static void compat_masquerade(void) {
     assert(!md_nft_compat_supported(NFPROTO_IPV4,"MASQUERADE",1,1));
     assert(md_nft_compat_supported(NFPROTO_IPV6,"MASQUERADE",0,1));
     assert(!md_nft_compat_supported(NFPROTO_IPV4,"MASQUERADE",0,0));
-    for (unsigned variant=0;variant<4;++variant) {
+    for (unsigned variant=0;variant<7;++variant) {
         struct packet p;
         struct md_network_message o={.data=p.data,.capacity=sizeof(p.data)};
         add(&o,(NFNL_SUBSYS_NFTABLES<<8)|NFT_MSG_NEWRULE,0,NFPROTO_IPV4);
@@ -929,6 +931,12 @@ static void compat_masquerade(void) {
         struct nf_nat_ipv4_multi_range_compat info={.rangesize=variant==1 ? 2 : 1};
         if (variant==2) info.range[0].flags=NF_NAT_RANGE_PROTO_SPECIFIED;
         if (variant==3) info.range[0].min_ip=htonl(1);
+        if (variant>=4) {
+            info.range[0].flags=NF_NAT_RANGE_PROTO_SPECIFIED;
+            info.range[0].min.all=htons(1024); info.range[0].max.all=htons(65535);
+            if (variant==5) info.range[0].flags|=NF_NAT_RANGE_PROTO_RANDOM;
+            if (variant==6) info.range[0].max.all=htons(1000);
+        }
         unsigned char wire[(sizeof(info)+7)&~(size_t)7];
         memset(wire,0,sizeof(wire)); memcpy(wire,&info,sizeof(info));
         assert(!md_network_message_attribute(&o,NFTA_TARGET_INFO,wire,sizeof(wire)));
@@ -936,7 +944,7 @@ static void compat_masquerade(void) {
         assert(!md_network_message_end_nest(&o,entry));
         struct md_filter_rule rule={.chain=2};
         int error=md_nft_expressions(&f,1,&rule,o.data+start,o.size-start);
-        if (variant) { assert(error==-EOPNOTSUPP); continue; }
+        if (variant==1 || variant==3 || variant>=5) { assert(error==(variant==6 ? -EINVAL : -EOPNOTSUPP)); continue; }
         assert(!error && rule.count==1 && rule.expressions[0].code==MD_FILTER_MASQUERADE);
         f.rules=&rule; f.rule_count=1;
         struct md_filter_packet flow={.protocol=IPPROTO_TCP,.state=8,
@@ -944,9 +952,52 @@ static void compat_masquerade(void) {
             .masquerade_address=md_ip_v4(htonl(0x0a580001))};
         assert(!md_filter_evaluate(&f,NF_INET_POST_ROUTING,&flow));
         assert(flow.masquerade && flow.snat && md_ip_equal(flow.source,flow.masquerade_address));
+        assert(flow.source_port==htons(variant==2 ? 0 : variant==4 ? 1024 : 1));
         free(rule.wire); f.rules=NULL; f.rule_count=0;
     }
-    puts("PASS xt MASQUERADE: shared NAT expression and explicit unsupported range/flag rejection");
+    puts("PASS xt MASQUERADE: port ranges and explicit unsupported flag/address rejection");
+}
+static void nft_source_port_range(void) {
+    for (unsigned ipv6=0;ipv6<2;++ipv6) for (unsigned snat=0;snat<2;++snat) {
+        struct md_network_filter_table table={.handle=1,.family=NFPROTO_INET};
+        struct md_filter_chain chain={.table=1,.handle=2,.hook=NF_INET_POST_ROUTING,.policy=NF_ACCEPT,.nat=1};
+        struct md_network_filter f={.tables=&table,.count=1,.chains=&chain,.chain_count=1};
+        struct md_filter_rule typed={.chain=2,.count=3,.expressions={
+            {.code=MD_FILTER_IMMEDIATE,.dst=0,.size=2},
+            {.code=MD_FILTER_IMMEDIATE,.dst=4,.size=2},
+            {.code=snat ? MD_FILTER_NAT : MD_FILTER_MASQUERADE,.operation=NFT_NAT_SNAT,
+                .family=snat ? (ipv6 ? AF_INET6 : AF_INET) : 0,.aux=1,.src=0,.port_range=1,.port_max=4}}};
+        uint16_t low=htons(40000),high=htons(40001);
+        memcpy(typed.expressions[0].value,&low,2); memcpy(typed.expressions[1].value,&high,2);
+        struct packet packet;
+        struct md_network_message out={.data=packet.data,.capacity=sizeof(packet.data),.size=NLMSG_HDRLEN,.message=(void *)packet.data};
+        assert(!md_nft_emit_expressions(&f,&typed,&out));
+        const struct nlattr *list=(void *)(packet.data+NLMSG_HDRLEN);
+        struct md_filter_rule parsed={.chain=2};
+        assert(!md_nft_expressions(&f,1,&parsed,list+1,list->nla_len-sizeof(*list)));
+        assert(parsed.count==3 && !memcmp(parsed.expressions,typed.expressions,3*sizeof(*typed.expressions)));
+        f.rules=&parsed; f.rule_count=1; assert(!md_filter_validate(&f));
+        for (unsigned tcp=0;tcp<2;++tcp) for (unsigned port=39999;port<=40002;++port) {
+            struct md_filter_packet p={.source=md_ip_loopback(ipv6 ? AF_INET6 : AF_INET),
+                .destination=md_ip_loopback(ipv6 ? AF_INET6 : AF_INET),.source_port=htons(port),
+                .protocol=tcp ? IPPROTO_TCP : IPPROTO_UDP,.state=8};
+            p.masquerade_address=p.source;
+            assert(!md_filter_evaluate(&f,NF_INET_POST_ROUTING,&p));
+            assert(p.source_port==htons(port==40001 ? 40001 : 40000));
+        }
+        low=htons(40002); memcpy(parsed.expressions[0].value,&low,2);
+        struct md_filter_packet p={.source=md_ip_loopback(ipv6 ? AF_INET6 : AF_INET),
+            .destination=md_ip_loopback(ipv6 ? AF_INET6 : AF_INET),.protocol=IPPROTO_TCP,.state=8};
+        assert(md_filter_evaluate(&f,NF_INET_POST_ROUTING,&p)==-EINVAL);
+        free(parsed.wire);
+        /* Register reads must not accept uninitialized maximum bounds. */
+        typed.expressions[1]=typed.expressions[2]; typed.count=2;
+        out.size=NLMSG_HDRLEN;
+        assert(!md_nft_emit_expressions(&f,&typed,&out));
+        list=(void *)(packet.data+NLMSG_HDRLEN); parsed=(struct md_filter_rule){.chain=2};
+        assert(md_nft_expressions(&f,1,&parsed,list+1,list->nla_len-sizeof(*list))==-EINVAL);
+    }
+    puts("PASS nft source NAT: initialized min/max registers, IPv4/IPv6 TCP/UDP, source-port preservation, invalid ranges and dump roundtrip");
 }
 static void compat_comment(void) {
     struct md_network_filter_table table={.handle=1,.family=NFPROTO_IPV4};
@@ -1066,6 +1117,46 @@ static void compat_mark(void) {
         free(rule.wire); f.rules=NULL; f.rule_count=0;
     }
     puts("PASS xt mark: masked update, preserved bits, XOR and inverted predicate");
+}
+static void compat_connmark(void) {
+    struct md_network_filter_table table={.handle=1,.family=NFPROTO_IPV4};
+    struct md_filter_chain chain={.table=1,.handle=2,.hook=NF_INET_PRE_ROUTING,.policy=NF_DROP};
+    struct md_network_filter f={.tables=&table,.count=1,.chains=&chain,.chain_count=1};
+    assert(md_nft_compat_supported(NFPROTO_IPV4,"CONNMARK",1,1));
+    assert(md_nft_compat_supported(NFPROTO_IPV6,"connmark",1,0));
+    assert(!md_nft_compat_supported(NFPROTO_IPV4,"CONNMARK",2,1));
+    for (unsigned variant=0;variant<5;++variant) {
+        struct packet p; struct md_network_message out={.data=p.data,.capacity=sizeof(p.data)};
+        add(&out,(NFNL_SUBSYS_NFTABLES<<8)|NFT_MSG_NEWRULE,0,NFPROTO_IPV4);
+        size_t start=out.size,entry,data;
+        int match=variant>=3;
+        assert(!md_network_message_nest(&out,NFTA_LIST_ELEM,&entry));
+        assert(!md_network_message_attribute(&out,NFTA_EXPR_NAME,match ? "match" : "target",match ? 6 : 7));
+        assert(!md_network_message_nest(&out,NFTA_EXPR_DATA,&data));
+        uint32_t revision=htonl(1);
+        assert(!md_network_message_attribute(&out,match ? NFTA_MATCH_NAME : NFTA_TARGET_NAME,match ? "connmark" : "CONNMARK",9));
+        assert(!md_network_message_attribute(&out,match ? NFTA_MATCH_REV : NFTA_TARGET_REV,&revision,4));
+        struct xt_connmark_tginfo1 target={.ctmark=0x2001,.ctmask=0x6000,.nfmask=0x2000,.mode=variant};
+        struct xt_connmark_mtinfo1 predicate={.mark=0x2000,.mask=0x2000,.invert=variant==4};
+        unsigned char wire[16]={0};
+        memcpy(wire,match ? (void *)&predicate : (void *)&target,match ? sizeof(predicate) : sizeof(target));
+        assert(!md_network_message_attribute(&out,match ? NFTA_MATCH_INFO : NFTA_TARGET_INFO,wire,sizeof(wire)));
+        assert(!md_network_message_end_nest(&out,data)); assert(!md_network_message_end_nest(&out,entry));
+        struct md_filter_rule rule={.chain=2};
+        assert(!md_nft_expressions(&f,1,&rule,out.data+start,out.size-start));
+        rule.expressions[rule.count++]=(struct md_filter_expression){.code=MD_FILTER_VERDICT,.operation=NF_ACCEPT};
+        f.rules=&rule; f.rule_count=1;
+        for (unsigned bit=0;bit<2;++bit) {
+            uint32_t mark=0x4001|(bit ? 0x2000 : 0),ct=0x8003|(bit ? 0x2000 : 0);
+            struct md_filter_packet packet={.destination=md_ip_any(AF_INET),.mark=mark,.ctmark=ct};
+            assert(md_filter_evaluate(&f,NF_INET_PRE_ROUTING,&packet)==(!match || bit!=(variant==4) ? 0 : -EACCES));
+            assert(packet.mark==(variant==2 ? (mark&~target.nfmask)^(ct&target.ctmask) : mark));
+            assert(packet.ctmark==(variant==0 ? (ct&~target.ctmask)^target.ctmark
+                : variant==1 ? (ct&~target.ctmask)^(mark&target.nfmask) : ct));
+        }
+        free(rule.wire);
+    }
+    puts("PASS xt connmark: masked set/save/restore, independent marks and inverted matching");
 }
 static void compat_addrtype(void) {
     struct md_network_filter_table table={.handle=1,.family=NFPROTO_IPV4};
@@ -1319,19 +1410,154 @@ static void reject_tcp(void) {
         free(rule.wire);
         struct md_filter_rule unsupported={0};
         if (!compat) {
-            /* Changing the wire type must fail, never admit ICMP as DROP. */
+            /* ICMPX is an inet-table operation, not an IPv4/IPv6 wire type. */
             uint32_t unsupported_mode=htonl(NFT_REJECT_ICMPX_UNREACH);
             memcpy(out.data+type_offset,&unsupported_mode,4);
             assert(md_nft_expressions(&f,1,&unsupported,out.data+start,out.size-start)==-EOPNOTSUPP);
         }
     }
-    puts("PASS nft/xt TCP REJECT: IPv4/IPv6, immediate error, UDP exclusion, hook validation and unsupported ICMP rejection");
+    puts("PASS nft/xt TCP REJECT: IPv4/IPv6, immediate error, UDP exclusion and hook/family validation");
+}
+static void reject_icmp(void) {
+    for(unsigned family=0;family<3;++family) for(unsigned compat=0;compat<(family==2 ? 1U : 2U);++compat) {
+        unsigned families[]={NFPROTO_IPV4,NFPROTO_IPV6,NFPROTO_INET};
+        struct md_network_filter_table table={.handle=1,.family=families[family]};
+        struct md_filter_chain chain={.table=1,.handle=2,.hook=NF_INET_LOCAL_IN,.policy=NF_ACCEPT};
+        struct md_filter_rule rule={.chain=2};
+        struct md_network_filter f={.tables=&table,.count=1,.chains=&chain,.chain_count=1,.rules=&rule,.rule_count=1};
+        for(unsigned code=0;code<16;++code) {
+            struct packet p;
+            struct md_network_message out={.data=p.data,.capacity=sizeof(p.data)};
+            add(&out,(NFNL_SUBSYS_NFTABLES<<8)|NFT_MSG_NEWRULE,0,table.family);
+            size_t start=out.size,entry,data;
+            assert(!md_network_message_nest(&out,NFTA_LIST_ELEM,&entry));
+            const char *name=compat ? "target" : "reject";
+            assert(!md_network_message_attribute(&out,NFTA_EXPR_NAME,name,strlen(name)+1));
+            assert(!md_network_message_nest(&out,NFTA_EXPR_DATA,&data));
+            unsigned kind=family==2 ? MD_REJECT_ICMPX : family ? MD_REJECT_ICMP6 : MD_REJECT_ICMP4;
+            int valid=md_network_reject_valid(kind,code);
+            if(compat) {
+                static const int v4[]={IPT_ICMP_NET_UNREACHABLE,IPT_ICMP_HOST_UNREACHABLE,
+                    IPT_ICMP_PROT_UNREACHABLE,IPT_ICMP_PORT_UNREACHABLE,-1,-1,-1,-1,-1,
+                    IPT_ICMP_NET_PROHIBITED,IPT_ICMP_HOST_PROHIBITED,-1,-1,IPT_ICMP_ADMIN_PROHIBITED};
+                static const int v6[]={IP6T_ICMP6_NO_ROUTE,IP6T_ICMP6_ADM_PROHIBITED,
+                    IP6T_ICMP6_NOT_NEIGHBOUR,IP6T_ICMP6_ADDR_UNREACH,IP6T_ICMP6_PORT_UNREACH,
+                    IP6T_ICMP6_POLICY_FAIL,IP6T_ICMP6_REJECT_ROUTE};
+                uint32_t info[2]={valid ? (unsigned)(family ? v6[code] : v4[code]) : 999,0},zero=0;
+                assert(!md_network_message_attribute(&out,NFTA_TARGET_NAME,"REJECT",7));
+                assert(!md_network_message_attribute(&out,NFTA_TARGET_REV,&zero,4));
+                assert(!md_network_message_attribute(&out,NFTA_TARGET_INFO,info,sizeof(info)));
+            } else {
+                uint32_t type=htonl(family==2 ? NFT_REJECT_ICMPX_UNREACH : NFT_REJECT_ICMP_UNREACH);
+                unsigned char wire_code=code;
+                assert(!md_network_message_attribute(&out,NFTA_REJECT_TYPE,&type,4));
+                assert(!md_network_message_attribute(&out,NFTA_REJECT_ICMP_CODE,&wire_code,1));
+            }
+            assert(!md_network_message_end_nest(&out,data));
+            assert(!md_network_message_end_nest(&out,entry));
+            int error=md_nft_expressions(&f,1,&rule,out.data+start,out.size-start);
+            assert(error==(valid ? 0 : -EOPNOTSUPP));
+            if(valid) {
+                assert(rule.count==1 && !md_filter_validate(&f));
+                for(unsigned v6=0;v6<2;++v6) for(unsigned tcp=0;tcp<2;++tcp) {
+                    struct md_filter_packet packet={.destination=md_ip_any(v6 ? AF_INET6 : AF_INET),
+                        .protocol=tcp ? IPPROTO_TCP : IPPROTO_UDP};
+                    error=md_filter_evaluate(&f,NF_INET_LOCAL_IN,&packet);
+                    if(family!=2 && family!=v6) assert(!error && !packet.rejection.type);
+                    else {
+                        assert(error<0 && packet.rejection.type==(v6 ? MD_REJECT_ICMP6 : MD_REJECT_ICMP4));
+                        assert(error==md_network_reject_error(packet.rejection));
+                    }
+                    /* A later accepted evaluation must not retain stale refusal metadata. */
+                    assert(!md_filter_evaluate(NULL,NF_INET_LOCAL_IN,&packet) && !packet.rejection.type);
+                }
+                chain.hook=NF_INET_PRE_ROUTING; assert(md_filter_validate(&f)==-EOPNOTSUPP);
+                chain.hook=NF_INET_LOCAL_IN;
+                free(rule.wire); rule=(struct md_filter_rule){.chain=2};
+            }
+        }
+    }
+    puts("PASS nft/xt ICMP REJECT: code/family admission, ICMPX normalization, TCP/UDP and hook validation");
+}
+static struct md_filter_route_result reroute_probe(void *context,const struct md_filter_packet *p,unsigned flags) {
+    unsigned *calls=context; ++*calls;
+    assert(flags==(NFTA_FIB_F_DADDR|NFTA_FIB_F_MARK) && p->mark==0x1200);
+    return (struct md_filter_route_result){.interface=7,.type=RTN_UNICAST,.name="marked0"};
+}
+static void native_mark_updates(void) {
+    for (unsigned family=AF_INET;family<=AF_INET6;family+=AF_INET6-AF_INET) {
+        struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+        struct md_filter_packet packet={.destination=md_ip_any(family),.destination_port=htons(443),
+            .source_port=htons(32800),.protocol=IPPROTO_TCP,.state=8};
+        assert(!md_network_profile_ip(family==AF_INET ? "192.0.2.1" : "2001:db8::1",&packet.destination));
+        struct md_network_flow_path path;
+        assert(!md_network_flow_route(n,&packet,0,0,&path) && !path.mediated);
+        struct md_filter_chain chain={.handle=1,.hook=NF_INET_LOCAL_OUT,.policy=NF_ACCEPT};
+        struct md_filter_rule rule={.chain=1,.count=1,.expressions={{.code=MD_FILTER_META_SET,.constant=1}}};
+        unsigned mark=0x1200,mask=UINT32_MAX;
+        memcpy(rule.expressions[0].value,&mark,4); memcpy(rule.expressions[0].mask,&mask,4);
+        struct md_network_filter_table table={.family=family==AF_INET ? NFPROTO_IPV4 : NFPROTO_IPV6};
+        struct md_network_filter filter={.tables=&table,.count=1,.chains=&chain,.chain_count=1,.rules=&rule,.rule_count=1};
+        assert(!md_network_flow_admits(n,&filter,&path));
+        memmove(n->rules+2,n->rules+1,(n->rule_count-1)*sizeof(*n->rules)); ++n->rule_count;
+        n->rules[1]=(struct md_network_rule){.source=md_ip_any(family),.destination=md_ip_any(family),
+            .priority=10,.mark=mark,.mask=mask,.action=FR_ACT_PROHIBIT};
+        assert(md_network_flow_admits(n,&filter,&path)==-EBUSY);
+        memmove(n->rules+1,n->rules+2,(--n->rule_count-1)*sizeof(*n->rules));
+        rule.count=3;
+        rule.expressions[0].code=MD_FILTER_CT_SET;
+        rule.expressions[1]=(struct md_filter_expression){.code=MD_FILTER_CONNMARK_MATCH,.key=mark,.aux=mask};
+        rule.expressions[2]=(struct md_filter_expression){.code=MD_FILTER_VERDICT,.operation=NF_DROP};
+        assert(md_network_flow_admits(n,&filter,&path)==-EBUSY);
+        rule.expressions[1].key=mark+1;
+        assert(!md_network_flow_admits(n,&filter,&path));
+        assert(!path.original.mark && !path.translated.ctmark);
+        md_network_namespace_release(n);
+    }
+    puts("PASS native mark updates: same route admitted, marked denial and conntrack filter rejected, admission is side-effect free");
+}
+static void route_chains(void) {
+    for (unsigned family=NFPROTO_IPV4;family<=NFPROTO_IPV6;family+=NFPROTO_IPV6-NFPROTO_IPV4) {
+        struct md_network_filter filter={0};
+        assert(!md_network_filter_add(&filter,family,"mangle",NULL,0));
+        for (unsigned hook=0;hook<NF_INET_NUMHOOKS;++hook) {
+            struct packet wire,reply;
+            struct md_network_message o={.data=wire.data,.capacity=sizeof(wire.data)};
+            struct md_network_message result={.data=reply.data,.capacity=sizeof(reply.data)};
+            add(&o,(NFNL_SUBSYS_NFTABLES<<8)|NFT_MSG_NEWCHAIN,NLM_F_CREATE|NLM_F_ECHO,family);
+            assert(!md_network_message_attribute(&o,NFTA_CHAIN_TABLE,"mangle",7));
+            assert(!md_network_message_attribute(&o,NFTA_CHAIN_NAME,"OUTPUT",7));
+            assert(!md_network_message_attribute(&o,NFTA_CHAIN_TYPE,"route",6));
+            size_t start;
+            assert(!md_network_message_nest(&o,NFTA_CHAIN_HOOK,&start));
+            attribute_u32(&o,NFTA_HOOK_HOOKNUM,hook); attribute_u32(&o,NFTA_HOOK_PRIORITY,-150);
+            assert(!md_network_message_end_nest(&o,start));
+            int error=md_nft_objects(&filter,o.message,43,&result);
+            assert(error==(hook==NF_INET_LOCAL_OUT ? 0 : -EOPNOTSUPP));
+            if (!error) assert(filter.chain_count==1 && filter.chains[0].reroute && !filter.chains[0].nat && result.size);
+        }
+        struct md_filter_rule rule={.chain=filter.chains[0].handle,.count=1,
+            .expressions={{.code=MD_FILTER_META_SET,.key=NFT_META_MARK,.constant=1}}};
+        unsigned mark=0x1200,mask=UINT32_MAX;
+        memcpy(rule.expressions[0].value,&mark,sizeof(mark)); memcpy(rule.expressions[0].mask,&mask,sizeof(mask));
+        filter.rules=&rule; filter.rule_count=1;
+        unsigned calls=0;
+        struct md_filter_packet p={.source=md_ip_any(family==NFPROTO_IPV4 ? AF_INET : AF_INET6),
+            .destination=md_ip_any(family==NFPROTO_IPV4 ? AF_INET : AF_INET6),.route=reroute_probe,.route_context=&calls};
+        assert(!md_filter_evaluate(&filter,NF_INET_LOCAL_OUT,&p) && calls==1 && p.output==7 && !strcmp(p.output_name,"marked0"));
+        assert(!md_filter_evaluate(&filter,NF_INET_LOCAL_OUT,&p) && calls==1);
+        free(filter.chains); free(filter.tables);
+    }
+    puts("PASS route chains: OUTPUT-only admission, IPv4/IPv6 and rerouting only changed marks");
 }
 void test_network_nft(void) {
+    native_mark_updates();
+    route_chains();
     optional_expression_data();
     batch_validation();
     data_maps();
     reject_tcp();
+    reject_icmp();
     compat_icmp();
     packet_route_matches();
     scoped_reverse_path();
@@ -1339,9 +1565,11 @@ void test_network_nft(void) {
     compat_transport();
     compat_nat();
     compat_masquerade();
+    nft_source_port_range();
     compat_comment();
     compat_conntrack();
     compat_mark();
+    compat_connmark();
     compat_addrtype();
     program();
     fib_hook_validation();

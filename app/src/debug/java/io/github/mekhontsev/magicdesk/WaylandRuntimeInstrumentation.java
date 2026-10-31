@@ -25,8 +25,15 @@ import java.util.concurrent.atomic.AtomicReference;
 /** Cross-UID production runtime test, independent of Desktop and privileged service startup. */
 public final class WaylandRuntimeInstrumentation extends Instrumentation {
     private String clientPath;
+    private String serverLibrary;
     private boolean shellTest;
     private boolean dmabuf;
+    private boolean pacing;
+    private final CompletableFuture<Void> monitorResized = new CompletableFuture<>();
+    private int frameWidth = 80, frameHeight = 60;
+    private final java.util.ArrayList<Double> frameDelays = new java.util.ArrayList<>();
+    private String clientOutput = "";
+    private String serverOutput = "";
     private int chromeDisplay = -1;
     private int workspaceDisplay = -1;
     private boolean homeLayers;
@@ -34,8 +41,14 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         clientPath = arguments == null ? null : arguments.getString("client");
+        serverLibrary = arguments == null ? null : arguments.getString("server_library");
         shellTest = arguments != null && Boolean.parseBoolean(arguments.getString("shell"));
         dmabuf = arguments != null && Boolean.parseBoolean(arguments.getString("dmabuf"));
+        pacing = arguments != null && Boolean.parseBoolean(arguments.getString("pacing"));
+        if (arguments != null) {
+            frameWidth = Integer.parseInt(arguments.getString("width", "80"));
+            frameHeight = Integer.parseInt(arguments.getString("height", "60"));
+        }
         if (arguments != null) chromeDisplay = Integer.parseInt(arguments.getString("chrome_display", "-1"));
         if (arguments != null) workspaceDisplay = Integer.parseInt(arguments.getString("workspace_display", "-1"));
         homeLayers = arguments != null && Boolean.parseBoolean(arguments.getString("home_layers", "false"));
@@ -48,6 +61,16 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
             Bundle result = new Bundle();
             try {
                 runRuntime();
+                if (pacing) {
+                    if (frameDelays.size() < 60) throw new IOException("Insufficient paced frame samples: " + frameDelays.size());
+                    java.util.Collections.sort(frameDelays);
+                    result.putString("pacing_client", clientOutput);
+                    result.putString("pacing_server", serverOutput);
+                    result.putString("pacing_transport", "samples=" + frameDelays.size()
+                            + " commitToImageP50Ms=" + frameDelays.get(frameDelays.size() / 2)
+                            + " commitToImageP95Ms=" + frameDelays.get(frameDelays.size() * 95 / 100)
+                            + " commitToImageMaxMs=" + frameDelays.get(frameDelays.size() - 1));
+                }
                 result.putString("wayland_runtime", workspaceDisplay >= 0
                         ? "passed: workspace catalog hosting, automatic placement, input holes, unmap/remap, role rejection, reservation cleanup, retained application"
                                 + (policyTask >= 0 ? "; fullscreen conceal/reveal with stable reservation and task plane" : "")
@@ -61,6 +84,8 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
             } catch (Exception error) {
                 result.putString("wayland_runtime", "failed: " + error);
                 result.putString("trace", android.util.Log.getStackTraceString(error));
+                result.putString("client_output", clientOutput);
+                result.putString("server_output", serverOutput);
                 finish(Activity.RESULT_CANCELED, result);
             }
         }, "WaylandRuntimeFixture").start();
@@ -69,6 +94,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
     private void runRuntime() throws Exception {
         if (clientPath == null || !clientPath.startsWith("/")) throw new IOException("An absolute native fixture path is required");
         Context context = getTargetContext();
+        var renderer = GraphicalPreferences.renderer(context);
         CommandExecution execution = new CommandExecution(context, DesktopExecBackend.TERMUX);
         Handler main = new Handler(Looper.getMainLooper());
         String id = "wayland-test-" + UUID.randomUUID();
@@ -81,6 +107,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
         CompletableFuture<Void> geometry = new CompletableFuture<>();
         CompletableFuture<Void> destroyed = new CompletableFuture<>(), serverExit = new CompletableFuture<>(), clientExit = new CompletableFuture<>();
         CompletableFuture<Long> mapped = new CompletableFuture<>();
+        CompletableFuture<Void> paced = new CompletableFuture<>();
         AtomicReference<String> failure = new AtomicReference<>();
         WaylandSession.Listener listener = new WaylandSession.Listener() {
             @Override public void geometryChanged(long window) {
@@ -92,6 +119,8 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                 WaylandSession current = session.get();
                 if (current == null) return;
                 for (var window : current.windows()) if (window.mapped()) mapped.complete(window.id());
+                for (var window : current.windows()) if ("io.magicdesk.pacing.done".equals(window.appId())) paced.complete(null);
+                for (var window : current.windows()) if ("io.magicdesk.monitor.resized".equals(window.appId())) monitorResized.complete(null);
                 if (mapped.isDone() && current.windows().isEmpty()) destroyed.complete(null);
             }
             @Override public void failed(long output, String message) {
@@ -112,7 +141,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                     var extras = intent.getExtras();
                     var server = IWaylandServer.Stub.asInterface(extras.getBinder("server"));
                     if ("attach".equals(intent.getStringExtra("phase")) && session.get() == null)
-                        session.set(new WaylandSession(server, execution.uid, listener));
+                        session.set(new WaylandSession(server, execution.uid, renderer, listener));
                     else if ("ready".equals(intent.getStringExtra("phase")) && session.get() != null) ready.complete(null);
                 } catch (Exception error) { ready.completeExceptionally(error); }
             }
@@ -126,19 +155,30 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                 + " MAGICDESK_WAYLAND_EXECUTOR=" + q(execution.termux.packageName)
                 + " MAGICDESK_WAYLAND_SESSION=" + q(id) + " MAGICDESK_WAYLAND_TOKEN=" + q(token)
                 + " MAGICDESK_WAYLAND_WIDTH=900 MAGICDESK_WAYLAND_HEIGHT=700 MAGICDESK_WAYLAND_SCALE=1"
-                + " MAGICDESK_WAYLAND_LIBRARY=" + q(library + "/libmagicdesk_wayland_executor.so")
+                + " " + io.github.mekhontsev.magicdesk.hosted.HostedRenderer.ENVIRONMENT + "=" + q(renderer.id)
+                + (pacing ? " MAGICDESK_WAYLAND_MEASURE_FRAMES=1" : "")
+                + " MAGICDESK_WAYLAND_LIBRARY=" + q(serverLibrary == null ? library + "/libmagicdesk_wayland_executor.so" : serverLibrary)
                 + " XDG_RUNTIME_DIR=" + q(directory) + " XKB_CONFIG_ROOT=" + q(prefix + "/share/X11/xkb")
                 + " /system/bin/app_process -Xnoimage-dex2oat / --nice-name=" + id + " " + WaylandServer.class.getName();
         try (var process = execution.start(command, "", id, null, (code, output, error) -> {
+            serverOutput = output;
             complete(serverExit, code, output, error);
             if (!ready.isDone()) ready.completeExceptionally(new IOException("Compositor exited: " + output));
-        }); var images = ImageReader.newInstance(80, 60, PixelFormat.RGBA_8888, 2)) {
+        }); var images = ImageReader.newInstance(frameWidth, frameHeight, PixelFormat.RGBA_8888, 2)) {
             ready.get(15, TimeUnit.SECONDS);
             images.setOnImageAvailableListener(reader -> {
                 try (var image = reader.acquireLatestImage()) {
                     if (image == null) return;
                     var plane = image.getPlanes()[0];
                     var buffer = plane.getBuffer();
+                    if (pacing) {
+                        long sent = 0;
+                        for (int i = 0; i < 8; ++i)
+                            sent |= (long)(buffer.get(42 * plane.getRowStride()
+                                    + (10 + (i / 3) * 4) * plane.getPixelStride() + i % 3) & 255) << (8 * i);
+                        long delta = System.nanoTime() - sent;
+                        if (delta >= 0 && delta < TimeUnit.SECONDS.toNanos(10)) frameDelays.add(delta / 1e6);
+                    }
                     int offset = 20 * plane.getRowStride() + 20 * plane.getPixelStride();
                     if ((buffer.get(offset) & 255) == 0x12 && (buffer.get(offset + 1) & 255) == 0x67
                             && (buffer.get(offset + 2) & 255) == 0xab) pixels.complete(null);
@@ -150,19 +190,25 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                 if (shell != null) shell.binding.get().ready().get(10, TimeUnit.SECONDS);
                 // EVENT_WAIT: compositor admission; a missing acknowledgement aborts this fixture.
                 if (workspace != null) workspace.binding.ready().get(10, TimeUnit.SECONDS);
+                String[] clientArguments = workspace != null ? new String[]{homeLayers ? "--home-client" : "--workspace-client"}
+                        : shell != null ? new String[]{"--client", "64", "100"}
+                        : new String[]{pacing ? "--pacing-client" : dmabuf ? "--dma-client" : "--client"};
                 String invocation = "env -u LD_PRELOAD -u LD_LIBRARY_PATH CLASSPATH=" + q(context.getApplicationInfo().sourceDir)
                         + " " + String.join(" ", launch.arguments(execution.termux.packageName,
                                 library + "/libmagicdesk_wayland_client.so", clientPath,
-                                workspace != null ? homeLayers ? "--home-client" : "--workspace-client"
-                                        : dmabuf ? "--dma-client" : "--client")
+                                clientArguments)
                                 .stream().map(WaylandRuntimeInstrumentation::q).toList());
                 try (var client = execution.start(invocation, "", id + "-client", null,
-                        (code, output, error) -> complete(clientExit, code, output, error))) {
-                    launch.transferred().toCompletableFuture().get(15, TimeUnit.SECONDS);
-                    long window = mapped.get(15, TimeUnit.SECONDS);
+                        (code, output, error) -> {
+                            clientOutput = output;
+                            complete(clientExit, code, output, error);
+                            if (!mapped.isDone()) mapped.completeExceptionally(new IOException("Client exited before mapping: " + output, error));
+                        })) {
+                    await(launch.transferred().toCompletableFuture(), "client FD handoff");
+                    long window = await(mapped, "application mapping");
                     geometry.get(15, TimeUnit.SECONDS);
-                    try (var output = session.get().openOutput(window, 80, 60)) {
-                        output.setSurface(images.getSurface(), 80, 60);
+                    try (var output = session.get().openOutput(window, frameWidth, frameHeight)) {
+                        output.setSurface(images.getSurface(), frameWidth, frameHeight);
                         if (workspace != null) {
                             workspace.exercise(output);
                             if (session.get().windows().stream().noneMatch(item -> item.id() == window))
@@ -171,8 +217,9 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                         } else if (shell != null) shell.exercise(output);
                         else {
                             pixels.get(15, TimeUnit.SECONDS);
+                            if (pacing) paced.get(20, TimeUnit.SECONDS);
                             // A replacement presentation also needs a receipt when the client is idle.
-                            output.setSurface(images.getSurface(), new WaylandViewport(0, 0, 80, 60)).get(15, TimeUnit.SECONDS);
+                            output.setSurface(images.getSurface(), new WaylandViewport(0, 0, frameWidth, frameHeight)).get(15, TimeUnit.SECONDS);
                             output.focus(true);
                             output.pointer(.25, .25);
                             output.button(0, true);
@@ -547,6 +594,9 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                 }, new Handler(Looper.getMainLooper()));
                 output.setSurface(replacement.getSurface(), new WaylandViewport(4, 2, 80, 40)).get(15, TimeUnit.SECONDS);
                 replacedPixels.get(15, TimeUnit.SECONDS);
+                runOnMainSync(() -> scope.resize(new ShellBounds(0, 0, 1000, 750), new ShellBounds(0, 0, 1000, 750)));
+                // EVENT_WAIT: client acknowledges the new monitor geometry before scope revocation.
+                monitorResized.get(15, TimeUnit.SECONDS);
                 runOnMainSync(scope::clear);
                 if (!scope.snapshot().exclusions().isEmpty()) throw new IOException("Shell reservations survived revocation");
                 if (binding.get().geometry(surface) != null) throw new IOException("Shell geometry survived revocation");
@@ -662,6 +712,12 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
         if (error != null) future.completeExceptionally(error);
         else if (code != 0) future.completeExceptionally(new IOException("Exit " + code + ": " + output));
         else future.complete(null);
+    }
+
+    private static <T> T await(CompletableFuture<T> future, String stage) throws Exception {
+        // EVENT_WAIT: exact fixture stage; expiry names the missing acknowledgement.
+        try { return future.get(15, TimeUnit.SECONDS); }
+        catch (java.util.concurrent.TimeoutException error) { throw new IOException("Timed out waiting for " + stage, error); }
     }
 
     private static String q(String value) { return ShellCommandLine.quote(value); }

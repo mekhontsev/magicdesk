@@ -196,6 +196,7 @@ public final class CompatibilityDiagnostics {
         snapshot.appendSelection(report);
         appendShellProbe(report, audit);
         CaptureDiagnostics.appendReport(report, appContext);
+        GraphicalDiagnostics.appendReport(report, appContext);
         DesktopSelfTestResult.appendLastResult(report, appContext);
         CompatibilityOnboardingStore.appendReport(report, appContext);
         DesktopWindowTransitionDiagnostics.appendReport(report);
@@ -482,6 +483,8 @@ public final class CompatibilityDiagnostics {
                         .isSessionWakeLockHeld())
                 .append('\n');
         report.append("Linux audio: ").append(LinuxAudio.diagnostics()).append('\n');
+        report.append("Linux graphics renderer (new sessions): ")
+                .append(GraphicalPreferences.renderer(context).id).append('\n');
         report.append("Clipboard runtime: ")
                 .append(ClipboardDiagnostics.describe())
                 .append('\n');

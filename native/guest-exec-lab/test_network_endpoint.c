@@ -197,6 +197,67 @@ static void tcp_reuse(unsigned family) {
     md_identity_release(&identity); md_network_namespace_release(n); md_network_namespace_release(root);
     printf("PASS IPv%u TCP reuse: bind-only sockets, listen conflicts and listener selection\n",family==AF_INET ? 4 : 6);
 }
+static void datagram_handoff(unsigned family) {
+    struct md_network_namespace *root=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+    struct md_network_namespace *n=md_network_namespace_copy(root,NULL);
+    struct md_identity identity=md_identity_new(0,0);
+    unsigned index;
+    assert(n && !md_network_interface_add(n,MD_LINK_BRIDGE,"udp-handoff",&index));
+    md_network_interface_find(n,0,"lo")->info.flags|=IFF_UP;
+    struct md_network_interface *link=md_network_interface_find(n,index,NULL);
+    link->info.flags|=IFF_UP; test_network_v4(link,htonl(0x0a590001),24); md_network_interface_up(link);
+    struct md_inet_address local={.ip=family==AF_INET ? md_ip_v4(htonl(0x0a590001))
+        : md_network_interface_source(link,md_ip_loopback(AF_INET6)),.port=htons(18766)};
+    if (family==AF_INET6) {
+        local.ip=md_ip_any(AF_INET6); local.ip.bytes[0]=0xfd; local.ip.bytes[15]=1;
+        assert(!md_network_interface_address(link,(struct md_network_ip_assignment){
+            .address=local.ip,.prefix=64,.flags=IFA_F_PERMANENT},0,0));
+    }
+    struct sockaddr_storage wire,native,peer; socklen_t length,native_size,peer_size;
+    assert(!md_inet_encode(&local,0,&wire,&length));
+    struct md_fd_object *objects[3]; int fds[3],one=1;
+    for (unsigned i=0;i<3;++i) {
+        assert(!md_network_endpoint_open(n,0,family,SOCK_DGRAM,0,&objects[i],&fds[i]));
+        endpoint_option(objects[i],fds[i],SOL_SOCKET,SO_REUSEADDR,&one,sizeof(one));
+    }
+    assert(!md_network_endpoint_bind(objects[0],fds[0],&identity,(void *)&wire,length));
+    assert(!md_network_endpoint_autobind(objects[1],fds[1],&identity,(void *)&wire,length,0));
+    assert(!md_network_endpoint_destination(objects[1],(void *)&wire,length,&native,&native_size));
+    assert(!connect(fds[1],(void *)&native,native_size));
+    assert(!md_network_endpoint_connected(objects[1],fds[1],(void *)&wire,length));
+    for (unsigned round=0;round<3;++round) {
+        unsigned receiver=round==1 ? 2 : 0;
+        assert(write(fds[1],"u",1)==1);
+        struct pollfd ready={.fd=fds[receiver],.events=POLLIN};
+        int count=poll(&ready,1,2000);
+        if (count!=1) fprintf(stderr,"UDP handoff family=%u round=%u receiver=%u readiness=%d\n",family,round,receiver,count);
+        assert(count==1 && (ready.revents&POLLIN));
+        char byte;
+        peer_size=sizeof(peer);
+        assert(recvfrom(fds[receiver],&byte,1,0,(void *)&peer,&peer_size)==1 && byte=='u');
+        assert(!md_network_endpoint_source(objects[receiver],&peer,&peer_size));
+        if (!round) {
+            assert(!md_network_endpoint_bind(objects[2],fds[2],&identity,(void *)&wire,length));
+            assert(!md_network_endpoint_destination(objects[2],(void *)&peer,peer_size,&native,&native_size));
+            assert(!connect(fds[2],(void *)&native,native_size));
+            assert(!md_network_endpoint_connected(objects[2],fds[2],(void *)&peer,peer_size));
+        }
+        unsigned sender=round<2 ? 2 : 0;
+        assert(!md_network_endpoint_destination(objects[sender],(void *)&peer,peer_size,&native,&native_size));
+        assert(sendto(fds[sender],"r",1,0,(void *)&native,native_size)==1);
+        if (round==1) { close(fds[2]); md_fd_object_release(objects[2]); }
+        ready=(struct pollfd){.fd=fds[1],.events=POLLIN};
+        assert(poll(&ready,1,2000)==1 && (ready.revents&POLLIN));
+        assert(read(fds[1],&byte,1)==1 && byte=='r');
+        if (round==1) {
+            ready=(struct pollfd){.fd=fds[0],.events=POLLIN};
+            assert(!poll(&ready,1,0));
+        }
+    }
+    for (unsigned i=0;i<2;++i) { close(fds[i]); md_fd_object_release(objects[i]); }
+    md_identity_release(&identity); md_network_namespace_release(n); md_network_namespace_release(root);
+    printf("PASS IPv%u UDP listener handoff: connected peer, reverse tuple and listener fallback\n",family==AF_INET ? 4 : 6);
+}
 static void multicast(unsigned family) {
     struct md_network_namespace *root=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
     struct md_network_namespace *n=md_network_namespace_copy(root,NULL),*other=md_network_namespace_copy(root,NULL);
@@ -456,6 +517,7 @@ void test_network_endpoint(void) {
     multicast(AF_INET6);
     tcp_defaults();
     tcp_reuse(AF_INET); tcp_reuse(AF_INET6);
+    datagram_handoff(AF_INET); datagram_handoff(AF_INET6);
     device_binding();
     socket_priority(AF_INET);
     socket_priority(AF_INET6);
@@ -547,12 +609,12 @@ void test_network_endpoint(void) {
     filter[0]=1;
     assert(!md_network_parameter_write(root,MD_NET_RP_FILTER,scope,filter));
     assert(!md_network_endpoint_destination(first,(void *)&remote,sizeof(remote),&logical,&length));
-    assert(md_network_ingress(root,gateway,md_ip_v4(htonl(INADDR_LOOPBACK)),md_ip_v4(remote.sin_addr.s_addr))==-ENETUNREACH);
+    assert(md_network_ingress(root,gateway,md_ip_v4(htonl(INADDR_LOOPBACK)),md_ip_v4(remote.sin_addr.s_addr),0)==-ENETUNREACH);
     filter[0]=2;
     assert(!md_network_parameter_write(root,MD_NET_RP_FILTER,scope,filter));
     uint32_t localnet[2]={1};
     assert(!md_network_parameter_write(root,MD_NET_ROUTE_LOCALNET,scope,localnet));
-    assert(!md_network_ingress(root,gateway,md_ip_v4(htonl(INADDR_LOOPBACK)),md_ip_v4(remote.sin_addr.s_addr)));
+    assert(!md_network_ingress(root,gateway,md_ip_v4(htonl(INADDR_LOOPBACK)),md_ip_v4(remote.sin_addr.s_addr),0));
     uint32_t forward[2]={0};
     assert(!md_network_parameter_write(root,MD_NET_IPV4_FORWARD,0,forward));
     assert(md_network_endpoint_destination(first,(void *)&remote,sizeof(remote),&logical,&length)==-ENETUNREACH);

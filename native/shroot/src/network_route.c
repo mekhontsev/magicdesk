@@ -4,6 +4,7 @@
 #include "network_route.h"
 #include "network_ioctl.h"
 #include "network_route_ip.h"
+#include "network_policy.h"
 #include "network_message.h"
 #include "netlink_attributes.h"
 #include "network_internal.h"
@@ -88,11 +89,19 @@ static int link_reply(struct md_network_message *out,const struct nlmsghdr *h,ui
     }
     if (!error && (link->kind==MD_LINK_VETH || link->kind==MD_LINK_BRIDGE || link->kind==MD_LINK_TUN || link->kind==MD_LINK_TAP)) {
         const char *kind=link->kind==MD_LINK_VETH ? "veth" : link->kind==MD_LINK_BRIDGE ? "bridge" : "tun";
-        unsigned char data[RTA_SPACE(7)]={0};
-        struct rtattr *a=(void *)data; a->rta_type=IFLA_INFO_KIND; a->rta_len=RTA_LENGTH(strlen(kind)+1);
-        memcpy(RTA_DATA(a),kind,strlen(kind)+1);
+        size_t info=out->size;
         /* rtnl_link_fill uses nla_nest_start_noflag for this legacy nest. */
-        error=md_network_message_attribute(out,IFLA_LINKINFO,data,RTA_ALIGN(a->rta_len));
+        error=md_network_message_attribute(out,IFLA_LINKINFO,NULL,0);
+        if (!error) error=md_network_message_attribute(out,IFLA_INFO_KIND,kind,strlen(kind)+1);
+        if (!error && link->kind==MD_LINK_BRIDGE) {
+            size_t data=out->size;
+            uint32_t stp=0;
+            error=md_network_message_attribute(out,IFLA_INFO_DATA,NULL,0);
+            if (!error) error=md_network_message_attribute(out,IFLA_BR_STP_STATE,&stp,sizeof(stp));
+            if (!error) error=md_network_message_attribute(out,IFLA_BR_FORWARD_DELAY,&link->bridge_forward_delay,sizeof(uint32_t));
+            if (!error) error=md_network_message_end_nest(out,data);
+        }
+        if (!error) error=md_network_message_end_nest(out,info);
     }
     return error;
 }
@@ -106,6 +115,8 @@ struct link_change {
     int has_peer_mtu,has_peer_address,has_hairpin,has_isolated,has_addrgen;
     unsigned addrgen;
     unsigned hairpin,isolated;
+    uint32_t forward_delay;
+    int has_forward_delay;
     unsigned char address[6],peer_address[6];
 };
 static int namespace_reference(const struct rtattr *attribute,unsigned type,struct md_network_target_reference *out) {
@@ -196,8 +207,17 @@ static int parse_link(const struct nlmsghdr *h,struct link_change *change,struct
         if (info.v[i] && i!=IFLA_INFO_KIND && i!=IFLA_INFO_DATA) return -EOPNOTSUPP;
     if (kind_is(info.v[IFLA_INFO_KIND],"bridge")) {
         change->kind=MD_LINK_BRIDGE;
-        if (info.v[IFLA_INFO_DATA] && RTA_PAYLOAD(info.v[IFLA_INFO_DATA])) return -EOPNOTSUPP;
-        return 0;
+        if (!info.v[IFLA_INFO_DATA]) return 0;
+        struct attrs data;
+        error=attributes(RTA_DATA(info.v[IFLA_INFO_DATA]),RTA_PAYLOAD(info.v[IFLA_INFO_DATA]),&data,IFLA_BR_MAX);
+        for (unsigned i=1;!error && i<=IFLA_BR_MAX;++i) if (data.v[i]) {
+            uint32_t value;
+            error=number(data.v[i],&value);
+            if (error) break;
+            if (i==IFLA_BR_FORWARD_DELAY) { change->forward_delay=value; change->has_forward_delay=1; }
+            else if (i!=IFLA_BR_STP_STATE || value) error=-EOPNOTSUPP;
+        }
+        return error;
     }
     if (!kind_is(info.v[IFLA_INFO_KIND],"veth")) return -EOPNOTSUPP;
     change->kind=MD_LINK_VETH;
@@ -252,7 +272,8 @@ static int change_link(struct md_network_namespace *n,const struct nlmsghdr *h,c
         struct md_network_namespace *target,struct md_network_namespace *peer_target) {
     struct md_network_interface *link=md_network_interface_find(n,c->index,c->name);
     if (h->nlmsg_type==RTM_DELLINK) return link ? md_network_interface_remove(n,link->info.index) : -ENODEV;
-    const unsigned mutable_flags=IFF_UP|IFF_MULTICAST|IFF_PROMISC|IFF_ALLMULTI;
+    const unsigned mutable_flags=IFF_UP|IFF_MULTICAST|IFF_PROMISC|IFF_ALLMULTI
+        |(link && link->kind==MD_LINK_TUN ? IFF_NOARP : 0);
     if ((c->change&~mutable_flags) && (!link || ((link->info.flags^c->flags)&c->change&~mutable_flags))) return -EOPNOTSUPP;
     if (c->has_mtu && (c->mtu<68 || c->mtu>65535)) return -EOPNOTSUPP;
     if (c->has_peer_mtu && (c->peer_mtu<68 || c->peer_mtu>65535)) return -EINVAL;
@@ -327,6 +348,7 @@ static int change_link(struct md_network_namespace *n,const struct nlmsghdr *h,c
     if (c->has_address) memcpy(link->info.address,c->address,6);
     if (c->has_hairpin) link->hairpin=c->hairpin;
     if (c->has_isolated) link->isolated=c->isolated;
+    if (c->has_forward_delay) link->bridge_forward_delay=c->forward_delay;
     struct md_network_namespace *owner=target ? target : n;
     if ((was_up && !(link->info.flags&IFF_UP)) || (had_ipv6_mtu && link->info.mtu<1280))
         md_network_interface_ipv6_flush(owner,link);
@@ -336,9 +358,10 @@ static int change_link(struct md_network_namespace *n,const struct nlmsghdr *h,c
 struct topology_checkpoint {
     struct md_network_namespace *space;
     struct md_network_interface *links;
-    unsigned count,route_count,nexthop_count;
+    unsigned count,route_count,nexthop_count,rule_count;
     struct md_network_route_entry *routes;
     struct md_network_nexthop *nexthops;
+    struct md_network_rule *rules;
     unsigned char states[256];
 };
 static int checkpoint(struct topology_checkpoint *saved,struct md_network_namespace *n) {
@@ -349,11 +372,15 @@ static int checkpoint(struct topology_checkpoint *saved,struct md_network_namesp
     if (n->route_count && !routes) { free(links); return -ENOMEM; }
     struct md_network_nexthop *nexthops=n->nexthop_count ? malloc(n->nexthop_count*sizeof(*nexthops)) : NULL;
     if (n->nexthop_count && !nexthops) { free(links); free(routes); return -ENOMEM; }
+    struct md_network_rule *rules=n->rule_count ? malloc(n->rule_count*sizeof(*rules)) : NULL;
+    if (n->rule_count && !rules) { free(links); free(routes); free(nexthops); return -ENOMEM; }
     if (n->count) memcpy(links,n->links,n->count*sizeof(*links));
     if (n->route_count) memcpy(routes,n->routes,n->route_count*sizeof(*routes));
     if (n->nexthop_count) memcpy(nexthops,n->nexthops,n->nexthop_count*sizeof(*nexthops));
+    if (n->rule_count) memcpy(rules,n->rules,n->rule_count*sizeof(*rules));
     *saved=(struct topology_checkpoint){.space=n,.links=links,.count=n->count,
-        .routes=routes,.route_count=n->route_count,.nexthops=nexthops,.nexthop_count=n->nexthop_count};
+        .routes=routes,.route_count=n->route_count,.nexthops=nexthops,.nexthop_count=n->nexthop_count,
+        .rules=rules,.rule_count=n->rule_count};
     if (n->listeners) for (unsigned i=0;i<n->count;++i)
         saved->states[i]=md_network_interface_snapshot(n,&n->links[i]).state;
     return 0;
@@ -368,10 +395,13 @@ static void checkpoint_finish(struct topology_checkpoint *saved,int commit) {
         if (n->route_count) memcpy(n->routes,saved->routes,n->route_count*sizeof(*n->routes));
         n->nexthop_count=saved->nexthop_count;
         if (n->nexthop_count) memcpy(n->nexthops,saved->nexthops,n->nexthop_count*sizeof(*n->nexthops));
+        n->rule_count=saved->rule_count;
+        if (n->rule_count) memcpy(n->rules,saved->rules,n->rule_count*sizeof(*n->rules));
     }
     free(saved->links);
     free(saved->routes);
     free(saved->nexthops);
+    free(saved->rules);
 }
 static const struct md_network_interface *snapshot_link(const struct md_network_interface *links,
         unsigned count,unsigned index) {
@@ -413,6 +443,7 @@ static int assignment_present(const struct md_network_interface *link,const stru
     for (unsigned i=0;link && i<link->address_count;++i) {
         const struct md_network_ip_assignment *b=&link->addresses[i];
         if (md_ip_equal(a->address,b->address) && (identity || (a->prefix==b->prefix && a->flags==b->flags
+                && md_ip_equal(md_network_address_destination(a),md_network_address_destination(b))
                 && a->scope==b->scope && a->route_metric==b->route_metric
                 && a->preferred_until==b->preferred_until && a->valid_until==b->valid_until))) return 1;
     }
@@ -440,7 +471,8 @@ static int route_present(const struct md_network_route_entry *routes,unsigned co
                 && md_ip_equal(a->source,b->source) && !memcmp(&a->metrics,&b->metrics,sizeof(a->metrics))
                 && a->prefix==b->prefix && a->interface==b->interface && a->metric==b->metric
                 && a->scope==b->scope && a->protocol==b->protocol && a->nexthop==b->nexthop
-                && a->valid_until==b->valid_until && a->preference==b->preference) return 1;
+                && a->valid_until==b->valid_until && a->preference==b->preference
+                && (a->table ? a->table : RT_TABLE_MAIN)==(b->table ? b->table : RT_TABLE_MAIN)) return 1;
     }
     return 0;
 }
@@ -490,6 +522,26 @@ static unsigned notify_changes(const struct topology_checkpoint *saved) {
     struct md_network_namespace *n=saved->space;
     if (!n || !n->listeners) return 0;
     unsigned published=0;
+    for (unsigned pass=0;pass<2;++pass) {
+        const struct md_network_rule *from=pass ? n->rules : saved->rules;
+        unsigned count=pass ? n->rule_count : saved->rule_count;
+        const struct md_network_rule *to=pass ? saved->rules : n->rules;
+        unsigned other=pass ? saved->rule_count : n->rule_count;
+        for (unsigned i=0;i<count;++i) {
+            unsigned occurrences=0,previous=0;
+            for (unsigned j=0;j<=i;++j) occurrences+=!memcmp(&from[j],&from[i],sizeof(*from));
+            for (unsigned j=0;j<other;++j) previous+=!memcmp(&to[j],&from[i],sizeof(*from));
+            if (occurrences<=previous) continue;
+            union { struct nlmsghdr align; unsigned char bytes[256]; } packet;
+            const struct nlmsghdr request={0};
+            struct md_network_message out={.data=packet.bytes,.capacity=sizeof(packet)};
+            if (!md_network_rule_reply(&out,&request,0,0,&from[i])) {
+                packet.align.nlmsg_type=pass ? RTM_NEWRULE : RTM_DELRULE;
+                published+=md_network_broadcast(n,from[i].destination.family==AF_INET6
+                    ? RTNLGRP_IPV6_RULE : RTNLGRP_IPV4_RULE,packet.bytes,out.size);
+            }
+        }
+    }
     for (unsigned pass=0;pass<2;++pass) {
         const struct md_network_nexthop *from=pass ? n->nexthops : saved->nexthops;
         unsigned count=pass ? n->nexthop_count : saved->nexthop_count;
@@ -571,29 +623,13 @@ int md_network_route_disable_ipv6(struct md_network_namespace *n,uint64_t scope,
     notify_changes(&saved); checkpoint_finish(&saved,1);
     refresh_deadline(n); fabric_deadline(n->fabric); return 0;
 }
-static int policy_dump(struct md_network_message *out,const struct nlmsghdr *h,uint32_t port,int dump) {
+static int empty_dump(const struct nlmsghdr *h,int dump) {
     if (!dump) return -EOPNOTSUPP;
     if (h->nlmsg_len<NLMSG_LENGTH(sizeof(struct rtgenmsg))) return -EINVAL;
     unsigned family=((const struct rtgenmsg *)NLMSG_DATA(h))->rtgen_family;
     if (family!=AF_UNSPEC && family!=AF_INET && family!=AF_INET6 && family!=AF_BRIDGE) return -EAFNOSUPPORT;
-    /* The fabric routes local addresses before its main table. It has no
-     * neighbor cache, programmable policy rules or
-     * traffic-control objects. Mutations of these catalogues remain rejected. */
-    if (h->nlmsg_type!=RTM_GETRULE) return 0;
-    if (family==AF_BRIDGE) return -EAFNOSUPPORT;
-    const unsigned char tables[]={RT_TABLE_LOCAL,RT_TABLE_MAIN,RT_TABLE_DEFAULT};
-    const uint32_t priority[]={0,32766,32767};
-    int error=0;
-    const unsigned families[]={AF_INET,AF_INET6};
-    for (unsigned f=0;!error && f<2;++f) for (unsigned i=0;!error && i<(f ? 2U : 3U);++i) {
-        if (family && family!=families[f]) continue;
-        struct fib_rule_hdr rule={.family=families[f],.table=tables[i],.action=FR_ACT_TO_TBL};
-        error=md_network_message_begin(out,h,port,RTM_NEWRULE,1,&rule,sizeof(rule));
-        const unsigned char protocol=RTPROT_KERNEL;
-        if (!error) error=md_network_message_attribute(out,FRA_PROTOCOL,&protocol,sizeof(protocol));
-        if (!error && priority[i]) error=md_network_message_attribute(out,FRA_PRIORITY,&priority[i],sizeof(priority[i]));
-    }
-    return error;
+    /* Neighbor caches and traffic-control objects have no synthetic entries. */
+    return 0;
 }
 static int strict_query(const struct nlmsghdr *h,int dump) {
     size_t body;
@@ -646,9 +682,11 @@ long md_network_route(struct md_network_namespace *n,const struct md_identity *i
     int error=query && strict ? strict_query(h,dump) : 0;
     const struct nlmsghdr *original=h;
     struct { struct nlmsghdr header; struct ifinfomsg body; } expanded={0};
-    if (!strict && dump && (h->nlmsg_type==RTM_GETLINK || h->nlmsg_type==RTM_GETADDR || h->nlmsg_type==RTM_GETROUTE)) {
+    if (!strict && dump && (h->nlmsg_type==RTM_GETLINK || h->nlmsg_type==RTM_GETADDR
+            || h->nlmsg_type==RTM_GETROUTE || h->nlmsg_type==RTM_GETRULE)) {
         size_t payload=h->nlmsg_type==RTM_GETLINK ? sizeof(struct ifinfomsg)
-            : h->nlmsg_type==RTM_GETADDR ? sizeof(struct ifaddrmsg) : sizeof(struct rtmsg);
+            : h->nlmsg_type==RTM_GETADDR ? sizeof(struct ifaddrmsg)
+            : h->nlmsg_type==RTM_GETRULE ? sizeof(struct fib_rule_hdr) : sizeof(struct rtmsg);
         /* Legacy rtnetlink dumps carry only rtgenmsg's family (glibc pads it
          * to four bytes). Mutation and lookup requests retain strict parsing. */
         if (size>=NLMSG_LENGTH(sizeof(struct rtgenmsg)) && size<NLMSG_LENGTH(payload)) {
@@ -711,12 +749,15 @@ long md_network_route(struct md_network_namespace *n,const struct md_identity *i
             error=md_network_routes(n,h,port,dump,strict,&out);
         else if (h->nlmsg_type==RTM_GETNEXTHOP || h->nlmsg_type==RTM_NEWNEXTHOP || h->nlmsg_type==RTM_DELNEXTHOP)
             error=md_network_nexthops(n,h,port,dump,&out);
-        else if (query) error=policy_dump(&out,h,port,dump);
+        else if (h->nlmsg_type==RTM_GETRULE || h->nlmsg_type==RTM_NEWRULE || h->nlmsg_type==RTM_DELRULE)
+            error=md_network_rules(n,h,port,dump,&out);
+        else if (query) error=empty_dump(h,dump);
         else error=-EOPNOTSUPP;
     }
     if (!error && !query && link && (change.has_hairpin || change.has_isolated))
         error=md_network_endpoint_policy_update(n,n->filter);
     if (!error && !query && (h->nlmsg_type==RTM_NEWROUTE || h->nlmsg_type==RTM_DELROUTE
+            || h->nlmsg_type==RTM_NEWRULE || h->nlmsg_type==RTM_DELRULE
             || h->nlmsg_type==RTM_NEWNEXTHOP || h->nlmsg_type==RTM_DELNEXTHOP || (link && change.has_mtu)))
         error=md_network_endpoint_transport_update(n);
     if (error) out.size=0;
@@ -774,7 +815,7 @@ static int mask_prefix(uint32_t mask,unsigned *prefix) {
     *prefix=(unsigned)__builtin_popcount(host); return 0;
 }
 int md_network_route_address_ioctl(struct md_network_namespace *n,const struct md_identity *id,unsigned command,struct ifreq *r) {
-    int writing=command==SIOCSIFADDR || command==SIOCSIFNETMASK;
+    int writing=command==SIOCSIFADDR || command==SIOCSIFNETMASK || command==SIOCSIFDSTADDR;
     if(writing && !md_identity_capable_in(id,n->owner,CAP_NET_ADMIN)) return -EPERM;
     struct sockaddr_in address; memcpy(&address,&r->ifr_addr,sizeof(address));
     if(writing && address.sin_family!=AF_INET) return -EAFNOSUPPORT;
@@ -790,12 +831,18 @@ int md_network_route_address_ioctl(struct md_network_namespace *n,const struct m
         else {
             struct md_network_ip_assignment *a=&link->addresses[at];
             address=(struct sockaddr_in){.sin_family=AF_INET,.sin_addr.s_addr=command==SIOCGIFADDR
-                ? a->address.v4 : htonl(a->prefix ? UINT32_MAX<<(32-a->prefix) : 0)};
+                ? a->address.v4 : command==SIOCGIFDSTADDR ? a->peer.v4
+                : htonl(a->prefix ? UINT32_MAX<<(32-a->prefix) : 0)};
             memcpy(&r->ifr_addr,&address,sizeof(address));
         }
     } else {
         struct md_network_interface before=*link;
-        if(command==SIOCSIFNETMASK) {
+        if(command==SIOCSIFDSTADDR) {
+            struct md_ip_address peer=md_ip_v4(address.sin_addr.s_addr);
+            if(at==link->address_count) error=-EADDRNOTAVAIL;
+            else if(md_ip_multicast(peer) || peer.v4==INADDR_BROADCAST) error=-EINVAL;
+            else link->addresses[at].peer=md_ip_equal(peer,link->addresses[at].address) ? md_ip_any(AF_INET) : peer;
+        } else if(command==SIOCSIFNETMASK) {
             if(at==link->address_count) error=-EADDRNOTAVAIL;
             else link->addresses[at].prefix=prefix;
         } else {
@@ -819,6 +866,41 @@ int md_network_route_address_ioctl(struct md_network_namespace *n,const struct m
         }
     }
     pthread_mutex_unlock(&n->fabric->lock); return error;
+}
+int md_network_route_legacy6(struct md_network_namespace *n,const struct md_identity *id,unsigned command,const void *data) {
+    union { struct nlmsghdr align; unsigned char bytes[256]; } request={0};
+    struct nlmsghdr *header=&request.align;
+    *header=(struct nlmsghdr){.nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK};
+    struct md_network_message message={.data=request.bytes,.capacity=sizeof(request),.message=header};
+    int error=0;
+    if(command==SIOCSIFADDR || command==SIOCDIFADDR) {
+        const struct in6_ifreq *r=data;
+        if(r->ifr6_ifindex<=0 || r->ifr6_prefixlen>128) return -EINVAL;
+        header->nlmsg_type=command==SIOCSIFADDR ? RTM_NEWADDR : RTM_DELADDR;
+        if(command==SIOCSIFADDR) header->nlmsg_flags|=NLM_F_CREATE|NLM_F_EXCL;
+        header->nlmsg_len=NLMSG_LENGTH(sizeof(struct ifaddrmsg)); message.size=header->nlmsg_len;
+        *(struct ifaddrmsg *)NLMSG_DATA(header)=(struct ifaddrmsg){.ifa_family=AF_INET6,
+            .ifa_prefixlen=r->ifr6_prefixlen,.ifa_index=(unsigned)r->ifr6_ifindex};
+        error=md_network_message_attribute(&message,IFA_ADDRESS,&r->ifr6_addr,sizeof(r->ifr6_addr));
+    } else if(md_network_route_ioctl(command)) {
+        const struct in6_rtmsg *r=data;
+        if(r->rtmsg_src_len || r->rtmsg_type || (r->rtmsg_flags&~(RTF_UP|RTF_GATEWAY|RTF_HOST))) return -EOPNOTSUPP;
+        if(r->rtmsg_ifindex<0 || r->rtmsg_dst_len>128) return -EINVAL;
+        header->nlmsg_type=command==SIOCADDRT ? RTM_NEWROUTE : RTM_DELROUTE;
+        if(command==SIOCADDRT) header->nlmsg_flags|=NLM_F_CREATE|NLM_F_EXCL;
+        header->nlmsg_len=NLMSG_LENGTH(sizeof(struct rtmsg)); message.size=header->nlmsg_len;
+        unsigned prefix=r->rtmsg_flags&RTF_HOST ? 128 : r->rtmsg_dst_len;
+        *(struct rtmsg *)NLMSG_DATA(header)=(struct rtmsg){.rtm_family=AF_INET6,.rtm_dst_len=prefix,
+            .rtm_table=RT_TABLE_MAIN,.rtm_protocol=RTPROT_BOOT,.rtm_type=RTN_UNICAST,
+            .rtm_scope=r->rtmsg_flags&RTF_GATEWAY ? RT_SCOPE_UNIVERSE : RT_SCOPE_LINK};
+        struct md_ip_address destination=md_ip_network(md_ip_load(AF_INET6,&r->rtmsg_dst),prefix);
+        error=md_network_message_attribute(&message,RTA_DST,destination.bytes,16);
+        if(!error && r->rtmsg_ifindex) error=md_network_message_attribute(&message,RTA_OIF,&r->rtmsg_ifindex,4);
+        if(!error && (r->rtmsg_flags&RTF_GATEWAY)) error=md_network_message_attribute(&message,RTA_GATEWAY,&r->rtmsg_gateway,16);
+        uint32_t metric=r->rtmsg_metric ? r->rtmsg_metric : 1024;
+        if(!error) error=md_network_message_attribute(&message,RTA_PRIORITY,&metric,4);
+    } else return -ENOTTY;
+    return error ? error : legacy_request(n,id,header);
 }
 int md_network_route_legacy(struct md_network_namespace *n,const struct md_identity *id,unsigned command,
         const struct md_network_route_ioctl *r) {
@@ -880,4 +962,39 @@ int md_network_route_attach_bridge(struct md_network_namespace *n,const struct m
     pthread_mutex_unlock(&n->fabric->lock);
     if (!master) return -ENODEV;
     return legacy_link_change(n,id,index,NULL,0,0,IFLA_MASTER,&master,sizeof(master));
+}
+int md_network_route_bridge(struct md_network_namespace *n,const struct md_identity *id,
+        struct md_network_bridge_ioctl *r) {
+    if (!memchr(r->name,0,IFNAMSIZ)) return -ENODEV;
+    pthread_mutex_lock(&n->fabric->lock);
+    struct md_network_interface *bridge=md_network_interface_find(n,0,r->name);
+    int exists=bridge && bridge->kind==MD_LINK_BRIDGE;
+    if (exists && r->args[0]==BRCTL_GET_BRIDGE_INFO) {
+        memset(&r->info,0,sizeof(r->info));
+        r->info.bridge_forward_delay=bridge->bridge_forward_delay;
+        r->info.forward_delay=bridge->bridge_forward_delay;
+    }
+    pthread_mutex_unlock(&n->fabric->lock);
+    if (!exists) return -ENODEV;
+    if (r->args[0]==BRCTL_GET_BRIDGE_INFO) return 0;
+    if (!md_identity_capable_in(id,n->owner,CAP_NET_ADMIN)) return -EPERM;
+    if (r->args[0]!=BRCTL_SET_BRIDGE_FORWARD_DELAY && r->args[0]!=BRCTL_SET_BRIDGE_STP_STATE)
+        return -EOPNOTSUPP;
+    if (r->args[1]>UINT32_MAX) return -ERANGE;
+    union { struct nlmsghdr alignment; unsigned char bytes[256]; } request={0};
+    struct nlmsghdr *header=(void *)request.bytes;
+    *header=(struct nlmsghdr){.nlmsg_len=NLMSG_LENGTH(sizeof(struct ifinfomsg)),
+        .nlmsg_type=RTM_NEWLINK,.nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK};
+    struct md_network_message message={.data=request.bytes,.size=header->nlmsg_len,.capacity=sizeof(request),.message=header};
+    size_t info,data;
+    uint32_t value=(uint32_t)r->args[1];
+    int error=md_network_message_attribute(&message,IFLA_IFNAME,r->name,strlen(r->name)+1);
+    if (!error) error=md_network_message_nest(&message,IFLA_LINKINFO,&info);
+    if (!error) error=md_network_message_attribute(&message,IFLA_INFO_KIND,"bridge",7);
+    if (!error) error=md_network_message_nest(&message,IFLA_INFO_DATA,&data);
+    if (!error) error=md_network_message_attribute(&message,r->args[0]==BRCTL_SET_BRIDGE_FORWARD_DELAY
+        ? IFLA_BR_FORWARD_DELAY : IFLA_BR_STP_STATE,&value,sizeof(value));
+    if (!error) error=md_network_message_end_nest(&message,data);
+    if (!error) error=md_network_message_end_nest(&message,info);
+    return error ? error : legacy_request(n,id,header);
 }

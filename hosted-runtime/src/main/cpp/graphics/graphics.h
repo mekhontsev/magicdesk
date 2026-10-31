@@ -53,6 +53,8 @@ bool mdg_device_gpu(const MdgDevice *device);
 /* Optional Vulkan transfer import; individual allocations can still be rejected. */
 bool mdg_device_linear_dmabuf(const MdgDevice *device);
 const char *mdg_device_name(const MdgDevice *device);
+/* Immutable startup observation; never queries or loads a driver. */
+const char *mdg_device_description(const MdgDevice *device);
 MdgStats mdg_device_stats(const MdgDevice *device);
 void mdg_device_collect(MdgDevice *device);
 

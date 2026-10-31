@@ -11,6 +11,15 @@
 #include <android/hardware_buffer.h>
 #endif
 
+#ifdef MDG_TEST_VULKAN_ENTRY
+static unsigned vulkan_entries;
+bool __real_mdg_vk_create(MdgDevice *device);
+bool __wrap_mdg_vk_create(MdgDevice *device) {
+    ++vulkan_entries;
+    return __real_mdg_vk_create(device);
+}
+#endif
+
 static void expect(const uint8_t *pixels, unsigned x, unsigned y, unsigned stride,
         unsigned red, unsigned green, unsigned blue, unsigned alpha) {
     const uint8_t *p = pixels + y * stride + x * 4;
@@ -43,7 +52,17 @@ int main(int argc, char **argv) {
     bool require_gpu = argc > 1 && !strcmp(argv[1], "--gpu");
     MdgDevice *device = mdg_device_create(software);
     assert(device);
+#ifdef MDG_TEST_VULKAN_ENTRY
+    assert(vulkan_entries == (software ? 0u : 1u));
+#endif
     printf("renderer=%s\n", mdg_device_name(device)); fflush(stdout);
+    const char *description = mdg_device_description(device);
+    assert(description && strlen(description) < 512);
+    if (mdg_device_gpu(device)) {
+        assert(strstr(description, "backend=vulkan, device=") && strstr(description, "api=")
+            && strstr(description, "vendorId=0x") && strstr(description, "driverVersion=0x"));
+    } else assert(strstr(description, "backend=software, selection="));
+    printf("startup=%s\n", description);
     if (require_gpu) assert(mdg_device_gpu(device));
     if (software) assert(!mdg_device_linear_dmabuf(device));
     assert(!mdg_device_linear_dmabuf(NULL));

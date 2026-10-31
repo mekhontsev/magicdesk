@@ -60,7 +60,7 @@ def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_
             assert cgroup == 'v2', 'Rootless Docker requires cgroup v2'
             subprocess.run(['mount', '-t', 'cgroup2', 'none', '/sys/fs/cgroup'], check=True)
         command = shlex.join([sys.executable, *sys.argv])
-        os.execvp('su', ['su', '--login', '--shell', '/bin/sh', '--command', command, rootless_user])
+        os.execvp('su', ['su', '-l', '-s', '/bin/sh', '-c', command, rootless_user])
     if rootless_user:
         assert os.getuid() != 0, 'Rootless Docker must start as an ordinary guest user'
     defaults = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
@@ -106,7 +106,8 @@ def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_
     if profile in ROOTLESS_PROFILES:
         argv += ['--rootless', '--group', '0']
     if rootless_user:
-        script = shutil.which('dockerd-rootless.sh') or '/usr/share/docker.io/contrib/dockerd-rootless.sh'
+        script = (shutil.which('dockerd-rootless.sh') or shutil.which('dockerd-rootless')
+                  or '/usr/share/docker.io/contrib/dockerd-rootless.sh')
         assert Path(script).is_file(), 'Install the distribution rootless Docker scripts'
         argv[0] = script
         argv += ['--storage-driver=' + storage_driver]

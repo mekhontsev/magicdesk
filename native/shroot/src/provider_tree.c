@@ -7,12 +7,24 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
+struct directory_identity {
+    dev_t device;
+    ino_t inode;
+    struct timespec modified,changed;
+};
+struct directory_checkpoint {
+    char *path;
+    struct directory_identity roots[2];
+    off_t position,native;
+    unsigned layer;
+};
 struct md_provider_tree {
     atomic_uint references;
     int upper,lower;
@@ -22,6 +34,11 @@ struct md_provider_tree {
     void *context;
     struct md_user_namespace *owner;
     struct md_mount_policy super_policy;
+    /* Optional scan hints, not cursor ownership. Cold imports, arbitrary seeks
+     * and eviction replay the ordinal from the shared OFD. No FD is retained. */
+    struct directory_checkpoint directories[16];
+    unsigned next_directory;
+    pthread_mutex_t directory_lock;
 };
 static int fdpath(int fd,char *out,size_t size) {
     char proc[64]; snprintf(proc,sizeof(proc),"/proc/self/fd/%d",fd);
@@ -39,6 +56,8 @@ struct md_provider_tree *md_provider_tree_new(int parent,int lower,const char *c
     if (count>32 || (count && !opaque)) { errno=EINVAL; return NULL; }
     struct md_provider_tree *tree=calloc(1,sizeof(*tree));
     if (!tree) return NULL;
+    int error=pthread_mutex_init(&tree->directory_lock,NULL);
+    if (error) { free(tree); errno=error; return NULL; }
     atomic_init(&tree->references,1); tree->upper=tree->lower=-1;
     if (lower>=0) { tree->lower=fcntl(lower,F_DUPFD_CLOEXEC,3); if (tree->lower<0) goto failed; }
     tree->upper=md_temporary_directory_new(parent);
@@ -67,6 +86,8 @@ struct md_provider_tree *md_provider_tree_import_context(int upper,int lower,con
     if (error) { errno=-error; return NULL; }
     struct md_provider_tree *tree=calloc(1,sizeof(*tree));
     if (!tree) return NULL;
+    error=pthread_mutex_init(&tree->directory_lock,NULL);
+    if (error) { free(tree); errno=error; return NULL; }
     atomic_init(&tree->references,1); tree->upper=tree->lower=-1; tree->ops=ops;
     tree->context=ops && ops->retain ? ops->retain(context) : context;
     tree->upper=fcntl(upper,F_DUPFD_CLOEXEC,3);
@@ -87,6 +108,8 @@ void md_provider_tree_release(struct md_provider_tree *tree) {
     if (tree->lower>=0) close(tree->lower);
     if (tree->upper>=0) md_temporary_directory_release(tree->upper);
     for (unsigned i=0;i<tree->opaque_count;++i) free(tree->opaque[i]);
+    for (unsigned i=0;i<sizeof(tree->directories)/sizeof(*tree->directories);++i) free(tree->directories[i].path);
+    pthread_mutex_destroy(&tree->directory_lock);
     free(tree->opaque); free(tree);
 }
 int md_provider_tree_root(struct md_provider_tree *tree) { return tree->upper; }
@@ -168,6 +191,19 @@ int md_provider_tree_lookup(struct md_provider_tree *tree,int directory,const ch
         return pending ? tree->ops->lookup(tree->context,directory,name,actor,pending) : -EOPNOTSUPP;
     return md_provider_tree_step(tree,directory,name);
 }
+static int directory_identity(int fd,struct directory_identity *out) {
+    *out=(struct directory_identity){0};
+    if (fd<0) return 1;
+    struct stat st;
+    if (fstat(fd,&st)) return 0;
+    *out=(struct directory_identity){st.st_dev,st.st_ino,st.st_mtim,st.st_ctim};
+    return 1;
+}
+static int same_directory(const struct directory_identity *a,const struct directory_identity *b) {
+    return a->device==b->device && a->inode==b->inode
+        && a->modified.tv_sec==b->modified.tv_sec && a->modified.tv_nsec==b->modified.tv_nsec
+        && a->changed.tv_sec==b->changed.tv_sec && a->changed.tv_nsec==b->changed.tv_nsec;
+}
 ssize_t md_provider_tree_getdents(struct md_provider_tree *tree,int fd,void *out,size_t capacity) {
     char path[PATH_MAX]; int error=md_provider_tree_path(tree,fd,path,sizeof(path));
     if (error) return error;
@@ -176,16 +212,32 @@ ssize_t md_provider_tree_getdents(struct md_provider_tree *tree,int fd,void *out
     int lower=opaque(tree,path) || tree->lower<0 || !lower_visible(tree,path) ? -1
         : openat(tree->lower,relative(path),O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);
     if (upper<0 && lower<0) return -errno;
-    size_t used=0; off_t index=0,next=position;
+    struct directory_checkpoint checkpoint={.position=position};
+    int cache=directory_identity(upper,&checkpoint.roots[0]) && directory_identity(lower,&checkpoint.roots[1]);
+    unsigned first=0;
+    size_t used=0; off_t index=0,next=position,native=0;
+    pthread_mutex_lock(&tree->directory_lock);
+    for (unsigned i=0;cache && i<sizeof(tree->directories)/sizeof(*tree->directories);++i) {
+        const struct directory_checkpoint *p=&tree->directories[i];
+        if (!p->position || strcmp(p->path,path) || !same_directory(&p->roots[0],&checkpoint.roots[0])
+                || !same_directory(&p->roots[1],&checkpoint.roots[1])) continue;
+        if (position && position==p->position) { index=position; first=p->layer; native=p->native; }
+        break;
+    }
+    pthread_mutex_unlock(&tree->directory_lock);
     int roots[]={upper,lower},stop=0;
-    for (unsigned i=0;i<2 && !stop;++i) {
+    /* A hint must never turn a previously readable directory into an error. */
+    if (native && lseek(roots[first],native,SEEK_SET)<0) { first=0; index=0; native=0; }
+    for (unsigned i=first;i<2 && !stop;++i) {
         if (roots[i]<0) continue;
         int duplicate=fcntl(roots[i],F_DUPFD_CLOEXEC,3);
         DIR *dir=duplicate<0 ? NULL : fdopendir(duplicate);
         if (!dir) { if (duplicate>=0) close(duplicate); error=-errno; break; }
+        off_t cursor=i==first ? native : 0;
         for (;;) {
             errno=0; struct dirent *e=readdir(dir);
             if (!e) { if (errno) error=-errno; break; }
+            off_t before=cursor; cursor=e->d_off;
             if (internal(path,e->d_name)) continue;
             if (i && tree->ops && tree->ops->lower_visible
                     && strcmp(e->d_name,".") && strcmp(e->d_name,"..")) {
@@ -199,7 +251,11 @@ ssize_t md_provider_tree_getdents(struct md_provider_tree *tree,int fd,void *out
             if (index++<position) continue;
             size_t size=md_directory_record_write((char *)out+used,capacity-used,
                 e->d_name,strlen(e->d_name),e->d_ino,index,e->d_type);
-            if (!size) { if (!used) error=-EINVAL; stop=1; break; }
+            if (!size) {
+                if (!used) error=-EINVAL;
+                checkpoint.position=next; checkpoint.layer=i; checkpoint.native=before;
+                stop=1; break;
+            }
             struct md_directory_entry *entry=(void *)((char *)out+used);
             int node=tree->ops && tree->ops->control
                 ? openat(roots[i],e->d_name,O_PATH|O_NOFOLLOW|O_CLOEXEC) : -1;
@@ -221,6 +277,22 @@ ssize_t md_provider_tree_getdents(struct md_provider_tree *tree,int fd,void *out
     if (upper>=0) close(upper);
     if (lower>=0) close(lower);
     if (!error && lseek(fd,next,SEEK_SET)<0) error=-errno;
+    if (!error && cache && stop) {
+        pthread_mutex_lock(&tree->directory_lock);
+        unsigned slot=sizeof(tree->directories)/sizeof(*tree->directories);
+        for (unsigned i=0;i<slot;++i)
+            if (tree->directories[i].path && !strcmp(tree->directories[i].path,path)
+                    && same_directory(&tree->directories[i].roots[0],&checkpoint.roots[0])
+                    && same_directory(&tree->directories[i].roots[1],&checkpoint.roots[1])) { slot=i; break; }
+        if (slot<sizeof(tree->directories)/sizeof(*tree->directories)) {
+            checkpoint.path=tree->directories[slot].path;
+        } else if ((checkpoint.path=strdup(path))) {
+            slot=tree->next_directory++%(sizeof(tree->directories)/sizeof(*tree->directories));
+            free(tree->directories[slot].path);
+        }
+        if (checkpoint.path) tree->directories[slot]=checkpoint;
+        pthread_mutex_unlock(&tree->directory_lock);
+    }
     return error ? error : (ssize_t)used;
 }
 int md_provider_tree_control(struct md_provider_tree *tree,int fd,struct md_control_file *out) {
