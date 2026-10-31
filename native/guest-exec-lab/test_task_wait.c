@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/wait.h>
 
 struct call { pid_t selected, result; int error; };
@@ -10,11 +11,27 @@ static struct call calls[40];
 static unsigned queued, taken;
 static struct rusage *expected_usage;
 static int batch_usage;
+static struct {
+    unsigned population, queries;
+    unsigned char ready[4096];
+} model;
 static void expect(pid_t selected, pid_t result, int error) {
     assert(queued < sizeof(calls)/sizeof(*calls));
     calls[queued++] = (struct call){selected, result, error};
 }
 pid_t __wrap_wait4(pid_t selected, int *status, int options, struct rusage *usage) {
+    if (model.population) {
+        assert(options==(__WALL|WNOHANG) && !usage);
+        ++model.queries;
+        unsigned first=selected==-1 ? 0 : (unsigned)(selected-10000);
+        unsigned limit=selected==-1 ? model.population : first+1;
+        assert(first<model.population && limit<=model.population);
+        for (unsigned i=first;i<limit;++i) if (model.ready[i]) {
+            model.ready[i]=0; *status=0x7057f;
+            return (pid_t)(10000+i);
+        }
+        return 0;
+    }
     assert(taken < queued);
     struct call call = calls[taken++];
     if (call.selected!=selected)
@@ -29,6 +46,35 @@ pid_t __wrap_wait4(pid_t selected, int *status, int options, struct rusage *usag
     return call.result;
 }
 static void done(void) { assert(taken == queued); taken = queued = 0; }
+
+static void fair_discovery(unsigned population,unsigned hot) {
+    struct md_task_wait w={0};
+    struct md_task_wait_member *members=calloc(population,sizeof(*members));
+    assert(members && population<=sizeof(model.ready) && hot<population);
+    model.population=population; model.queries=0;
+    for (unsigned i=0;i<population;++i) {
+        md_task_wait_track(&w,&members[i],(pid_t)(10000+i));
+        model.ready[i]=i<hot || i==population-1;
+    }
+    /* Only the first hot task ever supplies a hint. General waits start at
+     * the same hot prefix, including one larger than the pending batch. */
+    unsigned events=0;
+    for (;;) {
+        md_task_wait_hint(&w,10000);
+        int status;
+        pid_t pid=md_task_wait_ready(&w,&status,NULL);
+        assert(pid>=10000 && (unsigned)(pid-10000)<population && status==0x7057f);
+        ++events;
+        assert(events<=2*population+64);
+        if ((unsigned)(pid-10000)==population-1) break;
+        assert((unsigned)(pid-10000)<hot);
+        model.ready[pid-10000]=1;
+    }
+    /* Sparse populations must not pay two idle probes per returned event. */
+    if (hot==1) assert(model.queries<=2*events+64);
+    for (unsigned i=0;i<population;++i) md_task_wait_untrack(&w,&members[i]);
+    free(members); model.population=0;
+}
 
 int main(void) {
     int status;
@@ -248,12 +294,16 @@ int main(void) {
     md_task_wait_hint(&w,200); md_task_wait_hint(&w,201);
     expect(200,0,0); expect(201,0,0); expect(202,0,0); expect(-1,0,0);
     assert(!md_task_wait_ready(&w,&status,NULL) && w.drained); done();
-    assert(w.cursor==&duplicate[2]);
+    assert(w.cursor==&duplicate[1]);
     /* A later signal begins a new pass; a previous miss is never cached. */
     md_task_wait_hint(&w,200);
-    expect(202,0,0); expect(203,0,0); expect(200,200,0);
+    expect(201,0,0); expect(200,200,0);
     assert(md_task_wait_ready(&w,&status,NULL)==200); done();
     for (unsigned i=0;i<6;++i) md_task_wait_untrack(&w,&duplicate[i]);
+    for (unsigned i=0;i<sizeof(populations)/sizeof(*populations);++i) {
+        fair_discovery(populations[i],1);
+        fair_discovery(populations[i],populations[i]>48 ? 48 : populations[i]-1);
+    }
     puts("PASS task event selection");
     return 0;
 }

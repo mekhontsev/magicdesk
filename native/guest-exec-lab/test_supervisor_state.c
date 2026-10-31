@@ -287,6 +287,51 @@ static void barrier_admission(void) {
     entry_fence_stage=0; mapping_execution=NULL;
     puts("PASS supervisor admission: entry, repair, injection, release and exact nested retirement");
 }
+static struct thread *action_cancel,*action_enqueue;
+static unsigned actions_completed;
+static void queued_action_complete(struct thread *t,long result);
+static void ready_action(struct thread *t) {
+    struct task_action *owner=task_action_new(t);
+    assert(owner);
+    owner->number=-1; owner->kind=MD_FD_SELECTOR_WATCH;
+    owner->selected_group=md_fd_selector_new();
+    assert(owner->selected_group);
+    assert(!md_fd_selector_mark(owner->selected_group,owner->kind,-1));
+    owner->complete=queued_action_complete;
+}
+static void queued_action_complete(struct thread *t,long result) {
+    assert(!result && !t->action); ++actions_completed;
+    if (action_cancel) { task_action_discard(action_cancel); action_cancel=NULL; }
+    if (action_enqueue) { ready_action(action_enqueue); action_enqueue=NULL; }
+}
+static void queued_actions(void) {
+    struct thread a={.pid=123},b={.pid=456},c={.pid=789};
+    assert(!threads && !task_action_calls && !task_action_execution);
+    ready_action(&a); ready_action(&b);
+    entry_fence_stage=1;
+    task_action_schedule();
+    assert(a.retries[0].mask==RETRY_TASK_ACTION && b.retries[0].mask==RETRY_TASK_ACTION);
+    assert(task_action_calls==2 && a.action->pending.list && b.action->pending.list);
+    retry_clear(&a,RETRY_TASK_ACTION); retry_clear(&b,RETRY_TASK_ACTION);
+    entry_fence_stage=0;
+    task_action_discard(&a);
+    ready_action(&c);
+    action_cancel=&c; action_enqueue=&a;
+    task_action_schedule();
+    assert(actions_completed==1 && !b.action && !c.action && a.action && task_action_calls==1);
+    task_action_schedule();
+    assert(actions_completed==2 && !a.action && !task_action_calls);
+    /* An actor can outlive its requester; teardown cancels its queue node. */
+    struct task_action *active=task_action_new(&a);
+    assert(active); task_action_execution=active; active->filter.task.stage=1;
+    task_action_discard(&a);
+    task_action_schedule();
+    assert(!a.action && !active->requester && task_action_calls==1);
+    task_action_cleanup();
+    assert(!task_action_calls && !task_action_execution);
+    assert(!task_action_queue.lists[0].first && !task_action_queue.lists[1].first);
+    puts("PASS action queue: no population scan, blocked retry, cancellation, deferred insertion and detached teardown");
+}
 static long readiness_return_trace(int request,pid_t pid,void *address,void *data) {
     assert(request==PTRACE_SETREGSET && pid==123 && (uintptr_t)address==NT_PRSTATUS);
     struct user_pt_regs *regs=((struct iovec *)data)->iov_base;
@@ -1264,6 +1309,9 @@ static void event_accounting(void) {
     assert(kernel_event(&status,NULL)==wait_result && !accounting_requested);
     struct signalfd_siginfo hint={.ssi_signo=SIGCHLD,.ssi_pid=456};
     assert(write(source[1],&hint,sizeof(hint))==sizeof(hint));
+    task_wait.pending_count=1;
+    assert(kernel_event(&status,NULL)==wait_result && !task_wait.count);
+    task_wait.pending_count=0;
     assert(kernel_event(&status,NULL)==wait_result && task_wait.count==1
         && task_wait.hints[task_wait.first]==456);
     task_wait=(struct md_task_wait){0};
@@ -1554,6 +1602,7 @@ int main(void) {
     native_capture();
     duplicate_retirement_order();
     fd_native_retirement();
+    queued_actions();
     barrier_admission(); readiness_admission_order(); readiness_entry_interrupt(); readiness_signal_return(); readiness_parked_signal_return(); readiness_cancel_entry(); readiness_admission_identity(); entry_fence_ownership(); control_deadlines(); pid_collection_waiters(); terminal_buffer_completion(); buffered_io_pressure(); prepared_input(); captured_writes(); repair_events(); repair_retirement(); quiescent_birth(); event_accounting();
     for (unsigned mode=0;mode<4;++mode) {
         completed_open(mode,SIGUSR1); completed_open(mode,SIGRTMAX);
