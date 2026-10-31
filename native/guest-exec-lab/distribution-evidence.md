@@ -29,16 +29,50 @@ NixOS recipe/activation and pending graphical acceptance are tracked in the
 
 ## Debian
 
-The 2026-10-28 system-workload and package rerun uses the installed recipe
-environment, lazy entry and supervisor
-`edfcac0e8f18fde5e2c3f929c0634ce36625ad697003c85b8decbe4045537d26`.
-Each receipt retains its exact native hashes. The isolated systemd session is
-`2b3968da10fd41eeac53fc7463f4eb8b`; NixOS KWin compilation was active separately,
-so these are correctness checks, not benchmarks.
-The 2026-10-27 browser, VS Code, package and portal reruns use supervisor
-`729b3c3b988519fa72d1a6cbc4f038ef72c918b70358c5f2491095fef88ac578`.
-These are separate build
-observations, not blanket certification of subsequent edits.
+The 2026-10-31 regression run uses the installed recipe, shell UID 2000 and
+staged Release binaries. System workloads use supervisor
+`81223435cdea1dc5bd639b84543b081ecebffa628953c6df488be43eca99e917`;
+networkd, nspawn command, managed NAT, rootless containers and the graphical
+session use `21959f59e9f421ac0d37cbe1787d9c761e429400d7a1b5b5a0bba49c515f381f`.
+Receipts below are `build/installed-debian-turnip/oci-services-ID.json` unless
+another directory is given. These are functional checks, not timing results.
+
+| Workload | Passing receipt ID |
+| --- | --- |
+| Booted Docker / Podman | `13b08625a3d842289bafe46c1f47b889` / `6ab36ccfbcca48d1b738db1f6c304991` |
+| Managed Libvirt/QEMU with NAT / direct TCG | `f1dcd2410d5645eeae65960a43b51756` / `8c59b893a8364a0b84263697eb291b27` |
+| BuildKit build/cache/secret/export/cancel | `58beaa443fed470abe5457e6720002b5` |
+| LXC / ordinary-user LTP selection | `02b252c39a7641c88196516b7ca4ce3a` / `38ea13ce16b7414f917c16ed5cc247ab` |
+| nspawn command, private bridge, three lifecycle cycles | `da63e3230c644bf3b035d5e99f70c916`, repeat `1049b9fd5a7d43768a8862439a4f7478` |
+| machinectl boot/shell/service/restart/forced-stop | `e03bfb61de9e453bbbe57e47d0491a57` |
+
+Boot, binfmt and networkd RA/SLAAC/MTU/TCP/UDP/router-withdrawal pass with lazy
+entry and Base: `850bfa0d7c764ba09144af2fbf6638a1` and
+`5a8d0703262e4e0c88954f1956f954c6`, under
+`build/matrix-supervisor-20261031/debian-turnip/boot-final/` and
+`boot-final-base/`. Rootless Docker passes in
+`app/build/shroot/oci-services-ea97fb6598be41f7aa9a9b752fe72354.json`;
+rootless Podman in `build/podman-results/oci-services-62bfbd32075a4ee1ad179698bcc5c6e6.json`.
+Both retain stock seccomp/cgroups and verify local outbound TCP/UDP, publication,
+conflicts and teardown; public Internet is outside this rerun.
+
+The graphical session is `9fe27d6840254ad1b2459b8353707df3`, on an isolated
+virtual display. Under `build/installed-debian-turnip/`, the
+`regression-{chromium,firefox}-flatpak` directories and their `-relaunch`
+counterparts contain `gui-report.json`: real keyboard/pointer, downloaded
+bytes, chooser readback, hardware WebGL and normal exit with fresh/reused
+profiles. `regression-vscode/gui-report.json` covers editor, watch, PTY, GDB,
+reload, GPU composition and retained renderer sandbox. Portal receipts
+`regression-portal-{graceful,auto}.json` cover normal exit, daemon death,
+FUSE teardown and user-service restart; they do not disprove the intermittent
+packaged portal race documented below. Package job
+`b2a810dfa24146578f4f1772411cff5f.log` covers hello install/reinstall/remove
+and dpkg audit, retaining the image's documented file exclusions.
+
+Production recipe entrypoints pass Mousepad X11, Mousepad Wayland and Weston
+input/save, rendered pixels, host detach/reopen and owned-resource cleanup:
+`build/matrix-supervisor-20261031/debian-turnip/recipe-graphics/oci-services-529ab430920849ac86d3a90c07b84610.json`.
+This uses the final supervisor above; it is not full Plasma/GNOME acceptance.
 
 ### Debian default boot/services
 
@@ -446,28 +480,48 @@ not certify the default OS target
 
 ## Alpine
 
-The broader OpenRC system-workload reruns use staged supervisor
-`729b3c3b988519fa72d1a6cbc4f038ef72c918b70358c5f2491095fef88ac578`.
+The 2026-10-31 OpenRC and graphical regression run uses staged Release supervisor
+`81223435cdea1dc5bd639b84543b081ecebffa628953c6df488be43eca99e917`.
 System receipts below are `build/installed-alpine-turnip/oci-services-ID.json`:
 
 | Workload | Passing receipt ID |
 | --- | --- |
-| Managed Libvirt/QEMU | `fc0fdbdf10d9441bb2606d6a7a94e644` |
-| Direct QEMU TCG | `41590da972504ea7bb4da1c136173b5b` |
-| BuildKit build/cache/secret/export/cancel | `d4b8e4b89a2c46c892074ff0e8735f8f` |
-| LXC lifecycle and bridge | `c73b29ff9da94cc7ba41c1565f9a75eb` |
-| LTP core as ordinary user | `259c87c578e84fe98cb5163dc574cd30` |
+| Booted Docker / Podman | `92a6f20eaf624730b14b5a745483b073` / `3f0bb6c0390d40f89ebbe035d2d4d9e0` |
+| Managed Libvirt/QEMU | `b93c5e1e115047fb830825443c0b1dfa` |
+| Direct QEMU TCG | `d2ddcc0bc3f541bea5d8aeea3d074deb` |
+| BuildKit build/cache/secret/export/cancel | `5d4bcb8b4b444578b3be2346af9fc5d8` |
+| LXC lifecycle and bridge | `f546d08a3a744632a8319ac43ec82666` |
+| LTP core as ordinary user | `bf24ef210a224cc2ac610622c37c2523` |
 
-Docker, Podman, Firefox and focused portal results below use the 2026-10-29
-staged Release supervisor
-`a5d46e41c30ee2af9da368e39cc55012d00106eb5649e9ec292002e52cf19ae3`.
-They do not transfer the broader suite to that build.
+OpenRC PID 1 and service lifecycle pass in lazy and Base modes, under
+`build/matrix-supervisor-20261031/alpine-turnip/boot-{lazy,base}/`:
+`73972e0a20ba4f9bb07d418d7854c19a` and `ab4e39ee4d0e4673a55fe1d4ca5e41d8`.
+Rootless repeats use supervisor
+`21959f59e9f421ac0d37cbe1787d9c761e429400d7a1b5b5a0bba49c515f381f`:
+Docker `app/build/shroot/oci-services-260c1adec5cc497ea87d6e611ba3485b.json`,
+Podman `build/podman-results/oci-services-2ae736cedc1c49c8a57f794173af2275.json`.
+Both verify local outbound, published TCP/UDP, conflicts and cleanup with the
+stock sandbox. These functional runs do not measure performance or public uplink.
 
-The 2026-10-26 rerun retains the recipe-installed musl environment and OpenRC.
-System receipts contain their staged native hashes; the graphical rerun uses
-supervisor `1ce1dd0c902e235d71f634fc83092ced45809c1d9aacd013f4e76095dbcad561`.
-It does not retroactively certify the installed APK or all system scenarios
-on that final bundle.
+The virtual-display session `0d48c61f56c24fbea13432b8785b73ce` has reports in
+`build/installed-alpine-turnip/`: `regression-{chromium,firefox}-{native,flatpak}/gui-report.json`
+cover input, download, chooser readback, hardware WebGL and normal exit;
+`regression-firefox-flatpak-relaunch/gui-report.json` covers profile reuse.
+Chromium's retained-profile repeat, including normal exit, passes in
+`regression-chromium-flatpak-relaunch-final/gui-report.json`, using the final
+supervisor above in session `2d8845461406469c8d4c04b23cd0db73`.
+`regression-vscode-stock{,-repeat}/gui-report.json` pass editor/watch/PTY/GDB,
+reload, sandbox and GPU checks with the unchanged packaged portal (SHA-256
+`fc88777dfdeda9b07a75f32dac2c5b4f0988db61cb4a7ed6c21cf312b348ff72`).
+These two passes do not establish absence of its intermittent upstream FD
+collision. Portal `regression-portal-{graceful,auto}.json` passes two graceful
+exits and auto-unmount after daemon death; its known shutdown race remains U.
+Package job `58c62edf1c7b4ea18dc3ffdac7124cf7.log` verifies tree
+install/reinstall, identical executable hash, directory audit and removal.
+
+Production recipe Mousepad X11/Wayland and Weston entrypoints pass real input,
+save, rendered pixels, host detach/reopen and cleanup:
+`build/matrix-supervisor-20261031/alpine-turnip/recipe-graphics-rerun/oci-services-f8af7d805c8147e5be1c00777cccee25.json`.
 
 ### Alpine recipe setup
 
