@@ -2,6 +2,7 @@
 #include "network_internal.h"
 #include "network_endpoint.h"
 #include "network_flow.h"
+#include "network_profile.h"
 #include "network_route.h"
 #include "test_network_fixture.h"
 #include "guest_identity.h"
@@ -104,7 +105,43 @@ static void isolated_bridge(void) {
     md_identity_release(&root);
     puts("PASS isolated bridge: Ethernet and IP policy, reverse flows, local delivery and atomic direct-stream rejection");
 }
+static void bound_veth_loopback(void) {
+    for (unsigned v6=0;v6<3;++v6) for (unsigned udp=0;udp<2;++udp) {
+        struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+        unsigned a,b;
+        assert(n && !md_network_interface_add(n,MD_LINK_VETH,"out",&a));
+        assert(!md_network_interface_add(n,MD_LINK_VETH,"in",&b));
+        struct md_network_interface *left=md_network_interface_find(n,a,NULL);
+        struct md_network_interface *right=md_network_interface_find(n,b,NULL);
+        left->peer=b; right->peer=a;
+        left->info.flags|=IFF_UP; right->info.flags|=IFF_UP;
+        struct md_ip_address source,destination;
+        assert(!md_network_profile_ip(v6==2 ? "fe80::2" : v6 ? "fd92:10::2" : "10.231.247.2",&source));
+        assert(!md_network_profile_ip(v6==2 ? "fe80::1" : v6 ? "fd92:10::1" : "10.231.247.1",&destination));
+        unsigned scope=v6==2 ? RT_SCOPE_LINK : RT_SCOPE_UNIVERSE;
+        assert(!md_network_interface_address(left,(struct md_network_ip_assignment){
+            .address=source,.prefix=v6 ? 64 : 24,.scope=scope},0,0));
+        assert(!md_network_interface_address(right,(struct md_network_ip_assignment){
+            .address=destination,.prefix=v6 ? 64 : 24,.scope=scope},0,0));
+        struct md_filter_packet p={.source=source,.destination=destination,
+            .source_port=htons(32000),.destination_port=htons(8080),
+            .protocol=udp ? IPPROTO_UDP : IPPROTO_TCP,.state=8};
+        struct md_network_flow_path path;
+        assert(!md_network_flow_route(n,&p,0,a,&path));
+        assert(path.destination==n->inode && path.count==4 && !path.mediated);
+        assert(path.steps[0].packet.output==a && path.steps[3].packet.input==b);
+        assert(!md_network_flow_check(n->fabric,&path,0));
+        assert(!md_network_flow_check(n->fabric,&path,1));
+        if (v6==2) {
+            assert(md_network_flow_route(n,&p,1,a,&path)==-ENETUNREACH);
+            assert(!md_network_flow_route(n,&p,1,b,&path) && path.destination==n->inode);
+        }
+        md_network_namespace_release(n);
+    }
+    puts("PASS bound veth: IPv4/IPv6 TCP/UDP return to the source namespace without reusing the socket output binding");
+}
 void test_network_ethernet(void) {
+    bound_veth_loopback();
     isolated_bridge();
     struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
     struct md_identity root=md_identity_new(0,0),user=md_identity_new(1000,1000);

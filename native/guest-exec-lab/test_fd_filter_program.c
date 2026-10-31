@@ -99,7 +99,8 @@ static unsigned expected(unsigned kind,int fd,const struct seccomp_data *d) {
     unsigned selected=0;
     if (kind==MD_FD_SELECTOR_WATCH) {
         switch (d->nr) {
-        case SYS_read: case SYS_readv: case SYS_ioctl: case SYS_splice: case SYS_tee: selected=1; break;
+        case SYS_read: case SYS_readv: case SYS_splice: case SYS_tee: selected=1; break;
+        case SYS_ioctl: selected=(unsigned)d->args[1]==FIONREAD; break;
         case SYS_sendfile: selected=2; break;
         }
     } else if (kind==MD_FD_SELECTOR_PROC) {
@@ -150,7 +151,7 @@ void test_fd_filter_program(void) {
     const struct md_fd_filter_gates gates={0x1112345678,0x2212345678,0x3312345678,0x5512345678};
     const uintptr_t exempt[]={gates.raw,gates.watch,gates.task,gates.native};
     const int fds[]={0,190,511,512,1024*1024,-1};
-    const unsigned commands[]={0,F_GETFL,F_SETFL,F_GETFD,F_GET_SEALS,F_ADD_SEALS,F_DUPFD,F_DUPFD_CLOEXEC};
+    const unsigned commands[]={0,F_GETFL,F_SETFL,F_GETFD,F_GET_SEALS,F_ADD_SEALS,F_DUPFD,F_DUPFD_CLOEXEC,FIONREAD,FIONBIO};
     struct md_fd_filter_program built;
     assert(md_fd_filter_build(MD_FD_SELECTOR_PROC,0,&gates,NULL)==-EINVAL);
     assert(md_fd_filter_build(MD_FD_SELECTOR_PROC,0,NULL,&built)==-EINVAL && !built.count);
@@ -172,7 +173,7 @@ void test_fd_filter_program(void) {
                     struct seccomp_data d={.nr=(int)nr,.instruction_pointer=0x4412345678};
                     for (unsigned n=0;n<6;++n) d.args[n]=(unsigned)(fd+1);
                     d.args[arg]=(unsigned)fd+alias*(MD_FD_SELECTOR_MASK+1u);
-                    if (nr==SYS_fcntl) d.args[1]=commands[c]|(UINT64_C(1)<<32);
+                    if (nr==SYS_fcntl || nr==SYS_ioctl) d.args[1]=commands[c]|(UINT64_C(1)<<32);
                     if (nr==SYS_mmap) d.args[3]=(c&1) ? MAP_ANONYMOUS : 0;
                     assert(evaluate(&built,&d)==expected(kind,fd,&d));
                     for (unsigned gate=0;gate<sizeof(exempt)/sizeof(*exempt);++gate) {

@@ -226,10 +226,13 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
     int error=hook(n,external ? NF_INET_PRE_ROUTING : NF_INET_LOCAL_OUT,p,path);
     while (!error) {
         struct md_network_route_entry route={0};
-        out=md_network_policy_route(n,p->source,p->destination,p->mark,n==from ? selected : 0,&route,&route_error);
+        /* A socket's output binding ends at egress, even when its veth peer
+         * returns to the same namespace. Ingress performs a fresh lookup. */
+        out=md_network_policy_route(n,p->source,p->destination,p->mark,!arrived ? selected : 0,&route,&route_error);
         struct md_network_interface *local=md_network_local_interface(n,p->destination,1);
         if (!out || route.table!=RT_TABLE_LOCAL) local=NULL;
-        if (local && md_ip_linklocal(p->destination) && n==from && output && local->info.index!=output) local=NULL;
+        unsigned scope=arrived ? p->input : selected;
+        if (local && md_ip_linklocal(p->destination) && scope && local->info.index!=scope) local=NULL;
         context.space=n;
         if (local || native_local(&context,p->destination)) {
             interface(p,NULL,0);

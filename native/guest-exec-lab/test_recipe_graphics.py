@@ -140,13 +140,19 @@ def main():
                 command = ('{ env PATH=' + shlex.quote(suite.base + ':/system/bin') + ' timeout -k 15 180 /system/bin/sh -c '
                            + shlex.quote(recipe) + '; r=$?; printf "%s\\n" "$r" > ' + shlex.quote(receipt)
                            + '; } > ' + shlex.quote(log) + ' 2>&1')
+                # The generated recipe can exceed the desktop Exec size limit.
+                launcher = args.output / (suite.report['id'] + '-' + entry_name + '.sh')
+                launcher.write_text('#!/system/bin/sh\n' + command + '\n')
+                remote_launcher = suite.base + '/' + entry_name + '.sh'
+                suite.transport.upload(client, launcher, remote_launcher)
                 session = client.call('graphics.start', {'protocol': protocol, 'backend': 'shell',
                     'connection': 'routed', 'name': 'Recipe ' + entry_name + ' ' + suite.report['id'][:8],
                     'keyboardDirectory': keyboard, 'wholeDesktop': desktop})['sessionId']
                 ready = wait('graphics_ready', sessionId=session)['session']
                 assert ready['executorUid'] == 2000 and ready['serverUid'] not in (0, 2000), ready
                 owned = True
-                client.call('graphics.execute', {'sessionId': session, 'command': command})
+                client.call('graphics.execute', {'sessionId': session,
+                    'command': shlex.join(['/system/bin/sh', remote_launcher])})
                 if desktop and protocol == 'x11':
                     window = 0
                 else:

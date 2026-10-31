@@ -101,6 +101,7 @@ def main():
     report = dict(passed=False, machine=args.machine, rounds=[], commands=[])
     connected = False
     process = None
+    stderr = None
 
     def run(*argv, required=True):
         result = subprocess.run(argv, capture_output=True, text=True, timeout=60,
@@ -244,6 +245,8 @@ def main():
             report['cleanupFailure'] = repr(error)
             raise
         finally:
+            if stderr is not None and stderr.exists():
+                report['rounds'][-1]['stderr'] = stderr.read_text()
             args.report.write_text(json.dumps(report, indent=2) + '\n')
             print('NSPAWN_COMMAND_REPORT', args.report, 'passed=' + str(report['passed']), flush=True)
 

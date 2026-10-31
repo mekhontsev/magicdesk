@@ -1021,10 +1021,13 @@ re-enter natively with their original IP and arguments and remain subject to
 seccomp. A synthetic PTRACE_INTERRUPT exposes the real x7 before publishing a
 marker, because ARM64 syscall stops borrow that register. Application handlers
 and guest debugger execution never inherit this service scope.
-The scalar MAPPED/TAKE/RELEASE and filesystem
-CALL/EXEC_PREPARE/EXEC_CANCEL/PROC_LINK markers can publish at syscall entry
-because their C ABI does not retain x7. FINISH and full-context operations still require the post-syscall
-interrupt. Checkpoint fixtures cover TRACE/SYSEMU, dumpability and blocked SIGTRAP
+The C-reply classifiers in `adapter_buffer.h`, `fs_buffer.h` and `fd_client.h`
+admit entry-only completion for buffer acquisition, metadata/identity queries,
+descriptor queries, completed descriptor exchanges and IPC payload preparation/copy.
+Their C ABI does not
+retain x7; x0/x1 results remain intact. FINISH, full-context operations and
+task-call injection still require the post-syscall interrupt. Checkpoint fixtures
+cover both return registers, TRACE/SYSEMU, dumpability and blocked SIGTRAP
 for both forms. Supervisor-state covers clone/fork/vfork stops already consumed
 before a cold barrier begins, including exact event and rusage replay.
 The shared C-facing assembly gates explicitly supply gettid as the skipped

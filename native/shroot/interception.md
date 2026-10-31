@@ -214,13 +214,15 @@ borrowed call, then reconstructs an emulated entry without replaying guest IO.
 Ordinary data IO retains its native path.
 Deferred events retain their captured accounting across debugger attachment
 changes; replay neither queries it again nor inherits another event's values.
-Kernel collection advances at most two live TIDs in round-robin order, then
-prefers fresh SIGCHLD hints and up to four recently stopped TIDs (including
-alternating caller/helper checkpoints), within an eight-query budget for up to
-four members or at least 64 queries for larger trees. Above 64 members the budget
-matches the population, capped at 1024, amortizing the kernel's full child-list
-scan without removing its discovery bound. A single live tracee keeps the
-hint/MRU fast path. The bounded round-robin is necessary:
+For more than four members, kernel collection checks one round-robin TID on two
+of every three discovery passes, then prefers fresh SIGCHLD hints and up to four
+recently stopped TIDs (including alternating caller/helper checkpoints). These
+queries share a budget of 64, or the population above 64 members, capped at 1024.
+This amortizes both idle probes and the kernel's full child-list scan without
+removing their discovery bounds. General collection resets the probe cadence.
+A single live tracee keeps the hint/MRU fast path with an eight-query budget;
+trees of two to four members collect up to four statuses directly.
+The bounded round-robin is necessary:
 `wait4(-1)` can repeatedly select hot children at the head of the kernel list,
 even with frequent general waits, while a coalesced signal loses another TID.
 Membership is updated at task admission/retirement, without a full task scan.

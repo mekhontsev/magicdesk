@@ -22,7 +22,9 @@ enum md_fs_buffer_control { MD_FS_BUFFER_CALL=16, MD_FS_BUFFER_ACK, MD_FS_BUFFER
 /* These completions return to the C adapter, not to application registers. */
 static inline int md_fs_buffer_scalar(unsigned long command) {
     return command==MD_FS_BUFFER_CALL || command==MD_FS_BUFFER_EXEC_PREPARE
-        || command==MD_FS_BUFFER_EXEC_CANCEL || command==MD_FS_BUFFER_PROC_LINK;
+        || command==MD_FS_BUFFER_EXEC_CANCEL || command==MD_FS_BUFFER_PROC_LINK
+        || command==MD_FS_BUFFER_IPC_IO_PREPARE || command==MD_FS_BUFFER_IPC_IO_COPY
+        || command==MD_FS_BUFFER_IPC_IO_SELECT;
 }
 enum { MD_FS_BUFFER_SOURCE=-2 };
 /* Kernel ancillary FDs do not index a capsule-expanded application vector. */

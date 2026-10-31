@@ -304,6 +304,8 @@ int main(void) {
         fair_discovery(populations[i],1);
         fair_discovery(populations[i],populations[i]>48 ? 48 : populations[i]-1);
     }
+    for (unsigned population=5;population<=128;++population)
+        for (unsigned hot=1;hot<population;hot=hot*2+1) fair_discovery(population,hot);
     puts("PASS task event selection");
     return 0;
 }

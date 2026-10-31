@@ -39,8 +39,9 @@ its remaining descendants and reports supervision failure.
 ## Cancellation
 
 `task_wait.c` owns nonblocking trace-event collection. SIGCHLD and recent TIDs
-are bounded hints, not proof of readiness. A separate round-robin cursor checks
-one member per discovery pass so a hot prefix cannot starve an unnotified stop.
+are bounded hints, not proof of readiness. In larger trees a separate round-robin
+cursor checks one member on two of every three discovery passes. This bounds
+discovery of unnotified stops without requiring an idle probe on every pass.
 General waits collect a bounded batch before any of its tasks resumes; buffered
 statuses transfer exactly once, including during cancellation. Only an empty
 general wait establishes a drained queue, invalidated by SIGCHLD. Buffered

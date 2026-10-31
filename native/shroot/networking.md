@@ -158,7 +158,10 @@ a listener. Guest backing sockets use ephemeral native ports. Conflicts and
 final release belong to the same endpoint/forwarding owners.
 Local OUTPUT uses loopback interface metadata, independently of the FIB owner
 used for source selection and scoped endpoint binding. DNAT reroutes the
-translated destination through the same flow owner. Nftables element deletion
+translated destination through the same flow owner. Socket output binding
+applies only before egress, including veth pairs in the same namespace;
+ingress performs a new route lookup and retains the incoming interface's
+IPv6 link-local scope. Nftables element deletion
 selects by key; an echoed value does not change the match or retain a verdict
 target. Both contracts are covered by native network tests and the nspawn
 command/publication lifecycle fixture.

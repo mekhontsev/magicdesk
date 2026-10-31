@@ -22,7 +22,12 @@ enum md_adapter_buffer_control { MD_BUFFER_MAPPED=1, MD_BUFFER_TAKE, MD_BUFFER_R
  * They neither restore application registers nor inject task-context calls. */
 static inline int md_adapter_buffer_scalar(unsigned long command) {
     return command==MD_BUFFER_MAPPED || command==MD_BUFFER_TAKE
-        || command==MD_BUFFER_RELEASE;
+        || command==MD_BUFFER_RELEASE || command==MD_BUFFER_PROC_META
+        || command==MD_BUFFER_PID_NUMBER || command==MD_BUFFER_DESCRIPTOR_META
+        || command==MD_BUFFER_MEMORY_OPEN || command==MD_BUFFER_MEMORY_OPEN_RESULT
+        || command==MD_BUFFER_CONTROL_IOCTL_SPEC || command==MD_BUFFER_CONTROL_IOCTL_LAYOUT
+        || command==MD_BUFFER_PROC_ACK || command==MD_BUFFER_UTS
+        || command==MD_BUFFER_SHM_STAT || command==MD_BUFFER_NETWORK_CREDENTIALS;
 }
 struct md_adapter_input { long value; void *buffer; };
 #ifndef MD_USE_LIBC

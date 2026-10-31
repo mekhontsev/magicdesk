@@ -5,6 +5,7 @@
 #include "task_birth.h"
 #include "adapter_buffer.h"
 #include "fs_buffer.h"
+#include "fd_client.h"
 #include "signal_delivery.h"
 #include <assert.h>
 #include <elf.h>
@@ -1048,16 +1049,20 @@ __asm__(".text\n.balign 4\n.global unified_native\nunified_native:\nsvc #0\n"
     "str x0,[x23]\nmov x8,x25\nb md_guest_buffer_control\n");
 static int checkpoint_site(uintptr_t pc) { return pc==(uintptr_t)md_guest_buffer_control_checkpoint+4; }
 extern char entry_scalar_gate[],entry_scalar_return[],md_guest_done_checkpoint[];
+extern char md_guest_fd_control_checkpoint[];
 __asm__(".text\n.balign 4\n.global entry_scalar_gate\nentry_scalar_gate:\n"
-    "mov x0,x22\nbl md_guest_buffer_control\n"
-    ".global entry_scalar_return\nentry_scalar_return:\nstr x0,[x23]\nb md_guest_done\n");
+    "mov x0,x22\nblr x21\n"
+    ".global entry_scalar_return\nentry_scalar_return:\nstr x0,[x23]\nstr x1,[x23,#16]\nb md_guest_done\n");
 static int scalar_site(uintptr_t pc) {
-    return checkpoint_site(pc) || pc==(uintptr_t)md_guest_done_checkpoint+4;
+    return checkpoint_site(pc) || pc==(uintptr_t)md_guest_fd_control_checkpoint+4
+        || pc==(uintptr_t)md_guest_done_checkpoint+4;
 }
 static int scalar_entry(uintptr_t pc,unsigned long command) {
+    if (pc==(uintptr_t)md_guest_fd_control_checkpoint+4) return md_fd_control_scalar(command);
     return checkpoint_site(pc) && (md_adapter_buffer_scalar(command) || md_fs_buffer_scalar(command));
 }
-static void scalar_checkpoint(int protected,int restricted,unsigned command) {
+static void scalar_checkpoint(int protected,int restricted,unsigned command,int descriptor) {
+    extern struct md_fd_observation md_guest_fd_control(unsigned,uint64_t,long,long);
     volatile uint64_t *output=mmap(NULL,4096,PROT_READ|PROT_WRITE,MAP_SHARED|MAP_ANONYMOUS,-1,0);
     assert(output!=MAP_FAILED);
     int start[2]; assert(!pipe(start));
@@ -1078,7 +1083,7 @@ static void scalar_checkpoint(int protected,int restricted,unsigned command) {
         struct sock_fprog program={sizeof(code)/sizeof(*code),code};
         assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
         assert(!sysemu_pause((pid_t)syscall(SYS_getpid),SIGSTOP,output+1));
-        assert(output[0]==0x9876 && output[1]==0x4321);
+        assert(output[0]==0x9876 && output[1]==0x4321 && output[2]==0x7654);
         assert(!sigaction(SIGTRAP,NULL,&action) && action.sa_handler==SIG_IGN);
         assert(!sigprocmask(SIG_SETMASK,NULL,&set) && sigismember(&set,SIGTRAP));
         _exit(0);
@@ -1087,6 +1092,7 @@ static void scalar_checkpoint(int protected,int restricted,unsigned command) {
     assert(write(start[1],"s",1)==1 && stopped(pid)==SIGSTOP);
     struct user_pt_regs saved=registers(pid),gate=saved;
     gate.pc=(uintptr_t)entry_scalar_gate; gate.regs[23]=(uintptr_t)output;
+    gate.regs[21]=descriptor ? (uintptr_t)md_guest_fd_control : (uintptr_t)md_guest_buffer_control;
     gate.regs[22]=command;
     checkpoint_restricted=restricted;
     struct md_task_checkpoints runtime={.trace=checkpoint_trace,.restricted=checkpoint_policy,
@@ -1102,8 +1108,10 @@ static void scalar_checkpoint(int protected,int restricted,unsigned command) {
         assert((unsigned)status>>16==MD_TASK_CHECKPOINT_EVENT);
         gate=registers(pid);
         if (!seen++) {
-            assert(stops==1 && gate.pc==(uintptr_t)md_guest_buffer_control_checkpoint+4 && gate.regs[0]==command);
-            gate.regs[0]=0x9876;
+            uintptr_t marker=descriptor ? (uintptr_t)md_guest_fd_control_checkpoint
+                : (uintptr_t)md_guest_buffer_control_checkpoint;
+            assert(stops==1 && gate.pc==marker+4 && gate.regs[0]==command);
+            gate.regs[0]=0x9876; gate.regs[1]=0x7654;
         } else {
             assert(stops==3 && gate.pc==(uintptr_t)md_guest_done_checkpoint+4 && output[0]==0x9876);
             gate=saved; runtime.begin=runtime.end=0;
@@ -1861,14 +1869,27 @@ int main(int argc,char **argv) {
         return 0;
     }
     const unsigned scalar_commands[]={MD_BUFFER_MAPPED,MD_BUFFER_TAKE,MD_BUFFER_RELEASE,
-        MD_FS_BUFFER_CALL,MD_FS_BUFFER_EXEC_PREPARE,MD_FS_BUFFER_EXEC_CANCEL,MD_FS_BUFFER_PROC_LINK};
+        MD_BUFFER_PROC_META,MD_BUFFER_PID_NUMBER,MD_BUFFER_DESCRIPTOR_META,
+        MD_BUFFER_MEMORY_OPEN,MD_BUFFER_MEMORY_OPEN_RESULT,MD_BUFFER_CONTROL_IOCTL_SPEC,
+        MD_BUFFER_CONTROL_IOCTL_LAYOUT,MD_BUFFER_PROC_ACK,MD_BUFFER_UTS,MD_BUFFER_SHM_STAT,
+        MD_BUFFER_NETWORK_CREDENTIALS,
+        MD_FS_BUFFER_CALL,MD_FS_BUFFER_EXEC_PREPARE,MD_FS_BUFFER_EXEC_CANCEL,MD_FS_BUFFER_PROC_LINK,
+        MD_FS_BUFFER_IPC_IO_PREPARE,MD_FS_BUFFER_IPC_IO_COPY,MD_FS_BUFFER_IPC_IO_SELECT};
+    const unsigned fd_commands[]={MD_FD_KIND,MD_FD_SELECTORS,MD_FD_SELECTOR_QUERY,
+        MD_FD_SENT,MD_FD_RECEIVED,MD_FD_END,MD_FD_RELEASE,MD_FD_PAIR_END};
     assert(!md_adapter_buffer_scalar(MD_BUFFER_FINISH) && !md_adapter_buffer_scalar(MD_BUFFER_PROC_START));
+    assert(!md_adapter_buffer_scalar(MD_BUFFER_CONTROL_IOCTL) && !md_adapter_buffer_scalar(MD_BUFFER_CONTROL_MAP));
+    assert(!md_fd_control_scalar(MD_FD_SELECTOR_INSTALL) && !md_fd_control_scalar(MD_FD_DUPLICATE_BEGIN)
+        && !md_fd_control_scalar(MD_FD_DUPLICATE_END) && !md_fd_control_scalar(MD_FD_INPUT));
     assert(!md_fs_buffer_scalar(MD_FS_BUFFER_RESULT_REPLAY) && !md_fs_buffer_scalar(MD_BUFFER_FINISH));
     for (unsigned i=0;i<sizeof(scalar_commands)/sizeof(*scalar_commands);++i)
         for (int protected=0;protected<2;++protected)
-            for (int restricted=0;restricted<2;++restricted) scalar_checkpoint(protected,restricted,scalar_commands[i]);
+            for (int restricted=0;restricted<2;++restricted) scalar_checkpoint(protected,restricted,scalar_commands[i],0);
+    for (unsigned i=0;i<sizeof(fd_commands)/sizeof(*fd_commands);++i)
+        for (int protected=0;protected<2;++protected)
+            for (int restricted=0;restricted<2;++restricted) scalar_checkpoint(protected,restricted,fd_commands[i],1);
     printf("PASS scalar checkpoint: %zu cases; entry-only C return, full-register completion, strict seccomp and blocked SIGTRAP\n",
-        4*sizeof(scalar_commands)/sizeof(*scalar_commands));
+        4*(sizeof(scalar_commands)/sizeof(*scalar_commands)+sizeof(fd_commands)/sizeof(*fd_commands)));
     for (int protected=0;protected<2;++protected)
         for (int restricted=0;restricted<2;++restricted)
             for (int denied=0;denied<2;++denied) for (int invalid=0;invalid<2;++invalid)

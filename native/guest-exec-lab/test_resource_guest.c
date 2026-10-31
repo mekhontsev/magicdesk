@@ -1735,7 +1735,10 @@ static void watch_slots(void) {
                 const char *proc[]={"/proc/thread-self/status","/proc/thread-self/stat","/proc/thread-self"};
                 for (unsigned p=0;p<3;++p) {
                     wd=inotify_add_watch(watch,proc[p],IN_ATTRIB|(p==2 ? IN_ONLYDIR : 0));
-                    assert(wd>=0 && !inotify_rm_watch(watch,wd));
+                    int removed=wd<0 ? -1 : inotify_rm_watch(watch,wd);
+                    if (wd<0 || removed) fprintf(stderr,"watch full table: protected=%d path=%s wd=%d remove=%d errno=%d\n",
+                        protected,proc[p],wd,removed,errno);
+                    assert(wd>=0 && !removed);
                     if (p!=2) assert(inotify_add_watch(watch,proc[p],IN_ATTRIB|IN_ONLYDIR)==-1 && errno==ENOTDIR);
                 }
                 assert(inotify_add_watch(watch,"watch-slots",IN_ATTRIB|IN_ONLYDIR)==-1 && errno==ENOTDIR);

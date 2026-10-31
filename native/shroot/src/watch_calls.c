@@ -34,12 +34,12 @@ static int local_copy(void *output, const void *data, size_t size) {
     return (int)md_write_memory(output, data, size);
 }
 long md_watch_read_local(const struct md_fs *fs, long nr, const unsigned long *a) {
+    if (md_watch_ioctl_native(nr,a[1])) return MD_CALL_NATIVE;
     int fd = (int)a[nr == SYS_sendfile ? 1 : 0];
     long r = md_watch_contains(fs, fd);
     if (r <= 0) return r ? r : MD_CALL_NATIVE;
     struct md_fs_response out;
     if (nr == SYS_ioctl) {
-        if (a[1] != FIONREAD) return MD_CALL_NATIVE;
         r = request(fs, MD_FS_WATCH_BYTES, fd, -1, 0, &out);
         int bytes = (int)out.result.position;
         return r ? r : md_write_memory((void *)a[2], &bytes, sizeof(bytes));

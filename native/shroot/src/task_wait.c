@@ -72,6 +72,7 @@ pid_t md_task_wait_take(struct md_task_wait *w, int *status, struct rusage *usag
 static pid_t collect(struct md_task_wait *w,int *status,struct rusage *usage,unsigned limit) {
     w->pending_first=0;
     w->count=w->directed=0;
+    w->fair_phase=0;
     while (w->pending_count<limit) {
         unsigned i=w->pending_count;
         w->pending[i].usage=(struct rusage){0};
@@ -103,10 +104,12 @@ pid_t md_task_wait_ready(struct md_task_wait *w, int *status, struct rusage *usa
     if (w->members>64) directed_budget=w->members<1024 ? w->members : 1024;
     /* wait4(-1) scans from the same child-list head: even frequent general
      * waits can starve an unnotified stop behind perpetually hot children.
-     * Advance one round-robin member per discovery pass, independently of
-     * lossy SIGCHLD/MRU hints, before checking the recent active tasks.
+     * Advance round-robin on two of every three discovery passes. This bounds
+     * unnotified stops independently of lossy hints while amortizing idle probes.
      * A single tracee keeps the original fast path; no full task scan occurs. */
-    if (w->cursor && w->cursor->next!=w->cursor && w->directed<directed_budget) {
+    if (w->cursor && w->cursor->next!=w->cursor && w->directed<directed_budget
+            && w->fair_phase<2) {
+        ++w->fair_phase;
         pid_t selected=w->cursor->pid;
         w->cursor=w->cursor->next;
         first_query(&queried,selected);
@@ -114,7 +117,7 @@ pid_t md_task_wait_ready(struct md_task_wait *w, int *status, struct rusage *usa
         pid_t pid=wait4(selected,status,__WALL|WNOHANG,usage);
         if (pid>0) return remember(w,pid,*status);
         if (pid<0 && errno!=ECHILD && errno!=ESRCH) return pid;
-    }
+    } else w->fair_phase=0;
     while (w->count && w->directed < directed_budget) {
         unsigned capacity=sizeof(w->hints)/sizeof(*w->hints);
         pid_t selected=w->hints[w->first];

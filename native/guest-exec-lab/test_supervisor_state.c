@@ -136,6 +136,38 @@ static void memory_observation_routes(void) {
     md_memory_release(t.memory);
     puts("PASS compact memory routes: original/known/cold alias, exact operands, no private stack, retired gate, filter or debugger");
 }
+static void machine_context_admission(void) {
+    struct thread t={.pid=123,.entered=1,.memory=md_memory_new()}; assert(t.memory);
+    struct ptrace_syscall_info info={.op=PTRACE_SYSCALL_INFO_SECCOMP,
+        .instruction_pointer=0x2004,.stack_pointer=0x800000,.seccomp={.nr=SYS_close}};
+    assert(!machine_context(&t,&info) && !machine_discovery(&t));
+    struct md_svc_registry *r=md_svc_registry_new(0x1000000,0x4000); assert(r);
+    assert(!md_memory_svc_set(t.memory,r));
+    r->pool_count=1; r->pools[0]=(struct md_svc_code_pool){.address=0x3000,.used=8};
+    assert(machine_context(&t,&info) && machine_discovery(&t));
+    for (unsigned i=0;i<4;++i) {
+        t.application_filter=i==0; t.cooperative_blocked=i==1;
+        t.debug_options=i==2; r->disabled=i==3;
+        assert(!machine_discovery(&t) && !machine_context(&t,&info));
+        info.instruction_pointer=0x3004;
+        assert(machine_context(&t,&info));
+        info.instruction_pointer=0x2004; info.stack_pointer=r->frames+16;
+        assert(machine_context(&t,&info));
+        info.stack_pointer=0x800000;
+        assert(machine_context(&t,NULL));
+    }
+    t.application_filter=t.cooperative_blocked=0; t.debug_options=0; r->disabled=0;
+    t.entered=0;
+    assert(!machine_discovery(&t) && !machine_context(&t,&info));
+    t.entered=1; info.seccomp.nr=SYS_sched_yield;
+    assert(!machine_context(&t,&info));
+    info.instruction_pointer=0x3004;
+    assert(machine_context(&t,&info));
+    t.phase=DISPATCHING;
+    assert(!machine_context(&t,&info) && !machine_context(&t,NULL));
+    md_memory_release(t.memory);
+    puts("PASS machine context: lazy discovery capture, revoked entry recovery and task-owned dispatch");
+}
 static void processor_controls(void) {
     const uint64_t controls[]={0,UINT64_C(1)<<12,UINT64_C(1)<<24,(UINT64_C(1)<<12)|(UINT64_C(1)<<24)};
     for (unsigned i=0;i<sizeof(controls)/sizeof(*controls);++i) {
@@ -683,6 +715,73 @@ static void fd_native_retirement(void) {
     }
     md_fs_anchor_release(origin);
     puts("PASS native FD retirement: real syscall continuation, metadata-free close, shared/changed/debugged observation, filtered no-op and wide command");
+}
+static void duplicate_prepared_admission(void) {
+    struct thread t={.pid=123,.phase=IDLE,.ready=1};
+    t.resources.files=md_fd_origins_new(); assert(t.resources.files);
+    t.fd_selector=md_fd_selector_new(); assert(t.fd_selector);
+    struct user_pt_regs regs={0}; regs.regs[8]=SYS_fcntl;
+    regs.regs[0]=5; regs.regs[1]=F_DUPFD_CLOEXEC;
+    assert(!fd_duplicate_prepared(&t,&regs,MD_INTERCEPT_DISPATCH));
+    for (unsigned kind=0;kind<MD_FD_SELECTOR_KINDS;++kind)
+        if (MD_FD_SANDBOX_SELECTORS&(1U<<kind)) assert(!md_fd_selector_mark(t.fd_selector,kind,-1));
+    struct md_fd_object *object=md_descriptor_inode_new(&t.identity,S_IFIFO|0600); assert(object);
+    struct md_fd_origin_update update;
+    assert(!md_fd_origins_prepare_object(t.resources.files,object,0,&update));
+    md_fd_origins_finish(&update,5);
+    struct md_fd_origins *peer=md_fd_origins_fork(t.resources.files,1); assert(peer);
+    for (unsigned operation=0;operation<4;++operation) for (unsigned success=0;success<2;++success) {
+        regs.regs[8]=operation<2 ? SYS_fcntl : operation==2 ? SYS_dup : SYS_dup3;
+        regs.regs[1]=operation<2 ? (UINT64_C(1)<<32)|(operation ? F_DUPFD : F_DUPFD_CLOEXEC) : 6;
+        regs.regs[2]=operation==3 ? O_CLOEXEC : 0;
+        assert(fd_duplicate_prepared(&t,&regs,MD_INTERCEPT_DISPATCH));
+        assert(!fd_duplicate_prepared(&t,&regs,MD_INTERCEPT_PROC));
+        t.debug_options=PTRACE_O_TRACEEXEC;
+        assert(!fd_duplicate_prepared(&t,&regs,MD_INTERCEPT_DISPATCH)); t.debug_options=0;
+        t.application_filter=1;
+        assert(fd_duplicate_prepared(&t,&regs,MD_INTERCEPT_DISPATCH));
+        fd_expected_resume=PTRACE_SYSCALL; fd_resume_calls=0;
+        checkpoints.trace=fd_resume_trace; thread_index[t.pid%THREAD_BUCKETS]=&t;
+        fd_begin(&t,&regs,MD_INTERCEPT_FD);
+        assert(fd_resume_calls==1 && t.fd_running && t.fd_order.table);
+        struct md_fd_object *before=md_fd_origins_object(peer,6,NULL); assert(!before);
+        fd_finish(&t,success ? 6 : -EPERM);
+        assert(!t.fd_running && !t.fd_order.table);
+        unsigned flags=0;
+        struct md_fd_object *after=md_fd_origins_object(peer,6,&flags);
+        assert(after==(success ? object : NULL));
+        if (success) assert(flags==((operation==0 || operation==3) ? FD_CLOEXEC : 0));
+        md_fd_object_release(after);
+        assert(!md_fd_origins_close_range(peer,6,6,0));
+        checkpoints.trace=checkpoint_native_trace; thread_index[t.pid%THREAD_BUCKETS]=NULL;
+    }
+    regs.regs[8]=SYS_fcntl; regs.regs[1]=F_SETFL;
+    assert(!fd_duplicate_prepared(&t,&regs,MD_INTERCEPT_DISPATCH));
+    md_fd_object_release(object); md_fd_origins_release(peer); md_fd_origins_release(t.resources.files);
+    md_fd_selector_release(t.fd_selector);
+    puts("PASS prepared duplicate: all-selector admission, shared authority, kernel failure, CLOEXEC and debugger fallback");
+}
+static long watch_mask_trace(int request,pid_t pid,void *address,void *data) {
+    assert(request==PTRACE_GETSIGMASK && pid==123 && address && data);
+    ++fd_resume_calls; errno=ESRCH; return -1;
+}
+static void native_ioctl_route(void) {
+    const unsigned commands[]={FIONBIO,0x12345678,FIONREAD};
+    for (unsigned i=0;i<sizeof(commands)/sizeof(*commands);++i) {
+        struct thread t={.pid=123,.phase=IDLE,.ready=1,.application_filter=1};
+        t.resources.files=md_fd_origins_new(); assert(t.resources.files);
+        struct user_pt_regs regs={0}; regs.regs[8]=SYS_ioctl; regs.regs[0]=5;
+        regs.regs[1]=commands[i]; regs.regs[2]=1;
+        fd_expected_resume=PTRACE_CONT; fd_resume_calls=0;
+        checkpoints.trace=i==2 ? watch_mask_trace : fd_resume_trace;
+        thread_index[t.pid%THREAD_BUCKETS]=&t;
+        proc_lookup_begin(&t,&regs);
+        assert(fd_resume_calls==1 && !t.proc_lookup.table && t.phase==IDLE);
+        assert(t.resume_lost==(i==2));
+        checkpoints.trace=checkpoint_native_trace; thread_index[t.pid%THREAD_BUCKETS]=NULL;
+        md_fd_origins_release(t.resources.files);
+    }
+    puts("PASS ioctl routing: original native continuation, FIONREAD retains watch admission");
 }
 static void readiness_admission_identity(void) {
     struct md_fd_origins *files=md_fd_origins_new(); assert(files);
@@ -1596,12 +1695,15 @@ int main(void) {
     process_snapshot();
     memory_context_capture();
     memory_observation_routes();
+    machine_context_admission();
     processor_controls();
     svc_client_lifetime();
     receive_layouts();
     native_capture();
     duplicate_retirement_order();
     fd_native_retirement();
+    duplicate_prepared_admission();
+    native_ioctl_route();
     queued_actions();
     barrier_admission(); readiness_admission_order(); readiness_entry_interrupt(); readiness_signal_return(); readiness_parked_signal_return(); readiness_cancel_entry(); readiness_admission_identity(); entry_fence_ownership(); control_deadlines(); pid_collection_waiters(); terminal_buffer_completion(); buffered_io_pressure(); prepared_input(); captured_writes(); repair_events(); repair_retirement(); quiescent_birth(); event_accounting();
     for (unsigned mode=0;mode<4;++mode) {

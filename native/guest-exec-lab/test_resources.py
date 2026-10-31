@@ -667,11 +667,13 @@ def main():
                 elif writer == 2:
                     patterns.extend(rf"independent process: writer={mode} completed=[1-9][0-9]*"
                                     for mode in (3, 4))
-                check("automatic private-file JIT with " + name,
-                      root + "/libmagicdesk_guest_run.so --diagnostics --user 1000:1000 --store "
-                      + root + "/store --deadline-seconds 60 -- /bin/test --automatic-" + name,
-                      f"PASS automatic private-file JIT with independent process: writer={writer}",
-                      patterns=tuple(patterns))
+                for entry in ((0, 1) if writer == 2 else (1,)):
+                    check(f"automatic private-file JIT with {name} entry={entry}",
+                          root + "/libmagicdesk_guest_run.so --diagnostics --user 1000:1000 --store "
+                          + root + "/store --env SHROOT_MACHINE_ENTRY=" + str(entry)
+                          + " --deadline-seconds 60 -- /bin/test --automatic-" + name,
+                          f"PASS automatic private-file JIT with independent process: writer={writer}",
+                          patterns=tuple(patterns))
             check("failed proc-memory opens do not widen JIT quiescence",
                   root + "/libmagicdesk_guest_run.so --diagnostics --user 1000:1000 --store "
                   + root + "/store --deadline-seconds 60 -- /bin/test --automatic-failed-mem",
