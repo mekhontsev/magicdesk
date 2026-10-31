@@ -145,7 +145,9 @@ The baseline includes pidfds, selective ptrace, seccomp notifications,
 `openat2`, `faccessat2`, `close_range` and shared/sealed memfds. The native read
 provider uses `openat2(RESOLVE_NO_SYMLINKS, O_PATH|O_NOFOLLOW)` to pin admitted
 task-independent paths. A missing or denied operation retains task-affine
-dispatch; self aliases and private proc views do not use this optimization.
+dispatch; self aliases and private PID views do not use this optimization.
+Both implicit proc paths and mounted native-PID views use it after logical
+mount/access admission; a namespace inode alone does not imply PID translation.
 These flags predate the 5.15 baseline. In particular,
 atomic `SECCOMP_ADDFD_FLAG_SEND` is a required FD-publication primitive, available
 since Linux 5.14. Separate ADDFD and reply calls are not an equivalent fallback:

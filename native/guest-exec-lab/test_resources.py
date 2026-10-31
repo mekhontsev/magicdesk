@@ -367,6 +367,8 @@ def main():
                   + "/store --bind /dev /attached --deadline-seconds 90 -- /bin/test buffer-return /tmp", "PASS protected return")
 
     def check_directories():
+        check("merged provider directory paging", root + "/libmagicdesk_guest_fs_dispatch.so --provider-directory "
+              + root + "/provider-directory", "PASS provider directory:")
         check("native directory copy", root + "/libmagicdesk_guest_resource_guest.so buffer-directory "
               + root + "/native", "PASS protected directory copy")
         check("guest directory copy", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root

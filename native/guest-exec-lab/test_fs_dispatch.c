@@ -2051,9 +2051,11 @@ static void operation_window(struct md_inode_store *s) {
     puts("PASS operation windows: access, readlink, metadata, mutations and both operand authorities");
 }
 int main(int argc, char **argv) {
+    extern void md_test_provider_directory(const char *);
     extern void md_test_fs_deferred(const char *);
     extern void md_test_prepare_libc_descriptors(void);
     md_test_prepare_libc_descriptors();
+    if (argc==3 && !strcmp(argv[1],"--provider-directory")) { md_test_provider_directory(argv[2]); return 0; }
     if (argc==3 && !strcmp(argv[1],"--input")) { md_test_input_session(argv[2]); return 0; }
     if (argc==3 && !strcmp(argv[1],"--fuse-device")) { md_test_fuse_device(argv[2]); return 0; }
     if (argc==3 && !strcmp(argv[1],"--worker-pause")) {

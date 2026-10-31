@@ -414,6 +414,12 @@ nodev rejects new opens without invalidating already-open descriptions.
 
 ## Logical Filesystems
 
+Merged `provider_tree` directories keep ordinal cookies in the shared open
+description. Bounded native-position hints avoid rescanning the prefix during
+sequential reads; layer identity and metadata changes invalidate these hints.
+Hints retain no descriptors and are not transferred. Cold imports, eviction and
+arbitrary seeks replay the ordinal without changing cursor or visibility rules.
+
 Sysfs uses `provider_tree` to compose guest-owned nodes with a filtered native
 lower tree. Every launch prepares the initial `/sys`, independently of gamepad
 transport. `sysfs_view` owns the shared CPU/NUMA visibility policy used by both
