@@ -32,6 +32,9 @@ int md_fs_proc_task(struct md_filesystem *fs,struct md_fs_anchor *origin,const c
     enum md_proc_kind selected=ref.kind==MD_PROC_FOREIGN ? ref.foreign_kind : ref.kind;
     enum md_proc_file_kind kind=(enum md_proc_file_kind)(selected-MD_PROC_UID_MAP);
     if (!md_proc_file_task(kind) || !fs->actor) return 0;
+    /* Proc text is virtual, but watches belong to the native inode. Keep the
+     * admitted path delegation so caller-affine capture enforces its access. */
+    if (q->operation==MD_FS_WATCH_PATH && md_proc_native_task(selected)) return 0;
     struct md_task_snapshot target;
     int error=md_task_registry_proc(fs->tasks,ref.process,&target);
     /* External Android processes retain native inspection and admission. */
