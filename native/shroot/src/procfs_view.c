@@ -270,10 +270,12 @@ int md_procfs_noatime(struct md_filesystem *fs,int fd,const char *path) {
     return md_file_noatime(&st,fs->store->identity);
 }
 static int control(const char *path,const char *name) {
+    /* Memory opens publish exposure before another process can retain the FD.
+     * They need caller-side admission even through an explicitly mounted proc. */
     if (process_directory(path))
         return !strcmp(name,"uid_map") || !strcmp(name,"gid_map")
             || !strcmp(name,"setgroups") || !strcmp(name,"exe") || !strcmp(name,"cmdline")
-            || !strcmp(name,"auxv")
+            || !strcmp(name,"auxv") || !strcmp(name,"mem")
             || !strcmp(name,"root") || !strcmp(name,"cwd") || !strcmp(name,"mounts")
             || !strcmp(name,"mountinfo") || !strcmp(name,"cgroup");
     const char *last=strrchr(path,'/');
