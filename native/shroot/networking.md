@@ -284,8 +284,12 @@ Supported ABI: TUN IP packets, TAP Ethernet frames, optional `tun_pi`, one
 packet per read, truncation flags, nonblocking readiness, persistence, owner/group,
 carrier control and multiqueue attach/detach. Packet consumption commits only
 after guest output copying succeeds. Each queue is bounded by 1024 packets and
-4 MiB. Unsupported offloads, virtio-net headers, steering programs and device
-moves fail explicitly; `TUNGETFEATURES` advertises only implemented features.
+4 MiB. Optional virtio-net headers support negotiated size and byte order,
+partial-checksum completion and TCPv4/TCPv6 segmentation, including ECN flags.
+The queue retains packets independently of the current read-header layout.
+Send-buffer ioctls retain the requested value; writes are admitted synchronously,
+without a separate asynchronous send queue. UDP offloads, steering programs and
+device moves fail explicitly; `TUNGETFEATURES` advertises only implemented features.
 This is not Android's VPN service and never opens the host TUN device.
 
 `network_stack` owns a lazy lwIP context for each packet-enabled namespace.
@@ -307,7 +311,11 @@ Graceful relay retirement waits until the packet owner has drained its carrier
 and queued FIN. Exhausted relay descriptors leave epoll while this completes;
 the packet owner's completion wakes retirement without a delay or HUP spin.
 `network_stack_packet` validates reassembled transport and delivers raw
-observations without a second IP reassembler.
+observations without a second IP reassembler. Broadcast/multicast UDP enters the
+existing namespace group-delivery owner, including DHCP's zero-source discovery.
+Legacy ARP get/set/delete ioctls use the same per-interface lwIP neighbor cache;
+they do not create a second neighbor catalogue. Writes require namespace
+`CAP_NET_ADMIN`; proxy ARP is unsupported.
 
 Shroot remains the address/route authority; lwIP does not run DHCP, DNS or SLAAC
 configuration. Current stack interfaces mirror one primary IPv4 address and up
@@ -366,7 +374,8 @@ chains reached through verdict maps. These checks do not run on packet IO.
 address/protocol and TCP/UDP port or ICMP type/code payload, compare/range/bitwise,
 conntrack state/mark/status, local/source-route classification, reverse-path and
 packet-type predicates, set, verdict-map and register-value lookup, single-target
-DNAT/SNAT and masquerade operations. ACCEPT ends a chain, not a hook; later
+DNAT, single-address SNAT and masquerade operations. Source NAT supports inclusive
+TCP/UDP port ranges for both address families. ACCEPT ends a chain, not a hook; later
 base chains may deny it. RETURN applies the base policy. Rule counters and
 optional base-chain policy counters retain their values in transactional
 snapshots. Cached flow decisions retain counter references for one generation,
@@ -381,31 +390,60 @@ returns ECONNREFUSED during logical connection admission; relayed new and
 established native streams close with SO_LINGER reset, so peers observe RST
 rather than waiting for a DROP timeout. Existing direct streams retain the
 ordinary policy-update rule: an update requiring mediation returns EBUSY.
-UDP/ICMP REJECT modes remain explicitly unsupported, including general
-`icmpx admin-prohibited`. UID 2000 cannot inject arbitrary host ICMP errors to
-external peers; dropping an already received datagram is not an implementation
-of REJECT. Logging, queues, dynamic sets, flowtables, unsupported table flags,
+`network_reject` owns typed TCP/ICMP refusals and socket error conversion.
+nft ICMP/ICMPv6 unreachable, inet `icmpx`, and revision-zero xtables unreachable
+targets share that owner. Address/connection admission returns the corresponding
+errno. On TUN/TAP, the packet owner sends an actual ICMP reply with checksum and
+a bounded quote of the original header, including IPv4 options. A retained
+packet channel uses the relay's generation-cached decision after rule changes;
+it does not re-evaluate the rules for every packet. Incoming, validated ICMP
+quotes can complete a pending packet-side TCP connection, including its existing
+readiness and `SO_ERROR` path. Tuple and SYN-sequence checks reject unrelated
+errors. Responses exclude multicast/broadcast, unspecified sources, corrupt
+packets and ICMP errors, with a per-namespace limit of 32 refusals per second.
+
+The scope is logical socket admission and managed packet transport, not host
+ICMP injection. UID 2000 cannot send arbitrary host ICMP errors to external
+native peers. Established native UDP sockets do not have a synthetic ICMP error
+queue or asynchronous refusal delivery; a later policy denial can discard their
+traffic. Use the packet transport when wire-level error delivery is required.
+Ordinary socket read/write remains native; these limitations must not be
+described as complete Linux error-queue or host-firewall support.
+Logging, queues, dynamic sets, flowtables, unsupported table flags,
 monitoring groups and other netfilter subsystems also return errors, not fake
-success. Stock firewalld configurations requiring those modes remain uncertified.
+success. Whole stock firewalld configurations remain uncertified.
 The iptables-nft rule-compat attribute is validation metadata, not a packet
 predicate; expressions still supply the matches. Revision-zero TCP/UDP
 matches become typed transport predicates with inclusive source/destination
 port ranges and inversion, without altering nft registers. DNAT/SNAT targets
 (revisions 0, 1 and 2)
-translate a single address/port into the same typed NAT operation. Revision
+translate a single address and, for SNAT, a source-port range into the same typed
+NAT operation. Revision-zero MASQUERADE and native nft masq use that same range
+selection; nft minimum/maximum registers must be initialized. Revision
 queries advertise these supported adapters and distinguish an absent extension
 (`ENOENT`) from an unsupported revision (`EPROTONOSUPPORT`). This lets clients
 negotiate an older supported ABI without misdiagnosing a missing module.
 Revision-zero ICMP/ICMPv6 matches retain type/code bounds and inversion;
 `pkttype` and `rpfilter` use the common packet and route model. FIB queries share
 that model for address type, output interface/name and interface presence.
-TCP flags/options, NAT address/port
-ranges, randomization and other xtables extensions are rejected. Rule/chain deletion accepts their dumped metadata but
+TCP flags/options, NAT address pools, DNAT port ranges,
+randomization and other xtables extensions are rejected. Rule/chain deletion accepts their dumped metadata but
 uses the live handle/reference graph, never the caller's stale use count.
 
 `network_flow` records logical OUTPUT/PREROUTING/FORWARD/POSTROUTING/INPUT steps,
 original/translated tuples and reverse established traffic through bridge/veth
 topology. Each translating step retains its before/after tuple and hook priority.
+Source-port selection runs only during connection admission under the fabric
+lock. A bounded port bitmap snapshots live translated and direct tuples, including
+pending connects, in both directions in the translating namespace. It preserves
+the original port when available, otherwise selects an unused port in the requested
+range; exhaustion returns `EADDRNOTAVAIL`. Different remote tuples and protocols
+may reuse ports. The existing flow/listener lifetime owns the reservation, so
+failure and teardown need no separate NAT allocation registry. Policy updates
+retain established bindings; payload IO never searches for a port. Without an
+explicit range, source ports retain their privileged/unprivileged class.
+These are logical fabric ports; Android-facing carriers retain their separate
+native socket allocation, not ownership of arbitrary host source ports.
 A native listener's accepted local address remains local for FIB queries in its
 owning namespace, even when Android's address is not a guest interface address.
 This authority is attached to that flow, not a global address list. DNAT changes

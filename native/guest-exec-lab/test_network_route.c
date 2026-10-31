@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "network_ioctl.h"
 #include "network_route.h"
 #include "network_internal.h"
 #include "network_route_ip.h"
@@ -186,6 +187,35 @@ void test_network_route(void) {
     assert(md_network_interface_find(n,endpoint,NULL)->info.tx_queue_length==77);
     struct md_fd_object *socket=md_network_socket_new(n);
     assert(socket && md_network_interface_ioctl(SIOCGIFHWADDR) && md_network_interface_ioctl(SIOCSIFHWADDR));
+    struct md_network_bridge_ioctl br={.name="br-test",.args={BRCTL_SET_BRIDGE_FORWARD_DELAY,0}};
+    unsigned long bridge_io[6]={0,SIOCDEVPRIVATE};
+    assert(md_network_socket_call(socket,&user,SYS_ioctl,bridge_io,&br,sizeof(br),sizeof(br),1,NULL,NULL,NULL)==-EPERM);
+    assert(!md_network_socket_call(socket,&root,SYS_ioctl,bridge_io,&br,sizeof(br),sizeof(br),1,NULL,NULL,NULL));
+    br.args[0]=BRCTL_GET_BRIDGE_INFO;
+    assert(!md_network_socket_call(socket,&user,SYS_ioctl,bridge_io,&br,sizeof(br),sizeof(br),1,NULL,NULL,NULL));
+    assert(!br.info.forward_delay && !br.info.stp_enabled);
+    br.args[0]=BRCTL_SET_BRIDGE_STP_STATE; br.args[1]=1;
+    assert(md_network_socket_call(socket,&root,SYS_ioctl,bridge_io,&br,sizeof(br),sizeof(br),1,NULL,NULL,NULL)==-EOPNOTSUPP);
+    br.args[1]=0;
+    assert(!md_network_socket_call(socket,&root,SYS_ioctl,bridge_io,&br,sizeof(br),sizeof(br),1,NULL,NULL,NULL));
+    uint64_t scope; uint32_t automatic[2]={0};
+    assert(!md_network_parameter_scope(n,MD_NET_IPV6_AUTOCONF,"br-test",&scope));
+    assert(!md_network_parameter_write(n,MD_NET_IPV6_AUTOCONF,scope,automatic));
+    automatic[0]=1;
+    assert(md_network_parameter_write(n,MD_NET_IPV6_AUTOCONF,scope,automatic)==-EOPNOTSUPP);
+    assert(!md_network_parameter_read(n,MD_NET_IPV6_AUTOCONF,scope,automatic) && !automatic[0]);
+    unsigned char conf_buffer[sizeof(struct md_network_ifconf)+8*sizeof(struct ifreq)];
+    struct md_network_ifconf *conf=(void *)conf_buffer;
+    unsigned long conf_io[6]={0,SIOCGIFCONF};
+    conf->capacity=-1;
+    assert(!md_network_socket_call(socket,&user,SYS_ioctl,conf_io,conf,sizeof(conf_buffer),sizeof(*conf),1,NULL,NULL,NULL));
+    int conf_size=conf->length; assert(conf_size>0 && conf_size<=8*(int)sizeof(struct ifreq));
+    conf->capacity=sizeof(struct ifreq)-1;
+    assert(!md_network_socket_call(socket,&user,SYS_ioctl,conf_io,conf,sizeof(conf_buffer),sizeof(*conf),1,NULL,NULL,NULL));
+    assert(!conf->length);
+    conf->capacity=sizeof(conf_buffer)-sizeof(*conf);
+    assert(!md_network_socket_call(socket,&user,SYS_ioctl,conf_io,conf,sizeof(conf_buffer),sizeof(*conf),1,NULL,NULL,NULL));
+    assert(conf->length==conf_size && conf->entries[0].ifr_addr.sa_family==AF_INET);
     struct ifreq mac={0}; strcpy(mac.ifr_name,"veth-guest");
     mac.ifr_hwaddr.sa_family=ARPHRD_ETHER;
     const unsigned char address[6]={2,3,4,5,6,7};

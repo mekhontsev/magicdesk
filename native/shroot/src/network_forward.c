@@ -41,6 +41,7 @@ struct datagram { struct datagram *next; size_t size; unsigned char data[]; };
 struct datagram_queue { struct datagram *head, *tail; size_t bytes, count; };
 struct flow {
     struct flow *next;
+    struct md_network_forward *owner;
     uint64_t id, listener, space, checked[2];
     const void *endpoint, *receiver;
     int fd[2], borrowed, type, connecting, eof[2], denied[2], receiver_closed, draining;
@@ -103,6 +104,27 @@ static struct listener *find_listener(struct md_network_forward *f,uint64_t id) 
 static struct flow *find_flow(struct md_network_forward *f,uint64_t id) {
     for (struct flow *c=f->connections;c;c=c->next) if (c->id==id) return c;
     return NULL;
+}
+int md_network_forward_nat_port(struct md_network_namespace *n,struct md_filter_packet *packet,uint16_t low,uint16_t high) {
+    struct md_network_nat_ports ports={0};
+    struct md_network_forward *f=n->fabric->forward;
+    /* The fabric turn spans route selection and publication. Existing paths
+     * are the reservations, including TCP connects not yet accepted locally.
+     * Snapshot once, then search the bounded port range without rescanning flows. */
+    for (struct flow *c=f ? f->connections : NULL;c;c=c->next)
+        md_network_flow_nat_ports(&c->path,n->inode,packet,&ports);
+    for (struct listener *l=f ? f->ports : NULL;l;l=l->next)
+        if (!l->external) md_network_flow_nat_ports(&l->path,n->inode,packet,&ports);
+    md_network_endpoint_nat_ports(n,packet,&ports);
+    unsigned port=ntohs(packet->source_port),count=(unsigned)high-low+1;
+    if (port<low || port>high) port=low;
+    for (unsigned i=0;i<count;++i) {
+        if (!(ports.used[port/64]&(UINT64_C(1)<<(port%64)))) {
+            packet->source_port=htons(port); return 0;
+        }
+        port=port==high ? low : port+1;
+    }
+    return -EADDRNOTAVAIL;
 }
 static int watch(struct md_network_forward *f,int command,int fd,uint64_t id,unsigned leg,uint32_t mask) {
     struct epoll_event e={.events=mask,.data.u64=id*4+leg};
@@ -176,6 +198,13 @@ static int check(struct md_network_forward *f,struct flow *c,unsigned direction)
     }
     return c->denied[direction];
 }
+static int packet_policy(void *context,unsigned direction,size_t bytes,struct md_network_rejection *rejection) {
+    struct flow *c=context;
+    int error=check(c->owner,c,direction);
+    *rejection=c->path.rejection[direction];
+    if(error) md_filter_account(&c->accounting[direction],bytes);
+    return error;
+}
 static void account(struct flow *c,unsigned direction,size_t bytes) {
     md_filter_account(&c->accounting[direction],bytes);
     if (!direction && !c->started) { c->started=1; c->checked[0]=0; }
@@ -194,7 +223,8 @@ static int interests(struct md_network_forward *f,struct flow *c) {
             md_network_endpoint_connect_complete(c->endpoint,0);
         }
     }
-    if (c->type==SOCK_STREAM && (check(f,c,0)==-ECONNREFUSED || check(f,c,1)==-ECONNREFUSED)) {
+    if (c->type==SOCK_STREAM && ((check(f,c,0) && c->path.rejection[0].type==MD_REJECT_TCP)
+            || (check(f,c,1) && c->path.rejection[1].type==MD_REJECT_TCP))) {
         for (unsigned leg=0;leg<2;++leg) if (c->fd[leg]>=0) reset_stream(c->fd[leg]);
         return -ECONNREFUSED;
     }
@@ -232,6 +262,7 @@ static struct flow *new_flow(struct md_network_forward *f,struct listener *l,int
     if (f->flows==1024 || f->next_id>UINT64_MAX/4) { errno=ENOSPC; return NULL; }
     struct flow *c=calloc(1,sizeof(*c));
     if (!c) return NULL;
+    c->owner=f;
     c->fd[0]=front; c->fd[1]=-1; c->type=l->type; c->borrowed=l->external && l->type==SOCK_DGRAM;
     c->listener=l->external ? l->id : 0; c->space=l->space; c->endpoint=l->external ? NULL : l->endpoint;
     c->client=*client; c->path=*path; c->gateway=l->address;
@@ -263,6 +294,7 @@ static struct flow *new_flow(struct md_network_forward *f,struct listener *l,int
     for (unsigned leg=0;leg<2;++leg) if (c->fd[leg]>=0 && (leg || !c->borrowed))
         if (watch(f,EPOLL_CTL_ADD,c->fd[leg],c->id,leg,0)) goto failed;
     c->next=f->connections; f->connections=c; ++f->flows;
+    md_network_stack_set_policy(c->packet_channel,c,1,packet_policy);
     int error=interests(f,c);
     if (error) {
         if (!c->borrowed) epoll_ctl(f->epoll,EPOLL_CTL_DEL,front,NULL);
@@ -882,6 +914,7 @@ int md_network_forward_packet(struct md_network_namespace *n,unsigned input,int 
     struct flow *c=new_flow(n->fabric->forward,&l,fd,&l.address,&path,&target,endpoint);
     if(!c) return -errno;
     c->front_channel=channel;
+    md_network_stack_set_policy(channel,c,0,packet_policy);
     wake(n->fabric->forward); return 0;
 }
 int md_network_forward_datagram(struct md_network_namespace *n,unsigned input,

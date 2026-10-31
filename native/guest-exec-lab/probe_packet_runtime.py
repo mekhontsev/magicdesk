@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Real TUN proxy or QEMU TAP traffic under Shroot, with local test topology.
+"""Real TUN proxy, OpenVPN or QEMU TAP traffic under Shroot, with local test topology.
 
 TUN uses stock tun2socks and GOST; TAP uses distribution QEMU and a trusted
-Alpine kernel/initramfs pair. No Android network configuration is changed.
+Alpine kernel/initramfs pair. VPN uses packaged OpenVPN and an ephemeral TLS peer.
+No Android network configuration is changed.
 All processes, links and test files belong to one bounded launch.
 """
 import argparse
 import contextlib
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -50,12 +52,11 @@ class UDPHandler(socketserver.BaseRequestHandler):
 
 
 @contextlib.contextmanager
-def echoes():
+def echoes(addresses=('198.51.100.1', 'fd42:7::1'), expected_peer=None):
     servers = []
     threads = []
     try:
-        for family, address in ((socket.AF_INET, '198.51.100.1'),
-                                (socket.AF_INET6, 'fd42:7::1')):
+        for family, address in zip((socket.AF_INET, socket.AF_INET6), addresses):
             for cls, handler in ((socketserver.ThreadingTCPServer, TCPHandler),
                                  (socketserver.ThreadingUDPServer, UDPHandler)):
                 class Server(cls):
@@ -63,6 +64,11 @@ def echoes():
                     daemon_threads = True
                     allow_reuse_address = True
                     max_packet_size = 65535
+                    def verify_request(self, request, client_address):
+                        if expected_peer is not None:
+                            ip, low, high = expected_peer[self.address_family]
+                            assert ipaddress.ip_address(client_address[0]) in ipaddress.ip_network(ip) and low <= client_address[1] <= high, client_address
+                        return True
                 server = Server((address, 18080), handler)
                 thread = threading.Thread(target=server.serve_forever)
                 servers.append(server)
@@ -230,8 +236,10 @@ def vm_archive(directory, initramfs, test):
         subprocess.run(['cpio', '-id', '--no-absolute-filenames'], cwd=root, stdin=source.stdout, check=True)
         assert source.wait() == 0
     shutil.copyfile(Path(__file__).with_name('fixtures') / 'packet-vm-init.sh', root / 'init')
+    shutil.copyfile(Path(__file__).with_name('fixtures') / 'packet-vm-dhcp.sh', root / 'dhcp.sh')
     shutil.copyfile(test, root / 'packet-test')
     (root / 'init').chmod(0o755)
+    (root / 'dhcp.sh').chmod(0o755)
     (root / 'packet-test').chmod(0o755)
     names = b'\0'.join(os.fsencode(str(path.relative_to(root))) for path in root.rglob('*')) + b'\0'
     archive = directory / 'initramfs.cpio'
@@ -247,10 +255,12 @@ def main():
     parser.add_argument('--exchange', action='store_true')
     parser.add_argument('--disconnected', action='store_true')
     parser.add_argument('--assets', type=Path, required=False)
-    parser.add_argument('--kind', choices=('tun', 'tap'), default='tun')
+    parser.add_argument('--kind', choices=('tun', 'tap', 'vpn'), default='tun')
     parser.add_argument('--kernel', type=Path)
     parser.add_argument('--initramfs', type=Path)
     parser.add_argument('--build', type=Path, default=Path('build/shroot-image-tests'))
+    parser.add_argument('--installed', action='store_true',
+                        help='Use the installed APK runtime; --build still selects the TAP test binary')
     parser.add_argument('--environment', default='debian-turnip')
     parser.add_argument('--base', action='store_true')
     args = parser.parse_args()
@@ -267,10 +277,14 @@ def main():
     if args.guest:
         os.environ['PATH'] = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
         with tempfile.TemporaryDirectory(prefix='md-packet-') as temporary:
-            (tun_guest if args.kind == 'tun' else tap_guest)(Path(temporary), args.assets)
+            if args.kind == 'vpn':
+                from openvpn_packet import vpn_guest
+                vpn_guest(Path(temporary), args.assets)
+            else:
+                (tun_guest if args.kind == 'tun' else tap_guest)(Path(temporary), args.assets)
         return
     from test_oci_services import Suite
-    suite = Suite(Path('build/packet-apps/results'), args.build,
+    suite = Suite(Path('build/packet-apps/results'), None if args.installed else args.build,
                   machine_entry=False if args.base else None)
     target = '/tmp/md-packet-' + suite.report['id']
     runner = None
@@ -282,10 +296,14 @@ def main():
         with tempfile.TemporaryDirectory(prefix='md-packet-vm-') as temporary:
             if args.kind == 'tun':
                 assets.update(gost=args.assets / 'gost', tun2socks=args.assets / 'tun2socks-linux-arm64')
-            else:
+            elif args.kind == 'tap':
                 assets.update(kernel=args.kernel)
                 assets['initramfs.cpio'] = vm_archive(Path(temporary), args.initramfs,
                                                     args.build / 'libmagicdesk_guest_packet_vm.so')
+            else:
+                assets['probe_packet_runtime.py'] = Path(__file__)
+                for name in ('openvpn_packet.py', 'openvpn-dns.py'):
+                    assets[name] = Path(__file__).with_name('fixtures') / name
             stage_assets(suite, assets)
         suite.command([*runner, '--bind-ro', suite.base, target, '--deadline-seconds', '180', '--',
                        '/usr/bin/python3', target + '/fixture.py', '--guest', '--assets', target,

@@ -321,7 +321,7 @@ static const char network_conf[]="/proc/sys/net/ipv4/conf";
 static const char network_conf6[]="/proc/sys/net/ipv6/conf";
 static const char *const network_conf4_names[]={"route_localnet","rp_filter","arp_notify"};
 static const char *const network_conf6_names[]={"forwarding","disable_ipv6","accept_dad","accept_ra",
-    "mtu","hop_limit","addr_gen_mode","use_tempaddr"};
+    "autoconf","mtu","hop_limit","addr_gen_mode","use_tempaddr"};
 static int network_directory(struct md_filesystem *fs,const char *path) {
     if (!fs->actor || !md_network_namespace_managed(fs->actor->network)) return 0;
     if (!strcmp(path,"/proc/sys/net")) return 5;

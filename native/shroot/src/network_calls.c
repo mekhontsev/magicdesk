@@ -274,6 +274,9 @@ static long control_call(long nr,const unsigned long *a,int events) {
     }
     size_t size=0; const void *input=NULL;
     unsigned filter_capacity=0;
+    struct ifconf interfaces={0};
+    struct ifreq bridge={0};
+    unsigned long bridge_args[4]={0};
     struct md_network_send destination={0};
     struct msghdr message={0};
     int gathered=nr==SYS_sendmsg || nr==SYS_writev;
@@ -295,7 +298,18 @@ static long control_call(long nr,const unsigned long *a,int events) {
     } else if (nr==SYS_writev) {
         message.msg_iov=(void *)a[1]; message.msg_iovlen=a[2];
     }
-    else if (nr==SYS_ioctl) { size=md_network_route_ioctl(a[1]) ? sizeof(struct md_network_route_ioctl) : sizeof(struct ifreq); input=(void *)a[2]; }
+    else if (nr==SYS_ioctl) {
+        input=(void *)a[2];
+        if (a[1]==SIOCGIFCONF) {
+            long error=md_read_memory(&interfaces,input,sizeof(interfaces)); if (error) return error;
+            size=sizeof(struct md_network_ifconf);
+        } else if (a[1]==SIOCDEVPRIVATE) {
+            long error=md_read_memory(&bridge,input,sizeof(bridge)); if (error) return error;
+            error=md_read_memory(bridge_args,bridge.ifr_data,sizeof(bridge_args)); if (error) return error;
+            size=sizeof(struct md_network_bridge_ioctl);
+        } else size=md_network_route_ioctl(a[1]) ? sizeof(struct md_network_route_ioctl)
+            : md_network_arp_ioctl(a[1]) ? sizeof(struct arpreq) : sizeof(struct ifreq);
+    }
     else if (nr==SYS_bind || nr==SYS_connect) { size=a[2]; input=(void *)a[1]; }
     else if (nr==SYS_write || nr==SYS_sendto) {
         size=a[2]; input=(void *)a[1];
@@ -349,6 +363,16 @@ static long control_call(long nr,const unsigned long *a,int events) {
             offset+=message.msg_iov[i].iov_len;
         }
         md_socket_vectors_close(&vectors);
+    } else if (nr==SYS_ioctl && a[1]==SIOCGIFCONF) {
+        struct md_network_ifconf *list=data;
+        unsigned maximum=MD_NETWORK_BUFFER_SIZE-size;
+        list->capacity=!interfaces.ifc_buf ? -1 : interfaces.ifc_len<0 ? 0
+            : (unsigned)interfaces.ifc_len<maximum ? interfaces.ifc_len : (int)maximum;
+        list->length=0;
+    } else if (nr==SYS_ioctl && a[1]==SIOCDEVPRIVATE) {
+        struct md_network_bridge_ioctl *r=data; memset(r,0,sizeof(*r));
+        memcpy(r->name,bridge.ifr_name,IFNAMSIZ); memcpy(r->args,bridge_args,sizeof(r->args));
+        if (r->args[0]==BRCTL_GET_BRIDGE_INFO) r->args[1]=0;
     } else if (nr==SYS_ioctl && md_network_route_ioctl(a[1])) {
         struct md_network_route_ioctl *r=data; memset(r,0,sizeof(*r));
         result=md_read_memory(&r->route,input,sizeof(r->route));
@@ -359,7 +383,16 @@ static long control_call(long nr,const unsigned long *a,int events) {
         r->route.rt_dev=NULL;
     } else if (size) result=md_read_memory(data,input,size);
     if (!result) result=md_guest_buffer_control(MD_BUFFER_NETWORK_CALL,size,0);
-    if (!result && nr==SYS_ioctl && !md_network_route_ioctl(a[1]) && a[1]!=SIOCSIFHWADDR && a[1]!=SIOCBRADDIF)
+    if (!result && nr==SYS_ioctl && a[1]==SIOCGIFCONF) {
+        struct md_network_ifconf *list=data;
+        if (interfaces.ifc_buf && list->length) result=md_write_memory(interfaces.ifc_buf,list->entries,list->length);
+        interfaces.ifc_len=list->length;
+        if (!result) result=md_write_memory((void *)a[2],&interfaces,sizeof(interfaces));
+    } else if (!result && nr==SYS_ioctl && a[1]==SIOCDEVPRIVATE) {
+        if (bridge_args[0]==BRCTL_GET_BRIDGE_INFO)
+            result=md_write_memory((void *)bridge_args[1],&((struct md_network_bridge_ioctl *)data)->info,sizeof(struct __bridge_info));
+    } else if (!result && nr==SYS_ioctl && !md_network_route_ioctl(a[1]) && a[1]!=SIOCSIFHWADDR && a[1]!=SIOCBRADDIF
+            && a[1]!=SIOCSARP && a[1]!=SIOCDARP)
         result=md_write_memory((void *)a[2],data,size);
     else if (result>=0 && !events && nr==SYS_getsockopt && a[1]==SOL_SOCKET && a[2]==SO_GET_FILTER) {
         unsigned count=(unsigned)result/sizeof(struct sock_filter);

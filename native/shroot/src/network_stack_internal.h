@@ -28,6 +28,8 @@ struct md_network_stack {
     struct md_stack_packet *head, **tail;
     size_t packets, bytes;
     int event, timer;
+    uint32_t rejection_epoch;
+    unsigned rejection_count;
     struct md_network_event_source *event_source, *timer_source;
 };
 struct md_stack_interface *md_stack_interface(struct md_network_stack *,unsigned);
@@ -39,4 +41,6 @@ void md_stack_channels_changed(struct md_network_stack *);
 int md_stack_channel_input(struct md_network_stack *,struct md_stack_interface *,struct pbuf *,unsigned);
 int md_stack_packet_input(struct pbuf *,struct netif *,unsigned);
 int md_stack_packet_output(struct md_stack_interface *,struct pbuf *);
+void md_stack_packet_reject(struct md_stack_interface *,struct pbuf *,unsigned,struct md_network_rejection);
+void md_stack_channel_refused(struct md_stack_interface *,const struct md_filter_packet *,uint32_t,int);
 #endif

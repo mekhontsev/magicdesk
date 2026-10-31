@@ -88,11 +88,19 @@ static int link_reply(struct md_network_message *out,const struct nlmsghdr *h,ui
     }
     if (!error && (link->kind==MD_LINK_VETH || link->kind==MD_LINK_BRIDGE || link->kind==MD_LINK_TUN || link->kind==MD_LINK_TAP)) {
         const char *kind=link->kind==MD_LINK_VETH ? "veth" : link->kind==MD_LINK_BRIDGE ? "bridge" : "tun";
-        unsigned char data[RTA_SPACE(7)]={0};
-        struct rtattr *a=(void *)data; a->rta_type=IFLA_INFO_KIND; a->rta_len=RTA_LENGTH(strlen(kind)+1);
-        memcpy(RTA_DATA(a),kind,strlen(kind)+1);
+        size_t info=out->size;
         /* rtnl_link_fill uses nla_nest_start_noflag for this legacy nest. */
-        error=md_network_message_attribute(out,IFLA_LINKINFO,data,RTA_ALIGN(a->rta_len));
+        error=md_network_message_attribute(out,IFLA_LINKINFO,NULL,0);
+        if (!error) error=md_network_message_attribute(out,IFLA_INFO_KIND,kind,strlen(kind)+1);
+        if (!error && link->kind==MD_LINK_BRIDGE) {
+            size_t data=out->size;
+            uint32_t stp=0;
+            error=md_network_message_attribute(out,IFLA_INFO_DATA,NULL,0);
+            if (!error) error=md_network_message_attribute(out,IFLA_BR_STP_STATE,&stp,sizeof(stp));
+            if (!error) error=md_network_message_attribute(out,IFLA_BR_FORWARD_DELAY,&link->bridge_forward_delay,sizeof(uint32_t));
+            if (!error) error=md_network_message_end_nest(out,data);
+        }
+        if (!error) error=md_network_message_end_nest(out,info);
     }
     return error;
 }
@@ -106,6 +114,8 @@ struct link_change {
     int has_peer_mtu,has_peer_address,has_hairpin,has_isolated,has_addrgen;
     unsigned addrgen;
     unsigned hairpin,isolated;
+    uint32_t forward_delay;
+    int has_forward_delay;
     unsigned char address[6],peer_address[6];
 };
 static int namespace_reference(const struct rtattr *attribute,unsigned type,struct md_network_target_reference *out) {
@@ -196,8 +206,17 @@ static int parse_link(const struct nlmsghdr *h,struct link_change *change,struct
         if (info.v[i] && i!=IFLA_INFO_KIND && i!=IFLA_INFO_DATA) return -EOPNOTSUPP;
     if (kind_is(info.v[IFLA_INFO_KIND],"bridge")) {
         change->kind=MD_LINK_BRIDGE;
-        if (info.v[IFLA_INFO_DATA] && RTA_PAYLOAD(info.v[IFLA_INFO_DATA])) return -EOPNOTSUPP;
-        return 0;
+        if (!info.v[IFLA_INFO_DATA]) return 0;
+        struct attrs data;
+        error=attributes(RTA_DATA(info.v[IFLA_INFO_DATA]),RTA_PAYLOAD(info.v[IFLA_INFO_DATA]),&data,IFLA_BR_MAX);
+        for (unsigned i=1;!error && i<=IFLA_BR_MAX;++i) if (data.v[i]) {
+            uint32_t value;
+            error=number(data.v[i],&value);
+            if (error) break;
+            if (i==IFLA_BR_FORWARD_DELAY) { change->forward_delay=value; change->has_forward_delay=1; }
+            else if (i!=IFLA_BR_STP_STATE || value) error=-EOPNOTSUPP;
+        }
+        return error;
     }
     if (!kind_is(info.v[IFLA_INFO_KIND],"veth")) return -EOPNOTSUPP;
     change->kind=MD_LINK_VETH;
@@ -327,6 +346,7 @@ static int change_link(struct md_network_namespace *n,const struct nlmsghdr *h,c
     if (c->has_address) memcpy(link->info.address,c->address,6);
     if (c->has_hairpin) link->hairpin=c->hairpin;
     if (c->has_isolated) link->isolated=c->isolated;
+    if (c->has_forward_delay) link->bridge_forward_delay=c->forward_delay;
     struct md_network_namespace *owner=target ? target : n;
     if ((was_up && !(link->info.flags&IFF_UP)) || (had_ipv6_mtu && link->info.mtu<1280))
         md_network_interface_ipv6_flush(owner,link);
@@ -880,4 +900,39 @@ int md_network_route_attach_bridge(struct md_network_namespace *n,const struct m
     pthread_mutex_unlock(&n->fabric->lock);
     if (!master) return -ENODEV;
     return legacy_link_change(n,id,index,NULL,0,0,IFLA_MASTER,&master,sizeof(master));
+}
+int md_network_route_bridge(struct md_network_namespace *n,const struct md_identity *id,
+        struct md_network_bridge_ioctl *r) {
+    if (!memchr(r->name,0,IFNAMSIZ)) return -ENODEV;
+    pthread_mutex_lock(&n->fabric->lock);
+    struct md_network_interface *bridge=md_network_interface_find(n,0,r->name);
+    int exists=bridge && bridge->kind==MD_LINK_BRIDGE;
+    if (exists && r->args[0]==BRCTL_GET_BRIDGE_INFO) {
+        memset(&r->info,0,sizeof(r->info));
+        r->info.bridge_forward_delay=bridge->bridge_forward_delay;
+        r->info.forward_delay=bridge->bridge_forward_delay;
+    }
+    pthread_mutex_unlock(&n->fabric->lock);
+    if (!exists) return -ENODEV;
+    if (r->args[0]==BRCTL_GET_BRIDGE_INFO) return 0;
+    if (!md_identity_capable_in(id,n->owner,CAP_NET_ADMIN)) return -EPERM;
+    if (r->args[0]!=BRCTL_SET_BRIDGE_FORWARD_DELAY && r->args[0]!=BRCTL_SET_BRIDGE_STP_STATE)
+        return -EOPNOTSUPP;
+    if (r->args[1]>UINT32_MAX) return -ERANGE;
+    union { struct nlmsghdr alignment; unsigned char bytes[256]; } request={0};
+    struct nlmsghdr *header=(void *)request.bytes;
+    *header=(struct nlmsghdr){.nlmsg_len=NLMSG_LENGTH(sizeof(struct ifinfomsg)),
+        .nlmsg_type=RTM_NEWLINK,.nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK};
+    struct md_network_message message={.data=request.bytes,.size=header->nlmsg_len,.capacity=sizeof(request),.message=header};
+    size_t info,data;
+    uint32_t value=(uint32_t)r->args[1];
+    int error=md_network_message_attribute(&message,IFLA_IFNAME,r->name,strlen(r->name)+1);
+    if (!error) error=md_network_message_nest(&message,IFLA_LINKINFO,&info);
+    if (!error) error=md_network_message_attribute(&message,IFLA_INFO_KIND,"bridge",7);
+    if (!error) error=md_network_message_nest(&message,IFLA_INFO_DATA,&data);
+    if (!error) error=md_network_message_attribute(&message,r->args[0]==BRCTL_SET_BRIDGE_FORWARD_DELAY
+        ? IFLA_BR_FORWARD_DELAY : IFLA_BR_STP_STATE,&value,sizeof(value));
+    if (!error) error=md_network_message_end_nest(&message,data);
+    if (!error) error=md_network_message_end_nest(&message,info);
+    return error ? error : legacy_request(n,id,header);
 }

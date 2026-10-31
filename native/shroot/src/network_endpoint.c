@@ -56,6 +56,12 @@ static int direct_path(struct md_network_endpoint *e,const struct md_network_flo
     if (!p) return -ENOMEM;
     p->path=*path; p->next=e->direct; e->direct=p; ++e->direct_count; return 0;
 }
+void md_network_endpoint_nat_ports(struct md_network_namespace *n,const struct md_filter_packet *packet,
+        struct md_network_nat_ports *ports) {
+    for (struct md_network_endpoint *e=n->fabric->endpoints;e;e=e->next)
+        for (struct direct_path *p=e->direct;p;p=p->next)
+            md_network_flow_nat_ports(&p->path,n->inode,packet,ports);
+}
 int md_network_endpoint_policy_update(struct md_network_namespace *n,struct md_network_filter *filter) {
     /* Direct kernel streams cannot be moved into a relay after connect. Reject
      * a revoking transaction atomically rather than retain a stale allowance.

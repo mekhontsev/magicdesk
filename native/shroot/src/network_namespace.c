@@ -9,6 +9,7 @@
 #include "network_endpoint.h"
 #include "network_forward.h"
 #include "network_packet.h"
+#include "network_stack.h"
 #include "socket_filter.h"
 #include "network_ethernet.h"
 #include "guest_identity.h"
@@ -61,6 +62,7 @@ static uint32_t *scoped_value(struct md_network_namespace *n,enum md_network_par
         case MD_NET_IPV6_DISABLE: return &policy->disabled;
         case MD_NET_IPV6_DAD: return &policy->accept_dad;
         case MD_NET_IPV6_RA: return &policy->accept_ra;
+        case MD_NET_IPV6_AUTOCONF: return &policy->autoconf;
         case MD_NET_IPV6_MTU: return &policy->mtu;
         case MD_NET_IPV6_HOPS: return &policy->hop_limit;
         case MD_NET_IPV6_ADDRGEN: return &policy->addr_gen_mode;
@@ -90,6 +92,7 @@ int md_network_parameter_read(struct md_network_namespace *n,enum md_network_par
     case MD_NET_TCP_KEEPIDLE: case MD_NET_TCP_KEEPINTVL: case MD_NET_TCP_KEEPCNT:
         out[0]=n->tcp_keepalive[kind-MD_NET_TCP_KEEPIDLE]; out[1]=0; break;
     case MD_NET_IPV6_FORWARD: case MD_NET_IPV6_DISABLE: case MD_NET_IPV6_DAD: case MD_NET_IPV6_RA:
+    case MD_NET_IPV6_AUTOCONF:
     case MD_NET_IPV6_MTU: case MD_NET_IPV6_HOPS: case MD_NET_IPV6_ADDRGEN: case MD_NET_IPV6_PRIVACY:
     case MD_NET_ROUTE_LOCALNET: case MD_NET_RP_FILTER: case MD_NET_ARP_NOTIFY: {
         uint32_t *value=scoped_value(n,kind,scope);
@@ -154,14 +157,15 @@ int md_network_parameter_write(struct md_network_namespace *n,enum md_network_pa
         }
         break;
     }
-    case MD_NET_IPV6_FORWARD: case MD_NET_IPV6_DISABLE: case MD_NET_IPV6_DAD: case MD_NET_IPV6_RA: {
+    case MD_NET_IPV6_FORWARD: case MD_NET_IPV6_DISABLE: case MD_NET_IPV6_DAD: case MD_NET_IPV6_RA:
+    case MD_NET_IPV6_AUTOCONF: {
         uint32_t *value=scoped_value(n,kind,scope);
         if (!value) error=-ENODEV;
         else if (in[0]>(kind==MD_NET_IPV6_DAD || kind==MD_NET_IPV6_RA ? 2U : 1U)) error=-EINVAL;
         /* The socket fabric has configured routes, not an ICMPv6 router-
          * advertisement engine. Expose its disabled state without pretending
          * that accepting advertisements or SLAAC has been enabled. */
-        else if (kind==MD_NET_IPV6_RA && in[0]) error=-EOPNOTSUPP;
+        else if ((kind==MD_NET_IPV6_RA || kind==MD_NET_IPV6_AUTOCONF) && in[0]) error=-EOPNOTSUPP;
         else if (kind==MD_NET_IPV6_DISABLE && scope!=MD_NET_SCOPE_DEFAULT)
             error=md_network_route_disable_ipv6(n,scope,in[0]);
         else {
@@ -265,7 +269,7 @@ struct md_network_namespace *md_network_socket_namespace(const struct md_fd_obje
     return md_network_endpoint_namespace(object);
 }
 int md_network_interface_ioctl(unsigned long command) {
-    return command==SIOCGIFNAME || command==SIOCGIFINDEX || command==SIOCGIFFLAGS || command==SIOCGIFMTU
+    return md_network_arp_ioctl(command) || command==SIOCDEVPRIVATE || command==SIOCGIFCONF || command==SIOCGIFNAME || command==SIOCGIFINDEX || command==SIOCGIFFLAGS || command==SIOCGIFMTU
         || command==SIOCGIFHWADDR || command==SIOCSIFHWADDR || command==SIOCBRADDIF || command==SIOCGIFTXQLEN
         || command==SIOCSIFFLAGS || command==SIOCSIFMTU || command==SIOCGIFADDR || command==SIOCSIFADDR
         || command==SIOCGIFNETMASK || command==SIOCSIFNETMASK || md_network_route_ioctl(command);
@@ -434,6 +438,40 @@ long md_network_socket_call(struct md_fd_object *object, const struct md_identit
         return result;
     }
     if (nr==SYS_ioctl) {
+        if(md_network_arp_ioctl(a[1])) {
+            if(size!=sizeof(struct arpreq)) return -EINVAL;
+            if(a[1]!=SIOCGARP && !md_identity_capable_in(identity,space->owner,CAP_NET_ADMIN)) return -EPERM;
+            pthread_mutex_lock(&space->fabric->lock);
+            int result=md_network_stack_arp(space,a[1],data);
+            pthread_mutex_unlock(&space->fabric->lock); return result;
+        }
+        if (a[1]==SIOCDEVPRIVATE) return size==sizeof(struct md_network_bridge_ioctl)
+            ? md_network_route_bridge(space,identity,data) : -EINVAL;
+        if (a[1]==SIOCGIFCONF) {
+            if (size!=sizeof(struct md_network_ifconf) || capacity<size) return -EINVAL;
+            struct md_network_ifconf *list=data;
+            if (list->capacity < -1 || (list->capacity>=0 && (size_t)list->capacity>capacity-size)) return -EINVAL;
+            int length=0;
+            pthread_mutex_lock(&space->fabric->lock);
+            for (unsigned i=0;i<space->count;++i) {
+                const struct md_network_interface *link=&space->links[i];
+                for (unsigned j=0;j<link->address_count;++j) {
+                    const struct md_ip_address *address=&link->addresses[j].address;
+                    if (address->family!=AF_INET) continue;
+                    if (list->capacity>=0) {
+                        if (list->capacity-length<(int)sizeof(struct ifreq)) continue;
+                        struct ifreq *entry=(void *)((char *)list->entries+length);
+                        memset(entry,0,sizeof(*entry));
+                        memcpy(entry->ifr_name,link->info.name,IFNAMSIZ);
+                        struct sockaddr_in *value=(void *)&entry->ifr_addr;
+                        value->sin_family=AF_INET; value->sin_addr.s_addr=address->v4;
+                    }
+                    length+=sizeof(struct ifreq);
+                }
+            }
+            pthread_mutex_unlock(&space->fabric->lock);
+            list->length=length; return 0;
+        }
         if(md_network_route_ioctl(a[1])) return size==sizeof(struct md_network_route_ioctl)
             ? md_network_route_legacy(space,identity,a[1],data) : -EINVAL;
         if (size!=sizeof(struct ifreq)) return -EINVAL;

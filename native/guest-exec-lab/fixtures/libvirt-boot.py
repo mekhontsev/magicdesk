@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Boot the kernel-contract initramfs through stock system libvirt and TCG."""
 import argparse
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,8 @@ def main():
     parser.add_argument('kernel', type=Path)
     parser.add_argument('initrd', type=Path)
     parser.add_argument('report', type=Path)
+    parser.add_argument('--network', action='store_true')
+    parser.add_argument('--network-forward', choices=('nat', 'open'), default='nat')
     args = parser.parse_args()
     images = Path('/var/lib/libvirt/images')
     images.mkdir(parents=True, exist_ok=True)
@@ -25,9 +28,11 @@ def main():
     work = Path(temporary.name)
     work.chmod(0o755)
     name = 'md-libvirt-' + uuid.uuid4().hex
-    report = {'name': name, 'passed': False, 'commands': []}
+    report = {'name': name, 'passed': False, 'commands': [],
+              'networkForward': args.network_forward if args.network else None}
     prefix = ['virsh', '-c', 'qemu:///system']
     defined = False
+    resources = contextlib.ExitStack()
 
     def run(*args, required=True):
         print('RUN', args, flush=True)
@@ -45,6 +50,9 @@ def main():
             shutil.copyfile(source, work / filename)
             (work / filename).chmod(0o644)
         report['versions'] = dict(libvirt=run('version').stdout)
+        if args.network:
+            from libvirt_network import managed_network, verify_peer, MAC
+            resources.enter_context(managed_network(run, work, name, args.network_forward))
         domain = ET.Element('domain', type='qemu')
         ET.SubElement(domain, 'name').text = name
         ET.SubElement(domain, 'memory', unit='MiB').text = '512'
@@ -55,10 +63,16 @@ def main():
         ET.SubElement(boot, 'type', arch='aarch64', machine='virt').text = 'hvm'
         ET.SubElement(boot, 'kernel').text = str(work / 'kernel')
         ET.SubElement(boot, 'initrd').text = str(work / 'initrd')
-        ET.SubElement(boot, 'cmdline').text = 'console=ttyAMA0 rdinit=/init magicdesk.kernel_fixture=1'
+        ET.SubElement(boot, 'cmdline').text = 'console=ttyAMA0 rdinit=/init ' + (
+            'magicdesk.packet_dhcp=1' if args.network else 'magicdesk.kernel_fixture=1')
         ET.SubElement(domain, 'on_poweroff').text = 'destroy'
         ET.SubElement(domain, 'on_crash').text = 'destroy'
         devices = ET.SubElement(domain, 'devices')
+        if args.network:
+            interface = ET.SubElement(devices, 'interface', type='network')
+            ET.SubElement(interface, 'source', network=name)
+            ET.SubElement(interface, 'mac', address=MAC)
+            ET.SubElement(interface, 'model', type='virtio')
         serial = ET.SubElement(devices, 'serial', type='unix')
         console = str(work / 'serial.sock')
         ET.SubElement(serial, 'source', mode='connect', path=console)
@@ -81,6 +95,7 @@ def main():
             run('resume', name)
             deadline = time.monotonic() + 180
             chunks = []
+            checked_peer = False
             # EVENT_WAIT: guest serial EOF on QEMU exit; deadline fails a stalled VM.
             while True:
                 stream.settimeout(max(0.001, deadline - time.monotonic()))
@@ -88,9 +103,15 @@ def main():
                 if not data:
                     break
                 chunks.append(data)
+                if args.network and not checked_peer and b'READY VM reverse traffic' in b''.join(chunks):
+                    verify_peer(run, name)
+                    checked_peer = True
             output = b''.join(chunks).decode(errors='replace')
             args.report.with_suffix('.serial.log').write_text(output)
-            assert 'PASS kernel contract in VM status=0' in output, output[-4000:]
+            marker = 'PASS packet VM completed' if args.network else 'PASS kernel contract in VM status=0'
+            assert marker in output, output[-4000:]
+            if args.network:
+                assert checked_peer
         assert run('domstate', name).stdout.strip() == 'shut off'
         report['passed'] = True
         print('PASS libvirt: define, paused start, serial, resume, kernel boot and poweroff', flush=True)
@@ -100,8 +121,11 @@ def main():
                 run('destroy', name, required=False)
                 run('undefine', name)
         finally:
-            temporary.cleanup()
-            args.report.write_text(json.dumps(report, indent=2) + '\n')
+            try:
+                resources.close()
+            finally:
+                temporary.cleanup()
+                args.report.write_text(json.dumps(report, indent=2) + '\n')
 
 
 if __name__ == '__main__':

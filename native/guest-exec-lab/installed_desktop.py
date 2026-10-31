@@ -40,9 +40,12 @@ def wait_controller(state, timeout=90, *, user=False):
             assert result['uid'] == uid, result
             return
         except urllib.error.URLError as error:
-            if not isinstance(error.reason, OSError) or error.reason.errno != errno.ECONNREFUSED:
+            if not isinstance(error.reason, OSError) or error.reason.errno not in (errno.ECONNREFUSED, errno.ECONNRESET):
                 raise
-        # PROTOCOL_BACKOFF: retry only an unbound control socket. The deadline
+        except ConnectionResetError:
+            pass
+        # PROTOCOL_BACKOFF: an unbound control socket (including a reserved
+        # forwarding frontend) is not ready. The deadline
         # fails startup; success requires an authenticated response from this run.
         threading.Event().wait(min(0.1, remaining))
 
@@ -145,6 +148,8 @@ def main():
     parser.add_argument('--timeout', type=int, default=300, help='Shell command failure bound in seconds')
     parser.add_argument('--init', choices=('systemd', 'openrc', 'runit'), default='systemd')
     parser.add_argument('--headless', action='store_true', help='Boot control/init only, without user session, display or GPU')
+    parser.add_argument('--network-profile', choices=('routed', 'bridge'), default='routed',
+                        help='Headless network profile; bridge publishes only the control port')
     parser.add_argument('--desktop', choices=('weston', 'plasma-wayland'), default='weston')
     parser.add_argument('--build', type=Path, help='Stage a native build; otherwise use the installed APK')
     parser.add_argument('--entry', choices=('lazy', 'base'), default='lazy')
@@ -155,6 +160,8 @@ def main():
     args = parser.parse_args()
     if args.awake_display and args.action not in ('start', 'attach'):
         parser.error('--awake-display requires start or attach')
+    if args.network_profile != 'routed' and not (args.action == 'start' and args.headless):
+        parser.error('--network-profile requires headless start')
     if not re.fullmatch(r'[a-zA-Z0-9_-]+', args.name) or not re.fullmatch(r'[a-z_][a-z0-9_-]*', args.user):
         parser.error('Use a simple environment and guest account name')
     out = Path('build/installed-' + args.name)
@@ -173,6 +180,7 @@ def main():
             parser.error('Stop managed Desktop before starting an isolated desktop fixture')
         state = suite.report
         state.update(name=args.name, user=args.user, init=args.init, desktop=args.desktop,
+                     networkProfile=args.network_profile,
                      headless=args.headless, entryMode=args.entry, diagnostics=args.diagnostics, token=uuid.uuid4().hex,
                      rootPort=port(), userPort=port(), target=target)
         state['homeLeaseBefore'] = before['homeLease']
@@ -201,7 +209,8 @@ def main():
         statefile.write_text(json.dumps(state, indent=2))
         suite.command(prefix + ['--', binary + '/mkdir' if system else '/bin/mkdir', '-p', target])
         boot, driver = installed_boot(target, state['rootPort'], state['token'], args.init,
-                                      None if args.headless else args.user, system or None)
+                                      None if args.headless else args.user, system or None,
+                                      '0.0.0.0' if args.network_profile == 'bridge' else '127.0.0.1')
         if args.headless:
             files = {'boot.sh': boot, 'session-controller.py':
                      (Path(__file__).with_name('fixtures') / 'session-controller.py').read_text()}
@@ -213,8 +222,11 @@ def main():
             suite.command(['chmod', '644', suite.base + '/boot.sh', suite.base + '/session-controller.py'])
             command = shlex.join([binary + '/unshare', '--mount', '--pid', '--fork', '--mount-proc',
                                   '--uts', '--ipc', '--cgroup', '/bin/sh', target + '/boot.sh'])
+            network = ['--network', args.network_profile]
+            if args.network_profile == 'bridge':
+                network += ['--publish', '127.0.0.1:%d:%d/tcp' % (state['rootPort'], state['rootPort'])]
             launch = shlex.join([*prefix, *(['--diagnostics'] if args.diagnostics else []),
-                                '--network', 'routed', '--env', 'MAGICDESK_GUEST_LABEL=' + state['id'],
+                                *network, '--env', 'MAGICDESK_GUEST_LABEL=' + state['id'],
                                 '--bind', suite.base, target, '--', binary + '/script', '-q', '-e', '-c', command, '/dev/null'])
             state['launch'] = launch
             statefile.write_text(json.dumps(state, indent=2))

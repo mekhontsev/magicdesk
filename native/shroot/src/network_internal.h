@@ -7,7 +7,7 @@
 
 struct md_network_ipv4_policy { uint32_t route_localnet, rp_filter, arp_notify; };
 struct md_network_ipv6_policy {
-    uint32_t forwarding, disabled, accept_dad, accept_ra, mtu, hop_limit, addr_gen_mode, use_tempaddr;
+    uint32_t forwarding, disabled, accept_dad, accept_ra, autoconf, mtu, hop_limit, addr_gen_mode, use_tempaddr;
 };
 struct md_network_ip_assignment {
     struct md_ip_address address;
@@ -31,6 +31,7 @@ struct md_network_interface {
     struct md_network_link info;
     enum md_network_link_kind kind;
     unsigned master, peer, hairpin, isolated;
+    uint32_t bridge_forward_delay;
     unsigned address_count;
     struct md_network_ip_assignment addresses[MD_NETWORK_MAX_ADDRESSES];
     uint64_t policy_id;

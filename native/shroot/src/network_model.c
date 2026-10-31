@@ -232,7 +232,8 @@ int md_network_interface_add(struct md_network_namespace *n,enum md_network_link
     if (error) return error;
     unsigned id=kind==MD_LINK_LOOPBACK ? 1 : n->fabric->next_index++;
     struct md_network_interface *link=&n->links[n->count++];
-    *link=(struct md_network_interface){.kind=kind,.policy=n->defaults,.ipv6=n->defaults6,.policy_id=++n->next_policy,.info={.index=id,
+    *link=(struct md_network_interface){.kind=kind,.bridge_forward_delay=kind==MD_LINK_BRIDGE ? 1500 : 0,
+        .policy=n->defaults,.ipv6=n->defaults6,.policy_id=++n->next_policy,.info={.index=id,
         .flags=kind==MD_LINK_LOOPBACK ? IFF_LOOPBACK : IFF_BROADCAST|IFF_MULTICAST,
         .mtu=kind==MD_LINK_LOOPBACK ? 65536 : 1500,
         .type=kind==MD_LINK_LOOPBACK ? ARPHRD_LOOPBACK : ARPHRD_ETHER,.state=IF_OPER_DOWN}};

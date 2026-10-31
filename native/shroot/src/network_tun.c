@@ -4,13 +4,16 @@
 #include "network_route.h"
 #include "network_stack.h"
 #include "network_ethernet.h"
+#include "network_virtio.h"
 #include "guest_identity.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/if_tun.h>
 #include <linux/if_arp.h>
 #include <linux/if_ether.h>
+#include <linux/virtio_net.h>
 #include <linux/magic.h>
+#include <limits.h>
 #include <net/if.h>
 #include <poll.h>
 #include <stdio.h>
@@ -36,6 +39,7 @@ struct md_network_tun {
     struct md_network_tun *next;
     struct queue *queues;
     unsigned index, flags, persist, carrier, next_queue;
+    int vnet_size, vnet_le, vnet_be, sndbuf;
     uint32_t uid, gid;
 };
 static const struct md_control_file_ops operations;
@@ -144,12 +148,22 @@ static long read_packet(void *context,const struct md_control_actor *actor,void 
     md_resource_wakeup_release(old);
     long result=!q->tunnel || q->detached ? -EBADFD : !size ? 0 : !q->head ? -EAGAIN : 0;
     if(!result && size && q->head) {
-        size_t bytes=q->head->size<size ? q->head->size : size;
-        if(!(q->tunnel->flags&IFF_NO_PI) && bytes<sizeof(struct tun_pi)) result=-EINVAL;
+        struct md_network_tun *t=q->tunnel;
+        size_t pi_size=t->flags&IFF_NO_PI ? 0 : sizeof(struct tun_pi);
+        size_t prefix=pi_size+(t->flags&IFF_VNET_HDR ? (size_t)t->vnet_size : 0);
+        if(size<prefix) result=-EINVAL;
         else {
-            memcpy(data,q->head->data,bytes);
-            if(bytes<q->head->size && !(q->tunnel->flags&IFF_NO_PI)) ((struct tun_pi *)data)->flags|=TUN_PKT_STRIP;
-            q->offered=1; result=(long)bytes;
+            size_t bytes=q->head->size<size-prefix ? q->head->size : size-prefix;
+            memset(data,0,prefix);
+            if(pi_size) {
+                uint16_t protocol=0;
+                if((t->flags&IFF_TAP) && q->head->size>=ETH_HLEN) memcpy(&protocol,q->head->data+12,2);
+                else if(q->head->size) protocol=htons((q->head->data[0]>>4)==6 ? ETH_P_IPV6 : ETH_P_IP);
+                struct tun_pi pi={.proto=protocol,.flags=bytes<q->head->size ? TUN_PKT_STRIP : 0};
+                memcpy(data,&pi,sizeof(pi));
+            }
+            memcpy((char *)data+prefix,q->head->data,bytes);
+            q->offered=1; result=(long)(prefix+bytes);
         }
     }
     pthread_mutex_unlock(&n->fabric->lock); return result;
@@ -176,19 +190,18 @@ int md_network_tun_output(struct md_network_namespace *n,unsigned index,const vo
     struct queue *q=t->queues;
     while(q) { if(!q->detached && !selected--) break; q=q->next; }
     if(!q) return -ENETDOWN;
-    size_t prefix=t->flags&IFF_NO_PI ? 0 : sizeof(struct tun_pi);
-    if(size>65535 || q->packets>=1024 || q->bytes+size+prefix>4*1024*1024) return -ENOBUFS;
-    struct packet *p=malloc(sizeof(*p)+prefix+size); if(!p) return -ENOMEM;
-    *p=(struct packet){.size=prefix+size};
-    if(prefix) {
-        uint16_t protocol=0;
-        if((t->flags&IFF_TAP) && size>=ETH_HLEN) memcpy(&protocol,(const char *)data+12,2);
-        else if(size) protocol=htons((*(const unsigned char *)data>>4)==6 ? ETH_P_IPV6 : ETH_P_IP);
-        struct tun_pi pi={.proto=protocol}; memcpy(p->data,&pi,sizeof(pi));
-    }
+    if(size>65535 || q->packets>=1024 || q->bytes+size>4*1024*1024) return -ENOBUFS;
+    struct packet *p=malloc(sizeof(*p)+size); if(!p) return -ENOMEM;
+    *p=(struct packet){.size=size};
     int empty=!q->head;
-    memcpy(p->data+prefix,data,size); *q->tail=p; q->tail=&p->next;
+    memcpy(p->data,data,size); *q->tail=p; q->tail=&p->next;
     ++q->packets; q->bytes+=p->size; if(empty) signal_queue(q); return 0;
+}
+static int ingress(void *context,const void *data,size_t size) {
+    struct queue *q=context;
+    struct md_network_interface *link=md_network_interface_find(q->space,q->tunnel->index,NULL);
+    return q->tunnel->flags&IFF_TAP ? md_network_ethernet_receive(q->space,link,data,size)
+        : md_network_stack_input(q->space,link,data,size);
 }
 static long write_packet(void *context,const struct md_control_actor *actor,const void *data,size_t size,int64_t offset) {
     (void)actor; (void)offset; struct queue *q=context;
@@ -197,16 +210,19 @@ static long write_packet(void *context,const struct md_control_actor *actor,cons
     struct md_network_tun *t=q->tunnel;
     struct md_network_interface *link=t ? md_network_interface_find(q->space,t->index,NULL) : NULL;
     int error=!t || q->detached ? -EBADFD : !link ? -ENODEV : !(link->info.flags&IFF_UP) ? -EIO : 0;
-    size_t skip=t && !(t->flags&IFF_NO_PI) ? sizeof(struct tun_pi) : 0;
+    size_t pi_size=t && !(t->flags&IFF_NO_PI) ? sizeof(struct tun_pi) : 0;
+    size_t skip=pi_size+(t && (t->flags&IFF_VNET_HDR) ? (size_t)t->vnet_size : 0);
     size_t minimum=t && (t->flags&IFF_TAP) ? ETH_HLEN : 1;
     if(!error && (size<skip+minimum || size-skip>65535)) error=-EINVAL;
-    if(!error && skip && !(t->flags&IFF_TAP)) {
+    if(!error && pi_size && !(t->flags&IFF_TAP)) {
         struct tun_pi pi; memcpy(&pi,data,sizeof(pi));
         unsigned version=*((const unsigned char *)data+skip)>>4;
         if((pi.proto!=htons(ETH_P_IP) || version!=4) && (pi.proto!=htons(ETH_P_IPV6) || version!=6)) error=-EINVAL;
     }
-    if(!error) error=t->flags&IFF_TAP ? md_network_ethernet_receive(q->space,link,(const char *)data+skip,size-skip)
-        : md_network_stack_input(q->space,link,(const char *)data+skip,size-skip);
+    if(!error) error=t->flags&IFF_VNET_HDR
+        ? md_network_virtio_receive((const unsigned char *)data+pi_size,t->vnet_le || !t->vnet_be,
+            !!(t->flags&IFF_TAP),(const char *)data+skip,size-skip,ingress,q)
+        : ingress(q,(const char *)data+skip,size-skip);
     pthread_mutex_unlock(&q->space->fabric->lock); return error ? error : (long)size;
 }
 static int named(struct md_network_namespace *n,char name[IFNAMSIZ],int tap) {
@@ -229,7 +245,7 @@ static int set_interface(struct queue *q,const struct md_identity *id,struct ifr
     if(!md_network_namespace_managed(n)) return -EOPNOTSUPP;
     unsigned flags=(unsigned short)request->ifr_flags;
     if((flags&(IFF_TUN|IFF_TAP))!=IFF_TUN && (flags&(IFF_TUN|IFF_TAP))!=IFF_TAP) return -EINVAL;
-    if(flags&~(IFF_TUN|IFF_TAP|IFF_NO_PI|IFF_MULTI_QUEUE|IFF_TUN_EXCL|IFF_ONE_QUEUE)) return -EOPNOTSUPP;
+    if(flags&~(IFF_TUN|IFF_TAP|IFF_NO_PI|IFF_MULTI_QUEUE|IFF_TUN_EXCL|IFF_ONE_QUEUE|IFF_VNET_HDR)) return -EOPNOTSUPP;
     request->ifr_name[IFNAMSIZ-1]=0;
     int error=named(n,request->ifr_name,!!(flags&IFF_TAP)); if(error) return error;
     struct md_network_interface *link=md_network_interface_find(n,0,request->ifr_name);
@@ -237,7 +253,7 @@ static int set_interface(struct queue *q,const struct md_identity *id,struct ifr
     int admin=md_identity_capable_in(id,n->owner,CAP_NET_ADMIN);
     if(link) {
         if(flags&IFF_TUN_EXCL) return -EBUSY;
-        if(!t || ((t->flags^flags)&(IFF_TUN|IFF_TAP|IFF_NO_PI|IFF_MULTI_QUEUE))) return -EINVAL;
+        if(!t || ((t->flags^flags)&(IFF_TUN|IFF_TAP|IFF_NO_PI|IFF_MULTI_QUEUE|IFF_VNET_HDR))) return -EINVAL;
         if(!admin && !((t->uid!=UINT32_MAX && id->uid.effective==t->uid)
                 || (t->gid!=UINT32_MAX && md_identity_in_group(id,t->gid)))) return -EPERM;
         if(!(flags&IFF_MULTI_QUEUE) && t->queues) return -EBUSY;
@@ -247,7 +263,8 @@ static int set_interface(struct queue *q,const struct md_identity *id,struct ifr
         t=calloc(1,sizeof(*t)); if(!t) return -ENOMEM;
         error=md_network_interface_add(n,flags&IFF_TAP ? MD_LINK_TAP : MD_LINK_TUN,request->ifr_name,&t->index);
         if(error) { free(t); return error; }
-        t->flags=flags&(IFF_TUN|IFF_TAP|IFF_NO_PI|IFF_MULTI_QUEUE|IFF_ONE_QUEUE);
+        t->flags=flags&(IFF_TUN|IFF_TAP|IFF_NO_PI|IFF_MULTI_QUEUE|IFF_ONE_QUEUE|IFF_VNET_HDR);
+        t->vnet_size=sizeof(struct virtio_net_hdr); t->sndbuf=INT_MAX;
         t->uid=t->gid=UINT32_MAX; t->carrier=1; t->next=n->tunnels; n->tunnels=t;
         link=md_network_interface_find(n,t->index,NULL); link->info.tx_queue_length=500;
         if(flags&IFF_TUN) { link->info.type=ARPHRD_NONE; link->info.flags=IFF_POINTOPOINT|IFF_NOARP|IFF_MULTICAST; }
@@ -264,16 +281,34 @@ static int ioctl_spec(void *context,unsigned command,struct md_control_ioctl *ou
     case TUNGETIFF: *out=(struct md_control_ioctl){.size=sizeof(struct ifreq),.direction=MD_CONTROL_OUT}; return 0;
     case TUNGETFEATURES: *out=(struct md_control_ioctl){.size=sizeof(unsigned),.direction=MD_CONTROL_OUT}; return 0;
     case TUNSETPERSIST: case TUNSETOWNER: case TUNSETGROUP: case TUNSETOFFLOAD: case TUNSETNOCSUM: return 0;
-    case TUNSETCARRIER: *out=(struct md_control_ioctl){.size=sizeof(int),.direction=MD_CONTROL_IN}; return 0;
+    case TUNSETCARRIER: case TUNSETVNETHDRSZ: case TUNSETVNETLE: case TUNSETVNETBE: case TUNSETSNDBUF:
+        *out=(struct md_control_ioctl){.size=sizeof(int),.direction=MD_CONTROL_IN}; return 0;
+    case TUNGETVNETHDRSZ: case TUNGETVNETLE: case TUNGETVNETBE: case TUNGETSNDBUF:
+        *out=(struct md_control_ioctl){.size=sizeof(int),.direction=MD_CONTROL_OUT}; return 0;
     default: return -EINVAL;
     }
 }
 static long ioctl_locked(struct queue *q,const struct md_control_actor *actor,unsigned command,unsigned long value,void *data) {
     struct md_network_namespace *n=q->space;
-    if(command==TUNGETFEATURES) { *(unsigned *)data=IFF_TUN|IFF_TAP|IFF_NO_PI|IFF_MULTI_QUEUE; return 0; }
+    if(command==TUNGETFEATURES) { *(unsigned *)data=IFF_TUN|IFF_TAP|IFF_NO_PI|IFF_MULTI_QUEUE|IFF_VNET_HDR; return 0; }
     if(command==TUNSETIFF) return set_interface(q,actor->identity,data);
     struct md_network_tun *t=q->tunnel;
     if(!t) return -EBADFD;
+    switch(command) {
+    case TUNGETVNETHDRSZ: *(int *)data=t->vnet_size; return 0;
+    case TUNGETVNETLE: *(int *)data=t->vnet_le; return 0;
+    case TUNGETVNETBE: *(int *)data=t->vnet_be; return 0;
+    case TUNGETSNDBUF: *(int *)data=t->sndbuf; return 0;
+    case TUNSETVNETHDRSZ:
+        if(*(int *)data<(int)sizeof(struct virtio_net_hdr)) return -EINVAL;
+        t->vnet_size=*(int *)data; return 0;
+    case TUNSETVNETLE: t->vnet_le=!!*(int *)data; return 0;
+    case TUNSETVNETBE: t->vnet_be=!!*(int *)data; return 0;
+    case TUNSETSNDBUF:
+        if(*(int *)data<=0) return -EINVAL;
+        t->sndbuf=*(int *)data; return 0;
+    case TUNSETOFFLOAD: return value&~(TUN_F_CSUM|TUN_F_TSO4|TUN_F_TSO6|TUN_F_TSO_ECN) ? -EOPNOTSUPP : 0;
+    }
     if(command==TUNGETIFF) {
         struct md_network_interface *link=md_network_interface_find(n,t->index,NULL);
         if(!link) return -ENODEV;
@@ -296,7 +331,6 @@ static long ioctl_locked(struct queue *q,const struct md_control_actor *actor,un
         if(id==UINT32_MAX) return -EINVAL;
         if(command==TUNSETOWNER) t->uid=id; else t->gid=id; return 0;
     }
-    case TUNSETOFFLOAD: return value ? -EOPNOTSUPP : 0;
     case TUNSETNOCSUM: return 0;
     case TUNSETCARRIER:
         if(*(int *)data!=0 && *(int *)data!=1) return -EINVAL;

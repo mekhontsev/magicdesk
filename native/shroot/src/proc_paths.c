@@ -118,6 +118,7 @@ struct md_proc_path md_proc_path_for(const char *path,int tid,int tgid) {
                         else if (word(&p,"disable_ipv6")) out.kind=MD_PROC_NET_IPV6_DISABLE;
                         else if (word(&p,"accept_dad")) out.kind=MD_PROC_NET_IPV6_DAD;
                         else if (word(&p,"accept_ra")) out.kind=MD_PROC_NET_IPV6_RA;
+                        else if (word(&p,"autoconf")) out.kind=MD_PROC_NET_IPV6_AUTOCONF;
                         else if (word(&p,"mtu")) out.kind=MD_PROC_NET_IPV6_MTU;
                         else if (word(&p,"hop_limit")) out.kind=MD_PROC_NET_IPV6_HOPS;
                         else if (word(&p,"addr_gen_mode")) out.kind=MD_PROC_NET_IPV6_ADDRGEN;

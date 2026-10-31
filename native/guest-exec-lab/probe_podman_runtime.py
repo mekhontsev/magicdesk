@@ -28,7 +28,7 @@ def guest(options):
         subprocess.run(['mount', '-t', 'cgroup2', 'none', '/sys/fs/cgroup'], check=True)
         options['prepared'] = True
         command = shlex.join([sys.executable, __file__, '--guest', json.dumps(options)])
-        os.execvp('su', ['su', '--login', '--shell', '/bin/sh', '--command', command, options['rootlessUser']])
+        os.execvp('su', ['su', '-l', '-s', '/bin/sh', '-c', command, options['rootlessUser']])
     report = {'options': options, 'commands': [], 'passed': False}
     if options.get('rootlessUser'):
         assert os.getuid() != 0, 'Rootless fixture must run as an ordinary guest user'

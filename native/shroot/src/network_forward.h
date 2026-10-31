@@ -22,6 +22,7 @@ void md_network_forward_commit(struct md_network_forward_update *);
 void md_network_forward_abort(struct md_network_forward_update *);
 void md_network_forward_changed(struct md_network_fabric *);
 int md_network_forward_timer(struct md_network_fabric *);
+int md_network_forward_nat_port(struct md_network_namespace *,struct md_filter_packet *,uint16_t,uint16_t);
 void md_network_forward_retire(struct md_network_namespace *);
 void md_network_forward_shutdown(struct md_network_fabric *);
 int md_network_forward_route(struct md_network_namespace *,const void *,int,const struct md_inet_address *,

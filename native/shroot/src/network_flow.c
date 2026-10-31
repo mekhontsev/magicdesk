@@ -1,4 +1,5 @@
 #include "network_flow.h"
+#include "network_forward.h"
 #include <errno.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter/nf_tables.h>
@@ -58,7 +59,36 @@ static struct md_filter_rewrite tuple(const struct md_filter_packet *p) {
     return (struct md_filter_rewrite){.source=p->source,.destination=p->destination,
         .source_port=p->source_port,.destination_port=p->destination_port};
 }
-struct route_context { struct md_network_namespace *space; const struct md_network_flow_path *path; };
+void md_network_flow_nat_ports(const struct md_network_flow_path *path,uint64_t space,
+        const struct md_filter_packet *p,struct md_network_nat_ports *ports) {
+    if (path->original.protocol!=p->protocol) return;
+    for (unsigned i=0;i<path->count;++i) {
+        const struct md_network_flow_step *step=&path->steps[i];
+        if (step->space!=space) continue;
+        struct md_filter_rewrite tuples[]={tuple(&step->packet),step->after};
+        for (unsigned k=0;k<2;++k) {
+            const struct md_filter_rewrite *t=&tuples[k];
+            int forward=md_ip_equal(t->source,p->source) && md_ip_equal(t->destination,p->destination)
+                && t->destination_port==p->destination_port;
+            int reverse=md_ip_equal(t->destination,p->source) && md_ip_equal(t->source,p->destination)
+                && t->source_port==p->destination_port;
+            if (forward || reverse) {
+                unsigned port=ntohs(forward ? t->source_port : t->destination_port);
+                ports->used[port/64]|=UINT64_C(1)<<(port%64);
+            }
+        }
+    }
+}
+struct route_context {
+    struct md_network_namespace *space;
+    const struct md_network_flow_path *path;
+    const struct md_filter_rewrite *retained;
+};
+static int source_nat(void *opaque,struct md_filter_packet *p,uint16_t low,uint16_t high) {
+    const struct route_context *context=opaque;
+    if (context->retained) { p->source_port=context->retained->source_port; return 0; }
+    return md_network_forward_nat_port(context->space,p,low,high);
+}
 static int native_local(const struct route_context *context,struct md_ip_address address) {
     return context->path->native_space==context->space->inode
         && md_ip_equal(address,context->path->native_address);
@@ -88,7 +118,7 @@ static struct md_filter_route_result filter_route(void *opaque,const struct md_f
     return result;
 }
 static int hook(struct md_network_namespace *n,unsigned which,struct md_filter_packet *p,struct md_network_flow_path *path) {
-    struct route_context context={n,path};
+    struct route_context context={.space=n,.path=path};
     p->source_fib_type=address_type(&context,p->source);
     p->fib_type=address_type(&context,p->destination);
     if (path->count==16) return -ELOOP;
@@ -104,9 +134,9 @@ static int hook(struct md_network_namespace *n,unsigned which,struct md_filter_p
                 && (f->chains[i].hook==(int)which || f->chains[i].hook==(int)reverse_hook(which))
                 && requires_mediation(f,&f->chains[i],0)) path->mediated=1;
     int priority=0;
-    p->route_context=&context; p->route=filter_route;
+    p->route_context=&context; p->route=filter_route; p->source_nat=source_nat;
     int error=md_filter_evaluate_transition(f,which,p,NULL,&priority);
-    p->route_context=NULL; p->route=NULL;
+    p->route_context=NULL; p->route=NULL; p->source_nat=NULL;
     step->after=tuple(p); step->after.priority=priority;
     if (p->snat || p->dnat) path->mediated=1;
     return error;
@@ -167,12 +197,14 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
     /* Only the native listener knows its accepted destination is local.
      * A raw ingress packet supplies an interface, not this authority. */
     if (external && !output) { path->native_space=from->inode; path->native_address=p->destination; }
-    struct route_context context={from,path};
+    struct route_context context={.space=from,.path=path};
     struct md_network_namespace *n=from;
+    /* Packet ingress supplies its input link, not a socket's output binding. */
+    unsigned selected=external ? 0 : output;
     if (md_ip_multicast(p->destination)) p->packet_type=PACKET_MULTICAST;
     else if (md_network_address_type(n,p->destination)==RTN_BROADCAST) p->packet_type=PACKET_BROADCAST;
     struct md_network_route_entry origin={0};
-    struct md_network_interface *out=md_network_route_lookup(n,p->destination,output,&origin);
+    struct md_network_interface *out=md_network_route_lookup(n,p->destination,selected,&origin);
     if (!external && md_ip_unspecified(p->source)) p->source=md_network_route_source(n,out,&origin,p->destination);
     /* The FIB owner selects the source and scoped binding; local OUTPUT
      * traverses loopback even when the address belongs to another link. */
@@ -198,7 +230,7 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
             path->destination=n->inode; break;
         }
         struct md_network_route_entry route;
-        out=md_network_route_lookup(n,p->destination,n==from ? output : 0,&route);
+        out=md_network_route_lookup(n,p->destination,n==from ? selected : 0,&route);
         if (!out || !(out->info.flags&IFF_UP)) { error=-ENETUNREACH; break; }
         struct md_network_transport_policy transport=md_network_route_transport(out,&route);
         if (transport.mtu && (!path->transport.mtu || transport.mtu<path->transport.mtu)) path->transport.mtu=transport.mtu;
@@ -265,6 +297,7 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
 }
 static int check_path(struct md_network_fabric *f,struct md_network_flow_path *path,int reverse,
         struct md_network_namespace *override,struct md_network_filter *filter,int initial,struct md_filter_accounting *accounting) {
+    path->rejection[!!reverse]=(struct md_network_rejection){0};
     unsigned mark=0;
     for (unsigned k=0;k<path->count;++k) {
         unsigned i=reverse ? path->count-k-1 : k;
@@ -277,8 +310,8 @@ static int check_path(struct md_network_fabric *f,struct md_network_flow_path *p
             if (!in || !md_network_bridge_forward(in,out)) return -EACCES;
         }
         struct md_filter_packet p=s->packet;
-        struct route_context context={n,path};
-        p.route_context=&context; p.route=filter_route;
+        struct route_context context={n,path,&s->after};
+        p.route_context=&context; p.route=filter_route; p.source_nat=source_nat;
         struct md_filter_rewrite rewrite=s->after;
         /* NEW data may arrive after a ruleset change. Keep its admitted NAT
          * binding (including no translation), while evaluating current filters. */
@@ -315,7 +348,7 @@ static int check_path(struct md_network_fabric *f,struct md_network_flow_path *p
         p.unmediated=override==n;
         int error=md_filter_evaluate_transition(n==override ? filter : n->filter,hook,&p,
             retained ? &rewrite : NULL,NULL);
-        if (error) return error;
+        if (error) { path->rejection[!!reverse]=p.rejection; return error; }
         path->translated.ctmark=p.ctmark;
         mark=p.mark;
     }
@@ -339,5 +372,5 @@ int md_network_flow_admits(struct md_network_namespace *n,struct md_network_filt
     int error=check_path(n->fabric,&copy,0,n,filter,1,NULL);
     if (!error) error=check_path(n->fabric,&copy,0,n,filter,0,NULL);
     if (!error) error=check_path(n->fabric,&copy,1,n,filter,0,NULL);
-    return error==-EACCES || error==-ECONNREFUSED ? -EBUSY : error;
+    return error==-EACCES || error==-ECONNREFUSED || copy.rejection[0].type || copy.rejection[1].type ? -EBUSY : error;
 }

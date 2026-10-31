@@ -5238,7 +5238,7 @@ mkdir -p /run /tmp /var/tmp
 devices=$(mktemp -d /tmp/magicdesk-dev.XXXXXXXX)
 mount --rbind /dev "$devices"
 mount -t tmpfs -o mode=755 tmpfs /dev
-for node in null zero full random urandom tty fuse kgsl-3d0 dma_heap dri; do
+for node in null zero full random urandom tty fuse kgsl-3d0 dma_heap dri net; do
     if [ -d "$devices/$node" ]; then mkdir -p "/dev/$node"
     elif [ -e "$devices/$node" ]; then touch "/dev/$node"
     else continue

@@ -9,7 +9,7 @@ import subprocess
 import sys
 import threading
 
-directory, port, token = sys.argv[1:]
+directory, port, token, *address = sys.argv[1:]
 directory = Path(directory)
 
 
@@ -56,4 +56,4 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(result).encode())
 
 
-ThreadingHTTPServer(('127.0.0.1', int(port)), Handler).serve_forever()
+ThreadingHTTPServer((address[0] if address else '127.0.0.1', int(port)), Handler).serve_forever()

@@ -115,6 +115,28 @@ def pinned_links(root):
         assert os.readlink('', dir_fd=alias) == expected
 
 
+def scoped_directories(root):
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.syscall.restype = ctypes.c_long
+    for flags in (os.O_PATH | os.O_DIRECTORY | os.O_CLOEXEC,
+                  os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC):
+        for resolve in (0xb, 0x13):
+            how = struct.pack('=QQQ', flags, 0, resolve)
+            for path in ('thread-self/fd/', 'self/fd/', 'thread-self/fdinfo/', 'self/ns/'):
+                fd = libc.syscall(437, root, ctypes.c_char_p(path.encode()),
+                                  ctypes.c_char_p(how), len(how))
+                assert fd >= 0, ('scoped proc directory', path, resolve, ctypes.get_errno())
+                os.close(fd)
+    for path, resolve, expected in (('thread-self/fd/0', 0xb, errno.ELOOP),
+                                    ('thread-self/root/', 0xb, errno.ELOOP),
+                                    ('../', 0xb, errno.EXDEV),
+                                    ('thread-self/fd/', 0xf, errno.ELOOP)):
+        how = struct.pack('=QQQ', os.O_PATH | os.O_CLOEXEC, 0, resolve)
+        fd = libc.syscall(437, root, ctypes.c_char_p(path.encode()),
+                          ctypes.c_char_p(how), len(how))
+        assert fd == -1 and ctypes.get_errno() == expected, (path, resolve, fd, ctypes.get_errno())
+
+
 def detached_proc():
     libc = ctypes.CDLL(None, use_errno=True)
     libc.syscall.restype = ctypes.c_long
@@ -130,12 +152,19 @@ def detached_proc():
         _fields_ = [('flags', ctypes.c_uint64), ('mode', ctypes.c_uint64),
                     ('resolve', ctypes.c_uint64)]
 
+    for flags in (1 | os.O_CLOEXEC, 1 | os.O_CLOEXEC | 0x8000):
+        clone = call(428, -100, '/proc', flags)
+        try:
+            scoped_directories(clone)
+        finally:
+            os.close(clone)
     with ExitStack() as cleanup:
         context = call(430, 'proc', 1)
         cleanup.callback(os.close, context)
         call(431, context, 6, 0, 0, 0)
         root = call(432, context, 1, 0)
         cleanup.callback(os.close, root)
+        scoped_directories(root)
         kernel_arguments(root)
         pressure(root, os.environ.get('MD_TEST_PSI') == '1')
         pinned_links(root)
@@ -248,6 +277,7 @@ def detached_proc():
 def guest():
     root = os.open('/proc', os.O_PATH | os.O_DIRECTORY)
     try:
+        scoped_directories(root)
         kernel_arguments(root)
         pinned_links(root)
         libc = ctypes.CDLL(None, use_errno=True)
@@ -300,6 +330,7 @@ def guest():
         user()
         fd = os.open('/proc', os.O_PATH | os.O_DIRECTORY)
         try:
+            scoped_directories(fd)
             kernel_arguments(fd)
         finally:
             os.close(fd)

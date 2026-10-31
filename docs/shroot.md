@@ -1036,13 +1036,21 @@ applications beyond container engines:
   separate route to the proxy itself so it does not loop back into the tunnel.
 - Stock QEMU can attach a virtual machine to a TAP interface with virtio-net.
   The VM can initiate and receive IPv4/IPv6 TCP/UDP connections through Shroot.
+- Libvirt can own that bridge, TAP and DHCP/DNS service. Managed NAT supports
+  source-port ranges, collision handling and retained reverse translations.
+  Managed packet traffic supports ICMP/ICMPv6 rejection;
+  native asynchronous UDP error queues and host ICMP injection remain outside
+  that contract.
+- Packaged OpenVPN can carry IPv4/IPv6 TCP/UDP through a TLS tunnel, with guest
+  route and DNS hooks restored on disconnect. This does not change Android's VPN.
 
 The Debian [integration evidence](../native/guest-exec-lab/distribution-evidence.md#debian-packet-applications)
-covers both applications in default and Base modes, including large transfers,
+covers the exact entry modes and configurations, including large transfers,
 fragmentation and connection shutdown. QEMU uses software CPU emulation (TCG),
 not KVM. This does not certify every VPN, bridge protocol or QEMU configuration.
-Virtio-net headers and offloads are not advertised by TUN/TAP; QEMU negotiates
-the available features. Ordinary file/socket IO remains native. See the
+TUN/TAP supports virtio-net headers, checksum completion and TCPv4/TCPv6 software
+segmentation; unsupported offloads fail explicitly. Ordinary file/socket IO
+remains native. See the
 [packet transport contract](../native/shroot/networking.md#tuntap-packet-transport).
 
 ### Docker Engine

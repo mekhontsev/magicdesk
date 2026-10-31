@@ -26,7 +26,14 @@ struct md_stack_channel {
     uint64_t policy;
     size_t queued, packets;
     int fd, result, write_closed, read_closed, blocked;
+    void *policy_context;
+    unsigned policy_direction;
+    int (*check_policy)(void *,unsigned,size_t,struct md_network_rejection *);
 };
+void md_network_stack_set_policy(struct md_stack_channel *c,void *context,unsigned direction,
+        int (*check)(void *,unsigned,size_t,struct md_network_rejection *)) {
+    if(c) { c->policy_context=context; c->policy_direction=direction; c->check_policy=check; }
+}
 static void interests(struct md_stack_channel *c) {
     if(!c->source) return;
     uint32_t events=0;
@@ -45,6 +52,17 @@ static void fail(struct md_stack_channel *c,int error) {
 static void tcp_error(void *context,err_t error) {
     struct md_stack_channel *c=context; c->tcp=NULL;
     fail(c,error==ERR_RST && c->result==-EINPROGRESS ? -ECONNREFUSED : md_stack_error(error));
+}
+void md_stack_channel_refused(struct md_stack_interface *i,const struct md_filter_packet *tuple,uint32_t sequence,int error) {
+    ip_addr_t local=md_stack_ip(tuple->source),remote=md_stack_ip(tuple->destination);
+    for(struct md_stack_channel *c=i->owner->channels;c;c=c->next) {
+        struct tcp_pcb *pcb=c->tcp;
+        if(c->index!=i->index || !pcb || pcb->state!=SYN_SENT || c->result!=-EINPROGRESS
+                || pcb->local_port!=ntohs(tuple->source_port) || pcb->remote_port!=ntohs(tuple->destination_port)
+                || !ip_addr_cmp_zoneless(&pcb->local_ip,&local) || !ip_addr_cmp_zoneless(&pcb->remote_ip,&remote)
+                || sequence!=pcb->lastack) continue;
+        fail(c,error); return;
+    }
 }
 static void flush(struct md_stack_channel *c) {
     unsigned char data[65536];
@@ -111,7 +129,15 @@ static void ready(void *context,uint32_t events) {
         if(c->udp) {
             struct pbuf *p=pbuf_alloc(PBUF_TRANSPORT,(u16_t)bytes,PBUF_RAM);
             error=ERR_MEM;
-            if(p) { pbuf_take(p,data,(u16_t)bytes); error=udp_send(c->udp,p); pbuf_free(p); }
+            if(p) {
+                pbuf_take(p,data,(u16_t)bytes);
+                struct md_stack_interface *i=md_stack_interface(c->owner,c->index);
+                /* The fabric admits the retained tuple. Its source may be a
+                 * routed/NAT address, not an address of the egress netif. */
+                error=i && i->policy==c->policy ? udp_sendto_if_src(c->udp,p,
+                    &c->udp->remote_ip,c->udp->remote_port,&i->netif,&c->udp->local_ip) : ERR_RTE;
+                pbuf_free(p);
+            }
             /* UDP has no retransmission queue. Drop on resource pressure,
              * rather than repeatedly waking on the same native datagram. */
             if(error==ERR_MEM || error==ERR_BUF) error=ERR_OK;
@@ -218,14 +244,25 @@ int md_stack_channel_input(struct md_network_stack *s,struct md_stack_interface 
     struct md_filter_packet p={.source=address(source),.destination=address(ip_current_dest_addr()),
         .protocol=protocol,.state=8};
     memcpy(&p.source_port,transport,2); memcpy(&p.destination_port,transport+2,2);
-    if(protocol==IPPROTO_TCP && (transport[13]&0x12)!=0x02) return 0;
     ip_addr_t local=*ip_current_dest_addr(),remote=*source;
     u16_t port=ntohs(p.destination_port),remote_port=ntohs(p.source_port);
-    if(protocol==IPPROTO_UDP) {
-        for(struct md_stack_channel *c=s->channels;c;c=c->next)
-            if(c->udp && c->index==i->index && c->udp->local_port==port && c->udp->remote_port==remote_port
-                    && ip_addr_cmp(&c->udp->local_ip,&local) && ip_addr_cmp(&c->udp->remote_ip,&remote)) return 0;
+    for(struct md_stack_channel *c=s->channels;c;c=c->next) {
+        if(c->index!=i->index) continue;
+        int matches=protocol==IPPROTO_UDP
+            ? c->udp && c->udp->local_port==port && c->udp->remote_port==remote_port
+                && ip_addr_cmp(&c->udp->local_ip,&local) && ip_addr_cmp(&c->udp->remote_ip,&remote)
+            : c->tcp && c->tcp->local_port==port && c->tcp->remote_port==remote_port
+                && ip_addr_cmp(&c->tcp->local_ip,&local) && ip_addr_cmp(&c->tcp->remote_ip,&remote);
+        if(!matches) continue;
+        struct md_network_rejection rejection={0};
+        unsigned payload=buffer->tot_len-header-(protocol==IPPROTO_TCP ? (transport[12]>>4)*4 : 8);
+        if(c->check_policy && c->check_policy(c->policy_context,c->policy_direction,payload,&rejection)) {
+            md_stack_packet_reject(i,buffer,protocol,rejection);
+            pbuf_free(buffer); return 1;
+        }
+        return 0;
     }
+    if(protocol==IPPROTO_TCP && (transport[13]&0x12)!=0x02) return 0;
     struct md_network_flow_path path;
     struct md_filter_packet translated=p;
     int type=protocol==IPPROTO_TCP ? SOCK_STREAM : SOCK_DGRAM;
@@ -233,6 +270,10 @@ int md_stack_channel_input(struct md_network_stack *s,struct md_stack_interface 
     struct md_inet_address target;
     if(!error) error=md_network_endpoint_resolve(s->space->fabric,&path,type,&target,NULL);
     if(error) {
+        if(translated.rejection.type) {
+            md_stack_packet_reject(i,buffer,protocol,translated.rejection);
+            pbuf_free(buffer); return 1;
+        }
         if(error==-EACCES) { pbuf_free(buffer); return 1; }
         return 0;
     }

@@ -52,10 +52,10 @@ list(APPEND origins ${fifo_descriptions} ${src}/fd_native_pin.c ${src}/network_e
 list(APPEND origins ${src}/proc_file.c ${src}/proc_namespace.c)
 list(APPEND origins ${src}/device_tree.c ${src}/fuse_device.c ${src}/fuse_transport.c ${src}/fuse_session.c)
 list(APPEND origins ${src}/render_device.c ${src}/render_sysfs.c ${src}/sysfs_uevent.c)
-list(APPEND origins ${src}/network_filter.c ${src}/network_filter_program.c ${src}/network_nft.c ${src}/network_nft_expression.c ${src}/network_nft_objects.c)
+list(APPEND origins ${src}/network_filter.c ${src}/network_filter_program.c ${src}/network_reject.c ${src}/network_nft.c ${src}/network_nft_expression.c ${src}/network_nft_objects.c)
 list(APPEND origins ${src}/network_ip.c ${src}/network_route_ip.c ${src}/network_transport.c ${src}/network_flow.c ${src}/network_filter_ports.c ${src}/network_forward.c ${src}/network_profile.c)
 list(APPEND origins ${src}/network_launch.c ${src}/network_filter_update.c ${src}/network_connection.c)
-list(APPEND origins ${src}/network_tun.c ${src}/network_stack.c ${src}/network_stack_channel.c ${src}/network_stack_packet.c)
+list(APPEND origins ${src}/network_tun.c ${src}/network_virtio.c ${src}/network_stack.c ${src}/network_stack_channel.c ${src}/network_stack_packet.c)
 set(mounts ${src}/fs_mounts.c ${src}/fs_mount_path.c ${src}/fs_mount_operations.c ${src}/fs_mount_table.c ${src}/fs_mount_change.c ${src}/fs_mount_lifecycle.c ${src}/fs_temporary.c ${src}/fs_overlay.c ${src}/fs_storage.c)
 list(APPEND mounts ${src}/binfmt.c ${src}/binfmt_rule.c ${src}/proc_paths.c ${src}/procfs_view.c ${src}/proc_fdinfo.c ${src}/fs_proc.c ${src}/fs_cgroup.c ${src}/fs_bpf.c ${src}/fs_sysfs.c ${src}/fs_mqueue.c ${src}/fs_mount_file.c ${src}/mount_source.c ${src}/fs_context.c
     ${src}/fs_landlock.c ${src}/fs_provider.c ${src}/fs_control.c ${src}/fs_mount_propagation.c)

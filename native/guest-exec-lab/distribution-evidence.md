@@ -78,9 +78,18 @@ native build. This slirp profile does not provide shared peer-name DNS.
 
 ### Debian managed Libvirt/QEMU
 
-`build/installed-debian-turnip/oci-services-011c5918bd524993ae10e90090ed8e51.json`;
-stock libvirt service, managed TCG kernel/initrd boot, paused start/resume, serial,
-poweroff, undefine and cleanup. VM networking and KVM remain untested.
+`build/installed-debian-turnip/oci-services-173afd3232e14a7cae5d8927de1ada8b.json`;
+2026-10-31, staged default-entry native runtime, shell UID 2000.
+Stock libvirt 11.3.0/QEMU 10.0.13, managed TCG kernel/initrd boot, paused
+start/resume, serial, poweroff and undefine. The managed `nat` network covers
+bridge/TAP creation, dnsmasq DHCP/DNS, IPv4/IPv6 TCP/UDP in both directions,
+1 MiB payload checks, fragmentation, half-close and exact network teardown.
+An off-subnet veth peer in a separate namespace checks the translated IPv4
+source and `1024-65535` port range. IPv6 is routed, not NATed in this profile.
+Native tests also cover IPv6 source NAT, range exhaustion, collisions, pending
+TCP connects, rollback, release and retained bindings across policy updates:
+`build/packet-reject/oci-services-10ad7417431647cc8fc3037dfedffa57.json`.
+KVM is untested.
 
 ### Debian Packet Applications
 
@@ -92,6 +101,13 @@ poweroff, undefine and cleanup. VM networking and KVM remain untested.
 | tun2socks 2.7.0 / GOST 3.3.2 | `ae8be610b7ab4daeabff79c036a92d4c` | `4d73fa6f166049e7997ba1743fc41575` |
 | QEMU 10.0.13 TAP / virtio-net | `c423ab86de594dfeaf0fafa448970b11` | `796bb7ed19b54faa90069af4aa941ae4` |
 
+OpenVPN 2.6.14/OpenSSL 3.5.7 passes against an ephemeral TLS peer on 2026-10-31:
+APK-extracted default entry `46978129df1242a19584150f0789db35`, staged Base
+`1eed12e5d2434104a0b5921cff0b905e`. Receipts use the same directory above.
+Coverage includes AES-GCM, IPv4/IPv6 TCP/UDP, DNS through the tunnel, pushed
+routes, inability to reach the peer without the tunnel and exact route/DNS
+restoration on disconnect. Android's network configuration is unchanged.
+
 TUN: separate client/proxy namespaces, SOCKS5 TCP/UDP, IPv4/IPv6, 1 MiB
 payload verification, half-close and UDP datagrams up to 16 KB. Disabling the
 tun2socks process prevents connectivity; traffic cannot bypass the tested path.
@@ -101,11 +117,14 @@ fragmentation, half-close and normal VM poweroff. The inner kernel version is
 not a Shroot host requirement. Peers are fixture-local; these receipts do not
 cover external VPN services, KVM or libvirt-managed TAP configuration.
 
-The same packet-runtime build also passes the complete resource suite
-(`build/packet-apps/unit-results/oci-services-6ad4ed877cce4764b42416f4a0d8df4d.json`)
-and the ordinary-user Docker network matrix, including external DNS/HTTP and
-clean daemon exit
-(`build/shroot-image-tests/oci-services-035f10b64d5e4c469278583b836db99f.json`).
+The complete resource suite passes as shell UID 2000 on the staged packet-runtime build:
+`build/packet-reject/oci-services-10ad7417431647cc8fc3037dfedffa57.json`.
+This includes virtio-net headers, checksum/segmentation, ARP-cache ioctls,
+broadcast/multicast ingress, namespace isolation, nft/xt ICMP code admission,
+TUN/TAP IPv4/IPv6 rejection packets, checksums/quoted headers, policy changes
+on established UDP packet flows and pending TCP socket errors. Corrupt packets
+and ICMP errors do not cause response loops. Rootless container
+coverage is listed separately for each distribution below.
 
 ### Debian machinectl
 
@@ -215,6 +234,21 @@ The 2026-10-26 boot, Snap and GUI reruns use staged Release supervisor
 The container, VM, BuildKit, LXC and LTP receipts below use
 `1ce1dd0c902e235d71f634fc83092ced45809c1d9aacd013f4e76095dbcad561`.
 Neither set certifies the installed APK or Shroot Base.
+
+### Ubuntu Rootless Containers
+
+Recipe environment, ordinary user `ubuntu` (UID 1000), 2026-10-31:
+
+- Docker 29.1.3/runc 1.3.4, overlay2, RootlessKit/slirp4netns:
+  `build/packet-reject/packaged/oci-services-99343ffb84bf4a78a35565812f124d8a.json`.
+- Podman 4.9.3, overlay/slirp4netns:
+  `build/podman-results/oci-services-5ce358c0ec2f47d4b39d73e48e7a300d.json`.
+
+Both retain stock seccomp, ordinary credentials and published TCP/UDP, with
+outbound DNS/HTTP, occupied-port rejection and cleanup. Docker's version-matched
+upstream rootless launcher is a test dependency, not a recipe source build.
+These receipts use copies of the APK-built native binaries and record their
+hashes; they do not use the installed launch wrapper.
 
 ### Ubuntu recipe/packages
 
@@ -412,6 +446,20 @@ stock OpenRC 0.63 PID 1 with the fixture's explicit container runlevels and priv
 bridge. Boot completion, syslog/crond start/restart/stop, PID retirement and exact
 launch cleanup pass. This does not certify host hardware services or unchanged
 bare-metal runlevels
+
+### Alpine Rootless Containers
+
+Recipe environment, ordinary user `mdtester` (UID 1000), packaged RootlessKit,
+slirp4netns and UID-map helpers, 2026-10-31:
+
+- Docker 29.5.2/runc 1.4, overlay2:
+  `build/packet-reject/packaged/oci-services-4672b05b1a4248acbb317bb0ef99091f.json`.
+- Podman 5.7.0, overlay/slirp4netns:
+  `build/podman-results/oci-services-d40f4827daee4403b67461c8e0985bdf.json`.
+
+Both cover stock sandboxing, published TCP/UDP, outbound DNS/HTTP, occupied-port
+rejection and clean teardown. The reports identify exact APK-extracted native
+binaries. This is functional acceptance, not a sustained-reliability measurement.
 
 ### Booted Alpine Docker
 
@@ -1634,9 +1682,8 @@ REJECT, hardware boot and the package removal/verification lifecycle are not cer
 `build/steamos-default-debugger-recovery/oci-services-a0de428d4e944cf7b64057646099f597.json`
 uses supervisor `729b3c3b988519fa...` and a private bridge. Stock systemd reaches
 `running` with zero failed units; journal/D-Bus/logind IO, binfmt registration
-and execution, RTKit start/restart/stop and normal shutdown pass. Firewalld logs
-unsupported `icmpx admin-prohibited` rules despite the manager's healthy final
-state; this is not firewall acceptance. Routed automatic host-port publication
+and execution, RTKit start/restart/stop and normal shutdown pass. A healthy
+manager state is not acceptance of the whole firewalld ruleset. Routed automatic host-port publication
 separately denies systemd-resolved's port 53 under Android shell permissions.
 
 ### SteamOS Docker
@@ -1953,6 +2000,26 @@ loader `/lib/ld-linux-aarch64.so.1`, absent on this distribution. No global
 loader alias or sandbox exception is part of this fixture.
 
 ## Shared Evidence
+
+### Packet Runtime Performance
+
+2026-10-31, APK-extracted supervisors `71a5869a...` (reference) and
+`c5d0fb7a...` (current), identical guest binary and userspace, unrestricted CPU
+placement. Three interleaved rounds cover 8 x 1024 file operations and one
+million poll/epoll calls:
+`build/packet-reject/performance/oci-services-5cd5827328f54ba78f60a0b875ba229d.json`.
+Lazy-entry median elapsed ratios are 0.810x stat, 1.000x file cycle, 1.016x poll
+and 0.994x epoll. Open/close initially varied with CPU frequency and first-block
+cost; six interleaved 16 x 1024-operation repeats measure 172.184 ms reference
+and 173.297 ms current, with tail-block medians 9.260/9.305 ms:
+`build/packet-reject/performance-open/oci-services-645456dd0f5e4cdeb44f055b50483084.json`.
+
+Two alternating reference/current pairs cover TCP/UDP native, host, routed,
+filtered and NAT profiles. Receipts under `build/network-benchmark/oci-services-ID.json`
+are `d3e0afac25a04e108c7e929670943cb1`, `ecea2cd07ef549be9c78f09cf44ac6ba`,
+`1c98c5423e3e402db6f803ce4dcfce0d`, `6a19090fd3414fa1850b30c53fa20eef`.
+All complete successfully; this small, frequency-varying sample is not proof
+of unchanged throughput. Every receipt retains CPU-frequency evidence.
 
 ### nspawn Command Mode
 

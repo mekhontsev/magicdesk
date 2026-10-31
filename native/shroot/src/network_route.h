@@ -6,6 +6,7 @@
 struct md_network_fabric;
 struct ifreq;
 struct md_network_route_ioctl;
+struct md_network_bridge_ioctl;
 enum md_network_target_kind { MD_NETWORK_TARGET_NONE, MD_NETWORK_TARGET_FD, MD_NETWORK_TARGET_PID };
 struct md_network_target_reference { enum md_network_target_kind kind; int value; };
 /* Resolves guest descriptors or guest-visible PIDs, never host PID/path input. */
@@ -24,6 +25,7 @@ int md_network_route_set_address(struct md_network_namespace *,const struct md_i
 int md_network_route_set_flags(struct md_network_namespace *,const struct md_identity *,const char *,unsigned);
 int md_network_route_set_mtu(struct md_network_namespace *,const struct md_identity *,const char *,unsigned);
 int md_network_route_attach_bridge(struct md_network_namespace *,const struct md_identity *,const char *,unsigned);
+int md_network_route_bridge(struct md_network_namespace *,const struct md_identity *,struct md_network_bridge_ioctl *);
 int md_network_route_address_ioctl(struct md_network_namespace *,const struct md_identity *,unsigned,struct ifreq *);
 int md_network_route_legacy(struct md_network_namespace *,const struct md_identity *,unsigned,const struct md_network_route_ioctl *);
 /* Device-owner lifecycle, under the fabric lock. Creation has already committed;

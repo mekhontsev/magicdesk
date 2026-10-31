@@ -25,7 +25,9 @@ static int endpoint(int family,int type,const char *address,unsigned port,int se
     } else {
         v6->sin6_port=htons(port); assert(inet_pton(family,address,&v6->sin6_addr)==1); size=sizeof(*v6);
     }
-    assert(!(server ? bind(fd,(void *)&storage,size) : connect(fd,(void *)&storage,size)));
+    int result=server ? bind(fd,(void *)&storage,size) : connect(fd,(void *)&storage,size);
+    if(result) fprintf(stderr,"%s %s:%u type=%d: %s\n",server ? "bind" : "connect",address,port,type,strerror(errno));
+    assert(!result);
     if(server && type==SOCK_STREAM) assert(!listen(fd,1));
     return fd;
 }
@@ -78,9 +80,11 @@ static void server(int fd,int type) {
     }
     close(fd);
 }
-int main(void) {
+int main(int argc,char **argv) {
+    assert(argc==1 || argc==3);
     setbuf(stdout,NULL);
-    client(AF_INET,"198.51.100.1"); client(AF_INET6,"fd42:7::1");
+    client(AF_INET,argc==3 ? argv[1] : "198.51.100.1");
+    client(AF_INET6,argc==3 ? argv[2] : "fd42:7::1");
     int fds[4],types[]={SOCK_STREAM,SOCK_DGRAM,SOCK_STREAM,SOCK_DGRAM};
     pid_t children[4];
     for(unsigned i=0;i<4;++i)
