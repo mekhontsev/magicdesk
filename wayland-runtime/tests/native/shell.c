@@ -480,7 +480,7 @@ int main(int argc, char **argv) {
     char directory[4096];
     snprintf(directory, sizeof(directory), "%s/mdw-shell-XXXXXX", getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp");
     assert(mkdtemp(directory) && setenv("XDG_RUNTIME_DIR", directory, 1) == 0);
-    struct Host host = {.server = mdw_server_create(), .deferred_layout = deferred_layout};
+    struct Host host = {.server = mdw_server_create(false), .deferred_layout = deferred_layout};
     assert(host.server);
     assert(mdw_server_initial_output(host.server, 900, 700, 1));
     assert(!mdw_server_shell_output(host.server, 800, 600));

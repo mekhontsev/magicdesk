@@ -552,7 +552,7 @@ static void keyboard_modifiers(struct wl_listener *listener, void *data) {
 
 static const struct wlr_keyboard_impl keyboard_impl = {.name = "magicdesk-host"};
 
-MdwServer *mdw_server_create(void) {
+MdwServer *mdw_server_create(bool software_only) {
     MdwServer *server = calloc(1, sizeof(*server));
     if (!server) return NULL;
     wl_list_init(&server->windows);
@@ -567,7 +567,7 @@ MdwServer *mdw_server_create(void) {
             !wlr_xdg_output_manager_v1_create(server->display, server->output_layout)) goto fail;
     server->backend = mdw_clock_create(wl_display_get_event_loop(server->display));
     if (!server->backend) goto fail;
-    server->renderer = mdw_renderer_create();
+    server->renderer = mdw_renderer_create(software_only);
     if (!server->renderer || !wlr_renderer_init_wl_display(server->renderer, server->display)) goto fail;
     if (!mdw_dmabuf_init(server->display, server->renderer)) goto fail;
     server->allocator = mdw_allocator_create(server->renderer);
@@ -611,6 +611,10 @@ fail:
 
 const char *mdw_server_socket(const MdwServer *server) {
     return server->socket;
+}
+
+const char *mdw_server_renderer_description(const MdwServer *server) {
+    return mdg_device_description(mdw_renderer_device(server->renderer));
 }
 
 struct wlr_output *mdw_monitor_acquire(MdwServer *server, int width, int height) {

@@ -13,6 +13,8 @@ MdgDevice *mdg_device_create(bool software_only) {
     MdgDevice *device = calloc(1, sizeof(*device));
     if (!device) return NULL;
     strcpy(device->name, "software");
+    strcpy(device->description, software_only ? "backend=software, selection=explicit"
+        : "backend=software, selection=automatic-fallback");
     if (!software_only) mdg_vk_create(device);
     for (unsigned i = 0; i < MDG_SLOTS; ++i) {
         device->passes[i].device = device;
@@ -24,6 +26,7 @@ MdgDevice *mdg_device_create(bool software_only) {
 bool mdg_device_gpu(const MdgDevice *device) { return device && mdg_vk_ready(device); }
 bool mdg_device_linear_dmabuf(const MdgDevice *device) { return device && mdg_vk_linear_dmabuf(device); }
 const char *mdg_device_name(const MdgDevice *device) { return device ? device->name : "unavailable"; }
+const char *mdg_device_description(const MdgDevice *device) { return device ? device->description : "unavailable"; }
 MdgStats mdg_device_stats(const MdgDevice *device) { return device ? device->stats : (MdgStats){0}; }
 
 void mdg_pass_release(MdgPass *pass) {

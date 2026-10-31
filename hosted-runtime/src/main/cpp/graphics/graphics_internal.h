@@ -39,6 +39,7 @@ struct MdgPass {
 struct MdgDevice {
     void *gpu;
     char name[256];
+    char description[512];
     MdgStats stats;
     MdgPass passes[MDG_SLOTS];
 };

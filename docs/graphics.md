@@ -5,6 +5,26 @@ backend. It uses Android's Vulkan driver when the required capabilities are
 available and retains a software backend. It does not require Desktop, root,
 Termux, a DRM device, or EGL. The Android baseline is API 34.
 
+**Settings > Linux graphics > Renderer** selects **Automatic** (default) or
+**Software** for new X11 and Wayland sessions. Software bypasses Vulkan
+initialization in the compositor, Android frame presenter and X11 DMA-copy
+accelerator. It can be selected before starting Linux, without Desktop or
+privileged access. Existing sessions and replacement viewers retain the mode
+captured at session creation; stop and start a session to change its renderer.
+This controls MagicDesk's rendering, not the Linux application's Mesa driver.
+
+The compatibility report's **Linux graphics (passive)** section reads Android's
+[declared Vulkan features](https://developer.android.com/reference/android/content/pm/PackageManager#FEATURE_VULKAN_HARDWARE_VERSION)
+and the last ordinary X11/Wayland compositor startup observations. Successful
+Vulkan initialization records the selected device, vendor/device IDs, API version
+and raw vendor-encoded driver version. Software observations distinguish explicit
+selection from automatic fallback. Each protocol retains one app-private record,
+with its time, app version and firmware match, across session and app restarts.
+Missing observations are unknown, not evidence that Vulkan is unsupported.
+Report collection never loads or calls a graphics driver, starts a probe process,
+or enumerates additional devices. It is not a complete driver inventory or a
+guest Mesa report; compositor initialization does not prove presentation support.
+
 - [Boundaries](#boundaries)
 - [Linux Buffer Import](#linux-buffer-import)
 - [Protocol Adapters](#protocol-adapters)
@@ -17,6 +37,10 @@ App-side launches pass `GraphicalLaunchOptions` directly to both session backend
 Connection mode, file-environment identity, keyboard data and startup class are
 runtime configuration, independent of optional Recent history. A launch without
 a persisted shortcut retains those options without creating a history entry.
+
+`GraphicalPreferences` owns the app-private renderer default. Each launch captures
+an immutable `HostedRenderer` and passes it to the native device and every
+borrowed output; render workers never read preferences or a global current mode.
 
 - `MdgDevice` owns rendering resources on one serialized worker/event loop.
   Devices are independent; there is no process-global rendering lock.
@@ -39,7 +63,9 @@ a persisted shortcut retains those options without creating a history entry.
   resources independently of cancellation. Reading consumes the ready result.
 
 The Vulkan backend dynamically loads the system driver and checks required
-extensions. AHardwareBuffer is the Android interchange allocation, not a claim
+extensions. Device enumeration queries the count before requesting handles;
+zero devices or a failed enumeration selects software without a handle request
+for an empty list. AHardwareBuffer is the Android interchange allocation, not a claim
 that arbitrary Linux DMA-BUFs are compatible with the device's driver. The
 graphics library does not bundle Mesa or a device-specific driver. Native buffer
 references follow the [Vulkan AHardwareBuffer import contract](https://docs.vulkan.org/refpages/latest/refpages/source/VkImportAndroidHardwareBufferInfoANDROID.html).
@@ -387,12 +413,22 @@ diagnosis without per-frame logging.
 
 ## Validation
 
+Passive-report fixtures cover absent declarations, level zero, persisted per-protocol
+observations, stale firmware, bounded text and storage failures. Native fixtures
+assert that reading startup metadata makes no further Vulkan calls and that explicit
+software mode never loads Vulkan. Android 16 checks cover X11 and Wayland startup
+records in both modes, including retention after session closure.
+
 Native fixtures compare GPU/software colors, partial updates, RGBA/BGRA imports,
 clipping, blending, lifetime and transforms. The Wayland renderer fixture compares
 its results to wlroots' Pixman implementation. Android instrumentation checks the
 cross-UID frame path, visible pixels, input, transparency and Surface replacement.
 Desktop self-tests do not replace these checks. Device coverage on one Android
 release is not proof of compatibility on another.
+
+The Vulkan enumeration fixture substitutes loader responses to check count-first
+startup, empty lists, changing counts, partial results, errors and resource cleanup.
+It does not emulate firmware crashes inside the loader or driver.
 
 The Android `graphics-dmabuf-test` fixture uses separate producer and consumer
 Vulkan devices, GPU-written linear buffers, nonzero offsets, padded rows and all

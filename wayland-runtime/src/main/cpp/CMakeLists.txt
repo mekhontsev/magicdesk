@@ -92,6 +92,8 @@ target_link_libraries(wayland-renderer-test PRIVATE magicdesk_wayland)
 target_compile_definitions(wayland-renderer-test PRIVATE WLR_USE_UNSTABLE)
 target_compile_options(wayland-renderer-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_test(NAME wayland-renderer COMMAND wayland-renderer-test)
+add_test(NAME wayland-renderer-software COMMAND wayland-renderer-test --software)
+set_tests_properties(wayland-renderer-software PROPERTIES TIMEOUT 15)
 set_tests_properties(wayland-renderer PROPERTIES TIMEOUT 15)
 add_executable(wayland-dmabuf-test ../../../tests/native/dmabuf.c
     ${CMAKE_CURRENT_BINARY_DIR}/linux-dmabuf-v1-client-protocol.h)

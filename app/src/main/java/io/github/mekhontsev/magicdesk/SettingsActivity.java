@@ -512,6 +512,19 @@ public final class SettingsActivity extends Activity
     }
 
     @Override
+    public void configureGraphicsRenderer() {
+        var modes = io.github.mekhontsev.magicdesk.hosted.HostedRenderer.values();
+        String[] labels = java.util.Arrays.stream(modes)
+                .map(mode -> getString(GraphicalPreferences.rendererLabel(mode))).toArray(String[]::new);
+        UiDialogs.builder(this).setTitle(R.string.graphics_renderer)
+                .setSingleChoiceItems(labels, GraphicalPreferences.renderer(this).ordinal(), (dialog, which) -> {
+                    GraphicalPreferences.setRenderer(this, modes[which]);
+                    dialog.dismiss();
+                    render();
+                }).setNegativeButton(android.R.string.cancel, null).show();
+    }
+
+    @Override
     public void openApplicationSettings() {
         final android.view.Display display = getDisplay();
         final int displayId = display == null

@@ -1029,6 +1029,9 @@
     <string name="console_font_size">Tamaño de fuente</string>
     <string name="console_font_size_value">%1$d sp</string>
     <string name="settings_section_console">Consola</string>
+    <string name="graphics_renderer">Motor de renderizado</string>
+    <string name="graphics_renderer_automatic">Automático</string>
+    <string name="graphics_renderer_software">Por software</string>
     <string name="settings_console_font_size">Tamaño de fuente predeterminado</string>
     <string name="console_copy_failed">Portapapeles no disponible</string>
     <string name="console_open_working_directory">Abrir carpeta actual en Archivos</string>

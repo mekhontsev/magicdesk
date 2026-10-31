@@ -1018,6 +1018,9 @@
     <string name="console_font_size">Schriftgröße</string>
     <string name="console_font_size_value">%1$d sp</string>
     <string name="settings_section_console">Konsole</string>
+    <string name="graphics_renderer">Renderer</string>
+    <string name="graphics_renderer_automatic">Automatisch</string>
+    <string name="graphics_renderer_software">Software</string>
     <string name="settings_console_font_size">Standardschriftgröße</string>
     <string name="console_copy_failed">Zwischenablage nicht verfügbar</string>
     <string name="console_open_working_directory">Aktuellen Ordner in Dateien öffnen</string>

@@ -233,7 +233,7 @@ void serverWindowSize(const LorieWindowConstraints* s, int* width, int* height) 
 }
 }
 
-extern "C" JNIEXPORT jlong JNICALL JNI(X11Session_nativeCreate)(JNIEnv* env, jobject owner) {
+extern "C" JNIEXPORT jlong JNICALL JNI(X11Session_nativeCreate)(JNIEnv* env, jobject owner, jboolean softwareOnly) {
     auto* c = (Connection*)calloc(1, sizeof(Connection));
     if (!c) return 0;
     c->env = env;
@@ -271,7 +271,7 @@ extern "C" JNIEXPORT jlong JNICALL JNI(X11Session_nativeCreate)(JNIEnv* env, job
             env->DeleteLocalRef(node);
         }
     }
-    if (!env->ExceptionCheck() && c->owner) c->native = lorieConnectionCreate(&callbacks, c, magicDeskX11Graphics());
+    if (!env->ExceptionCheck() && c->owner) c->native = lorieConnectionCreate(&callbacks, c, magicDeskX11Graphics(softwareOnly));
     if (c->native) return (jlong)c;
     if (c->owner) env->DeleteGlobalRef(c->owner);
     if (c->managementClass) env->DeleteGlobalRef(c->managementClass);
@@ -282,6 +282,10 @@ extern "C" JNIEXPORT jlong JNICALL JNI(X11Session_nativeCreate)(JNIEnv* env, job
 
 extern "C" JNIEXPORT jboolean JNICALL JNI(X11Session_nativeConnect)(JNIEnv*, jclass, jlong ptr, jint fd) {
     return lorieConnectionConnect(((Connection*)ptr)->native, fd);
+}
+
+extern "C" JNIEXPORT jstring JNICALL JNI(X11Session_nativeRendererDescription)(JNIEnv* env, jclass, jlong ptr) {
+    return env->NewStringUTF(lorieConnectionGraphicsDescription(((Connection*)ptr)->native));
 }
 
 extern "C" JNIEXPORT void JNICALL JNI(X11Session_nativeSurface)(JNIEnv* env, jclass, jlong ptr,

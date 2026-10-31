@@ -193,6 +193,8 @@ remains explicit, without a different UID or system-policy fallback.
 The compositor uses the [shared Vulkan/software renderer](graphics.md) through
 wlroots' renderer/allocator interfaces, without a wlroots fork. Frame transport
 and Android presentation remain separate from launch, input and placement policy.
+The shared renderer setting is captured once per session and applies to both
+the compositor and every Android presenter, including replacement viewers.
 Optional `linux-dmabuf` v3 admission supports explicit linear RGB allocations
 through the [shared GPU importer](graphics.md#linux-buffer-import), without a
 DRM node. SHM/software remains the compatibility path; GPU drivers are not a

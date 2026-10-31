@@ -294,7 +294,7 @@ JNIEXPORT void JNICALL JNI(nativeFrame)(JNIEnv *env, jclass type, jlong handle, 
     mdw_server_frame(bridge->server, time_ns);
 }
 
-JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner, jint width, jint height, jdouble scale) {
+JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner, jint width, jint height, jdouble scale, jboolean software_only) {
     struct Bridge *bridge = calloc(1, sizeof(*bridge));
     if (!bridge) return 0;
     bridge->env = env;
@@ -319,7 +319,7 @@ JNIEXPORT jlong JNICALL JNI(nativeStart)(JNIEnv *env, jobject owner, jint width,
     if (!(*env)->ExceptionCheck(env)) bridge->content_reply = (*env)->GetMethodID(env, type, "onContentReply", "(JI)V");
     if (!(*env)->ExceptionCheck(env)) bridge->drag_event = (*env)->GetMethodID(env, type, "onDragEvent", "(JJZZ)V");
     (*env)->DeleteLocalRef(env, type);
-    if (!(*env)->ExceptionCheck(env)) bridge->server = mdw_server_create();
+    if (!(*env)->ExceptionCheck(env)) bridge->server = mdw_server_create(software_only);
     if (bridge->server && !mdw_server_initial_output(bridge->server, width, height, scale)) {
         mdw_server_destroy(bridge->server);
         bridge->server = NULL;
@@ -443,6 +443,12 @@ JNIEXPORT jstring JNICALL JNI(nativeSocket)(JNIEnv *env, jclass type, jlong hand
     (void)type;
     struct Bridge *bridge = (void *)(intptr_t)handle;
     return (*env)->NewStringUTF(env, mdw_server_socket(bridge->server));
+}
+
+JNIEXPORT jstring JNICALL JNI(nativeRendererDescription)(JNIEnv *env, jclass type, jlong handle) {
+    (void)type;
+    struct Bridge *bridge = (void *)(intptr_t)handle;
+    return (*env)->NewStringUTF(env, mdw_server_renderer_description(bridge->server));
 }
 
 JNIEXPORT void JNICALL JNI(nativeStop)(JNIEnv *env, jclass type, jlong handle) {

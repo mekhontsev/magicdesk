@@ -747,7 +747,7 @@ int main(int argc, char **argv) {
     snprintf(directory, sizeof(directory), "%s/mdw-window-XXXXXX", temporary ? temporary : "/tmp");
     assert(mkdtemp(directory));
     assert(setenv("XDG_RUNTIME_DIR", directory, 1) == 0);
-    MdwServer *server = mdw_server_create();
+    MdwServer *server = mdw_server_create(false);
     assert(server);
     assert(mdw_server_initial_output(server, 900, 700, 1));
     assert(mdw_server_fd(server) >= 0);

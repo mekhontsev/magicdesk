@@ -1,10 +1,12 @@
 #include "x11_graphics.h"
 #include "graphics/graphics.h"
 
-const LorieGraphics* magicDeskX11Graphics() {
+template<bool softwareOnly>
+static const LorieGraphics* graphics() {
     static const LorieGraphics api = {
-        .create = +[]() -> void* { return mdg_device_create(false); },
+        .create = +[]() -> void* { return mdg_device_create(softwareOnly); },
         .destroy = +[](void* device) { mdg_device_destroy((MdgDevice*)device); },
+        .description = +[](void* device) { return mdg_device_description((MdgDevice*)device); },
         .image = +[](void* device, AHardwareBuffer* buffer, const void* pixels,
                 unsigned width, unsigned height, size_t stride, unsigned format) -> void* {
             if (buffer) return mdg_image_hardware((MdgDevice*)device, buffer);
@@ -33,4 +35,8 @@ const LorieGraphics* magicDeskX11Graphics() {
         .present = +[](void* surface) { return mdg_surface_present((MdgSurface*)surface); },
     };
     return &api;
+}
+
+const LorieGraphics* magicDeskX11Graphics(bool softwareOnly) {
+    return softwareOnly ? graphics<true>() : graphics<false>();
 }

@@ -127,7 +127,9 @@ public final class WaylandServer extends IWaylandServer.Stub {
         try {
             handle = nativeStart(Integer.parseInt(required("MAGICDESK_WAYLAND_WIDTH")),
                     Integer.parseInt(required("MAGICDESK_WAYLAND_HEIGHT")),
-                    Double.parseDouble(required("MAGICDESK_WAYLAND_SCALE")));
+                    Double.parseDouble(required("MAGICDESK_WAYLAND_SCALE")),
+                    io.github.mekhontsev.magicdesk.hosted.HostedRenderer.fromId(
+                            required(io.github.mekhontsev.magicdesk.hosted.HostedRenderer.ENVIRONMENT)).softwareOnly());
             if (handle == 0) throw new IllegalStateException("Cannot start Wayland compositor");
             try {
                 displays = context.getSystemService(DisplayManager.class);
@@ -634,6 +636,7 @@ public final class WaylandServer extends IWaylandServer.Stub {
         extras.putString("token", token);
         extras.putString("phase", phase);
         extras.putString("display", display);
+        if ("ready".equals(phase)) extras.putString("rendererDescription", nativeRendererDescription(handle));
         if ("ready".equals(phase) && "1".equals(System.getenv("MAGICDESK_WAYLAND_GUEST_SOCKET"))) {
             String label = nativeMemoryLabel();
             if (label == null) throw new IllegalStateException("Cannot identify compositor shared-memory access");
@@ -649,13 +652,14 @@ public final class WaylandServer extends IWaylandServer.Stub {
         return value;
     }
 
-    private native long nativeStart(int width, int height, double scale);
+    private native long nativeStart(int width, int height, double scale, boolean softwareOnly);
     private static native String nativeMemoryLabel();
     private static native int nativeEventFd(long server);
     private static native int nativeDispatch(long server);
     private static native int nativeConnect(long server);
     private static native void nativeAcceptClient(long server, int fd);
     private static native String nativeSocket(long server);
+    private static native String nativeRendererDescription(long server);
     private static native void nativeStop(long server);
     private static native void nativeFrame(long server, long timeNanos);
     private static native void nativeUseFrameClock(long server, boolean enabled);

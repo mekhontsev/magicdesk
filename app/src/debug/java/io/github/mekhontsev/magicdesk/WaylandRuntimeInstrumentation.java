@@ -94,6 +94,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
     private void runRuntime() throws Exception {
         if (clientPath == null || !clientPath.startsWith("/")) throw new IOException("An absolute native fixture path is required");
         Context context = getTargetContext();
+        var renderer = GraphicalPreferences.renderer(context);
         CommandExecution execution = new CommandExecution(context, DesktopExecBackend.TERMUX);
         Handler main = new Handler(Looper.getMainLooper());
         String id = "wayland-test-" + UUID.randomUUID();
@@ -140,7 +141,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                     var extras = intent.getExtras();
                     var server = IWaylandServer.Stub.asInterface(extras.getBinder("server"));
                     if ("attach".equals(intent.getStringExtra("phase")) && session.get() == null)
-                        session.set(new WaylandSession(server, execution.uid, listener));
+                        session.set(new WaylandSession(server, execution.uid, renderer, listener));
                     else if ("ready".equals(intent.getStringExtra("phase")) && session.get() != null) ready.complete(null);
                 } catch (Exception error) { ready.completeExceptionally(error); }
             }
@@ -154,6 +155,7 @@ public final class WaylandRuntimeInstrumentation extends Instrumentation {
                 + " MAGICDESK_WAYLAND_EXECUTOR=" + q(execution.termux.packageName)
                 + " MAGICDESK_WAYLAND_SESSION=" + q(id) + " MAGICDESK_WAYLAND_TOKEN=" + q(token)
                 + " MAGICDESK_WAYLAND_WIDTH=900 MAGICDESK_WAYLAND_HEIGHT=700 MAGICDESK_WAYLAND_SCALE=1"
+                + " " + io.github.mekhontsev.magicdesk.hosted.HostedRenderer.ENVIRONMENT + "=" + q(renderer.id)
                 + (pacing ? " MAGICDESK_WAYLAND_MEASURE_FRAMES=1" : "")
                 + " MAGICDESK_WAYLAND_LIBRARY=" + q(serverLibrary == null ? library + "/libmagicdesk_wayland_executor.so" : serverLibrary)
                 + " XDG_RUNTIME_DIR=" + q(directory) + " XKB_CONFIG_ROOT=" + q(prefix + "/share/X11/xkb")

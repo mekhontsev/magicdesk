@@ -3,6 +3,7 @@
 #include <drm_fourcc.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <wlr/render/allocator.h>
 #include <wlr/render/drm_format_set.h>
 #include <wlr/render/interface.h>
@@ -27,9 +28,11 @@ static void render(struct wlr_renderer *renderer, struct wlr_buffer *target, uns
     assert(wlr_render_pass_submit(pass));
     wlr_texture_destroy(texture);
 }
-int main(void) {
-    struct wlr_renderer *renderer = mdw_renderer_create(), *reference = wlr_pixman_renderer_create();
+int main(int argc, char **argv) {
+    bool software = argc > 1 && !strcmp(argv[1], "--software");
+    struct wlr_renderer *renderer = mdw_renderer_create(software), *reference = wlr_pixman_renderer_create();
     assert(renderer && reference);
+    if (software) assert(!mdg_device_gpu(mdw_renderer_device(renderer)));
     struct wlr_allocator *allocator = mdw_allocator_create(renderer);
     assert(allocator);
     const struct wlr_drm_format_set *formats = renderer->impl->get_render_formats(renderer);

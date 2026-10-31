@@ -1029,6 +1029,9 @@
     <string name="console_font_size">Tamanho da fonte</string>
     <string name="console_font_size_value">%1$d sp</string>
     <string name="settings_section_console">Console</string>
+    <string name="graphics_renderer">Renderizador</string>
+    <string name="graphics_renderer_automatic">Automático</string>
+    <string name="graphics_renderer_software">Software</string>
     <string name="settings_console_font_size">Tamanho de fonte padrão</string>
     <string name="console_copy_failed">Área de transferência indisponível</string>
     <string name="console_open_working_directory">Abrir pasta atual em Arquivos</string>

@@ -32,7 +32,8 @@ public final class ExampleActivity extends Activity {
     private final class Connection {
         final IBinder lifetime = new Binder();
         final Map<Integer, Pane> panes = new LinkedHashMap<>();
-        final X11Session session = new X11Session(getMainExecutor(), new X11Session.Listener() {
+        final X11Session session = new X11Session(io.github.mekhontsev.magicdesk.hosted.HostedRenderer.AUTOMATIC,
+                getMainExecutor(), new X11Session.Listener() {
             @Override public void onFrame(X11Session.Output output, int width, int height, boolean available) {
                 Pane pane = panes.get(output.id());
                 if (pane != null) {

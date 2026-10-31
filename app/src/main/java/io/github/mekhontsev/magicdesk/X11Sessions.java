@@ -473,7 +473,7 @@ final class X11Sessions {
             try {
                 IX11Server process;
                 synchronized (this) { if (stopped()) return; process = server; }
-                pending = new X11Session(MAIN::post, new X11Session.Listener() {
+                pending = new X11Session(launch.renderer, MAIN::post, new X11Session.Listener() {
                     @Override public void onFrame(X11Session.Output output, int width, int height, boolean available) {
                         for (Listener listener : listeners) listener.onFrame(output, width, height, available);
                     }
@@ -521,6 +521,8 @@ final class X11Sessions {
                         if (!stopped()) GraphicalSessions.changed(id(), "geometry_changed");
                     }
                 });
+                GraphicalDiagnostics.record(context, GraphicalDiagnostics.Protocol.X11,
+                        launch.renderer, pending.rendererDescription());
                 pending.connect(process.openConnection());
                 if (execution.commands.uid == 2000) {
                     var resource = resources.reserve();

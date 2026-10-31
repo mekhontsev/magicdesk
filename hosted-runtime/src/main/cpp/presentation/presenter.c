@@ -17,6 +17,7 @@ struct Presenter {
     MdgImage *images[CACHE_SIZE];
     uint64_t buffers[CACHE_SIZE];
     unsigned next;
+    bool software_only;
 };
 
 static void reset(struct Presenter *presenter) {
@@ -27,7 +28,7 @@ static void reset(struct Presenter *presenter) {
     mdg_device_destroy(presenter->device); presenter->device = NULL;
 }
 static bool initialize(struct Presenter *presenter, bool software) {
-    if (!presenter->device) presenter->device = mdg_device_create(software);
+    if (!presenter->device) presenter->device = mdg_device_create(presenter->software_only || software);
     if (!presenter->device) return false;
     if (!presenter->surface) presenter->surface = mdg_surface_create(presenter->device, presenter->window);
     return presenter->surface != NULL;
@@ -44,10 +45,11 @@ static MdgImage *import(struct Presenter *presenter, AHardwareBuffer *buffer) {
     return image;
 }
 
-JNIEXPORT jlong JNICALL JNI(nativeAcquire)(JNIEnv *env, jclass type, jobject surface) {
+JNIEXPORT jlong JNICALL JNI(nativeAcquire)(JNIEnv *env, jclass type, jobject surface, jboolean software_only) {
     (void)type;
     struct Presenter *presenter = calloc(1, sizeof(*presenter));
     if (!presenter) return 0;
+    presenter->software_only = software_only;
     presenter->window = ANativeWindow_fromSurface(env, surface);
     if (!presenter->window) { free(presenter); return 0; }
     return (jlong)(intptr_t)presenter;

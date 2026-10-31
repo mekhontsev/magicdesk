@@ -246,12 +246,12 @@ static void destroy(struct wlr_renderer *base) {
 }
 static const struct wlr_renderer_impl renderer_impl = {.destroy = destroy, .texture_from_buffer = texture_from_buffer,
     .get_texture_formats = texture_formats, .get_render_formats = render_formats, .begin_buffer_pass = begin};
-struct wlr_renderer *mdw_renderer_create(void) {
+struct wlr_renderer *mdw_renderer_create(bool software_only) {
     struct Renderer *renderer = calloc(1, sizeof(*renderer));
     if (renderer) renderer->deferred_fd = -1;
     if (!renderer) return NULL;
     wl_list_init(&renderer->textures);
-    renderer->device = mdg_device_create(false);
+    renderer->device = mdg_device_create(software_only);
     if (!renderer->device) { free(renderer); return NULL; }
     wlr_renderer_init(&renderer->base, &renderer_impl, WLR_BUFFER_CAP_DATA_PTR);
     uint32_t formats[] = {DRM_FORMAT_ABGR8888, DRM_FORMAT_XBGR8888, DRM_FORMAT_ARGB8888, DRM_FORMAT_XRGB8888};

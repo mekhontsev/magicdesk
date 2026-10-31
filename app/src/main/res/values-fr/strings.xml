@@ -1029,6 +1029,9 @@
     <string name="console_font_size">Taille de police</string>
     <string name="console_font_size_value">%1$d sp</string>
     <string name="settings_section_console">Console</string>
+    <string name="graphics_renderer">Moteur de rendu</string>
+    <string name="graphics_renderer_automatic">Automatique</string>
+    <string name="graphics_renderer_software">Logiciel</string>
     <string name="settings_console_font_size">Taille de police par défaut</string>
     <string name="console_copy_failed">Presse-papiers indisponible</string>
     <string name="console_open_working_directory">Ouvrir le dossier actuel dans Fichiers</string>
