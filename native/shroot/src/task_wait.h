@@ -14,7 +14,7 @@ struct md_task_wait {
     pid_t hints[8];
     pid_t recent[4];
     unsigned first, count;
-    unsigned directed;
+    unsigned directed, fair_phase;
     unsigned members, pending_first, pending_count;
     struct {
         pid_t pid;
