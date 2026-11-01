@@ -23,6 +23,7 @@ from test_nixos_boot import boot_script
 from test_snap import PREPARE as SNAP_PREPARE
 from test_booted_libvirt import prepare_libvirt
 import test_booted_nspawn
+import test_booted_containers
 
 sys.path.insert(0, str(Path(__file__).with_name('fixtures')))
 from network_exchange import exchange, inbound_port
@@ -30,6 +31,21 @@ from systemd_ready import wait_systemd
 
 
 class BootHelpers(unittest.TestCase):
+    def test_container_observer_rejects_private_fixture_loopback_before_startup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / 'session.json'
+            for profile in ('bridge', 'none'):
+                with self.subTest(profile=profile):
+                    state.write_text(json.dumps(dict(closed=False, networkProfile=profile)))
+                    with patch.object(sys, 'argv', ['test_booted_containers.py',
+                            '--session', str(state), '--engine', 'podman']), \
+                            patch.object(test_booted_containers, 'Suite') as suite, \
+                            patch.object(test_booted_containers, 'Observer') as observer:
+                        with self.assertRaisesRegex(AssertionError, 'Android loopback'):
+                            test_booted_containers.main()
+                        suite.assert_not_called()
+                        observer.assert_not_called()
+
     @unittest.skipUnless(hasattr(os, 'pidfd_open'), 'Requires Python Linux pidfd support')
     def test_editor_readiness_observes_exact_launcher_exit(self):
         accept = runpy.run_path(str(Path(__file__).with_name('fixtures') /
@@ -261,6 +277,20 @@ class BootHelpers(unittest.TestCase):
             else:
                 self.assertIn('elif ', command)
                 self.assertIn(start_service(init, 'virtlogd'), command)
+
+    def test_libvirt_network_starts_modular_network_owner_only_when_needed(self):
+        for init in ('systemd', 'openrc', 'runit'):
+            with self.subTest(init=init):
+                self.assertNotIn('virtnetworkd', prepare_libvirt(dict(init=init)))
+                command = prepare_libvirt(dict(init=init), network=True)
+                subprocess.run(['sh', '-n'], input=command, text=True, check=True)
+                if init == 'systemd':
+                    self.assertIn('if [ "$service" = virtqemud ]; then\n'
+                                  '      systemctl start virtnetworkd.socket || exit $?\n', command)
+                else:
+                    modular, monolithic = command.split('elif ', 1)
+                    self.assertIn(' && ' + start_service(init, 'virtnetworkd'), modular)
+                    self.assertNotIn('virtnetworkd', monolithic)
 
     def test_nixos_boot_keeps_activation_and_selected_network_policy(self):
         for dhcp in (False, True):

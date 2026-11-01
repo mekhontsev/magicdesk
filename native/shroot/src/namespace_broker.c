@@ -1302,6 +1302,7 @@ static int complete(struct md_fs_work *work) {
     struct md_namespace_broker *b=op->owner;
     if (op->recovering && op->task && op->task->pid==(int)op->notification.pid) {
         struct md_broker_completion result={.call=op->notification.data,.result=op->result,
+            .notification_id=op->notification.id,
             .notification_live=valid(op),
             .operation=op->request.operation,.flags=op->request.flags,
             .opened={.fd=op->result.fd,.origin=op->output_origin,.object=op->output_object,

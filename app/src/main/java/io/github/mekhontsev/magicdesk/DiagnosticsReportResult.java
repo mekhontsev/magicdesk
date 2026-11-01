@@ -5,18 +5,18 @@ import java.util.function.Supplier;
 
 /** Report collection failure is independent of a completed probe or self-test. */
 final class DiagnosticsReportResult {
-    final String report;
+    final DiagnosticsReport report;
     final String failure;
     final RuntimeException cause;
 
     private DiagnosticsReportResult(
-            final String report, final String failure, final RuntimeException cause) {
+            final DiagnosticsReport report, final String failure, final RuntimeException cause) {
         this.report = report;
         this.failure = failure;
         this.cause = cause;
     }
 
-    static DiagnosticsReportResult collect(final Supplier<String> collector) {
+    static DiagnosticsReportResult collect(final Supplier<DiagnosticsReport> collector) {
         try {
             return new DiagnosticsReportResult(
                     Objects.requireNonNull(collector.get(), "report is unavailable"),
@@ -24,7 +24,7 @@ final class DiagnosticsReportResult {
         } catch (RuntimeException error) {
             final String message = error.getMessage();
             return new DiagnosticsReportResult(
-                    "",
+                    null,
                     message == null || message.isBlank()
                             ? error.getClass().getSimpleName() : message,
                     error);

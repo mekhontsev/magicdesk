@@ -937,6 +937,7 @@
     <string name="diagnostics_refresh">更新</string>
     <string name="diagnostics_copy">レポートをコピー</string>
     <string name="diagnostics_share">レポートを共有</string>
+    <string name="diagnostics_share_failed">レポートを共有できませんでした：%1$s</string>
     <string name="diagnostics_copied">診断レポートをコピーしました</string>
     <string name="diagnostics_copy_failed">クリップボードが利用できません</string>
     <string name="diagnostics_self_test">デスクトップのセルフテストを実行</string>

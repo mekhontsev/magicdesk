@@ -8,6 +8,7 @@
 #include "network_message.h"
 #include "netlink_attributes.h"
 #include "network_internal.h"
+#include "network_tc.h"
 #include "network_forward.h"
 #include "network_endpoint.h"
 #include "guest_identity.h"
@@ -375,6 +376,7 @@ static int checkpoint(struct topology_checkpoint *saved,struct md_network_namesp
     struct md_network_rule *rules=n->rule_count ? malloc(n->rule_count*sizeof(*rules)) : NULL;
     if (n->rule_count && !rules) { free(links); free(routes); free(nexthops); return -ENOMEM; }
     if (n->count) memcpy(links,n->links,n->count*sizeof(*links));
+    for (unsigned i=0;i<n->count;++i) md_network_tc_retain(links[i].tc);
     if (n->route_count) memcpy(routes,n->routes,n->route_count*sizeof(*routes));
     if (n->nexthop_count) memcpy(nexthops,n->nexthops,n->nexthop_count*sizeof(*nexthops));
     if (n->rule_count) memcpy(rules,n->rules,n->rule_count*sizeof(*rules));
@@ -389,6 +391,7 @@ static void checkpoint_finish(struct topology_checkpoint *saved,int commit) {
     struct md_network_namespace *n=saved->space;
     if (!n) return;
     if (!commit) {
+        for (unsigned i=0;i<n->count;++i) md_network_tc_release(n->links[i].tc);
         free(n->links); n->links=saved->links; saved->links=NULL;
         n->count=n->capacity=saved->count;
         n->route_count=saved->route_count;
@@ -398,6 +401,7 @@ static void checkpoint_finish(struct topology_checkpoint *saved,int commit) {
         n->rule_count=saved->rule_count;
         if (n->rule_count) memcpy(n->rules,saved->rules,n->rule_count*sizeof(*n->rules));
     }
+    if (saved->links) for (unsigned i=0;i<saved->count;++i) md_network_tc_release(saved->links[i].tc);
     free(saved->links);
     free(saved->routes);
     free(saved->nexthops);
@@ -432,6 +436,7 @@ void md_network_route_link_created(struct md_network_namespace *n,unsigned index
 void md_network_route_link_removed(struct md_network_namespace *n,unsigned index) {
     struct md_network_interface *link=md_network_interface_find(n,index,NULL);
     if (!link) return;
+    md_network_tc_notify(n,index,link->tc,NULL);
     for (unsigned i=0;i<link->address_count;++i) notify(n,link,RTM_DELADDR,&link->addresses[i],NULL);
     for (unsigned i=0;i<n->route_count;++i)
         if (n->routes[i].interface==index) notify(n,link,RTM_DELROUTE,NULL,&n->routes[i]);
@@ -561,12 +566,14 @@ static unsigned notify_changes(const struct topology_checkpoint *saved) {
     for (unsigned i=0;i<saved->count;++i) {
         const struct md_network_interface *old=&saved->links[i];
         const struct md_network_interface *now=snapshot_link(n->links,n->count,old->info.index);
+        published+=md_network_tc_notify(n,old->info.index,old->tc,now ? now->tc : NULL);
         published+=notify_addresses(n,old,now,1);
         if (!now) published+=notify(n,old,RTM_DELLINK,NULL,NULL);
     }
     for (unsigned i=0;i<n->count;++i) {
         const struct md_network_interface *now=&n->links[i];
         const struct md_network_interface *old=snapshot_link(saved->links,saved->count,now->info.index);
+        if (!old) published+=md_network_tc_notify(n,now->info.index,NULL,now->tc);
         int state_changed=old && saved->states[old-saved->links]!=md_network_interface_snapshot(n,now).state;
         if (!old || memcmp(&old->info,&now->info,sizeof(now->info)) || old->kind!=now->kind
                 || old->peer!=now->peer || old->master!=now->master || state_changed
@@ -628,10 +635,11 @@ static int empty_dump(const struct nlmsghdr *h,int dump) {
     if (h->nlmsg_len<NLMSG_LENGTH(sizeof(struct rtgenmsg))) return -EINVAL;
     unsigned family=((const struct rtgenmsg *)NLMSG_DATA(h))->rtgen_family;
     if (family!=AF_UNSPEC && family!=AF_INET && family!=AF_INET6 && family!=AF_BRIDGE) return -EAFNOSUPPORT;
-    /* Neighbor caches and traffic-control objects have no synthetic entries. */
+    /* Neighbor caches have no synthetic entries. */
     return 0;
 }
 static int strict_query(const struct nlmsghdr *h,int dump) {
+    if (md_network_tc_request(h->nlmsg_type)) return 0; /* Typed tc selectors are checked by their owner. */
     size_t body;
     switch (h->nlmsg_type) {
     case RTM_GETLINK: body=sizeof(struct ifinfomsg); break;
@@ -751,6 +759,7 @@ long md_network_route(struct md_network_namespace *n,const struct md_identity *i
             error=md_network_nexthops(n,h,port,dump,&out);
         else if (h->nlmsg_type==RTM_GETRULE || h->nlmsg_type==RTM_NEWRULE || h->nlmsg_type==RTM_DELRULE)
             error=md_network_rules(n,h,port,dump,&out);
+        else if (md_network_tc_request(h->nlmsg_type)) error=md_network_tc_control(n,h,port,dump,&out);
         else if (query) error=empty_dump(h,dump);
         else error=-EOPNOTSUPP;
     }

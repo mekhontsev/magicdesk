@@ -533,12 +533,13 @@ static void group_deliver(struct md_network_forward *f,struct listener *sender,
         datagram_submit(f,c,0,data,size);
     }
 }
-static void group_visit(void *context,struct md_network_namespace *n,struct md_network_interface *link,int outgoing) {
+static int group_visit(void *context,struct md_network_namespace *n,struct md_network_interface *link,int outgoing,const void **payload) {
+    (void)payload;
     struct group_delivery *d=context;
     if (outgoing || (n==d->space && (!d->loop || link!=d->output))
-            || (!d->hops && (n!=d->space || link!=d->output))) return;
+            || (!d->hops && (n!=d->space || link!=d->output))) return 0;
     if (n==d->space && link==d->output) {
-        if (d->local_delivered) return;
+        if (d->local_delivered) return 0;
         d->local_delivered=1;
     }
     struct md_network_flow_path path=d->path;
@@ -549,8 +550,9 @@ static void group_visit(void *context,struct md_network_namespace *n,struct md_n
     struct md_filter_accounting accounting={0};
     int denied=md_network_flow_accounting(d->owner->fabric,&path,0,!d->sender->group_started,&accounting);
     md_filter_account(&accounting,d->size); free(accounting.cells);
-    if (error || denied) return;
+    if (error || denied) return 0;
     group_deliver(d->owner,d->sender,n,link,&path,d->hops,d->data,d->size);
+    return 0;
 }
 static void group_send(struct md_network_forward *f,struct listener *l,const void *data,size_t size) {
     struct md_network_namespace *n=md_network_space_find(f->fabric,l->space);
@@ -566,8 +568,8 @@ static void group_send(struct md_network_forward *f,struct listener *l,const voi
     int error=md_network_flow_accounting(f->fabric,&d.path,0,!l->group_started,&accounting);
     md_filter_account(&accounting,size); free(accounting.cells);
     if (error || routed) return;
-    if (link->kind!=MD_LINK_LOOPBACK) group_visit(&d,n,link,0);
-    if (md_network_link_walk(n,link,0,group_visit,&d)) ++f->dropped_datagrams;
+    if (link->kind!=MD_LINK_LOOPBACK) group_visit(&d,n,link,0,NULL);
+    if (md_network_link_walk(n,link,0,group_visit,&d,NULL)) ++f->dropped_datagrams;
     l->group_started=1;
     l->deadline=now_ms()+30000;
 }

@@ -937,6 +937,7 @@
     <string name="diagnostics_refresh">刷新</string>
     <string name="diagnostics_copy">复制报告</string>
     <string name="diagnostics_share">分享报告</string>
+    <string name="diagnostics_share_failed">无法分享报告：%1$s</string>
     <string name="diagnostics_copied">诊断报告已复制</string>
     <string name="diagnostics_copy_failed">剪贴板不可用</string>
     <string name="diagnostics_self_test">运行桌面自检</string>

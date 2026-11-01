@@ -48,7 +48,7 @@ list(APPEND origins ${src}/native_mounts.c ${src}/devpts_view.c ${src}/cgroup.c 
     ${src}/ipc_namespace.c ${src}/mqueue_view.c ${src}/landlock_policy.c ${src}/landlock_file.c
     ${src}/mount_stream.c ${src}/mount_pin.c ${src}/mount_propagation.c ${src}/temporary_directory.c ${src}/private_tree.c
     ${src}/provider_tree.c ${src}/host_fs_view.c ${src}/device_events.c ${src}/identity_snapshot.c ${src}/proc_sysctl.c ${src}/user_sysctl.c ${src}/proc_static.c ${src}/uts_namespace.c ${src}/control_event.c)
-list(APPEND origins ${fifo_descriptions} ${src}/fd_native_pin.c ${src}/network_ethernet.c ${src}/network_raw6.c ${src}/network_raw4.c ${src}/network_nexthop.c ${src}/network_autoconf.c ${src}/network_multicast.c ${src}/network_link.c)
+list(APPEND origins ${fifo_descriptions} ${src}/fd_native_pin.c ${src}/network_ethernet.c ${src}/network_raw6.c ${src}/network_raw4.c ${src}/network_nexthop.c ${src}/network_autoconf.c ${src}/network_multicast.c ${src}/network_link.c ${src}/network_tc.c)
 list(APPEND origins ${src}/proc_file.c ${src}/proc_namespace.c)
 list(APPEND origins ${src}/device_tree.c ${src}/fuse_device.c ${src}/fuse_transport.c ${src}/fuse_session.c)
 list(APPEND origins ${src}/render_device.c ${src}/render_sysfs.c ${src}/sysfs_uevent.c)
@@ -257,7 +257,7 @@ if(MAGICDESK_GUEST_FIXTURES)
     target_sources(test_task_resources PRIVATE ../guest-exec-lab/test_task_mapping.c ${src}/task_mapping.c)
     target_sources(test_task_resources PRIVATE ${src}/descriptor_inode.c ../guest-exec-lab/test_descriptor_inode.c)
     target_sources(test_task_resources PRIVATE ../guest-exec-lab/test_network_model.c ../guest-exec-lab/test_network_route.c ../guest-exec-lab/test_network_endpoint.c ../guest-exec-lab/test_socket_filter.c)
-    target_sources(test_task_resources PRIVATE ../guest-exec-lab/test_network_ethernet.c)
+    target_sources(test_task_resources PRIVATE ../guest-exec-lab/test_network_ethernet.c ../guest-exec-lab/test_network_tc.c)
     target_sources(test_task_resources PRIVATE ../guest-exec-lab/test_network_nft.c)
     target_sources(test_task_resources PRIVATE ../guest-exec-lab/test_network_launch.c)
     target_sources(test_task_resources PRIVATE ../guest-exec-lab/test_network_ipv6.c)

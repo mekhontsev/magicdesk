@@ -19,6 +19,19 @@ Focused native and guest checks for the [process-resource model](process-resourc
 
 ## Verification
 
+`test_resources.py BUILD --case supervisor-state` exercises the production
+coordinator directly. Real seccomp notifications and ptrace cancellation force
+completion before cancellation, before/after reentry, after stop retirement and
+after token rebinding. Both retained FDs and errors must transfer once; changed
+call identities and duplicate completions must fail with bounded diagnostics.
+Live lazy publication after cancellation also exercises channel binding before
+and after completion, a private-stack interruption, and delegation/export
+retirement both before and after result arrival. Original SP, GPRs and processor
+state, released entry frames and single FD/error custody are checked with real
+kernel notifications and the production resume path.
+These are deterministic event-order checks, not a substitute for target-kernel
+stress coverage.
+
 `test_namespace_apps.py BUILD STORE` runs stock Bubblewrap in a disposable
 Debian userspace under actual UID 2000. Cases cover a basic command, a read-only
 root with writable tmpfs, mapped UID/GID and hostname, and nested user/mount/UTS/
@@ -127,7 +140,9 @@ under Shroot. Each runs normally, nondumpable, with an installed application
 filter and with both restrictions. It checks CLOEXEC, shared open descriptions,
 unlink-while-open, exact errors, no guest FD growth and positive broker delivery
 counters. The existing result tests retain O_PATH, exhausted tables, FIFO and
-protected-caller assertions. `--case launch-cancel` separately verifies exact
+protected-caller assertions. A separate 32-thread workload checks 128,000 regular
+file open/nonblocking-read/close cycles, exact data/EOF and descriptor balance
+under native, Base and lazy entry. `--case launch-cancel` separately verifies exact
 process-tree reaping for idle/busy and ordinary/protected callers.
 `--case fd-handoff` exercises the shared atomic installer with interrupted and
 restarted notifications, blocked table turns, dead recipients and exact FD

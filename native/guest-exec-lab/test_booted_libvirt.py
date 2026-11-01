@@ -7,9 +7,12 @@ from boot_fixture import run_fixture
 from init_fixture import start_service
 
 
-def prepare_libvirt(state):
+def prepare_libvirt(state, network=False):
     init = state['init']
     if init == 'systemd':
+        network_start = ('    if [ "$service" = virtqemud ]; then\n'
+                         '      systemctl start virtnetworkd.socket || exit $?\n'
+                         '    fi\n' if network else '')
         return '''for policy in enabled loaded; do
   for service in virtqemud libvirtd; do
     unit=$service.socket
@@ -18,7 +21,7 @@ def prepare_libvirt(state):
     else
       [ "$(systemctl show -p LoadState --value "$unit")" = loaded ] || continue
     fi
-    systemctl start "$unit"
+''' + network_start + '''    systemctl start "$unit"
     exit $?
   done
 done
@@ -34,6 +37,8 @@ exit 1'''
             start = start_service(init, 'virtlogd') + ' && ' + start_service(init, service)
         else:
             raise ValueError('Unsupported init: ' + init)
+        if network and service == 'virtqemud':
+            start += ' && ' + start_service(init, 'virtnetworkd')
         branches.append(('if' if not branches else 'elif') + f' {present}; then\n{start}\n')
     return ''.join(branches) + 'else\necho "No packaged libvirt service found" >&2\nexit 1\nfi'
 
@@ -58,7 +63,8 @@ def main():
             run_fixture(args.session, 'libvirt', [args.kernel, archive, '--network',
                         '--network-forward', args.network_forward],
                         [args.kernel, archive, Path(__file__).with_name('probe_packet_runtime.py'),
-                         Path(__file__).with_name('fixtures') / 'libvirt_network.py'], prepare=prepare_libvirt)
+                         Path(__file__).with_name('fixtures') / 'libvirt_network.py'],
+                        prepare=lambda state: prepare_libvirt(state, network=True))
         return
     run_fixture(args.session, 'qemu' if args.direct else 'libvirt',
                 [args.kernel, args.initrd], [args.kernel, args.initrd],

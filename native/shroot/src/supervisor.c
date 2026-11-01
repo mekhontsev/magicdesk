@@ -1198,12 +1198,13 @@ static void export_begin(struct thread *t, const struct seccomp_notif *q) {
     t->phase = EXPORT_CANCEL;
     tracee_request(t, PTRACE_INTERRUPT, NULL, NULL, "interrupt-notification");
 }
-static void export_start(struct thread *t) {
+static void export_start(struct thread *t,const struct user_pt_regs *observed) {
     struct metadata_operation *op = &t->metadata;
     op->mask_shielded=t->signal_shielded;
     errno = 0;
     CHECK(ioctl(listener, SECCOMP_IOCTL_NOTIF_ID_VALID, &op->request.id) == -1 && errno == ENOENT);
     if (t->metadata_restart && op->previous==IDLE) op->saved=t->metadata_restart->saved;
+    else if (observed) op->saved=*observed;
     else if (!registers(t->pid, &op->saved)) return;
     op->saved.pc = op->request.data.instruction_pointer;
     op->saved.regs[8] = op->request.data.nr;
@@ -1687,9 +1688,19 @@ static void notification_release(struct thread *t) {
     release_operation(t);
     md_proc_file_release(t->proc_file); t->proc_file=NULL;
 }
+static int notification_unexecuted(const struct thread *t) {
+    return t->phase==DELEGATE_CANCEL || (t->phase==EXPORT_CANCEL && t->metadata.previous==IDLE);
+}
+static int notification_entry_context(struct thread *t,const struct user_pt_regs *regs,
+        const struct seccomp_data *call) {
+    struct md_svc_registry *registry=md_memory_svc(t->memory);
+    if (!md_svc_registry_context(registry,regs->pc,regs->sp)) return 0;
+    uintptr_t origin=md_svc_registry_call_origin(registry,call->instruction_pointer);
+    return md_svc_registry_call_origin(registry,regs->pc)!=origin
+        && md_svc_registry_call_origin(registry,regs->pc+4)!=origin;
+}
 static void notification_interrupted(struct thread *t) {
-    if (t->phase!=DELEGATE_CANCEL
-            && !(t->phase==EXPORT_CANCEL && t->metadata.previous==IDLE)) return;
+    if (!notification_unexecuted(t)) return;
     /* A delivery stop can precede the requested INTERRUPT. Nothing has run:
      * retire the request before the handler can replace its register context.
      * The kernel retains EINTR/SA_RESTART and the pending interrupt is harmless
@@ -2225,6 +2236,40 @@ static int notification_same_call(struct thread *t,const struct seccomp_data *a,
     struct seccomp_data left=notification_identity(t,a),right=notification_identity(t,b);
     return md_notification_same_call(&left,&right);
 }
+static void describe_notification_call(struct thread *t,const char *owner,uint64_t id,
+        const struct seccomp_data *call) {
+    struct seccomp_data identity=notification_identity(t,call);
+    int valid=ioctl(listener,SECCOMP_IOCTL_NOTIF_ID_VALID,&id);
+    int validation_error=valid<0 ? errno : 0;
+    fprintf(stderr,"guest-runtime: notification %s id=%llu valid=%d validationErrno=%d nr=%d arch=%#x pc=%#llx origin=%#llx"
+        " args=[%#llx,%#llx,%#llx,%#llx,%#llx,%#llx]\n",owner,(unsigned long long)id,
+        valid==0,validation_error,call->nr,call->arch,(unsigned long long)call->instruction_pointer,
+        (unsigned long long)identity.instruction_pointer,(unsigned long long)call->args[0],
+        (unsigned long long)call->args[1],(unsigned long long)call->args[2],
+        (unsigned long long)call->args[3],(unsigned long long)call->args[4],(unsigned long long)call->args[5]);
+}
+static _Noreturn void notification_conflict(struct thread *t,const char *reason,
+        const struct seccomp_notif *request,const struct md_broker_completion *incoming,int line) {
+    int error=errno;
+    /* Cold, bounded evidence only. Never read guest memory or wait for the
+     * worker lock while reporting a broken result-custody invariant. */
+    fprintf(stderr,"guest-runtime: notification conflict reason=%s pid=%d tgid=%d phase=%d"
+        " stopped=%d interrupt=%d event=%#x held=%d restart=%d errno=%d\n",reason,t->pid,t->tgid,
+        t->phase,t->kernel_stopped,t->interrupt_pending,t->broker_event.status,t->broker_event.held,
+        t->metadata_restart ? (int)t->metadata_restart->stage : -1,error);
+    if (request) describe_notification_call(t,"incoming",request->id,&request->data);
+    if (t->phase==DELEGATE_CANCEL || t->phase==EXPORT_CANCEL || t->phase==PROC_CANCEL)
+        describe_notification_call(t,"admission",t->metadata.request.id,&t->metadata.request.data);
+    const struct md_broker_completion *results[]={t->broker_completion,incoming};
+    for (unsigned i=0;i<2;++i) if (results[i]) {
+        const struct md_broker_completion *r=results[i];
+        describe_notification_call(t,i ? "completion-incoming" : "completion",r->notification_id,&r->call);
+        fprintf(stderr,"guest-runtime: notification result operation=%u flags=%#x live=%d error=%d fd=%d kind=%u\n",
+            r->operation,r->flags,r->notification_live,r->result.error,r->opened.fd,r->opened.completion.kind);
+    }
+    md_broker_describe_task(broker,t->pid,STDERR_FILENO);
+    errno=error; fail(reason,line);
+}
 static long cooperative_bind(struct thread *t) {
     if (!buffer_service || !broker || !t->entered || t->phase!=IDLE
             || t->application_filter || t->cooperative_blocked) return -EOPNOTSUPP;
@@ -2275,6 +2320,15 @@ static void handle_notification(const struct seccomp_notif *request) {
         if (buffer_admission_quiescing(t->pid)) { buffer_admission_yield(t); return; }
     }
     if (mapping_notification(t,&q)) return;
+    if (buffer_admission && purpose==MD_ENTRY_BIND && (t->broker_completion
+            || t->phase==DELEGATE_CANCEL || t->phase==EXPORT_CANCEL || t->phase==PROC_CANCEL)) {
+        /* A cancelled SVC can restart through a newly published lazy entry.
+         * Its channel registration is not the original call's replay. Decline
+         * only registration so the entry unwinds before result delivery. */
+        struct seccomp_notif_resp reply={.id=q.id,.error=-EAGAIN};
+        CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno==ENOENT);
+        return;
+    }
     if (t->proc_snapshot) {
         if (md_notification_same_call(&t->proc_snapshot_notification.data,&q.data)) {
             CHECK(!md_notification_rebind(listener,&t->proc_snapshot_notification,&q));
@@ -2290,7 +2344,11 @@ static void handle_notification(const struct seccomp_notif *request) {
         struct seccomp_notif previous=t->metadata.request,next=q;
         previous.data=notification_identity(t,&previous.data);
         next.data=notification_identity(t,&next.data);
-        CHECK(!md_notification_rebind(listener,&previous,&next));
+        int error=md_notification_rebind(listener,&previous,&next);
+        if (error) {
+            errno=-error;
+            notification_conflict(t,"notification-rebind",&q,NULL,__LINE__);
+        }
         t->metadata.request=q;
         if (statistics) ++statistics->notification_rebounds;
         TRACE("PROBE notification rebound pid=%d phase=%d nr=%d\n",t->pid,t->phase,q.data.nr);
@@ -2298,7 +2356,8 @@ static void handle_notification(const struct seccomp_notif *request) {
     }
     if (t->broker_completion) {
         const struct seccomp_data *call=&t->broker_completion->call;
-        CHECK(t->phase==IDLE && notification_same_call(t,&q.data,call));
+        if (t->phase!=IDLE || !notification_same_call(t,&q.data,call))
+            notification_conflict(t,"completed-notification-reentry",&q,NULL,__LINE__);
         /* Notification waits can restart without a delivery stop in this
          * thread (another peer may consume a process-directed signal). The
          * retained result, not this replay, still owns the completed open. */
@@ -2494,7 +2553,8 @@ static void delegated_notification(const struct seccomp_notif *request) {
 }
 static void completed_notification(pid_t pid,struct md_broker_completion *result) {
     struct thread *t=find_thread(pid);
-    CHECK(t && !t->broker_completion);
+    CHECK(t);
+    if (t->broker_completion) notification_conflict(t,"duplicate-completion",NULL,result,__LINE__);
     t->broker_completion=malloc(sizeof(*result)); CHECK(t->broker_completion);
     *t->broker_completion=*result;
     t->broker_completion->call=notification_identity(t,&result->call);
@@ -2671,12 +2731,19 @@ static int completed_notification_event(struct thread *t,int status,const struct
         if (event==PTRACE_EVENT_STOP && signal!=SIGTRAP) return 0;
         struct user_pt_regs regs;
         if (!registers(t->pid,&regs)) return 1;
-        if (t->phase==DELEGATE_CANCEL || (t->phase==EXPORT_CANCEL && t->metadata.previous==IDLE)) {
+        if (notification_entry_context(t,&regs,&result->call)) {
+            /* Internal entry work must finish on its own stack. Its ordinary
+             * stop owner drains the entry; the retained result waits for the
+             * original syscall/alias, never overwriting a private continuation. */
+            return 0;
+        }
+        if (notification_unexecuted(t)) {
             /* A restarted notification may request admission before the
              * original worker publishes its retained result. Its pending stop
              * has executed nothing; retire only that exact duplicate request
              * and use this stop for the completed operation, never replay it. */
-            CHECK(notification_same_call(t,&t->metadata.request.data,&result->call));
+            if (!notification_same_call(t,&t->metadata.request.data,&result->call))
+                notification_conflict(t,"completed-notification-stop",&t->metadata.request,NULL,__LINE__);
             notification_interrupted(t);
             if (statistics) ++statistics->notification_readmissions_retired;
         }
@@ -2692,7 +2759,8 @@ static int completed_notification_event(struct thread *t,int status,const struct
         regs.pc=result->call.instruction_pointer; regs.regs[8]=result->call.nr;
         for (unsigned i=0;i<6;++i) regs.regs[i]=result->call.args[i];
         if (result->opened.fd>=0) {
-            CHECK(t->phase==IDLE && !t->buffer.pool && !t->broker_event.held);
+            if (t->phase!=IDLE || t->buffer.pool || t->broker_event.held)
+                notification_conflict(t,"completed-notification-adoption",NULL,NULL,__LINE__);
             t->original=regs; t->kernel_stopped=1; t->interrupt_pending=0;
             t->broker_event.held=1; t->broker_event.status=status;
             t->broker_event.usage=usage ? *usage : (struct rusage){0};
@@ -8501,9 +8569,23 @@ static void control_wait_complete(struct thread *t) {
 }
 static int interrupted_operation(struct thread *t) {
     if (t->phase==MEMORY_WAIT || t->phase==PROC_LOOKUP || t->mapping) return 1;
+    struct user_pt_regs regs;
+    const struct user_pt_regs *context=NULL;
+    if (notification_unexecuted(t) && !t->metadata_restart) {
+        if (!registers(t->pid,&regs)) return 1;
+        context=&regs;
+        if (notification_entry_context(t,context,&t->metadata.request.data)) {
+            /* The interrupt can reach a new lazy entry instead of the
+             * cancelled syscall. Retire only unexecuted admission and let the
+             * entry unwind; never combine its private SP with application PC. */
+            notification_interrupted(t);
+            resume(t->pid,0);
+            return 1;
+        }
+    }
     /* EVENT_WAIT: INTERRUPT cancels the exact notification. Under SYSCALL the
      * acknowledgement is a syscall-exit stop; under CONT it is EVENT_STOP. */
-    if (t->phase==EXPORT_CANCEL) { export_start(t); return 1; }
+    if (t->phase==EXPORT_CANCEL) { export_start(t,context); return 1; }
     if (t->phase==PROC_CANCEL) { proc_query_start(t); return 1; }
     if (t->phase==IPC_WAITING && t->ipc_waking) { ipc_wait_complete(t); return 1; }
     if (t->phase==SOCKET_WAITING && t->socket_waking) { socket_wait_complete(t); return 1; }
@@ -8514,9 +8596,8 @@ static int interrupted_operation(struct thread *t) {
     if (t->phase!=DELEGATE_CANCEL) return 0;
     const struct seccomp_notif *q=&t->metadata.request;
     CHECK(ioctl(listener,SECCOMP_IOCTL_NOTIF_ID_VALID,&q->id)==-1 && errno==ENOENT);
-    struct user_pt_regs regs;
     if (t->metadata_restart) regs=t->metadata_restart->saved;
-    else if (!registers(t->pid,&regs)) return 1;
+    else CHECK(context);
     regs.pc=q->data.instruction_pointer; regs.regs[8]=q->data.nr;
     for (unsigned i=0;i<6;i++) regs.regs[i]=q->data.args[i];
     int machine=md_svc_machine_return(md_memory_svc(t->memory),&t->machine,t->pid,&regs);

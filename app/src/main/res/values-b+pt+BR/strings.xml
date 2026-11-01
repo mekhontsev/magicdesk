@@ -957,6 +957,7 @@
     <string name="diagnostics_refresh">Atualizar</string>
     <string name="diagnostics_copy">Copiar relatório</string>
     <string name="diagnostics_share">Compartilhar relatório</string>
+    <string name="diagnostics_share_failed">Não foi possível compartilhar o relatório: %1$s</string>
     <string name="diagnostics_copied">Relatório de diagnóstico copiado</string>
     <string name="diagnostics_copy_failed">Área de transferência indisponível</string>
     <string name="diagnostics_self_test">Executar autoteste da área de trabalho</string>

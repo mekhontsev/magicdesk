@@ -28,6 +28,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.text.SimpleDateFormat;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
@@ -173,7 +174,7 @@ public final class CompatibilityDiagnostics {
         return false;
     }
 
-    static String buildReport(final Context context) {
+    static DiagnosticsReport buildReport(final Context context) {
         final Context appContext = context.getApplicationContext();
         final DesktopInputReportSnapshot inputSnapshot =
                 DesktopInputReportSnapshot.capture();
@@ -181,12 +182,14 @@ public final class CompatibilityDiagnostics {
                 DeviceSetupManager.audit(appContext, SessionProfile.load(appContext));
         final CompatibilitySnapshot snapshot =
                 CompatibilitySnapshot.capture(appContext, audit);
+        final Instant generatedAt = Instant.ofEpochMilli(System.currentTimeMillis());
         final StringBuilder report = new StringBuilder(24_000);
         report.append("# MagicDesk compatibility report\n\n")
                 .append("Report format: ")
                 .append(CompatibilitySnapshot.SCHEMA_VERSION).append('\n')
-                .append("Generated UTC: ").append(utcNow()).append('\n')
-                .append("App: ").append(appVersion(appContext)).append('\n')
+                .append("Generated UTC: ").append(generatedAt).append('\n')
+                .append("App: ").append(BuildConfig.VERSION_NAME)
+                .append(" (").append(BuildConfig.VERSION_CODE).append(")\n")
                 .append("Package: ").append(appContext.getPackageName()).append('\n')
                 .append('\n');
 
@@ -218,7 +221,8 @@ public final class CompatibilityDiagnostics {
                 .append("task/display identifiers and bounded application crash messages/stacks. ")
                 .append("Messages supplied by applications may contain private data; ")
                 .append("review the report before sharing.\n");
-        return report.toString();
+        return new DiagnosticsReport(report.toString(), Build.BRAND, Build.MODEL,
+                BuildConfig.VERSION_NAME, generatedAt);
     }
 
     static void clearEvents(final Context context) {
@@ -918,16 +922,6 @@ public final class CompatibilityDiagnostics {
                 + (actual == null || actual.isEmpty() ? "<empty>" : actual)
                 + "; optional, does not block Desktop; "
                 + "actual window support is verified by the desktop self-test";
-    }
-
-    private static String appVersion(final Context context) {
-        try {
-            final PackageInfo info = context.getPackageManager().getPackageInfo(
-                    context.getPackageName(), 0);
-            return info.versionName + " (" + info.getLongVersionCode() + ")";
-        } catch (PackageManager.NameNotFoundException e) {
-            return "unknown";
-        }
     }
 
     static String readFile(final File file) {

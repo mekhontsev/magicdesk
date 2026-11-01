@@ -957,6 +957,7 @@
     <string name="diagnostics_refresh">Actualiser</string>
     <string name="diagnostics_copy">Copier le rapport</string>
     <string name="diagnostics_share">Partager le rapport</string>
+    <string name="diagnostics_share_failed">Impossible de partager le rapport : %1$s</string>
     <string name="diagnostics_copied">Rapport de diagnostic copié</string>
     <string name="diagnostics_copy_failed">Presse-papiers indisponible</string>
     <string name="diagnostics_self_test">Exécuter l\'autotest du bureau</string>

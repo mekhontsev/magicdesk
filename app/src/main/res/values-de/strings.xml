@@ -947,6 +947,7 @@
     <string name="diagnostics_refresh">Aktualisieren</string>
     <string name="diagnostics_copy">Bericht kopieren</string>
     <string name="diagnostics_share">Bericht teilen</string>
+    <string name="diagnostics_share_failed">Bericht konnte nicht geteilt werden: %1$s</string>
     <string name="diagnostics_copied">Diagnosebericht kopiert</string>
     <string name="diagnostics_copy_failed">Zwischenablage nicht verfügbar</string>
     <string name="diagnostics_self_test">Desktop-Selbsttest ausführen</string>

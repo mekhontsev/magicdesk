@@ -357,6 +357,10 @@ remain unavailable rather than being inferred.
    expected behavior, and observed behavior. For the bot, follow its private-chat
    setup and use `/submit` once the report is ready.
 
+**Share report** sends a ZIP containing the displayed report as `report.md`.
+The archive name includes the device brand/model, MagicDesk version and report
+generation time in UTC. **Copy report** copies the same report as plain text.
+
 The report includes:
 
 - MagicDesk version and Android build fingerprint;

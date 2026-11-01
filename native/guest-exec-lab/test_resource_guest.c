@@ -2236,12 +2236,14 @@ int test_native_metadata_guest(void);
 int test_mutation_signal_guest(const char *, int, int);
 int test_shared_memory_guest(const char *, int, int);
 int test_fd_result_guest(const char *, int);
+int test_parallel_read_guest(const char *);
 int main(int argc, char **argv) {
     if (argc==2 && (!strcmp(argv[1],"processor-state") || !strcmp(argv[1],"processor-state-exec"))) {
         alarm(40); return processor_state(argv[0],!strcmp(argv[1],"processor-state-exec"));
     }
     if (argc==4 && !strcmp(argv[1],"result-custody"))
         return test_fd_result_guest(argv[2],atoi(argv[3]));
+    if (argc==3 && !strcmp(argv[1],"parallel-read")) return test_parallel_read_guest(argv[2]);
     if (argc>=2 && !strcmp(argv[1],"keyring")) return test_keyring_guest(argc,argv);
     if (argc==5 && !strcmp(argv[1],"mutation-signal"))
         return test_mutation_signal_guest(argv[2],atoi(argv[3]),atoi(argv[4]));

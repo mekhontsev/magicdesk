@@ -423,7 +423,7 @@ final class DesktopAutomationStateReader {
     JSONObject diagnostics() throws JSONException {
         return new JSONObject().put(
                 "report",
-                CompatibilityDiagnostics.buildReport(mContext));
+                CompatibilityDiagnostics.buildReport(mContext).text);
     }
 
     JSONObject selfTest() throws JSONException {

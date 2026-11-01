@@ -6,6 +6,7 @@ Namespace-local network configuration, supported nftables flow filtering and NAT
 
 - [Launch Profiles](#launch-profiles)
 - [Network Namespaces](#network-namespaces)
+- [Traffic Control](#traffic-control)
 - [TUN/TAP Packet Transport](#tuntap-packet-transport)
 - [Namespace-Owned Sysctls](#namespace-owned-sysctls)
 - [Namespace-Owned Sysfs](#namespace-owned-sysfs)
@@ -90,8 +91,9 @@ or return unreachable/prohibit/blackhole. Empty tables fall through; local and
 main rules are installed for a new namespace, with an IPv4 default-table rule.
 Tables share the existing bounded route catalogue, transaction journal and
 netlink publication. Rule deletion, rollback and notifications follow the same
-owner as routes. Unsupported selectors/actions fail explicitly. Neighbor and
-traffic-control dumps are empty and their unsupported mutations fail explicitly.
+owner as routes. Unsupported selectors/actions fail explicitly. Neighbor dumps
+are empty and their unsupported mutations fail explicitly. Traffic-control
+objects have their own interface-scoped owner below.
 Strict queries validate complete headers and reject unsupported filters instead
 of silently ignoring them. Route dumps accept the header's table selector and
 the extended `RTA_TABLE` selector, with the latter taking precedence; unknown
@@ -283,6 +285,38 @@ UDP `AF_UNSPEC` disconnect resets the selected source and private flow mapping;
 the original explicit binding remains distinct from the previous route's source.
 External IPv6 TCP/UDP uses native backing sockets and requires an IPv6 route
 permitted to the executor by Android/VPN policy; Shroot does not alter that policy.
+
+### Traffic Control
+
+`network_tc` owns root HTB qdiscs and IPv4 `u32`/`csum` filters on managed
+Ethernet interfaces. The supported HTB path is the unclassified direct queue,
+not a bandwidth scheduler: rate/ceil classes, policing, offload, shared action
+indices, hash tables and variable-offset classifiers return explicit errors.
+This covers the checksum filter installed by libvirt's nftables network backend
+without claiming that bandwidth limits are enforced.
+
+Filters use explicit priorities, up to eight fixed-offset masked keys and one
+inline checksum action. Each qdisc admits at most 32 filters. The first matching
+terminal filter can repair the IPv4 header and UDP checksum; disabled IPv4 UDP
+checksums remain disabled and noninitial fragments retain their transport data.
+Malformed/truncated packets fail bounded validation. A zero direct queue length
+drops packets; otherwise synchronous delivery needs no delayed packet scheduler.
+The initial queue length comes from the interface's normal `tx_queue_len`.
+
+Create/change/delete, selected dumps and RTNLGRP_TC notifications share the
+existing CAP_NET_ADMIN checks, topology journal and publication boundary.
+Control mutations clone a retained interface snapshot; a failed response before
+publication leaves the previous state intact. Link removal and namespace moves
+retire their qdiscs and filters. No host `tc` configuration is changed.
+
+Only managed Ethernet egress evaluates these filters. The bounded link walk
+retains branch-local packet copies when checksums change, so a bridge's other
+outputs keep their own payload. With no qdisc there is no filter allocation or
+packet copy. Native endpoint IO and filesystem operations retain their existing
+paths, with no per-read/write interception. Native tests cover packet bytes,
+branch isolation, namespace lifetime, failure rollback and notification custody;
+`test_network_ethernet.py` also checks stock iproute2 and real guest packet sockets
+under both Base and lazy SVC.
 
 ### TUN/TAP Packet Transport
 
