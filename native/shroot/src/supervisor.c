@@ -1198,12 +1198,13 @@ static void export_begin(struct thread *t, const struct seccomp_notif *q) {
     t->phase = EXPORT_CANCEL;
     tracee_request(t, PTRACE_INTERRUPT, NULL, NULL, "interrupt-notification");
 }
-static void export_start(struct thread *t) {
+static void export_start(struct thread *t,const struct user_pt_regs *observed) {
     struct metadata_operation *op = &t->metadata;
     op->mask_shielded=t->signal_shielded;
     errno = 0;
     CHECK(ioctl(listener, SECCOMP_IOCTL_NOTIF_ID_VALID, &op->request.id) == -1 && errno == ENOENT);
     if (t->metadata_restart && op->previous==IDLE) op->saved=t->metadata_restart->saved;
+    else if (observed) op->saved=*observed;
     else if (!registers(t->pid, &op->saved)) return;
     op->saved.pc = op->request.data.instruction_pointer;
     op->saved.regs[8] = op->request.data.nr;
@@ -1687,9 +1688,19 @@ static void notification_release(struct thread *t) {
     release_operation(t);
     md_proc_file_release(t->proc_file); t->proc_file=NULL;
 }
+static int notification_unexecuted(const struct thread *t) {
+    return t->phase==DELEGATE_CANCEL || (t->phase==EXPORT_CANCEL && t->metadata.previous==IDLE);
+}
+static int notification_entry_context(struct thread *t,const struct user_pt_regs *regs,
+        const struct seccomp_data *call) {
+    struct md_svc_registry *registry=md_memory_svc(t->memory);
+    if (!md_svc_registry_context(registry,regs->pc,regs->sp)) return 0;
+    uintptr_t origin=md_svc_registry_call_origin(registry,call->instruction_pointer);
+    return md_svc_registry_call_origin(registry,regs->pc)!=origin
+        && md_svc_registry_call_origin(registry,regs->pc+4)!=origin;
+}
 static void notification_interrupted(struct thread *t) {
-    if (t->phase!=DELEGATE_CANCEL
-            && !(t->phase==EXPORT_CANCEL && t->metadata.previous==IDLE)) return;
+    if (!notification_unexecuted(t)) return;
     /* A delivery stop can precede the requested INTERRUPT. Nothing has run:
      * retire the request before the handler can replace its register context.
      * The kernel retains EINTR/SA_RESTART and the pending interrupt is harmless
@@ -2309,6 +2320,15 @@ static void handle_notification(const struct seccomp_notif *request) {
         if (buffer_admission_quiescing(t->pid)) { buffer_admission_yield(t); return; }
     }
     if (mapping_notification(t,&q)) return;
+    if (buffer_admission && purpose==MD_ENTRY_BIND && (t->broker_completion
+            || t->phase==DELEGATE_CANCEL || t->phase==EXPORT_CANCEL || t->phase==PROC_CANCEL)) {
+        /* A cancelled SVC can restart through a newly published lazy entry.
+         * Its channel registration is not the original call's replay. Decline
+         * only registration so the entry unwinds before result delivery. */
+        struct seccomp_notif_resp reply={.id=q.id,.error=-EAGAIN};
+        CHECK(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) || errno==ENOENT);
+        return;
+    }
     if (t->proc_snapshot) {
         if (md_notification_same_call(&t->proc_snapshot_notification.data,&q.data)) {
             CHECK(!md_notification_rebind(listener,&t->proc_snapshot_notification,&q));
@@ -2711,7 +2731,13 @@ static int completed_notification_event(struct thread *t,int status,const struct
         if (event==PTRACE_EVENT_STOP && signal!=SIGTRAP) return 0;
         struct user_pt_regs regs;
         if (!registers(t->pid,&regs)) return 1;
-        if (t->phase==DELEGATE_CANCEL || (t->phase==EXPORT_CANCEL && t->metadata.previous==IDLE)) {
+        if (notification_entry_context(t,&regs,&result->call)) {
+            /* Internal entry work must finish on its own stack. Its ordinary
+             * stop owner drains the entry; the retained result waits for the
+             * original syscall/alias, never overwriting a private continuation. */
+            return 0;
+        }
+        if (notification_unexecuted(t)) {
             /* A restarted notification may request admission before the
              * original worker publishes its retained result. Its pending stop
              * has executed nothing; retire only that exact duplicate request
@@ -8543,9 +8569,23 @@ static void control_wait_complete(struct thread *t) {
 }
 static int interrupted_operation(struct thread *t) {
     if (t->phase==MEMORY_WAIT || t->phase==PROC_LOOKUP || t->mapping) return 1;
+    struct user_pt_regs regs;
+    const struct user_pt_regs *context=NULL;
+    if (notification_unexecuted(t) && !t->metadata_restart) {
+        if (!registers(t->pid,&regs)) return 1;
+        context=&regs;
+        if (notification_entry_context(t,context,&t->metadata.request.data)) {
+            /* The interrupt can reach a new lazy entry instead of the
+             * cancelled syscall. Retire only unexecuted admission and let the
+             * entry unwind; never combine its private SP with application PC. */
+            notification_interrupted(t);
+            resume(t->pid,0);
+            return 1;
+        }
+    }
     /* EVENT_WAIT: INTERRUPT cancels the exact notification. Under SYSCALL the
      * acknowledgement is a syscall-exit stop; under CONT it is EVENT_STOP. */
-    if (t->phase==EXPORT_CANCEL) { export_start(t); return 1; }
+    if (t->phase==EXPORT_CANCEL) { export_start(t,context); return 1; }
     if (t->phase==PROC_CANCEL) { proc_query_start(t); return 1; }
     if (t->phase==IPC_WAITING && t->ipc_waking) { ipc_wait_complete(t); return 1; }
     if (t->phase==SOCKET_WAITING && t->socket_waking) { socket_wait_complete(t); return 1; }
@@ -8556,9 +8596,8 @@ static int interrupted_operation(struct thread *t) {
     if (t->phase!=DELEGATE_CANCEL) return 0;
     const struct seccomp_notif *q=&t->metadata.request;
     CHECK(ioctl(listener,SECCOMP_IOCTL_NOTIF_ID_VALID,&q->id)==-1 && errno==ENOENT);
-    struct user_pt_regs regs;
     if (t->metadata_restart) regs=t->metadata_restart->saved;
-    else if (!registers(t->pid,&regs)) return 1;
+    else CHECK(context);
     regs.pc=q->data.instruction_pointer; regs.regs[8]=q->data.nr;
     for (unsigned i=0;i<6;i++) regs.regs[i]=q->data.args[i];
     int machine=md_svc_machine_return(md_memory_svc(t->memory),&t->machine,t->pid,&regs);

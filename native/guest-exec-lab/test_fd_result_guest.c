@@ -65,6 +65,49 @@ static void *thread(void *context) {
     return NULL;
 }
 static void *thread_initialize(void *context) { return context; }
+struct parallel_read { const char *path; unsigned completed; };
+static void *read_parallel(void *context) {
+    struct parallel_read *work=context;
+    char buffer[4096];
+    int r=pthread_barrier_wait(&start); CHECK(!r || r==PTHREAD_BARRIER_SERIAL_THREAD);
+    for (unsigned i=0;i<4000;++i) {
+        int fd=open(work->path,O_RDONLY|O_CLOEXEC); CHECK(fd>=0);
+        CHECK(fcntl(fd,F_GETFD)==FD_CLOEXEC);
+        int flags=fcntl(fd,F_GETFL); CHECK(flags>=0);
+        CHECK(!fcntl(fd,F_SETFL,flags|O_NONBLOCK));
+        ssize_t size=read(fd,buffer,sizeof(buffer));
+        CHECK(size==13 && !memcmp(buffer,"parallel-read",13));
+        CHECK(!read(fd,buffer,sizeof(buffer)));
+        CHECK(!close(fd));
+        ++work->completed;
+    }
+    return NULL;
+}
+int test_parallel_read_guest(const char *base) {
+    char path[PATH_MAX];
+    CHECK(snprintf(path,sizeof(path),"%s/parallel-read-%ld",base,(long)getpid())<(int)sizeof(path));
+    int fd=open(path,O_CREAT|O_EXCL|O_WRONLY|O_CLOEXEC,0600); CHECK(fd>=0);
+    CHECK(write(fd,"parallel-read",13)==13 && !close(fd));
+    pthread_t initialized;
+    CHECK(!pthread_create(&initialized,NULL,thread_initialize,NULL));
+    CHECK(!pthread_join(initialized,NULL));
+    unsigned before=descriptors();
+    enum { COUNT=32 };
+    pthread_t threads[COUNT]; struct parallel_read work[COUNT];
+    CHECK(!pthread_barrier_init(&start,NULL,COUNT));
+    for (unsigned i=0;i<COUNT;++i) {
+        work[i]=(struct parallel_read){.path=path};
+        CHECK(!pthread_create(&threads[i],NULL,read_parallel,&work[i]));
+    }
+    unsigned completed=0;
+    for (unsigned i=0;i<COUNT;++i) {
+        CHECK(!pthread_join(threads[i],NULL));
+        CHECK(work[i].completed==4000); completed+=work[i].completed;
+    }
+    CHECK(!pthread_barrier_destroy(&start)); descriptor_balance(before); CHECK(!unlink(path));
+    printf("PASS parallel read: threads=%u completed=%u, nonblocking regular IO, exact bytes/EOF and no FD growth\n",COUNT,completed);
+    return 0;
+}
 static void reap(pid_t pid,int killed) {
     int status; CHECK(waitpid(pid,&status,0)==pid);
     CHECK(killed ? WIFSIGNALED(status) && WTERMSIG(status)==SIGKILL : WIFEXITED(status) && WEXITSTATUS(status)==0);

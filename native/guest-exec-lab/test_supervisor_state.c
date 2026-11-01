@@ -1742,6 +1742,134 @@ static void completed_notification_orders(unsigned order,int descriptor) {
     thread_index[pid%THREAD_BUCKETS]=NULL;
     close(channel[0]); close(listener); listener=-1;
 }
+static int notification_bind_dispatch(uint64_t *saved,void *unused) {
+    (void)unused;
+    assert(saved[8]==SYS_openat);
+    assert(md_guest_buffer_admit(MD_ENTRY_BIND)==-EAGAIN);
+    return 0;
+}
+static void completed_notification_bind(unsigned order,int descriptor) {
+    /* 0/1: retained result, without/with private interruption. 2/3: pending
+     * delegation/export. 4/5 and 6/7: interrupt those admissions inside the
+     * entry before/after completion; both use the production resume owner. */
+    extern char md_guest_buffer_admitted[];
+    tasks=md_task_registry_create(); assert(tasks);
+    debugger=md_debugger_create(&(struct md_debugger_host){0}); assert(debugger);
+    uintptr_t previous_admit=abi.buffer_admit;
+    abi.buffer_admit=(uintptr_t)md_guest_buffer_admitted;
+    size_t frame_bytes=MD_SVC_POOL_SIZE+MD_SVC_PAYLOAD_SIZE;
+    void *frames=mmap((void *)MD_SVC_POOL_BASE,frame_bytes,PROT_READ|PROT_WRITE,
+        MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
+    assert(frames==(void *)MD_SVC_POOL_BASE);
+    uint32_t *code=mmap((void *)0x10000000,4096,PROT_READ|PROT_WRITE,
+        MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
+    assert(code==(void *)0x10000000);
+    code[0]=0xd2800008|(SYS_openat<<5); code[1]=0xd4000001; code[2]=0xd65f03c0;
+    __builtin___clear_cache((char *)code,(char *)(code+3));
+    assert(!mprotect(code,4096,PROT_READ|PROT_EXEC));
+    void *pool=mmap((void *)0x11000000,MD_SVC_CODE_BYTES,PROT_READ|PROT_EXEC,
+        MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
+    assert(pool==(void *)0x11000000);
+    int channel[2]; assert(!socketpair(AF_UNIX,SOCK_SEQPACKET|SOCK_CLOEXEC,0,channel));
+    pid_t parent=getpid(),pid=fork(); assert(pid>=0);
+    if (!pid) {
+        assert(!prctl(PR_SET_PDEATHSIG,SIGKILL) && getppid()==parent);
+        close(channel[0]);
+        struct sock_filter filter[]={
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_openat,1,0),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_gettid,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_USER_NOTIF),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)
+        };
+        struct sock_fprog program={sizeof(filter)/sizeof(*filter),filter};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+        int fd=syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,SECCOMP_FILTER_FLAG_NEW_LISTENER,&program);
+        assert(fd>=0 && write(channel[1],&fd,sizeof(fd))==sizeof(fd));
+        char go; assert(read(channel[1],&go,1)==1);
+        long (*call)(long,const char *,long,long,long,long)=(void *)code;
+        assert(call(AT_FDCWD,"/dev/zero",O_RDONLY|O_CLOEXEC,0,0,0)
+            ==(descriptor ? -EINTR : -EOPNOTSUPP));
+        for (unsigned i=0;i<MD_SVC_SLOT_COUNT;++i)
+            assert(!*(uint64_t *)((char *)frames+i*MD_SVC_SLOT_SIZE));
+        _exit(0);
+    }
+    close(channel[1]); int remote;
+    assert(read(channel[0],&remote,sizeof(remote))==sizeof(remote));
+    int pidfd=syscall(SYS_pidfd_open,pid,0); assert(pidfd>=0);
+    listener=syscall(SYS_pidfd_getfd,pidfd,remote,0); assert(listener>=0); close(pidfd);
+    assert(!ptrace(PTRACE_SEIZE,pid,NULL,(void *)(uintptr_t)PTRACE_O_EXITKILL));
+    assert(write(channel[0],"x",1)==1);
+    struct seccomp_notif first=admission_request();
+    assert(first.data.instruction_pointer==(uintptr_t)(code+2));
+    struct thread t={.pid=pid,.tgid=pid,.born=1,.ready=1,.entered=1,.phase=IDLE,.memory=md_memory_new()};
+    thread_index[pid%THREAD_BUCKETS]=&t;
+    if (order>=2) {
+        delegate_begin(&t,&first);
+        if (order&1) { t.phase=EXPORT_CANCEL; t.metadata.previous=IDLE; }
+    } else assert(!ptrace(PTRACE_INTERRUPT,pid,NULL,NULL));
+    notification_stop(pid);
+    struct user_pt_regs original;
+    assert(registers(pid,&original));
+    assert(t.memory && !md_memory_buffers_prepare(t.memory,1,4096,0,0));
+    struct md_svc_registry *r=md_svc_registry_new((uintptr_t)frames,(uintptr_t)notification_bind_dispatch);
+    assert(r && !md_memory_svc_set(t.memory,r) && !md_svc_registry_pool(r,(uintptr_t)pool));
+    assert(md_svc_registry_direct(r,pid,-1,(uintptr_t)(code+1),SYS_openat)==1);
+    struct md_broker_completion result={.call=first.data,.notification_id=first.id,
+        .result={.error=descriptor ? 0 : -EOPNOTSUPP},
+        .opened={.fd=descriptor ? open("/dev/zero",O_RDONLY|O_CLOEXEC) : -1}};
+    assert(!descriptor || result.opened.fd>=0);
+    adoption_calls=0; adoption_error=0;
+    if (order<2 || order>=6) completed_notification(pid,&result);
+    assert(!ptrace(PTRACE_CONT,pid,NULL,NULL));
+    struct seccomp_notif bind=admission_request();
+    assert(bind.data.nr==SYS_gettid && bind.data.args[0]==MD_ENTRY_BIND);
+    if (order==1 || order>=4) {
+        assert(!ptrace(PTRACE_INTERRUPT,pid,NULL,NULL));
+        int status=notification_stop(pid);
+        struct user_pt_regs before,after; assert(registers(pid,&before));
+        assert(md_svc_registry_context(r,before.pc,before.sp));
+        assert(!completed_notification_event(&t,status,NULL));
+        assert(!!t.broker_completion==(order==1 || order>=6) && !adoption_calls && registers(pid,&after));
+        assert(!memcmp(&before,&after,sizeof(before)));
+        if (order>=4) {
+            assert(notification_unexecuted(&t));
+            assert(interrupted_operation(&t) && t.phase==IDLE && !t.signal_shielded);
+        } else assert(!ptrace(PTRACE_CONT,pid,NULL,NULL));
+        bind=admission_request();
+        if (order==4 || order==5) completed_notification(pid,&result);
+    }
+    handle_notification(&bind);
+    assert(!!t.broker_completion==(order<2 || order>=4) && !t.cooperative_buffer.pool && !adoption_calls);
+    struct seccomp_notif retry=admission_request();
+    assert(notification_same_call(&t,&first.data,&retry.data));
+    handle_notification(&retry);
+    if (order==2 || order==3) {
+        completed_notification(pid,&result);
+        assert(!ptrace(PTRACE_INTERRUPT,pid,NULL,NULL));
+    }
+    int status=notification_stop(pid);
+    assert(completed_notification_event(&t,status,NULL)==descriptor);
+    assert(!t.broker_completion && adoption_calls==descriptor);
+    struct user_pt_regs returned; assert(registers(pid,&returned));
+    if (descriptor) {
+        assert(t.phase==DISPATCHING && t.buffer_call && adopted.fd>=0);
+        char byte=1; assert(read(adopted.fd,&byte,1)==1 && !byte);
+        md_fs_buffer_open_release(&adopted); t.buffer_call=NULL;
+        returned=t.original; returned.regs[0]=-EINTR; assert(set_registers(pid,&returned));
+    }
+    assert(returned.sp==original.sp && returned.pc==first.data.instruction_pointer);
+    assert(!memcmp(returned.regs+1,original.regs+1,30*sizeof(original.regs[0])));
+    assert(returned.pstate==original.pstate);
+    assert(!ptrace(PTRACE_CONT,pid,NULL,NULL));
+    assert(waitpid(pid,&status,0)==pid && WIFEXITED(status) && !WEXITSTATUS(status));
+    assert(!md_buffer_release(&t.buffer)); md_memory_release(t.memory);
+    md_task_registry_destroy(tasks); tasks=NULL;
+    md_debugger_destroy(debugger); debugger=NULL;
+    thread_index[pid%THREAD_BUCKETS]=NULL;
+    close(channel[0]); close(listener); listener=-1; abi.buffer_admit=previous_admit;
+    assert(!munmap(pool,MD_SVC_CODE_BYTES) && !munmap(code,4096) && !munmap(frames,frame_bytes));
+}
 static void admission_quiescence(void) {
     extern char md_guest_buffer_admitted[];
     uintptr_t saved=abi.buffer_admit;
@@ -1842,6 +1970,9 @@ int main(void) {
     for (unsigned order=0;order<6;++order) for (int descriptor=0;descriptor<2;++descriptor)
         completed_notification_orders(order,descriptor);
     puts("PASS notification completion: six kernel cancellation/reentry orders, FD/error custody and conflict rejection");
+    for (unsigned order=0;order<8;++order) for (int descriptor=0;descriptor<2;++descriptor)
+        completed_notification_bind(order,descriptor);
+    puts("PASS notification bind: live lazy patch, private-stack interruption and single retained FD/error delivery");
     admission_quiescence();
     checkpoint_quiescence();
     debugger_quiescence();

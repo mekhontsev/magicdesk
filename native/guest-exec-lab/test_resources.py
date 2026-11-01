@@ -118,6 +118,13 @@ def main():
             check("guest without thread pidfds " + case, runner + case + " /tmp", message)
 
     def check_buffer_descriptors():
+        check("native parallel reads", root + "/libmagicdesk_guest_resource_guest.so parallel-read "
+              + root + "/native", "PASS parallel read: threads=32 completed=128000")
+        for entry in (0, 1):
+            check(f"guest parallel reads entry={entry}", root
+                  + f"/libmagicdesk_guest_run.so --env SHROOT_MACHINE_ENTRY={entry} --store "
+                  + root + "/store --deadline-seconds 90 -- /bin/test parallel-read /tmp",
+                  "PASS parallel read: threads=32 completed=128000")
         for mode in range(4):
             check(f"native result custody mode={mode}", root + "/libmagicdesk_guest_resource_guest.so result-custody "
                   + root + f"/native {mode}", "PASS cancellation stress:")
@@ -496,7 +503,8 @@ def main():
             check("supervisor state ownership", root + "/libmagicdesk_guest_supervisor_state.so",
                   "PASS supervisor completed open:", patterns=(r"PASS supervisor admission:",
                   r"PASS supervisor repair deferral:", r"PASS supervisor accounting:",
-                  r"PASS notification completion: six kernel cancellation/reentry orders"))
+                  r"PASS notification completion: six kernel cancellation/reentry orders",
+                  r"PASS notification bind: live lazy patch"))
             if args.case == "supervisor-state":
                 return
         if args.case in ("all", "stores"):
