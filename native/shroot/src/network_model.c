@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "network_internal.h"
+#include "network_tc.h"
 #include "network_filter.h"
 #include "network_forward.h"
 #include "network_tun.h"
@@ -247,7 +248,7 @@ int md_network_interface_add(struct md_network_namespace *n,enum md_network_link
     *link=(struct md_network_interface){.kind=kind,.bridge_forward_delay=kind==MD_LINK_BRIDGE ? 1500 : 0,
         .policy=n->defaults,.ipv6=n->defaults6,.policy_id=++n->next_policy,.info={.index=id,
         .flags=kind==MD_LINK_LOOPBACK ? IFF_LOOPBACK : IFF_BROADCAST|IFF_MULTICAST,
-        .mtu=kind==MD_LINK_LOOPBACK ? 65536 : 1500,
+        .mtu=kind==MD_LINK_LOOPBACK ? 65536 : 1500,.tx_queue_length=1000,
         .type=kind==MD_LINK_LOOPBACK ? ARPHRD_LOOPBACK : ARPHRD_ETHER,.state=IF_OPER_DOWN}};
     memcpy(link->info.name,name,strlen(name)+1);
     link->ipv6.mtu=link->info.mtu;
@@ -263,6 +264,7 @@ static void remove_one(struct md_network_namespace *n,unsigned index) {
     for (unsigned i=0;i<n->count;++i) {
         if (n->links[i].master==index) n->links[i].master=n->links[i].hairpin=n->links[i].isolated=0;
         if (n->links[i].info.index==index) {
+            md_network_tc_release(n->links[i].tc);
             memmove(n->links+i,n->links+i+1,(n->count-i-1)*sizeof(*n->links));
             --n->count; --i;
         }
@@ -301,6 +303,7 @@ int md_network_interface_move(struct md_network_namespace *from,unsigned index,s
     int error=md_network_interface_reserve(to,1);
     if (error) return error;
     struct md_network_interface moved=*link;
+    moved.tc=NULL;
     moved.policy=to->defaults;
     moved.ipv6=to->defaults6;
     moved.policy_id=++to->next_policy;
@@ -384,6 +387,7 @@ void md_network_namespace_release(struct md_network_namespace *n) {
     for (unsigned i=0;i<n->count;++i) {
         struct md_network_namespace *peer=md_network_interface_owner(f,n->links[i].peer);
         if (peer && peer!=n) remove_one(peer,n->links[i].peer);
+        md_network_tc_release(n->links[i].tc);
     }
     struct md_network_namespace **at=&f->spaces;
     while (*at && *at!=n) at=&(*at)->next;

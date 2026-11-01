@@ -105,7 +105,9 @@ reinstallation, file verification and removal of a fixture-installed package.
 Retained recipe-installed sessions can run `test_booted_containers.py --session
 build/installed-NAME/session.json --engine podman --internet` (or `--engine
 docker`). Start a non-graphical session with `installed_desktop.py start --name
-NAME --headless --build BUILD`; add `--init openrc` for Alpine. This uses the same
+NAME --headless --build BUILD --network-profile routed`; add `--init openrc`
+for Alpine. The container fixture's external port observer needs Android
+loopback access; containers still create their own private bridges. This uses the same
 init/control owner without acquiring a display, GPU, HOME role or user desktop;
 it requires the guest's Python, D-Bus and init packages, not Weston. Use `run
 --root` for commands and always `stop --name NAME` afterward. Default-target
@@ -286,12 +288,26 @@ Internet-throughput claim. The option applies to direct consumers; an OCI image
 must explicitly retain `MD_PACKET_LOAD` to run it inside that container.
 `test_booted_libvirt.py --session SESSION --kernel KERNEL --initrd INITRD
 --network --network-forward nat` checks a managed bridge/TAP with DHCP/DNS,
-bidirectional VM traffic and cleanup. The echo peer lives beyond a routed veth
+bidirectional VM traffic and cleanup. Start its headless retained session with
+`installed_desktop.py start --network-profile bridge`; routed wildcard DHCP
+binds otherwise request privileged Android ports. For this packet scenario,
+`INITRD` is the official gzip-compressed Alpine initramfs, from which the fixture
+builds its private VM image, not the raw kernel-contract CPIO used by the direct
+TCG test. Modular libvirt preparation starts both the QEMU and network services.
+The echo peer lives beyond a routed veth
 in a separate namespace and verifies the translated IPv4 source and port range.
 `--network-forward open` checks the same topology without NAT; IPv6 uses routed
 traffic. ICMP REJECT is not substituted with DROP.
 All services, staged files and temporary initramfs trees are cleaned
 up; receipts remain under `build/packet-apps`.
+
+`test_network_ethernet.py BUILD STORE` checks packet/raw sockets and stock
+`tc qdisc ... htb` plus `u32 ... action csum` in Base and lazy modes. It sends
+bad-checksum IPv4/UDP packets, checks repaired bytes and nonmatching traffic,
+then deletes the filter/qdisc and verifies unchanged delivery and link cleanup.
+Unsupported bandwidth classes must fail, not silently omit shaping.
+`test_network_tc.c` adds branch-local copies, fragmented/option-bearing packets,
+namespace lifetime, lost ACKs and atomic rollback to the native resource suite.
 
 `test_routed_network.py` adds libc interface lookup, IPv4 packet information
 with absent/truncated receive buffers, a datagram queued before sender close,

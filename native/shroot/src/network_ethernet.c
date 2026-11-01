@@ -6,6 +6,7 @@
 #include "network_raw6.h"
 #include "network_raw4.h"
 #include "network_link.h"
+#include "network_tc.h"
 #include <errno.h>
 #include <limits.h>
 #include <linux/if_ether.h>
@@ -85,34 +86,53 @@ static void deliver(struct md_network_namespace *n,const struct md_network_inter
         if (sendmsg(s->peer,&message,MSG_DONTWAIT|MSG_NOSIGNAL)<0 && errno!=ECONNREFUSED) s->overflow=1;
     }
 }
-struct frame_delivery { const struct md_network_ethernet *sender; const struct ethhdr *frame; size_t size; };
-static void frame_visit(void *context,struct md_network_namespace *n,struct md_network_interface *link,int outgoing) {
-    const struct frame_delivery *d=context;
-    deliver(n,link,d->sender,d->frame,d->size,outgoing);
-    if (outgoing && link->kind==MD_LINK_TAP) md_network_tun_output(n,link->info.index,d->frame,d->size);
-    if (!outgoing && md_network_stack_has_link(n,link->info.index)) {
-        if(!link->master) md_network_stack_input(n,link,d->frame,d->size);
-        return;
+struct frame_copy { struct frame_copy *next; void *frame; };
+struct frame_delivery { const struct md_network_ethernet *sender; size_t size; struct frame_copy *copies; };
+static int frame_visit(void *context,struct md_network_namespace *n,struct md_network_interface *link,int outgoing,const void **payload) {
+    struct frame_delivery *d=context;
+    if (outgoing && link->tc) {
+        void *copy=NULL;
+        int result=md_network_tc_egress(link->tc,*payload,d->size,&copy);
+        if (result) return result;
+        if (copy) {
+            struct frame_copy *owned=malloc(sizeof(*owned));
+            if (!owned) { free(copy); return -ENOMEM; }
+            *owned=(struct frame_copy){d->copies,copy}; d->copies=owned; *payload=copy;
+        }
     }
-    if (!outgoing && d->frame->h_proto==htons(ETH_P_IPV6)) md_network_raw6_receive(n,link,d->frame,d->size);
-    if (!outgoing && d->frame->h_proto==htons(ETH_P_IP)) md_network_raw4_receive(n,link,d->frame,d->size);
+    const struct ethhdr *frame=*payload;
+    deliver(n,link,d->sender,frame,d->size,outgoing);
+    if (outgoing && link->kind==MD_LINK_TAP) md_network_tun_output(n,link->info.index,frame,d->size);
+    if (!outgoing && md_network_stack_has_link(n,link->info.index)) {
+        if(!link->master) md_network_stack_input(n,link,frame,d->size);
+        return 0;
+    }
+    if (!outgoing && frame->h_proto==htons(ETH_P_IPV6)) md_network_raw6_receive(n,link,frame,d->size);
+    if (!outgoing && frame->h_proto==htons(ETH_P_IP)) md_network_raw4_receive(n,link,frame,d->size);
+    return 0;
+}
+static int frame_walk(struct md_network_namespace *space,struct md_network_interface *source,
+        const struct md_network_ethernet *sender,const void *data,size_t size,int ingress) {
+    if (size<ETH_HLEN) return -EINVAL;
+    const struct ethhdr *frame=data;
+    static const unsigned char reserved[5]={1,0x80,0xc2,0,0};
+    int link_local=!memcmp(frame->h_dest,reserved,sizeof(reserved)) && frame->h_dest[5]<=15;
+    struct frame_delivery delivery={.sender=sender,.size=size};
+    int result=ingress ? md_network_link_ingress(space,source,link_local,frame_visit,&delivery,frame)
+        : md_network_link_walk(space,source,link_local,frame_visit,&delivery,frame);
+    while (delivery.copies) {
+        struct frame_copy *copy=delivery.copies; delivery.copies=copy->next;
+        free(copy->frame); free(copy);
+    }
+    return result;
 }
 int md_network_ethernet_transmit(struct md_network_namespace *space,struct md_network_interface *source,
         const struct md_network_ethernet *s,const void *data,size_t size) {
-    const struct ethhdr *frame=data;
-    static const unsigned char reserved[5]={1,0x80,0xc2,0,0};
-    int link_local=!memcmp(frame->h_dest,reserved,sizeof(reserved)) && frame->h_dest[5]<=15;
-    struct frame_delivery delivery={s,frame,size};
-    return md_network_link_walk(space,source,link_local,frame_visit,&delivery);
+    return frame_walk(space,source,s,data,size,0);
 }
 int md_network_ethernet_receive(struct md_network_namespace *space,struct md_network_interface *source,
         const void *data,size_t size) {
-    if(size<ETH_HLEN) return -EINVAL;
-    const struct ethhdr *frame=data;
-    static const unsigned char reserved[5]={1,0x80,0xc2,0,0};
-    int link_local=!memcmp(frame->h_dest,reserved,sizeof(reserved)) && frame->h_dest[5]<=15;
-    struct frame_delivery delivery={NULL,frame,size};
-    return md_network_link_ingress(space,source,link_local,frame_visit,&delivery);
+    return frame_walk(space,source,NULL,data,size,1);
 }
 static long send_frame(struct md_network_ethernet *s,const void *data,size_t size,const struct md_network_send *destination) {
     if (destination && destination->control_size) return -EOPNOTSUPP;

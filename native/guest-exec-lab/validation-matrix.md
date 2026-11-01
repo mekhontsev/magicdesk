@@ -5,7 +5,7 @@ or a claim that all tests are automated. Keep every distribution printed by
 `sh scripts/install_linux.sh --list` in every table. Results do not transfer
 between distributions sharing a package manager, libc or init system.
 
-Last reconciled: 2026-10-31. Current device evidence uses NX809J, Android 16,
+Last reconciled: 2026-11-01. Current device evidence uses NX809J, Android 16,
 Linux 6.12.23, 4 KiB pages and Android shell UID 2000. This does not cover the
 minimum supported kernel 5.15, other firmware or Android root execution.
 

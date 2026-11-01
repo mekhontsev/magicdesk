@@ -461,6 +461,7 @@ void test_network_route(void);
 void test_network_route_lifetimes(void);
 void test_socket_filter(void);
 void test_network_ethernet(void);
+void test_network_tc(void);
 void test_network_endpoint(void);
 void test_network_nft(void);
 void test_network_launch(void);
@@ -479,6 +480,7 @@ int main(int argc,char **argv) {
     test_network_route_lifetimes();
     test_socket_filter();
     test_network_ethernet();
+    test_network_tc();
     test_network_endpoint();
     test_network_nft();
     test_network_launch();

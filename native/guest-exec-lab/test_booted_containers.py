@@ -22,6 +22,9 @@ def main():
     args = parser.parse_args()
     state = json.loads(args.session.read_text())
     assert not state.get('closed')
+    assert state.get('networkProfile') in ('routed', 'host'), (
+        'The external port observer requires Android loopback access; start the '
+        'fixture with --network-profile routed (containers still use private bridges)')
     suite = Suite(args.session.parent)
     observer = Observer()
     tag = uuid.uuid4().hex

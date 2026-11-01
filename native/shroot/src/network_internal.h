@@ -36,6 +36,7 @@ struct md_network_rule {
 };
 enum { MD_NETWORK_MAX_ADDRESSES=16, MD_NETWORK_MAX_ROUTES=256, MD_NETWORK_MAX_RULES=128 };
 struct md_network_interface {
+    struct md_network_tc *tc;
     struct md_network_link info;
     enum md_network_link_kind kind;
     unsigned master, peer, hairpin, isolated;

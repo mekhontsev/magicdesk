@@ -200,7 +200,75 @@ def raw_ipv4():
     print('PASS raw IPv4: virtual veth, IP_HDRINCL, checksum, source, packet info, TTL and broadcast authority', flush=True)
 
 
+def traffic_control():
+    def command(*args, fail=False):
+        result = subprocess.run(args, text=True, capture_output=True)
+        assert bool(result.returncode) == fail, (args, result.stdout, result.stderr)
+        return result.stdout
+
+    def checksum(data):
+        padded = data + b'\0' * (len(data) % 2)
+        total = sum(struct.unpack('!' + 'H' * (len(padded) // 2), padded))
+        while total >> 16:
+            total = (total & 65535) + (total >> 16)
+        return (~total) & 65535
+
+    command('ip', 'link', 'add', 'md-tc-a', 'type', 'veth', 'peer', 'name', 'md-tc-b')
+    try:
+        for name in ('md-tc-a', 'md-tc-b'):
+            command('ip', 'link', 'set', name, 'up')
+        qdisc = ('tc', 'qdisc', 'add', 'dev', 'md-tc-a', 'root', 'handle', '1:', 'htb', 'default', '2')
+        command(*qdisc)
+        command(*qdisc, fail=True)
+        assert 'qdisc htb 1:' in command('tc', 'qdisc', 'show', 'dev', 'md-tc-a', 'handle', '1:')
+        command('tc', 'class', 'add', 'dev', 'md-tc-a', 'parent', '1:', 'classid', '1:2',
+                'htb', 'rate', '1mbit', fail=True)
+        rule = ('dev', 'md-tc-a', 'prio', '2', 'protocol', 'ip', 'parent', '1:',
+                'u32', 'match', 'ip', 'dport', '68', 'ffff', 'action', 'csum', 'ip', 'and', 'udp')
+        command('tc', 'filter', 'add', *rule)
+        dump = command('tc', 'filter', 'show', 'dev', 'md-tc-a', 'parent', '1:')
+        assert 'u32' in dump and 'csum' in dump, dump
+        with socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x800)) as sender, \
+                socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x800)) as receiver:
+            sender.bind(('md-tc-a', 0))
+            receiver.bind(('md-tc-b', 0))
+            receiver.settimeout(5)
+            source = socket.inet_aton('192.0.2.1')
+            destination = socket.inet_aton('192.0.2.2')
+            def exchange(port, repaired):
+                udp = struct.pack('!HHHH', 67, port, 13, 123) + b'hello'
+                ip = struct.pack('!BBHHHBBH4s4s', 0x45, 0, 33, 17, 0, 32, 17, 123, source, destination)
+                frame = b'\xff' * 6 + sender.getsockname()[4] + b'\x08\x00' + ip + udp
+                assert sender.send(frame) == len(frame)
+                result = receiver.recv(4096)
+                if not repaired:
+                    assert result == frame
+                else:
+                    assert len(result) == len(frame) and result[:14] == frame[:14]
+                    assert checksum(result[14:34]) == 0
+                    assert checksum(source + destination + b'\0\x11\0\x0d' + result[34:]) == 0
+                    assert result[42:] == b'hello'
+            exchange(68, True)
+            exchange(69, False)
+            command('tc', 'filter', 'del', *rule)
+            assert not command('tc', 'filter', 'show', 'dev', 'md-tc-a', 'parent', '1:').strip()
+            exchange(68, False)
+        before = json.loads(command('tc', '-j', '-d', 'qdisc', 'show', 'dev', 'md-tc-a'))[0]['options']
+        assert before['ver'] == '3.0' and before['direct_packets_stat'] >= 3, before
+        command('tc', 'qdisc', 'change', 'dev', 'md-tc-a', 'root', 'handle', '1:', 'htb', 'default', '3')
+        after = json.loads(command('tc', '-j', '-d', 'qdisc', 'show', 'dev', 'md-tc-a'))[0]['options']
+        assert after['direct_packets_stat'] >= before['direct_packets_stat'], (before, after)
+        command('tc', 'qdisc', 'del', 'dev', 'md-tc-a', 'root')
+        assert 'htb' not in command('tc', 'qdisc', 'show', 'dev', 'md-tc-a')
+        command(*qdisc)
+    finally:
+        command('ip', 'link', 'del', 'md-tc-a')
+    assert 'md-tc-a' not in command('tc', 'qdisc', 'show')
+    print('PASS tc: HTB direct path, u32/csum packet repair, dumps, deletion and unsupported shaping', flush=True)
+
+
 def guest():
+    traffic_control()
     raw_ipv4()
     def ip(*args):
         subprocess.run(['ip', *args], check=True)
@@ -356,7 +424,10 @@ def main():
         try:
             suite.command(suite.guest(args.store, '--user', '0:0', '--', '/bin/rmdir', target))
         finally:
-            suite.finish()
+            try:
+                suite.command(['rm', '-rf', suite.base], quiet=True)
+            finally:
+                suite.finish()
 
 
 if __name__ == '__main__':

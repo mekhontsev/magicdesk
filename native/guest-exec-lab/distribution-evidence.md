@@ -29,50 +29,51 @@ NixOS recipe/activation and pending graphical acceptance are tracked in the
 
 ## Debian
 
-The 2026-10-31 regression run uses the installed recipe, shell UID 2000 and
-staged Release binaries. System workloads use supervisor
-`81223435cdea1dc5bd639b84543b081ecebffa628953c6df488be43eca99e917`;
-networkd, nspawn command, managed NAT, rootless containers and the graphical
-session use `21959f59e9f421ac0d37cbe1787d9c761e429400d7a1b5b5a0bba49c515f381f`.
+The 2026-11-01 regression run uses the installed recipe, shell UID 2000 and
+native helpers extracted from `2.2.4-dev.218.befc5b1`. Supervisor SHA-256:
+`7aa21b72a6b7f8b79a24ed4e4491a2146d761091f1e34e52922d5ed0ae819d5f`.
+Graphics/MCP services come from the installed APK; this staged-native run does
+not certify installation of the complete prerelease APK.
 Receipts below are `build/installed-debian-turnip/oci-services-ID.json` unless
 another directory is given. These are functional checks, not timing results.
 
 | Workload | Passing receipt ID |
 | --- | --- |
-| Booted Docker / Podman | `13b08625a3d842289bafe46c1f47b889` / `6ab36ccfbcca48d1b738db1f6c304991` |
-| Managed Libvirt/QEMU with NAT / direct TCG | `f1dcd2410d5645eeae65960a43b51756` / `8c59b893a8364a0b84263697eb291b27` |
-| BuildKit build/cache/secret/export/cancel | `58beaa443fed470abe5457e6720002b5` |
-| LXC / ordinary-user LTP selection | `02b252c39a7641c88196516b7ca4ce3a` / `38ea13ce16b7414f917c16ed5cc247ab` |
-| nspawn command, private bridge, three lifecycle cycles | `da63e3230c644bf3b035d5e99f70c916`, repeat `1049b9fd5a7d43768a8862439a4f7478` |
-| machinectl boot/shell/service/restart/forced-stop | `e03bfb61de9e453bbbe57e47d0491a57` |
+| Booted Docker / Podman | `c70ff12e035f4f2eb93d46de99f03130` / `9719aaa98c644320914b7b93eaa08b1a` |
+| Managed Libvirt/QEMU with NAT / direct TCG | `d3316730525b4d42bd935679ff94ee6b` / `a5a7acce4c3c47b299de50236bc9762d` |
+| BuildKit build/cache/secret/export/cancel | `b2059f4d5d7a4bbf96acf9826b4f25e6` |
+| LXC / ordinary-user LTP selection | `a34b28d3c70b41158e138b0ad7c932c9` / `4287b109177d46e18cf1d20924246c0f` |
+| nspawn command, private bridge, three lifecycle cycles | `ba22ec01ae0244f0aa5d3308140a25b9` |
+| machinectl boot/shell/service/restart/forced-stop | `1b48b0c006f84b95a4d9988eb0060b62` |
 
 Boot, binfmt and networkd RA/SLAAC/MTU/TCP/UDP/router-withdrawal pass with lazy
-entry and Base: `850bfa0d7c764ba09144af2fbf6638a1` and
-`5a8d0703262e4e0c88954f1956f954c6`, under
-`build/matrix-supervisor-20261031/debian-turnip/boot-final/` and
-`boot-final-base/`. Rootless Docker passes in
-`app/build/shroot/oci-services-ea97fb6598be41f7aa9a9b752fe72354.json`;
-rootless Podman in `build/podman-results/oci-services-62bfbd32075a4ee1ad179698bcc5c6e6.json`.
+entry and Base: `28aaeec4d17346f3a94876ec06b2e1ad` and
+`2a3ae847a8d24a30a4032591dffe8952`, under
+`build/matrix-20261101/debian-turnip/boot-lazy/` and `boot-base/`.
+Rootless Docker passes in
+`build/issue22-prerelease-218/native/oci-services-3faeaa7d225941238d0d6feeffeba5c6.json`;
+rootless Podman in `build/podman-results/oci-services-49cdee0f17d04d389d44657c47697b29.json`.
 Both retain stock seccomp/cgroups and verify local outbound TCP/UDP, publication,
 conflicts and teardown; public Internet is outside this rerun.
 
-The graphical session is `9fe27d6840254ad1b2459b8353707df3`, on an isolated
+The graphical session is `07d526bb28144eaaa0a948b279de1ac0`, on an isolated
 virtual display. Under `build/installed-debian-turnip/`, the
-`regression-{chromium,firefox}-flatpak` directories and their `-relaunch`
+`matrix-20261101-{chromium,firefox}-flatpak` directories and their `-relaunch`
 counterparts contain `gui-report.json`: real keyboard/pointer, downloaded
 bytes, chooser readback, hardware WebGL and normal exit with fresh/reused
-profiles. `regression-vscode/gui-report.json` covers editor, watch, PTY, GDB,
+profiles. `matrix-20261101-vscode/gui-report.json` covers editor, watch, PTY, GDB,
 reload, GPU composition and retained renderer sandbox. Portal receipts
-`regression-portal-{graceful,auto}.json` cover normal exit, daemon death,
+`matrix-20261101-portal-{graceful,auto}.json` cover normal exit, daemon death,
 FUSE teardown and user-service restart; they do not disprove the intermittent
-packaged portal race documented below. Package job
-`b2a810dfa24146578f4f1772411cff5f.log` covers hello install/reinstall/remove
-and dpkg audit, retaining the image's documented file exclusions.
+packaged portal race documented below. Package jobs
+`5a352f020d5b4cf8b6c85dd70f84f119.log` and `4d2f37ab4d31407f9311cae791ef021c.log`
+cover hello install/reinstall/remove and dpkg audit, retaining the image's
+documented file exclusions.
 
 Production recipe entrypoints pass Mousepad X11, Mousepad Wayland and Weston
 input/save, rendered pixels, host detach/reopen and owned-resource cleanup:
-`build/matrix-supervisor-20261031/debian-turnip/recipe-graphics/oci-services-529ab430920849ac86d3a90c07b84610.json`.
-This uses the final supervisor above; it is not full Plasma/GNOME acceptance.
+`build/matrix-20261101/debian-turnip/recipe-graphics/oci-services-3b06363f0a2646499795aa7d01bead58.json`.
+This uses the supervisor above; it is not full Plasma/GNOME acceptance.
 
 ### Debian default boot/services
 
@@ -119,8 +120,9 @@ This repeat does not assert public Internet reachability.
 
 ### Debian managed Libvirt/QEMU
 
-`build/installed-debian-turnip/oci-services-173afd3232e14a7cae5d8927de1ada8b.json`;
-2026-10-31, staged default-entry native runtime, shell UID 2000.
+`build/installed-debian-turnip/oci-services-67641322a264466dbef62dd3f95b7104.json`;
+2026-11-01, staged default-entry tc-enabled runtime, shell UID 2000.
+Supervisor SHA-256: `8a8d717ed9d16dba1105c2366e4d116aa88252e8592f45ae4b557f9669c968fc`.
 Stock libvirt 11.3.0/QEMU 10.0.13, managed TCG kernel/initrd boot, paused
 start/resume, serial, poweroff and undefine. The managed `nat` network covers
 bridge/TAP creation, dnsmasq DHCP/DNS, IPv4/IPv6 TCP/UDP in both directions,
@@ -480,48 +482,56 @@ not certify the default OS target
 
 ## Alpine
 
-The 2026-10-31 OpenRC and graphical regression run uses staged Release supervisor
-`81223435cdea1dc5bd639b84543b081ecebffa628953c6df488be43eca99e917`.
+The 2026-11-01 OpenRC and graphical regression run uses the native helpers
+extracted from `2.2.4-dev.218.befc5b1`, supervisor SHA-256
+`7aa21b72a6b7f8b79a24ed4e4491a2146d761091f1e34e52922d5ed0ae819d5f`.
+The installed APK still supplies graphics services; this is staged-runtime
+coverage, not certification of the complete prerelease APK.
 System receipts below are `build/installed-alpine-turnip/oci-services-ID.json`:
 
 | Workload | Passing receipt ID |
 | --- | --- |
-| Booted Docker / Podman | `92a6f20eaf624730b14b5a745483b073` / `3f0bb6c0390d40f89ebbe035d2d4d9e0` |
-| Managed Libvirt/QEMU | `b93c5e1e115047fb830825443c0b1dfa` |
-| Direct QEMU TCG | `d2ddcc0bc3f541bea5d8aeea3d074deb` |
-| BuildKit build/cache/secret/export/cancel | `5d4bcb8b4b444578b3be2346af9fc5d8` |
-| LXC lifecycle and bridge | `f546d08a3a744632a8319ac43ec82666` |
-| LTP core as ordinary user | `bf24ef210a224cc2ac610622c37c2523` |
+| Booted Docker / Podman | `4990c8172fd84850b999df5947c46125` / `438629a93c90423fba4fa04981424e93` |
+| Managed Libvirt/QEMU, without VM networking | `d0fac8236c13464ea8229ecb997960d4` |
+| Direct QEMU TCG | `6b7530516bd44da0a423b97679bbfe94` |
+| BuildKit build/cache/secret/export/cancel | `8edda4dae4034791863eec4771fe8990` |
+| LXC lifecycle and bridge | `a98e8a6bdf844514ba61852c52545762` |
+| LTP core as ordinary user | `b832cc560f214dfc8c2ba16107695a06` |
 
 OpenRC PID 1 and service lifecycle pass in lazy and Base modes, under
-`build/matrix-supervisor-20261031/alpine-turnip/boot-{lazy,base}/`:
-`73972e0a20ba4f9bb07d418d7854c19a` and `ab4e39ee4d0e4673a55fe1d4ca5e41d8`.
-Rootless repeats use supervisor
-`21959f59e9f421ac0d37cbe1787d9c761e429400d7a1b5b5a0bba49c515f381f`:
-Docker `app/build/shroot/oci-services-260c1adec5cc497ea87d6e611ba3485b.json`,
-Podman `build/podman-results/oci-services-2ae736cedc1c49c8a57f794173af2275.json`.
+`build/matrix-20261101/alpine-turnip/boot-{lazy,base}/`:
+`46c20dbf25694cf48653b470ce466313` and `22dc20564449406abf960845def1a3a5`.
+Rootless repeats use the same supervisor:
+Docker `build/issue22-prerelease-218/native/oci-services-4a83d8be69984a2db297784261936838.json`,
+Podman `build/podman-results/oci-services-4ecfa161873b490e9ea83e9c84374542.json`.
 Both verify local outbound, published TCP/UDP, conflicts and cleanup with the
 stock sandbox. These functional runs do not measure performance or public uplink.
 
-The virtual-display session `0d48c61f56c24fbea13432b8785b73ce` has reports in
-`build/installed-alpine-turnip/`: `regression-{chromium,firefox}-{native,flatpak}/gui-report.json`
-cover input, download, chooser readback, hardware WebGL and normal exit;
-`regression-firefox-flatpak-relaunch/gui-report.json` covers profile reuse.
-Chromium's retained-profile repeat, including normal exit, passes in
-`regression-chromium-flatpak-relaunch-final/gui-report.json`, using the final
-supervisor above in session `2d8845461406469c8d4c04b23cd0db73`.
-`regression-vscode-stock{,-repeat}/gui-report.json` pass editor/watch/PTY/GDB,
+The virtual-display session `99d42873c5fa49bca00dde7e6190f02f` has reports in
+`build/installed-alpine-turnip/`: `matrix-20261101-{chromium,firefox}-native/gui-report.json`,
+`matrix-20261101-chromium-flatpak-fresh/gui-report.json`,
+`matrix-20261101-firefox-flatpak/gui-report.json`, and
+`matrix-20261101-{chromium,firefox}-flatpak-relaunch/gui-report.json` cover
+input, download, chooser readback, WebGL pixels and normal exit. Chromium
+reports Zink/Turnip; Firefox masks its renderer identity.
+`matrix-20261101-vscode-stock/gui-report.json` passes editor/watch/PTY/GDB,
 reload, sandbox and GPU checks with the unchanged packaged portal (SHA-256
 `fc88777dfdeda9b07a75f32dac2c5b4f0988db61cb4a7ed6c21cf312b348ff72`).
-These two passes do not establish absence of its intermittent upstream FD
-collision. Portal `regression-portal-{graceful,auto}.json` passes two graceful
+This pass does not establish absence of its intermittent upstream FD
+collision. Portal `matrix-20261101-portal-{graceful,auto}.json` passes two graceful
 exits and auto-unmount after daemon death; its known shutdown race remains U.
-Package job `58c62edf1c7b4ea18dc3ffdac7124cf7.log` verifies tree
-install/reinstall, identical executable hash, directory audit and removal.
+Package jobs `d4f508d5f1a74b12996e0bd98a94b877.log`,
+`18b90b82288a49b8841f3f1ff5388633.log` and `4db76f6a0a3a40fcb519b421e75f6437.log`
+verify tree install/reinstall, identical executable hash, directory audit,
+package removal and restoration of the BusyBox applet.
 
 Production recipe Mousepad X11/Wayland and Weston entrypoints pass real input,
 save, rendered pixels, host detach/reopen and cleanup:
-`build/matrix-supervisor-20261031/alpine-turnip/recipe-graphics-rerun/oci-services-f8af7d805c8147e5be1c00777cccee25.json`.
+`build/matrix-20261101/alpine-turnip/recipe-graphics/oci-services-fdca45b48d6d49ffa65fa4355cb43280.json`.
+
+Managed NAT networking also passes with the tc-enabled runtime documented in
+[Alpine Libvirt/QEMU](#alpine-libvirtqemu); it is separate from the prerelease
+baseline above.
 
 ### Alpine recipe setup
 
@@ -575,11 +585,15 @@ blocked with EBUSY; this pass starts Podman before browser traffic
 
 ### Alpine Libvirt/QEMU
 
-`build/installed-alpine-turnip/oci-services-2011ee31bfb04e239f9570260ccf9b2e.json`;
-packaged modular libvirt with virtlogd/virtqemud, managed TCG kernel/initrd boot, paused
-start/resume, serial, poweroff, undefine and cleanup. Direct QEMU:
-`build/installed-alpine-turnip/oci-services-97bdfdf32d05417ba4f9737bd6a49780.json`. VM
-networking and KVM untested
+`build/installed-alpine-turnip/oci-services-bb988a36165643d598bb7f01ce009f4f.json`;
+2026-11-01, tc-enabled runtime, default lazy entry, shell UID 2000. Supervisor:
+`8a8d717ed9d16dba1105c2366e4d116aa88252e8592f45ae4b557f9669c968fc`.
+Packaged libvirt 11.10.0/QEMU 10.1.5, modular virtlogd/virtqemud/virtnetworkd,
+managed TCG boot, paused start/resume, serial, poweroff and undefine. The NAT
+network uses the stock HTB/u32/csum setup, bridge/TAP, dnsmasq DHCP/DNS and an
+off-subnet peer. IPv4/IPv6 TCP/UDP, 1 MiB payloads, fragmentation, half-close,
+translated IPv4 source/port range and exact network teardown pass. IPv6 is routed.
+Direct QEMU is covered by the separate baseline receipt above. KVM is untested.
 
 ### Alpine LXC
 
@@ -2094,34 +2108,60 @@ loader alias or sandbox exception is part of this fixture.
 
 ## Shared Evidence
 
-### Packet Runtime Performance
+### Traffic-Control Regression
 
-2026-10-31, staged runtime against `d967dd36`, both built with the same compiler
-and optimization settings. Guest binary/userspace are identical, CPU placement
-is unrestricted, and timed launches have no syscall timing instrumentation.
-Five interleaved pairs cover 16 x 1024 file operations, one million poll/epoll
-calls and an idle wait. Ratios below are current/reference elapsed medians;
-tail means the last half of each file series.
+2026-11-01, staged supervisor
+`8a8d717ed9d16dba1105c2366e4d116aa88252e8592f45ae4b557f9669c968fc`,
+NX809J/kernel 6.12.23, shell UID 2000. The full native resource suite passes:
+`build/matrix-20261101/native-check/oci-services-e821d8f1723745cf9c8eb65c7cdd31a9.json`.
+Stock tc and packet sockets pass in Base and lazy SVC on both installed recipes:
+Alpine `build/shroot-image-tests/oci-services-7fddd4ab14d748f99c2f1ccc311b0c6f.json`,
+Debian `build/shroot-image-tests/oci-services-498d8bd02afa4ee9be59951549174195.json`.
+Coverage includes actual checksum repair, nonmatching packets, qdisc/filter
+dump and deletion, namespace/link cleanup and explicit shaping rejection.
+The per-OS managed Libvirt receipts above cover the complete VM network path;
+these results do not claim HTB bandwidth scheduling or kernel 5.15 device coverage.
+
+Booted Docker/Podman repeats pass on the same tc-enabled supervisor, with
+stock services, container sandboxes and private container bridges. The outer
+fixture uses `routed` so its observer can reach Android loopback. TCP/UDP
+publication, peer exchange, local outbound, occupied-port rejection and cleanup
+are checked; this repeat does not assert public Internet reachability.
+
+| Recipe | Docker receipt | Podman receipt |
+| --- | --- | --- |
+| Alpine | `build/installed-alpine-turnip/oci-services-9f67f5c964594fbca912770053cbcb0e.json` | `build/installed-alpine-turnip/oci-services-7a5beb60c1134bafa3d4adfeb57a396f.json` |
+| Debian | `build/installed-debian-turnip/oci-services-d7e1cdb9db4f4f239177734a9cf0bafc.json` | `build/installed-debian-turnip/oci-services-584bd5a0782449b2a53edd8496515f3a.json` |
+
+### Runtime Performance
+
+The tc-enabled runtime above is compared with `befc5b1f`, both built locally
+using Clang 21.1.8, Android API 34 and RelWithDebInfo/-O2. Reference supervisor:
+`f8755faee439e6851f063408f68928be9fa6351e6583077941953f69c1e3d4d8`.
+The Alpine guest binary/userspace are identical, CPU placement is unrestricted,
+and timed launches have no syscall timing instrumentation. Five interleaved
+pairs cover 16 x 1024 file operations; seven pairs cover one million poll/epoll
+calls. Ratios below are current/reference elapsed medians; tail means the last
+half of each file series.
 
 | Lazy Entry | Complete Loop | Tail Block |
 | --- | ---: | ---: |
-| stat | 1.343x | 0.995x |
-| open/close | 1.037x | 0.984x |
-| create/rename/unlink | 0.956x | 0.994x |
-| poll | 1.010x | n/a |
-| epoll | 1.001x | n/a |
-| idle | 1.000x | n/a |
+| stat | 1.036x | 1.055x |
+| open/close | 0.970x | 0.961x |
+| create/rename/unlink | 0.968x | 0.996x |
+| poll | 0.996x | n/a |
+| epoll | 1.022x | n/a |
 
-Receipt: `build/packet-apps/performance/oci-services-1b4292e9f0d749ea8fe2cf87f8f83392.json`.
-Seven interleaved stat-only pairs of 64 x 1024 operations measure
-187.774/173.150 ms overall (1.084x), with tail blocks 2.662/2.686 ms (0.991x):
-`build/packet-apps/performance/oci-services-2585fbb3dc844237a154c5ec58898441.json`.
-Initial blocks vary with CPU-frequency ramp-up in both builds. The warmed loop
-is close, but these samples do not establish unchanged cold-start cost.
-Seven Base open/close pairs measure 1.028x overall and 0.990x tail:
-`build/packet-apps/performance/oci-services-fffa21592e5b4734b7100978a19b4c66.json`.
+Receipts:
+`build/matrix-20261101/tc-performance-matched/oci-services-ef9ec204299f411396169d8f293fd1cf.json`
+and `build/matrix-20261101/tc-readiness-long/oci-services-58b0135d0df143628b925d2a1c4c7930.json`.
+They retain per-sample CPU frequencies and caller CPU endpoints. These small,
+frequency-varying samples qualify this build only; they do not prove identical
+cold-start cost or a throughput improvement. The shorter 100,000-call readiness
+samples remain in the first artifact but are not used for the table.
 
-Three rotating rounds per build cover TCP/UDP native, host, routed, filtered and
+Separate 2026-10-31 packet-runtime evidence against `d967dd36` uses three
+rotating rounds per build for TCP/UDP native, host, routed, filtered and
 NAT profiles. Receipts under `build/network-benchmark/oci-services-ID.json` are
 reference `c0f93a4804354971b0554e006fc9fdea` and current
 `d5dab890f5064c6dbd465676d56b7820`. All pass, with current/reference elapsed

@@ -694,6 +694,15 @@ NOFILE and signal delivery; limits come from the existing process owner.
 
 ### Network Configuration
 
+`network_tc` implements the pre-5.15 RTM_*QDISC/TFILTER ABI for interface-owned
+HTB direct queues and fixed-offset IPv4 u32/csum actions. It uses the existing
+managed Ethernet fabric, not host qdiscs, raw sockets or newer kernel APIs.
+Bandwidth classes and unsupported classifiers/actions fail with EOPNOTSUPP;
+native endpoint IO is unchanged. `test_network_tc.c` covers ownership,
+publication rollback, namespaces and packet repair; `test_network_ethernet.py`
+checks stock tc in Base/lazy modes and `test_booted_libvirt.py --network` checks
+DHCP/DNS and VM packet traffic through the installed network backend.
+
 Offline network namespaces, private devpts views and permissive cgroups require
 no post-5.15 interface or host namespace/cgroup privilege. Their owners use the
 existing resource transactions, socketpair/SCM_RIGHTS, native PTY ioctls and
