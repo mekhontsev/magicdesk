@@ -2225,6 +2225,40 @@ static int notification_same_call(struct thread *t,const struct seccomp_data *a,
     struct seccomp_data left=notification_identity(t,a),right=notification_identity(t,b);
     return md_notification_same_call(&left,&right);
 }
+static void describe_notification_call(struct thread *t,const char *owner,uint64_t id,
+        const struct seccomp_data *call) {
+    struct seccomp_data identity=notification_identity(t,call);
+    int valid=ioctl(listener,SECCOMP_IOCTL_NOTIF_ID_VALID,&id);
+    int validation_error=valid<0 ? errno : 0;
+    fprintf(stderr,"guest-runtime: notification %s id=%llu valid=%d validationErrno=%d nr=%d arch=%#x pc=%#llx origin=%#llx"
+        " args=[%#llx,%#llx,%#llx,%#llx,%#llx,%#llx]\n",owner,(unsigned long long)id,
+        valid==0,validation_error,call->nr,call->arch,(unsigned long long)call->instruction_pointer,
+        (unsigned long long)identity.instruction_pointer,(unsigned long long)call->args[0],
+        (unsigned long long)call->args[1],(unsigned long long)call->args[2],
+        (unsigned long long)call->args[3],(unsigned long long)call->args[4],(unsigned long long)call->args[5]);
+}
+static _Noreturn void notification_conflict(struct thread *t,const char *reason,
+        const struct seccomp_notif *request,const struct md_broker_completion *incoming,int line) {
+    int error=errno;
+    /* Cold, bounded evidence only. Never read guest memory or wait for the
+     * worker lock while reporting a broken result-custody invariant. */
+    fprintf(stderr,"guest-runtime: notification conflict reason=%s pid=%d tgid=%d phase=%d"
+        " stopped=%d interrupt=%d event=%#x held=%d restart=%d errno=%d\n",reason,t->pid,t->tgid,
+        t->phase,t->kernel_stopped,t->interrupt_pending,t->broker_event.status,t->broker_event.held,
+        t->metadata_restart ? (int)t->metadata_restart->stage : -1,error);
+    if (request) describe_notification_call(t,"incoming",request->id,&request->data);
+    if (t->phase==DELEGATE_CANCEL || t->phase==EXPORT_CANCEL || t->phase==PROC_CANCEL)
+        describe_notification_call(t,"admission",t->metadata.request.id,&t->metadata.request.data);
+    const struct md_broker_completion *results[]={t->broker_completion,incoming};
+    for (unsigned i=0;i<2;++i) if (results[i]) {
+        const struct md_broker_completion *r=results[i];
+        describe_notification_call(t,i ? "completion-incoming" : "completion",r->notification_id,&r->call);
+        fprintf(stderr,"guest-runtime: notification result operation=%u flags=%#x live=%d error=%d fd=%d kind=%u\n",
+            r->operation,r->flags,r->notification_live,r->result.error,r->opened.fd,r->opened.completion.kind);
+    }
+    md_broker_describe_task(broker,t->pid,STDERR_FILENO);
+    errno=error; fail(reason,line);
+}
 static long cooperative_bind(struct thread *t) {
     if (!buffer_service || !broker || !t->entered || t->phase!=IDLE
             || t->application_filter || t->cooperative_blocked) return -EOPNOTSUPP;
@@ -2290,7 +2324,11 @@ static void handle_notification(const struct seccomp_notif *request) {
         struct seccomp_notif previous=t->metadata.request,next=q;
         previous.data=notification_identity(t,&previous.data);
         next.data=notification_identity(t,&next.data);
-        CHECK(!md_notification_rebind(listener,&previous,&next));
+        int error=md_notification_rebind(listener,&previous,&next);
+        if (error) {
+            errno=-error;
+            notification_conflict(t,"notification-rebind",&q,NULL,__LINE__);
+        }
         t->metadata.request=q;
         if (statistics) ++statistics->notification_rebounds;
         TRACE("PROBE notification rebound pid=%d phase=%d nr=%d\n",t->pid,t->phase,q.data.nr);
@@ -2298,7 +2336,8 @@ static void handle_notification(const struct seccomp_notif *request) {
     }
     if (t->broker_completion) {
         const struct seccomp_data *call=&t->broker_completion->call;
-        CHECK(t->phase==IDLE && notification_same_call(t,&q.data,call));
+        if (t->phase!=IDLE || !notification_same_call(t,&q.data,call))
+            notification_conflict(t,"completed-notification-reentry",&q,NULL,__LINE__);
         /* Notification waits can restart without a delivery stop in this
          * thread (another peer may consume a process-directed signal). The
          * retained result, not this replay, still owns the completed open. */
@@ -2494,7 +2533,8 @@ static void delegated_notification(const struct seccomp_notif *request) {
 }
 static void completed_notification(pid_t pid,struct md_broker_completion *result) {
     struct thread *t=find_thread(pid);
-    CHECK(t && !t->broker_completion);
+    CHECK(t);
+    if (t->broker_completion) notification_conflict(t,"duplicate-completion",NULL,result,__LINE__);
     t->broker_completion=malloc(sizeof(*result)); CHECK(t->broker_completion);
     *t->broker_completion=*result;
     t->broker_completion->call=notification_identity(t,&result->call);
@@ -2676,7 +2716,8 @@ static int completed_notification_event(struct thread *t,int status,const struct
              * original worker publishes its retained result. Its pending stop
              * has executed nothing; retire only that exact duplicate request
              * and use this stop for the completed operation, never replay it. */
-            CHECK(notification_same_call(t,&t->metadata.request.data,&result->call));
+            if (!notification_same_call(t,&t->metadata.request.data,&result->call))
+                notification_conflict(t,"completed-notification-stop",&t->metadata.request,NULL,__LINE__);
             notification_interrupted(t);
             if (statistics) ++statistics->notification_readmissions_retired;
         }
@@ -2692,7 +2733,8 @@ static int completed_notification_event(struct thread *t,int status,const struct
         regs.pc=result->call.instruction_pointer; regs.regs[8]=result->call.nr;
         for (unsigned i=0;i<6;++i) regs.regs[i]=result->call.args[i];
         if (result->opened.fd>=0) {
-            CHECK(t->phase==IDLE && !t->buffer.pool && !t->broker_event.held);
+            if (t->phase!=IDLE || t->buffer.pool || t->broker_event.held)
+                notification_conflict(t,"completed-notification-adoption",NULL,NULL,__LINE__);
             t->original=regs; t->kernel_stopped=1; t->interrupt_pending=0;
             t->broker_event.held=1; t->broker_event.status=status;
             t->broker_event.usage=usage ? *usage : (struct rusage){0};

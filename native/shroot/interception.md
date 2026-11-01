@@ -589,6 +589,11 @@ still owns its completed open. At the shared stop, the retained result takes
 precedence over that exact, unexecuted admission; only the duplicate admission is
 retired. `MD_NOTIFICATION readmissionsRetired` counts this ordering. The completed
 FD and its effects are neither discarded nor repeated.
+An identity or custody conflict fails closed with a bounded stderr snapshot:
+task phase, notification IDs, raw/normalized call sites, numeric arguments and
+retained result ownership. It does not read pointed-to guest data, enable syscall
+tracing or wait for the worker lock. These diagnostics are available without
+`--diagnostics`; ordinary successful calls do not emit them.
 Directory reads use the engine's deferred-position contract. Their existing
 file-table/OFD turn spans output copying, notification reply and cursor commit.
 An invalid notification, rejected kernel reply or failed/partial copy cannot

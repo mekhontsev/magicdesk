@@ -19,6 +19,14 @@ Focused native and guest checks for the [process-resource model](process-resourc
 
 ## Verification
 
+`test_resources.py BUILD --case supervisor-state` exercises the production
+coordinator directly. Real seccomp notifications and ptrace cancellation force
+completion before cancellation, before/after reentry, after stop retirement and
+after token rebinding. Both retained FDs and errors must transfer once; changed
+call identities and duplicate completions must fail with bounded diagnostics.
+These are deterministic event-order checks, not a substitute for target-kernel
+stress coverage.
+
 `test_namespace_apps.py BUILD STORE` runs stock Bubblewrap in a disposable
 Debian userspace under actual UID 2000. Cases cover a basic command, a read-only
 root with writable tmpfs, mapped UID/GID and hostname, and nested user/mount/UTS/

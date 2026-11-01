@@ -495,7 +495,8 @@ def main():
         if args.case in ("all", "supervisor-state", "private-memory"):
             check("supervisor state ownership", root + "/libmagicdesk_guest_supervisor_state.so",
                   "PASS supervisor completed open:", patterns=(r"PASS supervisor admission:",
-                  r"PASS supervisor repair deferral:", r"PASS supervisor accounting:"))
+                  r"PASS supervisor repair deferral:", r"PASS supervisor accounting:",
+                  r"PASS notification completion: six kernel cancellation/reentry orders"))
             if args.case == "supervisor-state":
                 return
         if args.case in ("all", "stores"):

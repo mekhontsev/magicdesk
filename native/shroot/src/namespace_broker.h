@@ -17,6 +17,7 @@ static inline int md_broker_metadata_call(int nr) {
 #undef MD_BROKER_CASE
 struct md_broker_completion {
     struct seccomp_data call;
+    uint64_t notification_id;
     unsigned operation, flags;
     int notification_live;
     struct md_fs_result result;
