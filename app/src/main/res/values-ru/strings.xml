@@ -967,6 +967,7 @@
     <string name="diagnostics_refresh">Обновить</string>
     <string name="diagnostics_copy">Копировать отчёт</string>
     <string name="diagnostics_share">Отправить отчёт</string>
+    <string name="diagnostics_share_failed">Не удалось отправить отчёт: %1$s</string>
     <string name="diagnostics_copied">Отчёт диагностики скопирован</string>
     <string name="diagnostics_copy_failed">Буфер обмена недоступен</string>
     <string name="diagnostics_self_test">Запустить самотест рабочего стола</string>

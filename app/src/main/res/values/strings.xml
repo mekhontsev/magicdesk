@@ -946,6 +946,7 @@
     <string name="diagnostics_refresh">Refresh</string>
     <string name="diagnostics_copy">Copy report</string>
     <string name="diagnostics_share">Share report</string>
+    <string name="diagnostics_share_failed">Could not share report: %1$s</string>
     <string name="diagnostics_copied">Diagnostics report copied</string>
     <string name="diagnostics_copy_failed">Clipboard unavailable</string>
     <string name="diagnostics_self_test">Run desktop self-test</string>

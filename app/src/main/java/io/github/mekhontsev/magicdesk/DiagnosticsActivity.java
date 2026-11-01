@@ -9,6 +9,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.Rect;
+import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.KeyEvent;
@@ -27,6 +28,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.IOException;
 import java.util.List;
 
 public final class DiagnosticsActivity extends Activity {
@@ -61,8 +63,9 @@ public final class DiagnosticsActivity extends Activity {
     private Button mSelfTest;
     private Button mOnboarding;
     private Button mVendorProbe;
-    private String mReport = "";
+    private DiagnosticsReport mReport;
     private boolean mLoading;
+    private boolean mSharing;
 
     static Intent createIntent(final Context context) {
         return new Intent(context, DiagnosticsActivity.class);
@@ -424,7 +427,7 @@ public final class DiagnosticsActivity extends Activity {
                 R.string.diagnostics_report_failed, report.failure);
         mReportView.setTextSize(11);
         mReportView.setTextIsSelectable(true);
-        mReportView.setText(report.successful() ? mReport : failure);
+        mReportView.setText(report.successful() ? mReport.text : failure);
         mStatus.setText(failure.isEmpty() ? status
                 : status.isEmpty() ? failure : status + "\n" + failure);
     }
@@ -519,12 +522,12 @@ public final class DiagnosticsActivity extends Activity {
     }
 
     private void copyReport() {
-        if (mReport.isEmpty()) {
+        if (mReport == null || mReport.text.isEmpty()) {
             return;
         }
         final AndroidClipboardGateway.OperationResult copied =
                 AndroidClipboardGateway.get(this).writeText(
-                        "MagicDesk compatibility report", mReport, false);
+                        "MagicDesk compatibility report", mReport.text, false);
         if (!copied.successful) {
             Toast.makeText(this, R.string.diagnostics_copy_failed,
                     Toast.LENGTH_LONG).show();
@@ -534,17 +537,61 @@ public final class DiagnosticsActivity extends Activity {
     }
 
     private void shareReport() {
-        if (mReport.isEmpty()) {
+        if (mReport == null || mReport.text.isEmpty() || mSharing || mLoading
+                || DesktopSelfTestRunState.isActive()) {
             return;
         }
+        final DiagnosticsReport report = mReport;
+        final Context context = getApplicationContext();
+        mSharing = true;
+        setButtonEnabled(mShare, false);
+        new Thread(() -> {
+            final Uri uri;
+            try {
+                uri = GeneratedContentProvider.publish(context, report.fileName, report::writeZip);
+            } catch (IOException | RuntimeException error) {
+                runOnUiThread(() -> finishReportShare(null, error));
+                return;
+            }
+            runOnUiThread(() -> finishReportShare(uri, null));
+        }, "MagicDeskReportExport").start();
+    }
+
+    private void finishReportShare(final Uri uri, final Throwable error) {
+        mSharing = false;
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        renderRunState();
+        if (error != null) {
+            reportShareFailure(error);
+            return;
+        }
+        if (DesktopSelfTestRunState.isActive()) {
+            return;
+        }
+        try {
+            shareReportArchive(uri);
+        } catch (RuntimeException failure) {
+            reportShareFailure(failure);
+        }
+    }
+
+    private void reportShareFailure(final Throwable error) {
+        Log.w("MagicDeskDiagnostics", "Could not share compatibility report", error);
+        Toast.makeText(this, getString(R.string.diagnostics_share_failed,
+                ShellAccess.usefulMessage(error)), Toast.LENGTH_LONG).show();
+    }
+
+    private void shareReportArchive(final Uri uri) {
         final AndroidContentPayload content = AndroidContentPayload.create(
                 AndroidContentPayload.Origin.APPLICATION,
                 "MagicDesk compatibility report",
                 "MagicDesk compatibility report",
-                mReport,
                 "",
-                List.of(),
-                List.of("text/plain"),
+                "",
+                List.of(new AndroidContentPayload.UriItem(uri, DiagnosticsReport.MIME_TYPE)),
+                List.of(DiagnosticsReport.MIME_TYPE),
                 false);
         final int displayId = getDisplay() == null
                 ? Display.DEFAULT_DISPLAY : getDisplay().getDisplayId();
@@ -614,8 +661,8 @@ public final class DiagnosticsActivity extends Activity {
 
     private void setActionsEnabled(final boolean enabled) {
         setButtonEnabled(mRefresh, enabled);
-        setButtonEnabled(mCopy, enabled && !mReport.isEmpty());
-        setButtonEnabled(mShare, enabled && !mReport.isEmpty());
+        setButtonEnabled(mCopy, enabled && mReport != null && !mReport.text.isEmpty());
+        setButtonEnabled(mShare, enabled && mReport != null && !mReport.text.isEmpty() && !mSharing);
         setButtonEnabled(mSelfTest, enabled && ShellAccess.isReady());
         setButtonEnabled(mOnboarding, enabled);
         setButtonEnabled(mVendorProbe, enabled && ShellAccess.isReady());

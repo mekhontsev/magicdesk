@@ -957,6 +957,7 @@
     <string name="diagnostics_refresh">Actualizar</string>
     <string name="diagnostics_copy">Copiar informe</string>
     <string name="diagnostics_share">Compartir informe</string>
+    <string name="diagnostics_share_failed">No se pudo compartir el informe: %1$s</string>
     <string name="diagnostics_copied">Informe de diagnóstico copiado</string>
     <string name="diagnostics_copy_failed">Portapapeles no disponible</string>
     <string name="diagnostics_self_test">Ejecutar autoprueba del escritorio</string>

@@ -11,15 +11,17 @@ import org.junit.Test;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 
 public final class DiagnosticsActivityTest {
     @Test
     public void successfulCollectionPreservesReport() {
+        final DiagnosticsReport report = report("current report");
         final DiagnosticsReportResult result =
-                DiagnosticsReportResult.collect(() -> "current report");
+                DiagnosticsReportResult.collect(() -> report);
 
         assertTrue(result.successful());
-        assertEquals("current report", result.report);
+        assertSame(report, result.report);
         assertEquals("", result.failure);
         assertNull(result.cause);
     }
@@ -33,7 +35,7 @@ public final class DiagnosticsActivityTest {
                 });
 
         assertFalse(result.successful());
-        assertEquals("", result.report);
+        assertNull(result.report);
         assertEquals("observation unavailable", result.failure);
         assertSame(error, result.cause);
     }
@@ -53,7 +55,7 @@ public final class DiagnosticsActivityTest {
     @Test
     public void nullReportIsAFailureAndLaterCollectionCanRecover() {
         assertFalse(DiagnosticsReportResult.collect(() -> null).successful());
-        assertTrue(DiagnosticsReportResult.collect(() -> "new report").successful());
+        assertTrue(DiagnosticsReportResult.collect(() -> report("new report")).successful());
     }
 
     @Test
@@ -131,10 +133,60 @@ public final class DiagnosticsActivityTest {
         assertTrue(presentation.contains("mReport = report.report;"));
         assertTrue(presentation.contains("R.string.diagnostics_report_failed"));
         assertTrue(presentation.contains(
-                "mReportView.setText(report.successful() ? mReport : failure);"));
-        assertTrue(source.contains("setButtonEnabled(mCopy, enabled && !mReport.isEmpty());"));
-        assertTrue(source.contains("setButtonEnabled(mShare, enabled && !mReport.isEmpty());"));
+                "mReportView.setText(report.successful() ? mReport.text : failure);"));
+        assertTrue(source.contains("setButtonEnabled(mCopy, enabled && mReport != null && !mReport.text.isEmpty());"));
+        assertTrue(source.contains("setButtonEnabled(mShare, enabled && mReport != null && !mReport.text.isEmpty() && !mSharing);"));
         assertFalse(source.contains("private int getDisplayId()"));
+    }
+
+    @Test
+    public void sharingExportsTheCapturedReportOffTheUiThread() throws IOException {
+        final String share = between(source(), "private void shareReport()",
+                "private void finishReportShare(");
+        assertTrue(share.contains("final DiagnosticsReport report = mReport;"));
+        assertTrue(share.contains("mSharing = true;"));
+        assertTrue(share.indexOf("new Thread(() ->") < share.indexOf("GeneratedContentProvider.publish("));
+        assertTrue(share.contains("report.fileName, report::writeZip"));
+        assertTrue(share.contains("runOnUiThread(() -> finishReportShare(null, error))"));
+        assertTrue(share.contains("runOnUiThread(() -> finishReportShare(uri, null))"));
+        assertFalse(share.contains("collectReport("));
+        final String completion = between(source(), "private void finishReportShare(",
+                "private void reportShareFailure(");
+        assertTrue(completion.contains("mSharing = false;"));
+        assertTrue(completion.indexOf("isFinishing() || isDestroyed()")
+                < completion.indexOf("shareReportArchive(uri)"));
+        assertTrue(completion.contains("DesktopSelfTestRunState.isActive()"));
+    }
+
+    @Test
+    public void archiveUsesSharedContentRoutingWhileCopyKeepsText() throws IOException {
+        final String share = between(source(), "private void shareReportArchive(",
+                "private void confirmVendorProbe()");
+        assertTrue(share.contains("new AndroidContentPayload.UriItem(uri, DiagnosticsReport.MIME_TYPE)"));
+        assertTrue(share.contains("AndroidDesktopActionDispatcher.shareContent("));
+        assertTrue(share.contains("AndroidContentIntentAdapter.share(content)"));
+        assertFalse(share.contains("mReport.text"));
+        assertFalse(share.contains("text/plain"));
+        assertTrue(between(source(), "private void copyReport()", "private void shareReport()")
+                .contains("\"MagicDesk compatibility report\", mReport.text, false"));
+    }
+
+    @Test
+    public void reportHeaderAndArchiveUseOneGenerationTimestamp() throws IOException {
+        final String collector = Files.readString(Path.of(
+                "src/main/java/io/github/mekhontsev/magicdesk/CompatibilityDiagnostics.java"));
+        final String build = between(collector, "static DiagnosticsReport buildReport(",
+                "static void clearEvents(");
+        assertTrue(build.contains(".append(\"Generated UTC: \").append(generatedAt)"));
+        assertTrue(build.contains("BuildConfig.VERSION_NAME, generatedAt)"));
+        assertEquals(1, occurrences(build, "System.currentTimeMillis()"));
+        assertTrue(Files.readString(Path.of(
+                "src/main/java/io/github/mekhontsev/magicdesk/DesktopAutomationStateReader.java"))
+                .contains("CompatibilityDiagnostics.buildReport(mContext).text"));
+    }
+
+    private static DiagnosticsReport report(final String text) {
+        return new DiagnosticsReport(text, "Brand", "Model", "1.0", Instant.EPOCH);
     }
 
     @Test
