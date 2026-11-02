@@ -542,7 +542,7 @@ static int readiness_native_event(struct thread *,int);
 static void readiness_deliver(struct thread *);
 static void readiness_task_progress(struct thread *,int,long);
 static void readiness_loan_closed(pid_t,long);
-static int readiness_evict(struct thread *,struct md_fd_loan *);
+static int fd_loan_evict(struct thread *,struct md_fd_loan *,int);
 static int fd_loans_ready(struct thread *);
 static void loan_start(struct task_action *);
 static void task_action_schedule(void);
@@ -4176,7 +4176,7 @@ static void loan_start(struct task_action *owner) {
 }
 static void loan_retire(struct task_action *owner,struct thread *requester,
         struct md_fd_order *turn,void (*complete)(struct thread *,long)) {
-    md_fd_loan_end(owner->loan);
+    if (md_fd_loan_active_in(owner->loan,owner->loan_table)) md_fd_loan_end(owner->loan);
     owner->requester=requester; owner->loan_turn=turn; owner->complete=complete;
     owner->next=loan_retirements; loan_retirements=owner; ++task_action_calls;
     if (requester) { CHECK(!requester->action); requester->action=owner; }
@@ -4564,7 +4564,29 @@ static void fd_loan_closed(struct thread *t,long result) {
     if (result) { fd_discard(t); return_value(t,&t->fd_registers,result); }
     else fd_start(t);
 }
-static int readiness_evict(struct thread *mutator,struct md_fd_loan *loan) {
+static int fd_loan_evict(struct thread *mutator,struct md_fd_loan *loan,int number) {
+    /* An already finished wait queued its own retirement. Yield this not-yet
+     * executed mutation behind that close instead of holding up its owner.
+     * A fork copy belongs to a different kernel table and closes independently. */
+    for (struct task_action *s=loan_retirements;s;s=s->next)
+        if (s->loan==loan && s->loan_table==mutator->resources.files && s->number==number) {
+            CHECK(!md_fd_order_complete(&mutator->fd_order));
+            CHECK(md_fd_order_begin(mutator->resources.files,&mutator->fd_order,fd_wakeup)>=0);
+            retry_wait(mutator,RETRY_FD); return 0;
+        }
+    if (!md_fd_loan_active_in(loan,mutator->resources.files)) {
+        struct task_action *retirement=calloc(1,sizeof(*retirement));
+        if (!retirement) {
+            fd_discard(mutator); return_value(mutator,&mutator->fd_registers,-ENOMEM); return 0;
+        }
+        int selected=-1;
+        CHECK(md_fd_origins_loan_range(&mutator->fd_order,number,number,&selected,&retirement->loan)==1);
+        CHECK(selected==number && retirement->loan==loan);
+        retirement->number=number;
+        retirement->loan_table=md_fd_origins_pin(mutator->resources.files);
+        loan_retire(retirement,mutator,&mutator->fd_order,fd_loan_closed);
+        return 0;
+    }
     for (struct thread *p=threads;p;p=p->next) {
         struct readiness_owner *o=p->readiness;
         if (!p->pid || !o || !o->retirement || o->retirement->loan!=loan) continue;
@@ -4584,13 +4606,6 @@ static int readiness_evict(struct thread *mutator,struct md_fd_loan *loan) {
         loan_retire(retirement,mutator,&mutator->fd_order,fd_loan_closed);
         return 0;
     }
-    /* An already finished wait queued its own retirement. Yield this not-yet
-     * executed mutation behind that close instead of holding up its owner. */
-    for (struct task_action *s=loan_retirements;s;s=s->next) if (s->loan==loan) {
-        CHECK(!md_fd_order_complete(&mutator->fd_order));
-        CHECK(md_fd_order_begin(mutator->resources.files,&mutator->fd_order,fd_wakeup)>=0);
-        retry_wait(mutator,RETRY_FD); return 0;
-    }
     CHECK(0); return 0;
 }
 static int fd_loans_ready(struct thread *t) {
@@ -4607,7 +4622,7 @@ static int fd_loans_ready(struct thread *t) {
         : md_fd_mutation_loan(&t->fd_order,nr,a,&number,&loan);
     if (result<0) { fd_discard(t); return_value(t,&t->fd_registers,result); return 0; }
     if (!result) return 1;
-    int ready=readiness_evict(t,loan);
+    int ready=fd_loan_evict(t,loan,number);
     md_fd_loan_release(loan);
     return ready;
 }
