@@ -51,7 +51,7 @@ int md_resources_setns_process_prepare(const struct md_task_resources *, const s
 
 int md_resources_init(struct md_task_resources *, struct md_mount_namespace *);
 int md_resources_fork(const struct md_task_resources *, unsigned long flags,
-        struct md_task_resources *);
+        struct md_cgroup_member *reservation,struct md_task_resources *);
 int md_resources_release(struct md_task_resources *);
 /* Confirmed kernel exec only, after any nonleader task-resource transfer. */
 int md_resources_exec(struct md_task_resources *);

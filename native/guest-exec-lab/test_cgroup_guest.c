@@ -425,6 +425,157 @@ static void *thread_membership(void *unused) {
     read_text("/tmp/cgv2/child/pids.current",text,sizeof(text)); assert(atoi(text)==2);
     return NULL;
 }
+static unsigned long long resource_value(const char *path,const char *key) {
+    char text[4096]; read_text(path,text,sizeof(text));
+    char *at=key ? strstr(text,key) : text; assert(at);
+    if (key) at+=strlen(key);
+    return strtoull(at,NULL,10);
+}
+static atomic_int accounting_ready,accounting_done;
+static void *limited_thread(void *context) {
+    char byte; assert(read(*(int *)context,&byte,1)==1); return NULL;
+}
+static void pids_limit(void) {
+    const char *max="/tmp/cgv2/limited/pids.max";
+    assert(!mkdir("/tmp/cgv2/limited",0700));
+    assert(writing(max,"0")==1);
+    /* Migration is organizational, even when the destination is over limit. */
+    assert(writing("/tmp/cgv2/limited/cgroup.procs","0")==1);
+    assert(resource_value("/tmp/cgv2/limited/pids.current",NULL)==1);
+    int events=open("/tmp/cgv2/limited/pids.events",O_RDONLY); assert(events>=0);
+    struct pollfd watched={.fd=events,.events=POLLPRI}; char text[256];
+    assert(poll(&watched,1,0)==1 && (watched.revents&POLLPRI));
+    assert(read(events,text,sizeof(text))==6);
+    assert(poll(&watched,1,0)==0);
+    assert(fork()<0 && errno==EAGAIN);
+    assert(poll(&watched,1,0)==1 && (watched.revents&POLLPRI));
+    assert(resource_value("/tmp/cgv2/limited/pids.events","max ")==1);
+    /* clone3 charges the destination, even when its caller cannot fork here. */
+    assert(!mkdir("/tmp/cgv2/target",0700));
+    assert(writing("/tmp/cgv2/target/pids.max","1")==1);
+    int target=open("/tmp/cgv2/target",O_RDONLY|O_DIRECTORY); assert(target>=0);
+    struct clone_args args={.flags=CLONE_INTO_CGROUP,.exit_signal=SIGCHLD,.cgroup=(unsigned)target};
+    pid_t into=(pid_t)syscall(SYS_clone3,&args,sizeof(args)); assert(into>=0);
+    if (!into) {
+        assert(resource_value("/tmp/cgv2/target/pids.current",NULL)==1);
+        assert(fork()<0 && errno==EAGAIN); _exit(0);
+    }
+    int into_status; assert(waitpid(into,&into_status,0)==into && WIFEXITED(into_status) && !WEXITSTATUS(into_status));
+    assert(resource_value("/tmp/cgv2/target/pids.current",NULL)==0);
+    close(target); assert(!rmdir("/tmp/cgv2/target"));
+    assert(writing(max,"2")==1);
+    pid_t child=fork(); assert(child>=0);
+    if (!child) _exit(0);
+    siginfo_t info={0};
+    /* EVENT_WAIT: keep a zombie charged until the real wait/reap completes. */
+    assert(!waitid(P_PID,child,&info,WEXITED|WNOWAIT) && info.si_pid==child);
+    assert(resource_value("/tmp/cgv2/limited/pids.current",NULL)==2);
+    assert(fork()<0 && errno==EAGAIN);
+    int status; assert(waitpid(child,&status,0)==child && WIFEXITED(status));
+    assert(resource_value("/tmp/cgv2/limited/pids.current",NULL)==1);
+    child=fork(); assert(child>=0);
+    if (!child) _exit(0);
+    assert(waitpid(child,&status,0)==child && WIFEXITED(status));
+    assert(resource_value("/tmp/cgv2/limited/pids.events","max ")==2);
+    assert(writing("/tmp/cgv2/cgroup.procs","0")==1);
+    close(events);
+    assert(writing("/tmp/cgv2/limited/cgroup.subtree_control","+pids")==5);
+    assert(!mkdir("/tmp/cgv2/limited/leaf",0700));
+    assert(writing("/tmp/cgv2/limited/leaf/cgroup.procs","0")==1);
+    assert(writing(max,"1")==1);
+    assert(fork()<0 && errno==EAGAIN);
+    assert(resource_value("/tmp/cgv2/limited/leaf/pids.events","max ")==1);
+    assert(writing(max,"3")==1);
+    assert(writing("/tmp/cgv2/limited/leaf/pids.max","2")==1);
+    int finish[2]; assert(!pipe(finish)); pthread_t thread,extra;
+    assert(!pthread_create(&thread,NULL,limited_thread,&finish[0]));
+    assert(resource_value("/tmp/cgv2/limited/pids.current",NULL)==2);
+    assert(pthread_create(&extra,NULL,limited_thread,&finish[0])==EAGAIN);
+    assert(write(finish[1],"x",1)==1); assert(!pthread_join(thread,NULL));
+    close(finish[0]); close(finish[1]);
+    assert(resource_value("/tmp/cgv2/limited/leaf/pids.current",NULL)==1);
+    assert(writing("/tmp/cgv2/cgroup.procs","0")==1);
+    assert(!rmdir("/tmp/cgv2/limited/leaf") && !rmdir("/tmp/cgv2/limited"));
+    puts("PASS cgroup pids enforcement: hierarchy, threads, clone3, EAGAIN, events, zombie charge and reap");
+}
+static void *accounting_thread(void *unused) {
+    (void)unused;
+    atomic_fetch_add(&accounting_ready,1);
+    while (!atomic_load(&accounting_done)) sched_yield();
+    return NULL;
+}
+static void resource_controllers(void) {
+    const char *root="/tmp/cgv2/cgroup.subtree_control";
+    const char *child="/tmp/cgv2/resources";
+    char text[4096];
+    assert(!mkdir(child,0700));
+    assert(access("/tmp/cgv2/resources/cpu.max",F_OK)<0 && errno==ENOENT);
+    assert(writing(root,"+cpu +cpuset +memory")==20);
+    read_text("/tmp/cgv2/resources/cgroup.controllers",text,sizeof(text));
+    assert(!strcmp(text,"cpu cpuset memory pids\n"));
+    assert(writing("/tmp/cgv2/resources/cpu.max","25000 100000")==12);
+    assert(writing("/tmp/cgv2/resources/cpu.max","7 0")<0 && errno==EINVAL);
+    read_text("/tmp/cgv2/resources/cpu.max",text,sizeof(text)); assert(!strcmp(text,"25000 100000\n"));
+    int snapshot=open("/tmp/cgv2/resources/cpu.max",O_RDONLY); assert(snapshot>=0);
+    assert(read(snapshot,text,5)==5 && !memcmp(text,"25000",5));
+    assert(writing("/tmp/cgv2/resources/cpu.max","max 200000")==10);
+    assert(read(snapshot,text,sizeof(text))==8 && !memcmp(text," 100000\n",8));
+    assert(!lseek(snapshot,0,SEEK_SET));
+    assert(read(snapshot,text,sizeof(text))==11 && !memcmp(text,"max 200000\n",11));
+    close(snapshot);
+    assert(writing("/tmp/cgv2/resources/cpu.weight","0")<0 && errno==EINVAL);
+    assert(writing("/tmp/cgv2/resources/cpu.weight","42")==2);
+    assert(writing("/tmp/cgv2/resources/memory.max","1")==1);
+    assert(writing("/tmp/cgv2/resources/memory.high","max")==3);
+    assert(writing("/tmp/cgv2/resources/memory.oom.group","2")<0 && errno==EINVAL);
+    read_text("/tmp/cgv2/cpuset.cpus.effective",text,sizeof(text)); assert(*text && strcmp(text,"\n"));
+    assert(writing("/tmp/cgv2/resources/cpuset.cpus",text)==(ssize_t)strlen(text));
+    assert(writing("/tmp/cgv2/resources/cpuset.cpus","999999")<0 && errno==ERANGE);
+    assert(writing("/tmp/cgv2/resources/cgroup.subtree_control","+memory")==7);
+    assert(writing(root,"-memory -cpu")<0 && errno==EBUSY);
+    assert(!access("/tmp/cgv2/resources/cpu.max",F_OK));
+    assert(writing("/tmp/cgv2/resources/cgroup.subtree_control","-memory")==7);
+    int retired=open("/tmp/cgv2/resources/cpu.max",O_RDONLY); assert(retired>=0);
+    assert(writing(root,"-cpu")==4);
+    assert(read(retired,text,sizeof(text))<0 && errno==ENODEV);
+    assert(!access("/tmp/cgv2/resources/memory.max",F_OK));
+    assert(writing(root,"+cpu")==4);
+    assert(read(retired,text,sizeof(text))<0 && errno==ENODEV); close(retired);
+    read_text("/tmp/cgv2/resources/cpu.max",text,sizeof(text)); assert(!strcmp(text,"max 100000\n"));
+    assert(writing("/tmp/cgv2/resources/cgroup.procs","0")==1);
+    unsigned long long base=resource_value("/tmp/cgv2/resources/memory.current",NULL);
+    assert(base>0);
+    pthread_t threads[4];
+    for (unsigned i=0;i<4;++i) assert(!pthread_create(&threads[i],NULL,accounting_thread,NULL));
+    while (atomic_load(&accounting_ready)!=4) sched_yield();
+    unsigned long long threaded=resource_value("/tmp/cgv2/resources/memory.current",NULL);
+    assert(threaded<base*2+4*1024*1024);
+    atomic_store(&accounting_done,1);
+    for (unsigned i=0;i<4;++i) assert(!pthread_join(threads[i],NULL));
+    unsigned long long before=resource_value("/tmp/cgv2/resources/cpu.stat","usage_usec ");
+    pid_t worker=fork(); assert(worker>=0);
+    if (!worker) {
+        struct timespec start,now;
+        assert(!clock_gettime(CLOCK_PROCESS_CPUTIME_ID,&start));
+        do {
+            for (volatile unsigned i=0;i<10000;++i) {}
+            assert(!clock_gettime(CLOCK_PROCESS_CPUTIME_ID,&now));
+        } while ((now.tv_sec-start.tv_sec)*1000000000LL+now.tv_nsec-start.tv_nsec<100000000);
+        _exit(0);
+    }
+    int status;
+    /* EVENT_WAIT: final accounting must survive the child's actual exit/reap. */
+    assert(waitpid(worker,&status,0)==worker && WIFEXITED(status) && !WEXITSTATUS(status));
+    unsigned long long after=resource_value("/tmp/cgv2/resources/cpu.stat","usage_usec ");
+    assert(after>=before+80000);
+    assert(resource_value("/tmp/cgv2/cpu.stat","usage_usec ")>=after);
+    assert(writing("/tmp/cgv2/cgroup.procs","0")==1);
+    assert(resource_value("/tmp/cgv2/resources/memory.current",NULL)==0);
+    assert(resource_value("/tmp/cgv2/resources/cpu.stat","usage_usec ")>=after);
+    assert(!rmdir(child));
+    assert(writing(root,"-cpu -cpuset -memory")==20);
+    puts("PASS guest cgroup resources: policies, controller retirement, process RSS, terminal CPU and hierarchy");
+}
 int test_cgroup_guest(int pid_namespace) {
     if (pid_namespace) {
         alarm(45); assert(!unshare(CLONE_NEWPID));
@@ -457,7 +608,7 @@ int test_cgroup_guest(int pid_namespace) {
     named_hierarchies();
     struct statfs st; assert(!statfs("/tmp/cgv2",&st) && st.f_type==CGROUP2_SUPER_MAGIC);
     assert(!statfs("/tmp/cgv1",&st) && st.f_type==CGROUP_SUPER_MAGIC);
-    char text[8192]; read_text("/tmp/cgv2/cgroup.controllers",text,sizeof(text)); assert(!strcmp(text,"pids\n"));
+    char text[8192]; read_text("/tmp/cgv2/cgroup.controllers",text,sizeof(text)); assert(!strcmp(text,"cpu cpuset memory pids\n"));
     read_text("/tmp/cgv1/devices.list",text,sizeof(text)); assert(!strcmp(text,"a *:* rwm\n"));
     assert(writing("/tmp/cgv1/devices.allow","a *:* rwm")==9);
     assert(writing("/tmp/cgv1/devices.deny","a")<0 && errno==EOPNOTSUPP);
@@ -473,9 +624,10 @@ int test_cgroup_guest(int pid_namespace) {
     read_text("/tmp/cgv2/child/pids.max",text,sizeof(text)); assert(!strcmp(text,"max\n"));
     assert(writing("/tmp/cgv2/child/pids.max","0")==1);
     read_text("/tmp/cgv2/child/pids.max",text,sizeof(text)); assert(!strcmp(text,"0\n"));
+    assert(writing("/tmp/cgv2/child/pids.max","max")==3);
     assert(writing("/tmp/cgv2/child/pids.max","-1")<0 && errno==EINVAL);
     assert(writing("/tmp/cgv2/child/pids.max","18446744073709551616")<0 && errno==ERANGE);
-    assert(writing("/tmp/cgv2/cgroup.subtree_control","-pids +memory")<0 && errno==EOPNOTSUPP);
+    assert(writing("/tmp/cgv2/cgroup.subtree_control","-pids +io")<0 && errno==EOPNOTSUPP);
     read_text("/tmp/cgv2/cgroup.subtree_control",text,sizeof(text)); assert(!strcmp(text,"pids\n"));
     assert(writing("/tmp/cgv2/child/cgroup.procs","0")==1);
     read_text("/tmp/cgv2/child/pids.current",text,sizeof(text)); assert(!strcmp(text,"1\n"));
@@ -515,7 +667,7 @@ int test_cgroup_guest(int pid_namespace) {
     int status; assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
     assert(rmdir("/tmp/cgv2/child")<0 && errno==EBUSY);
     assert(writing("/tmp/cgv2/cgroup.freeze","1")<0 && errno==EOPNOTSUPP);
-    assert(writing("/tmp/cgv2/cgroup.subtree_control","+memory")<0 && errno==EOPNOTSUPP);
+    assert(writing("/tmp/cgv2/cgroup.subtree_control","+io")<0 && errno==EOPNOTSUPP);
     assert(!mount(NULL,"/tmp/cgv2",NULL,MS_BIND|MS_REMOUNT|MS_RDONLY,NULL));
     assert(write(copy,"0",1)<0 && errno==EROFS);
     assert(!mount(NULL,"/tmp/cgv2",NULL,MS_BIND|MS_REMOUNT,NULL));
@@ -549,9 +701,11 @@ int test_cgroup_guest(int pid_namespace) {
     }
     read_text("/proc/cgroups",text,sizeof(text)); assert(strstr(text,"devices\t1\t1\t1"));
     freezer_groups();
+    pids_limit();
+    resource_controllers();
     assert(!umount2("/tmp/cgv2",0) && !umount2("/tmp/cgv1",0));
     assert(!rmdir("/tmp/cgv2") && !rmdir("/tmp/cgv1"));
-    puts("PASS guest cgroup: membership, fork, typed IO, readonly, permissive pids and devices"); return 0;
+    puts("PASS guest cgroup: membership, fork, typed IO, readonly, pids limits and permissive devices"); return 0;
 }
 static void expect_membership(int fd,const char *v2,const char *v1) {
     char text[8192],expected[8192];

@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "cgroup.h"
 #include "cgroup_program.h"
+#include "cgroup_resources.h"
 #include "task_resources.h"
 #include "temporary_directory.h"
 #include "file_permissions.h"
@@ -22,21 +23,24 @@
 #include <sys/inotify.h>
 
 enum { PROCS, THREADS, EVENTS, CONTROLLERS, SUBTREE, TYPE, FREEZE,
-    ALLOW, DENY, LIST, TASKS, NOTIFY, RELEASE, PIDS_MAX, PIDS_CURRENT, PIDS_EVENTS, FILES };
+    ALLOW, DENY, LIST, TASKS, NOTIFY, RELEASE, PIDS_MAX, PIDS_CURRENT, PIDS_EVENTS,
+    BASE_FILES, FILES=BASE_FILES+MD_CG_RESOURCE_COUNT };
 enum { NS_DELEGATE=1, MEMORY_RECURSIVE_PROT=2 };
 enum { UNIFIED, DEVICES, NAMED };
-struct control { const char *name; mode_t mode; unsigned views; };
-static const struct control controls[FILES]={
-    [PROCS]={"cgroup.procs",0644,7}, [THREADS]={"cgroup.threads",0644,1},
-    [EVENTS]={"cgroup.events",0444,1}, [CONTROLLERS]={"cgroup.controllers",0444,1},
-    [SUBTREE]={"cgroup.subtree_control",0644,1}, [TYPE]={"cgroup.type",0644,1},
-    [FREEZE]={"cgroup.freeze",0644,1}, [ALLOW]={"devices.allow",0200,2},
-    [DENY]={"devices.deny",0200,2}, [LIST]={"devices.list",0444,2},
-    [TASKS]={"tasks",0644,6}, [NOTIFY]={"notify_on_release",0644,6},
-    [RELEASE]={"release_agent",0644,6},
-    [PIDS_MAX]={"pids.max",0644,1}, [PIDS_CURRENT]={"pids.current",0444,1},
-    [PIDS_EVENTS]={"pids.events",0444,1}
+static const struct md_cgroup_control controls[BASE_FILES]={
+    [PROCS]={"cgroup.procs",0644,7,0,0}, [THREADS]={"cgroup.threads",0644,1,0,0},
+    [EVENTS]={"cgroup.events",0444,1,0,0}, [CONTROLLERS]={"cgroup.controllers",0444,1,0,0},
+    [SUBTREE]={"cgroup.subtree_control",0644,1,0,0}, [TYPE]={"cgroup.type",0644,1,0,0},
+    [FREEZE]={"cgroup.freeze",0644,1,0,0}, [ALLOW]={"devices.allow",0200,2,0,0},
+    [DENY]={"devices.deny",0200,2,0,0}, [LIST]={"devices.list",0444,2,0,0},
+    [TASKS]={"tasks",0644,6,0,0}, [NOTIFY]={"notify_on_release",0644,6,0,0},
+    [RELEASE]={"release_agent",0644,6,0,0},
+    [PIDS_MAX]={"pids.max",0644,1,MD_CG_PIDS,0}, [PIDS_CURRENT]={"pids.current",0444,1,MD_CG_PIDS,0},
+    [PIDS_EVENTS]={"pids.events",0444,1,MD_CG_PIDS,0}
 };
+static const struct md_cgroup_control *control(unsigned file) {
+    return file<BASE_FILES ? &controls[file] : &md_cgroup_resource_controls[file-BASE_FILES];
+}
 struct group {
     struct group *next,*parent;
     int fd,removed;
@@ -47,8 +51,11 @@ struct group {
     struct md_cgroup_program **programs;
     unsigned program_count,program_flags;
     unsigned subtree;
-    uint64_t pids_max;
-    uint64_t populated, event_id, generation;
+    uint64_t pids_max,pids_charged,pids_failures;
+    struct md_cgroup_policy policy;
+    struct md_cgroup_usage usage;
+    uint64_t populated;
+    struct { uint64_t id,generation; } events[2];
     uint64_t stopped;
     int freeze, effective_freeze, frozen;
 };
@@ -63,6 +70,13 @@ struct world {
     int namespace_created;
     atomic_uint_fast64_t freezer_generation;
     struct md_resource_wakeup *freezer_wakeup;
+    atomic_int accounting;
+    int accounting_error;
+    uint64_t sampled_cpu,sampled_memory;
+    long ticks;
+    cpu_set_t cpus,mems;
+    struct md_cgroup_member **sample;
+    size_t sample_capacity;
 };
 struct md_cgroup_view {
     struct world *world;
@@ -86,8 +100,10 @@ struct md_cgroup_member {
     struct world *world;
     struct group *groups[2];
     struct named_group *named;
-    pid_t tid,tgid;
-    int departed,reserved;
+    pid_t tid,tgid,retired_tid;
+    struct md_cgroup_task_usage usage;
+    int accounted_exit;
+    int departed,reserved,charged;
     atomic_int freezing, stopped;
     struct md_pid_identity *pid,*pid_group;
 };
@@ -115,6 +131,8 @@ struct opened {
     struct md_watch_listener *listener;
     uint64_t observed;
     int sampled;
+    char *snapshot;
+    size_t snapshot_size;
 };
 static void named_free(struct named_group *list) {
     while (list) { struct named_group *next=list->next; free(list); list=next; }
@@ -135,6 +153,92 @@ static struct group **member_group(struct md_cgroup_member *m,const struct md_cg
     /* Every live member receives a slot before a hierarchy is published. */
     abort();
 }
+static int task_sample(struct md_cgroup_member *m) {
+    if (!m->tid || !m->groups[0] || m->accounted_exit) return 0;
+    struct md_cgroup_task_usage next;
+    int error=md_cgroup_task_sample(m->tgid,m->tid,&next);
+    if (error) return error==-ENOENT || error==-ESRCH ? 0 : error;
+    if (m->world->ticks<=0) return -EIO;
+    struct md_cgroup_task_usage old=m->usage;
+    for (struct group *g=m->groups[0];g;g=g->parent) {
+        if (next.user>=old.user) g->usage.user+=(next.user-old.user)*1000000/m->world->ticks;
+        if (next.system>=old.system) g->usage.system+=(next.system-old.system)*1000000/m->world->ticks;
+        if (next.minor>=old.minor) g->usage.minor+=next.minor-old.minor;
+        if (next.major>=old.major) g->usage.major+=next.major-old.major;
+    }
+    m->usage=next; return 0;
+}
+void md_cgroup_member_account_exit(struct md_cgroup_member *m) {
+    if (!m || !atomic_load_explicit(&m->world->accounting,memory_order_relaxed)) return;
+    pthread_mutex_lock(&m->world->lock);
+    int error=task_sample(m);
+    if (error) m->world->accounting_error=error;
+    m->accounted_exit=1; m->world->sampled_cpu=m->world->sampled_memory=0;
+    pthread_mutex_unlock(&m->world->lock);
+}
+static int member_order(const void *left,const void *right) {
+    const struct md_cgroup_member *a=*(struct md_cgroup_member *const *)left;
+    const struct md_cgroup_member *b=*(struct md_cgroup_member *const *)right;
+    return a->tgid!=b->tgid ? (a->tgid>b->tgid ? 1 : -1) : (a->tid>b->tid)-(a->tid<b->tid);
+}
+/* One ordered vector serves both accounting and process enumeration. It is
+ * built only on explicit control reads, never by a periodic task scanner. */
+static int members_ordered(struct world *w,size_t *count) {
+    size_t n=0;
+    for (struct md_cgroup_member *m=w->members;m;m=m->next) if (m->tid) ++n;
+    if (n>w->sample_capacity) {
+        void *next=reallocarray(w->sample,n,sizeof(*w->sample));
+        if (!next) return -ENOMEM;
+        w->sample=next; w->sample_capacity=n;
+    }
+    n=0;
+    for (struct md_cgroup_member *m=w->members;m;m=m->next) if (m->tid) w->sample[n++]=m;
+    if (n>1) qsort(w->sample,n,sizeof(*w->sample),member_order);
+    *count=n; return 0;
+}
+static int usage_sample(struct world *w,int cpu,int memory) {
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC,&now)) return -errno;
+    uint64_t ns=(uint64_t)now.tv_sec*1000000000+now.tv_nsec;
+    if (w->accounting_error) return w->accounting_error;
+    cpu=cpu && (!w->sampled_cpu || ns-w->sampled_cpu>=100000000);
+    memory=memory && (!w->sampled_memory || ns-w->sampled_memory>=100000000);
+    if (!cpu && !memory) return 0;
+    size_t count;
+    int error=members_ordered(w,&count); if (error) return error;
+    if (cpu) atomic_store_explicit(&w->accounting,1,memory_order_relaxed);
+    for (struct group *g=memory ? w->views[0]->groups : NULL;g;g=g->next)
+        g->usage.anon=g->usage.file=g->usage.shmem=g->usage.swap=0;
+    pid_t sampled=0;
+    for (size_t i=0;i<count;++i) {
+        struct md_cgroup_member *m=w->sample[i];
+        if (cpu) { error=task_sample(m); if (error) return error; }
+        if (!memory || m->accounted_exit || m->tgid==sampled) continue;
+        struct md_cgroup_usage usage;
+        error=md_cgroup_memory_sample(m->tgid,m->tid,&usage);
+        if (error==-ENOENT || error==-ESRCH) continue;
+        if (error) return error;
+        sampled=m->tgid;
+        for (struct group *g=m->groups[0];g;g=g->parent) {
+            g->usage.anon+=usage.anon; g->usage.file+=usage.file;
+            g->usage.shmem+=usage.shmem; g->usage.swap+=usage.swap;
+        }
+    }
+    for (struct group *g=memory ? w->views[0]->groups : NULL;g;g=g->next) {
+        uint64_t current=g->usage.anon+g->usage.file+g->usage.shmem;
+        if (current>g->usage.peak) g->usage.peak=current;
+    }
+    if (cpu) w->sampled_cpu=ns;
+    if (memory) w->sampled_memory=ns;
+    return 0;
+}
+static void effective_sets(struct world *w,struct group *g,cpu_set_t *cpus,cpu_set_t *mems) {
+    *cpus=w->cpus; *mems=w->mems;
+    for (;g;g=g->parent) {
+        if (CPU_COUNT(&g->policy.cpus)) CPU_AND(cpus,cpus,&g->policy.cpus);
+        if (CPU_COUNT(&g->policy.mems)) CPU_AND(mems,mems,&g->policy.mems);
+    }
+}
 static struct group *namespace_root(const struct md_cgroup_namespace *ns,const struct md_cgroup_view *v) {
     struct group *root=NULL;
     if (v->kind!=NAMED) root=ns->roots[v->kind];
@@ -142,9 +246,50 @@ static struct group *namespace_root(const struct md_cgroup_namespace *ns,const s
         if (entry->view==v) { root=entry->group; break; }
     return root ? root : v->root;
 }
+static unsigned event_slot(unsigned file) { return file==PIDS_EVENTS; }
+static void control_event(struct md_cgroup_view *v,struct group *g,unsigned file,unsigned mask) {
+    unsigned slot=event_slot(file);
+    ++g->events[slot].generation;
+    if (v->events) md_watch_source_emit(v->events,g->events[slot].id,mask,0,NULL,0);
+}
 static void group_event(struct md_cgroup_view *v,struct group *g,unsigned mask) {
-    ++g->generation;
-    if (v->events) md_watch_source_emit(v->events,g->event_id,mask,0,NULL,0);
+    control_event(v,g,EVENTS,mask);
+}
+static void pids_uncharge(struct md_cgroup_member *m) {
+    if (!m->charged) return;
+    for (struct group *g=m->groups[0];g;g=g->parent) --g->pids_charged;
+    m->charged=0;
+}
+/* Ordinary native waits need no extra interception. Reconcile departed tasks
+ * only for an explicit count or before denying birth, never on every fork. */
+static void pids_reconcile(struct world *w) {
+    for (struct md_cgroup_member *m=w->members;m;m=m->next) if (m->departed && m->charged) {
+        char path[96]; struct stat st;
+        snprintf(path,sizeof(path),"/proc/%d/task/%d",m->tgid,m->retired_tid);
+        if (fstatat(AT_FDCWD,path,&st,0)<0 && errno==ENOENT) pids_uncharge(m);
+    }
+}
+static int pids_full(struct group *group) {
+    for (struct group *g=group;g;g=g->parent) if (g->pids_charged>=g->pids_max) return 1;
+    return 0;
+}
+static int pids_reserve(struct world *w,struct group *group) {
+    if (pids_full(group)) {
+        pids_reconcile(w);
+        if (!pids_full(group)) goto charge;
+        struct group *owner=group;
+        while (owner->parent && !owner->files[PIDS_EVENTS].st_ino) owner=owner->parent;
+        ++owner->pids_failures;
+        control_event(w->views[0],owner,PIDS_EVENTS,IN_MODIFY);
+        return -EAGAIN;
+    }
+charge:
+    for (struct group *g=group;g;g=g->parent) ++g->pids_charged;
+    return 0;
+}
+void md_cgroup_member_reaped(struct md_cgroup_member *m) {
+    if (!m) return;
+    pthread_mutex_lock(&m->world->lock); pids_uncharge(m); pthread_mutex_unlock(&m->world->lock);
 }
 static int freezing(const struct group *g) {
     for (;g;g=g->parent) if (g->freeze) return 1;
@@ -181,6 +326,7 @@ void md_cgroup_member_frozen(struct md_cgroup_member *m,int stopped) {
  * Fork/exit in a populated branch cannot manufacture an empty notification. */
 static void membership_change(struct md_cgroup_view *v,struct group *old,struct group *next,int stopped) {
     if (!v || v->kind!=UNIFIED || old==next) return;
+    v->world->sampled_cpu=v->world->sampled_memory=0;
     struct group *common=old;
     while (common) {
         struct group *at=next;
@@ -215,6 +361,7 @@ static void release(struct world *w) {
     }
     md_cgroup_programs_release(w->programs);
     md_resource_wakeup_release(w->freezer_wakeup);
+    free(w->sample);
     pthread_mutex_destroy(&w->lock); free(w);
 }
 struct md_cgroup_programs *md_cgroup_program_registry(struct md_cgroup_member *m,int create) {
@@ -256,6 +403,8 @@ struct md_cgroup_member *md_cgroup_member_new(void) {
     struct world *w=calloc(1,sizeof(*w)); if (!w) return NULL;
     atomic_init(&w->refs,1);
     atomic_init(&w->freezer_generation,0);
+    atomic_init(&w->accounting,0);
+    w->ticks=sysconf(_SC_CLK_TCK);
     w->next_hierarchy=2;
     int error=pthread_mutex_init(&w->lock,NULL);
     if (error) { free(w); errno=error; return NULL; }
@@ -270,9 +419,11 @@ struct md_cgroup_member *md_cgroup_member_fork(struct md_cgroup_member *old) {
     atomic_init(&m->refs,1); m->world=retain(old->world);
     pthread_mutex_lock(&m->world->lock);
     int r=named_copy(&m->named,old->named);
+    if (!r) r=pids_reserve(m->world,old->groups[0]);
     if (r) {
-        pthread_mutex_unlock(&m->world->lock); release(m->world); free(m); errno=-r; return NULL;
+        pthread_mutex_unlock(&m->world->lock); named_free(m->named); release(m->world); free(m); errno=-r; return NULL;
     }
+    m->reserved=m->charged=1;
     memcpy(m->groups,old->groups,sizeof(m->groups));
     atomic_init(&m->freezing,freezing(m->groups[0]));
     atomic_init(&m->stopped,0);
@@ -285,6 +436,7 @@ struct md_cgroup_member *md_cgroup_member_retain(struct md_cgroup_member *m) {
 void md_cgroup_member_release(struct md_cgroup_member *m) {
     if (!m || atomic_fetch_sub(&m->refs,1)!=1) return;
     struct world *w=m->world; pthread_mutex_lock(&w->lock);
+    pids_uncharge(m);
     if (m->tid) membership_change(w->views[0],m->groups[0],NULL,m->stopped);
     struct md_cgroup_member **at=&w->members;
     while (*at!=m) at=&(*at)->next;
@@ -297,9 +449,13 @@ void md_cgroup_member_publish(struct md_cgroup_member *m,pid_t tid,pid_t tgid,
     if (!m) return;
     pthread_mutex_lock(&m->world->lock);
     struct md_pid_identity *old=m->pid,*old_group=m->pid_group;
+    if (tid && !m->charged) {
+        for (struct group *g=m->groups[0];g;g=g->parent) ++g->pids_charged;
+        m->charged=1;
+    }
     if (!m->tid && tid) membership_change(m->world->views[0],NULL,m->groups[0],m->stopped);
     else if (m->tid && !tid) membership_change(m->world->views[0],m->groups[0],NULL,m->stopped);
-    m->tid=tid; m->tgid=tgid; m->departed=0; m->reserved=0; m->pid=md_pid_identity_retain(pid);
+    m->tid=tid; m->tgid=tgid; m->retired_tid=0; m->departed=0; m->reserved=0; m->pid=md_pid_identity_retain(pid);
     m->pid_group=md_pid_identity_retain(group);
     pthread_mutex_unlock(&m->world->lock); md_pid_identity_release(old); md_pid_identity_release(old_group);
 }
@@ -308,35 +464,36 @@ void md_cgroup_member_depart(struct md_cgroup_member *m,pid_t tid) {
     pthread_mutex_lock(&m->world->lock);
     if (m->tid==tid && tid) {
         membership_change(m->world->views[0],m->groups[0],NULL,m->stopped);
-        m->tid=0; m->departed=1;
+        m->retired_tid=tid; m->tid=0; m->departed=1;
     }
     pthread_mutex_unlock(&m->world->lock);
 }
-enum { CONTROLLER_PIDS=1 };
 static unsigned available(const struct group *g) {
-    return g->parent ? g->parent->subtree : CONTROLLER_PIDS;
+    return g->parent ? g->parent->subtree : MD_CG_CONTROLLERS;
 }
 static int enabled(const struct group *g,unsigned file) {
-    return file<PIDS_MAX || (g->parent && (available(g)&CONTROLLER_PIDS));
+    const struct md_cgroup_control *c=control(file);
+    return !c->controller || ((g->parent || c->root) && (available(g)&c->controller));
 }
 static int control_create(struct group *g,unsigned i) {
-    int fd=openat(g->fd,controls[i].name,O_CREAT|O_EXCL|O_RDWR|O_CLOEXEC,0600);
+    int fd=openat(g->fd,control(i)->name,O_CREAT|O_EXCL|O_RDWR|O_CLOEXEC,0600);
     if (fd<0) return -errno;
     int error=fstat(fd,&g->files[i]) ? -errno : 0; close(fd);
     if (!error) {
-        g->files[i].st_mode=S_IFREG|controls[i].mode;
+        g->files[i].st_mode=S_IFREG|control(i)->mode;
         g->files[i].st_uid=g->uid; g->files[i].st_gid=g->gid;
         g->files[i].st_size=g->files[i].st_blocks=0;
     }
-    if (error) unlinkat(g->fd,controls[i].name,0);
+    if (error) unlinkat(g->fd,control(i)->name,0);
     return error;
 }
 static int populate(struct md_cgroup_view *v,struct group *g) {
-    if (v->next_event_id==UINT64_MAX) return -EOVERFLOW;
-    g->event_id=++v->next_event_id;
+    if (v->next_event_id>UINT64_MAX-2) return -EOVERFLOW;
+    for (unsigned i=0;i<2;++i) g->events[i].id=++v->next_event_id;
     g->pids_max=UINT64_MAX;
+    md_cgroup_policy_init(&g->policy);
     g->effective_freeze=g->frozen=freezing(g);
-    for (unsigned i=0;i<FILES;++i) if (controls[i].views&(1U<<v->kind)) {
+    for (unsigned i=0;i<FILES;++i) if (control(i)->views&(1U<<v->kind)) {
         if ((i==RELEASE && g->parent) || !enabled(g,i)) continue;
         int error=control_create(g,i); if (error) return error;
     }
@@ -347,7 +504,7 @@ static int populate(struct md_cgroup_view *v,struct group *g) {
     return 0;
 }
 static void depopulate(struct group *g) {
-    for (unsigned i=0;i<FILES;++i) if (g->files[i].st_ino) unlinkat(g->fd,controls[i].name,0);
+    for (unsigned i=0;i<FILES;++i) if (g->files[i].st_ino) unlinkat(g->fd,control(i)->name,0);
 }
 int md_cgroup_parse_options(const char *options,unsigned *out) {
     unsigned flags=0;
@@ -423,6 +580,7 @@ struct md_cgroup_view *md_cgroup_mount(struct md_cgroup_member *member,int paren
     struct md_cgroup_view *v=calloc(1,sizeof(*v));
     struct group *g=calloc(1,sizeof(*g));
     int error=(!v || !g) ? -ENOMEM : 0;
+    if (!error && kind==UNIFIED) error=md_cgroup_machine_sets(&w->cpus,&w->mems);
     if (kind==NAMED && w->next_hierarchy>INT32_MAX) error=-ENOSPC;
     if (v) { v->world=w; v->storage=-1; v->kind=kind; memcpy(v->name,name,sizeof(name)); }
     if (g) g->fd=-1;
@@ -440,7 +598,10 @@ struct md_cgroup_view *md_cgroup_mount(struct md_cgroup_member *member,int paren
             v->hierarchy=(unsigned)kind; w->views[kind]=v;
             for (struct md_cgroup_member *m=w->members;m;m=m->next) {
                 m->groups[kind]=g;
-                if (kind==UNIFIED && m->tid) ++g->populated;
+                if (kind==UNIFIED) {
+                    if (m->tid) ++g->populated;
+                    if (m->charged) ++g->pids_charged;
+                }
             }
         }
         md_cgroup_retain(v);
@@ -623,6 +784,7 @@ int md_cgroup_rmdir(struct md_cgroup_view *v,int fd,const char *name,const struc
         else {
             g->removed=1;
             group_event(v,g,IN_DELETE_SELF);
+            control_event(v,g,PIDS_EVENTS,IN_DELETE_SELF);
             clear_programs(g);
             /* Open controls and captured task snapshots may still refer to
              * the logical group; they do not need its backing directory FD. */
@@ -641,6 +803,7 @@ static void opened_release(void *ctx) {
         *link=o->next;
         pthread_mutex_unlock(&o->view->world->lock);
         md_watch_source_unsubscribe(o->listener);
+        free(o->snapshot);
         md_cgroup_namespace_release(o->namespace); md_identity_release(&o->opener);
         md_fs_anchor_release(o->origin); md_cgroup_release(o->view); free(o);
     }
@@ -690,14 +853,15 @@ int md_cgroup_member_clone(struct md_cgroup_member *parent,struct md_fs_anchor *
     if (!r) r=attach_allowed(v,parent->groups[0],g,id,ns);
     if (!r && thread && parent->groups[0]!=g) r=-EOPNOTSUPP;
     if (!r) r=named_copy(&m->named,parent->named);
+    if (!r) r=pids_reserve(v->world,g);
     if (!r) {
-        atomic_init(&m->refs,1); m->world=retain(v->world); m->reserved=1;
+        atomic_init(&m->refs,1); m->world=retain(v->world); m->reserved=m->charged=1;
         memcpy(m->groups,parent->groups,sizeof(m->groups)); m->groups[0]=g;
         atomic_init(&m->freezing,freezing(g)); atomic_init(&m->stopped,0);
         m->next=v->world->members; v->world->members=m; *out=m;
     }
     pthread_mutex_unlock(&v->world->lock);
-    if (r) free(m);
+    if (r) { named_free(m->named); free(m); }
     return r;
 }
 static int subtree_write(struct md_cgroup_view *v,struct group *g,char *text) {
@@ -705,19 +869,23 @@ static int subtree_write(struct md_cgroup_view *v,struct group *g,char *text) {
     char *cursor=NULL;
     for (char *word=strtok_r(text," \t\n",&cursor);word;word=strtok_r(NULL," \t\n",&cursor)) {
         if ((*word!='+' && *word!='-') || !word[1]) return -EINVAL;
-        if (strcmp(word+1,"pids")) return -EOPNOTSUPP;
-        if (*word=='+') next|=CONTROLLER_PIDS; else next&=~CONTROLLER_PIDS;
+        unsigned bit=md_cgroup_controller(word+1);
+        if (!bit) return -EOPNOTSUPP;
+        if (*word=='+') next|=bit; else next&=~bit;
     }
     if (next&~available(g)) return -ENOENT;
     if (next==g->subtree) return 0;
-    if (next) {
+    unsigned added=next&~g->subtree,removed=g->subtree&~next;
+    for (struct group *c=v->groups;c;c=c->next)
+        if (!c->removed && c->parent==g && (c->subtree&removed)) return -EBUSY;
+    if (added) {
         if (g->parent) for (struct md_cgroup_member *m=v->world->members;m;m=m->next)
             if ((m->tid || m->reserved) && m->groups[0]==g) return -EBUSY;
         int error=0;
         struct group *failed=NULL;
         unsigned last=PIDS_MAX;
         for (struct group *c=v->groups;c && !error;c=c->next) if (!c->removed && c->parent==g) {
-            for (unsigned i=PIDS_MAX;i<FILES;++i) {
+            for (unsigned i=PIDS_MAX;i<FILES;++i) if (control(i)->controller&added) {
                 error=control_create(c,i);
                 if (error) { failed=c; last=i; break; }
             }
@@ -725,21 +893,25 @@ static int subtree_write(struct md_cgroup_view *v,struct group *g,char *text) {
         if (error) {
             for (struct group *c=v->groups;c;c=c->next) if (!c->removed && c->parent==g) {
                 for (unsigned i=PIDS_MAX;i<(c==failed ? last : FILES);++i) {
-                    unlinkat(c->fd,controls[i].name,0); c->files[i]=(struct stat){0};
+                    if (!(control(i)->controller&added)) continue;
+                    unlinkat(c->fd,control(i)->name,0); c->files[i]=(struct stat){0};
                 }
                 if (c==failed) break;
             }
             return error;
         }
-    } else {
-        for (struct group *c=v->groups;c;c=c->next)
-            if (!c->removed && c->parent==g && c->subtree) return -EBUSY;
+    }
+    if (removed) {
         for (struct group *c=v->groups;c;c=c->next) if (!c->removed && c->parent==g) {
-            for (unsigned i=PIDS_MAX;i<FILES;++i) {
-                if (unlinkat(c->fd,controls[i].name,0)) return -errno;
+            for (unsigned i=PIDS_MAX;i<FILES;++i) if (control(i)->controller&removed) {
+                if (unlinkat(c->fd,control(i)->name,0)) return -errno;
                 c->files[i]=(struct stat){0};
             }
-            c->pids_max=UINT64_MAX;
+            if (removed&MD_CG_PIDS) {
+                c->pids_max=UINT64_MAX; c->pids_failures=0;
+                control_event(v,c,PIDS_EVENTS,IN_DELETE_SELF);
+            }
+            md_cgroup_policy_reset(&c->policy,removed);
         }
     }
     g->subtree=next; return 0;
@@ -750,11 +922,21 @@ static int opened_access(void *ctx,const struct md_identity *id,unsigned mode) {
     int r=opened_stat(ctx,&st);
     return r ? r : md_file_permissions(&st,mode,id);
 }
+static long read_slice(const char *text,size_t length,void *data,size_t size,int64_t offset) {
+    if ((uint64_t)offset>=length) return 0;
+    if (size>length-(size_t)offset) size=length-(size_t)offset;
+    memcpy(data,text+offset,size); return (long)size;
+}
 static long control_read(void *ctx,const struct md_control_actor *actor,void *data,size_t size,int64_t offset) {
     if (offset<0 || !actor || !actor->resources) return -EINVAL;
     struct opened *o=ctx; struct md_cgroup_view *v=o->view;
     pthread_mutex_lock(&v->world->lock);
     if (retired(o)) { pthread_mutex_unlock(&v->world->lock); return -ENODEV; }
+    if (!size) { pthread_mutex_unlock(&v->world->lock); return 0; }
+    if (offset && o->snapshot) {
+        long result=read_slice(o->snapshot,o->snapshot_size,data,size,offset);
+        pthread_mutex_unlock(&v->world->lock); return result;
+    }
     char *text=NULL; size_t length=0;
     FILE *stream=open_memstream(&text,&length);
     if (!stream) { pthread_mutex_unlock(&v->world->lock); return -errno; }
@@ -762,14 +944,13 @@ static long control_read(void *ctx,const struct md_control_actor *actor,void *da
     switch (o->file) {
     case PROCS: case THREADS: case TASKS: {
         struct md_pid_namespace *visible=md_pid_identity_namespace(actor->resources->pid);
-        for (struct md_cgroup_member *m=v->world->members;m;m=m->next) {
-            if (!m->tid || *member_group(m,v)!=o->group) continue;
-            if (o->file==PROCS) {
-                struct md_cgroup_member *previous=v->world->members;
-                while (previous!=m && !(previous->tid && previous->tgid==m->tgid
-                        && *member_group(previous,v)==o->group)) previous=previous->next;
-                if (previous!=m) continue;
-            }
+        size_t count; pid_t previous=0;
+        error=members_ordered(v->world,&count); if (error) break;
+        for (size_t i=0;i<count;++i) {
+            struct md_cgroup_member *m=v->world->sample[i];
+            if (*member_group(m,v)!=o->group) continue;
+            if (o->file==PROCS && previous==m->tgid) continue;
+            previous=m->tgid;
             pid_t number=visible ? md_pid_identity_number(o->file==PROCS ? m->pid_group : m->pid,visible)
                 : o->file==PROCS ? m->tgid : m->tid;
             if (number>0) fprintf(stream,"%d\n",number);
@@ -781,36 +962,44 @@ static long control_read(void *ctx,const struct md_control_actor *actor,void *da
         break;
     case TYPE: fputs("domain\n",stream); break;
     case CONTROLLERS: case SUBTREE:
-        fputs((o->file==CONTROLLERS ? available(o->group) : o->group->subtree)&CONTROLLER_PIDS
-            ? "pids\n" : "\n",stream); break;
+        md_cgroup_controller_text(stream,o->file==CONTROLLERS ? available(o->group) : o->group->subtree); break;
     case RELEASE: fputc('\n',stream); break;
     case PIDS_MAX:
         if (o->group->pids_max==UINT64_MAX) fputs("max\n",stream);
         else fprintf(stream,"%" PRIu64 "\n",o->group->pids_max);
         break;
     case PIDS_CURRENT: {
-        uint64_t count=0;
-        for (struct md_cgroup_member *m=v->world->members;m;m=m->next)
-            if (m->tid && below(m->groups[0],o->group)) ++count;
-        fprintf(stream,"%" PRIu64 "\n",count); break;
+        pids_reconcile(v->world);
+        fprintf(stream,"%" PRIu64 "\n",o->group->pids_charged); break;
     }
-    case PIDS_EVENTS: fputs("max 0\n",stream); break;
+    case PIDS_EVENTS: fprintf(stream,"max %" PRIu64 "\n",o->group->pids_failures); break;
     case FREEZE: fprintf(stream,"%d\n",o->group->freeze); break;
     case NOTIFY: fputs("0\n",stream); break;
     case LIST: fputs("a *:* rwm\n",stream); break;
-    default: error=-EACCES; break;
+    default:
+        if (o->file<BASE_FILES) { error=-EACCES; break; }
+        unsigned resource=o->file-BASE_FILES;
+        if (resource==MD_CG_CPU_STAT || resource==MD_CG_MEMORY_CURRENT || resource==MD_CG_MEMORY_PEAK
+                || resource==MD_CG_MEMORY_SWAP_CURRENT || resource==MD_CG_MEMORY_STAT)
+            error=usage_sample(v->world,resource==MD_CG_CPU_STAT || resource==MD_CG_MEMORY_STAT,
+                resource!=MD_CG_CPU_STAT);
+        if (!error) {
+            cpu_set_t cpus,mems; effective_sets(v->world,o->group,&cpus,&mems);
+            md_cgroup_resource_text(stream,&o->group->policy,resource,&o->group->usage,&cpus,&mems);
+        }
+        break;
     }
     if (ferror(stream)) error=-EIO;
     if (fclose(stream) && !error) error=-errno;
-    if (!error && o->file==EVENTS && !offset && size) {
-        o->observed=o->group->generation; o->sampled=1;
+    if (!error && (o->file==EVENTS || o->file==PIDS_EVENTS) && !offset && size) {
+        o->observed=o->group->events[event_slot(o->file)].generation; o->sampled=1;
+    }
+    long result=error ? error : read_slice(text,length,data,size,offset);
+    if (!error && o->file>=BASE_FILES) {
+        free(o->snapshot); o->snapshot=text; o->snapshot_size=length; text=NULL;
     }
     pthread_mutex_unlock(&v->world->lock);
-    if (!error) {
-        if ((uint64_t)offset>=length) size=0;
-        else { if (size>length-(size_t)offset) size=length-(size_t)offset; memcpy(data,text+offset,size); }
-    }
-    free(text); return error ? error : (long)size;
+    free(text); return result;
 }
 static long control_write(void *ctx,const struct md_control_actor *actor,const void *data,size_t size,int64_t offset) {
     (void)offset;
@@ -841,11 +1030,21 @@ static long control_write(void *ctx,const struct md_control_actor *actor,const v
                 target=m; break;
             }
         if (!target) { r=-ESRCH; break; }
+        if (o->file==THREADS && target->groups[0]!=o->group) { r=-EOPNOTSUPP; break; }
         r=attach_allowed(v,*member_group(target,v),o->group,&o->opener,o->namespace);
+        if (r) break;
+        if (v->kind==UNIFIED && v->world->accounting)
+            for (struct md_cgroup_member *m=v->world->members;m && !r;m=m->next)
+                if (m==target || (o->file==PROCS && m->tid && m->tgid==target->tgid)) r=task_sample(m);
         if (r) break;
         for (struct md_cgroup_member *m=v->world->members;m;m=m->next)
             if (m==target || (o->file==PROCS && m->tid && m->tgid==target->tgid)) {
                 struct group **slot=member_group(m,v);
+                if (v->kind==UNIFIED && m->charged && *slot!=o->group) {
+                    pids_uncharge(m);
+                    for (struct group *g=o->group;g;g=g->parent) ++g->pids_charged;
+                    m->charged=1;
+                }
                 if (m->tid) membership_change(v,*slot,o->group,m->stopped);
                 *slot=o->group;
                 if (v->kind==UNIFIED) m->freezing=freezing(o->group);
@@ -853,8 +1052,6 @@ static long control_write(void *ctx,const struct md_control_actor *actor,const v
         if (v->kind==UNIFIED && md_cgroup_freezer_generation(target)) freezer_changed(v->world);
         break;
     }
-    /* Resource values are retained compatibility policy, not host enforcement.
-     * No fork-path accounting or Android cgroup mutation is introduced. */
     case SUBTREE: r=subtree_write(v,o->group,text); break;
     case PIDS_MAX:
         if (!strcmp(text,"max")) o->group->pids_max=UINT64_MAX;
@@ -884,7 +1081,11 @@ static long control_write(void *ctx,const struct md_control_actor *actor,const v
     case RELEASE: r=n ? -EOPNOTSUPP : 0; break;
     case ALLOW: r=strcmp(text,"a") && strcmp(text,"a *:* rwm") ? -EOPNOTSUPP : 0; break;
     case DENY: r=-EOPNOTSUPP; break;
-    default: r=-EACCES; break;
+    default:
+        if (o->file<BASE_FILES) { r=-EACCES; break; }
+        cpu_set_t cpus,mems; effective_sets(v->world,o->group->parent,&cpus,&mems);
+        r=md_cgroup_policy_write(&o->group->policy,o->file-BASE_FILES,text,&cpus,&mems);
+        break;
     }
     pthread_mutex_unlock(&v->world->lock); return r ? r : (long)size;
 }
@@ -896,7 +1097,7 @@ static int events_poll_descriptor(void *ctx,int *descriptor) {
         if (!v->events) r=md_watch_source_new(&v->events);
         if (!r) r=md_watch_source_subscribe(v->events,&o->listener);
         struct md_watch_interest *interest; uint64_t sequence;
-        if (!r) r=md_watch_listener_admit(o->listener,o->group->event_id,
+        if (!r) r=md_watch_listener_admit(o->listener,o->group->events[event_slot(o->file)].id,
             IN_MODIFY|IN_DELETE_SELF,&interest,&sequence);
         if (r) { md_watch_source_unsubscribe(o->listener); o->listener=NULL; }
     }
@@ -910,7 +1111,7 @@ static long events_poll(void *ctx) {
     if (o->listener) while (md_watch_listener_next(o->listener,&event)) {}
     long result=POLLIN|POLLRDNORM;
     /* Like kernfs, a new OFD is ready until its first read samples the state. */
-    if (!o->sampled || o->observed!=o->group->generation) result|=POLLPRI|POLLERR;
+    if (!o->sampled || o->observed!=o->group->events[event_slot(o->file)].generation) result|=POLLPRI|POLLERR;
     if (retired(o)) result|=POLLHUP|POLLERR;
     pthread_mutex_unlock(&o->view->world->lock); return result;
 }
@@ -919,9 +1120,9 @@ int md_cgroup_watch(struct md_cgroup_view *v,struct md_inode_store *store,
     struct stat st; if (fstat(object,&st)) return -errno;
     pthread_mutex_lock(&v->world->lock); unsigned file;
     struct group *g=lookup(v,&st,&file);
-    int r=!g || g->removed ? -ENOENT : file!=EVENTS ? -EOPNOTSUPP : 0;
+    int r=!g || g->removed ? -ENOENT : file!=EVENTS && file!=PIDS_EVENTS ? -EOPNOTSUPP : 0;
     if (!r && !v->events) r=md_watch_source_new(&v->events);
-    if (!r) r=md_inode_watch_add_provider(store,instance,v->events,g->event_id,S_IFREG,flags);
+    if (!r) r=md_inode_watch_add_provider(store,instance,v->events,g->events[event_slot(file)].id,S_IFREG,flags);
     pthread_mutex_unlock(&v->world->lock); return r;
 }
 static struct md_fs_anchor *opened_origin(void *ctx) { return ((struct opened *)ctx)->origin; }
@@ -948,8 +1149,8 @@ int md_cgroup_open(struct md_cgroup_view *v,int fd,int flags,const struct md_ide
     } else if (!r) {
         int access=flags&O_ACCMODE;
         if (flags&O_DIRECTORY) r=-ENOTDIR;
-        else if (!(flags&O_PATH) && ((access!=O_RDONLY && !(controls[file].mode&0200))
-                || (access!=O_WRONLY && !(controls[file].mode&0444)))) r=-EACCES;
+        else if (!(flags&O_PATH) && ((access!=O_RDONLY && !(control(file)->mode&0200))
+                || (access!=O_WRONLY && !(control(file)->mode&0444)))) r=-EACCES;
         if (!r && !(flags&O_PATH)) r=md_file_permissions(&g->files[file],
             (access!=O_WRONLY ? R_OK : 0)|(access!=O_RDONLY ? W_OK : 0),id);
         if (!r) {
@@ -960,7 +1161,8 @@ int md_cgroup_open(struct md_cgroup_view *v,int fd,int flags,const struct md_ide
                 o->namespace=md_cgroup_namespace_retain(ns); o->opener=md_identity_copy(id);
                 o->stat=g->files[file];
                 o->next=g->opened; g->opened=o;
-                o->origin=md_fs_anchor_retain(origin); *out=&ops[file==EVENTS ? 2 : md_cgroup_legacy(v)]; *context=o;
+                o->origin=md_fs_anchor_retain(origin);
+                *out=&ops[file==EVENTS || file==PIDS_EVENTS ? 2 : md_cgroup_legacy(v)]; *context=o;
             }
         }
     }
@@ -1022,8 +1224,10 @@ long md_cgroup_controllers_text(struct md_cgroup_member *m,char *text,size_t cap
     unsigned unified=0;
     for (struct group *g=m->world->views[0] ? m->world->views[0]->groups : NULL;g;g=g->next)
         if (!g->removed) ++unified;
-    int n=snprintf(text,capacity,"#subsys_name\thierarchy\tnum_cgroups\tenabled\ndevices\t%u\t%u\t1\npids\t0\t%u\t1\n",
-        v ? 1 : 0,count ? count : 1,unified ? unified : 1);
+    if (!unified) unified=1;
+    int n=snprintf(text,capacity,"#subsys_name\thierarchy\tnum_cgroups\tenabled\ndevices\t%u\t%u\t1\npids\t0\t%u\t1\n"
+        "cpu\t0\t%u\t1\ncpuset\t0\t%u\t1\nmemory\t0\t%u\t1\n",
+        v ? 1 : 0,count ? count : 1,unified,unified,unified,unified);
     pthread_mutex_unlock(&m->world->lock);
     return n<0 ? -EIO : (size_t)n>=capacity ? -ERANGE : n;
 }

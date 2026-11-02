@@ -162,7 +162,7 @@ void md_task_registry_forget(struct md_task_registry *r, pid_t tid) {
     if (e && e->retired) e=NULL;
     if (e) *slot = e->next;
     pthread_mutex_unlock(&r->lock);
-    if (e) release_entry(e);
+    if (e) { md_cgroup_member_reaped(e->cgroup); release_entry(e); }
 }
 void md_task_registry_retire(struct md_task_registry *r,pid_t tid,const struct md_identity *identity) {
     if (!r || tid<=0) return;
@@ -213,7 +213,7 @@ void md_task_registry_reap(struct md_task_registry *r,pid_t tid) {
         if (e->retired_next) e->retired_next->retired_previous=e->retired_previous;
     }
     pthread_mutex_unlock(&r->lock);
-    if (e) release_entry(e);
+    if (e) { md_cgroup_member_reaped(e->cgroup); release_entry(e); }
 }
 void md_task_registry_collect(struct md_task_registry *r,int (*gone)(pid_t)) {
     if (!md_task_registry_has_retired(r)) return;
@@ -226,6 +226,7 @@ void md_task_registry_collect(struct md_task_registry *r,int (*gone)(pid_t)) {
 }
 void md_task_registry_collect_limits(struct md_task_registry *r,int (*gone)(pid_t)) {
     for (struct entry *e=r->retired;e;e=e->retired_next) if (e->process && gone(e->tid)) {
+        md_cgroup_member_reaped(e->cgroup);
         md_process_member_release(e->process); e->process=NULL;
     }
 }

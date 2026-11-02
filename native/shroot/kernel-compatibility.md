@@ -703,7 +703,7 @@ publication rollback, namespaces and packet repair; `test_network_ethernet.py`
 checks stock tc in Base/lazy modes and `test_booted_libvirt.py --network` checks
 DHCP/DNS and VM packet traffic through the installed network backend.
 
-Offline network namespaces, private devpts views and permissive cgroups require
+Offline network namespaces, private devpts views and logical cgroups require
 no post-5.15 interface or host namespace/cgroup privilege. Their owners use the
 existing resource transactions, socketpair/SCM_RIGHTS, native PTY ioctls and
 mapped control-file transport. Native terminal permission denials remain errors.
@@ -717,6 +717,16 @@ The logical v2 freezer uses existing PTRACE_INTERRUPT stops and eventfd wakeups,
 not host cgroup permissions or injected SIGSTOP. `test_cgroup_guest` covers
 freeze/thaw, nested membership and newborn tasks; stock CUPS exercises Snap's
 freezer workflow. No post-5.15 interface is added.
+
+`cgroup_resources` reads baseline per-thread proc stat/status and
+`sched_getaffinity` only for requested accounting or machine-set discovery.
+CPU/memory policies and sampled `memory.peak` are userspace interfaces, not
+dependencies on host cgroup controller files. Hierarchical `pids.max` uses existing
+birth reservations and reap ownership. `test_resources.py --case cgroup` covers
+Base/lazy entry, controller replacement, policy validation, RSS deduplication,
+terminal CPU accounting, threads, clone3, quota failures, watches and zombies;
+the same suite runs with `--kernel-profile linux-5.15`. No host cgroup access or
+new kernel facility is required.
 
 Opt-in routed networking uses the Linux 5.15 NETLINK_ROUTE wire contract in
 `network_route`, retained namespace/interface/endpoint owners in `network_model`

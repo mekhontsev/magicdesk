@@ -2,14 +2,14 @@
 
 [Native architecture](README.md) | [Resource model](process-resources.md)
 
-UTS, IPC, PID/proc, logical filesystems, terminals and permissive cgroups. These userspace contracts do not grant host kernel namespace authority.
+UTS, IPC, PID/proc, logical filesystems, terminals and cgroups. These userspace contracts do not grant host kernel namespace authority.
 
 - [UTS And IPC Ownership](#uts-and-ipc-ownership)
 - [PID and Proc Views](#pid-and-proc-views)
 - [Logical Filesystems](#logical-filesystems)
 - [Limited Mqueue Mounts](#limited-mqueue-mounts)
 - [Private Terminal Views](#private-terminal-views)
-- [Permissive Cgroups](#permissive-cgroups)
+- [Cgroups](#cgroups)
 
 ## UTS And IPC Ownership
 
@@ -629,7 +629,7 @@ O_NOCTTY uses the same caller-completed open as a named slave. Ordinary terminal
 IO is not forwarded through the filesystem worker. Cross-supervisor mount export
 fails explicitly for private devpts.
 
-## Permissive Cgroups
+## Cgroups
 
 `cgroup` owns a launch-local world with a cgroup2 hierarchy and a cgroup v1
 `devices` hierarchy, plus independently named v1 membership hierarchies
@@ -686,17 +686,39 @@ independent event identities. Poll listeners
 are allocated only for observed controls. Ordinary file IO does not consult this
 accounting. This lets systemd retire completed scopes without a periodic scan.
 
-The v2 hierarchy advertises pids. Subtree control enables child pids files,
-respects the no-internal-process rule and refuses disabling a controller still
-enabled below. Removed controls invalidate retained FDs even after re-enabling.
-`pids.max` retains a nonnegative integer or max; `pids.current` counts live threads
-recursively on read; `pids.events` reports max 0. These values are permissive
-compatibility state, not enforced limits. Population accounting tracks lifecycle,
-not quota enforcement. CPU/memory/IO limits remain unavailable. The v1
+The v2 hierarchy advertises cpu, cpuset, memory and pids. Subtree control creates
+child controls transactionally, respects the no-internal-process rule and refuses
+disabling a controller still enabled below. Removed controls invalidate retained
+FDs even after re-enabling; replacement policies start with defaults.
+
+`pids.max` enforces a hierarchical thread limit before native fork/clone, including
+clone3's target group. A reservation is either published with the newborn or
+released on failure. Migration may exceed a limit, but subsequent births fail
+with EAGAIN. `pids.current` includes unreaped zombies; `pids.events` reports failed
+admissions and uses the same watch/poll mechanism as `cgroup.events`. Native waits
+remain native: explicit count reads and quota-exhaustion checks reconcile departed
+tasks when the registry has not observed their reap. Ordinary successful births
+update ancestor counters without scanning tasks or reading proc.
+
+`cgroup_resources` owns policy parsing and sampled accounting. CPU and memory
+snapshots are independently refreshed on demand, with a 100 ms reuse bound; there
+is no background sampler. CPU uses per-thread native ticks and retains final
+usage at existing exit stops once accounting has been requested. Processes which
+finished before accounting began are not reconstructed. RSS and swap are sampled
+once per process, not once per thread; shared pages between processes may still be
+counted more than once, and these values are not kernel memory-cgroup charges.
+`memory.peak` is the highest sampled RSS. Partial reads of an open resource file
+retain one snapshot; seeking to the beginning refreshes it.
+
+CPU weights/quotas, cpuset masks, memory protection/limits and OOM-group policy
+are validated and retained, but do not enforce host scheduling, page charging or
+OOM kills. Effective cpuset masks inherit from ancestors within the executor's
+available CPU/node sets; they do not change native thread affinity. No throttling
+or OOM events are fabricated. IO control remains unavailable. The v1
 devices list is always `a *:* rwm`; all-device allowance is accepted, restrictive
 rules are rejected. Unsupported controller enabling and release agents
-return EOPNOTSUPP. This interface never accesses Android's cgroup hierarchy or
-provides a resource/security boundary. Ownership delegation is supported, but
+return EOPNOTSUPP. This interface never accesses Android's cgroup hierarchy and
+is not a complete resource/security boundary. Ownership delegation is supported, but
 full kernel cgroup delegation containment and independent-supervisor hierarchy
 transfer are not implemented.
 
@@ -726,7 +748,7 @@ exports, pinning, replacement and other attachment types are unavailable.
 Unavailable bpf commands return EINVAL, as for Linux command feature probes;
 unsupported operations within recognized commands fail explicitly.
 
-Device attachments are bookkeeping in the **permissive** provider, not an
+Device attachments are bookkeeping in the cgroup provider, not an
 executed predicate or enforced device restriction. Native Android access
 denials remain unchanged. No per-IO accounting, host BPF capability, background
 worker or runtime dependency is added. Programs and attachment arrays are

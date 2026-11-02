@@ -70,7 +70,7 @@ stop another launch. Persistent stores outlive those processes.
 | Credentials | Guest users, groups, capabilities, drops and namespace ownership | Guest root never grants Android root or kernel capabilities |
 | IPC and terminals | Separate SysV IPC owners, store-scoped pathname sockets, private devpts views | Inherited connections retain authority; explicit abstract Unix sockets share the host namespace |
 | Network | Offline child namespaces or routed IPv4/IPv6, private ports, supported nftables flow filtering and NAT | Native backing ports remain reachable; not a host firewall or full Linux network isolation |
-| Resource controls | Launch-local real-UID `RLIMIT_NPROC`; logical `RLIMIT_NOFILE` backed by native FD allocation; logical cgroup membership, controller settings and device-filter bookkeeping | Android's physical FD/task budgets still apply; cgroup CPU, memory, pids and device limits are not enforced; other resource limits remain native |
+| Resource controls | Launch-local real-UID `RLIMIT_NPROC`; logical `RLIMIT_NOFILE` backed by native FD allocation; hierarchical cgroup `pids.max`, membership, freezer and sampled CPU/RSS counters | Android's physical FD/task budgets still apply; cgroup CPU, cpuset, memory and device policies are not enforced; sampled RSS is not kernel page charging; other resource limits remain native |
 | Application filters | Installed seccomp filters and their denial actions remain active | The filesystem broker is not itself confined by every caller's filter domain |
 
 Use trusted images and programs. Logical separation prevents many accidental
@@ -1156,8 +1156,9 @@ Android root. This is separate from guest-root Docker and does not certify
 every RootlessKit driver or cgroup delegation setup.
 
 For both engines, guest root is still real Android UID 2000. Enabled cgroups
-provide logical membership and permissive settings, not enforced resource or
-device limits.
+provide membership, freezer state, enforced hierarchical PID limits and sampled
+CPU/RSS counters. CPU quotas, cpuset affinity, memory and device limits remain
+unenforced; these are not full kernel resource controls.
 
 See [Alpine containers inside SteamOS](#alpine-containers-inside-steamos) for an
 example and the distinction between lazy entry and filtered Base admission.
@@ -1482,7 +1483,8 @@ including nspawn, BuildKit, LXC and the selected LTP checks.
 
 ### ABI and isolation limits
 
-Cgroups are permissive, not resource enforcement. Logical tmpfs and ramfs are
+Cgroups enforce PID limits and freezer state, but not CPU, memory or device
+limits. Sampled RSS is not kernel page charging. Logical tmpfs and ramfs are
 disk-backed; capacity options do not impose quotas. Neither provides memory-only
 or no-swap secret storage. Persistent `remount,ro` denies new writable opens and
 metadata changes, but does not revoke existing writable FDs or shared mappings.

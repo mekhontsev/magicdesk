@@ -372,6 +372,15 @@ remain a failure, not a reason to mask the service or enlarge its timeout.
 
 ## Process And Resource Fixtures
 
+`test_resources.py BUILD --case cgroup` runs the native ownership model and
+isolated guest cgroup tests in Base and lazy modes. It covers controller
+publication/retirement, policy validation, hierarchical PID limits, threads,
+clone3 target admission, zombie/reap accounting, poll notifications, sampled
+CPU/RSS and cgroup namespaces. Repeat with `--kernel-profile linux-5.15` for
+capability-fallback coverage; this is not a substitute for a physical 5.15 kernel.
+CPU quotas, cpuset affinity and memory limits are retained policies, not enforced
+controls. These tests keep that boundary explicit.
+
 `test_thread_identity_runtime.py BUILD STORE FIXTURE --debuggers` checks libc
 thread identities and multi-threaded setuid/setgid/setgroups, including strace
 both inside and outside a PID namespace. The store must contain strace and GDB.

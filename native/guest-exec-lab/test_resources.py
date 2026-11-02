@@ -20,7 +20,7 @@ def main():
     parser.add_argument("--server", default="magicdesk")
     parser.add_argument("--keep", action="store_true")
     parser.add_argument("--diagnostics", action="store_true")
-    parser.add_argument("--case", choices=("all", "supervisor-state", "control-event", "launch-cancel", "event-fairness", "kernel-baseline", "mapping-task", "private-memory", "pidfd-table", "fd-observation", "proc-custody", "exec-custody", "open-job", "ofd-order", "fd-handoff", "fd-parcel", "fd-messages", "ipc-peer", "ipc-origins", "ipc-origin-guest", "ipc-paths", "ipc-ancillary", "mount-policy", "mount-graph", "mount-namespace", "inode-custody", "origin-transfer", "transient-store", "fd-custody", "fd-custody-dirfd", "fd-custody-nofollow", "fd-lifecycle", "restricted-descriptors", "fs-dispatch", "fs-buffer", "fs-signals", "fs-results", "fs-export", "fs-return", "fs-directory", "fs-capture", "input-session", "rpc", "stores", "durability"), default="all",
+    parser.add_argument("--case", choices=("all", "cgroup", "supervisor-state", "control-event", "launch-cancel", "event-fairness", "kernel-baseline", "mapping-task", "private-memory", "pidfd-table", "fd-observation", "proc-custody", "exec-custody", "open-job", "ofd-order", "fd-handoff", "fd-parcel", "fd-messages", "ipc-peer", "ipc-origins", "ipc-origin-guest", "ipc-paths", "ipc-ancillary", "mount-policy", "mount-graph", "mount-namespace", "inode-custody", "origin-transfer", "transient-store", "fd-custody", "fd-custody-dirfd", "fd-custody-nofollow", "fd-lifecycle", "restricted-descriptors", "fs-dispatch", "fs-buffer", "fs-signals", "fs-results", "fs-export", "fs-return", "fs-directory", "fs-capture", "input-session", "rpc", "stores", "durability"), default="all",
                         help="Run resource regressions, FD handoff/parcel, terminal RPC custody, native FD lifecycle, or worker transport")
     parser.add_argument("--compare-installed", action="store_true",
                         help="Compare identical metadata/spawn fixtures with the installed runtime")
@@ -81,6 +81,15 @@ def main():
             raise RuntimeError(name)
         return value
 
+    def check_cgroups():
+        for entry in (0, 1):
+            for case, message in (("cgroup", "PASS guest cgroup:"),
+                                  ("cgroup-pid", "PASS guest cgroup: PID namespace"),
+                                  ("cgroup-namespace", "PASS guest cgroup namespace:")):
+                check(f"guest {case} entry={entry}", guest_run + " --user 0:0"
+                      + f" --env SHROOT_MACHINE_ENTRY={entry} --diagnostics --store "
+                      + root + "/store --deadline-seconds 90 -- /bin/test " + case, message)
+
     def check_namespaces():
         for entry in (0, 1):
             check(f"guest device nodes entry={entry}", guest_run + " --user 0:0"
@@ -91,13 +100,7 @@ def main():
         check("native memfd metadata", root + "/libmagicdesk_guest_resource_guest.so native-metadata", "PASS native metadata:")
         check("guest memfd metadata", guest_run + " --user 0:0 --diagnostics --store "
               + root + "/store --deadline-seconds 90 -- /bin/test native-metadata", "PASS native metadata:")
-        for entry in (0, 1):
-            for case, message in (("cgroup", "PASS guest cgroup:"),
-                                  ("cgroup-pid", "PASS guest cgroup: PID namespace"),
-                                  ("cgroup-namespace", "PASS guest cgroup namespace:")):
-                check(f"guest {case} entry={entry}", guest_run + " --user 0:0"
-                      + f" --env SHROOT_MACHINE_ENTRY={entry} --diagnostics --store "
-                      + root + "/store --deadline-seconds 90 -- /bin/test " + case, message)
+        check_cgroups()
         check("guest private devpts", guest_run + " --user 0:0 --diagnostics --store "
               + root + "/store --deadline-seconds 90 -- /bin/test devpts", "PASS guest devpts:")
         check("guest PID-scoped devpts", guest_run + " --user 0:0 --diagnostics --store "
@@ -531,6 +534,8 @@ def main():
             names = ("fs_dispatch",)
         if args.case == "ofd-order":
             names = ("test_task_resources",)
+        if args.case == "cgroup":
+            names = ("bootstrap", "supervisor", "run", "service", "resource_guest", "test_task_resources")
         if args.case == "pidfd-table":
             names = ("pidfd_table",)
         if args.case == "event-fairness":
@@ -948,8 +953,15 @@ def main():
             check("native private mapping task", root + "/libmagicdesk_guest_mapping_task.so",
                   "PASS private mapping task kernel feasibility")
             return
-        if args.case == "all":
+        if args.case in ("all", "cgroup"):
             check("resource ownership model", root + "/libmagicdesk_guest_test_task_resources.so")
+        if args.case == "cgroup":
+            check("cgroup fixture directories", "mkdir -p " + root + "/source/bin " + root + "/source/tmp")
+            check("cgroup fixture image", "cp " + root + "/libmagicdesk_guest_resource_guest.so " + root + "/source/bin/test")
+            check("cgroup fixture import", root + "/libmagicdesk_guest_service.so --import "
+                  + root + "/source " + root + "/store")
+            check_cgroups()
+            return
         check("native descriptor publication", root + "/libmagicdesk_guest_fd_handoff.so " + root + "/handoff",
               "PASS native FD publication boundaries")
         if args.case == "fd-handoff":

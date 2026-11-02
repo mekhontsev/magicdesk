@@ -3489,6 +3489,11 @@ static void fd_native_start(struct thread *t) {
             admission=md_process_member_exec(t->resources.process);
         }
     }
+    if (!admission && md_clone_call(r->regs[8]) && !(t->cloning&CLONE_INTO_CGROUP)
+            && t->resources.cgroup && !t->resource_change.next.cgroup) {
+        t->resource_change.next.cgroup=md_cgroup_member_fork(t->resources.cgroup);
+        if (!t->resource_change.next.cgroup) admission=-errno;
+    }
     if (admission) {
         md_resources_unshare_finish(&t->resources,&t->identity,&t->resource_change,admission);
         fd_discard(t); return_value(t,r,admission); return;
@@ -4896,6 +4901,7 @@ static void close_progress(struct thread *t) {
         tracee_request(t,PTRACE_INTERRUPT,NULL,NULL,"close-provider-ready");
 }
 static void close_event_begin(struct thread *t,unsigned event,unsigned long message) {
+    if (event==PTRACE_EVENT_EXIT) md_cgroup_member_account_exit(t->resources.cgroup);
     t->close_event=event; t->close_message=message; t->close_errors=0;
     /* EVENT_WAIT: terminal provider replies before exec continuation/exit.
      * The ptrace event already owns the stop; no guest memory or FD turn is
@@ -9000,7 +9006,7 @@ static int publish_birth(struct thread *t,pid_t child,unsigned event) {
     CHECK(!md_shm_space_release(c->shm_space));
     c->shm_space = md_shm_space_fork(t->shm_space,!!(t->cloning & CLONE_VM)); CHECK(c->shm_space);
     CHECK(!md_resources_release(&c->resources));
-    if (t->resources.fs) CHECK(!md_resources_fork(&t->resources, t->cloning, &c->resources));
+    if (t->resources.fs) CHECK(!md_resources_fork(&t->resources,t->cloning,t->resource_change.next.cgroup,&c->resources));
     CHECK(t->process_reservation);
     c->resources.process=t->process_reservation; t->process_reservation=NULL;
     md_process_member_forked(t->resources.process);

@@ -102,10 +102,10 @@ static void contract(void) {
     struct md_mount_namespace *mounts=md_mount_namespace_new(); assert(mounts);
     assert(!md_resources_init(&parent,mounts));
     md_mount_namespace_release(mounts);
-    assert(!md_resources_fork(&parent, CLONE_FS | CLONE_SYSVSEM, &child));
+    assert(!md_resources_fork(&parent, CLONE_FS | CLONE_SYSVSEM,NULL,&child));
     assert(child.fs == parent.fs && child.sem_undo == parent.sem_undo);
     assert(child.mounts==parent.mounts);
-    assert(!md_resources_fork(&parent, 0, &sibling));
+    assert(!md_resources_fork(&parent, 0,NULL,&sibling));
     assert(sibling.fs != parent.fs && sibling.sem_undo != parent.sem_undo);
     assert(sibling.files!=parent.files);
     assert(sibling.mounts==parent.mounts);
@@ -135,7 +135,7 @@ static void contract(void) {
     assert(!md_domain_chdir_root(child.fs));
     assert(md_domain_restricted(child.fs) && !md_domain_restricted(parent.fs));
     assert(!md_resources_release(&sibling));
-    assert(!md_resources_fork(&child, CLONE_FS, &sibling));
+    assert(!md_resources_fork(&child, CLONE_FS,NULL,&sibling));
     assert(!md_resources_unshare_prepare(&sibling, CLONE_FS,NULL,&change));
     assert(change.next.fs != child.fs);
     assert(!md_resources_unshare_finish(&sibling,NULL,&change, 0));
@@ -158,7 +158,7 @@ static void pending_root_relocation(void) {
     const struct md_fs_location old={.mount=71,.object="11111111111111111111111111111111"};
     const struct md_fs_location next={.mount=72,.object="22222222222222222222222222222222"};
     assert(!md_domain_set_root(parent.fs,&old));
-    assert(!md_resources_fork(&parent,CLONE_FS,&child));
+    assert(!md_resources_fork(&parent,CLONE_FS,NULL,&child));
     struct md_resource_change pending;
     assert(!md_resources_unshare_prepare(&child,CLONE_FS,NULL,&pending));
     assert(pending.next.fs && pending.next.fs!=parent.fs);
@@ -190,7 +190,7 @@ static void pid_resource_transaction(void) {
     assert(!md_resources_unshare_prepare(&owner,CLONE_NEWPID,&identity,&change));
     assert(!md_resources_unshare_finish(&owner,NULL,&change,0));
     assert(owner.pid_children && !owner.pid);
-    assert(!md_resources_fork(&owner,0,&child));
+    assert(!md_resources_fork(&owner,0,NULL,&child));
     assert(child.pid_children==owner.pid_children && !child.pid);
     assert(md_resources_unshare_prepare(&owner,CLONE_NEWPID,&identity,&change)==-EINVAL);
     assert(!md_pid_identity_prepare(child.pid_children,&child.pid));
@@ -212,7 +212,7 @@ static void network_resource_transaction(void) {
     assert(!md_resources_init(&owner,NULL));
     assert(md_resources_clone_supported(CLONE_NEWNET));
     assert(!md_network_namespace_managed(owner.network));
-    assert(!md_resources_fork(&owner,0,&child) && child.network==owner.network);
+    assert(!md_resources_fork(&owner,0,NULL,&child) && child.network==owner.network);
     assert(!md_resources_unshare_prepare(&owner,CLONE_NEWNET,&identity,&change));
     assert(change.next.network && md_network_namespace_managed(change.next.network));
     assert(!md_resources_unshare_finish(&owner,NULL,&change,-EINVAL));
@@ -440,7 +440,7 @@ static void landlock_resources(void) {
     md_landlock_ruleset_release(rules);
     assert(md_landlock_check(parent.landlock,MD_LL_WRITE_FILE,no_landlock_rule,NULL)==-EACCES);
     assert(!md_landlock_check(parent.landlock,MD_LL_READ_FILE,no_landlock_rule,NULL));
-    assert(!md_resources_fork(&parent,CLONE_FILES|CLONE_FS,&child));
+    assert(!md_resources_fork(&parent,CLONE_FILES|CLONE_FS,NULL,&child));
     assert(child.landlock==parent.landlock);
     struct md_task_registry *registry=md_task_registry_create(); assert(registry);
     struct md_identity id=md_identity_new(0,0);
@@ -506,7 +506,7 @@ int main(int argc,char **argv) {
     assert(md_resources_clone_supported(CLONE_NEWIPC));
     assert(!md_resources_clone_supported(CLONE_NEWIPC|CLONE_SYSVSEM));
     struct md_task_resources sibling;
-    assert(!md_resources_fork(&r,0,&sibling) && sibling.uts==r.uts);
+    assert(!md_resources_fork(&r,0,NULL,&sibling) && sibling.uts==r.uts);
     assert(!md_uts_namespace_set(r.uts,0,"parent",6));
     assert(!md_resources_unshare_prepare(&r,CLONE_NEWUTS,&identity,&change));
     assert(change.next.uts && change.next.uts!=r.uts);
