@@ -80,6 +80,7 @@ def main():
         if 'ms-vscode.cpptools' not in installed.lower().splitlines():
             raise RuntimeError('Install ms-vscode.cpptools through the selected code launcher; '
                                'its extension directory is package-specific')
+        report['pidNamespace'] = os.readlink('/proc/self/ns/pid')
         subprocess.run(['gcc', '-g', '-O0', str(project / 'main.c'), '-o', str(project / 'main')], check=True)
         with socket.socket() as listener, (args.output / 'code.log').open('w') as log:
             listener.bind(('127.0.0.1', 0))
@@ -110,6 +111,10 @@ def main():
                     (args.output / 'progress.json').write_text(json.dumps(report, indent=2))
                     if record['stage'] == 'failed':
                         raise AssertionError(record['error'])
+                    if record['stage'] == 'activated':
+                        assert record['pidNamespace'] == report['pidNamespace'], \
+                            'Run the controller and editor in the same PID namespace; ' \
+                            'for Flatpak, run this fixture inside the selected application sandbox'
                     if record['stage'] == 'workspace':
                         editors = [p['id'] for p in record['processes'] if p['type'] == 'browser']
                         assert len(editors) == 1, record['processes']

@@ -84,8 +84,8 @@ under this profile.
 | debian | P/P | P/N | I/N | P/N | P/N | P/N |
 | ubuntu | N/N | N/N | N/N | N/N | N/N | N/N |
 | alpine | P/P | P/N | I/N | P/N | P/N | U/N |
-| fedora | N/N | N/N | N/N | N/N | N/N | N/N |
-| arch | N/N | N/N | N/N | N/N | N/N | N/N |
+| fedora | P/P | P/N | P/N | P/N | N/N | P/N |
+| arch | P/P | P/N | P/N | U/N | N/N | P/N |
 | opensuse | N/N | N/N | N/N | N/N | N/N | N/N |
 | openkylin | N/N | N/N | N/N | N/N | N/N | N/N |
 | deepin | N/N | N/N | N/N | N/N | N/N | N/N |
@@ -95,19 +95,26 @@ under this profile.
 | nixos | N/N | N/N | N/N | N/N | N/N | N/N |
 | steamos | N/N | N/N | N/N | N/N | N/N | N/N |
 
-Container/system coverage comprises Docker, Podman (including ordinary guest
-users), Libvirt/QEMU, BuildKit, LXC and the selected LTP tests. Debian additionally
-passes nspawn/machinectl boot. Recipe graphics covers X11/Wayland application
+Container/system coverage comprises booted Docker and Podman, Libvirt/QEMU,
+BuildKit, LXC and the selected LTP tests. Alpine and Debian additionally cover
+ordinary-user Docker/Podman; Debian, Fedora and Arch pass nspawn/machinectl boot.
+Recipe graphics covers X11/Wayland application
 input/save and Weston, not full desktop acceptance.
 
-Firefox Flatpak passes on both systems, including an Alpine profile relaunch;
-Alpine's native Firefox and Chromium also pass. Flatpak Chromium remains **F**:
-initial hardware WebGL readback succeeds, but the cold launch loses its context
-when the optional render node is unavailable. It is not classified as upstream
-without matching independent evidence. Tracing and native-capability controls
-identify Chromium's software-composition fallback discarding the GPU channel;
-the same loss occurs with a Base browser, without a GPU-process crash. This
-does not pass the cold-start assertion. VS Code editor/watch/PTY/debugger and
+Fedora and Arch pass the complete Firefox/Chromium GUI workflows. Chromium
+also passes profile reuse with the recipe's completion patch in native and
+Flatpak SDK Mesa. Those are incremental lab builds, not APK-only update evidence.
+Their document-portal lifecycle checks pass. Arch VS Code passes the focused
+editor/debugger run, but stock acceptance retains the independently established
+Flatpak FD-allocation collision (**U**).
+
+On Alpine and Debian, Firefox Flatpak passes, including an Alpine profile relaunch;
+Alpine's native Firefox and Chromium also pass. Flatpak Chromium's focused
+completion-owned graphics checks pass on both recipes: fresh-profile WebGL,
+hardware composition, video, reload and normal exit with the bridge denied in
+both client and compositor. Browser acceptance remains **I** until the complete
+input/download/chooser workflow is rerun through the updated APK; these scoped
+receipts do not replace the full GUI fixture. VS Code editor/watch/PTY/debugger and
 renderer sandbox checks pass with software composition in this configuration.
 Alpine's stock document portal retains the documented upstream SIGTERM deadlock
 (**U**); daemon-death auto-unmount passes. Debian's two portal paths pass.
@@ -128,8 +135,8 @@ Cell order: **Shroot (lazy SVC) / Base**; N = not run.
 | debian | P/N | P/N | P/P | P/P | P/N |
 | ubuntu | P/N | P/N | I/N | I/N | P/N |
 | alpine | P/N | P/N | P/P | P/P | P/N |
-| fedora | P/N | P/N | P/N | P/N | P/N |
-| arch | P/N | P/N | P/N | P/N | P/N |
+| fedora | P/N | P/N | P/P | P/P | P/N |
+| arch | P/N | P/N | P/P | P/P | P/N |
 | opensuse | P/N | P/N | P/N | P/N | P/N |
 | openkylin | P/N | P/N | P/N | P/N | P/N |
 | deepin | P/N | P/N | P/N | P/N | P/N |

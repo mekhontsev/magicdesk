@@ -16,7 +16,8 @@ def wait_systemd(probe, check_alive, timeout=90):
         # still be starting; degraded/failed/offline must fail immediately.
         starting = result.returncode == 1 and result.stdout.strip() in ('initializing', 'starting')
         connecting = 'Failed to connect' in result.stderr and any(
-            text in result.stderr for text in ('No such file or directory', 'Connection refused'))
+            text in result.stderr for text in ('No such file or directory', 'Connection refused',
+                                               'Resource temporarily unavailable'))
         assert starting or connecting, result
         remaining = deadline - time.monotonic()
         assert remaining > 0, 'Nested system bus did not become ready'
