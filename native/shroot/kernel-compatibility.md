@@ -926,7 +926,7 @@ retain native errors; arbitrary new guest syscalls are not runtime requirements.
 
 | Interface | First upstream kernel | Owner and purpose | Behavior without it |
 | --- | --- | --- | --- |
-| `DMA_BUF_IOCTL_EXPORT_SYNC_FILE` / `DMA_BUF_IOCTL_IMPORT_SYNC_FILE` | 6.0 | Graphics DMA-BUF fence bridge; `render_device.c` probes allocation/export/poll/import once for a Turnip-enabled launch. `test_render.py` checks admission and typed descriptor behavior; `test_egl_dmabuf.c` and `test_egl_gbm.c` verify GPU completion and exact pixels. Hosted-runtime DMA-BUF tests cover consumption. | A failed probe leaves the optional discovery node absent; the graphics importer rejects unsupported synchronization. Existing SHM paths remain independent. No Shroot startup requirement or raised 5.15 baseline. Kernel version alone does not admit the node. |
+| `DMA_BUF_IOCTL_EXPORT_SYNC_FILE` / `DMA_BUF_IOCTL_IMPORT_SYNC_FILE` | 6.0 | Graphics DMA-BUF fence bridge; `render_device.c` probes allocation/export/poll/import once per Turnip-enabled launch. `test_render.py` checks strict and completion-owned admission; hosted-runtime and Wayland fixtures check GPU ordering, idle release and cancellation. | The `turnip-completion-v1` recipe enables the common Mesa completion fallback plus compositor-held read leases on `ENOTTY`/`ENOSYS`. Legacy DMA-BUF validation and readiness are still required; `EPERM` is not absence. The older `turnip` profile remains bridge-only. Modern ioctls retain the native GPU dependency path. Neither profile is a Shroot startup prerequisite. |
 | `PIDFD_THREAD` | 6.9 | `task_descriptor.c` owns descriptor capture; `task_lifetime.c` owns exact-thread liveness for restricted proc roots. | Try flags zero for the same task. A non-leader rejected with EINVAL is reported as ENOTSUP and uses task-affine SCM_RIGHTS export. Liveness retains `/proc/<tid>/stat` instead: a flags-zero pidfd observes group death, not exact-thread death. Never substitute the leader's file table. |
 | `pidfs` filesystem identity | 6.9 | `fd_filesystem.c` supplies statfs metadata for an actual retained pidfd when Android denies native fstatfs. It identifies the kernel object and compares its superblock with anon_inodefs; it does not grant process access. `test_kernel_baseline.c` compares native and denial-injected results; `test_proc_root_guest.py` covers proc aliases, duplicates, peer pidfds and protected callers. | Older pidfds retain ANON_INODE_FS_MAGIC; no pidfs ioctl, release check or new startup requirement. Non-pidfd denials remain errors. |
 | `SECCOMP_IOCTL_NOTIF_SET_FLAGS` / `SECCOMP_USER_NOTIF_FD_SYNC_WAKE_UP` | 6.6 | `namespace_broker.c`: optional notification scheduling hint. | Failed ioctl leaves normal notification wakeups enabled; no permission or affinity change. Success does not guarantee CPU co-location: the scheduler still owns placement, and not every FD-install completion uses this hint. |
@@ -1028,8 +1028,9 @@ errors. Ordinary native IO does not gain a new interception path.
 The guest contract checks fchmodat2, pidfd namespace handles, ordinary versus
 unique statx mount IDs, independent no_new_privs across exec, removal of the test
 environment variable, and measured lazy SVC completions. The optional render
-fixture checks that missing host fences leave discovery absent without blocking
-the guest launch.
+fixture checks that missing host fences leave discovery absent for a bridge-only
+profile, while the completion-owned recipe admits real DMA-BUF allocations.
+Neither result blocks unrelated guest startup.
 
 The Alpine/Debian [distribution profile matrix](../guest-exec-lab/validation-matrix.md#linux-515-capability-profile)
 records init, containers, graphics, browsers and editor coverage separately from

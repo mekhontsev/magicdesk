@@ -5,10 +5,14 @@ struct wlr_renderer;
 struct wlr_allocator;
 struct wlr_buffer;
 struct wlr_dmabuf_attributes;
+struct wl_event_loop;
 struct wlr_renderer *mdw_renderer_create(bool software_only);
 struct wlr_allocator *mdw_allocator_create(struct wlr_renderer *renderer);
 MdgImage *mdw_buffer_image(struct wlr_buffer *buffer);
 MdgDevice *mdw_renderer_device(struct wlr_renderer *renderer);
+/* Required before admitting completion-owned DMA-BUFs. Event-loop destruction
+ * cancels observation; queued leases survive until graphics-owner teardown. */
+void mdw_renderer_set_event_loop(struct wlr_renderer *renderer, struct wl_event_loop *loop);
 /* Owned source fence after a deferred render pass, otherwise -1. */
 int mdw_renderer_take_deferred_fence(struct wlr_renderer *renderer);
 struct wlr_buffer *mdw_renderer_import_dmabuf(struct wlr_renderer *renderer,

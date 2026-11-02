@@ -479,6 +479,7 @@ bool mdg_vk_submit(MdgPass *pass) {
     VkPipelineStageFlags stages[MDG_MAX_DRAWS + 1];
     for (unsigned i = 0; i < image_count; ++i) {
         bool dma = images[i]->dmabuf_fd >= 0;
+        if (images[i]->lease.retain) continue; /* Readiness checked before recording. */
         if (!dma && images[i]->fence < 0) continue;
         if (wait_count == native->waits) {
             VkSemaphoreCreateInfo info = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};

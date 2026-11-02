@@ -10,6 +10,7 @@
 #include <wlr/render/dmabuf.h>
 #include <wlr/render/interface.h>
 #include <wlr/render/pass.h>
+#include <wlr/util/log.h>
 
 struct Buffer { struct wlr_buffer base; MdgImage *image; struct wlr_dmabuf_attributes dma; };
 struct Allocator { struct wlr_allocator base; MdgDevice *device; };
@@ -34,6 +35,10 @@ struct Renderer {
     struct wl_list textures;
     struct Pass pass;
     int deferred_fd;
+    struct wl_event_loop *loop;
+    struct wl_event_source *completion;
+    struct wl_listener loop_destroy;
+    int completion_fd;
 };
 
 static bool format(uint32_t drm, MdgFormat *result) {
@@ -90,6 +95,57 @@ struct wlr_allocator *mdw_allocator_create(struct wlr_renderer *base) {
     return &allocator->base;
 }
 MdgDevice *mdw_renderer_device(struct wlr_renderer *base) { return ((struct Renderer *)base)->device; }
+static bool observe_completion(void *context);
+static void loop_destroyed(struct wl_listener *listener, void *data) {
+    (void)data;
+    struct Renderer *renderer = wl_container_of(listener, renderer, loop_destroy);
+    mdg_device_set_completion_notify(renderer->device, NULL, NULL);
+    if (renderer->completion) {
+        wl_event_source_remove(renderer->completion);
+        renderer->completion = NULL;
+        close(renderer->completion_fd);
+    }
+    wl_list_remove(&renderer->loop_destroy.link);
+    renderer->loop = NULL;
+}
+void mdw_renderer_set_event_loop(struct wlr_renderer *base, struct wl_event_loop *loop) {
+    struct Renderer *renderer = (void *)base;
+    assert(!renderer->loop || renderer->loop == loop);
+    if (renderer->loop) return;
+    renderer->loop = loop;
+    mdg_device_set_completion_notify(renderer->device, observe_completion, renderer);
+    renderer->loop_destroy.notify = loop_destroyed;
+    wl_event_loop_add_destroy_listener(loop, &renderer->loop_destroy);
+}
+
+static int completion_ready(int fd, uint32_t mask, void *data) {
+    (void)fd; (void)mask;
+    struct Renderer *renderer = data;
+    wl_event_source_remove(renderer->completion);
+    renderer->completion = NULL;
+    close(renderer->completion_fd);
+    mdg_device_collect(renderer->device);
+    if (!observe_completion(renderer))
+        wlr_log(WLR_ERROR, "Cannot observe GPU buffer completion; retaining leases until collection or teardown");
+    return 0;
+}
+static bool observe_completion(void *context) {
+    struct Renderer *renderer = context;
+    if (!renderer->loop) return false;
+    if (renderer->completion) return true;
+    mdg_device_collect(renderer->device);
+    int fd;
+    if (!mdg_device_pending_lease_fence(renderer->device, &fd)) return false;
+    if (fd < 0) return true;
+    /* EVENT_WAIT: actual GPU completion releases source leases, including when
+     * no output needs another frame. Teardown drains work before releasing them. */
+    renderer->completion = wl_event_loop_add_fd(renderer->loop, fd, WL_EVENT_READABLE, completion_ready, renderer);
+    if (!renderer->completion) { close(fd); return false; }
+    renderer->completion_fd = fd;
+    return true;
+}
+static void lease_retain(void *context) { wlr_buffer_lock(context); }
+static void lease_release(void *context) { wlr_buffer_unlock(context); }
 int mdw_renderer_take_deferred_fence(struct wlr_renderer *base) {
     struct Renderer *renderer = (void *)base;
     int fd = renderer->deferred_fd;
@@ -103,12 +159,14 @@ struct wlr_buffer *mdw_renderer_import_dmabuf(struct wlr_renderer *base, const s
     MdgFormat pixel_format;
     if (!attributes || attributes->n_planes != 1 || attributes->modifier != DRM_FORMAT_MOD_LINEAR ||
             attributes->width < 1 || attributes->height < 1 || !format(attributes->format, &pixel_format)) return NULL;
+    struct Buffer *buffer = calloc(1, sizeof(*buffer));
+    if (!buffer) { error->operation = "Wayland buffer allocation"; return NULL; }
     MdgLinearDmaBuf source = {.fd = attributes->fd[0], .width = attributes->width, .height = attributes->height,
         .offset = attributes->offset[0], .stride = attributes->stride[0], .format = pixel_format};
+    if (((struct Renderer *)base)->loop)
+        source.lease = (MdgBufferLease){buffer, lease_retain, lease_release};
     MdgImage *image = mdg_image_linear_dmabuf(mdw_renderer_device(base), &source, error);
-    if (!image) return NULL;
-    struct Buffer *buffer = calloc(1, sizeof(*buffer));
-    if (!buffer) { error->operation = "Wayland buffer allocation"; mdg_image_unref(image); return NULL; }
+    if (!image) { free(buffer); return NULL; }
     if (!wlr_dmabuf_attributes_copy(&buffer->dma, attributes)) {
         error->operation = "Wayland FD retention"; free(buffer); mdg_image_unref(image); return NULL;
     }
@@ -235,6 +293,7 @@ static const struct wlr_drm_format_set *texture_formats(struct wlr_renderer *bas
 static const struct wlr_drm_format_set *render_formats(struct wlr_renderer *base) { return &((struct Renderer *)base)->render_formats; }
 static void destroy(struct wlr_renderer *base) {
     struct Renderer *renderer = (void *)base;
+    if (renderer->loop) loop_destroyed(&renderer->loop_destroy, NULL);
     if (renderer->deferred_fd >= 0) close(renderer->deferred_fd);
     struct Texture *texture, *next;
     wl_list_for_each_safe(texture, next, &renderer->textures, link) texture_destroy(&texture->base);

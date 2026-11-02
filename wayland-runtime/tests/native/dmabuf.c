@@ -23,13 +23,15 @@
 #include <wlr/types/wlr_compositor.h>
 #ifdef __ANDROID__
 #include "dmabuf_producer.h"
+#include "dmabuf_test_filter.h"
 #else
 enum { WIDTH = 33, HEIGHT = 19, STRIDE = 160, OFFSET = 12, ALLOCATION = 65536 };
 #endif
 
 enum { ERROR_CASES = 8, CONNECTIONS = ERROR_CASES + 2 };
+static bool completion_owned;
 struct Server {
-    int sockets[CONNECTIONS][2], stop[2];
+    int sockets[CONNECTIONS][2], stop[2], gate_ready[2];
     struct wl_display *display;
     struct wlr_renderer *renderer;
     struct wlr_buffer *target;
@@ -37,6 +39,9 @@ struct Server {
     unsigned frames;
     bool capable;
     bool software;
+#ifdef __ANDROID__
+    struct Producer gate;
+#endif
 };
 struct Surface {
     struct Server *server;
@@ -48,6 +53,13 @@ static void commit(struct wl_listener *listener, void *data) {
     struct wlr_texture *texture = wlr_surface_get_texture(source);
     if (!texture) return;
     struct Server *s = surface->server;
+#ifdef __ANDROID__
+    bool gated = completion_owned && !s->frames;
+    if (gated) {
+        s->gate.gated = true;
+        mdg_image_set_fence(mdw_buffer_image(s->target), producer_write_explicit(&s->gate, 0, 0, -1));
+    }
+#endif
     void *pixels; uint32_t format; size_t stride;
     assert(!wlr_buffer_begin_data_ptr_access(source->buffer->source,
         WLR_BUFFER_DATA_PTR_ACCESS_READ, &pixels, &format, &stride));
@@ -56,11 +68,14 @@ static void commit(struct wl_listener *listener, void *data) {
     wlr_render_pass_add_texture(pass, &(struct wlr_render_texture_options){
         .texture = texture, .filter_mode = WLR_SCALE_FILTER_NEAREST, .blend_mode = WLR_RENDER_BLEND_MODE_NONE});
     assert(wlr_render_pass_submit(pass));
+    ++s->frames;
+#ifdef __ANDROID__
+    if (gated) return; /* The client must receive sync while the GPU is stalled. */
+#endif
     uint8_t result[WIDTH * HEIGHT * 4];
     assert(mdg_image_read(mdw_buffer_image(s->target), result, WIDTH * 4));
     for (unsigned i = 0; i < WIDTH * HEIGHT; ++i)
         assert(!memcmp(result + i * 4, (uint8_t[]){0x22, 0x11, 0x44, 0xff}, 4));
-    ++s->frames;
     mdg_device_collect(mdw_renderer_device(s->renderer));
 }
 static void surface_destroy(struct wl_listener *listener, void *data) {
@@ -80,6 +95,16 @@ static int stop_server(int fd, uint32_t mask, void *data) {
     (void)fd; (void)mask;
     struct Server *s = data; wl_display_terminate(s->display); return 0;
 }
+static int release_gate(int fd, uint32_t mask, void *data) {
+    (void)mask;
+    struct Server *s = data;
+    char command;
+    assert(read(fd, &command, 1) == 1 && command == 'x');
+#ifdef __ANDROID__
+    assert(s->gate.set_event(s->gate.gpu->device, s->gate.gate) == VK_SUCCESS);
+#endif
+    return 0;
+}
 static void *serve(void *data) {
     struct Server *s = data;
     s->display = wl_display_create(); assert(s->display);
@@ -96,20 +121,35 @@ static void *serve(void *data) {
         const struct wlr_drm_format *format = wlr_drm_format_set_get(
             s->renderer->impl->get_render_formats(s->renderer), DRM_FORMAT_ABGR8888);
         s->target = wlr_allocator_create_buffer(allocator, WIDTH, HEIGHT, format); assert(s->target);
+#ifdef __ANDROID__
+        if (completion_owned) assert(producer_create(&s->gate));
+#endif
     }
     for (unsigned i = 0; i < CONNECTIONS; ++i) assert(wl_client_create(s->display, s->sockets[i][0]));
     struct wl_event_source *stop = wl_event_loop_add_fd(wl_display_get_event_loop(s->display),
         s->stop[0], WL_EVENT_READABLE, stop_server, s); assert(stop);
+    struct wl_event_source *gate = wl_event_loop_add_fd(wl_display_get_event_loop(s->display),
+        s->gate_ready[0], WL_EVENT_READABLE, release_gate, s); assert(gate);
     // EVENT_WAIT: Wayland socket requests drive the fixture; CTest bounds stalled clients.
     wl_display_run(s->display);
-    wl_event_source_remove(stop); wl_list_remove(&s->new_surface.link);
-    wl_display_destroy_clients(s->display); wl_display_destroy(s->display);
+    wl_event_source_remove(stop); wl_event_source_remove(gate); wl_list_remove(&s->new_surface.link);
+    wl_display_destroy_clients(s->display);
     if (s->capable) {
         MdgStats stats = mdg_device_stats(mdw_renderer_device(s->renderer));
         assert(stats.failed_frames == 0 && stats.gpu_frames == s->frames);
         wlr_buffer_drop(s->target); wlr_allocator_destroy(allocator);
     }
+    /* Production destroys the event loop before the renderer. Both orders
+     * must detach completion observers without accessing freed loop memory. */
+    if (completion_owned) wl_display_destroy(s->display);
     wlr_renderer_destroy(s->renderer);
+    if (completion_owned) {
+#ifdef __ANDROID__
+        if (s->capable) producer_destroy(&s->gate);
+#endif
+        return NULL;
+    }
+    wl_display_destroy(s->display);
     return NULL;
 }
 
@@ -209,7 +249,13 @@ static void protocol_error(struct Client *c, int fd, unsigned which) {
 #ifdef __ANDROID__
 static void release(void *data, struct wl_buffer *buffer) { (void)buffer; ++((struct Client *)data)->releases; }
 static const struct wl_buffer_listener buffer_listener = {release};
-static void render_client(struct Client *c, struct Producer *producer) {
+static void write_pixels(struct Producer *producer, uint32_t color) {
+    if (!completion_owned) { producer_write(producer, color, color); return; }
+    int fd = producer_write_explicit(producer, color, color, -1);
+    assert(mdg_wait_fence(fd));
+    if (fd >= 0) close(fd);
+}
+static void render_client(struct Client *c, struct Producer *producer, int gate_fd) {
     uint32_t formats[] = {DRM_FORMAT_ABGR8888, DRM_FORMAT_XBGR8888, DRM_FORMAT_ARGB8888, DRM_FORMAT_XRGB8888};
     struct wl_surface *surface = wl_compositor_create_surface(c->compositor);
     for (unsigned format = 0; format < 4; ++format) {
@@ -225,18 +271,26 @@ static void render_client(struct Client *c, struct Producer *producer) {
         wl_buffer_add_listener(buffer, &buffer_listener, c);
         for (unsigned frame = 0; frame < 32; ++frame) {
             uint32_t color = format < 2 ? 0xff441122 : 0xff221144;
-            producer_write(producer, color, color);
+            write_pixels(producer, color);
             unsigned releases = c->releases;
             wl_surface_attach(surface, buffer, 0, 0); wl_surface_damage_buffer(surface, 0, 0, WIDTH, HEIGHT);
             wl_surface_commit(surface);
             assert(wl_display_roundtrip(c->display) >= 0 && c->releases == releases);
             wl_surface_attach(surface, NULL, 0, 0); wl_surface_commit(surface);
-            assert(wl_display_roundtrip(c->display) >= 0 && c->releases == releases + 1);
+            assert(wl_display_roundtrip(c->display) >= 0);
+            if (completion_owned && format == 0 && frame == 0) {
+                assert(c->releases == releases);
+                assert(write(gate_fd, "x", 1) == 1);
+                /* EVENT_WAIT: idle GPU completion, without another render or
+                 * readback, must release the detached buffer; CTest bounds it. */
+                while (c->releases == releases) assert(wl_display_dispatch(c->display) >= 0);
+            }
+            assert(c->releases == releases + 1);
         }
         wl_buffer_destroy(buffer);
     }
     /* The committed texture must retain its allocation after the protocol object goes away. */
-    producer_write(producer, 0xff441122, 0xff441122);
+    write_pixels(producer, 0xff441122);
     struct zwp_linux_buffer_params_v1 *p = params(c, producer->fd, 0, STRIDE);
     struct wl_buffer *buffer = zwp_linux_buffer_params_v1_create_immed(p, WIDTH, HEIGHT, DRM_FORMAT_ABGR8888, 0);
     zwp_linux_buffer_params_v1_destroy(p);
@@ -255,9 +309,14 @@ static unsigned fd_count(void) {
     closedir(directory); return count;
 }
 int main(int argc, char **argv) {
+    completion_owned = argc > 1 && !strcmp(argv[1], "--completion-owned");
+#ifdef __ANDROID__
+    if (completion_owned) dmabuf_test_deny_bridge(ENOTTY);
+#endif
     bool required = argc > 1 && !strcmp(argv[1], "--required");
     struct Server server = {.software = argc > 1 && !strcmp(argv[1], "--software")};
     assert(pipe(server.stop) == 0);
+    assert(pipe(server.gate_ready) == 0);
     for (unsigned i = 0; i < CONNECTIONS; ++i) assert(socketpair(AF_UNIX, SOCK_STREAM, 0, server.sockets[i]) == 0);
     pthread_t thread; assert(pthread_create(&thread, NULL, serve, &server) == 0);
     struct Client c; connected(&c, server.sockets[0][1], 3);
@@ -271,7 +330,7 @@ int main(int argc, char **argv) {
         import_failure(&c, fake, DRM_FORMAT_MOD_INVALID, 0); import_failure(&c, fake, 0, 1);
 #ifdef __ANDROID__
         struct Producer producer = {.fd = -1}; assert(producer_create(&producer));
-        render_client(&c, &producer); producer_destroy(&producer);
+        render_client(&c, &producer, server.gate_ready[1]); producer_destroy(&producer);
 #endif
         disconnected(&c);
         for (unsigned i = 0; i < ERROR_CASES; ++i) {
@@ -288,6 +347,7 @@ int main(int argc, char **argv) {
     // EVENT_WAIT: server termination releases resources on their owning thread; CTest bounds a stall.
     assert(pthread_join(thread, NULL) == 0);
     close(server.stop[0]); close(server.stop[1]);
+    close(server.gate_ready[0]); close(server.gate_ready[1]);
     printf("DMA-BUF advertised=%d capable=%d rendered=%u\n", supported, server.capable, server.frames); fflush(stdout);
     assert(server.capable == supported && server.frames == (supported ? 130u : 0u));
     puts(supported ? "Wayland DMA-BUF: 130 GPU frames, four formats, async/immediate creation, retention, release and protocol errors passed" :

@@ -14,7 +14,7 @@
 #include <sys/sysmacros.h>
 #include <unistd.h>
 
-static int failure, calls, descriptors[32], count;
+static int failure, calls, descriptors[32], count, bridge_error;
 int __real_stat(const char *,struct stat *);
 int __wrap_stat(const char *path,struct stat *st) {
     if (strcmp(path,"/dev/dri/renderD128")) return __real_stat(path,st);
@@ -31,6 +31,11 @@ int __wrap_ioctl(int fd,unsigned long command,...) {
     assert(fd>=0);
     va_list ap; va_start(ap,command); void *argument=va_arg(ap,void *); va_end(ap);
     if (++calls==failure) { errno=ENOTTY; return -1; }
+    if (command==DMA_BUF_IOCTL_EXPORT_SYNC_FILE && bridge_error) { errno=bridge_error; return -1; }
+    if (command==DMA_BUF_IOCTL_SYNC) {
+        assert(((struct dma_buf_sync *)argument)->flags==UINT64_MAX);
+        errno=EINVAL; return -1;
+    }
     if (command==DMA_HEAP_IOCTL_ALLOC) {
         struct dma_heap_allocation_data *a=argument;
         assert(a->len==4096 && a->fd_flags==(O_RDWR|O_CLOEXEC));
@@ -53,13 +58,13 @@ static void closed(void) {
 int main(void) {
     for (failure=1;failure<=5;++failure) {
         struct md_control_file f={0};
-        assert(md_render_device_admit(&f)<0 && !f.ops);
+        assert(md_render_device_admit(&f,0)<0 && !f.ops);
         assert(calls==failure);
         closed();
     }
     failure=0;
     struct md_control_file f={0};
-    assert(md_render_device_admit(&f)==0 && calls==5 && md_render_device_is_node(f));
+    assert(md_render_device_admit(&f,1)==0 && calls==5 && md_render_device_is_node(f));
     struct stat st;
     assert(!f.ops->stat(f.context,&st) && S_ISCHR(st.st_mode) && st.st_rdev==makedev(226,128));
     struct md_control_ioctl spec;
@@ -77,6 +82,16 @@ int main(void) {
     assert(!f.ops->access(f.context,NULL,R_OK|W_OK));
     int fd=f.ops->descriptor(f.context,O_RDWR); assert(fd>=0); close(fd);
     md_control_file_release(f); closed();
+
+    for (unsigned i=0;i<3;++i) {
+        bridge_error=(int[]){ENOTTY,ENOSYS,EPERM}[i];
+        f=(struct md_control_file){0};
+        assert(md_render_device_admit(&f,0)==-bridge_error && !f.ops); closed();
+        int error=md_render_device_admit(&f,1);
+        if (bridge_error==EPERM) assert(error==-EPERM && !f.ops);
+        else { assert(!error && md_render_device_is_node(f)); md_control_file_release(f); }
+        closed();
+    }
 
     struct md_control_ioctl s={.size=16,.direction=MD_CONTROL_IN|MD_CONTROL_OUT};
     assert(md_control_ioctl_size(&s)==16);

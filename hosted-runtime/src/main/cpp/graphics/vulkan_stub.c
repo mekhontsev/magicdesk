@@ -1,4 +1,5 @@
 #include "graphics_internal.h"
+MdgSubmitResult mdg_dmabuf_ready(MdgImage *image, int *fd) { (void)image; *fd = -1; return MDG_SUBMIT_FAILED; }
 bool mdg_vk_ready(const MdgDevice *device) { (void)device; return false; }
 bool mdg_vk_create(MdgDevice *d) { (void)d; return false; }
 void mdg_vk_destroy(MdgDevice *d) { (void)d; }

@@ -14,6 +14,7 @@ bool mdg_vk_linear_dmabuf(const MdgDevice *device) {
 
 bool mdg_dmabuf_acquire(MdgImage *image, int *owned_fd) {
     *owned_fd = -1;
+    if (image->lease.retain) { errno = ENOTSUP; return false; }
     struct dma_buf_export_sync_file sync = {.flags = DMA_BUF_SYNC_READ, .fd = -1};
     if (ioctl(image->dmabuf_fd, DMA_BUF_IOCTL_EXPORT_SYNC_FILE, &sync) < 0) return false;
     *owned_fd = sync.fd;
@@ -21,6 +22,7 @@ bool mdg_dmabuf_acquire(MdgImage *image, int *owned_fd) {
 }
 
 bool mdg_dmabuf_release(MdgImage *image, int completion_fd) {
+    if (image->lease.retain) return true; /* The queued draw owns the read lease. */
     /* -1 means that Vulkan has already completed these reads. */
     if (completion_fd < 0) return true;
     struct dma_buf_import_sync_file sync = {.flags = DMA_BUF_SYNC_READ, .fd = completion_fd};
@@ -43,7 +45,18 @@ bool mdg_vk_import_dmabuf(MdgImage *image, const MdgLinearDmaBuf *buffer, MdgImp
     if (image->dmabuf_fd < 0) return rejected(error, "fcntl", errno);
     int fence = -1;
     /* Validates a real DMA-BUF with kernel fence export, without CPU mapping or waiting. */
-    if (!mdg_dmabuf_acquire(image, &fence)) return rejected(error, "DMA_BUF_IOCTL_EXPORT_SYNC_FILE", errno);
+    if (!mdg_dmabuf_acquire(image, &fence)) {
+        int code = errno;
+        /* Invalid flags are rejected before the exporter's cache/access hooks.
+         * Unlike START/END this probe cannot wait for active GPU work. */
+        struct dma_buf_sync invalid = {.flags = UINT64_MAX};
+        if ((code != ENOTTY && code != ENOSYS) || !buffer->lease.retain || !buffer->lease.release ||
+                ioctl(image->dmabuf_fd, DMA_BUF_IOCTL_SYNC, &invalid) != -1 || errno != EINVAL)
+            return rejected(error, "DMA_BUF_IOCTL_EXPORT_SYNC_FILE", code);
+        /* Import still validates the allocation with Vulkan. A regular memfd
+         * is not a DMA-BUF, and a permission denial is not an absent feature. */
+        image->lease = buffer->lease;
+    }
     if (fence >= 0) close(fence);
     VkMemoryFdPropertiesKHR properties = {.sType = VK_STRUCTURE_TYPE_MEMORY_FD_PROPERTIES_KHR};
     VkResult result = gpu->GetMemoryFdPropertiesKHR(gpu->device, VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
@@ -121,22 +134,32 @@ void mdg_vk_dmabuf_barrier(Gpu *gpu, Pass *pass, Image *image, bool acquire) {
         0, 0, NULL, 1, &barrier, 0, NULL);
 }
 
+MdgSubmitResult mdg_dmabuf_ready(MdgImage *image, int *wait_fd) {
+    *wait_fd = -1;
+    int fd = image->dmabuf_fd;
+    if (!image->lease.retain && !mdg_dmabuf_acquire(image, &fd)) return MDG_SUBMIT_FAILED;
+    if (fd < 0) return MDG_SUBMIT_OK;
+    struct pollfd event = {.fd = fd, .events = POLLIN};
+    int result;
+    do result = poll(&event, 1, 0); while (result < 0 && errno == EINTR);
+    if (!result) {
+        *wait_fd = image->lease.retain ? fcntl(fd, F_DUPFD_CLOEXEC, 0) : fd;
+        return *wait_fd < 0 ? MDG_SUBMIT_FAILED : MDG_SUBMIT_DEFERRED;
+    }
+    if (!image->lease.retain) close(fd);
+    return result > 0 && (event.revents & POLLIN) && !(event.revents & (POLLERR | POLLHUP | POLLNVAL))
+        ? MDG_SUBMIT_OK : MDG_SUBMIT_FAILED;
+}
+
 MdgSubmitResult mdg_vk_prepare(MdgPass *pass, int *wait_fd) {
     *wait_fd = -1;
     for (unsigned i = 0; i < pass->count; ++i) {
         MdgImage *image = pass->commands[i].draw.image;
         if (!image || image->dmabuf_fd < 0) continue;
         Image *native = image->gpu;
-        if (!native || !native->dma_mapping) continue;
-        int fd;
-        if (!mdg_dmabuf_acquire(image, &fd)) return MDG_SUBMIT_FAILED;
-        if (fd < 0) continue;
-        struct pollfd event = {.fd = fd, .events = POLLIN};
-        int result;
-        do result = poll(&event, 1, 0); while (result < 0 && errno == EINTR);
-        if (!result) { *wait_fd = fd; return MDG_SUBMIT_DEFERRED; }
-        close(fd);
-        if (result < 0 || event.revents != POLLIN) return MDG_SUBMIT_FAILED;
+        if (!native || (!native->dma_mapping && !image->lease.retain)) continue;
+        MdgSubmitResult result = mdg_dmabuf_ready(image, wait_fd);
+        if (result != MDG_SUBMIT_OK) return result;
     }
     return MDG_SUBMIT_OK;
 }

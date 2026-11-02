@@ -165,8 +165,10 @@ replacing the APK; download again to atomically replace `~/install_linux.sh`.
 UID 2000's shell home is `/data/local/tmp/magicdesk/`; root consoles use
 `/data/local/tmp/magicdesk-root/home`. Release tags retain the installer matching
 that release.
-The current installer requires MagicDesk 2.1.2 or newer (`versionCode` 224),
-including the X11 SysV shared-memory bridge used by its software graphics profile.
+The current installer requires MagicDesk 2.2.5 or newer (`versionCode` 232),
+which supplies the completion-owned DMA-BUF consumer required by its Turnip
+profile. The version gate also protects other recipe runtime requirements,
+including the X11 SysV shared-memory bridge used by software graphics.
 Before questions, downloads or environment access, including `--resume`, it
 checks the running app with `magicdesk get_state --field data.app.versionCode`.
 An older version, unavailable CLI or invalid response stops installation without
@@ -543,9 +545,12 @@ a frame copy, not zero-copy presentation.
 For the verified Turnip profile, the recipe enables Shroot's optional GBM
 discovery node through `/etc/shroot/render-node`. At guest startup, access to
 KGSL and the system DMA heap, allocation and sync-file export/import are probed
-once. Failure leaves the node absent and ordinary graphics paths unchanged;
-kernel version alone is not admission. The bridge requires the optional
-post-5.15 DMA-BUF interfaces listed in
+once. The current recipe's `turnip-completion-v1` profile also permits missing
+sync-file bridge ioctls: its Mesa completes GPU access before handoff, and the
+MagicDesk compositor retains read ownership through actual completion. The
+older `turnip` profile still requires the native bridge. Permission denials or
+failed allocation checks leave the node absent; kernel version alone is not
+admission. The optional post-5.15 DMA-BUF interfaces are listed in
 [kernel compatibility](../native/shroot/kernel-compatibility.md#newer-interfaces).
 Shroot chooses an unused `/dev/dri/renderD*` identity and projects matching
 sysfs entries without replacing Android devices. This is a discovery adapter,

@@ -32,10 +32,16 @@ MdgStats mdg_device_stats(const MdgDevice *device) { return device ? device->sta
 void mdg_pass_release(MdgPass *pass) {
     if (pass->completion >= 0) close(pass->completion);
     pass->completion = -1;
-    for (unsigned i = 0; i < pass->count; ++i) mdg_image_unref(pass->commands[i].draw.image);
+    for (unsigned i = 0; i < pass->count; ++i) {
+        MdgImage *image = pass->commands[i].draw.image;
+        MdgBufferLease lease = image ? image->lease : (MdgBufferLease){0};
+        mdg_image_unref(image);
+        if (lease.release) lease.release(lease.context);
+    }
     mdg_image_unref(pass->target);
     pass->target = NULL;
     pass->count = 0;
+    pass->leases = false;
     pass->recording = pass->submitted = false;
 }
 
@@ -173,6 +179,7 @@ bool mdg_image_fence(MdgImage *image, int *owned_fd) {
     *owned_fd = image->fence >= 0 ? fcntl(image->fence, F_DUPFD_CLOEXEC, 0) : -1;
     return image->fence < 0 || *owned_fd >= 0;
 }
+bool mdg_image_completion_owned(const MdgImage *image) { return image && image->lease.retain; }
 void mdg_image_set_fence(MdgImage *image, int owned_fd) {
     if (!image) { if (owned_fd >= 0) close(owned_fd); return; }
     if (image->fence >= 0) close(image->fence);
@@ -246,6 +253,24 @@ int mdg_device_pending_fence(MdgDevice *device) {
     return -1;
 }
 
+void mdg_device_set_completion_notify(MdgDevice *device, bool (*pending)(void *), void *context) {
+    device->completion_pending = pending;
+    device->completion_context = context;
+}
+
+bool mdg_device_pending_lease_fence(MdgDevice *device, int *owned_fd) {
+    *owned_fd = -1;
+    if (!device) return false;
+    for (unsigned i = 0; i < MDG_SLOTS; ++i) {
+        MdgPass *pass = &device->passes[i];
+        if (!pass->submitted || !pass->leases) continue;
+        if (pass->completion < 0) return false;
+        *owned_fd = fcntl(pass->completion, F_DUPFD_CLOEXEC, 0);
+        return *owned_fd >= 0;
+    }
+    return true;
+}
+
 bool mdg_device_available(MdgDevice *device) {
     if (!device) return false;
     mdg_device_collect(device);
@@ -288,6 +313,10 @@ bool mdg_pass_draw(MdgPass *pass, const MdgDraw *draw) {
     command->color[0] = command->color[1] = command->color[2] = 1;
     command->color[3] = draw->opacity;
     mdg_image_ref(draw->image);
+    if (draw->image->lease.retain) {
+        draw->image->lease.retain(draw->image->lease.context);
+        pass->leases = true;
+    }
     return true;
 }
 
@@ -313,7 +342,14 @@ MdgSubmitResult mdg_pass_submit(MdgPass *pass, int *wait_fd) {
         return prepared;
     }
     if (pass->device->gpu && mdg_vk_submit(pass)) {
-        ++pass->device->stats.gpu_frames; pass->recording = false; return MDG_SUBMIT_OK;
+        ++pass->device->stats.gpu_frames;
+        pass->recording = false;
+        MdgDevice *device = pass->device;
+        if (pass->leases && device->completion_pending && !device->completion_pending(device->completion_context)) {
+            ++device->stats.failed_frames;
+            return MDG_SUBMIT_FAILED;
+        }
+        return MDG_SUBMIT_OK;
     }
     if (pass->submitted || (pass->device->gpu && !mdg_vk_ready(pass->device))) {
         ++pass->device->stats.failed_frames;

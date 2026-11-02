@@ -32,8 +32,8 @@ def main():
             output = suite.command(prefix + ['--', '/bin/sh', '-ec',
                 'test ! -e /sys/class/drm; printf "PASS optional render node absent\\n"'])
             assert 'render-node unavailable:' in output and 'PASS optional render node absent' in output
-            suite.report['passed'] = True
-            return
+        suite.command(prefix + ['--', '/bin/sh', '-ec',
+            'printf "turnip-completion-v1\\n" > /etc/shroot/render-node'])
         filename = 'libmagicdesk_guest_test_render_guest.so'
         suite.transport.upload(suite.client, args.build / filename, suite.base + '/' + filename)
         suite.command(['chmod', '755', suite.base, suite.base + '/' + filename])

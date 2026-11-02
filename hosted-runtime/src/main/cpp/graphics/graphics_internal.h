@@ -24,6 +24,7 @@ struct MdgImage {
     int fence;
     int dmabuf_fd;
     uint32_t dmabuf_offset;
+    MdgBufferLease lease;
     bool external;
 };
 struct MdgPass {
@@ -32,7 +33,7 @@ struct MdgPass {
     MdgCommand commands[MDG_MAX_DRAWS];
     unsigned count;
     float clear[4];
-    bool preserve, recording, submitted;
+    bool preserve, recording, submitted, leases;
     int completion;
     void *gpu;
 };
@@ -41,6 +42,8 @@ struct MdgDevice {
     char name[256];
     char description[512];
     MdgStats stats;
+    bool (*completion_pending)(void *context);
+    void *completion_context;
     MdgPass passes[MDG_SLOTS];
 };
 
@@ -57,6 +60,7 @@ bool mdg_vk_image(MdgImage *image);
 bool mdg_vk_linear_dmabuf(const MdgDevice *device);
 bool mdg_vk_import_dmabuf(MdgImage *image, const MdgLinearDmaBuf *buffer, MdgImportError *error);
 bool mdg_dmabuf_acquire(MdgImage *image, int *owned_fd);
+MdgSubmitResult mdg_dmabuf_ready(MdgImage *image, int *wait_fd);
 MdgSubmitResult mdg_vk_prepare(MdgPass *pass, int *wait_fd);
 void mdg_vk_image_destroy(MdgImage *image);
 bool mdg_vk_submit(MdgPass *pass);

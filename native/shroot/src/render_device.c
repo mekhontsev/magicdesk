@@ -43,7 +43,7 @@ int md_render_device_restore(unsigned minor,struct md_control_file *out) {
     int fd=open("/dev/dma_heap/system",O_RDONLY|O_CLOEXEC);
     return fd<0 ? -errno : create(fd,minor,out);
 }
-int md_render_device_admit(struct md_control_file *out) {
+int md_render_device_admit(struct md_control_file *out,int completion_owned) {
     /* Never replace an actual DRM render device. KGSL remains the GPU owner. */
     struct stat st; unsigned number;
     for (number=128;number<192;++number) {
@@ -63,6 +63,22 @@ int md_render_device_admit(struct md_control_file *out) {
     int buffer=error ? -1 : (int)allocation.fd;
     struct dma_buf_export_sync_file exported={.flags=DMA_BUF_SYNC_RW,.fd=-1};
     if (!error && ioctl(buffer,DMA_BUF_IOCTL_EXPORT_SYNC_FILE,&exported)) error=-errno;
+    if (completion_owned && (error==-ENOTTY || error==-ENOSYS) && buffer>=0) {
+        /* A prepared Mesa completes GPU access before protocol handoff; its
+         * consumer retains the buffer through completion. Do not admit this
+         * contract for an older recipe or reinterpret a permission denial. */
+        struct dma_buf_sync invalid={.flags=UINT64_MAX};
+        if (ioctl(buffer,DMA_BUF_IOCTL_SYNC,&invalid)==-1 && errno==EINVAL) {
+            struct pollfd ready={.fd=buffer,.events=POLLOUT};
+            int r=poll(&ready,1,0);
+            error=r<0 ? -errno : r==1 && (ready.revents&POLLOUT)
+                && !(ready.revents&(POLLERR|POLLHUP|POLLNVAL)) ? 0 : -EIO;
+            if (!error) {
+                close(buffer);
+                return create(heap,number,out);
+            }
+        }
+    }
     if (!error) {
         struct pollfd ready={.fd=exported.fd,.events=POLLIN};
         int r=poll(&ready,1,0);

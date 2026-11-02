@@ -2313,6 +2313,26 @@ packages ninja meson pkgconf
         self.assertNotIn('MDWSI', patch)
         self.assertNotIn('+   wsi_device->sw =', patch)
 
+    @unittest.skipUnless(shutil.which('cc') and shutil.which('pkg-config'), 'Host C toolchain required')
+    def test_mesa_completion_contract_and_native_fast_path(self):
+        available = subprocess.run(['pkg-config', '--exists', 'libdrm'], check=False)
+        if available.returncode:
+            self.skipTest('libdrm development headers required')
+        patch = self.run_script('--print-mesa-patch').stdout
+        start = patch.index('--- /dev/null\n+++ b/src/util/dmabuf_completion.h\n')
+        header_patch = patch[start:].split('\n--- a/', 1)[0] + '\n'
+        subprocess.run(['patch', '-p1', '-d', str(self.directory)], input=header_patch,
+                       text=True, capture_output=True, check=True)
+        includes = self.directory / 'drm-uapi'
+        includes.mkdir()
+        (includes / 'dma-buf.h').write_text('#include <linux/dma-buf.h>\n')
+        flags = shlex.split(subprocess.check_output(['pkg-config', '--cflags', 'libdrm'], text=True))
+        source = SCRIPT.parent / 'tests/mesa_dmabuf_completion.c'
+        binary = self.directory / 'completion-test'
+        subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', *flags,
+                        '-I', str(self.directory), str(source), '-o', str(binary)], check=True)
+        subprocess.run([str(binary)], check=True)
+
     def test_gpu_recipe_is_fingerprinted_and_independent_of_parallelism(self):
         import hashlib
         for gpu, jobs in [("turnip", "2"), ("turnip", "4"), ("software", "2")]:
@@ -2536,7 +2556,7 @@ packages ninja meson pkgconf
                 self.assertEqual(accepted, result.returncode == 0, result.stderr)
                 if accepted:
                     self.assertIn("MESA_LOADER_DRIVER_OVERRIDE=zink", profile.read_text())
-                    self.assertEqual('turnip\n', (self.directory / 'etc-shroot/render-node').read_text())
+                    self.assertEqual('turnip-completion-v1\n', (self.directory / 'etc-shroot/render-node').read_text())
                     for path, name in (('etc-vulkan/icd.d/magicdesk-turnip.aarch64.json', 'libvulkan_freedreno.so'),
                                        ('etc-glvnd/egl_vendor.d/10_magicdesk.json', 'libEGL_mesa.so.0')):
                         manifest = self.directory / path
