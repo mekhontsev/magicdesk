@@ -14,6 +14,13 @@ struct md_fs_request;
 struct md_fs_result;
 struct md_fs_output;
 struct md_control_file;
+/* Immutable mount policy, captured once and retained across graph transfers. */
+struct md_procfs_policy { uint32_t hidepid, pidonly, gid, pressure; };
+const struct md_procfs_policy *md_procfs_tree_policy(const struct md_provider_tree *);
+struct md_provider_tree *md_procfs_tree_new(int parent,int lower,const struct md_procfs_policy *);
+int md_procfs_policy_valid(const struct md_procfs_policy *);
+int md_procfs_export(const struct md_provider_tree *,struct md_procfs_policy *);
+struct md_provider_tree *md_procfs_import(int upper,const struct md_procfs_policy *);
 int md_fs_proc_control_stat(struct md_filesystem *,struct md_control_file,struct stat *);
 int md_fs_proc_task(struct md_filesystem *,struct md_fs_anchor *,const char *,
     const struct md_fs_request *,struct md_fs_result *,const struct md_fs_output *);

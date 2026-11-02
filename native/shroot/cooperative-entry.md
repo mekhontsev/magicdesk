@@ -339,9 +339,10 @@ the data FD; the worker reserves its origin update before any effect.
 The same plan covers plain native mounts and selected inode objects reached
 through bind or copied mount views. Reopening a selected inode shares the
 catalogue's permission, readonly and COW owner; private bodies do not start a
-write transaction merely to reopen. O_PATH|O_NOFOLLOW directory plans retain
-the flag through `fd/.`; non-directories and directories lacking native search
-permission decline before effects and keep exact descriptor transfer.
+write transaction merely to reopen. Directory plans retain O_NOFOLLOW through
+`fd/`, without an additional search-permission requirement on that directory.
+Non-directory O_PATH|O_NOFOLLOW opens retain exact descriptor transfer.
+Ordinary and task-affine deferred directory opens use the same path/flag owner.
 
 Native-leaf path resolution can retain the final O_PATH descriptor and its fresh
 fstat together, avoiding a separate pathname stat followed by reopening. The

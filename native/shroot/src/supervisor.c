@@ -1,4 +1,7 @@
 #define _GNU_SOURCE
+#ifdef MD_KERNEL_TESTING
+#include "kernel_profile.h"
+#endif
 #include "fd_native_pin.h"
 #include "watch_calls.h"
 #include "file_permissions.h"
@@ -3998,14 +4001,29 @@ static int selector_has(struct thread *t,unsigned kind,int number) {
         }
     return 1;
 }
+static int task_files_queued(const struct thread *p) {
+    /* The table turn has not begun, so none of these owners may execute
+     * task-affine work yet. Keep eligibility tied to resource state, not to
+     * a syscall family or a scheduler's retry bit. */
+    const struct md_fd_order *turns[]={&p->fd_order,&p->proc_lookup,&p->memory_files,
+        &p->metadata.files,&p->buffer_descriptor_order,&p->buffer_return.files,
+        &p->proc_delivery.files,p->readiness ? &p->readiness->files : NULL,
+        p->readiness ? &p->readiness->delivery.files : NULL,
+        p->outgoing ? &p->outgoing->files : NULL,p->receive ? &p->receive->files : NULL,
+        p->mapping ? &p->mapping->files : NULL};
+    for (unsigned i=0;i<sizeof(turns)/sizeof(*turns);++i)
+        if (md_fd_order_state(turns[i])==MD_RESOURCE_ORDER_QUEUED) return 1;
+    return md_fs_buffer_waiting_files(p->buffer_call)
+        || md_fs_buffer_waiting_files(p->metadata.stat_call);
+}
 static int task_action_borrowable(struct thread *p,struct thread *requester) {
     /* A queued table user is stopped before its operation. Other candidates
      * retain their exact kernel continuation. Never borrow an active worker,
      * mutation or newborn awaiting its first stop. */
-    int waiter=p->kernel_stopped && (p->retries[1].mask==RETRY_FD
-        || (p->phase==PROC_LOOKUP && md_fd_order_state(&p->proc_lookup)==MD_RESOURCE_ORDER_QUEUED)
-        || (p->readiness && md_fd_order_state(&p->readiness->files)==MD_RESOURCE_ORDER_QUEUED)
+    int waiter=p->kernel_stopped && (task_files_queued(p)
         || (p->action && !task_action_call(p->action)->stage));
+    int mapping_active=p->mapping
+        && md_fd_order_state(&p->mapping->files)!=MD_RESOURCE_ORDER_QUEUED;
     int traced=md_debugger_traced(debugger,p->pid);
     /* A debugger can share files with its stopped inferior (crash collectors
      * commonly do). Its own parked request is the only control owner, so the
@@ -4020,7 +4038,7 @@ static int task_action_borrowable(struct thread *p,struct thread *requester) {
     int debug_running=traced && md_debugger_running(debugger,p->pid);
     return p->ready && !birth_stop_pending(p) && !p->resume_lost && !p->terminal_stop
         && !p->listening && !p->vfork_child && !p->interrupt_pending && !p->signal_return_pending
-        && !p->mapping && !p->memory_capture && !p->fd_running && (!traced || debug_held || debug_running)
+        && !mapping_active && !p->memory_capture && !p->fd_running && (!traced || debug_held || debug_running)
         && (waiter || debug_held || (p->freezer_resume && debugger_at_boundary(p))
             || (!p->kernel_stopped && (p->phase==IDLE || p->phase==DISPATCHING
             || p->phase==WATCH_READ || p->phase==EPOLL_WAIT || p->phase==PROCESS_OBSERVING)));
@@ -9487,6 +9505,9 @@ static int memory_repair(struct thread *t,const struct user_pt_regs *returned,in
     return 1;
 }
 int main(int argc, char **argv) {
+#ifdef MD_KERNEL_TESTING
+    int kernel_profile=md_test_kernel_profile_prepare(argc,argv);
+#endif
     CHECK(argc >= 2 && md_launch_identity(getuid(), geteuid(), getgid(), getegid()));
     md_page_size = (size_t)sysconf(_SC_PAGESIZE);
     CHECK(md_page_size >= 4096 && md_page_size <= 65536 && !(md_page_size & (md_page_size - 1)));
@@ -9640,6 +9661,11 @@ int main(int argc, char **argv) {
         CHECK(read(channel[1], &byte, 1) == 1 && byte == 'g'); close(channel[1]);
         execv(argv[argument], argv + argument); _exit(127);
     }
+#ifdef MD_KERNEL_TESTING
+    /* Restrict only native owners. The guest must retain Shroot interception
+     * and must not inherit a test filter or its no_new_privs state. */
+    CHECK(!md_test_kernel_profile_install(kernel_profile));
+#endif
     thread(leader)->born = 1;
     /* A caller can install filters before starting Shroot. Treat inherited
      * no_new_privs conservatively: its ERRNO rules can outrank service TRACE
@@ -10157,7 +10183,7 @@ int main(int argc, char **argv) {
                 int delivery=cookie==MD_INTERCEPT_CAPTURE && (int)regs.regs[4]==MD_FS_BUFFER_SOURCE;
                 int capture_flags=delivery ? t->buffer_open.fd>=0
                     && regs.regs[2]==(unsigned long)(t->buffer_open.completion.kind==MD_OPEN_CALLER
-                        ? md_open_endpoint_flags((int)t->buffer_open.flags)
+                        ? t->buffer_open.flags
                         : O_PATH|(t->buffer_open.flags&(O_CLOEXEC|O_DIRECTORY|O_NOFOLLOW)))
                     && regs.regs[1]==md_memory_buffer_address(t->memory,&t->buffer)+offsetof(struct md_fs_buffer_frame,source)
                     : (regs.regs[2]==(O_PATH|O_CLOEXEC) || regs.regs[2]==(O_PATH|O_DIRECTORY|O_CLOEXEC))

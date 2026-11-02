@@ -694,7 +694,7 @@ static int native_offer(struct operation *op) {
         }
         n->args[0]=(uint64_t)(int64_t)AT_FDCWD;
         n->args[2]=md_open_plan_path(c->native_path,op->owner->process,
-            (unsigned)md_fs_anchor_fd(op->output_origin),op->request.flags);
+            (unsigned)md_fs_anchor_fd(op->output_origin),op->request.flags,op->result.open_completion.mode);
     } else memcpy(n->args,op->notification.data.args,sizeof(n->args));
     if (op->owner->counts) {
         if (n->number==SYS_openat) ++op->owner->native_open;

@@ -25,7 +25,7 @@ def main():
     assert state.get('networkProfile') in ('routed', 'host'), (
         'The external port observer requires Android loopback access; start the '
         'fixture with --network-profile routed (containers still use private bridges)')
-    suite = Suite(args.session.parent)
+    suite = Suite(args.session.parent, session=state)
     observer = Observer()
     tag = uuid.uuid4().hex
     suite.report.update(engine=args.engine, session=state['id'], environment=state['environment'],

@@ -357,7 +357,6 @@ int md_inode_plan_reopen(struct md_inode_store *s, int original, int flags, int 
     if (!r && (fd=mdi_backing_open(s,&node,deferred || device || native_plan ? O_PATH : flags))<0) r=fd;
     struct stat st;
     if (!r && native_plan) r=mdi_backing_fstat(&node,fd,&st);
-    if (!r && native_plan) r=md_open_plan_access(fd,flags);
     if (!r && (flags&O_DSYNC) && (!native_plan || s->write_transaction)) s->sync_requested=1;
     r = mdi_finish(s, r);
     if (r && fd >= 0) close(fd);

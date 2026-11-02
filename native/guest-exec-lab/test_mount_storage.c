@@ -58,7 +58,7 @@ static void planned(struct md_filesystem *fs,const char *path,unsigned flags,con
         && r.open_completion.backing_inode==(uint64_t)st.st_ino);
     if (flags&O_PATH) {
         char path[64];
-        unsigned native=md_open_plan_path(path,0,(unsigned)md_fs_anchor_fd(origin),flags);
+        unsigned native=md_open_plan_path(path,0,(unsigned)md_fs_anchor_fd(origin),flags,st.st_mode);
         int fd=open(path,native); assert(fd>=0);
         struct stat actual; assert(!fstat(fd,&actual) && actual.st_ino==st.st_ino && actual.st_dev==st.st_dev);
         assert(fcntl(fd,F_GETFL)==(int)(flags&~O_CLOEXEC)); close(fd);

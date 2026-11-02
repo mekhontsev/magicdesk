@@ -5,11 +5,12 @@ or a claim that all tests are automated. Keep every distribution printed by
 `sh scripts/install_linux.sh --list` in every table. Results do not transfer
 between distributions sharing a package manager, libc or init system.
 
-Last reconciled: 2026-11-01. Current device evidence uses NX809J, Android 16,
+Last reconciled: 2026-11-02. Current device evidence uses NX809J, Android 16,
 Linux 6.12.23, 4 KiB pages and Android shell UID 2000. This does not cover the
 minimum supported kernel 5.15, other firmware or Android root execution.
 
 - [Reading Results](#reading-results)
+- [Linux 5.15 Capability Profile](#linux-515-capability-profile)
 - [Installation And Init](#installation-and-init)
 - [Containers And Virtual Machines](#containers-and-virtual-machines)
 - [Packaged Browsers And Portals](#packaged-browsers-and-portals)
@@ -68,6 +69,49 @@ P applies only to the native hashes, package versions and configuration in its
 receipt. Staged native builds do not certify the installed APK. Rerun affected
 cells after common runtime changes; do not promote older receipts to the new
 build or use aggregate unit-test success as application acceptance.
+
+## Linux 5.15 Capability Profile
+
+These results are separate from the ordinary-kernel tables below. The fixture
+restricts Shroot's native owners with `linux-5.15` on the device above; it does
+not emulate a 5.15 kernel, its scheduling or firmware permissions. Each receipt
+retains the applied profile and staged helper hashes. The installed APK's
+graphics and automation services are unchanged. Other recipes are untested
+under this profile.
+
+| Recipe ID | Init/service lifecycle | Containers/system workloads | Browsers | VS Code | Recipe graphics | Portal |
+| --- | --- | --- | --- | --- | --- | --- |
+| debian | P/P | P/N | I/N | P/N | P/N | P/N |
+| ubuntu | N/N | N/N | N/N | N/N | N/N | N/N |
+| alpine | P/P | P/N | I/N | P/N | P/N | U/N |
+| fedora | N/N | N/N | N/N | N/N | N/N | N/N |
+| arch | N/N | N/N | N/N | N/N | N/N | N/N |
+| opensuse | N/N | N/N | N/N | N/N | N/N | N/N |
+| openkylin | N/N | N/N | N/N | N/N | N/N | N/N |
+| deepin | N/N | N/N | N/N | N/N | N/N | N/N |
+| manjaro | N/N | N/N | N/N | N/N | N/N | N/N |
+| void | N/N | N/N | N/N | N/N | N/N | N/N |
+| armtix | N/N | N/N | N/N | N/N | N/N | N/N |
+| nixos | N/N | N/N | N/N | N/N | N/N | N/N |
+| steamos | N/N | N/N | N/N | N/N | N/N | N/N |
+
+Container/system coverage comprises Docker, Podman (including ordinary guest
+users), Libvirt/QEMU, BuildKit, LXC and the selected LTP tests. Debian additionally
+passes nspawn/machinectl boot. Recipe graphics covers X11/Wayland application
+input/save and Weston, not full desktop acceptance.
+
+Firefox Flatpak passes on both systems, including an Alpine profile relaunch;
+Alpine's native Firefox and Chromium also pass. Flatpak Chromium remains **F**:
+initial hardware WebGL readback succeeds, but the cold launch loses its context
+when the optional render node is unavailable. It is not classified as upstream
+without matching independent evidence. Tracing and native-capability controls
+identify Chromium's software-composition fallback discarding the GPU channel;
+the same loss occurs with a Base browser, without a GPU-process crash. This
+does not pass the cold-start assertion. VS Code editor/watch/PTY/debugger and
+renderer sandbox checks pass with software composition in this configuration.
+Alpine's stock document portal retains the documented upstream SIGTERM deadlock
+(**U**); daemon-death auto-unmount passes. Debian's two portal paths pass.
+See [profile receipts](distribution-evidence.md#linux-515-capability-profile).
 
 ## Installation And Init
 

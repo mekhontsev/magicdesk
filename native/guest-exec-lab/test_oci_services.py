@@ -6,10 +6,12 @@ controls fixtures; every Linux process runs through the APK's UID 2000 executor.
 Services bind loopback, use private instances and leave no running processes.
 """
 import argparse
+import base64
 import hashlib
 import http.client
 import importlib.util
 import json
+import os
 from pathlib import Path
 import queue
 import shlex
@@ -20,6 +22,7 @@ import threading
 import time
 import tomllib
 import uuid
+from kernel_profile import KernelProfile
 
 NAMES = ('nginx', 'redis', 'postgres', 'python', 'node', 'caddy', 'mariadb',
          'httpd', 'memcached', 'java', 'php', 'ruby', 'dotnet')
@@ -103,6 +106,7 @@ class Server:
         self.suite.report['servers'].append({'command': self.command, 'log': ''.join(self.log),
                                             'result': self.result, 'error': self.error})
         assert not self.process.is_alive() and not self.reader.is_alive(), 'fixture owner still active'
+        self.suite.kernel_profile.observe(''.join(self.log), required=True)
 
 
 def add_machine_entry_argument(parser):
@@ -114,7 +118,13 @@ def add_machine_entry_argument(parser):
 
 
 class Suite:
-    def __init__(self, output, build=None, machine_entry=None):
+    def __init__(self, output, build=None, machine_entry=None, kernel_profile=None, session=None):
+        if session is not None and kernel_profile is None:
+            kernel_profile = os.environ.get('SHROOT_TEST_KERNEL_PROFILE',
+                session.get('kernelProfile', {}).get('profile', 'native'))
+        self.kernel_profile = KernelProfile(kernel_profile)
+        if self.kernel_profile.options and not build and session is None:
+            raise ValueError('Kernel profiles require an explicit fixture build, not installed APK helpers')
         output.mkdir(parents=True, exist_ok=True)
         repo = Path(__file__).resolve().parents[2]
         spec = importlib.util.spec_from_file_location('transport', repo / 'scripts/mcp-client.py')
@@ -131,6 +141,7 @@ class Suite:
                        'uid': 2000, 'images': [], 'commands': [], 'servers': [], 'cases': [], 'passed': False}
         self.entry_options = ([] if machine_entry is None else
                               ['--env', 'SHROOT_MACHINE_ENTRY=' + ('1' if machine_entry else '0')])
+        self.report['kernelProfile'] = self.kernel_profile.evidence
         self.report['entryMode'] = 'default' if machine_entry is None else ('lazy' if machine_entry else 'base')
         if machine_entry:
             self.entry_options.append('--statistics')
@@ -141,12 +152,26 @@ class Suite:
         self.image = None
         try:
             self.command(['mkdir', self.base])
-            if build:
+            if session is not None:
+                assert build is None, 'Use the retained session build, not a second runtime'
+                self.runner = session['runner']
+                self.image = (session['directory'] + '/libmagicdesk_guest_image.so'
+                              if session.get('nativeBuild') else None)
+                self.report.update(session=session['id'], nativeBuild=session.get('nativeBuild'),
+                    nativeHashes=session.get('nativeHashes'), entryMode=session.get('entryMode', 'default'))
+                self.kernel_profile.bind_session(
+                    lambda argv: self.command(argv, quiet=True, raw=True), session)
+            elif build:
                 hashes = self.stage_runtime(build, self.base)
                 self.runner = self.base + '/libmagicdesk_guest_run.so'
                 self.image = self.base + '/libmagicdesk_guest_image.so'
                 self.report['nativeBuild'] = str(build)
                 self.report['nativeHashes'] = hashes
+                self.kernel_profile.prepare(lambda argv: self.command(argv, quiet=True),
+                                            self.base + '/libmagicdesk_guest_supervisor.so')
+                self.runner = self.kernel_profile.stage_launcher(
+                    lambda source, target: self.transport.upload(self.client, source, target),
+                    lambda argv: self.command(argv, quiet=True), self.runner)
             else:
                 self.runner = self.command(['/system/bin/sh', '-c', 'command -v shroot']).strip()
         except Exception as error:
@@ -167,6 +192,8 @@ class Suite:
         return hashes
 
     def image_command(self, *args):
+        if args and args[0] in ('run', 'exec', 'login'):
+            args = (*args[:2], *self.kernel_profile.options, *args[2:])
         return [self.image, *args] if self.image else [self.runner, 'image', *args]
 
     def installed_environment(self, name):
@@ -184,17 +211,21 @@ class Suite:
                                      self.config['http_headers']['Authorization'].removeprefix('Bearer '),
                                      timeout=270, request_timeout=240)
 
-    def command(self, argv, quiet=False, timeout=180, expected=0):
+    def command(self, argv, quiet=False, timeout=180, expected=0, raw=False):
         text = shlex.join(['timeout', '-k', '15', str(timeout), *map(str, argv)])
         self.client.request_timeout = timeout + 30
         result = self.client.call('console.execute', {'sessionId': self.console, 'command': text},
                                   deadline=time.monotonic() + timeout + 30)
         self.report['commands'].append({'command': text, **result})
         self.record_entry(result['output'])
+        if self.kernel_profile.options and not raw and '--test-kernel-profile' not in argv:
+            launching = (self.runner in argv and '--store' in argv
+                         or self.image in argv and any(action in argv for action in ('run', 'exec', 'login')))
+            self.kernel_profile.observe(result['output'], required=launching and result['exitCode'] == 0)
         if not quiet:
             print(result['output'], end='', flush=True)
         assert result['exitCode'] == expected, result
-        return result['output']
+        return result['output'] if raw or '--test-kernel-profile' in argv else self.kernel_profile.output(result['output'])
 
     def prepare(self, name, layout):
         base = self.base + '/' + name
@@ -212,6 +243,18 @@ class Suite:
         self.report['images'].append({'name': name, 'index': json.loads((layout / 'index.json').read_text()),
                                      'inspection': info, 'directory': base})
         return base + '/instance'
+
+    def stdout(self, argv):
+        # console.execute merges both streams. Frame query data so diagnostics
+        # remain visible in the receipt without becoming JSON, paths or file data.
+        script = ('output=$(mktemp "$1/stdout.XXXXXX") || exit; shift; '
+                  'trap \'rm -f "$output"\' EXIT; "$@" >"$output"; status=$?; '
+                  'printf "\\nSHROOT_TEST_STDOUT "; base64 "$output" | tr -d "\\n"; '
+                  'printf "\\n"; exit "$status"')
+        output = self.command(['/system/bin/sh', '-c', script, 'stdout', self.base, *argv], quiet=True)
+        encoded, = [line.removeprefix('SHROOT_TEST_STDOUT ') for line in output.splitlines()
+                    if line.startswith('SHROOT_TEST_STDOUT ')]
+        return base64.b64decode(encoded, validate=True).decode()
 
     def run(self, store, *options):
         return self.image_command('run', store, *self.entry_options, *options)
@@ -737,6 +780,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path)
     parser.add_argument('--build', type=Path, help='Explicit native build instead of installed APK helpers')
+    KernelProfile.add_argument(parser)
     parser.add_argument('--controls', action='store_true',
                         help='Explicit controls: nginx stderr directive and redis --user redis, not default-entrypoint passes')
     for name in NAMES:
@@ -745,7 +789,7 @@ def main():
         group.add_argument('--' + name + '-instance', help='Explicit disposable prepared instance on device')
     args = parser.parse_args()
     assert any(getattr(args, name) or getattr(args, name + '_instance') for name in NAMES)
-    suite = Suite(args.output, args.build)
+    suite = Suite(args.output, args.build, kernel_profile=args.kernel_profile)
     suite.report['controls'] = args.controls
     try:
         for name, test in (('nginx', nginx), ('redis', redis), ('postgres', postgres),

@@ -76,6 +76,14 @@ int md_task_call_begin(struct md_task_call *f,long (*operation)(int,pid_t,void *
     if (!error && expected!=observed.op) error=-EINVAL;
     if (!error && (boundary==MD_TASK_CALL_ENTRY || boundary==MD_TASK_CALL_SECCOMP || boundary==MD_TASK_CALL_EMULATED_ENTRY)
             && (resume->pc<4 || observed.instruction_pointer!=resume->pc)) error=-EINVAL;
+    if (!error && (boundary==MD_TASK_CALL_ENTRY || boundary==MD_TASK_CALL_SECCOMP)) {
+        /* An owner can already have cancelled this entry. x8 still describes
+         * the original syscall, not the kernel's independent skip state. */
+        int active;
+        struct iovec span={&active,sizeof(active)};
+        error=trace(f,PTRACE_GETREGSET,(void *)NT_ARM_SYSTEM_CALL,&span);
+        if (!error) f->cancelled_entry=active==-1;
+    }
     int restarting=0;
     if (!error && boundary==MD_TASK_CALL_EXIT) {
         long value=(long)resume->regs[0];
@@ -108,6 +116,7 @@ int md_task_call_begin(struct md_task_call *f,long (*operation)(int,pid_t,void *
 }
 static int finish(struct md_task_call *f,int restore) {
     int error=restore ? regs(f,PTRACE_SETREGSET,&f->saved) : 0;
+    if (!error && f->cancelled_entry) error=number(f,-1);
     if (!error) error=trace(f,PTRACE_SETSIGMASK,(void *)sizeof(f->mask),&f->mask);
     if (!error && f->restarting) {
         /* The first restart consumed the interrupt's pending kernel work.

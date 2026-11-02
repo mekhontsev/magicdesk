@@ -439,7 +439,10 @@ retain the complete mount walker. This adds no per-operation mount scan.
 
 Host projection roots cross supervisor boundaries as typed mount graph entries
 with retained temporary-tree leases, not flattened native directories. CPU
-read-only policy survives import and publisher exit. Private device/control
+read-only policy and proc mount options (`hidepid`, canonical `gid`, `subset`)
+survive import and publisher exit. Proc transfers retain the captured PSI
+availability and PID namespace; the receiver does not reprobe or flatten them
+into host paths. Private device/control
 owners, projection subroot sources and attachment points in the native lower
 tree remain explicitly nonportable. Such local mounts publish an unavailable
 revision before queuing restricted Android descriptors; removing them restores

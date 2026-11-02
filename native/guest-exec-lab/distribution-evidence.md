@@ -23,9 +23,144 @@ regression tests instead of accumulating an incident history.
 - [SteamOS](#steamos)
 - [NixOS](#nixos)
 - [Shared Evidence](#shared-evidence)
+- [Linux 5.15 Capability Profile](#linux-515-capability-profile)
 
 NixOS recipe/activation and pending graphical acceptance are tracked in the
 [matrix's NixOS section](validation-matrix.md#nixos-recipe-and-initial-image-probes).
+
+## Linux 5.15 Capability Profile
+
+The 2026-11-02 profile run uses NX809J, Android 16, kernel 6.12.23, shell UID
+2000 and fixture helpers from `build/shroot-image-tests`. The `linux-5.15`
+restriction applies to native Shroot owners, not guest-visible kernel emulation.
+It is not a real-kernel-5.15 certification. Exact build hashes and activation
+markers belong to each receipt; staged builds changed during validation.
+
+System-workload manifests are under `build/kernel-profile-matrix/NAME/` for
+`alpine-turnip` and `debian-turnip`: `docker`, `podman`, `libvirt`, `qemu`,
+`buildkit`, `lxc`, `ltp` and Debian's `nspawn`/`machinectl` JSON files identify
+the command and passing receipt. Package lifecycle covers apk tree and dpkg
+hello install/reinstall, verification and removal. Boot/service receipts:
+
+| Recipe | Lazy SVC | Base |
+| --- | --- | --- |
+| Alpine OpenRC | `boot-lazy/oci-services-a7e939102749429ca53df870dfcff94b.json` | `boot-base/oci-services-516c4281beaf44c3afb651172688660e.json` |
+| Debian systemd | `boot-lazy-bridge/oci-services-8129313e3e13497aaaceb23e2a21307d.json` | `boot-base/oci-services-058d181d75c748c9813f76fba303a6b2.json` |
+
+Debian uses a private bridge for default boot, binfmt and networkd IPv6; this
+does not bypass the routed host-port restriction. Ordinary-user Docker receipts
+under `build/shroot-image-tests/` are `5180341ae60245f4a1484c04e4d15bf8` (Alpine)
+and `165855d707ba492faeda75d65a8d6dbc` (Debian). Ordinary-user Podman receipts
+under `build/podman-results/` are `df76535a65fc4baab301a45c27bf364d` and
+`d96dfd27b7bd48928468b19fcc23024b`, respectively.
+
+Final booted-engine receipts under `build/installed-NAME/` cover stock service
+startup, local networking and lifecycle with the profile active:
+
+| Recipe | Docker receipt ID | Podman receipt ID |
+| --- | --- | --- |
+| Alpine | `f42933f7d11f4456a2507a5f4fc5747d` | `fa729d781f864e13a3264117c0914a8d` |
+| Debian | `d063464ed99b47bead97b696155675f0` | `240b722d28d14c0ba5667aac9d0f7afe` |
+
+GUI reports are under `build/installed-NAME/`. Both systems pass
+`kernel515-firefox-flatpak/gui-report.json`; Alpine also passes
+`kernel515-firefox-relaunch-final`, `kernel515-firefox-native` and
+`kernel515-chromium-native`. VS Code passes in Alpine's
+`kernel515-vscode-stock/gui-report.json` and Debian's
+`kernel515-vscode-final/gui-report.json`, including editor/save/watch, PTY,
+reload, GDB and UID 1000 renderer seccomp/no_new_privs checks. The optional
+render-node fallback uses software composition; successful editing does not
+certify hardware composition.
+
+Both `kernel515-chromium-flatpak/gui-report.json` receipts remain failed:
+input, download, chooser and initial Turnip green-pixel readback pass, but
+`webglContext` fails after a cold-start context loss. Retained assertions are
+unchanged.
+
+The scoped Debian Chromium 156.0.8078.47 comparison is under
+`build/webgl-context/`; each directory retains `report.json`, `browser.log`,
+`trace.json` and the normal browser exit status:
+
+| Control | Artifact directory | Initial WebGL context |
+| --- | --- | --- |
+| 5.15 profile, lazy SVC | `default515` | Lost after successful Turnip readback |
+| 5.15 profile, Base browser | `base515` | Same loss |
+| 5.15 profile, explicit software composition | `software515` | Retained; WebGL still uses Turnip |
+| Native capabilities, discovery node enabled | `native-node-on` | Retained; GPU composition enabled |
+| Native capabilities, discovery node disabled at guest startup | `native-node-off` | Same loss |
+| Node disabled, page requests context restoration | `native-node-off-restore` | Restored with correct pixels after about one second |
+
+All controls retain the browser sandbox, report zero GPU-process crashes and
+retain the context after page reload. The Base and native-node-off traces show
+`viz.mojom.CompositingModeWatcher` immediately before `OnContextLost` in the
+affected renderer. This interface's only method is
+`CompositingModeFallbackToSoftware`; the
+[matching Chromium renderer source](https://github.com/chromium/chromium/blob/156.0.8078.47/content/renderer/render_thread_impl.cc#L1244)
+calls `gpu_->LoseChannel()`. The evidence identifies a cold-start composition
+fallback, not a lazy-SVC dependency. It does not establish an independent
+upstream reproduction or qualify stock cold-start acceptance. Software
+composition is a diagnostic control, not a recipe override. The guest's
+render-node configuration is restored; no fence-admission check is bypassed.
+
+The independent [explicit-fence fixture](../../docs/graphics.md#validation)
+demonstrates real GPU-to-GPU `SYNC_FD` ordering with the two new DMA-BUF
+ioctls denied. Android Vulkan and Mesa 26.2.3 Turnip interoperate in both
+directions; local repeated-run receipts are under `build/dmabuf-515/`.
+This native transport probe is not a Chromium/Flatpak acceptance result and
+does not change either failed cold-start matrix cell.
+
+The completion-wait prototype uses stock Flatpak Chromium 156.0.8078.47 with
+the recipe's Mesa 26.2.3 Zink/Turnip and a standalone native MagicDesk Wayland
+compositor. Test-only interposers deny both new DMA-BUF ioctls with seccomp,
+wait on real GPU completion before returning from fence publication, and use
+DMA-BUF polling only for previously published dependencies. Browser sandboxing
+and hardware composition remain enabled. `build/webgl-context/compat-motion-*`
+retains alternating native-bridge and completion-wait runs: cold start, reload,
+moving WebGL content, sampled compositor pixels and host CPU-frequency evidence.
+Two alternating runs per mode retain the context at cold start and reload,
+with zero GPU-process crashes. The completion-wait compositor renders 1,882
+frames across its two runs; sampled frames contain the expected moving red
+stripe and green canvas. Measured page cadence is 57.2-57.7 fps versus
+56.2-57.0 fps for the native bridge on this lightly loaded, approximately
+60-Hz standalone host. This is not a throughput or tail-latency guarantee:
+the prototype's consumer still blocks for about 0.9 ms per published read
+completion in the sampled 512-operation intervals.
+`build/dmabuf-515/{sync_wait_shim.c,wait_server.c}` and
+`build/webgl-context-probe.py` retain the isolated prototype; none is an APK
+runtime or a recipe override. This is not full 5.15-profile acceptance: native
+Shroot discovery still admits the render node using the host bridge before the
+client restriction, and the test compositor uses shell UID 2000, not app UID.
+Production admission remains unchanged. Event-driven consumer completion,
+producer-contract admission and cross-UID integration remain required; blocking
+ioctl interposition must not become the production mechanism.
+
+Debian portal receipts `kernel515-portal-{graceful,auto}.json` pass.
+Alpine's `build/kernel-profile-alpine-portal-auto.log` records successful FUSE
+auto-unmount; `kernel-profile-alpine-portal-stack.log` captures the stock
+SIGTERM handler blocked in `g_main_loop_quit`, matching its documented upstream
+defect. This is U, not a pass.
+
+Recipe graphics receipts under each profile directory are
+`recipe-graphics/oci-services-7cc6805fac5d4a649e1b2684301ab3df.json` (Alpine)
+and `recipe-graphics/oci-services-c173db79cae848b8b7f35d02c065319d.json` (Debian):
+X11/Wayland input/save, pixels, viewer detach/reopen and owned cleanup.
+
+The functional gates include 186 filesystem-buffer checks, filesystem exports
+in both entry modes, and coverage for capture, IPC origins, protected service
+calls and mount graph transfer. Receipts are
+`build/shroot-image-tests/resource-*-results.json`;
+the Python harness suite reports 278 tests with three skips in
+`build/kernel515-python-final.log`.
+
+The ordinary-kernel performance control is separate from profile acceptance:
+`build/kernel515-performance/oci-services-4a457fd4245e4d119bb9a380b60049d9.json`
+contains five interleaved pairs against `cb007722`, lazy SVC, four consecutive
+1024-operation blocks, identical guest binaries and compiler settings, without
+CPU pinning or timing diagnostics. Current/reference loop-time ratios are
+0.955 for stat, 0.897 for open/close and 0.874 for the file cycle. Command-envelope
+CPU residency is recorded per sample; median policy0 frequencies are 1427/1437
+MHz and policy6 frequencies 891/888 MHz. This run shows no file-path regression;
+it does not establish a universal speedup or older-kernel performance.
 
 ## Debian
 

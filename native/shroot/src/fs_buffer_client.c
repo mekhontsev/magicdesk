@@ -86,9 +86,7 @@ static long receive_result(struct md_fs_buffer_frame *frame, const struct md_fs_
                 && (!(frame->source_flags&O_PATH)
                     || (frame->source_flags&~(O_PATH|O_CLOEXEC|O_DIRECTORY|O_NOFOLLOW)))) result=-EPROTO;
         else {
-            long fd=md_guest_open_anchor(AT_FDCWD,frame->source,
-                transfer==MD_FS_BUFFER_CALLER_OPEN ? md_open_endpoint_flags(q->flags)
-                    : frame->source_flags,0,MD_FS_BUFFER_SOURCE);
+            long fd=md_guest_open_anchor(AT_FDCWD,frame->source,frame->source_flags,0,MD_FS_BUFFER_SOURCE);
             if (fd>=0 && frame->source_verify) {
                 struct stat st;
                 long checked=RAW2(fstat,fd,&st);

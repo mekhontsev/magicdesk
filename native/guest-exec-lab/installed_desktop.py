@@ -190,9 +190,9 @@ def main():
             store = info['store']
             entry = 'SHROOT_MACHINE_ENTRY=' + ('0' if args.entry == 'base' else '1')
             prefix = [suite.runner, '--store', store, '--user', '0:0', '--env', entry]
-            system = suite.command(prefix + ['--env', 'LC_ALL=C', '--', '/bin/sh', '-ec',
+            system = suite.stdout(prefix + ['--env', 'LC_ALL=C', '--', '/bin/sh', '-ec',
                 'if [ -e /nix/var/nix/profiles/system ]; then '
-                '/nix/var/nix/profiles/system/sw/bin/readlink -f /nix/var/nix/profiles/system; fi'], quiet=True).strip()
+                '/nix/var/nix/profiles/system/sw/bin/readlink -f /nix/var/nix/profiles/system; fi']).strip()
             assert not system or (system.startswith('/nix/store/') and '\n' not in system), system
         except Exception as error:
             suite.report['preparationFailure'] = repr(error)
@@ -235,10 +235,11 @@ def main():
             statefile.write_text(json.dumps(state, indent=2))
             wait_controller(state)
             state['ready'] = True
+            suite.kernel_profile.bind_session(lambda argv: suite.command(argv, quiet=True, raw=True), state)
             statefile.write_text(json.dumps(state, indent=2))
             print(statefile)
             return
-        account = suite.command(prefix + ['--', binary + '/getent', 'passwd', args.user], quiet=True).strip().split(':')
+        account = suite.stdout(prefix + ['--', binary + '/getent', 'passwd', args.user]).strip().split(':')
         assert len(account) == 7 and account[0] == args.user, 'Expected the selected guest account'
         state['userUid'] = int(account[2])
         assert state['userUid'] > 0, 'Desktop fixtures require an ordinary guest account'
@@ -341,6 +342,7 @@ export WAYLAND_DISPLAY=/tmp/magicdesk-wayland/wayland-0
         wait_controller(state)
         wait_controller(state, user=True)
         state['ready'] = True
+        suite.kernel_profile.bind_session(lambda argv: suite.command(argv, quiet=True, raw=True), state)
         statefile.write_text(json.dumps(state, indent=2))
         print(statefile)
         return

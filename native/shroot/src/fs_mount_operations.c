@@ -52,9 +52,12 @@ static int reopen_admitted(int fd, struct md_view_mount *mount, int flags,
         /* Proc access depends on the caller's task and dumpability. Retain
          * the admitted object and mount; complete the kernel open in that
          * caller, through the same ownership path as controlling terminals. */
+        struct stat st;
+        if (fstat(fd,&st)) return -errno;
         opened=fcntl(fd,F_DUPFD_CLOEXEC,3);
         if (opened<0) return -errno;
         completion->kind=MD_OPEN_CALLER;
+        completion->mode=st.st_mode&S_IFMT;
     }
     return opened;
 }
@@ -509,7 +512,6 @@ static void native(struct md_filesystem *fs, const struct md_fs_request *q,
              * No creation, typed endpoint or provider operation is speculative. */
             if (a->fd<0 || !md_open_native_kind(flags,existing.st_mode)) { r=-EXDEV; break; }
             if ((flags&O_CREAT) && S_ISDIR(existing.st_mode)) { r=-EISDIR; break; }
-            if ((r=md_open_plan_access(a->fd,flags))) break;
             out->fd=fcntl(a->fd,F_DUPFD_CLOEXEC,3);
             if (out->fd<0) { r=-errno; break; }
             out->open_completion=(struct md_open_completion){.kind=MD_OPEN_PLAN,

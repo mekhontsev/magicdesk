@@ -102,8 +102,8 @@ def main():
             try:
                 assert not launches(), 'Unexpected guest owner'
                 entry = configparser.ConfigParser(interpolation=None)
-                entry.read_string(suite.command(run + ['/bin/cat',
-                    '/usr/local/share/applications/magicdesk-' + entry_name + '.desktop'], quiet=True))
+                entry.read_string(suite.stdout(run + ['/bin/cat',
+                    '/usr/local/share/applications/magicdesk-' + entry_name + '.desktop']))
                 values = entry['Desktop Entry']
                 protocol = values['X-MagicDesk-Graphics']
                 desktop = values.get('X-MagicDesk-GraphicsMode') == 'desktop'
@@ -166,8 +166,8 @@ def main():
                 wait('task_focused', taskId=host['taskId'], displayId=display['id'])
                 wait('app_ready', taskId=host['taskId'], displayId=display['id'])
                 if desktop:
-                    check['componentPids'] = until(lambda: suite.command(run + ['/bin/sh', '-c',
-                        'test ! -f "$1" || cat "$1"', 'sh', ready_file], quiet=True), bool, 'desktop components')
+                    check['componentPids'] = until(lambda: suite.stdout(run + ['/bin/sh', '-c',
+                        'test ! -f "$1" || cat "$1"', 'sh', ready_file]), bool, 'desktop components')
                 def capture():
                     snapshot = next(s for s in client.call('graphics.list')['sessions'] if s['sessionId'] == session)
                     if not any(h.get('content') and h['content']['width'] > 0 for h in snapshot['hosts']):
@@ -183,7 +183,7 @@ def main():
                 if not desktop:
                     for keys in (['CTRL_LEFT', 'A'], ['G'], ['U'], ['I'], ['ENTER'], ['CTRL_LEFT', 'S']):
                         client.call('input.key_chord', {'displayId': display['id'], 'keys': keys})
-                    check['savedText'] = until(lambda: suite.command(run + ['/bin/cat', document], quiet=True),
+                    check['savedText'] = until(lambda: suite.stdout(run + ['/bin/cat', document]),
                                               lambda value: value == 'gui\n', 'editor input/save')
                     png, snapshot, metrics = until(capture, bool, 'edited client pixels')
                 path = args.output / (suite.report['id'] + '-' + entry_name + '.png')

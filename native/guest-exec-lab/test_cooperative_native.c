@@ -9,9 +9,11 @@
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/ptrace.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
@@ -56,6 +58,28 @@ static void string_operands(void) {
 }
 
 static void open_admission(void) {
+    char directory[]="native-directory-XXXXXX";
+    assert(mkdtemp(directory));
+    int pin=open(directory,O_PATH|O_CLOEXEC); assert(pin>=0);
+    assert(!chmod(directory,0400));
+    const unsigned modes[]={O_RDONLY,O_PATH};
+    for (unsigned removed=0;removed<2;++removed) {
+        if (removed) assert(!rmdir(directory));
+        for (unsigned m=0;m<2;++m) for (unsigned d=0;d<2;++d) {
+            unsigned flags=modes[m]|O_NOFOLLOW|(d ? O_DIRECTORY : 0);
+            char path[64];
+            unsigned planned=md_open_plan_path(path,0,(unsigned)pin,flags,S_IFDIR);
+            for (unsigned route=0;route<2;++route) {
+                int fd=route ? md_open_pinned(pin,(int)flags) : open(path,(int)planned);
+                assert(fd>=0 && (fcntl(fd,F_GETFL)&~O_LARGEFILE)==(int)flags);
+                struct stat actual,original;
+                assert(!fstat(fd,&actual) && !fstat(pin,&original));
+                assert(actual.st_dev==original.st_dev && actual.st_ino==original.st_ino);
+                assert(!close(fd));
+            }
+        }
+    }
+    assert(!close(pin));
     for (unsigned i=0;i<8;++i) {
         unsigned flags=O_PATH | (i&1 ? O_DIRECTORY : 0) | (i&2 ? O_CLOEXEC : 0)
             | (i&4 ? O_NOFOLLOW : 0);
@@ -67,8 +91,8 @@ static void open_admission(void) {
         assert(md_open_native_kind(flags,S_IFREG)==!(flags&O_NOFOLLOW));
         assert(!md_open_native_kind(flags,S_IFLNK));
         char path[64];
-        unsigned opened=md_open_plan_path(path,123,456,flags);
-        assert(opened==flags && !strcmp(path,flags&O_NOFOLLOW ? "/proc/123/fd/456/." : "/proc/123/fd/456"));
+        unsigned opened=md_open_plan_path(path,123,456,flags,S_IFDIR);
+        assert(opened==flags && !strcmp(path,flags&O_NOFOLLOW ? "/proc/123/fd/456/" : "/proc/123/fd/456"));
     }
     assert(md_open_native_plan(O_RDONLY|O_NOFOLLOW,0));
     assert(md_open_native_plan(O_CREAT|O_EXCL|O_RDWR,1));

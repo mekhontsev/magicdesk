@@ -441,6 +441,45 @@ Readback fixtures cover software/GPU pixels, target reuse, replacement and
 cancellation before producer completion. Its default capability skip is distinct from a pass;
 `--required` makes unavailable DMA-BUF support a test failure.
 
+`graphics-dmabuf-explicit-test` checks a possible synchronization transport,
+not an enabled compositor fallback. Before either Vulkan device is created,
+seccomp denies the two Linux 6.0 DMA-BUF sync-file ioctls. Two processes then
+exchange real buffer and `SYNC_FD` descriptors over `SCM_RIGHTS`. GPU gates
+check both acquire ordering and queued reuse before reader completion; CPU
+readback verifies all 64 frames. Polling the DMA-BUF itself is observed separately:
+it can report ready while the explicit GPU fences remain pending. Neither
+that observation nor CPU cache synchronization replaces a missing dependency.
+
+By default both processes use the production Android Vulkan device. Optional
+`MDG_TEST_PRODUCER_VULKAN` and `MDG_TEST_CONSUMER_VULKAN` absolute loader paths
+select test-only headless devices, allowing Mesa/Turnip interoperability checks
+without requiring Android surface extensions from the Linux-oriented loader.
+Set `VK_DRIVER_FILES` for that loader as usual; these variables have no effect
+outside this fixture. The native-device variant supports `--required` as above.
+
+NX809J/API 36/kernel 6.12.23 passes Android/Android, Turnip/Android,
+Android/Turnip and Turnip/Turnip with Mesa 26.2.3 and the ioctls denied. This
+does not certify a physical 5.15 device, cross-UID permissions, Flatpak or a
+Wayland protocol. Production DMA-BUF admission still requires the implicit
+bridge. An explicit transport needs per-commit acquire fences and consumer
+completion/reuse ownership across every participating client and compositor.
+Chromium 156 and Mesa 26.2.3 use `linux-drm-syncobj-v1` for Wayland explicit
+synchronization; adding only the older sync-file protocol would not supply
+that path. Chromium also has a
+[worker-fence-wait fallback](https://github.com/chromium/chromium/blob/156.0.8078.47/ui/ozone/platform/wayland/gpu/gbm_surfaceless_wayland.cc#L174),
+but that alone does not establish the receiver's completion contract or remove
+Zink's shared-buffer implicit-fence dependency.
+
+A separate Chromium/Zink completion-wait prototype retains GPU composition
+without these two ioctls in either the browser or a standalone native Wayland
+compositor. The producer waits for its actual GPU completion before publishing
+the buffer; the consumer completes its reads before releasing ownership.
+DMA-BUF polling alone is not this protocol. This is research evidence, not an
+enabled fallback: production integration must avoid blocking the compositor
+event loop and explicitly establish the cooperating producer/consumer contract.
+The [distribution evidence](../native/guest-exec-lab/distribution-evidence.md#linux-515-capability-profile)
+records the sandboxed browser, pixel checks, controls and remaining scope.
+
 `wayland-dmabuf-test` exercises protocol advertisement, asynchronous/immediate
 creation, invalid requests, all four GPU-produced formats, scene retention,
 release and destruction of client protocol objects. Its software case checks

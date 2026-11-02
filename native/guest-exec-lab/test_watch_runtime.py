@@ -8,6 +8,7 @@ from pathlib import Path
 import shlex
 import tomllib
 import uuid
+from kernel_profile import KernelProfile
 
 
 def main():
@@ -18,7 +19,9 @@ def main():
     parser.add_argument("--gio", type=Path, help="Linux GIO fixture binary; requires --userspace")
     parser.add_argument("--contracts", action="store_true", help="Also run inode, importer and filesystem RPC regressions")
     parser.add_argument("--user", default="2000:2000", help="Guest UID:GID for all guest launches")
+    KernelProfile.add_argument(parser)
     args = parser.parse_args()
+    profile = KernelProfile(args.kernel_profile)
     repo = Path(__file__).resolve().parents[2]
     spec = importlib.util.spec_from_file_location("transport", repo / "scripts/mcp-client.py")
     transport = importlib.util.module_from_spec(spec)
@@ -29,18 +32,22 @@ def main():
     assert state["shell"]["uid"] == 2000
     tag = uuid.uuid4().hex
     directory = "/data/local/tmp/md-watch-runtime-" + tag
-    runner = directory + "/libmagicdesk_guest_run.so --user " + shlex.quote(args.user)
+    runner_path = directory + '/libmagicdesk_guest_run.so'
+    runner = shlex.join([runner_path, '--user', args.user])
     report = {"id": tag, "directory": directory, "app": state["app"], "device": state["device"],
               "uid": 2000, "guestUser": args.user, "productionAdapter": True,
               "checks": [], "uploads": [], "passed": False}
     console = client.call("console.open", {"directory": "/data/local/tmp"})["sessionId"]
+    report['kernelProfile'] = profile.evidence
 
     def command(value):
         result = client.call("console.execute", {"sessionId": console, "command": value})
         report["checks"].append({"command": value, **result})
         print(result["output"], end="", flush=True)
         assert result["exitCode"] == 0, result
-        return result["output"]
+        if '--test-kernel-profile' not in value:
+            profile.observe(result['output'], required=runner_path in value and '--store' in value)
+        return result['output'] if '--test-kernel-profile' in value else profile.output(result['output'])
 
     try:
         command("mkdir -p " + directory + "/rootfs/bin " + directory + "/rootfs/tmp")
@@ -53,6 +60,10 @@ def main():
             target = directory + ("/rootfs/bin/watch" if name == "watch_guest" else "/" + binary)
             report["uploads"].append(transport.upload(client, args.build / binary, target))
             command("chmod 700 " + target)
+        profile.prepare(lambda argv: command(shlex.join(argv)), directory + '/libmagicdesk_guest_supervisor.so')
+        runner_path = profile.stage_launcher(lambda source, target: transport.upload(client, source, target),
+                                            lambda argv: command(shlex.join(argv)), runner_path)
+        runner = shlex.join([runner_path, '--user', args.user])
         if args.rootfs:
             report["uploads"].append(transport.upload(client, args.rootfs, directory + "/rootfs.tar.gz"))
             command("tar -xzf " + directory + "/rootfs.tar.gz -C " + directory + "/rootfs")
@@ -80,10 +91,10 @@ def main():
         command("timeout 60 " + runner + " --store "
                 + directory + "/store -- /bin/watch churn")
         command("timeout 60 " + directory + "/libmagicdesk_guest_watch_launch.so "
-                + directory + "/libmagicdesk_guest_run.so " + directory + "/store --user " + shlex.quote(args.user))
+                + shlex.quote(runner_path) + " " + directory + "/store --user " + shlex.quote(args.user))
         command("timeout 30 " + directory + "/libmagicdesk_guest_watch_store.so " + directory + "/store-unit")
         for entry in (0, 1):
-            command("timeout 60 " + directory + "/libmagicdesk_guest_run.so --user 0:0"
+            command("timeout 60 " + shlex.quote(runner_path) + " --user 0:0"
                     + f" --env SHROOT_MACHINE_ENTRY={entry} --store " + directory
                     + "/store -- /bin/watch quotas")
         if args.contracts:
@@ -92,7 +103,7 @@ def main():
                         + directory + "/contract-" + name)
         if args.gio:
             command("timeout 30 " + directory + "/libmagicdesk_guest_watch_launch.so "
-                    + directory + "/libmagicdesk_guest_run.so " + directory + "/store gio --user " + shlex.quote(args.user))
+                    + shlex.quote(runner_path) + " " + directory + "/store gio --user " + shlex.quote(args.user))
         if args.userspace:
             output = command("timeout 30 env PATH=/usr/bin:/bin " + runner + " --statistics --store "
                     + directory + "/store --home /tmp --cwd / -- /usr/bin/dbus-run-session -- "

@@ -26,7 +26,7 @@ def main():
     if args.prepare or args.archive:
         run_fixture(args.session, 'buildkit-service', [state['init'], args.archive or '-'],
                     [args.archive] if args.archive else [])
-    suite = Suite(args.session.parent)
+    suite = Suite(args.session.parent, session=state)
     tag = uuid.uuid4().hex
     suite.report.update(session=state['id'], environment=state['environment'],
                         nativeHashes=state.get('nativeHashes'), entryMode=state.get('entryMode', 'lazy'))

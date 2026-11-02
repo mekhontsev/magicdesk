@@ -965,13 +965,79 @@ proc capture, descriptor export and full helper reaping. Only then does the prob
 release its lease and report readiness. These guest-only checks do not initialize
 the filesystem worker or affect independent shell services.
 
-`test_resources.py --case kernel-baseline` masks PIDFD_THREAD with EINVAL and
-executes the resource model plus production private-thread proc capture and
-mapped descriptor/data/import workflows. Exact-task handle cases include
+### Host Kernel Profiles
+
+Fixture builds (`MAGICDESK_GUEST_FIXTURES=ON`) support `linux-5.15` through
+`native/guest-exec-lab/kernel_profile.c`. Release builds contain neither the
+profile implementation nor the supervisor startup hooks. The profile does not
+change the storage format, APK requirements, guest uname or selected executor.
+
+The supervisor consumes the test selection before forking the guest, then
+installs a seccomp filter only in its parent branch, before starting host worker
+threads. All those native owners inherit the ceiling. The guest inherits neither
+this filter nor its `no_new_privs`; lazy SVC, emulated operations, application
+filters and guest credential transitions retain their ordinary admission paths.
+Applying an ERRNO filter around the whole Shroot command would instead outrank
+guest TRACE/USER_NOTIF and invalidate that test.
+
+The profile rejects ARM64 syscall numbers from 449 onward with ENOSYS, and
+selectively masks PIDFD_THREAD, notification synchronous wake, newer notification
+flags, DMA-BUF fence export/import, pidfd namespace ioctls, PROCMAP_QUERY,
+executable/non-executable memfd flags, AT_EXECVE_CHECK and socket pidfd options.
+The table supplies each interface's expected errno, not a generic permission
+denial. Baseline pidfd_open, memfd, socket options and ordinary ioctl remain
+available. The syscall ceiling follows the
+[5.15 ARM64/generic syscall table](https://github.com/torvalds/linux/blob/v5.15/include/uapi/asm-generic/unistd.h).
+
+Profile admission checks the actual selectors in a disposable child using
+distinct probe-only error values, so existing host errors cannot masquerade as
+a working filter. Each supervised launch verifies the installed production-error
+form and emits `SHROOT_KERNEL_PROFILE` with the real host kernel. Test runners
+retain this evidence separately from guest output and reject missing admission.
+The probe-only errors never enter a supervised workload.
+
+`kernel_profile.py` owns runner selection and a disposable executable launcher.
+`--kernel-profile linux-5.15` is available on the resources, watches, systemd,
+OCI services and render runners. Other runners using `test_oci_services.Suite`
+can select it with `SHROOT_TEST_KERNEL_PROFILE=linux-5.15`. They require an
+explicit fixture build; installed APK helpers are not silently substituted.
+Native controls and standalone component tests remain unmodified unless
+explicitly run with `kernel_baseline --host NATIVE-FIXTURE`.
+
+This is a host capability ceiling, not a kernel emulator. Existing syscall
+semantics, pidfs identity, statx result masks, scheduling, SELinux and guest-native
+passthrough still come from the actual kernel. It does not certify a real 5.15
+device or emulate every newer flag. Structured-result behavior needs focused
+owner tests rather than a blanket syscall denial. Add newly owned dependencies
+to the inventory and extend this profile or their focused tests as appropriate.
+Profile timings include the test filter and measure fallback costs on the actual
+host, not predicted 5.15 performance.
+
+`test_resources.py --case kernel-baseline` compares native capabilities and this
+profile, with both Base and lazy SVC. It executes the resource model plus
+production private-thread proc capture and mapped descriptor/data/import
+workflows. Exact-task handle cases include
 ordinary/nondumpable tasks, independent non-leader file tables, retained handle
 copies and dead-task observation after reaping. The resource model checks
 restricted proc roots belonging to live non-leaders and copies of those roots.
 Fallback proc handles are opened once and inspected on demand, not periodically.
+Read capture also covers non-leader inotify IO and a native stream reusing a
+watch-selected descriptor, with lazy SVC enabled and disabled. Missing capture
+support selects the existing task-affine path; genuine descriptor errors remain
+errors. Ordinary native IO does not gain a new interception path.
+The guest contract checks fchmodat2, pidfd namespace handles, ordinary versus
+unique statx mount IDs, independent no_new_privs across exec, removal of the test
+environment variable, and measured lazy SVC completions. The optional render
+fixture checks that missing host fences leave discovery absent without blocking
+the guest launch.
+
+The Alpine/Debian [distribution profile matrix](../guest-exec-lab/validation-matrix.md#linux-515-capability-profile)
+records init, containers, graphics, browsers and editor coverage separately from
+real-kernel acceptance. Focused epoll admission tests combine shared FD tables,
+different filter groups, queued file/mapping/metadata/IPC operations and
+already-cancelled syscall entries. Protected proc exports exercise exact open
+flags and full-table behavior in Base and lazy SVC. Mount graph tests retain
+proc visibility and PSI policy across exec peers and publisher exit.
 
 The same suite injects missing pidfd, faccessat2, seccomp, close_range, private
 clone and ADDFD operations. ADDFD also covers EINVAL and EACCES. Each rejected

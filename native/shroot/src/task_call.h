@@ -14,6 +14,8 @@ struct md_task_call_arguments { long number; unsigned long value[6]; };
  * syscall exit and a synthetic interrupt, never a forced application signal.
  * EMULATED_ENTRY retains a SYSEMU entry's kernel skip state; unlike an ordinary
  * ENTRY it cannot execute a replacement syscall before draining the skipped exit.
+ * Ordinary ENTRY/SECCOMP also preserve an owner's explicit syscall cancellation,
+ * independently of x8 and the emulated result held in x0.
  * At a restart exit,
  * the kernel first recovers its private original arguments at a stopped entry.
  * Re-entry uses the stable call gate, restoring the original PC before seccomp;
@@ -26,7 +28,7 @@ struct md_task_call {
     long (*trace)(int,pid_t,void *,void *);
     pid_t actor;
     unsigned stage;
-    int restarting, restart_pending, replaced_entry;
+    int restarting, restart_pending, replaced_entry, cancelled_entry;
     enum md_task_call_boundary boundary;
     struct user_pt_regs saved, entry;
     uintptr_t call,returned;

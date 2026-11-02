@@ -21,11 +21,13 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <sys/mount.h>
+#include <sys/mman.h>
 #include <time.h>
 #include <poll.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/select.h>
+#include <sys/stat.h>
 #include <ucontext.h>
 
 static volatile sig_atomic_t limit_traps;
@@ -146,6 +148,64 @@ static void concurrent_admission(void) {
     }
     close(source);
     puts("PASS mixed epoll: concurrent cold admission drains earlier readiness turns");
+}
+static void admission_file_waiters(void) {
+    for (unsigned round=0;round<64;++round) {
+        pid_t owner=fork(); assert(owner>=0);
+        if (!owner) {
+            assert(!unshare(CLONE_NEWNS|CLONE_NEWUTS));
+            assert(!mount("proc","/proc","proc",0,NULL));
+            int source=open("/proc/sys/kernel/hostname",O_RDONLY|O_CLOEXEC);
+            int ep=epoll_create1(EPOLL_CLOEXEC); assert(ep>=0);
+            int ready[2],go[2];
+            assert(source>=0 && !pipe2(ready,O_CLOEXEC) && !pipe2(go,O_CLOEXEC));
+            pid_t peer=fork(); assert(peer>=0);
+            if (!peer) {
+                assert(!prctl(PR_SET_DUMPABLE,0,0,0,0));
+                unsigned mode=round%4;
+                int sockets[2]={-1,-1},counter=-1;
+                if (mode==2) { assert(!pipe2(sockets,O_CLOEXEC)); counter=sockets[0]; }
+                if (mode==3) assert(!socketpair(AF_UNIX,SOCK_DGRAM|SOCK_CLOEXEC,0,sockets));
+                byte_write(ready[1]); byte_read(go[0]);
+                for (unsigned i=0;i<128;++i) {
+                    if (mode==2) {
+                        struct stat st; assert(!fstat(counter,&st));
+                        assert(!fchmod(counter,0600));
+                        continue;
+                    }
+                    if (mode==3) {
+                        char byte='q'; struct iovec part={&byte,1};
+                        struct msghdr message={.msg_iov=&part,.msg_iovlen=1};
+                        assert(sendmsg(sockets[0],&message,0)==1);
+                        byte=0; assert(recvmsg(sockets[1],&message,0)==1 && byte=='q');
+                        continue;
+                    }
+                    int fd=open("/dev/zero",O_RDONLY|O_CLOEXEC);
+                    if (fd<0) fprintf(stderr,"admission open round=%u iteration=%u errno=%d\n",round,i,errno);
+                    assert(fd>=0);
+                    if (mode==1) {
+                        void *p=mmap(NULL,4096,PROT_READ,MAP_PRIVATE,fd,0);
+                        assert(p!=MAP_FAILED && !*(volatile char *)p);
+                        assert(!munmap(p,4096));
+                    }
+                    assert(!close(fd));
+                }
+                _exit(0);
+            }
+            byte_read(ready[0]); byte_write(go[1]);
+            struct epoll_event event={.data.u64=42},out;
+            assert(!epoll_ctl(ep,EPOLL_CTL_ADD,source,&event));
+            assert(!sethostname("file-waiters",12));
+            assert(epoll_wait(ep,&out,1,1000)==1 && out.data.u64==42);
+            int status;
+            /* EVENT_WAIT: cold selector installation and the peer's queued
+             * file/metadata/IPC turn must finish; the launch deadline fails deadlock. */
+            assert(waitpid(peer,&status,0)==peer && status==0);
+            _exit(0);
+        }
+        int status; assert(waitpid(owner,&status,0)==owner && status==0);
+    }
+    puts("PASS mixed epoll: cold admission progresses with queued open, mmap, metadata and IPC peers");
 }
 static volatile sig_atomic_t signalled;
 static void on_signal(int number) { assert(number==SIGUSR1); signalled=1; }
@@ -660,6 +720,7 @@ int main(int argc,char **argv) {
         return 0;
     }
     if (argc==2 && !strcmp(argv[1],"--concurrent-admission")) { concurrent_admission(); return 0; }
+    if (argc==2 && !strcmp(argv[1],"--admission-file-waiters")) { admission_file_waiters(); return 0; }
     if (argc==2 && !strcmp(argv[1],"--poll-sandbox")) { poll_sandbox(0); return 0; }
     if (argc==2 && !strcmp(argv[1],"--poll-sandbox-protected")) { poll_sandbox(1); return 0; }
     if (argc==2 && !strcmp(argv[1],"--mixed")) { mixed(0,0); return 0; }
