@@ -217,6 +217,9 @@ def detached_proc():
                 try:
                     assert mount_id(alias) == identity, name
                     assert os.fstat(alias).st_ino == os.fstat(fd).st_ino, name
+                    link = '/proc/self/fd/' + str(alias)
+                    assert os.readlink(link) == '/' + str(os.getpid()) + '/' + name
+                    assert os.stat(link).st_ino == os.fstat(fd).st_ino, name
                     try:
                         os.fchdir(alias)
                     except OSError as error:
