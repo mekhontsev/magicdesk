@@ -8,6 +8,7 @@
 #include <linux/netfilter/xt_tcpudp.h>
 #include <linux/netfilter/xt_comment.h>
 #include <linux/netfilter/xt_conntrack.h>
+#include <linux/netfilter/nf_conntrack_common.h>
 #include <linux/netfilter/xt_mark.h>
 #include <linux/netfilter/xt_connmark.h>
 #include <linux/netfilter/xt_addrtype.h>
@@ -41,6 +42,13 @@ int md_nft_compat_supported(unsigned family,const char *name,unsigned revision,u
 static unsigned table_family(const struct md_network_filter *f,uint64_t table) {
     for (size_t i=0;i<f->count;++i) if (f->tables[i].handle==table) return f->tables[i].family;
     return NFPROTO_UNSPEC;
+}
+static int nat_flags(unsigned flags,int destination,struct md_filter_expression *e) {
+    unsigned random=NF_NAT_RANGE_PROTO_RANDOM|NF_NAT_RANGE_PROTO_RANDOM_FULLY;
+    if (flags&~(NF_NAT_RANGE_MAP_IPS|NF_NAT_RANGE_PROTO_SPECIFIED|random)) return -EOPNOTSUPP;
+    if (destination && (flags&random)) return -EOPNOTSUPP;
+    e->nat_flags=flags&random;
+    return 0;
 }
 static int nat_range(const struct attribute *wire,unsigned family,unsigned revision,struct nf_nat_range *out) {
     int legacy=!revision && family==NFPROTO_IPV4;
@@ -120,7 +128,8 @@ static int target(struct md_network_filter *f,uint64_t table,const struct attrib
     error=nat_range(wire,table_family(f,table),revision,&range);
     if (error) return error;
     const struct nf_nat_range *r=&range;
-    if (r->flags&~(NF_NAT_RANGE_MAP_IPS|NF_NAT_RANGE_PROTO_SPECIFIED)) return -EOPNOTSUPP;
+    error=nat_flags(r->flags,!strcmp(name,"DNAT"),e);
+    if (error) return error;
     if ((r->flags&NF_NAT_RANGE_PROTO_SPECIFIED) && ntohs(r->min_proto.all)>ntohs(r->max_proto.all)) return -EINVAL;
     if (!strcmp(name,"MASQUERADE")) {
         if ((r->flags&NF_NAT_RANGE_MAP_IPS) || !md_ip_unspecified(md_ip_load(family,&r->min_addr))
@@ -207,11 +216,14 @@ static int compat_match(struct md_network_filter *f,uint64_t table,const struct 
         struct xt_conntrack_mtinfo3 info;
         if (!wire->data || wire->flags || wire->size!=((sizeof(info)+7)&~(size_t)7)) return -EINVAL;
         memcpy(&info,wire->data,sizeof(info));
-        /* The ordinary state bits share nft's conntrack-state encoding.
-         * Tuple, status, timeout and NAT aliases need separate semantics. */
+        /* NAT aliases are ORed with ordinary state, not an additional AND
+         * predicate. Keep status separate from nft's state encoding. */
+        unsigned nat=XT_CONNTRACK_STATE_SNAT|XT_CONNTRACK_STATE_DNAT;
         if (info.match_flags!=XT_CONNTRACK_STATE || (info.invert_flags&~XT_CONNTRACK_STATE)
-                || (info.state_mask&~15U)) return -EOPNOTSUPP;
-        e->code=MD_FILTER_STATE_MATCH; e->key=info.state_mask;
+                || (info.state_mask&~(15U|nat))) return -EOPNOTSUPP;
+        e->code=MD_FILTER_STATE_MATCH; e->key=info.state_mask&15U;
+        e->aux=(info.state_mask&XT_CONNTRACK_STATE_SNAT ? IPS_SRC_NAT : 0)
+            |(info.state_mask&XT_CONNTRACK_STATE_DNAT ? IPS_DST_NAT : 0);
         e->operation=!!(info.invert_flags&XT_CONNTRACK_STATE);
         return 0;
     }
@@ -438,8 +450,9 @@ static int expression(struct md_network_filter *f,uint64_t table,
         NUM(NFTA_NAT_TYPE,e->operation); NUM(NFTA_NAT_FAMILY,value);
         uint64_t flags=0; error=number(&a[NFTA_NAT_FLAGS],&flags,0);
         if (error) return error;
-        if ((value!=NFPROTO_IPV4 && value!=NFPROTO_IPV6) || e->operation>NFT_NAT_DNAT
-                || (flags&~(NF_NAT_RANGE_MAP_IPS|NF_NAT_RANGE_PROTO_SPECIFIED))) return -EOPNOTSUPP;
+        if ((value!=NFPROTO_IPV4 && value!=NFPROTO_IPV6) || e->operation>NFT_NAT_DNAT) return -EOPNOTSUPP;
+        error=nat_flags(flags,e->operation==NFT_NAT_DNAT,e);
+        if (error) return error;
         unsigned family=table_family(f,table);
         if (family!=NFPROTO_INET && family!=value) return -EAFNOSUPPORT;
         e->code=MD_FILTER_NAT; e->family=value==NFPROTO_IPV6 ? AF_INET6 : AF_INET;
@@ -467,14 +480,16 @@ static int expression(struct md_network_filter *f,uint64_t table,
     } else if (!strcmp(name,"masq")) {
         FIELDS(BIT(NFTA_MASQ_FLAGS)|BIT(NFTA_MASQ_REG_PROTO_MIN)|BIT(NFTA_MASQ_REG_PROTO_MAX)); uint64_t flags=0;
         error=number(&a[NFTA_MASQ_FLAGS],&flags,0); if (error) return error;
-        if (flags&~NF_NAT_RANGE_PROTO_SPECIFIED) return -EOPNOTSUPP;
+        if (flags&NF_NAT_RANGE_MAP_IPS) return -EOPNOTSUPP;
+        error=nat_flags(flags,0,e);
+        if (error) return error;
         e->code=MD_FILTER_MASQUERADE;
         if (a[NFTA_MASQ_REG_PROTO_MIN].data) {
             REG(NFTA_MASQ_REG_PROTO_MIN,2,e->src,0); e->aux=1;
             if (a[NFTA_MASQ_REG_PROTO_MAX].data) {
                 REG(NFTA_MASQ_REG_PROTO_MAX,2,e->port_max,0); e->port_range=1;
             }
-        } else if (a[NFTA_MASQ_REG_PROTO_MAX].data || flags) return -EINVAL;
+        } else if (a[NFTA_MASQ_REG_PROTO_MAX].data || (flags&NF_NAT_RANGE_PROTO_SPECIFIED)) return -EINVAL;
     } else return -EOPNOTSUPP;
     return 0;
 #undef FIELDS
@@ -554,11 +569,13 @@ static int emit_typed(const struct md_filter_expression *e,struct md_network_mes
         PUT(emit_value(o,NFTA_CMP_DATA,e->value,e->size)); break;
     case MD_FILTER_NAT:
         PUT(u32(o,NFTA_NAT_TYPE,e->operation)); PUT(u32(o,NFTA_NAT_FAMILY,e->family==AF_INET6 ? NFPROTO_IPV6 : NFPROTO_IPV4));
+        if (e->nat_flags) PUT(u32(o,NFTA_NAT_FLAGS,e->nat_flags));
         if (e->key) PUT(u32(o,NFTA_NAT_REG_ADDR_MIN,wire_register(e->dst)));
         if (e->aux) PUT(u32(o,NFTA_NAT_REG_PROTO_MIN,wire_register(e->src)));
         if (e->port_range) PUT(u32(o,NFTA_NAT_REG_PROTO_MAX,wire_register(e->port_max)));
         break;
     case MD_FILTER_MASQUERADE:
+        if (e->nat_flags) PUT(u32(o,NFTA_MASQ_FLAGS,e->nat_flags));
         if (e->aux) PUT(u32(o,NFTA_MASQ_REG_PROTO_MIN,wire_register(e->src)));
         if (e->port_range) PUT(u32(o,NFTA_MASQ_REG_PROTO_MAX,wire_register(e->port_max)));
         break;

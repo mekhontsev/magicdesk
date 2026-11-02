@@ -47,12 +47,13 @@ set(origins ${src}/fs_anchor.c ${src}/fs_origin_transfer.c ${src}/inode_lifetime
 list(APPEND origins ${src}/native_mounts.c ${src}/devpts_view.c ${src}/cgroup.c ${src}/cgroup_resources.c ${src}/cgroup_program.c ${src}/bpf_map.c ${src}/bpf_handle.c ${src}/sysfs_view.c ${src}/network_namespace.c ${src}/socket_filter.c ${src}/network_model.c ${src}/network_route.c ${src}/network_message.c ${src}/network_generic.c ${src}/network_endpoint.c ${src}/network_sysctl.c ${src}/network_proc.c
     ${src}/ipc_namespace.c ${src}/mqueue_view.c ${src}/landlock_policy.c ${src}/landlock_file.c
     ${src}/mount_stream.c ${src}/mount_pin.c ${src}/mount_propagation.c ${src}/temporary_directory.c ${src}/private_tree.c
-    ${src}/provider_tree.c ${src}/host_fs_view.c ${src}/device_events.c ${src}/identity_snapshot.c ${src}/proc_sysctl.c ${src}/user_sysctl.c ${src}/proc_static.c ${src}/uts_namespace.c ${src}/control_event.c)
+    ${src}/provider_tree.c ${src}/host_fs_view.c ${src}/device_events.c ${src}/identity_snapshot.c ${src}/proc_sysctl.c ${src}/user_sysctl.c ${src}/proc_static.c ${src}/kernel_policy.c ${src}/uts_namespace.c ${src}/control_event.c)
 list(APPEND origins ${fifo_descriptions} ${src}/fd_native_pin.c ${src}/network_ethernet.c ${src}/network_raw6.c ${src}/network_raw4.c ${src}/network_nexthop.c ${src}/network_autoconf.c ${src}/network_multicast.c ${src}/network_link.c ${src}/network_tc.c)
 list(APPEND origins ${src}/proc_file.c ${src}/proc_namespace.c ${src}/procfs_policy.c)
-list(APPEND origins ${src}/device_tree.c ${src}/fuse_device.c ${src}/fuse_transport.c ${src}/fuse_session.c)
+list(APPEND origins ${src}/device_tree.c ${src}/kmsg_device.c ${src}/fuse_device.c ${src}/fuse_transport.c ${src}/fuse_session.c)
 list(APPEND origins ${src}/render_device.c ${src}/render_sysfs.c ${src}/sysfs_uevent.c)
 list(APPEND origins ${src}/network_filter.c ${src}/network_filter_program.c ${src}/network_reject.c ${src}/network_nft.c ${src}/network_nft_expression.c ${src}/network_nft_objects.c)
+list(APPEND origins ${src}/network_conntrack.c)
 list(APPEND origins ${src}/network_ip.c ${src}/network_route_ip.c ${src}/network_policy.c ${src}/network_transport.c ${src}/network_flow.c ${src}/network_filter_ports.c ${src}/network_forward.c ${src}/network_profile.c)
 list(APPEND origins ${src}/network_launch.c ${src}/network_filter_update.c ${src}/network_connection.c)
 list(APPEND origins ${src}/network_tun.c ${src}/network_virtio.c ${src}/network_stack.c ${src}/network_stack_channel.c ${src}/network_stack_packet.c)

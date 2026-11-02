@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "device_tree.h"
 #include "fuse_device.h"
+#include "kmsg_device.h"
 #include "network_tun.h"
 #include "render_device.h"
 #include "fs_mount_internal.h"
@@ -55,6 +56,10 @@ int md_fs_devices_prepare(struct md_filesystem *fs,int hide_native_input,struct 
     if (!error) error=md_tun_device_node(&tun);
     if (!error) error=md_device_tree_publish(dev,"net/tun",tun);
     md_control_file_release(tun);
+    struct md_control_file kmsg={0};
+    if (!error) error=md_kmsg_device_node(&kmsg);
+    if (!error) error=md_device_tree_publish(dev,"kmsg",kmsg);
+    md_control_file_release(kmsg);
     if (!error && fs->render_device.ops) {
         char path[32]; snprintf(path,sizeof(path),"dri/renderD%u",md_render_device_minor(fs->render_device));
         if (mkdirat(md_provider_tree_root(dev),"dri",0755)) error=-errno;

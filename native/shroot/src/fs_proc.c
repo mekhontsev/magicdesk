@@ -7,6 +7,7 @@
 #include "proc_sysctl.h"
 #include "proc_static.h"
 #include "user_sysctl.h"
+#include "kernel_policy.h"
 #include "procfs_view.h"
 #include "linux_abi.h"
 #include "file_permissions.h"
@@ -118,6 +119,7 @@ int md_fs_proc_operation(struct md_filesystem *fs,struct md_mount_namespace *vie
     int sysctl=md_proc_file_sysctl(kind);
     int user_control=ref.kind==MD_PROC_MAX_USER_NAMESPACES;
     int catalogue=md_proc_static(ref.kind);
+    int kernel_policy=ref.kind==MD_PROC_KERNEL_POLICY;
     if (q->operation==MD_FS_STATFS) {
         md_fs_statfs_result(fd,md_view_policy_flags(mount),NULL,out,output);
         if (!out->error) ((struct md_fs_statfs *)output->data)->type=PROC_SUPER_MAGIC;
@@ -174,12 +176,12 @@ int md_fs_proc_operation(struct md_filesystem *fs,struct md_mount_namespace *vie
         else out->error=r;
         return 1;
     }
-    if (!sysctl && !network_control && !user_control && !catalogue && (q->operation==MD_FS_OPEN || q->operation==MD_FS_REOPEN)
+    if (!sysctl && !network_control && !user_control && !catalogue && !kernel_policy && (q->operation==MD_FS_OPEN || q->operation==MD_FS_REOPEN)
             && (q->flags&O_NOATIME) && !(q->flags&O_PATH)) {
         r=md_procfs_noatime(fs,fd,path);
         if (r) { out->error=r; return 1; }
     }
-    if (!sysctl && !network_control && !user_control && !catalogue && (q->operation==MD_FS_STAT || q->operation==MD_FS_FSTAT)
+    if (!sysctl && !network_control && !user_control && !catalogue && !kernel_policy && (q->operation==MD_FS_STAT || q->operation==MD_FS_FSTAT)
             && mount->provider) {
         int private=md_provider_tree_private(mount->provider,fd);
         if (private<0) { out->error=private; return 1; }
@@ -198,7 +200,7 @@ int md_fs_proc_operation(struct md_filesystem *fs,struct md_mount_namespace *vie
             return 1;
         }
     }
-    if (!sysctl && !user_control && !catalogue && (!md_proc_network_sysctl(ref.kind)
+    if (!sysctl && !user_control && !catalogue && !kernel_policy && (!md_proc_network_sysctl(ref.kind)
             || !md_network_namespace_managed(fs->actor->network))) return 0;
     if (q->operation==MD_FS_PATH || q->operation==MD_FS_OBJECT_ID) return 0;
     /* Metadata/access do not need an open description or its carrier memfd. */
@@ -220,7 +222,13 @@ int md_fs_proc_operation(struct md_filesystem *fs,struct md_mount_namespace *vie
     if (q->operation==MD_FS_OPEN || q->operation==MD_FS_REOPEN)
         r=md_view_anchor_duplicate(fs,view,mount,fd,&origin);
     struct md_control_file file={0};
-    if (!r) {
+    if (!r && kernel_policy) {
+        struct md_kernel_policy *policy=md_task_registry_kernel_policy(fs->tasks);
+        if (!policy) r=-errno;
+        else file=md_kernel_policy_file(policy,ref.parameter,origin);
+        md_kernel_policy_release(policy);
+        if (!r && !file.ops) r=-errno;
+    } else if (!r) {
         file=sysctl ? md_proc_sysctl_new(kind,origin,fs->actor->uts)
             : catalogue ? md_proc_static_new(ref.kind,fs->store->identity->user_namespace,origin)
             : user_control ? md_user_sysctl_new(fs->store->identity->user_namespace,origin)

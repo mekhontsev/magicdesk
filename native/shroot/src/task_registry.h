@@ -6,6 +6,9 @@
 #include "fd_origins.h"
 
 struct md_task_registry;
+struct md_kernel_policy;
+/* Retained launch-global policy, independent of per-task namespace copies. */
+struct md_kernel_policy *md_task_registry_kernel_policy(struct md_task_registry *);
 struct md_task_resources;
 struct md_task_snapshot_state;
 struct md_task_snapshot {

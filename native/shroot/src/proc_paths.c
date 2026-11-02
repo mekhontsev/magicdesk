@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "proc_paths.h"
+#include "kernel_policy.h"
 #include "raw.h"
 #include <limits.h>
 
@@ -61,6 +62,10 @@ struct md_proc_path md_proc_path_for(const char *path,int tid,int tgid) {
         out.process=tgid;
         out.kind = MD_PROC_FD;
     } else if (word(&p, "proc")) {
+        if (word(&p,"diskstats")) {
+            out.kind=MD_PROC_DISKSTATS; out.process=tid;
+            out.tail=p; out.anchor_length=(size_t)(p-path); return out;
+        }
         if (word(&p,"swaps")) {
             out.kind=MD_PROC_SWAPS; out.process=tid;
             out.tail=p; out.anchor_length=(size_t)(p-path); return out;
@@ -91,6 +96,12 @@ struct md_proc_path md_proc_path_for(const char *path,int tid,int tgid) {
             out.kind=MD_PROC_MOUNTS; out.tail=p; out.anchor_length=(size_t)(p-path); return out;
         }
         if (word(&p,"sys")) {
+            for (unsigned i=0;i<MD_KERNEL_POLICY_COUNT;++i) {
+                const char *at=p;
+                if (!word(&at,md_kernel_policy_specs[i].path+4)) continue;
+                out.kind=MD_PROC_KERNEL_POLICY; out.parameter=i; out.process=tid;
+                out.tail=at; out.anchor_length=(size_t)(at-path); return out;
+            }
             if (word(&p,"fs")) {
                 if (word(&p,"nr_open")) {
                     out.kind=MD_PROC_NR_OPEN;

@@ -341,10 +341,24 @@ def guest():
     child(user_arguments)
 
     def devices(root):
+        diskstats = Path(root) / 'diskstats'
+        assert diskstats.read_bytes() == b''
+        denied(lambda: os.open(diskstats, os.O_WRONLY), errno.EACCES)
+        denied(lambda: (diskstats / 'invalid').read_bytes(), errno.ENOTDIR)
         swap = Path(root) / 'swaps'
         assert swap.read_text().splitlines()[0].split() == ['Filename', 'Type', 'Size', 'Used', 'Priority']
         assert len(swap.read_text().splitlines()) == 1
         denied(lambda: os.open(swap, os.O_WRONLY), errno.EACCES)
+        policy = Path(root) / 'sys/kernel/panic'
+        assert policy.read_text().strip() == '10'
+        if os.geteuid() == 0:
+            policy.write_text('11\n')
+            assert Path('/proc/sys/kernel/panic').read_text().strip() == '11'
+            policy.write_text('10\n')
+            denied(lambda: policy.write_text('-1'), errno.EINVAL)
+            denied(lambda: Path(root, 'sys/vm/overcommit_memory').write_text('2'), errno.EOPNOTSUPP)
+        else:
+            denied(lambda: os.open(policy, os.O_WRONLY), errno.EACCES)
         path = Path(root) / 'devices'
         text = path.read_bytes()
         assert text.startswith(b'Character devices:\n') and b'\nBlock devices:\n' in text
@@ -370,6 +384,7 @@ def guest():
             cleanup.callback(os.close, pin)
             assert os.fstat(pin).st_ino == info.st_ino
 
+    Path('/proc/sys/kernel/panic').write_text('10\n')
     devices('/proc')
 
     def noatime():
@@ -692,7 +707,10 @@ def main():
         try:
             suite.command(prefix + ['--', '/bin/rmdir', target])
         finally:
-            suite.finish()
+            try:
+                suite.command(['rm', '-rf', suite.base])
+            finally:
+                suite.finish()
 
 
 if __name__ == '__main__':

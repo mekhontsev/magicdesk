@@ -51,6 +51,13 @@ static int parse(const char *text, const struct md_identity *id, mode_t mode, st
         const char *end=strchr(at,',');
         if (!end) end=at+strlen(at);
         size_t length=(size_t)(end-at);
+        /* File contents use the temporary store's ordinary backing files,
+         * never swap. This does not make the disk-backed provider RAM-only. */
+        if (length==6 && !memcmp(at,"noswap",6)) {
+            at=*end ? end+1 : end;
+            if (*end && !*at) return -EINVAL;
+            continue;
+        }
         unsigned limit=length>=5 && !memcmp(at,"size=",5) ? 5
             : length>=10 && (!memcmp(at,"nr_blocks=",10) || !memcmp(at,"nr_inodes=",10)) ? 10 : 0;
         int group=-1, mode=0;

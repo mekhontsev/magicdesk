@@ -261,6 +261,37 @@ static void watches(struct md_filesystem *fs, const char *extra) {
     assert(descriptors()==before);
     puts("PASS mounted-store watches: one instance, independent sources, alias deduplication, external writer and cleanup");
 }
+static void fifo_custody(struct md_filesystem *fs) {
+    md_fs_storage_close(fs->storage);
+    unsigned before=descriptors();
+    struct md_inode_store *store=NULL;
+    assert(!md_fs_storage_get(fs,&fs->mounts->tree->mounts[0],&store));
+    assert(!md_inode_mknod(store,-1,"/fifo",S_IFIFO|0600,0));
+    struct md_fs_anchor *origins[2]={0};
+    int endpoints[2];
+    for (unsigned side=0;side<2;++side) {
+        unsigned flags=(side ? O_WRONLY : O_RDONLY)|O_NONBLOCK;
+        struct md_fs_result r=call(fs,(struct md_fs_request){.operation=MD_FS_OPEN,
+            .directory={-1,-1},.path={side ? "/alias/fifo" : "/volume/fifo",NULL},.flags=flags},
+            &(struct md_fs_output){.origin=&origins[side]});
+        assert(!r.error && origins[side] && r.open_completion.kind==MD_OPEN_PIPE);
+        endpoints[side]=md_complete_open(r.fd,flags,r.open_completion);
+        assert(endpoints[side]>=0);
+        /* Reopening the backing database cannot replace an acquired stream. */
+        md_fs_storage_close(fs->storage);
+        assert(!fs->storage->count);
+    }
+    struct stat reader,writer;
+    assert(!fstat(endpoints[0],&reader) && !fstat(endpoints[1],&writer));
+    assert(reader.st_dev==writer.st_dev && reader.st_ino==writer.st_ino);
+    assert(write(endpoints[1],"fifo",4)==4);
+    char bytes[4]; assert(read(endpoints[0],bytes,sizeof(bytes))==4 && !memcmp(bytes,"fifo",4));
+    for (unsigned side=0;side<2;++side) {
+        close(endpoints[side]); md_fs_anchor_release(origins[side]);
+    }
+    assert(descriptors()==before);
+    puts("PASS FIFO custody: cache eviction, independent reconnect, bind aliases and final descriptor cleanup");
+}
 static void storage_cache(struct md_inode_store *main, const char *base) {
     enum { COUNT=MD_FS_STORAGE_CACHE_LIMIT+3 };
     unsigned before=descriptors();
@@ -396,6 +427,7 @@ void test_mount_storage(const char *base) {
     assert(!rename(moved,extra));
     mount_call(&fs,MD_FS_MOUNT_BIND,MS_BIND,"/alias","/volume");
     assert(fs.mounts->tree->mounts[0].storage==fs.mounts->tree->mounts[1].storage);
+    fifo_custody(&fs);
     image_aliases(&fs);
     planned(&fs,"/volume/value",O_RDONLY,"second",0);
     planned(&fs,"/alias/value",O_WRONLY|O_TRUNC,"second",0);

@@ -5,6 +5,7 @@
 #include "inode_internal.h"
 #include "proc_paths.h"
 #include "proc_sysctl.h"
+#include "kernel_policy.h"
 #include "proc_static.h"
 #include "network_namespace.h"
 #include <dirent.h>
@@ -128,7 +129,12 @@ struct md_provider_tree *md_procfs_new(int parent,const char *text,const struct 
         if (fd<0) error=errno; else close(fd);
     }
     if (!error && mkdirat(root,"sys/user",0755)) error=errno;
-    const char *files[]={"sys/user/max_user_namespaces","devices","cmdline","filesystems","swaps"};
+    if (!error && (mkdirat(root,"sys/vm",0755) || mkdirat(root,"sys/kernel/keys",0755))) error=errno;
+    for (unsigned i=0;!error && i<MD_KERNEL_POLICY_COUNT;++i) {
+        int fd=openat(root,md_kernel_policy_specs[i].path,O_CREAT|O_EXCL|O_WRONLY|O_CLOEXEC,0600);
+        if (fd<0) error=errno; else close(fd);
+    }
+    const char *files[]={"sys/user/max_user_namespaces","devices","cmdline","filesystems","swaps","diskstats"};
     for (size_t i=0;!error && i<sizeof(files)/sizeof(*files);++i) {
         int fd=openat(root,files[i],O_CREAT|O_EXCL|O_WRONLY|O_CLOEXEC,0600);
         if (fd<0) error=errno; else close(fd);
@@ -487,7 +493,7 @@ int md_procfs_step(struct md_filesystem *fs,struct md_mount_namespace *view,stru
             int copy=fcntl(captured,F_DUPFD_CLOEXEC,3);
             return copy<0 ? -errno : copy;
         }
-        if (!link_inode && !sysctl && kind!=MD_PROC_MAX_USER_NAMESPACES && !md_proc_static(kind)
+        if (!link_inode && !sysctl && kind!=MD_PROC_MAX_USER_NAMESPACES && !md_proc_static(kind) && kind!=MD_PROC_KERNEL_POLICY
                 && (!fs->actor || !md_network_namespace_managed(fs->actor->network)
                 || !md_proc_network_sysctl(kind))) return -EREMOTE;
     }

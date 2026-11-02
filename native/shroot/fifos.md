@@ -31,9 +31,12 @@ kernel operations. No daemon, payload proxy, root or SELinux modification is use
 Independent namespace workers sharing the store acquire the same pipe through
 a live owner's proc descriptor. Persisted routes include native device/inode
 identity and a random owner lease protected by a kernel lock; PID existence alone
-does not authorize reuse. Each participating worker retains its own pin until
-its supervised launch ends. Dead leases are ignored. Clean closure removes its
-routes. Portable origins carry the stable channel identity. On receipt they
+does not authorize reuse. Acquired descriptor origins retain channel custody
+independently of the evictable SQLite connection. Eviction detaches pins, leases
+and canonical-source custody without retaining database connections; final origin
+release retires that custody. Dead leases are ignored. Clean connection closure
+without retained origins removes its routes. Portable origins carry the stable
+channel identity. On receipt they
 rejoin that channel with path-only custody, independently of the sender's worker
 and SQLite connection; conflicting live stream identities fail with ESTALE.
 Final imported-origin release closes its pins and lease without a database
@@ -118,6 +121,8 @@ stock-Go proc-fd opens, native IO, netpoll and EOF with normal runtime preemptio
 Production resource checks forbid guest RPC syscalls, fill the guest descriptor
 table, check exact result-slot use and kill protected CLONE_FILES callers during
 unpaired opens without leaving private guest descriptors.
+`test_mount_storage.c` closes the storage cache between reader and writer opens,
+reconnects through a bind alias and checks channel identity, data and final FD cleanup.
 `test_import.c` checks prepared-tree FIFO import on hosts that permit source FIFO
 creation; shell denial is reported explicitly. OCI checks cover FIFO metadata,
 hardlinks and independent instance backing. Stock VS Code C/C++ debugging also

@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/sysmacros.h>
 #include <unistd.h>
 
 static FILE *source;
@@ -16,7 +17,9 @@ static const char initial[]=
     "2 1 0:2 / /proc rw - proc proc rw\n"
     "3 1 0:3 / /dev rw - tmpfs tmpfs rw\n"
     "4 3 0:4 / /dev/shm rw - tmpfs tmpfs rw\n"
-    "5 1 0:5 / /device rw - tmpfs tmpfs rw\n";
+    "5 1 0:5 / /device rw - tmpfs tmpfs rw\n"
+    "6 1 253:17 / /data rw - f2fs /dev/block/private rw\n"
+    "7 1 253:17 /bind /hidden rw - f2fs /dev/block/private rw\n";
 FILE *__real_fopen(const char *,const char *);
 int __real_fseek(FILE *,long,int);
 int __real_poll(struct pollfd *,nfds_t,int);
@@ -59,6 +62,10 @@ int main(void) {
     assert(opens==2 && seeks==1 && size==strlen(bytes));
     assert(strstr(bytes,"/proc ") && strstr(bytes,"/dev "));
     assert(!strstr(bytes,"/dev/shm") && !strstr(bytes,"/device") && !strstr(bytes,"rootfs"));
+    assert(!strstr(bytes,"/data") && !strstr(bytes,"/hidden") && !strstr(bytes,"private"));
+    assert(!strcmp(md_native_mounts_type(snapshot,makedev(253,17)),"f2fs"));
+    assert(!strcmp(md_native_mounts_type(snapshot,makedev(0,1)),"rootfs"));
+    assert(!md_native_mounts_type(snapshot,makedev(9,9)));
     const char *saved=bytes;
     for (unsigned i=0;i<50;++i) {
         assert(!md_native_mounts_read(&snapshot,&bytes,&size));
@@ -67,6 +74,8 @@ int main(void) {
     replace("8 3 0:8 / /dev/pts rw - devpts devpts rw\n"); event=1;
     assert(!md_native_mounts_read(&snapshot,&bytes,&size) && seeks==2);
     assert(strstr(bytes,"/dev/pts") && !strstr(bytes,"/proc"));
+    assert(!md_native_mounts_type(snapshot,makedev(253,17)));
+    assert(!strcmp(md_native_mounts_type(snapshot,makedev(0,8)),"devpts"));
     event=1; change_at=observations+2;
     assert(!md_native_mounts_read(&snapshot,&bytes,&size) && seeks==3);
     assert(!md_native_mounts_read(&snapshot,&bytes,&size) && seeks==4);
@@ -83,6 +92,7 @@ int main(void) {
     assert(md_native_mounts_read(&snapshot,&bytes,&size)==-EPROTO);
     replace("");
     assert(!md_native_mounts_read(&snapshot,&bytes,&size) && !size);
+    assert(!md_native_mounts_type(snapshot,makedev(0,8)));
     int fd=fileno(source);
     md_native_mounts_release(snapshot);
     assert(read(fd,&fd,1)<0 && errno==EBADF);

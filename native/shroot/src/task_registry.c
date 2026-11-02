@@ -1,6 +1,7 @@
 #include "task_registry.h"
 #include "task_resources.h"
 #include "task_status.h"
+#include "kernel_policy.h"
 #include <errno.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -34,7 +35,16 @@ struct entry {
     struct md_landlock_policy *landlock;
     struct md_task_snapshot_state *snapshot;
 };
-struct md_task_registry { pthread_mutex_t lock; pid_t owner; struct entry *retired, *entries[BUCKETS]; };
+struct md_task_registry { pthread_mutex_t lock; pid_t owner; struct entry *retired, *entries[BUCKETS];
+    struct md_kernel_policy *kernel_policy;
+};
+struct md_kernel_policy *md_task_registry_kernel_policy(struct md_task_registry *r) {
+    if (!r) { errno=EINVAL; return NULL; }
+    pthread_mutex_lock(&r->lock);
+    if (!r->kernel_policy) r->kernel_policy=md_kernel_policy_new();
+    struct md_kernel_policy *policy=md_kernel_policy_retain(r->kernel_policy);
+    pthread_mutex_unlock(&r->lock); return policy;
+}
 static void snapshot_release(struct md_task_snapshot_state *state) {
     if (!state || atomic_fetch_sub_explicit(&state->refs,1,memory_order_acq_rel)!=1) return;
     int fd=atomic_load_explicit(&state->status_fd,memory_order_relaxed);
@@ -76,7 +86,7 @@ void md_task_registry_destroy(struct md_task_registry *r) {
         struct entry *e = r->entries[i]; r->entries[i] = e->next;
         release_entry(e);
     }
-    pthread_mutex_destroy(&r->lock); free(r);
+    md_kernel_policy_release(r->kernel_policy); pthread_mutex_destroy(&r->lock); free(r);
 }
 int md_task_registry_publish(struct md_task_registry *r, pid_t tid, pid_t tgid,
         const struct md_identity *v, const struct md_task_resources *resources) {

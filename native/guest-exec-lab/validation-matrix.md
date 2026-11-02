@@ -314,6 +314,26 @@ Cell order: **Shroot (lazy SVC) / Base**; N = not run.
 | nixos | P/N | P/N | P/N | P/N |
 | steamos | P/N | P/N | B/N | P/N |
 
+### K3s
+
+The qualified profile is stock ARM64 k3s v1.37.1+k3s1, single-node host-gw,
+Traefik/ServiceLB disabled, guest root under shell UID 2000. Passing requires
+Node Ready, CoreDNS, positive kubelet root filesystem capacity, cross-pod DNS and
+ClusterIP HTTP, server restart retaining pod/Service identity, repeated IO and
+ordinary pod/Service deletion. Stock
+container seccomp remains enabled. This is not default VXLAN, multi-node or
+NetworkPolicy acceptance; memory limits remain advisory and cadvisor block-device
+accounting is unavailable.
+
+| Recipe ID | Host profile | Shroot / Base | Receipt |
+| --- | --- | --- | --- |
+| debian | Native | P/N | `build/k3s-contract/acceptance-rootfs-native/oci-services-c1db0c11f34f41468c2224bc8d923c0e.json` |
+| debian | `linux-5.15` | P/N | `build/k3s-contract/acceptance-rootfs-515/oci-services-1f8066dcff3148b1b5c0468ab23e2d02.json` |
+
+Both runs use the same staged runtime on the device's 6.12 kernel. The 5.15
+capability profile exercises fallbacks, not a physical 5.15 kernel. Other recipe
+distributions have not been qualified for this k3s profile.
+
 ### Local IPv6 Container Acceptance
 
 The 2026-10-24 Arch reruns use stock container packages, their normal seccomp
@@ -329,9 +349,8 @@ ports and port release. They do not request public-internet access.
 The observer runs as native Termux UID 10601, outside Shroot. These runs change
 neither Android addresses nor its routes. Podman's tested address is not `::1`;
 see the [fixture contract](README.md) for the separate observer/publication
-options. Docker still logs missing `memory.events`: the unimplemented memory
-controller is not advertised, and the test does not certify memory limits/OOM
-notifications.
+options. These runs do not certify memory-limit enforcement or OOM notifications;
+see the [cgroup contract](../shroot/namespace-providers.md).
 
 ### IPv6 Uplink Coverage
 

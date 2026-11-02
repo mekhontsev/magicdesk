@@ -2,6 +2,7 @@
 #include "device_tree.h"
 #include "provider_tree.h"
 #include "fuse_device.h"
+#include "kmsg_device.h"
 #include "network_tun.h"
 #include "render_device.h"
 #include <errno.h>
@@ -78,13 +79,15 @@ static int import_node(struct registry *r,int upper,const char *path,unsigned re
     struct node *n=calloc(1,sizeof(*n)); if(!n) return -ENOMEM;
     n->identity=identity;
     int error=render ? md_render_device_restore(render,&n->file)
-        : !strcmp(path,"fuse") ? md_fuse_device_node(&n->file) : md_tun_device_node(&n->file);
+        : !strcmp(path,"fuse") ? md_fuse_device_node(&n->file)
+        : !strcmp(path,"kmsg") ? md_kmsg_device_node(&n->file) : md_tun_device_node(&n->file);
     if(error) { free(n); return error; }
     n->next=r->nodes; r->nodes=n; return 0;
 }
 struct md_provider_tree *md_device_tree_import(int upper) {
     struct registry *r=registry_new(0); if (!r) return NULL;
     int error=import_node(r,upper,"fuse",0,1);
+    if (!error) error=import_node(r,upper,"kmsg",0,0);
     const char *directories[]={"net","dri"};
     for(unsigned d=0;!error && d<2;++d) {
         struct stat directory;
@@ -119,6 +122,7 @@ int md_device_tree_publish(struct md_provider_tree *tree,const char *path,struct
     if (!error) {
         char render[32]; snprintf(render,sizeof(render),"dri/renderD%u",md_render_device_minor(file));
         if (!((!strcmp(path,"fuse") && md_fuse_device_is_node(file))
+                || (!strcmp(path,"kmsg") && md_kmsg_device_is_node(file))
                 || (!strcmp(path,"net/tun") && md_tun_device_is_node(file))
                 || (!strcmp(path,render) && md_render_device_is_node(file)))) r->local=1;
         n->next=r->nodes; r->nodes=n;

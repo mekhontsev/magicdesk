@@ -1081,6 +1081,10 @@ without a userland proxy:
 --userland-proxy=false
 ```
 
+Install the distribution's `nftables` package inside the guest; Docker needs the
+`nft` executable on its daemon's `PATH`. Shroot supplies the supported netlink
+operations, not the guest's firewall command-line tools.
+
 The older explicitly firewall-disabled profile remains a separate supported
 configuration using Docker's ordinary userland proxy:
 
@@ -1103,6 +1107,23 @@ This is not an unconfigured Docker host: nftables is Shroot's supported logical
 flow model, not Android kernel firewall management. Native cgroup resource
 limits are not supplied. Missing subsystems remain errors rather
 than silently successful operations.
+
+### K3s
+
+Stock ARM64 k3s is checked in a guest-root routed launch with
+`--flannel-backend=host-gw`, without Traefik or ServiceLB. The single-node
+workflow covers Node Ready, CoreDNS, root filesystem capacity, two real pods, DNS
+and HTTP through a ClusterIP Service, server restart with retained workload
+identities, and deletion.
+The fixture prepares private proc/sysfs/cgroup views and writable runtime storage;
+it neither changes Android networking nor disables container seccomp.
+
+This does not establish default VXLAN, multi-node networking or NetworkPolicy
+enforcement. The ipset policy controller and TCP conntrack timeout tuning remain
+unsupported; cadvisor cannot report a guest block-device inventory. Cgroup memory
+limits remain advisory, not enforced OOM isolation. See the
+[fixture](../native/guest-exec-lab/test_k3s.py) and
+[qualified results](../native/guest-exec-lab/validation-matrix.md#k3s).
 
 ### Podman
 

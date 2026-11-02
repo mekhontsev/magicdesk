@@ -235,8 +235,14 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
         if (local && md_ip_linklocal(p->destination) && scope && local->info.index!=scope) local=NULL;
         context.space=n;
         if (local || native_local(&context,p->destination)) {
+            if (!arrived) {
+                struct md_network_interface *loop=md_network_interface_find(n,1,NULL);
+                interface(p,loop,0);
+                error=hook(n,NF_INET_POST_ROUTING,p,path);
+                if (error) break;
+                interface(p,loop,1);
+            }
             interface(p,NULL,0);
-            if (!arrived) interface(p,local,1);
             error=hook(n,NF_INET_LOCAL_IN,p,path);
             path->destination=n->inode; break;
         }
@@ -312,7 +318,8 @@ static int routing_admits(struct md_network_namespace *n,const struct md_network
     struct md_network_interface *link=md_network_policy_route(n,p->source,p->destination,p->mark,
         md_ip_linklocal(p->destination) ? (p->output ? p->output : p->input) : 0,&route,&error);
     if (!link) return error;
-    return (hook==NF_INET_LOCAL_IN ? route.table!=RT_TABLE_LOCAL : link->info.index!=p->output) ? -ENETUNREACH : 0;
+    unsigned output=route.table==RT_TABLE_LOCAL ? 1 : link->info.index;
+    return (hook==NF_INET_LOCAL_IN ? route.table!=RT_TABLE_LOCAL : output!=p->output) ? -ENETUNREACH : 0;
 }
 int md_network_flow_routing_admits(struct md_network_namespace *n,const struct md_network_flow_path *path) {
     for (unsigned i=0;i<path->count;++i) {
@@ -371,6 +378,15 @@ static int check_path(struct md_network_fabric *f,struct md_network_flow_path *p
             interface(&p,md_network_interface_find(n,s->packet.output,NULL),1);
             interface(&p,md_network_interface_find(n,s->packet.input,NULL),0);
             hook=reverse_hook(hook);
+            /* Local delivery traverses POSTROUTING in both directions, not
+             * the ingress hook used by a forwarded return path. */
+            if (s->hook==NF_INET_POST_ROUTING && i+1<path->count
+                    && path->steps[i+1].space==s->space
+                    && path->steps[i+1].hook==NF_INET_LOCAL_IN) {
+                hook=NF_INET_POST_ROUTING;
+                interface(&p,NULL,1);
+                interface(&p,md_network_interface_find(n,s->packet.output,NULL),0);
+            }
             rewrite.priority=(hook==NF_INET_PRE_ROUTING || hook==NF_INET_LOCAL_OUT)
                 ? NF_IP_PRI_NAT_DST : NF_IP_PRI_NAT_SRC;
         }

@@ -12,6 +12,7 @@
 #include <linux/netfilter.h>
 #include <linux/netfilter/nf_tables.h>
 #include <linux/netfilter/nfnetlink.h>
+#include <linux/netfilter/nfnetlink_conntrack.h>
 #include <linux/netfilter/nf_tables_compat.h>
 #include <linux/netfilter/nf_nat.h>
 #include <linux/netfilter/xt_tcpudp.h>
@@ -445,7 +446,9 @@ static void local_output_publication(void) {
         assert(!md_network_flow_route(n,&p,0,0,&path) && path.destination==n->inode);
         assert(md_ip_equal(p.source,host) && !path.mediated);
         assert(path.steps[0].packet.output==1 && !strcmp(path.steps[0].packet.output_name,"lo"));
-        assert(path.steps[path.count-1].packet.input==bound);
+        assert(path.count==3 && path.steps[1].hook==NF_INET_POST_ROUTING
+            && path.steps[1].packet.output==1 && path.steps[2].hook==NF_INET_LOCAL_IN
+            && path.steps[2].packet.input==1 && !strcmp(path.steps[2].packet.input_name,"lo"));
         struct md_filter_chain chain={.handle=1,.hook=NF_INET_LOCAL_OUT,.nat=1,.policy=NF_ACCEPT};
         struct md_filter_rule rule={.chain=1,.count=3,.expressions={
             {.code=MD_FILTER_META,.key=NFT_META_OIF,.size=4},
@@ -886,7 +889,7 @@ static void compat_nat(void) {
             assert(!md_network_message_end_nest(&o,entry));
             struct md_filter_rule rule={.chain=2};
             int error=md_nft_expressions(&f,1,&rule,o.data+start,o.size-start);
-            if (variant>=3 && !(variant==4 && snat)) { assert(error==(variant==7 ? -EINVAL : -EOPNOTSUPP)); continue; }
+            if (variant>=3 && !((variant==4 || variant==5) && snat)) { assert(error==(variant==7 ? -EINVAL : -EOPNOTSUPP)); continue; }
             assert(!error && rule.count==1 && rule.expressions[0].code==MD_FILTER_NAT);
             f.rules=&rule; f.rule_count=1;
             for (unsigned udp=0;udp<2;++udp) {
@@ -917,7 +920,7 @@ static void compat_masquerade(void) {
     assert(!md_nft_compat_supported(NFPROTO_IPV4,"MASQUERADE",1,1));
     assert(md_nft_compat_supported(NFPROTO_IPV6,"MASQUERADE",0,1));
     assert(!md_nft_compat_supported(NFPROTO_IPV4,"MASQUERADE",0,0));
-    for (unsigned variant=0;variant<7;++variant) {
+    for (unsigned variant=0;variant<8;++variant) {
         struct packet p;
         struct md_network_message o={.data=p.data,.capacity=sizeof(p.data)};
         add(&o,(NFNL_SUBSYS_NFTABLES<<8)|NFT_MSG_NEWRULE,0,NFPROTO_IPV4);
@@ -936,6 +939,7 @@ static void compat_masquerade(void) {
             info.range[0].min.all=htons(1024); info.range[0].max.all=htons(65535);
             if (variant==5) info.range[0].flags|=NF_NAT_RANGE_PROTO_RANDOM;
             if (variant==6) info.range[0].max.all=htons(1000);
+            if (variant==7) info.range[0].flags|=NF_NAT_RANGE_PROTO_RANDOM_FULLY;
         }
         unsigned char wire[(sizeof(info)+7)&~(size_t)7];
         memset(wire,0,sizeof(wire)); memcpy(wire,&info,sizeof(info));
@@ -944,7 +948,7 @@ static void compat_masquerade(void) {
         assert(!md_network_message_end_nest(&o,entry));
         struct md_filter_rule rule={.chain=2};
         int error=md_nft_expressions(&f,1,&rule,o.data+start,o.size-start);
-        if (variant==1 || variant==3 || variant>=5) { assert(error==(variant==6 ? -EINVAL : -EOPNOTSUPP)); continue; }
+        if (variant==1 || variant==3 || variant==6) { assert(error==(variant==6 ? -EINVAL : -EOPNOTSUPP)); continue; }
         assert(!error && rule.count==1 && rule.expressions[0].code==MD_FILTER_MASQUERADE);
         f.rules=&rule; f.rule_count=1;
         struct md_filter_packet flow={.protocol=IPPROTO_TCP,.state=8,
@@ -952,13 +956,15 @@ static void compat_masquerade(void) {
             .masquerade_address=md_ip_v4(htonl(0x0a580001))};
         assert(!md_filter_evaluate(&f,NF_INET_POST_ROUTING,&flow));
         assert(flow.masquerade && flow.snat && md_ip_equal(flow.source,flow.masquerade_address));
-        assert(flow.source_port==htons(variant==2 ? 0 : variant==4 ? 1024 : 1));
+        if (variant==5 || variant==7) assert(ntohs(flow.source_port)>=1024);
+        else assert(flow.source_port==htons(variant==2 ? 0 : variant==4 ? 1024 : 1));
         free(rule.wire); f.rules=NULL; f.rule_count=0;
     }
     puts("PASS xt MASQUERADE: port ranges and explicit unsupported flag/address rejection");
 }
 static void nft_source_port_range(void) {
-    for (unsigned ipv6=0;ipv6<2;++ipv6) for (unsigned snat=0;snat<2;++snat) {
+    for (unsigned ipv6=0;ipv6<2;++ipv6) for (unsigned snat=0;snat<2;++snat)
+        for (unsigned random=0;random<2;++random) {
         struct md_network_filter_table table={.handle=1,.family=NFPROTO_INET};
         struct md_filter_chain chain={.table=1,.handle=2,.hook=NF_INET_POST_ROUTING,.policy=NF_ACCEPT,.nat=1};
         struct md_network_filter f={.tables=&table,.count=1,.chains=&chain,.chain_count=1};
@@ -966,7 +972,8 @@ static void nft_source_port_range(void) {
             {.code=MD_FILTER_IMMEDIATE,.dst=0,.size=2},
             {.code=MD_FILTER_IMMEDIATE,.dst=4,.size=2},
             {.code=snat ? MD_FILTER_NAT : MD_FILTER_MASQUERADE,.operation=NFT_NAT_SNAT,
-                .family=snat ? (ipv6 ? AF_INET6 : AF_INET) : 0,.aux=1,.src=0,.port_range=1,.port_max=4}}};
+                .family=snat ? (ipv6 ? AF_INET6 : AF_INET) : 0,.aux=1,.src=0,.port_range=1,.port_max=4,
+                .nat_flags=random ? NF_NAT_RANGE_PROTO_RANDOM_FULLY : 0}}};
         uint16_t low=htons(40000),high=htons(40001);
         memcpy(typed.expressions[0].value,&low,2); memcpy(typed.expressions[1].value,&high,2);
         struct packet packet;
@@ -983,7 +990,8 @@ static void nft_source_port_range(void) {
                 .protocol=tcp ? IPPROTO_TCP : IPPROTO_UDP,.state=8};
             p.masquerade_address=p.source;
             assert(!md_filter_evaluate(&f,NF_INET_POST_ROUTING,&p));
-            assert(p.source_port==htons(port==40001 ? 40001 : 40000));
+            if (random) assert(ntohs(p.source_port)>=40000 && ntohs(p.source_port)<=40001);
+            else assert(p.source_port==htons(port==40001 ? 40001 : 40000));
         }
         low=htons(40002); memcpy(parsed.expressions[0].value,&low,2);
         struct md_filter_packet p={.source=md_ip_loopback(ipv6 ? AF_INET6 : AF_INET),
@@ -1038,7 +1046,7 @@ static void compat_conntrack(void) {
     struct md_network_filter f={.tables=&table,.count=1,.chains=&chain,.chain_count=1};
     assert(md_nft_compat_supported(NFPROTO_IPV4,"conntrack",3,0));
     assert(!md_nft_compat_supported(NFPROTO_IPV4,"conntrack",2,0));
-    for (unsigned variant=0;variant<4;++variant) {
+    for (unsigned variant=0;variant<8;++variant) {
         struct packet p;
         struct md_network_message o={.data=p.data,.capacity=sizeof(p.data)};
         add(&o,(NFNL_SUBSYS_NFTABLES<<8)|NFT_MSG_NEWRULE,0,NFPROTO_IPV4);
@@ -1050,9 +1058,10 @@ static void compat_conntrack(void) {
         uint32_t revision=htonl(3);
         assert(!md_network_message_attribute(&o,NFTA_MATCH_REV,&revision,4));
         struct xt_conntrack_mtinfo3 info={.match_flags=XT_CONNTRACK_STATE,.state_mask=6,
-            .invert_flags=variant==1 ? XT_CONNTRACK_STATE : 0};
+            .invert_flags=variant&1 ? XT_CONNTRACK_STATE : 0};
         if (variant==2) info.match_flags|=XT_CONNTRACK_PROTO;
-        if (variant==3) info.state_mask|=XT_CONNTRACK_STATE_SNAT;
+        if (variant==3) info.state_mask|=0x8000;
+        if (variant>=4) info.state_mask|=variant<6 ? XT_CONNTRACK_STATE_SNAT : XT_CONNTRACK_STATE_DNAT;
         unsigned char wire[(sizeof(info)+7)&~(size_t)7];
         memset(wire,0,sizeof(wire)); memcpy(wire,&info,sizeof(info));
         assert(!md_network_message_attribute(&o,NFTA_MATCH_INFO,wire,sizeof(wire)));
@@ -1060,13 +1069,14 @@ static void compat_conntrack(void) {
         assert(!md_network_message_end_nest(&o,entry));
         struct md_filter_rule rule={.chain=2};
         int error=md_nft_expressions(&f,1,&rule,o.data+start,o.size-start);
-        if (variant>=2) { assert(error==-EOPNOTSUPP); continue; }
+        if (variant==2 || variant==3) { assert(error==-EOPNOTSUPP); continue; }
         assert(!error && rule.count==1);
         rule.expressions[rule.count++]=(struct md_filter_expression){.code=MD_FILTER_VERDICT,.operation=NF_ACCEPT};
         f.rules=&rule; f.rule_count=1;
-        for (unsigned state=1;state<=8;state<<=1) {
-            struct md_filter_packet flow={.destination=md_ip_any(AF_INET),.state=state};
-            int accepted=!!(state&6)!=!!variant;
+        for (unsigned state=1;state<=8;state<<=1) for (unsigned nat=0;nat<4;++nat) {
+            struct md_filter_packet flow={.destination=md_ip_any(AF_INET),.state=state,.status=nat<<4};
+            int alias=(variant==4 || variant==5) ? !!(nat&1) : variant>=6 ? !!(nat&2) : 0;
+            int accepted=!!((state&6)||alias)!=!!(variant&1);
             assert(md_filter_evaluate(&f,NF_INET_FORWARD,&flow)==(accepted ? 0 : -EACCES));
         }
         free(rule.wire); f.rules=NULL; f.rule_count=0;
@@ -1550,7 +1560,38 @@ static void route_chains(void) {
     }
     puts("PASS route chains: OUTPUT-only admission, IPv4/IPv6 and rerouting only changed marks");
 }
+static void conntrack_queries(void) {
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+    struct md_identity root=md_identity_new(0,0),user=md_identity_new(1000,1000);
+    struct packet wire,reply;
+    struct md_network_message o={.data=wire.data,.capacity=sizeof(wire.data)};
+    assert(n);
+    add(&o,(NFNL_SUBSYS_CTNETLINK<<8)|IPCTNL_MSG_CT_GET,NLM_F_DUMP,AF_INET);
+    assert(result(n,&user,&o)==-EPERM);
+    long length=run(n,&root,&o,&reply,NULL);
+    struct nlmsghdr *h=(void *)reply.data;
+    assert(length==NLMSG_LENGTH(sizeof(int)) && h->nlmsg_type==NLMSG_DONE);
+    struct md_network_publication fail={.publish=fail_publish};
+    assert(run(n,&root,&o,&reply,&fail)==-EAGAIN);
+    o.size=0;
+    add(&o,(NFNL_SUBSYS_CTNETLINK<<8)|IPCTNL_MSG_CT_DELETE,NLM_F_ACK,AF_INET6);
+    assert(!result(n,&root,&o));
+    attribute_u32(&o,CTA_ID,123);
+    assert(result(n,&root,&o)==-EINVAL);
+    o.size=0;
+    add(&o,(NFNL_SUBSYS_CTNETLINK<<8)|IPCTNL_MSG_CT_GET,NLM_F_ACK,AF_INET);
+    assert(result(n,&root,&o)==-EINVAL);
+    o.size=0;
+    add(&o,(NFNL_SUBSYS_CTNETLINK<<8)|IPCTNL_MSG_CT_NEW,NLM_F_ACK,AF_INET);
+    assert(result(n,&root,&o)==-EOPNOTSUPP);
+    o.size=0;
+    add(&o,(NFNL_SUBSYS_CTNETLINK<<8)|IPCTNL_MSG_CT_GET,NLM_F_DUMP,AF_UNIX);
+    assert(result(n,&root,&o)==-EAFNOSUPPORT);
+    md_network_namespace_release(n); md_identity_release(&root); md_identity_release(&user);
+    puts("PASS conntrack control: private inventory, capability checks, malformed selectors, unsupported creation and publication failure");
+}
 void test_network_nft(void) {
+    conntrack_queries();
     native_mark_updates();
     route_chains();
     optional_expression_data();

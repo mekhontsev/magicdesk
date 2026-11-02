@@ -302,6 +302,11 @@ if sys.argv[-1] == '0':
         entries = Path('/proc/self/mountinfo').read_text().splitlines()
         entry = next(line for line in entries if line.split()[4] == str(source))
         assert 'nosymfollow' in entry.split()[5].split(','), entry
+        root_entry = next(line for line in entries if line.split()[4] == '/')
+        root_type, root_source, _ = root_entry.split(' - ')[1].split()
+        temp_type, temp_source, _ = entry.split(' - ')[1].split()
+        assert root_type != 'guestfs' and root_source.startswith('guest:'), root_entry
+        assert temp_type == 'tmpfs' and temp_source != root_source, entry
         child = os.fork()
         if child == 0:
             try:
@@ -624,7 +629,8 @@ if sys.argv[-1] == '0':
                 assert error.errno == expected, error
         call(432, fd, 1, 0, error=errno.EINVAL)
         call(431, fd, 0, 'unsupported', 0, 0, error=errno.EINVAL)
-        call(431, fd, 0, 'noswap', 0, 0, error=errno.EINVAL)
+        call(431, fd, 0, 'noswap', 0, 0)
+        call(431, fd, 1, 'noswap', '1', 0, error=errno.EINVAL)
         call(431, fd, 0, 'size', 0, 0, error=errno.EINVAL)
         config(fd, 'mode', '0700')
         config(fd, 'size', '1')
@@ -986,7 +992,7 @@ if sys.argv[-1] == '0':
         print('PASS shared structure reader: openat2 zero extension and invalid buffers', flush=True)
 
         mount_trace = ['strace', '-e', 'trace=fsopen,fspick,fsconfig,fsmount,move_mount,mount_setattr,open_tree,mount']
-        for kind, options in [('tmpfs', 'mode=0755,size=65536k,strictatime'), ('ramfs', 'mode=0700'), ('cgroup2', None), ('cgroup', 'devices'),
+        for kind, options in [('tmpfs', 'mode=0755,size=65536k,noswap,strictatime'), ('ramfs', 'mode=0700'), ('cgroup2', None), ('cgroup', 'devices'),
                               ('proc', None), ('sysfs', None), ('devpts', 'newinstance,ptmxmode=0666,mode=0620,max=1028')]:
             if kind == 'sysfs':
                 # The inherited network namespace belongs to the parent user
@@ -1087,7 +1093,10 @@ def main():
         try:
             suite.command(prefix + ['--', '/bin/rmdir', target])
         finally:
-            suite.finish()
+            try:
+                suite.command(['rm', '-rf', suite.base])
+            finally:
+                suite.finish()
 
 
 if __name__ == '__main__':

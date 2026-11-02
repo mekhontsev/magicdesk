@@ -9,5 +9,6 @@ struct mdi_fifo_owner;
 int md_inode_fifo_channel(struct md_inode_store *, int fd, char channel[33]);
 int md_inode_fifo_adopt(struct md_inode_lifetime *, const char channel[33], int fd,
     struct mdi_fifo_owner **);
+struct mdi_fifo_owner *md_inode_fifo_retain(struct md_inode_store *);
 void md_inode_fifo_release(struct mdi_fifo_owner *);
 #endif

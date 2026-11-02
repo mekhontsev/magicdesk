@@ -6,6 +6,7 @@
 #include <linux/netfilter/xt_rpfilter.h>
 #include <linux/if_packet.h>
 #include <netinet/in.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int chain_index(const struct md_network_filter *f,uint64_t handle) {
@@ -152,7 +153,7 @@ static int reverse_path(const struct md_filter_packet *p,unsigned flags) {
     return !!route.interface;
 }
 static int source_nat(const struct md_filter_expression *e,const unsigned char *registers,struct md_filter_packet *p) {
-    if (p->protocol!=IPPROTO_TCP && p->protocol!=IPPROTO_UDP) return e->aux ? -EOPNOTSUPP : 0;
+    if (p->protocol!=IPPROTO_TCP && p->protocol!=IPPROTO_UDP) return e->aux || e->nat_flags ? -EOPNOTSUPP : 0;
     unsigned port=ntohs(p->source_port);
     uint16_t low=port<512 ? 1 : port<1024 ? 600 : 1024,high=port<512 ? 511 : port<1024 ? 1023 : 65535;
     if (e->aux) {
@@ -164,6 +165,10 @@ static int source_nat(const struct md_filter_expression *e,const unsigned char *
         }
         low=ntohs(low); high=ntohs(high);
         if (low>high) return -EINVAL;
+    }
+    if (e->nat_flags) {
+        port=low+arc4random_uniform((unsigned)high-low+1);
+        p->source_port=htons(port);
     }
     if (p->source_nat) return p->source_nat(p->route_context,p,low,high);
     if (port<low || port>high) p->source_port=htons(low);
@@ -268,7 +273,7 @@ static int evaluate_chain(struct md_network_filter *f,const struct md_filter_cha
             case MD_FILTER_CT:
                 value=e->key==NFT_CT_STATE ? p->state : e->key==NFT_CT_MARK ? p->ctmark : p->status;
                 memcpy(dst,&value,4); break;
-            case MD_FILTER_STATE_MATCH: match=!!(p->state&e->key)!=!!e->operation; break;
+            case MD_FILTER_STATE_MATCH: match=!!((p->state&e->key)||(p->status&e->aux))!=!!e->operation; break;
             case MD_FILTER_MARK_MATCH: case MD_FILTER_CONNMARK_MATCH:
                 match=(((e->code==MD_FILTER_CONNMARK_MATCH ? p->ctmark : p->mark)&e->aux)==e->key)!=!!e->operation; break;
             case MD_FILTER_PACKET_TYPE: match=(p->packet_type==e->key)!=!!e->operation; break;

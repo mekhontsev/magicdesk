@@ -41,6 +41,9 @@ static const struct md_cgroup_control controls[BASE_FILES]={
 static const struct md_cgroup_control *control(unsigned file) {
     return file<BASE_FILES ? &controls[file] : &md_cgroup_resource_controls[file-BASE_FILES];
 }
+static const unsigned event_files[]={EVENTS,PIDS_EVENTS,
+    BASE_FILES+MD_CG_MEMORY_EVENTS,BASE_FILES+MD_CG_MEMORY_EVENTS_LOCAL};
+#define EVENT_FILES (sizeof(event_files)/sizeof(*event_files))
 struct group {
     struct group *next,*parent;
     int fd,removed;
@@ -55,7 +58,7 @@ struct group {
     struct md_cgroup_policy policy;
     struct md_cgroup_usage usage;
     uint64_t populated;
-    struct { uint64_t id,generation; } events[2];
+    struct { uint64_t id,generation; } events[EVENT_FILES];
     uint64_t stopped;
     int freeze, effective_freeze, frozen;
 };
@@ -246,7 +249,10 @@ static struct group *namespace_root(const struct md_cgroup_namespace *ns,const s
         if (entry->view==v) { root=entry->group; break; }
     return root ? root : v->root;
 }
-static unsigned event_slot(unsigned file) { return file==PIDS_EVENTS; }
+static unsigned event_slot(unsigned file) {
+    for (unsigned i=0;i<EVENT_FILES;++i) if (event_files[i]==file) return i;
+    return EVENT_FILES;
+}
 static void control_event(struct md_cgroup_view *v,struct group *g,unsigned file,unsigned mask) {
     unsigned slot=event_slot(file);
     ++g->events[slot].generation;
@@ -488,8 +494,8 @@ static int control_create(struct group *g,unsigned i) {
     return error;
 }
 static int populate(struct md_cgroup_view *v,struct group *g) {
-    if (v->next_event_id>UINT64_MAX-2) return -EOVERFLOW;
-    for (unsigned i=0;i<2;++i) g->events[i].id=++v->next_event_id;
+    if (v->next_event_id>UINT64_MAX-EVENT_FILES) return -EOVERFLOW;
+    for (unsigned i=0;i<EVENT_FILES;++i) g->events[i].id=++v->next_event_id;
     g->pids_max=UINT64_MAX;
     md_cgroup_policy_init(&g->policy);
     g->effective_freeze=g->frozen=freezing(g);
@@ -783,8 +789,7 @@ int md_cgroup_rmdir(struct md_cgroup_view *v,int fd,const char *name,const struc
         if (unlinkat(fd,name,AT_REMOVEDIR)) r=-errno;
         else {
             g->removed=1;
-            group_event(v,g,IN_DELETE_SELF);
-            control_event(v,g,PIDS_EVENTS,IN_DELETE_SELF);
+            for (unsigned i=0;i<EVENT_FILES;++i) control_event(v,g,event_files[i],IN_DELETE_SELF);
             clear_programs(g);
             /* Open controls and captured task snapshots may still refer to
              * the logical group; they do not need its backing directory FD. */
@@ -909,8 +914,9 @@ static int subtree_write(struct md_cgroup_view *v,struct group *g,char *text) {
             }
             if (removed&MD_CG_PIDS) {
                 c->pids_max=UINT64_MAX; c->pids_failures=0;
-                control_event(v,c,PIDS_EVENTS,IN_DELETE_SELF);
             }
+            for (unsigned i=0;i<EVENT_FILES;++i)
+                if (control(event_files[i])->controller&removed) control_event(v,c,event_files[i],IN_DELETE_SELF);
             md_cgroup_policy_reset(&c->policy,removed);
         }
     }
@@ -991,7 +997,7 @@ static long control_read(void *ctx,const struct md_control_actor *actor,void *da
     }
     if (ferror(stream)) error=-EIO;
     if (fclose(stream) && !error) error=-errno;
-    if (!error && (o->file==EVENTS || o->file==PIDS_EVENTS) && !offset && size) {
+    if (!error && event_slot(o->file)<EVENT_FILES && !offset && size) {
         o->observed=o->group->events[event_slot(o->file)].generation; o->sampled=1;
     }
     long result=error ? error : read_slice(text,length,data,size,offset);
@@ -1120,7 +1126,7 @@ int md_cgroup_watch(struct md_cgroup_view *v,struct md_inode_store *store,
     struct stat st; if (fstat(object,&st)) return -errno;
     pthread_mutex_lock(&v->world->lock); unsigned file;
     struct group *g=lookup(v,&st,&file);
-    int r=!g || g->removed ? -ENOENT : file!=EVENTS && file!=PIDS_EVENTS ? -EOPNOTSUPP : 0;
+    int r=!g || g->removed ? -ENOENT : event_slot(file)==EVENT_FILES ? -EOPNOTSUPP : 0;
     if (!r && !v->events) r=md_watch_source_new(&v->events);
     if (!r) r=md_inode_watch_add_provider(store,instance,v->events,g->events[event_slot(file)].id,S_IFREG,flags);
     pthread_mutex_unlock(&v->world->lock); return r;
@@ -1162,7 +1168,7 @@ int md_cgroup_open(struct md_cgroup_view *v,int fd,int flags,const struct md_ide
                 o->stat=g->files[file];
                 o->next=g->opened; g->opened=o;
                 o->origin=md_fs_anchor_retain(origin);
-                *out=&ops[file==EVENTS || file==PIDS_EVENTS ? 2 : md_cgroup_legacy(v)]; *context=o;
+                *out=&ops[event_slot(file)<EVENT_FILES ? 2 : md_cgroup_legacy(v)]; *context=o;
             }
         }
     }

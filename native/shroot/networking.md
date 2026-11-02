@@ -394,6 +394,18 @@ with an empty catalogue. Retained sockets still refer to their creation
 namespace. No operation opens Android's netfilter socket or changes its firewall.
 Queries and mutations require CAP_NET_ADMIN in the namespace's user owner.
 
+`network_conntrack` exposes CTNETLINK dumps and tuple lookup for managed TCP/UDP
+relays, with namespace-local original/reply tuples, NAT status, marks and expiry.
+UDP deletion retires the mapping after successful ACK publication, preserving
+the guest-facing socket. Its next datagram receives fresh routing/NAT admission.
+TCP deletion is explicitly unsupported: closing its transport is not a substitute
+for deleting tracking state. Flush rejects a selection containing TCP without
+partially deleting UDP. Native unmediated flows, multicast, Android conntrack,
+event multicast, arbitrary record creation and accounting extensions are outside
+this inventory. Replies obey the same bounded netlink transport; overflow fails
+rather than return a truncated successful dump. These queries enumerate existing
+flow owners, not a new observer on ordinary read/write.
+
 The implemented ABI covers generation queries, tables, base/regular chains,
 rules, exact-key/interval sets, verdict maps and register-value maps, including dumps, deletion,
 userdata and handles. Ordered set lookup uses binary search; interval ends,
@@ -426,7 +438,11 @@ address/protocol and TCP/UDP port or ICMP type/code payload, compare/range/bitwi
 conntrack state/mark/status, local/source-route classification, reverse-path and
 packet-type predicates, set, verdict-map and register-value lookup, single-target
 DNAT, single-address SNAT and masquerade operations. Source NAT supports inclusive
-TCP/UDP port ranges for both address families. ACCEPT ends a chain, not a hook; later
+TCP/UDP port ranges and random source-port selection for both address families.
+Random selection runs only on NAT admission and uses the existing collision
+reservations; retained mappings keep their chosen port. Xtables DNAT/SNAT state
+aliases are ORed with ordinary conntrack state using the flow's NAT status.
+ACCEPT ends a chain, not a hook; later
 base chains may deny it. RETURN applies the base policy.
 `route` OUTPUT chains repeat route selection after a mark/address change and
 publish the selected output to later chains. They use the same policy-routing

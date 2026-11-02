@@ -179,6 +179,26 @@ Traffic assertions use local native peers, independently of internet stability.
 `test_os_boot.py --network bridge --dns IP` applies the same profile to stock
 init boot; its default remains routed. Reports identify the native binaries.
 
+### K3s
+
+`test_k3s.py BUILD ENVIRONMENT K3S_ARM64 --machine-entry` uses an installed
+recipe environment with Python 3, util-linux and a verified upstream k3s binary.
+The receipt records its SHA-256, version, runtime hashes and entry/kernel profile.
+Container images are pulled by stock containerd, so initial readiness depends on
+registry access. No distribution packages are built or installed by the fixture.
+
+The single-node host-gw profile disables Traefik and ServiceLB. It checks Node
+Ready, CoreDNS, kubelet root filesystem capacity, cross-pod DNS/ClusterIP HTTP,
+server restart retaining pod UID and Service address, and ordinary deletion with
+the default termination grace. After restart, the kubelet's own inventory must
+reacquire the pods before executing inside them; retained API readiness alone
+does not satisfy this check.
+Private PID/mount namespaces retire remaining shims and runtime data; logs and
+the structured result are downloaded before deleting the fixture directory.
+Use `--base` for fallback entry or `--kernel-profile linux-5.15` for host-capability
+fallbacks. Neither that profile nor this scenario certifies a physical 5.15 kernel,
+default VXLAN, NetworkPolicy or multi-node operation.
+
 ### Container Publication And IPv6
 
 The Docker and Podman network probes allocate paired TCP/UDP ports through an
@@ -346,8 +366,11 @@ with absent/truncated receive buffers, a datagram queued before sender close,
 and receiver-close/rebind without reusing stale reply mappings.
 `probe_nft_runtime.py BUILD STORE --network bridge --machine-entry` (or `--base`)
 checks stock nft/iptables catalogue operations, atomic rollback, verdict maps,
-UDP DNAT and immediate TCP REJECT in both address families. Unsupported ICMP
-REJECT must fail without committing its table. The default `routed` mode also
+UDP DNAT and immediate IPv4/IPv6 TCP REJECT. It also checks NAT
+state aliases, randomized masquerade rule admission, CTNETLINK inventory and UDP
+mapping deletion/re-admission on the same socket. Rejected TCP deletion must
+leave the stream usable. Unsupported rate limits fail without committing their
+table. The default `routed` mode also
 publishes the fixture's port 53 on Android and can fail with EACCES under host
 bind policy; use the explicit private bridge for guest-only coverage, not as a
 substitute for external publication tests. The native network-launch fixture
@@ -379,7 +402,16 @@ clone3 target admission, zombie/reap accounting, poll notifications, sampled
 CPU/RSS and cgroup namespaces. Repeat with `--kernel-profile linux-5.15` for
 capability-fallback coverage; this is not a substitute for a physical 5.15 kernel.
 CPU quotas, cpuset affinity and memory limits are retained policies, not enforced
-controls. These tests keep that boundary explicit.
+controls. `memory.events`/`.local` must remain quiet after the initial read and
+retire on group/controller removal. These tests keep that boundary explicit.
+
+`test_kmsg.py BUILD STORE --machine-entry` (or `--base`) verifies the private
+kernel-message device's record ABI, cursors, poll/blocking delivery, overrun and
+permissions. It does not read host logs or claim OOM observation.
+`test_proc_policy.py` covers private proc inventories and advisory kernel-policy
+values through original and newly mounted proc views, including denied writers
+and explicitly rejected strict overcommit. Repeat supported fixtures with
+`--kernel-profile linux-5.15` to exercise capability fallbacks.
 
 `test_thread_identity_runtime.py BUILD STORE FIXTURE --debuggers` checks libc
 thread identities and multi-threaded setuid/setgid/setgroups, including strace

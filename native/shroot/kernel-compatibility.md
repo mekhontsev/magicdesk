@@ -882,7 +882,18 @@ dependency or ordinary read/write interception. `test_fs_context.c` covers peer
 visibility, retained writers/mappings, cold reset and fail-fast maintenance.
 `test_inode_view.c` covers upper-policy propagation into writable overlays,
 denied upper acquisition/activation and independently scoped overlay remounts.
-Both temporary kinds are disk-backed, not memory-only/no-swap implementations.
+Both temporary kinds are disk-backed, not memory-only implementations. The guest
+`noswap` mount option is handled by `fs_temporary` and `fs_context`, independently
+of native tmpfs option availability: file data uses ordinary backing files, not
+swap. It neither requests a newer host mount API nor prevents disk writes or
+swapping process memory. `test_mount_api.py` covers flag/string validation and
+both descriptor and legacy mount entry points.
+
+Guest `kmsg_device` uses baseline eventfd/poll and the typed-control dispatcher;
+it does not open Android's kernel log or infer OOM events. `test_kmsg.py` covers
+cursors, short reads, blocking readiness, overrun and permissions. Launch-local
+kernel-policy files and `memory.events` use existing proc/control/watch owners,
+without a newer kernel resource-control dependency.
 
 ### Rejection And Auxiliary Providers
 

@@ -504,6 +504,40 @@ static void *accounting_thread(void *unused) {
     while (!atomic_load(&accounting_done)) sched_yield();
     return NULL;
 }
+static void memory_events(void) {
+    const char *group="/tmp/cgv2/memory-events",*subtree="/tmp/cgv2/cgroup.subtree_control";
+    for (unsigned disable=0;disable<2;++disable) {
+        assert(!mkdir(group,0700));
+        int watch=inotify_init1(IN_NONBLOCK|IN_CLOEXEC); assert(watch>=0);
+        int ep=epoll_create1(EPOLL_CLOEXEC); assert(ep>=0);
+        int files[2],watches[2];
+        char text[256],path[128];
+        for (unsigned i=0;i<2;++i) {
+            snprintf(path,sizeof(path),"%s/memory.events%s",group,i ? ".local" : "");
+            watches[i]=inotify_add_watch(watch,path,IN_MODIFY|IN_DELETE_SELF); assert(watches[i]>0);
+            files[i]=open(path,O_RDONLY|O_CLOEXEC); assert(files[i]>=0);
+            struct epoll_event event={.events=EPOLLPRI,.data.fd=files[i]};
+            assert(!epoll_ctl(ep,EPOLL_CTL_ADD,files[i],&event));
+            assert(epoll_wait(ep,&event,1,0)==1 && (event.events&EPOLLPRI));
+            ssize_t n=read(files[i],text,sizeof(text)-1); assert(n>0); text[n]=0;
+            assert(strstr(text,"oom 0\n") && strstr(text,"oom_kill 0\n"));
+            assert(!epoll_wait(ep,&event,1,0));
+        }
+        assert(writing("/tmp/cgv2/memory-events/memory.max","1")==1);
+        struct epoll_event event;
+        assert(!epoll_wait(ep,&event,1,0));
+        assert(read(watch,text,sizeof(text))<0 && errno==EAGAIN);
+        if (disable) assert(writing(subtree,"-memory")==7);
+        else assert(!rmdir(group));
+        assert(events_read(watch,watches[0],watches[1])==12);
+        assert(epoll_wait(ep,&event,1,0)==1 && (event.events&EPOLLHUP));
+        for (unsigned i=0;i<2;++i) {
+            assert(pread(files[i],text,sizeof(text),0)<0 && errno==ENODEV); close(files[i]);
+        }
+        close(ep); close(watch);
+        if (disable) { assert(!rmdir(group)); assert(writing(subtree,"+memory")==7); }
+    }
+}
 static void resource_controllers(void) {
     const char *root="/tmp/cgv2/cgroup.subtree_control";
     const char *child="/tmp/cgv2/resources";
@@ -511,6 +545,7 @@ static void resource_controllers(void) {
     assert(!mkdir(child,0700));
     assert(access("/tmp/cgv2/resources/cpu.max",F_OK)<0 && errno==ENOENT);
     assert(writing(root,"+cpu +cpuset +memory")==20);
+    memory_events();
     read_text("/tmp/cgv2/resources/cgroup.controllers",text,sizeof(text));
     assert(!strcmp(text,"cpu cpuset memory pids\n"));
     assert(writing("/tmp/cgv2/resources/cpu.max","25000 100000")==12);

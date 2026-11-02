@@ -360,6 +360,16 @@ internal slots. A newly attached mount follows the existing entries; a table
 opened before the change but not yet read observes the new snapshot. This
 supports consumers which identify recursive bind additions by their table suffix.
 
+Ordinary inode storage reports its backing filesystem type in mount tables,
+consistent with its native `statfs` capacity and type. The worker's existing
+event-invalidated native mount snapshot owns the device/type map; guest entries
+never disclose Android storage paths or block-device source names. Backing
+devices have stable `guest:major:minor` source labels, separate from logical
+tmpfs/ramfs/overlay sources. Logical providers retain their own types. An unknown
+backing remains `guestfs`, not a guessed ext4 filesystem. This is backing-space
+inventory, not per-guest quotas or block IO accounting; ordinary file operations
+do not consult this map.
+
 Foreign FD/cwd metadata and readlink use the same process-access policy. Native
 magic-link capture retains the selected object across worker execution; socket
 metadata is read from that FD rather than by replaying a reusable proc spelling.
@@ -462,8 +472,10 @@ As on Linux, remount accepts `mode`, `uid` and `gid` without changing the existi
 root inode; capacity parameters retain the allocation policy above. Invalid
 parameters fail before readonly policy changes, and successful contexts clear
 their parameter list before reuse. This is compatibility for the filesystem
-operations, not memory-only storage: neither name guarantees no disk writes or
-no swap. In particular, ramfs at `/run/keys` is not a secret-storage guarantee.
+operations, not memory-only storage. `noswap` is accepted by both mount APIs:
+file contents use ordinary backing files rather than swap. It does not prevent
+disk writes or Android swapping process memory. In particular, ramfs at
+`/run/keys` is not a secret-storage guarantee.
 Writes, truncation and shared mappings retain native IO and backing-space errors.
 Atime flags in legacy and descriptor mount APIs are compatibility hints: timestamps
 follow the backing filesystem, not a new per-mount IO observer. Memory accounting
@@ -714,7 +726,11 @@ CPU weights/quotas, cpuset masks, memory protection/limits and OOM-group policy
 are validated and retained, but do not enforce host scheduling, page charging or
 OOM kills. Effective cpuset masks inherit from ancestors within the executor's
 available CPU/node sets; they do not change native thread affinity. No throttling
-or OOM events are fabricated. IO control remains unavailable. The v1
+or OOM events are fabricated. `memory.events` and `memory.events.local` expose
+zero counters and use the same per-open watch/poll protocol as `pids.events`.
+Reading clears initial readiness; changing an advisory limit does not invent an
+OOM notification. Group removal or controller disable retires their watches and
+open controls. IO control remains unavailable. The v1
 devices list is always `a *:* rwm`; all-device allowance is accepted, restrictive
 rules are rejected. Unsupported controller enabling and release agents
 return EOPNOTSUPP. This interface never accesses Android's cgroup hierarchy and

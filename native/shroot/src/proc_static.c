@@ -36,7 +36,10 @@ static const struct static_entry {
     {MD_PROC_FILESYSTEMS,"filesystems",filesystems,sizeof(filesystems)-1},
     {MD_PROC_SWAPS,"swaps",swaps,sizeof(swaps)-1},
     /* A userspace guest does not boot its own kernel. */
-    {MD_PROC_KERNEL_CMDLINE,"cmdline","\n",1}
+    {MD_PROC_KERNEL_CMDLINE,"cmdline","\n",1},
+    /* No block drivers are exposed by the guest device inventory. File IO
+     * still consumes backing storage; these are not host-wide IO counters. */
+    {MD_PROC_DISKSTATS,"diskstats","",0}
 };
 ino_t md_proc_static_inode(const char *name) {
     for (size_t i=0;i<sizeof(entries)/sizeof(*entries);++i)

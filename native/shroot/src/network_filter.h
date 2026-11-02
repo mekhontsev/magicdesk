@@ -40,6 +40,7 @@ struct md_filter_expression {
     unsigned src, dst, size, key, operation, aux;
     unsigned constant, family; /* NAT address/port in value instead of registers. */
     unsigned port_range, port_max; /* Maximum register offset, or network-order constant. */
+    unsigned nat_flags;
     uint64_t target;
     unsigned char value[16], mask[16];
     union {
