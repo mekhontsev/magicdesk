@@ -9,7 +9,8 @@
 bool producer_create(struct Producer *p) {
     if (!p->width) { p->width = WIDTH; p->height = HEIGHT; p->stride = STRIDE; p->offset = OFFSET; }
     assert(p->width <= 8192 && p->height && p->height <= 8192 && p->stride >= p->width * 4);
-    p->allocation = ((size_t)p->offset + (size_t)p->height * p->stride + ALLOCATION - 1) / ALLOCATION * ALLOCATION;
+    size_t minimum = ((size_t)p->offset + (size_t)p->height * p->stride + ALLOCATION - 1) / ALLOCATION * ALLOCATION;
+    if (p->allocation < minimum) p->allocation = minimum;
     p->owner = mdg_device_create(false);
     assert(p->owner);
     if (!mdg_device_linear_dmabuf(p->owner)) return false;
@@ -64,17 +65,15 @@ bool producer_create(struct Producer *p) {
     return true;
 }
 
-void producer_write(struct Producer *p, uint32_t a, uint32_t b) {
+int producer_write_explicit(struct Producer *p, uint32_t a, uint32_t b, int acquire_fd) {
     Gpu *g = p->gpu;
     if (p->submitted) {
         // EVENT_WAIT: fixture reuses its producer command buffer only after GPU completion; timeout fails.
         assert(g->WaitForFences(g->device, 1, &p->fence, true, 5000000000ull) == VK_SUCCESS);
     }
-    struct dma_buf_export_sync_file previous = {.flags = DMA_BUF_SYNC_WRITE, .fd = -1};
-    assert(ioctl(p->fd, DMA_BUF_IOCTL_EXPORT_SYNC_FILE, &previous) == 0);
     VkImportSemaphoreFdInfoKHR wait = {.sType = VK_STRUCTURE_TYPE_IMPORT_SEMAPHORE_FD_INFO_KHR,
         .semaphore = p->wait, .flags = VK_SEMAPHORE_IMPORT_TEMPORARY_BIT,
-        .handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT, .fd = previous.fd};
+        .handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT, .fd = acquire_fd};
     assert(g->ImportSemaphoreFdKHR(g->device, &wait) == VK_SUCCESS);
     assert(g->ResetFences(g->device, 1, &p->fence) == VK_SUCCESS);
     assert(g->ResetCommandBuffer(p->commands, 0) == VK_SUCCESS);
@@ -92,8 +91,14 @@ void producer_write(struct Producer *p, uint32_t a, uint32_t b) {
         .dstQueueFamilyIndex = g->family, .buffer = p->buffer, .size = p->allocation};
     if (p->submitted) g->CmdPipelineBarrier(p->commands, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
         VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 1, &barrier, 0, NULL);
-    for (unsigned y = 0; y < p->height; ++y)
-        p->fill(p->commands, p->buffer, p->offset + y * p->stride, p->width * 4, y < p->height / 2 ? a : b);
+    if (p->stride == p->width * 4) {
+        VkDeviceSize top = (VkDeviceSize)(p->height / 2) * p->stride;
+        if (top) p->fill(p->commands, p->buffer, p->offset, top, a);
+        p->fill(p->commands, p->buffer, p->offset + top, (VkDeviceSize)p->height * p->stride - top, b);
+    } else {
+        for (unsigned y = 0; y < p->height; ++y)
+            p->fill(p->commands, p->buffer, p->offset + y * p->stride, p->width * 4, y < p->height / 2 ? a : b);
+    }
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; barrier.dstAccessMask = 0;
     barrier.srcQueueFamilyIndex = g->family; barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_FOREIGN_EXT;
     g->CmdPipelineBarrier(p->commands, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
@@ -109,6 +114,13 @@ void producer_write(struct Producer *p, uint32_t a, uint32_t b) {
         .semaphore = p->ready, .handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT};
     int completion = -1;
     assert(g->GetSemaphoreFdKHR(g->device, &fd, &completion) == VK_SUCCESS);
+    return completion;
+}
+
+void producer_write(struct Producer *p, uint32_t a, uint32_t b) {
+    struct dma_buf_export_sync_file previous = {.flags = DMA_BUF_SYNC_WRITE, .fd = -1};
+    assert(ioctl(p->fd, DMA_BUF_IOCTL_EXPORT_SYNC_FILE, &previous) == 0);
+    int completion = producer_write_explicit(p, a, b, previous.fd);
     if (completion >= 0) {
         struct dma_buf_import_sync_file ready = {.flags = DMA_BUF_SYNC_WRITE, .fd = completion};
         assert(ioctl(p->fd, DMA_BUF_IOCTL_IMPORT_SYNC_FILE, &ready) == 0);

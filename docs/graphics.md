@@ -86,11 +86,11 @@ are sampling sources, not render targets or CPU-readable images.
 Capability discovery checks external-memory extensions and transfer-buffer
 import support independently of compositor startup. Each allocation must also
 pass layout, size, memory-type and kernel synchronization checks. Ordinary
-memfds, unsupported layouts and missing fence ioctls are rejected. The software
+memfds and unsupported layouts are rejected. The software
 backend does not claim DMA-BUF support; existing SHM/AHardwareBuffer paths remain
 independent.
 
-Every submission exports the producer's implicit write fences into a Vulkan
+On kernels with the sync-file bridge, every submission exports the producer's implicit write fences into a Vulkan
 wait semaphore and publishes its completion as an implicit read fence. The
 producer must honor those read fences before overwriting or recycling storage,
 and retain the consumer's buffer lease through submission.
@@ -103,6 +103,25 @@ and watches the fence for that output only; replacement content can supersede th
 wait. Other outputs and protocol dispatch remain independent. Pixel-lock workers
 can use the bounded blocking submission helper. DMA-BUF CPU cache synchronization
 brackets the suffix copy after readiness, not before it.
+
+When the bridge returns `ENOTTY` or `ENOSYS`, a caller-provided buffer lease
+enables completion-owned imports. The producer must publish its writes to the
+DMA-BUF reservation or finish them before handoff. DMA-BUF readiness is observed
+without blocking the compositor; it cannot detect unpublished KGSL work.
+Queued reads retain the lease through real GPU completion, including cancelled
+readbacks. The serialized owner observes the completion FD even when no further
+frame is requested. Wayland maps these leases to `wlr_buffer` locks, so
+`wl_buffer.release` cannot authorize premature reuse. Event-loop destruction
+detaches observers; renderer teardown drains GPU work before releasing leases.
+Permission failures are not treated as missing features. Modern imports do not
+retain completion leases or register these observers.
+
+The common Mesa recipe patches Zink and Vulkan WSI to finish an actual sync-file
+dependency when kernel fence publication is unavailable. This producer-side
+fallback is not a Shroot ioctl interposer and does not intercept ordinary IO.
+The `turnip-completion-v1` recipe profile admits Shroot's discovery node on the
+older bridge contract. Installed Mesa must be rebuilt with the current recipe;
+updating only the APK does not change its producer synchronization.
 
 GPU resources are cached per import/command
 slot; fence FDs have per-submission ownership. A failed read-fence publication
@@ -117,10 +136,11 @@ Wayland exposes these capabilities through `linux-dmabuf` v3. Its focused
 protocol adapter imports only the four advertised RGB formats with an explicit
 linear modifier, validates buffer parameters and owns the client's allocation as
 a `wlr_buffer`. Textures retain that buffer while used by the scene; submitted
-GPU work independently retains its imported image and publishes implicit read
-fences. `wl_buffer.release` releases the scene's reference, not a promise that
-the producer may ignore those fences. Buffer imports and FD duplication occur
-at creation, not per frame.
+GPU work independently retains its imported image. With native synchronization
+it publishes implicit read fences, which the producer must honor even after
+`wl_buffer.release`. Completion-owned imports instead delay that release until
+GPU reads finish. Imports retain their buffer FDs at creation; readiness and
+completion FDs have per-submission ownership.
 
 Version 3 does not require DRM feedback. wlroots' feedback implementation needs
 a real DRM device identity, which an Android Vulkan driver need not expose; the
@@ -441,10 +461,51 @@ Readback fixtures cover software/GPU pixels, target reuse, replacement and
 cancellation before producer completion. Its default capability skip is distinct from a pass;
 `--required` makes unavailable DMA-BUF support a test failure.
 
+`graphics-dmabuf-explicit-test` checks a possible synchronization transport,
+not an enabled compositor fallback. Before either Vulkan device is created,
+seccomp denies the two Linux 6.0 DMA-BUF sync-file ioctls. Two processes then
+exchange real buffer and `SYNC_FD` descriptors over `SCM_RIGHTS`. GPU gates
+check both acquire ordering and queued reuse before reader completion; CPU
+readback verifies all 64 frames. Polling the DMA-BUF itself is observed separately:
+it can report ready while the explicit GPU fences remain pending. Neither
+that observation nor CPU cache synchronization replaces a missing dependency.
+
+By default both processes use the production Android Vulkan device. Optional
+`MDG_TEST_PRODUCER_VULKAN` and `MDG_TEST_CONSUMER_VULKAN` absolute loader paths
+select test-only headless devices, allowing Mesa/Turnip interoperability checks
+without requiring Android surface extensions from the Linux-oriented loader.
+Set `VK_DRIVER_FILES` for that loader as usual; these variables have no effect
+outside this fixture. The native-device variant supports `--required` as above.
+
+NX809J/API 36/kernel 6.12.23 passes Android/Android, Turnip/Android,
+Android/Turnip and Turnip/Turnip with Mesa 26.2.3 and the ioctls denied. This
+does not certify a physical 5.15 device, cross-UID permissions, Flatpak or a
+Wayland protocol. An explicit transport needs per-commit acquire fences and consumer
+completion/reuse ownership across every participating client and compositor.
+Chromium 156 and Mesa 26.2.3 use `linux-drm-syncobj-v1` for Wayland explicit
+synchronization; adding only the older sync-file protocol would not supply
+that path. Chromium also has a
+[worker-fence-wait fallback](https://github.com/chromium/chromium/blob/156.0.8078.47/ui/ozone/platform/wayland/gpu/gbm_surfaceless_wayland.cc#L174),
+but that alone does not establish the receiver's completion contract or remove
+Zink's shared-buffer implicit-fence dependency.
+
+`graphics-dmabuf-lease-test` checks completion-owned imports with native ioctls,
+missing-ioctl errors and permission denial. It covers exact pixels, cancellation,
+GPU-gated submission, readback cancellation and balanced ownership. Native
+imports invoke no lease/completion notification callbacks. The Mesa helper test
+checks the native single-ioctl path, interrupted waits, actual completion,
+invalid descriptors and failure propagation. The
+[distribution evidence](../native/guest-exec-lab/distribution-evidence.md#linux-515-capability-profile)
+records sandboxed Chromium cold start, animation/video, reload and normal exit
+on Alpine and Debian with the bridge denied in both client and compositor.
+
 `wayland-dmabuf-test` exercises protocol advertisement, asynchronous/immediate
 creation, invalid requests, all four GPU-produced formats, scene retention,
 release and destruction of client protocol objects. Its software case checks
-that no unsupported global is exposed. Android instrumentation accepts
+that no unsupported global is exposed. Its completion-owned case stalls the GPU,
+requires Wayland roundtrips to continue, then checks idle buffer release only
+after GPU completion and event-loop-before-renderer destruction.
+Android instrumentation accepts
 `-e dmabuf true` with `wayland-window-test` to verify GPU-produced client pixels
 through the compositor, cross-UID transport and Android Surface, with input and
 closure through the same host contracts as SHM clients.

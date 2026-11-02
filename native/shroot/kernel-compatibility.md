@@ -926,7 +926,7 @@ retain native errors; arbitrary new guest syscalls are not runtime requirements.
 
 | Interface | First upstream kernel | Owner and purpose | Behavior without it |
 | --- | --- | --- | --- |
-| `DMA_BUF_IOCTL_EXPORT_SYNC_FILE` / `DMA_BUF_IOCTL_IMPORT_SYNC_FILE` | 6.0 | Graphics DMA-BUF fence bridge; `render_device.c` probes allocation/export/poll/import once for a Turnip-enabled launch. `test_render.py` checks admission and typed descriptor behavior; `test_egl_dmabuf.c` and `test_egl_gbm.c` verify GPU completion and exact pixels. Hosted-runtime DMA-BUF tests cover consumption. | A failed probe leaves the optional discovery node absent; the graphics importer rejects unsupported synchronization. Existing SHM paths remain independent. No Shroot startup requirement or raised 5.15 baseline. Kernel version alone does not admit the node. |
+| `DMA_BUF_IOCTL_EXPORT_SYNC_FILE` / `DMA_BUF_IOCTL_IMPORT_SYNC_FILE` | 6.0 | Graphics DMA-BUF fence bridge; `render_device.c` probes allocation/export/poll/import once per Turnip-enabled launch. `test_render.py` checks strict and completion-owned admission; hosted-runtime and Wayland fixtures check GPU ordering, idle release and cancellation. | The `turnip-completion-v1` recipe enables the common Mesa completion fallback plus compositor-held read leases on `ENOTTY`/`ENOSYS`. Legacy DMA-BUF validation and readiness are still required; `EPERM` is not absence. The older `turnip` profile remains bridge-only. Modern ioctls retain the native GPU dependency path. Neither profile is a Shroot startup prerequisite. |
 | `PIDFD_THREAD` | 6.9 | `task_descriptor.c` owns descriptor capture; `task_lifetime.c` owns exact-thread liveness for restricted proc roots. | Try flags zero for the same task. A non-leader rejected with EINVAL is reported as ENOTSUP and uses task-affine SCM_RIGHTS export. Liveness retains `/proc/<tid>/stat` instead: a flags-zero pidfd observes group death, not exact-thread death. Never substitute the leader's file table. |
 | `pidfs` filesystem identity | 6.9 | `fd_filesystem.c` supplies statfs metadata for an actual retained pidfd when Android denies native fstatfs. It identifies the kernel object and compares its superblock with anon_inodefs; it does not grant process access. `test_kernel_baseline.c` compares native and denial-injected results; `test_proc_root_guest.py` covers proc aliases, duplicates, peer pidfds and protected callers. | Older pidfds retain ANON_INODE_FS_MAGIC; no pidfs ioctl, release check or new startup requirement. Non-pidfd denials remain errors. |
 | `SECCOMP_IOCTL_NOTIF_SET_FLAGS` / `SECCOMP_USER_NOTIF_FD_SYNC_WAKE_UP` | 6.6 | `namespace_broker.c`: optional notification scheduling hint. | Failed ioctl leaves normal notification wakeups enabled; no permission or affinity change. Success does not guarantee CPU co-location: the scheduler still owns placement, and not every FD-install completion uses this hint. |
@@ -965,13 +965,80 @@ proc capture, descriptor export and full helper reaping. Only then does the prob
 release its lease and report readiness. These guest-only checks do not initialize
 the filesystem worker or affect independent shell services.
 
-`test_resources.py --case kernel-baseline` masks PIDFD_THREAD with EINVAL and
-executes the resource model plus production private-thread proc capture and
-mapped descriptor/data/import workflows. Exact-task handle cases include
+### Host Kernel Profiles
+
+Fixture builds (`MAGICDESK_GUEST_FIXTURES=ON`) support `linux-5.15` through
+`native/guest-exec-lab/kernel_profile.c`. Release builds contain neither the
+profile implementation nor the supervisor startup hooks. The profile does not
+change the storage format, APK requirements, guest uname or selected executor.
+
+The supervisor consumes the test selection before forking the guest, then
+installs a seccomp filter only in its parent branch, before starting host worker
+threads. All those native owners inherit the ceiling. The guest inherits neither
+this filter nor its `no_new_privs`; lazy SVC, emulated operations, application
+filters and guest credential transitions retain their ordinary admission paths.
+Applying an ERRNO filter around the whole Shroot command would instead outrank
+guest TRACE/USER_NOTIF and invalidate that test.
+
+The profile rejects ARM64 syscall numbers from 449 onward with ENOSYS, and
+selectively masks PIDFD_THREAD, notification synchronous wake, newer notification
+flags, DMA-BUF fence export/import, pidfd namespace ioctls, PROCMAP_QUERY,
+executable/non-executable memfd flags, AT_EXECVE_CHECK and socket pidfd options.
+The table supplies each interface's expected errno, not a generic permission
+denial. Baseline pidfd_open, memfd, socket options and ordinary ioctl remain
+available. The syscall ceiling follows the
+[5.15 ARM64/generic syscall table](https://github.com/torvalds/linux/blob/v5.15/include/uapi/asm-generic/unistd.h).
+
+Profile admission checks the actual selectors in a disposable child using
+distinct probe-only error values, so existing host errors cannot masquerade as
+a working filter. Each supervised launch verifies the installed production-error
+form and emits `SHROOT_KERNEL_PROFILE` with the real host kernel. Test runners
+retain this evidence separately from guest output and reject missing admission.
+The probe-only errors never enter a supervised workload.
+
+`kernel_profile.py` owns runner selection and a disposable executable launcher.
+`--kernel-profile linux-5.15` is available on the resources, watches, systemd,
+OCI services and render runners. Other runners using `test_oci_services.Suite`
+can select it with `SHROOT_TEST_KERNEL_PROFILE=linux-5.15`. They require an
+explicit fixture build; installed APK helpers are not silently substituted.
+Native controls and standalone component tests remain unmodified unless
+explicitly run with `kernel_baseline --host NATIVE-FIXTURE`.
+
+This is a host capability ceiling, not a kernel emulator. Existing syscall
+semantics, pidfs identity, statx result masks, scheduling, SELinux and guest-native
+passthrough still come from the actual kernel. It does not certify a real 5.15
+device or emulate every newer flag. Structured-result behavior needs focused
+owner tests rather than a blanket syscall denial. Add newly owned dependencies
+to the inventory and extend this profile or their focused tests as appropriate.
+Profile timings include the test filter and measure fallback costs on the actual
+host, not predicted 5.15 performance.
+
+`test_resources.py --case kernel-baseline` compares native capabilities and this
+profile, with both Base and lazy SVC. It executes the resource model plus
+production private-thread proc capture and mapped descriptor/data/import
+workflows. Exact-task handle cases include
 ordinary/nondumpable tasks, independent non-leader file tables, retained handle
 copies and dead-task observation after reaping. The resource model checks
 restricted proc roots belonging to live non-leaders and copies of those roots.
 Fallback proc handles are opened once and inspected on demand, not periodically.
+Read capture also covers non-leader inotify IO and a native stream reusing a
+watch-selected descriptor, with lazy SVC enabled and disabled. Missing capture
+support selects the existing task-affine path; genuine descriptor errors remain
+errors. Ordinary native IO does not gain a new interception path.
+The guest contract checks fchmodat2, pidfd namespace handles, ordinary versus
+unique statx mount IDs, independent no_new_privs across exec, removal of the test
+environment variable, and measured lazy SVC completions. The optional render
+fixture checks that missing host fences leave discovery absent for a bridge-only
+profile, while the completion-owned recipe admits real DMA-BUF allocations.
+Neither result blocks unrelated guest startup.
+
+The Alpine/Debian [distribution profile matrix](../guest-exec-lab/validation-matrix.md#linux-515-capability-profile)
+records init, containers, graphics, browsers and editor coverage separately from
+real-kernel acceptance. Focused epoll admission tests combine shared FD tables,
+different filter groups, queued file/mapping/metadata/IPC operations and
+already-cancelled syscall entries. Protected proc exports exercise exact open
+flags and full-table behavior in Base and lazy SVC. Mount graph tests retain
+proc visibility and PSI policy across exec peers and publisher exit.
 
 The same suite injects missing pidfd, faccessat2, seccomp, close_range, private
 clone and ADDFD operations. ADDFD also covers EINVAL and EACCES. Each rejected

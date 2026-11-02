@@ -285,7 +285,6 @@ static int open_resolved(struct md_inode_store *s, int dirfd, const char *path, 
     if (!r && image) r=mdi_leaf_promote(s,&loc.node);
     if (!r && fd<0 && (fd=mdi_backing_open(s,&loc.node,native_flags))<0) r=fd;
     if (!r && plan && pin.fd<0) r=mdi_backing_fstat(&loc.node,fd,&st);
-    if (!r && plan) r=md_open_plan_access(fd,flags);
     if (!r && image) {
         struct stat opened;
         if (fstat(fd, &opened)) r = -errno;

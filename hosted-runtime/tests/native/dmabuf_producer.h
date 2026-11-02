@@ -25,5 +25,7 @@ struct Producer {
 };
 
 bool producer_create(struct Producer *producer);
+/* Consumes the acquire SYNC_FD (-1 means signalled); returns an owned SYNC_FD. */
+int producer_write_explicit(struct Producer *producer, uint32_t top, uint32_t bottom, int acquire_fd);
 void producer_write(struct Producer *producer, uint32_t top, uint32_t bottom);
 void producer_destroy(struct Producer *producer);

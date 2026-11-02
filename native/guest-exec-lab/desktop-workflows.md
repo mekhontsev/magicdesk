@@ -759,6 +759,10 @@ port to identify renderers through `SystemInfo.getProcessInfo`, then independent
 checks their proc credentials and filters. A Flatpak portal can parent those
 renderers outside the CLI's process tree. This inspection option belongs only
 to the lab fixture, not the recipe or application launcher.
+The controller and editor must share a PID namespace. For Flatpak, run Python
+inside the application sandbox, with `--code /app/bin/code`, rather than passing
+an exported Flatpak launcher to an outside controller. The fixture verifies
+this identity before interpreting Electron's process IDs.
 Install `ms-vscode.cpptools` with the same `code` launcher supplied to the fixture
 and confirm it with `code --list-extensions`. Package wrappers may select their
 own extension directory; populating `~/.vscode/extensions` directly does not

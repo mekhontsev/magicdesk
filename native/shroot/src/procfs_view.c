@@ -18,7 +18,6 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
-struct proc_policy { unsigned hidepid,pidonly; uint32_t gid; int pressure; };
 static const struct { const char *name; int directory; } kernel_nodes[]={
     {"sysrq-trigger",0},{"kcore",0},{"kmsg",0},{"keys",0},{"asound",1},{"kallsyms",0}
 };
@@ -34,12 +33,11 @@ const char *md_procfs_static_link(int fd) {
             return names[i];
     return NULL;
 }
-static const struct md_provider_tree_ops tree_ops={.filesystem=PROC_SUPER_MAGIC,.release=free};
-static const struct proc_policy *policy(const struct md_view_mount *mount) {
-    return mount ? md_provider_tree_context(mount->provider,&tree_ops) : NULL;
+static const struct md_procfs_policy *policy(const struct md_view_mount *mount) {
+    return mount ? md_procfs_tree_policy(mount->provider) : NULL;
 }
-static int options(struct proc_policy *p,const char *text,const struct md_identity *id) {
-    *p=(struct proc_policy){0};
+static int options(struct md_procfs_policy *p,const char *text,const struct md_identity *id) {
+    *p=(struct md_procfs_policy){0};
     while (text && *text) {
         size_t size=strcspn(text,",");
         char option[128];
@@ -70,7 +68,7 @@ static int options(struct proc_policy *p,const char *text,const struct md_identi
     return 0;
 }
 int md_procfs_options(const struct md_view_mount *mount,const struct md_identity *id,char *out,size_t size) {
-    const struct proc_policy *p=policy(mount);
+    const struct md_procfs_policy *p=policy(mount);
     if (!size) return -ENAMETOOLONG;
     out[0]=0;
     if (!p) return 0;
@@ -99,27 +97,27 @@ int md_procfs_pressure_probe(int root) {
     return 1;
 }
 struct md_provider_tree *md_procfs_new(int parent,const char *text,const struct md_identity *id) {
-    struct proc_policy *p=malloc(sizeof(*p));
-    if (!p) return NULL;
-    int error=options(p,text,id);
-    if (error) { free(p); errno=-error; return NULL; }
-    if (p->hidepid) {
+    struct md_procfs_policy p;
+    int error=options(&p,text,id);
+    if (error) { errno=-error; return NULL; }
+    if (p.hidepid) {
         int probe=open("/proc/self/io",O_RDONLY|O_CLOEXEC);
         error=probe<0 ? (errno==ENOENT ? EOPNOTSUPP : errno) : 0;
         if (probe>=0) close(probe);
-        if (error) { free(p); errno=error; return NULL; }
+        if (error) { errno=error; return NULL; }
     }
     int lower=open("/proc",O_PATH|O_DIRECTORY|O_CLOEXEC);
-    if (lower<0) { error=errno; free(p); errno=error; return NULL; }
+    if (lower<0) return NULL;
     /* Admit the optional PSI interface as a whole, under the executor's real
      * access policy. Bind/namespace copies retain this immutable snapshot;
      * neither lookup nor directory enumeration reprobes the host. */
-    p->pressure=md_procfs_pressure_probe(lower);
-    if (p->pressure<0) { error=-p->pressure; close(lower); free(p); errno=error; return NULL; }
-    struct md_provider_tree *tree=md_provider_tree_new(parent,lower,NULL,0,&tree_ops,p);
+    int pressure=md_procfs_pressure_probe(lower);
+    if (pressure<0) { close(lower); errno=-pressure; return NULL; }
+    p.pressure=(unsigned)pressure;
+    struct md_provider_tree *tree=md_procfs_tree_new(parent,lower,&p);
     error=tree ? 0 : errno;
     close(lower);
-    if (!tree) { free(p); errno=error; return NULL; }
+    if (!tree) { errno=error; return NULL; }
     int root=md_provider_tree_root(tree);
     if (mkdirat(root,"sys",0755) || mkdirat(root,"sys/kernel",0755)
             || mkdirat(root,"sys/fs",0755) || mkdirat(root,"sys/fs/inotify",0755)
@@ -219,13 +217,13 @@ static int inspect(struct md_filesystem *fs,pid_t native) {
     if (fd>=0) { if (read(fd,&byte,1)<0) error=errno; close(fd); }
     return !error ? 1 : error==EACCES || error==EPERM || error==ENOENT || error==ESRCH ? 0 : -error;
 }
-static int permitted(struct md_filesystem *fs,const struct proc_policy *p,pid_t native,unsigned minimum) {
+static int permitted(struct md_filesystem *fs,const struct md_procfs_policy *p,pid_t native,unsigned minimum) {
     if (!p || !p->hidepid || (p->hidepid!=4 && (p->hidepid<minimum
             || (fs->store->identity && p->gid!=UINT32_MAX && md_identity_in_group(fs->store->identity,p->gid))))) return 1;
     return inspect(fs,native);
 }
 int md_procfs_check(struct md_filesystem *fs,const struct md_view_mount *mount,const char *path,unsigned minimum) {
-    const struct proc_policy *p=policy(mount);
+    const struct md_procfs_policy *p=policy(mount);
     if (!p || !p->hidepid || strncmp(path,"/proc/",6)) return 0;
     const char *end;
     pid_t native=decimal(path+6,&end);
@@ -314,7 +312,7 @@ static int kernel_global(const char *name) {
 int md_procfs_masked(const char *path) {
     return !strncmp(path,"/proc/",6) && kernel_global(path+6);
 }
-static int omitted(const struct md_view_mount *mount,const struct proc_policy *p,const char *name) {
+static int omitted(const struct md_view_mount *mount,const struct md_procfs_policy *p,const char *name) {
     return (!mount->provider && kernel_global(name)) || (p && !p->pressure && !strcmp(name,"pressure"))
         || (p && p->pidonly && !decimal(name,NULL)
         && strcmp(name,".") && strcmp(name,"..") && strcmp(name,"self") && strcmp(name,"thread-self"));
@@ -422,7 +420,7 @@ int md_procfs_step(struct md_filesystem *fs,struct md_mount_namespace *view,stru
     if (r) return r;
     pid_t group=directory(path);
     int no_links=md_view_nosymfollow(mount) || (resolve&RESOLVE_NO_SYMLINKS);
-    const struct proc_policy *p=policy(mount);
+    const struct md_procfs_policy *p=policy(mount);
     if (group==-1 && omitted(mount,p,name)) return -ENOENT;
     if (group==-1 && (!strcmp(name,"self") || !strcmp(name,"thread-self"))) {
         if (follow_final || *tail) {
@@ -542,7 +540,7 @@ ssize_t md_procfs_getdents(struct md_filesystem *fs,const struct md_view_mount *
         if (size>=0 && lseek(fd,position,SEEK_SET)<0) return -errno;
         return size;
     }
-    const struct proc_policy *p=policy(mount);
+    const struct md_procfs_policy *p=policy(mount);
     pid_t group=directory(path);
     int net=network_directory(fs,path);
     if (!strcmp(path,"/proc/sys/net") && fs->actor && md_network_namespace_managed(fs->actor->network)) {

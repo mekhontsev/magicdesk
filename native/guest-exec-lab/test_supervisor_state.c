@@ -658,6 +658,98 @@ static long no_trace(int request,pid_t pid,void *address,void *data) {
     (void)request; (void)pid; (void)address; (void)data;
     assert(!"deferring a repair must not stop unrelated tasks"); return -1;
 }
+static void orphan_loan_retirement(void) {
+    assert(!threads && !loan_retirements && !task_action_calls);
+    int previous_fd_ready=fd_ready;
+    fd_ready=eventfd(0,EFD_CLOEXEC|EFD_NONBLOCK); assert(fd_ready>=0);
+    checkpoints.trace=no_trace;
+    for (unsigned copied=0;copied<2;++copied) for (unsigned ended=0;ended<2;++ended) {
+        if (!copied && !ended) continue;
+        struct md_fd_origins *home=md_fd_origins_new(); assert(home);
+        struct md_fd_loan *loan=md_fd_loan_new(home); assert(loan);
+        struct md_fd_origin_update update;
+        assert(!md_fd_origins_prepare(home,NULL,FD_CLOEXEC,&update));
+        assert(!md_fd_origins_prepare_loan(&update,loan));
+        md_fd_origins_finish(&update,14);
+        struct md_fd_origins *files=copied ? md_fd_origins_fork(home,0) : home;
+        assert(files);
+        if (ended) md_fd_loan_end(loan);
+        struct task_action parent_retirement={.loan=loan,.loan_table=home,.number=14};
+        struct readiness_owner parent_wait={.retirement=&parent_retirement,.loan_number=14};
+        struct thread parent_task={.pid=122,.phase=EPOLL_WAIT,.readiness=&parent_wait};
+        parent_task.resources.files=home;
+        if (copied && !ended) threads=&parent_task;
+        struct thread t={.pid=123}; t.resources.files=files;
+        t.fd_registers.regs[8]=SYS_close; t.fd_registers.regs[0]=14;
+        assert(md_fd_order_begin(files,&t.fd_order,NULL)==1);
+        assert(!md_fd_order_start(&t.fd_order));
+        assert(!fd_loans_ready(&t));
+        struct task_action *action=t.action;
+        assert(action && loan_retirements==action && task_action_calls==1);
+        assert(action->loan==loan && action->loan_table==files && action->number==14);
+        assert(action->loan_turn==&t.fd_order && action->complete==fd_loan_closed);
+        assert(md_fd_order_state(&t.fd_order)==MD_RESOURCE_ORDER_RUNNING);
+        assert(!parent_wait.evicting && parent_wait.retirement==&parent_retirement);
+        assert(!md_fd_origins_close_range(files,14,14,0));
+        t.action=NULL; task_action_release(action);
+        assert(fd_loans_ready(&t));
+        assert(!md_fd_order_complete(&t.fd_order));
+        if (copied) {
+            struct md_fd_order parent={0}; int number=-1;
+            assert(md_fd_order_begin(home,&parent,NULL)==1 && !md_fd_order_start(&parent));
+            assert(md_fd_origins_loan_matches(&parent,14,loan)==1);
+            assert(md_fd_origins_loan_next(&parent,&number)==(int)ended);
+            assert(!md_fd_order_complete(&parent));
+            md_fd_origins_release(files);
+        }
+        md_fd_loan_end(loan); md_fd_loan_release(loan); md_fd_origins_release(home);
+        threads=NULL;
+        assert(!loan_retirements && !task_action_calls);
+    }
+    checkpoints.trace=checkpoint_native_trace;
+    close(fd_ready); fd_ready=previous_fd_ready;
+    puts("PASS orphan loan retirement: expired and fork-copied slots retain table order without revoking the parent");
+}
+static void queued_loan_retirement(void) {
+    int previous_fd_ready=fd_ready;
+    fd_ready=eventfd(0,EFD_CLOEXEC|EFD_NONBLOCK); assert(fd_ready>=0);
+    checkpoints.trace=no_trace;
+    for (unsigned copied=0;copied<2;++copied) {
+        struct md_fd_origins *home=md_fd_origins_new(); assert(home);
+        struct md_fd_loan *loan=md_fd_loan_new(home); assert(loan);
+        struct md_fd_origin_update update;
+        assert(!md_fd_origins_prepare(home,NULL,FD_CLOEXEC,&update));
+        assert(!md_fd_origins_prepare_loan(&update,loan)); md_fd_origins_finish(&update,14);
+        struct thread t={.pid=123};
+        t.resources.files=copied ? md_fd_origins_fork(home,0) : home; assert(t.resources.files);
+        t.fd_registers.regs[8]=SYS_close; t.fd_registers.regs[0]=14;
+        assert(md_fd_order_begin(t.resources.files,&t.fd_order,NULL)==1);
+        assert(!md_fd_order_start(&t.fd_order));
+        struct task_action *prior=calloc(1,sizeof(*prior)); assert(prior);
+        prior->loan=loan; prior->loan_table=md_fd_origins_pin(home); prior->number=14;
+        loan_retire(prior,NULL,NULL,NULL);
+        assert(!fd_loans_ready(&t));
+        if (copied) {
+            assert(t.action && t.action!=prior && task_action_calls==2);
+            assert(md_fd_order_state(&t.fd_order)==MD_RESOURCE_ORDER_RUNNING);
+            struct task_action *local=t.action; t.action=NULL; task_action_release(local);
+            md_fd_origins_release(t.resources.files);
+        } else {
+            assert(!t.action && task_action_calls==1);
+            assert(md_fd_order_state(&prior->files)==MD_RESOURCE_ORDER_READY);
+            assert(md_fd_order_state(&t.fd_order)==MD_RESOURCE_ORDER_QUEUED);
+            retry_clear(&t,RETRY_FD);
+        }
+        task_action_release(prior);
+        if (md_fd_order_state(&t.fd_order)==MD_RESOURCE_ORDER_READY) assert(!md_fd_order_start(&t.fd_order));
+        assert(!md_fd_order_complete(&t.fd_order));
+        assert(!loan_retirements && !task_action_calls);
+        md_fd_origins_release(home);
+    }
+    checkpoints.trace=checkpoint_native_trace;
+    close(fd_ready); fd_ready=previous_fd_ready;
+    puts("PASS queued loan retirement: same-table close wins, copied-table close remains independent");
+}
 static int fd_expected_resume, fd_resume_calls, fd_test_operation, fd_test_mode;
 static long fd_resume_trace(int request,pid_t pid,void *address,void *data) {
     if (request!=fd_expected_resume || pid!=123 || address || data)
@@ -1946,6 +2038,8 @@ int main(void) {
     receive_error_queue();
     alarm(30);
     lost_stop_delivery();
+    orphan_loan_retirement();
+    queued_loan_retirement();
     readiness_transport_pressure();
     readiness_terminal_replacement();
     process_snapshot();

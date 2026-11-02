@@ -115,7 +115,7 @@ static void install_at(pid_t pid,int fd,struct shared *shared,const struct user_
     assert(ptrace(PTRACE_GET_SYSCALL_INFO,pid,sizeof(info),&info)>0 && info.op==(unsigned)boundary);
     if (boundary==MD_TASK_CALL_EXIT) assert(info.exit.rval==(long)saved->regs[0]);
     if (boundary==MD_TASK_CALL_SECCOMP)
-        assert(call.task.cookie==(expected ? 123 : MD_INTERCEPT_PROC));
+        assert(call.task.cookie==(!expected && (int)saved->regs[0]==fd ? MD_INTERCEPT_PROC : 123));
 }
 static void install(pid_t pid,int fd,struct shared *shared,const struct user_pt_regs *saved,long expected) {
     install_at(pid,fd,shared,saved,expected,MD_TASK_CALL_USER,0);
@@ -262,7 +262,7 @@ static uint32_t *syscall_page(unsigned nr) {
     code_page[0]=0xd2800008|(nr<<5); code_page[2]=0xd65f03c0;
     syscall_page_instruction(code_page,0); return code_page;
 }
-static void pending_call(int boundary,int denied,int protected) {
+static void pending_call(int boundary,int denied,int protected,int cancelled) {
     struct shared *shared=mmap(NULL,sizeof(*shared),PROT_READ|PROT_WRITE,MAP_SHARED|MAP_ANONYMOUS,-1,0);
     assert(shared!=MAP_FAILED);
     uint32_t *code_page=syscall_page(SYS_write);
@@ -312,6 +312,17 @@ static void pending_call(int boundary,int denied,int protected) {
         saved=get(pid);
         if (shared->waiting && saved.regs[8]==SYS_write && info.op==boundary) { original_status=status; break; }
     }
+    if (cancelled) {
+        assert(boundary==MD_TASK_CALL_ENTRY || boundary==MD_TASK_CALL_SECCOMP);
+        /* Emulate a successful write without its side effect, then lend the
+         * same stop to another owner. x8 deliberately remains SYS_write. */
+        saved.regs[0]=1;
+        struct iovec io={&saved,sizeof(saved)};
+        assert(!ptrace(PTRACE_SETREGSET,pid,(void *)NT_PRSTATUS,&io));
+        int number=-1;
+        io=(struct iovec){&number,sizeof(number)};
+        assert(!ptrace(PTRACE_SETREGSET,pid,(void *)NT_ARM_SYSTEM_CALL,&io));
+    }
     struct md_task_quiesce *barrier=md_task_quiesce_new(trace); assert(barrier);
     assert(!md_task_quiesce_add(barrier,pid,1,0));
     struct rusage usage={.ru_maxrss=123};
@@ -323,6 +334,12 @@ static void pending_call(int boundary,int denied,int protected) {
      * contains SVC, as after lazy publication; replay must not fetch it again. */
     syscall_page_instruction(code_page,1);
     install_at(pid,data[1],shared,&saved,denied==1 ? -EPERM : 0,boundary,denied==2);
+    if (cancelled) {
+        int number=0;
+        struct iovec io={&number,sizeof(number)};
+        assert(!ptrace(PTRACE_GETREGSET,pid,(void *)NT_ARM_SYSTEM_CALL,&io));
+        assert(number==-1);
+    }
     syscall_page_instruction(code_page,0);
     assert(!md_task_quiesce_return(barrier,pid) && !md_task_quiesce_release(barrier));
     int replay;
@@ -334,7 +351,8 @@ static void pending_call(int boundary,int denied,int protected) {
         if (WIFEXITED(status)) { assert(!WEXITSTATUS(status)); break; }
         assert(boundary==PTRACE_SYSCALL_INFO_ENTRY && (unsigned)status>>16==PTRACE_EVENT_SECCOMP);
     }
-    char byte[2]; assert(shared->completed && read(data[0],byte,2)==1 && byte[0]=='q');
+    char byte[2]; assert(shared->completed);
+    if (!cancelled) assert(read(data[0],byte,2)==1 && byte[0]=='q');
     assert(read(data[0],byte,2)==-1 && errno==EAGAIN);
     close(start[0]); close(start[1]); close(data[0]); close(data[1]);
     assert(!munmap(code_page,(size_t)sysconf(_SC_PAGESIZE)));
@@ -606,7 +624,11 @@ int main(void) {
         group(divergent,protected);
     for (int protected=0;protected<2;++protected) for (int denied=0;denied<3;++denied)
         for (int boundary=PTRACE_SYSCALL_INFO_ENTRY;boundary<=PTRACE_SYSCALL_INFO_SECCOMP;++boundary)
-            pending_call(boundary,denied,protected);
+            pending_call(boundary,denied,protected,0);
+    for (int protected=0;protected<2;++protected) for (int denied=0;denied<3;++denied) {
+        pending_call(MD_TASK_CALL_ENTRY,denied,protected,1);
+        pending_call(MD_TASK_CALL_SECCOMP,denied,protected,1);
+    }
     for (int protected=0;protected<2;++protected)
         for (int interrupted=0;interrupted<2;++interrupted) restart_exit(protected,interrupted);
     for (int protected=0;protected<2;++protected)
@@ -616,6 +638,7 @@ int main(void) {
     puts("PASS remote FD filter: protected tasks, native interrupt/restart, signal masks and seccomp policy");
     puts("PASS group FD filter: TSYNC reaches every sibling; incompatible filter leaves both unchanged");
     puts("PASS FD filter continuation: replaced source, original seccomp PC and exact-once write at entry/seccomp/exit");
+    puts("PASS cancelled entry: task borrowing preserves skipped syscall and emulated result before/after seccomp");
     puts("PASS restart-exit calls: recovered kernel arguments, restored registers/mask and native signal restart");
     puts("PASS task-context call: protected signalfd readiness, repeated syscall, SIG_IGN and exact register/mask restoration");
     puts("PASS task-context job control: STOP/LISTEN/CONT, read/ppoll/timer restart and original SIGCONT siginfo");

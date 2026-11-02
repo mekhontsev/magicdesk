@@ -172,6 +172,7 @@ static void bind_factory(struct wl_client *client, void *data, uint32_t version,
 bool mdw_dmabuf_init(struct wl_display *display, struct wlr_renderer *renderer) {
     const struct wlr_drm_format_set *formats = wlr_renderer_get_texture_formats(renderer, WLR_BUFFER_CAP_DMABUF);
     if (!formats || !formats->len) return true;
+    mdw_renderer_set_event_loop(renderer, wl_display_get_event_loop(display));
     wlr_buffer_register_resource_interface(&resource_interface);
     return wl_global_create(display, &zwp_linux_dmabuf_v1_interface, 3, renderer, bind_factory) != NULL;
 }

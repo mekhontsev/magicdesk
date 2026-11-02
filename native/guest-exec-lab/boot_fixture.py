@@ -12,7 +12,7 @@ from test_oci_services import Suite
 def run_fixture(session, kind, arguments, uploads=(), prepare=None):
     state = json.loads(session.read_text())
     assert not state.get('closed')
-    suite = Suite(session.parent)
+    suite = Suite(session.parent, session=state)
     tag = uuid.uuid4().hex
     suite.report.update(session=state['id'], environment=state['environment'],
                         nativeHashes=state.get('nativeHashes'), entryMode=state.get('entryMode', 'lazy'),

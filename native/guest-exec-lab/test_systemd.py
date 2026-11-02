@@ -11,6 +11,7 @@ import socket
 
 from init_fixture import PREPARE as INIT_PREPARE, TRACE_SYSCALLS
 from test_oci_services import Suite, add_machine_entry_argument
+from kernel_profile import KernelProfile
 
 
 PREPARE = INIT_PREPARE + r'''
@@ -184,8 +185,9 @@ def main():
     parser.add_argument('--property', action='append', default=[],
                         help='Additional service property for the hardened oneshot')
     add_machine_entry_argument(parser)
+    KernelProfile.add_argument(parser)
     args = parser.parse_args()
-    suite = Suite(args.output, args.build, machine_entry=args.machine_entry)
+    suite = Suite(args.output, args.build, machine_entry=args.machine_entry, kernel_profile=args.kernel_profile)
     suite.report['store'] = args.store
     suite.report['serviceProperties'] = args.property
     # INIT_PREPARE replaces /run, /tmp and /var/tmp with private mounts.

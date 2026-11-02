@@ -3,6 +3,7 @@
 #include "task_lifetime.h"
 #include "fd_filesystem.h"
 #include "linux_abi.h"
+#include "kernel_profile.h"
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -52,19 +53,6 @@ static void pidfd_filesystem(void) {
     puts("PASS pidfd statfs fallback, duplicate and non-pidfd denial");
 }
 
-static void without_thread_pidfd(void) {
-    struct sock_filter rules[]={
-        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
-        BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_pidfd_open,0,3),
-        BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,args[1])),
-        BPF_JUMP(BPF_JMP|BPF_JSET|BPF_K,MD_PIDFD_THREAD,0,1),
-        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EINVAL),
-        BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)
-    };
-    struct sock_fprog program={sizeof(rules)/sizeof(*rules),rules};
-    assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
-    assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
-}
 struct thread { int tid, release, eof; };
 static int child(void *data) {
     struct thread *t=data;
@@ -78,7 +66,7 @@ static int child(void *data) {
     return 0;
 }
 static void exercise(int baseline, int protected, int channel) {
-    if (baseline) without_thread_pidfd();
+    if (baseline) assert(!md_test_kernel_profile_install(1));
     assert(!prctl(PR_SET_DUMPABLE,!protected));
     struct md_task_lifetime leader={.fd=-1};
     assert(!md_task_lifetime_open(&leader,getpid()));
@@ -132,7 +120,11 @@ static void exercise(int baseline, int protected, int channel) {
 int main(int argc, char **argv) {
     setbuf(stdout,NULL);
     if (argc>1) {
-        without_thread_pidfd(); execv(argv[1],argv+1); perror("baseline exec"); return 126;
+        if (argc<3 || strcmp(argv[1],"--host")) {
+            fputs("usage: kernel_baseline [--host NATIVE-FIXTURE ...]\n",stderr); return 2;
+        }
+        assert(!md_test_kernel_profile_install(1));
+        execv(argv[2],argv+2); perror("baseline exec"); return 126;
     }
     alarm(20);
     pid_t metadata=fork(); assert(metadata>=0);

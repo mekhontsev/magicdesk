@@ -21,12 +21,24 @@ typedef struct MdgReadback MdgReadback;
 typedef enum { MDG_READBACK_FAILED, MDG_READBACK_READY, MDG_READBACK_PENDING } MdgReadbackStatus;
 
 typedef enum { MDG_RGBA, MDG_RGBX, MDG_BGRA, MDG_BGRX } MdgFormat;
+/* Serialized-owner lease, excluding producer reuse while a GPU read is pending.
+ * Callbacks must not re-enter the graphics device. No permanent reference is
+ * acquired: each queued draw borrows the owner through completion/cancellation. */
+typedef struct {
+    void *context;
+    void (*retain)(void *context);
+    void (*release)(void *context);
+} MdgBufferLease;
 /* One explicitly linear packed-RGB plane, not an opaque/tiled image FD. */
 typedef struct {
     int fd;
     unsigned width, height;
     uint32_t offset, stride;
     MdgFormat format;
+    /* Optional implicit-sync fallback: producer writes must be published to the
+     * DMA-BUF reservation or completed before handoff. The lease excludes reuse
+     * until actual GPU completion when sync-file import/export is unavailable. */
+    MdgBufferLease lease;
 } MdgLinearDmaBuf;
 /* Borrowed static operation name; code is errno or VkResult for that operation.
  * Size checks publish bytes, not file paths or contents. Filled on failure only. */
@@ -66,7 +78,9 @@ MdgImage *mdg_image_cpu(MdgDevice *device, unsigned width, unsigned height,
 MdgImage *mdg_image_hardware(MdgDevice *device, AHardwareBuffer *buffer);
 /* Borrows the FD on entry, retains its own FD on success. GPU sampling only.
  * Producers must honor DMA-BUF implicit fences. Each submission acquires the
- * producer's writes and publishes its read fence before returning. */
+ * producer's writes and publishes its read fence before returning, or retains
+ * the supplied lease through GPU completion. The lease context must outlive
+ * every use of the image, including a cancelled queued readback. */
 MdgImage *mdg_image_linear_dmabuf(MdgDevice *device, const MdgLinearDmaBuf *buffer, MdgImportError *error);
 void mdg_image_ref(MdgImage *image);
 void mdg_image_unref(MdgImage *image);
@@ -92,9 +106,19 @@ bool mdg_pass_submit_and_wait(MdgPass *pass);
 void mdg_pass_cancel(MdgPass *pass);
 /* Exports an owned acquire sync_file FD (-1 when complete); failure is never completion. */
 bool mdg_image_fence(MdgImage *image, int *owned_fd);
+/* Completion-owned imports cannot export an implicit sync_file. Their readiness
+ * is observed by submission/readback; callers must not import a DMA-BUF as one. */
+bool mdg_image_completion_owned(const MdgImage *image);
 void mdg_image_set_fence(MdgImage *image, int owned_fd);
 /* Export an owned pending sync_file for event-loop readiness registration. */
 int mdg_device_pending_fence(MdgDevice *device);
+/* Only queued reads holding producer leases. Observe even when rendering idles. */
+bool mdg_device_pending_lease_fence(MdgDevice *device, int *owned_fd);
+/* Serialized-owner notification after any lease-owning GPU submission, including
+ * readback. Register an event observer, never wait here. Modern imports do not
+ * invoke it. Clear before destroying the owner's event loop. */
+void mdg_device_set_completion_notify(MdgDevice *device,
+    bool (*pending)(void *context), void *context);
 
 /* Reusable, serialized-owner readback. start replaces the previous request;
  * cancelled GPU work retains its storage through completion. The caller holds

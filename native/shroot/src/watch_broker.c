@@ -3,6 +3,7 @@
 #include "watch_calls.h"
 #include "inode_watch.h"
 #include "interception.h"
+#include "task_descriptor.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
@@ -87,7 +88,7 @@ int md_watch_broker_submit(struct md_watch_broker *b, struct md_inode_store *s, 
         return reply(listener,q->id,0,SECCOMP_USER_NOTIF_FLAG_CONTINUE);
     }
     if (reader < 0) return reply(listener, q->id,
-        reader == -EPERM || reader == -EACCES ? MD_WATCH_TASK_AFFINE : reader, 0);
+        md_task_descriptor_needs_export(reader) ? MD_WATCH_TASK_AFFINE : reader, 0);
     if (!md_inode_watch_contains(s, reader)) {
         close(reader);
         return reply(listener, q->id, 0, SECCOMP_USER_NOTIF_FLAG_CONTINUE);

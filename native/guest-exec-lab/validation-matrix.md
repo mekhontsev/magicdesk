@@ -5,11 +5,12 @@ or a claim that all tests are automated. Keep every distribution printed by
 `sh scripts/install_linux.sh --list` in every table. Results do not transfer
 between distributions sharing a package manager, libc or init system.
 
-Last reconciled: 2026-11-01. Current device evidence uses NX809J, Android 16,
+Last reconciled: 2026-11-02. Current device evidence uses NX809J, Android 16,
 Linux 6.12.23, 4 KiB pages and Android shell UID 2000. This does not cover the
 minimum supported kernel 5.15, other firmware or Android root execution.
 
 - [Reading Results](#reading-results)
+- [Linux 5.15 Capability Profile](#linux-515-capability-profile)
 - [Installation And Init](#installation-and-init)
 - [Containers And Virtual Machines](#containers-and-virtual-machines)
 - [Packaged Browsers And Portals](#packaged-browsers-and-portals)
@@ -69,6 +70,56 @@ receipt. Staged native builds do not certify the installed APK. Rerun affected
 cells after common runtime changes; do not promote older receipts to the new
 build or use aggregate unit-test success as application acceptance.
 
+## Linux 5.15 Capability Profile
+
+These results are separate from the ordinary-kernel tables below. The fixture
+restricts Shroot's native owners with `linux-5.15` on the device above; it does
+not emulate a 5.15 kernel, its scheduling or firmware permissions. Each receipt
+retains the applied profile and staged helper hashes. The installed APK's
+graphics and automation services are unchanged. Other recipes are untested
+under this profile.
+
+| Recipe ID | Init/service lifecycle | Containers/system workloads | Browsers | VS Code | Recipe graphics | Portal |
+| --- | --- | --- | --- | --- | --- | --- |
+| debian | P/P | P/N | I/N | P/N | P/N | P/N |
+| ubuntu | N/N | N/N | N/N | N/N | N/N | N/N |
+| alpine | P/P | P/N | I/N | P/N | P/N | U/N |
+| fedora | P/P | P/N | P/N | P/N | N/N | P/N |
+| arch | P/P | P/N | P/N | U/N | N/N | P/N |
+| opensuse | N/N | N/N | N/N | N/N | N/N | N/N |
+| openkylin | N/N | N/N | N/N | N/N | N/N | N/N |
+| deepin | N/N | N/N | N/N | N/N | N/N | N/N |
+| manjaro | N/N | N/N | N/N | N/N | N/N | N/N |
+| void | N/N | N/N | N/N | N/N | N/N | N/N |
+| armtix | N/N | N/N | N/N | N/N | N/N | N/N |
+| nixos | N/N | N/N | N/N | N/N | N/N | N/N |
+| steamos | N/N | N/N | N/N | N/N | N/N | N/N |
+
+Container/system coverage comprises booted Docker and Podman, Libvirt/QEMU,
+BuildKit, LXC and the selected LTP tests. Alpine and Debian additionally cover
+ordinary-user Docker/Podman; Debian, Fedora and Arch pass nspawn/machinectl boot.
+Recipe graphics covers X11/Wayland application
+input/save and Weston, not full desktop acceptance.
+
+Fedora and Arch pass the complete Firefox/Chromium GUI workflows. Chromium
+also passes profile reuse with the recipe's completion patch in native and
+Flatpak SDK Mesa. Those are incremental lab builds, not APK-only update evidence.
+Their document-portal lifecycle checks pass. Arch VS Code passes the focused
+editor/debugger run, but stock acceptance retains the independently established
+Flatpak FD-allocation collision (**U**).
+
+On Alpine and Debian, Firefox Flatpak passes, including an Alpine profile relaunch;
+Alpine's native Firefox and Chromium also pass. Flatpak Chromium's focused
+completion-owned graphics checks pass on both recipes: fresh-profile WebGL,
+hardware composition, video, reload and normal exit with the bridge denied in
+both client and compositor. Browser acceptance remains **I** until the complete
+input/download/chooser workflow is rerun through the updated APK; these scoped
+receipts do not replace the full GUI fixture. VS Code editor/watch/PTY/debugger and
+renderer sandbox checks pass with software composition in this configuration.
+Alpine's stock document portal retains the documented upstream SIGTERM deadlock
+(**U**); daemon-death auto-unmount passes. Debian's two portal paths pass.
+See [profile receipts](distribution-evidence.md#linux-515-capability-profile).
+
 ## Installation And Init
 
 Recipe setup covers the maintained installer and package/graphics preparation,
@@ -84,8 +135,8 @@ Cell order: **Shroot (lazy SVC) / Base**; N = not run.
 | debian | P/N | P/N | P/P | P/P | P/N |
 | ubuntu | P/N | P/N | I/N | I/N | P/N |
 | alpine | P/N | P/N | P/P | P/P | P/N |
-| fedora | P/N | P/N | P/N | P/N | P/N |
-| arch | P/N | P/N | P/N | P/N | P/N |
+| fedora | P/N | P/N | P/P | P/P | P/N |
+| arch | P/N | P/N | P/P | P/P | P/N |
 | opensuse | P/N | P/N | P/N | P/N | P/N |
 | openkylin | P/N | P/N | P/N | P/N | P/N |
 | deepin | P/N | P/N | P/N | P/N | P/N |

@@ -303,6 +303,10 @@ flag-specific seccomp rejection without changing dumpability, and sixteen
 shared-table deaths during export. Native controls and the guest path require
 exact descriptor counts. The resource model rejects write/create/truncate,
 unknown flags, foreign directory anchors and non-admitted paths.
+Managed proc metadata retains its origin without allocating a native export
+channel. Base and lazy SVC exercise the same protected directory-open flags and
+filter denials. Native plan/pinned-open checks also cover non-searchable and
+unlinked directories, requiring exact inode identity and O_NOFOLLOW status.
 
 ## Protected Export And Executable Images
 

@@ -13,7 +13,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/inotify.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/uio.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -106,6 +110,53 @@ int test_parallel_read_guest(const char *base) {
     }
     CHECK(!pthread_barrier_destroy(&start)); descriptor_balance(before); CHECK(!unlink(path));
     printf("PASS parallel read: threads=%u completed=%u, nonblocking regular IO, exact bytes/EOF and no FD growth\n",COUNT,completed);
+    return 0;
+}
+struct read_capture { int watch, stream; };
+static void *read_captured(void *context) {
+    struct read_capture *work=context;
+    union { struct inotify_event event; char bytes[256]; } buffer;
+    int available=0;
+    CHECK(!ioctl(work->watch,FIONREAD,&available) && available>0);
+    struct iovec vector={buffer.bytes,sizeof(buffer.bytes)};
+    CHECK(readv(work->watch,&vector,1)==available);
+    CHECK(buffer.event.mask==IN_CREATE && !strcmp(buffer.event.name,"event"));
+    errno=0; CHECK(read(work->watch,buffer.bytes,sizeof(buffer.bytes))==-1 && errno==EAGAIN);
+    CHECK(read(work->stream,buffer.bytes,1)==1 && buffer.bytes[0]=='a');
+    vector=(struct iovec){buffer.bytes,2};
+    CHECK(readv(work->stream,&vector,1)==2 && !memcmp(buffer.bytes,"bc",2));
+    CHECK(!read(work->stream,buffer.bytes,sizeof(buffer.bytes)));
+    CHECK(!close(work->stream));
+    errno=0; CHECK(read(work->stream,buffer.bytes,sizeof(buffer.bytes))==-1 && errno==EBADF);
+    return NULL;
+}
+static void read_capture_cycle(const char *base) {
+    pthread_t thread;
+    char path[PATH_MAX],event[PATH_MAX];
+    CHECK(snprintf(path,sizeof(path),"%s/read-capture-%ld",base,(long)getpid())<(int)sizeof(path));
+    CHECK(snprintf(event,sizeof(event),"%s/event",path)<(int)sizeof(event));
+    CHECK(!mkdir(path,0700));
+    int watch=inotify_init1(IN_CLOEXEC|IN_NONBLOCK); CHECK(watch>=0);
+    CHECK(inotify_add_watch(watch,path,IN_CREATE)>=0);
+    int file=open(event,O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC,0600); CHECK(file>=0 && !close(file));
+    int pair[2]; CHECK(!socketpair(AF_UNIX,SOCK_STREAM|SOCK_CLOEXEC,0,pair));
+    /* Reusing a watch-selected slot must preserve native IO ownership. The
+     * non-leader also reads a live watch, exercising both capture outcomes. */
+    int stream=dup(watch); CHECK(stream>=0 && !close(stream));
+    CHECK(dup3(pair[0],stream,O_CLOEXEC)==stream && !close(pair[0]));
+    CHECK(write(pair[1],"abc",3)==3 && !close(pair[1]));
+    struct read_capture work={watch,stream};
+    CHECK(!pthread_create(&thread,NULL,read_captured,&work));
+    CHECK(!pthread_join(thread,NULL));
+    CHECK(!close(watch) && !unlink(event) && !rmdir(path));
+}
+int test_read_capture_guest(const char *base) {
+    /* Initialize Bionic threading and the optional table-owned export channel
+     * before checking that repeated fallback IO does not grow the FD table. */
+    read_capture_cycle(base);
+    unsigned before=descriptors();
+    for (unsigned i=0;i<8;++i) { read_capture_cycle(base); descriptor_balance(before); }
+    puts("PASS read capture: non-leader watch, reused native stream, read/readv/ioctl, EOF and EBADF");
     return 0;
 }
 static void reap(pid_t pid,int killed) {

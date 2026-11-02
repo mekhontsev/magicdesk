@@ -72,21 +72,19 @@ void md_descriptor_path(char path[64], unsigned pid, unsigned fd) {
     prefix="/fd/"; while (*prefix) *path++=*prefix++;
     *decimal(path,fd)=0;
 }
-unsigned md_open_plan_path(char path[64],unsigned pid,unsigned fd,unsigned flags) {
+unsigned md_open_plan_path(char path[64],unsigned pid,unsigned fd,unsigned flags,unsigned mode) {
     md_descriptor_path(path,pid,fd);
     if (flags&O_PATH) flags&=O_PATH|O_CLOEXEC|O_DIRECTORY|O_NOFOLLOW;
-    if ((flags&(O_PATH|O_NOFOLLOW))==(O_PATH|O_NOFOLLOW)) {
+    if ((flags&O_NOFOLLOW) && S_ISDIR(mode)) {
         char *end=path; while (*end) ++end;
-        *end++='/'; *end++='.'; *end=0;
-        return flags;
+        /* The trailing slash follows the private magic link, not an extra
+         * '.' lookup requiring search permission on the admitted directory. */
+        *end++='/'; *end=0;
+        return flags&~(O_CREAT|O_EXCL);
     }
     return md_open_endpoint_flags(flags);
 }
-int md_open_plan_access(int fd,unsigned flags) {
-    if ((flags&(O_PATH|O_NOFOLLOW))!=(O_PATH|O_NOFOLLOW)) return 0;
-    return C(faccessat2,fd,"",X_OK,AT_EMPTY_PATH|AT_EACCESS,0,0) ? -EXDEV : 0;
-}
-int md_open_pinned(int fd,int flags) {
+static int open_pinned(int fd,int flags,unsigned mode) {
     char path[64]; md_descriptor_path(path,0,(unsigned)fd);
     if ((flags&(O_PATH|O_NOFOLLOW))==(O_PATH|O_NOFOLLOW)) {
         /* O_PATH has no offset or mutable status flags. An exact pin can be
@@ -95,16 +93,22 @@ int md_open_pinned(int fd,int flags) {
         if (current<0) return (int)current;
         if (current==(flags&(O_PATH|O_DIRECTORY|O_NOFOLLOW)))
             return (int)C(fcntl,fd,F_DUPFD_CLOEXEC,3,0,0,0);
-        struct stat st;
-        long error=C(fstat,fd,&st,0,0,0,0);
-        if (error) return (int)error;
-        if (S_ISDIR(st.st_mode)) {
-            flags=md_open_plan_path(path,0,(unsigned)fd,flags);
+    }
+    if (flags&O_NOFOLLOW) {
+        if (!mode) {
+            struct stat st;
+            long error=C(fstat,fd,&st,0,0,0,0);
+            if (error) return (int)error;
+            mode=st.st_mode;
+        }
+        if (S_ISDIR(mode)) {
+            flags=md_open_plan_path(path,0,(unsigned)fd,flags,mode);
             return (int)C(openat,AT_FDCWD,path,flags|O_CLOEXEC,0,0,0);
         }
     }
     return (int)C(openat,AT_FDCWD,path,md_open_endpoint_flags(flags)|O_CLOEXEC,0,0,0);
 }
+int md_open_pinned(int fd,int flags) { return open_pinned(fd,flags,0); }
 int md_reopen_file(int fd, int flags, struct md_open_completion *completion) {
     *completion=(struct md_open_completion){0};
     if (flags & ~(O_PATH|O_CLOEXEC|O_NONBLOCK|O_DIRECTORY|O_LARGEFILE|O_ACCMODE
@@ -131,7 +135,7 @@ int md_reopen_file(int fd, int flags, struct md_open_completion *completion) {
         if (!(flags&O_PATH) || !(flags&O_NOFOLLOW)) return -ELOOP;
         return (int)C(fcntl,fd,F_DUPFD_CLOEXEC,3,0,0,0);
     }
-    return md_open_pinned(fd,flags);
+    return open_pinned(fd,flags,st.st_mode);
 }
 int md_complete_open_interruptible(int pin, int flags, struct md_open_completion completion,
         struct md_open_observation *observation,const atomic_int *cancelled) {
@@ -143,8 +147,8 @@ int md_complete_open_interruptible(int pin, int flags, struct md_open_completion
         C(close,pin,0,0,0,0,0);
         return md_complete_open(fd,flags,next);
     }
-    char path[64]; md_descriptor_path(path,0,(unsigned)pin);
-    flags = md_open_endpoint_flags(flags);
+    char path[64];
+    flags = md_open_plan_path(path,0,(unsigned)pin,flags,completion.mode);
     if (completion.kind == MD_OPEN_FIFO || completion.kind==MD_OPEN_CALLER) {
         /* EVENT_WAIT: native FIFO peer rendezvous or terminal open; a caller
          * signal cancels it. No namespace worker transaction is retained. */

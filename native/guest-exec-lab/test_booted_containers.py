@@ -12,6 +12,28 @@ from init_fixture import start_service
 from test_oci_services import Suite
 
 
+PRESERVE_SYSTEM_MOUNTS = '''
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+def snapshot():
+    paths = ('/sys', '/sys/fs/cgroup')
+    return dict(mounts=[line for line in Path('/proc/self/mountinfo').read_text().splitlines()
+                        if line.split()[4] in paths],
+                flags={path: os.statvfs(path).f_flag for path in paths})
+
+before = snapshot()
+result = subprocess.run(['/bin/sh', '-ec', sys.argv[1]])
+after = snapshot()
+print('SYSTEM_MOUNTS_REPORT ' + json.dumps(dict(before=before, after=after)), flush=True)
+assert before == after, 'Container probe changed the booted system mounts'
+sys.exit(result.returncode)
+'''
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--session', required=True, type=Path)
@@ -25,7 +47,7 @@ def main():
     assert state.get('networkProfile') in ('routed', 'host'), (
         'The external port observer requires Android loopback access; start the '
         'fixture with --network-profile routed (containers still use private bridges)')
-    suite = Suite(args.session.parent)
+    suite = Suite(args.session.parent, session=state)
     observer = Observer()
     tag = uuid.uuid4().hex
     suite.report.update(engine=args.engine, session=state['id'], environment=state['environment'],
@@ -55,12 +77,14 @@ def main():
                 storage='overlay', network='bridge', image='docker.io/library/alpine:3.23',
                 cgroups='enabled', internet=args.internet, portsImage='docker.io/library/python:3.14-alpine',
                 ipv6=False, ipv6Host='::1', ipv6PublishHost='::1', internetIpv6=False,
-                trace=False, hostLimits=False, unlimitedPids=False, execRepeats=3, observer=observer.address)
+                trace=False, hostLimits=False, unlimitedPids=False, execRepeats=3, observer=observer.address,
+                prepared=True)
             argv = ['python3', state['target'] + '/probe_podman_runtime.py', '--guest', json.dumps(options)]
             command = shlex.join(argv)
         if args.path_prefix:
             assert args.path_prefix.startswith('/') and ':' not in args.path_prefix
             command = 'PATH=' + shlex.quote(args.path_prefix) + ':"$PATH"; export PATH; ' + command
+        command = shlex.join(['python3', '-c', PRESERVE_SYSTEM_MOUNTS, command])
         request = urllib.request.Request('http://127.0.0.1:' + str(state['rootPort']),
             data=json.dumps(dict(id=tag, command=command, wait=True)).encode(),
             headers={'Authorization': 'Bearer ' + state['token']})
@@ -71,6 +95,11 @@ def main():
         suite.transport.download(suite.client, state['directory'] + '/' + tag + '.log', local)
         output = local.read_text()
         suite.report['log'] = str(local)
+        mount_reports = [json.loads(line.removeprefix('SYSTEM_MOUNTS_REPORT '))
+                         for line in output.splitlines() if line.startswith('SYSTEM_MOUNTS_REPORT ')]
+        assert len(mount_reports) == 1, output[-6000:]
+        suite.report['systemMounts'] = mount_reports[0]
+        assert mount_reports[0]['before'] == mount_reports[0]['after'], mount_reports[0]
         assert response['exitCode'] == 0, output[-6000:]
         marker = args.engine.upper() + '_REPORT '
         reports = [json.loads(line.removeprefix(marker)) for line in output.splitlines() if line.startswith(marker)]

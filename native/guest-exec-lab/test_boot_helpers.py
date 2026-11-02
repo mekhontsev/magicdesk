@@ -504,14 +504,34 @@ class BootHelpers(unittest.TestCase):
         self.assertGreater(probe.call_args.args[0], 0)
 
     def test_connection_then_ready(self):
-        probe = Mock(side_effect=[
-            subprocess.CompletedProcess([], 1, '', 'Failed to connect: No such file or directory'),
-            subprocess.CompletedProcess([], 0, 'running\n', '')])
+        for error in ('No such file or directory', 'Connection refused', 'Resource temporarily unavailable'):
+            with self.subTest(error=error):
+                probe = Mock(side_effect=[
+                    subprocess.CompletedProcess([], 1, '', 'Failed to connect: ' + error),
+                    subprocess.CompletedProcess([], 0, 'running\n', '')])
+                alive = Mock()
+                with patch('systemd_ready.threading.Event') as event:
+                    wait_systemd(probe, alive)
+                alive.assert_called_once()
+                event.return_value.wait.assert_called_once()
+
+    def test_other_connection_errors_fail(self):
+        for error in ('Permission denied', 'Protocol error', 'Connection timed out'):
+            with self.subTest(error=error):
+                probe = Mock(return_value=subprocess.CompletedProcess([], 1, '', 'Failed to connect: ' + error))
+                with self.assertRaises(AssertionError):
+                    wait_systemd(probe, Mock())
+                probe.assert_called_once()
+
+    def test_connection_eagain_does_not_extend_deadline(self):
+        probe = Mock(return_value=subprocess.CompletedProcess([], 1, '',
+                     'Failed to connect: Resource temporarily unavailable'))
         alive = Mock()
-        with patch('systemd_ready.threading.Event') as event:
-            wait_systemd(probe, alive)
-        alive.assert_called_once()
-        event.return_value.wait.assert_called_once()
+        with patch('systemd_ready.time.monotonic', side_effect=[0, 1, 91]):
+            with self.assertRaisesRegex(AssertionError, 'did not become ready'):
+                wait_systemd(probe, alive)
+        probe.assert_called_once()
+        alive.assert_not_called()
 
     def test_degraded_is_not_retried(self):
         probe = Mock(return_value=subprocess.CompletedProcess([], 1, 'degraded\n', ''))

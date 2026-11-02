@@ -74,6 +74,9 @@ static struct md_fd_loan *loan_retain(struct md_fd_loan *loan) {
 void md_fd_loan_end(struct md_fd_loan *loan) {
     if (loan) atomic_store_explicit(&loan->active,0,memory_order_release);
 }
+int md_fd_loan_active_in(const struct md_fd_loan *loan,const struct md_fd_origins *table) {
+    return loan && loan->home==table && atomic_load_explicit(&loan->active,memory_order_acquire);
+}
 void md_fd_loan_release(struct md_fd_loan *loan) {
     if (loan && atomic_fetch_sub_explicit(&loan->refs,1,memory_order_acq_rel)==1) free(loan);
 }
@@ -365,8 +368,7 @@ static int loan_find(const struct md_fd_order *turn,unsigned first,unsigned last
     for (struct md_fd_loan_slot *slot=t->loan_head;slot;slot=slot->next) {
         struct md_fd_origin_entry *e=slot->entry;
         if ((unsigned)e->fd<first || (unsigned)e->fd>last) continue;
-        if (expired && atomic_load_explicit(&slot->owner->active,memory_order_acquire)
-                && slot->owner->home==t) continue;
+        if (expired && md_fd_loan_active_in(slot->owner,t)) continue;
         result=e->uncertain ? -ESTALE : 1;
         if (result==1) {
             *number=e->fd;

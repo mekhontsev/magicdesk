@@ -46,6 +46,11 @@ bool mdg_readback_start(MdgReadback *readback, MdgImage *source) {
 }
 
 static MdgReadbackStatus observe(MdgImage *image, int *wait_fd) {
+    if (mdg_image_completion_owned(image)) {
+        MdgSubmitResult result = mdg_dmabuf_ready(image, wait_fd);
+        return result == MDG_SUBMIT_OK ? MDG_READBACK_READY : result == MDG_SUBMIT_DEFERRED
+            ? MDG_READBACK_PENDING : MDG_READBACK_FAILED;
+    }
     int fd;
     if (!mdg_image_fence(image, &fd)) return MDG_READBACK_FAILED;
     if (fd < 0) return MDG_READBACK_READY;

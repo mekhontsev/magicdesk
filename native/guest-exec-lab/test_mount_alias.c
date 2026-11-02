@@ -92,7 +92,12 @@ static void native_open_plans(struct md_filesystem *fs,const char *parent) {
     snprintf(path,sizeof(path),"%s/no-search",parent); assert(!mkdir(path,0000));
     q.path[0]="/rw/no-search"; q.flags=O_PATH|O_NOFOLLOW;
     md_fs_execute(fs,&q,&r,&(struct md_fs_output){.origin=&origin,.native_open_plan=1});
-    assert(r.error==-EXDEV && !origin && r.fd<0);
+    assert(!r.error && origin && r.fd<0 && r.open_completion.kind==MD_OPEN_PLAN);
+    char source[64];
+    unsigned flags=md_open_plan_path(source,0,(unsigned)md_fs_anchor_fd(origin),q.flags,r.open_completion.mode);
+    opened=open(source,(int)flags);
+    assert(opened>=0 && fcntl(opened,F_GETFL)==(O_PATH|O_NOFOLLOW));
+    close(opened); md_fs_anchor_release(origin); origin=NULL;
     md_fs_execute(fs,&q,&r,&(struct md_fs_output){.origin=&origin});
     assert(!r.error && r.fd>=0 && origin && fcntl(r.fd,F_GETFL)==(O_PATH|O_NOFOLLOW));
     close(r.fd); md_fs_anchor_release(origin);

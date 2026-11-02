@@ -6,14 +6,16 @@ Uses a prepared test environment with working Turnip; restores its selection.
 import argparse
 from pathlib import Path
 from test_oci_services import Suite
+from kernel_profile import KernelProfile
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('build', type=Path)
     parser.add_argument('store')
+    KernelProfile.add_argument(parser)
     args = parser.parse_args()
-    suite = Suite(args.build / 'render-results', args.build)
+    suite = Suite(args.build / 'render-results', args.build, kernel_profile=args.kernel_profile)
     target = '/tmp/md-render-' + suite.report['id']
     prefix = [suite.runner, '--store', args.store, '--user', '0:0']
     saved = False
@@ -26,6 +28,12 @@ def main():
         saved = True
         suite.command(prefix + ['--', '/bin/sh', '-ec',
             'test ! -e /sys/class/drm; printf "turnip\\n" > /etc/shroot/render-node'])
+        if suite.kernel_profile.options:
+            output = suite.command(prefix + ['--', '/bin/sh', '-ec',
+                'test ! -e /sys/class/drm; printf "PASS optional render node absent\\n"'])
+            assert 'render-node unavailable:' in output and 'PASS optional render node absent' in output
+        suite.command(prefix + ['--', '/bin/sh', '-ec',
+            'printf "turnip-completion-v1\\n" > /etc/shroot/render-node'])
         filename = 'libmagicdesk_guest_test_render_guest.so'
         suite.transport.upload(suite.client, args.build / filename, suite.base + '/' + filename)
         suite.command(['chmod', '755', suite.base, suite.base + '/' + filename])

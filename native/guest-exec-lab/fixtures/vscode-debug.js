@@ -69,7 +69,8 @@ exports.activate = async function (context) {
     try {
         const debuggerPath = process.env.MD_DEBUGGER_PATH || '/usr/bin/gdb';
         assert(Object.keys(require('node:os').networkInterfaces()).length > 0);
-        send('activated', {version: vscode.version, versions: process.versions, uid: process.getuid()});
+        send('activated', {version: vscode.version, versions: process.versions, uid: process.getuid(),
+            pidNamespace: require('node:fs').readlinkSync('/proc/self/ns/pid')});
         const folder = vscode.workspace.workspaceFolders[0];
         const note = vscode.Uri.joinPath(folder.uri, 'editor.txt');
         const document = await vscode.workspace.openTextDocument(note);

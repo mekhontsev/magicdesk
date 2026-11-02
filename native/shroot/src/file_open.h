@@ -19,7 +19,7 @@ static inline int md_open_readonly_plan(unsigned flags) {
 static inline int md_open_native_plan(unsigned flags,int birth) {
     if (birth) flags&=~O_EXCL;
     /* The provider additionally checks kind: NOFOLLOW metadata opens can
-     * reopen directories through fd/. without changing their status flags. */
+     * reopen directories through fd/ without changing their status flags. */
     if (flags&O_PATH) return 1;
     return (flags&(O_CREAT|O_EXCL))!=(O_CREAT|O_EXCL)
         && (flags&O_ACCMODE)!=O_ACCMODE && !(flags & ~(O_ACCMODE | O_CLOEXEC
@@ -35,7 +35,7 @@ struct md_open_completion {
     int control;
     /* Worker-local device selection; resolved before protocol publication. */
     uint64_t device;
-    unsigned mode;
+    unsigned mode; /* Pinned type for deferred opens and native plans. */
     /* MD_OPEN_PLAN only: identity verified on the returned O_PATH pin. */
     uint64_t backing_device, backing_inode;
     /* Worker-local membership proof, retained only with the opened identity.
@@ -60,11 +60,8 @@ int md_reopen_file(int fd, int flags, struct md_open_completion *);
 int md_open_pinned(int fd, int flags);
 /* Positive pid selects another process; zero names the calling process. */
 void md_descriptor_path(char path[64], unsigned pid, unsigned fd);
-/* Only after native-plan kind admission; returns the matching open flags. */
-unsigned md_open_plan_path(char path[64], unsigned pid, unsigned fd, unsigned flags);
-/* fd/. additionally needs native directory search permission. Decline before
- * publication when the exact-descriptor route is required instead. */
-int md_open_plan_access(int fd, unsigned flags);
+/* Already admitted non-symlink pin; returns the matching reopen flags. */
+unsigned md_open_plan_path(char path[64], unsigned pid, unsigned fd, unsigned flags, unsigned mode);
 static inline int md_open_endpoint_flags(int flags) {
     return flags & ~(O_CREAT | O_EXCL | O_NOFOLLOW);
 }

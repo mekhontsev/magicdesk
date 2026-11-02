@@ -23,9 +23,179 @@ regression tests instead of accumulating an incident history.
 - [SteamOS](#steamos)
 - [NixOS](#nixos)
 - [Shared Evidence](#shared-evidence)
+- [Linux 5.15 Capability Profile](#linux-515-capability-profile)
 
 NixOS recipe/activation and pending graphical acceptance are tracked in the
 [matrix's NixOS section](validation-matrix.md#nixos-recipe-and-initial-image-probes).
+
+## Linux 5.15 Capability Profile
+
+The 2026-11-02 profile run uses NX809J, Android 16, kernel 6.12.23, shell UID
+2000 and fixture helpers from `build/shroot-image-tests`. The `linux-5.15`
+restriction applies to native Shroot owners, not guest-visible kernel emulation.
+It is not a real-kernel-5.15 certification. Exact build hashes and activation
+markers belong to each receipt; staged builds changed during validation.
+
+System-workload manifests are under `build/kernel-profile-matrix/NAME/` for
+`alpine-turnip` and `debian-turnip`: `docker`, `podman`, `libvirt`, `qemu`,
+`buildkit`, `lxc`, `ltp` and Debian's `nspawn`/`machinectl` JSON files identify
+the command and passing receipt. Package lifecycle covers apk tree and dpkg
+hello install/reinstall, verification and removal. Boot/service receipts:
+
+| Recipe | Lazy SVC | Base |
+| --- | --- | --- |
+| Alpine OpenRC | `boot-lazy/oci-services-a7e939102749429ca53df870dfcff94b.json` | `boot-base/oci-services-516c4281beaf44c3afb651172688660e.json` |
+| Debian systemd | `boot-lazy-bridge/oci-services-8129313e3e13497aaaceb23e2a21307d.json` | `boot-base/oci-services-058d181d75c748c9813f76fba303a6b2.json` |
+
+Fedora's matching manifests are under
+`build/matrix-fedora-arch-20261102/fedora-turnip/linux-5.15/`.
+Default systemd boot passes in lazy mode (`4acc8baf90e245f990e5be42abff5cd3`)
+and Base (`bac31f84bc8a4c75ba3cb9d0fff0a1fa`). Booted Podman, Docker, direct
+QEMU, BuildKit, LXC, seven LTP tests, nspawn command and machinectl lifecycle
+all pass; each case JSON links its exact receipt. Managed Libvirt additionally
+passes bridge/TAP, DHCP/DNS, MASQUERADE and dual-stack VM traffic with the
+private outer bridge:
+`build/installed-fedora-turnip/oci-services-24e3e34c51c04816b828ea524a85f6a2.json`.
+These local-network results do not depend on the unstable external uplink.
+
+Arch's manifests use the sibling `arch-turnip/linux-5.15/` directory. Default
+systemd boot passes in lazy mode (`8dd00f1271be4dcc8756933a93ab6975`) and Base
+(`494fce74a1db49788939747558b51bd3`). Booted Podman/Docker, direct QEMU, BuildKit,
+LXC, seven LTP tests and nspawn command pass. The qualifying machinectl and
+managed Libvirt receipts are under `build/installed-arch-turnip/`:
+`oci-services-7d6d6dc935d5468b9ebe61f1f8bc6b0a.json` and
+`oci-services-0f02106dee9d4bd4916e425431c86326.json`. Libvirt checks bridge/TAP,
+DHCP/DNS, MASQUERADE, dual-stack VM traffic and cleanup on a private outer bridge.
+
+Fedora's `fedora-firefox-515-20261102/gui-report.json` passes all seven browser
+checks. `fedora-vscode-515-20261102/gui-report.json` covers editor/save/watch,
+PTY, reload, GDB, UID 1000 renderer sandbox and normal exit; composition is
+software with the strict render-node profile. `fedora-portal-515-20261102.json`
+covers grants, read/write/revoke, SIGTERM/SIGKILL cleanup, restart and reactivation.
+Fedora Chromium passes the complete seven-check workflow with both fresh and
+reused profiles in `fedora-chromium-final-515-20261102/gui-report.json` and
+`fedora-chromium-relaunch-515-20261102/gui-report.json`. These use the installed
+APK compositor, staged Shroot, `turnip-completion-v1` admission and incremental
+lab builds of the recipe's completion patch in native and Flatpak SDK Mesa.
+`native-completion.json` and `sdk-completion.json` retain exact library hashes;
+this is not an APK-only update result with unchanged guest Mesa.
+`fedora-chromium-portal-515-20261102.json` passes the same portal lifecycle.
+
+Arch's `arch-firefox-515-20261102/gui-report.json` passes all seven browser
+checks. `arch-vscode-515-20261102/gui-report.json` covers editor/save/watch,
+PTY, reload, GDB, UID 1001 renderer seccomp/NoNewPrivs and normal exit with
+software composition under the strict render-node profile. This passing
+allocation layout does not remove the stock Flatpak FD collision documented
+under [Arch browser and editor acceptance](#arch-browser-and-editor-acceptance).
+`arch-portal-515-20261102.json` passes document grants, revocation, graceful and
+forced exit, helper auto-unmount and systemd unit restart/stop/reactivation.
+
+Arch Chromium 156.0.8078.47 passes all seven checks in
+`arch-chromium-final-515-20261102/gui-report.json` and
+`arch-chromium-relaunch-515-20261102/gui-report.json`. Fixture
+`5eabaa8ca7d348b99327152771a687c2` uses `turnip-completion-v1`, the installed APK
+compositor and incremental native/SDK Mesa builds with the recipe's completion
+patch. `native-completion.json` and `sdk-completion.json` retain the exact library
+hashes. This is not an unchanged-guest-Mesa or physical-kernel-5.15 result.
+`arch-chromium-portal-final-515-20261102.json` passes document grants, revocation
+and the complete portal cleanup/reactivation workflow in the same fixture.
+
+Debian uses a private bridge for default boot, binfmt and networkd IPv6; this
+does not bypass the routed host-port restriction. Ordinary-user Docker receipts
+under `build/shroot-image-tests/` are `5180341ae60245f4a1484c04e4d15bf8` (Alpine)
+and `165855d707ba492faeda75d65a8d6dbc` (Debian). Ordinary-user Podman receipts
+under `build/podman-results/` are `df76535a65fc4baab301a45c27bf364d` and
+`d96dfd27b7bd48928468b19fcc23024b`, respectively.
+
+Final booted-engine receipts under `build/installed-NAME/` cover stock service
+startup, local networking and lifecycle with the profile active:
+
+| Recipe | Docker receipt ID | Podman receipt ID |
+| --- | --- | --- |
+| Alpine | `f42933f7d11f4456a2507a5f4fc5747d` | `fa729d781f864e13a3264117c0914a8d` |
+| Debian | `d063464ed99b47bead97b696155675f0` | `240b722d28d14c0ba5667aac9d0f7afe` |
+
+GUI reports are under `build/installed-NAME/`. Both systems pass
+`kernel515-firefox-flatpak/gui-report.json`; Alpine also passes
+`kernel515-firefox-relaunch-final`, `kernel515-firefox-native` and
+`kernel515-chromium-native`. VS Code passes in Alpine's
+`kernel515-vscode-stock/gui-report.json` and Debian's
+`kernel515-vscode-final/gui-report.json`, including editor/save/watch, PTY,
+reload, GDB and UID 1000 renderer seccomp/no_new_privs checks. The optional
+render-node fallback uses software composition; successful editing does not
+certify hardware composition.
+
+Completion-owned graphics use stock Flatpak Chromium 156.0.8078.47 with the
+recipe's patched Mesa 26.2.3 Zink/Turnip. Shroot runs with the full `linux-5.15`
+host profile and the `turnip-completion-v1` recipe marker. Seccomp also denies
+the two new DMA-BUF ioctls in the browser and standalone native compositor
+before GPU initialization. The test library only installs that restriction;
+all completion handling belongs to the production Mesa/graphics code.
+
+Receipts under `build/webgl-context/` contain CDP status, exact WebGL pixels,
+context-loss events, frame samples, CPU-frequency observations and normal exit:
+
+| Recipe | Artifact directory | Checks |
+| --- | --- | --- |
+| Debian | `production-completion-debian-515` | Fresh profile, 60 seconds of animation, page reload, hardware composition, no context loss or GPU-process crash |
+| Debian | `production-completion-debian-final` | Fresh profile, VP9 playback alongside WebGL, reload and normal close |
+| Alpine | `production-completion-alpine-video` | Same browser/video checks with its own native and Flatpak SDK Mesa builds |
+| Debian | `production-completion-debian-native-control2` | Same video/WebGL checks with the native bridge enabled in both client and compositor |
+
+Both clients retain their ordinary sandbox and GPU watchdog. Sampled compositor
+pixels include the expected green canvas and moving red stripe. These runs
+validate graphics, not every chooser/portal interaction in the full browser
+fixture. The profile matrix therefore retains incomplete browser acceptance
+until that integrated APK workflow is rerun. A passing focused graphics test
+does not rewrite earlier full-fixture receipts.
+
+`test_render.py` verifies the real admission and descriptor contract under the
+profile on both recipes: strict profiles leave the node absent, while the
+completion-owned profile admits it. Receipts in
+`build/shroot-image-tests/render-results/` are
+`fafa634ffeaf43158af4c8309f94ddcc` (Debian) and
+`f1a1e6dedf0444d786fbf8f858025f5b` (Alpine).
+The Wayland protocol fixture gates GPU work and checks responsive roundtrips,
+no early release, idle completion and teardown. Android instrumentation with
+native and bridge-denying JNI executors passes cross-UID pixels, input and
+closure; it does not certify a physical 5.15 device or nested KWin's separate
+native fence path.
+
+The ordinary-kernel DMA-BUF control in
+`build/dmabuf-515/native-performance.json` alternates eight pairs against
+`335852b1`, four 256-frame runs per sample, identical compiler options and no
+CPU pinning. Current/reference median elapsed-time and process-CPU ratios are
+0.976 and 0.943. CPU residency is recorded per sample. This small run shows no
+observed modern-path regression, not a universal speedup; unit tests separately
+require zero fallback lease callbacks and zero helper waits on the native path.
+
+Debian portal receipts `kernel515-portal-{graceful,auto}.json` pass.
+Alpine's `build/kernel-profile-alpine-portal-auto.log` records successful FUSE
+auto-unmount; `kernel-profile-alpine-portal-stack.log` captures the stock
+SIGTERM handler blocked in `g_main_loop_quit`, matching its documented upstream
+defect. This is U, not a pass.
+
+Recipe graphics receipts under each profile directory are
+`recipe-graphics/oci-services-7cc6805fac5d4a649e1b2684301ab3df.json` (Alpine)
+and `recipe-graphics/oci-services-c173db79cae848b8b7f35d02c065319d.json` (Debian):
+X11/Wayland input/save, pixels, viewer detach/reopen and owned cleanup.
+
+The functional gates include 186 filesystem-buffer checks, filesystem exports
+in both entry modes, and coverage for capture, IPC origins, protected service
+calls and mount graph transfer. Receipts are
+`build/shroot-image-tests/resource-*-results.json`;
+the Python harness suite reports 278 tests with three skips in
+`build/kernel515-python-final.log`.
+
+The ordinary-kernel performance control is separate from profile acceptance:
+`build/kernel515-performance/oci-services-4a457fd4245e4d119bb9a380b60049d9.json`
+contains five interleaved pairs against `cb007722`, lazy SVC, four consecutive
+1024-operation blocks, identical guest binaries and compiler settings, without
+CPU pinning or timing diagnostics. Current/reference loop-time ratios are
+0.955 for stat, 0.897 for open/close and 0.874 for the file cycle. Command-envelope
+CPU residency is recorded per sample; median policy0 frequencies are 1427/1437
+MHz and policy6 frequencies 891/888 MHz. This run shows no file-path regression;
+it does not establish a universal speedup or older-kernel performance.
 
 ## Debian
 
@@ -724,12 +894,28 @@ claim upstream maintainer acknowledgement; CLI lifetime alone is not GUI readine
 
 ## Fedora
 
-The 2026-10-29 browser update, machinectl, LXC, Libvirt/QEMU,
-BuildKit and LTP reruns use staged Release supervisor
-`b0148a1e87610d7ccceece4054d25fa70205a25f398532aba009f98eea97a2a3`,
-default lazy entry and Android shell UID 2000. The older receipts use
-`f54519b2c71a2b55d79eed69fd9af3eaeb056a0085a787dce9f58497a57c5bc6`,
-unless specified separately. Base is not covered by this batch.
+The 2026-11-02 verification uses installed APK 2.2.5 (232), build
+`a097230c5c72bc5a62eced073c92696b8307279c11143157e4b3be4a29687de3`,
+Android shell UID 2000 and native kernel capabilities. Both entry modes pass
+default boot; application receipts use lazy entry. External connectivity is
+not a prerequisite for the local matrix; the Podman rerun excludes internet
+checks because the device's upstream connection was unstable.
+
+Fresh browser reports under `build/installed-fedora-turnip/` are
+`fedora-firefox-native-20261102/gui-report.json`,
+`fedora-firefox-native-relaunch-20261102/gui-report.json`,
+`fedora-chromium-native-20261102/gui-report.json` and
+`fedora-chromium-native-relaunch-20261102/gui-report.json`.
+All seven checks pass: keyboard, pointer, download, chooser/readback, WebGL
+pixels, context retention and normal close. Firefox 159.0 and Chromium
+156.0.8078.73 retain their ordinary Flatpak sandboxes and existing Mesa prefixes.
+`fedora-vscode-native-20261102/gui-report.json` passes editor/save, file watcher,
+PTY, reload, GDB breakpoint/step/locals, hardware composition, renderer
+NoNewPrivs/seccomp and normal exit with VS Code 1.140.0.
+Both `fedora-portal-native-20261102.json` and
+`fedora-chromium-portal-native-20261102.json` pass export/read/write/revoke,
+graceful and killed-daemon unmount, unit restart/stop and reactivation.
+Earlier detailed GPU/configuration receipts below qualify their stated builds.
 
 ### Fedora recipe and packages
 
@@ -786,33 +972,30 @@ confirms UID 1000, NNP=1 and Seccomp=2.
 
 ### Fedora default boot/services
 
-`build/fedora-default-debugger-recovery/oci-services-b4bfda37fbde4c44a8ce83721f52ba24.json`
-passes the default target, journal/D-Bus/logind, binfmt and RTKit lifecycle,
-including the full shutdown-result assertion, with supervisor
-`729b3c3b988519fa72d1a6cbc4f038ef72c918b70358c5f2491095fef88ac578`, a private
-bridge and explicit `CAP_SYS_MODULE` drop. Native RT scheduling remains denied;
-udisks' unavailable `/proc/swaps` probe does not fail a unit in this run.
-
-`build/matrix-ubuntu-fedora-20261026/fedora-boot/oci-services-82c1f7a99a4141c99dc90ab0750d40a0.json`; systemd
-259.10, private bridge, default target running with no failed units, journal
-sync/readback, D-Bus/logind and RTKit lifecycle. `build/fedora-hostnamed-fixed.log`
-additionally covers hostnamectl on a later staged runtime
+Under `build/matrix-fedora-arch-20261102/fedora-turnip/native/`,
+`boot-lazy/oci-services-70a59192d8b742e5a6d334d2c280cc78.json` and
+`boot-base/oci-services-6d36c0f82c3d4d898a2d8bedd03fbee2.json` pass the stock
+systemd 259.10 default target, journal/D-Bus/logind IO and restart,
+networkd IPv6 RA/SLAAC/traffic/withdrawal, binfmt, RTKit and shutdown.
+These use a private bridge without an explicit `CAP_SYS_MODULE` drop.
+Native RT scheduling remains denied.
 
 ### Booted Fedora Docker
 
-`build/installed-fedora-turnip/oci-services-4d3af74ecbd846d38873e493f4210927.json`;
+`build/installed-fedora-turnip/oci-services-932a786b2ee1404396948c7c43b1370d.json`;
 stock Docker 29.8.2 service, containerd 2.3.5 overlayfs snapshotter, runc 1.5.2 and
-recipe-selected iptables-nft frontend, supervisor `7ae767cc...` as in the nspawn
-receipt below. Image availability, IPv4 bridge, TCP/UDP
-publication, peer IP/names, binds/exec, conflicts/release and internet with 20 external
-DNS queries per container pass; native Docker nftables backend and IPv6 are not covered
+recipe-selected iptables-nft frontend. Image availability, IPv4 bridge, TCP/UDP
+publication, peer IP/names, binds/exec, conflicts/release and preservation of
+init-owned system mounts pass. External internet, Docker's native nftables
+backend and IPv6 are not covered by this local run.
 
 ### Booted Fedora Podman
 
-`build/installed-fedora-turnip/oci-services-121d49b963a1493faea0bd3a9e601c5b.json`;
+`build/installed-fedora-turnip/oci-services-fcb4edfa7bab4ef788a8bc313c5ea26c.json`;
 Podman 5.8.9, stock seccomp, enabled cgroups, overlay and bridge. TCP/UDP publication, local outbound,
-peer IP/names, binds/repeated exec, conflicts/release and internet with 20 external DNS
-queries per container pass; supervisor `7ae767cc...` as in the nspawn receipt below
+peer IP/names, binds/repeated exec, conflicts/release and preservation of
+init-owned system mounts pass. Internet checks
+are excluded from this local acceptance run.
 
 ### Fedora desktop/VS Code
 
@@ -851,34 +1034,38 @@ Browser GUI receipts separately cover chooser/readback.
 
 ### Fedora machinectl
 
-`build/installed-fedora-turnip/oci-services-42295e8715e1497fb171b3f98026040e.json`;
+`build/installed-fedora-turnip/oci-services-5eb20395180d4dd7b403bfb2e828a5cc.json`;
 stock systemd 259.10 unit boots nested Debian with private users/veth, shell/services,
 20 TCP and 20 UDP exchanges per round, poweroff, killed-leader restart and cleanup
-across three boots
+across three boots. The command-only nspawn suite independently passes in
+`oci-services-9b2317df78ee4cb5aaf96c12ac021155.json`.
 
 ### Fedora LXC
 
-`build/installed-fedora-turnip/oci-services-3119039b443948b7ac503d9ccf413209.json`; LXC
+`build/installed-fedora-turnip/oci-services-b61bbe372d31455493df327f30af206e.json`; LXC
 6.0.6, stock common policy/seccomp, guest-root nested Debian, attach/services, mounts,
 20 TCP and 20 UDP bridge exchanges per round, normal/forced stop and cleanup across
 three boots. Unprivileged LXC and external networking remain untested
 
 ### Fedora Libvirt/QEMU
 
-`build/installed-fedora-turnip/oci-services-4c23de9a21e145daa6dfb4e2b82f7a26.json`;
+`build/installed-fedora-turnip/oci-services-fcba207aa57f48c39ae49f8787f96224.json`;
 stock modular libvirt 12.0.0 and QEMU 10.2.2, define/start paused, serial, resume, real
-kernel/initrd TCG boot, poweroff/undefine and fixture cleanup. VM networking and KVM
-untested
+kernel/initrd TCG boot, managed bridge/TAP, DHCP/DNS, MASQUERADE, IPv4/IPv6 packet
+exchange, poweroff/undefine and cleanup pass. The lab installs Fedora's packaged
+`libvirt-daemon-driver-network` and dnsmasq. The outer Shroot network is `bridge`;
+this does not certify wildcard DHCP binding in `routed`, where low ports also
+require Android publication permission. KVM is untested.
 
 ### Fedora direct QEMU
 
-`build/installed-fedora-turnip/oci-services-802abdce85bb48ab88220927ea08a5cc.json`;
+`build/installed-fedora-turnip/oci-services-e66cf05acd45416d895352f8ca7bb58c.json`;
 QEMU 10.2.2, ARM64 kernel/initramfs serial boot and clean exit with TCG. KVM and VM
 networking are not covered
 
 ### Fedora BuildKit
 
-`build/installed-fedora-turnip/oci-services-19dcba1953e84b3cb4499308d750ebf0.json`;
+`build/installed-fedora-turnip/oci-services-8f3b98e74a024ca79e8b87f2c8e03a72.json`;
 official BuildKit 0.34.1 ARM64 archive SHA-256
 `c8c97b84baf89dfe0ea85063ac24ad88eb909979ea476ce3ef9e8e11e60ebef8`, Fedora CNI 1.9.1,
 TOML-configured OCI/overlayfs/CNI worker with sandbox.
@@ -887,50 +1074,56 @@ external networking untested
 
 ### Fedora LTP core
 
-`build/installed-fedora-turnip/oci-services-626fca1ec5764e338714117f9a203c67.json`;
+`build/installed-fedora-turnip/oci-services-050515b4e2544315bcce600ab983e60d.json`;
 reviewed 20250930 sources built with Fedora compiler/libc in the persistent lab-only
 `/opt/md-ltp-build` tree. All seven selected binaries pass as guest UID 1000,
 including the ARM64 `epoll_create1` ABI; no failed, broken or skipped checks.
 
 ## Arch
 
-The Docker, Podman, QEMU/Libvirt, machinectl, BuildKit, LXC and LTP receipts use supervisor
-`3e32c8511ca8d95bd0be31aca2a1b770a42c2077c548af079dfb7c24126f969f`.
-These certify their exact
-staged bundles, not the installed APK or subsequent source edits.
+The current boot and system-workload receipts use the installed 2.2.5 APK,
+build `a097230c5c72bc5a62eced073c92696b8307279c11143157e4b3be4a29687de3`,
+with native kernel capabilities. Boot covers lazy entry and Base; retained
+container/service fixtures use default lazy admission. This is not Linux 5.15
+profile coverage. Graphics receipts below identify their own runtime scope.
 
 ### Arch default boot/services
 
-`build/arch-default-bridge-current/oci-services-3c014103a9cc4944beeb1999ff86627b.json`;
-private `bridge`, default target reaches `running`, journal write/sync/readback, D-Bus
-and logind restart pass; resolved is active. In `routed`, its initial-namespace bind to
-port 53 is also an Android publication and is denied by the host; this pass does not
-cover that mode
+`build/matrix-fedora-arch-20261102/arch-turnip/native/boot-lazy/oci-services-e2913dbc7372494ab1f3c42e2867ccc6.json`
+and `boot-base/oci-services-4651e9fd58d349eb89460dd0443ba2cd.json` under the same
+native directory cover stock default-target boot with private `bridge`, journal
+write/sync/readback, D-Bus/logind restart, binfmt, RTKit, networkd IPv6
+RA/SLAAC/traffic/router withdrawal and shutdown. Neither run explicitly drops
+CAP_SYS_MODULE. Initial-namespace wildcard DNS publication in `routed` remains
+subject to Android's low-port permissions.
 
 ### Booted Arch Docker
 
-`build/installed-arch-turnip/oci-services-b1d6e44dd86643548f53aba58e71282e.json`;
+`build/installed-arch-turnip/oci-services-2f2b4bb4fa6f49feb2841bedc0b3d285.json`;
 stock service, nftables, no userland proxy, local TCP/UDP/peers/port release,
-external internet and 20 DNS lookups per container pass. The daemon remains
-running after fixture cleanup. Missing bridge-port sysfs, memory-controller
+and retained system mounts pass. External internet is excluded from this run.
+The daemon remains running after fixture cleanup. Missing bridge-port sysfs, memory-controller
 events and unsupported conntrack deletion remain visible in its journal.
 
 ### Booted Arch Podman
 
-`build/installed-arch-turnip/oci-services-15cee848e95d405888dbcb6cea364959.json`;
-staged native hashes, overlay, bridge, stock seccomp, enabled cgroups, no `--ulimit`
+`build/installed-arch-turnip/oci-services-38ffc337e9ad4995928ed470a8243e0f.json`;
+overlay, bridge, stock seccomp, enabled cgroups, no `--ulimit`
 overrides; published TCP/UDP, peer names, local outbound, binds/exec, conflicts and port
-release, external internet and 20 DNS lookups per container pass.
+release pass. The booted system's sysfs and cgroup mounts remain unchanged;
+the fixture consumes init-owned mounts without preparing replacements.
+External internet is excluded from this run.
 
 ### Arch managed Libvirt/QEMU
 
-`build/installed-arch-turnip/oci-services-bc4defcf928f422c81e413bc33a23b69.json`;
-libvirt 12.8.0 / QEMU 11.1.2, managed TCG kernel/initramfs boot, paused start/resume, serial, normal shutdown,
-undefine and cleanup. VM networking and KVM remain untested.
+`build/installed-arch-turnip/oci-services-ac5edd2f49194bc59ea43e345605b61a.json`;
+libvirt 12.8.0 / QEMU 11.1.2, managed TCG kernel/initramfs boot, paused start/resume,
+TAP, DHCP, DNS, MASQUERADE, IPv4/IPv6 packet exchange, normal shutdown, undefine and
+cleanup pass with an outer private `bridge`. KVM remains untested.
 
 ### Arch direct QEMU
 
-`build/installed-arch-turnip/oci-services-231428ab2a80491cb10037f1a20c68aa.json`;
+`build/installed-arch-turnip/oci-services-03ab723d343e42a7a6638d5542bc78c9.json`;
 packaged QEMU, ARM64 kernel/initramfs TCG boot, serial kernel-contract checks and normal
 poweroff pass. VM networking and KVM remain untested
 
@@ -938,15 +1131,15 @@ poweroff pass. VM networking and KVM remain untested
 
 `build/arch-recipe-current/oci-services-4ba3363dd1b243988c709225b0366c19.json` covers
 current recipe setup, signed repository upgrade and tree installation.
-`build/arch-package-lifecycle-current.log` and
-`build/arch-package-lifecycle-runtime.json` cover booted stock pacman reinstall, all
+`build/matrix-fedora-arch-20261102/arch-turnip/native/packages.log`
+covers booted stock pacman install/reinstall, all
 post-transaction hooks, mkinitcpio 42.2 image generation and independent repeat, file
 verification and removal. Hardware/firmware warnings remain visible; no failed hooks or
 generation errors
 
 ### Arch machinectl
 
-`build/installed-arch-turnip/oci-services-c92ff0493dd642b0b0a3b0eac5feea55.json`.
+`build/installed-arch-turnip/oci-services-d18b9e65481449efa67a3b3099cd3a40.json`.
 The stock systemd 262.1 unit boots nested Debian 257.13 three times. Shell,
 services, private user mapping, 20 TCP and 20 UDP exchanges per round, normal
 poweroff, forced leader death, restart and cleanup pass. Host networkd remains
@@ -955,14 +1148,14 @@ test addresses do not certify DHCP lease exchange or external connectivity.
 
 ### Arch BuildKit
 
-`build/installed-arch-turnip/oci-services-5b0b604b91194c4188b56b566fc62c3c.json`;
+`build/installed-arch-turnip/oci-services-862872795e604fb7aa170da77eeff643.json`;
 0.34.1 OCI/overlayfs worker, CNI 1.9.1 bridge, sandbox mode, multistage
 build/cache/secret/export/run/cancel/cleanup, no explicit container ulimits;
 rootless/containerd workers and external network untested
 
 ### Arch LXC
 
-`build/installed-arch-turnip/oci-services-6a581630ee6a451bb78e38cc91f274f0.json`; 7.0.0
+`build/installed-arch-turnip/oci-services-71082d21f6c7463ea09d2c50767d9c19.json`; 7.0.0
 stock common policy, guest-root container, nested Debian systemd 257.13,
 attach/services, devpts/proc/cgroup mounts, stock seccomp, 20 TCP + 20 UDP bridge
 exchanges per round, normal shutdown, forced stop and restart across three boots;
@@ -971,9 +1164,9 @@ DNS/internet not covered
 
 ### Arch LTP core
 
-`build/installed-arch-turnip/oci-services-6728af19dc8d44d48f76a321cffc6662.json`;
+`build/installed-arch-turnip/oci-services-314a48b3d9be45e6a3006a1864203f1f.json`;
 all seven reviewed LTP 20250930 binaries pass as the ordinary recipe user
-on supervisor `3e32c851...`.
+on the installed APK above.
 
 ### Arch network inspection and portals
 
@@ -1013,6 +1206,33 @@ its build receipt is `e215b0b73bf54fb1970598b70e4d2189.log`.
 The packaged portal and user installer are not replaced by that build.
 
 ### Arch browser and editor acceptance
+
+The installed APK identified above passes fresh and same-profile browser runs
+on 2026-11-02. Reports under `build/installed-arch-turnip/` are
+`arch-firefox-native-20261102/gui-report.json`,
+`arch-firefox-native-relaunch-20261102/gui-report.json`,
+`arch-chromium-native-20261102/gui-report.json` and
+`arch-chromium-native-relaunch-20261102/gui-report.json`.
+All seven checks pass, including absence of WebGL context loss.
+
+Staged native fixture `6fa6fafa72634254a2265262505d557c` additionally passes
+`arch-vscode-loan-20261102/gui-report.json`: editor/save/watch, PTY, reload,
+GDB breakpoint/step/locals, hardware composition, renderer seccomp/NoNewPrivs
+and normal exit. Controller and editor share the Flatpak PID namespace.
+`flatpak-concurrent.json` records 24 concurrent sandbox launches alongside
+this editor. `arch-portal-loan-20261102.json` passes Chromium document grants,
+graceful/forced portal exit, auto-unmount and whole-unit restart/stop.
+The previously established stock Flatpak FD-allocation collision below remains
+an upstream limitation; a passing allocation layout does not fix that defect.
+
+The installed APK build
+`c508bbb68910d5dada4c39c7eec0ecc87c9be956f4f6615f5cd28480f773c93c`
+also passes `arch-vscode-apk-final-20261102/gui-report.json` with hardware
+composition, renderer sandbox, editor/save/watch, PTY, reload, GDB and normal
+exit. Fixture `c08db5d81ada40bd886172bbc00bf8a9` uses installed helpers, not
+a staged native build; its `flatpak-concurrent.json` records 24 successful
+sandbox launches alongside the editor. Native and Flatpak SDK Mesa include
+the completion patch identified in the profile evidence above.
 
 On the `3e32c851` supervisor above, Flatpak Chromium 156.0.8078.47 and Firefox
 159.0 each pass fresh-profile and same-profile GUI runs, 6/6: keyboard, pointer,

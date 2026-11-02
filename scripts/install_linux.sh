@@ -3,8 +3,8 @@
 set -eu
 
 # Raise this floor only when recipes require newer APK behavior.
-MIN_MAGICDESK_VERSION_CODE=224
-MIN_MAGICDESK_VERSION_NAME=2.1.2
+MIN_MAGICDESK_VERSION_CODE=232
+MIN_MAGICDESK_VERSION_NAME=2.2.5
 readonly MIN_MAGICDESK_VERSION_CODE MIN_MAGICDESK_VERSION_NAME
 
 usage() {
@@ -1085,6 +1085,108 @@ Explicit worker counts and normal parallel scheduling are retained after startup
     /* We don't need implicit sync if explicit sync is available through the
      * window system protocol.
      */
+PATCH
+    mesa_completion_patch
+}
+
+mesa_completion_patch() {
+    cat <<'PATCH'
+--- /dev/null
++++ b/src/util/dmabuf_completion.h
+@@ -0,0 +1,69 @@
++/*
++ * SPDX-License-Identifier: MIT
++ *
++ * Implicit sharing without the Linux 6.0 sync-file bridge. Producers finish
++ * their actual work before handing storage to another owner. Consumers either
++ * publish their read fence or retain the protocol lease through completion.
++ * Poll observes already published reservations, never unpublished GPU work.
++ */
++#ifndef MESA_DMABUF_COMPLETION_H
++#define MESA_DMABUF_COMPLETION_H
++
++#include "drm-uapi/dma-buf.h"
++#include <xf86drm.h>
++#include <errno.h>
++#include <poll.h>
++#include <stdint.h>
++#include <sys/ioctl.h>
++
++static inline int
++mesa_dmabuf_wait(int fd, short events)
++{
++   struct pollfd ready = { .fd = fd, .events = events };
++   int result;
++   /* EVENT_WAIT: actual reservation or sync_file completion; application GPU
++    * recovery remains responsible for a hung device, not a fabricated fence. */
++   do result = poll(&ready, 1, -1); while (result < 0 && errno == EINTR);
++   if (result > 0 && (ready.revents & events) &&
++       !(ready.revents & (POLLERR | POLLHUP | POLLNVAL)))
++      return 0;
++   if (result >= 0)
++      errno = EIO;
++   return -1;
++}
++
++static inline int
++mesa_dmabuf_validate(int fd)
++{
++   /* Invalid flags are rejected before the exporter's cache/access hooks. */
++   struct dma_buf_sync invalid = { .flags = UINT64_MAX };
++   return drmIoctl(fd, DMA_BUF_IOCTL_SYNC, &invalid) == -1 && errno == EINVAL ? 0 : -1;
++}
++
++static inline int
++mesa_dmabuf_export_sync_file(int fd, struct dma_buf_export_sync_file *sync)
++{
++   int result = drmIoctl(fd, DMA_BUF_IOCTL_EXPORT_SYNC_FILE, sync);
++   if (!result || (errno != ENOTTY && errno != ENOSYS))
++      return result;
++   if (mesa_dmabuf_validate(fd))
++      return -1;
++   result = mesa_dmabuf_wait(fd, sync->flags & DMA_BUF_SYNC_WRITE ? POLLOUT : POLLIN);
++   if (!result)
++      sync->fd = -1; /* Vulkan's already-complete SYNC_FD, not a dummy fence. */
++   return result;
++}
++
++static inline int
++mesa_dmabuf_import_sync_file(int fd, struct dma_buf_import_sync_file *sync)
++{
++   if (sync->fd < 0)
++      return 0;
++   int result = drmIoctl(fd, DMA_BUF_IOCTL_IMPORT_SYNC_FILE, sync);
++   if (!result || (errno != ENOTTY && errno != ENOSYS))
++      return result;
++   if (mesa_dmabuf_validate(fd))
++      return -1;
++   return mesa_dmabuf_wait(sync->fd, POLLIN);
++}
++#endif
+--- a/src/gallium/drivers/zink/zink_screen.c
++++ b/src/gallium/drivers/zink/zink_screen.c
+@@ -99,1 +99,2 @@
+-#include "drm-uapi/dma-buf.h"
++#include "drm-uapi/dma-buf.h"
++#include "util/dmabuf_completion.h"
+@@ -2532,1 +2532,1 @@
+-   int ret = drmIoctl(fd, DMA_BUF_IOCTL_EXPORT_SYNC_FILE, &export);
++   int ret = mesa_dmabuf_export_sync_file(fd, &export);
+@@ -2591,1 +2591,1 @@
+-      int ioctl_ret = drmIoctl(fd, DMA_BUF_IOCTL_IMPORT_SYNC_FILE, &import);
++      int ioctl_ret = mesa_dmabuf_import_sync_file(fd, &import);
+--- a/src/vulkan/wsi/wsi_common_drm.c
++++ b/src/vulkan/wsi/wsi_common_drm.c
+@@ -38,1 +38,2 @@
+-#include "util/libsync.h"
++#include "util/libsync.h"
++#include "util/dmabuf_completion.h"
+@@ -54,1 +54,1 @@
+-   int ret = drmIoctl(dma_buf_fd, DMA_BUF_IOCTL_EXPORT_SYNC_FILE, &export);
++   int ret = mesa_dmabuf_export_sync_file(dma_buf_fd, &export);
+@@ -76,1 +76,1 @@
+-   int ret = drmIoctl(dma_buf_fd, DMA_BUF_IOCTL_IMPORT_SYNC_FILE, &import);
++   int ret = mesa_dmabuf_import_sync_file(dma_buf_fd, &import);
 PATCH
 }
 
@@ -4633,7 +4735,7 @@ rm -f /etc/shroot/render-node
 mv -f "$candidate" "$profile"
 if [ "$gpu" = turnip ]; then
     mkdir -p /etc/shroot
-    printf 'turnip\n' > /etc/shroot/render-node.new
+    printf 'turnip-completion-v1\n' > /etc/shroot/render-node.new
     mv /etc/shroot/render-node.new /etc/shroot/render-node
     printf '%s\n' "$prefix" > /etc/magicdesk/mesa-prefix.new
     mv /etc/magicdesk/mesa-prefix.new /etc/magicdesk/mesa-prefix
@@ -5182,7 +5284,7 @@ in {
       kwin_prefix=${kwin}
     '';
   } // lib.optionalAttrs turnip {
-    "shroot/render-node".text = "turnip\n";
+    "shroot/render-node".text = "turnip-completion-v1\n";
     "magicdesk/mesa-prefix".text = "${mesa}\n";
   });
   # Stable XDG entry points for discovery without evaluating a login shell.

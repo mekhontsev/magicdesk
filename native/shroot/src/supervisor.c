@@ -1,4 +1,7 @@
 #define _GNU_SOURCE
+#ifdef MD_KERNEL_TESTING
+#include "kernel_profile.h"
+#endif
 #include "fd_native_pin.h"
 #include "watch_calls.h"
 #include "file_permissions.h"
@@ -539,7 +542,7 @@ static int readiness_native_event(struct thread *,int);
 static void readiness_deliver(struct thread *);
 static void readiness_task_progress(struct thread *,int,long);
 static void readiness_loan_closed(pid_t,long);
-static int readiness_evict(struct thread *,struct md_fd_loan *);
+static int fd_loan_evict(struct thread *,struct md_fd_loan *,int);
 static int fd_loans_ready(struct thread *);
 static void loan_start(struct task_action *);
 static void task_action_schedule(void);
@@ -3998,14 +4001,29 @@ static int selector_has(struct thread *t,unsigned kind,int number) {
         }
     return 1;
 }
+static int task_files_queued(const struct thread *p) {
+    /* The table turn has not begun, so none of these owners may execute
+     * task-affine work yet. Keep eligibility tied to resource state, not to
+     * a syscall family or a scheduler's retry bit. */
+    const struct md_fd_order *turns[]={&p->fd_order,&p->proc_lookup,&p->memory_files,
+        &p->metadata.files,&p->buffer_descriptor_order,&p->buffer_return.files,
+        &p->proc_delivery.files,p->readiness ? &p->readiness->files : NULL,
+        p->readiness ? &p->readiness->delivery.files : NULL,
+        p->outgoing ? &p->outgoing->files : NULL,p->receive ? &p->receive->files : NULL,
+        p->mapping ? &p->mapping->files : NULL};
+    for (unsigned i=0;i<sizeof(turns)/sizeof(*turns);++i)
+        if (md_fd_order_state(turns[i])==MD_RESOURCE_ORDER_QUEUED) return 1;
+    return md_fs_buffer_waiting_files(p->buffer_call)
+        || md_fs_buffer_waiting_files(p->metadata.stat_call);
+}
 static int task_action_borrowable(struct thread *p,struct thread *requester) {
     /* A queued table user is stopped before its operation. Other candidates
      * retain their exact kernel continuation. Never borrow an active worker,
      * mutation or newborn awaiting its first stop. */
-    int waiter=p->kernel_stopped && (p->retries[1].mask==RETRY_FD
-        || (p->phase==PROC_LOOKUP && md_fd_order_state(&p->proc_lookup)==MD_RESOURCE_ORDER_QUEUED)
-        || (p->readiness && md_fd_order_state(&p->readiness->files)==MD_RESOURCE_ORDER_QUEUED)
+    int waiter=p->kernel_stopped && (task_files_queued(p)
         || (p->action && !task_action_call(p->action)->stage));
+    int mapping_active=p->mapping
+        && md_fd_order_state(&p->mapping->files)!=MD_RESOURCE_ORDER_QUEUED;
     int traced=md_debugger_traced(debugger,p->pid);
     /* A debugger can share files with its stopped inferior (crash collectors
      * commonly do). Its own parked request is the only control owner, so the
@@ -4020,7 +4038,7 @@ static int task_action_borrowable(struct thread *p,struct thread *requester) {
     int debug_running=traced && md_debugger_running(debugger,p->pid);
     return p->ready && !birth_stop_pending(p) && !p->resume_lost && !p->terminal_stop
         && !p->listening && !p->vfork_child && !p->interrupt_pending && !p->signal_return_pending
-        && !p->mapping && !p->memory_capture && !p->fd_running && (!traced || debug_held || debug_running)
+        && !mapping_active && !p->memory_capture && !p->fd_running && (!traced || debug_held || debug_running)
         && (waiter || debug_held || (p->freezer_resume && debugger_at_boundary(p))
             || (!p->kernel_stopped && (p->phase==IDLE || p->phase==DISPATCHING
             || p->phase==WATCH_READ || p->phase==EPOLL_WAIT || p->phase==PROCESS_OBSERVING)));
@@ -4158,7 +4176,7 @@ static void loan_start(struct task_action *owner) {
 }
 static void loan_retire(struct task_action *owner,struct thread *requester,
         struct md_fd_order *turn,void (*complete)(struct thread *,long)) {
-    md_fd_loan_end(owner->loan);
+    if (md_fd_loan_active_in(owner->loan,owner->loan_table)) md_fd_loan_end(owner->loan);
     owner->requester=requester; owner->loan_turn=turn; owner->complete=complete;
     owner->next=loan_retirements; loan_retirements=owner; ++task_action_calls;
     if (requester) { CHECK(!requester->action); requester->action=owner; }
@@ -4546,7 +4564,29 @@ static void fd_loan_closed(struct thread *t,long result) {
     if (result) { fd_discard(t); return_value(t,&t->fd_registers,result); }
     else fd_start(t);
 }
-static int readiness_evict(struct thread *mutator,struct md_fd_loan *loan) {
+static int fd_loan_evict(struct thread *mutator,struct md_fd_loan *loan,int number) {
+    /* An already finished wait queued its own retirement. Yield this not-yet
+     * executed mutation behind that close instead of holding up its owner.
+     * A fork copy belongs to a different kernel table and closes independently. */
+    for (struct task_action *s=loan_retirements;s;s=s->next)
+        if (s->loan==loan && s->loan_table==mutator->resources.files && s->number==number) {
+            CHECK(!md_fd_order_complete(&mutator->fd_order));
+            CHECK(md_fd_order_begin(mutator->resources.files,&mutator->fd_order,fd_wakeup)>=0);
+            retry_wait(mutator,RETRY_FD); return 0;
+        }
+    if (!md_fd_loan_active_in(loan,mutator->resources.files)) {
+        struct task_action *retirement=calloc(1,sizeof(*retirement));
+        if (!retirement) {
+            fd_discard(mutator); return_value(mutator,&mutator->fd_registers,-ENOMEM); return 0;
+        }
+        int selected=-1;
+        CHECK(md_fd_origins_loan_range(&mutator->fd_order,number,number,&selected,&retirement->loan)==1);
+        CHECK(selected==number && retirement->loan==loan);
+        retirement->number=number;
+        retirement->loan_table=md_fd_origins_pin(mutator->resources.files);
+        loan_retire(retirement,mutator,&mutator->fd_order,fd_loan_closed);
+        return 0;
+    }
     for (struct thread *p=threads;p;p=p->next) {
         struct readiness_owner *o=p->readiness;
         if (!p->pid || !o || !o->retirement || o->retirement->loan!=loan) continue;
@@ -4566,13 +4606,6 @@ static int readiness_evict(struct thread *mutator,struct md_fd_loan *loan) {
         loan_retire(retirement,mutator,&mutator->fd_order,fd_loan_closed);
         return 0;
     }
-    /* An already finished wait queued its own retirement. Yield this not-yet
-     * executed mutation behind that close instead of holding up its owner. */
-    for (struct task_action *s=loan_retirements;s;s=s->next) if (s->loan==loan) {
-        CHECK(!md_fd_order_complete(&mutator->fd_order));
-        CHECK(md_fd_order_begin(mutator->resources.files,&mutator->fd_order,fd_wakeup)>=0);
-        retry_wait(mutator,RETRY_FD); return 0;
-    }
     CHECK(0); return 0;
 }
 static int fd_loans_ready(struct thread *t) {
@@ -4589,7 +4622,7 @@ static int fd_loans_ready(struct thread *t) {
         : md_fd_mutation_loan(&t->fd_order,nr,a,&number,&loan);
     if (result<0) { fd_discard(t); return_value(t,&t->fd_registers,result); return 0; }
     if (!result) return 1;
-    int ready=readiness_evict(t,loan);
+    int ready=fd_loan_evict(t,loan,number);
     md_fd_loan_release(loan);
     return ready;
 }
@@ -9487,6 +9520,9 @@ static int memory_repair(struct thread *t,const struct user_pt_regs *returned,in
     return 1;
 }
 int main(int argc, char **argv) {
+#ifdef MD_KERNEL_TESTING
+    int kernel_profile=md_test_kernel_profile_prepare(argc,argv);
+#endif
     CHECK(argc >= 2 && md_launch_identity(getuid(), geteuid(), getgid(), getegid()));
     md_page_size = (size_t)sysconf(_SC_PAGESIZE);
     CHECK(md_page_size >= 4096 && md_page_size <= 65536 && !(md_page_size & (md_page_size - 1)));
@@ -9640,6 +9676,11 @@ int main(int argc, char **argv) {
         CHECK(read(channel[1], &byte, 1) == 1 && byte == 'g'); close(channel[1]);
         execv(argv[argument], argv + argument); _exit(127);
     }
+#ifdef MD_KERNEL_TESTING
+    /* Restrict only native owners. The guest must retain Shroot interception
+     * and must not inherit a test filter or its no_new_privs state. */
+    CHECK(!md_test_kernel_profile_install(kernel_profile));
+#endif
     thread(leader)->born = 1;
     /* A caller can install filters before starting Shroot. Treat inherited
      * no_new_privs conservatively: its ERRNO rules can outrank service TRACE
@@ -10157,7 +10198,7 @@ int main(int argc, char **argv) {
                 int delivery=cookie==MD_INTERCEPT_CAPTURE && (int)regs.regs[4]==MD_FS_BUFFER_SOURCE;
                 int capture_flags=delivery ? t->buffer_open.fd>=0
                     && regs.regs[2]==(unsigned long)(t->buffer_open.completion.kind==MD_OPEN_CALLER
-                        ? md_open_endpoint_flags((int)t->buffer_open.flags)
+                        ? t->buffer_open.flags
                         : O_PATH|(t->buffer_open.flags&(O_CLOEXEC|O_DIRECTORY|O_NOFOLLOW)))
                     && regs.regs[1]==md_memory_buffer_address(t->memory,&t->buffer)+offsetof(struct md_fs_buffer_frame,source)
                     : (regs.regs[2]==(O_PATH|O_CLOEXEC) || regs.regs[2]==(O_PATH|O_DIRECTORY|O_CLOEXEC))

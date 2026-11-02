@@ -9,6 +9,7 @@
 #include "mount_topology.h"
 #include "inode_internal.h"
 #include "proc_sysctl.h"
+#include "procfs_view.h"
 #include <assert.h>
 #include <dirent.h>
 #include <errno.h>
@@ -760,6 +761,17 @@ int test_mount_graph_child(int argc, char **argv) {
             assert(sys);
             assert(!!md_provider_tree_super_flags(sys->provider)==!!pass);
             assert(md_mount_policy_set(md_provider_tree_super_policy(sys->provider),0)==-EPERM);
+            unsigned proc_count=0;
+            for (unsigned i=0;i<fs.mounts->tree->count;++i) {
+                struct md_view_mount *m=&fs.mounts->tree->mounts[i];
+                struct md_procfs_policy saved;
+                if (!md_procfs_export(m->provider,&saved)) continue;
+                assert(m->backing==MD_MOUNT_PROC && md_procfs_policy_valid(&saved));
+                char options[128]; assert(!md_procfs_options(m,NULL,options,sizeof(options)));
+                assert(!strcmp(options,proc_count ? ",gid=123,hidepid=2,subset=pid" : ""));
+                ++proc_count;
+            }
+            assert(proc_count==2);
             if (!pass) { send_byte(fd,'r'); assert(receive_byte(fd)=='x'); }
         }
         close_filesystem(&fs);
@@ -796,6 +808,32 @@ static void host_projections(const char *base) {
     assert(sentinel>=0 && write(sentinel,"shared",6)==6); close(sentinel);
     struct md_provider_tree *sysfs=NULL; assert(!md_fs_sysfs_prepare(&fs,&sysfs));
     struct md_identity identity=md_identity_new(0,0); fs.store->identity=&identity;
+    assert(!md_fs_proc_prepare(&fs));
+    assert(!md_inode_mkdir(fs.store,-1,"/process",0755));
+    int parent=md_fs_private_mounts_parent(fs.store); assert(parent>=0);
+    struct md_provider_tree *proc=md_procfs_new(parent,"hidepid=2,gid=123,subset=pid",&identity);
+    close(parent); assert(proc);
+    struct md_procfs_policy saved;
+    assert(md_procfs_export(proc,&saved)==1);
+    for (unsigned pressure=0;pressure<2;++pressure) {
+        saved.pressure=pressure;
+        struct md_provider_tree *copy=md_procfs_import(md_provider_tree_root(proc),&saved);
+        struct md_procfs_policy actual;
+        assert(copy && md_procfs_export(copy,&actual)==1 && !memcmp(&actual,&saved,sizeof(saved)));
+        md_provider_tree_release(copy);
+    }
+    const struct md_procfs_policy invalid[]={
+        {.hidepid=3},{.pidonly=2},{.gid=UINT32_MAX},{.pressure=2}
+    };
+    for (unsigned i=0;i<sizeof(invalid)/sizeof(*invalid);++i) {
+        assert(!md_procfs_policy_valid(&invalid[i]));
+        assert(!md_procfs_import(md_provider_tree_root(proc),&invalid[i]) && errno==EPROTO);
+    }
+    struct md_view_location target={.fd=-1,.parent=-1};
+    assert(!md_view_walk(&fs,-1,NULL,"/process",1,0,MD_VIEW_MOUNT_TARGET,&target));
+    struct md_mount_source source={.fd=md_provider_tree_root(proc),.backing=MD_MOUNT_PROC,.provider=proc};
+    assert(!md_view_attach_source(&fs,&source,&target,NULL));
+    md_view_location_close(&target); md_provider_tree_release(proc);
     struct md_fs_request q={.operation=MD_FS_MOUNT,.mode=MD_FS_MOUNT_BIND,.flags=MS_BIND|MS_REC,
         .directory={-1,-1},.path={"/devices","/dev"}};
     struct md_fs_result result; md_fs_execute(&fs,&q,&result,NULL); assert(!result.error);
@@ -809,7 +847,7 @@ static void host_projections(const char *base) {
     md_fs_storage_close(&storage); close_filesystem(&fs); md_provider_tree_release(sysfs);
     send_byte(pair[0],'x'); reap(child); close(pair[0]);
     assert(descriptors()==before);
-    puts("PASS host projection exec peer: sysfs policy, dev/shm data, publisher teardown and exact FD balance");
+    puts("PASS host projection exec peer: proc/sysfs policy, dev/shm data, publisher teardown and exact FD balance");
 }
 static void processes(const char *base) {
     unsigned before=descriptors(); char path1[PATH_MAX], path2[PATH_MAX];
@@ -1238,7 +1276,13 @@ static void propagation(const char *base) {
     assert(descriptors()==before);
     puts("PASS mount propagation: peer/slave attach and detach, private isolation, graph publication and allocation rollback");
 }
+static void *thread_runtime(void *context) { return context; }
 void test_mount_graph(const char *base) {
+    /* Bionic can retain its process-wide trace_marker on the first pthread
+     * creation. Admit libc before measuring Shroot's exact FD balance. */
+    pthread_t initialized;
+    assert(!pthread_create(&initialized,NULL,thread_runtime,NULL));
+    assert(!pthread_join(initialized,NULL));
     stream_transactions(); topology_order(); placement_lookup();
     /* EVENT_WAIT: full-limit graph transfer/copy plus failure injection. The
      * capacity stress case now exercises 4096 real mounts, not 512. */

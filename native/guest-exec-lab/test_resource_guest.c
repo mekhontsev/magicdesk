@@ -1213,17 +1213,16 @@ static void metadata_export(int guest, int managed) {
     assert(!fstat(file,&st) && st.st_size==1);
     assert(export_fds(NULL)==baseline+extra);
     if (managed) {
-        /* Managed file metadata needs no export channel. Admit the native
-         * proc input explicitly before testing reuse at the FD limit. */
+        /* Managed proc traversal retains the file's origin. It must not
+         * allocate a native export channel just to inspect its metadata. */
         fd=openat(proc,"self/fd/",O_RDONLY|O_DIRECTORY|O_CLOEXEC); assert(fd>=0);
         char name[32]; snprintf(name,sizeof(name),"%d",file);
         assert(!fstatat(fd,name,&st,0) && st.st_size==1);
         assert(!close(fd));
-        extra=1;
         assert(export_fds(NULL)==baseline+extra);
     }
-    /* Admission consumes one infrastructure slot; all subsequent metadata
-     * calls and proc directory opens use only their actual result slots. */
+    /* Native export admission consumes one infrastructure slot; managed
+     * metadata needs none. Further calls use only their actual result slots. */
     count=0;
     while ((fd=fcntl(STDERR_FILENO,F_DUPFD_CLOEXEC,0))>=0) filled[count++]=fd;
     assert(errno==EMFILE && count);
@@ -1247,6 +1246,8 @@ static void metadata_export(int guest, int managed) {
         assert(fd>=0);
         assert(fcntl(fd,F_GETFD)==((flags&O_CLOEXEC) ? FD_CLOEXEC : 0));
         int actual=fcntl(fd,F_GETFL); assert(actual>=0);
+        if ((actual&(O_PATH|O_NONBLOCK|O_NOFOLLOW))!=(flags&(O_PATH|O_NONBLOCK|O_NOFOLLOW)))
+            fprintf(stderr,"retained proc flags requested=%#x actual=%#x\n",flags,actual);
         assert((actual&(O_PATH|O_NONBLOCK|O_NOFOLLOW))==(flags&(O_PATH|O_NONBLOCK|O_NOFOLLOW)));
         char name[32]; snprintf(name,sizeof(name),"%d",file);
         assert(!fstatat(fd,name,&st,0) && st.st_size==1);
@@ -2237,13 +2238,19 @@ int test_mutation_signal_guest(const char *, int, int);
 int test_shared_memory_guest(const char *, int, int);
 int test_fd_result_guest(const char *, int);
 int test_parallel_read_guest(const char *);
+int test_read_capture_guest(const char *);
+int test_kernel_profile_guest(void);
+int test_kernel_profile_child(void);
 int main(int argc, char **argv) {
+    if (argc==2 && !strcmp(argv[1],"kernel-profile")) return test_kernel_profile_guest();
+    if (argc==2 && !strcmp(argv[1],"kernel-profile-child")) return test_kernel_profile_child();
     if (argc==2 && (!strcmp(argv[1],"processor-state") || !strcmp(argv[1],"processor-state-exec"))) {
         alarm(40); return processor_state(argv[0],!strcmp(argv[1],"processor-state-exec"));
     }
     if (argc==4 && !strcmp(argv[1],"result-custody"))
         return test_fd_result_guest(argv[2],atoi(argv[3]));
     if (argc==3 && !strcmp(argv[1],"parallel-read")) return test_parallel_read_guest(argv[2]);
+    if (argc==3 && !strcmp(argv[1],"read-capture")) return test_read_capture_guest(argv[2]);
     if (argc>=2 && !strcmp(argv[1],"keyring")) return test_keyring_guest(argc,argv);
     if (argc==5 && !strcmp(argv[1],"mutation-signal"))
         return test_mutation_signal_guest(argv[2],atoi(argv[3]),atoi(argv[4]));

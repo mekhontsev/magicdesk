@@ -269,6 +269,12 @@ append deduplicated `inode_custody` parcels; their exact spans and root identiti
 belong to the sealed graph. Even a repeated import validates all backing rights
 before reusing a known view. Forwarding retains those original leases.
 
+Proc provider roots carry their immutable visibility and PSI-admission policy
+alongside the existing PID-namespace identity, upper-tree lease and superblock
+policy. Import validates this typed policy before publishing the graph; live
+revisions cannot replace it for an existing mount. This is a transient IPC
+contract, independent of the persistent storage format.
+
 The retained topology stream's device/inode identifies the graph across private
 transfers and forwarding, independently of the publisher's process lifetime.
 Mount IDs remain receiver-local and are allocated from its existing owner.

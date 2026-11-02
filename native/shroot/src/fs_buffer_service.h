@@ -14,6 +14,9 @@ void md_fs_buffer_admission(struct md_fs_buffer_service *, int (*)(pid_t));
  * drain admitted operations before committing a new transport restriction. */
 void md_fs_buffer_restricted(struct md_fs_buffer_service *, int (*)(pid_t));
 struct md_fs_buffer_request;
+/* A queued file-table turn has not dispatched worker or task-affine work.
+ * The supervisor may borrow its stopped caller without advancing the request. */
+int md_fs_buffer_waiting_files(const struct md_fs_buffer_request *);
 struct md_fs_anchor;
 struct md_fd_object;
 struct md_fs_task_capture;

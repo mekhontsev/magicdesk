@@ -19,7 +19,7 @@ static unsigned fd_count(void) {
 }
 
 static void invalid_buffers(MdgDevice *device, int fd) {
-    MdgLinearDmaBuf valid = {fd, WIDTH, HEIGHT, OFFSET, STRIDE, MDG_RGBA};
+    MdgLinearDmaBuf valid = {.fd = fd, .width = WIDTH, .height = HEIGHT, .offset = OFFSET, .stride = STRIDE, .format = MDG_RGBA};
     MdgLinearDmaBuf b = valid; b.width = 8193;
     MdgImportError error;
     assert(!mdg_image_linear_dmabuf(device, &b, &error) && !strcmp(error.operation, "layout"));
@@ -60,7 +60,7 @@ int main(int argc, char **argv) {
     for (unsigned test = 0; test < 8; ++test) {
         unsigned format = test % 4;
         int fd = dup(producer.fd); assert(fd >= 0);
-        MdgLinearDmaBuf buffer = {fd, WIDTH, HEIGHT, OFFSET, STRIDE, format};
+        MdgLinearDmaBuf buffer = {.fd = fd, .width = WIDTH, .height = HEIGHT, .offset = OFFSET, .stride = STRIDE, .format = format};
         MdgImage *source = mdg_image_linear_dmabuf(device, &buffer, NULL); assert(source);
         /* Exercise the tail synchronization contract even on drivers that need
          * no extra allocation padding. This changes only test-owned imports. */
@@ -146,7 +146,7 @@ int main(int argc, char **argv) {
     assert(stats.dma_tail_bytes == (uint64_t)WIDTH * 4 * (4 * 3 + HEIGHT) * 32);
     MdgReadback *readback = mdg_readback_create(device);
     MdgImage *cursor = mdg_image_linear_dmabuf(device,
-        &(MdgLinearDmaBuf){producer.fd, WIDTH, HEIGHT, OFFSET, STRIDE, MDG_RGBA}, NULL);
+        &(MdgLinearDmaBuf){.fd = producer.fd, .width = WIDTH, .height = HEIGHT, .offset = OFFSET, .stride = STRIDE, .format = MDG_RGBA}, NULL);
     assert(readback && cursor && mdg_readback_start(readback, cursor));
     producer.gated = true;
     producer_write(&producer, 0xff0000ff, 0xff0000ff);

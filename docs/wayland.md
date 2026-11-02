@@ -665,6 +665,14 @@ Require an explicit `passed` result; instrumentation completion alone is not a
 pass. Android Activity focus changes, general application compatibility, and
 operation on API 34 still require device validation.
 
+For the missing DMA-BUF bridge contract, configure the portable JNI test build
+with `-DMDW_BUILD_COMPLETION_TEST=ON` and pass
+`-e server_library /absolute/path/libwayland-completion-executor-test.so`
+alongside `-e dmabuf true`. This test-only executor restricts its compositor
+owner before GPU initialization; it is not packaged into the APK and does not
+filter the MagicDesk process. Native and restricted variants cover Android
+Surface pixels, cross-UID transport, input and closure on NX809J/API 36.
+
 For cadence and transport measurements, add `-e pacing true`, optionally with
 `-e width 1280 -e height 720`. The fixture encodes a monotonic commit timestamp
 in its pixels and checks the image received by Android. It reports client frame

@@ -7,6 +7,7 @@ fixtures do not define a separate runtime or installation interface.
 
 - [Choose A Suite](#choose-a-suite)
 - [Evidence Rules](#evidence-rules)
+- [Kernel Profiles](#kernel-profiles)
 - [Installer Acceptance](#installer-acceptance)
 - [Network Fixtures](#network-fixtures)
 - [Process And Resource Fixtures](#process-and-resource-fixtures)
@@ -46,6 +47,37 @@ fixtures do not define a separate runtime or installation interface.
 - Unsupported hardware, unavailable native authority and an implementation
   failure are different results. Do not weaken assertions or silently disable a
   client's sandbox to obtain a pass.
+
+## Kernel Profiles
+
+Use a native build configured with `-DMAGICDESK_GUEST_FIXTURES=ON`. The
+`linux-5.15` profile removes newer host capabilities from the supervisor and its
+workers, without putting a denial filter around the guest or disabling lazy SVC.
+It needs neither root nor a phone reboot. Existing Linux sessions are unchanged.
+
+```sh
+python native/guest-exec-lab/test_resources.py BUILD --case kernel-baseline
+python native/guest-exec-lab/test_resources.py BUILD --case fs-results --kernel-profile linux-5.15
+python native/guest-exec-lab/test_watch_runtime.py BUILD --kernel-profile linux-5.15
+python native/guest-exec-lab/test_systemd.py --build BUILD --store STORE --kernel-profile linux-5.15 --machine-entry
+SHROOT_TEST_KERNEL_PROFILE=linux-5.15 python native/guest-exec-lab/test_clone3.py --build BUILD --name ENVIRONMENT
+```
+
+`kernel-baseline` always compares both profiles and both syscall entry modes.
+Other commands select one profile; omit it or select `native` for the ordinary
+host. The environment form applies to runners using the shared `Suite` launcher,
+including prepared-distribution workflows. Stock native controls stay native.
+For a standalone host component, use the device-side
+`libmagicdesk_guest_kernel_baseline.so --host NATIVE-FIXTURE ...`; do not wrap a
+whole Shroot launch in that command, because its descendants inherit the filter.
+
+Reports retain the real kernel and verified profile separately. The runner
+checks fixture support and records each observed profile activation; guest output
+remains usable as JSON or text. A missing profile is a failure, not a silent
+modern-kernel pass. Release binaries contain no profile hooks. See the
+[scope and limits](../shroot/kernel-compatibility.md#host-kernel-profiles): this
+tests missing host APIs, not old-kernel scheduling, SELinux or all native guest
+semantics. It does not replace testing on a real 5.15 device.
 
 ## Installer Acceptance
 

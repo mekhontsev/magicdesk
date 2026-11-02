@@ -10,6 +10,7 @@ import statistics
 import tempfile
 import tomllib
 import uuid
+from kernel_profile import KernelProfile
 
 
 def main():
@@ -23,7 +24,11 @@ def main():
                         help="Run resource regressions, FD handoff/parcel, terminal RPC custody, native FD lifecycle, or worker transport")
     parser.add_argument("--compare-installed", action="store_true",
                         help="Compare identical metadata/spawn fixtures with the installed runtime")
+    KernelProfile.add_argument(parser)
     args = parser.parse_args()
+    profile = KernelProfile(args.kernel_profile)
+    if profile.options and args.compare_installed:
+        parser.error("Kernel profiles require fixture helpers, not installed APK helpers")
     if args.case != "all" and args.compare_installed:
         parser.error("--compare-installed requires the full resource suite")
     repo = Path(__file__).resolve().parents[2]
@@ -37,10 +42,13 @@ def main():
     if state.get("shell", {}).get("uid") != 2000:
         raise RuntimeError("Select shell explicitly; this test never elevates")
     root = "/data/local/tmp/md-resources-" + uuid.uuid4().hex
+    guest_run = root + '/libmagicdesk_guest_run.so'
+    supervisor_run = shlex.join([*profile.environment, root + '/libmagicdesk_guest_supervisor.so'])
     session = client.call("console.open", {"directory": "/data/local/tmp"})["sessionId"]
     result = {"device": state["device"], "app": state["app"], "root": root, "case": args.case, "checks": []}
+    result['kernelProfile'] = profile.evidence
 
-    def check(name, command, contains=None, patterns=(), exit_code=0, absent_patterns=()):
+    def check(name, command, contains=None, patterns=(), exit_code=0, absent_patterns=(), kernel=None, profile_log=None):
         entry = {"name": name, "command": command, "passed": False}
         result["checks"].append(entry)
         try:
@@ -52,6 +60,22 @@ def main():
         passed = passed and all(re.search(pattern, value["output"]) for pattern in patterns)
         passed = passed and not any(re.search(pattern, value["output"]) for pattern in absent_patterns)
         entry.update(passed=passed, **value)
+        active = kernel or profile
+        if passed and '--test-kernel-profile' not in command and active.options:
+            launching = (kernel is not None or guest_run in command and '--store ' in command
+                         or command.startswith(supervisor_run + ' '))
+            try:
+                output = value['output']
+                if profile_log:
+                    diagnostic = client.call('console.execute', dict(sessionId=session,
+                        command=shlex.join(['head', '-c', '65536', profile_log])))
+                    assert diagnostic['exitCode'] == 0, 'Cannot read redirected profile admission'
+                    output += '\n' + diagnostic['output']
+                    entry['profileLog'] = profile_log
+                active.observe(output, required=launching)
+            except AssertionError as error:
+                entry.update(passed=False, profileFailure=str(error))
+                raise
         print(("PASS " if passed else "FAIL ") + name + "\n" + value["output"], flush=True)
         if not passed:
             raise RuntimeError(name)
@@ -59,70 +83,90 @@ def main():
 
     def check_namespaces():
         for entry in (0, 1):
-            check(f"guest device nodes entry={entry}", root + "/libmagicdesk_guest_run.so --user 0:0"
+            check(f"guest device nodes entry={entry}", guest_run + " --user 0:0"
                   + f" --env SHROOT_MACHINE_ENTRY={entry} --diagnostics --store "
                   + root + "/store --deadline-seconds 90 -- /bin/test device-nodes", "PASS guest device nodes:")
-        check("guest keyring absence", root + "/libmagicdesk_guest_run.so --user 0:0 --diagnostics --store "
+        check("guest keyring absence", guest_run + " --user 0:0 --diagnostics --store "
               + root + "/store --deadline-seconds 90 -- /bin/test keyring", "PASS guest keyring absence:")
         check("native memfd metadata", root + "/libmagicdesk_guest_resource_guest.so native-metadata", "PASS native metadata:")
-        check("guest memfd metadata", root + "/libmagicdesk_guest_run.so --user 0:0 --diagnostics --store "
+        check("guest memfd metadata", guest_run + " --user 0:0 --diagnostics --store "
               + root + "/store --deadline-seconds 90 -- /bin/test native-metadata", "PASS native metadata:")
         for entry in (0, 1):
             for case, message in (("cgroup", "PASS guest cgroup:"),
                                   ("cgroup-pid", "PASS guest cgroup: PID namespace"),
                                   ("cgroup-namespace", "PASS guest cgroup namespace:")):
-                check(f"guest {case} entry={entry}", root + "/libmagicdesk_guest_run.so --user 0:0"
+                check(f"guest {case} entry={entry}", guest_run + " --user 0:0"
                       + f" --env SHROOT_MACHINE_ENTRY={entry} --diagnostics --store "
                       + root + "/store --deadline-seconds 90 -- /bin/test " + case, message)
-        check("guest private devpts", root + "/libmagicdesk_guest_run.so --user 0:0 --diagnostics --store "
+        check("guest private devpts", guest_run + " --user 0:0 --diagnostics --store "
               + root + "/store --deadline-seconds 90 -- /bin/test devpts", "PASS guest devpts:")
-        check("guest PID-scoped devpts", root + "/libmagicdesk_guest_run.so --user 0:0 --diagnostics --store "
+        check("guest PID-scoped devpts", guest_run + " --user 0:0 --diagnostics --store "
               + root + "/store --deadline-seconds 90 -- /bin/test devpts-pid", "PASS guest devpts: PID namespace")
-        check("guest PID namespace lifecycle", root + "/libmagicdesk_guest_run.so --user 0:0 --diagnostics --store "
+        check("guest PID namespace lifecycle", guest_run + " --user 0:0 --diagnostics --store "
               + root + "/store --deadline-seconds 90 -- /bin/test pid-namespace", "PASS guest PID namespaces:")
         for entry in (0, 1):
-            check(f"guest namespace entry={entry}", root + "/libmagicdesk_guest_run.so --user 0:0"
+            check(f"guest namespace entry={entry}", guest_run + " --user 0:0"
                   + f" --env SHROOT_MACHINE_ENTRY={entry} --diagnostics --store "
                   + root + "/store --deadline-seconds 90 -- /bin/test setns", "PASS guest setns:")
-        check("guest overlay filesystems", root + "/libmagicdesk_guest_run.so --user 0:0 --diagnostics --store "
+        check("guest overlay filesystems", guest_run + " --user 0:0 --diagnostics --store "
               + root + "/store --deadline-seconds 90 -- /bin/test overlay", "PASS guest overlay:")
         for entry in (0, 1):
-            check(f"guest namespace handles entry={entry}", root + "/libmagicdesk_guest_run.so --user 0:0"
+            check(f"guest namespace handles entry={entry}", guest_run + " --user 0:0"
                   + f" --env SHROOT_MACHINE_ENTRY={entry} --diagnostics --store "
                   + root + "/store --deadline-seconds 90 -- /bin/test namespace-handles", "PASS guest namespace handles:")
-        check("guest PID-scoped namespace mounts", root + "/libmagicdesk_guest_run.so --user 0:0 --diagnostics --store "
+        check("guest PID-scoped namespace mounts", guest_run + " --user 0:0 --diagnostics --store "
               + root + "/store --deadline-seconds 90 -- /bin/test namespace-mounts-pid", "PASS PID-scoped namespace mounts:")
-        check("guest mount flags", root + "/libmagicdesk_guest_run.so --user 0:0 --diagnostics --admit-elf /bin/test --store "
+        check("guest mount flags", guest_run + " --user 0:0 --diagnostics --admit-elf /bin/test --store "
               + root + "/store --bind /dev /attached --deadline-seconds 90 -- /bin/test mount-flags", "PASS guest mount flags")
-        check("guest temporary filesystems", root + "/libmagicdesk_guest_run.so --user 0:0 --diagnostics --store "
+        check("guest temporary filesystems", guest_run + " --user 0:0 --diagnostics --store "
               + root + "/store --deadline-seconds 90 -- /bin/test tmpfs", "PASS guest tmpfs:")
-        check("guest user namespace proc IO", root + "/libmagicdesk_guest_run.so --user 0:0 --diagnostics --store "
+        check("guest user namespace proc IO", guest_run + " --user 0:0 --diagnostics --store "
               + root + "/store --deadline-seconds 90 -- /bin/test user-proc", "PASS guest user proc files:")
-        check("guest user namespace lifecycle", root + "/libmagicdesk_guest_run.so --user 0:0 --diagnostics --store "
+        check("guest user namespace lifecycle", guest_run + " --user 0:0 --diagnostics --store "
               + root + "/store --deadline-seconds 90 -- /bin/test user-namespace", "PASS guest user namespaces:")
-        check("guest user namespace limits", root + "/libmagicdesk_guest_run.so --user 0:0 --diagnostics --store "
+        check("guest user namespace limits", guest_run + " --user 0:0 --diagnostics --store "
               + root + "/store --deadline-seconds 90 -- /bin/test user-limits", "PASS guest user namespace limits:")
-        check("direct guest UTS namespace lifecycle", root + "/libmagicdesk_guest_supervisor.so --diagnostics --user 0:0 --hostname launch-name "
+        check("direct guest UTS namespace lifecycle", supervisor_run + " --diagnostics --user 0:0 --hostname launch-name "
               + root + "/libmagicdesk_guest_bootstrap.so " + root + "/source /bin/test uts-namespace", "PASS guest UTS namespaces:")
-        runner = root + "/libmagicdesk_guest_run.so --user 0:0 --hostname launch-name --diagnostics --store " + root + "/store --deadline-seconds 90 -- /bin/test "
+        runner = guest_run + " --user 0:0 --hostname launch-name --diagnostics --store " + root + "/store --deadline-seconds 90 -- /bin/test "
         for kind in ("UTS", "IPC", "mount"):
             check("guest " + kind + " namespace lifecycle", runner + kind.lower() + "-namespace",
                   "PASS guest " + kind + " namespaces:")
 
     def check_kernel_workflows():
-        runner = root + "/libmagicdesk_guest_kernel_baseline.so " + root + "/libmagicdesk_guest_run.so --store " + root + "/store --deadline-seconds 90 -- /bin/test "
-        for case, message in (("proc-thread-capture", "PASS proc task capture"),
-                              ("buffer-descriptors", "PASS buffered descriptors"),
-                              ("buffer-data", "PASS buffered data inputs"),
-                              ("buffer-import", "PASS buffered imported dirfd")):
-            check("guest without thread pidfds " + case, runner + case + " /tmp", message)
+        check("native read capture", root + "/libmagicdesk_guest_resource_guest.so read-capture "
+              + root + "/native", "PASS read capture:")
+        result['kernelComparison'] = []
+        for name in KernelProfile.choices:
+            selected = KernelProfile(name)
+            selected.prepare(lambda argv: check('kernel admission ' + name, shlex.join(argv))['output'],
+                             root + '/libmagicdesk_guest_supervisor.so')
+            result['kernelComparison'].append(selected.evidence)
+            for entry in (0, 1):
+                runner = shlex.join([root + '/libmagicdesk_guest_run.so', *selected.options,
+                                    '--statistics', '--env', f'SHROOT_MACHINE_ENTRY={entry}',
+                                    '--user', '0:0', '--store', root + '/store', '--deadline-seconds', '90',
+                                    '--', '/bin/test']) + ' '
+                value = check(f'guest kernel contract {name} entry={entry}', runner + 'kernel-profile',
+                              'PASS kernel profile guest:', kernel=selected)
+                records = [json.loads(line.removeprefix('SVC_RUNTIME_STATS '))
+                           for line in value['output'].splitlines() if line.startswith('SVC_RUNTIME_STATS ')]
+                completed = sum(record['completed'] for record in records)
+                if (entry and not completed) or (not entry and completed):
+                    raise AssertionError('Kernel profile changed the requested syscall entry mode')
+                for case, message in (("read-capture", "PASS read capture:"),
+                                      ("proc-thread-capture", "PASS proc task capture"),
+                                      ("buffer-descriptors", "PASS buffered descriptors"),
+                                      ("buffer-data", "PASS buffered data inputs"),
+                                      ("buffer-import", "PASS buffered imported dirfd")):
+                    check(f'guest {case} {name} entry={entry}', runner + case + ' /tmp', message, kernel=selected)
 
     def check_buffer_descriptors():
         check("native parallel reads", root + "/libmagicdesk_guest_resource_guest.so parallel-read "
               + root + "/native", "PASS parallel read: threads=32 completed=128000")
         for entry in (0, 1):
-            check(f"guest parallel reads entry={entry}", root
-                  + f"/libmagicdesk_guest_run.so --env SHROOT_MACHINE_ENTRY={entry} --store "
+            check(f"guest parallel reads entry={entry}", guest_run
+                  + f" --env SHROOT_MACHINE_ENTRY={entry} --store "
                   + root + "/store --deadline-seconds 90 -- /bin/test parallel-read /tmp",
                   "PASS parallel read: threads=32 completed=128000")
         for mode in range(4):
@@ -134,66 +178,66 @@ def main():
                 carrier = (r"MD_BROKER nativeOpen=[1-9]\d*" if entry and not mode
                            else r"MD_BROKER resultDeliveries=[1-9]\d*")
                 check(f"guest result custody mode={mode} entry={entry}",
-                      root + "/libmagicdesk_guest_run.so --statistics --env SHROOT_MACHINE_ENTRY="
+                      guest_run + " --statistics --env SHROOT_MACHINE_ENTRY="
                       + str(entry) + " --store " + root
                       + f"/store --deadline-seconds 90 -- /bin/test result-custody /tmp {mode}",
                       "PASS cancellation stress:", patterns=(carrier,))
         check("native xattr with full table", root + "/libmagicdesk_guest_resource_guest.so xattr-slots-native "
               + root + "/native", "PASS xattr without private FDs")
-        check("guest xattr with full table", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest xattr with full table", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test xattr-slots /tmp", "PASS xattr without private FDs")
         check("native watches with full table", root + "/libmagicdesk_guest_resource_guest.so watch-slots "
               + root + "/native", "PASS watch paths without private FDs")
-        check("guest watches with full table", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest watches with full table", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test watch-slots /tmp", "PASS watch paths without private FDs")
         check("native imported dirfd", root + "/libmagicdesk_guest_resource_guest.so buffer-import "
               + root + "/native", "PASS buffered imported dirfd")
-        check("guest imported dirfd", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest imported dirfd", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test buffer-import /tmp", "PASS buffered imported dirfd")
         check("native data input control", root + "/libmagicdesk_guest_resource_guest.so buffer-data "
               + root + "/native", "PASS buffered data inputs")
-        check("guest buffered data input", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest buffered data input", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test buffer-data /tmp", "PASS buffered data inputs")
         check("native buffered descriptors", root + "/libmagicdesk_guest_resource_guest.so buffer-descriptors "
               + root + "/native", "PASS buffered descriptors")
-        check("guest buffered descriptors", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest buffered descriptors", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test buffer-descriptors /tmp", "PASS buffered descriptors")
-        check("guest mapped FIFO", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest mapped FIFO", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test buffer-fifo /tmp", "PASS mapped FIFO")
 
     def check_captures():
         check("native private-thread proc selection", root + "/libmagicdesk_guest_resource_guest.so proc-thread-capture "
               + root + "/native", "PASS proc task capture")
-        check("guest private-thread proc selection", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest private-thread proc selection", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test proc-thread-capture /tmp", "PASS proc task capture")
         check("native capture terminal control", root + "/libmagicdesk_guest_resource_guest.so capture-terminal-native "
               + root + "/native", "PASS capture terminal ownership")
-        check("guest capture terminal ownership", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest capture terminal ownership", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test capture-terminal /tmp", "PASS capture terminal ownership")
         # Opening /dev through the guest now retains its origin. An inherited
         # native directory really requires capture and exercises helper failure.
         check("native inherited capture terminal control", root + "/libmagicdesk_guest_resource_guest.so capture-terminal-inherited-native "
               + root + "/native </dev", "PASS capture terminal ownership")
-        check("guest inherited capture terminal ownership", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest inherited capture terminal ownership", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test capture-terminal-inherited /tmp </dev", "PASS capture terminal ownership")
         for inherited in (False, True):
             scenario="native-cwd-inherited" if inherited else "native-cwd"
             control=" </dev" if inherited else ""
             check("native cwd control inherited=" + str(inherited), root + "/libmagicdesk_guest_resource_guest.so "
                   + scenario + " " + root + "/native" + control, "PASS native cwd")
-            check("guest cwd capture inherited=" + str(inherited), root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+            check("guest cwd capture inherited=" + str(inherited), guest_run + " --diagnostics --store " + root
                   + "/store --deadline-seconds 90 -- /bin/test " + scenario + " /tmp" + control, "PASS native cwd",
                   patterns=(r"PROBE buffer-capture pid=\d+",) if inherited else (),
                   absent_patterns=() if inherited else (r"PROBE buffer-capture pid=\d+",))
         check("native proc watch full table", root + "/libmagicdesk_guest_resource_guest.so watch-slots "
               + root + "/native", "PASS watch paths without private FDs")
-        check("guest proc watch full table", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest proc watch full table", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test watch-slots /tmp", "PASS watch paths without private FDs")
 
     def check_buffers():
         check("native path invocation", root + "/libmagicdesk_guest_resource_guest.so path-invocation "
               + root + "/native", "PASS path invocation:")
-        check("guest path invocation", root + "/libmagicdesk_guest_run.so --statistics --store "
+        check("guest path invocation", guest_run + " --statistics --store "
               + root + "/store --deadline-seconds 90 -- /bin/test path-invocation /tmp", "PASS path invocation:",
               patterns=(r"MD_DIRECT status=[1-9]\d* open=0 fallback=0 admit=0 retry=0",
                         r"MD_BROKER nr=56 notifications=\d+ handled=[1-9]\d* delegated=\d+"))
@@ -205,12 +249,12 @@ def main():
               "PASS shared request buffer ownership")
         check("native buffered cwd control", root + "/libmagicdesk_guest_resource_guest.so buffer-cwd " + root + "/native",
               "PASS buffered cwd")
-        check("guest buffer lifecycle", root + "/libmagicdesk_guest_run.so --store " + root
+        check("guest buffer lifecycle", guest_run + " --store " + root
               + "/store --deadline-seconds 90 -- /bin/test buffer-cwd /tmp", "PASS buffered cwd")
         check("native buffered open control", root + "/libmagicdesk_guest_resource_guest.so buffer-open " + root + "/native",
               "PASS buffered O_PATH")
         for entry in (0, 1):
-            check("guest buffered O_PATH entry=" + str(entry), root + "/libmagicdesk_guest_run.so --env SHROOT_MACHINE_ENTRY="
+            check("guest buffered O_PATH entry=" + str(entry), guest_run + " --env SHROOT_MACHINE_ENTRY="
                   + str(entry) + " --store " + root + "/store --deadline-seconds 90 -- /bin/test buffer-open /tmp",
                   "PASS buffered O_PATH")
         check_buffer_descriptors()
@@ -220,13 +264,13 @@ def main():
         for suffix in ("", "-protected"):
             check("native buffered paths" + suffix, root + "/libmagicdesk_guest_resource_guest.so buffer-paths"
                   + suffix + " " + root + "/native", "PASS buffered paths")
-            check("guest buffered paths" + suffix, root + "/libmagicdesk_guest_run.so --store " + root
+            check("guest buffered paths" + suffix, guest_run + " --store " + root
                   + "/store --deadline-seconds 90 -- /bin/test buffer-paths" + suffix + " /tmp", "PASS buffered paths")
         for suffix in ("", "-dirfd", "-nofollow"):
             check("native buffered custody control" + suffix,
                   root + "/libmagicdesk_guest_resource_guest.so custody-native" + suffix + " " + root + "/native",
                   "PASS terminal RPC custody")
-            check("guest buffered custody" + suffix, root + "/libmagicdesk_guest_run.so --store " + root
+            check("guest buffered custody" + suffix, guest_run + " --store " + root
                   + "/store --deadline-seconds 90 -- /bin/test custody" + suffix + " /tmp", "PASS terminal RPC custody")
         check_exec_custody()
         check_proc_custody()
@@ -236,9 +280,9 @@ def main():
         # Keep high-volume syscall diagnostics outside the bounded command output;
         # otherwise successful termination can lose its required PASS marker.
         try:
-            check("guest buffered group exit", "timeout -k 5 105 " + root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+            check("guest buffered group exit", "timeout -k 5 105 " + guest_run + " --diagnostics --store " + root
                   + "/store --deadline-seconds 90 -- /bin/test buffer-exit /tmp 2>" + root + "/buffer-exit.log",
-                  "PASS buffered group exit")
+                  "PASS buffered group exit", profile_log=root + "/buffer-exit.log")
         finally:
             transport.download(client, root + "/buffer-exit.log",
                                args.build / "buffer-exit.log", overwrite=True)
@@ -250,8 +294,8 @@ def main():
                 # EVENT_WAIT: idle and continuously active trees must expire
                 # and reap all peers; the busy group ignores graceful TERM.
                 # Outer-timeout recovery has a different exit status.
-                value = check("guest terminal cleanup " + workload + suffix, "timeout -k 5 15 " + root
-                              + "/libmagicdesk_guest_run.so --store " + root
+                value = check("guest terminal cleanup " + workload + suffix, "timeout -k 5 15 " + guest_run
+                              + " --store " + root
                               + "/store --deadline-seconds 2 -- /bin/test buffer-" + workload + suffix + " /tmp",
                               "READY buffered parked group",
                               patterns=(r"guest-runtime: launch deadline expired",), exit_code=125,
@@ -266,13 +310,13 @@ def main():
         for mode in range(8):
             check(f"native metadata signals mode={mode}", root + "/libmagicdesk_guest_resource_guest.so metadata-signal "
                   + root + f"/native {mode}", "PASS metadata under signals:")
-            check(f"guest metadata signals mode={mode}", root + "/libmagicdesk_guest_run.so --statistics --store "
+            check(f"guest metadata signals mode={mode}", guest_run + " --statistics --store "
                   + root + f"/store --deadline-seconds 90 -- /bin/test metadata-signal /tmp {mode}",
                   "PASS metadata under signals:")
         for protected in range(2):
             for restart in range(2):
                 for guest in (False, True):
-                    command = (root + "/libmagicdesk_guest_run.so --store " + root
+                    command = (guest_run + " --store " + root
                                + "/store --deadline-seconds 90 -- /bin/test mutation-signal /tmp"
                                if guest else root + "/libmagicdesk_guest_resource_guest.so mutation-signal " + root + "/native")
                     # EVENT_WAIT: the launch deadline bounds signal stress and cleanup.
@@ -282,7 +326,7 @@ def main():
         for protected in range(2):
             for restart in (0, 1, 2, 3, 4, 6, 8, 14, 16, 18, 22):
                 for guest in (False, True):
-                    command = (root + "/libmagicdesk_guest_run.so --statistics --store " + root
+                    command = (guest_run + " --statistics --store " + root
                                + "/store --deadline-seconds 90 -- /bin/test shared-memory /tmp"
                                if guest else root + "/libmagicdesk_guest_resource_guest.so shared-memory " + root + "/native")
                     # EVENT_WAIT: fixed shared-memory stress, bounded by the launch deadline.
@@ -294,83 +338,85 @@ def main():
         check("native processor controls", root + "/libmagicdesk_guest_resource_guest.so processor-state",
               "PASS processor state:")
         for entry in (0, 1):
-            check(f"guest processor controls entry={entry}", root
-                  + f"/libmagicdesk_guest_run.so --env SHROOT_MACHINE_ENTRY={entry} --store " + root
+            check(f"guest processor controls entry={entry}", guest_run
+                  + f" --env SHROOT_MACHINE_ENTRY={entry} --store " + root
                   + "/store --deadline-seconds 90 -- /bin/test processor-state", "PASS processor state:")
         check("native foreign executable", root + "/libmagicdesk_guest_resource_guest.so proc-exec direct " + root + "/native",
               "PASS foreign executable selection")
         for entry in (0, 1):
             for image in ("direct", "memfd", "pid"):
-                check(f"guest foreign executable {image} entry={entry}", root
-                      + f"/libmagicdesk_guest_run.so --env SHROOT_MACHINE_ENTRY={entry} --diagnostics --store " + root
+                check(f"guest foreign executable {image} entry={entry}", guest_run
+                      + f" --env SHROOT_MACHINE_ENTRY={entry} --diagnostics --store " + root
                       + "/store" + (" --user 0" if image == "pid" else "")
                       + " --deadline-seconds 90 -- /bin/test proc-exec " + image + " /tmp", "PASS foreign executable selection")
         check("native exec preparation control", root + "/libmagicdesk_guest_resource_guest.so exec-custody-native "
               + root + "/native", "PASS exec preparation custody")
-        check("guest exec preparation custody", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest exec preparation custody", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test exec-custody /tmp", "PASS exec preparation custody")
 
     def check_proc_custody():
         check("native imported cwd with full table", root + "/libmagicdesk_guest_resource_guest.so imported-cwd "
               + root + "/native", "PASS imported cwd")
-        check("guest imported cwd with full table", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest imported cwd with full table", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test imported-cwd /tmp", "PASS imported cwd")
         check("native executable metadata with full table", root + "/libmagicdesk_guest_resource_guest.so proc-exe-slots "
               + root + "/native", "PASS executable metadata")
-        check("guest executable metadata with full table", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest executable metadata with full table", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test proc-exe-slots /tmp", "PASS executable metadata")
         check("native foreign proc open with one slot", root + "/libmagicdesk_guest_resource_guest.so proc-open-slots "
               + root + "/native", "PASS foreign proc open")
-        check("guest foreign proc open with one slot", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest foreign proc open with one slot", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test proc-open-slots /tmp", "PASS foreign proc open")
         check("native foreign proc link with full table", root + "/libmagicdesk_guest_resource_guest.so proc-link-slots "
               + root + "/native", "PASS foreign proc link")
-        check("guest foreign proc link with full table", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest foreign proc link with full table", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test proc-link-slots /tmp", "PASS foreign proc link")
         check("native proc reopen with one slot", root + "/libmagicdesk_guest_resource_guest.so proc-reopen-slots "
               + root + "/native", "PASS proc reopen with one slot")
-        check("guest proc reopen with one slot", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest proc reopen with one slot", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test proc-reopen-slots /tmp", "PASS proc reopen with one slot")
         check("native metadata with full table", root + "/libmagicdesk_guest_resource_guest.so metadata-slots-native "
               + root + "/native", "PASS metadata without private FDs")
-        check("guest metadata with full table", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest metadata with full table", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test metadata-slots /tmp", "PASS metadata without private FDs")
         for guest in (False, True):
-            check(("guest" if guest else "native") + " umask custody", root
-                  + ("/libmagicdesk_guest_run.so --diagnostics --store " + root
+            check(("guest" if guest else "native") + " umask custody",
+                  (guest_run + " --diagnostics --store " + root
                      + "/store --deadline-seconds 90 -- /bin/test umask-custody /tmp" if guest
-                     else "/libmagicdesk_guest_resource_guest.so umask-custody-native " + root + "/native"),
+                     else root + "/libmagicdesk_guest_resource_guest.so umask-custody-native " + root + "/native"),
                   "PASS umask custody")
         check("native proc snapshot control", root + "/libmagicdesk_guest_resource_guest.so proc-custody-native "
               + root + "/native", "PASS proc snapshot custody")
-        check("guest proc snapshot custody", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest proc snapshot custody", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test proc-custody /tmp", "PASS proc snapshot custody")
-        check("guest proc snapshot semantics", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest proc snapshot semantics", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test proc-snapshot /tmp", "PASS proc snapshots")
         check("native mount snapshot O_PATH", root + "/libmagicdesk_guest_resource_guest.so proc-mount-paths "
               + root + "/native", "PASS mount snapshot O_PATH")
-        check("guest mount snapshot O_PATH", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest mount snapshot O_PATH", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test proc-mount-paths /tmp", "PASS mount snapshot O_PATH")
 
     def check_exports():
         check("native metadata export control", root + "/libmagicdesk_guest_resource_guest.so metadata-export-native "
               + root + "/native", "PASS metadata export custody")
-        check("direct guest protected metadata export", root + "/libmagicdesk_guest_supervisor.so --diagnostics "
+        check("direct guest protected metadata export", supervisor_run + " --diagnostics "
               + root + "/libmagicdesk_guest_bootstrap.so " + root + "/source /bin/test metadata-export /tmp",
               "PASS metadata export custody")
-        check("managed guest protected metadata export", root + "/libmagicdesk_guest_run.so --user 0:0 --diagnostics --store " + root
-              + "/store --deadline-seconds 90 -- /bin/test metadata-export-managed /tmp", "PASS metadata export custody")
+        for entry in (0, 1):
+            check(f"managed guest protected metadata export entry={entry}", guest_run
+                  + f" --env SHROOT_MACHINE_ENTRY={entry} --user 0:0 --diagnostics --store " + root
+                  + "/store --deadline-seconds 90 -- /bin/test metadata-export-managed /tmp", "PASS metadata export custody")
         check("native protected export control", root + "/libmagicdesk_guest_resource_guest.so buffer-export-native "
               + root + "/native", "PASS protected export")
-        check("guest protected export", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest protected export", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test buffer-export /tmp", "PASS protected export")
 
     def check_returns():
         check("native protected return control", root + "/libmagicdesk_guest_resource_guest.so buffer-return-native "
               + root + "/native", "PASS protected return")
         for entry in (0, 1):
-            check(f"guest protected descriptor return entry={entry}", root
-                  + f"/libmagicdesk_guest_run.so --env SHROOT_MACHINE_ENTRY={entry} --diagnostics --store " + root
+            check(f"guest protected descriptor return entry={entry}", guest_run
+                  + f" --env SHROOT_MACHINE_ENTRY={entry} --diagnostics --store " + root
                   + "/store --bind /dev /attached --deadline-seconds 90 -- /bin/test buffer-return /tmp", "PASS protected return")
 
     def check_directories():
@@ -378,12 +424,12 @@ def main():
               + root + "/provider-directory", "PASS provider directory:")
         check("native directory copy", root + "/libmagicdesk_guest_resource_guest.so buffer-directory "
               + root + "/native", "PASS protected directory copy")
-        check("guest directory copy", root + "/libmagicdesk_guest_run.so --diagnostics --store " + root
+        check("guest directory copy", guest_run + " --diagnostics --store " + root
               + "/store --deadline-seconds 90 -- /bin/test buffer-directory /tmp", "PASS protected directory copy")
 
     def check_origin_guest():
         check("guest capsule send and receive", shlex.join([root + "/libmagicdesk_guest_fs_dispatch.so",
-              "--ipc-origin-guest", root + "/ipc-store", root + "/libmagicdesk_guest_run.so"]),
+              "--ipc-origin-guest", root + "/ipc-store", guest_run]),
               "PASS guest capsule receive mode=14 protected=5")
 
     def check_ancillary(origins_only=False):
@@ -398,7 +444,7 @@ def main():
         if origins_only:
             check_origin_guest()
             return
-        run = [root + "/libmagicdesk_guest_run.so", "--store", root + "/ipc-store",
+        run = [guest_run, "--store", root + "/ipc-store",
                "--user", "0:0", "--deadline-seconds", "90", "--", "/bin/test"]
         if args.diagnostics:
             run.insert(1, "--diagnostics")
@@ -416,10 +462,10 @@ def main():
                       f"PASS filtered socket IO mode={mode}")
         check("guest ancillary semantics", shlex.join(run), "PASS connection snapshots:")
         check("native consumer boundary", shlex.join([fixture, "--boundary-fixture",
-              root + "/libmagicdesk_guest_run.so", root + "/ipc-store"]),
+              guest_run, root + "/ipc-store"]),
               "PASS guest native boundary mode=2 protected=1")
         check("addressed destinations", "mkdir -p " + root + "/addressed")
-        check("guest addressed sends", shlex.join([fixture, "--address-fixture", root + "/libmagicdesk_guest_run.so",
+        check("guest addressed sends", shlex.join([fixture, "--address-fixture", guest_run,
               root + "/ipc-store", root + "/addressed"]), "PASS addressed send custody:")
         check_origin_guest()
         for receive in range(5):
@@ -438,7 +484,7 @@ def main():
             names = ("bootstrap", "supervisor", "run", "service", "resource_guest")
         if args.case == "restricted-descriptors":
             names = ("bootstrap", "supervisor", "run", "service", "resource_guest")
-        if args.case == "fs-directory":
+        if args.case in ("fs-buffer", "fs-directory"):
             names += ("fs_dispatch",)
         if args.case in ("all", "fs-buffer"):
             names += ("test_interception_memory", "test_interception_buffers")
@@ -499,6 +545,13 @@ def main():
             file = "libmagicdesk_guest_" + name + ".so"
             transport.upload(client, args.build / file, root + "/" + file)
         check("prepare fixtures", "chmod 700 " + root + "/*.so")
+        if profile.options:
+            if 'supervisor' not in names:
+                raise ValueError('This component-only suite has no supervised launches; use kernel-baseline for host components')
+            profile.prepare(lambda argv: check('kernel profile admission', shlex.join(argv))['output'],
+                            root + '/libmagicdesk_guest_supervisor.so')
+            guest_run = profile.stage_launcher(lambda source, target: transport.upload(client, source, target),
+                lambda argv: check('kernel profile launcher', shlex.join(argv))['output'], guest_run)
         if args.case in ("all", "supervisor-state", "private-memory"):
             check("supervisor state ownership", root + "/libmagicdesk_guest_supervisor_state.so",
                   "PASS supervisor completed open:", patterns=(r"PASS supervisor admission:",
@@ -564,7 +617,7 @@ def main():
                 store = root + "/durability-" + mode
                 check("durability import " + mode, root + "/libmagicdesk_guest_service.so --import "
                       + root + "/durability-source " + store)
-                check("guest durability " + mode, shlex.join([root + "/libmagicdesk_guest_run.so", "--user", "0:0",
+                check("guest durability " + mode, shlex.join([guest_run, "--user", "0:0",
                       "--bind", root + "/durability-attached", "/attached", "--store", store,
                       "--deadline-seconds", "90", "--", "/bin/test", mode]), "PASS guest durability calls:")
             if args.case == "durability":
@@ -590,7 +643,7 @@ def main():
                     expected += [r"MD_SYSCALL nr=" + str(nr) + r" trace=" + str(count) + r" notification=0"
                                  for nr, count in ((21, 3), (22, 10005), (72, 10000), (73, 10000), (441, 10000))]
                     absent = []
-                check("guest wait fast paths " + str(filtered), root + "/libmagicdesk_guest_run.so --statistics --store "
+                check("guest wait fast paths " + str(filtered), guest_run + " --statistics --store "
                       + root + "/wait-store --deadline-seconds 30 -- /bin/waits " + str(filtered),
                       "PASS native wait fast paths",
                       patterns=expected, absent_patterns=absent)
@@ -624,8 +677,8 @@ def main():
                   + root + "/fair-source " + root + "/fair-store --preserve-ownership")
             for user in ("0:0", "1000:1000"):
                 for workload in ("", "descriptors", "birth", "birth-namespace", "helpers"):
-                    check("guest event fairness " + user + " " + workload, "timeout -k 5 25 " + root
-                          + "/libmagicdesk_guest_run.so " + ("--diagnostics " if args.diagnostics else "")
+                    check("guest event fairness " + user + " " + workload, "timeout -k 5 25 " + guest_run
+                          + " " + ("--diagnostics " if args.diagnostics else "")
                           + "--user " + user + " --store "
                           + root + "/fair-store --deadline-seconds 20 -- /bin/test " + workload,
                           "PASS worker completions under continuous ptrace stops")
@@ -645,26 +698,26 @@ def main():
             check("private-memory fixture access", "chmod 755 " + root + "/source " + root + "/source/bin " + root + "/source/bin/test")
             check("private-memory temporary directory", "chmod 1777 " + root + "/source/tmp")
             check("private-memory fixture import", root + "/libmagicdesk_guest_service.so --import " + root + "/source " + root + "/store --preserve-ownership")
-            check("guest private-memory preparation", root + "/libmagicdesk_guest_run.so --diagnostics --user 1000:1000 --store "
+            check("guest private-memory preparation", guest_run + " --diagnostics --user 1000:1000 --store "
                   + root + "/store --deadline-seconds 60 -- /bin/test /tmp",
                   "PASS policy matrix and rejected-replacement regressions",
                   patterns=(r"PROBE memory-access pid=\d+ result=0",
                             r"PROBE memory-backing pid=\d+ fd=\d+ retained=1 result=0"))
-            check("automatic private-file JIT", root + "/libmagicdesk_guest_run.so --diagnostics --user 1000:1000 --store "
+            check("automatic private-file JIT", guest_run + " --diagnostics --user 1000:1000 --store "
                   + root + "/store --deadline-seconds 60 -- /bin/test --automatic",
                   "PASS automatic private-file JIT",
                   patterns=(r"PROBE memory-repair pid=\d+ address=0x[0-9a-f]+ size=4096 pages=1 result=0",))
             for entry in (0, 1):
                 check(f"private-file JIT with SysV memory entry={entry}",
-                      root + "/libmagicdesk_guest_run.so --diagnostics --user 1000:1000 --store "
+                      guest_run + " --diagnostics --user 1000:1000 --store "
                       + root + "/store --env SHROOT_MACHINE_ENTRY=" + str(entry)
                       + " --deadline-seconds 60 -- /bin/test --automatic-shm",
                       "PASS private-file JIT with SysV attachment, fork and native unmap",
                       patterns=(r"PROBE memory-repair .* result=0",))
-            check("automatic concurrent private-file JIT", root + "/libmagicdesk_guest_run.so --diagnostics --user 1000:1000 --store "
+            check("automatic concurrent private-file JIT", guest_run + " --diagnostics --user 1000:1000 --store "
                   + root + "/store --deadline-seconds 60 -- /bin/test --automatic-threads",
                   "PASS automatic concurrent private-file JIT: protected=1")
-            check("automatic private-file JIT during vfork", root + "/libmagicdesk_guest_run.so --diagnostics --user 1000:1000 --store "
+            check("automatic private-file JIT during vfork", guest_run + " --diagnostics --user 1000:1000 --store "
                   + root + "/store --deadline-seconds 60 -- /bin/test --automatic-vfork",
                   "PASS automatic private-file JIT with a kernel-blocked vfork parent: exec=1",
                   patterns=(r"vfork parent: exec=0", r"CLONE_VM process: exec=0", r"CLONE_VM process: exec=1"))
@@ -678,13 +731,13 @@ def main():
                                     for mode in (3, 4))
                 for entry in ((0, 1) if writer == 2 else (1,)):
                     check(f"automatic private-file JIT with {name} entry={entry}",
-                          root + "/libmagicdesk_guest_run.so --diagnostics --user 1000:1000 --store "
+                          guest_run + " --diagnostics --user 1000:1000 --store "
                           + root + "/store --env SHROOT_MACHINE_ENTRY=" + str(entry)
                           + " --deadline-seconds 60 -- /bin/test --automatic-" + name,
                           f"PASS automatic private-file JIT with independent process: writer={writer}",
                           patterns=tuple(patterns))
             check("failed proc-memory opens do not widen JIT quiescence",
-                  root + "/libmagicdesk_guest_run.so --diagnostics --user 1000:1000 --store "
+                  guest_run + " --diagnostics --user 1000:1000 --store "
                   + root + "/store --deadline-seconds 60 -- /bin/test --automatic-failed-mem",
                   "PASS failed proc-memory opens:",
                   patterns=(r"PROBE memory-repair .* result=0 scope=address-space",
@@ -707,7 +760,7 @@ def main():
             if args.case == "mount-namespace":
                 check_namespaces()
             else:
-                check("restricted descriptor IO and prctl policy", root + "/libmagicdesk_guest_run.so --user 0:0 --store "
+                check("restricted descriptor IO and prctl policy", guest_run + " --user 0:0 --store "
                       + root + "/store --deadline-seconds 30 -- /bin/test restricted-descriptors /tmp",
                       "PASS restricted proc-root preserves typed IO, reused descriptor IO, mutation and flags")
             return
@@ -779,10 +832,10 @@ def main():
                   "PASS capability isolation")
             check("exact task kernel baseline", root + "/libmagicdesk_guest_kernel_baseline.so",
                   "PASS exact task kernel baseline")
-            check("resource model without thread pidfds", root + "/libmagicdesk_guest_kernel_baseline.so "
+            check("resource model with 5.15 host profile", root + "/libmagicdesk_guest_kernel_baseline.so --host "
                   + root + "/libmagicdesk_guest_test_task_resources.so", "PASS resource ownership")
         if args.case == "kernel-baseline":
-            check("fixture directories", "mkdir -p " + root + "/source/tmp " + root + "/source/bin")
+            check("fixture directories", "mkdir -p " + root + "/native " + root + "/source/tmp " + root + "/source/bin")
             check("stage guest image", "cp " + root + "/libmagicdesk_guest_resource_guest.so " + root + "/source/bin/test")
             check("import fixture", root + "/libmagicdesk_guest_service.so --import " + root + "/source " + root + "/store")
             check_kernel_workflows()
@@ -887,7 +940,7 @@ def main():
             native_custody = custody.replace("custody", "custody-native", 1)
             check("native terminal custody", root + "/libmagicdesk_guest_resource_guest.so " + native_custody + " " + root + "/native",
                   "PASS terminal RPC custody")
-            check("guest terminal RPC custody", root + "/libmagicdesk_guest_run.so --store " + root
+            check("guest terminal RPC custody", guest_run + " --store " + root
                   + "/store --deadline-seconds 60 -- /bin/test "
                   + custody + " /tmp", "PASS terminal RPC custody")
             return
@@ -915,10 +968,10 @@ def main():
         check("native kernel namespace capabilities", root + "/libmagicdesk_guest_resource_guest.so probe " + root + "/native")
         check("native resource semantics", root + "/libmagicdesk_guest_resource_guest.so native " + root + "/native",
               "PASS process resources")
-        runner = root + "/libmagicdesk_guest_run.so --store " + root + "/store --deadline-seconds 60 -- "
+        runner = guest_run + " --store " + root + "/store --deadline-seconds 60 -- "
         for protected in (False, True):
             check("initial cwd and proc origins" + (" protected" if protected else ""),
-                          root + "/libmagicdesk_guest_run.so --diagnostics --cwd /tmp --store "
+                          guest_run + " --diagnostics --cwd /tmp --store "
                           + root + "/store --deadline-seconds 60 -- /bin/test "
                           + ("origins-protected" if protected else "origins") + " /tmp",
                           "PASS initial cwd and proc aliases",
@@ -929,18 +982,18 @@ def main():
                   + " /tmp", "PASS RPC cwd without guest directory capture")
         check("guest unprivileged chroot", runner + "/bin/test unprivileged-root /tmp",
               "PASS unprivileged chroot denied without changing cwd")
-        check("guest resource semantics", root + "/libmagicdesk_guest_run.so --user 0:0 --store "
+        check("guest resource semantics", guest_run + " --user 0:0 --store "
               + root + "/store --deadline-seconds 60 -- /bin/test guest-managed /tmp", "PASS process resources")
         check("guest namespace capabilities", runner + "/bin/test probe /tmp")
-        check("guest roots", root + "/libmagicdesk_guest_run.so --user 0:0 --store "
+        check("guest roots", guest_run + " --user 0:0 --store "
               + root + "/store --deadline-seconds 60 -- /bin/root-test run", "PASS guest roots")
         check("native root directory", "mkdir -m 700 " + root + "/attached")
-        check("guest native roots", root + "/libmagicdesk_guest_run.so --user 0:0 --store "
+        check("guest native roots", guest_run + " --user 0:0 --store "
               + root + "/store --bind " + root + "/attached /jail --deadline-seconds 60"
               + " -- /bin/root-test attached", "PASS guest roots")
         if args.compare_installed:
             result["comparison"] = {}
-            candidates = {"installed": "shroot", "candidate": root + "/libmagicdesk_guest_run.so"}
+            candidates = {"installed": "shroot", "candidate": guest_run}
             for workload in ("metadata", "spawn"):
                 samples = {name: [] for name in candidates}
                 counters = {}

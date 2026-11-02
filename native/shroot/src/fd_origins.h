@@ -93,6 +93,7 @@ int md_fd_origins_prepare_channel(struct md_fd_origins *, struct md_fd_channel *
  * immediately collectable in the child; explicit dup creates an application
  * alias without loan ownership. Kernel receipts publish loans like any origin. */
 struct md_fd_loan *md_fd_loan_new(struct md_fd_origins *);
+int md_fd_loan_active_in(const struct md_fd_loan *,const struct md_fd_origins *);
 void md_fd_loan_end(struct md_fd_loan *);
 void md_fd_loan_release(struct md_fd_loan *);
 /* A metadata-free prepared update becomes a native CLOEXEC loan. */

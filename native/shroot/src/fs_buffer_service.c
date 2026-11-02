@@ -110,6 +110,9 @@ struct md_fs_buffer_request {
     int task_pending, task_started;
     char path[];
 };
+int md_fs_buffer_waiting_files(const struct md_fs_buffer_request *r) {
+    return r && md_fd_order_state(&r->files)==MD_RESOURCE_ORDER_QUEUED;
+}
 static int retains_context(const struct md_fs_buffer_request *r) {
     return r->request.operation==MD_FS_CHROOT
         || (r->request.operation==MD_FS_MOUNT && r->request.mode==MD_FS_MOUNT_PIVOT) || (r->request.operation==MD_FS_TASK_PATH
@@ -710,9 +713,10 @@ static void prepare_open(struct md_fs_buffer_request *r,struct md_filesystem *fs
             return;
         }
         if (r->opened.completion.kind==MD_OPEN_CALLER) {
-            r->opened.flags=r->request.flags;
+            r->opened.flags=md_open_plan_path(r->output->source,(unsigned)getpid(),
+                (unsigned)r->opened.fd,r->request.flags,r->opened.completion.mode);
+            r->output->source_flags=r->opened.flags;
             r->output->transfer=MD_FS_BUFFER_CALLER_OPEN;
-            snprintf(r->output->source,sizeof(r->output->source),"/proc/%d/fd/%d",getpid(),r->opened.fd);
             reply->delivery=MD_FS_REPLIED; return;
         }
         if (r->opened.completion.kind) {
@@ -741,7 +745,7 @@ static void prepare_open(struct md_fs_buffer_request *r,struct md_filesystem *fs
             struct stat st;
             if (fstat(r->opened.fd,&st)) { r->error=-errno; return; }
             if (S_ISDIR(st.st_mode)) {
-                snprintf(r->output->source,sizeof(r->output->source),"/proc/%d/fd/%d/.",getpid(),r->opened.fd);
+                snprintf(r->output->source,sizeof(r->output->source),"/proc/%d/fd/%d/",getpid(),r->opened.fd);
             } else {
                 int source=md_inode_descriptor_source(fs->store,r->opened.fd,
                     r->output->source,sizeof(r->output->source),r->restricted);
