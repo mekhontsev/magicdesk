@@ -728,6 +728,11 @@ terminal CPU accounting, threads, clone3, quota failures, watches and zombies;
 the same suite runs with `--kernel-profile linux-5.15`. No host cgroup access or
 new kernel facility is required.
 
+Managed `/proc/net/route` and `/proc/net/ipv6_route` snapshots use the existing
+network namespace model and baseline proc formats. `/proc/swaps` describes an
+empty guest swap-device inventory, not Android's swap configuration. These add no
+kernel dependency; network model and mounted-proc tests cover the adapters.
+
 Opt-in routed networking uses the Linux 5.15 NETLINK_ROUTE wire contract in
 `network_route`, retained namespace/interface/endpoint owners in `network_model`
 and `network_endpoint`, and the existing baseline capture/cancellable IO path

@@ -128,7 +128,7 @@ struct md_provider_tree *md_procfs_new(int parent,const char *text,const struct 
         if (fd<0) error=errno; else close(fd);
     }
     if (!error && mkdirat(root,"sys/user",0755)) error=errno;
-    const char *files[]={"sys/user/max_user_namespaces","devices","cmdline","filesystems"};
+    const char *files[]={"sys/user/max_user_namespaces","devices","cmdline","filesystems","swaps"};
     for (size_t i=0;!error && i<sizeof(files)/sizeof(*files);++i) {
         int fd=openat(root,files[i],O_CREAT|O_EXCL|O_WRONLY|O_CLOEXEC,0600);
         if (fd<0) error=errno; else close(fd);
@@ -285,8 +285,13 @@ static int control(const char *path,const char *name) {
          * entries need caller-side FD/control resolution; delegating the
          * whole suffix would lose openat2's traversal boundary. */
         if (process_directory(parent)) {
-            if (!strcmp(last,"/net")) return !strcmp(name,"tcp") || !strcmp(name,"tcp6")
-                || !strcmp(name,"udp") || !strcmp(name,"udp6") || !strcmp(name,"if_inet6");
+            if (!strcmp(last,"/net")) {
+                char child[PATH_MAX];
+                int n=snprintf(child,sizeof(child),"%s/%s",path,name);
+                if (n<=0 || (size_t)n>=sizeof(child)) return 0;
+                struct md_proc_path ref=md_proc_path_for(child,0,0);
+                return md_proc_network_table(ref.kind==MD_PROC_FOREIGN ? ref.foreign_kind : ref.kind);
+            }
             return strcmp(name,".") && strcmp(name,"..");
         }
     }

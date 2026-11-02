@@ -341,6 +341,10 @@ def guest():
     child(user_arguments)
 
     def devices(root):
+        swap = Path(root) / 'swaps'
+        assert swap.read_text().splitlines()[0].split() == ['Filename', 'Type', 'Size', 'Used', 'Priority']
+        assert len(swap.read_text().splitlines()) == 1
+        denied(lambda: os.open(swap, os.O_WRONLY), errno.EACCES)
         path = Path(root) / 'devices'
         text = path.read_bytes()
         assert text.startswith(b'Character devices:\n') and b'\nBlock devices:\n' in text

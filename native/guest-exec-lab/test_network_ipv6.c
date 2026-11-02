@@ -91,6 +91,19 @@ static void policy(void) {
     struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
     struct md_network_namespace *child=md_network_namespace_copy(n,NULL);
     assert(n && child);
+    struct md_identity reader=md_identity_new(0,0);
+    struct md_control_actor route_actor={.identity=&reader};
+    for (unsigned table=MD_NET_TABLE_ROUTE;table<=MD_NET_TABLE_ROUTE6;++table) {
+        struct md_control_file routes=md_network_proc_new(n,table);
+        char data[4096]; long length=routes.ops->read(routes.context,&route_actor,data,sizeof(data)-1,0);
+        assert(length>0); data[length]=0;
+        assert(strstr(data,"eth0"));
+        if (table==MD_NET_TABLE_ROUTE) assert(strstr(data,"eth0\t00000000\t0202000A\t0003"));
+        else assert(strstr(data,"fd6d6473000000000000000000000000"));
+        assert(routes.ops->read(routes.context,&route_actor,data,sizeof(data),length)==0);
+        md_control_file_release(routes);
+    }
+    md_identity_release(&reader);
     uint64_t scope; uint32_t value[2]={1};
     assert(!md_network_parameter_scope(n,MD_NET_IPV6_DISABLE,"eth0",&scope));
     assert(!md_network_parameter_write(n,MD_NET_IPV6_DISABLE,scope,value));

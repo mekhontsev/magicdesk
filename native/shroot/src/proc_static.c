@@ -24,6 +24,9 @@ static const char filesystems[]=
     "nodev\ttmpfs\nnodev\tramfs\nnodev\tproc\nnodev\tsysfs\nnodev\tdevpts\n"
     "nodev\tcgroup\nnodev\tcgroup2\nnodev\tmqueue\nnodev\tbinfmt_misc\n"
     "nodev\toverlay\nnodev\tfuse\n";
+/* No guest owns or activates Android swap devices. Host swapping can still
+ * affect native allocations; this is not a claim that the phone has no swap. */
+static const char swaps[]="Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n";
 static const struct static_entry {
     enum md_proc_kind kind;
     const char *name,*text;
@@ -31,6 +34,7 @@ static const struct static_entry {
 } entries[]={
     {MD_PROC_DEVICES,"devices",devices,sizeof(devices)-1},
     {MD_PROC_FILESYSTEMS,"filesystems",filesystems,sizeof(filesystems)-1},
+    {MD_PROC_SWAPS,"swaps",swaps,sizeof(swaps)-1},
     /* A userspace guest does not boot its own kernel. */
     {MD_PROC_KERNEL_CMDLINE,"cmdline","\n",1}
 };
