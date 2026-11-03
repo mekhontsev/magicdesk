@@ -4,6 +4,84 @@ import org.junit.Test;
 
 /** Execute the production traversal and waits with a deterministic guest and clock. */
 public final class LinuxUiTraversalTest {
+    @Test public void accessiblePropertiesUseIndividualReadsAndOptionalIdMethod() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class JSONException extends RuntimeException {}
+                static class JSONObject {
+                    final Map<String,Object> values=new HashMap<>();
+                    JSONObject put(String k,Object v) { values.put(k,v); return this; }
+                    String getString(String k) { return (String)values.get(k); }
+                    JSONObject getJSONObject(String k) { return (JSONObject)values.get(k); }
+                    JSONObject optJSONObject(String k) { return (JSONObject)values.get(k); }
+                }
+                static class JSONArray {
+                    final List<JSONObject> values=new ArrayList<>();
+                    JSONArray put(JSONObject v) { values.add(v); return this; }
+                    JSONObject getJSONObject(int i) { return values.get(i); }
+                    int length() { return values.size(); }
+                }
+                static class LinuxBusWire {
+                    static JSONObject value(String type,Object value) { return new JSONObject().put("type",type).put("value",value); }
+                }
+                static class LinuxBusConnection {
+                    static class BusError extends IOException {
+                        final String name;
+                        BusError(String name) { super(name); this.name=name; }
+                    }
+                }
+                static class Client {
+                    static final String PREFIX="org.a11y.atspi.";
+                    record Ref(String destination,String path) {}
+                    final List<String> calls=new ArrayList<>();
+                    String idError,propertyError;
+                    boolean wrappedId;
+                    JSONArray call(Ref ref,String iface,String member,JSONArray args,long deadline) throws IOException {
+                        check(ref.destination.equals(":1.9") && deadline==1234,"lost observation owner or deadline");
+                        if (iface.equals("org.freedesktop.DBus.Properties")) {
+                            check(member.equals("Get") && args.length()==2,"unsafe bulk property request");
+                            check(args.getJSONObject(0).getString("value").equals(PREFIX+"Accessible"),"wrong interface");
+                            String name=args.getJSONObject(1).getString("value");
+                            calls.add("Get:"+name);
+                            if (propertyError!=null) throw new LinuxBusConnection.BusError(propertyError);
+                            JSONObject value=switch(name) {
+                                case "Name" -> v("s","Editor");
+                                case "Description" -> v("s","Document editor");
+                                case "Parent" -> v("(so)",args(v("s",":1.9"),v("o","/parent")));
+                                default -> throw new AssertionError("unexpected property "+name);
+                            };
+                            return args(v("v",value));
+                        }
+                        check(iface.equals("Accessible") && member.equals("GetAccessibleId") && args.length()==0,"ID is a method");
+                        calls.add(member);
+                        if (idError!=null) throw new LinuxBusConnection.BusError(idError);
+                        JSONObject value=v("s","editor-id");
+                        return args(wrappedId ? v("v",value) : value);
+                    }
+                """ + RuntimeSourceFixture.methods("AtSpiClient", "accessibleProperties", "args", "v", "unwrap", "property", "missingMember") + """
+                }
+                public static void verify() throws Exception {
+                    Client.Ref ref=new Client.Ref(":1.9","/node");
+                    for (boolean wrapped:new boolean[]{false,true}) {
+                        Client c=new Client(); c.wrappedId=wrapped;
+                        JSONObject props=c.accessibleProperties(ref,1234);
+                        check(Client.property(props,"Name","").equals("Editor"),"name lost");
+                        check(Client.property(props,"Description","").equals("Document editor"),"description lost");
+                        check(props.getJSONObject("Parent").getString("type").equals("(so)"),"parent type lost");
+                        check(Client.property(props,"AccessibleId","").equals("editor-id"),"ID not unwrapped");
+                        check(c.calls.equals(List.of("Get:Name","Get:Description","Get:Parent","GetAccessibleId")),"unexpected protocol calls");
+                    }
+                    Client old=new Client(); old.idError="org.freedesktop.DBus.Error.UnknownMethod";
+                    check(Client.property(old.accessibleProperties(ref,1234),"AccessibleId","").isEmpty(),"missing optional ID");
+                    Client disconnected=new Client(); disconnected.idError="org.freedesktop.DBus.Error.NoReply";
+                    try { disconnected.accessibleProperties(ref,1234); throw new AssertionError("remote failure hidden"); }
+                    catch (LinuxBusConnection.BusError expected) { check(expected.name.equals(disconnected.idError),"wrong error"); }
+                    Client broken=new Client(); broken.propertyError="org.freedesktop.DBus.Error.UnknownProperty";
+                    try { broken.accessibleProperties(ref,1234); throw new AssertionError("required property failure hidden"); }
+                    catch (LinuxBusConnection.BusError expected) { check(broken.calls.size()==1,"continued failed read"); }
+                }
+                """);
+    }
+
     @Test public void subscriptionSetupResumesWithinOneBudgetAndErrorsNameTheCall() throws Exception {
         RuntimeSourceFixture.verify("""
                 static class JSONException extends RuntimeException {}
