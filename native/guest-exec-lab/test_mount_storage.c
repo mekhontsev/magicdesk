@@ -4,6 +4,7 @@
 #include "inode_internal.h"
 #include "mount_graph.h"
 #include "inode_watch.h"
+#include "inode_view.h"
 #include <assert.h>
 #include <dirent.h>
 #include <errno.h>
@@ -333,6 +334,47 @@ static void storage_cache(struct md_inode_store *main, const char *base) {
     assert(descriptors()==before);
     puts("PASS mounted-store cache: bounded LRU, active scopes, reconnect and maintenance-lease release");
 }
+static void projected_root_window(const char *base) {
+    unsigned before=descriptors();
+    char path[PATH_MAX];
+    assert(snprintf(path,sizeof(path),"%s/projected-root-window",base)<PATH_MAX);
+    struct md_inode_store *main=NULL;
+    assert(!md_inode_store_open(path,1,&main));
+    struct md_identity identity=md_identity_new(0,0); main->identity=&identity;
+    assert(!md_inode_mkdir(main,-1,"/volume",0755));
+    struct md_inode_store *projection=NULL;
+    assert(!md_inode_view_create(main,MD_FILESYSTEM_OVERLAY,&projection));
+    put(projection,"/value","projection");
+    struct md_fs_storage_cache cache={0};
+    struct md_filesystem fs={.store=main,.storage=&cache};
+    assert(!md_fs_mounts_open(&fs,NULL,0));
+    struct md_view_location target;
+    assert(!md_view_walk(&fs,-1,NULL,"/volume",1,0,0,&target));
+    int fd=md_inode_open(projection,-1,"/",O_PATH|O_DIRECTORY,0); assert(fd>=0);
+    struct md_mount_source source={.fd=fd,.backing=MD_MOUNT_INODE,
+        .storage=md_inode_store_lifetime(projection)};
+    assert(!md_view_attach_source(&fs,&source,&target,NULL));
+    close(fd); md_view_location_close(&target); md_inode_store_close(projection);
+    struct md_fs_anchor *anchor=NULL;
+    fd=opened(&fs,"/volume",O_PATH|O_DIRECTORY,NULL,&anchor);
+    struct md_fs_location root;
+    assert(!md_fs_root_capture(&fs,fd,anchor,&root)); close(fd);
+    md_fs_storage_close(&cache);
+    for (unsigned warm=0;warm<2;++warm) {
+        assert(!md_inode_operation_window_begin(main));
+        struct md_inode_store *same=NULL;
+        assert(!md_fs_storage_get(&fs,&fs.mounts->base,&same) && same==main && main->locked);
+        assert(!md_fs_root_select(&fs,&root));
+        assert(!main->locked && main->operation_window_paused);
+        contents(&fs,"/value",NULL,"projection");
+        assert(!md_inode_operation_window_end(main));
+        assert(!md_fs_root_select(&fs,&(struct md_fs_location){0}));
+    }
+    md_fs_anchor_release(anchor); md_fs_mounts_close(&fs); md_fs_storage_close(&cache);
+    md_inode_store_close(main); md_identity_release(&identity);
+    assert(descriptors()==before);
+    puts("PASS projected root: cold/cached reconnect releases only the outer operation window");
+}
 static void deferred_storage(struct md_inode_store *main,const char *base) {
     enum { COUNT=MD_FS_STORAGE_CACHE_LIMIT*2+3 };
     unsigned before=descriptors();
@@ -565,6 +607,7 @@ void test_mount_storage(const char *base) {
     attachment.target="/volume"; attachment.flags=MD_FS_ATTACHMENT_STORE;
     assert(md_fs_mounts_open(&attached,&attachment,1)==-EINVAL && !attached.mounts);
     storage_cache(main,base);
+    projected_root_window(base);
     deferred_storage(main,base);
     main->identity=NULL; md_identity_release(&root); md_inode_store_close(main);
     assert(descriptors()==before);

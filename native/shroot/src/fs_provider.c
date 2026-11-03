@@ -85,7 +85,8 @@ int md_fs_provider_operation(struct md_filesystem *fs,struct md_mount_namespace 
         if (!(flags&O_PATH) && (flags&(O_CREAT|O_EXCL))==(O_CREAT|O_EXCL)) { result=-EEXIST; break; }
         if (flags&O_DIRECTORY || ((flags&O_TRUNC) && !S_ISREG(st.st_mode))
                 || (flags&O_ACCMODE)==O_ACCMODE) { result=-EINVAL; break; }
-        if (!(flags&O_PATH) && (flags&(O_ACCMODE|O_TRUNC)) && md_view_readonly(mount)) { result=-EROFS; break; }
+        if (!(flags&O_PATH) && (flags&(O_ACCMODE|O_TRUNC)) && md_view_readonly(mount)
+                && !S_ISCHR(st.st_mode) && !S_ISBLK(st.st_mode)) { result=-EROFS; break; }
         if (!output || !output->control) { out->requires_control=1; result=-EOPNOTSUPP; break; }
         struct md_fs_anchor *origin=NULL;
         result=md_view_anchor_duplicate(fs,view,mount,fd,&origin);

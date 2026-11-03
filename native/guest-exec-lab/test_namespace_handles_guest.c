@@ -509,9 +509,15 @@ static void routing_policy(int fd) {
     struct sockaddr_nl kernel={.nl_family=AF_NETLINK};
     for (unsigned i=0;i<sizeof(queries)/sizeof(*queries);++i)
         for (unsigned family=0;family<sizeof(families)/sizeof(*families);++family) {
-            struct { struct nlmsghdr header; struct rtgenmsg body; } query={
-                .header={.nlmsg_len=NLMSG_LENGTH(sizeof(struct rtgenmsg)),.nlmsg_type=queries[i],
-                    .nlmsg_flags=NLM_F_REQUEST|NLM_F_DUMP,.nlmsg_seq=67},.body={.rtgen_family=families[family]}};
+            if (i>=2 && families[family]!=AF_UNSPEC) continue;
+            struct { struct nlmsghdr header; union { struct fib_rule_hdr rule;
+                struct ndmsg neighbor; struct tcmsg tc; } body; } query={
+                .header={.nlmsg_len=NLMSG_LENGTH(i==0 ? sizeof(struct fib_rule_hdr)
+                    : i==1 ? sizeof(struct ndmsg) : sizeof(struct tcmsg)),.nlmsg_type=queries[i],
+                    .nlmsg_flags=NLM_F_REQUEST|NLM_F_DUMP,.nlmsg_seq=67}};
+            if (!i) query.body.rule.family=families[family];
+            else if (i==1) query.body.neighbor.ndm_family=families[family];
+            else query.body.tc.tcm_family=AF_UNSPEC;
             assert(sendto(fd,&query,query.header.nlmsg_len,0,(void *)&kernel,sizeof(kernel))==query.header.nlmsg_len);
             union { struct nlmsghdr align; unsigned char bytes[1024]; } answer;
             ssize_t count=recv(fd,answer.bytes,sizeof(answer.bytes),0); assert(count>0);

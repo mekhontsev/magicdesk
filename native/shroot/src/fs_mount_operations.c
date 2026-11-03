@@ -883,7 +883,9 @@ paths:;
             struct md_fs_request stat={.operation=MD_FS_FSTAT,.directory={a.fd,-1}};
             struct md_fs_result result={.fd=-1};
             if (md_view_inode(a.mount)) inode(fs,a.view,a.mount,&stat,&result,NULL);
-            else result_stat(&result,a.fd,a.mount);
+            else if (!md_fs_mount_file_operation(fs,a.view,a.mount,a.fd,&stat,&result,NULL)
+                    && !md_fs_provider_operation(fs,a.view,a.mount,a.fd,&stat,&result,NULL))
+                result_stat(&result,a.fd,a.mount);
             if (result.error) r=result.error;
             else if (special(result.info.mode)) r=0;
         }

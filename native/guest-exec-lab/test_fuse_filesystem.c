@@ -1149,6 +1149,8 @@ void md_test_fuse_filesystem(struct md_filesystem *fs) {
     r=run(&context,connection,MD_FS_STATFS,"/fuse-readonly/file",0,&statfs,sizeof(statfs));
     assert(!r.error && statfs.flags==(MS_RDONLY|MS_NOSUID|MS_NODEV|MS_NOEXEC));
     assert(!memcmp(statfs.fsid,original.fsid,sizeof(statfs.fsid)));
+    r=run(&context,connection,MD_FS_OPEN,"/fuse-readonly/file",O_WRONLY,NULL,0);
+    assert(r.error==-EROFS && r.fd<0);
     struct md_fs_request by_fd={.operation=MD_FS_STATFS,.directory={retained_fd.fd,-1},.origin={retained,NULL}};
     r=run_request(&context,connection,&by_fd,(struct md_fs_output){.data=&statfs,.capacity=sizeof(statfs)});
     assert(!r.error && statfs.flags==(MS_RDONLY|MS_NOSUID|MS_NODEV|MS_NOEXEC));

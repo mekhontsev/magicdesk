@@ -1477,6 +1477,14 @@ static void debugger_quiescence(void) {
     checkpoints.trace=checkpoint_native_trace;
     puts("PASS debugger quiescence: attach/seize share barrier interrupt, all continuations retain pending stop");
 }
+static void event_completion(void) {
+    int previous=signal_fd,status=0x1234;
+    signal_fd=-1;
+    assert(!tasks_pending());
+    assert(!wait_event(&status,NULL) && status==0x1234);
+    signal_fd=previous;
+    puts("PASS event completion: last owner drained without an extra kernel wait");
+}
 static void event_accounting(void) {
     int source[2],previous_signal_fd=signal_fd;
     assert(!pipe2(source,O_NONBLOCK|O_CLOEXEC)); signal_fd=source[0];
@@ -2037,6 +2045,7 @@ static void admission_quiescence(void) {
 int main(void) {
     receive_error_queue();
     alarm(30);
+    event_completion();
     lost_stop_delivery();
     orphan_loan_retirement();
     queued_loan_retirement();

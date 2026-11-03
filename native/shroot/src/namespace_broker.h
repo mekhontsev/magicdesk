@@ -67,6 +67,9 @@ void md_broker_native_return(struct md_namespace_broker *,pid_t);
  * No synchronous worker wait or filesystem IO occurs on the supervisor. */
 int md_broker_hold_event(struct md_namespace_broker *,pid_t,int,const struct rusage *);
 pid_t md_broker_take_event(struct md_namespace_broker *,int *,struct rusage *);
+/* Includes terminal events already reaped from the kernel but still owned by
+ * worker retirement. ECHILD does not finish the dispatcher while these remain. */
+int md_broker_pending_events(struct md_namespace_broker *);
 /* Publish before resuming a tracee; forget retires its eligibility. */
 struct md_broker_code_ranges { uintptr_t starts[8]; size_t size; unsigned count; };
 int md_broker_task(struct md_namespace_broker *, int pid, int eligible, uintptr_t raw_gate, uintptr_t watch_gate,

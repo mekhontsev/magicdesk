@@ -631,9 +631,11 @@ Direct unfiltered TCP and outgoing native UDP keep native connected IO only when
 neither direction has potentially denying hooks. Policy updates evaluate each
 retained tuple in both directions, including first-payload and established
 states. Unrelated rules do not revoke these streams. Mark/conntrack updates are
-evaluated on a private copy, including the resulting route and later filters.
-Denying policy or a changed effective route returns atomic `EBUSY`: an update cannot retroactively move
-a kernel stream into a relay. Counters do not change admission, so adding them
+evaluated on a private copy, including routes affected by changed marks and
+later filters. Denying policy or a mark requiring another transport returns
+atomic `EBUSY`: an update cannot retroactively move a kernel stream into a
+relay. Topology admission is separate; address activation does not make an
+unrelated firewall update retarget a retained native connection. Counters do not change admission, so adding them
 does not revoke an existing native stream. They account for observed mediated
 traffic, not payload on already native connections; this is not complete kernel
 packet accounting. New flows reaching counters use mediation. Direct path

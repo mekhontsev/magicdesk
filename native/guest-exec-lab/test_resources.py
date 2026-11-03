@@ -105,8 +105,12 @@ def main():
               + root + "/store --deadline-seconds 90 -- /bin/test devpts", "PASS guest devpts:")
         check("guest PID-scoped devpts", guest_run + " --user 0:0 --diagnostics --store "
               + root + "/store --deadline-seconds 90 -- /bin/test devpts-pid", "PASS guest devpts: PID namespace")
-        check("guest PID namespace lifecycle", guest_run + " --user 0:0 --diagnostics --store "
-              + root + "/store --deadline-seconds 90 -- /bin/test pid-namespace", "PASS guest PID namespaces:")
+        for entry in (0, 1):
+            check(f"clean PID fixture mountpoint entry={entry}", guest_run + " --user 0:0 --store "
+                  + root + "/store -- /bin/test pid-namespace cleanup")
+            check(f"guest PID namespace lifecycle entry={entry}", guest_run + " --user 0:0"
+                  + f" --env SHROOT_MACHINE_ENTRY={entry} --diagnostics --store "
+                  + root + "/store --deadline-seconds 90 -- /bin/test pid-namespace", "PASS guest PID namespaces:")
         for entry in (0, 1):
             check(f"guest namespace entry={entry}", guest_run + " --user 0:0"
                   + f" --env SHROOT_MACHINE_ENTRY={entry} --diagnostics --store "

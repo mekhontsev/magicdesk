@@ -9,6 +9,8 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
+#include <linux/reboot.h>
 
 enum { PID_BUCKETS=127 };
 struct pid_number {
@@ -26,7 +28,7 @@ struct md_pid_namespace {
     uint64_t inode;
     unsigned depth;
     pid_t next;
-    atomic_int dead;
+    atomic_int dead, reboot_signal;
     int initialized;
     struct pid_number *numbers[PID_BUCKETS];
 };
@@ -37,6 +39,27 @@ struct md_pid_identity {
     unsigned count;
     struct pid_number numbers[];
 };
+int md_pid_namespace_reboot(struct md_pid_namespace *n,const struct md_identity *id,
+        unsigned magic,unsigned magic2,unsigned command) {
+    if (!n || !md_identity_capable_in(id,n->owner,CAP_SYS_BOOT)) return -EPERM;
+    if (magic!=LINUX_REBOOT_MAGIC1 || (magic2!=LINUX_REBOOT_MAGIC2
+            && magic2!=LINUX_REBOOT_MAGIC2A && magic2!=LINUX_REBOOT_MAGIC2B
+            && magic2!=LINUX_REBOOT_MAGIC2C)) return -EINVAL;
+    int signal;
+    switch (command) {
+        case LINUX_REBOOT_CMD_RESTART: case LINUX_REBOOT_CMD_RESTART2: signal=SIGHUP; break;
+        case LINUX_REBOOT_CMD_HALT: case LINUX_REBOOT_CMD_POWER_OFF: signal=SIGINT; break;
+        default: return -EINVAL;
+    }
+    if (atomic_load(&n->dead)) return -ESRCH;
+    return signal;
+}
+void md_pid_namespace_reboot_started(struct md_pid_namespace *n,int signal) {
+    atomic_store(&n->reboot_signal,signal);
+}
+int md_pid_identity_reboot_signal(const struct md_pid_identity *id) {
+    return id && md_pid_identity_number(id,id->space)==1 ? atomic_load(&id->space->reboot_signal) : 0;
+}
 static pthread_mutex_t registry_lock=PTHREAD_MUTEX_INITIALIZER;
 static struct md_pid_namespace *registry;
 unsigned md_pid_identity_export(const struct md_pid_identity *id, struct md_pid_number_value *out) {
@@ -66,7 +89,7 @@ struct md_pid_namespace *md_pid_namespace_new(struct md_pid_namespace *parent, s
     if (error) { free(n); errno=error; return NULL; }
     error=md_namespace_identity_new(&n->inode);
     if (error) { pthread_mutex_destroy(&n->lock); free(n); errno=-error; return NULL; }
-    atomic_init(&n->references,1); atomic_init(&n->dead,0);
+    atomic_init(&n->references,1); atomic_init(&n->dead,0); atomic_init(&n->reboot_signal,0);
     n->parent=md_pid_namespace_retain(parent); n->owner=md_user_namespace_retain(owner);
     n->depth=md_pid_namespace_depth(parent)+1; n->next=1;
     pthread_mutex_lock(&registry_lock);

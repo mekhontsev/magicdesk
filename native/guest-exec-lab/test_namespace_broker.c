@@ -453,7 +453,7 @@ static void managed_proc_reads(const char *store) {
     assert(descriptors()==before);
     puts("PASS managed proc observations: socket identity, descriptor reuse, credentials, busy table and typed provider fallback, no FD leak");
 }
-static void stopped_queued_entry(const char *store) {
+static void stopped_queued_entry(const char *store,int status) {
     unsigned before=descriptors();
     pid_t pid=getpid();
     struct md_task_registry *tasks=md_task_registry_create(); assert(tasks);
@@ -482,8 +482,9 @@ static void stopped_queued_entry(const char *store) {
     /* EVENT_WAIT: shared admission publication; the fixture alarm bounds loss. */
     while (atomic_load_explicit(&channel.state,memory_order_acquire)==MD_ENTRY_REQUEST) sched_yield();
     assert(atomic_load(&channel.state)==MD_ENTRY_RUNNING);
-    int status=(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f;
+    assert(!md_broker_pending_events(broker));
     assert(md_broker_hold_event(broker,pid,status,NULL)==1);
+    assert(md_broker_pending_events(broker));
     pid_t observed=0; int returned=0;
     while (!observed) {
         /* EVENT_WAIT: retirement publishes the exact stop before the competing
@@ -492,14 +493,18 @@ static void stopped_queued_entry(const char *store) {
         assert(poll(&ready,1,5000)==1);
         assert(!md_fs_worker_dispatch(worker));
         int stopped=0;
-        assert(md_broker_native_borrow(broker,pid,&stopped)==1 && stopped);
+        int borrowed=md_broker_native_borrow(broker,pid,&stopped);
+        assert(borrowed==(WIFSTOPPED(status) ? 1 : -ESRCH));
         /* Injection owns the held boundary until its registers are restored.
          * Publishing it early replays the old stop as an injected-call event. */
-        assert(!md_broker_take_event(broker,&returned,NULL));
-        md_broker_native_return(broker,pid);
+        if (borrowed==1) {
+            assert(stopped && !md_broker_take_event(broker,&returned,NULL));
+            assert(md_broker_pending_events(broker));
+            md_broker_native_return(broker,pid);
+        }
         observed=md_broker_take_event(broker,&returned,NULL);
     }
-    assert(observed==pid && returned==status);
+    assert(observed==pid && returned==status && !md_broker_pending_events(broker));
     assert(atomic_load(&channel.state)==MD_ENTRY_RESPONSE && channel.receipt==1
         && channel.outcome==MD_ENTRY_DECLINED);
     assert(md_fd_order_state(&owner)==MD_RESOURCE_ORDER_RUNNING && fcntl(fd,F_GETFD)==FD_CLOEXEC);
@@ -620,6 +625,9 @@ void md_test_namespace_broker(const char *root) {
     }
     assert(!close(directory) && !close(attached));
     completed_result(store,SYS_fstat); completed_result(store,SYS_gettid);
-    managed_proc_reads(store); stopped_queued_entry(store); discovery(store); registration_retirement(store); alarm(0);
+    managed_proc_reads(store);
+    stopped_queued_entry(store,(PTRACE_EVENT_STOP<<16)|(SIGTRAP<<8)|0x7f);
+    stopped_queued_entry(store,SIGKILL);
+    discovery(store); registration_retirement(store); alarm(0);
     puts("PASS broker directory notification ownership");
 }

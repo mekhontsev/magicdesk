@@ -3,8 +3,39 @@
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
+#include <linux/reboot.h>
+#include <signal.h>
+
+static void reboot_admission(void) {
+    struct md_identity root=md_identity_new(0,0),user=md_identity_new(1000,1000);
+    struct md_pid_namespace *space=md_pid_namespace_new(NULL,NULL); assert(space);
+    struct md_pid_identity *init=NULL,*child=NULL;
+    assert(!md_pid_identity_prepare(space,&init) && !md_pid_identity_publish(init,30001,30001));
+    assert(!md_pid_identity_prepare(space,&child) && !md_pid_identity_publish(child,30002,30002));
+    assert(md_pid_namespace_reboot(NULL,&root,LINUX_REBOOT_MAGIC1,LINUX_REBOOT_MAGIC2,LINUX_REBOOT_CMD_POWER_OFF)==-EPERM);
+    assert(md_pid_namespace_reboot(space,&user,0,0,0)==-EPERM);
+    assert(md_pid_namespace_reboot(space,&root,0,LINUX_REBOOT_MAGIC2,LINUX_REBOOT_CMD_POWER_OFF)==-EINVAL);
+    assert(md_pid_namespace_reboot(space,&root,LINUX_REBOOT_MAGIC1,0,LINUX_REBOOT_CMD_POWER_OFF)==-EINVAL);
+    assert(md_pid_namespace_reboot(space,&root,LINUX_REBOOT_MAGIC1,LINUX_REBOOT_MAGIC2,LINUX_REBOOT_CMD_CAD_OFF)==-EINVAL);
+    assert(!md_pid_identity_reboot_signal(init));
+    unsigned magics[]={LINUX_REBOOT_MAGIC2,LINUX_REBOOT_MAGIC2A,LINUX_REBOOT_MAGIC2B,LINUX_REBOOT_MAGIC2C};
+    unsigned commands[]={LINUX_REBOOT_CMD_POWER_OFF,LINUX_REBOOT_CMD_HALT,LINUX_REBOOT_CMD_RESTART,LINUX_REBOOT_CMD_RESTART2};
+    for (unsigned i=0;i<4;++i) {
+        int signal=i<2 ? SIGINT : SIGHUP;
+        assert(md_pid_namespace_reboot(space,&root,LINUX_REBOOT_MAGIC1,magics[i],commands[i])==signal);
+        md_pid_namespace_reboot_started(space,signal);
+        assert(md_pid_identity_reboot_signal(init)==signal && !md_pid_identity_reboot_signal(child));
+    }
+    assert(md_pid_identity_exit(init));
+    assert(md_pid_namespace_reboot(space,&root,LINUX_REBOOT_MAGIC1,LINUX_REBOOT_MAGIC2,LINUX_REBOOT_CMD_POWER_OFF)==-ESRCH);
+    assert(md_pid_identity_reboot_signal(init)==SIGHUP);
+    md_pid_identity_release(child); md_pid_identity_release(init); md_pid_namespace_release(space);
+    md_identity_release(&user); md_identity_release(&root);
+    puts("PASS namespace reboot admission: no host target, credentials, magic, commands and retained init status");
+}
 
 int main(void) {
+    reboot_admission();
     struct md_pid_identity *a=NULL,*b=NULL,*c=NULL;
     assert(!md_pid_identity_prepare(NULL,&a) && !a);
     struct md_pid_namespace *outer=md_pid_namespace_new(NULL,NULL); assert(outer);

@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <linux/ioprio.h>
 #include <linux/capability.h>
+#include <linux/reboot.h>
 #include <sched.h>
 #include <pthread.h>
 #include <poll.h>
@@ -26,6 +27,88 @@ static void reap(pid_t child) {
     pid_t result=waitpid(child,&status,0);
     if (result!=child || status) fprintf(stderr,"pid wait expected=%d got=%d status=%x errno=%d\n",child,result,status,errno);
     assert(result==child && status==0);
+}
+static void wait_init_leader_exit(void) {
+    /* EVENT_WAIT: leader retirement; the fixture alarm bounds failure. */
+    char text[4096];
+    for (;;) {
+        int fd=open("/proc/self/status",O_RDONLY); assert(fd>=0);
+        ssize_t n=read(fd,text,sizeof(text)-1); close(fd); assert(n>0); text[n]=0;
+        if (strstr(text,"State:\tZ")) return;
+        sched_yield();
+    }
+}
+static void *reboot_thread(void *value) {
+    wait_init_leader_exit();
+    syscall(SYS_reboot,LINUX_REBOOT_MAGIC1,LINUX_REBOOT_MAGIC2,*(unsigned *)value,NULL);
+    _exit(91);
+}
+struct reboot_request { unsigned command; int reader,child,thread; };
+static int reboot_init(void *value) {
+    struct reboot_request *request=value;
+    unsigned command=request->command;
+    close(request->reader);
+    assert(getpid()==1);
+    errno=0;
+    assert(syscall(SYS_reboot,0,LINUX_REBOOT_MAGIC2,command,NULL)==-1 && errno==EINVAL);
+    errno=0;
+    assert(syscall(SYS_reboot,LINUX_REBOOT_MAGIC1,LINUX_REBOOT_MAGIC2,LINUX_REBOOT_CMD_CAD_OFF,NULL)==-1 && errno==EINVAL);
+    struct __user_cap_header_struct header={.version=_LINUX_CAPABILITY_VERSION_3};
+    struct __user_cap_data_struct saved[2],reduced[2];
+    assert(!syscall(SYS_capget,&header,saved)); memcpy(reduced,saved,sizeof(saved));
+    reduced[0].effective&=~(1U<<CAP_SYS_BOOT);
+    assert(!syscall(SYS_capset,&header,reduced));
+    errno=0;
+    assert(syscall(SYS_reboot,LINUX_REBOOT_MAGIC1,LINUX_REBOOT_MAGIC2,command,NULL)==-1 && errno==EPERM);
+    assert(!syscall(SYS_capset,&header,saved));
+    /* Namespace shutdown overrides blocked/ignored application signals. */
+    assert(signal(SIGINT,SIG_IGN)!=SIG_ERR && signal(SIGHUP,SIG_IGN)!=SIG_ERR);
+    sigset_t mask; sigfillset(&mask); assert(!sigprocmask(SIG_BLOCK,&mask,NULL));
+    pid_t descendant=fork(); assert(descendant>=0);
+    if (!descendant) for (;;) pause();
+    if (request->thread) {
+        pthread_t thread; assert(!pthread_create(&thread,NULL,reboot_thread,&request->command));
+        pthread_exit(NULL);
+    }
+    if (request->child) {
+        pid_t caller=fork(); assert(caller>=0);
+        if (caller) for (;;) pause();
+    }
+    syscall(SYS_reboot,LINUX_REBOOT_MAGIC1,LINUX_REBOOT_MAGIC2,command,(void *)1);
+    _exit(90);
+}
+static void reboot_cases(void *stack) {
+    errno=0;
+    assert(syscall(SYS_reboot,LINUX_REBOOT_MAGIC1,LINUX_REBOOT_MAGIC2,LINUX_REBOOT_CMD_POWER_OFF,NULL)==-1 && errno==EPERM);
+    unsigned commands[]={LINUX_REBOOT_CMD_POWER_OFF,LINUX_REBOOT_CMD_HALT,LINUX_REBOOT_CMD_RESTART,LINUX_REBOOT_CMD_RESTART2,
+        LINUX_REBOOT_CMD_POWER_OFF};
+    for (unsigned i=0;i<sizeof(commands)/sizeof(*commands);++i) {
+        int pipefd[2]; assert(!pipe(pipefd));
+        sigset_t mask,previous; sigemptyset(&mask); sigaddset(&mask,SIGCHLD);
+        assert(!sigprocmask(SIG_BLOCK,&mask,&previous));
+        struct reboot_request request={commands[i],pipefd[0],i&1,i==4};
+        pid_t child=clone(reboot_init,(char *)stack+1024*1024,CLONE_NEWPID|SIGCHLD,&request);
+        assert(child>0);
+        close(pipefd[1]);
+        assert(!prctl(PR_SET_DUMPABLE,0));
+        siginfo_t info={0};
+        assert(!waitid(P_PID,child,&info,WEXITED|WNOWAIT));
+        int signal=i==2 || i==3 ? SIGHUP : SIGINT;
+        if (info.si_code!=CLD_KILLED || info.si_status!=signal)
+            fprintf(stderr,"reboot info code=%d status=%d expected=%d\n",info.si_code,info.si_status,signal);
+        assert(info.si_pid==child && info.si_code==CLD_KILLED && info.si_status==signal);
+        struct timespec timeout={1,0}; info=(siginfo_t){0};
+        assert(sigtimedwait(&mask,&info,&timeout)==SIGCHLD);
+        if (info.si_pid!=child || info.si_code!=CLD_KILLED || info.si_status!=signal)
+            fprintf(stderr,"reboot SIGCHLD pid=%d expected=%d code=%d status=%d expected=%d\n",
+                info.si_pid,child,info.si_code,info.si_status,signal);
+        assert(info.si_pid==child && info.si_code==CLD_KILLED && info.si_status==signal);
+        int status; assert(waitpid(child,&status,0)==child && WIFSIGNALED(status) && WTERMSIG(status)==signal);
+        char byte; assert(read(pipefd[0],&byte,1)==0); close(pipefd[0]);
+        assert(!sigprocmask(SIG_SETMASK,&previous,NULL));
+        assert(!prctl(PR_SET_DUMPABLE,1));
+    }
+    puts("PASS namespace poweroff/restart: capability, invalid commands, ignored signals, child/thread requests, descendant cleanup and protected parent wait status");
 }
 static void *worker(void *unused) {
     (void)unused;
@@ -401,15 +484,7 @@ static int init(void *inherited) {
 static void *exec_worker(void *unused) {
     (void)unused;
     assert(getpid()==1 && syscall(SYS_gettid)>1);
-    /* Bounded state observation: leader termination precedes exec. The outer
-     * fixture alarm bounds a missing lifecycle event. */
-    char text[4096];
-    for (;;) {
-        int fd=open("/proc/self/status",O_RDONLY); assert(fd>=0);
-        ssize_t n=read(fd,text,sizeof(text)-1); close(fd); assert(n>0); text[n]=0;
-        if (strstr(text,"State:\tZ")) break;
-        sched_yield();
-    }
+    wait_init_leader_exit();
     char *args[]={"/bin/test","pid-namespace","exec",NULL};
     execv(args[0],args); perror("PID init nonleader exec"); _exit(90);
 }
@@ -447,6 +522,9 @@ static void parent_namespace_case(void *stack) {
 }
 int test_pid_namespace_guest(int argc,char **argv) {
     setbuf(stdout,NULL); alarm(30);
+    if (argc==3 && !strcmp(argv[2],"cleanup")) {
+        assert(!rmdir("/tmp/pid-proc") || errno==ENOENT); return 0;
+    }
     if (argc==3 && !strcmp(argv[2],"zombie-signal-native")) {
         zombie_signal_case(0); return 0;
     }
@@ -463,6 +541,7 @@ int test_pid_namespace_guest(int argc,char **argv) {
         return 0;
     }
     void *stack=malloc(1024*1024); assert(stack);
+    reboot_cases(stack);
     parent_namespace_case(stack);
     pid_t original=getpid();
     int pair[2]; assert(!socketpair(AF_UNIX,SOCK_SEQPACKET,0,pair));

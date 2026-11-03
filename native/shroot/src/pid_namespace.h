@@ -25,6 +25,11 @@ unsigned md_pid_namespace_depth(const struct md_pid_namespace *);
 int md_pid_namespace_contains(const struct md_pid_namespace *, const struct md_pid_namespace *);
 int md_pid_namespace_dead(const struct md_pid_namespace *);
 int md_pid_namespace_initialized(struct md_pid_namespace *);
+/* Admission is read-only and returns the parent's wait signal. Publish it
+ * only after the process owner successfully requests PID 1 termination. */
+int md_pid_namespace_reboot(struct md_pid_namespace *,const struct md_identity *,unsigned,unsigned,unsigned);
+int md_pid_identity_reboot_signal(const struct md_pid_identity *);
+void md_pid_namespace_reboot_started(struct md_pid_namespace *,int signal);
 /* Local owner lookup for a serialized mount reference. A foreign/dead owner
  * is not replaced by the executor's namespace. */
 struct md_pid_namespace *md_pid_namespace_by_inode(uint64_t);

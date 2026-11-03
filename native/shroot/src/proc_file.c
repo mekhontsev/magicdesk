@@ -77,8 +77,9 @@ struct md_fs_anchor *md_proc_file_origin(const struct md_proc_file *f) {
 }
 static struct md_fs_anchor *origin(struct md_fd_object *object) {
     struct md_proc_file *f=(void *)object;
-    /* A device's anonymous IO carrier is not its path inode. Only providers
-     * with a path-backed descriptor may export placement as FD authority. */
+    /* O_PATH publication retains the path inode, not the device's anonymous
+     * IO carrier. Synthetic proc children still have no native path inode. */
+    if ((f->flags&O_PATH) && f->placement && !md_fs_anchor_virtual(f->placement)) return f->placement;
     return f->control ? (f->control->origin ? f->control->origin(f->control_context) : NULL)
         : f->placement;
 }

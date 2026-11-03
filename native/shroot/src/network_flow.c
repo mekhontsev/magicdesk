@@ -442,9 +442,12 @@ static int check_path(struct md_network_fabric *f,struct md_network_flow_path *p
          * evaluator skips NAT chains for them, including counters and jumps;
          * only live filter chains can revoke their native data path. */
         p.unmediated=override!=NULL;
-        /* Mark changes are harmless to a native connection only while its
-         * effective route and every subsequent filter still admit the tuple. */
-        if (override && !s->bridge_ingress && routing_admits(n,path,&p,hook,reverse ? 0 : output_binding(path,i))) return -EBUSY;
+        /* Topology admission is separate. An unchanged mark must not make an
+         * unrelated ruleset update revalidate a native connection's old route
+         * after address activation. Changed marks must retain its transport. */
+        uint32_t original_mark=reverse ? 0 : s->packet.mark;
+        if (override && p.mark!=original_mark && !s->bridge_ingress
+                && routing_admits(n,path,&p,hook,reverse ? 0 : output_binding(path,i))) return -EBUSY;
         int error=md_filter_evaluate_transition(n==override ? filter : n->filter,hook,&p,
             retained ? &rewrite : NULL,NULL);
         if (error) { path->rejection[!!reverse]=p.rejection; return error; }

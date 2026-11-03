@@ -444,6 +444,13 @@ issue a host mount. No PIDFD_THREAD, PIDFD_SIGNAL_THREAD or newer pidfd ioctl is
 required. `--case mount-namespace`, stock Bubblewrap/GDB and Chromium's automatic
 user/PID route cover these paths under actual UID 2000; the APK's other services
 do not acquire these prerequisites.
+Logical PID-namespace `reboot` uses baseline kill/SIGKILL and the same exit,
+descendant teardown and wait translation owners. HALT/POWER_OFF and RESTART
+reasons are retained in userspace; no host reboot permission or newer kernel
+operation is required. `test_pid_namespace` and `--case mount-namespace` cover
+capability/magic admission, init and child requests, blocked/ignored signals,
+descendant cleanup, protected wait output and sigtimedwait in Base and lazy
+entry. Native-only signal payload limits remain in [PID views](namespace-providers.md#pid-and-proc-views).
 `clone_call` captures the versioned `clone3` ABI in the caller. Ordinary births
 remain kernel-owned; `pid_namespace` reserves `set_tid` numbers in logical PID
 views (including ancestor permissions), and `cgroup` reserves a v2 placement

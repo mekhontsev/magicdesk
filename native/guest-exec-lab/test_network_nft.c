@@ -1542,6 +1542,40 @@ static struct md_filter_route_result reroute_probe(void *context,const struct md
     assert(flags==(NFTA_FIB_F_DADDR|NFTA_FIB_F_MARK) && p->mark==0x1200);
     return (struct md_filter_route_result){.interface=7,.type=RTN_UNICAST,.name="marked0"};
 }
+static void native_address_updates(void) {
+    for (unsigned v6=0;v6<2;++v6) {
+        struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+        struct md_ip_address destination,address;
+        assert(!md_network_profile_ip(v6 ? "2001:db8::7" : "192.0.2.7",&destination));
+        assert(!md_network_profile_ip(v6 ? "2001:db8::1" : "192.0.2.1",&address));
+        struct md_filter_packet packet={.destination=destination,.destination_port=htons(10250),
+            .source_port=htons(32800),.protocol=IPPROTO_TCP,.state=8};
+        struct md_network_flow_path path;
+        assert(!md_network_flow_route(n,&packet,0,0,&path) && !path.mediated);
+        unsigned index;
+        assert(!md_network_interface_add(n,MD_LINK_BRIDGE,"pod0",&index));
+        struct md_network_interface *bridge=md_network_interface_find(n,index,NULL);
+        bridge->info.flags|=IFF_UP;
+        assert(!md_network_interface_address(bridge,(struct md_network_ip_assignment){
+            .address=address,.prefix=v6 ? 64 : 24,.scope=RT_SCOPE_UNIVERSE},0,0));
+        assert(md_network_flow_routing_admits(n,&path)==-ENETUNREACH);
+        /* A new connected subnet cannot turn an unrelated firewall change
+         * into an attempted retargeting of the existing native connection. */
+        struct md_filter_chain chain={.handle=1,.hook=-1,.policy=NF_ACCEPT};
+        struct md_network_filter_table table={.family=v6 ? NFPROTO_IPV6 : NFPROTO_IPV4};
+        struct md_network_filter filter={.tables=&table,.count=1,.chains=&chain,.chain_count=1};
+        assert(!md_network_flow_admits(n,&filter,&path));
+        for (unsigned reverse=0;reverse<2;++reverse) {
+            chain.hook=reverse ? NF_INET_LOCAL_IN : NF_INET_LOCAL_OUT;
+            assert(!md_network_flow_admits(n,&filter,&path));
+            chain.policy=NF_DROP;
+            assert(md_network_flow_admits(n,&filter,&path)==-EBUSY);
+            chain.policy=NF_ACCEPT;
+        }
+        md_network_namespace_release(n);
+    }
+    puts("PASS native flow address activation: unrelated IPv4/IPv6 rules accepted, both-direction denial retained");
+}
 static void native_mark_updates(void) {
     for (unsigned family=AF_INET;family<=AF_INET6;family+=AF_INET6-AF_INET) {
         struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
@@ -1879,6 +1913,7 @@ void test_network_nft(void) {
     ipsets();
     conntrack_queries();
     native_mark_updates();
+    native_address_updates();
     route_chains();
     optional_expression_data();
     batch_validation();

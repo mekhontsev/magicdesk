@@ -237,6 +237,17 @@ Admission fails explicitly if the required native operation is denied. The last
 live thread of PID 1 closes the namespace and terminates its descendants;
 another child cannot silently recreate PID 1 in that namespace.
 
+`reboot` is admitted by the PID namespace owner with guest `CAP_SYS_BOOT`,
+validated magic values and the four namespace commands. HALT/POWER_OFF end the
+namespace with SIGINT status; RESTART/RESTART2 use SIGHUP, without automatically
+starting another init. The supervisor terminates its owned init and reuses the
+ordinary descendant teardown. No request reaches Android's reboot syscall;
+the initial native PID view returns EPERM. The exit reason stays with the
+retained PID identity for translated wait4/waitid, SIGCHLD and sigtimedwait,
+including protected output memory. Native-only wait consumers without the PID
+selector, and native signalfd payloads, retain the host SIGKILL metadata; no
+global wait or read interception is installed for that distinction.
+
 PI futex commands are explicitly unavailable inside a logical PID
 namespace: their userspace owner words contain guest TIDs, which cannot safely
 be passed to the kernel's priority-inheritance state. This includes PI lock,
@@ -421,6 +432,10 @@ fstat, chmod/chown, reopen and transferred descriptors use guest metadata.
 Callers may bind an existing native device onto a regular placeholder, including
 through a retained proc-FD target. Native rdev, IO and access checks are preserved;
 nodev rejects new opens without invalidating already-open descriptions.
+Typed devices retain the same mount authority through an O_PATH descriptor or
+its proc-FD alias. Bind and remount select that dentry rather than an anonymous
+data-IO carrier; namespace handles keep their separate typed bind identity.
+Read-only checks use provider metadata, not the carrier's regular-file type.
 
 ## Logical Filesystems
 
