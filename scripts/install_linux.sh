@@ -5574,8 +5574,154 @@ NIXOS_SETUP
     nixos_environment_end
 }
 
+init_prepare() {
+    cat <<'MD_INIT_PREPARE'
+set -eu
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export container=shroot SYSTEMD_LOG_TARGET=console SYSTEMD_LOG_LEVEL=info
+export SYSTEMD_LOG_COLOR=0 SYSTEMD_PAGER=cat LANG=C.UTF-8
+test "$$" = 1
+# Preserve the launch-owned input provider across the private /run mount.
+udev_mount=
+if mountpoint -q /run/udev; then
+    udev_mount=$(mktemp -d /mnt/md-init-udev.XXXXXXXX)
+    mount --move /run/udev "$udev_mount"
+fi
+mount -t tmpfs -o mode=755 tmpfs /run
+if [ -n "$udev_mount" ]; then
+    mkdir -p /run/udev
+    mount --move "$udev_mount" /run/udev
+    rmdir "$udev_mount"
+fi
+mount -t tmpfs -o mode=1777 tmpfs /tmp
+mount -t tmpfs -o mode=1777 tmpfs /var/tmp
+mount -t sysfs -o ro sysfs /sys
+mount -t cgroup2 none /sys/fs/cgroup
+console=$(tty)
+mkdir -p /run/md-host-dev
+# Retain mounted endpoints and their metadata, not just covered provider dentries.
+mount --rbind /dev /run/md-host-dev
+mount -t tmpfs -o mode=755 tmpfs /dev
+mkdir -p /dev/pts /dev/shm
+mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /dev/shm
+for device in null zero full random urandom tty; do
+    touch /dev/$device
+    mount --bind /run/md-host-dev/$device /dev/$device
+done
+# Keep launch-provided FUSE, graphics and packet devices in every init scenario.
+# Never expose arbitrary Android devices through the private /dev mount.
+for node in kmsg fuse kgsl-3d0 dma_heap dri net; do
+    if [ -d /run/md-host-dev/$node ]; then mkdir -p /dev/$node
+    elif [ -e /run/md-host-dev/$node ]; then touch /dev/$node
+    else continue
+    fi
+    mount --bind /run/md-host-dev/$node /dev/$node
+done
+touch /dev/console
+mount --bind "/run/md-host-dev/${console#/dev/}" /dev/console
+mount -t devpts -o newinstance,ptmxmode=0666,mode=0620 devpts /dev/pts
+ln -s pts/ptmx /dev/ptmx
+ln -s /proc/self/fd /dev/fd
+ln -s /proc/self/fd/0 /dev/stdin
+ln -s /proc/self/fd/1 /dev/stdout
+ln -s /proc/self/fd/2 /dev/stderr
+umount -l /run/md-host-dev
+rmdir /run/md-host-dev
+MD_INIT_PREPARE
+}
+
+init_session() {
+    cat <<'MD_INIT_ENTRY'
+#!/bin/sh
+set -eu
+if [ "${1:-}" = --help ]; then
+    echo 'Usage: magicdesk-init [COMMAND [ARG...]]'
+    echo 'Boot the installed init system with a guest-root console (or command).'
+    exit 0
+fi
+if [ "${1:-}" != --namespace-init ]; then
+    [ "$(id -u)" = 0 ] || { echo 'Guest root is required for init.' >&2; exit 1; }
+    tty >/dev/null || { echo 'Init requires a terminal; use script for a headless launch.' >&2; exit 1; }
+    if [ ! -x /sbin/openrc-init ]; then
+        [ -x /sbin/init ] && { [ -x /usr/lib/systemd/systemd ] || [ -x /lib/systemd/systemd ]; } || {
+            echo 'Install systemd or OpenRC to use magicdesk-init.' >&2; exit 1;
+        }
+    fi
+    for tool in unshare mount mountpoint script; do
+        command -v "$tool" >/dev/null || { echo "Missing init tool: $tool (install util-linux)." >&2; exit 1; }
+    done
+    exec unshare --mount --pid --fork --mount-proc --uts --ipc --cgroup "$0" --namespace-init "$@"
+fi
+shift
+[ "$$" = 1 ] || { echo 'Init preparation requires private PID 1.' >&2; exit 1; }
+MD_INIT_ENTRY
+    init_prepare
+    cat <<'MD_INIT_EXEC'
+export PATH=/usr/local/sbin:/usr/local/bin:$PATH
+mount --make-rshared /
+# The caller already selected guest root. Retain that identity on the console;
+# do not change login policy or install a passwordless getty on other terminals.
+[ "$#" -gt 0 ] || set -- /bin/sh -l
+{
+    printf '#!/bin/sh\nexec'
+    for argument do
+        printf " '"
+        printf '%s' "$argument" | sed "s/'/'\\\\''/g"
+        printf "'"
+    done
+    printf '\n'
+} > /run/magicdesk-init-session
+# The outer terminal belongs to the caller's session. Relay it into a fresh
+# guest PTY instead of stealing its controlling terminal with host privileges.
+cat > /run/magicdesk-init-console <<'EOF'
+#!/bin/sh
+exec script -q -e -c 'exec /bin/sh /run/magicdesk-init-session' /dev/null </dev/console >/dev/console 2>&1
+EOF
+if [ -x /sbin/openrc-init ]; then
+    # Scope container policy to this boot; preserve installed service enablement.
+    cp /etc/rc.conf /run/rc.conf
+    printf '\nrc_sys="docker"\n' >> /run/rc.conf
+    mount --bind /run/rc.conf /etc/rc.conf
+    if [ -f /etc/conf.d/bootmisc ]; then
+        cp /etc/conf.d/bootmisc /run/md-bootmisc
+        printf '\nlog_dmesg=no\n' >> /run/md-bootmisc
+        mount --bind /run/md-bootmisc /etc/conf.d/bootmisc
+    fi
+    # Keep the actual service directory/runlevels writable: installers must
+    # persist newly installed services and their enablement across boots.
+    cat > /etc/init.d/magicdesk-session <<'EOF'
+#!/sbin/openrc-run
+supervisor=supervise-daemon
+command=/bin/sh
+command_args="/run/magicdesk-init-console"
+pidfile=/run/magicdesk-session.pid
+respawn_delay=1
+start() { [ ! -f /run/magicdesk-init-session ] || default_start; }
+EOF
+    chmod 755 /etc/init.d/magicdesk-session
+    rc-update add magicdesk-session default
+    exec /sbin/openrc-init
+fi
+mkdir -p /run/systemd/system/default.target.wants
+cat > /run/systemd/system/magicdesk-session.service <<'EOF'
+[Unit]
+After=basic.target
+Conflicts=shutdown.target console-getty.service
+Before=shutdown.target
+[Service]
+ExecStart=/bin/sh /run/magicdesk-init-console
+Restart=always
+EOF
+ln -s ../magicdesk-session.service /run/systemd/system/default.target.wants/
+exec /sbin/init
+MD_INIT_EXEC
+}
+
 system_setup() {
     distribution_support
+    printf "install_init_session() {\nmkdir -p /usr/local/bin\ncat > /usr/local/bin/magicdesk-init <<'MD_INIT_SESSION'\n"
+    init_session
+    printf "MD_INIT_SESSION\nchmod 755 /usr/local/bin/magicdesk-init\n}\n"
     printf "install_desktop_session() {\ncat > /usr/local/bin/magicdesk-desktop-session <<'MD_DESKTOP_SESSION'\n"
     desktop_session
     cat <<'MD_DESKTOP_INSTALL'
@@ -5729,6 +5875,7 @@ if [ -n "$new_user" ]; then
 fi
 
 # Keep the selected desktops on resume, but refresh their shared launch services.
+install_init_session
 gui_services=no
 if { [ "$gui" != none ] && [ "$gui" != keep ]; } || [ -x /usr/local/bin/magicdesk-audio-session ]; then
     gui_services=yes
@@ -6521,6 +6668,8 @@ if [ "$#" = 1 ] && [ "$1" = --print-nixos-module ]; then nixos_module; exit 0; f
 if [ "$#" = 1 ] && [ "$1" = --print-graphics-setup ]; then graphics_setup; exit 0; fi
 if [ "$#" = 1 ] && [ "$1" = --print-weston-setup ]; then weston_setup; exit 0; fi
 if [ "$#" = 1 ] && [ "$1" = --print-desktop-session ]; then desktop_session; exit 0; fi
+if [ "$#" = 1 ] && [ "$1" = --print-init-session ]; then init_session; exit 0; fi
+if [ "$#" = 1 ] && [ "$1" = --print-init-prepare ]; then init_prepare; exit 0; fi
 if [ "$#" = 1 ] && [ "$1" = --print-audio-session ]; then audio_session; exit 0; fi
 if [ "$#" = 1 ] && [ "$1" = --print-steam-game ]; then steam_game; exit 0; fi
 if [ "$#" -ge 1 ] && [ "$1" = --print-kwin-patch ]; then

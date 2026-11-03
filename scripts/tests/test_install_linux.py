@@ -457,7 +457,8 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
         for option in ("--help", "--list", "--print-mesa-patch", "--print-kwin-patch",
                        "--print-system-setup", "--print-nixos-setup", "--print-nixos-module",
                        "--print-graphics-setup", "--print-weston-setup",
-                       "--print-recovery-reader", "--print-desktop-session", "--print-audio-session", "--print-steam-game"):
+                       "--print-recovery-reader", "--print-desktop-session", "--print-audio-session", "--print-steam-game",
+                       "--print-init-session", "--print-init-prepare"):
             with self.subTest(option=option):
                 result = self.run_script(option, TEST_UID="10001", TEST_VERSION_STATUS="3")
                 self.assertEqual(0, result.returncode, result.stderr)
@@ -518,6 +519,38 @@ if os.environ.get("TEST_FAIL") == stage and "MAGICDESK_BUILD_PHASE=dependencies"
         result = self.run_script("--yes", "--gui", "xfce", TEST_UID="0")
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual("xfce", self.system_setup_call()[-8])
+
+    def test_init_session_uses_shared_preparation_and_preserves_service_state(self):
+        helper = self.run_script('--print-init-session').stdout
+        prepare = self.run_script('--print-init-prepare').stdout
+        setup = self.run_script('--print-system-setup').stdout
+        self.assertIn(prepare, helper)
+        self.assertIn(helper, setup)
+        self.assertIn('unshare --mount --pid --fork --mount-proc --uts --ipc --cgroup', helper)
+        self.assertIn('[ "$$" = 1 ]', helper)
+        self.assertIn('tty >/dev/null', helper)
+        self.assertIn('exec /sbin/openrc-init', helper)
+        self.assertIn('exec /sbin/init', helper)
+        self.assertIn('exec script -q -e', helper)
+        self.assertIn('[ -x /usr/lib/systemd/systemd ]', helper)
+        self.assertLess(helper.index('for tool in unshare mount mountpoint script'),
+                        helper.index('exec unshare'))
+        self.assertNotIn('StandardInput=tty-force', helper)
+        self.assertIn('for node in kmsg fuse', prepare)
+        for persistent in ('/var', '/etc/runlevels', '/etc/rancher', '/var/lib/rancher'):
+            self.assertNotIn('tmpfs ' + persistent + '\n', helper)
+        subprocess.run(['sh', '-n'], input=helper, text=True, check=True)
+        self.assertLess(setup.index('\ninstall_init_session\n'), setup.index('\ngui_services=no'))
+
+    def test_init_session_preserves_command_arguments(self):
+        helper = self.run_script('--print-init-session').stdout
+        generator = helper[helper.index("{\n    printf '#!/bin/sh\\nexec'"):
+                           helper.index('} > /run/magicdesk-init-session') + 1]
+        arguments = ['/bin/printf', '', "quote'with spaces", 'two\nlines\n', '$HOME; false']
+        result = subprocess.run(['sh', '-c', generator, 'fixture', *arguments],
+                                text=True, capture_output=True, check=True)
+        command = result.stdout.removeprefix('#!/bin/sh\n').removesuffix('\n')
+        self.assertEqual(['exec', *arguments], shlex.split(command))
 
     def test_arch_mirror_fallback_preserves_custom_lists_and_is_idempotent(self):
         setup = self.run_script('--print-system-setup').stdout

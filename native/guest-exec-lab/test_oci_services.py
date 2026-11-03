@@ -29,7 +29,7 @@ NAMES = ('nginx', 'redis', 'postgres', 'python', 'node', 'caddy', 'mariadb',
 
 
 class Server:
-    def __init__(self, suite, argv):
+    def __init__(self, suite, argv, timeout=180):
         self.suite = suite
         self.client = suite.new_client()
         self.console = self.client.call('console.open', {'directory': suite.base})['sessionId']
@@ -41,7 +41,9 @@ class Server:
         self.listener.bind(('127.0.0.1', 0))
         self.listener.listen(1)
         self.listener.settimeout(20)
-        self.command = 'set -o pipefail\n' + shlex.join(['timeout', '180', *argv])
+        self.timeout = timeout
+        self.client.request_timeout = timeout + 30
+        self.command = 'set -o pipefail\n' + shlex.join(['timeout', str(timeout), *argv])
         self.command += ' 2>&1 | /system/bin/toybox nc -w 10 127.0.0.1 '
         self.command += str(self.listener.getsockname()[1])
         self.connection = None
@@ -53,7 +55,8 @@ class Server:
     def execute(self):
         try:
             self.result = self.client.call('console.execute',
-                                          {'sessionId': self.console, 'command': self.command})
+                                          {'sessionId': self.console, 'command': self.command},
+                                          deadline=time.monotonic() + self.timeout + 30)
         except Exception as error:
             self.error = str(error)
         finally:
@@ -63,7 +66,7 @@ class Server:
         try:
             # EVENT_WAIT: log-transport connection and output; timeout fails readiness.
             self.connection, _ = self.listener.accept()
-            self.connection.settimeout(200)
+            self.connection.settimeout(self.timeout + 20)
             with self.connection, self.connection.makefile('r', errors='replace') as stream:
                 for line in stream:
                     self.log.append(line)
@@ -85,9 +88,9 @@ class Server:
             if text in line:
                 return
 
-    def completed(self, expected=0):
+    def completed(self, expected=0, timeout=30):
         # EVENT_WAIT: supervised command completion; timeout is a test failure.
-        self.process.join(30)
+        self.process.join(timeout)
         assert not self.process.is_alive(), 'server did not exit after shutdown'
         assert self.error is None, self.error
         assert self.result['exitCode'] == expected, self.result

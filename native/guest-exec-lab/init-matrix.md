@@ -23,6 +23,9 @@ distribution init binaries. They are not installer recipes or hardware boots.
   that hardware services are healthy.
 - `test_os_boot.py --init openrc`: stock Alpine PID 1 with explicit container
   configuration, default runlevel services and restart/stop checks.
+- `test_k3s_boot.py`: the recipe's `magicdesk-init` session, upstream service
+  installation and whole-launch restart/crash recovery. See the
+  [k3s matrix](validation-matrix.md#k3s) for its distinct workload assertions.
 
 Every launch has a failure deadline. Service/log events establish readiness;
 elapsed time never does. Runit/OpenRC cleanup cancels only the exact registered

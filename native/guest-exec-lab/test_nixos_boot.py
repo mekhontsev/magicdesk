@@ -124,10 +124,10 @@ def guest(target):
 
 
 def boot_script(system, python, target, dhcp):
-    from init_fixture import PREPARE
+    from init_fixture import prepare_init
     from test_os_boot import SYSTEMD
     path = system + '/sw/bin:/bin'
-    boot = PREPARE.replace('export PATH=/usr/sbin:/usr/bin:/sbin:/bin', 'export PATH=' + shlex.quote(path))
+    boot = prepare_init().replace('export PATH=/usr/sbin:/usr/bin:/sbin:/bin', 'export PATH=' + shlex.quote(path))
     detach = '''
 # The fixture owns these handles outside PID1. Detach only the private copies
 # before covering /run, so systemd does not inherit inaccessible mount targets.

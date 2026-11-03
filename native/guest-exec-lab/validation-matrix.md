@@ -342,6 +342,19 @@ and private writable runtime mounts. The 5.15 capability profile exercises
 fallbacks, not a physical 5.15 kernel. Separate-device networking and other
 recipe distributions have not been qualified for k3s.
 
+The separate `test_k3s_boot.py` lifecycle check runs the upstream installer
+inside the production `magicdesk-init` session. Three complete launches check
+the enabled service, Node Ready, CoreDNS, pod DNS/HTTP and synced PVC writes:
+initial boot, recovery after guest poweroff, then recovery after exact-supervisor
+SIGKILL. Node, namespace, pod, Service, volume and credential identities must
+remain unchanged. This covers process-crash recovery, not physical power loss
+or every service in the distribution's init matrix.
+
+| Recipe / init | Host profile | Shroot / Base | Receipt |
+| --- | --- | --- | --- |
+| debian / systemd | Native | P/N | `build/k3s-boot/debian/oci-services-ffe40f252826411882a2c44178042011.json` |
+| alpine / OpenRC | Native | P/N | `build/k3s-boot/alpine/oci-services-2f73b1639b2d4d0ba268d649aebc92ce.json` |
+
 ### Managed Network Regression Coverage
 
 The current network-contract checks retain stock engine packages, container

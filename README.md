@@ -269,7 +269,9 @@ Verified scenarios include:
 
 **Run a Kubernetes lab on your phone:** checked k3s clusters include separate
 Debian and Alpine nodes on one Android device, without Android root or a VM.
-Checks include workload and network recovery after k3s restarts.
+Checks include workload and network recovery after k3s restarts. Debian/systemd
+and Alpine/OpenRC also run the stock enabled service and recover cluster identity
+and persistent volumes after guest shutdown or forced Shroot termination.
 See [k3s support](docs/shroot.md#k3s).
 
 Coverage is [per distribution and scenario](native/guest-exec-lab/validation-matrix.md),

@@ -7,11 +7,11 @@ import shlex
 import subprocess
 
 from benchmark_cpu import observe_suite_cpu
-from init_fixture import PREPARE as INIT_PREPARE
+from init_fixture import prepare_init
 from test_oci_services import Suite, add_machine_entry_argument
 
 
-PREPARE = INIT_PREPARE + r'''
+PREPARE = prepare_init() + r'''
 # Snap needs shared mount propagation before its image mounts exist. systemd
 # inside a container leaves this to the launcher; unshare defaults to private.
 mount --make-rshared /

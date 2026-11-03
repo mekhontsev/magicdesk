@@ -212,6 +212,23 @@ Use `--base` for fallback entry or `--kernel-profile linux-5.15` for host-capabi
 fallbacks. Neither that profile nor this scenario certifies a physical 5.15 kernel
 or networking between separate devices.
 
+`test_k3s_boot.py BUILD ENVIRONMENT K3S_ARM64 INSTALL_SH --init systemd|openrc`
+tests one installed recipe through the production `magicdesk-init` helper.
+Supply a verified binary and its unmodified upstream installation script; their
+hashes are recorded. The installer runs inside the first boot and installs the
+stock enabled service. Repeatable `--images ARCHIVE.tar` supplies verified
+upstream airgap bundles or workload OCI archives through k3s's normal agent
+image directory. Images absent from those archives still require registry access.
+Three complete Shroot launches cover initial boot,
+orderly poweroff/restart, then exact-supervisor SIGKILL and recovery. Each boot
+checks Node Ready, CoreDNS, pod DNS/Service IO and a synced local-path PVC write;
+recovery also compares node, namespace, pod, volume, Service and credential
+identity. Killing a supervisor is distinct from a k3s-only restart or power loss.
+The fixture refuses an existing k3s installation, preserves pre-existing
+kubelet/CNI state and removes its own installation after all launches stop.
+It accepts the same entry/kernel profiles. Its phase logs and receipts are
+separate from the broader multi-node workload checks above.
+
 `test_network_vxlan.py BUILD ENVIRONMENT` checks the packet/control contract
 independently of k3s and registry availability. It covers an independent wire
 peer, shared UDP ports and VNI isolation, MTU and outer filtering, static IPv4/IPv6

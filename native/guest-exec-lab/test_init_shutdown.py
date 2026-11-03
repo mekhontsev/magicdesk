@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""Real systemd poweroff with a service retaining a host bind and private libc."""
+"""Real systemd poweroff with a service retaining a host bind until shutdown."""
 import argparse
 from pathlib import Path
 import re
 import shlex
 
-from init_fixture import PREPARE
+from init_fixture import prepare_init
 from test_oci_services import Suite
 
 
 BOOT = r'''set -eu
 mkdir -p /run/udev
 mount -t tmpfs tmpfs /run/udev
-''' + PREPARE + r'''
+''' + prepare_init() + r'''
 export SYSTEMD_LOG_LEVEL=debug
 mount --make-rshared /
 mkdir -p /mnt/md-shutdown
@@ -43,13 +43,6 @@ StandardError=inherit
 EOF
 cat > "$1/driver.sh" <<'EOF'
 set -eu
-for path in /opt/shroot/libc/*; do
-    test -f "$path/manifest" || continue
-    unit=$(systemd-escape --path --suffix=mount "$path")
-    test "$(systemctl show -p DefaultDependencies --value "$unit")" = no
-    systemctl is-active "$unit"
-    echo "PASS shutdown-runtime-retained $unit"
-done
 systemctl poweroff --no-block
 exec sleep infinity
 EOF
@@ -74,7 +67,7 @@ def main():
             '--deadline-seconds', '90', '--', '/usr/bin/script', '-q', '-e', '-c',
             shlex.join(boot), '/dev/null']
         suite.command(['/system/bin/sh', '-c', shlex.join(command) +
-                       ' > ' + shlex.quote(suite.base + '/shutdown.log') + ' 2>&1'], timeout=110)
+                       ' > ' + shlex.quote(suite.base + '/shutdown.log') + ' 2>&1'], timeout=110, expected=130)
         archive = args.output / (suite.report['id'] + '-shutdown.log')
         suite.transport.download(suite.client, suite.base + '/shutdown.log', archive)
         log = archive.read_text()
@@ -90,11 +83,12 @@ def main():
         if '/system-generators/snapd-generator' in log:
             assert '/system-generators/snapd-generator succeeded.' in log, log
         assert len(re.findall(r'mnt-md\\x2dshutdown-\d+\.mount: Deactivated successfully\.', log)) == 32, log
-        assert 'Exiting container.' in log, log
+        assert 'Powering off.' in log, log
         suite.report['passed'] = True
     finally:
         try:
             suite.command(prefix + ['--', '/bin/rmdir', target])
+            suite.command(['rm', '-rf', suite.base])
         finally:
             suite.finish()
 

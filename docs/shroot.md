@@ -913,6 +913,42 @@ coverage. These launches use private proc, `/run`, `/dev`, terminal and cgroup
 views, not Android's init system. Starting `/sbin/init` in an ordinary application
 shell is not an equivalent setup.
 
+The installer supplies `magicdesk-init` for an explicit systemd or OpenRC boot.
+In a MagicDesk Shell console, select the environment and guest root, then boot:
+
+```sh
+shroot login debian --user 0:0 --network routed
+exec magicdesk-init
+```
+
+The helper creates private runtime filesystems and starts the installed init
+system with a root console on a private PTY. It does not change Android services,
+the selected executor's identity, or other terminals' login policy. Installed
+services, `/etc` and `/var/lib` persist; `/run`, `/tmp` and `/dev` belong to this
+boot. Only boot an idle environment: independent launches do not share its
+service manager or runtime mounts. `magicdesk-init COMMAND ARG...` runs that
+command as the console service instead of the login shell. `exec` replaces the
+calling shell so that shutdown also ends that Shroot launch.
+
+Install missing init packages before boot (`systemd-sysv` and `dbus` on Debian;
+`openrc` on Alpine). The helper also uses util-linux, supplied by the recipe.
+To add or refresh the helper in an existing environment without rerunning
+package or graphics setup, use the downloaded installer from the Android Shell:
+
+```sh
+sh ~/install_linux.sh --print-init-session | shroot exec debian --user 0:0 -- \
+  /bin/sh -c 'mkdir -p /usr/local/bin; cat > /usr/local/bin/magicdesk-init; chmod 755 /usr/local/bin/magicdesk-init'
+```
+
+Shut down from the booted console with `systemctl poweroff` on systemd or
+`openrc-shutdown --poweroff now` on OpenRC. These stop the guest, not Android.
+Namespace poweroff is reported to the outer shell as SIGINT (exit 130),
+not a failed service shutdown. A namespace reboot ends this launch; start the
+helper again to boot another session.
+Exiting just the console shell starts another shell; it does not power off the
+guest. An explicit `shroot stop` from another Android console is cancellation,
+not a substitute for orderly service shutdown.
+
 See the [init matrix](../native/guest-exec-lab/init-matrix.md) and
 [init fixtures](../native/guest-exec-lab/namespaces.md#namespace-clients) for setup
 and exact assertions. The recipe adds `ConditionVirtualization=!container` to
@@ -1113,6 +1149,32 @@ limits are not supplied. Missing subsystems remain errors rather
 than silently successful operations.
 
 ### K3s
+
+For a persistent single-node cluster, first boot Debian or Alpine with
+[`magicdesk-init`](#systemd-openrc-and-runit) and `--network routed`. Inside that
+booted root console, run the upstream installer:
+
+```sh
+curl -fL https://get.k3s.io -o /tmp/install-k3s.sh
+sh /tmp/install-k3s.sh server
+k3s kubectl get nodes
+k3s kubectl get pods -A
+```
+
+The installer downloads the ARM64 binary, installs and enables its ordinary
+systemd/OpenRC service. MagicDesk's Linux recipe does not install Kubernetes
+automatically. Keep stock container seccomp and the default k3s networking;
+no custom service unit or browser-style sandbox bypass is required.
+Check the service with `systemctl status k3s` or `rc-service k3s status`.
+After guest shutdown, repeat the same `shroot login` and `exec magicdesk-init`
+commands. Do not reinstall k3s or delete `/etc/rancher` and `/var/lib/rancher`:
+these retain cluster credentials, configuration, datastore and local volumes.
+Back up important data independently; recovery after process termination is
+not a guarantee against physical storage failure.
+The [full-boot fixture](../native/guest-exec-lab/test_k3s_boot.py) separately
+checks orderly shutdown and forced supervisor termination, then boots the same
+store through its ordinary enabled service and verifies cluster identities,
+PVC contents, DNS and Service HTTP.
 
 Stock ARM64 k3s is checked in a guest-root routed launch using its default VXLAN
 backend, with stock Traefik, ServiceLB and NetworkPolicy. The two-node workflow
