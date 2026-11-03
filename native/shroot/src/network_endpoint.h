@@ -67,4 +67,13 @@ int md_network_endpoint_policy_update(struct md_network_namespace *,struct md_ne
 /* Called under the fabric lock before changing TCP namespace defaults. */
 int md_network_endpoint_tcp_idle(const struct md_network_namespace *);
 int md_network_endpoint_transport_update(struct md_network_namespace *);
+/* Namespace-owned UDP services use the same bindings, policy and relay as guest
+ * sockets. All calls hold the fabric lock. The caller owns the native FD and
+ * closes this borrowed-namespace endpoint before namespace retirement. It must
+ * never publish the object to a guest descriptor table or retain it separately. */
+int md_network_endpoint_service_open(struct md_network_namespace *,struct md_inet_address,unsigned,
+    struct md_fd_object **,int *);
+void md_network_endpoint_service_close(struct md_fd_object *);
+int md_network_endpoint_service_destination(struct md_fd_object *,struct md_inet_address,
+    struct sockaddr_storage *,socklen_t *);
 #endif

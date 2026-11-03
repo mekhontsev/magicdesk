@@ -444,6 +444,13 @@ issue a host mount. No PIDFD_THREAD, PIDFD_SIGNAL_THREAD or newer pidfd ioctl is
 required. `--case mount-namespace`, stock Bubblewrap/GDB and Chromium's automatic
 user/PID route cover these paths under actual UID 2000; the APK's other services
 do not acquire these prerequisites.
+Logical PID-namespace `reboot` uses baseline kill/SIGKILL and the same exit,
+descendant teardown and wait translation owners. HALT/POWER_OFF and RESTART
+reasons are retained in userspace; no host reboot permission or newer kernel
+operation is required. `test_pid_namespace` and `--case mount-namespace` cover
+capability/magic admission, init and child requests, blocked/ignored signals,
+descendant cleanup, protected wait output and sigtimedwait in Base and lazy
+entry. Native-only signal payload limits remain in [PID views](namespace-providers.md#pid-and-proc-views).
 `clone_call` captures the versioned `clone3` ABI in the caller. Ordinary births
 remain kernel-owned; `pid_namespace` reserves `set_tid` numbers in logical PID
 views (including ancestor permissions), and `cgroup` reserves a v2 placement
@@ -703,7 +710,7 @@ publication rollback, namespaces and packet repair; `test_network_ethernet.py`
 checks stock tc in Base/lazy modes and `test_booted_libvirt.py --network` checks
 DHCP/DNS and VM packet traffic through the installed network backend.
 
-Offline network namespaces, private devpts views and permissive cgroups require
+Offline network namespaces, private devpts views and logical cgroups require
 no post-5.15 interface or host namespace/cgroup privilege. Their owners use the
 existing resource transactions, socketpair/SCM_RIGHTS, native PTY ioctls and
 mapped control-file transport. Native terminal permission denials remain errors.
@@ -717,6 +724,21 @@ The logical v2 freezer uses existing PTRACE_INTERRUPT stops and eventfd wakeups,
 not host cgroup permissions or injected SIGSTOP. `test_cgroup_guest` covers
 freeze/thaw, nested membership and newborn tasks; stock CUPS exercises Snap's
 freezer workflow. No post-5.15 interface is added.
+
+`cgroup_resources` reads baseline per-thread proc stat/status and
+`sched_getaffinity` only for requested accounting or machine-set discovery.
+CPU/memory policies and sampled `memory.peak` are userspace interfaces, not
+dependencies on host cgroup controller files. Hierarchical `pids.max` uses existing
+birth reservations and reap ownership. `test_resources.py --case cgroup` covers
+Base/lazy entry, controller replacement, policy validation, RSS deduplication,
+terminal CPU accounting, threads, clone3, quota failures, watches and zombies;
+the same suite runs with `--kernel-profile linux-5.15`. No host cgroup access or
+new kernel facility is required.
+
+Managed `/proc/net/route` and `/proc/net/ipv6_route` snapshots use the existing
+network namespace model and baseline proc formats. `/proc/swaps` describes an
+empty guest swap-device inventory, not Android's swap configuration. These add no
+kernel dependency; network model and mounted-proc tests cover the adapters.
 
 Opt-in routed networking uses the Linux 5.15 NETLINK_ROUTE wire contract in
 `network_route`, retained namespace/interface/endpoint owners in `network_model`
@@ -759,6 +781,13 @@ Managed netlink control also implements the baseline nlctrl family catalogue,
 strict route query validation, kernel-peer connect, policy-rule transactions and
 SO_PASSCRED/NETLINK_PKTINFO reply metadata. These are userspace protocol owners;
 they do not open privileged host netlink sockets or require newer kernel APIs.
+The ipset/NFLOG adapters, TCP tracking records and timeout controls also implement
+guest baseline ABI without host netfilter access. Large control replies use the
+existing epoll/AF_UNIX transport, not newer syscalls. Native resource tests and
+`test_ipset.py`/`probe_nft_runtime.py` cover transactional publication, queued
+multipart replies, namespace ownership and TCP deletion/expiry without transport
+closure. `proc_static` supplies the guest module catalogue; it is not an Android
+module or kernel-version probe.
 `--case mount-namespace` and `--case ofd-order` cover validation, duplication,
 ancillary metadata, membership and unsupported operations. Default systemd boot
 and the Podman probe exercise stock NetworkManager and netavark clients.
@@ -867,7 +896,18 @@ dependency or ordinary read/write interception. `test_fs_context.c` covers peer
 visibility, retained writers/mappings, cold reset and fail-fast maintenance.
 `test_inode_view.c` covers upper-policy propagation into writable overlays,
 denied upper acquisition/activation and independently scoped overlay remounts.
-Both temporary kinds are disk-backed, not memory-only/no-swap implementations.
+Both temporary kinds are disk-backed, not memory-only implementations. The guest
+`noswap` mount option is handled by `fs_temporary` and `fs_context`, independently
+of native tmpfs option availability: file data uses ordinary backing files, not
+swap. It neither requests a newer host mount API nor prevents disk writes or
+swapping process memory. `test_mount_api.py` covers flag/string validation and
+both descriptor and legacy mount entry points.
+
+Guest `kmsg_device` uses baseline eventfd/poll and the typed-control dispatcher;
+it does not open Android's kernel log or infer OOM events. `test_kmsg.py` covers
+cursors, short reads, blocking readiness, overrun and permissions. Launch-local
+kernel-policy files and `memory.events` use existing proc/control/watch owners,
+without a newer kernel resource-control dependency.
 
 ### Rejection And Auxiliary Providers
 

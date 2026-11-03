@@ -5,6 +5,7 @@
 #include "inode_internal.h"
 #include "proc_paths.h"
 #include "proc_sysctl.h"
+#include "kernel_policy.h"
 #include "proc_static.h"
 #include "network_namespace.h"
 #include <dirent.h>
@@ -119,7 +120,7 @@ struct md_provider_tree *md_procfs_new(int parent,const char *text,const struct 
     close(lower);
     if (!tree) { errno=error; return NULL; }
     int root=md_provider_tree_root(tree);
-    if (mkdirat(root,"sys",0755) || mkdirat(root,"sys/kernel",0755)
+    if (mkdirat(root,"sys",0755) || mkdirat(root,"sys/kernel",0755) || mkdirat(root,"sys/net",0755)
             || mkdirat(root,"sys/fs",0755) || mkdirat(root,"sys/fs/inotify",0755)
             || mkdirat(root,"sys/fs/binfmt_misc",0755)) error=errno;
     for (unsigned i=MD_PROC_FILE_HOSTNAME;!error && i<=MD_PROC_FILE_INOTIFY_QUEUE;++i) {
@@ -128,7 +129,12 @@ struct md_provider_tree *md_procfs_new(int parent,const char *text,const struct 
         if (fd<0) error=errno; else close(fd);
     }
     if (!error && mkdirat(root,"sys/user",0755)) error=errno;
-    const char *files[]={"sys/user/max_user_namespaces","devices","cmdline","filesystems"};
+    if (!error && (mkdirat(root,"sys/vm",0755) || mkdirat(root,"sys/kernel/keys",0755))) error=errno;
+    for (unsigned i=0;!error && i<MD_KERNEL_POLICY_COUNT;++i) {
+        int fd=openat(root,md_kernel_policy_specs[i].path,O_CREAT|O_EXCL|O_WRONLY|O_CLOEXEC,0600);
+        if (fd<0) error=errno; else close(fd);
+    }
+    const char *files[]={"sys/user/max_user_namespaces","devices","cmdline","filesystems","swaps","diskstats","modules"};
     for (size_t i=0;!error && i<sizeof(files)/sizeof(*files);++i) {
         int fd=openat(root,files[i],O_CREAT|O_EXCL|O_WRONLY|O_CLOEXEC,0600);
         if (fd<0) error=errno; else close(fd);
@@ -285,8 +291,13 @@ static int control(const char *path,const char *name) {
          * entries need caller-side FD/control resolution; delegating the
          * whole suffix would lose openat2's traversal boundary. */
         if (process_directory(parent)) {
-            if (!strcmp(last,"/net")) return !strcmp(name,"tcp") || !strcmp(name,"tcp6")
-                || !strcmp(name,"udp") || !strcmp(name,"udp6") || !strcmp(name,"if_inet6");
+            if (!strcmp(last,"/net")) {
+                char child[PATH_MAX];
+                int n=snprintf(child,sizeof(child),"%s/%s",path,name);
+                if (n<=0 || (size_t)n>=sizeof(child)) return 0;
+                struct md_proc_path ref=md_proc_path_for(child,0,0);
+                return md_proc_network_table(ref.kind==MD_PROC_FOREIGN ? ref.foreign_kind : ref.kind);
+            }
             return strcmp(name,".") && strcmp(name,"..");
         }
     }
@@ -363,6 +374,13 @@ static int network_bridge_nodes(const struct md_view_mount *mount) {
     int error=network_file(root,"sys/net/bridge/bridge-nf-call-iptables");
     return error ? error : network_file(root,"sys/net/bridge/bridge-nf-call-ip6tables");
 }
+static int network_tracking_nodes(const struct md_view_mount *mount) {
+    if (!mount->provider) return 0;
+    int root=md_provider_tree_root(mount->provider);
+    if (mkdirat(root,"sys/net/netfilter",0755) && errno!=EEXIST) return -errno;
+    int error=network_file(root,"sys/net/netfilter/nf_conntrack_tcp_timeout_established");
+    return error ? error : network_file(root,"sys/net/netfilter/nf_conntrack_tcp_timeout_close_wait");
+}
 static int network_nodes(const struct md_view_mount *mount,const char *interface,int ipv6) {
     if (!mount->provider) return -EOPNOTSUPP;
     int root=md_provider_tree_root(mount->provider);
@@ -409,6 +427,9 @@ int md_procfs_step(struct md_filesystem *fs,struct md_mount_namespace *view,stru
             if (r) return r;
         } else if (directory==5 && !strcmp(name,"ipv6")) {
             r=network_nodes(mount,NULL,1);
+            if (r) return r;
+        } else if (directory==5 && !strcmp(name,"netfilter")) {
+            r=network_tracking_nodes(mount);
             if (r) return r;
         }
     } else if (!strcmp(path,"/proc/sys/net/ipv4") && !strcmp(name,"conf")
@@ -482,7 +503,7 @@ int md_procfs_step(struct md_filesystem *fs,struct md_mount_namespace *view,stru
             int copy=fcntl(captured,F_DUPFD_CLOEXEC,3);
             return copy<0 ? -errno : copy;
         }
-        if (!link_inode && !sysctl && kind!=MD_PROC_MAX_USER_NAMESPACES && !md_proc_static(kind)
+        if (!link_inode && !sysctl && kind!=MD_PROC_MAX_USER_NAMESPACES && !md_proc_static(kind) && kind!=MD_PROC_KERNEL_POLICY
                 && (!fs->actor || !md_network_namespace_managed(fs->actor->network)
                 || !md_proc_network_sysctl(kind))) return -EREMOTE;
     }
@@ -550,6 +571,7 @@ ssize_t md_procfs_getdents(struct md_filesystem *fs,const struct md_view_mount *
             if (error) return error;
         }
         error=network_bridge_nodes(mount);
+        if (!error) error=network_tracking_nodes(mount);
         if (error) return error;
     }
     if (net==1 || net==6) {

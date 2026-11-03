@@ -24,7 +24,8 @@ enum md_network_parameter { MD_NET_UNPRIVILEGED_PORT, MD_NET_PING_GROUPS, MD_NET
     MD_NET_BRIDGE_FILTER, MD_NET_TCP_KEEPIDLE, MD_NET_TCP_KEEPINTVL, MD_NET_TCP_KEEPCNT,
     MD_NET_IPV6_FORWARD, MD_NET_IPV6_DISABLE, MD_NET_IPV6_BINDONLY, MD_NET_BRIDGE_FILTER6,
     MD_NET_IPV6_DAD, MD_NET_IPV6_RA, MD_NET_IPV6_AUTOCONF, MD_NET_IPV6_MTU, MD_NET_IPV6_HOPS,
-    MD_NET_IPV6_ADDRGEN, MD_NET_IPV6_PRIVACY };
+    MD_NET_IPV6_ADDRGEN, MD_NET_IPV6_PRIVACY,
+    MD_NET_CT_TCP_ESTABLISHED, MD_NET_CT_TCP_CLOSE_WAIT };
 #define MD_NET_SCOPE_ALL UINT64_MAX
 #define MD_NET_SCOPE_DEFAULT (UINT64_MAX-1)
 /* Resolve a policy lifetime once at open. Rename retains it; namespace moves
@@ -34,7 +35,7 @@ int md_network_parameter_read(struct md_network_namespace *,enum md_network_para
 int md_network_parameter_write(struct md_network_namespace *,enum md_network_parameter,uint64_t,const uint32_t values[2]);
 /* Policy state belongs to the selected managed namespace, never Android. */
 struct md_control_file md_network_sysctl_new(struct md_network_namespace *,enum md_network_parameter,const char *,struct md_fs_anchor *);
-enum md_network_link_kind { MD_LINK_LOOPBACK, MD_LINK_UPLINK, MD_LINK_BRIDGE, MD_LINK_VETH, MD_LINK_TUN, MD_LINK_TAP };
+enum md_network_link_kind { MD_LINK_LOOPBACK, MD_LINK_UPLINK, MD_LINK_BRIDGE, MD_LINK_VETH, MD_LINK_TUN, MD_LINK_TAP, MD_LINK_VXLAN };
 struct md_network_link {
     enum md_network_link_kind kind;
     unsigned index, flags, mtu, type, state, tx_queue_length;

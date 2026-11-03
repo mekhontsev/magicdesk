@@ -2,6 +2,7 @@
 #include "network_stack_internal.h"
 #include "network_tun.h"
 #include "network_ethernet.h"
+#include "network_neighbor.h"
 #include "lwip/etharp.h"
 #include <linux/if_arp.h>
 #include <linux/sockios.h>
@@ -101,13 +102,29 @@ static err_t output(struct netif *netif,struct pbuf *p) {
 }
 static err_t output4(struct netif *n,struct pbuf *p,const ip4_addr_t *a) { (void)a; return output(n,p); }
 static err_t output6(struct netif *n,struct pbuf *p,const ip6_addr_t *a) { (void)a; return output(n,p); }
+static err_t ethernet_route(struct netif *n,struct pbuf *p,struct md_ip_address destination) {
+    struct md_stack_interface *i=n->state;
+    struct md_network_namespace *space=i->owner->space;
+    if(space->neighbors) {
+        struct md_network_interface *link=md_network_interface_find(space,i->index,NULL);
+        struct md_network_route_entry route={0};
+        md_network_route_lookup(space,destination,i->index,&route);
+        struct eth_addr mac;
+        if(link && md_network_neighbor_mac(space,link,md_ip_unspecified(route.gateway) ? destination : route.gateway,mac.addr))
+            return ethernet_output(n,p,(const struct eth_addr *)n->hwaddr,&mac,destination.family==AF_INET6 ? ETHTYPE_IPV6 : ETHTYPE_IP);
+    }
+    ip_addr_t ip=md_stack_ip(destination);
+    return destination.family==AF_INET6 ? ethip6_output(n,p,ip_2_ip6(&ip)) : etharp_output(n,p,ip_2_ip4(&ip));
+}
+static err_t ethernet4(struct netif *n,struct pbuf *p,const ip4_addr_t *a) { return ethernet_route(n,p,md_ip_v4(a->addr)); }
+static err_t ethernet6(struct netif *n,struct pbuf *p,const ip6_addr_t *a) { return ethernet_route(n,p,md_ip_load(AF_INET6,a->addr)); }
 static err_t init_interface(struct netif *n) {
     struct md_stack_interface *i=n->state;
     n->name[0]='m'; n->name[1]='d'; n->mtu=1500; n->hwaddr_len=6;
     n->flags=NETIF_FLAG_BROADCAST|NETIF_FLAG_IGMP|NETIF_FLAG_MLD6;
     if(i->ethernet) n->flags|=NETIF_FLAG_ETHARP|NETIF_FLAG_ETHERNET;
-    n->output=i->ethernet ? etharp_output : output4;
-    n->output_ip6=i->ethernet ? ethip6_output : output6;
+    n->output=i->ethernet ? ethernet4 : output4;
+    n->output_ip6=i->ethernet ? ethernet6 : output6;
     n->linkoutput=output; return ERR_OK;
 }
 static const ip4_addr_t *gateway4(struct netif *netif,const ip4_addr_t *a) {
@@ -165,7 +182,7 @@ void md_network_stack_changed(struct md_network_namespace *n) {
     for(unsigned k=0;k<n->count;++k) {
         struct md_network_interface *link=&n->links[k];
         if((link->kind!=MD_LINK_TUN && link->kind!=MD_LINK_TAP && link->kind!=MD_LINK_BRIDGE
-                && link->kind!=MD_LINK_VETH) || md_stack_interface(s,link->info.index)) continue;
+                && link->kind!=MD_LINK_VETH && link->kind!=MD_LINK_VXLAN) || md_stack_interface(s,link->info.index)) continue;
         struct md_stack_interface *i=calloc(1,sizeof(*i)); if(!i) continue;
         i->owner=s; i->index=link->info.index; i->policy=link->policy_id; i->ethernet=link->kind!=MD_LINK_TUN;
         if(!netif_add(&i->netif,NULL,NULL,NULL,i,init_interface,i->ethernet ? ethernet_input : ip_input)) { free(i); continue; }
@@ -239,17 +256,25 @@ int md_network_stack_arp(struct md_network_namespace *n,unsigned command,struct 
         : md_network_route_find(n,md_ip_v4(address.sin_addr.s_addr),NULL);
     if(!link) return -ENODEV;
     struct md_stack_interface *i=n->stack ? md_stack_interface(n->stack,link->info.index) : NULL;
-    if(!i || !i->ethernet) return -EOPNOTSUPP;
+    if(link->info.type!=ARPHRD_ETHER) return -EOPNOTSUPP;
     if(command==SIOCSARP && (request->arp_flags&~(ATF_COM|ATF_PERM))) return -EOPNOTSUPP;
     if(command==SIOCSARP && request->arp_ha.sa_family!=ARPHRD_ETHER) return -EINVAL;
     struct eth_addr mac; memcpy(mac.addr,request->arp_ha.sa_data,6);
     if(command==SIOCSARP && (mac.addr[0]&1)) return -EINVAL;
     ip4_addr_t ip={.addr=address.sin_addr.s_addr};
     int permanent=!!(request->arp_flags&ATF_PERM);
+    if(command==SIOCSARP && !permanent && (!i || !i->ethernet)) return -EOPNOTSUPP;
+    int known=md_network_neighbor_arp(n,link,command,md_ip_v4(ip.addr),mac.addr,permanent);
+    if(known<0) return known;
     unsigned operation=command==SIOCSARP ? MD_LWIP_ARP_SET : command==SIOCDARP ? MD_LWIP_ARP_DELETE : MD_LWIP_ARP_GET;
-    struct md_lwip_context *previous=md_lwip_enter(n->stack->context);
-    int result=md_lwip_arp(&i->netif,&ip,&mac,operation,&permanent);
-    md_stack_arm(n->stack); md_lwip_leave(previous);
+    int result=0;
+    if(known) permanent=1;
+    else {
+        if(!i || !i->ethernet) return command==SIOCSARP ? -EOPNOTSUPP : -ENXIO;
+        struct md_lwip_context *previous=md_lwip_enter(n->stack->context);
+        result=md_lwip_arp(&i->netif,&ip,&mac,operation,&permanent);
+        md_stack_arm(n->stack); md_lwip_leave(previous);
+    }
     if(result) return result==ERR_VAL && command!=SIOCSARP ? -ENXIO : md_stack_error(result);
     if(command==SIOCGARP) {
         request->arp_flags=ATF_COM|(permanent ? ATF_PERM : 0);
@@ -257,6 +282,19 @@ int md_network_stack_arp(struct md_network_namespace *n,unsigned command,struct 
         memcpy(request->arp_dev,link->info.name,IFNAMSIZ);
     }
     return 0;
+}
+void md_network_stack_neighbor_forget(struct md_network_namespace *n,unsigned index,struct md_ip_address ip) {
+    struct md_stack_interface *i=n->stack ? md_stack_interface(n->stack,index) : NULL;
+    if(!i || !i->ethernet) return;
+    struct md_lwip_context *previous=md_lwip_enter(n->stack->context);
+    if(ip.family==AF_INET) {
+        ip4_addr_t address={.addr=ip.v4}; struct eth_addr mac; int permanent=0;
+        md_lwip_arp(&i->netif,&address,&mac,MD_LWIP_ARP_DELETE,&permanent);
+    } else {
+        ip_addr_t address=md_stack_ip(ip);
+        md_lwip_neighbor6_forget(&i->netif,ip_2_ip6(&address));
+    }
+    md_stack_arm(n->stack); md_lwip_leave(previous);
 }
 void md_network_stack_retire(struct md_network_namespace *n) {
     struct md_network_stack *s=n->stack; if(!s) return;

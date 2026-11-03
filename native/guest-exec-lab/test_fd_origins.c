@@ -392,7 +392,7 @@ static void ownership(struct md_fs_anchor *a, struct md_fs_anchor *b) {
         assert(!md_resources_init(&parent,a->view));
         assert(!md_domain_set_cwd(parent.fs,a));
         put(parent.files,10,a,0); put(parent.files,71,b,FD_CLOEXEC);
-        assert(!md_resources_fork(&parent,flags,&child));
+        assert(!md_resources_fork(&parent,flags,NULL,&child));
         assert((parent.fs==child.fs)==!!(flags&CLONE_FS));
         assert((parent.files==child.files)==!!(flags&CLONE_FILES));
         put(child.files,10,b,0);
@@ -426,7 +426,7 @@ static void rollback(struct md_fs_anchor *a) {
     struct md_task_resources parent, child;
     assert(!md_resources_init(&parent,a->view));
     put(parent.files,5,a,0); put(parent.files,66,a,FD_CLOEXEC);
-    assert(!md_resources_fork(&parent,CLONE_FS|CLONE_FILES,&child));
+    assert(!md_resources_fork(&parent,CLONE_FS|CLONE_FILES,NULL,&child));
     int completed=0;
     for (int n=0;n<16;++n) {
         struct md_resource_change change;
@@ -547,7 +547,7 @@ static void filesystem_ordering(struct md_fs_anchor *origin) {
         struct md_task_resources parent={0}, child={0};
         assert(!md_resources_init(&parent,origin->view));
         assert(!md_domain_set_cwd(parent.fs,origin));
-        assert(!md_resources_fork(&parent,flags,&child));
+        assert(!md_resources_fork(&parent,flags,NULL,&child));
         struct md_fs_order a={0}, b={0};
         struct md_fd_order files={0};
         allocation_budget=0;

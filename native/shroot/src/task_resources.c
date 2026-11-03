@@ -33,15 +33,16 @@ int md_resources_release(struct md_task_resources *r) {
     return error;
 }
 int md_resources_fork(const struct md_task_resources *r, unsigned long flags,
-        struct md_task_resources *out) {
+        struct md_cgroup_member *reservation,struct md_task_resources *out) {
     *out = (struct md_task_resources){.fs=md_domain_fork(r->fs, !!(flags & CLONE_FS))};
     if (!out->fs) return -ENOMEM;
     if (r->files) {
         out->files=md_fd_origins_fork(r->files,!!(flags & CLONE_FILES));
         if (!out->files) { md_resources_release(out); return -ENOMEM; }
     }
-    if (r->cgroup && !(out->cgroup=md_cgroup_member_fork(r->cgroup))) {
-        md_resources_release(out); return -ENOMEM;
+    if (reservation) out->cgroup=md_cgroup_member_retain(reservation);
+    else if (r->cgroup && !(out->cgroup=md_cgroup_member_fork(r->cgroup))) {
+        int error=-errno; md_resources_release(out); return error;
     }
     out->sem_undo = md_ipc_undo_fork(r->sem_undo, !!(flags & CLONE_SYSVSEM));
     if (out->sem_undo) {

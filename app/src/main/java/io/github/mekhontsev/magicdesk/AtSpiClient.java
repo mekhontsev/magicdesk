@@ -69,15 +69,21 @@ final class AtSpiClient {
         return references(array(call(root, "Accessible", "GetChildren", new JSONArray(), deadline), 0));
     }
 
-    Node read(Ref ref, long deadline) throws IOException, JSONException {
-        JSONObject props;
-        try { props = dictionary(call(ref, "org.freedesktop.DBus.Properties", "GetAll", args(v("s", PREFIX + "Accessible")), deadline)); }
+    private JSONObject accessibleProperties(Ref ref, long deadline) throws IOException, JSONException {
+        // Read only required properties. Some toolkit bridges cannot safely handle GetAll.
+        JSONObject props = new JSONObject();
+        for (String name : List.of("Name", "Description", "Parent")) props.put(name,
+                unwrap(call(ref, "org.freedesktop.DBus.Properties", "Get",
+                        args(v("s", PREFIX + "Accessible"), v("s", name)), deadline).getJSONObject(0)));
+        try { props.put("AccessibleId", unwrap(call(ref, "Accessible", "GetAccessibleId", new JSONArray(), deadline).getJSONObject(0))); }
         catch (LinuxBusConnection.BusError error) {
             if (!missingMember(error)) throw error;
-            props = new JSONObject();
-            for (String name : List.of("Name", "Description", "Parent")) props.put(name,
-                    unwrap(call(ref, "org.freedesktop.DBus.Properties", "Get", args(v("s", PREFIX + "Accessible"), v("s", name)), deadline).getJSONObject(0)));
         }
+        return props;
+    }
+
+    Node read(Ref ref, long deadline) throws IOException, JSONException {
+        JSONObject props = accessibleProperties(ref, deadline);
         int role = Integer.parseInt(scalar(call(ref, "Accessible", "GetRole", new JSONArray(), deadline), 0));
         String roleName = scalar(call(ref, "Accessible", "GetRoleName", new JSONArray(), deadline), 0);
         JSONArray states = array(call(ref, "Accessible", "GetState", new JSONArray(), deadline), 0);

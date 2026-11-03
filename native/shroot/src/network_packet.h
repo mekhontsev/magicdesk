@@ -31,6 +31,9 @@ struct md_network_packet {
 };
 #define MD_NETWORK_PACKET_MAX 65536
 #define MD_NETWORK_BUFFER_SIZE 65536
+/* Large control batches borrow adjacent adapter slots; ordinary packets and
+ * every per-thread frame keep their existing size. */
+#define MD_NETWORK_CONTROL_MAX (1024*1024)
 struct md_network_send {
     uint32_t size;
     _Alignas(uint64_t) unsigned char value[128];

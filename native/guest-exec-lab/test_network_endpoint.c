@@ -510,7 +510,56 @@ static void tcp_defaults(void) {
     puts("PASS TCP namespace defaults: native options, independent namespaces, atomic admission and close");
 }
 
+static void unspecified_destination(unsigned family,int type) {
+    struct md_network_namespace *spaces[2]={md_network_namespace_new(NULL,MD_NETWORK_ROUTED)};
+    spaces[1]=md_network_namespace_copy(spaces[0],NULL);
+    struct md_identity identity=md_identity_new(0,0);
+    struct md_fd_object *servers[2]; int fds[2];
+    struct md_inet_address target={.ip=md_ip_any(family)};
+    struct sockaddr_storage wire,native; socklen_t length,size;
+    for (unsigned i=0;i<2;++i) {
+        assert(spaces[i]);
+        struct md_network_interface *loop=md_network_interface_find(spaces[i],0,"lo");
+        loop->info.flags|=IFF_UP; md_network_interface_up(loop);
+        assert(!md_network_endpoint_open(spaces[i],0,family,type,0,&servers[i],&fds[i]));
+        assert(!md_inet_encode(&target,family,&wire,&length));
+        assert(!md_network_endpoint_bind(servers[i],fds[i],&identity,(void *)&wire,length));
+        if (type==SOCK_STREAM) assert(!md_network_endpoint_listen(servers[i],fds[i],1));
+        assert(!md_network_endpoint_name(servers[i],fds[i],0,&wire,&length));
+        assert(!md_inet_decode((void *)&wire,length,&target));
+    }
+    for (unsigned i=0;i<2;++i) {
+        struct md_fd_object *client; int fd;
+        assert(!md_network_endpoint_open(spaces[i],0,family,type,0,&client,&fd));
+        assert(!md_inet_encode(&target,family,&wire,&length));
+        assert(!md_network_endpoint_autobind(client,fd,&identity,(void *)&wire,length,0));
+        int error=md_network_endpoint_destination(client,(void *)&wire,length,&native,&size);
+        if (error) fprintf(stderr,"unspecified destination family=%u type=%d namespace=%u: %d\n",family,type,i,error);
+        assert(!error);
+        assert(!connect(fd,(void *)&native,size));
+        assert(!md_network_endpoint_connected(client,fd,(void *)&wire,length));
+        assert(!md_network_endpoint_name(client,fd,1,&native,&size));
+        struct md_inet_address actual;
+        assert(!md_inet_decode((void *)&native,size,&actual) && md_ip_is_loopback(actual.ip));
+        assert(write(fd,"x",1)==1);
+        struct pollfd ready[2]={{.fd=fds[0],.events=POLLIN},{.fd=fds[1],.events=POLLIN}};
+        /* EVENT_WAIT: only this namespace's listener must receive the request. */
+        assert(poll(ready,2,2000)==1 && ready[i].revents==POLLIN && !ready[1-i].revents);
+        int peer=type==SOCK_STREAM ? accept4(fds[i],NULL,NULL,SOCK_CLOEXEC) : fds[i];
+        char byte;
+        assert(peer>=0 && read(peer,&byte,1)==1 && byte=='x');
+        if (type==SOCK_STREAM) close(peer);
+        close(fd); md_fd_object_release(client);
+    }
+    for (unsigned i=0;i<2;++i) { close(fds[i]); md_fd_object_release(servers[i]); }
+    md_identity_release(&identity);
+    md_network_namespace_release(spaces[1]); md_network_namespace_release(spaces[0]);
+    printf("PASS unspecified IPv%u destination: type=%d, namespace isolation and peer identity\n",family==AF_INET ? 4 : 6,type);
+}
+
 void test_network_endpoint(void) {
+    unspecified_destination(AF_INET,SOCK_STREAM); unspecified_destination(AF_INET6,SOCK_STREAM);
+    unspecified_destination(AF_INET,SOCK_DGRAM); unspecified_destination(AF_INET6,SOCK_DGRAM);
     forwarded_connect(AF_INET);
     forwarded_connect(AF_INET6);
     multicast(AF_INET);

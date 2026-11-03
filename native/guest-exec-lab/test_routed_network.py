@@ -31,6 +31,30 @@ def socket_table(name, process='self'):
         return {int(parts[9]): parts for line in source if len(parts := line.split()) >= 10 and parts[0] != 'sl'}
 
 
+def route_tables():
+    aliases = ('/proc/net', '/proc/self/net', f'/proc/{os.getpid()}/net', '/proc/thread-self/net')
+    for name in ('route', 'ipv6_route'):
+        text = (Path(aliases[0]) / name).read_text()
+        for directory in aliases[1:]:
+            assert (Path(directory) / name).read_text() == text, (directory, name)
+        with open(Path(aliases[0]) / name) as source:
+            assert source.read(7) + source.read() == text
+            source.seek(0)
+            assert source.read() == text
+        private = subprocess.run(['unshare', '-n', 'cat', '/proc/net/' + name],
+                                 capture_output=True, text=True, timeout=15)
+        assert private.returncode == 0, private
+        assert private.stdout == (text.splitlines()[0] + '\n' if name == 'route' else ''), private
+    routes = [line.split() for line in Path('/proc/net/route').read_text().splitlines()[1:]]
+    default = next(row for row in routes if row[1] == '00000000')
+    assert default[0] == 'eth0' and default[2] == '0202000A' and default[7] == '00000000', default
+    assert all(row[0] in ('lo', 'eth0') for row in routes), routes
+    assert any(row[0] == 'eth0' and row[1] == '0002000A' and row[7] == '00FFFFFF' for row in routes), routes
+    routes6 = [line.split() for line in Path('/proc/net/ipv6_route').read_text().splitlines()]
+    assert routes6 and all(len(row) == 10 and row[-1] in ('lo', 'eth0') for row in routes6), routes6
+    print('PASS proc route tables: guest interfaces, default route, aliases, snapshots and namespace isolation', flush=True)
+
+
 def check_socket_table(sock, name, connected=False):
     inode = os.fstat(sock.fileno()).st_ino
     def address(pair):
@@ -44,6 +68,7 @@ def check_socket_table(sock, name, connected=False):
 
 
 def socket_tables():
+    route_tables()
     for path in ('/proc/self', f'/proc/{os.getpid()}', f'/proc/self/task/{os.getpid()}'):
         info = os.stat(path)
         assert (info.st_uid, info.st_gid) == (os.geteuid(), os.getegid()), (path, info)

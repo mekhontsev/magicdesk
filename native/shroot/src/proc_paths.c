@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "proc_paths.h"
+#include "kernel_policy.h"
 #include "raw.h"
 #include <limits.h>
 
@@ -41,6 +42,8 @@ static enum md_proc_kind network_table(const char **p) {
     if (word(p,"udp")) return MD_PROC_NET_UDP;
     if (word(p,"udp6")) return MD_PROC_NET_UDP6;
     if (word(p,"if_inet6")) return MD_PROC_NET_IF_INET6;
+    if (word(p,"route")) return MD_PROC_NET_ROUTE;
+    if (word(p,"ipv6_route")) return MD_PROC_NET_ROUTE6;
     return MD_PROC_NONE;
 }
 struct md_proc_path md_proc_path_for(const char *path,int tid,int tgid) {
@@ -59,6 +62,18 @@ struct md_proc_path md_proc_path_for(const char *path,int tid,int tgid) {
         out.process=tgid;
         out.kind = MD_PROC_FD;
     } else if (word(&p, "proc")) {
+        if (word(&p,"modules")) {
+            out.kind=MD_PROC_MODULES; out.process=tid;
+            out.tail=p; out.anchor_length=(size_t)(p-path); return out;
+        }
+        if (word(&p,"diskstats")) {
+            out.kind=MD_PROC_DISKSTATS; out.process=tid;
+            out.tail=p; out.anchor_length=(size_t)(p-path); return out;
+        }
+        if (word(&p,"swaps")) {
+            out.kind=MD_PROC_SWAPS; out.process=tid;
+            out.tail=p; out.anchor_length=(size_t)(p-path); return out;
+        }
         if (word(&p,"filesystems")) {
             out.kind=MD_PROC_FILESYSTEMS; out.process=tid;
             out.tail=p; out.anchor_length=(size_t)(p-path); return out;
@@ -85,6 +100,12 @@ struct md_proc_path md_proc_path_for(const char *path,int tid,int tgid) {
             out.kind=MD_PROC_MOUNTS; out.tail=p; out.anchor_length=(size_t)(p-path); return out;
         }
         if (word(&p,"sys")) {
+            for (unsigned i=0;i<MD_KERNEL_POLICY_COUNT;++i) {
+                const char *at=p;
+                if (!word(&at,md_kernel_policy_specs[i].path+4)) continue;
+                out.kind=MD_PROC_KERNEL_POLICY; out.parameter=i; out.process=tid;
+                out.tail=at; out.anchor_length=(size_t)(at-path); return out;
+            }
             if (word(&p,"fs")) {
                 if (word(&p,"nr_open")) {
                     out.kind=MD_PROC_NR_OPEN;
@@ -101,6 +122,11 @@ struct md_proc_path md_proc_path_for(const char *path,int tid,int tgid) {
                 out.process=tid; out.tail=p; out.anchor_length=(size_t)(p-path); return out;
             }
             if (word(&p,"net")) {
+                if (word(&p,"netfilter")) {
+                    if (word(&p,"nf_conntrack_tcp_timeout_established")) out.kind=MD_PROC_NET_CT_TCP_ESTABLISHED;
+                    else if (word(&p,"nf_conntrack_tcp_timeout_close_wait")) out.kind=MD_PROC_NET_CT_TCP_CLOSE_WAIT;
+                    out.process=tid; out.tail=p; out.anchor_length=(size_t)(p-path); return out;
+                }
                 if (word(&p,"bridge")) {
                     if (word(&p,"bridge-nf-call-iptables")) out.kind=MD_PROC_NET_BRIDGE_FILTER;
                     else if (word(&p,"bridge-nf-call-ip6tables")) out.kind=MD_PROC_NET_BRIDGE_FILTER6;

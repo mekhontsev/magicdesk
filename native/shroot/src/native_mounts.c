@@ -6,13 +6,36 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/sysmacros.h>
 
-struct md_native_mounts { FILE *source; char *data; size_t size; int valid; };
+struct native_filesystem { dev_t device; char type[128]; };
+struct md_native_mounts {
+    FILE *source; char *data; size_t size; int valid;
+    struct native_filesystem *filesystems;
+    size_t count, capacity;
+};
+
+const char *md_native_mounts_type(const struct md_native_mounts *s, dev_t device) {
+    if (s) for (size_t i=0;i<s->count;++i)
+        if (s->filesystems[i].device==device) return s->filesystems[i].type;
+    return NULL;
+}
+static int filesystem_capture(struct md_native_mounts *s,dev_t device,const char *type) {
+    if (md_native_mounts_type(s,device)) return 0;
+    if (s->count==s->capacity) {
+        size_t capacity=s->capacity ? s->capacity*2 : 32;
+        void *next=realloc(s->filesystems,capacity*sizeof(*s->filesystems));
+        if (!next) return -ENOMEM;
+        s->filesystems=next; s->capacity=capacity;
+    }
+    struct native_filesystem *f=&s->filesystems[s->count++];
+    f->device=device; strcpy(f->type,type); return 0;
+}
 
 void md_native_mounts_release(struct md_native_mounts *s) {
     if (!s) return;
     if (s->source) fclose(s->source);
-    free(s->data); free(s);
+    free(s->data); free(s->filesystems); free(s);
 }
 static int changed(struct md_native_mounts *s) {
     /* Nonblocking generation observation, not a state wait. Linux mountinfo
@@ -39,7 +62,7 @@ int md_native_mounts_read(struct md_native_mounts **owner,const char **data,size
     int r=changed(s);
     if (r<0) { s->valid=0; return r; }
     if (!s->valid || r) {
-        s->valid=0;
+        s->valid=0; s->count=0;
         if (fseek(s->source,0,SEEK_SET)) return -errno;
         clearerr(s->source);
         char *bytes=NULL,*line=NULL; size_t length=0,capacity=0;
@@ -47,8 +70,12 @@ int md_native_mounts_read(struct md_native_mounts **owner,const char **data,size
         if (!out) return -errno;
         r=0;
         while (getline(&line,&capacity,s->source)>=0) {
-            char path[PATH_MAX];
-            if (sscanf(line,"%*u %*u %*s %*s %4095s",path)!=1) { r=-EPROTO; break; }
+            char path[PATH_MAX],type[128]; unsigned major,minor;
+            const char *separator=strstr(line," - ");
+            if (sscanf(line,"%*u %*u %u:%u %*s %4095s",&major,&minor,path)!=3
+                    || !separator || sscanf(separator+3,"%127s",type)!=1) { r=-EPROTO; break; }
+            r=filesystem_capture(s,makedev(major,minor),type);
+            if (r) break;
             if ((below(path,"/proc") || below(path,"/dev")) && !below(path,"/dev/shm"))
                 if (fputs(line,out)==EOF) { r=-EIO; break; }
         }
@@ -60,7 +87,7 @@ int md_native_mounts_read(struct md_native_mounts **owner,const char **data,size
             if (event<0) r=event;
             else s->valid=!event;
         }
-        if (r) { free(bytes); return r; }
+        if (r) { s->count=0; free(bytes); return r; }
         /* A change during reading prevents reuse, without retrying in a loop.
          * Virtual mounts and namespace-relative IDs are never cached here. */
         free(s->data); s->data=bytes; s->size=length;

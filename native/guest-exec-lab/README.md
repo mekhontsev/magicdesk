@@ -179,6 +179,69 @@ Traffic assertions use local native peers, independently of internet stability.
 `test_os_boot.py --network bridge --dns IP` applies the same profile to stock
 init boot; its default remains routed. Reports identify the native binaries.
 
+### K3s
+
+`test_k3s.py BUILD ENVIRONMENT K3S_ARM64 --machine-entry` uses an installed
+recipe environment with Python 3, util-linux and a verified upstream k3s binary.
+The receipt records its SHA-256, version, runtime hashes and entry/kernel profile.
+Container images are pulled by stock containerd, so initial readiness depends on
+registry access. No distribution packages are built or installed by the fixture.
+
+The default profile uses stock VXLAN; `--backend host-gw` selects the alternative.
+`test_k3s.py` always uses one selected distribution. For a mixed cluster run
+`test_k3s_cluster.py BUILD SERVER_ENVIRONMENT AGENT_ENVIRONMENT K3S_ARM64`.
+Both entrypoints share `k3s_fixture.py` for workloads, lifecycle and cleanup.
+The mixed fixture attaches the existing agent store read-only and gives it
+private configuration and runtime mounts. It does not install packages or copy
+the rootfs; receipts identify both distributions and the staged runtime.
+Use `test_k3s.py --nodes 2` for two nodes within one distribution; the mixed
+entrypoint always uses two nodes. Server and agent have independent network,
+PID, mount, UTS and cgroup namespaces, connected by a veth underlay on the same device.
+Both profiles retain stock Traefik, ServiceLB and NetworkPolicy.
+The fixture checks Node Ready, CoreDNS, kubelet root filesystem capacity, cross-pod
+DNS/ClusterIP HTTP, policy deny/allow/update/delete, Deployment scale/rolling
+update, local-path PVC retention, and ingress through the Service and node address.
+With two nodes, DNS and HTTP must cross nodes, and the agent restarts independently.
+Server restart must retain pod UID and Service address; ordinary deletion uses
+the default termination grace. After restart, the kubelet's own inventory must
+reacquire the pods before executing inside them; retained API readiness alone
+does not satisfy this check.
+Private PID/mount namespaces retire remaining shims and runtime data; logs and
+the structured result are downloaded before deleting the fixture directory.
+Use `--base` for fallback entry or `--kernel-profile linux-5.15` for host-capability
+fallbacks. Neither that profile nor this scenario certifies a physical 5.15 kernel
+or networking between separate devices.
+
+`test_k3s_boot.py BUILD ENVIRONMENT K3S_ARM64 INSTALL_SH --init systemd|openrc`
+tests one installed recipe through the production `magicdesk-init` helper.
+Supply a verified binary and its unmodified upstream installation script; their
+hashes are recorded. The installer runs inside the first boot and installs the
+stock enabled service. Repeatable `--images ARCHIVE.tar` supplies verified
+upstream airgap bundles or workload OCI archives through k3s's normal agent
+image directory. Images absent from those archives still require registry access.
+Three complete Shroot launches cover initial boot,
+orderly poweroff/restart, then exact-supervisor SIGKILL and recovery. Each boot
+checks Node Ready, CoreDNS, pod DNS/Service IO and a synced local-path PVC write;
+recovery also compares node, namespace, pod, volume, Service and credential
+identity. Killing a supervisor is distinct from a k3s-only restart or power loss.
+The fixture refuses an existing k3s installation, preserves pre-existing
+kubelet/CNI state and removes its own installation after all launches stop.
+It accepts the same entry/kernel profiles. Its phase logs and receipts are
+separate from the broader multi-node workload checks above.
+
+`test_network_vxlan.py BUILD ENVIRONMENT` checks the packet/control contract
+independently of k3s and registry availability. It covers an independent wire
+peer, shared UDP ports and VNI isolation, MTU and outer filtering, static IPv4/IPv6
+neighbors/FDB, routed `onlink` traffic, TCP streams, UDP fragmentation and teardown.
+It accepts the same entry and kernel-profile options.
+
+`test_ipset.py BUILD ENVIRONMENT` separately exercises stock ipset and iptables-nft,
+IPv4/IPv6 prefix membership, exclusions, referenced-set replacement, large
+restore/dump, transactional rejection and metadata-only NFLOG delivery. It accepts
+the same entry and kernel-profile options. `probe_nft_runtime.py` covers TCP
+tracking deletion/expiry without transport loss and namespace-scoped timeout
+controls. Neither test substitutes for the real k3s policy controller.
+
 ### Container Publication And IPv6
 
 The Docker and Podman network probes allocate paired TCP/UDP ports through an
@@ -346,8 +409,12 @@ with absent/truncated receive buffers, a datagram queued before sender close,
 and receiver-close/rebind without reusing stale reply mappings.
 `probe_nft_runtime.py BUILD STORE --network bridge --machine-entry` (or `--base`)
 checks stock nft/iptables catalogue operations, atomic rollback, verdict maps,
-UDP DNAT and immediate TCP REJECT in both address families. Unsupported ICMP
-REJECT must fail without committing its table. The default `routed` mode also
+UDP DNAT and immediate IPv4/IPv6 TCP REJECT. It also checks NAT
+state aliases, randomized masquerade rule admission, CTNETLINK inventory and UDP
+mapping deletion/re-admission on the same socket. TCP tracking deletion and
+expiry must leave the stream usable and admit a new record on subsequent IO.
+Unsupported rate-dependent forwarding rules fail without committing their
+table. The default `routed` mode also
 publishes the fixture's port 53 on Android and can fail with EACCES under host
 bind policy; use the explicit private bridge for guest-only coverage, not as a
 substitute for external publication tests. The native network-launch fixture
@@ -357,6 +424,10 @@ binary under shell/native, host, routed, filtered and NAT modes with rotated
 rounds. It reports application CPU separately from whole-invocation CPU;
 the latter includes startup, rule preparation and cleanup. Local DNAT uses the
 OUTPUT hook. Reports retain CPU-frequency observations with each sample.
+`--reference BASELINE` interleaves both runtime builds against the same guest
+and native executable; pairs stay adjacent and alternate their order.
+`--profile nat` selects a focused comparison; repeat the option for multiple
+profiles. `--output DIRECTORY` separates comparison receipts.
 `benchmark_readiness.py --build BUILD --reference BASELINE --store STORE`
 interleaves filesystem/readiness workloads across both runtimes and Base/lazy
 entry. It does not pin CPUs by default. `--cpu-mask HEX` applies the same native
@@ -371,6 +442,24 @@ readiness bound; firewalld must enforce a live rule. Unsupported service rules
 remain a failure, not a reason to mask the service or enlarge its timeout.
 
 ## Process And Resource Fixtures
+
+`test_resources.py BUILD --case cgroup` runs the native ownership model and
+isolated guest cgroup tests in Base and lazy modes. It covers controller
+publication/retirement, policy validation, hierarchical PID limits, threads,
+clone3 target admission, zombie/reap accounting, poll notifications, sampled
+CPU/RSS and cgroup namespaces. Repeat with `--kernel-profile linux-5.15` for
+capability-fallback coverage; this is not a substitute for a physical 5.15 kernel.
+CPU quotas, cpuset affinity and memory limits are retained policies, not enforced
+controls. `memory.events`/`.local` must remain quiet after the initial read and
+retire on group/controller removal. These tests keep that boundary explicit.
+
+`test_kmsg.py BUILD STORE --machine-entry` (or `--base`) verifies the private
+kernel-message device's record ABI, cursors, poll/blocking delivery, overrun and
+permissions. It does not read host logs or claim OOM observation.
+`test_proc_policy.py` covers private proc inventories and advisory kernel-policy
+values through original and newly mounted proc views, including denied writers
+and explicitly rejected strict overcommit. Repeat supported fixtures with
+`--kernel-profile linux-5.15` to exercise capability fallbacks.
 
 `test_thread_identity_runtime.py BUILD STORE FIXTURE --debuggers` checks libc
 thread identities and multi-threaded setuid/setgid/setgroups, including strace

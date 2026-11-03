@@ -92,6 +92,35 @@ static void readonly_creation(const char *root, const char *file, const char *ab
     assert(open(absent,O_RDONLY)<0 && errno==ENOENT);
     remount(root,0);
 }
+static void device_remount(void) {
+    const char *devices[]={"/dev/fuse","/dev/kmsg"};
+    const char *target="/control-alias";
+    for (unsigned i=0;i<sizeof(devices)/sizeof(*devices);++i) {
+        int placeholder=open(target,O_CREAT|O_EXCL|O_WRONLY,0600); assert(placeholder>=0); close(placeholder);
+        assert(!mount(devices[i],target,NULL,MS_BIND,NULL));
+        int fd=open(target,O_PATH|O_CLOEXEC); assert(fd>=0);
+        char link[64]; snprintf(link,sizeof(link),"/proc/self/fd/%d",fd);
+        const char *copy="/control-copy";
+        placeholder=open(copy,O_CREAT|O_EXCL|O_WRONLY,0600); assert(placeholder>=0); close(placeholder);
+        assert(!mount(link,copy,NULL,MS_BIND,NULL));
+        for (unsigned indirect=0;indirect<2;++indirect) {
+            const char *path=indirect ? link : target;
+            int result=mount(NULL,path,NULL,MS_REMOUNT|MS_BIND|MS_RDONLY|MS_NOSUID|MS_NODEV,NULL);
+            if (result) fprintf(stderr,"device remount %s via %s: %s\n",devices[i],path,strerror(errno));
+            assert(!result);
+            int opened=open(target,O_RDWR), error=errno;
+            if (opened>=0 || error!=EACCES) fprintf(stderr,"device nodev %s: fd=%d error=%d\n",devices[i],opened,error);
+            assert(opened<0 && error==EACCES);
+            remount(path,MS_RDONLY);
+            opened=open(target,O_RDWR); assert(opened>=0); close(opened);
+            remount(path,0);
+        }
+        close(fd); assert(!umount2(target,0)); assert(!unlink(target));
+        fd=open(copy,O_RDWR); assert(fd>=0); close(fd);
+        assert(!umount2(copy,0)); assert(!unlink(copy));
+    }
+    puts("PASS control device remount: pathname, O_PATH/proc alias and bind retain mount policy");
+}
 static void readonly(void) {
     readonly_creation("/","/bin/test","/absent-root-node");
     assert(!mount("/bin","/alias",NULL,MS_BIND,NULL));
@@ -214,6 +243,6 @@ int test_mount_flags_guest(int argc, char **argv) {
         assert(getuid()==1000 && geteuid()==(uid_t)atoi(argv[3]));
         return 0;
     }
-    nosuid(); nodev(); readonly(); noexec(); noexec_transfer();
+    nosuid(); nodev(); device_remount(); readonly(); noexec(); noexec_transfer();
     puts("PASS guest mount flags"); return 0;
 }

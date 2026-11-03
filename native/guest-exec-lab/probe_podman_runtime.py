@@ -262,6 +262,7 @@ def guest(options):
 
 def main():
     from test_oci_services import Suite, add_machine_entry_argument
+    from kernel_profile import KernelProfile
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('build', type=Path)
     parser.add_argument('store')
@@ -290,6 +291,7 @@ def main():
     parser.add_argument('--host-limits', action='store_true', help='Set nofile/nproc explicitly to inherited shell limits')
     parser.add_argument('--unlimited-pids', action='store_true', help='Explicitly disable the optional pids-controller limit')
     add_machine_entry_argument(parser)
+    KernelProfile.add_argument(parser)
     args = parser.parse_args()
     args.network = args.network or ('slirp4netns' if args.rootless_user else 'bridge')
     if args.exercise_ports and args.network not in ('bridge', 'slirp4netns'):
@@ -304,7 +306,8 @@ def main():
         parser.error('--internet-ipv6, --ipv6-host and --ipv6-publish-host require --ipv6')
     if not 1 <= args.exec_repeats <= 50:
         parser.error('--exec-repeats must be between 1 and 50')
-    suite = Suite(Path('build/podman-results'), args.build, machine_entry=args.machine_entry)
+    suite = Suite(Path('build/podman-results'), args.build, machine_entry=args.machine_entry,
+                  kernel_profile=args.kernel_profile)
     from docker_network_fixture import Observer
     observer = Observer(args.ipv6_host) if args.exercise_ports else None
     target = '/tmp/md-podman-probe-' + suite.report['id']
@@ -346,6 +349,7 @@ def main():
             suite.transport.download(suite.client, remote_log, local_log, overwrite=True)
             output = local_log.read_text(errors='replace')
             suite.record_entry(output)
+            suite.kernel_profile.observe(output, required=True)
             suite.report['runtimeLog'] = str(local_log)
         reports = [line.removeprefix('PODMAN_REPORT ') for line in output.splitlines() if line.startswith('PODMAN_REPORT ')]
         assert len(reports) == 1, output[-2000:]

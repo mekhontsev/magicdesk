@@ -1,6 +1,7 @@
 #ifndef MD_NETWORK_STACK_H
 #define MD_NETWORK_STACK_H
 #include <stddef.h>
+#include "network_ip.h"
 struct md_network_namespace;
 struct md_network_interface;
 struct md_network_fabric;
@@ -15,6 +16,7 @@ int md_network_stack_input(struct md_network_namespace *,struct md_network_inter
 int md_network_stack_has_link(struct md_network_namespace *,unsigned);
 int md_network_stack_send_ip(struct md_network_namespace *,unsigned,const void *,size_t);
 int md_network_stack_arp(struct md_network_namespace *,unsigned,struct arpreq *);
+void md_network_stack_neighbor_forget(struct md_network_namespace *,unsigned,struct md_ip_address);
 void md_network_stack_changed(struct md_network_namespace *);
 void md_network_stack_retire(struct md_network_namespace *);
 /* A native socketpair joins the existing relay to a packet transport. The

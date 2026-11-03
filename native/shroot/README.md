@@ -211,9 +211,10 @@ and NAT flows use cached decisions and bounded relay queues. Private UDP retains
 queued source identity through the same relay; unfiltered TCP and ordinary host
 network IO keep their native data path. Native backing
 ports are not host-firewall isolated; unsupported rule operations fail explicitly.
-Cgroups are intentionally permissive compatibility
-providers, not enforcement of CPU, memory, pids or device limits. Missing network,
-mount or device operations fail explicitly.
+Cgroups enforce hierarchical pids limits and freezer state, and provide sampled
+CPU/RSS accounting. CPU quotas, cpuset affinity, memory and device policies remain
+compatibility state, not enforced limits. Missing network, mount or device
+operations fail explicitly. See [cgroup contracts](namespace-providers.md#cgroups).
 
 The supervisor preserves application seccomp filters. Stock Chromium runs with
 installed filters and without `--no-sandbox`, and guest debuggers use a virtual

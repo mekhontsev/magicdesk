@@ -1,4 +1,5 @@
 #include "network_route_ip.h"
+#include <net/if.h>
 #include "network_nexthop.h"
 #include "network_forward.h"
 #include "network_autoconf.h"
@@ -196,7 +197,7 @@ int md_network_route_reply(struct md_network_message *o,const struct nlmsghdr *h
     uint32_t table=r->table ? r->table : RT_TABLE_MAIN;
     struct rtmsg m={.rtm_family=r->destination.family,.rtm_dst_len=lookup ? md_ip_size(*lookup)*8 : r->prefix,
         .rtm_table=table<=255 ? table : RT_TABLE_UNSPEC,.rtm_protocol=r->protocol,.rtm_scope=r->scope,
-        .rtm_type=table==RT_TABLE_LOCAL ? RTN_LOCAL : RTN_UNICAST};
+        .rtm_type=table==RT_TABLE_LOCAL ? RTN_LOCAL : RTN_UNICAST,.rtm_flags=r->flags};
     int error=md_network_message_begin(o,h,port,RTM_NEWROUTE,dump,&m,sizeof(m));
     if (!error) error=md_network_message_attribute(o,RTA_TABLE,&table,sizeof(table));
     if (!error && r->nexthop && !lookup) error=md_network_message_attribute(o,RTA_NH_ID,&r->nexthop,sizeof(r->nexthop));
@@ -225,13 +226,13 @@ int md_network_routes(struct md_network_namespace *n,const struct nlmsghdr *h,ui
     int query=h->nlmsg_type==RTM_GETROUTE;
     if ((!query || !dump) && !family_supported(m->rtm_family)) return -EINVAL;
     struct md_network_route_entry value={.destination=md_ip_any(m->rtm_family),.gateway=md_ip_any(m->rtm_family),
-        .prefix=m->rtm_dst_len,.protocol=m->rtm_protocol,.scope=m->rtm_scope,
+        .prefix=m->rtm_dst_len,.protocol=m->rtm_protocol,.scope=m->rtm_scope,.flags=query ? 0 : m->rtm_flags,
         .metric=m->rtm_family==AF_INET6 ? 1024 : 0};
     uint32_t table=m->rtm_table,mark=0; uint64_t seen=0;
     struct md_ip_address source=md_ip_any(m->rtm_family);
     if (!query || !dump || strict) {
         if ((m->rtm_src_len && (!query || dump || m->rtm_src_len!=md_ip_size(source)*8))
-                || m->rtm_tos || (m->rtm_flags&~(query ? RTM_F_LOOKUP_TABLE : 0))) return -EOPNOTSUPP;
+                || m->rtm_tos || (m->rtm_flags&~(query ? RTM_F_LOOKUP_TABLE : RTNH_F_ONLINK))) return -EOPNOTSUPP;
         if (value.prefix>(m->rtm_family==AF_INET6 ? 128 : 32)) return -EINVAL;
         if (query && dump && (m->rtm_dst_len || m->rtm_scope || m->rtm_flags)) return -EOPNOTSUPP;
         if (!query && m->rtm_type!=RTN_UNICAST
@@ -308,12 +309,13 @@ int md_network_routes(struct md_network_namespace *n,const struct nlmsghdr *h,ui
         return md_network_route_reply(o,h,port,0,link,&route,&value.destination);
     }
     if (!md_ip_equal(md_ip_network(value.destination,value.prefix),value.destination)) return -EINVAL;
+    if ((value.flags&RTNH_F_ONLINK) && (!value.interface || md_ip_unspecified(value.gateway))) return -EINVAL;
     if (value.nexthop) {
-        if (value.interface || !md_ip_unspecified(value.gateway)) return -EINVAL;
+        if (value.interface || !md_ip_unspecified(value.gateway) || value.flags) return -EINVAL;
         const struct md_network_nexthop *next=md_network_nexthop_find(n,value.nexthop);
         if (!next) return -ENOENT;
         if (next->gateway.family!=value.destination.family) return -EINVAL;
-        value.interface=next->interface; value.gateway=next->gateway;
+        value.interface=next->interface; value.gateway=next->gateway; value.flags=next->flags;
     }
     if (!value.interface && !md_ip_unspecified(value.gateway)) {
         struct md_network_route_entry route;
@@ -335,6 +337,8 @@ int md_network_routes(struct md_network_namespace *n,const struct nlmsghdr *h,ui
     }
     struct md_network_interface *link=md_network_interface_find(n,value.interface,NULL);
     if (!link) return -ENETUNREACH;
+    if ((value.flags&RTNH_F_ONLINK) && !(link->info.flags&IFF_UP)) return -ENETDOWN;
+    if (md_ip_multicast(value.gateway)) return -EINVAL;
     if (!md_ip_unspecified(value.source)) {
         int local=0;
         for (unsigned i=0;i<n->count;++i) local|=md_network_interface_has(&n->links[i],value.source);

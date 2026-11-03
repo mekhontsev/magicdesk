@@ -291,7 +291,7 @@
  #endif /* ARP_QUEUEING */
      /* send the queued IP packet */
      ethernet_output(netif, p, (struct eth_addr *)(netif->hwaddr), ethaddr, ETHTYPE_IP);
-@@ -493,6 +507,27 @@
+@@ -493,6 +507,28 @@
    return ERR_OK;
  }
  
@@ -305,11 +305,12 @@
 +    return etharp_update_arp_entry(netif, ip, mac, ETHARP_FLAG_TRY_HARD |
 +                                   (*permanent ? ETHARP_FLAG_STATIC_ENTRY : 0));
 +  }
-+  if (i < 0 || md_state_arp_table[i].state < ETHARP_STATE_STABLE)
++  if (i < 0)
 +    return ERR_VAL;
 +  if (operation == MD_LWIP_ARP_DELETE) {
 +    etharp_free_entry(i);
 +  } else {
++    if (md_state_arp_table[i].state < ETHARP_STATE_STABLE) return ERR_VAL;
 +    *mac = md_state_arp_table[i].ethaddr;
 +    *permanent = md_state_arp_table[i].state == ETHARP_STATE_STATIC;
 +  }
@@ -1396,6 +1397,26 @@
  
  /* Forward declarations. */
  static s8_t nd6_find_neighbor_cache_entry(const ip6_addr_t *ip6addr);
+@@ -143,6 +183,19 @@
+ static err_t nd6_send_rs(struct netif *netif);
+ #endif /* LWIP_IPV6_SEND_ROUTER_SOLICIT */
+ 
++void md_lwip_neighbor6_forget(struct netif *netif, const ip6_addr_t *ip)
++{
++  for (s8_t i = 0; i < LWIP_ND6_NUM_NEIGHBORS; ++i) {
++    if (neighbor_cache[i].netif == netif && neighbor_cache[i].state != ND6_NO_ENTRY &&
++        ip6_addr_cmp_zoneless(ip, &neighbor_cache[i].next_hop_address)) {
++      /* Keep router and queued-packet ownership; resolve the address anew. */
++      neighbor_cache[i].state = ND6_INCOMPLETE;
++      neighbor_cache[i].counter.probes_sent = 0;
++      memset(neighbor_cache[i].lladdr, 0, sizeof(neighbor_cache[i].lladdr));
++    }
++  }
++}
++
+ #if LWIP_ND6_QUEUEING
+ static void nd6_free_q(struct nd6_q_entry *q);
+ #else /* LWIP_ND6_QUEUEING */
 @@ -429,7 +469,7 @@
  
        neighbor_cache[i].netif = inp;

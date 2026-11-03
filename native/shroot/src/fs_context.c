@@ -193,7 +193,8 @@ static int parameter(struct filesystem_context *c,const struct md_fs_request *q)
         known=!strcmp(key,"hidepid") || !strcmp(key,"gid") || !strcmp(key,"subset"); break;
     case MD_FS_MOUNT_TMPFS: case MD_FS_MOUNT_RAMFS:
         known=!strcmp(key,"mode") || !strcmp(key,"uid") || !strcmp(key,"gid")
-            || !strcmp(key,"size") || !strcmp(key,"nr_blocks") || !strcmp(key,"nr_inodes"); break;
+            || !strcmp(key,"size") || !strcmp(key,"nr_blocks") || !strcmp(key,"nr_inodes") || !strcmp(key,"noswap");
+        expect_string=strcmp(key,"noswap")!=0; break;
     case MD_FS_MOUNT_OVERLAY:
         known=!strcmp(key,"lowerdir") || !strcmp(key,"upperdir") || !strcmp(key,"workdir") || !strcmp(key,"userxattr");
         expect_string=strcmp(key,"userxattr")!=0; break;

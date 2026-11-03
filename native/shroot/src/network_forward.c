@@ -7,10 +7,13 @@
 #include "network_link.h"
 #include "network_tun.h"
 #include "network_stack.h"
+#include "network_conntrack.h"
+#include "network_tracking.h"
 #include <limits.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/netfilter.h>
+#include <linux/netfilter/nf_conntrack_common.h>
 #include <linux/rtnetlink.h>
 #include <linux/if_packet.h>
 #include <netinet/in.h>
@@ -51,9 +54,10 @@ struct flow {
     struct md_inet_address client, remote, gateway, target;
     struct md_network_flow_path path;
     struct stream_buffer *buffer;
+    struct md_network_tracking tracking;
     struct datagram_queue datagrams[2];
     struct md_filter_accounting accounting[2];
-    unsigned started;
+    unsigned started, forgotten;
     unsigned front_family;
     unsigned packet_input;
     uint64_t packet_policy, packet_destination;
@@ -65,6 +69,7 @@ struct md_network_forward {
     pthread_t thread;
     int epoll, wake, stopped;
     uint64_t next_id;
+    int64_t now;
     size_t flows, listeners;
     uint64_t dropped_datagrams;
     struct listener *ports;
@@ -113,7 +118,7 @@ int md_network_forward_nat_port(struct md_network_namespace *n,struct md_filter_
      * are the reservations, including TCP connects not yet accepted locally.
      * Snapshot once, then search the bounded port range without rescanning flows. */
     for (struct flow *c=f ? f->connections : NULL;c;c=c->next)
-        md_network_flow_nat_ports(&c->path,n->inode,packet,&ports);
+        if (!c->forgotten) md_network_flow_nat_ports(&c->path,n->inode,packet,&ports);
     for (struct listener *l=f ? f->ports : NULL;l;l=l->next)
         if (!l->external) md_network_flow_nat_ports(&l->path,n->inode,packet,&ports);
     md_network_endpoint_nat_ports(n,packet,&ports);
@@ -160,6 +165,78 @@ static void drop_listener(struct md_network_forward *f,struct listener *l) {
     md_network_stack_close(l->packet_channel);
     free(l);
 }
+void md_network_forward_tracking_changed(struct md_network_namespace *n) {
+    struct md_network_forward *f=n->fabric->forward;
+    for (struct flow *c=f ? f->connections : NULL;c;c=c->next)
+        if (c->type==SOCK_STREAM && md_network_tracking_find(&c->tracking,n->inode))
+            md_network_tracking_limits(&c->tracking,n->fabric);
+    wake(f);
+}
+int md_network_forward_connections(struct md_network_namespace *n,
+        int (*visit)(void *,const struct md_connection *),void *context) {
+    struct md_network_forward *f=n->fabric->forward;
+    int64_t now=now_ms();
+    for (struct flow *c=f ? f->connections : NULL;c;c=c->next) {
+        if (c->group || c->forgotten || c->deadline<=now) continue;
+        struct md_network_tracking_entry *tracked=c->type==SOCK_STREAM ? md_network_tracking_find(&c->tracking,n->inode) : NULL;
+        int64_t deadline=tracked ? md_network_tracking_deadline(&c->tracking,n) : c->deadline;
+        if (tracked && (!tracked->id || deadline<=now)) continue;
+        const struct md_network_flow_step *first=NULL,*last=NULL;
+        for (unsigned i=0;i<c->path.count;++i) if (c->path.steps[i].space==n->inode) {
+            if (!first) first=&c->path.steps[i];
+            last=&c->path.steps[i];
+        }
+        if (!first) continue;
+        const struct md_filter_packet *p=&first->packet;
+        const struct md_filter_rewrite *r=&last->after;
+        struct md_connection entry={.id=tracked ? tracked->id : c->id,
+            .original={p->source,p->destination,p->source_port,p->destination_port,p->protocol},
+            .reply={r->destination,r->source,r->destination_port,r->source_port,p->protocol},
+            .mark=tracked ? tracked->mark : c->path.translated.ctmark,.status=IPS_CONFIRMED,
+            .timeout=deadline==INT64_MAX ? UINT32_MAX : (uint32_t)((deadline-now+999)/1000)};
+        if (!md_ip_equal(p->source,r->source) || p->source_port!=r->source_port) entry.status|=IPS_SRC_NAT;
+        if (!md_ip_equal(p->destination,r->destination) || p->destination_port!=r->destination_port) entry.status|=IPS_DST_NAT;
+        int error=visit(context,&entry);
+        if (error) return error;
+    }
+    return 0;
+}
+void md_network_forward_forget(struct md_network_namespace *n,const uint64_t *ids,size_t count) {
+    struct md_network_forward *f=n->fabric->forward;
+    if (!f) return;
+    for (struct flow *c=f->connections,*next;c;c=next) {
+        next=c->next;
+        if (c->type==SOCK_STREAM) {
+            struct md_network_tracking_entry *e=md_network_tracking_find(&c->tracking,n->inode);
+            for (size_t i=0;e && e->id && i<count;++i) if (ids[i]==e->id) {
+                md_network_tracking_forget(&c->tracking,f->fabric,e);
+                c->checked[0]=c->checked[1]=0;
+                break;
+            }
+            continue;
+        }
+        if (c->type!=SOCK_DGRAM) continue;
+        for (size_t i=0;i<count;++i) if (ids[i]==c->id) {
+            /* Keep the guest-facing carrier alive for connected UDP and
+             * cached sendto destinations. Only the mapping is retired. */
+            c->forgotten=1;
+            if (c->fd[1]>=0) { epoll_ctl(f->epoll,EPOLL_CTL_DEL,c->fd[1],NULL); close(c->fd[1]); c->fd[1]=-1; }
+            md_network_stack_close(c->packet_channel); c->packet_channel=NULL;
+            for (unsigned leg=0;leg<2;++leg) {
+                while (c->datagrams[leg].head) {
+                    struct datagram *d=c->datagrams[leg].head;
+                    c->datagrams[leg].head=d->next; free(d);
+                }
+                c->datagrams[leg]=(struct datagram_queue){0};
+                free(c->accounting[leg].cells); c->accounting[leg]=(struct md_filter_accounting){0};
+                c->checked[leg]=0; c->denied[leg]=0;
+            }
+            c->receiver=NULL; c->receiver_closed=0; c->receiver_generation=UINT64_MAX; c->started=0;
+            break;
+        }
+    }
+    if (count) wake(f);
+}
 static int socket_bound(int type,struct md_inet_address *address,int v6only) {
     int fd=socket(address->ip.family,type|SOCK_CLOEXEC|SOCK_NONBLOCK,0);
     if (fd<0) return -errno;
@@ -193,8 +270,10 @@ static int connect_target(const void *endpoint,int type,struct md_network_transp
 static int check(struct md_network_forward *f,struct flow *c,unsigned direction) {
     if (c->checked[direction]!=f->fabric->policy_generation) {
         unsigned mark=c->path.translated.ctmark;
-        c->denied[direction]=md_network_flow_accounting(f->fabric,&c->path,direction,!c->started,&c->accounting[direction]);
-        if (mark!=c->path.translated.ctmark) c->checked[1-direction]=0;
+        uint64_t revision=c->tracking.revision;
+        c->denied[direction]=md_network_flow_tracked(f->fabric,&c->path,direction,!c->started,&c->accounting[direction],
+            c->type==SOCK_STREAM ? &c->tracking : NULL);
+        if (mark!=c->path.translated.ctmark || revision!=c->tracking.revision) c->checked[1-direction]=0;
         c->checked[direction]=f->fabric->policy_generation;
     }
     return c->denied[direction];
@@ -208,6 +287,11 @@ static int packet_policy(void *context,unsigned direction,size_t bytes,struct md
 }
 static void account(struct flow *c,unsigned direction,size_t bytes) {
     md_filter_account(&c->accounting[direction],bytes);
+    if (c->type==SOCK_STREAM) {
+        uint64_t revision=c->tracking.revision;
+        md_network_tracking_touch(&c->tracking,c->owner->fabric,&c->owner->next_id,c->owner->now);
+        if (revision!=c->tracking.revision) c->checked[0]=c->checked[1]=0;
+    }
     if (!direction && !c->started) { c->started=1; c->checked[0]=0; }
 }
 static void reset_stream(int fd) {
@@ -293,6 +377,7 @@ static struct flow *new_flow(struct md_network_forward *f,struct listener *l,int
     }
     if (c->type==SOCK_STREAM) {
         c->buffer=calloc(2,sizeof(*c->buffer)); if (!c->buffer) goto failed;
+        md_network_tracking_init(&c->tracking,f->fabric,path,&f->next_id,now_ms());
     }
     c->deadline=c->type==SOCK_DGRAM || c->connecting ? now_ms()+30000 : INT64_MAX;
     for (unsigned leg=0;leg<2;++leg) if (c->fd[leg]>=0 && (leg || !c->borrowed))
@@ -427,7 +512,32 @@ static void listener_interests(struct md_network_forward *f,uint64_t id) {
         if (c->borrowed && c->listener==id && c->datagrams[1].head) { events|=EPOLLOUT; break; }
     watch(f,EPOLL_CTL_MOD,l->fd,l->id,2,events);
 }
+static int reconnect_datagram(struct md_network_forward *f,struct flow *c) {
+    struct md_network_namespace *n=md_network_space_find(f->fabric,c->space);
+    if (!n) return -ENETUNREACH;
+    struct md_filter_packet packet=c->path.original;
+    packet.state=8;
+    const struct md_network_flow_step *first=&c->path.steps[0];
+    int external=first->hook==NF_INET_PRE_ROUTING;
+    unsigned link=external ? first->packet.input : packet.output;
+    struct md_network_flow_path path;
+    int error=md_network_flow_route(n,&packet,external,link,&path);
+    struct md_inet_address target,remote={0}; const void *receiver=NULL;
+    if (!error) error=md_network_endpoint_resolve(f->fabric,&path,SOCK_DGRAM,&target,&receiver);
+    if (error) return error;
+    struct md_stack_channel *channel=NULL;
+    int connecting=0,fd=path.packet_space ? md_network_stack_connect(f->fabric,&path,SOCK_DGRAM,&channel)
+        : connect_target(c->endpoint,SOCK_DGRAM,path.transport,&target,&remote,&connecting,!!path.destination);
+    if (fd<0) return fd;
+    error=watch(f,EPOLL_CTL_ADD,fd,c->id,1,EPOLLIN);
+    if (error) { close(fd); md_network_stack_close(channel); return error; }
+    c->fd[1]=fd; c->packet_channel=channel; c->path=path; c->target=target; c->remote=remote;
+    c->receiver=receiver; c->receiver_generation=f->fabric->endpoint_generation; c->forgotten=0;
+    md_network_stack_set_policy(channel,c,1,packet_policy);
+    return 0;
+}
 static int datagram_submit(struct md_network_forward *f,struct flow *c,unsigned direction,const void *data,size_t size) {
+    if (c->forgotten && (direction || reconnect_datagram(f,c))) { ++f->dropped_datagrams; return 0; }
     int denied=c->group ? 0 : check(f,c,direction);
     if (!c->group) account(c,direction,size);
     if (denied) return -EACCES;
@@ -625,7 +735,10 @@ static int stream_event(struct md_network_forward *f,struct flow *c,unsigned leg
         } else {
             ssize_t bytes=recv(c->fd[leg],c->buffer[leg].data,sizeof(c->buffer[leg].data),MSG_DONTWAIT);
             if (bytes>0) { c->buffer[leg].end=(size_t)bytes; account(c,leg,(size_t)bytes); }
-            else if (!bytes) { c->eof[leg]=1; shutdown(c->fd[1-leg],SHUT_WR); }
+            else if (!bytes) {
+                c->eof[leg]=1; c->tracking.half_closed=1; c->tracking.activity=f->now;
+                shutdown(c->fd[1-leg],SHUT_WR);
+            }
             else if (errno!=EAGAIN && errno!=EWOULDBLOCK && errno!=EINTR) return -errno;
         }
     }
@@ -644,13 +757,25 @@ static void *run(void *context) {
     int timeout=-1;
     for (;;) {
         struct epoll_event events[64];
-        /* EVENT_WAIT: socket readiness, ruleset/lifetime change or a UDP/pending
-         * connect expiry. Idle listener sets have no periodic wakeup. */
+        /* EVENT_WAIT: socket readiness, ruleset/lifetime change or a transport/
+         * conntrack expiry. Idle listener sets have no periodic wakeup. */
         int count=epoll_wait(f->epoll,events,64,timeout);
         int wait_error=count<0 ? errno : 0;
         pthread_mutex_lock(&f->fabric->lock);
         if (f->stopped) { pthread_mutex_unlock(&f->fabric->lock); return NULL; }
         if (count<0 && wait_error!=EINTR) { pthread_mutex_unlock(&f->fabric->lock); return NULL; }
+        f->now=now_ms();
+        for (struct flow *c=f->connections,*next;c;c=next) {
+            next=c->next;
+            if (c->type!=SOCK_STREAM) continue;
+            uint64_t revision=c->tracking.revision;
+            md_network_tracking_expire(&c->tracking,f->fabric,f->now);
+            if (revision!=c->tracking.revision) {
+                c->checked[0]=c->checked[1]=0;
+                int error=interests(f,c);
+                if (error) { md_network_endpoint_connect_complete(c->endpoint,error); drop_flow(f,c); }
+            }
+        }
         for (int i=0;i<count;++i) {
             uint64_t id=events[i].data.u64/4; unsigned leg=(unsigned)(events[i].data.u64%4);
             if (!id) {
@@ -678,7 +803,7 @@ static void *run(void *context) {
                 }
             } else {
                 struct flow *c=find_flow(f,id);
-                if (c) {
+                if (c && c->fd[leg]>=0) {
                     if (c->type==SOCK_DGRAM) {
                         if (events[i].events&EPOLLIN) udp_receive(f,c,leg);
                         if (events[i].events&EPOLLOUT) datagram_flush(f,c,1-leg);
@@ -697,7 +822,13 @@ static void *run(void *context) {
             struct flow *next=c->next;
             if (c->deadline<=now) {
                 md_network_endpoint_connect_complete(c->endpoint,-ETIMEDOUT); drop_flow(f,c);
-            } else if (c->deadline<deadline) deadline=c->deadline;
+            } else {
+                if (c->deadline<deadline) deadline=c->deadline;
+                if (c->type==SOCK_STREAM) {
+                    int64_t expiry=md_network_tracking_next(&c->tracking);
+                    if (expiry<deadline) deadline=expiry;
+                }
+            }
             c=next;
         }
         struct listener *l=f->ports;
@@ -709,7 +840,7 @@ static void *run(void *context) {
             } else if (l->deadline<deadline) deadline=l->deadline;
             l=next;
         }
-        timeout=deadline==INT64_MAX ? -1 : deadline-now>INT_MAX ? INT_MAX : (int)(deadline-now);
+        timeout=deadline==INT64_MAX ? -1 : deadline<=now ? 0 : deadline-now>INT_MAX ? INT_MAX : (int)(deadline-now);
         pthread_mutex_unlock(&f->fabric->lock);
     }
 }
@@ -898,6 +1029,7 @@ void md_network_forward_changed(struct md_network_fabric *fabric) {
     if (!++fabric->policy_generation) ++fabric->policy_generation;
     for (struct md_network_namespace *n=fabric->spaces;n;n=n->next) {
         md_network_tun_changed(n);
+        md_network_vxlan_changed(n);
         md_network_stack_changed(n);
     }
     wake(fabric->forward);
@@ -1047,7 +1179,7 @@ int md_network_forward_source(struct md_network_namespace *n,int type,struct md_
     if (!f || !md_ip_is_loopback(address->ip)) return 0;
     for (struct flow *c=f->connections;c;c=c->next) {
         if (c->type!=type) continue;
-        if (c->remote.ip.family==address->ip.family && c->remote.port==address->port && c->path.destination==n->inode) {
+        if (!c->forgotten && c->remote.ip.family==address->ip.family && c->remote.port==address->port && c->path.destination==n->inode) {
             if (info) *info=(struct md_network_packet_info){.destination=c->path.translated.destination,
                 .interface=c->path.translated.input,.hops=c->group_hops,.hops_set=c->group};
             address->ip=c->path.translated.source; address->port=c->path.translated.source_port; return 1;
@@ -1075,7 +1207,7 @@ int md_network_forward_destination(struct md_network_namespace *n,const void *en
                 && c->path.original.destination_port==destination->port) {
             *native=c->gateway; return 1;
         }
-        if (c->path.destination==n->inode
+        if (!c->forgotten && c->path.destination==n->inode
                 && (type!=SOCK_DGRAM || !c->receiver_closed)
                 && local->port==c->path.translated.destination_port
                 && (md_ip_unspecified(local->ip) || md_ip_equal(local->ip,c->path.translated.destination))

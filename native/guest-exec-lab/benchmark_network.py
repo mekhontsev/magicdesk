@@ -18,12 +18,20 @@ from benchmark_cpu import observe_suite_cpu
 
 
 def main():
+    profiles = ('host', 'routed', 'filtered', 'nat')
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('build', type=Path)
     parser.add_argument('store')
     parser.add_argument('--sysroot', type=Path, required=True)
     parser.add_argument('--rounds', type=int, default=5)
+    parser.add_argument('--profile', action='append', choices=('native', *profiles),
+                        help='Limit an interleaved comparison; defaults to all profiles')
+    parser.add_argument('--reference', type=Path,
+                        help='Interleave another runtime build against the same guest and fixture')
+    parser.add_argument('--output', type=Path, default=Path('build/network-benchmark'))
     args = parser.parse_args()
+    if not 1 <= args.rounds <= 100:
+        parser.error('--rounds must be between 1 and 100')
     root = args.sysroot.resolve()
     lib = root / 'usr/lib/aarch64-linux-gnu'
     gcc = root / 'usr/lib/gcc/aarch64-linux-gnu/14'
@@ -35,21 +43,41 @@ def main():
         str(Path(__file__).with_suffix('.c')), '-L' + str(lib), '-L' + str(gcc),
         '-Wl,--start-group', '-lc', '-lgcc', '-lgcc_eh', '-Wl,--end-group',
         str(gcc / 'crtend.o'), str(lib / 'crtn.o'), '-o', str(binary)], check=True)
-    suite = Suite(Path('build/network-benchmark'), args.build)
+    suite = Suite(args.output, args.build)
     observer = Observer()
-    prefix = [suite.runner, '--store', args.store, '--user', '0:0']
+    guest = ['--store', args.store, '--user', '0:0']
+    prefix = [suite.runner, *guest]
     target = '/tmp/md-network-benchmark-' + suite.report['id']
-    samples = {mode: [] for mode in ('native', 'host', 'routed', 'filtered', 'nat')}
+    modes = {'native': ('native', suite.runner)} if not args.profile or 'native' in args.profile else {}
+    groups = [['native']] if modes else []
     created = False
     try:
         suite.transport.upload(suite.client, binary, suite.base + '/bench')
         suite.command(['chmod', '700', suite.base + '/bench'])
+        if args.reference:
+            reference = suite.base + '/reference'
+            suite.command(['mkdir', reference])
+            suite.report['referenceHashes'] = suite.stage_runtime(args.reference, reference)
+        for mode in profiles:
+            if args.profile and mode not in args.profile:
+                continue
+            modes[mode] = (mode, suite.runner)
+            group = [mode]
+            if args.reference:
+                modes['reference-' + mode] = (mode, reference + '/libmagicdesk_guest_run.so')
+                group.append('reference-' + mode)
+            groups.append(group)
+        samples = {name: [] for name in modes}
         suite.command(prefix + ['--', '/bin/mkdir', target])
         created = True
-        # Rotate order to distribute thermal/drift effects across profiles.
-        modes = list(samples)
+        # Keep reference pairs adjacent; reverse and rotate their order so
+        # neither build always follows the same warmup or idle interval.
         for iteration in range(args.rounds):
-            for mode in modes[iteration % len(modes):] + modes[:iteration % len(modes)]:
+            offset = (iteration // 2) % len(groups)
+            order = [name for group in groups[offset:] + groups[:offset] for name in group]
+            sequence = order if iteration % 2 == 0 else list(reversed(order))
+            for name in sequence:
+                mode, runner = modes[name]
                 port = observer.allocate_port()
                 front = observer.allocate_port()
                 for sock in observer.reservations:
@@ -68,7 +96,7 @@ def main():
                     command[0] = target + '/bench'
                     script = ('printf %s ' + shlex.quote(rules) + ' | nft -f -\n' if rules else '')
                     script += 'exec ' + shlex.join(command)
-                    command = prefix + ['--network', 'host' if mode == 'host' else 'routed',
+                    command = [runner, *guest, '--network', 'host' if mode == 'host' else 'routed',
                         '--bind-ro', suite.base, target, '--deadline-seconds', '90', '--', '/bin/sh', '-ec', script]
                 with observe_suite_cpu(suite) as cpu_conditions:
                     output = suite.command([suite.base + '/bench', '--time', *command], timeout=110)
@@ -77,7 +105,8 @@ def main():
                 cpu = next(line.split()[1:] for line in output.splitlines() if line.startswith('NETWORK_CPU '))
                 result['lifecycleCpuSeconds'] = sum(map(float, cpu))
                 result['cpu'] = cpu_conditions
-                samples[mode].append(result)
+                result['round'] = iteration
+                samples[name].append(result)
         suite.report['samples'] = samples
         suite.report['medians'] = {mode: {
             'tcpSeconds': statistics.median(row['tcp']['seconds'] for row in rows),

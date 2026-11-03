@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "fs_storage.h"
 #ifdef MD_KERNEL_TESTING
 #include "kernel_profile.h"
 #endif
@@ -1850,7 +1851,7 @@ static struct md_control_file proc_control_view(struct thread *t,enum md_proc_ki
         return md_network_proc_new(target->resources.network,(enum md_network_table)(kind-MD_PROC_NET_TCP));
     }
     if (kind==MD_PROC_MAX_USER_NAMESPACES) return md_user_sysctl_new(t->identity.user_namespace,NULL);
-    if (md_proc_static(kind)) return md_proc_static_new(kind,t->identity.user_namespace,NULL);
+    if (md_proc_static(kind)) return md_proc_static_new(kind,t->identity.user_namespace,NULL,t->resources.network);
     return md_network_sysctl_new(t->resources.network,
         (enum md_network_parameter)(kind-MD_PROC_NET_UNPRIVILEGED_PORT),interface,NULL);
 }
@@ -1975,12 +1976,19 @@ static int proc_file_publish(struct thread *t, const struct seccomp_notif *q,
     }
     return error;
 }
+static int control_mount_path(const struct md_proc_file *file) {
+    struct md_fs_anchor *origin=md_proc_file_origin(file);
+    /* Mount operations select the retained dentry of an O_PATH device, never
+     * its data carrier. Namespace handles retain their typed bind semantics. */
+    return md_proc_file_filesystem_paths(file) || ((md_proc_file_flags(file)&O_PATH)
+        && !md_proc_file_namespace(md_proc_file_kind(file)) && origin && !md_fs_anchor_virtual(origin));
+}
 static int control_file_query(struct md_fd_object *object,unsigned operation,struct md_control_file *out) {
     struct md_proc_file *file=md_proc_file_from_object(object);
     if (!file) return 0;
     *out=md_proc_file_control(file);
     if (operation==MD_FS_MOUNT || operation==MD_FS_OPEN_TREE) {
-        if (md_proc_file_filesystem_paths(file)) { *out=(struct md_control_file){0}; return 0; }
+        if (control_mount_path(file)) { *out=(struct md_control_file){0}; return 0; }
         if (!out->ops || !out->ops->descriptor) return -EOPNOTSUPP;
     } else if (operation!=MD_FS_FDINFO && operation!=MD_FS_FSTAT && (md_proc_file_flags(file)&O_PATH)) return -EBADF;
     return out->ops ? 1 : -EINVAL;
@@ -1999,7 +2007,7 @@ static int control_file_capture(pid_t actor,const char *path,struct md_fd_object
         file=proc_file_capture(target,selected.descriptor);
         if (!file) return 0;
         if (target!=t && !proc_allowed(t->pid,target->pid)) { md_proc_file_release(file); return -EACCES; }
-        if (md_proc_file_filesystem_paths(file)) { md_proc_file_release(file); return 0; }
+        if (control_mount_path(file)) { md_proc_file_release(file); return 0; }
         if (*selected.tail) { md_proc_file_release(file); return -ENOTDIR; }
     } else {
         if (target!=t && !proc_allowed(t->pid,target->pid)) return -EACCES;
@@ -3489,6 +3497,11 @@ static void fd_native_start(struct thread *t) {
             admission=md_process_member_exec(t->resources.process);
         }
     }
+    if (!admission && md_clone_call(r->regs[8]) && !(t->cloning&CLONE_INTO_CGROUP)
+            && t->resources.cgroup && !t->resource_change.next.cgroup) {
+        t->resource_change.next.cgroup=md_cgroup_member_fork(t->resources.cgroup);
+        if (!t->resource_change.next.cgroup) admission=-errno;
+    }
     if (admission) {
         md_resources_unshare_finish(&t->resources,&t->identity,&t->resource_change,admission);
         fd_discard(t); return_value(t,r,admission); return;
@@ -4896,6 +4909,7 @@ static void close_progress(struct thread *t) {
         tracee_request(t,PTRACE_INTERRUPT,NULL,NULL,"close-provider-ready");
 }
 static void close_event_begin(struct thread *t,unsigned event,unsigned long message) {
+    if (event==PTRACE_EVENT_EXIT) md_cgroup_member_account_exit(t->resources.cgroup);
     t->close_event=event; t->close_message=message; t->close_errors=0;
     /* EVENT_WAIT: terminal provider replies before exec continuation/exit.
      * The ptrace event already owns the stop; no guest memory or FD turn is
@@ -6026,13 +6040,17 @@ static void buffer_descriptor_start(struct thread *t) {
         struct md_network_request *request=span.data;
         int sending=nr==SYS_sendto || nr==SYS_sendmsg;
         const struct md_network_send *destination=sending ? &request->destination : NULL;
+        size_t capacity=span.size>offsetof(struct md_network_request,data)
+            ? span.size-offsetof(struct md_network_request,data) : 0;
+        void *data=(unsigned char *)span.data+offsetof(struct md_network_request,data);
         if (span.size<sizeof(*request)) result=-EOVERFLOW;
+        else if (t->buffer_descriptor_argument>capacity) result=-EMSGSIZE;
         else if (md_device_events_is(object)) {
             uint32_t groups=0;
             result=md_network_netlink_destination(destination,&groups);
             if (!result) result=groups ? -EOPNOTSUPP
-                : md_device_events_call(object,nr,args,request->data,sizeof(request->data),t->buffer_descriptor_argument,visible_pid(t,t->tgid));
-        } else result=md_network_socket_call(object,&t->identity,nr,args,request->data,sizeof(request->data),
+                : md_device_events_call(object,nr,args,data,capacity,t->buffer_descriptor_argument,visible_pid(t,t->tgid));
+        } else result=md_network_socket_call(object,&t->identity,nr,args,data,capacity,
             t->buffer_descriptor_argument,visible_pid(t,t->tgid),destination,t->resources.pid_group,&resolver);
     } else if (!result) {
         if (!md_descriptor_inode_is(object)) result=-EBADF;
@@ -6377,7 +6395,7 @@ static void buffer_control(struct thread *t, const struct user_pt_regs *r) {
         break;
     }
     case MD_BUFFER_NETWORK_CALL: {
-        if (t->phase!=DISPATCHING || !t->buffer.pool || r->regs[1]>MD_NETWORK_BUFFER_SIZE || r->regs[2]) break;
+        if (t->phase!=DISPATCHING || !t->buffer.pool || r->regs[1]>MD_NETWORK_CONTROL_MAX || r->regs[2]) break;
         buffer_descriptor_begin(t,r); return;
     }
     case MD_BUFFER_NETWORK_CREDENTIALS: {
@@ -6654,6 +6672,20 @@ static int signal_allowed(const struct thread *from,const struct thread *to,int 
 static int namespace_init(const struct thread *t) {
     return md_pid_identity_number(t->resources.pid_group,md_pid_identity_namespace(t->resources.pid))==1;
 }
+static int process_reboot_signal(pid_t pid) {
+    struct thread *t=find_thread(pid);
+    return md_pid_identity_reboot_signal(t ? t->resources.pid_group : md_task_registry_retired(tasks,pid).pid);
+}
+static int process_reboot_status(pid_t pid,int status) {
+    if (!WIFEXITED(status) && !WIFSIGNALED(status)) return status;
+    int signal=process_reboot_signal(pid);
+    return signal ? signal : status;
+}
+static void process_reboot_info(pid_t pid,int *code,int *status) {
+    if (*code!=CLD_EXITED && *code!=CLD_KILLED && *code!=CLD_DUMPED) return;
+    int signal=process_reboot_signal(pid);
+    if (signal) { *code=CLD_KILLED; *status=signal; }
+}
 /* Keep stop information native while a guest debugger owns it. Translate only
  * on actual delivery, in the recipient's namespaces rather than the tracer's. */
 static void deliver_signal(pid_t pid,int sig,int restored) {
@@ -6671,7 +6703,7 @@ static void deliver_signal(pid_t pid,int sig,int restored) {
             resume(pid,retained); return;
         }
     }
-    if (sig && t->resources.pid) {
+    if (sig && (t->resources.pid || (t->pid_filter && sig==SIGCHLD))) {
         siginfo_t info;
         if (!tracee_request(t,PTRACE_GETSIGINFO,NULL,&info,"pid-signal-info")) return;
         int fault=info.si_code>0 && (sig==SIGSEGV || sig==SIGBUS || sig==SIGILL
@@ -6687,6 +6719,8 @@ static void deliver_signal(pid_t pid,int sig,int restored) {
             if (!(caught&(UINT64_C(1)<<(sig-1)))) { resume(pid,0); return; }
         }
         if (info.si_signo==SIGCHLD || info.si_code==SI_USER || info.si_code==SI_TKILL) {
+            if (info.si_signo==SIGCHLD)
+                process_reboot_info(info.si_pid,&info.si_code,&info.si_status);
             info.si_uid=process_signal_uid(t,info.si_pid,info.si_uid);
             info.si_pid=visible_pid(t,info.si_pid);
             if (!tracee_request(t,PTRACE_SETSIGINFO,NULL,&info,"pid-signal-sender")) return;
@@ -6863,7 +6897,7 @@ static int process_call(struct thread *t,struct user_pt_regs *r,unsigned long *c
                 && shield(t) && skip(t->pid)) dispatch_with_stack(t);
         return 1;
     }
-    if (!t->resources.pid && !signaling) return 0;
+    if (!t->resources.pid && !signaling && nr!=SYS_wait4 && nr!=SYS_waitid && nr!=SYS_rt_sigtimedwait) return 0;
     if (nr==SYS_futex) {
         /* The PID selector intercepts only PI operations. Passing a logical
          * owner TID to the native PI state can deadlock even after unlock.
@@ -7004,6 +7038,28 @@ static void filter_revoke_entry(struct thread *t,const struct user_pt_regs *r) {
 }
 static int domain_call(struct thread *t, struct user_pt_regs *r, unsigned long cookie) {
     long nr = r->regs[8];
+    if (nr==SYS_reboot && t->phase==IDLE) {
+        struct md_pid_namespace *space=md_pid_identity_namespace(t->resources.pid);
+        int error=md_pid_namespace_reboot(space,&t->identity,r->regs[0],r->regs[1],r->regs[2]);
+        if (error<0) { return_value(t,r,error); return 1; }
+        struct md_pid_identity *init=md_pid_namespace_lookup(space,1);
+        pid_t target=md_pid_identity_native(init);
+        md_pid_identity_release(init);
+        if (target<=0) { return_value(t,r,-ESRCH); return 1; }
+        /* Never issue a host reboot. PID 1 death uses the existing namespace
+         * descendant owner; parent wait translation retains the Linux reason. */
+        if (kill(target,SIGKILL)) {
+            return_value(t,r,-errno); return 1;
+        }
+        md_pid_namespace_reboot_started(space,error);
+        if (t->tgid==target) { resume(t->pid,0); return 1; }
+        int number=SYS_exit;
+        struct iovec call={&number,sizeof(number)};
+        r->regs[8]=number; r->regs[0]=0;
+        if (set_registers(t->pid,r) && tracee_request(t,PTRACE_SETREGSET,(void *)NT_ARM_SYSTEM_CALL,&call,"namespace-reboot-exit"))
+            resume(t->pid,0);
+        return 1;
+    }
     if (t->ready && t->entered && t->phase==IDLE && cookie==MD_INTERCEPT_OBSERVE && r->pc!=RAW_GATE
             && ((nr==SYS_seccomp && (unsigned)r->regs[0]==SECCOMP_SET_MODE_FILTER)
                 || (nr==SYS_prctl && (unsigned)r->regs[0]==PR_SET_SECCOMP))) {
@@ -9000,7 +9056,7 @@ static int publish_birth(struct thread *t,pid_t child,unsigned event) {
     CHECK(!md_shm_space_release(c->shm_space));
     c->shm_space = md_shm_space_fork(t->shm_space,!!(t->cloning & CLONE_VM)); CHECK(c->shm_space);
     CHECK(!md_resources_release(&c->resources));
-    if (t->resources.fs) CHECK(!md_resources_fork(&t->resources, t->cloning, &c->resources));
+    if (t->resources.fs) CHECK(!md_resources_fork(&t->resources,t->cloning,t->resource_change.next.cgroup,&c->resources));
     CHECK(t->process_reservation);
     c->resources.process=t->process_reservation; t->process_reservation=NULL;
     md_process_member_forked(t->resources.process);
@@ -9081,6 +9137,9 @@ static int checkpoint_event(pid_t pid,int *status) {
                 || (task_action_execution && md_task_quiesce_waiting(task_action_barrier,pid)))) return 0;
     return md_task_checkpoint_event(&checkpoints,pid,status);
 }
+static int tasks_pending(void) {
+    return live || md_fs_buffer_children(buffer_service) || md_task_helpers_count(helpers);
+}
 static pid_t wait_event(int *status, struct rusage *usage) {
     enum { PROGRESS_BATCH=8 };
     static unsigned progress_budget;
@@ -9106,6 +9165,9 @@ static pid_t wait_event(int *status, struct rusage *usage) {
             progress_budget=PROGRESS_BATCH;
         }
         --progress_budget;
+        /* Progress callbacks can finish the last private task without leaving
+         * another kernel event. The outer loop uses this same lifetime owner. */
+        if (!tasks_pending()) return 0;
         /* Progress can return a borrowed stop without generating SIGCHLD.
          * Drain that local event before trusting the kernel's empty queue. */
         pid_t pid=deferred_event(status,usage);
@@ -9119,6 +9181,19 @@ static pid_t wait_event(int *status, struct rusage *usage) {
             int held=md_broker_hold_event(broker,pid,*status,usage); CHECK(held>=0);
             if (held) continue;
             return pid;
+        }
+        if (pid<0 && errno==ECHILD && md_broker_pending_events(broker)) pid=0;
+        if (pid<0 && errno==ECHILD) {
+            fprintf(stderr,"Shroot: empty task queue live=%u buffers=%u helpers=%u\n",
+                live,md_fs_buffer_children(buffer_service),md_task_helpers_count(helpers));
+            unsigned shown=0;
+            for (struct thread *t=threads;t && shown<16;t=t->next) if (t->pid) {
+                fprintf(stderr,"Shroot: pending pid=%d group=%d phase=%d born=%d terminal=%d lost=%d broker=%d\n",
+                    t->pid,t->tgid,t->phase,t->born,t->terminal_stop,t->resume_lost,t->broker_event.held);
+                ++shown;
+            }
+            md_broker_describe(broker,STDERR_FILENO);
+            errno=ECHILD;
         }
         CHECK(pid == 0 || errno == EINTR);
         if (memory_runnable()) continue;
@@ -9598,11 +9673,12 @@ int main(int argc, char **argv) {
         CHECK(argument+2<argc && *argv[argument+1]); gamepad_endpoint=argv[argument+1]; argument+=2;
     }
     while (argument < argc && (!strcmp(argv[argument], "--bind") || !strcmp(argv[argument], "--bind-ro")
-            || !strcmp(argv[argument], "--bind-create"))) {
+            || !strcmp(argv[argument], "--bind-create") || !strcmp(argv[argument], "--bind-store-ro"))) {
         CHECK(argument+2 < argc && attachment_count < MD_FS_MOUNTS_MAX);
         attachments[attachment_count++] = (struct md_fs_attachment){
             .source=argv[argument+1], .target=argv[argument+2],
             .flags=!strcmp(argv[argument], "--bind-ro") ? MD_FS_ATTACHMENT_READONLY
+                : !strcmp(argv[argument], "--bind-store-ro") ? MD_FS_ATTACHMENT_STORE|MD_FS_ATTACHMENT_READONLY
                 : !strcmp(argv[argument], "--bind-create") ? MD_FS_ATTACHMENT_CREATE : 0};
         argument += 3;
     }
@@ -9617,10 +9693,11 @@ int main(int argc, char **argv) {
         else {
             struct md_inode_store *accounts = NULL;
             CHECK(store && !md_inode_store_open(store, 0, &accounts));
-            struct md_filesystem view = {.store=accounts};
+            struct md_fs_storage_cache account_storage={0};
+            struct md_filesystem view = {.store=accounts,.storage=&account_storage};
             CHECK(!md_fs_mounts_open(&view, attachments, attachment_count));
             int resolved = md_guest_user_resolve(&view, selected_user, &launch_identity);
-            md_fs_mounts_close(&view); md_inode_store_close(accounts);
+            md_fs_mounts_close(&view); md_fs_storage_close(&account_storage); md_inode_store_close(accounts);
             if (resolved) { errno = -resolved; CHECK(!resolved); }
         }
     }
@@ -9770,9 +9847,10 @@ int main(int argc, char **argv) {
         selected_hostname,strlen(selected_hostname)));
     byte = 'g'; CHECK(write(channel[0], &byte, 1) == 1); close(channel[0]);
     if (seconds) cancellation_arm((unsigned)seconds);
-    while (live || md_fs_buffer_children(buffer_service) || md_task_helpers_count(helpers)) {
+    while (tasks_pending()) {
         pid_collect();
         int status; struct rusage usage; pid_t pid = wait_event(&status, &usage);
+        if (!pid) break;
         struct thread *signalled=WIFSTOPPED(status) && (unsigned)status>>16==PTRACE_EVENT_STOP
             ? find_thread(pid) : NULL;
         if (signalled && signalled->machine.signal_alias) {
@@ -9836,6 +9914,7 @@ int main(int argc, char **argv) {
         t->interrupt_pending=0;
         if (md_debugger_active(debugger)) t->usage=usage;
         if (WIFEXITED(status) || WIFSIGNALED(status)) {
+            status=process_reboot_status(pid,status);
             int code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
             if (pid == leader && !cancelling) result = code;
             if (code) TRACE("PROBE exit pid=%d status=%d ready=%d calls=%u\n", pid, code, t->ready, t->calls);
@@ -9950,6 +10029,7 @@ int main(int argc, char **argv) {
             CHECK(!md_resources_unshare_finish(&t->resources,&t->identity,&t->resource_change,-ECANCELED));
             unsigned long message;
             if (!tracee_request(t,PTRACE_GETEVENTMSG,NULL,&message,"debug-exit")) continue;
+            message=(unsigned)process_reboot_status(pid,(int)message);
             TRACE("PROBE terminal-stop pid=%d lost=%d status=%#lx\n",pid,resume_lost,message);
             if (diagnostics && (message&0x7f)==SIGSYS) {
                 struct user_pt_regs terminal;
@@ -10403,6 +10483,15 @@ int main(int argc, char **argv) {
                  * before signal delivery can save the interrupted context. */
                 memcpy(regs.regs+1,t->original.regs+1,7*sizeof(regs.regs[0]));
                 unsigned info_argument=nr==SYS_waitid ? 2 : 1;
+                if (value>0 && nr==SYS_wait4 && t->original.regs[1] && process_reboot_signal((pid_t)value)) {
+                    t->process_return=regs; t->process_return.regs[0]=visible_pid(t,(pid_t)value);
+                    t->process_info_native=(pid_t)value;
+                    if (!save_signal_mask(t,&t->mask,"pid-wait-status-mask") || !shield(t)) continue;
+                    regs.pc=abi.load_groups; regs.regs[0]=t->original.regs[1]; regs.regs[1]=1;
+                    t->phase=PROCESS_INFO_LOAD;
+                    if (set_registers(pid,&regs)) resume(pid,0);
+                    continue;
+                }
                 if (((!value && nr==SYS_waitid) || (value>0 && nr==SYS_rt_sigtimedwait))
                         && t->original.regs[info_argument]) {
                     t->process_return=regs;
@@ -10737,20 +10826,34 @@ int main(int argc, char **argv) {
             }
             if (checkpoint==abi.loaded_groups && t->phase==PROCESS_INFO_LOAD) {
                 regs.regs[8]=regs.regs[19];
+                if (t->original.regs[8]==SYS_wait4) {
+                    int status=process_reboot_status(t->process_info_native,(int)regs.regs[3]);
+                    t->process_info_code=WIFEXITED(status) ? CLD_EXITED : WIFSIGNALED(status) ? CLD_KILLED : 0;
+                    regs.regs[3]=(unsigned)status; regs.regs[0]=t->original.regs[1]; regs.regs[1]=1;
+                    regs.pc=abi.store_groups; t->phase=PROCESS_INFO_STORE;
+                    if (set_registers(pid,&regs)) resume(pid,0);
+                    continue;
+                }
                 _Static_assert(offsetof(siginfo_t,si_pid)==16,"AArch64 siginfo PID offset");
+                int child=(int)regs.regs[3]==SIGCHLD;
                 t->process_info_code=(int)regs.regs[5];
                 t->process_info_native=(pid_t)regs.regs[7];
+                int status=(int)regs.regs[9];
+                if (child) process_reboot_info(t->process_info_native,&t->process_info_code,&status);
                 int translate=(int)regs.regs[3]==SIGCHLD || t->process_info_code==SI_USER || t->process_info_code==SI_TKILL;
-                regs.regs[3]=translate ? visible_pid(t,t->process_info_native) : t->process_info_native;
-                regs.regs[4]=translate ? process_signal_uid(t,t->process_info_native,(uid_t)regs.regs[8]) : regs.regs[8];
+                unsigned padding=(unsigned)regs.regs[6];
+                pid_t sender=translate ? visible_pid(t,t->process_info_native) : t->process_info_native;
+                uid_t uid=translate ? process_signal_uid(t,t->process_info_native,(uid_t)regs.regs[8]) : regs.regs[8];
+                regs.regs[3]=(unsigned)t->process_info_code; regs.regs[4]=padding;
+                regs.regs[5]=(unsigned)sender; regs.regs[6]=uid; regs.regs[7]=(unsigned)status;
                 unsigned info_argument=t->original.regs[8]==SYS_waitid ? 2 : 1;
-                regs.regs[0]=t->original.regs[info_argument]+offsetof(siginfo_t,si_pid);
-                regs.regs[1]=2; regs.pc=abi.store_groups; t->phase=PROCESS_INFO_STORE;
+                regs.regs[0]=t->original.regs[info_argument]+offsetof(siginfo_t,si_code);
+                regs.regs[1]=5; regs.pc=abi.store_groups; t->phase=PROCESS_INFO_STORE;
                 if (set_registers(pid,&regs)) resume(pid,0);
                 continue;
             }
             if (checkpoint==abi.stored_groups && t->phase==PROCESS_INFO_STORE) {
-                if (t->original.regs[8]==SYS_waitid && !(t->original.regs[3]&WNOWAIT) && (t->process_info_code==CLD_EXITED
+                if ((t->original.regs[8]==SYS_wait4 || (t->original.regs[8]==SYS_waitid && !(t->original.regs[3]&WNOWAIT))) && (t->process_info_code==CLD_EXITED
                         || t->process_info_code==CLD_KILLED || t->process_info_code==CLD_DUMPED))
                     md_task_registry_reap(tasks,t->process_info_native);
                 if (!set_registers(pid,&t->process_return) || !restore_mask(t)) continue;

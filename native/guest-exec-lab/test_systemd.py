@@ -9,12 +9,12 @@ from pathlib import Path
 import shlex
 import socket
 
-from init_fixture import PREPARE as INIT_PREPARE, TRACE_SYSCALLS
+from init_fixture import prepare_init, TRACE_SYSCALLS
 from test_oci_services import Suite, add_machine_entry_argument
 from kernel_profile import KernelProfile
 
 
-PREPARE = INIT_PREPARE + r'''
+PREPARE = prepare_init() + r'''
 export SYSTEMD_LOG_LEVEL=debug
 mkdir -p /run/systemd/system /run/md-user /run/md-user-units
 chmod 700 /run/md-user

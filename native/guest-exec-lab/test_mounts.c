@@ -7,6 +7,7 @@
 #include "task_registry.h"
 #include "task_resources.h"
 #include "mount_instance.h"
+#include "native_mounts.h"
 #include <assert.h>
 #include <dirent.h>
 #include <errno.h>
@@ -584,7 +585,10 @@ int main(int argc, char **argv) {
             result=call(view,MD_FS_MOUNT_TABLE,-1,NULL,O_RDONLY,info,bytes,sizeof(bytes));
             assert(!result.error && result.fd>=0);
             ssize_t count=read(result.fd,bytes,sizeof(bytes)-1); assert(count>0);
-            bytes[count]=0; assert(strstr(bytes,"guestfs") && strstr(bytes,"/proc") && strstr(bytes,"/dev/shm"));
+            bytes[count]=0;
+            const char *type=md_native_mounts_type(view->mounts->native_mounts,s->lifetime->device);
+            assert(type && strstr(bytes,type) && strstr(bytes,"guest:") && !strstr(bytes,"guestfs"));
+            assert(strstr(bytes,"/proc") && strstr(bytes,"/dev/shm"));
             assert(!strstr(bytes,store) && !strstr(bytes,host));
             if (attached) assert(strstr(bytes,"/readonly") && strstr(bytes,"/volume"));
             assert((fcntl(result.fd,F_GETFL)&O_ACCMODE)==O_RDONLY);
@@ -609,7 +613,7 @@ int main(int argc, char **argv) {
     assert(!result.error); close(result.fd);
     result=call(&fs,MD_FS_MOUNT_TABLE,-1,NULL,O_RDONLY,1,NULL,0); assert(!result.error);
     ssize_t count=read(result.fd,bytes,sizeof(bytes)-1); assert(count>0); bytes[count]=0;
-    assert(strstr(bytes,"guestfs") && !strstr(bytes,"/proc") && !strstr(bytes,"/volume") && !strstr(bytes,"/readonly"));
+    assert(strstr(bytes,"guest:") && !strstr(bytes,"guestfs") && !strstr(bytes,"/proc") && !strstr(bytes,"/volume") && !strstr(bytes,"/readonly"));
     close(result.fd);
     md_task_registry_destroy(fs.tasks); fs.tasks=NULL;
     md_identity_release(&identity); md_domain_release(context);

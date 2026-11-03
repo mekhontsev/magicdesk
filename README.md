@@ -258,6 +258,7 @@ Verified scenarios include:
 | Distributions | glibc/musl, package managers, independent environments, OCI layers and copy-on-write storage |
 | Services | systemd as guest PID 1, user managers, socket/timer activation, OpenRC and runit lifecycle |
 | Containers | Docker Engine, Podman, LXC and systemd-nspawn, overlay storage, nested boot and machinectl lifecycle on systemd distributions |
+| Kubernetes | Stock k3s: multi-node VXLAN, CoreDNS, Services, NetworkPolicy, persistent volumes, rolling updates and Traefik ingress |
 | Image builds | BuildKit multistage builds, cache reuse/invalidation, cache/secret mounts and exported-image execution |
 | Networking | Routed and bridge IPv4/IPv6, supported nftables filtering/NAT, TCP/UDP publication and container peers |
 | Virtual machines | QEMU TCG kernel/initrd boot and libvirt-managed start, pause/resume and shutdown; not a KVM claim |
@@ -265,6 +266,13 @@ Verified scenarios include:
 | Packaged applications | Selected Flatpak and Snap browser workflows, FUSE-backed document portals; Snap runs with reduced confinement, not strict AppArmor isolation |
 | Filesystem restrictions | Supported Landlock ABI 1 policies, including pacman's filesystem sandbox |
 | Development | Compilers, GDB/LLDB/gdbserver, strace and VS Code workflows |
+
+**Run a Kubernetes lab on your phone:** checked k3s clusters include separate
+Debian and Alpine nodes on one Android device, without Android root or a VM.
+Checks include workload and network recovery after k3s restarts. Debian/systemd
+and Alpine/OpenRC also run the stock enabled service and recover cluster identity
+and persistent volumes after guest shutdown or forced Shroot termination.
+See [k3s support](docs/shroot.md#k3s).
 
 Coverage is [per distribution and scenario](native/guest-exec-lab/validation-matrix.md),
 not a guarantee that every service or package works. Packages come from the guest;

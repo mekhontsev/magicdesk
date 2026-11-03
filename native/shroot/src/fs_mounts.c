@@ -416,13 +416,29 @@ int md_fs_mounts_open(struct md_filesystem *fs, const struct md_fs_attachment *e
         struct md_view_mount *m = &tree->mounts[tree->count];
         m->generation=1;
         m->source = m->target = -1;
-        if (entry->flags & ~(MD_FS_ATTACHMENT_READONLY|MD_FS_ATTACHMENT_CREATE)) { r=-EINVAL; break; }
+        if (entry->flags & ~(MD_FS_ATTACHMENT_READONLY|MD_FS_ATTACHMENT_CREATE|MD_FS_ATTACHMENT_STORE)) { r=-EINVAL; break; }
+        if ((entry->flags&MD_FS_ATTACHMENT_STORE) && !(entry->flags&MD_FS_ATTACHMENT_READONLY)) { r=-EINVAL; break; }
         r = md_mount_policy_set(&m->policy,entry->flags & MD_FS_ATTACHMENT_READONLY ? MD_MOUNT_READONLY : 0);
         if (!r) r = md_mount_id_allocate(&m->id);
         if (r) break;
         if (!entry->source || !entry->target || entry->source[0] != '/' || entry->target[0] != '/') { r = -EINVAL; break; }
-        m->source = open(entry->source, O_PATH | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
-        if (m->source < 0) { r = -errno; break; }
+        if(entry->flags&MD_FS_ATTACHMENT_STORE) {
+            struct md_inode_store *store=NULL;
+            r=md_inode_store_open(entry->source,0,&store);
+            if(!r) {
+                m->source=md_inode_open(store,MD_INODE_ROOT,"/",O_PATH|O_DIRECTORY|O_CLOEXEC,0);
+                if(m->source<0) r=m->source;
+                else {
+                    m->backing=MD_MOUNT_INODE;
+                    m->storage=md_inode_lifetime_retain(md_inode_store_lifetime(store));
+                }
+                md_inode_store_close(store);
+            }
+            if(r) break;
+        } else {
+            m->source = open(entry->source, O_PATH | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+            if (m->source < 0) { r = -errno; break; }
+        }
         struct md_view_location target_location;
         r = md_view_walk(fs, MD_INODE_ROOT, NULL, entry->target, 1, 0, 0, &target_location);
         if (r == -ENOENT && (entry->flags & MD_FS_ATTACHMENT_CREATE)) {
@@ -460,6 +476,7 @@ int md_fs_mounts_open(struct md_filesystem *fs, const struct md_fs_attachment *e
         struct md_view_mount *pending = &tree->mounts[tree->count];
         if (pending->source >= 0) close(pending->source);
         if (pending->target >= 0) close(pending->target);
+        md_inode_lifetime_release(pending->storage); pending->storage=NULL;
     }
     for (unsigned i=0;i<count;++i) { free(paths[i].source); free(paths[i].target); }
     free(paths);

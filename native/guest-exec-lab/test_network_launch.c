@@ -341,15 +341,17 @@ static void loopback_origin(void) {
         struct md_filter_chain chains[]={
             {.table=1,.handle=2,.hook=NF_INET_PRE_ROUTING,.policy=NF_DROP},
             {.table=1,.handle=3,.hook=NF_INET_LOCAL_OUT,.policy=NF_ACCEPT},
-            {.table=1,.handle=4,.hook=NF_INET_LOCAL_IN,.policy=NF_ACCEPT}};
-        struct md_network_filter filter={.tables=&table,.count=1,.chains=chains,.chain_count=3};
+            {.table=1,.handle=4,.hook=NF_INET_LOCAL_IN,.policy=NF_ACCEPT},
+            {.table=1,.handle=5,.hook=NF_INET_POST_ROUTING,.policy=NF_ACCEPT}};
+        struct md_network_filter filter={.tables=&table,.count=1,.chains=chains,.chain_count=4};
         pthread_mutex_lock(&n->fabric->lock);
         n->filter=&filter; md_network_forward_changed(n->fabric);
         pthread_mutex_unlock(&n->fabric->lock);
-        for (unsigned denied=0;denied<3;++denied) {
+        for (unsigned denied=0;denied<4;++denied) {
             pthread_mutex_lock(&n->fabric->lock);
             chains[1].policy=denied==1 ? NF_DROP : NF_ACCEPT;
             chains[2].policy=denied==2 ? NF_DROP : NF_ACCEPT;
+            chains[3].policy=denied==3 ? NF_DROP : NF_ACCEPT;
             md_network_forward_changed(n->fabric);
             pthread_mutex_unlock(&n->fabric->lock);
             int client=socket(AF_INET,type|SOCK_CLOEXEC,0); assert(client>=0);
@@ -385,7 +387,7 @@ static void loopback_origin(void) {
         close(server); md_fd_object_release(endpoint);
         md_identity_release(&root); md_network_namespace_release(n);
     }
-    puts("PASS native loopback TCP/UDP: OUTPUT and INPUT policy, never PREROUTING");
+    puts("PASS native loopback TCP/UDP: OUTPUT, POSTROUTING and INPUT policy, no duplicate ingress");
 }
 static void expect_reset(int fd) {
     struct pollfd ready={.fd=fd,.events=POLLIN};

@@ -2,9 +2,13 @@
 #include "network_proc.h"
 #include "network_endpoint.h"
 #include "network_internal.h"
+#include "network_route_ip.h"
 #include "guest_identity.h"
 #include <errno.h>
 #include <linux/magic.h>
+#include <linux/rtnetlink.h>
+#include <linux/if_addr.h>
+#include <net/route.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -71,8 +75,59 @@ static int interface_snapshot(struct network_proc *f) {
     if (fclose(out)) { int error=-errno; free(text); return error; }
     free(f->text); f->text=text; f->size=size; return 0;
 }
+static void route6_address(FILE *out,struct md_ip_address address) {
+    for (unsigned i=0;i<16;++i) fprintf(out,"%02x",address.family==AF_INET6 ? address.bytes[i] : 0);
+}
+static void route_row(FILE *out,int ipv6,const struct md_network_route_entry *r,const char *name) {
+    unsigned flags=RTF_UP;
+    if (!md_ip_unspecified(r->gateway)) flags|=RTF_GATEWAY;
+    if (r->prefix==(ipv6 ? 128U : 32U)) flags|=RTF_HOST;
+    if (ipv6) {
+        route6_address(out,r->destination); fprintf(out," %02x ",r->prefix);
+        route6_address(out,(struct md_ip_address){0}); fputs(" 00 ",out);
+        route6_address(out,r->gateway);
+        fprintf(out," %08x 00000000 00000000 %08x %8s\n",r->metric,flags,name);
+    } else {
+        uint32_t mask=r->prefix ? htonl(UINT32_MAX<<(32-r->prefix)) : 0;
+        fprintf(out,"%s\t%08X\t%08X\t%04X\t0\t0\t%u\t%08X\t0\t0\t0\n",
+            name,r->destination.v4,r->gateway.v4,flags,r->metric,mask);
+    }
+}
+static int route_snapshot(struct network_proc *f) {
+    struct md_network_namespace *n=f->network;
+    char *text=NULL; size_t size=0;
+    FILE *out=open_memstream(&text,&size); if (!out) return -errno;
+    int ipv6=f->table==MD_NET_TABLE_ROUTE6;
+    if (!ipv6) fputs("Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n",out);
+    pthread_mutex_lock(&n->fabric->lock);
+    for (unsigned i=0;i<n->count;++i) for (unsigned j=0;j<n->links[i].address_count;++j) {
+        const struct md_network_interface *link=&n->links[i];
+        const struct md_network_ip_assignment *a=&link->addresses[j];
+        if (a->address.family!=(ipv6 ? AF_INET6 : AF_INET)
+                || (a->flags&(IFA_F_TENTATIVE|IFA_F_DADFAILED))) continue;
+        struct md_network_route_entry connected=md_network_connected_route(link,a);
+        if (!(a->flags&IFA_F_NOPREFIXROUTE)) route_row(out,ipv6,&connected,link->info.name);
+        if (ipv6 && connected.prefix!=128) {
+            connected.destination=a->address; connected.prefix=128;
+            route_row(out,ipv6,&connected,link->info.name);
+        }
+    }
+    for (unsigned i=0;i<n->route_count;++i) {
+        const struct md_network_route_entry *r=&n->routes[i];
+        if (r->destination.family!=(ipv6 ? AF_INET6 : AF_INET)) continue;
+        if (!ipv6 && r->table && r->table!=RT_TABLE_MAIN) continue;
+        struct md_network_interface *link=md_network_interface_find(n,r->interface,NULL);
+        route_row(out,ipv6,r,link ? link->info.name : "*");
+    }
+    pthread_mutex_unlock(&n->fabric->lock);
+    int error=ferror(out) ? -EIO : 0;
+    if (fclose(out) && !error) error=-errno;
+    if (error) { free(text); return error; }
+    free(f->text); f->text=text; f->size=size; return 0;
+}
 static int snapshot(struct network_proc *f,const struct md_identity *identity) {
     if (f->table==MD_NET_TABLE_IF_INET6) return interface_snapshot(f);
+    if (f->table==MD_NET_TABLE_ROUTE || f->table==MD_NET_TABLE_ROUTE6) return route_snapshot(f);
     struct md_network_endpoint_info *items=NULL;
     size_t count=0;
     int protocol=f->table>=MD_NET_TABLE_UDP ? IPPROTO_UDP : IPPROTO_TCP;
@@ -140,7 +195,7 @@ static const struct md_control_file_ops ops={.retain=retain,.release=release,.st
     .access=file_access,.read=read_value,.open=open_file,.filesystem=PROC_SUPER_MAGIC};
 struct md_control_file md_network_proc_new(struct md_network_namespace *network,enum md_network_table table) {
     if (!md_network_namespace_managed(network)) { errno=EXDEV; return (struct md_control_file){0}; }
-    if ((unsigned)table>MD_NET_TABLE_IF_INET6) { errno=EINVAL; return (struct md_control_file){0}; }
+    if ((unsigned)table>MD_NET_TABLE_ROUTE6) { errno=EINVAL; return (struct md_control_file){0}; }
     struct network_proc *f=calloc(1,sizeof(*f));
     if (!f) return (struct md_control_file){0};
     atomic_init(&f->references,1);

@@ -41,6 +41,11 @@ int md_fs_storage_get(struct md_filesystem *fs, const struct md_view_mount *moun
         *out=fs->store; return 0;
     }
     if (!fs->storage) return -ENOTSUP;
+    /* A different projection may share this catalogue's kernel gate. Release
+     * only the bounded operation window before reconnect or root selection;
+     * ordinary nested read/write scopes must not be silently unlocked. */
+    int paused=md_inode_operation_window_pause(fs->store);
+    if (paused) return paused;
     for (struct md_fs_storage_connections **at=&fs->storage->connections; *at; at=&(*at)->next) {
         struct md_fs_storage_connections *p=*at;
         if (md_inode_lifetime_same(storage,md_inode_store_lifetime(p->store))) {

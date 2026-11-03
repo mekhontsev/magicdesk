@@ -1,13 +1,20 @@
 #include "network_nft_expression.h"
 #include "network_nft_objects.h"
 #include "network_nft_attr.h"
+#include "network_ipset.h"
+#include <linux/netfilter/xt_set.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter/nf_tables.h>
 #include <linux/netfilter/nf_nat.h>
 #include <linux/netfilter/nf_tables_compat.h>
 #include <linux/netfilter/xt_tcpudp.h>
+#include <linux/netfilter/xt_multiport.h>
+#include <linux/netfilter/xt_limit.h>
+#include <linux/netfilter/xt_NFLOG.h>
+#include <linux/netfilter/xt_physdev.h>
 #include <linux/netfilter/xt_comment.h>
 #include <linux/netfilter/xt_conntrack.h>
+#include <linux/netfilter/nf_conntrack_common.h>
 #include <linux/netfilter/xt_mark.h>
 #include <linux/netfilter/xt_connmark.h>
 #include <linux/netfilter/xt_addrtype.h>
@@ -22,10 +29,10 @@
 int md_nft_compat_revision(unsigned family,const char *name,unsigned revision,unsigned target) {
     static const struct { const char *name; unsigned target,revisions; } extensions[]={
         {"MARK",1,1U<<2},{"mark",0,1U<<1},{"addrtype",0,1U<<1},{"conntrack",0,1U<<3},
-        {"CONNMARK",1,1U<<1},{"connmark",0,1U<<1},
+        {"CONNMARK",1,1U<<1},{"connmark",0,1U<<1},{"set",0,(1U<<1)|(1U<<3)|(1U<<4)},
         {"DNAT",1,7},{"SNAT",1,7},{"MASQUERADE",1,1},{"REJECT",1,1},
         {"tcp",0,1},{"udp",0,1},{"comment",0,1},{"pkttype",0,1},{"rpfilter",0,1},
-        {"icmp",0,1},{"icmp6",0,1}};
+        {"icmp",0,1},{"icmp6",0,1},{"multiport",0,3},{"limit",0,1},{"NFLOG",1,1},{"physdev",0,1}};
     if ((family!=NFPROTO_IPV4 && family!=NFPROTO_IPV6) || !name) return -ENOENT;
     if ((!strcmp(name,"icmp") && family!=NFPROTO_IPV4)
             || (!strcmp(name,"icmp6") && family!=NFPROTO_IPV6)) return -ENOENT;
@@ -41,6 +48,13 @@ int md_nft_compat_supported(unsigned family,const char *name,unsigned revision,u
 static unsigned table_family(const struct md_network_filter *f,uint64_t table) {
     for (size_t i=0;i<f->count;++i) if (f->tables[i].handle==table) return f->tables[i].family;
     return NFPROTO_UNSPEC;
+}
+static int nat_flags(unsigned flags,int destination,struct md_filter_expression *e) {
+    unsigned random=NF_NAT_RANGE_PROTO_RANDOM|NF_NAT_RANGE_PROTO_RANDOM_FULLY;
+    if (flags&~(NF_NAT_RANGE_MAP_IPS|NF_NAT_RANGE_PROTO_SPECIFIED|random)) return -EOPNOTSUPP;
+    if (destination && (flags&random)) return -EOPNOTSUPP;
+    e->nat_flags=flags&random;
+    return 0;
 }
 static int nat_range(const struct attribute *wire,unsigned family,unsigned revision,struct nf_nat_range *out) {
     int legacy=!revision && family==NFPROTO_IPV4;
@@ -75,6 +89,14 @@ static int target(struct md_network_filter *f,uint64_t table,const struct attrib
     if (error) return error;
     if (!md_nft_compat_supported(table_family(f,table),name,revision,1)) return -EOPNOTSUPP;
     const struct attribute *wire=&a[NFTA_TARGET_INFO];
+    if (!strcmp(name,"NFLOG")) {
+        struct xt_nflog_info info;
+        if (!wire->data || wire->flags || wire->size!=((sizeof(info)+7)&~(size_t)7)) return -EINVAL;
+        memcpy(&info,wire->data,sizeof(info));
+        if ((info.flags&~XT_NFLOG_MASK) || !memchr(info.prefix,0,sizeof(info.prefix))) return -EINVAL;
+        e->code=MD_FILTER_LOG; e->log.group=info.group;
+        memcpy(e->log.prefix,info.prefix,sizeof(info.prefix)); return 0;
+    }
     if (!strcmp(name,"REJECT")) {
         unsigned mode;
         if (!wire->data || wire->flags || wire->size!=8) return -EINVAL;
@@ -120,7 +142,8 @@ static int target(struct md_network_filter *f,uint64_t table,const struct attrib
     error=nat_range(wire,table_family(f,table),revision,&range);
     if (error) return error;
     const struct nf_nat_range *r=&range;
-    if (r->flags&~(NF_NAT_RANGE_MAP_IPS|NF_NAT_RANGE_PROTO_SPECIFIED)) return -EOPNOTSUPP;
+    error=nat_flags(r->flags,!strcmp(name,"DNAT"),e);
+    if (error) return error;
     if ((r->flags&NF_NAT_RANGE_PROTO_SPECIFIED) && ntohs(r->min_proto.all)>ntohs(r->max_proto.all)) return -EINVAL;
     if (!strcmp(name,"MASQUERADE")) {
         if ((r->flags&NF_NAT_RANGE_MAP_IPS) || !md_ip_unspecified(md_ip_load(family,&r->min_addr))
@@ -151,6 +174,63 @@ static int compat_match(struct md_network_filter *f,uint64_t table,const struct 
     if (error) return error;
     if (!md_nft_compat_supported(table_family(f,table),name,revision,0)) return -EOPNOTSUPP;
     const struct attribute *wire=&a[NFTA_MATCH_INFO];
+    if (!strcmp(name,"physdev")) {
+        struct xt_physdev_info info;
+        if (!wire->data || wire->flags || wire->size!=((sizeof(info)+7)&~(size_t)7)) return -EINVAL;
+        memcpy(&info,wire->data,sizeof(info));
+        if (!info.bitmask || (info.bitmask&~XT_PHYSDEV_OP_MASK) || (info.invert&~info.bitmask)) return -EINVAL;
+        e->code=MD_FILTER_PHYSDEV;
+        e->physdev.flags=info.bitmask; e->physdev.invert=info.invert;
+        memcpy(e->physdev.names[0],info.physindev,16); memcpy(e->physdev.names[1],info.physoutdev,16);
+        memcpy(e->physdev.masks[0],info.in_mask,16); memcpy(e->physdev.masks[1],info.out_mask,16);
+        return 0;
+    }
+    if (!strcmp(name,"limit")) {
+        struct xt_rateinfo info;
+        if (!wire->data || wire->flags || wire->size!=sizeof(info)) return -EINVAL;
+        memcpy(&info,wire->data,sizeof(info));
+        uint64_t cost=(uint64_t)info.avg*(1000000000U/XT_LIMIT_SCALE);
+        if (!cost || !info.burst || cost>UINT64_MAX/info.burst) return -ERANGE;
+        e->code=MD_FILTER_LIMIT;
+        e->limit=(struct md_filter_limit){.cost=cost,.capacity=cost*info.burst,.credit=cost*info.burst};
+        return 0;
+    }
+    if (!strcmp(name,"multiport")) {
+        struct xt_multiport_v1 info={0};
+        size_t size=revision ? sizeof(info) : sizeof(struct xt_multiport);
+        if (!wire->data || wire->flags || wire->size!=((size+7)&~(size_t)7)) return -EINVAL;
+        memcpy(&info,wire->data,size);
+        if (!info.count || info.count>XT_MULTI_PORTS || info.flags>XT_MULTIPORT_EITHER || info.invert>1) return -EINVAL;
+        struct md_filter_multiport *m=&e->multiport;
+        *m=(struct md_filter_multiport){.count=info.count,.direction=info.flags,.invert=info.invert};
+        memcpy(m->ports,info.ports,sizeof(m->ports));
+        for (unsigned i=0;i<info.count;++i) if (info.pflags[i]) {
+            if (info.pflags[i]!=1 || i+1==info.count || info.ports[i]>info.ports[i+1] || info.pflags[i+1]) return -EINVAL;
+            m->ranges|=1U<<i; ++i;
+        }
+        e->code=MD_FILTER_MULTIPORT; return 0;
+    }
+    if (!strcmp(name,"set")) {
+        struct xt_set_info info;
+        size_t length=revision==1 ? 8 : revision==3 ? sizeof(struct xt_set_info_match_v3) : sizeof(struct xt_set_info_match_v4);
+        if (!wire->data || wire->flags || wire->size!=length) return -EINVAL;
+        memcpy(&info,wire->data,sizeof(info));
+        if (revision==3) {
+            struct xt_set_info_match_v3 v; memcpy(&v,wire->data,sizeof(v));
+            if (v.packets.op || v.bytes.op || v.flags) return -EOPNOTSUPP;
+        } else if (revision==4) {
+            struct xt_set_info_match_v4 v; memcpy(&v,wire->data,sizeof(v));
+            if (v.packets.op || v.bytes.op || v.flags) return -EOPNOTSUPP;
+        }
+        if (info.dim!=1 || (info.flags&~(IPSET_INV_MATCH|IPSET_DIM_ONE_SRC))) return -EOPNOTSUPP;
+        struct md_filter_set *s=md_ipset_find(f,NULL,info.index);
+        if (!s) return -ENOENT;
+        if (s->ipset_family!=table_family(f,table)) return -EINVAL;
+        e->code=MD_FILTER_IPSET; e->target=s->handle;
+        e->key=!!(info.flags&IPSET_DIM_ONE_SRC);
+        e->operation=!!(info.flags&IPSET_INV_MATCH);
+        return 0;
+    }
     if (!strcmp(name,"icmp") || !strcmp(name,"icmp6")) {
         _Static_assert(sizeof(struct ipt_icmp)==4 && sizeof(struct ip6t_icmp)==4,"ICMP match ABI");
         if (!wire->data || wire->flags || wire->size!=8) return -EINVAL;
@@ -207,11 +287,14 @@ static int compat_match(struct md_network_filter *f,uint64_t table,const struct 
         struct xt_conntrack_mtinfo3 info;
         if (!wire->data || wire->flags || wire->size!=((sizeof(info)+7)&~(size_t)7)) return -EINVAL;
         memcpy(&info,wire->data,sizeof(info));
-        /* The ordinary state bits share nft's conntrack-state encoding.
-         * Tuple, status, timeout and NAT aliases need separate semantics. */
+        /* NAT aliases are ORed with ordinary state, not an additional AND
+         * predicate. Keep status separate from nft's state encoding. */
+        unsigned nat=XT_CONNTRACK_STATE_SNAT|XT_CONNTRACK_STATE_DNAT;
         if (info.match_flags!=XT_CONNTRACK_STATE || (info.invert_flags&~XT_CONNTRACK_STATE)
-                || (info.state_mask&~15U)) return -EOPNOTSUPP;
-        e->code=MD_FILTER_STATE_MATCH; e->key=info.state_mask;
+                || (info.state_mask&~(15U|nat))) return -EOPNOTSUPP;
+        e->code=MD_FILTER_STATE_MATCH; e->key=info.state_mask&15U;
+        e->aux=(info.state_mask&XT_CONNTRACK_STATE_SNAT ? IPS_SRC_NAT : 0)
+            |(info.state_mask&XT_CONNTRACK_STATE_DNAT ? IPS_DST_NAT : 0);
         e->operation=!!(info.invert_flags&XT_CONNTRACK_STATE);
         return 0;
     }
@@ -438,8 +521,9 @@ static int expression(struct md_network_filter *f,uint64_t table,
         NUM(NFTA_NAT_TYPE,e->operation); NUM(NFTA_NAT_FAMILY,value);
         uint64_t flags=0; error=number(&a[NFTA_NAT_FLAGS],&flags,0);
         if (error) return error;
-        if ((value!=NFPROTO_IPV4 && value!=NFPROTO_IPV6) || e->operation>NFT_NAT_DNAT
-                || (flags&~(NF_NAT_RANGE_MAP_IPS|NF_NAT_RANGE_PROTO_SPECIFIED))) return -EOPNOTSUPP;
+        if ((value!=NFPROTO_IPV4 && value!=NFPROTO_IPV6) || e->operation>NFT_NAT_DNAT) return -EOPNOTSUPP;
+        error=nat_flags(flags,e->operation==NFT_NAT_DNAT,e);
+        if (error) return error;
         unsigned family=table_family(f,table);
         if (family!=NFPROTO_INET && family!=value) return -EAFNOSUPPORT;
         e->code=MD_FILTER_NAT; e->family=value==NFPROTO_IPV6 ? AF_INET6 : AF_INET;
@@ -458,6 +542,41 @@ static int expression(struct md_network_filter *f,uint64_t table,
         if (!e->key && !e->aux) return -EINVAL;
         if (((flags&NF_NAT_RANGE_MAP_IPS) && !e->key)
                 || ((flags&NF_NAT_RANGE_PROTO_SPECIFIED) && !e->aux)) return -EINVAL;
+    } else if (!strcmp(name,"log")) {
+        FIELDS(BIT(NFTA_LOG_GROUP)|BIT(NFTA_LOG_PREFIX)|BIT(NFTA_LOG_SNAPLEN)|BIT(NFTA_LOG_QTHRESHOLD));
+        if (!a[NFTA_LOG_GROUP].data) return -EOPNOTSUPP;
+        uint16_t group=0,threshold=0;
+        uint64_t snap=0;
+        if (a[NFTA_LOG_GROUP].size!=2 || (a[NFTA_LOG_GROUP].flags&~NLA_F_NET_BYTEORDER)) return -EINVAL;
+        memcpy(&group,a[NFTA_LOG_GROUP].data,2); group=ntohs(group);
+        if (!error) error=number(&a[NFTA_LOG_SNAPLEN],&snap,0);
+        if (a[NFTA_LOG_QTHRESHOLD].data) {
+            if (a[NFTA_LOG_QTHRESHOLD].size!=2 || (a[NFTA_LOG_QTHRESHOLD].flags&~NLA_F_NET_BYTEORDER)) return -EINVAL;
+            memcpy(&threshold,a[NFTA_LOG_QTHRESHOLD].data,2);
+        }
+        const char *prefix=NULL;
+        if (!error && !(a[NFTA_LOG_PREFIX].size==1 && !*(const char *)a[NFTA_LOG_PREFIX].data && !a[NFTA_LOG_PREFIX].flags))
+            error=string(&a[NFTA_LOG_PREFIX],&prefix);
+        if (error) return error;
+        if (prefix && strlen(prefix)>=sizeof(e->log.prefix)) return -EINVAL;
+        e->code=MD_FILTER_LOG; e->log.group=group;
+        if (prefix) strcpy(e->log.prefix,prefix);
+    } else if (!strcmp(name,"limit")) {
+        FIELDS(BIT(NFTA_LIMIT_RATE)|BIT(NFTA_LIMIT_UNIT)|BIT(NFTA_LIMIT_BURST)|BIT(NFTA_LIMIT_TYPE)|BIT(NFTA_LIMIT_FLAGS));
+        uint64_t rate=0,unit=0,burst=0,type=0,flags=0;
+        error=number(&a[NFTA_LIMIT_RATE],&rate,1);
+        if (!error) error=number(&a[NFTA_LIMIT_UNIT],&unit,1);
+        if (!error) error=number(&a[NFTA_LIMIT_BURST],&burst,0);
+        if (!error) error=number(&a[NFTA_LIMIT_TYPE],&type,0);
+        if (!error) error=number(&a[NFTA_LIMIT_FLAGS],&flags,0);
+        if (error) return error;
+        if (type!=NFT_LIMIT_PKTS || flags) return -EOPNOTSUPP;
+        if (!rate || !unit || unit>UINT64_MAX/1000000000U) return -ERANGE;
+        uint64_t cost=unit*1000000000U/rate;
+        if (!burst) burst=5;
+        if (!cost || cost>UINT64_MAX/burst) return -ERANGE;
+        e->code=MD_FILTER_LIMIT;
+        e->limit=(struct md_filter_limit){.cost=cost,.capacity=cost*burst,.credit=cost*burst};
     } else if (!strcmp(name,"counter")) {
         FIELDS(BIT(NFTA_COUNTER_PACKETS)|BIT(NFTA_COUNTER_BYTES));
         e->code=MD_FILTER_COUNTER;
@@ -467,14 +586,16 @@ static int expression(struct md_network_filter *f,uint64_t table,
     } else if (!strcmp(name,"masq")) {
         FIELDS(BIT(NFTA_MASQ_FLAGS)|BIT(NFTA_MASQ_REG_PROTO_MIN)|BIT(NFTA_MASQ_REG_PROTO_MAX)); uint64_t flags=0;
         error=number(&a[NFTA_MASQ_FLAGS],&flags,0); if (error) return error;
-        if (flags&~NF_NAT_RANGE_PROTO_SPECIFIED) return -EOPNOTSUPP;
+        if (flags&NF_NAT_RANGE_MAP_IPS) return -EOPNOTSUPP;
+        error=nat_flags(flags,0,e);
+        if (error) return error;
         e->code=MD_FILTER_MASQUERADE;
         if (a[NFTA_MASQ_REG_PROTO_MIN].data) {
             REG(NFTA_MASQ_REG_PROTO_MIN,2,e->src,0); e->aux=1;
             if (a[NFTA_MASQ_REG_PROTO_MAX].data) {
                 REG(NFTA_MASQ_REG_PROTO_MAX,2,e->port_max,0); e->port_range=1;
             }
-        } else if (a[NFTA_MASQ_REG_PROTO_MAX].data || flags) return -EINVAL;
+        } else if (a[NFTA_MASQ_REG_PROTO_MAX].data || (flags&NF_NAT_RANGE_PROTO_SPECIFIED)) return -EINVAL;
     } else return -EOPNOTSUPP;
     return 0;
 #undef FIELDS
@@ -554,11 +675,13 @@ static int emit_typed(const struct md_filter_expression *e,struct md_network_mes
         PUT(emit_value(o,NFTA_CMP_DATA,e->value,e->size)); break;
     case MD_FILTER_NAT:
         PUT(u32(o,NFTA_NAT_TYPE,e->operation)); PUT(u32(o,NFTA_NAT_FAMILY,e->family==AF_INET6 ? NFPROTO_IPV6 : NFPROTO_IPV4));
+        if (e->nat_flags) PUT(u32(o,NFTA_NAT_FLAGS,e->nat_flags));
         if (e->key) PUT(u32(o,NFTA_NAT_REG_ADDR_MIN,wire_register(e->dst)));
         if (e->aux) PUT(u32(o,NFTA_NAT_REG_PROTO_MIN,wire_register(e->src)));
         if (e->port_range) PUT(u32(o,NFTA_NAT_REG_PROTO_MAX,wire_register(e->port_max)));
         break;
     case MD_FILTER_MASQUERADE:
+        if (e->nat_flags) PUT(u32(o,NFTA_MASQ_FLAGS,e->nat_flags));
         if (e->aux) PUT(u32(o,NFTA_MASQ_REG_PROTO_MIN,wire_register(e->src)));
         if (e->port_range) PUT(u32(o,NFTA_MASQ_REG_PROTO_MAX,wire_register(e->port_max)));
         break;

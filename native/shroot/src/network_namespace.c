@@ -6,6 +6,10 @@
 #include "network_route.h"
 #include "network_generic.h"
 #include "network_nft.h"
+#include "network_ipset.h"
+#include "network_conntrack.h"
+#include "network_control_queue.h"
+#include <linux/netfilter/ipset/ip_set.h>
 #include "network_endpoint.h"
 #include "network_forward.h"
 #include "network_packet.h"
@@ -92,6 +96,8 @@ int md_network_parameter_read(struct md_network_namespace *n,enum md_network_par
     case MD_NET_IPV6_BINDONLY: out[0]=n->bindv6only; out[1]=0; break;
     case MD_NET_TCP_KEEPIDLE: case MD_NET_TCP_KEEPINTVL: case MD_NET_TCP_KEEPCNT:
         out[0]=n->tcp_keepalive[kind-MD_NET_TCP_KEEPIDLE]; out[1]=0; break;
+    case MD_NET_CT_TCP_ESTABLISHED: case MD_NET_CT_TCP_CLOSE_WAIT:
+        out[0]=n->conntrack_tcp_timeout[kind-MD_NET_CT_TCP_ESTABLISHED]; out[1]=0; break;
     case MD_NET_IPV6_FORWARD: case MD_NET_IPV6_DISABLE: case MD_NET_IPV6_DAD: case MD_NET_IPV6_RA:
     case MD_NET_IPV6_AUTOCONF:
     case MD_NET_IPV6_MTU: case MD_NET_IPV6_HOPS: case MD_NET_IPV6_ADDRGEN: case MD_NET_IPV6_PRIVACY:
@@ -113,6 +119,13 @@ int md_network_parameter_write(struct md_network_namespace *n,enum md_network_pa
     case MD_NET_UNPRIVILEGED_PORT:
         if (in[0]>65535 || in[0]>n->local_ports[0]) error=-EINVAL;
         else n->unprivileged_port=in[0];
+        break;
+    case MD_NET_CT_TCP_ESTABLISHED: case MD_NET_CT_TCP_CLOSE_WAIT:
+        if (!in[0] || in[0]>INT32_MAX) error=-EINVAL;
+        else {
+            n->conntrack_tcp_timeout[kind-MD_NET_CT_TCP_ESTABLISHED]=in[0];
+            md_network_forward_tracking_changed(n);
+        }
         break;
     case MD_NET_PING_GROUPS:
         if (in[0]==UINT32_MAX || in[1]==UINT32_MAX) error=-EINVAL;
@@ -215,6 +228,7 @@ struct network_socket {
     int capped_ack;
     int packet_info, pass_credentials, extended_ack, strict_check;
     struct md_network_listener listener;
+    struct md_network_control_queue replies;
 };
 static void socket_destroy(struct md_fd_object *object) {
     struct network_socket *socket=(void *)object;
@@ -223,6 +237,7 @@ static void socket_destroy(struct md_fd_object *object) {
         struct md_network_listener **at=&socket->space->listeners;
         while (*at && *at!=&socket->listener) at=&(*at)->next;
         if (*at) *at=(*at)->next;
+        md_network_control_clear(&socket->replies);
         pthread_mutex_unlock(&socket->space->fabric->lock);
     }
     if (socket->family==AF_PACKET) {
@@ -359,7 +374,11 @@ static int packet(int peer,unsigned group,const void *data,size_t size) {
 }
 static int publish_response(void *context,const void *data,size_t size) {
     struct network_socket *s=context;
-    return packet(s->peer,0,data,size);
+    return md_network_control_publish(&s->replies,s->space->fabric,s->peer,data,size);
+}
+void md_network_listener_deliver(struct md_network_listener *s,const void *data,size_t size) {
+    int error=packet(s->peer,0,data,size);
+    if (error && error!=-ECONNREFUSED && !s->no_enobufs) s->overflow=1;
 }
 unsigned md_network_broadcast(struct md_network_namespace *n,unsigned group,const void *data,size_t size) {
     unsigned published=0;
@@ -520,6 +539,12 @@ long md_network_socket_call(struct md_fd_object *object, const struct md_identit
         else return -EOPNOTSUPP;
         return 0;
     }
+    if (nr==SYS_getsockopt && a[1]==IPPROTO_IP && a[2]==SO_IP_SET && (s->family==AF_INET || s->family==AF_INET6)) {
+        if (!md_identity_capable_in(identity,space->owner,CAP_NET_ADMIN)) return -EPERM;
+        pthread_mutex_lock(&space->fabric->lock);
+        long result=md_ipset_sockopt(space->filter,data,size);
+        pthread_mutex_unlock(&space->fabric->lock); return result;
+    }
     int socket_query=nr==SYS_getsockopt && a[1]==SOL_SOCKET && (a[2]==SO_DOMAIN || a[2]==SO_TYPE
         || a[2]==SO_PROTOCOL || a[2]==SO_ERROR || a[2]==SO_PASSCRED);
     if (s->raw6.space && !socket_query) {
@@ -675,11 +700,11 @@ long md_network_socket_call(struct md_fd_object *object, const struct md_identit
             pthread_mutex_unlock(&s->space->fabric->lock);
         }
         if (s->protocol==NETLINK_NETFILTER) {
-            void *reply=malloc(MD_NETWORK_PACKET_MAX);
+            void *reply=malloc(MD_NETWORK_CONTROL_MAX);
             if (!reply) return -ENOMEM;
             struct md_network_publication publication={.context=s,.publish=publish_response};
             long result=md_network_nft(s->space,identity,data,size,port,
-                s->capped_ack,reply,MD_NETWORK_PACKET_MAX,&publication);
+                s->capped_ack,reply,MD_NETWORK_CONTROL_MAX,&publication);
             free(reply); return result<0 ? result : (long)size;
         }
         const struct nlmsghdr *h=data;
@@ -696,7 +721,11 @@ long md_network_socket_call(struct md_fd_object *object, const struct md_identit
             long result;
             if (s->protocol==NETLINK_GENERIC) {
                 result=md_network_generic(h,h->nlmsg_len,port,s->capped_ack,reply,limit);
-                if (result>0) result=publish_response(s,reply,(size_t)result);
+                if (result>0) {
+                    pthread_mutex_lock(&s->space->fabric->lock);
+                    result=publish_response(s,reply,(size_t)result);
+                    pthread_mutex_unlock(&s->space->fabric->lock);
+                }
             } else result=md_network_route(s->space,identity,h,h->nlmsg_len,port,
                 (s->capped_ack ? MD_NETWORK_ROUTE_CAPPED_ACK : 0)
                     | (s->strict_check ? MD_NETWORK_ROUTE_STRICT : 0),resolver,reply,limit,&publication);

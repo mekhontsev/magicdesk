@@ -142,7 +142,8 @@ app.exec()
         try:
             stalled = c.call("ui.inspect", scope)
             assert not stalled["complete"] and stalled["errors"], stalled
-            assert any(application in error and "GetAll" in error and "NoReply" in error for error in stalled["errors"]), stalled
+            assert any(application in error and "org.freedesktop.DBus.Properties.Get (" in error
+                       and "NoReply" in error for error in stalled["errors"]), stalled
             healthy = c.call("ui.wait", {"sessionId": session, "selector": {"name": "Apply fixture"}, "timeoutMillis": 3000})
             assert healthy["matched"], healthy
         finally:

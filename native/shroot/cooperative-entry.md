@@ -542,6 +542,9 @@ Response/owner closure completes its event wait; launch cancellation terminates
 the task. A kernel stop observed during admitted work is retained by the existing
 broker event owner until that work and its resource turns retire. Only then can
 signal/exec/exit handling release or reuse its mapping.
+This includes the last terminal event: kernel `ECHILD` does not discard a
+broker-owned result. Worker completion remains event-driven until that exact
+event is returned; shutdown finishes only after task and helper owners drain.
 If the request has been published but not admitted, the stop cancels that request
 under the broker lock before signal delivery. A handler may then `siglongjmp`
 without a later worker write into abandoned memory. Reentry on a busy client

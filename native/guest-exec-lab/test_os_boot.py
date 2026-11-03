@@ -221,7 +221,7 @@ def check_systemd_boot(log):
 
 def main():
     from test_oci_services import Server, Suite
-    from init_fixture import PREPARE, TRACE_SYSCALLS
+    from init_fixture import prepare_init, TRACE_SYSCALLS
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--store', required=True)
@@ -344,7 +344,7 @@ printf ':md-boot:E::mdboot::/bin/true:P\\n' > /run/binfmt.d/md-boot.conf
             program = program.replace('        systemctl restart systemd-logind.service',
                                       checks + '        systemctl restart systemd-logind.service')
         boot = ['/usr/bin/unshare', '--mount', '--pid', '--fork', '--mount-proc',
-                '--uts', '--ipc', '--cgroup', '/bin/sh', '-ec', PREPARE + program, 'boot-test', target,
+                '--uts', '--ipc', '--cgroup', '/bin/sh', '-ec', prepare_init() + program, 'boot-test', target,
                 'diagnostic' if args.diagnostic_console else 'normal']
         if args.drop_capability:
             boot = ['/usr/bin/setpriv', '--bounding-set=' + ','.join('-' + cap for cap in args.drop_capability),

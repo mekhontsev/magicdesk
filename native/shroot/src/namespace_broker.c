@@ -100,6 +100,7 @@ struct md_namespace_broker {
     struct task *result_waiting;
     atomic_uint results_pending;
     struct task *event_ready;
+    unsigned held_events;
     pthread_mutex_t lock;
     int listener;
     unsigned process;
@@ -188,7 +189,7 @@ static int event_complete(struct md_fs_work *work) {
     struct md_namespace_broker *b=t->owner;
     pthread_mutex_lock(&b->lock);
     if (t->pid) { t->event_next=b->event_ready; b->event_ready=t; }
-    else { t->held=0; task_release(t); }
+    else { t->held=0; --b->held_events; task_release(t); }
     pthread_mutex_unlock(&b->lock); return 0;
 }
 static void channel_reply(struct md_namespace_broker *,struct md_entry_channel *,
@@ -251,7 +252,7 @@ int md_broker_hold_event(struct md_namespace_broker *b,pid_t pid,int status,cons
                 if (error) { pthread_mutex_unlock(&b->lock); return error; }
             }
             if (t->held) { pthread_mutex_unlock(&b->lock); return -EBUSY; }
-            t->held=1; ++t->borrowed;
+            t->held=1; ++t->borrowed; ++b->held_events;
             t->status=status; t->usage=usage ? *usage : (struct rusage){0}; held=1;
         } else {
             /* The signal handler may longjmp instead of returning to entry.
@@ -275,11 +276,17 @@ pid_t md_broker_take_event(struct md_namespace_broker *b,int *status,struct rusa
          * original event until native_return restores the guest boundary, but
          * let unrelated tasks make progress. */
         if (t->native_borrowed) { at=&t->event_next; continue; }
-        *at=t->event_next; t->event_next=NULL; t->held=0;
+        *at=t->event_next; t->event_next=NULL; t->held=0; --b->held_events;
         task_release(t);
         pid=t->pid; *status=t->status; if (usage) *usage=t->usage;
     }
     pthread_mutex_unlock(&b->lock); return pid;
+}
+int md_broker_pending_events(struct md_namespace_broker *b) {
+    if (!b) return 0;
+    pthread_mutex_lock(&b->lock);
+    int pending=b->held_events!=0;
+    pthread_mutex_unlock(&b->lock); return pending;
 }
 void md_broker_completion_handler(struct md_namespace_broker *b,void (*recover)(pid_t,struct md_broker_completion *)) {
     b->recover=recover;

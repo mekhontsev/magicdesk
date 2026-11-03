@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 import shlex
 
-from init_fixture import PREPARE, TRACE_SYSCALLS
+from init_fixture import prepare_init, TRACE_SYSCALLS
 from test_oci_services import Suite
 
 
@@ -84,7 +84,7 @@ def main():
         suite.command(prefix + ['--', '/bin/mkdir', target])
         created = True
         boot = ['/usr/bin/unshare', '--mount', '--pid', '--fork', '--mount-proc', '--uts',
-                '--ipc', '--cgroup', '/bin/sh', '-ec', PREPARE + SETUP, 'journal-test', target,
+                '--ipc', '--cgroup', '/bin/sh', '-ec', prepare_init() + SETUP, 'journal-test', target,
                 'probe' if args.probe_only else 'journal']
         if args.trace:
             boot = ['/usr/bin/strace', '-f', '-s', '256', '-e', 'trace=' + TRACE_SYSCALLS,

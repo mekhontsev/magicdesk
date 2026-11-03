@@ -447,7 +447,10 @@ or persisted path cache. Short single-store operation windows remain available
 after local topology changes. Before falling back to another mount/provider,
 the inode owner revokes gate retention; subsequent scopes acquire/release their
 own gates until the executor ends the window. Foreign topology imports and
-restricted roots keep independent admission. No launch-topology snapshot or
+restricted roots keep independent admission. Selecting or reconnecting a
+different storage projection also ends retention before opening its connection:
+separate projections can share the same catalogue gate. Ordinary nested
+read/write scopes cannot be unlocked by this handoff. No launch-topology snapshot or
 cross-store lock retention is required.
 
 A bounded, connection-local prefix cache remembers up to 128 resolved directory

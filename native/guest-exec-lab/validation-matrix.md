@@ -5,7 +5,7 @@ or a claim that all tests are automated. Keep every distribution printed by
 `sh scripts/install_linux.sh --list` in every table. Results do not transfer
 between distributions sharing a package manager, libc or init system.
 
-Last reconciled: 2026-11-02. Current device evidence uses NX809J, Android 16,
+Last reconciled: 2026-11-03. Current device evidence uses NX809J, Android 16,
 Linux 6.12.23, 4 KiB pages and Android shell UID 2000. This does not cover the
 minimum supported kernel 5.15, other firmware or Android root execution.
 
@@ -314,6 +314,65 @@ Cell order: **Shroot (lazy SVC) / Base**; N = not run.
 | nixos | P/N | P/N | P/N | P/N |
 | steamos | P/N | P/N | B/N | P/N |
 
+### K3s
+
+The qualified binary is stock ARM64 k3s v1.37.1+k3s1, running as
+guest root under shell UID 2000, with stock container seccomp enabled. Passing
+requires Node Ready, CoreDNS, positive kubelet root filesystem capacity,
+cross-pod DNS and ClusterIP HTTP, NetworkPolicy deny/allow/update/delete,
+Deployment scale and rolling update, persistent-volume data retention, stock
+Traefik and ServiceLB ingress, server restart retaining pod/Service identity,
+post-restart IO and ordinary pod/Service deletion. Two-node checks additionally
+require cross-node DNS/HTTP and an independent agent restart. VXLAN is the
+unmodified default backend; host-gw is separately qualified. Memory limits
+remain advisory and cadvisor block-device accounting is unavailable.
+
+| Server / agent recipe | Topology | Host profile | Shroot / Base | Receipt |
+| --- | --- | --- | --- | --- |
+| debian | One node, host-gw | Native | P/N | `build/k3s-contract/k3s-catalogue/oci-services-857d17f45be74bb6b672a7ac7c8a1b61.json` |
+| debian | One node, host-gw | `linux-5.15` | P/N | `build/k3s-contract/complete515-solo/oci-services-f1c34da7604449a99cb060a56525dde3.json` |
+| debian / debian | Two nodes, VXLAN | Native | P/N | `build/vxlan-contract/two-onlink/oci-services-9f250aeb06f246359d4167f512a0d6cb.json` |
+| alpine / alpine | Two nodes, VXLAN | Native | P/N | `build/vxlan-contract/alpine-lazy/oci-services-dce033276db54cf3a886683557d589bc.json` |
+| debian / alpine | Two nodes, VXLAN | `linux-5.15` | N/P | `build/vxlan-contract/debian-alpine-base515-pivot/oci-services-da82544b80494027becb17cc07b7ddb8.json` |
+| alpine / debian | Two nodes, VXLAN | `linux-5.15` | P/N | `build/vxlan-contract/alpine-debian-lazy515/oci-services-a712095786d94366bb3470df356312b8.json` |
+
+Runs use staged runtimes on one device's 6.12 kernel with separate node
+namespaces. Mixed clusters reuse installed recipes with a read-only agent store
+and private writable runtime mounts. The 5.15 capability profile exercises
+fallbacks, not a physical 5.15 kernel. Separate-device networking and other
+recipe distributions have not been qualified for k3s.
+
+The separate `test_k3s_boot.py` lifecycle check runs the upstream installer
+inside the production `magicdesk-init` session. Three complete launches check
+the enabled service, Node Ready, CoreDNS, pod DNS/HTTP and synced PVC writes:
+initial boot, recovery after guest poweroff, then recovery after exact-supervisor
+SIGKILL. Node, namespace, pod, Service, volume and credential identities must
+remain unchanged. This covers process-crash recovery, not physical power loss
+or every service in the distribution's init matrix.
+
+| Recipe / init | Host profile | Shroot / Base | Receipt |
+| --- | --- | --- | --- |
+| debian / systemd | Native | P/N | `build/k3s-boot/debian/oci-services-ffe40f252826411882a2c44178042011.json` |
+| alpine / OpenRC | Native | P/N | `build/k3s-boot/alpine/oci-services-2f73b1639b2d4d0ba268d649aebc92ce.json` |
+
+### Managed Network Regression Coverage
+
+The current network-contract checks retain stock engine packages, container
+seccomp and cgroups. Each run covers TCP/UDP publication, named peer exchange,
+local outbound traffic, conflicting ports and release. IPv6 observers use
+existing Android addresses; no Android route or address is changed.
+
+| Recipe / engine | Entry and host profile | Network profile | Receipt |
+| --- | --- | --- | --- |
+| alpine / Docker | Base, `linux-5.15` | nftables, no userland proxy, IPv6 `::1` | `build/shroot-image-tests/oci-services-e7f3bb00c58b40d1a9ee59827e633157.json` |
+| alpine / Podman | Base, `linux-5.15` | iptables, IPv6 `::1` | `build/podman-results/oci-services-490f9f2fcd564bfd97dcb2b7dbc46592.json` |
+| debian / Docker | Lazy, native | iptables-nft, no userland proxy, IPv4 | `build/shroot-image-tests/oci-services-d0dbeb2e24fe4629851ee7635eae1635.json` |
+| debian / Podman | Lazy, native | nftables, IPv4 | `build/podman-results/oci-services-b6d0ca08877f41cfbf21a26a6e642475.json` |
+| debian / Podman | Default lazy, native | nftables, wildcard IPv6 publication observed through Android's existing local global address | `build/podman-results/oci-services-197af6e64466468f95680b3f67b0aa97.json` |
+
+These focused runs do not rerun the whole application matrix. Debian's Podman
+IPv6 result does not qualify `::1`; see the [fixture contract](README.md).
+
 ### Local IPv6 Container Acceptance
 
 The 2026-10-24 Arch reruns use stock container packages, their normal seccomp
@@ -329,9 +388,8 @@ ports and port release. They do not request public-internet access.
 The observer runs as native Termux UID 10601, outside Shroot. These runs change
 neither Android addresses nor its routes. Podman's tested address is not `::1`;
 see the [fixture contract](README.md) for the separate observer/publication
-options. Docker still logs missing `memory.events`: the unimplemented memory
-controller is not advertised, and the test does not certify memory limits/OOM
-notifications.
+options. These runs do not certify memory-limit enforcement or OOM notifications;
+see the [cgroup contract](../shroot/namespace-providers.md).
 
 ### IPv6 Uplink Coverage
 

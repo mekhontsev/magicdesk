@@ -1429,6 +1429,10 @@ Linux widgets. Bounds are explicitly `linux_screen_pixels`, not Android gesture
 coordinates. Roles and `atspi:NAME` actions come from the toolkit; use returned
 actions rather than assuming every toolkit names equivalent controls alike.
 Common actions are `click`, `focus`, `set_text` and `select_text` when advertised.
+Accessible properties are read individually with `Properties.Get`; observation
+does not require a toolkit's `GetAll` implementation, which is unsafe in some
+bridges. `accessibleId` comes from the optional `Accessible.GetAccessibleId`
+method. Unsupported IDs remain empty; connection errors are still reported.
 
 Traversal is bounded to 4096 candidates, depth 40 and 256 returned nodes.
 `ui.inspect` has no total traversal deadline while applications keep answering.

@@ -7,6 +7,7 @@
 #include "network_raw4.h"
 #include "network_link.h"
 #include "network_tc.h"
+#include "network_vxlan.h"
 #include <errno.h>
 #include <limits.h>
 #include <linux/if_ether.h>
@@ -103,6 +104,7 @@ static int frame_visit(void *context,struct md_network_namespace *n,struct md_ne
     const struct ethhdr *frame=*payload;
     deliver(n,link,d->sender,frame,d->size,outgoing);
     if (outgoing && link->kind==MD_LINK_TAP) md_network_tun_output(n,link->info.index,frame,d->size);
+    if (outgoing && link->kind==MD_LINK_VXLAN) return md_network_vxlan_output(n,link,frame,d->size);
     if (!outgoing && md_network_stack_has_link(n,link->info.index)) {
         if(!link->master) md_network_stack_input(n,link,frame,d->size);
         return 0;

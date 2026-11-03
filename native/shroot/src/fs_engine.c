@@ -13,6 +13,7 @@
 #include "fs_context.h"
 #include "image_catalogue.h"
 #include "inode_watch.h"
+#include "inode_fifo.h"
 #include "fs_mount_internal.h"
 #include "mount_graph.h"
 #include "fs_storage.h"
@@ -762,6 +763,9 @@ opened:
     else {
         out->fd = r;
         md_view_capture(fs,fs->mounts,fs->inode_mount,out,output);
+        if (!out->error && out->open_completion.kind==MD_OPEN_PIPE && output && output->origin
+                && *output->origin)
+            (*output->origin)->fifo_custody=md_inode_fifo_retain(s);
         if (!out->error && q->operation==MD_FS_REOPEN && q->origin[0] && output && output->origin
                 && *output->origin) {
             (*output->origin)->dentry=q->origin[0]->dentry;

@@ -11,13 +11,14 @@
 
 struct fifo_pin { char channel[33]; int fd; struct fifo_pin *next; };
 struct fifo_source { int source; struct md_inode_store *store; struct mdi_fifo_owner *custody; struct fifo_source *next; };
-struct mdi_fifo_owner { char id[33]; int lease, detached; struct md_inode_lifetime *lifetime;
+struct mdi_fifo_owner { atomic_uint refs; char id[33]; int lease, detached; struct md_inode_lifetime *lifetime;
     struct fifo_pin *pins; struct fifo_source *sources; };
 
 static int owner(struct md_inode_store *s) {
     if (s->fifos) return 0;
     struct mdi_fifo_owner *o = calloc(1, sizeof(*o));
     if (!o) return -ENOMEM;
+    atomic_init(&o->refs,1);
     o->lease = -1;
     int r = mdi_random_id(o->id);
     char name[48]; snprintf(name, sizeof(name), "fifo-%s", o->id);
@@ -228,6 +229,11 @@ static struct mdi_fifo_owner *detach(struct md_inode_store *s) {
     }
     return o;
 }
+struct mdi_fifo_owner *md_inode_fifo_retain(struct md_inode_store *s) {
+    struct mdi_fifo_owner *o=s ? s->fifos : NULL;
+    if (o) atomic_fetch_add_explicit(&o->refs,1,memory_order_relaxed);
+    return o;
+}
 int md_inode_fifo_adopt(struct md_inode_lifetime *life,const char channel[33],int fd,
         struct mdi_fifo_owner **out) {
     if (!life || !out || *out || channel[32] || strspn(channel,"0123456789abcdef")!=32) return -EINVAL;
@@ -257,7 +263,7 @@ int md_inode_fifo_adopt(struct md_inode_lifetime *life,const char channel[33],in
     md_inode_store_close(s); return r;
 }
 void md_inode_fifo_release(struct mdi_fifo_owner *o) {
-    if (!o) return;
+    if (!o || atomic_fetch_sub_explicit(&o->refs,1,memory_order_acq_rel)!=1) return;
     while (o->pins) { struct fifo_pin *p=o->pins; o->pins=p->next; close(p->fd); free(p); }
     while (o->sources) {
         struct fifo_source *p=o->sources; o->sources=p->next;
@@ -271,6 +277,11 @@ void md_inode_fifo_release(struct mdi_fifo_owner *o) {
 void mdi_fifo_close(struct md_inode_store *s) {
     struct mdi_fifo_owner *o = s->fifos;
     if (!o) return;
+    /* Live descriptor origins retain channel custody, not this evictable
+     * SQLite connection. Keep their leased routes until the final release. */
+    if (atomic_load_explicit(&o->refs,memory_order_acquire)>1) {
+        md_inode_fifo_release(detach(s)); return;
+    }
     if (!mdi_runtime_begin(s)) {
         sqlite3_stmt *q = NULL;
         int r = mdi_prepare(s, "DELETE FROM fifo_pins WHERE owner=?1", &q);

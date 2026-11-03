@@ -259,6 +259,22 @@ O_PATH capture retain their mount identity and openat2 restrictions. Only an
 unfiltered native directory may delegate getdents to its caller; logical PID
 filtering is not bypassed. None of these paths changes dumpability.
 Native proc descriptors outside these mounted views are unchanged.
+`/proc/diskstats` is an empty readable guest inventory: Shroot exposes no guest
+block devices and does not substitute Android's global disk counters.
+Launch-local `kernel_policy` supplies `vm/overcommit_memory`, `vm/panic_on_oom`,
+`kernel/panic`, `kernel/panic_on_oops` and the root key-quota sysctls. Guest root
+may retain advisory panic/key values without changing Android; this does not
+implement kernel panics, a keyring or key quotas. Overcommit remains permissive
+(`1`); other modes fail with EOPNOTSUPP rather than claim strict commit accounting.
+Mounted proc aliases share this owner; ordinary users cannot write it.
+
+`/dev/kmsg` is a private bounded journal, not `/proc/kmsg` or Android kernel logs.
+It supports guest-written records, independent open cursors, shared dup cursors,
+blocking/nonblocking reads, poll, supported seeks and overrun reporting. A short
+buffer consumes its record as on Linux. No host OOM messages or guest OOM kills
+are synthesized. A newly imported device tree starts a new journal; independent
+supervisor transfer does not preserve journal contents.
+
 Unmanaged processes retain native admission for process directories and
 `status`, `stat`, `limits` and `cgroup`; these reads do not invent guest identity
 or cgroup membership for Android tasks.

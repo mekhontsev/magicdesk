@@ -5,14 +5,14 @@
 
 struct md_network_flow_step {
     uint64_t space;
-    unsigned hook, bridge_ingress, bridge_egress;
+    unsigned hook, bridge_ingress, bridge_egress, ctmark;
     struct md_filter_packet packet;
     struct md_filter_rewrite after;
 };
 struct md_network_flow_path {
     struct md_filter_packet original, translated;
     struct md_network_flow_step steps[16];
-    unsigned count, mediated;
+    unsigned count, mediated, output_binding;
     struct md_network_rejection rejection[2];
     uint64_t destination, generation;
     uint64_t packet_space;
@@ -37,6 +37,9 @@ int md_network_flow_packet_policy(struct md_network_namespace *,const struct md_
     struct md_filter_packet *,int input,size_t bytes);
 int md_network_flow_check(struct md_network_fabric *,struct md_network_flow_path *,int);
 int md_network_flow_accounting(struct md_network_fabric *,struct md_network_flow_path *,int,int,struct md_filter_accounting *);
+struct md_network_tracking;
+int md_network_flow_tracked(struct md_network_fabric *,struct md_network_flow_path *,int,int,
+    struct md_filter_accounting *,struct md_network_tracking *);
 int md_network_flow_admits(struct md_network_namespace *,struct md_network_filter *,const struct md_network_flow_path *);
 int md_network_flow_routing_admits(struct md_network_namespace *,const struct md_network_flow_path *);
 #endif

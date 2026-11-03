@@ -8,6 +8,7 @@ Namespace-local network configuration, supported nftables flow filtering and NAT
 - [Network Namespaces](#network-namespaces)
 - [Traffic Control](#traffic-control)
 - [TUN/TAP Packet Transport](#tuntap-packet-transport)
+- [VXLAN And Static Neighbors](#vxlan-and-static-neighbors)
 - [Namespace-Owned Sysctls](#namespace-owned-sysctls)
 - [Namespace-Owned Sysfs](#namespace-owned-sysfs)
 
@@ -91,9 +92,9 @@ or return unreachable/prohibit/blackhole. Empty tables fall through; local and
 main rules are installed for a new namespace, with an IPv4 default-table rule.
 Tables share the existing bounded route catalogue, transaction journal and
 netlink publication. Rule deletion, rollback and notifications follow the same
-owner as routes. Unsupported selectors/actions fail explicitly. Neighbor dumps
-are empty and their unsupported mutations fail explicitly. Traffic-control
-objects have their own interface-scoped owner below.
+owner as routes. Direct and named-nexthop routes retain `onlink` through lookup,
+replacement and publication. Unsupported selectors/actions fail explicitly.
+Static neighbors and traffic-control objects have focused owners below.
 Strict queries validate complete headers and reject unsupported filters instead
 of silently ignoring them. Route dumps accept the header's table selector and
 the extended `RTA_TABLE` selector, with the latter taking precedence; unknown
@@ -162,11 +163,16 @@ Local OUTPUT uses loopback interface metadata, independently of the FIB owner
 used for source selection and scoped endpoint binding. DNAT reroutes the
 translated destination through the same flow owner. Socket output binding
 applies only before egress, including veth pairs in the same namespace;
-ingress performs a new route lookup and retains the incoming interface's
+generation-based route revalidation retains that binding only for the originating
+egress. Ingress performs a new route lookup and retains the incoming interface's
 IPv6 link-local scope. Nftables element deletion
 selects by key; an echoed value does not change the match or retain a verdict
 target. Both contracts are covered by native network tests and the nspawn
 command/publication lifecycle fixture.
+An unspecified socket destination is resolved locally, following IPv4 source
+selection or IPv6 loopback semantics. This does not reinterpret wildcard binds
+or incoming packet addresses, and cannot fall through to another namespace's
+listener via the default route.
 
 `network_io` uses the shared exact-description capture and cancellable IO owner
 for control, connect/accept and addressed TCP/UDP calls. No table/fabric turn
@@ -363,9 +369,11 @@ the packet owner's completion wakes retirement without a delay or HUP spin.
 `network_stack_packet` validates reassembled transport and delivers raw
 observations without a second IP reassembler. Broadcast/multicast UDP enters the
 existing namespace group-delivery owner, including DHCP's zero-source discovery.
-Legacy ARP get/set/delete ioctls use the same per-interface lwIP neighbor cache;
-they do not create a second neighbor catalogue. Writes require namespace
-`CAP_NET_ADMIN`; proxy ARP is unsupported.
+Legacy ARP get/set/delete ioctls share permanent entries with the static-neighbor
+owner; dynamic entries remain in lwIP. Permanent entries do not require a packet
+stack. Committed static changes invalidate matching dynamic caches; failed
+publication leaves both unchanged. Writes require namespace `CAP_NET_ADMIN`;
+proxy ARP is unsupported.
 
 Shroot remains the address/route authority; lwIP does not run DHCP, DNS or SLAAC
 configuration or independent IPv6 MTU updates. Both families use the link MTU
@@ -380,6 +388,43 @@ permissions, queue lifetime, raw ICMP and IPv4/IPv6 TCP/UDP between both packet
 and native endpoints. The rootless mode of `probe_podman_runtime.py` checks
 stock slirp4netns, UID mappings, container DNS/HTTP, TCP/UDP publication and
 cleanup with the normal container seccomp policy.
+
+### VXLAN And Static Neighbors
+
+`network_vxlan` owns unicast VXLAN links, 24-bit VNIs and namespace-owned UDP
+ports. Stock iproute2 and Flannel use the shared rtnetlink transaction owner;
+no k3s-specific syscall path is involved. IPv4/IPv6 underlays and payloads share
+the existing Ethernet, packet-stack, route, filter and NAT owners. MTU accounts
+for outer-family overhead. Multiple VNIs share one compatible UDP binding;
+the last link releases it. Removing or moving an underlay retires its bound
+tunnels through the same topology journal. Moving a tunnel between namespaces
+is unsupported.
+
+Internal UDP endpoints borrow their namespace while ordinary application sockets
+retain it. Both use the same binding, destination and retirement operations,
+avoiding namespace reference cycles and duplicate routing policy. Bounded packet
+batches run on the existing fabric reactor, not a new worker. Ordinary socket
+and file reads/writes remain native.
+
+`network_neighbor` owns immutable sorted snapshots of permanent IPv4/IPv6
+neighbors and static VXLAN FDB entries. Lookups use binary search; mutations
+allocate only on the control path and participate in publication rollback.
+Entries retain interface lifetimes, not reusable names. Dumps, point queries,
+notifications, replacement and deletion use the same snapshot. A zero-MAC FDB
+entry selects one flood destination. Dynamic ARP/NDP resolution remains stack
+owned and is not enumerated by static netlink dumps.
+
+Supported tunnels require `nolearning`; multicast underlays, expiring/learned
+FDB entries, multiple destinations for one MAC, custom outer TTL/TOS and
+additional VXLAN extensions fail explicitly. This is not a complete Linux
+bridge/VXLAN control plane. Static catalogs are bounded at 1024 entries per
+namespace. UDP checksums are produced by the native transport.
+
+`test_network_vxlan.py` checks an independent UDP wire peer, malformed headers,
+VNI isolation, shared-port retirement, MTU, outer filtering, IPv4/IPv6 underlays,
+local and routed TCP/UDP payloads, fragmentation and namespace cleanup. The
+two-node k3s fixture additionally exercises stock Flannel, cross-node DNS,
+Services, NetworkPolicy and independent node restarts.
 `probe_packet_runtime.py` checks stock tun2socks through a SOCKS5 TCP/UDP proxy
 and stock QEMU TCG through TAP/virtio-net. Both cover IPv4/IPv6, bulk transfers,
 fragmentation and TCP half-close; QEMU additionally runs the peer inside a real
@@ -393,6 +438,23 @@ same packet and relay owners, without application-specific runtime handling.
 with an empty catalogue. Retained sockets still refer to their creation
 namespace. No operation opens Android's netfilter socket or changes its firewall.
 Queries and mutations require CAP_NET_ADMIN in the namespace's user owner.
+
+`network_conntrack` exposes CTNETLINK dumps and tuple lookup for managed TCP/UDP
+relays, with namespace-local original/reply tuples, NAT status, marks and expiry.
+UDP deletion retires the mapping after successful ACK publication, preserving
+the guest-facing socket. Its next datagram receives fresh routing/NAT admission.
+`network_tracking` separates TCP records from the retained transport and NAT
+binding. Deletion or idle expiry removes only the selected namespace's record;
+accepted payload recreates it with a fresh ID. Namespace-local marks do not cross
+veth boundaries. The established/close-wait timeout sysctls apply to relay
+activity and half-close, not a full emulation of kernel TCP states. Established
+NAT bindings remain unchanged. Cached expiry minima and policy generations keep
+namespace/ruleset walks out of steady payload forwarding.
+Native unmediated flows, multicast, Android conntrack,
+event multicast, arbitrary record creation and accounting extensions are outside
+this inventory. Replies obey the same bounded netlink transport; overflow fails
+rather than return a truncated successful dump. These queries enumerate existing
+flow owners, not a new observer on ordinary read/write.
 
 The implemented ABI covers generation queries, tables, base/regular chains,
 rules, exact-key/interval sets, verdict maps and register-value maps, including dumps, deletion,
@@ -414,19 +476,48 @@ ports or addresses are rejected explicitly.
 Rtnetlink additionally publishes asynchronous topology notifications before its
 ACK; its observed-state rollback boundary is described above.
 
-Requests and replies are bounded at 64 KiB in the mapped adapter slot. A ruleset
+Control requests/replies are bounded at 1 MiB. Large requests borrow contiguous
+slots from the existing adapter buffer owner. `network_control_queue` admits a
+complete response before mutation commit, then drains complete netlink messages
+through the existing epoll reactor. Each socket has a 4 MiB queue, bounded callback
+work and explicit backpressure; ordinary data IO is unaffected. A ruleset
 has at most 256 tables, 256 chains, 1024 rules, 64 expressions per rule and 1024
 elements per set. Overflow fails explicitly. Incomplete batches are rejected,
 not retained across socket calls. Loops, excessive jump depth and transitive
 NAT/FIB placement in incompatible hooks are rejected before commit, including
 chains reached through verdict maps. These checks do not run on packet IO.
 
+`network_ipset` uses the same namespace-local set storage, transactions and flow
+revalidation as nftables. It supports permanent IPv4/IPv6 `hash:ip` and
+`hash:net` entries, prefix exclusions, save/restore, atomic swap, stable referenced
+IDs and xtables set lookup. A prefix bitmap plus ordered lookup avoids linear
+set scans during admission. The common 1024-element resource bound applies even
+when an ipset requests a larger `maxelem`. Positive timeouts, per-element
+counters/comments and other set types fail explicitly.
+
+`network_nflog` provides socket-owned, namespace-local metadata subscriptions.
+Standalone logging rules can use a diagnostic token-bucket limit; unsupported
+rate-dependent forwarding verdicts fail at installation. Events describe flow
+admission/revalidation, not every physical packet. Payload copying and logging
+flags outside this contract are rejected. Delivery is bounded and nonblocking;
+it does not add a read/write observer. Multiport ranges and physical bridge-port
+predicates reuse the common flow model.
+
+The guest `/proc/modules` catalogue advertises managed nftables, conntrack,
+ipset and bridge-filter providers only in managed networks. It does not mirror
+Android modules or permit loading host code. Native network mode has no managed
+module entries. This allows ordinary tools to select the supported nft backend.
+
 `network_filter_program` evaluates immediate/verdict, metadata, supported IPv4/IPv6
 address/protocol and TCP/UDP port or ICMP type/code payload, compare/range/bitwise,
 conntrack state/mark/status, local/source-route classification, reverse-path and
 packet-type predicates, set, verdict-map and register-value lookup, single-target
 DNAT, single-address SNAT and masquerade operations. Source NAT supports inclusive
-TCP/UDP port ranges for both address families. ACCEPT ends a chain, not a hook; later
+TCP/UDP port ranges and random source-port selection for both address families.
+Random selection runs only on NAT admission and uses the existing collision
+reservations; retained mappings keep their chosen port. Xtables DNAT/SNAT state
+aliases are ORed with ordinary conntrack state using the flow's NAT status.
+ACCEPT ends a chain, not a hook; later
 base chains may deny it. RETURN applies the base policy.
 `route` OUTPUT chains repeat route selection after a mark/address change and
 publish the selected output to later chains. They use the same policy-routing
@@ -464,7 +555,8 @@ queue or asynchronous refusal delivery; a later policy denial can discard their
 traffic. Use the packet transport when wire-level error delivery is required.
 Ordinary socket read/write remains native; these limitations must not be
 described as complete Linux error-queue or host-firewall support.
-Logging, queues, dynamic sets, flowtables, unsupported table flags,
+Logging outside the metadata-only NFLOG contract, packet queues, dynamic sets,
+flowtables, unsupported table flags,
 monitoring groups and other netfilter subsystems also return errors, not fake
 success. Whole stock firewalld configurations remain uncertified.
 The iptables-nft rule-compat attribute is validation metadata, not a packet
@@ -539,9 +631,11 @@ Direct unfiltered TCP and outgoing native UDP keep native connected IO only when
 neither direction has potentially denying hooks. Policy updates evaluate each
 retained tuple in both directions, including first-payload and established
 states. Unrelated rules do not revoke these streams. Mark/conntrack updates are
-evaluated on a private copy, including the resulting route and later filters.
-Denying policy or a changed effective route returns atomic `EBUSY`: an update cannot retroactively move
-a kernel stream into a relay. Counters do not change admission, so adding them
+evaluated on a private copy, including routes affected by changed marks and
+later filters. Denying policy or a mark requiring another transport returns
+atomic `EBUSY`: an update cannot retroactively move a kernel stream into a
+relay. Topology admission is separate; address activation does not make an
+unrelated firewall update retarget a retained native connection. Counters do not change admission, so adding them
 does not revoke an existing native stream. They account for observed mediated
 traffic, not payload on already native connections; this is not complete kernel
 packet accounting. New flows reaching counters use mediation. Direct path
@@ -616,7 +710,8 @@ it. Topology rollback restores the prior policy lifetime alongside its values.
 and loopback-source/destination policy apply at logical routing boundaries,
 after PREROUTING. `src_valid_mark` includes the restored packet mark in the
 reverse route lookup; the effective value combines `conf/all` and the interface.
-The fabric resolves live addresses directly, without an ARP neighbor cache;
+Native-endpoint routes resolve live addresses directly; packet transports use
+the static-neighbor and dynamic ARP/NDP owners described above.
 `arp_notify` does not emit packets onto Android's physical network.
 
 `tcp_keepalive_time`, `tcp_keepalive_intvl` and `tcp_keepalive_probes` belong to

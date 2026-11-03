@@ -38,6 +38,32 @@ chroot "$root" /bin/sh -ec '
 '''
 
 
+def attached_store(suite, host, source, kind):
+    target = '/mnt/md-store-root-' + suite.report['id']
+    prefix = suite.run(host, '--user', '0:0')
+    suite.command(prefix + ['--', '/bin/mkdir', target])
+    try:
+        script = '''
+mount --rbind /dev "$1/dev"
+mount --bind /proc "$1/proc"
+pivot_root "$1" "$1/run"
+cd /
+umount -l /run
+exec nsenter --mount=/proc/self/ns/mnt -- /bin/sh -ec '
+    . /etc/os-release
+    printf "STORE_ROOT=%s\\n" "$ID"
+    /bin/sh -ec "test -r /etc/os-release"
+'
+'''
+        output = suite.command(prefix + ['--bind-store-ro', source, target,
+            '--', '/usr/bin/unshare', '-mpf', '--mount-proc',
+            '/bin/sh', '-ec', script, 'store-root', target], timeout=30)
+        assert 'STORE_ROOT=' + kind in output.splitlines(), output
+        suite.report['cases'].append({'name': kind + '-attached-store-pivot-setns', 'passed': True})
+    finally:
+        suite.command(prefix + ['--', '/bin/rmdir', target])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
@@ -64,9 +90,15 @@ def main():
                 output = suite.command(suite.run(instance, *options, "--", "/bin/sh", "-ec", script(kind)), timeout=45)
                 assert "PASS dynamic root and nested exec" in output
                 case["passed"] = True
+        if args.debian and args.alpine:
+            attached_store(suite, args.debian, args.alpine, 'alpine')
+            attached_store(suite, args.alpine, args.debian, 'debian')
         suite.report["passed"] = True
     finally:
-        suite.finish()
+        try:
+            suite.command(['rm', '-rf', suite.base])
+        finally:
+            suite.finish()
 
 
 if __name__ == "__main__":

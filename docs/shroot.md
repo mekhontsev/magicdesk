@@ -70,7 +70,7 @@ stop another launch. Persistent stores outlive those processes.
 | Credentials | Guest users, groups, capabilities, drops and namespace ownership | Guest root never grants Android root or kernel capabilities |
 | IPC and terminals | Separate SysV IPC owners, store-scoped pathname sockets, private devpts views | Inherited connections retain authority; explicit abstract Unix sockets share the host namespace |
 | Network | Offline child namespaces or routed IPv4/IPv6, private ports, supported nftables flow filtering and NAT | Native backing ports remain reachable; not a host firewall or full Linux network isolation |
-| Resource controls | Launch-local real-UID `RLIMIT_NPROC`; logical `RLIMIT_NOFILE` backed by native FD allocation; logical cgroup membership, controller settings and device-filter bookkeeping | Android's physical FD/task budgets still apply; cgroup CPU, memory, pids and device limits are not enforced; other resource limits remain native |
+| Resource controls | Launch-local real-UID `RLIMIT_NPROC`; logical `RLIMIT_NOFILE` backed by native FD allocation; hierarchical cgroup `pids.max`, membership, freezer and sampled CPU/RSS counters | Android's physical FD/task budgets still apply; cgroup CPU, cpuset, memory and device policies are not enforced; sampled RSS is not kernel page charging; other resource limits remain native |
 | Application filters | Installed seccomp filters and their denial actions remain active | The filesystem broker is not itself confined by every caller's filter domain |
 
 Use trusted images and programs. Logical separation prevents many accidental
@@ -781,6 +781,10 @@ login and the low-level `--store` runner, including launches that start an OS in
 `--bind-create HOST GUEST` additionally creates an empty guest directory when the
 target is absent; its parent must already exist. The directory remains in the
 store after exit, but the attachment and its host contents are launch-scoped.
+`--bind-store-ro HOST_STORE GUEST` attaches the logical root of another existing
+Shroot store read-only, not its on-disk metadata directory. The target must exist.
+The launch retains the source and its dependencies without copying the rootfs;
+guest mounts below it can provide private writable runtime directories.
 
 Login uses `/etc/passwd` for home and shell. Numeric users absent from that file
 use `/`, `/bin/sh` and a numeric username; no account is created. Image launches
@@ -908,6 +912,42 @@ Alpine's `openrc-init` and Void/Armtix runit have boot and service lifecycle
 coverage. These launches use private proc, `/run`, `/dev`, terminal and cgroup
 views, not Android's init system. Starting `/sbin/init` in an ordinary application
 shell is not an equivalent setup.
+
+The installer supplies `magicdesk-init` for an explicit systemd or OpenRC boot.
+In a MagicDesk Shell console, select the environment and guest root, then boot:
+
+```sh
+shroot login debian --user 0:0 --network routed
+exec magicdesk-init
+```
+
+The helper creates private runtime filesystems and starts the installed init
+system with a root console on a private PTY. It does not change Android services,
+the selected executor's identity, or other terminals' login policy. Installed
+services, `/etc` and `/var/lib` persist; `/run`, `/tmp` and `/dev` belong to this
+boot. Only boot an idle environment: independent launches do not share its
+service manager or runtime mounts. `magicdesk-init COMMAND ARG...` runs that
+command as the console service instead of the login shell. `exec` replaces the
+calling shell so that shutdown also ends that Shroot launch.
+
+Install missing init packages before boot (`systemd-sysv` and `dbus` on Debian;
+`openrc` on Alpine). The helper also uses util-linux, supplied by the recipe.
+To add or refresh the helper in an existing environment without rerunning
+package or graphics setup, use the downloaded installer from the Android Shell:
+
+```sh
+sh ~/install_linux.sh --print-init-session | shroot exec debian --user 0:0 -- \
+  /bin/sh -c 'mkdir -p /usr/local/bin; cat > /usr/local/bin/magicdesk-init; chmod 755 /usr/local/bin/magicdesk-init'
+```
+
+Shut down from the booted console with `systemctl poweroff` on systemd or
+`openrc-shutdown --poweroff now` on OpenRC. These stop the guest, not Android.
+Namespace poweroff is reported to the outer shell as SIGINT (exit 130),
+not a failed service shutdown. A namespace reboot ends this launch; start the
+helper again to boot another session.
+Exiting just the console shell starts another shell; it does not power off the
+guest. An explicit `shroot stop` from another Android console is cancellation,
+not a substitute for orderly service shutdown.
 
 See the [init matrix](../native/guest-exec-lab/init-matrix.md) and
 [init fixtures](../native/guest-exec-lab/namespaces.md#namespace-clients) for setup
@@ -1081,6 +1121,10 @@ without a userland proxy:
 --userland-proxy=false
 ```
 
+Install the distribution's `nftables` package inside the guest; Docker needs the
+`nft` executable on its daemon's `PATH`. Shroot supplies the supported netlink
+operations, not the guest's firewall command-line tools.
+
 The older explicitly firewall-disabled profile remains a separate supported
 configuration using Docker's ordinary userland proxy:
 
@@ -1103,6 +1147,54 @@ This is not an unconfigured Docker host: nftables is Shroot's supported logical
 flow model, not Android kernel firewall management. Native cgroup resource
 limits are not supplied. Missing subsystems remain errors rather
 than silently successful operations.
+
+### K3s
+
+For a persistent single-node cluster, first boot Debian or Alpine with
+[`magicdesk-init`](#systemd-openrc-and-runit) and `--network routed`. Inside that
+booted root console, run the upstream installer:
+
+```sh
+curl -fL https://get.k3s.io -o /tmp/install-k3s.sh
+sh /tmp/install-k3s.sh server
+k3s kubectl get nodes
+k3s kubectl get pods -A
+```
+
+The installer downloads the ARM64 binary, installs and enables its ordinary
+systemd/OpenRC service. MagicDesk's Linux recipe does not install Kubernetes
+automatically. Keep stock container seccomp and the default k3s networking;
+no custom service unit or browser-style sandbox bypass is required.
+Check the service with `systemctl status k3s` or `rc-service k3s status`.
+After guest shutdown, repeat the same `shroot login` and `exec magicdesk-init`
+commands. Do not reinstall k3s or delete `/etc/rancher` and `/var/lib/rancher`:
+these retain cluster credentials, configuration, datastore and local volumes.
+Back up important data independently; recovery after process termination is
+not a guarantee against physical storage failure.
+The [full-boot fixture](../native/guest-exec-lab/test_k3s_boot.py) separately
+checks orderly shutdown and forced supervisor termination, then boots the same
+store through its ordinary enabled service and verifies cluster identities,
+PVC contents, DNS and Service HTTP.
+
+Stock ARM64 k3s is checked in a guest-root routed launch using its default VXLAN
+backend, with stock Traefik, ServiceLB and NetworkPolicy. The two-node workflow
+uses independently isolated server and agent namespaces. It covers Node Ready,
+CoreDNS, root filesystem capacity, cross-node DNS and ClusterIP HTTP,
+policy deny/allow/update/delete, Deployment scaling and rolling updates,
+local-path PVC retention, and ingress through both
+the Traefik Service and node address. Agent and server restarts must retain workload
+identities and restore IO; ordinary resource deletion and shutdown are checked.
+The fixture prepares private proc/sysfs/cgroup views and writable runtime storage;
+it neither changes Android networking nor disables container seccomp.
+
+The nodes share one device; this does not establish a multi-device deployment.
+Managed ipset and TCP conntrack timeout controls use the shared network namespace; deleting
+a TCP tracking record does not close its transport. Cadvisor cannot report a
+guest block-device inventory. Cgroup memory limits remain advisory, not enforced
+OOM isolation. The [single-distribution fixture](../native/guest-exec-lab/test_k3s.py)
+and [mixed-cluster fixture](../native/guest-exec-lab/test_k3s_cluster.py) share the
+same workload and node lifecycle. See the
+[qualified results](../native/guest-exec-lab/validation-matrix.md#k3s).
 
 ### Podman
 
@@ -1156,8 +1248,9 @@ Android root. This is separate from guest-root Docker and does not certify
 every RootlessKit driver or cgroup delegation setup.
 
 For both engines, guest root is still real Android UID 2000. Enabled cgroups
-provide logical membership and permissive settings, not enforced resource or
-device limits.
+provide membership, freezer state, enforced hierarchical PID limits and sampled
+CPU/RSS counters. CPU quotas, cpuset affinity, memory and device limits remain
+unenforced; these are not full kernel resource controls.
 
 See [Alpine containers inside SteamOS](#alpine-containers-inside-steamos) for an
 example and the distinction between lazy entry and filtered Base admission.
@@ -1482,7 +1575,8 @@ including nspawn, BuildKit, LXC and the selected LTP checks.
 
 ### ABI and isolation limits
 
-Cgroups are permissive, not resource enforcement. Logical tmpfs and ramfs are
+Cgroups enforce PID limits and freezer state, but not CPU, memory or device
+limits. Sampled RSS is not kernel page charging. Logical tmpfs and ramfs are
 disk-backed; capacity options do not impose quotas. Neither provides memory-only
 or no-swap secret storage. Persistent `remount,ro` denies new writable opens and
 metadata changes, but does not revoke existing writable FDs or shared mappings.

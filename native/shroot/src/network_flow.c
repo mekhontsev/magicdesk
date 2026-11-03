@@ -1,5 +1,7 @@
 #include "network_flow.h"
+#include "network_tracking.h"
 #include "network_forward.h"
+#include "network_nflog.h"
 #include "network_policy.h"
 #include <errno.h>
 #include <linux/netfilter.h>
@@ -30,13 +32,18 @@ static void interface(struct md_filter_packet *p,const struct md_network_interfa
     else { p->output=link ? link->info.index : 0; p->masquerade_address=md_network_interface_source(link,p->destination); }
     if (link) memcpy(name,link->info.name,strnlen(link->info.name,15));
 }
+static void physical(struct md_filter_packet *p,const struct md_network_interface *link,unsigned direction) {
+    p->physical[direction]=link ? link->info.index : 0;
+    memset(p->physical_name[direction],0,16);
+    if (link) memcpy(p->physical_name[direction],link->info.name,strnlen(link->info.name,15));
+}
 static int requires_mediation(const struct md_network_filter *f,const struct md_filter_chain *c,unsigned depth) {
     if (c->hook>=0 && (c->policy==NF_DROP || c->counters)) return 1;
     if (depth>16) return 1;
     for (size_t i=0;i<f->rule_count;++i) if (f->rules[i].chain==c->handle)
         for (unsigned j=0;j<f->rules[i].count;++j) {
             const struct md_filter_expression *e=&f->rules[i].expressions[j];
-            if (e->code==MD_FILTER_COUNTER || e->code==MD_FILTER_REJECT) return 1;
+            if (e->code==MD_FILTER_COUNTER || e->code==MD_FILTER_REJECT || e->code==MD_FILTER_LOG) return 1;
             for (size_t at=0;at<md_filter_verdict_count(f,e);++at) {
                 struct md_filter_verdict v=md_filter_verdict_at(f,e,at);
                 if (v.operation==NF_DROP) return 1;
@@ -120,13 +127,25 @@ static struct md_filter_route_result filter_route(void *opaque,const struct md_f
     }
     return result;
 }
+static void filter_log(void *opaque,const struct md_filter_packet *p,const struct md_filter_log *log) {
+    struct route_context *context=opaque;
+    md_network_nflog_emit(context->space,p,log);
+}
 static int hook(struct md_network_namespace *n,unsigned which,struct md_filter_packet *p,struct md_network_flow_path *path) {
+    if (path->count && path->steps[path->count-1].space!=n->inode) {
+        /* Conntrack belongs to a network namespace, unlike the carried tuple.
+         * Re-entry reuses that namespace's mark, not the previous hop's. */
+        p->ctmark=0;
+        for (unsigned i=path->count;i>0;--i) if (path->steps[i-1].space==n->inode) {
+            p->ctmark=path->steps[i-1].ctmark; break;
+        }
+    }
     struct route_context context={.space=n,.path=path};
     p->source_fib_type=address_type(&context,p->source);
     p->fib_type=address_type(&context,p->destination);
     if (path->count==16) return -ELOOP;
     struct md_network_flow_step *step=&path->steps[path->count++];
-    *step=(struct md_network_flow_step){.space=n->inode,.hook=which,.packet=*p};
+    *step=(struct md_network_flow_step){.space=n->inode,.hook=which,.packet=*p,.ctmark=p->ctmark};
     step->after=tuple(p);
     struct md_network_filter *f=n->filter;
     if (!f || !f->chain_count) return 0;
@@ -137,10 +156,11 @@ static int hook(struct md_network_namespace *n,unsigned which,struct md_filter_p
                 && (f->chains[i].hook==(int)which || f->chains[i].hook==(int)reverse_hook(which))
                 && requires_mediation(f,&f->chains[i],0)) path->mediated=1;
     int priority=0;
-    p->route_context=&context; p->route=filter_route; p->source_nat=source_nat;
+    p->route_context=&context; p->route=filter_route; p->source_nat=source_nat; p->log=filter_log;
     int error=md_filter_evaluate_transition(f,which,p,NULL,&priority);
-    p->route_context=NULL; p->route=NULL; p->source_nat=NULL;
+    p->route_context=NULL; p->route=NULL; p->source_nat=NULL; p->log=NULL;
     step->after=tuple(p); step->after.priority=priority;
+    step->ctmark=p->ctmark;
     if (p->snat || p->dnat) path->mediated=1;
     return error;
 }
@@ -196,7 +216,7 @@ int md_network_flow_group_input(struct md_network_namespace *n,struct md_network
 }
 int md_network_flow_route(struct md_network_namespace *from,struct md_filter_packet *p,int external,
         unsigned output,struct md_network_flow_path *path) {
-    *path=(struct md_network_flow_path){.generation=from->fabric->policy_generation};
+    *path=(struct md_network_flow_path){.generation=from->fabric->policy_generation,.output_binding=external ? 0 : output};
     /* Only the native listener knows its accepted destination is local.
      * A raw ingress packet supplies an interface, not this authority. */
     if (external && !output) { path->native_space=from->inode; path->native_address=p->destination; }
@@ -235,8 +255,14 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
         if (local && md_ip_linklocal(p->destination) && scope && local->info.index!=scope) local=NULL;
         context.space=n;
         if (local || native_local(&context,p->destination)) {
+            if (!arrived) {
+                struct md_network_interface *loop=md_network_interface_find(n,1,NULL);
+                interface(p,loop,0);
+                error=hook(n,NF_INET_POST_ROUTING,p,path);
+                if (error) break;
+                interface(p,loop,1);
+            }
             interface(p,NULL,0);
-            if (!arrived) interface(p,local,1);
             error=hook(n,NF_INET_LOCAL_IN,p,path);
             path->destination=n->inode; break;
         }
@@ -244,6 +270,15 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
         struct md_network_transport_policy transport=md_network_route_transport(out,&route);
         if (transport.mtu && (!path->transport.mtu || transport.mtu<path->transport.mtu)) path->transport.mtu=transport.mtu;
         interface(p,out,0);
+        physical(p,NULL,1); p->bridged=0;
+        if (out->kind==MD_LINK_BRIDGE) {
+            struct md_network_namespace *peer_space=NULL;
+            struct md_network_interface *peer=bridge_peer(n,out,md_ip_unspecified(route.gateway) ? p->destination : route.gateway,&peer_space);
+            struct md_network_interface *port=peer ? md_network_interface_find(n,peer->peer,NULL) : NULL;
+            struct md_network_interface *in=md_network_interface_find(n,ingress_port,NULL);
+            physical(p,port,1);
+            p->bridged=in && port && in->master && in->master==port->master;
+        }
         if (arrived) {
             if (md_ip_linklocal(p->source) || md_ip_linklocal(p->destination)) { error=-ENETUNREACH; break; }
             if (!md_network_forwarding(n,p->destination.family,p->input)) { error=-ENETUNREACH; break; }
@@ -251,7 +286,7 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
         }
         if (!error) error=hook(n,NF_INET_POST_ROUTING,p,path);
         if (error) break;
-        if (out->kind==MD_LINK_TUN || out->kind==MD_LINK_TAP) {
+        if (out->kind==MD_LINK_TUN || out->kind==MD_LINK_TAP || out->kind==MD_LINK_VXLAN) {
             path->packet_space=n->inode; path->packet_output=out->info.index; path->mediated=1;
             break;
         }
@@ -272,7 +307,7 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
             if(!input && n->stack) {
                 int packet_port=0;
                 for(unsigned k=0;k<n->count;++k)
-                    if(n->links[k].master==out->info.index && n->links[k].kind==MD_LINK_TAP
+                    if(n->links[k].master==out->info.index && (n->links[k].kind==MD_LINK_TAP || n->links[k].kind==MD_LINK_VXLAN)
                             && (n->links[k].info.flags&IFF_UP)) packet_port=1;
                 if(packet_port) {
                     path->packet_space=n->inode; path->packet_output=out->info.index; path->mediated=1;
@@ -296,6 +331,8 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
         if (!next || !input || !(input->info.flags&IFF_UP)) { error=-ENETUNREACH; break; }
         ingress_port=out->kind==MD_LINK_VETH ? out->peer : 0;
         n=next; arrived=1; external=0;
+        struct md_network_interface *port=md_network_interface_find(n,ingress_port,NULL);
+        physical(p,port && port->master ? port : NULL,0); physical(p,NULL,1); p->bridged=0;
         interface(p,input,1); interface(p,md_network_route_find(n,p->destination,NULL),0);
         p->fib_type=md_network_address_type(n,p->destination);
         error=hook(n,NF_INET_PRE_ROUTING,p,path);
@@ -304,27 +341,36 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
     path->translated=*p; return error;
 }
 static int routing_admits(struct md_network_namespace *n,const struct md_network_flow_path *path,
-        const struct md_filter_packet *p,unsigned hook) {
+        const struct md_filter_packet *p,unsigned hook,unsigned selected) {
     if (hook!=NF_INET_POST_ROUTING && hook!=NF_INET_LOCAL_IN) return 0;
     if (md_ip_multicast(p->destination) || md_network_address_type(n,p->destination)==RTN_BROADCAST
             || (path->native_space==n->inode && md_ip_equal(path->native_address,p->destination))) return 0;
     struct md_network_route_entry route={0}; int error;
     struct md_network_interface *link=md_network_policy_route(n,p->source,p->destination,p->mark,
-        md_ip_linklocal(p->destination) ? (p->output ? p->output : p->input) : 0,&route,&error);
+        selected ? selected : md_ip_linklocal(p->destination) ? (p->output ? p->output : p->input) : 0,&route,&error);
     if (!link) return error;
-    return (hook==NF_INET_LOCAL_IN ? route.table!=RT_TABLE_LOCAL : link->info.index!=p->output) ? -ENETUNREACH : 0;
+    unsigned output=route.table==RT_TABLE_LOCAL ? 1 : link->info.index;
+    return (hook==NF_INET_LOCAL_IN ? route.table!=RT_TABLE_LOCAL : output!=p->output) ? -ENETUNREACH : 0;
+}
+static unsigned output_binding(const struct md_network_flow_path *path,unsigned index) {
+    if(!path->output_binding || path->steps[index].hook!=NF_INET_POST_ROUTING) return 0;
+    for(unsigned i=0;i<index;++i) if(path->steps[i].hook==NF_INET_POST_ROUTING) return 0;
+    return path->output_binding;
 }
 int md_network_flow_routing_admits(struct md_network_namespace *n,const struct md_network_flow_path *path) {
     for (unsigned i=0;i<path->count;++i) {
         const struct md_network_flow_step *s=&path->steps[i];
         if (s->space!=n->inode || s->bridge_ingress || (s->hook!=NF_INET_POST_ROUTING && s->hook!=NF_INET_LOCAL_IN)) continue;
-        int error=routing_admits(n,path,&s->packet,s->hook);
+        /* A bound output applies only to the originating egress. Re-entry
+         * through a same-namespace veth is ordinary ingress routing. */
+        int error=routing_admits(n,path,&s->packet,s->hook,output_binding(path,i));
         if (error) return error;
     }
     return 0;
 }
 static int check_path(struct md_network_fabric *f,struct md_network_flow_path *path,int reverse,
-        struct md_network_namespace *override,struct md_network_filter *filter,int initial,struct md_filter_accounting *accounting) {
+        struct md_network_namespace *override,struct md_network_filter *filter,int initial,struct md_filter_accounting *accounting,
+        struct md_network_tracking *tracking) {
     path->rejection[!!reverse]=(struct md_network_rejection){0};
     unsigned mark=reverse ? 0 : path->original.mark;
     if (!override && path->generation!=f->policy_generation)
@@ -348,7 +394,7 @@ static int check_path(struct md_network_fabric *f,struct md_network_flow_path *p
         }
         struct md_filter_packet p=s->packet;
         struct route_context context={n,path,&s->after};
-        p.route_context=&context; p.route=filter_route; p.source_nat=source_nat;
+        p.route_context=&context; p.route=filter_route; p.source_nat=source_nat; p.log=filter_log;
         struct md_filter_rewrite rewrite=s->after;
         /* NEW data may arrive after a ruleset change. Keep its admitted NAT
          * binding (including no translation), while evaluating current filters. */
@@ -356,11 +402,15 @@ static int check_path(struct md_network_fabric *f,struct md_network_flow_path *p
         p.state=initial && !reverse ? s->packet.state : 2;
         p.accounting=accounting;
         p.ctmark=path->translated.ctmark; p.status=path->translated.status; p.mark=mark;
+        struct md_network_tracking_entry *tracked=tracking ? md_network_tracking_find(tracking,s->space) : NULL;
+        if (tracked) p.ctmark=tracked->mark;
         struct md_network_interface *input=md_network_interface_find(n,p.input,NULL);
         struct md_network_interface *output=md_network_interface_find(n,p.output,NULL);
         if (!override && ((p.input && (!input || !(input->info.flags&IFF_UP)))
                 || (p.output && (!output || !(output->info.flags&IFF_UP))))) return -ENETUNREACH;
         interface(&p,input,1); interface(&p,output,0);
+        physical(&p,md_network_interface_find(n,s->packet.physical[reverse ? 1 : 0],NULL),0);
+        physical(&p,md_network_interface_find(n,s->packet.physical[reverse ? 0 : 1],NULL),1);
         unsigned hook=s->hook;
         if (reverse) {
             p.source=s->after.destination; p.destination=s->after.source;
@@ -371,6 +421,15 @@ static int check_path(struct md_network_fabric *f,struct md_network_flow_path *p
             interface(&p,md_network_interface_find(n,s->packet.output,NULL),1);
             interface(&p,md_network_interface_find(n,s->packet.input,NULL),0);
             hook=reverse_hook(hook);
+            /* Local delivery traverses POSTROUTING in both directions, not
+             * the ingress hook used by a forwarded return path. */
+            if (s->hook==NF_INET_POST_ROUTING && i+1<path->count
+                    && path->steps[i+1].space==s->space
+                    && path->steps[i+1].hook==NF_INET_LOCAL_IN) {
+                hook=NF_INET_POST_ROUTING;
+                interface(&p,NULL,1);
+                interface(&p,md_network_interface_find(n,s->packet.output,NULL),0);
+            }
             rewrite.priority=(hook==NF_INET_PRE_ROUTING || hook==NF_INET_LOCAL_OUT)
                 ? NF_IP_PRI_NAT_DST : NF_IP_PRI_NAT_SRC;
         }
@@ -382,25 +441,34 @@ static int check_path(struct md_network_fabric *f,struct md_network_flow_path *p
         /* Existing connections retain even an untranslated NAT binding. The
          * evaluator skips NAT chains for them, including counters and jumps;
          * only live filter chains can revoke their native data path. */
-        p.unmediated=override==n;
-        /* Mark changes are harmless to a native connection only while its
-         * effective route and every subsequent filter still admit the tuple. */
-        if (override && !s->bridge_ingress && routing_admits(n,path,&p,hook)) return -EBUSY;
+        p.unmediated=override!=NULL;
+        /* Topology admission is separate. An unchanged mark must not make an
+         * unrelated ruleset update revalidate a native connection's old route
+         * after address activation. Changed marks must retain its transport. */
+        uint32_t original_mark=reverse ? 0 : s->packet.mark;
+        if (override && p.mark!=original_mark && !s->bridge_ingress
+                && routing_admits(n,path,&p,hook,reverse ? 0 : output_binding(path,i))) return -EBUSY;
         int error=md_filter_evaluate_transition(n==override ? filter : n->filter,hook,&p,
             retained ? &rewrite : NULL,NULL);
         if (error) { path->rejection[!!reverse]=p.rejection; return error; }
         path->translated.ctmark=p.ctmark;
+        if (tracked && tracked->mark!=p.ctmark) { tracked->mark=p.ctmark; ++tracking->revision; }
         mark=p.mark;
     }
     return 0;
 }
 int md_network_flow_check(struct md_network_fabric *f,struct md_network_flow_path *path,int reverse) {
-    return check_path(f,path,reverse,NULL,NULL,0,NULL);
+    return check_path(f,path,reverse,NULL,NULL,0,NULL,NULL);
 }
 int md_network_flow_accounting(struct md_network_fabric *f,struct md_network_flow_path *path,int reverse,int initial,
         struct md_filter_accounting *accounting) {
     accounting->count=0;
-    return check_path(f,path,reverse,NULL,NULL,initial,accounting);
+    return check_path(f,path,reverse,NULL,NULL,initial,accounting,NULL);
+}
+int md_network_flow_tracked(struct md_network_fabric *f,struct md_network_flow_path *path,int reverse,int initial,
+        struct md_filter_accounting *accounting,struct md_network_tracking *tracking) {
+    accounting->count=0;
+    return check_path(f,path,reverse,NULL,NULL,initial,accounting,tracking);
 }
 int md_network_flow_admits(struct md_network_namespace *n,struct md_network_filter *filter,const struct md_network_flow_path *path) {
     int affected=0;
@@ -409,8 +477,8 @@ int md_network_flow_admits(struct md_network_namespace *n,struct md_network_filt
     struct md_network_flow_path copy=*path;
     /* Both first payload and established traffic can outlive publication.
      * Probe only the retained tuple, without counting or mutating its marks. */
-    int error=check_path(n->fabric,&copy,0,n,filter,1,NULL);
-    if (!error) error=check_path(n->fabric,&copy,0,n,filter,0,NULL);
-    if (!error) error=check_path(n->fabric,&copy,1,n,filter,0,NULL);
+    int error=check_path(n->fabric,&copy,0,n,filter,1,NULL,NULL);
+    if (!error) error=check_path(n->fabric,&copy,0,n,filter,0,NULL,NULL);
+    if (!error) error=check_path(n->fabric,&copy,1,n,filter,0,NULL,NULL);
     return error==-EACCES || error==-ECONNREFUSED || copy.rejection[0].type || copy.rejection[1].type ? -EBUSY : error;
 }

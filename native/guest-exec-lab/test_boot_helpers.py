@@ -31,6 +31,71 @@ from systemd_ready import wait_systemd
 
 
 class BootHelpers(unittest.TestCase):
+    def test_whole_boot_requires_ready_replacement_containers(self):
+        ready = runpy.run_path(str(Path(__file__).with_name('fixtures') / 'k3s-boot.py'))['ready_containers']
+        self.assertEqual([], ready({}, []))
+        status = dict(ready=True, state=dict(running=dict(startedAt='now')), containerID='old')
+        pod = dict(status=dict(containerStatuses=[status]))
+        self.assertEqual(['old'], ready(pod, []))
+        self.assertEqual([], ready(pod, ['old']))
+        status['containerID'] = 'new'
+        self.assertEqual(['new'], ready(pod, ['old']))
+        status['ready'] = False
+        self.assertEqual([], ready(pod, ['old']))
+        status['ready'] = True
+        status['state'] = dict(terminated={})
+        self.assertEqual([], ready(pod, ['old']))
+
+    def test_kubelet_inventory_handles_boot_and_recovery_states(self):
+        from k3s_fixture import kubelet_pods
+        client = Mock()
+        for result in (subprocess.CompletedProcess([], 1, 'unavailable'),
+                       subprocess.CompletedProcess([], 0, '{"items": null}'),
+                       subprocess.CompletedProcess([], 0, '{"items": []}')):
+            client.return_value = result
+            self.assertEqual({}, kubelet_pods(client, 'node'))
+        pod = {'metadata': {'uid': 'expected'}}
+        client.return_value = subprocess.CompletedProcess([], 0, json.dumps({'items': [pod]}))
+        self.assertEqual({'expected': pod}, kubelet_pods(client, 'node'))
+
+    def test_k3s_cleanup_restores_files_and_dangling_symlinks(self):
+        cleanup = runpy.run_path(str(Path(__file__).with_name('fixtures') / 'k3s-boot.py'))['cleanup']
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            old_file, old_link = root / 'old-file', root / 'old-link'
+            old_file.write_text('original')
+            old_link.symlink_to('missing-target')
+            current_file, current_link, owned = root / 'file', root / 'link', root / 'owned'
+            current_file.mkdir()
+            (current_file / 'temporary').write_text('fixture')
+            current_link.write_text('replacement')
+            owned.write_text('fixture')
+            (root / 'installation.json').write_text(json.dumps(dict(
+                owned=[str(owned)], parents=[],
+                backups={str(current_file): str(old_file), str(current_link): str(old_link)})))
+            cleanup(root)
+            self.assertEqual('original', current_file.read_text())
+            self.assertEqual('missing-target', os.readlink(current_link))
+            self.assertFalse(owned.exists())
+
+    def test_k3s_cleanup_preserves_original_before_backup_was_moved(self):
+        cleanup = runpy.run_path(str(Path(__file__).with_name('fixtures') / 'k3s-boot.py'))['cleanup']
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            original = root / 'original'
+            original.write_text('keep')
+            (root / 'installation.json').write_text(json.dumps(dict(
+                owned=[], parents=[], backups={str(original): str(root / 'not-moved')})))
+            cleanup(root)
+            self.assertEqual('keep', original.read_text())
+
+    def test_init_fixture_import_does_not_require_host_repository(self):
+        source = Path(__file__).with_name('init_fixture.py').read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / 'init_fixture.py'
+            script.write_text(source)
+            subprocess.run([sys.executable, str(script)], check=True, timeout=5)
+
     def test_container_observer_rejects_private_fixture_loopback_before_startup(self):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory) / 'session.json'

@@ -4,6 +4,7 @@
 #include "inode_internal.h"
 #include "mount_graph.h"
 #include "inode_watch.h"
+#include "inode_view.h"
 #include <assert.h>
 #include <dirent.h>
 #include <errno.h>
@@ -261,6 +262,37 @@ static void watches(struct md_filesystem *fs, const char *extra) {
     assert(descriptors()==before);
     puts("PASS mounted-store watches: one instance, independent sources, alias deduplication, external writer and cleanup");
 }
+static void fifo_custody(struct md_filesystem *fs) {
+    md_fs_storage_close(fs->storage);
+    unsigned before=descriptors();
+    struct md_inode_store *store=NULL;
+    assert(!md_fs_storage_get(fs,&fs->mounts->tree->mounts[0],&store));
+    assert(!md_inode_mknod(store,-1,"/fifo",S_IFIFO|0600,0));
+    struct md_fs_anchor *origins[2]={0};
+    int endpoints[2];
+    for (unsigned side=0;side<2;++side) {
+        unsigned flags=(side ? O_WRONLY : O_RDONLY)|O_NONBLOCK;
+        struct md_fs_result r=call(fs,(struct md_fs_request){.operation=MD_FS_OPEN,
+            .directory={-1,-1},.path={side ? "/alias/fifo" : "/volume/fifo",NULL},.flags=flags},
+            &(struct md_fs_output){.origin=&origins[side]});
+        assert(!r.error && origins[side] && r.open_completion.kind==MD_OPEN_PIPE);
+        endpoints[side]=md_complete_open(r.fd,flags,r.open_completion);
+        assert(endpoints[side]>=0);
+        /* Reopening the backing database cannot replace an acquired stream. */
+        md_fs_storage_close(fs->storage);
+        assert(!fs->storage->count);
+    }
+    struct stat reader,writer;
+    assert(!fstat(endpoints[0],&reader) && !fstat(endpoints[1],&writer));
+    assert(reader.st_dev==writer.st_dev && reader.st_ino==writer.st_ino);
+    assert(write(endpoints[1],"fifo",4)==4);
+    char bytes[4]; assert(read(endpoints[0],bytes,sizeof(bytes))==4 && !memcmp(bytes,"fifo",4));
+    for (unsigned side=0;side<2;++side) {
+        close(endpoints[side]); md_fs_anchor_release(origins[side]);
+    }
+    assert(descriptors()==before);
+    puts("PASS FIFO custody: cache eviction, independent reconnect, bind aliases and final descriptor cleanup");
+}
 static void storage_cache(struct md_inode_store *main, const char *base) {
     enum { COUNT=MD_FS_STORAGE_CACHE_LIMIT+3 };
     unsigned before=descriptors();
@@ -301,6 +333,47 @@ static void storage_cache(struct md_inode_store *main, const char *base) {
     }
     assert(descriptors()==before);
     puts("PASS mounted-store cache: bounded LRU, active scopes, reconnect and maintenance-lease release");
+}
+static void projected_root_window(const char *base) {
+    unsigned before=descriptors();
+    char path[PATH_MAX];
+    assert(snprintf(path,sizeof(path),"%s/projected-root-window",base)<PATH_MAX);
+    struct md_inode_store *main=NULL;
+    assert(!md_inode_store_open(path,1,&main));
+    struct md_identity identity=md_identity_new(0,0); main->identity=&identity;
+    assert(!md_inode_mkdir(main,-1,"/volume",0755));
+    struct md_inode_store *projection=NULL;
+    assert(!md_inode_view_create(main,MD_FILESYSTEM_OVERLAY,&projection));
+    put(projection,"/value","projection");
+    struct md_fs_storage_cache cache={0};
+    struct md_filesystem fs={.store=main,.storage=&cache};
+    assert(!md_fs_mounts_open(&fs,NULL,0));
+    struct md_view_location target;
+    assert(!md_view_walk(&fs,-1,NULL,"/volume",1,0,0,&target));
+    int fd=md_inode_open(projection,-1,"/",O_PATH|O_DIRECTORY,0); assert(fd>=0);
+    struct md_mount_source source={.fd=fd,.backing=MD_MOUNT_INODE,
+        .storage=md_inode_store_lifetime(projection)};
+    assert(!md_view_attach_source(&fs,&source,&target,NULL));
+    close(fd); md_view_location_close(&target); md_inode_store_close(projection);
+    struct md_fs_anchor *anchor=NULL;
+    fd=opened(&fs,"/volume",O_PATH|O_DIRECTORY,NULL,&anchor);
+    struct md_fs_location root;
+    assert(!md_fs_root_capture(&fs,fd,anchor,&root)); close(fd);
+    md_fs_storage_close(&cache);
+    for (unsigned warm=0;warm<2;++warm) {
+        assert(!md_inode_operation_window_begin(main));
+        struct md_inode_store *same=NULL;
+        assert(!md_fs_storage_get(&fs,&fs.mounts->base,&same) && same==main && main->locked);
+        assert(!md_fs_root_select(&fs,&root));
+        assert(!main->locked && main->operation_window_paused);
+        contents(&fs,"/value",NULL,"projection");
+        assert(!md_inode_operation_window_end(main));
+        assert(!md_fs_root_select(&fs,&(struct md_fs_location){0}));
+    }
+    md_fs_anchor_release(anchor); md_fs_mounts_close(&fs); md_fs_storage_close(&cache);
+    md_inode_store_close(main); md_identity_release(&identity);
+    assert(descriptors()==before);
+    puts("PASS projected root: cold/cached reconnect releases only the outer operation window");
 }
 static void deferred_storage(struct md_inode_store *main,const char *base) {
     enum { COUNT=MD_FS_STORAGE_CACHE_LIMIT*2+3 };
@@ -396,6 +469,7 @@ void test_mount_storage(const char *base) {
     assert(!rename(moved,extra));
     mount_call(&fs,MD_FS_MOUNT_BIND,MS_BIND,"/alias","/volume");
     assert(fs.mounts->tree->mounts[0].storage==fs.mounts->tree->mounts[1].storage);
+    fifo_custody(&fs);
     image_aliases(&fs);
     planned(&fs,"/volume/value",O_RDONLY,"second",0);
     planned(&fs,"/alias/value",O_WRONLY|O_TRUNC,"second",0);
@@ -521,7 +595,19 @@ void test_mount_storage(const char *base) {
     assert(!renameat(lease->root,"saved.db",lease->root,"namespace.db"));
     assert(!md_inode_store_reconnect(lease,&check));
     md_inode_store_close(check); md_inode_lifetime_release(lease);
+    struct md_fs_storage_cache attachment_storage={0};
+    struct md_filesystem attached={.store=main,.storage=&attachment_storage};
+    struct md_fs_attachment attachment={extra,"/volume",MD_FS_ATTACHMENT_STORE|MD_FS_ATTACHMENT_READONLY};
+    assert(!md_fs_mounts_open(&attached,&attachment,1));
+    contents(&attached,"/volume/value",NULL,"shared");
+    planned(&attached,"/volume/value",O_WRONLY|O_TRUNC,NULL,-EROFS);
+    md_fs_mounts_close(&attached); md_fs_storage_close(&attachment_storage);
+    attachment.target="/missing-attachment";
+    assert(md_fs_mounts_open(&attached,&attachment,1)==-ENOENT && !attached.mounts);
+    attachment.target="/volume"; attachment.flags=MD_FS_ATTACHMENT_STORE;
+    assert(md_fs_mounts_open(&attached,&attachment,1)==-EINVAL && !attached.mounts);
     storage_cache(main,base);
+    projected_root_window(base);
     deferred_storage(main,base);
     main->identity=NULL; md_identity_release(&root); md_inode_store_close(main);
     assert(descriptors()==before);

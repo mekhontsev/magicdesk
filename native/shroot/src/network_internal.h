@@ -3,6 +3,7 @@
 #include "network_namespace.h"
 #include "network_ip.h"
 #include "network_transport.h"
+#include "network_vxlan.h"
 #include <pthread.h>
 
 struct md_network_ipv4_policy { uint32_t route_localnet, rp_filter, src_valid_mark, arp_notify; };
@@ -23,7 +24,7 @@ static inline struct md_ip_address md_network_address_destination(const struct m
 }
 struct md_network_route_entry {
     struct md_ip_address destination, gateway, source;
-    unsigned prefix, interface, metric, protocol, scope, nexthop, table;
+    unsigned prefix, interface, metric, protocol, scope, nexthop, table, flags;
     int64_t valid_until;
     unsigned char preference;
     struct md_network_route_metrics metrics;
@@ -37,6 +38,7 @@ struct md_network_rule {
 enum { MD_NETWORK_MAX_ADDRESSES=16, MD_NETWORK_MAX_ROUTES=256, MD_NETWORK_MAX_RULES=128 };
 struct md_network_interface {
     struct md_network_tc *tc;
+    struct md_network_vxlan_config vxlan;
     struct md_network_link info;
     enum md_network_link_kind kind;
     unsigned master, peer, hairpin, isolated;
@@ -86,6 +88,7 @@ struct md_network_namespace {
     uint32_t unprivileged_port, ping_groups[2], local_ports[2];
     uint32_t next_port, next_ip_id, ipv4_forward, bindv6only;
     uint32_t tcp_keepalive[3];
+    uint32_t conntrack_tcp_timeout[2];
     struct md_network_ipv4_policy all, defaults;
     struct md_network_ipv6_policy all6, defaults6;
     struct md_network_listener *listeners;
@@ -95,6 +98,8 @@ struct md_network_namespace {
     struct md_network_filter *filter;
     struct md_network_tun *tunnels;
     struct md_network_stack *stack;
+    struct md_network_neighbors *neighbors;
+    struct md_network_vxlan_port *vxlan;
     atomic_bool packet_enabled;
 };
 /* Weak listeners are removed under the fabric lock before final FD release.
@@ -103,6 +108,8 @@ struct md_network_listener {
     struct md_network_listener *next;
     int peer, protocol;
     uint32_t groups, port;
+    uint32_t logs[16]; /* NFLOG group + 1, zero is an unused subscription. */
+    uint16_t log_metadata;
     int overflow, no_enobufs, broadcast_error;
 };
 static inline int md_network_forwarding(const struct md_network_namespace *n,unsigned family,unsigned input) {
@@ -112,6 +119,7 @@ static inline int md_network_forwarding(const struct md_network_namespace *n,uns
     return n->all6.forwarding;
 }
 unsigned md_network_broadcast(struct md_network_namespace *,unsigned,const void *,size_t);
+void md_network_listener_deliver(struct md_network_listener *,const void *,size_t);
 /* Mutators below run under the fabric lock. No guest IO or blocking syscall
  * may span that lock. Namespaces are weakly listed and unlink before release. */
 struct md_network_interface *md_network_interface_find(struct md_network_namespace *,unsigned,const char *);

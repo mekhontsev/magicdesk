@@ -1,12 +1,16 @@
 #include "network_filter.h"
+#include "network_ipset.h"
 #include <errno.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter/nf_tables.h>
 #include <linux/rtnetlink.h>
 #include <linux/netfilter/xt_rpfilter.h>
+#include <linux/netfilter/xt_physdev.h>
 #include <linux/if_packet.h>
 #include <netinet/in.h>
+#include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 static int chain_index(const struct md_network_filter *f,uint64_t handle) {
     for (size_t i=0;i<f->chain_count;++i) if (f->chains[i].handle==handle) return (int)i;
@@ -57,6 +61,12 @@ static int validate_chain(const struct md_network_filter *f,size_t chain,unsigne
                     if (f->sets[k].handle==e->target && f->sets[k].table==c->table) found=1;
                 if (!found) return -ENOENT;
             }
+            if (e->code==MD_FILTER_IPSET) {
+                int found=0;
+                for (size_t k=0;k<f->set_count;++k)
+                    if (f->sets[k].ipset_kind && f->sets[k].handle==e->target) found=1;
+                if (!found) return -ENOENT;
+            }
         }
     }
     state[chain]=2; return 0;
@@ -102,6 +112,22 @@ int md_filter_validate(const struct md_network_filter *f) {
     for (size_t i=0;i<f->rule_count;++i) {
         const struct md_filter_rule *r=&f->rules[i];
         unsigned context=contexts[chain_index(f,r->chain)];
+        int limited=0,logged=0;
+        for (unsigned j=0;j<r->count;++j) {
+            const struct md_filter_expression *e=&r->expressions[j];
+            limited|=e->code==MD_FILTER_LIMIT; logged|=e->code==MD_FILTER_LOG;
+        }
+        /* Relay policy is cached between generations. Rate predicates may
+         * govern admission diagnostics, never a cached forwarding verdict. */
+        if (limited) {
+            if (!logged) return -EOPNOTSUPP;
+            for (unsigned j=0;j<r->count;++j) {
+                const struct md_filter_expression *e=&r->expressions[j];
+                if ((e->code==MD_FILTER_VERDICT && (int)e->operation!=NFT_CONTINUE)
+                        || e->code==MD_FILTER_VERDICT_MAP || e->code==MD_FILTER_NAT || e->code==MD_FILTER_MASQUERADE
+                        || e->code==MD_FILTER_META_SET || e->code==MD_FILTER_CT_SET || e->code==MD_FILTER_REJECT) return -EOPNOTSUPP;
+            }
+        }
         for (unsigned j=0;j<r->count;++j) {
             const struct md_filter_expression *e=&r->expressions[j];
             unsigned allowed;
@@ -152,7 +178,7 @@ static int reverse_path(const struct md_filter_packet *p,unsigned flags) {
     return !!route.interface;
 }
 static int source_nat(const struct md_filter_expression *e,const unsigned char *registers,struct md_filter_packet *p) {
-    if (p->protocol!=IPPROTO_TCP && p->protocol!=IPPROTO_UDP) return e->aux ? -EOPNOTSUPP : 0;
+    if (p->protocol!=IPPROTO_TCP && p->protocol!=IPPROTO_UDP) return e->aux || e->nat_flags ? -EOPNOTSUPP : 0;
     unsigned port=ntohs(p->source_port);
     uint16_t low=port<512 ? 1 : port<1024 ? 600 : 1024,high=port<512 ? 511 : port<1024 ? 1023 : 65535;
     if (e->aux) {
@@ -164,6 +190,10 @@ static int source_nat(const struct md_filter_expression *e,const unsigned char *
         }
         low=ntohs(low); high=ntohs(high);
         if (low>high) return -EINVAL;
+    }
+    if (e->nat_flags) {
+        port=low+arc4random_uniform((unsigned)high-low+1);
+        p->source_port=htons(port);
     }
     if (p->source_nat) return p->source_nat(p->route_context,p,low,high);
     if (port<low || port>high) p->source_port=htons(low);
@@ -182,6 +212,40 @@ static int evaluate_chain(struct md_network_filter *f,const struct md_filter_cha
             unsigned char *src=registers+e->src,*dst=registers+e->dst;
             uint32_t value=0;
             switch (e->code) {
+            case MD_FILTER_PHYSDEV: {
+                const struct md_filter_physdev *v=&e->physdev;
+                unsigned observed=(p->physical[0] ? XT_PHYSDEV_OP_ISIN : 0)
+                    |(p->physical[1] ? XT_PHYSDEV_OP_ISOUT : 0)|(p->bridged ? XT_PHYSDEV_OP_BRIDGED : 0);
+                for (unsigned i=0;i<2;++i) {
+                    int same=p->physical[i]!=0;
+                    for (unsigned k=0;k<16 && same;++k)
+                        same=!((p->physical_name[i][k]^v->names[i][k])&v->masks[i][k]);
+                    if (same) observed|=i ? XT_PHYSDEV_OP_OUT : XT_PHYSDEV_OP_IN;
+                }
+                match=((observed^v->invert)&v->flags)==v->flags;
+                break;
+            }
+            case MD_FILTER_LIMIT: {
+                if (p->unmediated) return -EBUSY;
+                struct md_filter_limit *l=&e->limit;
+                struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t);
+                uint64_t now=(uint64_t)t.tv_sec*1000000000U+t.tv_nsec;
+                uint64_t elapsed=now>=l->previous ? now-l->previous : 0;
+                l->credit=elapsed>=l->capacity-l->credit ? l->capacity : l->credit+elapsed;
+                l->previous=now; match=l->credit>=l->cost;
+                if (match) l->credit-=l->cost;
+                break;
+            }
+            case MD_FILTER_LOG:
+                if (p->unmediated) return -EBUSY;
+                if (p->log) p->log(p->route_context,p,&e->log);
+                break;
+            case MD_FILTER_IPSET: {
+                const struct md_filter_set *s=md_filter_set_find(f,0,NULL,e->target,0);
+                if (!s) return -ENOENT;
+                match=md_ipset_matches(s,e->key ? p->source : p->destination)!=!!e->operation;
+                break;
+            }
             case MD_FILTER_REJECT:
                 if (e->key==MD_REJECT_TCP && p->protocol!=IPPROTO_TCP) return -EOPNOTSUPP;
                 p->rejection=md_network_reject_resolve(e->key,e->aux,p->destination.family);
@@ -198,6 +262,13 @@ static int evaluate_chain(struct md_network_filter *f,const struct md_filter_cha
                 match=p->protocol==t->protocol
                     && md_filter_port_matches(ntohs(p->source_port),t->source,t->inversion&MD_FILTER_INVERT_SOURCE)
                     && md_filter_port_matches(ntohs(p->destination_port),t->destination,t->inversion&MD_FILTER_INVERT_DESTINATION);
+                break;
+            }
+            case MD_FILTER_MULTIPORT: {
+                const struct md_filter_multiport *m=&e->multiport;
+                int found=(m->direction!=1 && md_filter_multiport_contains(m,ntohs(p->source_port)))
+                    || (m->direction!=0 && md_filter_multiport_contains(m,ntohs(p->destination_port)));
+                match=(p->protocol==IPPROTO_TCP || p->protocol==IPPROTO_UDP) && (found!=!!m->invert);
                 break;
             }
             case MD_FILTER_COUNTER: {
@@ -268,7 +339,7 @@ static int evaluate_chain(struct md_network_filter *f,const struct md_filter_cha
             case MD_FILTER_CT:
                 value=e->key==NFT_CT_STATE ? p->state : e->key==NFT_CT_MARK ? p->ctmark : p->status;
                 memcpy(dst,&value,4); break;
-            case MD_FILTER_STATE_MATCH: match=!!(p->state&e->key)!=!!e->operation; break;
+            case MD_FILTER_STATE_MATCH: match=!!((p->state&e->key)||(p->status&e->aux))!=!!e->operation; break;
             case MD_FILTER_MARK_MATCH: case MD_FILTER_CONNMARK_MATCH:
                 match=(((e->code==MD_FILTER_CONNMARK_MATCH ? p->ctmark : p->mark)&e->aux)==e->key)!=!!e->operation; break;
             case MD_FILTER_PACKET_TYPE: match=(p->packet_type==e->key)!=!!e->operation; break;
@@ -355,6 +426,7 @@ int md_filter_chain_applies(const struct md_network_filter *f,const struct md_fi
 }
 int md_filter_evaluate_transition(struct md_network_filter *f,unsigned hook,struct md_filter_packet *p,
         const struct md_filter_rewrite *rewrite,int *nat_priority) {
+    p->hook=hook;
     p->rejection=(struct md_network_rejection){0};
     /* Order is stable for equal priorities. NF_ACCEPT ends a chain, not the
      * hook: a later base chain may still deny the flow. */

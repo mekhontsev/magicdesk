@@ -24,11 +24,15 @@ enum md_proc_kind { MD_PROC_NONE, MD_PROC_FD, MD_PROC_FDINFO, MD_PROC_CWD, MD_PR
                     MD_PROC_NET_TCP_KEEPIDLE, MD_PROC_NET_TCP_KEEPINTVL, MD_PROC_NET_TCP_KEEPCNT,
                     MD_PROC_NET_IPV6_FORWARD, MD_PROC_NET_IPV6_DISABLE, MD_PROC_NET_IPV6_BINDONLY, MD_PROC_NET_BRIDGE_FILTER6, MD_PROC_NET_IPV6_DAD, MD_PROC_NET_IPV6_RA,
                     MD_PROC_NET_IPV6_AUTOCONF, MD_PROC_NET_IPV6_MTU, MD_PROC_NET_IPV6_HOPS, MD_PROC_NET_IPV6_ADDRGEN, MD_PROC_NET_IPV6_PRIVACY,
+                    MD_PROC_NET_CT_TCP_ESTABLISHED, MD_PROC_NET_CT_TCP_CLOSE_WAIT,
                     MD_PROC_MEMORY, MD_PROC_MAX_USER_NAMESPACES,
                     MD_PROC_NET_TCP, MD_PROC_NET_TCP6, MD_PROC_NET_UDP, MD_PROC_NET_UDP6, MD_PROC_NET_IF_INET6,
-                    MD_PROC_DEVICES, MD_PROC_KERNEL_CMDLINE, MD_PROC_FILESYSTEMS };
+                    MD_PROC_NET_ROUTE, MD_PROC_NET_ROUTE6,
+                    MD_PROC_DEVICES, MD_PROC_KERNEL_CMDLINE, MD_PROC_FILESYSTEMS, MD_PROC_SWAPS, MD_PROC_DISKSTATS, MD_PROC_MODULES,
+                    MD_PROC_KERNEL_POLICY };
 static inline int md_proc_static(enum md_proc_kind kind) {
-    return kind==MD_PROC_DEVICES || kind==MD_PROC_KERNEL_CMDLINE || kind==MD_PROC_FILESYSTEMS;
+    return kind==MD_PROC_DEVICES || kind==MD_PROC_KERNEL_CMDLINE || kind==MD_PROC_FILESYSTEMS
+        || kind==MD_PROC_SWAPS || kind==MD_PROC_DISKSTATS || kind==MD_PROC_MODULES;
 }
 /* Unmanaged tasks keep native read/metadata admission for these proc nodes. */
 static inline int md_proc_native_task(enum md_proc_kind kind) {
@@ -36,14 +40,14 @@ static inline int md_proc_native_task(enum md_proc_kind kind) {
         || kind==MD_PROC_LIMITS || kind==MD_PROC_CGROUP;
 }
 static inline int md_proc_network_table(enum md_proc_kind kind) {
-    return kind>=MD_PROC_NET_TCP && kind<=MD_PROC_NET_IF_INET6;
+    return kind>=MD_PROC_NET_TCP && kind<=MD_PROC_NET_ROUTE6;
 }
 static inline int md_proc_network_control(enum md_proc_kind kind) {
-    return (kind>=MD_PROC_NET_UNPRIVILEGED_PORT && kind<=MD_PROC_NET_IPV6_PRIVACY)
+    return (kind>=MD_PROC_NET_UNPRIVILEGED_PORT && kind<=MD_PROC_NET_CT_TCP_CLOSE_WAIT)
         || md_proc_network_table(kind);
 }
 static inline int md_proc_network_sysctl(enum md_proc_kind kind) {
-    return kind>=MD_PROC_NET_UNPRIVILEGED_PORT && kind<=MD_PROC_NET_IPV6_PRIVACY;
+    return kind>=MD_PROC_NET_UNPRIVILEGED_PORT && kind<=MD_PROC_NET_CT_TCP_CLOSE_WAIT;
 }
 static inline int md_proc_network_interface(enum md_proc_kind kind) {
     return (kind>=MD_PROC_NET_ROUTE_LOCALNET && kind<=MD_PROC_NET_ARP_NOTIFY)
@@ -55,7 +59,7 @@ static inline int md_proc_network_interface(enum md_proc_kind kind) {
 static inline int md_proc_regular(enum md_proc_kind kind) {
     return (kind>=MD_PROC_UID_MAP && kind<=MD_PROC_INOTIFY_QUEUE)
         || (kind>=MD_PROC_STATUS && kind<=MD_PROC_CGROUPS)
-        || md_proc_network_control(kind) || kind==MD_PROC_MAX_USER_NAMESPACES || md_proc_static(kind)
+        || md_proc_network_control(kind) || kind==MD_PROC_MAX_USER_NAMESPACES || md_proc_static(kind) || kind==MD_PROC_KERNEL_POLICY
         || kind==MD_PROC_FDINFO || kind==MD_PROC_CMDLINE || kind==MD_PROC_AUXV
         || kind==MD_PROC_MOUNTS || kind==MD_PROC_MOUNTINFO;
 }
@@ -66,6 +70,7 @@ struct md_proc_path {
     int ordinary_link;
     int process;
     int descriptor;
+    unsigned parameter;
     enum md_proc_kind foreign_kind;
     char interface[16];
 };
