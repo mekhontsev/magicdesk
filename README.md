@@ -274,7 +274,12 @@ and Alpine/OpenRC also run the stock enabled service and recover cluster identit
 and persistent volumes after guest shutdown or forced Shroot termination.
 See [k3s support](docs/shroot.md#k3s).
 
-![Two-node k3s cluster on one Android phone and Shroot's lazy SVC acceleration](docs/images/magicdesk-k3s-lazy-svc.png)
+<p align="center">
+  <a href="docs/images/magicdesk-k3s-lazy-svc.png">
+    <img src="docs/images/magicdesk-k3s-lazy-svc.png" width="400"
+         alt="Two-node k3s cluster on one Android phone and Shroot's lazy SVC acceleration">
+  </a>
+</p>
 
 Coverage is [per distribution and scenario](native/guest-exec-lab/validation-matrix.md),
 not a guarantee that every service or package works. Packages come from the guest;
