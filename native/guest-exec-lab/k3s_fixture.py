@@ -33,6 +33,30 @@ def command(*args):
     return result.stdout
 
 
+class Kubectl:
+    """Bounded stock client shared by process and full-boot scenarios."""
+    def __init__(self, binary, env=None):
+        self.binary, self.env = binary, env
+
+    def __call__(self, *args, check=True, timeout=120):
+        # EVENT_WAIT: kubectl watch/response; timeout is a failure, not readiness.
+        result = subprocess.run([self.binary, 'kubectl', *args], env=self.env, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
+        print('KUBECTL', args, result.returncode, result.stdout, flush=True)
+        if check:
+            assert result.returncode == 0, result.stdout
+        return result.stdout if check else result
+
+
+def kubelet_pods(kubectl, node):
+    """The kubelet may publish a null inventory while recovering its state."""
+    result = kubectl('--request-timeout=5s', 'get',
+        '--raw=/api/v1/nodes/' + node + '/proxy/pods', check=False, timeout=15)
+    if result.returncode:
+        return {}
+    return {pod['metadata']['uid']: pod for pod in (json.loads(result.stdout)['items'] or [])}
+
+
 def network_diagnostics():
     for args in (('ip', '-d', 'link'), ('ip', 'addr'), ('ip', 'route', 'show', 'table', 'all'),
                  ('ip', 'neigh'), ('bridge', 'fdb'), ('nft', 'list', 'ruleset')):
@@ -180,14 +204,7 @@ def guest(k3s, backend, nodes, agent_root):
     report['version'] = subprocess.check_output([k3s, '--version'], env=env, text=True, timeout=15).strip()
     print('K3S_VERSION', report['version'], flush=True)
 
-    def kubectl(*args, check=True, timeout=120):
-        # EVENT_WAIT: kubectl watch/response; timeout is a failure, not readiness.
-        result = subprocess.run([k3s, 'kubectl', *args], env=env, text=True,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
-        print('KUBECTL', args, result.returncode, result.stdout, flush=True)
-        if check:
-            assert result.returncode == 0, result.stdout
-        return result.stdout if check else result
+    kubectl = Kubectl(k3s, env)
 
     def start(log):
         options = [] if backend == 'vxlan' else ['--flannel-backend', backend]
@@ -228,13 +245,7 @@ def guest(k3s, backend, nodes, agent_root):
             assert server.poll() is None, f'k3s server exited: {server.returncode}'
             converged = True
             for node, identities in expected.items():
-                result = kubectl('--request-timeout=5s', 'get',
-                    '--raw=/api/v1/nodes/' + node + '/proxy/pods', check=False, timeout=15)
-                if result.returncode:
-                    converged = False
-                    continue
-                observed = {item['metadata']['uid'] for item in (json.loads(result.stdout)['items'] or [])}
-                converged &= identities <= observed
+                converged &= identities <= kubelet_pods(kubectl, node).keys()
             if converged:
                 break
             # API Ready can survive a kubelet restart. Reconcile the kubelet's
