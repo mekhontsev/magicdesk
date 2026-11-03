@@ -187,7 +187,8 @@ int main(int argc, char **argv) {
         "       image run INSTANCE [--user current|UID[:GID]|NAME[:GROUP]] [--cwd PATH] [--entrypoint PROGRAM] [--env KEY=VALUE] [--statistics]\n"
         "             [--hostname NAME] [--network host|none|bridge|routed] [-p [IP:]HOST:GUEST[/tcp|/udp]]\n"
         "             [--dns IP] [--subnet CIDR] [--ip IPv4] [--ip6 IPv6] [--gateway IP]\n"
-        "             [--bind HOST GUEST] [--bind-ro HOST GUEST] [--magicdesk] [-- COMMAND...]\n");
+        "             [--bind HOST GUEST] [--bind-ro HOST GUEST] [--bind-store-ro STORE GUEST]\n"
+        "             [--magicdesk] [-- COMMAND...]\n");
     if (r) fprintf(stderr, "Guest image: %s (errno=%d)\n", strerror(-r), -r);
     return r ? 1 : 0;
 }

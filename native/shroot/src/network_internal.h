@@ -3,6 +3,7 @@
 #include "network_namespace.h"
 #include "network_ip.h"
 #include "network_transport.h"
+#include "network_vxlan.h"
 #include <pthread.h>
 
 struct md_network_ipv4_policy { uint32_t route_localnet, rp_filter, src_valid_mark, arp_notify; };
@@ -23,7 +24,7 @@ static inline struct md_ip_address md_network_address_destination(const struct m
 }
 struct md_network_route_entry {
     struct md_ip_address destination, gateway, source;
-    unsigned prefix, interface, metric, protocol, scope, nexthop, table;
+    unsigned prefix, interface, metric, protocol, scope, nexthop, table, flags;
     int64_t valid_until;
     unsigned char preference;
     struct md_network_route_metrics metrics;
@@ -37,6 +38,7 @@ struct md_network_rule {
 enum { MD_NETWORK_MAX_ADDRESSES=16, MD_NETWORK_MAX_ROUTES=256, MD_NETWORK_MAX_RULES=128 };
 struct md_network_interface {
     struct md_network_tc *tc;
+    struct md_network_vxlan_config vxlan;
     struct md_network_link info;
     enum md_network_link_kind kind;
     unsigned master, peer, hairpin, isolated;
@@ -96,6 +98,8 @@ struct md_network_namespace {
     struct md_network_filter *filter;
     struct md_network_tun *tunnels;
     struct md_network_stack *stack;
+    struct md_network_neighbors *neighbors;
+    struct md_network_vxlan_port *vxlan;
     atomic_bool packet_enabled;
 };
 /* Weak listeners are removed under the fabric lock before final FD release.

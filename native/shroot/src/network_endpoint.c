@@ -38,10 +38,8 @@ struct md_network_endpoint {
 static void endpoint_changed(struct md_network_endpoint *e) {
     if (e->type==SOCK_DGRAM) ++e->space->fabric->endpoint_generation;
 }
-static void destroy(struct md_fd_object *object) {
-    struct md_network_endpoint *e=(void *)object;
+static void detach(struct md_network_endpoint *e) {
     struct md_network_fabric *f=e->space->fabric;
-    pthread_mutex_lock(&f->lock);
     struct md_network_endpoint **at=&f->endpoints;
     while (*at && *at!=e) at=&(*at)->next;
     if (*at) *at=e->next;
@@ -49,8 +47,13 @@ static void destroy(struct md_fd_object *object) {
     md_network_forward_endpoint_closed(e->space,e);
     while (e->direct) { struct direct_path *p=e->direct; e->direct=p->next; free(p); }
     for (unsigned i=0;i<2;++i) md_network_multicast_destroy(&e->multicast[i]);
-    pthread_mutex_unlock(&f->lock);
     md_network_connection_free(e->connection);
+}
+static void destroy(struct md_fd_object *object) {
+    struct md_network_endpoint *e=(void *)object;
+    pthread_mutex_lock(&e->space->fabric->lock);
+    detach(e);
+    pthread_mutex_unlock(&e->space->fabric->lock);
     md_network_namespace_release(e->space); free(e);
 }
 static int direct_path(struct md_network_endpoint *e,const struct md_network_flow_path *path) {
@@ -121,16 +124,21 @@ int md_network_endpoint_enabled(const struct md_network_namespace *n) {
 unsigned md_network_endpoint_family(const struct md_fd_object *o) {
     return md_network_endpoint_is(o) ? ((const struct md_network_endpoint *)o)->family : AF_UNSPEC;
 }
-static struct md_network_endpoint *create(struct md_network_namespace *n,unsigned family,int type,int protocol) {
+static struct md_network_endpoint *create_locked(struct md_network_namespace *n,unsigned family,int type,int protocol) {
     struct md_network_endpoint *e=calloc(1,sizeof(*e));
     if (!e) return NULL;
     md_fd_object_init(&e->object,&endpoint_type);
-    e->space=md_network_namespace_retain(n); e->type=type; e->protocol=protocol;
+    e->space=n; e->type=type; e->protocol=protocol;
     e->transport=(struct md_network_transport)MD_NETWORK_TRANSPORT_INITIALIZER;
     e->family=family; e->binding=e->source=e->local.ip=e->native.ip=e->peer.ip=md_ip_any(family);
-    pthread_mutex_lock(&n->fabric->lock);
     for (unsigned i=0;i<2;++i) md_network_multicast_attach(&e->multicast[i],n);
     e->next=n->fabric->endpoints; n->fabric->endpoints=e;
+    return e;
+}
+static struct md_network_endpoint *create(struct md_network_namespace *n,unsigned family,int type,int protocol) {
+    pthread_mutex_lock(&n->fabric->lock);
+    struct md_network_endpoint *e=create_locked(n,family,type,protocol);
+    if (e) md_network_namespace_retain(n);
     pthread_mutex_unlock(&n->fabric->lock); return e;
 }
 int md_network_endpoint_open(struct md_network_namespace *n,uint32_t uid,int family,int type,int protocol,
@@ -283,25 +291,15 @@ const void *md_network_endpoint_group_next(struct md_network_namespace *n,struct
     }
     return NULL;
 }
-static int bind_endpoint(struct md_fd_object *o,int fd,const struct md_identity *identity,
-        const struct sockaddr *a,socklen_t length,int external) {
-    if (!md_network_endpoint_is(o)) return -EBADF;
-    struct md_network_endpoint *e=(void *)o;
-    struct md_inet_address logical;
-    if (e->family==AF_INET6) {
-        socklen_t size=sizeof(e->v6only); int value;
-        if (getsockopt(fd,IPPROTO_IPV6,IPV6_V6ONLY,&value,&size)) return -errno;
-        pthread_mutex_lock(&e->space->fabric->lock); e->v6only=value; pthread_mutex_unlock(&e->space->fabric->lock);
-    }
-    int error=address(e,a,length,&logical); if (error) return error;
+static int bind_locked(struct md_network_endpoint *e,int fd,struct md_inet_address logical,int external,int privileged) {
     struct md_network_namespace *n=e->space;
-    pthread_mutex_lock(&n->fabric->lock);
+    int error=0;
     if (md_ip_linklocal(logical.ip) && !logical.scope) logical.scope=e->device;
     if (e->bound) error=-EINVAL;
     else if (!md_ip_unspecified(logical.ip) && !md_ip_multicast(logical.ip) && !local_interface(n,logical.ip,0)) error=-EADDRNOTAVAIL;
     else if (md_ip_linklocal(logical.ip) && !logical.scope && !e->device) error=-EINVAL;
     else if (logical.port && ntohs(logical.port)<n->unprivileged_port
-            && !md_identity_capable_in(identity,n->owner,CAP_NET_BIND_SERVICE)) error=-EACCES;
+            && !privileged) error=-EACCES;
     else if (logical.port && conflicts(e,&logical,0)) error=-EADDRINUSE;
     struct md_inet_address native=logical;
     struct md_network_port_reservation *reservation=NULL;
@@ -352,6 +350,23 @@ static int bind_endpoint(struct md_fd_object *o,int fd,const struct md_identity 
         }
     }
     md_network_forward_bound(reservation,!error);
+    return error;
+}
+static int bind_endpoint(struct md_fd_object *o,int fd,const struct md_identity *identity,
+        const struct sockaddr *a,socklen_t length,int external) {
+    if (!md_network_endpoint_is(o)) return -EBADF;
+    struct md_network_endpoint *e=(void *)o;
+    struct md_inet_address logical;
+    int v6only=e->v6only;
+    if (e->family==AF_INET6) {
+        socklen_t size=sizeof(v6only);
+        if (getsockopt(fd,IPPROTO_IPV6,IPV6_V6ONLY,&v6only,&size)) return -errno;
+    }
+    struct md_network_namespace *n=e->space;
+    pthread_mutex_lock(&n->fabric->lock);
+    e->v6only=v6only;
+    int error=address(e,a,length,&logical);
+    if (!error) error=bind_locked(e,fd,logical,external,md_identity_capable_in(identity,n->owner,CAP_NET_BIND_SERVICE));
     pthread_mutex_unlock(&n->fabric->lock); return error;
 }
 int md_network_endpoint_bind(struct md_fd_object *o,int fd,const struct md_identity *identity,
@@ -439,14 +454,22 @@ int md_network_endpoint_destination(struct md_fd_object *o,const struct sockaddr
         struct sockaddr_storage *out,socklen_t *out_length) {
     return md_network_endpoint_destination_info(o,a,length,NULL,out,out_length);
 }
-int md_network_endpoint_destination_info(struct md_fd_object *o,const struct sockaddr *a,socklen_t length,
+static struct md_ip_address socket_destination(struct md_network_endpoint *e,struct md_ip_address source,
+        struct md_ip_address destination,unsigned output) {
+    if (!md_ip_unspecified(destination)) return destination;
+    /* Linux treats an unspecified socket destination as local, not a default
+     * route. Keep this out of packet ingress and wildcard bind handling. */
+    if (destination.family==AF_INET) {
+        if (md_ip_unspecified(source) && output)
+            source=md_network_interface_source(md_network_interface_find(e->space,output,NULL),destination);
+        return source.family==AF_INET && !md_ip_unspecified(source) ? source : md_ip_loopback(AF_INET);
+    }
+    return md_ip_loopback(source.family==AF_INET ? AF_INET : AF_INET6);
+}
+static int destination_locked(struct md_network_endpoint *e,struct md_inet_address logical,
         struct md_network_packet_info *info,struct sockaddr_storage *out,socklen_t *out_length) {
-    if (!md_network_endpoint_is(o)) return -EBADF;
-    struct md_network_endpoint *e=(void *)o;
-    struct md_inet_address logical;
-    int error=address(e,a,length,&logical); if (error) return error;
     struct md_network_namespace *n=e->space;
-    pthread_mutex_lock(&n->fabric->lock);
+    int error=0;
     struct md_inet_address native=logical;
     struct md_inet_address local=e->local;
     local.ip=e->binding;
@@ -471,6 +494,7 @@ int md_network_endpoint_destination_info(struct md_fd_object *o,const struct soc
         if (!error && !md_ip_unspecified(info->source)) local.ip=info->source;
     }
     if (!error && info && info->interface) selected=info->interface;
+    logical.ip=socket_destination(e,local.ip,logical.ip,selected);
     if (!error && selected) md_network_policy_route(n,local.ip,logical.ip,e->mark,selected,NULL,&error);
     if (!error && multicast && e->type==SOCK_DGRAM) {
         struct md_filter_packet packet={.source=local.ip,.source_port=local.port,
@@ -495,12 +519,51 @@ int md_network_endpoint_destination_info(struct md_fd_object *o,const struct soc
         error=md_inet_encode(&native,e->family,out,out_length);
         if (info) *info=(struct md_network_packet_info){.source=e->native.ip,.destination=md_ip_any(e->family)};
     }
-    pthread_mutex_unlock(&n->fabric->lock); return error;
+    return error;
+}
+int md_network_endpoint_destination_info(struct md_fd_object *o,const struct sockaddr *a,socklen_t length,
+        struct md_network_packet_info *info,struct sockaddr_storage *out,socklen_t *out_length) {
+    if (!md_network_endpoint_is(o)) return -EBADF;
+    struct md_network_endpoint *e=(void *)o;
+    struct md_inet_address logical;
+    int error=address(e,a,length,&logical); if (error) return error;
+    pthread_mutex_lock(&e->space->fabric->lock);
+    error=destination_locked(e,logical,info,out,out_length);
+    pthread_mutex_unlock(&e->space->fabric->lock); return error;
 }
 static struct md_ip_address source_address(struct md_network_namespace *n,struct md_ip_address target) {
     struct md_network_route_entry route;
     struct md_network_interface *l=md_network_route_find(n,target,&route);
     return md_network_route_source(n,l,&route,target);
+}
+int md_network_endpoint_service_open(struct md_network_namespace *n,struct md_inet_address local,unsigned device,
+        struct md_fd_object **out,int *fd) {
+    *out=NULL; *fd=-1;
+    if (local.ip.family!=AF_INET && local.ip.family!=AF_INET6) return -EAFNOSUPPORT;
+    struct md_network_endpoint *e=create_locked(n,local.ip.family,SOCK_DGRAM,IPPROTO_UDP);
+    if (!e) return -ENOMEM;
+    e->device=device; e->v6only=local.ip.family==AF_INET6;
+    int native=socket(e->family,SOCK_DGRAM|SOCK_NONBLOCK|SOCK_CLOEXEC,0);
+    int error=native<0 ? -errno : 0;
+    if (!error && e->v6only && setsockopt(native,IPPROTO_IPV6,IPV6_V6ONLY,&e->v6only,sizeof(e->v6only))) error=-errno;
+    struct stat st;
+    if (!error && fstat(native,&st)) error=-errno;
+    if (!error) { e->inode=st.st_ino; error=bind_locked(e,native,local,1,1); }
+    if (error) {
+        detach(e); free(e);
+        if (native>=0) close(native);
+        return error;
+    }
+    *out=&e->object; *fd=native; return 0;
+}
+void md_network_endpoint_service_close(struct md_fd_object *object) {
+    if (!object) return;
+    struct md_network_endpoint *e=(void *)object;
+    detach(e); free(e);
+}
+int md_network_endpoint_service_destination(struct md_fd_object *object,struct md_inet_address target,
+        struct sockaddr_storage *out,socklen_t *size) {
+    return destination_locked((void *)object,target,NULL,out,size);
 }
 int md_network_endpoint_autobind(struct md_fd_object *o,int fd,const struct md_identity *identity,
         const struct sockaddr *a,socklen_t length,unsigned output) {
@@ -516,6 +579,7 @@ int md_network_endpoint_autobind(struct md_fd_object *o,int fd,const struct md_i
         pthread_mutex_unlock(&e->space->fabric->lock); return -EINVAL;
     }
     int bound=e->bound;
+    target.ip=socket_destination(e,e->binding,target.ip,output ? output : e->device);
     struct md_network_route_entry entry={0};
     struct md_network_interface *route=md_network_policy_route(e->space,e->binding,target.ip,e->mark,
         output ? output : e->device ? e->device : target.scope,&entry,NULL);
@@ -651,6 +715,7 @@ int md_network_endpoint_connected(struct md_fd_object *o,int fd,const struct soc
     int error=disconnect ? 0 : address(e,a,length,&peer); if (error) return error;
     if (md_inet_name(fd,0,&native)) return -errno;
     pthread_mutex_lock(&e->space->fabric->lock);
+    if (!disconnect) peer.ip=socket_destination(e,e->binding,peer.ip,e->device);
     e->peer=peer; e->connected=!disconnect; e->native=native;
     endpoint_changed(e);
     if (disconnect) {

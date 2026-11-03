@@ -303,6 +303,14 @@ resolution handles guest/native symlinks, dirfds, `..` across the boundary and
 openat2 scopes. Cross-view link/rename returns EXDEV; removing a mount root is
 EBUSY. Native permission/SELinux failures remain failures.
 
+`--bind-store-ro HOST_STORE GUEST` uses the same mount topology and readonly
+policy for another admitted inode store. It retains that store's lifetime and
+dependency leases; the existing mounted-store cache supplies scoped database
+connections. It neither exposes the backing metadata directory nor copies data.
+Startup and named-user resolution use that same cache, and failed attachment
+construction releases every pending source and lease. No storage-format change
+or additional ordinary syscall path is involved.
+
 An open descriptor into a covered directory retains that directory; it does not
 silently switch to the covering mount. Renaming a native mountpoint preserves
 the parent/child topology. Mount-table output and statx use the same IDs. Guest

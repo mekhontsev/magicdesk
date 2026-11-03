@@ -316,24 +316,31 @@ Cell order: **Shroot (lazy SVC) / Base**; N = not run.
 
 ### K3s
 
-The qualified profile is stock ARM64 k3s v1.37.1+k3s1, single-node host-gw,
+The qualified binary is stock ARM64 k3s v1.37.1+k3s1, running as
 guest root under shell UID 2000, with stock container seccomp enabled. Passing
 requires Node Ready, CoreDNS, positive kubelet root filesystem capacity,
 cross-pod DNS and ClusterIP HTTP, NetworkPolicy deny/allow/update/delete,
 Deployment scale and rolling update, persistent-volume data retention, stock
 Traefik and ServiceLB ingress, server restart retaining pod/Service identity,
-post-restart IO and ordinary pod/Service deletion. This is not default VXLAN or
-multi-node acceptance; memory limits remain advisory and cadvisor block-device
-accounting is unavailable.
+post-restart IO and ordinary pod/Service deletion. Two-node checks additionally
+require cross-node DNS/HTTP and an independent agent restart. VXLAN is the
+unmodified default backend; host-gw is separately qualified. Memory limits
+remain advisory and cadvisor block-device accounting is unavailable.
 
-| Recipe ID | Host profile | Shroot / Base | Receipt |
-| --- | --- | --- | --- |
-| debian | Native | P/N | `build/k3s-contract/k3s-catalogue/oci-services-857d17f45be74bb6b672a7ac7c8a1b61.json` |
-| debian | `linux-5.15` | P/N | `build/k3s-contract/complete515-solo/oci-services-f1c34da7604449a99cb060a56525dde3.json` |
+| Server / agent recipe | Topology | Host profile | Shroot / Base | Receipt |
+| --- | --- | --- | --- | --- |
+| debian | One node, host-gw | Native | P/N | `build/k3s-contract/k3s-catalogue/oci-services-857d17f45be74bb6b672a7ac7c8a1b61.json` |
+| debian | One node, host-gw | `linux-5.15` | P/N | `build/k3s-contract/complete515-solo/oci-services-f1c34da7604449a99cb060a56525dde3.json` |
+| debian / debian | Two nodes, VXLAN | Native | P/N | `build/vxlan-contract/two-onlink/oci-services-9f250aeb06f246359d4167f512a0d6cb.json` |
+| alpine / alpine | Two nodes, VXLAN | Native | P/N | `build/vxlan-contract/alpine-lazy/oci-services-dce033276db54cf3a886683557d589bc.json` |
+| debian / alpine | Two nodes, VXLAN | `linux-5.15` | N/P | `build/vxlan-contract/debian-alpine-base515-pivot/oci-services-da82544b80494027becb17cc07b7ddb8.json` |
+| alpine / debian | Two nodes, VXLAN | `linux-5.15` | P/N | `build/vxlan-contract/alpine-debian-lazy515/oci-services-a712095786d94366bb3470df356312b8.json` |
 
-Both runs use staged runtimes on the device's 6.12 kernel. The 5.15
-capability profile exercises fallbacks, not a physical 5.15 kernel. Other recipe
-distributions have not been qualified for this k3s profile.
+Runs use staged runtimes on one device's 6.12 kernel with separate node
+namespaces. Mixed clusters reuse installed recipes with a read-only agent store
+and private writable runtime mounts. The 5.15 capability profile exercises
+fallbacks, not a physical 5.15 kernel. Separate-device networking and other
+recipe distributions have not been qualified for k3s.
 
 ### Managed Network Regression Coverage
 
@@ -344,9 +351,10 @@ existing Android addresses; no Android route or address is changed.
 
 | Recipe / engine | Entry and host profile | Network profile | Receipt |
 | --- | --- | --- | --- |
-| alpine / Docker | Base, `linux-5.15` | nftables, no userland proxy, IPv6 `::1` | `build/shroot-image-tests/oci-services-809db13d6daf420191b525915a5904eb.json` |
-| alpine / Podman | Base, `linux-5.15` | iptables, IPv6 `::1` | `build/podman-results/oci-services-e9be98766f16404da9404c62f92ec0c7.json` |
-| debian / Docker | Lazy, native | iptables-nft, no userland proxy, IPv4 | `build/shroot-image-tests/oci-services-df1c57dab45742e1b317ae36b2440474.json` |
+| alpine / Docker | Base, `linux-5.15` | nftables, no userland proxy, IPv6 `::1` | `build/shroot-image-tests/oci-services-e7f3bb00c58b40d1a9ee59827e633157.json` |
+| alpine / Podman | Base, `linux-5.15` | iptables, IPv6 `::1` | `build/podman-results/oci-services-490f9f2fcd564bfd97dcb2b7dbc46592.json` |
+| debian / Docker | Lazy, native | iptables-nft, no userland proxy, IPv4 | `build/shroot-image-tests/oci-services-d0dbeb2e24fe4629851ee7635eae1635.json` |
+| debian / Podman | Lazy, native | nftables, IPv4 | `build/podman-results/oci-services-b6d0ca08877f41cfbf21a26a6e642475.json` |
 | debian / Podman | Default lazy, native | nftables, wildcard IPv6 publication observed through Android's existing local global address | `build/podman-results/oci-services-197af6e64466468f95680b3f67b0aa97.json` |
 
 These focused runs do not rerun the whole application matrix. Debian's Podman

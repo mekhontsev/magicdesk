@@ -12,7 +12,7 @@ struct md_network_flow_step {
 struct md_network_flow_path {
     struct md_filter_packet original, translated;
     struct md_network_flow_step steps[16];
-    unsigned count, mediated;
+    unsigned count, mediated, output_binding;
     struct md_network_rejection rejection[2];
     uint64_t destination, generation;
     uint64_t packet_space;

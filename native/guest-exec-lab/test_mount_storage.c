@@ -553,6 +553,17 @@ void test_mount_storage(const char *base) {
     assert(!renameat(lease->root,"saved.db",lease->root,"namespace.db"));
     assert(!md_inode_store_reconnect(lease,&check));
     md_inode_store_close(check); md_inode_lifetime_release(lease);
+    struct md_fs_storage_cache attachment_storage={0};
+    struct md_filesystem attached={.store=main,.storage=&attachment_storage};
+    struct md_fs_attachment attachment={extra,"/volume",MD_FS_ATTACHMENT_STORE|MD_FS_ATTACHMENT_READONLY};
+    assert(!md_fs_mounts_open(&attached,&attachment,1));
+    contents(&attached,"/volume/value",NULL,"shared");
+    planned(&attached,"/volume/value",O_WRONLY|O_TRUNC,NULL,-EROFS);
+    md_fs_mounts_close(&attached); md_fs_storage_close(&attachment_storage);
+    attachment.target="/missing-attachment";
+    assert(md_fs_mounts_open(&attached,&attachment,1)==-ENOENT && !attached.mounts);
+    attachment.target="/volume"; attachment.flags=MD_FS_ATTACHMENT_STORE;
+    assert(md_fs_mounts_open(&attached,&attachment,1)==-EINVAL && !attached.mounts);
     storage_cache(main,base);
     deferred_storage(main,base);
     main->identity=NULL; md_identity_release(&root); md_inode_store_close(main);

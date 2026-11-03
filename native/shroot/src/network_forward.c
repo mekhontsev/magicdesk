@@ -1029,6 +1029,7 @@ void md_network_forward_changed(struct md_network_fabric *fabric) {
     if (!++fabric->policy_generation) ++fabric->policy_generation;
     for (struct md_network_namespace *n=fabric->spaces;n;n=n->next) {
         md_network_tun_changed(n);
+        md_network_vxlan_changed(n);
         md_network_stack_changed(n);
     }
     wake(fabric->forward);

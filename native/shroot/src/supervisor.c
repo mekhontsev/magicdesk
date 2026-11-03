@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "fs_storage.h"
 #ifdef MD_KERNEL_TESTING
 #include "kernel_profile.h"
 #endif
@@ -9608,11 +9609,12 @@ int main(int argc, char **argv) {
         CHECK(argument+2<argc && *argv[argument+1]); gamepad_endpoint=argv[argument+1]; argument+=2;
     }
     while (argument < argc && (!strcmp(argv[argument], "--bind") || !strcmp(argv[argument], "--bind-ro")
-            || !strcmp(argv[argument], "--bind-create"))) {
+            || !strcmp(argv[argument], "--bind-create") || !strcmp(argv[argument], "--bind-store-ro"))) {
         CHECK(argument+2 < argc && attachment_count < MD_FS_MOUNTS_MAX);
         attachments[attachment_count++] = (struct md_fs_attachment){
             .source=argv[argument+1], .target=argv[argument+2],
             .flags=!strcmp(argv[argument], "--bind-ro") ? MD_FS_ATTACHMENT_READONLY
+                : !strcmp(argv[argument], "--bind-store-ro") ? MD_FS_ATTACHMENT_STORE|MD_FS_ATTACHMENT_READONLY
                 : !strcmp(argv[argument], "--bind-create") ? MD_FS_ATTACHMENT_CREATE : 0};
         argument += 3;
     }
@@ -9627,10 +9629,11 @@ int main(int argc, char **argv) {
         else {
             struct md_inode_store *accounts = NULL;
             CHECK(store && !md_inode_store_open(store, 0, &accounts));
-            struct md_filesystem view = {.store=accounts};
+            struct md_fs_storage_cache account_storage={0};
+            struct md_filesystem view = {.store=accounts,.storage=&account_storage};
             CHECK(!md_fs_mounts_open(&view, attachments, attachment_count));
             int resolved = md_guest_user_resolve(&view, selected_user, &launch_identity);
-            md_fs_mounts_close(&view); md_inode_store_close(accounts);
+            md_fs_mounts_close(&view); md_fs_storage_close(&account_storage); md_inode_store_close(accounts);
             if (resolved) { errno = -resolved; CHECK(!resolved); }
         }
     }

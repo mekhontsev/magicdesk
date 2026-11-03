@@ -18,11 +18,14 @@ from benchmark_cpu import observe_suite_cpu
 
 
 def main():
+    profiles = ('host', 'routed', 'filtered', 'nat')
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('build', type=Path)
     parser.add_argument('store')
     parser.add_argument('--sysroot', type=Path, required=True)
     parser.add_argument('--rounds', type=int, default=5)
+    parser.add_argument('--profile', action='append', choices=('native', *profiles),
+                        help='Limit an interleaved comparison; defaults to all profiles')
     parser.add_argument('--reference', type=Path,
                         help='Interleave another runtime build against the same guest and fixture')
     parser.add_argument('--output', type=Path, default=Path('build/network-benchmark'))
@@ -45,8 +48,8 @@ def main():
     guest = ['--store', args.store, '--user', '0:0']
     prefix = [suite.runner, *guest]
     target = '/tmp/md-network-benchmark-' + suite.report['id']
-    profiles = ('host', 'routed', 'filtered', 'nat')
-    modes = {'native': ('native', suite.runner)}
+    modes = {'native': ('native', suite.runner)} if not args.profile or 'native' in args.profile else {}
+    groups = [['native']] if modes else []
     created = False
     try:
         suite.transport.upload(suite.client, binary, suite.base + '/bench')
@@ -56,18 +59,23 @@ def main():
             suite.command(['mkdir', reference])
             suite.report['referenceHashes'] = suite.stage_runtime(args.reference, reference)
         for mode in profiles:
+            if args.profile and mode not in args.profile:
+                continue
             modes[mode] = (mode, suite.runner)
+            group = [mode]
             if args.reference:
                 modes['reference-' + mode] = (mode, reference + '/libmagicdesk_guest_run.so')
+                group.append('reference-' + mode)
+            groups.append(group)
         samples = {name: [] for name in modes}
         suite.command(prefix + ['--', '/bin/mkdir', target])
         created = True
         # Keep reference pairs adjacent; reverse and rotate their order so
         # neither build always follows the same warmup or idle interval.
-        order = list(modes)
         for iteration in range(args.rounds):
+            offset = (iteration // 2) % len(groups)
+            order = [name for group in groups[offset:] + groups[:offset] for name in group]
             sequence = order if iteration % 2 == 0 else list(reversed(order))
-            sequence = sequence[iteration % len(order):] + sequence[:iteration % len(order)]
             for name in sequence:
                 mode, runner = modes[name]
                 port = observer.allocate_port()

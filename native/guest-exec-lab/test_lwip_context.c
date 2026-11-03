@@ -192,6 +192,16 @@ static void isolation(int ethernet,int ipv6) {
     /* Destroy with live TCP PCBs, timers and caches; the adjacent stack survives. */
     pair_free(pairs);
     struct md_lwip_context *previous=md_lwip_enter(pairs[2].context);
+    if(ethernet) {
+        if(ipv6) {
+            ip6_addr_t address; assert(ip6addr_aton("fd23::2",&address));
+            md_lwip_neighbor6_forget(&pairs[2].netif,&address);
+        } else {
+            ip4_addr_t address; IP4_ADDR(&address,10,23,0,2);
+            struct eth_addr mac; int permanent=0;
+            assert(!md_lwip_arp(&pairs[2].netif,&address,&mac,MD_LWIP_ARP_DELETE,&permanent));
+        }
+    }
     unsigned char value=0xb2;
     assert(tcp_write(pairs[2].client,&value,1,TCP_WRITE_FLAG_COPY)==ERR_OK);
     assert(tcp_output(pairs[2].client)==ERR_OK); md_lwip_leave(previous);

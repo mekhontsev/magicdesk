@@ -19,6 +19,7 @@ struct ip6_addr;
 struct eth_addr;
 enum { MD_LWIP_ARP_GET, MD_LWIP_ARP_SET, MD_LWIP_ARP_DELETE };
 int md_lwip_arp(struct netif *,const struct ip4_addr *,struct eth_addr *,unsigned,int *);
+void md_lwip_neighbor6_forget(struct netif *,const struct ip6_addr *);
 struct md_lwip_context {
     void *modules[MD_LWIP_MODULE_COUNT];
     struct md_lwip_allocation *allocations;

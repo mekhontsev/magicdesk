@@ -81,6 +81,7 @@ int md_network_nexthops(struct md_network_namespace *n,const struct nlmsghdr *h,
     for (unsigned i=0;i<n->route_count;++i) if (n->routes[i].nexthop==value.id) {
         if (n->routes[i].destination.family!=value.gateway.family) return -EINVAL;
         n->routes[i].interface=value.interface; n->routes[i].gateway=value.gateway;
+        n->routes[i].flags=value.flags;
     }
     n->nexthops[at]=value; return 0;
 }

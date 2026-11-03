@@ -8,6 +8,7 @@ Namespace-local network configuration, supported nftables flow filtering and NAT
 - [Network Namespaces](#network-namespaces)
 - [Traffic Control](#traffic-control)
 - [TUN/TAP Packet Transport](#tuntap-packet-transport)
+- [VXLAN And Static Neighbors](#vxlan-and-static-neighbors)
 - [Namespace-Owned Sysctls](#namespace-owned-sysctls)
 - [Namespace-Owned Sysfs](#namespace-owned-sysfs)
 
@@ -91,9 +92,9 @@ or return unreachable/prohibit/blackhole. Empty tables fall through; local and
 main rules are installed for a new namespace, with an IPv4 default-table rule.
 Tables share the existing bounded route catalogue, transaction journal and
 netlink publication. Rule deletion, rollback and notifications follow the same
-owner as routes. Unsupported selectors/actions fail explicitly. Neighbor dumps
-are empty and their unsupported mutations fail explicitly. Traffic-control
-objects have their own interface-scoped owner below.
+owner as routes. Direct and named-nexthop routes retain `onlink` through lookup,
+replacement and publication. Unsupported selectors/actions fail explicitly.
+Static neighbors and traffic-control objects have focused owners below.
 Strict queries validate complete headers and reject unsupported filters instead
 of silently ignoring them. Route dumps accept the header's table selector and
 the extended `RTA_TABLE` selector, with the latter taking precedence; unknown
@@ -162,11 +163,16 @@ Local OUTPUT uses loopback interface metadata, independently of the FIB owner
 used for source selection and scoped endpoint binding. DNAT reroutes the
 translated destination through the same flow owner. Socket output binding
 applies only before egress, including veth pairs in the same namespace;
-ingress performs a new route lookup and retains the incoming interface's
+generation-based route revalidation retains that binding only for the originating
+egress. Ingress performs a new route lookup and retains the incoming interface's
 IPv6 link-local scope. Nftables element deletion
 selects by key; an echoed value does not change the match or retain a verdict
 target. Both contracts are covered by native network tests and the nspawn
 command/publication lifecycle fixture.
+An unspecified socket destination is resolved locally, following IPv4 source
+selection or IPv6 loopback semantics. This does not reinterpret wildcard binds
+or incoming packet addresses, and cannot fall through to another namespace's
+listener via the default route.
 
 `network_io` uses the shared exact-description capture and cancellable IO owner
 for control, connect/accept and addressed TCP/UDP calls. No table/fabric turn
@@ -363,9 +369,11 @@ the packet owner's completion wakes retirement without a delay or HUP spin.
 `network_stack_packet` validates reassembled transport and delivers raw
 observations without a second IP reassembler. Broadcast/multicast UDP enters the
 existing namespace group-delivery owner, including DHCP's zero-source discovery.
-Legacy ARP get/set/delete ioctls use the same per-interface lwIP neighbor cache;
-they do not create a second neighbor catalogue. Writes require namespace
-`CAP_NET_ADMIN`; proxy ARP is unsupported.
+Legacy ARP get/set/delete ioctls share permanent entries with the static-neighbor
+owner; dynamic entries remain in lwIP. Permanent entries do not require a packet
+stack. Committed static changes invalidate matching dynamic caches; failed
+publication leaves both unchanged. Writes require namespace `CAP_NET_ADMIN`;
+proxy ARP is unsupported.
 
 Shroot remains the address/route authority; lwIP does not run DHCP, DNS or SLAAC
 configuration or independent IPv6 MTU updates. Both families use the link MTU
@@ -380,6 +388,43 @@ permissions, queue lifetime, raw ICMP and IPv4/IPv6 TCP/UDP between both packet
 and native endpoints. The rootless mode of `probe_podman_runtime.py` checks
 stock slirp4netns, UID mappings, container DNS/HTTP, TCP/UDP publication and
 cleanup with the normal container seccomp policy.
+
+### VXLAN And Static Neighbors
+
+`network_vxlan` owns unicast VXLAN links, 24-bit VNIs and namespace-owned UDP
+ports. Stock iproute2 and Flannel use the shared rtnetlink transaction owner;
+no k3s-specific syscall path is involved. IPv4/IPv6 underlays and payloads share
+the existing Ethernet, packet-stack, route, filter and NAT owners. MTU accounts
+for outer-family overhead. Multiple VNIs share one compatible UDP binding;
+the last link releases it. Removing or moving an underlay retires its bound
+tunnels through the same topology journal. Moving a tunnel between namespaces
+is unsupported.
+
+Internal UDP endpoints borrow their namespace while ordinary application sockets
+retain it. Both use the same binding, destination and retirement operations,
+avoiding namespace reference cycles and duplicate routing policy. Bounded packet
+batches run on the existing fabric reactor, not a new worker. Ordinary socket
+and file reads/writes remain native.
+
+`network_neighbor` owns immutable sorted snapshots of permanent IPv4/IPv6
+neighbors and static VXLAN FDB entries. Lookups use binary search; mutations
+allocate only on the control path and participate in publication rollback.
+Entries retain interface lifetimes, not reusable names. Dumps, point queries,
+notifications, replacement and deletion use the same snapshot. A zero-MAC FDB
+entry selects one flood destination. Dynamic ARP/NDP resolution remains stack
+owned and is not enumerated by static netlink dumps.
+
+Supported tunnels require `nolearning`; multicast underlays, expiring/learned
+FDB entries, multiple destinations for one MAC, custom outer TTL/TOS and
+additional VXLAN extensions fail explicitly. This is not a complete Linux
+bridge/VXLAN control plane. Static catalogs are bounded at 1024 entries per
+namespace. UDP checksums are produced by the native transport.
+
+`test_network_vxlan.py` checks an independent UDP wire peer, malformed headers,
+VNI isolation, shared-port retirement, MTU, outer filtering, IPv4/IPv6 underlays,
+local and routed TCP/UDP payloads, fragmentation and namespace cleanup. The
+two-node k3s fixture additionally exercises stock Flannel, cross-node DNS,
+Services, NetworkPolicy and independent node restarts.
 `probe_packet_runtime.py` checks stock tun2socks through a SOCKS5 TCP/UDP proxy
 and stock QEMU TCG through TAP/virtio-net. Both cover IPv4/IPv6, bulk transfers,
 fragmentation and TCP half-close; QEMU additionally runs the peer inside a real
@@ -663,7 +708,8 @@ it. Topology rollback restores the prior policy lifetime alongside its values.
 and loopback-source/destination policy apply at logical routing boundaries,
 after PREROUTING. `src_valid_mark` includes the restored packet mark in the
 reverse route lookup; the effective value combines `conf/all` and the interface.
-The fabric resolves live addresses directly, without an ARP neighbor cache;
+Native-endpoint routes resolve live addresses directly; packet transports use
+the static-neighbor and dynamic ARP/NDP owners described above.
 `arp_notify` does not emit packets onto Android's physical network.
 
 `tcp_keepalive_time`, `tcp_keepalive_intvl` and `tcp_keepalive_probes` belong to

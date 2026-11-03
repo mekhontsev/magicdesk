@@ -216,7 +216,7 @@ int md_network_flow_group_input(struct md_network_namespace *n,struct md_network
 }
 int md_network_flow_route(struct md_network_namespace *from,struct md_filter_packet *p,int external,
         unsigned output,struct md_network_flow_path *path) {
-    *path=(struct md_network_flow_path){.generation=from->fabric->policy_generation};
+    *path=(struct md_network_flow_path){.generation=from->fabric->policy_generation,.output_binding=external ? 0 : output};
     /* Only the native listener knows its accepted destination is local.
      * A raw ingress packet supplies an interface, not this authority. */
     if (external && !output) { path->native_space=from->inode; path->native_address=p->destination; }
@@ -286,7 +286,7 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
         }
         if (!error) error=hook(n,NF_INET_POST_ROUTING,p,path);
         if (error) break;
-        if (out->kind==MD_LINK_TUN || out->kind==MD_LINK_TAP) {
+        if (out->kind==MD_LINK_TUN || out->kind==MD_LINK_TAP || out->kind==MD_LINK_VXLAN) {
             path->packet_space=n->inode; path->packet_output=out->info.index; path->mediated=1;
             break;
         }
@@ -307,7 +307,7 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
             if(!input && n->stack) {
                 int packet_port=0;
                 for(unsigned k=0;k<n->count;++k)
-                    if(n->links[k].master==out->info.index && n->links[k].kind==MD_LINK_TAP
+                    if(n->links[k].master==out->info.index && (n->links[k].kind==MD_LINK_TAP || n->links[k].kind==MD_LINK_VXLAN)
                             && (n->links[k].info.flags&IFF_UP)) packet_port=1;
                 if(packet_port) {
                     path->packet_space=n->inode; path->packet_output=out->info.index; path->mediated=1;
@@ -341,22 +341,29 @@ int md_network_flow_route(struct md_network_namespace *from,struct md_filter_pac
     path->translated=*p; return error;
 }
 static int routing_admits(struct md_network_namespace *n,const struct md_network_flow_path *path,
-        const struct md_filter_packet *p,unsigned hook) {
+        const struct md_filter_packet *p,unsigned hook,unsigned selected) {
     if (hook!=NF_INET_POST_ROUTING && hook!=NF_INET_LOCAL_IN) return 0;
     if (md_ip_multicast(p->destination) || md_network_address_type(n,p->destination)==RTN_BROADCAST
             || (path->native_space==n->inode && md_ip_equal(path->native_address,p->destination))) return 0;
     struct md_network_route_entry route={0}; int error;
     struct md_network_interface *link=md_network_policy_route(n,p->source,p->destination,p->mark,
-        md_ip_linklocal(p->destination) ? (p->output ? p->output : p->input) : 0,&route,&error);
+        selected ? selected : md_ip_linklocal(p->destination) ? (p->output ? p->output : p->input) : 0,&route,&error);
     if (!link) return error;
     unsigned output=route.table==RT_TABLE_LOCAL ? 1 : link->info.index;
     return (hook==NF_INET_LOCAL_IN ? route.table!=RT_TABLE_LOCAL : output!=p->output) ? -ENETUNREACH : 0;
+}
+static unsigned output_binding(const struct md_network_flow_path *path,unsigned index) {
+    if(!path->output_binding || path->steps[index].hook!=NF_INET_POST_ROUTING) return 0;
+    for(unsigned i=0;i<index;++i) if(path->steps[i].hook==NF_INET_POST_ROUTING) return 0;
+    return path->output_binding;
 }
 int md_network_flow_routing_admits(struct md_network_namespace *n,const struct md_network_flow_path *path) {
     for (unsigned i=0;i<path->count;++i) {
         const struct md_network_flow_step *s=&path->steps[i];
         if (s->space!=n->inode || s->bridge_ingress || (s->hook!=NF_INET_POST_ROUTING && s->hook!=NF_INET_LOCAL_IN)) continue;
-        int error=routing_admits(n,path,&s->packet,s->hook);
+        /* A bound output applies only to the originating egress. Re-entry
+         * through a same-namespace veth is ordinary ingress routing. */
+        int error=routing_admits(n,path,&s->packet,s->hook,output_binding(path,i));
         if (error) return error;
     }
     return 0;
@@ -437,7 +444,7 @@ static int check_path(struct md_network_fabric *f,struct md_network_flow_path *p
         p.unmediated=override!=NULL;
         /* Mark changes are harmless to a native connection only while its
          * effective route and every subsequent filter still admit the tuple. */
-        if (override && !s->bridge_ingress && routing_admits(n,path,&p,hook)) return -EBUSY;
+        if (override && !s->bridge_ingress && routing_admits(n,path,&p,hook,reverse ? 0 : output_binding(path,i))) return -EBUSY;
         int error=md_filter_evaluate_transition(n==override ? filter : n->filter,hook,&p,
             retained ? &rewrite : NULL,NULL);
         if (error) { path->rejection[!!reverse]=p.rejection; return error; }

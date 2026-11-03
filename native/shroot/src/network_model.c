@@ -1,4 +1,6 @@
 #define _GNU_SOURCE
+#include "network_neighbor.h"
+#include "network_vxlan.h"
 #include "network_internal.h"
 #include "network_tc.h"
 #include "network_filter.h"
@@ -261,6 +263,12 @@ int md_network_interface_add(struct md_network_namespace *n,enum md_network_link
     *index=id; return 0;
 }
 static void remove_one(struct md_network_namespace *n,unsigned index) {
+    /* A bound tunnel cannot survive removal or namespace transfer of its
+     * underlay. Cascades use the same topology journal as the parent link. */
+    for(unsigned i=0;i<n->count;)
+        if(n->links[i].kind==MD_LINK_VXLAN && n->links[i].vxlan.link==index)
+            remove_one(n,n->links[i].info.index);
+        else ++i;
     for (unsigned i=0;i<n->count;++i) {
         if (n->links[i].master==index) n->links[i].master=n->links[i].hairpin=n->links[i].isolated=0;
         if (n->links[i].info.index==index) {
@@ -382,12 +390,18 @@ void md_network_namespace_release(struct md_network_namespace *n) {
     if (!n || atomic_fetch_sub_explicit(&n->references,1,memory_order_acq_rel)!=1) return;
     struct md_network_fabric *f=n->fabric;
     pthread_mutex_lock(&f->lock);
+    md_network_vxlan_retire(n);
     md_network_forward_retire(n);
     md_network_stack_retire(n);
     md_network_tun_retire(n);
     for (unsigned i=0;i<n->count;++i) {
         struct md_network_namespace *peer=md_network_interface_owner(f,n->links[i].peer);
-        if (peer && peer!=n) remove_one(peer,n->links[i].peer);
+        if (peer && peer!=n) {
+            remove_one(peer,n->links[i].peer);
+            /* Namespace retirement holds the fabric lock without a journal;
+             * the exclusively owned snapshot is pruned without allocation. */
+            md_network_neighbors_prune(peer);
+        }
         md_network_tc_release(n->links[i].tc);
     }
     struct md_network_namespace **at=&f->spaces;
@@ -400,6 +414,7 @@ void md_network_namespace_release(struct md_network_namespace *n) {
         pthread_mutex_destroy(&f->lock); free(f);
     }
     md_network_filter_free(n->filter);
+    md_network_neighbors_release(n->neighbors);
     md_user_namespace_release(n->owner); free(n->links); free(n);
 }
 uint64_t md_network_namespace_inode(const struct md_network_namespace *n) { return n->inode; }

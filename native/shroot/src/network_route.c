@@ -11,6 +11,9 @@
 #include "network_tc.h"
 #include "network_forward.h"
 #include "network_endpoint.h"
+#include "network_neighbor.h"
+#include "network_vxlan.h"
+#include "network_stack.h"
 #include "guest_identity.h"
 #include <errno.h>
 #include <linux/if_link.h>
@@ -88,8 +91,8 @@ static int link_reply(struct md_network_message *out,const struct nlmsghdr *h,ui
         if (!error) error=md_network_message_attribute(out,IFLA_BRPORT_ISOLATED,&isolated,sizeof(isolated));
         if (!error) error=md_network_message_end_nest(out,nest);
     }
-    if (!error && (link->kind==MD_LINK_VETH || link->kind==MD_LINK_BRIDGE || link->kind==MD_LINK_TUN || link->kind==MD_LINK_TAP)) {
-        const char *kind=link->kind==MD_LINK_VETH ? "veth" : link->kind==MD_LINK_BRIDGE ? "bridge" : "tun";
+    if (!error && (link->kind==MD_LINK_VETH || link->kind==MD_LINK_BRIDGE || link->kind==MD_LINK_TUN || link->kind==MD_LINK_TAP || link->kind==MD_LINK_VXLAN)) {
+        const char *kind=link->kind==MD_LINK_VETH ? "veth" : link->kind==MD_LINK_BRIDGE ? "bridge" : link->kind==MD_LINK_VXLAN ? "vxlan" : "tun";
         size_t info=out->size;
         /* rtnl_link_fill uses nla_nest_start_noflag for this legacy nest. */
         error=md_network_message_attribute(out,IFLA_LINKINFO,NULL,0);
@@ -102,11 +105,13 @@ static int link_reply(struct md_network_message *out,const struct nlmsghdr *h,ui
             if (!error) error=md_network_message_attribute(out,IFLA_BR_FORWARD_DELAY,&link->bridge_forward_delay,sizeof(uint32_t));
             if (!error) error=md_network_message_end_nest(out,data);
         }
+        if (!error && link->kind==MD_LINK_VXLAN) error=md_network_vxlan_reply(out,&link->vxlan);
         if (!error) error=md_network_message_end_nest(out,info);
     }
     return error;
 }
 struct link_change {
+    struct md_network_vxlan_config vxlan;
     const char *name,*peer_name;
     char name_storage[IFNAMSIZ],peer_storage[IFNAMSIZ];
     enum md_network_link_kind kind;
@@ -220,6 +225,11 @@ static int parse_link(const struct nlmsghdr *h,struct link_change *change,struct
         }
         return error;
     }
+    if (kind_is(info.v[IFLA_INFO_KIND],"vxlan")) {
+        change->kind=MD_LINK_VXLAN;
+        if (!info.v[IFLA_INFO_DATA]) return -EINVAL;
+        return md_network_vxlan_parse(RTA_DATA(info.v[IFLA_INFO_DATA]),RTA_PAYLOAD(info.v[IFLA_INFO_DATA]),&change->vxlan);
+    }
     if (!kind_is(info.v[IFLA_INFO_KIND],"veth")) return -EOPNOTSUPP;
     change->kind=MD_LINK_VETH;
     if (!info.v[IFLA_INFO_DATA] || !RTA_PAYLOAD(info.v[IFLA_INFO_DATA])) return 0;
@@ -298,7 +308,7 @@ static int change_link(struct md_network_namespace *n,const struct nlmsghdr *h,c
         const char *name=c->name;
         int error=0;
         if (!name) {
-            error=automatic_name(n,c->kind==MD_LINK_VETH ? "veth" : "br",peer_space==n ? c->peer_name : NULL,generated);
+            error=automatic_name(n,c->kind==MD_LINK_VETH ? "veth" : c->kind==MD_LINK_VXLAN ? "vxlan" : "br",peer_space==n ? c->peer_name : NULL,generated);
             if (error) return error;
             name=generated;
         }
@@ -327,7 +337,16 @@ static int change_link(struct md_network_namespace *n,const struct nlmsghdr *h,c
             if (c->has_peer_address) memcpy(peer_link->info.address,c->peer_address,6);
         }
         link=md_network_interface_find(n,index,NULL); link->peer=peer;
+        if (c->kind==MD_LINK_VXLAN) {
+            link->vxlan=c->vxlan;
+            struct md_network_interface *underlay=c->vxlan.link ? md_network_interface_find(n,c->vxlan.link,NULL) : NULL;
+            unsigned mtu=underlay ? underlay->info.mtu : 1500;
+            unsigned overhead=c->vxlan.local.family==AF_INET6 ? 70 : 50;
+            if(mtu<overhead+68) return -EINVAL;
+            link->info.mtu=mtu-overhead;
+        }
     } else if (peer_target || (c->kind && c->kind!=link->kind)) return -EOPNOTSUPP;
+    else if (c->kind==MD_LINK_VXLAN && memcmp(&c->vxlan,&link->vxlan,sizeof(c->vxlan))) return -EOPNOTSUPP;
     if ((target && target!=n) || (c->name && strcmp(c->name,link->info.name))) {
         unsigned index=link->info.index;
         int error=md_network_interface_move(n,index,target ? target : n,c->name);
@@ -357,6 +376,7 @@ static int change_link(struct md_network_namespace *n,const struct nlmsghdr *h,c
     return 0;
 }
 struct topology_checkpoint {
+    struct md_network_neighbors *neighbors;
     struct md_network_namespace *space;
     struct md_network_interface *links;
     unsigned count,route_count,nexthop_count,rule_count;
@@ -381,6 +401,7 @@ static int checkpoint(struct topology_checkpoint *saved,struct md_network_namesp
     if (n->nexthop_count) memcpy(nexthops,n->nexthops,n->nexthop_count*sizeof(*nexthops));
     if (n->rule_count) memcpy(rules,n->rules,n->rule_count*sizeof(*rules));
     *saved=(struct topology_checkpoint){.space=n,.links=links,.count=n->count,
+        .neighbors=md_network_neighbors_retain(n->neighbors),
         .routes=routes,.route_count=n->route_count,.nexthops=nexthops,.nexthop_count=n->nexthop_count,
         .rules=rules,.rule_count=n->rule_count};
     if (n->listeners) for (unsigned i=0;i<n->count;++i)
@@ -391,6 +412,7 @@ static void checkpoint_finish(struct topology_checkpoint *saved,int commit) {
     struct md_network_namespace *n=saved->space;
     if (!n) return;
     if (!commit) {
+        md_network_neighbors_release(n->neighbors); n->neighbors=saved->neighbors; saved->neighbors=NULL;
         for (unsigned i=0;i<n->count;++i) md_network_tc_release(n->links[i].tc);
         free(n->links); n->links=saved->links; saved->links=NULL;
         n->count=n->capacity=saved->count;
@@ -406,6 +428,7 @@ static void checkpoint_finish(struct topology_checkpoint *saved,int commit) {
     free(saved->routes);
     free(saved->nexthops);
     free(saved->rules);
+    md_network_neighbors_release(saved->neighbors);
 }
 static const struct md_network_interface *snapshot_link(const struct md_network_interface *links,
         unsigned count,unsigned index) {
@@ -476,7 +499,7 @@ static int route_present(const struct md_network_route_entry *routes,unsigned co
                 && md_ip_equal(a->source,b->source) && !memcmp(&a->metrics,&b->metrics,sizeof(a->metrics))
                 && a->prefix==b->prefix && a->interface==b->interface && a->metric==b->metric
                 && a->scope==b->scope && a->protocol==b->protocol && a->nexthop==b->nexthop
-                && a->valid_until==b->valid_until && a->preference==b->preference
+                && a->valid_until==b->valid_until && a->preference==b->preference && a->flags==b->flags
                 && (a->table ? a->table : RT_TABLE_MAIN)==(b->table ? b->table : RT_TABLE_MAIN)) return 1;
     }
     return 0;
@@ -640,6 +663,7 @@ static int empty_dump(const struct nlmsghdr *h,int dump) {
 }
 static int strict_query(const struct nlmsghdr *h,int dump) {
     if (md_network_tc_request(h->nlmsg_type)) return 0; /* Typed tc selectors are checked by their owner. */
+    if (h->nlmsg_type==RTM_GETNEIGH) return 0; /* The neighbor owner validates typed selectors. */
     size_t body;
     switch (h->nlmsg_type) {
     case RTM_GETLINK: body=sizeof(struct ifinfomsg); break;
@@ -691,10 +715,10 @@ long md_network_route(struct md_network_namespace *n,const struct md_identity *i
     const struct nlmsghdr *original=h;
     struct { struct nlmsghdr header; struct ifinfomsg body; } expanded={0};
     if (!strict && dump && (h->nlmsg_type==RTM_GETLINK || h->nlmsg_type==RTM_GETADDR
-            || h->nlmsg_type==RTM_GETROUTE || h->nlmsg_type==RTM_GETRULE)) {
+            || h->nlmsg_type==RTM_GETROUTE || h->nlmsg_type==RTM_GETRULE || h->nlmsg_type==RTM_GETNEIGH)) {
         size_t payload=h->nlmsg_type==RTM_GETLINK ? sizeof(struct ifinfomsg)
             : h->nlmsg_type==RTM_GETADDR ? sizeof(struct ifaddrmsg)
-            : h->nlmsg_type==RTM_GETRULE ? sizeof(struct fib_rule_hdr) : sizeof(struct rtmsg);
+            : h->nlmsg_type==RTM_GETRULE ? sizeof(struct fib_rule_hdr) : h->nlmsg_type==RTM_GETNEIGH ? sizeof(struct ndmsg) : sizeof(struct rtmsg);
         /* Legacy rtnetlink dumps carry only rtgenmsg's family (glibc pads it
          * to four bytes). Mutation and lookup requests retain strict parsing. */
         if (size>=NLMSG_LENGTH(sizeof(struct rtgenmsg)) && size<NLMSG_LENGTH(payload)) {
@@ -759,6 +783,8 @@ long md_network_route(struct md_network_namespace *n,const struct md_identity *i
             error=md_network_nexthops(n,h,port,dump,&out);
         else if (h->nlmsg_type==RTM_GETRULE || h->nlmsg_type==RTM_NEWRULE || h->nlmsg_type==RTM_DELRULE)
             error=md_network_rules(n,h,port,dump,&out);
+        else if (h->nlmsg_type==RTM_GETNEIGH || h->nlmsg_type==RTM_NEWNEIGH || h->nlmsg_type==RTM_DELNEIGH)
+            error=md_network_neighbors_control(n,h,port,dump,&out);
         else if (md_network_tc_request(h->nlmsg_type)) error=md_network_tc_control(n,h,port,dump,&out);
         else if (query) error=empty_dump(h,dump);
         else error=-EOPNOTSUPP;
@@ -769,6 +795,10 @@ long md_network_route(struct md_network_namespace *n,const struct md_identity *i
             || h->nlmsg_type==RTM_NEWRULE || h->nlmsg_type==RTM_DELRULE
             || h->nlmsg_type==RTM_NEWNEXTHOP || h->nlmsg_type==RTM_DELNEXTHOP || (link && change.has_mtu)))
         error=md_network_endpoint_transport_update(n);
+    struct md_network_vxlan_update *vxlan=NULL;
+    if (!query && link) for(unsigned i=0;!error && i<2;++i)
+        if(saved[i].space) error=md_network_neighbors_prune(saved[i].space);
+    if (!error && !query && link) error=md_network_vxlan_prepare(n,&vxlan);
     if (error) out.size=0;
     int encoded=md_network_message_done(&out,original,port,error,dump,options&MD_NETWORK_ROUTE_CAPPED_ACK);
     unsigned published=0;
@@ -776,18 +806,26 @@ long md_network_route(struct md_network_namespace *n,const struct md_identity *i
      * is still pending in network managers. Once any observer can see a change
      * (or queue overflow), a lost ACK cannot roll the topology back. */
     if (!error && !encoded && !query)
-        for (unsigned i=0;i<2;++i) published+=notify_changes(&saved[i]);
+        for (unsigned i=0;i<2;++i) {
+            published+=notify_changes(&saved[i]);
+            if (saved[i].space) published+=md_network_neighbors_notify(saved[i].space,saved[i].neighbors);
+        }
     if (!encoded && out.size && publication)
         encoded=publication->publish(publication->context,out.data,out.size);
     int commit=!error && (!encoded || published);
+    md_network_vxlan_finish(vxlan,commit);
     if (commit && !query) {
         for (unsigned i=0;i<2;++i) {
-            if (saved[i].space) refresh_deadline(saved[i].space);
+            if (saved[i].space) {
+                md_network_neighbors_commit(saved[i].space,saved[i].neighbors);
+                refresh_deadline(saved[i].space);
+            }
         }
         fabric_deadline(n->fabric);
         md_network_forward_changed(n->fabric);
     }
     for (unsigned i=0;i<2;++i) checkpoint_finish(&saved[i],commit);
+    if (vxlan && !commit) md_network_stack_changed(n);
     if (!query && !commit) n->fabric->next_index=next_index;
     pthread_mutex_unlock(&n->fabric->lock);
     md_network_namespace_release(target);

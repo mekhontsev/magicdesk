@@ -41,7 +41,29 @@ static void events(void) {
     puts("PASS network event sources: shared loop, readiness update, callback retirement and shutdown");
 }
 
+static void bound_route_refresh(void) {
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_PRIVATE); assert(n);
+    unsigned first,second;
+    assert(!md_network_interface_add(n,MD_LINK_VETH,"route-a",&first));
+    assert(!md_network_interface_add(n,MD_LINK_VETH,"route-b",&second));
+    struct md_network_interface *a=md_network_interface_find(n,first,NULL),*b=md_network_interface_find(n,second,NULL);
+    a->peer=second; b->peer=first; a->info.flags|=IFF_UP; b->info.flags|=IFF_UP;
+    test_network_v4(a,htonl(0xc0000201),24); test_network_v4(b,htonl(0xc0000202),24);
+    struct md_filter_packet packet={.source=md_ip_v4(htonl(0xc0000201)),.destination=md_ip_v4(htonl(0xc0000202)),
+        .source_port=htons(4790),.destination_port=htons(4790),.protocol=IPPROTO_UDP,.state=8};
+    struct md_network_flow_path path;
+    assert(!md_network_flow_route(n,&packet,0,first,&path));
+    assert(path.destination==n->inode && path.output_binding==first);
+    ++n->fabric->policy_generation;
+    assert(!md_network_flow_check(n->fabric,&path,0));
+    assert(!md_network_flow_check(n->fabric,&path,1));
+    a->info.flags&=~IFF_UP; ++n->fabric->policy_generation;
+    assert(md_network_flow_check(n->fabric,&path,0)==-ENETUNREACH);
+    md_network_namespace_release(n);
+    puts("PASS retained routes: bound output survives unrelated topology changes, ordinary re-entry and down rejection");
+}
 void test_network_model(void) {
+    bound_route_refresh();
     events();
     struct md_network_namespace *root=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
     assert(root && root->count==2 && test_network_default(root,AF_INET) && test_network_default(root,AF_INET6));

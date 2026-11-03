@@ -8,6 +8,9 @@
 #include "network_packet.h"
 #include "network_endpoint.h"
 #include "network_policy.h"
+#include "network_neighbor.h"
+#include "network_vxlan.h"
+#include "network_stack.h"
 #include "test_network_fixture.h"
 #include "guest_identity.h"
 #include "sysfs_view.h"
@@ -18,6 +21,7 @@
 #include <linux/fib_rules.h>
 #include <linux/veth.h>
 #include <linux/nexthop.h>
+#include <linux/neighbour.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <linux/sockios.h>
@@ -222,6 +226,41 @@ static void point_to_point(void) {
     md_identity_release(&root); md_identity_release(&user); md_network_namespace_release(n);
     puts("PASS point-to-point IPv4/IPv6: local/peer identity, routes, dumps, typed ioctl ABI, authority and atomic rollback");
 }
+static void onlink_routes(unsigned family) {
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+    struct md_identity root=md_identity_new(0,0);
+    struct md_network_interface *link=md_network_interface_find(n,0,"eth0");
+    unsigned index=link->info.index;
+    struct md_ip_address gateway,destination;
+    assert(!md_network_profile_ip(family==AF_INET ? "198.18.1.0" : "fd42:1::",&gateway));
+    assert(!md_network_profile_ip(family==AF_INET ? "198.51.100.0" : "fd42:2::",&destination));
+    struct packet p,reply;
+    struct nlmsghdr *h=request(&p,RTM_NEWROUTE,NLM_F_CREATE|NLM_F_EXCL);
+    h->nlmsg_len=NLMSG_LENGTH(sizeof(struct rtmsg));
+    struct rtmsg *message=NLMSG_DATA(h);
+    *message=(struct rtmsg){.rtm_family=family,.rtm_dst_len=family==AF_INET ? 24 : 64,
+        .rtm_table=RT_TABLE_MAIN,.rtm_type=RTN_UNICAST,.rtm_protocol=RTPROT_BOOT,.rtm_flags=RTNH_F_ONLINK};
+    attr(h,RTA_DST,destination.bytes,md_ip_size(destination));
+    attr(h,RTA_GATEWAY,gateway.bytes,md_ip_size(gateway));
+    assert(ack(n,&root,h,NULL)==-EINVAL);
+    attr(h,RTA_OIF,&index,4);
+    message->rtm_flags|=RTNH_F_PERVASIVE;
+    assert(ack(n,&root,h,NULL)==-EOPNOTSUPP);
+    message->rtm_flags=RTNH_F_ONLINK;
+    unsigned before=n->route_count;
+    struct md_network_publication refusal={.publish=reject_response};
+    assert(md_network_route(n,&root,h,h->nlmsg_len,91,0,NULL,reply.bytes,sizeof(reply),&refusal)==-EAGAIN);
+    assert(n->route_count==before);
+    assert(!ack(n,&root,h,NULL) && n->route_count==before+1);
+    assert(n->routes[before].flags==RTNH_F_ONLINK && md_ip_equal(n->routes[before].gateway,gateway));
+    h=request(&p,RTM_GETROUTE,0); h->nlmsg_len=NLMSG_LENGTH(sizeof(struct rtmsg));
+    ((struct rtmsg *)NLMSG_DATA(h))->rtm_family=family;
+    attr(h,RTA_DST,destination.bytes,md_ip_size(destination));
+    long bytes=md_network_route(n,&root,h,h->nlmsg_len,91,0,NULL,reply.bytes,sizeof(reply),NULL);
+    assert(bytes>0 && ((struct rtmsg *)NLMSG_DATA(&reply.align))->rtm_flags==RTNH_F_ONLINK);
+    md_identity_release(&root); md_network_namespace_release(n);
+    puts("PASS onlink routes: explicit interface, flags, rollback and route lookup readback");
+}
 static void policy_routes(unsigned family) {
     struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
     struct md_identity root=md_identity_new(0,0),user=md_identity_new(1000,1000);
@@ -328,7 +367,108 @@ static void policy_routes(unsigned family) {
     n->listeners=NULL; close(queue[0]); close(queue[1]);
     md_identity_release(&root); md_identity_release(&user); md_network_namespace_release(n);
 }
+static void vxlan_neighbors(void) {
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_PRIVATE);
+    struct md_identity root=md_identity_new(0,0),user=md_identity_new(1000,1000);
+    unsigned uplink;
+    assert(!md_network_interface_add(n,MD_LINK_VETH,"uplink",&uplink));
+    struct md_network_interface *underlay=md_network_interface_find(n,uplink,NULL);
+    underlay->info.flags|=IFF_UP;
+    struct md_ip_address local=md_ip_v4(htonl(0xc0000201)),remote=md_ip_v4(htonl(0xc0000202));
+    test_network_v4(underlay,local.v4,24);
+    struct packet p,reply;
+    struct nlmsghdr *h=request(&p,RTM_NEWLINK,NLM_F_CREATE|NLM_F_EXCL);
+    attr(h,IFLA_IFNAME,"vx0",4);
+    struct rtattr *info=attr(h,IFLA_LINKINFO,NULL,0);
+    attr(h,IFLA_INFO_KIND,"vxlan",6);
+    struct rtattr *data=attr(h,IFLA_INFO_DATA,NULL,0);
+    uint32_t vni=71; uint16_t port=htons(4789); unsigned char learning=0;
+    attr(h,IFLA_VXLAN_ID,&vni,4); attr(h,IFLA_VXLAN_PORT,&port,2);
+    attr(h,IFLA_VXLAN_LINK,&uplink,4); attr(h,IFLA_VXLAN_LOCAL,local.bytes,4);
+    attr(h,IFLA_VXLAN_LEARNING,&learning,1);
+    data->rta_len=(char *)h+h->nlmsg_len-(char *)data;
+    info->rta_len=(char *)h+h->nlmsg_len-(char *)info;
+    assert(ack(n,&user,h,NULL)==-EPERM && !n->vxlan);
+    struct md_network_publication refusal={.publish=reject_response};
+    assert(md_network_route(n,&root,h,h->nlmsg_len,91,0,NULL,reply.bytes,sizeof(reply),&refusal)==-EAGAIN);
+    assert(!n->vxlan && !n->stack && !atomic_load(&n->packet_enabled) && !md_network_interface_find(n,0,"vx0"));
+    assert(!ack(n,&root,h,NULL));
+    struct md_network_interface *link=md_network_interface_find(n,0,"vx0");
+    assert(link && n->vxlan && link->kind==MD_LINK_VXLAN && link->vxlan.id==vni && link->info.mtu==1450);
+    unsigned index=link->info.index;
+    unsigned char mac[6]={2,0,0,0,0,9},observed[6];
+    for(unsigned family=0;family<3;++family) {
+        unsigned af=family==0 ? AF_INET : family==1 ? AF_INET6 : AF_BRIDGE;
+        struct md_ip_address ip=family==1 ? md_ip_loopback(AF_INET6) : remote;
+        struct arpreq arp={.arp_ha.sa_family=ARPHRD_ETHER};
+        memcpy(arp.arp_dev,"vx0",4);
+        struct sockaddr_in arp_address={.sin_family=AF_INET,.sin_addr.s_addr=ip.v4};
+        memcpy(&arp.arp_pa,&arp_address,sizeof(arp_address));
+        memcpy(arp.arp_ha.sa_data,mac,6); arp.arp_ha.sa_data[5]=10;
+        if(af==AF_INET) assert(!md_network_stack_arp(n,SIOCSARP,&arp));
+        h=request(&p,RTM_NEWNEIGH,NLM_F_CREATE|NLM_F_EXCL);
+        h->nlmsg_len=NLMSG_LENGTH(sizeof(struct ndmsg));
+        *(struct ndmsg *)NLMSG_DATA(h)=(struct ndmsg){.ndm_family=af,.ndm_ifindex=(int)index,
+            .ndm_state=NUD_PERMANENT,.ndm_flags=af==AF_BRIDGE ? NTF_SELF : 0,.ndm_type=RTN_UNICAST};
+        attr(h,NDA_DST,ip.bytes,md_ip_size(ip)); attr(h,NDA_LLADDR,mac,6);
+        assert(ack(n,&user,h,NULL)==-EPERM);
+        assert(md_network_route(n,&root,h,h->nlmsg_len,91,0,NULL,reply.bytes,sizeof(reply),&refusal)==-EAGAIN);
+        if(af==AF_INET) assert(!md_network_stack_arp(n,SIOCGARP,&arp) && arp.arp_ha.sa_data[5]==10);
+        assert(!ack(n,&root,h,NULL));
+        assert(ack(n,&root,h,NULL)==-EEXIST);
+        link=md_network_interface_find(n,index,NULL);
+        struct md_ip_address destination;
+        if(af==AF_BRIDGE) assert(md_network_neighbor_remote(n,link,mac,&destination) && md_ip_equal(destination,ip));
+        else assert(md_network_neighbor_mac(n,link,ip,observed) && !memcmp(mac,observed,6));
+        if(af==AF_INET) assert(!md_network_stack_arp(n,SIOCGARP,&arp) && (arp.arp_flags&ATF_PERM)
+            && !memcmp(arp.arp_ha.sa_data,mac,6));
+        h->nlmsg_type=RTM_DELNEIGH; h->nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK;
+        assert(md_network_route(n,&root,h,h->nlmsg_len,91,0,NULL,reply.bytes,sizeof(reply),&refusal)==-EAGAIN);
+        link=md_network_interface_find(n,index,NULL);
+        if(af==AF_BRIDGE) assert(md_network_neighbor_remote(n,link,mac,&destination));
+        else assert(md_network_neighbor_mac(n,link,ip,observed));
+        assert(!ack(n,&root,h,NULL));
+        if(af==AF_INET) assert(md_network_stack_arp(n,SIOCGARP,&arp)==-ENXIO);
+        assert(ack(n,&root,h,NULL)==-ENOENT);
+        h->nlmsg_type=RTM_NEWNEIGH; h->nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK|NLM_F_CREATE;
+        assert(!ack(n,&root,h,NULL));
+    }
+    h=request(&p,RTM_DELLINK,0); ((struct ifinfomsg *)NLMSG_DATA(h))->ifi_index=(int)uplink;
+    assert(md_network_route(n,&root,h,h->nlmsg_len,91,0,NULL,reply.bytes,sizeof(reply),&refusal)==-EAGAIN);
+    assert(n->vxlan && md_network_interface_find(n,index,NULL));
+    assert(!ack(n,&root,h,NULL) && !n->vxlan);
+    assert(!md_network_interface_find(n,index,NULL));
+    h=request(&p,RTM_GETNEIGH,NLM_F_DUMP); h->nlmsg_len=NLMSG_LENGTH(sizeof(struct ndmsg));
+    memset(NLMSG_DATA(h),0,sizeof(struct ndmsg));
+    long length=md_network_route(n,&root,h,h->nlmsg_len,91,0,NULL,reply.bytes,sizeof(reply),NULL);
+    assert(length>0);
+    for(struct nlmsghdr *message=(void *)reply.bytes;NLMSG_OK(message,length);message=NLMSG_NEXT(message,length))
+        assert(message->nlmsg_type!=RTM_NEWNEIGH);
+    md_identity_release(&root); md_identity_release(&user); md_network_namespace_release(n);
+    puts("PASS VXLAN/neighbors: control-plane authority, failed publication rollback, indexed IPv4/IPv6/FDB and socket retirement");
+}
+static void neighbor_ioctl(void) {
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_PRIVATE);
+    unsigned index;
+    assert(!md_network_interface_add(n,MD_LINK_VETH,"plain",&index) && !n->stack);
+    struct arpreq arp={.arp_ha.sa_family=ARPHRD_ETHER,.arp_flags=ATF_PERM};
+    memcpy(arp.arp_dev,"plain",6);
+    struct sockaddr_in address={.sin_family=AF_INET,.sin_addr.s_addr=htonl(0xc0000202)};
+    memcpy(&arp.arp_pa,&address,sizeof(address));
+    const unsigned char mac[6]={2,1,2,3,4,5}; memcpy(arp.arp_ha.sa_data,mac,6);
+    assert(!md_network_stack_arp(n,SIOCSARP,&arp) && !n->stack);
+    memset(arp.arp_ha.sa_data,0,6);
+    assert(!md_network_stack_arp(n,SIOCGARP,&arp) && (arp.arp_flags&ATF_PERM)
+        && !memcmp(arp.arp_ha.sa_data,mac,6));
+    assert(!md_network_stack_arp(n,SIOCDARP,&arp) && !n->stack);
+    assert(md_network_stack_arp(n,SIOCGARP,&arp)==-ENXIO);
+    md_network_namespace_release(n);
+    puts("PASS static neighbors: ioctl and netlink share one catalog without requiring a packet stack");
+}
 void test_network_route(void) {
+    neighbor_ioctl();
+    vxlan_neighbors();
+    onlink_routes(AF_INET); onlink_routes(AF_INET6);
     policy_routes(AF_INET); policy_routes(AF_INET6);
     puts("PASS routing policy: tables, source/mark/mask/invert, priority, fallback, denial, namespace, authority and publication");
     point_to_point();

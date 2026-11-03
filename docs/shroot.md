@@ -781,6 +781,10 @@ login and the low-level `--store` runner, including launches that start an OS in
 `--bind-create HOST GUEST` additionally creates an empty guest directory when the
 target is absent; its parent must already exist. The directory remains in the
 store after exit, but the attachment and its host contents are launch-scoped.
+`--bind-store-ro HOST_STORE GUEST` attaches the logical root of another existing
+Shroot store read-only, not its on-disk metadata directory. The target must exist.
+The launch retains the source and its dependencies without copying the rootfs;
+guest mounts below it can provide private writable runtime directories.
 
 Login uses `/etc/passwd` for home and shell. Numeric users absent from that file
 use `/`, `/bin/sh` and a numeric username; no account is created. Image launches
@@ -1110,22 +1114,24 @@ than silently successful operations.
 
 ### K3s
 
-Stock ARM64 k3s is checked in a guest-root routed launch with
-`--flannel-backend=host-gw`, with stock Traefik, ServiceLB and NetworkPolicy.
-The single-node workflow covers Node Ready, CoreDNS, root filesystem capacity,
-cross-pod DNS and ClusterIP HTTP, policy deny/allow/update/delete, Deployment
-scaling and rolling updates, local-path PVC retention, and ingress through both
-the Traefik Service and node address. Server restart must retain workload
+Stock ARM64 k3s is checked in a guest-root routed launch using its default VXLAN
+backend, with stock Traefik, ServiceLB and NetworkPolicy. The two-node workflow
+uses independently isolated server and agent namespaces. It covers Node Ready,
+CoreDNS, root filesystem capacity, cross-node DNS and ClusterIP HTTP,
+policy deny/allow/update/delete, Deployment scaling and rolling updates,
+local-path PVC retention, and ingress through both
+the Traefik Service and node address. Agent and server restarts must retain workload
 identities and restore IO; ordinary resource deletion and shutdown are checked.
 The fixture prepares private proc/sysfs/cgroup views and writable runtime storage;
 it neither changes Android networking nor disables container seccomp.
 
-This does not establish default VXLAN or multi-node networking. Managed ipset
-and TCP conntrack timeout controls use the shared network namespace; deleting
+The nodes share one device; this does not establish a multi-device deployment.
+Managed ipset and TCP conntrack timeout controls use the shared network namespace; deleting
 a TCP tracking record does not close its transport. Cadvisor cannot report a
-guest block-device inventory. Cgroup memory
-limits remain advisory, not enforced OOM isolation. See the
-[fixture](../native/guest-exec-lab/test_k3s.py) and
+guest block-device inventory. Cgroup memory limits remain advisory, not enforced
+OOM isolation. The [single-distribution fixture](../native/guest-exec-lab/test_k3s.py)
+and [mixed-cluster fixture](../native/guest-exec-lab/test_k3s_cluster.py) share the
+same workload and node lifecycle. See the
 [qualified results](../native/guest-exec-lab/validation-matrix.md#k3s).
 
 ### Podman

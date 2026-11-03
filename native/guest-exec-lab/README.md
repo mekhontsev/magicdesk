@@ -187,10 +187,21 @@ The receipt records its SHA-256, version, runtime hashes and entry/kernel profil
 Container images are pulled by stock containerd, so initial readiness depends on
 registry access. No distribution packages are built or installed by the fixture.
 
-The single-node host-gw profile retains stock Traefik, ServiceLB and NetworkPolicy.
-It checks Node Ready, CoreDNS, kubelet root filesystem capacity, cross-pod
+The default profile uses stock VXLAN; `--backend host-gw` selects the alternative.
+`test_k3s.py` always uses one selected distribution. For a mixed cluster run
+`test_k3s_cluster.py BUILD SERVER_ENVIRONMENT AGENT_ENVIRONMENT K3S_ARM64`.
+Both entrypoints share `k3s_fixture.py` for workloads, lifecycle and cleanup.
+The mixed fixture attaches the existing agent store read-only and gives it
+private configuration and runtime mounts. It does not install packages or copy
+the rootfs; receipts identify both distributions and the staged runtime.
+Use `test_k3s.py --nodes 2` for two nodes within one distribution; the mixed
+entrypoint always uses two nodes. Server and agent have independent network,
+PID, mount, UTS and cgroup namespaces, connected by a veth underlay on the same device.
+Both profiles retain stock Traefik, ServiceLB and NetworkPolicy.
+The fixture checks Node Ready, CoreDNS, kubelet root filesystem capacity, cross-pod
 DNS/ClusterIP HTTP, policy deny/allow/update/delete, Deployment scale/rolling
 update, local-path PVC retention, and ingress through the Service and node address.
+With two nodes, DNS and HTTP must cross nodes, and the agent restarts independently.
 Server restart must retain pod UID and Service address; ordinary deletion uses
 the default termination grace. After restart, the kubelet's own inventory must
 reacquire the pods before executing inside them; retained API readiness alone
@@ -198,8 +209,14 @@ does not satisfy this check.
 Private PID/mount namespaces retire remaining shims and runtime data; logs and
 the structured result are downloaded before deleting the fixture directory.
 Use `--base` for fallback entry or `--kernel-profile linux-5.15` for host-capability
-fallbacks. Neither that profile nor this scenario certifies a physical 5.15 kernel,
-default VXLAN or multi-node operation.
+fallbacks. Neither that profile nor this scenario certifies a physical 5.15 kernel
+or networking between separate devices.
+
+`test_network_vxlan.py BUILD ENVIRONMENT` checks the packet/control contract
+independently of k3s and registry availability. It covers an independent wire
+peer, shared UDP ports and VNI isolation, MTU and outer filtering, static IPv4/IPv6
+neighbors/FDB, routed `onlink` traffic, TCP streams, UDP fragmentation and teardown.
+It accepts the same entry and kernel-profile options.
 
 `test_ipset.py BUILD ENVIRONMENT` separately exercises stock ipset and iptables-nft,
 IPv4/IPv6 prefix membership, exclusions, referenced-set replacement, large
@@ -391,7 +408,9 @@ rounds. It reports application CPU separately from whole-invocation CPU;
 the latter includes startup, rule preparation and cleanup. Local DNAT uses the
 OUTPUT hook. Reports retain CPU-frequency observations with each sample.
 `--reference BASELINE` interleaves both runtime builds against the same guest
-and native executable; `--output DIRECTORY` separates comparison receipts.
+and native executable; pairs stay adjacent and alternate their order.
+`--profile nat` selects a focused comparison; repeat the option for multiple
+profiles. `--output DIRECTORY` separates comparison receipts.
 `benchmark_readiness.py --build BUILD --reference BASELINE --store STORE`
 interleaves filesystem/readiness workloads across both runtimes and Base/lazy
 entry. It does not pin CPUs by default. `--cpu-mask HEX` applies the same native
