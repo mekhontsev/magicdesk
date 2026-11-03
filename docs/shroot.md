@@ -36,7 +36,9 @@ launchers remain independent when Shroot is unavailable.
 
 ### Optional Kernel Support
 
-Run `shroot --probe` in a Shell console to check runtime admission. The probe
+Run `shroot --probe` in
+[MagicDesk Console](getting-started.md#open-the-android-shell-console)
+to check runtime admission. The probe
 exercises executable mappings, pidfds, subreapers, selective ptrace, seccomp
 notifications, descriptor publication and helper teardown in child processes.
 A failure reports the operation and errno before starting guest programs.
@@ -82,6 +84,10 @@ Android permissions and SELinux remain the host ceiling.
 
 `shroot` manages Linux environments and launches programs. Standalone downloads
 use `magicdesk download`; no Linux environment is required.
+Run `shroot` and installer commands in
+[MagicDesk Console](getting-started.md#open-the-android-shell-console),
+outside Linux. Commands for Linux packages and services run inside the chosen
+environment instead.
 
 ### Syscall Acceleration
 
@@ -130,7 +136,8 @@ entry as other programs. Their `--jobs` setting is independent of syscall entry.
 
 #### Alpine Containers Inside SteamOS
 
-With [Docker Engine](#docker-engine) running inside the Shroot SteamOS environment:
+With [Docker Engine](#docker-engine) running inside the Shroot SteamOS environment,
+run these commands in a terminal inside SteamOS:
 
 ```sh
 docker pull --platform linux/arm64 alpine:3.23
@@ -150,8 +157,9 @@ elapsed time; loaded-library listings are not an acceleration measurement.
 ### Linux installer
 
 [`scripts/install_linux.sh`](../scripts/install_linux.sh) installs ARM64 Linux
-through the same named-environment manager. Run it in a MagicDesk **Shell**
-console with shell or root access. Termux and managed Desktop are not required.
+through the same named-environment manager. Run it in
+[MagicDesk Console](getting-started.md#open-the-android-shell-console)
+with shell or root access. Termux and managed Desktop are not required.
 Download the file before running it so terminal input remains available for
 the questions:
 
@@ -172,7 +180,7 @@ including the X11 SysV shared-memory bridge used by software graphics.
 Before questions, downloads or environment access, including `--resume`, it
 checks the running app with `magicdesk get_state --field data.app.versionCode`.
 An older version, unavailable CLI or invalid response stops installation without
-changing Linux environments. Update MagicDesk and open a new Shell console,
+changing Linux environments. Update MagicDesk and open a new MagicDesk Console,
 or use the matching release-tag installer when keeping an older APK.
 `--help`, `--list` and embedded-script/patch exports work without MagicDesk.
 The minimum follows required APK behavior, not every installer revision;
@@ -334,7 +342,8 @@ The installer does not run a background network monitor or overwrite later edits
 
 #### Resume An Interrupted Installation
 
-In a MagicDesk Shell console, using the same shell/root executor as before:
+In [MagicDesk Console](getting-started.md#open-the-android-shell-console),
+using the same shell/root executor as before:
 
 ```sh
 shroot list
@@ -667,7 +676,11 @@ client/driver limitations.
 
 ### Named environments
 
-In a newly opened MagicDesk Shell console:
+In a newly opened
+[MagicDesk Console](getting-started.md#open-the-android-shell-console),
+the following are separate examples, not one script. After a login or interactive
+Linux shell, use `exit` to return to MagicDesk Console before running another
+`shroot` command.
 
 ```sh
 shroot install debian:trixie-slim --name work
@@ -914,10 +927,16 @@ views, not Android's init system. Starting `/sbin/init` in an ordinary applicati
 shell is not an equivalent setup.
 
 The installer supplies `magicdesk-init` for an explicit systemd or OpenRC boot.
-In a MagicDesk Shell console, select the environment and guest root, then boot:
+In [MagicDesk Console](getting-started.md#open-the-android-shell-console),
+enter the environment as guest root:
 
 ```sh
 shroot login debian --user 0:0 --network routed
+```
+
+Then, inside that Linux shell, boot the init session:
+
+```sh
 exec magicdesk-init
 ```
 
@@ -933,7 +952,8 @@ calling shell so that shutdown also ends that Shroot launch.
 Install missing init packages before boot (`systemd-sysv` and `dbus` on Debian;
 `openrc` on Alpine). The helper also uses util-linux, supplied by the recipe.
 To add or refresh the helper in an existing environment without rerunning
-package or graphics setup, use the downloaded installer from the Android Shell:
+package or graphics setup, use the downloaded installer from MagicDesk Console,
+outside Linux:
 
 ```sh
 sh ~/install_linux.sh --print-init-session | shroot exec debian --user 0:0 -- \

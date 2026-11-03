@@ -8,6 +8,7 @@ device checks.
 
 - [Install](#install)
 - [Open Tools](#open-tools)
+- [Open The Android Shell Console](#open-the-android-shell-console)
 - [Open Linux Applications](#open-linux-applications)
 - [Install Linux With Shroot](#install-linux-with-shroot)
 - [Choose Or Create A Display](#choose-or-create-a-display)
@@ -113,6 +114,27 @@ for the current shell. Termux and Linux shells keep their own history settings.
 
 See [Workstation tools](workstation-tools.md).
 
+### Open The Android Shell Console
+
+1. Open MagicDesk's control panel.
+2. Tap the terminal icon beside **Settings** at the top. This opens
+   **Terminal sessions**.
+3. Choose **New session > Console**.
+
+This guide calls that session **MagicDesk Console**. It runs the Android shell
+with MagicDesk's configured privileged access, normally UID 2000. If **Console**
+is missing from the choices, complete the [privileged-service setup](#install).
+You do not need to start MagicDesk Desktop.
+
+Choose **Console** for `shroot` commands and the Linux installer, not **Termux
+Console** or **Shroot environments**. Those choices open shells in Termux or an
+installed Linux environment instead.
+
+Commands marked as running **inside Linux** belong in a terminal in that
+environment, opened through **Shroot environments** or `shroot login NAME`.
+After `shroot login`, enter `exit` to return to the outer MagicDesk Console
+before running further environment-management commands.
+
 ## Open Linux Applications
 
 Enable external commands in Termux's `~/.termux/termux.properties` with
@@ -168,7 +190,8 @@ requirements are checked when launched; unsupported kernels do not disable
 MagicDesk's other tools. Shroot is experimental and not a security sandbox:
 install only trusted images and programs.
 
-Open a **Shell** console after configuring Shizuku, Shevery or direct root:
+Open [MagicDesk Console](#open-the-android-shell-console) after configuring
+Shizuku, Shevery or direct root, then run:
 
 ```sh
 magicdesk download https://raw.githubusercontent.com/mekhontsev/magicdesk/main/scripts/install_linux.sh ~/install_linux.sh
@@ -237,7 +260,7 @@ installs console tools only. See the [profile limits](shroot.md#linux-installer)
 
 For a login shell, choose **Terminal sessions > New session > Shroot environments**,
 then your environment and **New session**. The same picker can show its running launches.
-Alternatively, in a MagicDesk Shell console:
+Alternatively, in [MagicDesk Console](#open-the-android-shell-console):
 
 ```sh
 shroot list

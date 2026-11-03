@@ -156,6 +156,12 @@ launch precedence, validation, and examples.
 
 ## Console
 
+For Android shell commands, open
+[MagicDesk Console](getting-started.md#open-the-android-shell-console) through
+**Terminal sessions > New session > Console**. **Termux Console** and **Shroot
+environments** select different execution environments, not alternate names
+for the same shell.
+
 Every retained Console session owns an independent process attached to a real
 pseudo-terminal. A window is its optional presentation, not its lifetime owner.
 Closing an ordinary window detaches it; **Terminal sessions** can reattach the

@@ -84,7 +84,8 @@ semantics. It does not replace testing on a real 5.15 device.
 A disposable-library recipe test is not end-to-end installer acceptance. Before
 a release, also exercise the ordinary user path with the packaged APK:
 
-1. Open a MagicDesk Shell console and download the maintained installer.
+1. Open [MagicDesk Console](../../docs/getting-started.md#open-the-android-shell-console)
+   and download the maintained installer.
 2. Use the default environment library, without a test-only
    `MAGICDESK_GUEST_HOME` override or staged helper bundle.
 3. Exercise interactive configuration, DNS repair/cancellation before image
