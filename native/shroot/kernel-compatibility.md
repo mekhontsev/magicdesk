@@ -774,6 +774,13 @@ Managed netlink control also implements the baseline nlctrl family catalogue,
 strict route query validation, kernel-peer connect, policy-rule transactions and
 SO_PASSCRED/NETLINK_PKTINFO reply metadata. These are userspace protocol owners;
 they do not open privileged host netlink sockets or require newer kernel APIs.
+The ipset/NFLOG adapters, TCP tracking records and timeout controls also implement
+guest baseline ABI without host netfilter access. Large control replies use the
+existing epoll/AF_UNIX transport, not newer syscalls. Native resource tests and
+`test_ipset.py`/`probe_nft_runtime.py` cover transactional publication, queued
+multipart replies, namespace ownership and TCP deletion/expiry without transport
+closure. `proc_static` supplies the guest module catalogue; it is not an Android
+module or kernel-version probe.
 `--case mount-namespace` and `--case ofd-order` cover validation, duplication,
 ancillary metadata, membership and unsupported operations. Default systemd boot
 and the Podman probe exercise stock NetworkManager and netavark clients.

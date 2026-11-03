@@ -1850,7 +1850,7 @@ static struct md_control_file proc_control_view(struct thread *t,enum md_proc_ki
         return md_network_proc_new(target->resources.network,(enum md_network_table)(kind-MD_PROC_NET_TCP));
     }
     if (kind==MD_PROC_MAX_USER_NAMESPACES) return md_user_sysctl_new(t->identity.user_namespace,NULL);
-    if (md_proc_static(kind)) return md_proc_static_new(kind,t->identity.user_namespace,NULL);
+    if (md_proc_static(kind)) return md_proc_static_new(kind,t->identity.user_namespace,NULL,t->resources.network);
     return md_network_sysctl_new(t->resources.network,
         (enum md_network_parameter)(kind-MD_PROC_NET_UNPRIVILEGED_PORT),interface,NULL);
 }
@@ -6032,13 +6032,17 @@ static void buffer_descriptor_start(struct thread *t) {
         struct md_network_request *request=span.data;
         int sending=nr==SYS_sendto || nr==SYS_sendmsg;
         const struct md_network_send *destination=sending ? &request->destination : NULL;
+        size_t capacity=span.size>offsetof(struct md_network_request,data)
+            ? span.size-offsetof(struct md_network_request,data) : 0;
+        void *data=(unsigned char *)span.data+offsetof(struct md_network_request,data);
         if (span.size<sizeof(*request)) result=-EOVERFLOW;
+        else if (t->buffer_descriptor_argument>capacity) result=-EMSGSIZE;
         else if (md_device_events_is(object)) {
             uint32_t groups=0;
             result=md_network_netlink_destination(destination,&groups);
             if (!result) result=groups ? -EOPNOTSUPP
-                : md_device_events_call(object,nr,args,request->data,sizeof(request->data),t->buffer_descriptor_argument,visible_pid(t,t->tgid));
-        } else result=md_network_socket_call(object,&t->identity,nr,args,request->data,sizeof(request->data),
+                : md_device_events_call(object,nr,args,data,capacity,t->buffer_descriptor_argument,visible_pid(t,t->tgid));
+        } else result=md_network_socket_call(object,&t->identity,nr,args,data,capacity,
             t->buffer_descriptor_argument,visible_pid(t,t->tgid),destination,t->resources.pid_group,&resolver);
     } else if (!result) {
         if (!md_descriptor_inode_is(object)) result=-EBADF;
@@ -6383,7 +6387,7 @@ static void buffer_control(struct thread *t, const struct user_pt_regs *r) {
         break;
     }
     case MD_BUFFER_NETWORK_CALL: {
-        if (t->phase!=DISPATCHING || !t->buffer.pool || r->regs[1]>MD_NETWORK_BUFFER_SIZE || r->regs[2]) break;
+        if (t->phase!=DISPATCHING || !t->buffer.pool || r->regs[1]>MD_NETWORK_CONTROL_MAX || r->regs[2]) break;
         buffer_descriptor_begin(t,r); return;
     }
     case MD_BUFFER_NETWORK_CREDENTIALS: {

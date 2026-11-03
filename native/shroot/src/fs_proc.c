@@ -230,7 +230,7 @@ int md_fs_proc_operation(struct md_filesystem *fs,struct md_mount_namespace *vie
         if (!r && !file.ops) r=-errno;
     } else if (!r) {
         file=sysctl ? md_proc_sysctl_new(kind,origin,fs->actor->uts)
-            : catalogue ? md_proc_static_new(ref.kind,fs->store->identity->user_namespace,origin)
+            : catalogue ? md_proc_static_new(ref.kind,fs->store->identity->user_namespace,origin,fs->actor->network)
             : user_control ? md_user_sysctl_new(fs->store->identity->user_namespace,origin)
             : md_network_sysctl_new(fs->actor->network,
             (enum md_network_parameter)(ref.kind-MD_PROC_NET_UNPRIVILEGED_PORT),ref.interface,origin);

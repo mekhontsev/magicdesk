@@ -86,6 +86,7 @@ struct md_network_namespace {
     uint32_t unprivileged_port, ping_groups[2], local_ports[2];
     uint32_t next_port, next_ip_id, ipv4_forward, bindv6only;
     uint32_t tcp_keepalive[3];
+    uint32_t conntrack_tcp_timeout[2];
     struct md_network_ipv4_policy all, defaults;
     struct md_network_ipv6_policy all6, defaults6;
     struct md_network_listener *listeners;
@@ -103,6 +104,8 @@ struct md_network_listener {
     struct md_network_listener *next;
     int peer, protocol;
     uint32_t groups, port;
+    uint32_t logs[16]; /* NFLOG group + 1, zero is an unused subscription. */
+    uint16_t log_metadata;
     int overflow, no_enobufs, broadcast_error;
 };
 static inline int md_network_forwarding(const struct md_network_namespace *n,unsigned family,unsigned input) {
@@ -112,6 +115,7 @@ static inline int md_network_forwarding(const struct md_network_namespace *n,uns
     return n->all6.forwarding;
 }
 unsigned md_network_broadcast(struct md_network_namespace *,unsigned,const void *,size_t);
+void md_network_listener_deliver(struct md_network_listener *,const void *,size_t);
 /* Mutators below run under the fabric lock. No guest IO or blocking syscall
  * may span that lock. Namespaces are weakly listed and unlink before release. */
 struct md_network_interface *md_network_interface_find(struct md_network_namespace *,unsigned,const char *);

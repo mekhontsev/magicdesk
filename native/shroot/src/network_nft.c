@@ -1,5 +1,7 @@
 #include "network_nft.h"
 #include "network_conntrack.h"
+#include "network_ipset.h"
+#include "network_nflog.h"
 #include "network_filter.h"
 #include "network_filter_update.h"
 #include "network_internal.h"
@@ -169,6 +171,10 @@ long md_network_nft(struct md_network_namespace *n,const struct md_identity *ide
     if (size<sizeof(struct nlmsghdr) || size>INT32_MAX) return -EINVAL;
     if (NFNL_SUBSYS_ID(((const struct nlmsghdr *)data)->nlmsg_type)==NFNL_SUBSYS_CTNETLINK)
         return md_network_conntrack(n,identity,data,size,port,capped,reply,capacity,publication);
+    if (NFNL_SUBSYS_ID(((const struct nlmsghdr *)data)->nlmsg_type)==NFNL_SUBSYS_IPSET)
+        return md_network_ipset(n,identity,data,size,port,capped,reply,capacity,publication);
+    if (NFNL_SUBSYS_ID(((const struct nlmsghdr *)data)->nlmsg_type)==NFNL_SUBSYS_ULOG)
+        return md_network_nflog(n,identity,data,size,port,capped,reply,capacity,publication);
     struct md_network_message out={.data=reply,.capacity=capacity};
     const struct nlmsghdr *h=data,*failed=h,*first_operation=h,*batch_end=NULL;
     long remaining=(long)size;

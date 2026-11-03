@@ -62,6 +62,10 @@ struct md_proc_path md_proc_path_for(const char *path,int tid,int tgid) {
         out.process=tgid;
         out.kind = MD_PROC_FD;
     } else if (word(&p, "proc")) {
+        if (word(&p,"modules")) {
+            out.kind=MD_PROC_MODULES; out.process=tid;
+            out.tail=p; out.anchor_length=(size_t)(p-path); return out;
+        }
         if (word(&p,"diskstats")) {
             out.kind=MD_PROC_DISKSTATS; out.process=tid;
             out.tail=p; out.anchor_length=(size_t)(p-path); return out;
@@ -118,6 +122,11 @@ struct md_proc_path md_proc_path_for(const char *path,int tid,int tgid) {
                 out.process=tid; out.tail=p; out.anchor_length=(size_t)(p-path); return out;
             }
             if (word(&p,"net")) {
+                if (word(&p,"netfilter")) {
+                    if (word(&p,"nf_conntrack_tcp_timeout_established")) out.kind=MD_PROC_NET_CT_TCP_ESTABLISHED;
+                    else if (word(&p,"nf_conntrack_tcp_timeout_close_wait")) out.kind=MD_PROC_NET_CT_TCP_CLOSE_WAIT;
+                    out.process=tid; out.tail=p; out.anchor_length=(size_t)(p-path); return out;
+                }
                 if (word(&p,"bridge")) {
                     if (word(&p,"bridge-nf-call-iptables")) out.kind=MD_PROC_NET_BRIDGE_FILTER;
                     else if (word(&p,"bridge-nf-call-ip6tables")) out.kind=MD_PROC_NET_BRIDGE_FILTER6;

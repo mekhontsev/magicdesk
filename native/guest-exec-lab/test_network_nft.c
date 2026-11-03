@@ -1,10 +1,15 @@
 #define _GNU_SOURCE
 #include "network_nft.h"
 #include "network_filter.h"
+#include "network_ipset.h"
+#include <linux/netfilter/ipset/ip_set.h>
 #include "network_nft_expression.h"
 #include "network_nft_objects.h"
 #include "network_flow.h"
 #include "network_internal.h"
+#include "network_control_queue.h"
+#include "network_tracking.h"
+#include "proc_static.h"
 #include "network_profile.h"
 #include "guest_identity.h"
 #include <assert.h>
@@ -848,6 +853,49 @@ static void compat_transport(void) {
     assert(!md_nft_compat_supported(NFPROTO_IPV4,"udp",0,1));
     puts("PASS xt TCP/UDP: raw ABI, dump roundtrip, source/destination ranges and inversion, NAT publication and explicit feature rejection");
 }
+static void compat_multiport(void) {
+    struct md_network_filter_table table={.handle=1,.family=NFPROTO_IPV4};
+    struct md_filter_chain chains[]={
+        {.table=1,.handle=2,.hook=NF_INET_LOCAL_OUT,.nat=1,.policy=NF_ACCEPT},
+        {.table=1,.handle=3,.hook=NF_INET_LOCAL_IN,.policy=NF_ACCEPT}};
+    struct md_filter_rule rules[2]={{.chain=2},{.chain=3,.count=1,.expressions={{.code=MD_FILTER_TRANSPORT,
+        .transport={.protocol=IPPROTO_TCP,.source={0,65535},.destination={30000,32767}}}}}};
+    struct md_network_filter f={.tables=&table,.count=1,.chains=chains,.chain_count=2,.rules=rules,.rule_count=2};
+    for (unsigned direction=0;direction<3;++direction) for (unsigned invert=0;invert<2;++invert) {
+        struct packet p;
+        struct md_network_message out={.data=p.data,.capacity=sizeof(p.data)};
+        add(&out,(NFNL_SUBSYS_NFTABLES<<8)|NFT_MSG_NEWRULE,0,NFPROTO_IPV4);
+        size_t start=out.size,entry,data;
+        assert(!md_network_message_nest(&out,NFTA_LIST_ELEM,&entry));
+        assert(!md_network_message_attribute(&out,NFTA_EXPR_NAME,"match",6));
+        assert(!md_network_message_nest(&out,NFTA_EXPR_DATA,&data));
+        assert(!md_network_message_attribute(&out,NFTA_MATCH_NAME,"multiport",10));
+        uint32_t revision=htonl(1);
+        assert(!md_network_message_attribute(&out,NFTA_MATCH_REV,&revision,4));
+        struct { unsigned char direction,count; uint16_t ports[15]; unsigned char ranges[15],invert; } info={
+            .direction=direction,.count=3,.ports={80,4000,4001},.ranges={0,1},.invert=invert};
+        assert(!md_network_message_attribute(&out,NFTA_MATCH_INFO,&info,sizeof(info)));
+        assert(!md_network_message_end_nest(&out,data));
+        assert(!md_network_message_end_nest(&out,entry));
+        assert(!md_nft_expressions(&f,1,rules,out.data+start,out.size-start));
+        free(rules[0].wire); rules[0].wire=NULL;
+        rules[0].expressions[1]=(struct md_filter_expression){.code=MD_FILTER_NAT,.operation=NFT_NAT_DNAT,
+            .constant=1,.family=AF_INET,.aux=1,.nat_port=htons(5000)};
+        rules[0].count=2;
+        for (unsigned src=0;src<2;++src) for (unsigned dst=0;dst<2;++dst) {
+            struct md_filter_packet packet={.destination=md_ip_any(AF_INET),.protocol=IPPROTO_TCP,.state=8,
+                .source_port=htons(src ? 80 : 79),.destination_port=htons(dst ? 4001 : 4002)};
+            int expected=(((direction!=1 && src) || (direction!=0 && dst))!=!!invert);
+            assert(!md_filter_evaluate(&f,NF_INET_LOCAL_OUT,&packet) && packet.dnat==(unsigned)expected);
+        }
+        struct md_filter_port ports[8]; size_t count=0;
+        int error=md_filter_ports(&f,md_ip_any(AF_INET),ports,8,&count);
+        if (direction==1 && !invert) assert(!error && count==6);
+        else assert(error==-EOPNOTSUPP);
+        rules[0]=(struct md_filter_rule){.chain=2};
+    }
+    puts("PASS xt multiport: source/destination/either, ranges, inversion and NAT-only publication");
+}
 static void compat_nat(void) {
     struct md_network_filter_table table={.handle=1,.family=NFPROTO_IPV4};
     struct md_filter_chain chain={.table=1,.handle=2,.policy=NF_ACCEPT,.nat=1};
@@ -1590,7 +1638,245 @@ static void conntrack_queries(void) {
     md_network_namespace_release(n); md_identity_release(&root); md_identity_release(&user);
     puts("PASS conntrack control: private inventory, capability checks, malformed selectors, unsupported creation and publication failure");
 }
+static void ipset_request(struct md_network_message *o,unsigned command,const char *name) {
+    o->size=0;
+    add(o,(NFNL_SUBSYS_IPSET<<8)|command,NLM_F_ACK|NLM_F_EXCL,AF_UNSPEC);
+    unsigned char protocol=IPSET_PROTOCOL;
+    assert(!md_network_message_attribute(o,IPSET_ATTR_PROTOCOL,&protocol,1));
+    if (name) assert(!md_network_message_attribute(o,IPSET_ATTR_SETNAME,name,strlen(name)+1));
+}
+static void ipset_create_request(struct md_network_message *o,const char *name,unsigned family,int net) {
+    ipset_request(o,IPSET_CMD_CREATE,name);
+    unsigned char rev=net ? 2 : 0,fam=family;
+    assert(!md_network_message_attribute(o,IPSET_ATTR_TYPENAME,net ? "hash:net" : "hash:ip",net ? 9 : 8));
+    assert(!md_network_message_attribute(o,IPSET_ATTR_REVISION,&rev,1));
+    assert(!md_network_message_attribute(o,IPSET_ATTR_FAMILY,&fam,1));
+    size_t data;
+    assert(!md_network_message_nest(o,IPSET_ATTR_DATA,&data));
+    attribute_u32(o,IPSET_ATTR_MAXELEM,1024);
+    assert(!md_network_message_end_nest(o,data));
+}
+static void ipset_element_request(struct md_network_message *o,unsigned command,const char *name,
+        struct md_ip_address address,unsigned prefix,int exclude) {
+    ipset_request(o,command,name);
+    size_t data,ip;
+    assert(!md_network_message_nest(o,IPSET_ATTR_DATA,&data));
+    assert(!md_network_message_nest(o,IPSET_ATTR_IP,&ip));
+    assert(!md_network_message_attribute(o,(address.family==AF_INET ? IPSET_ATTR_IPADDR_IPV4 : IPSET_ATTR_IPADDR_IPV6)|NLA_F_NET_BYTEORDER,
+        address.bytes,md_ip_size(address)));
+    assert(!md_network_message_end_nest(o,ip));
+    unsigned char cidr=prefix;
+    assert(!md_network_message_attribute(o,IPSET_ATTR_CIDR,&cidr,1));
+    if (exclude) attribute_u32(o,IPSET_ATTR_CADT_FLAGS,IPSET_FLAG_NOMATCH);
+    assert(!md_network_message_end_nest(o,data));
+}
+static void ipsets(void) {
+    for (unsigned v6=0;v6<2;++v6) {
+        struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+        struct md_identity root=md_identity_new(0,0),user=md_identity_new(1000,1000);
+        struct packet wire,reply;
+        struct md_network_message o={.data=wire.data,.capacity=sizeof(wire.data)};
+        struct md_ip_address address=v6 ? md_ip_load(AF_INET6,(unsigned char[16]){0xfd,1,2,3,4,5,6,7,0,0,0,0,0,0,0,42}) : md_ip_v4(htonl(0x0a01022a));
+        unsigned width=md_ip_size(address)*8;
+        ipset_create_request(&o,"members",address.family,1);
+        assert(result(n,&user,&o)==-EPERM && !n->filter);
+        struct md_network_publication failed={.publish=fail_publish};
+        assert(run(n,&root,&o,&reply,&failed)==-EAGAIN && !n->filter);
+        assert(!result(n,&root,&o));
+        assert(result(n,&root,&o)==-EEXIST);
+        struct md_filter_set *s=md_ipset_find(n->filter,"members",0);
+        assert(s && !s->count && s->ipset_family==address.family);
+        uint64_t handle=s->handle;
+        ipset_element_request(&o,IPSET_CMD_ADD,"members",address,width-8,0);
+        assert(!result(n,&root,&o));
+        assert(result(n,&root,&o)==-IPSET_ERR_EXIST);
+        s=md_ipset_find(n->filter,"members",0);
+        assert(s->count==1 && md_ipset_matches(s,address));
+        ipset_element_request(&o,IPSET_CMD_ADD,"members",address,width,1);
+        assert(!result(n,&root,&o));
+        s=md_ipset_find(n->filter,"members",0);
+        assert(!md_ipset_matches(s,address));
+        address.bytes[md_ip_size(address)-1]++;
+        assert(md_ipset_matches(s,address));
+        address.bytes[md_ip_size(address)-1]--;
+        ipset_element_request(&o,IPSET_CMD_DEL,"members",address,width,0);
+        assert(!result(n,&root,&o));
+        assert(md_ipset_matches(md_ipset_find(n->filter,"members",0),address));
+        ipset_request(&o,IPSET_CMD_SAVE,NULL);
+        long length=run(n,&root,&o,&reply,NULL);
+        struct nlmsghdr *h=(void *)reply.data;
+        assert(length>0 && h->nlmsg_type==((NFNL_SUBSYS_IPSET<<8)|IPSET_CMD_SAVE) && (h->nlmsg_flags&NLM_F_MULTI));
+        ipset_create_request(&o,"replacement",address.family,1);
+        assert(!result(n,&root,&o));
+        /* A rule binds the stable set identity, not the old element allocation. */
+        struct md_network_filter *f=n->filter;
+        assert(!md_network_filter_add(f,address.family,"filter",NULL,0));
+        f->chains=calloc(1,sizeof(*f->chains)); f->chain_count=f->chain_capacity=1;
+        f->chains[0]=(struct md_filter_chain){.handle=f->next_handle++,.table=f->tables[0].handle,.hook=NF_INET_LOCAL_OUT,.policy=NF_ACCEPT};
+        f->rules=calloc(1,sizeof(*f->rules)); f->rule_count=f->rule_capacity=1;
+        f->rules[0]=(struct md_filter_rule){.chain=f->chains[0].handle,.count=2};
+        f->rules[0].expressions[0]=(struct md_filter_expression){.code=MD_FILTER_IPSET,.key=1,.target=handle};
+        f->rules[0].expressions[1]=(struct md_filter_expression){.code=MD_FILTER_VERDICT,.operation=NF_DROP};
+        assert(!md_filter_validate(f));
+        struct md_filter_packet packet={.source=address,.destination=md_ip_loopback(address.family),.protocol=IPPROTO_TCP};
+        assert(md_filter_evaluate(f,NF_INET_LOCAL_OUT,&packet)<0);
+        ipset_request(&o,IPSET_CMD_DESTROY,"members");
+        assert(result(n,&root,&o)==-IPSET_ERR_BUSY);
+        ipset_request(&o,IPSET_CMD_SWAP,"members");
+        assert(!md_network_message_attribute(&o,IPSET_ATTR_SETNAME2,"replacement",12));
+        assert(!result(n,&root,&o));
+        assert(md_ipset_find(n->filter,"members",0)->handle==handle);
+        assert(!md_filter_evaluate(n->filter,NF_INET_LOCAL_OUT,&packet));
+        assert(md_ipset_matches(md_ipset_find(n->filter,"replacement",0),address));
+        struct ip_set_req_get_set query={.op=IP_SET_OP_GET_BYNAME,.version=IPSET_PROTOCOL};
+        strcpy(query.set.name,"members");
+        assert(md_ipset_sockopt(n->filter,&query,sizeof(query))==sizeof(query));
+        assert(query.set.index==md_ipset_find(n->filter,"members",0)->ipset_index);
+        query.op=IP_SET_OP_GET_BYINDEX;
+        assert(md_ipset_sockopt(n->filter,&query,sizeof(query))==sizeof(query) && !strcmp(query.set.name,"members"));
+        md_identity_release(&root); md_identity_release(&user); md_network_namespace_release(n);
+    }
+    puts("PASS ipset: IPv4/IPv6 prefixes, exclusions, stable references, atomic swap, rollback and permissions");
+}
+static void tracking_lifetime(void) {
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+    assert(n);
+    struct md_network_namespace *child=md_network_namespace_copy(n,NULL); assert(child);
+    struct md_network_flow_path path={.count=3,.steps={
+        {.space=n->inode,.ctmark=11},{.space=child->inode,.ctmark=22},{.space=n->inode,.ctmark=33}}};
+    uint64_t serial=100;
+    struct md_network_tracking t;
+    md_network_tracking_init(&t,n->fabric,&path,&serial,1000);
+    assert(t.count==2 && t.entries[0].mark==33 && t.entries[1].mark==22);
+    uint64_t parent_id=t.entries[0].id,child_id=t.entries[1].id;
+    md_network_tracking_forget(&t,n->fabric,&t.entries[0]);
+    assert(!t.entries[0].id && !t.entries[0].mark && t.entries[1].id==child_id && t.entries[1].mark==22);
+    md_network_tracking_touch(&t,n->fabric,&serial,2000);
+    assert(t.entries[0].id!=parent_id && t.entries[1].id==child_id && !t.missing);
+    n->conntrack_tcp_timeout[0]=1; child->conntrack_tcp_timeout[0]=10;
+    md_network_tracking_limits(&t,n->fabric);
+    assert(md_network_tracking_next(&t)==3000);
+    assert(md_network_tracking_expire(&t,n->fabric,2999)==3000 && !t.missing);
+    assert(md_network_tracking_expire(&t,n->fabric,3000)==12000 && t.missing==1);
+    assert(!t.entries[0].id && t.entries[1].id==child_id);
+    t.half_closed=1; child->conntrack_tcp_timeout[1]=2;
+    md_network_tracking_limits(&t,n->fabric);
+    assert(md_network_tracking_expire(&t,n->fabric,4000)==INT64_MAX && t.missing==2);
+    md_network_namespace_release(child); md_network_namespace_release(n);
+}
+static void tracking_namespace_marks(void) {
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+    struct md_network_namespace *child=md_network_namespace_copy(n,NULL);
+    assert(n && child);
+    struct md_network_filter_table table={.family=NFPROTO_IPV4};
+    struct md_filter_chain chain={.handle=1,.hook=NF_INET_LOCAL_OUT,.policy=NF_ACCEPT};
+    struct md_filter_rule rule={.chain=1,.count=1,.expressions={{.code=MD_FILTER_CT_SET,.constant=1}}};
+    unsigned mark=123,mask=UINT32_MAX;
+    memcpy(rule.expressions[0].value,&mark,4); memcpy(rule.expressions[0].mask,&mask,4);
+    struct md_network_filter filter={.tables=&table,.count=1,.chains=&chain,.chain_count=1,.rules=&rule,.rule_count=1};
+    n->filter=&filter;
+    struct md_filter_packet packet={.source=md_ip_loopback(AF_INET),.destination=md_ip_loopback(AF_INET),
+        .protocol=IPPROTO_TCP,.state=8};
+    struct md_network_flow_path path;
+    assert(!md_network_flow_group_output(n,md_network_interface_find(n,1,NULL),&packet,&path));
+    assert(path.translated.ctmark==mark);
+    assert(!md_network_flow_group_input(child,md_network_interface_find(child,1,NULL),&path));
+    assert(!path.translated.ctmark);
+    assert(!md_network_flow_group_input(n,md_network_interface_find(n,1,NULL),&path));
+    assert(path.translated.ctmark==mark);
+    n->filter=NULL;
+    md_network_namespace_release(child); md_network_namespace_release(n);
+}
+static void native_namespace_admission(void) {
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+    assert(n);
+    struct md_network_namespace *child=md_network_namespace_copy(n,NULL);
+    assert(child);
+    struct md_filter_packet packet={.destination=md_ip_v4(htonl(0xc0000201)),
+        .protocol=IPPROTO_TCP,.state=8};
+    struct md_network_flow_path path;
+    assert(!md_network_flow_route(n,&packet,0,0,&path) && !path.mediated);
+    path.steps[path.count]=path.steps[0];
+    path.steps[path.count++].space=child->inode;
+    struct md_network_filter_table table={.family=NFPROTO_IPV4};
+    struct md_filter_chain chain={.handle=1,.hook=NF_INET_LOCAL_OUT,.policy=NF_ACCEPT};
+    struct md_filter_rule rule={.chain=1,.count=1};
+    struct md_network_filter filter={.tables=&table,.count=1,.chains=&chain,.chain_count=1,
+        .rules=&rule,.rule_count=1};
+    child->filter=&filter;
+    const enum md_filter_opcode effects[]={MD_FILTER_LIMIT,MD_FILTER_LOG};
+    for (unsigned i=0;i<sizeof(effects)/sizeof(*effects);++i) {
+        rule.expressions[0]=(struct md_filter_expression){.code=effects[i]};
+        struct md_filter_expression before=rule.expressions[0];
+        assert(md_network_flow_admits(n,NULL,&path)==-EBUSY);
+        assert(!memcmp(&before,&rule.expressions[0],sizeof(before)));
+    }
+    child->filter=NULL;
+    md_network_namespace_release(child); md_network_namespace_release(n);
+}
+static void module_catalogue(void) {
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+    assert(n);
+    struct md_control_file files[]={md_proc_static_new(MD_PROC_MODULES,NULL,NULL,n),
+        md_proc_static_new(MD_PROC_MODULES,NULL,NULL,NULL)};
+    for (unsigned i=0;i<2;++i) {
+        struct md_control_file *file=&files[i]; char buffer[512]={0};
+        assert(file->ops);
+        long size=file->ops->read(file->context,NULL,buffer,sizeof(buffer)-1,0);
+        assert(i ? size==0 : size>0 && strstr(buffer,"nf_tables 0 0 - Live "));
+        assert(file->ops->read(file->context,NULL,buffer,1,size)==0);
+        assert(file->ops->access(file->context,NULL,W_OK)==-EACCES);
+        file->ops->release(file->context);
+    }
+    md_network_namespace_release(n);
+}
+static void control_queue(void) {
+    struct md_network_namespace *n=md_network_namespace_new(NULL,MD_NETWORK_ROUTED);
+    assert(n);
+    int pair[2],limit=8192;
+    assert(!socketpair(AF_UNIX,SOCK_DGRAM|SOCK_CLOEXEC,0,pair));
+    assert(!setsockopt(pair[1],SOL_SOCKET,SO_SNDBUF,&limit,sizeof(limit)));
+    struct md_network_control_queue q={0};
+    size_t size=1024*1024;
+    unsigned char *data=malloc(size); assert(data);
+    for (size_t i=0;i<size;i+=sizeof(struct nlmsghdr)) {
+        struct nlmsghdr h={.nlmsg_len=sizeof(h),.nlmsg_type=NLMSG_NOOP,.nlmsg_seq=(uint32_t)i};
+        memcpy(data+i,&h,sizeof(h));
+    }
+    pthread_mutex_lock(&n->fabric->lock);
+    for (unsigned i=0;i<4;++i) assert(!md_network_control_publish(&q,n->fabric,pair[1],data,size));
+    assert(md_network_control_publish(&q,n->fabric,pair[1],data,size)==-ENOBUFS);
+    pthread_mutex_unlock(&n->fabric->lock);
+    struct { struct md_network_packet envelope; unsigned char data[8192]; } packet;
+    size_t received=0;
+    /* EVENT_WAIT: the native queue drains under the fixture alarm; each
+     * datagram contains whole messages in publication order, without loss. */
+    while (received<4*size) {
+        ssize_t bytes=read(pair[0],&packet,sizeof(packet));
+        assert(bytes>(ssize_t)sizeof(packet.envelope));
+        size_t payload=(size_t)bytes-sizeof(packet.envelope);
+        assert(payload%sizeof(struct nlmsghdr)==0);
+        for (size_t i=0;i<payload;i+=sizeof(struct nlmsghdr)) {
+            struct nlmsghdr h; memcpy(&h,packet.data+i,sizeof(h));
+            assert(h.nlmsg_len==sizeof(h) && h.nlmsg_seq==(received+i)%size);
+        }
+        received+=payload;
+    }
+    pthread_mutex_lock(&n->fabric->lock);
+    assert(!q.bytes && !q.event && !q.error);
+    assert(!md_network_control_publish(&q,n->fabric,pair[1],data,size));
+    md_network_control_clear(&q);
+    assert(!q.bytes && !q.event && !q.head && !q.tail);
+    pthread_mutex_unlock(&n->fabric->lock);
+    free(data); close(pair[0]); close(pair[1]); md_network_namespace_release(n);
+}
 void test_network_nft(void) {
+    tracking_lifetime();
+    tracking_namespace_marks();
+    native_namespace_admission();
+    module_catalogue();
+    control_queue();
+    ipsets();
     conntrack_queries();
     native_mark_updates();
     route_chains();
@@ -1604,6 +1890,7 @@ void test_network_nft(void) {
     scoped_reverse_path();
     compat_revisions();
     compat_transport();
+    compat_multiport();
     compat_nat();
     compat_masquerade();
     nft_source_port_range();

@@ -21,14 +21,30 @@ enum md_filter_opcode {
     MD_FILTER_CT, MD_FILTER_CT_SET, MD_FILTER_FIB, MD_FILTER_LOOKUP,
     MD_FILTER_NAT, MD_FILTER_MASQUERADE, MD_FILTER_VERDICT_MAP, MD_FILTER_DATA_MAP, MD_FILTER_COUNTER,
     MD_FILTER_TRANSPORT, MD_FILTER_STATE_MATCH, MD_FILTER_MARK_MATCH, MD_FILTER_CONNMARK_MATCH, MD_FILTER_ADDRESS_TYPE,
-    MD_FILTER_PACKET_TYPE, MD_FILTER_REVERSE_PATH, MD_FILTER_ICMP_MATCH, MD_FILTER_REJECT
+    MD_FILTER_PACKET_TYPE, MD_FILTER_REVERSE_PATH, MD_FILTER_ICMP_MATCH, MD_FILTER_REJECT,
+    MD_FILTER_IPSET, MD_FILTER_MULTIPORT, MD_FILTER_LIMIT, MD_FILTER_LOG, MD_FILTER_PHYSDEV
 };
 struct md_filter_counter { uint64_t packets, bytes; };
+struct md_filter_limit { uint64_t cost, capacity, credit, previous; };
+struct md_filter_log { unsigned group; char prefix[64]; };
+struct md_filter_physdev { char names[2][16], masks[2][16]; unsigned flags, invert; };
 enum { MD_FILTER_INVERT_SOURCE=1, MD_FILTER_INVERT_DESTINATION=2 };
 struct md_filter_transport {
     uint16_t source[2], destination[2]; /* Inclusive host-order port bounds. */
     unsigned protocol, inversion;
 };
+struct md_filter_multiport {
+    uint16_t ports[15], ranges;
+    unsigned count, direction, invert;
+};
+static inline int md_filter_multiport_contains(const struct md_filter_multiport *m,unsigned port) {
+    for (unsigned i=0;i<m->count;++i) {
+        unsigned first=m->ports[i],last=first;
+        if (m->ranges&(1U<<i)) last=m->ports[++i];
+        if (port>=first && port<=last) return 1;
+    }
+    return 0;
+}
 static inline int md_filter_port_matches(unsigned port,const uint16_t bounds[2],int invert) {
     return (port>=bounds[0] && port<=bounds[1])!=!!invert;
 }
@@ -46,6 +62,10 @@ struct md_filter_expression {
     union {
         struct md_filter_counter counter;
         struct md_filter_transport transport;
+        struct md_filter_multiport multiport;
+        struct md_filter_limit limit;
+        struct md_filter_log log;
+        struct md_filter_physdev physdev;
         uint16_t nat_port;
     };
 };
@@ -74,7 +94,7 @@ struct md_filter_rule {
 };
 struct md_filter_verdict { unsigned operation; uint64_t target; };
 struct md_filter_element {
-    unsigned char key[16];
+    unsigned char key[20];
     unsigned end;
     union { struct md_filter_verdict verdict; unsigned char data[64]; };
 };
@@ -85,6 +105,11 @@ struct md_filter_set {
     struct md_filter_element *elements;
     size_t count, capacity, userdata_size;
     unsigned char userdata[256];
+    /* Namespace-wide ipset objects have no nft table. Elements use the same
+     * ordered storage; network keys append their prefix length. */
+    unsigned ipset_kind, ipset_family, ipset_index, ipset_revision;
+    unsigned ipset_max, ipset_hashsize, ipset_timeout;
+    uint64_t prefixes[3];
 };
 struct md_filter_route_result { unsigned type, interface; char name[16]; };
 /* Flow coordinates are network byte order; register metadata is native byte
@@ -98,11 +123,15 @@ struct md_filter_packet {
     struct md_network_rejection rejection;
     unsigned char transport[4], transport_size;
     char input_name[16], output_name[16];
+    unsigned physical[2], bridged;
+    char physical_name[2][16];
     unsigned snat, dnat, masquerade;
     struct md_ip_address masquerade_address;
     struct md_filter_accounting *accounting;
     unsigned unmediated; /* Admission probe: reject mutations, skip counters. */
     void *route_context;
+    void (*log)(void *,const struct md_filter_packet *,const struct md_filter_log *);
+    unsigned hook;
     struct md_filter_route_result (*route)(void *,const struct md_filter_packet *,unsigned);
     int (*source_nat)(void *,struct md_filter_packet *,uint16_t,uint16_t);
 };

@@ -19,6 +19,7 @@ struct md_connection {
  * native connected IO does not acquire another observer or tracking table. */
 int md_network_forward_connections(struct md_network_namespace *,int (*)(void *,const struct md_connection *),void *);
 void md_network_forward_forget(struct md_network_namespace *,const uint64_t *,size_t);
+void md_network_forward_tracking_changed(struct md_network_namespace *);
 long md_network_conntrack(struct md_network_namespace *,const struct md_identity *,const void *,size_t,
     uint32_t,int,void *,size_t,const struct md_network_publication *);
 #endif

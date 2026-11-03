@@ -398,9 +398,14 @@ Queries and mutations require CAP_NET_ADMIN in the namespace's user owner.
 relays, with namespace-local original/reply tuples, NAT status, marks and expiry.
 UDP deletion retires the mapping after successful ACK publication, preserving
 the guest-facing socket. Its next datagram receives fresh routing/NAT admission.
-TCP deletion is explicitly unsupported: closing its transport is not a substitute
-for deleting tracking state. Flush rejects a selection containing TCP without
-partially deleting UDP. Native unmediated flows, multicast, Android conntrack,
+`network_tracking` separates TCP records from the retained transport and NAT
+binding. Deletion or idle expiry removes only the selected namespace's record;
+accepted payload recreates it with a fresh ID. Namespace-local marks do not cross
+veth boundaries. The established/close-wait timeout sysctls apply to relay
+activity and half-close, not a full emulation of kernel TCP states. Established
+NAT bindings remain unchanged. Cached expiry minima and policy generations keep
+namespace/ruleset walks out of steady payload forwarding.
+Native unmediated flows, multicast, Android conntrack,
 event multicast, arbitrary record creation and accounting extensions are outside
 this inventory. Replies obey the same bounded netlink transport; overflow fails
 rather than return a truncated successful dump. These queries enumerate existing
@@ -426,12 +431,37 @@ ports or addresses are rejected explicitly.
 Rtnetlink additionally publishes asynchronous topology notifications before its
 ACK; its observed-state rollback boundary is described above.
 
-Requests and replies are bounded at 64 KiB in the mapped adapter slot. A ruleset
+Control requests/replies are bounded at 1 MiB. Large requests borrow contiguous
+slots from the existing adapter buffer owner. `network_control_queue` admits a
+complete response before mutation commit, then drains complete netlink messages
+through the existing epoll reactor. Each socket has a 4 MiB queue, bounded callback
+work and explicit backpressure; ordinary data IO is unaffected. A ruleset
 has at most 256 tables, 256 chains, 1024 rules, 64 expressions per rule and 1024
 elements per set. Overflow fails explicitly. Incomplete batches are rejected,
 not retained across socket calls. Loops, excessive jump depth and transitive
 NAT/FIB placement in incompatible hooks are rejected before commit, including
 chains reached through verdict maps. These checks do not run on packet IO.
+
+`network_ipset` uses the same namespace-local set storage, transactions and flow
+revalidation as nftables. It supports permanent IPv4/IPv6 `hash:ip` and
+`hash:net` entries, prefix exclusions, save/restore, atomic swap, stable referenced
+IDs and xtables set lookup. A prefix bitmap plus ordered lookup avoids linear
+set scans during admission. The common 1024-element resource bound applies even
+when an ipset requests a larger `maxelem`. Positive timeouts, per-element
+counters/comments and other set types fail explicitly.
+
+`network_nflog` provides socket-owned, namespace-local metadata subscriptions.
+Standalone logging rules can use a diagnostic token-bucket limit; unsupported
+rate-dependent forwarding verdicts fail at installation. Events describe flow
+admission/revalidation, not every physical packet. Payload copying and logging
+flags outside this contract are rejected. Delivery is bounded and nonblocking;
+it does not add a read/write observer. Multiport ranges and physical bridge-port
+predicates reuse the common flow model.
+
+The guest `/proc/modules` catalogue advertises managed nftables, conntrack,
+ipset and bridge-filter providers only in managed networks. It does not mirror
+Android modules or permit loading host code. Native network mode has no managed
+module entries. This allows ordinary tools to select the supported nft backend.
 
 `network_filter_program` evaluates immediate/verdict, metadata, supported IPv4/IPv6
 address/protocol and TCP/UDP port or ICMP type/code payload, compare/range/bitwise,
@@ -480,7 +510,8 @@ queue or asynchronous refusal delivery; a later policy denial can discard their
 traffic. Use the packet transport when wire-level error delivery is required.
 Ordinary socket read/write remains native; these limitations must not be
 described as complete Linux error-queue or host-firewall support.
-Logging, queues, dynamic sets, flowtables, unsupported table flags,
+Logging outside the metadata-only NFLOG contract, packet queues, dynamic sets,
+flowtables, unsupported table flags,
 monitoring groups and other netfilter subsystems also return errors, not fake
 success. Whole stock firewalld configurations remain uncertified.
 The iptables-nft rule-compat attribute is validation metadata, not a packet

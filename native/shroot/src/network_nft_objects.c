@@ -292,6 +292,7 @@ static int sets(struct md_network_filter *f,const struct nlmsghdr *h,uint32_t po
         unsigned found=0;
         if (f) for (size_t i=0;!error && i<f->set_count;++i) {
             struct md_filter_set *s=&f->sets[i];
+            if (s->ipset_kind) continue;
             if (!selected(h,owner(f,s->table),t) || (name && strcmp(name,s->name)) || (handle && handle!=s->handle)) continue;
             ++found; error=emit_set(f,s,h,port,o,dump);
         }

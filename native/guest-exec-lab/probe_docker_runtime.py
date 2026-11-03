@@ -212,7 +212,9 @@ def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_
         host = '[' + ipv6_host + ']' if ipv6 else '127.0.0.1'
         def external(**request):
             return observe(observer, ipv6=ipv6, **request)
-        assert client('network', 'create', *family, network)
+        # Engines without an automatic IPv6 pool require an explicit subnet.
+        subnet = ['--subnet', 'fd6d:6473:2::/64'] if ipv6 else []
+        assert client('network', 'create', *family, *subnet, network)
         try:
             for name in names:
                 port = external(operation='allocate')['port']
@@ -359,6 +361,7 @@ def guest(profile, image, trace=False, cgroup='none', cgroupns='private', trace_
 
 def main():
     from test_oci_services import Suite, add_machine_entry_argument
+    from kernel_profile import KernelProfile
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('build', type=Path)
     parser.add_argument('store')
@@ -388,6 +391,7 @@ def main():
     parser.add_argument('--exercise-ports', action='store_true',
                         help='Verify TCP/UDP publication from outside Shroot; use a Python image')
     add_machine_entry_argument(parser)
+    KernelProfile.add_argument(parser)
     args = parser.parse_args()
     args.profile = args.profile or ('rootless' if args.rootless_user else 'rootless-no-network')
     if args.ipv6 and not args.exercise_ports:
@@ -398,7 +402,8 @@ def main():
         parser.error('--exercise-ports requires a network profile or --rootless-user')
     if args.image is None:
         args.image = 'python:3.14-alpine' if args.exercise_ports else 'busybox:1.37.0'
-    suite = Suite(args.build, args.build, machine_entry=args.machine_entry)
+    suite = Suite(args.build, args.build, machine_entry=args.machine_entry,
+                  kernel_profile=args.kernel_profile)
     suite.report.update(store=args.store, probe=True, profile=args.profile, cgroup=args.cgroup)
     target = '/tmp/md-docker-probe-' + suite.report['id']
     prefix = suite.guest(args.store, '--user', '0:0')
@@ -434,7 +439,8 @@ def main():
                                         args.storage_driver, args.data_root,
                                         str(int(args.userland_proxy)), str(int(args.internet)), str(int(args.ipv6)),
                                         str(int(args.internet_ipv6)), args.ipv6_host, args.rootless_user],
-                               quiet=True, timeout=deadline + 30)
+                               quiet=True, timeout=deadline + 30, raw=True)
+        suite.kernel_profile.observe(output, required=True)
         reports = [line.removeprefix('DOCKER_REPORT ') for line in output.splitlines()
                    if line.startswith('DOCKER_REPORT ')]
         assert len(reports) == 1, output[-2000:]

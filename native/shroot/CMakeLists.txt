@@ -53,7 +53,7 @@ list(APPEND origins ${src}/proc_file.c ${src}/proc_namespace.c ${src}/procfs_pol
 list(APPEND origins ${src}/device_tree.c ${src}/kmsg_device.c ${src}/fuse_device.c ${src}/fuse_transport.c ${src}/fuse_session.c)
 list(APPEND origins ${src}/render_device.c ${src}/render_sysfs.c ${src}/sysfs_uevent.c)
 list(APPEND origins ${src}/network_filter.c ${src}/network_filter_program.c ${src}/network_reject.c ${src}/network_nft.c ${src}/network_nft_expression.c ${src}/network_nft_objects.c)
-list(APPEND origins ${src}/network_conntrack.c)
+list(APPEND origins ${src}/network_conntrack.c ${src}/network_tracking.c ${src}/network_ipset.c ${src}/network_nflog.c ${src}/network_control_queue.c)
 list(APPEND origins ${src}/network_ip.c ${src}/network_route_ip.c ${src}/network_policy.c ${src}/network_transport.c ${src}/network_flow.c ${src}/network_filter_ports.c ${src}/network_forward.c ${src}/network_profile.c)
 list(APPEND origins ${src}/network_launch.c ${src}/network_filter_update.c ${src}/network_connection.c)
 list(APPEND origins ${src}/network_tun.c ${src}/network_virtio.c ${src}/network_stack.c ${src}/network_stack_channel.c ${src}/network_stack_packet.c)

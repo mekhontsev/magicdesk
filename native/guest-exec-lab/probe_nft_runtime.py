@@ -15,6 +15,7 @@ import struct
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 
 def guest():
@@ -26,10 +27,6 @@ def guest():
                                 stderr=subprocess.PIPE, timeout=20)
         report['commands'].append({'argv': argv, 'input': text, 'exitCode': result.returncode,
                                    'stdout': result.stdout, 'stderr': result.stderr})
-        if result.returncode and success:
-            trace = subprocess.run(['strace', '-f', '-xx', '-s', '16384', '-e', 'trace=sendmsg,sendto,recvmsg', *argv],
-                                   input=text, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
-            report['failureTrace'] = trace.stderr
         assert (result.returncode == 0) == success, report['commands'][-1]
         if success and argv[0].startswith('iptables'):
             assert not result.stderr, report['commands'][-1]
@@ -83,6 +80,19 @@ def guest():
 
     try:
         run(['nft', '--version'])
+        modules = Path('/proc/modules').read_text()
+        assert any(line.split()[0] == 'nf_tables' for line in modules.splitlines())
+        run(['unshare', '-m', '/bin/sh', '-ec',
+             'mount -t proc proc /proc; grep -q "^nf_tables " /proc/modules'])
+        controls = Path('/proc/sys/net/netfilter')
+        expected = {'nf_conntrack_tcp_timeout_established', 'nf_conntrack_tcp_timeout_close_wait'}
+        assert expected <= {entry.name for entry in controls.iterdir()}
+        for name in expected:
+            node = controls / name
+            original = node.read_text()
+            run(['unshare', '-n', '/bin/sh', '-ec', 'printf "123\\n" > "$1"; cat "$1"',
+                 'test', str(node)])
+            assert node.read_text() == original, 'Child namespace altered parent timeout'
         assert not tables()
         run(['nft', '-f', '-'], 'add table inet first\nadd table ip second\n')
         assert tables() == {('inet', 'first'), ('ip', 'second')}
@@ -150,9 +160,29 @@ def guest():
                     assert peer.recv(4) == b'live'
                     tracked = [entry for entry in conntrack(1, family=family) if destination_port(entry) == port]
                     assert len(tracked) == 1
-                    conntrack(2, tracked[0], family=family, expected=errno.EOPNOTSUPP)
+                    conntrack(2, tracked[0], family=family)
+                    assert not [entry for entry in conntrack(1, family=family) if destination_port(entry) == port]
                     client.sendall(b'kept')
                     assert peer.recv(4) == b'kept'
+                    fresh = [entry for entry in conntrack(1, family=family) if destination_port(entry) == port]
+                    assert len(fresh) == 1 and attributes(fresh[0])[12] != attributes(tracked[0])[12]
+                    timeout_file = Path('/proc/sys/net/netfilter/nf_conntrack_tcp_timeout_established')
+                    original = timeout_file.read_text()
+                    timeout_file.write_text('1\n')
+                    try:
+                        deadline = time.monotonic() + 5
+                        while time.monotonic() < deadline:
+                            if not [entry for entry in conntrack(1, family=family) if destination_port(entry) == port]:
+                                break
+                            time.sleep(.05)  # Bounded observation of tracking expiration.
+                        else:
+                            raise AssertionError('TCP tracking did not expire')
+                        peer.sendall(b'reply')
+                        assert client.recv(5) == b'reply'
+                        renewed = [entry for entry in conntrack(1, family=family) if destination_port(entry) == port]
+                        assert len(renewed) == 1 and attributes(renewed[0])[12] != attributes(fresh[0])[12]
+                    finally:
+                        timeout_file.write_text(original)
                     peer.close()
                 run(['nft', 'flush', 'ruleset'])
         run(['nft', '-f', '-'], ''.join(f'add table ip table{i}\n' for i in range(150)))
@@ -289,13 +319,15 @@ def guest():
 
 def main():
     from test_oci_services import Suite, add_machine_entry_argument
+    from kernel_profile import KernelProfile
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('build', type=Path)
     parser.add_argument('store')
     parser.add_argument('--network', choices=('routed', 'bridge'), default='routed')
     add_machine_entry_argument(parser)
+    KernelProfile.add_argument(parser)
     args = parser.parse_args()
-    suite = Suite(Path('build/nft-results'), args.build, machine_entry=args.machine_entry)
+    suite = Suite(Path('build/nft-results'), args.build, machine_entry=args.machine_entry, kernel_profile=args.kernel_profile)
     suite.report['network'] = args.network
     target = '/tmp/md-nft-' + suite.report['id']
     runner = suite.guest(args.store, '--user', '0:0', '--network', args.network)

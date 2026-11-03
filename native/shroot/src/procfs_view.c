@@ -120,7 +120,7 @@ struct md_provider_tree *md_procfs_new(int parent,const char *text,const struct 
     close(lower);
     if (!tree) { errno=error; return NULL; }
     int root=md_provider_tree_root(tree);
-    if (mkdirat(root,"sys",0755) || mkdirat(root,"sys/kernel",0755)
+    if (mkdirat(root,"sys",0755) || mkdirat(root,"sys/kernel",0755) || mkdirat(root,"sys/net",0755)
             || mkdirat(root,"sys/fs",0755) || mkdirat(root,"sys/fs/inotify",0755)
             || mkdirat(root,"sys/fs/binfmt_misc",0755)) error=errno;
     for (unsigned i=MD_PROC_FILE_HOSTNAME;!error && i<=MD_PROC_FILE_INOTIFY_QUEUE;++i) {
@@ -134,7 +134,7 @@ struct md_provider_tree *md_procfs_new(int parent,const char *text,const struct 
         int fd=openat(root,md_kernel_policy_specs[i].path,O_CREAT|O_EXCL|O_WRONLY|O_CLOEXEC,0600);
         if (fd<0) error=errno; else close(fd);
     }
-    const char *files[]={"sys/user/max_user_namespaces","devices","cmdline","filesystems","swaps","diskstats"};
+    const char *files[]={"sys/user/max_user_namespaces","devices","cmdline","filesystems","swaps","diskstats","modules"};
     for (size_t i=0;!error && i<sizeof(files)/sizeof(*files);++i) {
         int fd=openat(root,files[i],O_CREAT|O_EXCL|O_WRONLY|O_CLOEXEC,0600);
         if (fd<0) error=errno; else close(fd);
@@ -374,6 +374,13 @@ static int network_bridge_nodes(const struct md_view_mount *mount) {
     int error=network_file(root,"sys/net/bridge/bridge-nf-call-iptables");
     return error ? error : network_file(root,"sys/net/bridge/bridge-nf-call-ip6tables");
 }
+static int network_tracking_nodes(const struct md_view_mount *mount) {
+    if (!mount->provider) return 0;
+    int root=md_provider_tree_root(mount->provider);
+    if (mkdirat(root,"sys/net/netfilter",0755) && errno!=EEXIST) return -errno;
+    int error=network_file(root,"sys/net/netfilter/nf_conntrack_tcp_timeout_established");
+    return error ? error : network_file(root,"sys/net/netfilter/nf_conntrack_tcp_timeout_close_wait");
+}
 static int network_nodes(const struct md_view_mount *mount,const char *interface,int ipv6) {
     if (!mount->provider) return -EOPNOTSUPP;
     int root=md_provider_tree_root(mount->provider);
@@ -420,6 +427,9 @@ int md_procfs_step(struct md_filesystem *fs,struct md_mount_namespace *view,stru
             if (r) return r;
         } else if (directory==5 && !strcmp(name,"ipv6")) {
             r=network_nodes(mount,NULL,1);
+            if (r) return r;
+        } else if (directory==5 && !strcmp(name,"netfilter")) {
+            r=network_tracking_nodes(mount);
             if (r) return r;
         }
     } else if (!strcmp(path,"/proc/sys/net/ipv4") && !strcmp(name,"conf")
@@ -561,6 +571,7 @@ ssize_t md_procfs_getdents(struct md_filesystem *fs,const struct md_view_mount *
             if (error) return error;
         }
         error=network_bridge_nodes(mount);
+        if (!error) error=network_tracking_nodes(mount);
         if (error) return error;
     }
     if (net==1 || net==6) {

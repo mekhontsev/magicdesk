@@ -187,9 +187,11 @@ The receipt records its SHA-256, version, runtime hashes and entry/kernel profil
 Container images are pulled by stock containerd, so initial readiness depends on
 registry access. No distribution packages are built or installed by the fixture.
 
-The single-node host-gw profile disables Traefik and ServiceLB. It checks Node
-Ready, CoreDNS, kubelet root filesystem capacity, cross-pod DNS/ClusterIP HTTP,
-server restart retaining pod UID and Service address, and ordinary deletion with
+The single-node host-gw profile retains stock Traefik, ServiceLB and NetworkPolicy.
+It checks Node Ready, CoreDNS, kubelet root filesystem capacity, cross-pod
+DNS/ClusterIP HTTP, policy deny/allow/update/delete, Deployment scale/rolling
+update, local-path PVC retention, and ingress through the Service and node address.
+Server restart must retain pod UID and Service address; ordinary deletion uses
 the default termination grace. After restart, the kubelet's own inventory must
 reacquire the pods before executing inside them; retained API readiness alone
 does not satisfy this check.
@@ -197,7 +199,14 @@ Private PID/mount namespaces retire remaining shims and runtime data; logs and
 the structured result are downloaded before deleting the fixture directory.
 Use `--base` for fallback entry or `--kernel-profile linux-5.15` for host-capability
 fallbacks. Neither that profile nor this scenario certifies a physical 5.15 kernel,
-default VXLAN, NetworkPolicy or multi-node operation.
+default VXLAN or multi-node operation.
+
+`test_ipset.py BUILD ENVIRONMENT` separately exercises stock ipset and iptables-nft,
+IPv4/IPv6 prefix membership, exclusions, referenced-set replacement, large
+restore/dump, transactional rejection and metadata-only NFLOG delivery. It accepts
+the same entry and kernel-profile options. `probe_nft_runtime.py` covers TCP
+tracking deletion/expiry without transport loss and namespace-scoped timeout
+controls. Neither test substitutes for the real k3s policy controller.
 
 ### Container Publication And IPv6
 
@@ -368,8 +377,9 @@ and receiver-close/rebind without reusing stale reply mappings.
 checks stock nft/iptables catalogue operations, atomic rollback, verdict maps,
 UDP DNAT and immediate IPv4/IPv6 TCP REJECT. It also checks NAT
 state aliases, randomized masquerade rule admission, CTNETLINK inventory and UDP
-mapping deletion/re-admission on the same socket. Rejected TCP deletion must
-leave the stream usable. Unsupported rate limits fail without committing their
+mapping deletion/re-admission on the same socket. TCP tracking deletion and
+expiry must leave the stream usable and admit a new record on subsequent IO.
+Unsupported rate-dependent forwarding rules fail without committing their
 table. The default `routed` mode also
 publishes the fixture's port 53 on Android and can fail with EACCES under host
 bind policy; use the explicit private bridge for guest-only coverage, not as a
@@ -380,6 +390,8 @@ binary under shell/native, host, routed, filtered and NAT modes with rotated
 rounds. It reports application CPU separately from whole-invocation CPU;
 the latter includes startup, rule preparation and cleanup. Local DNAT uses the
 OUTPUT hook. Reports retain CPU-frequency observations with each sample.
+`--reference BASELINE` interleaves both runtime builds against the same guest
+and native executable; `--output DIRECTORY` separates comparison receipts.
 `benchmark_readiness.py --build BUILD --reference BASELINE --store STORE`
 interleaves filesystem/readiness workloads across both runtimes and Base/lazy
 entry. It does not pin CPUs by default. `--cpu-mask HEX` applies the same native

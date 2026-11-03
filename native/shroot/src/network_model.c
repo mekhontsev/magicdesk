@@ -332,6 +332,7 @@ static struct md_network_namespace *create(struct md_user_namespace *owner,enum 
     n->unprivileged_port=1024; n->ping_groups[0]=1;
     n->local_ports[0]=32768; n->local_ports[1]=60999;
     n->tcp_keepalive[0]=7200; n->tcp_keepalive[1]=75; n->tcp_keepalive[2]=9;
+    n->conntrack_tcp_timeout[0]=432000; n->conntrack_tcp_timeout[1]=60;
     n->ipv4_forward=n->all6.forwarding=n->defaults6.forwarding=mode==MD_NETWORK_ROUTED;
     n->all6.accept_dad=n->defaults6.accept_dad=1;
     n->all6.hop_limit=n->defaults6.hop_limit=64;

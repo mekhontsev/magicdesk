@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stock single-node k3s host-gw: pods, DNS, Service, restart and deletion."""
+"""Stock single-node k3s: policies, controllers, storage, ingress and restart."""
 import argparse
 import hashlib
 import json
@@ -31,7 +31,6 @@ def guest(k3s):
     def start(log):
         process = subprocess.Popen([k3s, 'server', '--data-dir', '/tmp/k3s-data',
             '--node-name', 'md-k3s-lab', '--flannel-backend', 'host-gw',
-            '--disable', 'traefik', '--disable', 'servicelb',
             '--write-kubeconfig', '/tmp/kubeconfig'], env=env,
             stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         return process
@@ -90,6 +89,107 @@ def guest(k3s):
                 server.wait(timeout=45)
             assert server.returncode == 0, f'unclean k3s shutdown: {server.returncode}'
 
+    def policies():
+        policy = {'apiVersion': 'networking.k8s.io/v1', 'kind': 'NetworkPolicy',
+                  'metadata': {'name': 'md-ingress'},
+                  'spec': {'podSelector': {'matchLabels': {'run': 'md-http'}},
+                           'policyTypes': ['Ingress'], 'ingress': []}}
+        path = Path('/tmp/policy.json')
+
+        def apply():
+            path.write_text(json.dumps(policy))
+            kubectl('apply', '-f', str(path))
+
+        def traffic(allowed):
+            ip = kubectl('get', 'pod/md-http', '-o', 'jsonpath={.status.podIP}')
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline:
+                assert server.poll() is None, 'server exited during policy convergence'
+                result = kubectl('exec', 'md-client', '--', 'wget', '-q', '-T', '2', '-O', '-',
+                                 'http://' + ip + ':8080/', check=False, timeout=10)
+                if allowed and result.returncode == 0 and result.stdout.strip() == 'SHROOT_K3S_SERVICE':
+                    return
+                if not allowed and result.returncode != 0 and ('refused' in result.stdout.lower()
+                                                               or 'timed out' in result.stdout.lower()):
+                    return
+                # Bounded observation of the controller's asynchronous reconciliation.
+                time.sleep(1)
+            raise AssertionError(f'NetworkPolicy traffic did not converge: allowed={allowed}')
+
+        apply()
+        traffic(False)
+        policy['spec']['ingress'] = [{'from': [{'podSelector': {'matchLabels': {'run': 'md-client'}}}],
+                                      'ports': [{'protocol': 'TCP', 'port': 8080}]}]
+        apply()
+        traffic(True)
+        policy['spec']['ingress'] = []
+        apply()
+        traffic(False)
+        kubectl('delete', 'networkpolicy/md-ingress')
+        traffic(True)
+        report['checks'].append('network-policy-deny-allow-update-delete')
+
+    def workload():
+        def apply(value):
+            path = Path('/tmp/workload.json')
+            path.write_text(json.dumps(value))
+            kubectl('apply', '-f', str(path))
+
+        apply({'apiVersion': 'v1', 'kind': 'PersistentVolumeClaim', 'metadata': {'name': 'md-data'},
+               'spec': {'accessModes': ['ReadWriteOnce'], 'storageClassName': 'local-path',
+                        'resources': {'requests': {'storage': '16Mi'}}}})
+        deployment = {'apiVersion': 'apps/v1', 'kind': 'Deployment', 'metadata': {'name': 'md-web'},
+                      'spec': {'replicas': 2, 'selector': {'matchLabels': {'app': 'md-web'}},
+                               'template': {'metadata': {'labels': {'app': 'md-web'}}, 'spec': {
+                                   'containers': [{'name': 'http', 'image': 'docker.io/library/busybox:1.37',
+                                       'command': ['sh', '-ec', 'mkdir -p /www; echo "$VERSION" > /www/index.html; '
+                                                   'exec httpd -f -p 8080 -h /www'],
+                                       'env': [{'name': 'VERSION', 'value': 'MD_VERSION_1'}],
+                                       'readinessProbe': {'httpGet': {'path': '/', 'port': 8080}},
+                                       'volumeMounts': [{'name': 'data', 'mountPath': '/data'}]}],
+                                   'volumes': [{'name': 'data', 'persistentVolumeClaim': {'claimName': 'md-data'}}]}}}}
+        apply(deployment)
+        kubectl('rollout', 'status', 'deployment/md-web', '--timeout=180s', timeout=195)
+        assert kubectl('get', 'pvc/md-data', '-o', 'jsonpath={.status.phase}') == 'Bound'
+        kubectl('exec', 'deployment/md-web', '--', 'sh', '-ec', 'echo MD_PERSISTENT > /data/value')
+        kubectl('scale', 'deployment/md-web', '--replicas=3')
+        kubectl('rollout', 'status', 'deployment/md-web', '--timeout=120s', timeout=135)
+        assert kubectl('get', 'deployment/md-web', '-o', 'jsonpath={.status.readyReplicas}') == '3'
+        kubectl('set', 'env', 'deployment/md-web', 'VERSION=MD_VERSION_2')
+        kubectl('rollout', 'status', 'deployment/md-web', '--timeout=180s', timeout=195)
+        pods = json.loads(kubectl('get', 'pods', '-l', 'app=md-web', '-o', 'json'))['items']
+        active = [p for p in pods if not p['metadata'].get('deletionTimestamp')]
+        assert len(active) == 3
+        for pod in active:
+            name = pod['metadata']['name']
+            assert kubectl('exec', name, '--', 'cat', '/data/value').strip() == 'MD_PERSISTENT'
+            assert kubectl('exec', name, '--', 'wget', '-qO-', 'http://127.0.0.1:8080').strip() == 'MD_VERSION_2'
+        report['checks'].append('deployment-scale-rolling-update-pvc')
+        kubectl('expose', 'deployment/md-web', '--port=80', '--target-port=8080')
+        apply({'apiVersion': 'networking.k8s.io/v1', 'kind': 'Ingress', 'metadata': {'name': 'md-web'},
+               'spec': {'ingressClassName': 'traefik', 'rules': [{'host': 'md.test', 'http': {'paths': [{
+                   'path': '/', 'pathType': 'Prefix',
+                   'backend': {'service': {'name': 'md-web', 'port': {'number': 80}}}}]}}]}})
+        kubectl('wait', '-n', 'kube-system', 'deployment/traefik', '--for=create', '--timeout=120s', timeout=135)
+        kubectl('rollout', 'status', '-n', 'kube-system', 'deployment/traefik', '--timeout=180s', timeout=195)
+        service = json.loads(kubectl('get', '-n', 'kube-system', 'service/traefik', '-o', 'json'))
+        node = json.loads(kubectl('get', 'node/md-k3s-lab', '-o', 'json'))
+        node_ip = next(a['address'] for a in node['status']['addresses'] if a['type'] == 'InternalIP')
+        for address in (service['spec']['clusterIP'], node_ip):
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline:
+                result = kubectl('exec', 'md-client', '--', 'wget', '-T', '3', '-qO-', '--header=Host: md.test',
+                                 'http://' + address, check=False, timeout=15)
+                if result.returncode == 0 and result.stdout.strip() == 'MD_VERSION_2':
+                    break
+                time.sleep(1)  # Bounded controller/ingress convergence observation.
+            else:
+                raise AssertionError('Traefik/ServiceLB did not serve ingress at ' + address)
+        report['checks'].append('stock-traefik-servicelb-ingress')
+        kubectl('delete', 'ingress/md-web', 'service/md-web', 'deployment/md-web', '--timeout=75s', timeout=90)
+        kubectl('wait', 'pods', '-l', 'app=md-web', '--for=delete', '--timeout=75s', timeout=90)
+        kubectl('delete', 'pvc/md-data', '--timeout=75s', timeout=90)
+
     with open('/tmp/server.log', 'w') as log:
         try:
             server = start(log)
@@ -107,6 +207,8 @@ def guest(k3s):
             address = kubectl('get', 'service/md-http', '-o', 'jsonpath={.spec.clusterIP}')
             network()
             report['checks'].append('cross-pod-dns-and-service')
+            policies()
+            workload()
             stop()
             server = start(log)
             ready()
@@ -127,6 +229,17 @@ def guest(k3s):
             report['error'] = repr(error)
         finally:
             if not report['passed']:
+                try:
+                    pods = json.loads(kubectl('--request-timeout=5s', 'get', 'pods', '-A', '-o', 'json', timeout=15))
+                    for pod in pods['items']:
+                        statuses = pod['status'].get('containerStatuses', [])
+                        if not any(s.get('restartCount') or not s.get('ready') for s in statuses):
+                            continue
+                        for container in pod['spec']['containers']:
+                            kubectl('--request-timeout=5s', 'logs', '-n', pod['metadata']['namespace'],
+                                    pod['metadata']['name'], '-c', container['name'], '--tail=50', check=False, timeout=15)
+                except Exception as error:
+                    print('CONTAINER_DIAGNOSTICS', repr(error), flush=True)
                 for args in [('get', 'nodes', '-o', 'wide'), ('get', 'pods', '-A', '-o', 'wide'),
                              ('get', 'events', '-A', '--sort-by=.metadata.creationTimestamp')]:
                     try:

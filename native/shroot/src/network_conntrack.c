@@ -69,9 +69,7 @@ static int visit(void *context,const struct md_connection *entry) {
             || (q->has_original && !same_tuple(&q->original,&entry->original))
             || (q->has_reply && !same_tuple(&q->reply,&entry->reply))) return 0;
     if (q->remove) {
-        /* Forgetting a UDP mapping permits fresh admission on the next
-         * datagram. Dropping a stream would instead kill its transport. */
-        if (entry->original.protocol!=IPPROTO_UDP) return -EOPNOTSUPP;
+        /* The relay owns transport lifetime separately from TCP tracking. */
         if (q->count==sizeof(q->removed)/sizeof(*q->removed)) return -ENOSPC;
         q->removed[q->count++]=entry->id; return 0;
     }

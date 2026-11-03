@@ -5,7 +5,7 @@ or a claim that all tests are automated. Keep every distribution printed by
 `sh scripts/install_linux.sh --list` in every table. Results do not transfer
 between distributions sharing a package manager, libc or init system.
 
-Last reconciled: 2026-11-02. Current device evidence uses NX809J, Android 16,
+Last reconciled: 2026-11-03. Current device evidence uses NX809J, Android 16,
 Linux 6.12.23, 4 KiB pages and Android shell UID 2000. This does not cover the
 minimum supported kernel 5.15, other firmware or Android root execution.
 
@@ -317,22 +317,40 @@ Cell order: **Shroot (lazy SVC) / Base**; N = not run.
 ### K3s
 
 The qualified profile is stock ARM64 k3s v1.37.1+k3s1, single-node host-gw,
-Traefik/ServiceLB disabled, guest root under shell UID 2000. Passing requires
-Node Ready, CoreDNS, positive kubelet root filesystem capacity, cross-pod DNS and
-ClusterIP HTTP, server restart retaining pod/Service identity, repeated IO and
-ordinary pod/Service deletion. Stock
-container seccomp remains enabled. This is not default VXLAN, multi-node or
-NetworkPolicy acceptance; memory limits remain advisory and cadvisor block-device
+guest root under shell UID 2000, with stock container seccomp enabled. Passing
+requires Node Ready, CoreDNS, positive kubelet root filesystem capacity,
+cross-pod DNS and ClusterIP HTTP, NetworkPolicy deny/allow/update/delete,
+Deployment scale and rolling update, persistent-volume data retention, stock
+Traefik and ServiceLB ingress, server restart retaining pod/Service identity,
+post-restart IO and ordinary pod/Service deletion. This is not default VXLAN or
+multi-node acceptance; memory limits remain advisory and cadvisor block-device
 accounting is unavailable.
 
 | Recipe ID | Host profile | Shroot / Base | Receipt |
 | --- | --- | --- | --- |
-| debian | Native | P/N | `build/k3s-contract/acceptance-rootfs-native/oci-services-c1db0c11f34f41468c2224bc8d923c0e.json` |
-| debian | `linux-5.15` | P/N | `build/k3s-contract/acceptance-rootfs-515/oci-services-1f8066dcff3148b1b5c0468ab23e2d02.json` |
+| debian | Native | P/N | `build/k3s-contract/k3s-catalogue/oci-services-857d17f45be74bb6b672a7ac7c8a1b61.json` |
+| debian | `linux-5.15` | P/N | `build/k3s-contract/complete515-solo/oci-services-f1c34da7604449a99cb060a56525dde3.json` |
 
-Both runs use the same staged runtime on the device's 6.12 kernel. The 5.15
+Both runs use staged runtimes on the device's 6.12 kernel. The 5.15
 capability profile exercises fallbacks, not a physical 5.15 kernel. Other recipe
 distributions have not been qualified for this k3s profile.
+
+### Managed Network Regression Coverage
+
+The current network-contract checks retain stock engine packages, container
+seccomp and cgroups. Each run covers TCP/UDP publication, named peer exchange,
+local outbound traffic, conflicting ports and release. IPv6 observers use
+existing Android addresses; no Android route or address is changed.
+
+| Recipe / engine | Entry and host profile | Network profile | Receipt |
+| --- | --- | --- | --- |
+| alpine / Docker | Base, `linux-5.15` | nftables, no userland proxy, IPv6 `::1` | `build/shroot-image-tests/oci-services-809db13d6daf420191b525915a5904eb.json` |
+| alpine / Podman | Base, `linux-5.15` | iptables, IPv6 `::1` | `build/podman-results/oci-services-e9be98766f16404da9404c62f92ec0c7.json` |
+| debian / Docker | Lazy, native | iptables-nft, no userland proxy, IPv4 | `build/shroot-image-tests/oci-services-df1c57dab45742e1b317ae36b2440474.json` |
+| debian / Podman | Default lazy, native | nftables, wildcard IPv6 publication observed through Android's existing local global address | `build/podman-results/oci-services-197af6e64466468f95680b3f67b0aa97.json` |
+
+These focused runs do not rerun the whole application matrix. Debian's Podman
+IPv6 result does not qualify `::1`; see the [fixture contract](README.md).
 
 ### Local IPv6 Container Acceptance
 

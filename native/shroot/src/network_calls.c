@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/netlink.h>
+#include <linux/netfilter/ipset/ip_set.h>
 #include <linux/filter.h>
 #include <linux/sockios.h>
 #include <net/if.h>
@@ -331,30 +332,40 @@ static long control_call(long nr,const unsigned long *a,int events) {
             size=program.len*sizeof(*program.filter); input=program.filter;
         }
     }
+    else if (!events && nr==SYS_getsockopt && a[1]==IPPROTO_IP && a[2]==SO_IP_SET) {
+        socklen_t length;
+        long error=md_read_memory(&length,(void *)a[4],sizeof(length)); if (error) return error;
+        if (length>sizeof(struct ip_set_req_get_set_family)) return -EINVAL;
+        size=length; input=(void *)a[3];
+    }
     else if (nr!=SYS_getsockname && nr!=SYS_getpeername && nr!=SYS_getsockopt) return -EOPNOTSUPP;
     if (!events && nr==SYS_getsockopt && a[1]==SOL_SOCKET && a[2]==SO_GET_FILTER) {
         long error=md_read_memory(&filter_capacity,(void *)a[4],sizeof(filter_capacity));
         if (error) return error;
     }
-    if (size>MD_NETWORK_BUFFER_SIZE) return -EMSGSIZE;
+    int sending=gathered || nr==SYS_write || nr==SYS_sendto;
+    size_t limit=sending ? MD_NETWORK_CONTROL_MAX : MD_NETWORK_BUFFER_SIZE;
+    if (size>limit) return -EMSGSIZE;
     if (gathered) {
         long error=md_socket_vectors_open(&vectors,&message);
         if (error) return error;
         for (size_t i=0;i<message.msg_iovlen;++i) {
-            if (message.msg_iov[i].iov_len>MD_NETWORK_BUFFER_SIZE-size) {
+            if (message.msg_iov[i].iov_len>limit-size) {
                 md_socket_vectors_close(&vectors); return -EMSGSIZE;
             }
             size+=message.msg_iov[i].iov_len;
         }
     }
-    long memory=md_adapter_buffer_take();
+    long memory=size>MD_NETWORK_BUFFER_SIZE
+        ? md_guest_buffer_control(MD_BUFFER_TAKE,offsetof(struct md_network_request,data)+size,0)
+        : md_adapter_buffer_take();
     if (memory<0) {
         if (gathered) md_socket_vectors_close(&vectors);
         return memory;
     }
     struct md_network_request *request=(void *)memory;
     request->destination=destination;
-    void *data=request->data;
+    void *data=(unsigned char *)request+offsetof(struct md_network_request,data);
     long result=0;
     if (nr==SYS_ioctl && md_network_family_ioctl(a[1])) {
         long bytes=md_guest_buffer_control(MD_BUFFER_NETWORK_CALL,0,0);

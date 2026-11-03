@@ -1,5 +1,6 @@
 #include "proc_static.h"
 #include "user_namespace.h"
+#include "network_namespace.h"
 #include "fs_mounts.h"
 #include <errno.h>
 #include <linux/magic.h>
@@ -27,6 +28,13 @@ static const char filesystems[]=
 /* No guest owns or activates Android swap devices. Host swapping can still
  * affect native allocations; this is not a claim that the phone has no swap. */
 static const char swaps[]="Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n";
+/* Compatibility providers in the selected managed network, not loadable
+ * Android modules. Zero sizes/addresses avoid inventing host allocations. */
+static const char network_modules[]=
+    "nf_tables 0 0 - Live 0x0000000000000000\n"
+    "nf_conntrack 0 0 - Live 0x0000000000000000\n"
+    "ip_set 0 0 - Live 0x0000000000000000\n"
+    "br_netfilter 0 0 - Live 0x0000000000000000\n";
 static const struct static_entry {
     enum md_proc_kind kind;
     const char *name,*text;
@@ -39,7 +47,8 @@ static const struct static_entry {
     {MD_PROC_KERNEL_CMDLINE,"cmdline","\n",1},
     /* No block drivers are exposed by the guest device inventory. File IO
      * still consumes backing storage; these are not host-wide IO counters. */
-    {MD_PROC_DISKSTATS,"diskstats","",0}
+    {MD_PROC_DISKSTATS,"diskstats","",0},
+    {MD_PROC_MODULES,"modules","",0}
 };
 ino_t md_proc_static_inode(const char *name) {
     for (size_t i=0;i<sizeof(entries)/sizeof(*entries);++i)
@@ -51,6 +60,8 @@ struct static_file {
     struct md_user_namespace *owner;
     struct md_fs_anchor *origin;
     const struct static_entry *entry;
+    const char *text;
+    size_t size;
 };
 static void *retain(void *context) {
     struct static_file *c=context;
@@ -74,17 +85,18 @@ static int access_mode(void *context,const struct md_identity *id,unsigned mode)
     return mode&~7U ? -EINVAL : mode&(W_OK|X_OK) ? -EACCES : 0;
 }
 static long read_value(void *context,const struct md_control_actor *actor,void *out,size_t size,int64_t offset) {
-    const struct static_entry *entry=((struct static_file *)context)->entry;
+    const struct static_file *file=context;
     (void)actor;
     if (offset<0) return -EINVAL;
-    if ((uint64_t)offset>=entry->size) return 0;
-    size_t count=entry->size-(size_t)offset;
+    if ((uint64_t)offset>=file->size) return 0;
+    size_t count=file->size-(size_t)offset;
     if (count>size) count=size;
-    memcpy(out,entry->text+offset,count); return (long)count;
+    memcpy(out,file->text+offset,count); return (long)count;
 }
 static const struct md_control_file_ops ops={.retain=retain,.release=release,.stat=metadata,
     .access=access_mode,.read=read_value,.origin=origin,.filesystem=PROC_SUPER_MAGIC};
-struct md_control_file md_proc_static_new(enum md_proc_kind kind,struct md_user_namespace *owner,struct md_fs_anchor *anchor) {
+struct md_control_file md_proc_static_new(enum md_proc_kind kind,struct md_user_namespace *owner,struct md_fs_anchor *anchor,
+        struct md_network_namespace *network) {
     const struct static_entry *entry=NULL;
     for (size_t i=0;i<sizeof(entries)/sizeof(*entries);++i)
         if (entries[i].kind==kind) { entry=&entries[i]; break; }
@@ -94,5 +106,9 @@ struct md_control_file md_proc_static_new(enum md_proc_kind kind,struct md_user_
     atomic_init(&c->references,1);
     c->owner=md_user_namespace_retain(owner); c->origin=md_fs_anchor_retain(anchor);
     c->entry=entry;
+    c->text=entry->text; c->size=entry->size;
+    if (kind==MD_PROC_MODULES && md_network_namespace_managed(network)) {
+        c->text=network_modules; c->size=sizeof(network_modules)-1;
+    }
     return (struct md_control_file){&ops,c};
 }
