@@ -314,8 +314,14 @@ lower is better.**
 
 #### Install Linux
 
-Run in MagicDesk's **Shell** console. Use `main` with the stable APK, or change
-`channel` to `develop` with the development APK:
+Open MagicDesk, tap the terminal icon beside **Settings**, then choose
+**New session > Console**. Run these commands there, not in Termux or inside
+Linux. No MagicDesk Desktop session is needed; see
+[opening the Android shell console](docs/getting-started.md#open-the-android-shell-console)
+for access setup and other terminal types.
+
+Use `main` with the stable APK, or change `channel` to `develop` with the
+development APK:
 
 ```sh
 channel=main
