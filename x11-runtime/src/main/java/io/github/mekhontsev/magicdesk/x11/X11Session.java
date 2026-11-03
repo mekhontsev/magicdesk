@@ -478,7 +478,7 @@ public final class X11Session implements AutoCloseable {
 
         /** Coordinates are normalized to the displayed X11 content, excluding letterboxing. */
         public void pointer(float x, float y, int button, boolean down) {
-            if (!Float.isFinite(x) || !Float.isFinite(y) || button < 0 || button > 7)
+            if (!Float.isFinite(x) || !Float.isFinite(y) || button < 0 || button > 9)
                 throw new IllegalArgumentException("Invalid pointer event");
             if (released || closed) return;
             handler.post(() -> { if (acceptsInput()) nativePointer(nativeHandle, id, window, x, y, button, down); });

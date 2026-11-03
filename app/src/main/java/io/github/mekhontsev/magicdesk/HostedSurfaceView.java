@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.util.SparseIntArray;
+import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.PointerIcon;
@@ -300,6 +301,13 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     @Override public boolean onKeyDown(int key, KeyEvent event) { return key(event, true) || super.onKeyDown(key, event); }
     @Override public boolean onKeyUp(int key, KeyEvent event) { return key(event, false) || super.onKeyUp(key, event); }
 
+    boolean mouseNavigationButton(KeyEvent event) {
+        if (output == null || !inputAllowed || !event.isFromSource(InputDevice.SOURCE_MOUSE)
+                || event.getAction() != KeyEvent.ACTION_DOWN && event.getAction() != KeyEvent.ACTION_UP)
+            return false;
+        return pointerInput.keyButton(event.getKeyCode(), event.getAction() == KeyEvent.ACTION_DOWN);
+    }
+
     HostedKeyboardShortcuts.Target keyboardShortcuts() {
         if (!keyboardAllowed || !inputAllowed || output == null || !isAttachedToWindow()
                 || !isShown() || !isFocused()) return null;
@@ -327,6 +335,7 @@ final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callb
     }
 
     private boolean key(KeyEvent event, boolean down) {
+        if (mouseNavigationButton(event)) return true;
         if (inputAllowed && output != null && gamepads != null && gamepads.key(this, event)) return true;
         if (!keyboardAllowed || !inputAllowed || output == null || event.getKeyCode() == KeyEvent.KEYCODE_BACK || event.getKeyCode() == KeyEvent.KEYCODE_VOLUME_UP
                 || event.getKeyCode() == KeyEvent.KEYCODE_VOLUME_DOWN) return false;

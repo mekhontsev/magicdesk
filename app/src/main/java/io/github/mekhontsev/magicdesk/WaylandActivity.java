@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
+import android.view.KeyEvent;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -157,6 +158,10 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
             session.presentation.host(this);
             changed();
         }
+    }
+    @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        if (surface != null && surface.mouseNavigationButton(event)) return true;
+        return super.dispatchKeyEvent(event);
     }
     @Override public void onConfigurationChanged(android.content.res.Configuration configuration) {
         super.onConfigurationChanged(configuration);

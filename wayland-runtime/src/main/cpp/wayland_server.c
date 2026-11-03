@@ -61,7 +61,7 @@ struct MdwOutput {
     double scale, render_scale;
     MdwOutput *parent, *dependents;
     bool keys[KEY_MAX + 1];
-    bool buttons[3];
+    bool buttons[5];
 };
 
 
@@ -877,12 +877,12 @@ static void key_event(MdwOutput *output, uint32_t code, bool down) {
     output->keys[code] = down;
 }
 
-static const uint32_t button_codes[] = {BTN_LEFT, BTN_MIDDLE, BTN_RIGHT};
+static const uint32_t button_codes[] = {BTN_LEFT, BTN_MIDDLE, BTN_RIGHT, BTN_SIDE, BTN_EXTRA};
 
 static void release_pointer(MdwOutput *output) {
     MdwServer *server = output->server;
     if (server->pointer_owner != output) return;
-    for (int button = 0; button < 3; ++button) {
+    for (int button = 0; button < 5; ++button) {
         if (output->buttons[button]) {
             if (!mdw_content_pointer_held(server))
                 wlr_seat_pointer_notify_button(server->seat, time_msec(), button_codes[button],
@@ -1027,7 +1027,7 @@ bool mdw_output_caret(MdwOutput *output, struct wlr_surface *surface, const stru
 
 bool mdw_output_button(MdwOutput *output, MdwButton button, bool down) {
     if (!accepts_input(output) || output->server->pointer_owner != output ||
-            button < MDW_PRIMARY || button > MDW_SECONDARY) return false;
+            button < MDW_PRIMARY || button > MDW_FORWARD) return false;
     if (output->buttons[button] == down) return true;
     if (mdw_content_pointer_held(output->server)) { output->buttons[button] = down; return true; }
     wlr_seat_pointer_notify_button(output->server->seat, time_msec(), button_codes[button],

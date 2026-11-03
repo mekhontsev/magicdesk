@@ -186,7 +186,8 @@ remains explicit, without a different UID or system-policy fallback.
   shell surface can accept pointer input without taking the application's keyboard.
   Focus transfer, output release, keyboard-policy revocation and unmap release the
   affected owner's held keys/buttons. Protocol-specific input uses evdev codes and
-  a Wayland seat, not X11 button/key encodings.
+  a Wayland seat, not X11 button/key encodings. Mouse back/forward use
+  `BTN_SIDE`/`BTN_EXTRA`.
   Pointer hit-testing uses the rendered scene and output dimensions, including
   when a client has not acknowledged a resize or retains a larger minimum size.
 
