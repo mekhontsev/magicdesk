@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.view.InputDevice;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
@@ -18,7 +19,7 @@ final class HostedPointerInput {
     private HostedSurfaceOutput output;
     private HostedViewport viewport = HostedViewport.EMPTY;
     private float x = .5f, y = .5f, startX, startY, previousX, previousY;
-    private int buttons, physicalButtons;
+    private int buttons, physicalButtons, keyButtons;
     private boolean contact, pendingTap, syntheticButton, scrolling, relative, moved, windowGesture;
     private long captureSerial;
 
@@ -43,6 +44,7 @@ final class HostedPointerInput {
     void release() {
         direct.cancel(output);
         physicalButtons = 0;
+        keyButtons = 0;
         syntheticButton = false;
         updateButtons();
         forget();
@@ -53,7 +55,20 @@ final class HostedPointerInput {
         direct.forget();
         forget();
         buttons = physicalButtons = 0;
+        keyButtons = 0;
         syntheticButton = false;
+    }
+
+    boolean keyButton(int keyCode, boolean down) {
+        int mask = switch (keyCode) {
+            case KeyEvent.KEYCODE_BACK -> MotionEvent.BUTTON_BACK;
+            case KeyEvent.KEYCODE_FORWARD -> MotionEvent.BUTTON_FORWARD;
+            default -> 0;
+        };
+        if (mask == 0) return false;
+        keyButtons = down ? keyButtons | mask : keyButtons & ~mask;
+        updateButtons();
+        return true;
     }
 
     private void forget() {
@@ -243,12 +258,14 @@ final class HostedPointerInput {
     }
 
     private void updateButtons() {
-        int next = physicalButtons | (syntheticButton ? MotionEvent.BUTTON_PRIMARY : 0);
+        int next = physicalButtons | keyButtons | (syntheticButton ? MotionEvent.BUTTON_PRIMARY : 0);
         for (HostedSurfaceOutput.Button button : BUTTONS) {
             int mask = switch (button) {
                 case PRIMARY -> MotionEvent.BUTTON_PRIMARY;
                 case MIDDLE -> MotionEvent.BUTTON_TERTIARY;
                 case SECONDARY -> MotionEvent.BUTTON_SECONDARY;
+                case BACK -> MotionEvent.BUTTON_BACK;
+                case FORWARD -> MotionEvent.BUTTON_FORWARD;
             };
             if (output != null && ((buttons ^ next) & mask) != 0)
                 output.button(x, y, button, (next & mask) != 0);

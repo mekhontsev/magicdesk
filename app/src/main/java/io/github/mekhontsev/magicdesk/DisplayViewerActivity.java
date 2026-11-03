@@ -12,6 +12,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
+import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
@@ -314,6 +315,13 @@ public final class DisplayViewerActivity extends Activity implements SurfaceHold
     }
 
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        if (mSession != null && mSession.ready && !mSession.closed && mSurface != null
+                && event.isFromSource(InputDevice.SOURCE_MOUSE)
+                && (event.getKeyCode() == KeyEvent.KEYCODE_BACK
+                        || event.getKeyCode() == KeyEvent.KEYCODE_FORWARD)) {
+            if (mAttached) mConnection.key(event);
+            return true;
+        }
         final var shortcut = mDisplayKeys.accept(event.getKeyCode(), event.getAction() == KeyEvent.ACTION_DOWN,
                 event.getRepeatCount(), event.isCtrlPressed(), event.isAltPressed(),
                 event.isShiftPressed(), event.isMetaPressed(), false);

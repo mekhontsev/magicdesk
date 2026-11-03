@@ -6,7 +6,7 @@ import io.github.mekhontsev.magicdesk.hosted.HostedTouchPhase;
 
 /** A borrowed renderer output. Input positions are normalized to its content, not the View. */
 interface HostedSurfaceOutput extends AutoCloseable {
-    enum Button { PRIMARY, MIDDLE, SECONDARY }
+    enum Button { PRIMARY, MIDDLE, SECONDARY, BACK, FORWARD }
 
     void setSurface(Surface surface, int width, int height);
     void focus();

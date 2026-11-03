@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.os.Bundle;
+import android.view.KeyEvent;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -167,6 +168,11 @@ public final class X11Activity extends Activity implements
         if (focused && surface != null) onChanged();
         else if (binding != null) binding.updateExchangeFocus();
         if (binding != null) binding.presentationChanged();
+    }
+
+    @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        if (surface != null && surface.mouseNavigationButton(event)) return true;
+        return super.dispatchKeyEvent(event);
     }
 
     @Override public void onConfigurationChanged(android.content.res.Configuration configuration) {

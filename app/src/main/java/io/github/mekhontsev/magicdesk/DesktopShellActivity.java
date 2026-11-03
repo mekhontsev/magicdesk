@@ -21,6 +21,7 @@ import android.util.Log;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.GestureDetector;
+import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
@@ -487,6 +488,12 @@ public abstract class DesktopShellActivity extends Activity
 
     @Override
     public boolean dispatchKeyEvent(final KeyEvent event) {
+        if (event.isFromSource(InputDevice.SOURCE_MOUSE)
+                && (event.getKeyCode() == KeyEvent.KEYCODE_BACK
+                        || event.getKeyCode() == KeyEvent.KEYCODE_FORWARD)) {
+            getWindow().superDispatchKeyEvent(event);
+            return true;
+        }
         if (mInputController != null && mInputController.handleKeyEvent(event)) {
             return true;
         }

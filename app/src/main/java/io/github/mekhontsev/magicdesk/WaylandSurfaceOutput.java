@@ -21,7 +21,13 @@ final class WaylandSurfaceOutput implements HostedShellOutput {
     @Override public void relative(long serial, float dx, float dy) { output.relative(serial, dx, dy); }
     @Override public void button(float x, float y, Button button, boolean down) {
         output.pointer(x, y);
-        output.button(switch (button) { case PRIMARY -> 0; case MIDDLE -> 1; case SECONDARY -> 2; }, down);
+        output.button(switch (button) {
+            case PRIMARY -> 0;
+            case MIDDLE -> 1;
+            case SECONDARY -> 2;
+            case BACK -> 3;
+            case FORWARD -> 4;
+        }, down);
     }
     @Override public void scroll(float x, float y, float horizontal, float vertical) {
         output.pointer(x, y);
