@@ -1177,4 +1177,12 @@
     <plurals name="console_files_count">
         <item quantity="other">添付ファイル %d 件</item>
     </plurals>
+    <string name="graphics_offscreen">画面なし</string>
+    <string name="graphics_closing">アプリの終了を待機中</string>
+    <string name="graphics_cancel_close">終了待機を取り消す</string>
+    <string name="graphics_close_normally">通常終了</string>
+    <string name="graphics_output_width">出力の幅</string>
+    <string name="graphics_output_height">出力の高さ</string>
+    <string name="graphics_detach_output">画面なしの出力を解放</string>
+    <string name="graphics_force_stop_session">このグラフィカルセッションを停止し、保存せずにアプリを切断しますか？</string>
 </resources>

@@ -21,7 +21,8 @@ public final class GraphicalSessionsActivity extends Activity {
     private Button sessions;
     private Button shellWorkspace;
     private TextView status;
-    private ImageButton open, windows, execute, scale, stop;
+    private ImageButton open, windows, execute, scale, stop, output;
+    private LinearLayout activeSessions;
 
     static Intent createIntent(Context context) { return new Intent(context, GraphicalSessionsActivity.class); }
 
@@ -31,7 +32,12 @@ public final class GraphicalSessionsActivity extends Activity {
         DesktopTaskDescription.apply(this, R.string.graphics_title, R.drawable.ic_show_desktop);
         ui = new DesktopUiFactory(this);
         LinearLayout root = UiToolLayout.page(this, UiColor.BACKGROUND, true);
-        root.addView(createSessionControls());
+        sessions = ui.menuItem(R.string.graphics_sessions, UiColor.TEXT);
+        sessions.setSingleLine(true);
+        sessions.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        sessions.setOnClickListener(v -> chooseSession());
+        root.addView(sessions);
+        root.addView(UiToolLayout.actions(createSessionControls()));
         status = new TextView(this);
         UiAppearance.text(status, UiColor.MUTED);
         status.setPadding(ui.dp(12), ui.dp(6), ui.dp(12), ui.dp(6));
@@ -39,7 +45,10 @@ public final class GraphicalSessionsActivity extends Activity {
         shellWorkspace = ui.menuItem(R.string.graphics_shell_workspace, UiColor.TEXT);
         shellWorkspace.setOnClickListener(view -> chooseShellWorkspace());
         root.addView(shellWorkspace);
+        activeSessions = UiToolLayout.column(this);
+        root.addView(UiToolLayout.scroll(activeSessions, 840), new LinearLayout.LayoutParams(-1, 0, 1));
         GraphicalShells.listen(listener);
+        GraphicalSessions.listen(listener);
         setContentView(root);
         select(GraphicalSessions.find(state == null ? null : state.getString("session")));
     }
@@ -47,23 +56,14 @@ public final class GraphicalSessionsActivity extends Activity {
     private LinearLayout createSessionControls() {
         LinearLayout toolbar = new LinearLayout(this);
         toolbar.setGravity(Gravity.CENTER_VERTICAL);
-        sessions = ui.menuItem(R.string.graphics_sessions, UiColor.TEXT);
-        sessions.setSingleLine(true);
-        sessions.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        sessions.setOnClickListener(v -> chooseSession());
-        toolbar.addView(sessions, new LinearLayout.LayoutParams(0, ui.dp(48), 1));
         addAction(toolbar, R.drawable.ic_add, R.string.graphics_new_session, this::newSession);
         open = addAction(toolbar, R.drawable.ic_show_desktop, R.string.x11_open_session, () -> openWindow(0));
         windows = addAction(toolbar, R.drawable.ic_file_new_window, R.string.graphics_windows, this::chooseWindow);
         execute = addAction(toolbar, R.drawable.ic_play, R.string.x11_run_command, this::command);
         scale = addAction(toolbar, R.drawable.ic_quick_controls, R.string.app_presentation_scale,
                 () -> { if (session != null) GraphicalScaleDialog.show(this, session); });
-        stop = addAction(toolbar, R.drawable.ic_close, R.string.graphics_stop_session, () -> {
-            GraphicalSessions.Session selected = session;
-            if (selected != null) UiDialogs.builder(this).setTitle(R.string.graphics_stop_session)
-                    .setMessage(selected.name()).setNegativeButton(android.R.string.cancel, null)
-                    .setPositiveButton(android.R.string.ok, (dialog, which) -> selected.close()).show();
-        });
+        output = addAction(toolbar, R.drawable.ic_phone_screen_off, R.string.graphics_offscreen, this::output);
+        stop = addAction(toolbar, R.drawable.ic_close, R.string.graphics_stop_session, this::stop);
         return toolbar;
     }
 
@@ -75,9 +75,8 @@ public final class GraphicalSessionsActivity extends Activity {
     }
 
     private void select(GraphicalSessions.Session next) {
-        if (session != null) { session.unlisten(listener); session.unwatch(this); }
+        if (session != null) session.unwatch(this);
         session = next;
-        if (session != null) session.listen(listener);
         onChanged();
     }
 
@@ -90,14 +89,74 @@ public final class GraphicalSessionsActivity extends Activity {
         execute.setEnabled(ready && session.canExecute());
         scale.setEnabled(ready);
         stop.setEnabled(session != null && !session.stopped());
-        shellWorkspace.setEnabled(ready && session.canIntegrateShell());
+        output.setEnabled(session != null && !session.stopped());
+        shellWorkspace.setEnabled(ready && session.canIntegrateShell() && !session.offscreen().enabled());
         var shell = session == null ? null : GraphicalShells.state(session.id());
         shellWorkspace.setText(getString(R.string.graphics_shell_workspace) + ": "
                 + (shell == null || shell.displayId() < 0 ? getString(R.string.graphics_shell_separate)
                 : getString(R.string.graphics_shell_display, shell.displayId())));
         status.setText(session == null ? getString(R.string.graphics_no_session)
                 : !session.error().isEmpty() ? session.error()
-                : shell != null && !shell.error().isEmpty() ? shell.error() : session.state());
+                : !session.offscreen().error().isEmpty() ? session.offscreen().error()
+                : shell != null && !shell.error().isEmpty() ? shell.error() : sessionState(session));
+        activeSessions.removeAllViews();
+        for (var item : GraphicalSessions.list()) {
+            Button row = ui.menuItem(R.string.graphics_sessions, UiColor.TEXT);
+            row.setSingleLine(false);
+            row.setMaxLines(3);
+            row.setMinHeight(ui.dp(64));
+            row.setText(item.name() + " / " + item.protocol() + "\n" + sessionState(item));
+            row.setOnClickListener(view -> select(item));
+            activeSessions.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        }
+    }
+
+    private String sessionState(GraphicalSessions.Session item) {
+        if (item.shutdown().requested()) return getString(R.string.graphics_closing);
+        if (item.offscreen().enabled()) return getString(R.string.graphics_offscreen) + " / " + item.state();
+        if (item.hosts().isEmpty()) return getString(R.string.terminal_window_closed) + " / " + item.state();
+        return getString(R.string.graphics_windows) + ": " + item.hosts().size() + " / " + item.state();
+    }
+
+    private void stop() {
+        var selected = session;
+        if (selected == null) return;
+        UiDialogs.builder(this).setTitle(R.string.graphics_stop_session).setMessage(selected.name())
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(selected.shutdown().requested() ? R.string.graphics_cancel_close : R.string.graphics_close_normally,
+                        (dialog, which) -> {
+                            try { if (selected.shutdown().requested()) selected.cancelClose(); else selected.requestClose(); }
+                            catch (RuntimeException error) { showError(error); }
+                        })
+                .setNeutralButton(R.string.task_manager_force_stop, (dialog, which) ->
+                        UiDialogs.builder(this).setTitle(R.string.graphics_stop_session)
+                                .setMessage(R.string.graphics_force_stop_session)
+                                .setNegativeButton(android.R.string.cancel, null)
+                                .setPositiveButton(R.string.task_manager_force_stop, (confirm, choice) -> selected.close()).show()).show();
+    }
+
+    private void output() {
+        var selected = session;
+        if (selected == null) return;
+        LinearLayout fields = UiToolLayout.column(this);
+        EditText width = field(fields, R.string.graphics_output_width);
+        EditText height = field(fields, R.string.graphics_output_height);
+        width.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        height.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        var current = selected.offscreen().size();
+        width.setText(Integer.toString(current == null ? 1280 : current.width()));
+        height.setText(Integer.toString(current == null ? 720 : current.height()));
+        AlertDialog dialog = UiDialogs.builder(this).setTitle(R.string.graphics_offscreen).setView(fields)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setNeutralButton(R.string.graphics_detach_output, (ignored, which) -> selected.setOffscreen(null))
+                .setPositiveButton(android.R.string.ok, null).create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            try {
+                selected.setOffscreen(new HostedOffscreen.Size(Integer.parseInt(width.getText().toString()), Integer.parseInt(height.getText().toString())));
+                dialog.dismiss();
+            } catch (RuntimeException error) { showError(error); }
+        }));
+        dialog.show();
     }
 
     private void chooseShellWorkspace() {
@@ -127,7 +186,7 @@ public final class GraphicalSessionsActivity extends Activity {
 
     private void chooseSession() {
         List<GraphicalSessions.Session> items = GraphicalSessions.list();
-        String[] labels = items.stream().map(item -> item.name() + " / " + item.protocol()).toArray(String[]::new);
+        String[] labels = items.stream().map(item -> item.name() + " / " + item.protocol() + " / " + sessionState(item)).toArray(String[]::new);
         UiDialogs.builder(this).setTitle(R.string.graphics_sessions).setItems(labels, (dialog, which) -> {
             select(items.get(which));
         }).setPositiveButton(R.string.graphics_new_session, (dialog, which) -> newSession())
@@ -170,6 +229,9 @@ public final class GraphicalSessionsActivity extends Activity {
         android.widget.CheckBox desktop = new android.widget.CheckBox(this);
         desktop.setText(R.string.graphics_nested_desktop);
         fields.addView(desktop);
+        android.widget.CheckBox offscreen = new android.widget.CheckBox(this);
+        offscreen.setText(R.string.graphics_offscreen);
+        fields.addView(offscreen);
         protocol.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(android.widget.AdapterView<?> parent, android.view.View view, int position, long id) {
                 desktop.setVisibility(position == 1 ? android.view.View.VISIBLE : android.view.View.GONE);
@@ -200,7 +262,8 @@ public final class GraphicalSessionsActivity extends Activity {
                         select(GraphicalSessions.start(this, selectedProtocol, name.getText().toString().isBlank()
                                 ? protocol.getSelectedItem().toString() : name.getText().toString(),
                                 command.getText().toString(), "", executor, keyboard.getText().toString(), desktop.isChecked()));
-                        if (session.desktop()) openWindow(0);
+                        if (offscreen.isChecked()) session.setOffscreen(new HostedOffscreen.Size(1280, 720));
+                        else if (session.desktop()) openWindow(0);
                         else session.watch(this);
                         dialog.dismiss();
                     } catch (RuntimeException error) { showError(error); }
@@ -234,7 +297,8 @@ public final class GraphicalSessionsActivity extends Activity {
 
     @Override public void onDestroy() {
         GraphicalShells.unlisten(listener);
-        if (session != null) { session.unlisten(listener); session.unwatch(this); }
+        GraphicalSessions.unlisten(listener);
+        if (session != null) session.unwatch(this);
         BuiltInWindowRegistry.unregister(this);
         super.onDestroy();
     }

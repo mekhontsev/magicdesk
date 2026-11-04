@@ -30,6 +30,8 @@ final class PhoneControlPanelController {
 
         void togglePhoneScreen();
 
+        void openGraphics();
+
         void openSettings();
 
         void openBlackScreen();
@@ -233,6 +235,7 @@ final class PhoneControlPanelController {
         final ImageButton terminals = mUi.menuIconButton(
                 R.drawable.ic_file_console, R.string.terminal_sessions);
         terminals.setOnClickListener(view -> TerminalSessionsDialog.showDropdown(mActivity, view));
+        terminals.setOnLongClickListener(view -> { mActions.openGraphics(); return true; });
         header.addView(terminals, new LinearLayout.LayoutParams(dp(48), dp(48)));
         final ImageButton blackScreen = mUi.menuIconButton(
                 R.drawable.ic_phone_screen_off, R.string.black_screen);

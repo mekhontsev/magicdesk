@@ -77,6 +77,8 @@ final class AutomationGraphicsObservation {
         var snapshot = AutomationGraphics.describe(session, catalog);
         result.put("session", snapshot);
         if (condition.equals("graphics_ready")) return result.put("matched", session.ready());
+        if (condition.equals("graphics_output_ready")) return result.put("matched", session.offscreen().outputs().stream()
+                .anyMatch(output -> output.image.ready() && (!args.has("windowId") || output.window == args.optLong("windowId"))));
         if (!session.ready()) return result;
         if (condition.equals("graphics_window_present"))
             return result.put("matched", catalog.stream().anyMatch(window -> presentMatches(window, args)));

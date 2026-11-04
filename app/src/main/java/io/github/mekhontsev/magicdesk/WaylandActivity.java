@@ -184,7 +184,7 @@ public final class WaylandActivity extends Activity implements WaylandSessions.L
     @Override public void detachHostedWindow() { detached = true; finishAndRemoveTask(); }
     @Override public void onDestroy() {
         artwork.close();
-        if (isFinishing() && pendingLaunch && session != null && !session.desktop) session.close();
+        if (isFinishing() && !detached && pendingLaunch && session != null && !session.desktop) session.close();
         boolean request = isFinishing() && !detached && session != null && !session.desktop && session.ready() && session.containsWindow(window);
         if (request) session.closeWindow(window, false);
         if (binding != null) binding.close();

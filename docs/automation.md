@@ -1014,12 +1014,45 @@ other windows. An application-owned session can end when its last window closes;
 a retained server remains available even if its startup client exits with an
 error. `graphics.detach_viewer` closes only the selected whole-desktop
 Android viewer; the server and clients remain. `graphics.stop` stops the session.
+`graphics.close_session` requests normal closure of the current top-level clients
+and stops the server once its window catalog is empty. Save/cancel dialogs remain
+usable; `cancel=true` withdraws the pending server closure. It is not a guest OS
+shutdown and does not promise to stop background jobs. Explicit `graphics.stop`
+disconnects clients without waiting for their confirmation.
 These operations do not require Desktop. Android focus, arrangement and closure
 continue to use `focus_task`, `arrange_task` and `close_task` with the host task ID.
 `set_task_state` explicitly sets fullscreen, work-area maximization or concealment
 on an existing managed task through the same catalog gateway as Linux panels.
 It returns acceptance; `wait_for_state` confirms actual state. No command starts
 Desktop implicitly, and CLI commands come from the same schema and executor.
+
+### Graphics Without An Android Screen
+
+`graphics.start` accepts `offscreen: {width: 1280, height: 720}`.
+For an existing session, use `graphics.set_offscreen` with its `sessionId`,
+`enabled: true`, `width: 1280` and `height: 720`. This detaches Android
+viewers without closing clients. Remove any Desktop shell integration first.
+No Android display, virtual display or Activity is created. X11 retains one
+desktop output (window ID zero); Wayland retains outputs for mapped top-level
+windows and their dialogs. A whole Wayland desktop still requires a nested
+compositor, just as in an Android viewer.
+
+Wait for `wait_for_state(condition="graphics_output_ready", sessionId=ID)`;
+`graphics.list` reports output dimensions, readiness, frame sequence and errors.
+Readiness confirms an available frame, not that a particular application has
+finished rendering. Observe its native window or accessible UI separately.
+The usual `capture_screenshot`, `sample_pixels`, `move_pointer`, `click_pointer`,
+`send_key`, `input.key_chord` and `input.gesture` accept `graphicsSessionId` and
+an optional native `windowId` instead of Android display/task selectors. Select
+`windowId` explicitly when several outputs exist. Coordinates are output pixels;
+keyboard and pointer events enter the existing native protocol adapters.
+Linux AT-SPI/D-Bus commands continue to use their separate `linux.list` identity.
+
+`graphics.open_window` transfers presentation back to a normal Android viewer,
+including on an explicitly created virtual display. The session and executor
+remain the same. Disabling offscreen mode releases its outputs without opening
+a viewer. **Linux graphics** exposes these same session and closure controls.
+Offscreen mode does not itself hold the phone awake.
 
 `magicdesk.set_app_presentation` accepts an `appIdentity` from `list_apps` and a scale from
 50 through 200 percent. The percentage is display-independent; MagicDesk

@@ -74,6 +74,11 @@ final class WaylandSessions {
         final String presentationKey;
         private volatile int scalePercent;
         final HostedWindowPresentation presentation;
+        final HostedOffscreen offscreen = new HostedOffscreen(window -> new WaylandSurfaceOutput(openOutput(window, 1, 1)),
+                () -> GraphicalSessions.changed(id(), "output_ready"));
+        final HostedSessionClose shutdown = new HostedSessionClose();
+        @Override public boolean backgroundOutput() { return offscreen.enabled(); }
+        @Override public void viewerAttached() { offscreen.close(); }
         private final Context context;
         private final OperationResources resources = new OperationResources();
         private final CopyOnWriteArrayList<Listener> listeners = new CopyOnWriteArrayList<>();
@@ -424,6 +429,8 @@ final class WaylandSessions {
 
         @Override public void changed() {
             if (Looper.myLooper() != Looper.getMainLooper()) { MAIN.post(this::changed); return; }
+            var session = GraphicalSessions.find(id());
+            if (session != null) session.refresh();
             var snapshot = windows();
             boolean first = !applicationLifetime.hadWindows();
             applicationLifetime.windows(!snapshot.isEmpty(), snapshot.stream().anyMatch(WaylandSession.Window::mapped));
@@ -470,6 +477,7 @@ final class WaylandSessions {
             if (stopped()) return;
             state = next; error = message;
             presentation.close();
+            offscreen.close();
             MAIN.removeCallbacks(timeout);
             MAIN.removeCallbacks(applicationTimeout);
             unregister();

@@ -1201,4 +1201,12 @@
         <item quantity="many">%d anexos</item>
         <item quantity="other">%d anexos</item>
     </plurals>
+    <string name="graphics_offscreen">Sem tela</string>
+    <string name="graphics_closing">Aguardando o fechamento dos aplicativos</string>
+    <string name="graphics_cancel_close">Cancelar fechamento pendente</string>
+    <string name="graphics_close_normally">Fechar normalmente</string>
+    <string name="graphics_output_width">Largura da saída</string>
+    <string name="graphics_output_height">Altura da saída</string>
+    <string name="graphics_detach_output">Liberar saída sem tela</string>
+    <string name="graphics_force_stop_session">Parar esta sessão gráfica e desconectar seus aplicativos sem salvar?</string>
 </resources>

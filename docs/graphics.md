@@ -26,6 +26,7 @@ or enumerates additional devices. It is not a complete driver inventory or a
 guest Mesa report; compositor initialization does not prove presentation support.
 
 - [Boundaries](#boundaries)
+- [Offscreen Sessions](#offscreen-sessions)
 - [Linux Buffer Import](#linux-buffer-import)
 - [Protocol Adapters](#protocol-adapters)
 - [Completion And Failure](#completion-and-failure)
@@ -69,6 +70,36 @@ for an empty list. AHardwareBuffer is the Android interchange allocation, not a 
 that arbitrary Linux DMA-BUFs are compatible with the device's driver. The
 graphics library does not bundle Mesa or a device-specific driver. Native buffer
 references follow the [Vulkan AHardwareBuffer import contract](https://docs.vulkan.org/refpages/latest/refpages/source/VkImportAndroidHardwareBufferInfoANDROID.html).
+
+## Offscreen Sessions
+
+Retained X11/Wayland sessions can render without an Android Activity or display.
+**Linux graphics** lists active sessions and can attach a viewer, select
+offscreen output, request normal client closure, or force-stop the session.
+These controls share the actual protocol session owners with MCP and CLI.
+Closing a whole-desktop viewer retains its session, like detaching a PTY window.
+
+`HostedOffscreen` is an explicit non-Activity output host, owned by each protocol
+session. It borrows the same native output/input adapter as a viewer.
+`HostedImageOutput` consumes frames through a public `ImageReader` Surface,
+retaining only the latest frame; no per-frame CPU pixel copy is performed.
+Capture reads that retained frame, with row/pixel stride handling, only on demand.
+Both Vulkan and software presentation retain their existing renderer paths.
+No extra display server, Android VirtualDisplay or renderer privilege is needed.
+
+X11 uses its desktop output. Wayland uses mapped top-level windows and dialogs,
+respecting client size constraints; a nested desktop is one normal client.
+Outputs and Android viewers are exclusive presentation modes. Handoff waits for
+viewer teardown before acquiring offscreen surfaces; opening a viewer releases
+offscreen ownership. Desktop shell integration must be detached explicitly.
+Admission is bounded to eight outputs and 16 megapixels per session, with at most
+8192 pixels per axis. Allocation failures are visible and require reconfiguration,
+not an automatic retry loop. Session shutdown releases outputs and retained images.
+
+Automation uses the ordinary capture/input commands with an explicit graphical
+target, independently of Android focus, display input or privileged screenshot
+access. Executor authorization remains unchanged. See
+[offscreen automation](automation.md#graphics-without-an-android-screen).
 
 ## Linux Buffer Import
 
@@ -438,6 +469,13 @@ observations, stale firmware, bounded text and storage failures. Native fixtures
 assert that reading startup metadata makes no further Vulkan calls and that explicit
 software mode never loads Vulkan. Android 16 checks cover X11 and Wayland startup
 records in both modes, including retention after session closure.
+
+Offscreen checks on RM11 / Android 16 cover Termux X11 and Wayland, Alpine/Shroot
+and Ubuntu/PRoot clients, captured frames, pointer/keyboard input, client close
+confirmation and cancellation, and Wayland handoff to a virtual-display viewer
+and back without restarting the client. Unit fixtures cover pixel strides,
+size limits, session closure and input release after errors. API 34 device coverage
+and a complete desktop workload in offscreen mode remain unverified.
 
 Native fixtures compare GPU/software colors, partial updates, RGBA/BGRA imports,
 clipping, blending, lifetime and transforms. The Wayland renderer fixture compares

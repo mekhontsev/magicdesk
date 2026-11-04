@@ -1177,4 +1177,12 @@
     <plurals name="console_files_count">
         <item quantity="other">%d 个附件</item>
     </plurals>
+    <string name="graphics_offscreen">无屏幕</string>
+    <string name="graphics_closing">正在等待应用关闭</string>
+    <string name="graphics_cancel_close">取消待执行的关闭</string>
+    <string name="graphics_close_normally">正常关闭</string>
+    <string name="graphics_output_width">输出宽度</string>
+    <string name="graphics_output_height">输出高度</string>
+    <string name="graphics_detach_output">释放无屏幕输出</string>
+    <string name="graphics_force_stop_session">停止此图形会话并断开其应用而不保存？</string>
 </resources>

@@ -490,6 +490,10 @@ navigation and power button remain available. It prevents ordinary screen-off
 sleep, not every vendor restriction or process termination; the display remains
 powered and battery consumption is higher than with the screen off.
 
+Tap the Console icon for terminal sessions; long-press it for **Linux graphics**
+and its retained X11/Wayland sessions. Neither manager starts a Linux distribution
+merely by opening it.
+
 ## Scale And Output
 
 **Quick controls**, opened by the taskbar sliders icon, exposes display density,
