@@ -1185,4 +1185,6 @@
     <string name="graphics_output_height">出力の高さ</string>
     <string name="graphics_detach_output">画面なしの出力を解放</string>
     <string name="graphics_force_stop_session">このグラフィカルセッションを停止し、保存せずにアプリを切断しますか？</string>
+    <string name="phone_panel_power_off">画面の電源を切る</string>
+    <string name="phone_panel_unavailable">画面の電源制御を利用できません</string>
 </resources>

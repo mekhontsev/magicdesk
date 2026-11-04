@@ -40,6 +40,8 @@
     <string name="x11_title">X11</string>
     <string name="wayland_title">Wayland</string>
     <string name="graphics_title">Графика Linux</string>
+    <string name="phone_panel_power_off">Выключить панель аппаратно</string>
+    <string name="phone_panel_unavailable">Аппаратное управление питанием экрана недоступно</string>
     <string name="graphics_sessions">Сеансы</string>
     <string name="graphics_windows">Окна приложений</string>
     <string name="graphics_new_session">Новый графический сеанс</string>

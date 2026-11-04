@@ -173,11 +173,12 @@ public final class PhoneControlPanelControllerTest {
         final String general = RuntimeSourceFixture.methods("PhoneControlPanelController", "addDesktopActions");
         previous = -1;
         for (String name : new String[]{"mConnectWirelessDisplay", "mCreateDisplay", "mTouchpad",
-                "mReleaseInput", "mPhoneScreen"}) {
+                "mReleaseInput"}) {
             final int position = general.indexOf("addGridAction(sessionActions, " + name + ")");
             assertTrue(name, position > previous);
             previous = position;
         }
+        assertFalse(general.contains("mPhoneScreen"));
     }
 
     @Test

@@ -110,7 +110,7 @@ public final class RuntimeDesktopSessionCoordinatorTest {
                     DesktopRuntimeBridge.session.active = false;
                     runtime.restorePhoneAfterExternalDesktop();
                     mOperations.queued.run();
-                    check(mPhoneUi.restores == 1 && PhoneControlPanelLauncher.opens == 1,
+                    check(mPhoneUi.restores == 0 && PhoneControlPanelLauncher.opens == 1,
                             "settled display loss did not restore the phone");
                 }
                 """ + RuntimeSourceFixture.methods("DesktopSessionTransitionCoordinator",

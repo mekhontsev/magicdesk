@@ -52,9 +52,9 @@ public final class DesktopCloseFailureTest {
                 static class Queue { void execute(Runnable r) { r.run(); } }
                 final Queue mOperations = new Queue();
                 static class PhoneUi {
-                    boolean isPhoneScreenControlActive() { return !failure.equals("screen-unowned"); }
-                    boolean setPhoneScreenOff(boolean off, int displayId) {
-                        check(!off && displayId == Display.INVALID_DISPLAY, "not a phone restore");
+                    boolean restorePhoneScreenForDisplay(int displayId) {
+                        check(displayId == 7, "not an owner-scoped phone restore");
+                        if (failure.equals("screen-unowned")) return true;
                         step("phone");
                         return !failure.equals("phone-result");
                     }

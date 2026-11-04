@@ -490,6 +490,15 @@ navigation and power button remain available. It prevents ordinary screen-off
 sleep, not every vendor restriction or process termination; the display remains
 powered and battery consumption is higher than with the screen off.
 
+Long-press the same icon for **Turn off the physical panel**, available with
+privileged access and supported Android display-power commands. This switches
+off the panel while holding CPU work awake; it needs neither Desktop nor an
+external display. Wake the phone with its power button to release the override.
+Normal exit and loss of the controlling connection also restore display power.
+Unlike the black-screen mode, this does not keep a foreground window active;
+firmware may still restrict individual background applications. Nubia work
+hints provide optional additional protection, not a prerequisite.
+
 Tap the Console icon for terminal sessions; long-press it for **Linux graphics**
 and its retained X11/Wayland sessions. Neither manager starts a Linux distribution
 merely by opening it.

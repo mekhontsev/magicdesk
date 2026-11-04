@@ -95,11 +95,11 @@ final class MagicDeskSessionController {
                     @Override
                     public void restorePhoneScreen(
                             final MagicDeskExitCoordinator.Callback callback) {
-                        if (!mPhoneUi.isAvailable()) {
+                        if (!mPhoneUi.isPhoneScreenControlActive()) {
                             callback.onComplete(true);
                             return;
                         }
-                        DesktopOperations.setPhoneScreenOff(
+                        PhoneDisplayGuard.setScreenOff(
                                 false, callback::onComplete);
                     }
 

@@ -199,16 +199,9 @@ public final class ShellProbeInstrumentation extends Instrumentation {
                             + serviceUid);
         }
 
-        final CountDownLatch completed = new CountDownLatch(1);
-        final AtomicBoolean success = new AtomicBoolean();
-        DesktopOperations.setPhoneScreenOff(false, value -> {
-            success.set(value);
-            completed.countDown();
-        });
-        if (!completed.await(OPERATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-            throw new IOException("phone-screen safe probe timed out");
-        }
-        if (!success.get()) {
+        final String restore = DisplayPowerCommands.resolveSupportedRestoreOperation(
+                operation -> ShellAccess.executeCommand("/system/bin/cmd display " + operation).output);
+        if (restore == null || ShellAccess.executeCommand("/system/bin/cmd display " + restore + " 0").exitCode != 0) {
             throw new IOException("phone-screen safe probe failed");
         }
         return "granted | uid=" + serviceUid;

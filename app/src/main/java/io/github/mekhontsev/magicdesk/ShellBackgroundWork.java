@@ -47,7 +47,8 @@ final class ShellBackgroundWork implements AutoCloseable {
     synchronized IBackgroundWorkLease acquire(int displayId, String uniqueId, int appUid,
             long durationMillis, boolean keepDisplayAwake, IBinder displayOwner, IBinder owner) {
         if (mClosed) throw new IllegalStateException("background work service closed");
-        if (displayId <= 0 || owner == null || appUid < 10000) throw new IllegalArgumentException("invalid work owner");
+        if (displayId < 0 || owner == null || appUid < 10000 || (displayId == 0 && keepDisplayAwake))
+            throw new IllegalArgumentException("invalid work owner");
         validateDuration(durationMillis, !keepDisplayAwake);
         DesktopDisplayInfo target = null;
         for (DesktopDisplayInfo info : mDisplays.list()) {
@@ -68,13 +69,18 @@ final class ShellBackgroundWork implements AutoCloseable {
                     PowerManager.PARTIAL_WAKE_LOCK, "MagicDesk:BackgroundWork");
             lease.cpu.acquire();
             if (keepDisplayAwake) lease.displayPower = mDisplays.keepAwake(displayId, uniqueId, displayOwner);
-            mProtection.retain(lease, Set.of(appUid));
-            if (mPlatform != PlatformBackgroundWork.NONE) {
-                lease.observation = FrameworkTaskObservationSource.observeApplicationUids(displayId, mHandler,
-                        uids -> retain(lease, uids), error -> fail(lease, error));
+            try {
+                mProtection.retain(lease, Set.of(appUid));
+                if (mPlatform != PlatformBackgroundWork.NONE) {
+                    lease.observation = FrameworkTaskObservationSource.observeApplicationUids(displayId, mHandler,
+                            uids -> retain(lease, uids), error -> fail(lease, error));
+                }
+            } catch (Exception error) {
+                fail(lease, error);
             }
             lease.renew(durationMillis);
-            if (mLeases.size() == 1 && mPlatform.refreshIntervalMillis() > 0) {
+            if (mPlatform.refreshIntervalMillis() > 0) {
+                mHandler.removeCallbacks(mRefresh);
                 scheduleRefresh();
             }
             return lease;
@@ -85,19 +91,21 @@ final class ShellBackgroundWork implements AutoCloseable {
     }
 
     private synchronized void retain(Lease lease, Set<Integer> uids) {
-        if (!mLeases.contains(lease)) return;
+        if (!mLeases.contains(lease) || !lease.failure.isEmpty()) return;
         try { mProtection.retain(lease, uids); }
-        catch (Exception error) { throw new IllegalStateException("application protection failed", error); }
+        catch (Exception error) { fail(lease, error); }
     }
 
     private synchronized void fail(Lease lease, Exception error) {
         Log.w("MagicDeskWork", "Background protection failed", error);
         lease.failure = ShellAccess.usefulMessage(error);
-        lease.close();
+        lease.release(lease.observation);
+        lease.observation = null;
+        mProtection.release(lease);
     }
 
     private synchronized void refresh() {
-        if (mLeases.isEmpty()) return;
+        if (mLeases.stream().noneMatch(lease -> lease.failure.isEmpty())) return;
         try { mProtection.refresh(); }
         catch (Exception error) {
             for (Lease lease : new ArrayList<>(mLeases)) fail(lease, error);

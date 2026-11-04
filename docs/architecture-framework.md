@@ -214,7 +214,8 @@ isolated behind these boundaries.
   `PlatformDriver` exposes only existing variation points.
   `PlatformWindowingDriver` owns optional provisioning properties;
   `PlatformProjectionDriver` owns output modes, wireless-launch integration,
-  and caption transport; `PlatformPhoneUiDriver` owns phone-screen power control;
+  and caption transport; the Android `PlatformPhoneUiDriver` exposes shared
+  phone-panel power capability through `PhoneDisplayGuard`;
   `PlatformPointerDriver` owns optional read-only cursor observation. On Nubia
   firmware this is implemented by `NubiaDesktopPointerDriver` over the hidden
   global position query. Physical input
@@ -320,10 +321,11 @@ isolated behind these boundaries.
   command to the currently registered host on the main thread. Self-tests may
   address that gateway directly when the gateway itself is the subject under
   test.
-- Platform phone-UI adapters receive the active desktop display ID with a
-  phone-screen request. They do not discover session state through
-  `DesktopRuntimeBridge` and publish state changes through the runtime rather
-  than reaching a desktop Activity.
+- `PhoneDisplayGuard` owns an independent serialized phone-power operation and
+  CPU work lease. Control Panel uses a phone-only owner; Desktop's external
+  controls may explicitly attach an additional application-protection lease to
+  their display. Only that display's close releases its associated power guard.
+  The common guard publishes state through the runtime, not a desktop Activity.
 - `ExternalDisplayController` discovers dynamic display IDs and fixes geometry.
 - `DisplayInputSession` owns input routing and the virtual phone pointer;
   `DesktopShortcutService` filters desktop shortcuts, and

@@ -2,7 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
 
-/** Firmware-specific phone UI behavior while a desktop session is active. */
+/** Phone-panel power capability, independent of Desktop and firmware work hints. */
 public interface PlatformPhoneUiDriver {
     boolean isAvailable();
 
@@ -10,7 +10,7 @@ public interface PlatformPhoneUiDriver {
 
     boolean isPhoneScreenControlActive();
 
-    boolean setPhoneScreenOff(boolean screenOff, int desktopDisplayId);
+    boolean restorePhoneScreenForDisplay(int displayId);
 
     void requestPhoneScreenRestore();
 }

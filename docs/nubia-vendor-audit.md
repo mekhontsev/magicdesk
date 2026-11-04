@@ -76,7 +76,7 @@ actual input-routing and shortcut-filter readiness separately.
 | `PHONE_TASK_ISOLATION` | `WINDOWING` | Phone-side launch/migration interception and freeform normalization during wired/wireless sessions. |
 | `PHONE_TASK_RECOVERY` | `WINDOWING` | Reconcile phone task modes and retained WMShell desktop membership around session setup, cleanup, and display loss. |
 | `STALE_RECENTS_CLEANUP` | `WINDOWING` | Remove matching orphaned phone freeform Recents entries during phone desktop observation. |
-| `RECENTS_TO_HOME` | `PHONE_UI` | Route the system Recents Activity request to MagicDesk HOME while its session is active. |
+| `RECENTS_TO_HOME` | `WINDOWING` or `BACKGROUND_WORK` | Route the system Recents Activity request to MagicDesk HOME while its session is active. |
 
 These six implementations do not depend on private Nubia input or window-control
 APIs. Their default selection is firmware policy; portability alone does not
@@ -320,7 +320,7 @@ Simulated sessions do not acquire that physical-transport override.
 
 ## Phone Screen Power
 
-`NubiaPhoneUiDriver` delegates to `PhoneDisplayGuard` and its shell helper.
+Shared `PhoneDisplayGuard` and its shell helper own panel power on every platform.
 Power control uses Android display commands: `cmd display power-off 0` and
 the restore operation discovered by shared `DisplayPowerCommands`.
 The verified firmware supports `power-reset`; the resolver also supports
@@ -330,9 +330,10 @@ do not change power or UID protection.
 The helper's heartbeat/watchdog owns restoration if MagicDesk, Shizuku, or
 the session ends. It is active screen-off ownership, not idle desktop polling.
 An unexpected helper failure does not automatically start another screen-off
-request. The last workspace Close hands back HOME. Cleanup restores any owned
-phone-screen guard, releases input only for its owning workspace and tears down
-that workspace's tasks/host; Close alone does not remove the display. A restoration
+request. The last workspace Close hands back HOME. Cleanup restores the phone-screen
+guard only when attached to that display, releases its input and tears down
+that workspace's tasks/host; a phone-only power guard is independent.
+Close alone does not remove the display. A restoration
 error is reported without aborting remaining cleanup, including when the physical
 monitor stays connected.
 

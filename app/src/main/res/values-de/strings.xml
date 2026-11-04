@@ -1197,4 +1197,6 @@
     <string name="graphics_output_height">Ausgabehöhe</string>
     <string name="graphics_detach_output">Ausgabe ohne Bildschirm freigeben</string>
     <string name="graphics_force_stop_session">Diese Grafiksitzung stoppen und ihre Anwendungen ohne Speichern trennen?</string>
+    <string name="phone_panel_power_off">Display physisch ausschalten</string>
+    <string name="phone_panel_unavailable">Physische Displaysteuerung nicht verfügbar</string>
 </resources>

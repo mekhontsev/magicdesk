@@ -39,6 +39,8 @@
     <string name="x11_title">X11</string>
     <string name="wayland_title">Wayland</string>
     <string name="graphics_title">Linux graphics</string>
+    <string name="phone_panel_power_off">Turn off the physical panel</string>
+    <string name="phone_panel_unavailable">Physical panel power control is unavailable</string>
     <string name="graphics_sessions">Sessions</string>
     <string name="graphics_windows">Application windows</string>
     <string name="graphics_new_session">New graphical session</string>

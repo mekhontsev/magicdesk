@@ -24,8 +24,6 @@ public final class ControlActivity extends Activity
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private final PlatformProjectionDriver mProjection =
             PlatformDrivers.current().projection();
-    private final PlatformPhoneUiDriver mPhoneUi =
-            PlatformDrivers.current().phoneUi();
 
     private PhoneControlPanelController mPanel;
     private BlackScreenMode mBlackScreen;
@@ -507,30 +505,40 @@ public final class ControlActivity extends Activity
                 }); });
     }
 
-    @Override
-    public void togglePhoneScreen() {
+    @Override public void showScreenPowerOptions() {
+        if (!ShellAccess.isReady()) {
+            showAccessInfo();
+            return;
+        }
+        PhoneDisplayGuard.checkAvailable(available -> runOnUiThread(() -> {
+            if (isActivityUnavailable() || !hasWindowFocus()) return;
+            if (!available && !PhoneDisplayGuard.isScreenOff()) {
+                mStatus = getString(R.string.phone_panel_unavailable);
+                refresh();
+                return;
+            }
+            boolean off = !PhoneDisplayGuard.isScreenOff();
+            UiDialogs.builder(this).setItems(new String[] {getString(off
+                            ? R.string.phone_panel_power_off : R.string.action_phone_screen_on)},
+                    (dialog, which) -> setPhoneScreenOff(off)).show();
+        }));
+    }
+
+    private void setPhoneScreenOff(boolean screenOff) {
         if (!ShellAccess.isReady()) {
             return;
         }
-        final boolean screenOff =
-                !mPhoneUi.isPhoneScreenOff(this);
         mStatus = getString(R.string.status_phone_screen_applying);
         refresh();
-        DesktopOperations.setPhoneScreenOff(
+        PhoneDisplayGuard.setScreenOff(
                 screenOff,
                 success -> runOnUiThread(() -> {
                     if (isActivityUnavailable()) {
                         return;
                     }
-                    final int result;
-                    if (!success) {
-                        result = R.string.status_phone_screen_failed;
-                    } else if (screenOff) {
-                        result = R.string.status_phone_screen_off;
-                    } else {
-                        result = R.string.status_phone_screen_on;
-                    }
-                    mStatus = getString(result);
+                    mStatus = getString(!success ? R.string.status_phone_screen_failed
+                            : DesktopRuntimeBridge.hasWorkspaces() ? R.string.control_status_desktop_active
+                            : R.string.control_status_ready);
                     if (!success) {
                         CompatibilityDiagnostics.record(
                                 "PHONE-SCREEN-001",
@@ -692,18 +700,14 @@ public final class ControlActivity extends Activity
             return;
         }
         final java.util.Set<Integer> desktopDisplays = DesktopRuntimeBridge.workspaceDisplayIds();
-        final boolean externalDesktopActive = desktopDisplays.stream().anyMatch(id -> id > 0);
         mPanel.render(new PhoneControlPanelController.State(
                 mDisplays, mTasks, desktopDisplays, mDisplayOperation,
                 mSessionController.isOperationInProgress(),
-                externalDesktopActive,
                 ShellAccess.isReady(),
-                mPhoneUi.isPhoneScreenOff(this),
-                ShellAccess.isReady() && mPhoneUi.isAvailable(),
                 mProjection.supportsOutputConfiguration(),
                 mWirelessConnectionUiAvailable,
                 RuntimeLimits.restartRequired(this) ? getString(R.string.access_restart_required)
-                        : mStatus,
+                        : PhoneDisplayGuard.isScreenOff() ? getString(R.string.status_phone_screen_off) : mStatus,
                 ShellAccess.currentSnapshot().accessLabel(), TermuxIntegration.inspect(this),
                 RuntimeCapabilities.current(this)));
     }

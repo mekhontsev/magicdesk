@@ -29,7 +29,8 @@ public final class PlatformDriversTest {
                 == PlatformAudioCaptureDriver.Availability.UNSUPPORTED);
         assertTrue(driver.pointer().isAvailable());
         assertTrue(driver.projection().supportsOutputConfiguration());
-        assertTrue(driver.phoneUi().isAvailable());
+        assertEquals("android", driver.selection().provider(PlatformComponent.PHONE_UI).id);
+        assertEquals("GenericAndroidPhoneUiDriver", driver.phoneUi().getClass().getSimpleName());
         assertTrue(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
         assertTrue(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.CAPTION_REFRESH));
         assertTrue(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.ACTIVITY_HANDOFF_REPAIR));
@@ -70,7 +71,7 @@ public final class PlatformDriversTest {
         assertTrue(driver.projection().setDesktopTransports(java.util.Set.of(
                 PlatformProjectionDriver.Transport.WIRED, PlatformProjectionDriver.Transport.WIRELESS)));
         assertTrue(driver.projection().setDesktopTransports(java.util.Set.of()));
-        assertFalse(driver.phoneUi().isAvailable());
+        assertEquals("GenericAndroidPhoneUiDriver", driver.phoneUi().getClass().getSimpleName());
         assertTrue(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
         assertFalse(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.CAPTION_REFRESH));
         assertFalse(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.ACTIVITY_HANDOFF_REPAIR));
