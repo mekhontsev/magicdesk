@@ -101,6 +101,8 @@ final class DesktopAutomationStateReader {
                                 DesktopOperations.isTouchpadVisible())
                         .put("controlPanelVisible",
                                 ControlActivity.isControlPanelVisible())
+                        .put("blackScreenEnabled",
+                                AutomationMainThread.read(ControlActivity::blackScreenEnabled))
                         .put("wakeLockHeld",
                                 MagicDeskRuntime.isSessionWakeLockHeld())
                         .put("selfTestRunning",

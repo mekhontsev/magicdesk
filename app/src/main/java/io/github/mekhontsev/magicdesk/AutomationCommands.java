@@ -75,6 +75,7 @@ final class AutomationCommands implements AutoCloseable {
         final JSONObject args = arguments == null
                 ? new JSONObject() : arguments;
         final JSONObject data;
+        if (name.equals("device.set_black_screen")) return AutomationBlackScreen.execute(args);
         if (name.startsWith("appearance.")) return AutomationAppearance.execute(name, args);
         if (name.startsWith("graphics.")) return AutomationGraphics.execute(name, args);
         if (name.startsWith("guest.")) return AutomationGuestEnvironments.execute(name, args);

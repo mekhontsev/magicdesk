@@ -773,7 +773,10 @@ final class AutomationCommandCatalog {
                                 .put("leaseId", stringProperty("Required only to renew the currently held lease.")))))
                 .put(actionTool("device.release_awake", "Release awake lease",
                         "Release the exact awake lease; a stale leaseId cannot release a newer lease.",
-                        objectSchema(new JSONObject().put("leaseId", stringProperty("Id returned by device.keep_awake.")), "leaseId")));
+                        objectSchema(new JSONObject().put("leaseId", stringProperty("Id returned by device.keep_awake.")), "leaseId")))
+                .put(actionTool("device.set_black_screen", "Set phone black-screen mode",
+                        "When enabled, bring Control Panel to the foreground on the phone and apply its black, touch-blocking, minimum-brightness keep-awake mode. Confirms the focused window applied the policy, not just launch acceptance. Requires an awake, unlocked phone; never unlocks it. Volume-key release exits. Disabling only removes the mode, without opening or foregrounding any window. Ordinary app APIs; no Shell or Desktop prerequisite. Mode ends when Control Panel leaves the foreground or the app restarts; this is not a lock screen.",
+                        objectSchema(new JSONObject().put("enabled", booleanProperty("Explicit desired state, not a toggle.")), "enabled")));
     }
 
     private static JSONObject androidUiScopeProperties() throws JSONException {
@@ -1736,6 +1739,10 @@ final class AutomationCommandCatalog {
                         .put("offset", integerProperty("Returned page's UTF-16 start offset."))
                         .put("nextOffset", nullableIntegerProperty("Next page offset, or null when complete/redacted."))
                         .put("redacted", booleanProperty("Password text cannot be returned."));
+                break;
+            case "device.set_black_screen":
+                properties.put("enabled", booleanProperty("Black-screen window policy is applied."))
+                        .put("displayId", integerProperty("Phone display, always zero."));
                 break;
             case "device.keep_awake":
                 properties.put("held", booleanProperty("The wake lock is currently held."))

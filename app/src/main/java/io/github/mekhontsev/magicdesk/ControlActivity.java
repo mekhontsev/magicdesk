@@ -19,6 +19,7 @@ public final class ControlActivity extends Activity
     private static final int REQUEST_NOTIFICATIONS = 1;
     private static WeakReference<ControlActivity> sActive =
             new WeakReference<>(null);
+    private static java.util.concurrent.CompletableFuture<Boolean> sBlackScreenRequest;
 
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private final PlatformProjectionDriver mProjection =
@@ -27,6 +28,7 @@ public final class ControlActivity extends Activity
             PlatformDrivers.current().phoneUi();
 
     private PhoneControlPanelController mPanel;
+    private BlackScreenMode mBlackScreen;
     private MagicDeskSessionController mSessionController;
     private DisplayManager mDisplayManager;
     private DisplayManager.DisplayListener mDisplayListener;
@@ -174,7 +176,8 @@ public final class ControlActivity extends Activity
         mStatus = getString(DesktopRuntimeBridge.hasWorkspaces()
                 ? R.string.control_status_desktop_active
                 : R.string.control_status_ready);
-        setContentView(mPanel.createView());
+        mBlackScreen = new BlackScreenMode(getWindow(), mPanel.createView());
+        setContentView(mBlackScreen.view());
         registerDisplayListener();
         refreshCatalog();
         refresh();
@@ -204,13 +207,40 @@ public final class ControlActivity extends Activity
 
     @Override
     protected void onPause() {
+        if (mBlackScreen != null) mBlackScreen.exit();
         DesktopAutomationEventJournal.record(
                 "ui", "control_panel_hidden", true, "phone");
         super.onPause();
     }
 
+    @Override public void openBlackScreen() {
+        mBlackScreen.enter();
+    }
+
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus && mBlackScreen != null) {
+            applyBlackScreenRequest();
+            mBlackScreen.hideBars();
+        }
+    }
+
+    @Override public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        return mBlackScreen != null && mBlackScreen.dispatchKeyEvent(event)
+                || super.dispatchKeyEvent(event);
+    }
+
+    @Override public boolean dispatchTouchEvent(android.view.MotionEvent event) {
+        return mBlackScreen != null && mBlackScreen.active() || super.dispatchTouchEvent(event);
+    }
+
+    @Override public boolean dispatchGenericMotionEvent(android.view.MotionEvent event) {
+        return mBlackScreen != null && mBlackScreen.active() || super.dispatchGenericMotionEvent(event);
+    }
+
     @Override
     protected void onDestroy() {
+        if (mBlackScreen != null) mBlackScreen.exit();
         ShellAccess.removeStateListener(mAccessListener);
         DesktopSetupStatus.removeListener(mSetupStatusListener);
         TermuxConnectionStatus.get().removeListener(mSetupStatusListener);
@@ -237,6 +267,47 @@ public final class ControlActivity extends Activity
         return activity != null
                 && !activity.isActivityUnavailable()
                 && activity.hasWindowFocus();
+    }
+
+    /** Main-thread request; entering also brings the existing phone panel forward. */
+    static void requestBlackScreen(boolean enabled, java.util.concurrent.CompletableFuture<Boolean> result) {
+        if (Looper.myLooper() != Looper.getMainLooper()) throw new IllegalStateException("Main thread required");
+        if (result.isDone()) return;
+        if (sBlackScreenRequest != null && !sBlackScreenRequest.isDone())
+            sBlackScreenRequest.completeExceptionally(new IllegalStateException("Black-screen request superseded"));
+        sBlackScreenRequest = null;
+        var activity = sActive.get();
+        if (!enabled) {
+            if (activity != null && activity.mBlackScreen != null) activity.mBlackScreen.exit();
+            result.complete(false);
+            return;
+        }
+        var context = MagicDeskApplication.applicationContext();
+        var power = context.getSystemService(android.os.PowerManager.class);
+        var keyguard = context.getSystemService(android.app.KeyguardManager.class);
+        if (power == null || !power.isInteractive() || keyguard == null || keyguard.isKeyguardLocked()) {
+            result.completeExceptionally(new IllegalStateException("Unlock and wake the phone before enabling black-screen mode"));
+            return;
+        }
+        sBlackScreenRequest = result;
+        if (!PhoneControlPanelLauncher.openWithAndroidApi(context))
+            result.completeExceptionally(new IllegalStateException("Could not open the phone Control Panel"));
+        if (activity != null) activity.applyBlackScreenRequest();
+    }
+
+    private void applyBlackScreenRequest() {
+        var request = sBlackScreenRequest;
+        if (request == null || request.isDone() || !hasWindowFocus() || isActivityUnavailable()
+                || getDisplay() == null || getDisplay().getDisplayId() != Display.DEFAULT_DISPLAY || mBlackScreen == null) return;
+        sBlackScreenRequest = null;
+        mBlackScreen.enter();
+        request.complete(true);
+    }
+
+    static boolean blackScreenEnabled() {
+        var activity = sActive.get();
+        return activity != null && !activity.isActivityUnavailable() && activity.mBlackScreen != null
+                && activity.mBlackScreen.active();
     }
 
     static void refreshInputState() {
