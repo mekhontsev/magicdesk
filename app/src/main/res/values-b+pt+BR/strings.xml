@@ -1,5 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
+    <string name="black_screen">Tela preta (sem suspensão)</string>
+    <string name="black_screen_hint">Tela preta; pressione uma tecla de volume para sair</string>
     <string name="guest_command_access">Permitir o controle do MagicDesk e do Android</string>
     <string name="guest_environments">Ambientes Shroot</string>
     <string name="guest_loading">Carregando ambientes&#8230;</string>

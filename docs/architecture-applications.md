@@ -15,6 +15,15 @@ Owners of native application surfaces, control-panel interaction and Desktop she
 
 ## Control Panel And Shared Placement
 
+`BlackScreenMode` temporarily covers Control Panel's existing content with an
+opaque black View. Public window attributes own minimum brightness and
+`FLAG_KEEP_SCREEN_ON`; no Activity, service, timer, vendor heartbeat or global
+setting is added. Volume key down/repeats/up are consumed, and an uncancelled
+key release restores the panel. Pause or destruction releases the mode and
+restores only the window fields it changed. The hidden panel retains its state;
+touch and generic motion are consumed before reaching its controls. System
+navigation remains an escape, not an application-enforced lock.
+
 The control panel uses `DisplayTableView`: one row per Android display with its
 identity, Desktop status, independent applications and Viewer links. The display list
 follows a full-width status and a shared row of clickable Access, Termux and Desktop

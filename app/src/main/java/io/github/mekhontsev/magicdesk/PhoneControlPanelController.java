@@ -32,6 +32,8 @@ final class PhoneControlPanelController {
 
         void openSettings();
 
+        void openBlackScreen();
+
         void showAccessInfo();
 
         void showTermuxInfo();
@@ -212,6 +214,9 @@ final class PhoneControlPanelController {
         title.setText(R.string.app_name);
         UiAppearance.text(title, TEXT);
         title.setTextSize(20);
+        title.setMaxLines(1);
+        title.setAutoSizeTextTypeUniformWithConfiguration(14, 20, 1,
+                android.util.TypedValue.COMPLEX_UNIT_SP);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         titleBlock.addView(title);
 
@@ -229,6 +234,11 @@ final class PhoneControlPanelController {
                 R.drawable.ic_file_console, R.string.terminal_sessions);
         terminals.setOnClickListener(view -> TerminalSessionsDialog.showDropdown(mActivity, view));
         header.addView(terminals, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        final ImageButton blackScreen = mUi.menuIconButton(
+                R.drawable.ic_phone_screen_off, R.string.black_screen);
+        blackScreen.setTooltipText(mActivity.getString(R.string.black_screen_hint));
+        blackScreen.setOnClickListener(view -> mActions.openBlackScreen());
+        header.addView(blackScreen, new LinearLayout.LayoutParams(dp(48), dp(48)));
         final ImageButton settings = mUi.menuIconButton(
                 R.drawable.ic_settings, R.string.action_settings);
         settings.setOnClickListener(view -> mActions.openSettings());

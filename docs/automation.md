@@ -1270,11 +1270,13 @@ Prefer the existing semantic MagicDesk controls for Start, taskbar and menus.
 | `input.gesture` | Explicit-display touch tap, long press, swipe or drag through bounded point lists. |
 | `input.key_chord` | Press ordered Android key names, release them in reverse order, including on failure. |
 | `device.keep_awake` | Acquire or renew bounded display work. Phone mode needs no shell; owned virtual-display mode requires shell, not Desktop. |
+| `device.set_black_screen` | With `enabled=true`, bring Control Panel to the phone foreground and apply its black, minimum-brightness, touch-blocking keep-awake mode. Requires `control`, an awake unlocked phone and Android launch permission, not shell or Desktop. Success confirms window focus and applied policy. `enabled=false` only removes the mode, without foregrounding anything. Volume-key release also exits; `get_state.runtime.blackScreenEnabled` reports current state. |
 | `device.release_awake` | Release the exact lease token. |
 
 `linux.list`, `ui.inspect`, `ui.wait` and `ui.read_text` require the `content` permission. They can read text
 from other apps; password text and descriptions are redacted. The other commands
-require `input_tests`, except `ui.prepare`, `linux.inspect` and `linux.launch` as listed above. These grants are independent for local and network
+require `input_tests`, except `ui.prepare`, `linux.inspect`, `linux.launch` and
+`device.set_black_screen` as listed above. These grants are independent for local and network
 clients. UI strings and entered text are not logged or added to diagnostics.
 Content revoked during a wait is not returned to the client.
 

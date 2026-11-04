@@ -480,6 +480,16 @@ action opens the phone input surface when external input control is available.
 While a retained terminal exists, a **Terminal** action resumes the most recently
 focused terminal even without Desktop, rather than creating another shell.
 
+The **Black screen (keep awake)** icon beside Console in Control Panel keeps
+the phone awake with a black screen at minimum window brightness. Touches are
+ignored; press and release either volume button to return to the panel without
+changing volume. Leaving the panel also ends the mode. It needs no Shizuku,
+root or Desktop, including when using Termux or PRoot. System brightness and
+screen-timeout settings are unchanged. This is not a lock screen: Android's
+navigation and power button remain available. It prevents ordinary screen-off
+sleep, not every vendor restriction or process termination; the display remains
+powered and battery consumption is higher than with the screen off.
+
 ## Scale And Output
 
 **Quick controls**, opened by the taskbar sliders icon, exposes display density,

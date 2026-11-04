@@ -1,4 +1,6 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="black_screen">Black screen (keep awake)</string>
+    <string name="black_screen_hint">Black screen; press a volume key to exit</string>
     <string name="guest_environments">Shroot environments</string>
     <string name="guest_command_access">Allow control of MagicDesk and Android</string>
     <string name="guest_loading">Loading environments&#8230;</string>
