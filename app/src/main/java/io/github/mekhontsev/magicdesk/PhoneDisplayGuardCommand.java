@@ -1,8 +1,4 @@
-package io.github.mekhontsev.magicdesk.platform.nubia;
-
-import io.github.mekhontsev.magicdesk.BoundedProcessRunner;
-import io.github.mekhontsev.magicdesk.DisplayPowerCommands;
-import io.github.mekhontsev.magicdesk.RuntimeDelays;
+package io.github.mekhontsev.magicdesk;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -66,6 +62,9 @@ public final class PhoneDisplayGuardCommand {
     }
 
     private void run() throws IOException {
+        if (!requestDisplayPower(mRestoreOperation)) {
+            throw new IOException("DisplayManager rejected phone display restoration; refusing power-off");
+        }
         // Claim ownership before the command so every later exit path resets
         // even if the process dies immediately after DisplayManager accepts it.
         mDisplayOverrideActive.set(true);
@@ -125,7 +124,7 @@ public final class PhoneDisplayGuardCommand {
         watchdog.start();
     }
 
-    private boolean restoreDisplay() {
+    private synchronized boolean restoreDisplay() {
         if (mDisplayOverrideActive.compareAndSet(true, false)) {
             if (!requestDisplayPower(mRestoreOperation)) {
                 mDisplayOverrideActive.set(true);

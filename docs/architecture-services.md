@@ -263,7 +263,8 @@ renewal belongs to the shared background-work owner described below.
 
 `ShellBackgroundWork` owns explicit `IBackgroundWorkLease` lifetimes independently
 of HOME, Desktop and virtual-display allocation. Automation leases have a service-
-enforced deadline; the phone-power guard uses a Binder-owned lifetime. A CPU wake
+enforced deadline; the phone-power guard uses a Binder-owned phone-display lifetime,
+with an optional additional claim for an external display's applications. A CPU wake
 lock retains scheduled cleanup, and an optional borrowed virtual-display power
 reference shares the existing presentation power owner without attaching a Viewer.
 Closing the lease, its display or its Binder owner releases all resources. A
@@ -277,7 +278,8 @@ retains observed application UIDs for the work interval. `FrameworkTaskObservati
 provides event-only application ownership subscriptions with an initial typed UID
 snapshot; this path does not initialize Desktop's sampler or window organizer.
 There is no periodic task query. `PlatformBackgroundWork` supplies optional firmware
-hints; the Android baseline adds none. Nubia's focused component renews its transient
+hints; failures are reported and release those hints without losing the CPU/display
+lease. The Android baseline adds none. Nubia's focused component renews its transient
 working state once per second through `RuntimeDelays.WORKING_STATE_REFRESH`, only
 while claims exist. Deadline callbacks are lifetime timers, not readiness waits.
 

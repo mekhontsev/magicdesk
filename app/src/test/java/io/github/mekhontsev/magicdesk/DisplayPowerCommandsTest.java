@@ -110,6 +110,23 @@ public final class DisplayPowerCommandsTest {
         assertFalse(DisplayPowerCommands.isRestoreOperation(null));
     }
 
+    @Test public void panelAdmissionNeedsBothDirectionsAndNeverAddressesADisplay() throws Exception {
+        assertNull(DisplayPowerCommands.resolveSupportedRestoreOperation(operation ->
+                "help".equals(operation) ? "power-reset DISPLAY_ID" : "Unknown command: " + operation));
+        assertNull(DisplayPowerCommands.resolveSupportedRestoreOperation(operation ->
+                "help".equals(operation) ? "power-off DISPLAY_ID" : "Unknown command: " + operation));
+        assertEquals("power-on", DisplayPowerCommands.resolveSupportedRestoreOperation(operation -> {
+            assertFalse(operation.contains(" "));
+            return switch (operation) {
+                case "help" -> "";
+                case "power-off", "power-on" -> "Error: no displayId specified";
+                default -> "Unknown command: " + operation;
+            };
+        }));
+        assertThrows(IOException.class, () -> DisplayPowerCommands.resolveSupportedRestoreOperation(operation ->
+                "help".equals(operation) ? "power-reset DISPLAY_ID" : "Permission denied"));
+    }
+
     private static StringBuilder report(final DisplayPowerCommands.CommandReader reader) {
         final StringBuilder report = new StringBuilder();
         DisplayPowerCommands.probe((key, state, detail) ->

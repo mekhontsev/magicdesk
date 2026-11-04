@@ -1209,4 +1209,6 @@
     <string name="graphics_output_height">Altura da saída</string>
     <string name="graphics_detach_output">Liberar saída sem tela</string>
     <string name="graphics_force_stop_session">Parar esta sessão gráfica e desconectar seus aplicativos sem salvar?</string>
+    <string name="phone_panel_power_off">Desligar fisicamente a tela</string>
+    <string name="phone_panel_unavailable">O controle físico da tela não está disponível</string>
 </resources>

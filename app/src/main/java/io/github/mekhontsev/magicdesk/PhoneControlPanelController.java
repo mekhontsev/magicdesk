@@ -28,7 +28,7 @@ final class PhoneControlPanelController {
 
         void openTouchpad();
 
-        void togglePhoneScreen();
+        void showScreenPowerOptions();
 
         void openGraphics();
 
@@ -53,10 +53,7 @@ final class PhoneControlPanelController {
         final java.util.Set<Integer> desktopDisplays;
         final boolean displayOperation;
         final boolean sessionOperationInProgress;
-        final boolean externalDesktopActive;
         final boolean shellReady;
-        final boolean phoneScreenOff;
-        final boolean phoneScreenControlAvailable;
         final boolean externalOutputControlAvailable;
         final boolean wirelessConnectionUiAvailable;
         final String status;
@@ -70,10 +67,7 @@ final class PhoneControlPanelController {
                 final java.util.Set<Integer> desktopDisplays,
                 final boolean displayOperation,
                 final boolean sessionOperationInProgress,
-                final boolean externalDesktopActive,
                 final boolean shellReady,
-                final boolean phoneScreenOff,
-                final boolean phoneScreenControlAvailable,
                 final boolean externalOutputControlAvailable,
                 final boolean wirelessConnectionUiAvailable,
                 final String status,
@@ -85,10 +79,7 @@ final class PhoneControlPanelController {
             this.desktopDisplays = java.util.Set.copyOf(desktopDisplays);
             this.displayOperation = displayOperation;
             this.sessionOperationInProgress = sessionOperationInProgress;
-            this.externalDesktopActive = externalDesktopActive;
             this.shellReady = shellReady;
-            this.phoneScreenOff = phoneScreenOff;
-            this.phoneScreenControlAvailable = phoneScreenControlAvailable;
             this.externalOutputControlAvailable =
                     externalOutputControlAvailable;
             this.wirelessConnectionUiAvailable =
@@ -115,7 +106,6 @@ final class PhoneControlPanelController {
     private Button mCreateDisplay;
     private DisplayTableView mDisplayTable;
     private Button mTouchpad;
-    private Button mPhoneScreen;
     private Button mReleaseInput;
 
     PhoneControlPanelController(
@@ -181,15 +171,7 @@ final class PhoneControlPanelController {
         mCreateDisplay.setEnabled(state.shellReady && !busy);
         final int inputDisplay = MagicDeskRuntime.inputDisplayId();
         mReleaseInput.setEnabled(state.shellReady && !busy && inputDisplay >= 0);
-        final boolean canControlPhoneScreen = state.externalDesktopActive
-                && state.phoneScreenControlAvailable;
         mTouchpad.setEnabled(canOpenTouchpad);
-        mPhoneScreen.setText(state.phoneScreenOff
-                ? R.string.action_phone_screen_on
-                : R.string.action_phone_screen_off);
-        mUi.setControlIcon(mPhoneScreen, state.phoneScreenOff
-                ? R.drawable.ic_phone_screen_on : R.drawable.ic_phone_screen_off);
-        mPhoneScreen.setEnabled(canControlPhoneScreen);
     }
 
     static boolean canCloseDesktop(
@@ -241,6 +223,7 @@ final class PhoneControlPanelController {
                 R.drawable.ic_phone_screen_off, R.string.black_screen);
         blackScreen.setTooltipText(mActivity.getString(R.string.black_screen_hint));
         blackScreen.setOnClickListener(view -> mActions.openBlackScreen());
+        blackScreen.setOnLongClickListener(view -> { mActions.showScreenPowerOptions(); return true; });
         header.addView(blackScreen, new LinearLayout.LayoutParams(dp(48), dp(48)));
         final ImageButton settings = mUi.menuIconButton(
                 R.drawable.ic_settings, R.string.action_settings);
@@ -304,10 +287,6 @@ final class PhoneControlPanelController {
         mReleaseInput.setOnClickListener(view -> mActions.releaseInput());
         addGridAction(sessionActions, mReleaseInput);
 
-        mPhoneScreen = mUi.controlAction(
-                R.string.action_phone_screen_off, R.drawable.ic_phone_screen_off, TEXT);
-        mPhoneScreen.setOnClickListener(view -> mActions.togglePhoneScreen());
-        addGridAction(sessionActions, mPhoneScreen);
 
         parent.addView(sessionActions, fullWidthWrapParams(dp(4)));
     }

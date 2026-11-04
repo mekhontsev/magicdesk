@@ -622,6 +622,9 @@ public final class CompatibilityDiagnostics {
                 .append(platform.phoneUi().isAvailable())
                 .append('\n');
         platform.diagnostics().appendCompatibilityReport(report, context);
+        report.append("Phone screen guard: active=").append(PhoneDisplayGuard.isActive())
+                .append(", screenOff=").append(PhoneDisplayGuard.isScreenOff())
+                .append(", protectedUids=").append(PhoneDisplayGuard.protectedUidSummary()).append('\n');
     }
 
     private static void appendDisplays(final StringBuilder report, final Context context) {

@@ -27,7 +27,6 @@ public final class MagicDeskRuntimeService extends Service
     private static final int OPEN_CONTROL_PANEL_REQUEST_CODE = 2;
     private static final int OPEN_TERMINAL_REQUEST_CODE = 3;
     private final PlatformDriver mPlatform = PlatformDrivers.current();
-    private final PlatformPhoneUiDriver mPhoneUi = mPlatform.phoneUi();
 
     private Handler mHandler;
     private RuntimeDesktopSessionCoordinator mDesktopSession;
@@ -603,6 +602,7 @@ public final class MagicDeskRuntimeService extends Service
         mDestroyed = true;
         MagicDeskRuntime.detach(this);
         ShellAccess.removeStateListener(mShellStateListener);
+        PhoneDisplayGuard.requestRestore();
         if (mDisplayCoordinator != null) {
             mDisplayCoordinator.stop();
         }
@@ -653,7 +653,6 @@ public final class MagicDeskRuntimeService extends Service
         }
         if (mScreenWakeLock != null) mScreenWakeLock.release();
         mPlatform.stopRuntime();
-        mPhoneUi.requestPhoneScreenRestore();
     }
 
     @Override
@@ -681,15 +680,11 @@ public final class MagicDeskRuntimeService extends Service
                     if (mDisplayInput != null) {
                         mDisplayInput.scheduleDeviceRefresh();
                     }
-                } else if (Intent.ACTION_SCREEN_ON.equals(intent.getAction())
-                        && mPhoneUi.isPhoneScreenControlActive()) {
-                    DesktopOperations.setPhoneScreenOff(false, null);
                 }
             }
         };
         final IntentFilter filter =
                 new IntentFilter(Intent.ACTION_CONFIGURATION_CHANGED);
-        filter.addAction(Intent.ACTION_SCREEN_ON);
         registerReceiver(mConfigurationReceiver, filter);
     }
 

@@ -184,8 +184,9 @@ These constraints define the supported implementation paths:
   chords/system keys to a focused whole-Linux-desktop host. Ordinary typing and
   pointer motion retain Android dispatch. Power and volume keys remain Android's.
   Phone pointer injection is a separate virtual device, not physical relay.
-- Phone-screen-off process protection uses only the transient vendor
-  service-working heartbeat; no persistent freezer whitelist is installed.
+- Physical phone-panel control uses shared Android commands and a scoped CPU
+  wake lock. Optional process protection uses only transient vendor
+  service-working hints; no persistent freezer whitelist is installed.
 - ZTE audio source `80` is a `MediaRecorder` path. Replacing it with
   `AudioRecord` fails in AudioFlinger even for a privileged UserService.
 

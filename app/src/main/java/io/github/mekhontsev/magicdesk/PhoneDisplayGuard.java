@@ -1,12 +1,4 @@
-package io.github.mekhontsev.magicdesk.platform.nubia;
-
-import io.github.mekhontsev.magicdesk.AppProcessCommand;
-import io.github.mekhontsev.magicdesk.CompatibilityDiagnostics;
-import io.github.mekhontsev.magicdesk.DisplayPowerCommands;
-import io.github.mekhontsev.magicdesk.IBackgroundWorkLease;
-import io.github.mekhontsev.magicdesk.MagicDeskRuntime;
-import io.github.mekhontsev.magicdesk.ShellAccess;
-import io.github.mekhontsev.magicdesk.ShellStreamHandle;
+package io.github.mekhontsev.magicdesk;
 
 import android.util.Log;
 
@@ -18,32 +10,76 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /** Owns the fail-open physical display override while the shell stream is alive. */
-final class PhoneDisplayGuard {
+public final class PhoneDisplayGuard {
     private static final String TAG = "MagicDeskPhoneDisplay";
     private static final String GUARD_COMMAND =
-            "io.github.mekhontsev.magicdesk.platform.nubia.PhoneDisplayGuardCommand";
+            "io.github.mekhontsev.magicdesk.PhoneDisplayGuardCommand";
     private static final String DISPLAY_COMMAND =
             "/system/bin/cmd display ";
     private static final long START_TIMEOUT_MILLIS = 6_000L;
     private static final long STOP_TIMEOUT_MILLIS = 3_000L;
     private static final Object LOCK = new Object();
+    private static final Object OPERATION_LOCK = new Object();
     private static Session sSession;
     private static int sGeneration;
     private static volatile String sRestoreOperation;
     private static volatile boolean sScreenOff;
     private static volatile String sLastProtectedUidSummary = "none";
+    private static final java.util.concurrent.ExecutorService OPERATIONS =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread thread = new Thread(r, "MagicDeskPhonePower");
+                thread.setDaemon(true);
+                return thread;
+            });
+    private static boolean sProbeRequested;
 
     private PhoneDisplayGuard() {
     }
 
-    static boolean enable(final int desktopDisplayId) {
+    public static boolean isAvailable() {
+        synchronized (LOCK) {
+            if (!ShellAccess.isReady()) {
+                sRestoreOperation = null;
+                sProbeRequested = false;
+                return false;
+            }
+            if (!sProbeRequested) {
+                sProbeRequested = true;
+                checkAvailable(ignored -> MagicDeskRuntime.refreshPlatformState());
+            }
+        }
+        return sRestoreOperation != null;
+    }
+
+    static void checkAvailable(java.util.function.Consumer<Boolean> result) {
+        OPERATIONS.execute(() -> result.accept(ShellAccess.isReady() && resolveRestoreOperation() != null));
+    }
+
+    static void setScreenOff(boolean off, java.util.function.Consumer<Boolean> result) {
+        setScreenOff(off, android.view.Display.INVALID_DISPLAY, result);
+    }
+
+    static void setScreenOff(boolean off, int displayId, java.util.function.Consumer<Boolean> result) {
+        OPERATIONS.execute(() -> {
+            boolean success = false;
+            try {
+                success = off ? enable(displayId) : disable();
+            } catch (RuntimeException error) {
+                CompatibilityDiagnostics.record("PHONE-SCREEN-002", "Could not change the phone screen state",
+                        "screenOff=" + off, error);
+            }
+            if (result != null) result.accept(success);
+        });
+    }
+
+    public static boolean enable(final int desktopDisplayId) {
+        synchronized (OPERATION_LOCK) { return enableLocked(desktopDisplayId); }
+    }
+
+    private static boolean enableLocked(final int desktopDisplayId) {
         final String restoreOperation = resolveRestoreOperation();
         if (restoreOperation == null) {
             Log.w(TAG, "DisplayManager has no supported display restore command");
-            return false;
-        }
-        if (desktopDisplayId <= 0) {
-            Log.w(TAG, "No active desktop display to protect");
             return false;
         }
         final Session session;
@@ -68,13 +104,16 @@ final class PhoneDisplayGuard {
             return true;
         }
         session.requestRestore();
-        session.awaitStopped();
-        clearSession(session);
+        if (!session.awaitStopped()) session.closeStream();
         resetWithoutSession();
         return false;
     }
 
-    static boolean disable() {
+    public static boolean disable() {
+        synchronized (OPERATION_LOCK) { return disableLocked(); }
+    }
+
+    private static boolean disableLocked() {
         final Session session;
         synchronized (LOCK) {
             session = sSession;
@@ -84,17 +123,16 @@ final class PhoneDisplayGuard {
             if (!session.awaitStopped()) {
                 session.closeStream();
             }
-            clearSession(session);
-        }
+        } else if (!sScreenOff) return true;
 
         // This idempotent reset confirms recovery even when the guarded
         // process disappeared before it could acknowledge the restore.
         final boolean reset = resetWithoutSession();
-        publishState(false);
+        if (reset) publishState(false);
         return reset;
     }
 
-    static void requestRestore() {
+    public static void requestRestore() {
         final Session session;
         synchronized (LOCK) {
             session = sSession;
@@ -104,14 +142,23 @@ final class PhoneDisplayGuard {
         }
     }
 
-    static boolean isActive() {
+    public static boolean isActive() {
         synchronized (LOCK) {
-            return sSession != null && sSession.isReady();
+            return sSession != null || sScreenOff;
         }
     }
 
-    static boolean isScreenOff() {
+    public static boolean isScreenOff() {
         return sScreenOff;
+    }
+
+    public static boolean restoreForDisplay(int displayId) {
+        synchronized (OPERATION_LOCK) {
+            synchronized (LOCK) {
+                if (sSession == null || sSession.mDesktopDisplayId != displayId) return true;
+            }
+            return disableLocked();
+        }
     }
 
     static String protectedUidSummary() {
@@ -138,30 +185,22 @@ final class PhoneDisplayGuard {
     private static void onStopped(
             final Session session,
             final boolean expected,
+            final boolean acknowledgedRestore,
             final String failure) {
-        final boolean wasCurrent = clearSession(session);
-        if (wasCurrent) {
-            if (!expected) {
-                resetWithoutSession();
-            }
-            publishState(false);
+        final boolean restored;
+        synchronized (LOCK) {
+            if (sSession != session) return;
+            // Reset before admitting a replacement owner; an old helper must not turn its panel on.
+            restored = acknowledgedRestore || resetWithoutSession();
+            sSession = null;
+            if (restored) publishState(false);
         }
-        if (!expected) {
+        if (!expected || !restored) {
             Log.w(TAG, "Phone display guard stopped: " + failure);
             CompatibilityDiagnostics.record(
-                    "NUBIA-SCREEN-003",
+                    "PHONE-SCREEN-003",
                     "The phone-screen guard stopped",
                     failure);
-        }
-    }
-
-    private static boolean clearSession(final Session session) {
-        synchronized (LOCK) {
-            if (sSession != session) {
-                return false;
-            }
-            sSession = null;
-            return true;
         }
     }
 
@@ -171,8 +210,7 @@ final class PhoneDisplayGuard {
             return false;
         }
         try {
-            ShellAccess.run(DISPLAY_COMMAND + restoreOperation + " 0");
-            return true;
+            return ShellAccess.executeCommand(DISPLAY_COMMAND + restoreOperation + " 0").exitCode == 0;
         } catch (IOException error) {
             Log.w(TAG, "Cannot reset phone display", error);
             return false;
@@ -185,7 +223,7 @@ final class PhoneDisplayGuard {
             return cached;
         }
         try {
-            final String operation = DisplayPowerCommands.resolveRestoreOperation(
+            final String operation = DisplayPowerCommands.resolveSupportedRestoreOperation(
                     command -> ShellAccess.executeCommand(
                             DISPLAY_COMMAND + command).output);
             if (operation != null) {
@@ -235,6 +273,13 @@ final class PhoneDisplayGuard {
         private volatile String mProtectedUidSummary = "pending";
         private volatile ShellStreamHandle mStream;
         private volatile IBackgroundWorkLease mWork;
+        private volatile IBackgroundWorkLease mDisplayWork;
+        private final android.content.BroadcastReceiver mScreenReceiver = new android.content.BroadcastReceiver() {
+            @Override public void onReceive(android.content.Context context, android.content.Intent intent) {
+                // Release on wake, not on inactivity sleep: CPU work must continue while the panel is off.
+                requestRestore();
+            }
+        };
 
         Session(
                 final int generation,
@@ -261,6 +306,7 @@ final class PhoneDisplayGuard {
 
         boolean awaitReady() {
             try {
+                // EVENT_WAIT: helper acknowledgement; timeout requests restoration.
                 return mReady.await(
                         START_TIMEOUT_MILLIS,
                         TimeUnit.MILLISECONDS) && isReady();
@@ -272,6 +318,7 @@ final class PhoneDisplayGuard {
 
         boolean awaitStopped() {
             try {
+                // EVENT_WAIT: helper cleanup; timeout closes its owning stream.
                 return mStopped.await(
                         STOP_TIMEOUT_MILLIS,
                         TimeUnit.MILLISECONDS);
@@ -305,6 +352,7 @@ final class PhoneDisplayGuard {
             if (work != null) {
                 try {
                     mProtectedUidSummary = work.state();
+                    if (mDisplayWork != null) mProtectedUidSummary += "; external=" + mDisplayWork.state();
                     sLastProtectedUidSummary = mProtectedUidSummary;
                 } catch (android.os.RemoteException | RuntimeException error) {
                     return "unavailable: " + usefulMessage(error);
@@ -318,8 +366,21 @@ final class PhoneDisplayGuard {
             ShellStreamHandle stream = null;
             BufferedReader reader = null;
             boolean expected = false;
+            boolean restored = false;
+            android.content.Context context = MagicDeskApplication.applicationContext();
+            boolean registered = false;
             try {
-                mWork = ShellAccess.acquireBackgroundWork(mDesktopDisplayId, 0, false, new android.os.Binder());
+                android.content.IntentFilter filter = new android.content.IntentFilter(android.content.Intent.ACTION_SCREEN_ON);
+                context.registerReceiver(mScreenReceiver, filter, android.content.Context.RECEIVER_EXPORTED);
+                registered = true;
+                mWork = ShellAccess.acquireBackgroundWork(0, 0, false, new android.os.Binder());
+                if (mDesktopDisplayId > 0) {
+                    try {
+                        mDisplayWork = ShellAccess.acquireBackgroundWork(mDesktopDisplayId, 0, false, new android.os.Binder());
+                    } catch (IOException | RuntimeException error) {
+                        Log.w(TAG, "Optional display application protection unavailable", error);
+                    }
+                }
                 protectionSummary();
                 stream = ShellAccess.openHeartbeatStream(
                         AppProcessCommand.exec(
@@ -343,6 +404,7 @@ final class PhoneDisplayGuard {
                         onReady(this);
                     } else if (PhoneDisplayGuardCommand.RESTORED.equals(line)) {
                         expected = true;
+                        restored = true;
                     } else if (line.startsWith(
                             PhoneDisplayGuardCommand.ERROR)) {
                         mFailure = line;
@@ -359,12 +421,20 @@ final class PhoneDisplayGuard {
                 mFailure = usefulMessage(error);
                 expected = mRestoreRequested;
             } finally {
+                if (registered) context.unregisterReceiver(mScreenReceiver);
                 mGuardReady = false;
                 mReady.countDown();
                 closeQuietly(reader);
                 closeQuietly(stream);
                 mStream = null;
-                onStopped(this, expected, mFailure);
+                onStopped(this, expected, restored, mFailure);
+                if (mDisplayWork != null) {
+                    try { mDisplayWork.close(); }
+                    catch (android.os.RemoteException | RuntimeException error) {
+                        Log.w(TAG, "Could not release display background work", error);
+                    }
+                    mDisplayWork = null;
+                }
                 if (mWork != null) {
                     protectionSummary();
                     try { mWork.close(); }
