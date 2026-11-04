@@ -496,6 +496,17 @@ public final class ControlActivity extends Activity
         PhoneTouchpadController.open();
     }
 
+    @Override public void openGraphics() {
+        ToolApplications.open(this, ToolApplications.intent(this, "graphics"),
+                ToolLaunchTarget.resolve("phone", 0, java.util.Set.of()), null,
+                error -> { if (error != null) runOnUiThread(() -> {
+                    if (!isActivityUnavailable()) {
+                        mStatus = ShellAccess.usefulMessage(error);
+                        refresh();
+                    }
+                }); });
+    }
+
     @Override
     public void togglePhoneScreen() {
         if (!ShellAccess.isReady()) {

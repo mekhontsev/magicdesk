@@ -42,6 +42,41 @@ final class GraphicalSessions {
         int hostTaskId(long window);
         void recordUse(long window, RecentLaunchScope scope);
         HostedWindowPresentation presentation();
+        HostedOffscreen offscreen();
+        HostedSessionClose shutdown();
+        default void requestClose() {
+            if (!ready()) throw new IllegalStateException("Graphical session is not ready");
+            shutdown().request(windows().stream().filter(window -> window.layout().parent() == 0)
+                    .map(Window::id).toList(), window -> closeWindow(window, false));
+            refresh();
+        }
+        default void cancelClose() { shutdown().cancel(); changed(id(), "close_cancelled"); }
+        default void refresh() {
+            if (shutdown().completed(ready(), !windows().isEmpty())) { close(); return; }
+            refreshOffscreen();
+        }
+        default void setOffscreen(HostedOffscreen.Size size) {
+            if (size != null && GraphicalShells.state(id()).displayId() >= 0)
+                throw new IllegalStateException("Detach shell integration before enabling offscreen output");
+            offscreen().configure(size);
+            if (size != null) presentation().detachOutputs();
+            refreshOffscreen();
+            changed(id(), "output_changed");
+        }
+        default void refreshOffscreen() {
+            var owner = offscreen();
+            if (!owner.enabled() || !ready() || presentation().hasOutputs()) return;
+            try {
+                var size = owner.size();
+                owner.reconcile(true, protocol() == GraphicalProtocol.X11 ? List.of(new HostedOffscreen.Target(0, size))
+                        : windows().stream().filter(Window::mapped).map(window -> {
+                            var layout = window.layout();
+                            var fitted = layout.constraints().size(layout.parent() == 0 ? size.width() : layout.width(),
+                                    layout.parent() == 0 ? size.height() : layout.height());
+                            return new HostedOffscreen.Target(window.id(), new HostedOffscreen.Size(fitted.width(), fitted.height()));
+                        }).toList());
+            } catch (RuntimeException failure) { owner.failed(failure); }
+        }
         default Application redirect() { return null; }
         default boolean desktop() { return false; }
         default boolean application() { return !desktop(); }
@@ -107,7 +142,11 @@ final class GraphicalSessions {
         return List.copyOf(result);
     }
     static int count() { return X11Sessions.count() + WaylandSessions.count(); }
+    private static final java.util.concurrent.CopyOnWriteArrayList<Runnable> LISTENERS = new java.util.concurrent.CopyOnWriteArrayList<>();
+    static void listen(Runnable listener) { LISTENERS.addIfAbsent(listener); }
+    static void unlisten(Runnable listener) { LISTENERS.remove(listener); }
     static void changed(String sessionId, String operation) {
+        for (var listener : LISTENERS) listener.run();
         try {
             DesktopAutomationEventJournal.record("graphics", operation, true, "", new org.json.JSONObject().put("sessionId", sessionId));
         } catch (org.json.JSONException error) { throw new IllegalStateException(error); }
@@ -180,6 +219,8 @@ final class GraphicalSessions {
         public int hostTaskId(long window) { return session.hostTaskId(window); }
         public void recordUse(long window, RecentLaunchScope scope) { session.recordUse(window, scope); }
         public HostedWindowPresentation presentation() { return session.presentation; }
+        public HostedOffscreen offscreen() { return session.offscreen; }
+        public HostedSessionClose shutdown() { return session.shutdown; }
         public Application redirect() {
             var target = session.redirect();
             return target == null ? null : new Application(new X11(target.session()), target.window());
@@ -193,6 +234,8 @@ final class GraphicalSessions {
         public int scalePercent() { return session.scalePercent(); }
         public void setScale(int percent) { session.setScale(percent); }
         public String id() { return session.id(); }
+        public HostedOffscreen offscreen() { return session.offscreen; }
+        public HostedSessionClose shutdown() { return session.shutdown; }
         public String name() { return session.name; }
         public GraphicalProtocol protocol() { return GraphicalProtocol.WAYLAND; }
         public Identity identity() { return new Identity(session.execution.commands.backend, session.execution.commands.uid, session.execution.serverUid); }

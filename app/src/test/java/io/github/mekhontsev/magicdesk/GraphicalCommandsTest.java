@@ -8,6 +8,28 @@ import org.json.JSONObject;
 import org.junit.Test;
 
 public final class GraphicalCommandsTest {
+    @Test public void offscreenUsesExistingInputAndCaptureGrantsAndExplicitTargets() throws Exception {
+        for (String operation : new String[]{"capture_screenshot", "sample_pixels", "send_key", "move_pointer",
+                "click_pointer", "input.key_chord", "input.gesture"}) {
+            var schema = AutomationCommandArguments.command(operation).getJSONObject("inputSchema");
+            assertTrue(operation, schema.getJSONObject("properties").has("graphicsSessionId"));
+            assertTrue(operation, schema.getJSONObject("properties").has("windowId"));
+        }
+        AutomationCommandArguments.check("input.key_chord", new JSONObject().put("graphicsSessionId", "test")
+                .put("keys", new org.json.JSONArray().put("ENTER")));
+        assertTrue(new McpAccessPolicy(Set.of("control")).allows("graphics.set_offscreen"));
+        assertFalse(new McpAccessPolicy(Set.of()).allows("graphics.close_session"));
+        assertTrue(new McpAccessPolicy(Set.of("input_tests")).allows("input.key_chord"));
+        assertTrue(new McpAccessPolicy(Set.of("content")).allows("capture_screenshot"));
+        String output = source("AutomationGraphicsOutput");
+        assertFalse(output.contains("requireService"));
+        assertFalse(output.contains("FrameworkUiAutomationApi"));
+        assertTrue(output.contains("AutomationInputSequence.keyChord"));
+        assertTrue(source("AndroidAutomationInput").contains("AutomationInputSequence.keyChord"));
+        String host = Files.readString(Path.of("../hosted-runtime/src/main/java/io/github/mekhontsev/magicdesk/hosted/HostedImageOutput.java"));
+        assertFalse(host.contains("VirtualDisplay"));
+        assertFalse(host.contains("Thread.sleep"));
+    }
     @Test public void authorizationSeparatesObservationExecutionAndPlacement() {
         var observation = new McpAccessPolicy(Set.of());
         assertTrue(observation.allows("graphics.list"));

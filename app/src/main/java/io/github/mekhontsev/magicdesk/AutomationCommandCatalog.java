@@ -111,6 +111,7 @@ final class AutomationCommandCatalog {
                                 .put("command", stringProperty("Optional startup shell command."))
                                 .put("directory", stringProperty("Optional absolute client working directory."))
                                 .put("wholeDesktop", booleanProperty("For Wayland, the command launches a nested desktop compositor; closing its Android viewer retains the client. X11 always provides a whole-desktop viewer. Default false."))
+                                .put("offscreen", offscreenSizeSchema())
                                 .put("keyboardDirectory", stringProperty("XKB host data path or guest:/absolute/store for data from a guest environment; required for shell, optional for Termux."))
                                 .put("connection", enumProperty("Default auto. inherited is Wayland-only. routed requires Shell and an explicit guest socket-route recipe; exports MAGICDESK_GRAPHICS_ENDPOINT for independent guest connections.", "auto", "inherited", "routed")),
                                 "protocol", "backend", "name")))
@@ -128,6 +129,16 @@ final class AutomationCommandCatalog {
                 .put(actionTool("graphics.stop", "Stop graphical session",
                         "Explicitly stop the retained server and disconnect its graphical clients. All its client hosts close; other graphical sessions are unaffected. This does not terminate arbitrary background jobs in the selected executor.",
                         objectSchema(new JSONObject().put("sessionId", stringProperty("Live graphical session ID.")), "sessionId")))
+                .put(actionTool("graphics.close_session", "Request graphical session closure",
+                        "Ask existing native toplevels to close normally. Retains save/cancel dialogs and the server until all windows disappear; never escalates on a timer. Use graphics.stop for explicit force stop. cancel withdraws the pending server stop, not client close requests already delivered. Does not shut down the Linux OS or unrelated background jobs.",
+                        objectSchema(new JSONObject().put("sessionId", stringProperty("Live graphical session ID."))
+                                .put("cancel", booleanProperty("Cancel pending server closure; default false.")), "sessionId")))
+                .put(actionTool("graphics.set_offscreen", "Configure offscreen graphics",
+                        "Enable a retained output without any Android window or virtual display. Detaches existing client hosts without closing clients; first release shell integration. width/height are required when enabling. An Android viewer later replaces offscreen presentation. Disabling releases outputs, not clients. Input/capture use graphicsSessionId and an output windowId from graphics.list. Wait for graphics_output_ready, not merely graphics_ready.",
+                        objectSchema(new JSONObject().put("sessionId", stringProperty("Live graphical session ID."))
+                                .put("enabled", booleanProperty("Explicit desired state."))
+                                .put("width", integerRangeProperty("Output pixel width; combined size at most 16 megapixels.", 1, 8192))
+                                .put("height", integerRangeProperty("Output pixel height.", 1, 8192)), "sessionId", "enabled")))
                 .put(actionTool("graphics.open_window", "Open graphical window",
                         "Borrow one native window in an ordinary MagicDesk Android host. windowId comes from graphics.list, not Android task IDs. Sessions advertising wholeDesktop accept 0 for their desktop viewer. Placement uses the shared tool launcher and does not claim input or start Desktop.",
                         objectSchema(toolPlacementProperties().put("sessionId", stringProperty("Live graphical session ID."))
@@ -678,7 +689,40 @@ final class AutomationCommandCatalog {
                         .put("sha256", stringProperty("Expected APK SHA-256 digest.")), "updateId", "path", "sha256")))
                 .put(readTool("app.update_status", "MagicDesk update status", "Read the durable installer result for an exact update operation.",
                         objectSchema(new JSONObject().put("updateId", stringProperty("Id passed to app.update.")), "updateId")));
+        addOffscreenTargets(tools);
         return tools;
+    }
+
+    private static JSONObject offscreenSizeSchema() throws JSONException {
+        return objectSchema(new JSONObject()
+                .put("width", integerRangeProperty("Offscreen width in pixels; at most 16 megapixels total.", 1, 8192))
+                .put("height", integerRangeProperty("Offscreen height in pixels. No Android display is created.", 1, 8192)), "width", "height");
+    }
+
+    private static void addOffscreenTargets(JSONArray tools) throws JSONException {
+        var names = java.util.Set.of("capture_screenshot", "sample_pixels", "send_key", "move_pointer", "click_pointer", "input.gesture", "input.key_chord");
+        for (int i = 0; i < tools.length(); i++) {
+            var tool = tools.getJSONObject(i);
+            if (!names.contains(tool.getString("name"))) continue;
+            tool.put("description", tool.getString("description")
+                    + " Alternatively select graphicsSessionId for an offscreen Linux output, excluding Android selectors. Coordinates are output pixels; windowId is optional only with exactly one output. No Android input or privileged capture is used. Gestures become primary-pointer drags.");
+            var schema = tool.getJSONObject("inputSchema");
+            schema.getJSONObject("properties")
+                    .put("graphicsSessionId", stringProperty("Retained offscreen graphics session, not a Linux AT-SPI session."))
+                    .put("windowId", integerProperty("Offscreen output windowId from graphics.list; requires graphicsSessionId."));
+            var required = schema.optJSONArray("required");
+            if (required != null) {
+                var kept = new JSONArray();
+                for (int j = 0; j < required.length(); j++) if (!required.getString(j).equals("displayId")) kept.put(required.get(j));
+                schema.put("required", kept);
+            }
+            schema.put("allOf", new JSONArray()
+                    .put(new JSONObject().put("not", requiredOnly("graphicsSessionId", "displayId")))
+                    .put(new JSONObject().put("not", requiredOnly("graphicsSessionId", "taskId")))
+                    .put(new JSONObject().put("if", requiredOnly("windowId")).put("then", requiredOnly("graphicsSessionId"))));
+            if (tool.getString("name").startsWith("input."))
+                schema.put("oneOf", new JSONArray().put(requiredOnly("displayId")).put(requiredOnly("graphicsSessionId")));
+        }
     }
 
     private static void addInteractionTools(final JSONArray tools) throws JSONException {
@@ -871,7 +915,7 @@ final class AutomationCommandCatalog {
                                 "taskbar_visible",
                                 "wallpaper_rendered", "self_test_finished", "graphics_ready", "graphics_session_absent",
                                 "graphics_window_present", "graphics_window_absent", "graphics_host_attached", "graphics_window_state",
-                                "graphics_family_present", "graphics_family_absent",
+                                "graphics_family_present", "graphics_family_absent", "graphics_output_ready",
                                 "shell_surface_present", "shell_surface_absent", "task_state"))
                         .put("sessionId", stringProperty("Exact graphical session ID for graphics conditions or shell surface filter."))
                         .put("windowId", integerProperty("Native graphical window ID, not Android task id. Omit for graphics_window_present to await any mapped client; zero selects a whole-desktop viewer for host/state conditions."))
@@ -1486,6 +1530,8 @@ final class AutomationCommandCatalog {
                 .put("scalePercent", integerProperty("Linux interface scale relative to the automatic host scale; 100 is automatic."))
                 .put("scalePersistent", booleanProperty("Scale is saved for this launcher's executor and source path."))
                 .put("windows", graphicalWindowsSchema()).put("hosts", graphicalHostsSchema())
+                .put("offscreen", openObjectProperty("enabled, error, coordinateSpace and outputs with windowId, width, height, ready, frameSequence, error."))
+                .put("closeRequested", booleanProperty("Waiting for clients to close normally; no forced timeout."))
                 .put("shellIntegration", openObjectProperty("available, workspaceId, displayId and error."))
                 .put("protocolDetails", openObjectProperty("Protocol-specific diagnostics; X11 display, dpi, application and fileEnvironment.")));
     }
@@ -1633,6 +1679,8 @@ final class AutomationCommandCatalog {
             case "graphics.set_scale":
             case "graphics.close_window":
             case "graphics.detach_viewer":
+            case "graphics.set_offscreen":
+            case "graphics.close_session":
                 properties.put("sessionId", stringProperty("Exact retained session ID."))
                         .put("accepted", booleanProperty("Operation dispatched, not completed."))
                         .put("protocol", enumProperty("Display protocol.", "x11", "wayland"))
@@ -1642,6 +1690,8 @@ final class AutomationCommandCatalog {
                         .put("scalePersistent", booleanProperty("Scale is saved for the launcher."))
                         .put("error", stringProperty("Last operation error."))
                         .put("windows", graphicalWindowsSchema()).put("hosts", graphicalHostsSchema())
+                        .put("offscreen", openObjectProperty("Offscreen configuration and live outputs."))
+                        .put("closeRequested", booleanProperty("Normal client closure requested."))
                         .put("shellIntegration", openObjectProperty("available, workspaceId, displayId and error for the shell binding."));
                 break;
             case "graphics.open_window":
@@ -1927,7 +1977,11 @@ final class AutomationCommandCatalog {
             case "capture_screenshot":
                 properties.put("displayId", integerProperty("Display id."))
                         .put("taskId", integerProperty("Task id, only for task captures."))
-                        .put("sourceType", enumProperty("Captured source.", "display", "task"))
+                        .put("sourceType", enumProperty("Captured source.", "display", "task", "graphics"))
+                        .put("graphicsSessionId", stringProperty("Retained graphics session."))
+                        .put("windowId", integerProperty("Native output window."))
+                        .put("frameSequence", integerProperty("Received output frame sequence."))
+                        .put("frameUptimeMillis", integerProperty("Monotonic frame receipt time."))
                         .put("sourceWidth", integerProperty("Full source-image width before region crop."))
                         .put("sourceHeight", integerProperty("Full source-image height before region crop."))
                         .put("taskWidth", integerProperty("Original task width; Android may scale the captured image."))
@@ -2459,10 +2513,10 @@ final class AutomationCommandCatalog {
         return schema;
     }
 
-    private static JSONObject requiredOnly(final String property)
+    private static JSONObject requiredOnly(final String... properties)
             throws JSONException {
         return new JSONObject().put(
-                "required", new JSONArray().put(property));
+                "required", new JSONArray(java.util.List.of(properties)));
     }
 
     private static JSONObject stringProperty(final String description)

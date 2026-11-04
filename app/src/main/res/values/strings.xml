@@ -1189,4 +1189,12 @@
         <item quantity="one">%d attachment</item>
         <item quantity="other">%d attachments</item>
     </plurals>
+    <string name="graphics_offscreen">Offscreen</string>
+    <string name="graphics_closing">Waiting for applications to close</string>
+    <string name="graphics_cancel_close">Cancel pending close</string>
+    <string name="graphics_close_normally">Close normally</string>
+    <string name="graphics_output_width">Output width</string>
+    <string name="graphics_output_height">Output height</string>
+    <string name="graphics_detach_output">Release offscreen output</string>
+    <string name="graphics_force_stop_session">Stop this graphics session and disconnect its applications without saving?</string>
 </resources>

@@ -1201,4 +1201,12 @@
         <item quantity="many">%d pièces jointes</item>
         <item quantity="other">%d pièces jointes</item>
     </plurals>
+    <string name="graphics_offscreen">Sans écran</string>
+    <string name="graphics_closing">En attente de fermeture des applications</string>
+    <string name="graphics_cancel_close">Annuler la fermeture</string>
+    <string name="graphics_close_normally">Fermer normalement</string>
+    <string name="graphics_output_width">Largeur de sortie</string>
+    <string name="graphics_output_height">Hauteur de sortie</string>
+    <string name="graphics_detach_output">Libérer la sortie sans écran</string>
+    <string name="graphics_force_stop_session">Arrêter cette session graphique et déconnecter ses applications sans enregistrer ?</string>
 </resources>

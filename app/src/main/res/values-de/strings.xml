@@ -1189,4 +1189,12 @@
         <item quantity="one">%d Anhang</item>
         <item quantity="other">%d Anhänge</item>
     </plurals>
+    <string name="graphics_offscreen">Ohne Bildschirm</string>
+    <string name="graphics_closing">Warten auf das Schließen der Anwendungen</string>
+    <string name="graphics_cancel_close">Beenden abbrechen</string>
+    <string name="graphics_close_normally">Normal schließen</string>
+    <string name="graphics_output_width">Ausgabebreite</string>
+    <string name="graphics_output_height">Ausgabehöhe</string>
+    <string name="graphics_detach_output">Ausgabe ohne Bildschirm freigeben</string>
+    <string name="graphics_force_stop_session">Diese Grafiksitzung stoppen und ihre Anwendungen ohne Speichern trennen?</string>
 </resources>

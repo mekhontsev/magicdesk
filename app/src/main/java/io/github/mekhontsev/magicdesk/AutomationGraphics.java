@@ -28,10 +28,12 @@ final class AutomationGraphics {
                 } else if (operation.equals("graphics.start")) {
                     String command = args.optString("command", "");
                     if (!command.isBlank()) DesktopExecCommand.normalize(command);
+                    var offscreen = args.has("offscreen") ? size(args.getJSONObject("offscreen")) : null;
                     var session = GraphicalSessions.start(context, GraphicalProtocol.parse(args.getString("protocol")),
                             args.getString("name"), command, args.optString("directory", ""),
                             DesktopExecBackend.parse(args.getString("backend")), args.optString("keyboardDirectory", ""),
                             args.optBoolean("wholeDesktop", false), GraphicalConnectionMode.parse(args.optString("connection", "auto")));
+                    if (offscreen != null) session.setOffscreen(offscreen);
                     result[0] = describe(session).put("accepted", true);
                 } else {
                     var session = GraphicalSessions.find(args.getString("sessionId"));
@@ -42,6 +44,11 @@ final class AutomationGraphics {
                                 AutomationJsonArguments.requiredInt(args, "scalePercent"));
                         case "graphics.execute" -> session.execute(DesktopExecCommand.normalize(args.getString("command")), args.optString("directory", ""));
                         case "graphics.stop" -> session.close();
+                        case "graphics.close_session" -> {
+                            if (args.optBoolean("cancel", false)) session.cancelClose();
+                            else session.requestClose();
+                        }
+                        case "graphics.set_offscreen" -> session.setOffscreen(args.getBoolean("enabled") ? size(args) : null);
                         case "graphics.close_window" -> {
                             long window = AutomationJsonArguments.requiredLong(args, "windowId");
                             if (window <= 0 || session.windows().stream().noneMatch(item -> item.id() == window))
@@ -87,6 +94,22 @@ final class AutomationGraphics {
         });
     }
 
+    private static HostedOffscreen.Size size(JSONObject args) throws org.json.JSONException {
+        return new HostedOffscreen.Size(AutomationJsonArguments.requiredInt(args, "width"),
+                AutomationJsonArguments.requiredInt(args, "height"));
+    }
+
+    static JSONObject offscreen(GraphicalSessions.Session session) throws org.json.JSONException {
+        var owner = session.offscreen();
+        var outputs = new JSONArray();
+        for (var output : owner.outputs()) outputs.put(new JSONObject().put("windowId", output.window)
+                .put("width", output.image.width()).put("height", output.image.height())
+                .put("ready", output.image.ready()).put("frameSequence", output.image.sequence())
+                .put("error", output.image.failure()));
+        return new JSONObject().put("enabled", owner.enabled()).put("error", owner.error())
+                .put("outputs", outputs).put("coordinateSpace", "output_pixels");
+    }
+
     static JSONObject describe(GraphicalSessions.Session session) throws org.json.JSONException {
         return describe(session, session.windows());
     }
@@ -105,6 +128,7 @@ final class AutomationGraphics {
                 .put("scalePercent", session.scalePercent()).put("scalePersistent", !session.presentationKey().isEmpty())
                 .put("wholeDesktop", session.desktop()).put("windows", windows)
                 .put("hosts", hosts(session))
+                .put("closeRequested", session.shutdown().requested()).put("offscreen", offscreen(session))
                 .put("executor", identity.backend().wireName).put("executorUid", identity.executorUid())
                 .put("serverUid", identity.serverUid()).put("protocolDetails", details)
                 .put("shellIntegration", new JSONObject().put("available", session.canIntegrateShell())
