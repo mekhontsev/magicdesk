@@ -12,12 +12,26 @@ import org.junit.rules.ExternalResource;
 
 /** Stable inode identities and symlinks, independent of the build host's filesystem. */
 final class TestFileSystem extends ExternalResource {
+    private final Configuration configuration;
     private FileSystem fileSystem;
     private Path root;
 
+    TestFileSystem() {
+        this(Configuration.forCurrentPlatform());
+    }
+
+    private TestFileSystem(Configuration configuration) {
+        this.configuration = configuration;
+    }
+
+    static TestFileSystem unix() {
+        return new TestFileSystem(Configuration.unix().toBuilder()
+                .setAttributeViews("basic", "owner", "posix", "unix").build());
+    }
+
     @Override
     protected void before() throws IOException {
-        fileSystem = Jimfs.newFileSystem(Configuration.forCurrentPlatform());
+        fileSystem = Jimfs.newFileSystem(configuration);
         root = Files.createDirectory(fileSystem.getPath("test").toAbsolutePath());
     }
 
