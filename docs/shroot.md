@@ -70,6 +70,7 @@ stop another launch. Persistent stores outlive those processes.
 | Filesystems | Guest roots, mount views, DAC/ACL permissions, read-only/no-exec policy, Landlock filesystem rules | Unadapted calls and retained host descriptors are not fully confined |
 | Processes | Launch-scoped signals with guest credential checks, nested PID views, proc visibility, translated waits and guest PID 1 lifetime | Not a host kernel PID namespace |
 | Credentials | Guest users, groups, capabilities, drops and namespace ownership | Guest root never grants Android root or kernel capabilities |
+| Dumpability | Guest prctl state, mm sharing, exec reset and guest process-inspection checks | Native tasks remain dumpable for runtime access; no Android isolation or guest core-dump service |
 | IPC and terminals | Separate SysV IPC owners, store-scoped pathname sockets, private devpts views | Inherited connections retain authority; explicit abstract Unix sockets share the host namespace |
 | Network | Offline child namespaces or routed IPv4/IPv6, private ports, supported nftables flow filtering and NAT | Native backing ports remain reachable; not a host firewall or full Linux network isolation |
 | Resource controls | Launch-local real-UID `RLIMIT_NPROC`; logical `RLIMIT_NOFILE` backed by native FD allocation; hierarchical cgroup `pids.max`, membership, freezer and sampled CPU/RSS counters | Android's physical FD/task budgets still apply; cgroup CPU, cpuset, memory and device policies are not enforced; sampled RSS is not kernel page charging; other resource limits remain native |
@@ -171,7 +172,7 @@ sh ~/install_linux.sh
 This is the maintained download address. The installer can be updated without
 replacing the APK; download again to atomically replace `~/install_linux.sh`.
 UID 2000's shell home is `/data/local/tmp/magicdesk/`; root consoles use
-`/data/local/tmp/magicdesk-root/home`. Release tags retain the installer matching
+`/data/local/tmp/magicdesk/root`. Release tags retain the installer matching
 that release.
 The current installer requires MagicDesk 2.2.5 or newer (`versionCode` 232),
 which supplies the completion-owned DMA-BUF consumer required by its Turnip
@@ -719,11 +720,17 @@ Instances copy up on mutation. `path NAME` returns the immutable store location;
 Reusing a removed name creates a new identity, never retargets a running launch
 or an existing shortcut.
 
-The default library is `$MAGICDESK_RUNTIME/guest-environments`;
+The default library is `$HOME/linux`;
 `MAGICDESK_GUEST_HOME` selects another executor-accessible executable filesystem.
 Do not edit its backing files as a normal rootfs: names, hardlinks, metadata and
 shared image ownership belong to the inode store. Use guest commands, explicit
 attachments or backup/restore.
+
+Shared-source references are relative to each store, so an inactive library can
+move as one tree on the same filesystem without copying file bodies. Source
+device/inode checks and live leases remain enforced. The default library layout
+is adopted offline; a running store blocks relocation. For another filesystem,
+device or executor UID, use backup/restore instead of copying backing directories.
 
 Eligible private regular files use native names by default, with sparse metadata
 for non-root ownership. Creation, rename and deletion avoid per-file SQLite

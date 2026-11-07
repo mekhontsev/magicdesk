@@ -275,7 +275,7 @@ Run the script only after the download succeeds. The maintained
 tags also retain their exact scripts. The downloader itself never executes
 downloaded content. In shell consoles, `~` is
 `/data/local/tmp/magicdesk`; root uses its separate
-`/data/local/tmp/magicdesk-root/home`. Termux keeps its own home. This local
+`/data/local/tmp/magicdesk/root`. Termux keeps its own home. This local
 subcommand belongs to the Android `app_process` entry point, not the delegated
 Linux command client or MCP catalog.
 
@@ -1526,11 +1526,16 @@ connection and cancels dependent consoles without switching to Android shell.
 
 Device coverage: native Termux Qt and GTK4 over both X11 and Wayland, Debian GTK3 under UID-2000 Shroot,
 and Firefox in Debian Flatpak have been exercised on Android 16, including
-semantic actions and event-driven observation. The common console tests cover
+semantic actions and event-driven observation. Ubuntu 24.04 under Termux PRoot
+also passes the GTK3 semantic UI and console fixtures: X11 as guest root and
+Wayland as guest UID 1000. This covers Unicode editing, button actions, password
+redaction and guest context retention; AT-SPI text-change events also work with
+offscreen output and no Android viewer. It does not establish system-bus or
+sandbox compatibility for arbitrary PRoot applications. The common console tests cover
 captured UID/display, persistent state, cancellation and peer loss without host
 fallback. Termux's GTK3 package
 disables its ATK bridge; installing that package alone does not expose GTK3 UI.
-API 34 and PRoot device coverage remain separate from these results. Prepared
+API 34 device coverage remains separate from these results. Prepared
 root chroots retain the executor UID for abstract-socket admission; a login
 that changes the real UID needs an explicitly mapped delegated endpoint.
 

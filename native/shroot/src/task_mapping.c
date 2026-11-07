@@ -27,9 +27,7 @@ int md_task_mapping_begin(struct md_task_mapping *m,long (*trace)(int,pid_t,void
 }
 int md_task_mapping_notification(const struct md_task_mapping *m,const struct seccomp_notif *q) {
     return m && m->stage==MD_TASK_MAPPING_INSTALL && m->descriptor<0
-        && q->pid==(unsigned)m->call.actor && q->data.nr==SYS_gettid
-        && q->data.instruction_pointer==m->call.returned
-        && !memcmp(q->data.args,m->call.arguments.value,sizeof(q->data.args));
+        && md_task_call_notification(&m->call,q);
 }
 int md_task_mapping_event(struct md_task_mapping *m,int status) {
     int result=md_task_call_event(&m->call,status);

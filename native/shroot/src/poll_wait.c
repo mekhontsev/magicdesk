@@ -11,7 +11,7 @@
 struct item { struct pollfd poll; struct md_fd_object *object; };
 struct md_poll_wait {
     unsigned count,loaded;
-    int virtual,select;
+    int virtual,task,select;
     struct item *items;
     struct pollfd *sources;
 };
@@ -40,10 +40,11 @@ int md_poll_wait_load(struct md_poll_wait *p,struct md_fd_origins *files,const s
         item->object=md_fd_origins_object(files,item->poll.fd,NULL);
         struct md_control_file ready=md_fd_object_readiness(item->object);
         if (ready.ops && ready.ops->poll) p->virtual=1;
+        if (item->object && item->object->type->task_poll) p->task=1;
     }
     return 0;
 }
-int md_poll_wait_virtual(const struct md_poll_wait *p) { return p->virtual; }
+int md_poll_wait_virtual(const struct md_poll_wait *p) { return p->virtual || p->task; }
 int md_poll_wait_copy(const struct md_poll_wait *p,struct md_poll_frame *f,unsigned offset) {
     if (offset>p->count) return -EINVAL;
     f->offset=offset; f->count=p->count-offset;
@@ -51,14 +52,30 @@ int md_poll_wait_copy(const struct md_poll_wait *p,struct md_poll_frame *f,unsig
     for (unsigned i=0;i<f->count;++i) f->items[i]=p->items[offset+i].poll;
     return 0;
 }
-int md_poll_wait_interrupted(struct md_poll_wait *p) {
+static long task_ready(const struct item *item,const struct md_control_actor *actor) {
+    return item->object && item->object->type->task_poll
+        ? item->object->type->task_poll(item->object,actor) : 0;
+}
+int md_poll_wait_task_ready(const struct md_poll_wait *p,const struct md_control_actor *actor) {
+    if (!p || !p->task) return 0;
+    for (unsigned i=0;i<p->count;++i) {
+        long ready=task_ready(&p->items[i],actor);
+        if (ready<0) return (int)ready;
+        if (ready&(p->items[i].poll.events|POLLERR|POLLHUP)) return 1;
+    }
+    return 0;
+}
+int md_poll_wait_interrupted(struct md_poll_wait *p,const struct md_control_actor *actor) {
     int count=0,error=0;
     for (unsigned i=0;i<p->count;++i) {
         struct item *item=&p->items[i];
         item->poll.revents=0;
         struct md_control_file provider=md_fd_object_readiness(item->object);
-        if (!provider.ops || !provider.ops->poll) continue;
-        long mask=provider.ops->poll(provider.context);
+        long mask=task_ready(item,actor);
+        if (mask>=0 && provider.ops && provider.ops->poll) {
+            long native=provider.ops->poll(provider.context);
+            mask=native<0 ? native : mask|native;
+        }
         if (mask<0) { error=(int)mask; continue; }
         item->poll.revents=(short)mask&(item->poll.events|POLLERR|POLLHUP);
         count+=!!item->poll.revents;
@@ -66,7 +83,8 @@ int md_poll_wait_interrupted(struct md_poll_wait *p) {
     return count ? count : error;
 }
 int md_poll_wait_task(struct md_poll_wait *p,struct md_epoll_wait *wait,struct md_poll_frame *f,
-        uintptr_t address,int completed,long value,struct md_task_call_arguments *call,long *result) {
+        uintptr_t address,int completed,long value,const struct md_control_actor *actor,
+        struct md_task_call_arguments *call,long *result) {
     md_epoll_wait_initialize(wait,&f->wait);
     struct pollfd *native=md_poll_native(f);
     unsigned words=(p->count+63U)/64;
@@ -76,6 +94,8 @@ int md_poll_wait_task(struct md_poll_wait *p,struct md_epoll_wait *wait,struct m
     for (unsigned i=0;i<p->count;++i) {
         struct item *item=&p->items[i];
         struct md_control_file provider=md_fd_object_readiness(item->object);
+        if (item->object && item->object->type->task_poll && item->poll.revents!=POLLNVAL)
+            item->poll.revents=0;
         p->sources[i]=(struct pollfd){-1,0,0};
         if (provider.ops && provider.ops->poll) {
             long mask=provider.ops->poll(provider.context);
@@ -107,6 +127,9 @@ int md_poll_wait_task(struct md_poll_wait *p,struct md_epoll_wait *wait,struct m
             native[i]=item->poll; native[i].revents=0;
             item->poll.revents=0;
         }
+        long task=task_ready(item,actor);
+        if (task<0) { *result=task; return 0; }
+        item->poll.revents|=(short)task&(item->poll.events|POLLERR|POLLHUP);
         ready+=!!item->poll.revents;
     }
     if (completed && !probe && (ready || md_event_now()>=wait->deadline)) { *result=ready; return 0; }
@@ -127,10 +150,10 @@ int md_poll_wait_task(struct md_poll_wait *p,struct md_epoll_wait *wait,struct m
         }
         uintptr_t bits=vector+p->count*sizeof(*native);
         f->signal[0]=mask; f->signal[1]=8;
-        *call=(struct md_task_call_arguments){SYS_pselect6,{p->count,bits,bits+words*sizeof(*sets),
+        *call=(struct md_task_call_arguments){.number=SYS_pselect6,.value={p->count,bits,bits+words*sizeof(*sets),
             bits+2*words*sizeof(*sets),timeout,mask ? address+offsetof(struct md_poll_frame,signal) : 0}};
-    } else *call=(struct md_task_call_arguments){SYS_ppoll,{vector,p->count,timeout,mask,8}};
-    if (wait->blocking) {
+    } else *call=(struct md_task_call_arguments){.number=SYS_ppoll,.value={vector,p->count,timeout,mask,8}};
+    if (wait->blocking && p->virtual) {
         /* EVENT_WAIT: provider readiness only. The caller's native wait owns
          * its signal mask and deadline; its completion cancels this helper. */
         long args[5]={(long)p->sources,p->count,0,0,8};

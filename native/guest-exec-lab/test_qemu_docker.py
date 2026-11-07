@@ -101,7 +101,7 @@ def main():
         thread.start()
         endpoint = 'http://10.0.2.2:' + str(server.server_port)
         for name in ('vmlinuz-virt', 'initramfs-virt'):
-            suite.transport.upload(suite.client, directory / 'boot' / name, suite.base + '/' + name)
+            suite.upload(directory / 'boot' / name, suite.base + '/' + name)
         # Only the private fixture directory is attached. No Android root or KVM.
         suite.command(suite.run(args.instance, '--', '/bin/mkdir', '-p', '/vm'))
         command = ['qemu-system-aarch64', '-machine', 'virt', '-cpu', 'cortex-a72',

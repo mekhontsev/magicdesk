@@ -202,7 +202,10 @@ static void noexec_transfer(void) {
             .msg_control=control.bytes,.msg_controllen=sizeof(control.bytes)};
         /* EVENT_WAIT: sender publishes an origin from the other mount view;
          * the fixture alarm cancels a missing message, not namespace setup. */
-        assert(recvmsg(channel[1],&message,MSG_CMSG_CLOEXEC)==1 && !(message.msg_flags&(MSG_TRUNC|MSG_CTRUNC)));
+        ssize_t received=recvmsg(channel[1],&message,MSG_CMSG_CLOEXEC);
+        if (received!=1 || (message.msg_flags&(MSG_TRUNC|MSG_CTRUNC)))
+            fprintf(stderr,"noexec receive: result=%zd errno=%d flags=%x\n",received,errno,message.msg_flags);
+        assert(received==1 && !(message.msg_flags&(MSG_TRUNC|MSG_CTRUNC)));
         struct cmsghdr *header=CMSG_FIRSTHDR(&message);
         assert(header && header->cmsg_level==SOL_SOCKET && header->cmsg_type==SCM_RIGHTS
             && header->cmsg_len==CMSG_LEN(sizeof(int)));
@@ -231,7 +234,10 @@ static void noexec_transfer(void) {
     header->cmsg_level=SOL_SOCKET; header->cmsg_type=SCM_RIGHTS; header->cmsg_len=CMSG_LEN(sizeof(int));
     memcpy(CMSG_DATA(header),&fd,sizeof(fd));
     assert(sendmsg(channel[0],&message,0)==1);
-    close(fd); assert(!umount2("/alias",MNT_DETACH));
+    close(fd);
+    int detached=umount2("/alias",MNT_DETACH);
+    if (detached) perror("noexec detach");
+    assert(!detached);
     assert(write(channel[0],"g",1)==1); close(channel[0]);
     /* EVENT_WAIT: receiver checks mapping policy after transfer; alarm bounds failure. */
     int status; assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));

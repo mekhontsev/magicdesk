@@ -1,12 +1,12 @@
 #ifndef MD_TASK_CHECKPOINT_H
 #define MD_TASK_CHECKPOINT_H
+#include "interception.h"
 #include <stdint.h>
 #include <sys/types.h>
 
 /* Internal event, not a kernel signal or an application debugger stop.
  * Registers retain the kernel's post-SVC PC, already at the continuation. */
 #define MD_TASK_CHECKPOINT_EVENT 256
-#define MD_INTERCEPT_CHECKPOINT 55
 #define MD_TASK_CHECKPOINT_BUCKETS 256
 struct md_task_checkpoint;
 struct md_task_checkpoints {

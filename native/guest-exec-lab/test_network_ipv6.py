@@ -533,7 +533,7 @@ def main():
     target = '/tmp/md-ipv6-' + suite.report['id']
     info = suite.installed_environment(args.name)
     try:
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/ipv6.py')
+        suite.upload(Path(__file__), suite.base + '/ipv6.py')
         suite.command(suite.guest(info['store'], '--user', '0:0', '--', '/bin/mkdir', target))
         suite.command(suite.guest(info['store'], '--user', '0:0', '--network', 'bridge',
             '--dns', '2001:db8::53', '--bind-ro', suite.base, target, '--deadline-seconds', '90',
@@ -556,7 +556,7 @@ def main():
         if args.internet:
             from docker_network_fixture import internet_ipv6
             internet_ipv6()
-            suite.transport.upload(suite.client, Path(__file__).with_name('docker_network_fixture.py'),
+            suite.upload(Path(__file__).with_name('docker_network_fixture.py'),
                                    suite.base + '/uplink.py')
             for mode in ('routed', 'bridge'):
                 suite.command(suite.guest(info['store'], '--user', '0:0', '--network', mode,

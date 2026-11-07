@@ -5,16 +5,41 @@
 #include <linux/kcmp.h>
 #include <stdatomic.h>
 #include <stdlib.h>
+#include <sys/prctl.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
-struct md_ofd_orders { atomic_uint refs; pthread_mutex_t lock; struct md_ofd_entry *first; };
+#ifndef F_DUPFD_QUERY
+#define F_DUPFD_QUERY 1027
+#endif
+enum comparison { UNKNOWN, QUERY, KCMP, INODE };
+struct md_ofd_orders { atomic_uint refs; pthread_mutex_t lock; struct md_ofd_entry *first; enum comparison comparison; };
 struct md_ofd_entry {
     struct md_ofd_entry *next;
     struct md_resource_queue queue;
     unsigned refs;
     int fd;
+    dev_t device;
+    ino_t inode;
 };
+static int comparison(struct md_ofd_orders *q,int fd) {
+    if (q->comparison) return 0;
+    int result=fcntl(fd,F_DUPFD_QUERY,fd);
+    if (result==1) { q->comparison=QUERY; return 0; }
+    if (result>=0) return -EIO;
+    if (errno!=EINVAL && errno!=ENOSYS && errno!=EPERM && errno!=EACCES) return -errno;
+    /* An inherited filter may kill kcmp instead of returning an errno. Never
+     * probe it in a filtered owner. Coarser ordering preserves cursor safety;
+     * it does not claim that separate opens share an open description. */
+    if (prctl(PR_GET_SECCOMP,0,0,0,0)==0) {
+        long same=syscall(SYS_kcmp,getpid(),getpid(),KCMP_FILE,fd,fd);
+        if (!same) { q->comparison=KCMP; return 0; }
+        if (same>=0) return -EIO;
+        if (errno!=ENOSYS && errno!=EPERM && errno!=EACCES) return -errno;
+    }
+    q->comparison=INODE; return 0;
+}
 int md_ofd_orders_new(struct md_ofd_orders **out) {
     if (!out || *out) return -EINVAL;
     struct md_ofd_orders *q=calloc(1,sizeof(*q));
@@ -48,17 +73,25 @@ int md_ofd_order_begin(struct md_ofd_orders *q, int fd, int reserve,
     if (op->owner || op->entry || op->order.queue) return -EBUSY;
     pthread_mutex_lock(&q->lock);
     struct md_ofd_entry *entry=q->first;
-    int error=0;
-    for (;entry;entry=entry->next) {
-        long same=syscall(SYS_kcmp,getpid(),getpid(),KCMP_FILE,fd,entry->fd);
-        if (!same) break;
-        if (same<0) { error=-errno; break; }
+    int error=entry || reserve ? comparison(q,fd) : 0;
+    struct stat st={0};
+    if (!error && (entry || reserve) && q->comparison==INODE && fstat(fd,&st)) error=-errno;
+    for (;!error && entry;entry=entry->next) {
+        if (q->comparison==INODE) {
+            if (entry->device==st.st_dev && entry->inode==st.st_ino) break;
+        } else {
+            long same=q->comparison==QUERY ? fcntl(fd,F_DUPFD_QUERY,entry->fd)
+                : syscall(SYS_kcmp,getpid(),getpid(),KCMP_FILE,fd,entry->fd);
+            if (same<0) { error=-errno; break; }
+            if (q->comparison==QUERY ? same!=0 : same==0) break;
+        }
     }
     if (!error && !entry && reserve) {
         entry=calloc(1,sizeof(*entry));
         if (!entry) error=-ENOMEM;
         else {
             entry->fd=fcntl(fd,F_DUPFD_CLOEXEC,0);
+            entry->device=st.st_dev; entry->inode=st.st_ino;
             if (entry->fd<0) error=-errno;
             else error=md_resource_queue_init(&entry->queue);
             if (error) { if (entry->fd>=0) close(entry->fd); free(entry); entry=NULL; }

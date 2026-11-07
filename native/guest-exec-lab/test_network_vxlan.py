@@ -258,7 +258,7 @@ def main():
     created = False
     try:
         prefix = suite.guest(suite.installed_environment(args.environment)['store'], '--user', '0:0')
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/test.py')
+        suite.upload(Path(__file__), suite.base + '/test.py')
         suite.command(prefix + ['--', '/bin/mkdir', target])
         created = True
         suite.command(prefix + ['--bind-ro', suite.base, target, '--network', 'routed', '--deadline-seconds', '180', '--',

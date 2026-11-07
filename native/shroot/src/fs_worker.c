@@ -443,7 +443,12 @@ int md_fs_worker_dispatch(struct md_fs_worker *w) {
         if (w->statistics) md_cost_end(&w->completion,start);
         if (!error) error=result;
     }
-    return error ? error : md_fs_worker_error(w);
+    if (error) fprintf(stderr,"Shroot: filesystem completion failed: %s (%d)\n",strerror(-error),error);
+    else {
+        error=md_fs_worker_error(w);
+        if (error) fprintf(stderr,"Shroot: filesystem service failed: %s (%d)\n",strerror(-error),error);
+    }
+    return error;
 }
 int md_fs_worker_stop(struct md_fs_worker *w) {
     if (!w) return 0;

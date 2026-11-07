@@ -74,6 +74,7 @@ static long native_metadata_fallback(const struct md_fs *fs,long nr,const unsign
 }
 
 long md_file_call(const struct md_fs *fs, const char *exe, long nr, const unsigned long *a) {
+    if (nr==SYS_readlinkat && (int)a[3]<=0) return -EINVAL;
     if (nr==SYS_pipe2) return md_descriptor_pair(nr,a);
     if (nr==SYS_fsync || nr==SYS_fdatasync || nr==SYS_syncfs)
         return fs->endpoint[0] ? md_namespace_call(fs,exe,nr,a) : md_raw(nr,a[0],0,0,0,0,0);
@@ -93,7 +94,7 @@ long md_file_call(const struct md_fs *fs, const char *exe, long nr, const unsign
         long known=md_descriptor_kind((int)a[0]);
         if (known<0) return known;
         if (known==MD_DESCRIPTOR_ANONYMOUS)
-            return nr==SYS_readlinkat ? -EINVAL : md_descriptor_metadata(fs,(int)a[0],nr,a);
+            return nr==SYS_readlinkat ? -ENOENT : md_descriptor_metadata(fs,(int)a[0],nr,a);
         if (known && (known!=MD_DESCRIPTOR_FILESYSTEM || nr==SYS_getdents64)) {
             long result=md_proc_control_metadata(&(struct md_proc_path){.process=(int)RAW0(gettid),.descriptor=(int)a[0]},nr,a);
             if (result!=-EXDEV) return result;

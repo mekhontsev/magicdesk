@@ -333,7 +333,7 @@ def main():
     runner = suite.guest(args.store, '--user', '0:0', '--network', args.network)
     created = False
     try:
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/probe.py')
+        suite.upload(Path(__file__), suite.base + '/probe.py')
         suite.command(runner + ['--', '/bin/mkdir', target], quiet=True)
         created = True
         output = suite.command(runner + ['--bind-ro', suite.base, target, '--deadline-seconds', '180', '--',

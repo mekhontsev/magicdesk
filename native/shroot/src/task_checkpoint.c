@@ -15,11 +15,11 @@
 #ifndef PTRACE_SYSEMU
 #define PTRACE_SYSEMU 31
 #endif
-enum { EMULATING=1, SKIPPED_EXIT, NATIVE_ENTRY, MARKER_INTERRUPT };
+enum { EMULATING=1, SKIPPED_EXIT, NATIVE_ENTRY, MARKER_INTERRUPT, MARKER_REARM };
 struct md_task_checkpoint {
     struct md_task_checkpoint *next;
     pid_t pid;
-    int scoped,stage,suspended;
+    int scoped,stage,suspended,emulated;
     uintptr_t marker;
     int registers_valid,event_valid,info_valid;
     long info_size;
@@ -35,8 +35,16 @@ static struct md_task_checkpoint *find(struct md_task_checkpoints *m,pid_t pid,i
     if (c) { c->pid=pid; c->next=*bucket; *bucket=c; ++m->count; }
     return c;
 }
+static long forward(struct md_task_checkpoints *m,struct md_task_checkpoint *c,
+        int request,pid_t pid,void *address,void *data) {
+    long result=m->trace(request,pid,address,data);
+    if (result>=0 && c && !c->suspended && (request==PTRACE_CONT || request==PTRACE_SYSCALL
+            || request==PTRACE_SINGLESTEP || request==PTRACE_SYSEMU))
+        c->emulated=request==PTRACE_SYSEMU;
+    return result;
+}
 static int trace(struct md_task_checkpoints *m,int request,pid_t pid,void *address,void *data) {
-    return m->trace(request,pid,address,data)<0 ? -errno : 0;
+    return forward(m,find(m,pid,0),request,pid,address,data)<0 ? -errno : 0;
 }
 static int regs(struct md_task_checkpoints *m,pid_t pid,int request,struct user_pt_regs *r) {
     struct iovec io={r,sizeof(*r)};
@@ -48,7 +56,8 @@ static void forget(struct md_task_checkpoints *m,pid_t pid) {
     if (*at) { struct md_task_checkpoint *c=*at; *at=c->next; free(c); --m->count; }
 }
 long md_task_checkpoint_trace(struct md_task_checkpoints *m,int request,pid_t pid,void *address,void *data) {
-    struct md_task_checkpoint *c=find(m,pid,0);
+    struct md_task_checkpoint *c=find(m,pid,request==PTRACE_SYSEMU);
+    if (!c && request==PTRACE_SYSEMU) { errno=ENOMEM; return -1; }
     if (c && c->suspended) return m->trace(request,pid,address,data);
     if (c && (c->registers_valid || c->event_valid || c->info_valid)) {
         /* Each observation is handed off once within this stop. Only the
@@ -89,6 +98,13 @@ long md_task_checkpoint_trace(struct md_task_checkpoints *m,int request,pid_t pi
         }
     }
     if (request==PTRACE_CONT) {
+        if (c && c->stage==MARKER_REARM) {
+            /* A group stop can consume INTERRUPT's JOBCTL_TRAP_STOP without
+             * reporting SIGTRAP. Rearm before executing beyond the marker;
+             * LISTEN instead keeps the original group stop and awaits CONT. */
+            if (m->trace(PTRACE_INTERRUPT,pid,NULL,NULL)<0) return -1;
+            c->stage=MARKER_INTERRUPT;
+        }
         if (c && (c->stage==SKIPPED_EXIT || c->stage==NATIVE_ENTRY)) request=PTRACE_SYSCALL;
         else if (c && c->stage!=MARKER_INTERRUPT && c->scoped && m->restricted(pid)) {
             request=PTRACE_SYSEMU; c->stage=EMULATING;
@@ -96,7 +112,7 @@ long md_task_checkpoint_trace(struct md_task_checkpoints *m,int request,pid_t pi
     } else if (request==PTRACE_SYSCALL || request==PTRACE_SINGLESTEP || request==PTRACE_SYSEMU) {
         if (c) c->stage=0;
     }
-    return m->trace(request,pid,address,data);
+    return forward(m,c,request,pid,address,data);
 }
 static int marker(struct md_task_checkpoints *m,struct md_task_checkpoint *c,pid_t pid,
         uintptr_t pc,unsigned long command,int emulated,int *status) {
@@ -139,9 +155,10 @@ static int checkpoint_event(struct md_task_checkpoints *m,pid_t pid,int *status)
         if (info.op!=PTRACE_SYSCALL_INFO_SECCOMP) return -EPROTO;
         unsigned long cookie=info.seccomp.ret_data;
         if (cookie!=MD_INTERCEPT_CHECKPOINT && (!c || !c->scoped)) return 0;
-        if (cookie!=MD_INTERCEPT_CHECKPOINT && !m->marker(info.instruction_pointer)) {
+        if (!m->marker(info.instruction_pointer) && (m->begin || cookie!=MD_INTERCEPT_CHECKPOINT)) {
             /* Ordinary syscall owners may need only this entry record.
              * Do not eagerly capture full registers for compact handlers. */
+            c=find(m,pid,1); if (!c) return -ENOMEM;
             c->event=cookie; c->event_valid=1;
             /* Preserve the kernel's exact byte count. Future larger records
              * fall back instead of publishing a truncated snapshot. */
@@ -154,8 +171,9 @@ static int checkpoint_event(struct md_task_checkpoints *m,pid_t pid,int *status)
         return marker(m,c,pid,info.instruction_pointer,info.seccomp.args[0],0,status);
     }
     if (!c || !c->stage) return 0;
-    if (c->stage==MARKER_INTERRUPT) {
-        if (event!=PTRACE_EVENT_STOP || signal!=SIGTRAP) return 0;
+    if (c->stage==MARKER_INTERRUPT || c->stage==MARKER_REARM) {
+        if (event!=PTRACE_EVENT_STOP) return 0;
+        if (signal!=SIGTRAP) { c->stage=MARKER_REARM; return 0; }
         struct user_pt_regs r;
         int error=regs(m,pid,PTRACE_GETREGSET,&r); if (error) return error;
         if (r.pc!=c->marker) return -EPROTO;
@@ -205,7 +223,9 @@ int md_task_checkpoint_suspend(struct md_task_checkpoints *m,pid_t pid) {
     if (c->suspended) return -EBUSY;
     c->registers_valid=c->event_valid=c->info_valid=0;
     c->suspended=1;
-    return c->stage==EMULATING;
+    /* Kernel skip state survives register edits and is independent of which
+     * owner requested SYSEMU or will decode the next stop. */
+    return c->emulated;
 }
 void md_task_checkpoint_restore(struct md_task_checkpoints *m,pid_t pid) {
     struct md_task_checkpoint *c=find(m,pid,0);

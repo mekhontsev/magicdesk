@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""Stock namespace consumers in a prepared disposable userspace, actual shell."""
+"""Stock namespace consumers in a prepared userspace, under either executor."""
 import argparse
-import importlib.util
-import json
 from pathlib import Path
 import shlex
-import tomllib
-import uuid
+from fixture_executor import FixtureExecutor
+from test_oci_services import Suite
 
 
 def main():
@@ -15,46 +13,19 @@ def main():
     parser.add_argument('store')
     parser.add_argument('--trace', action='store_true')
     parser.add_argument('--case', choices=('all', 'basic', 'split-root', 'readonly', 'identity', 'nested', 'pid', 'pid-debugger'), default='all')
+    FixtureExecutor.add_argument(parser)
     args = parser.parse_args()
-    repo = Path(__file__).resolve().parents[2]
-    spec = importlib.util.spec_from_file_location('transport', repo / 'scripts/mcp-client.py')
-    transport = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(transport)
-    config = tomllib.loads((Path.home() / '.codex/config.toml').read_text())['mcp_servers']['magicdesk']
-    client = transport.Client(config['url'], config['http_headers']['Authorization'].removeprefix('Bearer '))
-    state = client.call('get_state')
-    assert state['shell']['uid'] == 2000
-    tag = uuid.uuid4().hex
-    base = '/data/local/tmp/md-namespace-apps-' + tag
-    session = client.call('console.open', {'directory': '/data/local/tmp'})['sessionId']
-    report = {'id': tag, 'directory': base, 'device': state['device'], 'app': state['app'],
-              'store': args.store, 'checks': [], 'passed': False}
+    suite = Suite(args.build, args.build, executor=args.executor)
+    suite.report['store'] = args.store
 
     def command(argv, marker=None, logged=False):
-        text = shlex.join(map(str, argv))
-        log = base + '/command.log'
-        invocation = text + ' >' + shlex.quote(log) + ' 2>&1' if logged else text
-        result = client.call('console.execute', {'sessionId': session, 'command': invocation})
-        if logged:
-            local = args.build / ('namespace-apps-' + tag + '-' + str(len(report['checks'])) + '.log')
-            transport.download(client, log, local)
-            result['output'] = local.read_text(errors='replace')
-            result['log'] = str(local)
-        passed = result['exitCode'] == 0 and (marker is None or marker in result['output'])
-        report['checks'].append({'command': text, 'passed': passed, **result})
-        print(result['output'], end='', flush=True)
-        assert passed, text
-        return result
+        output = suite.command(argv, quiet=logged)
+        assert marker is None or marker in output, output
+        return {'output': output, 'log': str(suite.output)}
 
     try:
-        command(['mkdir', base])
-        for name in ('bootstrap', 'supervisor', 'run', 'service'):
-            filename = 'libmagicdesk_guest_' + name + '.so'
-            destination = base + '/' + filename
-            transport.upload(client, args.build / filename, destination)
-            command(['chmod', '700', destination])
         command(['id'])
-        run = [base + '/libmagicdesk_guest_run.so', '--store', args.store,
+        run = [suite.runner, '--store', args.store,
                '--user', '2000:2000', '--deadline-seconds', '60', '--diagnostics', '--']
         command(run + ['/usr/bin/bwrap', '--version'])
         trace = ['/usr/bin/strace', '-f', '-s', '160'] if args.trace else []
@@ -116,12 +87,12 @@ def main():
             result = command(run + trace + ['/usr/bin/bwrap', '--unshare-user', '--unshare-uts',
                                            '--unshare-ipc'] + arguments, marker, logged=True)
             assert 'ptrace_syscall_info.op ==' not in result['output'], result['log']
-        report['passed'] = True
+        suite.report['passed'] = True
     finally:
-        client.call('console.close', {'sessionId': session})
-        output = args.build / ('namespace-apps-' + tag + '.json')
-        output.write_text(json.dumps(report, indent=2) + '\n')
-        print('Report:', output, flush=True)
+        try:
+            suite.command(['rm', '-rf', suite.base], quiet=True)
+        finally:
+            suite.finish()
 
 
 if __name__ == '__main__':

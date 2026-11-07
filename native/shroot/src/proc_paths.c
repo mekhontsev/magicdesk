@@ -194,7 +194,11 @@ struct md_proc_path md_proc_path_for(const char *path,int tid,int tgid) {
             out.tail=p; out.anchor_length=(size_t)(p-path); return out;
         }
         if (word(&p,"self")) { out.process=tgid; out.ordinary_link=!*p; }
-        else if (word(&p,"thread-self")) { out.process=tid; out.ordinary_link=!*p; }
+        else if (word(&p,"thread-self")) {
+            out.process=tid; out.ordinary_link=!*p;
+            const char *next=p;
+            if (word(&next,"task")) return out;
+        }
         else {
             long pid = number(&p);
             if (pid < 0) return out;
@@ -227,6 +231,12 @@ struct md_proc_path md_proc_path_for(const char *path,int tid,int tgid) {
         else if (word(&p,"status")) out.kind=MD_PROC_STATUS;
         else if (word(&p,"stat")) out.kind=MD_PROC_STAT;
         else if (word(&p,"limits")) out.kind=MD_PROC_LIMITS;
+        else if (word(&p,"oom_score_adj")) out.kind=MD_PROC_OOM_SCORE_ADJ;
+        else if (word(&p,"oom_adj")) out.kind=MD_PROC_OOM_ADJ;
+        else if (word(&p,"io")) out.kind=MD_PROC_IO;
+        else if (word(&p,"wchan")) out.kind=MD_PROC_WCHAN;
+        else if (word(&p,"syscall")) out.kind=MD_PROC_SYSCALL;
+        else if (word(&p,"stack")) out.kind=MD_PROC_STACK;
         else if (word(&p,"cgroup")) out.kind=MD_PROC_CGROUP;
         else if (word(&p,"net")) out.kind=network_table(&p);
         else if (word(&p, "mounts")) out.kind = MD_PROC_MOUNTS;
@@ -261,6 +271,8 @@ int md_proc_task_path(const char *path, char *out, size_t capacity) {
     if (*p!='/' || !word(&p,"proc") || !word(&p,"thread-self"))
         return md_copy(out,capacity,path);
     char prefix[64]="/proc/";
+    md_decimal(prefix+md_length(prefix),(unsigned)RAW0(getpid));
+    md_append(prefix,sizeof(prefix),"/task/");
     md_decimal(prefix+md_length(prefix),(unsigned)RAW0(gettid));
     int error=md_copy(out,capacity,prefix);
     return error ? error : md_append(out,capacity,p);

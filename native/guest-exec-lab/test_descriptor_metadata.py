@@ -216,7 +216,7 @@ def main():
     prefix = [suite.runner, '--store', args.store, '--user', '0:0', '--network', args.network,
               *suite.entry_options, '--deadline-seconds', '60']
     try:
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/fixture.py')
+        suite.upload(Path(__file__), suite.base + '/fixture.py')
         suite.command(prefix + ['--', '/bin/mkdir', target])
         run = prefix + ['--bind-ro', suite.base, target, '--']
         for namespace in ([], ['/usr/bin/unshare', '--user', '--map-users=0:0:65536',

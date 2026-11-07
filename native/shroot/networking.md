@@ -760,6 +760,10 @@ selected logical network namespace. Logical addresses, ports and guest owner IDs
 come from the endpoint model; the matching native socket inode supplies kernel
 state and queue counters. This is not a dump of Android's host sockets. The
 IPv4 and IPv6 tables project their corresponding live endpoint families.
+When host policy denies the native tables, owned endpoints remain visible with
+their managed bind/listen/connect state. Native queue, timer and retry counters
+are then zero; TCP shutdown substates are not observed. This fallback requires
+neither retained socket descriptions nor interception of ordinary stream IO.
 Unowned terminal entries such as TIME_WAIT sockets are not synthesized.
 An open retains its selected namespace across setns; dup shares the offset,
 and reading from offset zero refreshes the snapshot. Unmanaged host networking

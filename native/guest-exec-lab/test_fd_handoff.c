@@ -1714,7 +1714,7 @@ static void atomic_install(const char *directory, int available, int protected, 
             if (available) assert(!close(previous));
         }
         long result=syscall(SYS_getppid);
-        if (!available || cancel==2) assert(result==-1 && errno==(!available ? EMFILE : ECANCELED));
+        if (!available || cancel==2 || cancel==7) assert(result==-1 && errno==(!available ? EMFILE : ECANCELED));
         else {
             assert(result>=0 && lseek((int)result,0,SEEK_CUR)==11);
             assert(fcntl((int)result,F_GETFD)==(cloexec ? FD_CLOEXEC : 0));
@@ -1731,9 +1731,12 @@ static void atomic_install(const char *directory, int available, int protected, 
     struct md_fd_order previous={0}, next={0};
     if (cancel==2 || cancel>=4) assert(md_fd_order_begin(files,&previous,NULL)==1 && !md_fd_order_start(&previous));
     struct md_fd_install operation={0};
-    assert(!md_fd_install_begin(&operation,files,notify,request.id,source,md_fs_anchor_object(origin),cloexec ? O_CLOEXEC : 0,NULL));
+    if (cancel>=6) {
+        assert(!md_fd_install_borrow(&operation,&previous,notify,request.id,source,
+            md_fs_anchor_object(origin),cloexec ? O_CLOEXEC : 0));
+    } else assert(!md_fd_install_begin(&operation,files,notify,request.id,source,md_fs_anchor_object(origin),cloexec ? O_CLOEXEC : 0,NULL));
     assert(!md_fd_order_begin(files,&next,NULL));
-    if (cancel>=3) {
+    if (cancel>=3 && cancel<6) {
         uint64_t previous_notification=request.id;
         assert(!kill(child,SIGUSR1));
         char byte;
@@ -1762,9 +1765,11 @@ static void atomic_install(const char *directory, int available, int protected, 
         assert(waitpid(child,&status,0)==child && WIFSIGNALED(status) && WTERMSIG(status)==SIGKILL);
         assert(md_fd_install_progress(&operation)==MD_FD_INSTALL_CANCELLED);
     } else {
-        if (cancel==2) {
-            assert(md_fd_install_progress(&operation)==MD_FD_INSTALL_WAIT);
-            assert(!md_fd_install_cancel(&operation) && !md_fd_order_complete(&previous));
+        if (cancel==2 || cancel==7) {
+            if (cancel==2) assert(md_fd_install_progress(&operation)==MD_FD_INSTALL_WAIT);
+            assert(!md_fd_install_cancel(&operation));
+            assert(md_fd_order_state(&previous)==MD_RESOURCE_ORDER_RUNNING);
+            assert(!md_fd_order_complete(&previous));
             result=-ECANCELED;
         } else {
             result=md_fd_install_progress(&operation);
@@ -1786,6 +1791,11 @@ static void atomic_install(const char *directory, int available, int protected, 
         assert(waitpid(child,&status,0)==child && WIFEXITED(status) && !WEXITSTATUS(status));
     }
     assert(!operation.files.table && !operation.retire_error && !md_fd_install_cancel(&operation));
+    if (cancel==6) {
+        assert(md_fd_order_state(&previous)==MD_RESOURCE_ORDER_RUNNING);
+        assert(md_fd_order_state(&next)==MD_RESOURCE_ORDER_QUEUED);
+        assert(!md_fd_order_complete(&previous));
+    }
     assert(md_fd_order_state(&next)==MD_RESOURCE_ORDER_READY && !md_fd_order_cancel(&next));
     close(notify); close(sockets[0]); close(source);
     md_fd_origins_release(files); md_fs_anchor_release(origin); md_mount_namespace_release(view);
@@ -1828,6 +1838,8 @@ int main(int argc, char **argv) {
         atomic_install(argv[1],1,protected,cloexec,3);
         atomic_install(argv[1],1,protected,cloexec,4);
         atomic_install(argv[1],1,protected,cloexec,5);
+        atomic_install(argv[1],1,protected,cloexec,6);
+        atomic_install(argv[1],1,protected,cloexec,7);
     }
     puts("PASS production atomic FD installation: protected receivers, 0/1 slots, CLOEXEC, origin ordering, queued cancellation, dead recipient and signal restart");
     retained_receipt(argv[1],0,0);

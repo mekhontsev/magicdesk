@@ -99,12 +99,13 @@ unlink, including stale listeners; existing connections survive unlink/rebind.
 Format 17 is the compatibility baseline. SQLite `application_id=0x53485254`
 identifies Shroot, `user_version=17` identifies the storage family, and the
 `properties` row `schema-revision` identifies the metadata revision (initially 1,
-currently 4). Revision 2 adds native-publication intents and large directory-cookie
+currently 5). Revision 2 adds native-publication intents and large directory-cookie
 mappings. Revision 3 replaces fixed overlay-attribute slots with named logical
 xattrs, preserving existing overlay values and tombstones. Guest `trusted.*`
 attributes use the same inode identity and guest capability checks; they do not
 require Android trusted-xattr permissions. Revision 4 adds stable directory-entry
 identities for exact descriptor paths, backfilled from the existing namespace.
+Revision 5 admits store-relative shared-source paths; absolute rows remain readable.
 These revisions do not move installed
 data or change image import identity.
 Admission validates those markers before current-schema namespace queries or
@@ -149,6 +150,16 @@ revision with their metadata. Checkpoint and directory-sync errors propagate.
 This recovery contract is tested with process death and injected errors, not a
 claim of physical power-loss testing. Concurrent preparation reports busy instead
 of racing another owner. Current WAL/revision stores retain shared admission.
+
+Source paths are resolved once against the owning store at admission, then held
+as directory descriptors with the existing device/inode validation and leases.
+Snapshot copying and staged image publication rebase relative paths before commit.
+Offline library relocation refuses shared sources outside the physical library,
+including symlink escapes, and acquires the catalog and every source/store lifetime
+lease before converting references and renaming the complete tree. Partial
+conversion leaves the old location usable; an occupied destination is never
+replaced. This is a same-filesystem move, not a portable copy: backup/restore
+materializes shared bodies and reconstructs their physical identities elsewhere.
 
 Guest names, stable object IDs, ownership/ACLs, file-path ambiguity history,
 backing/source references, allocation inventory and namespace counters are

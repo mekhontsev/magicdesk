@@ -20,7 +20,7 @@ def main():
     suite.report['store'] = args.store
     try:
         source = Path(__file__).with_name('test_glycin_loader.py')
-        suite.transport.upload(suite.client, source, suite.base + '/loader.py')
+        suite.upload(source, suite.base + '/loader.py')
         target = '/tmp/md-glycin-' + suite.report['id']
         base = [suite.runner, '--store', args.store, '--user', '2000:2000']
         if args.trace:
@@ -30,7 +30,7 @@ def main():
         suite.report['fixturePackages'] = []
         for index, package in enumerate(args.fixture_deb):
             name = 'fixture-' + str(index) + '.deb'
-            suite.transport.upload(suite.client, package, suite.base + '/' + name)
+            suite.upload(package, suite.base + '/' + name)
             setup = [suite.runner, '--store', args.store, '--user', '0:0', '--bind-ro', suite.base, target,
                      '--deadline-seconds', '60', '--', '/usr/bin/dpkg-deb']
             suite.report['fixturePackages'].append(suite.command(setup + ['-f', target + '/' + name]))

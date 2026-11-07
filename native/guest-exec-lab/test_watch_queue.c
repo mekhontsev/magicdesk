@@ -149,7 +149,7 @@ static void native_control(void) {
         zero, zero_error, vector, vector_error);
     CHECK(zero == -1 && zero_error == EAGAIN);
     CHECK(vector == -1 && vector_error == EAGAIN);
-    char path[] = "/data/local/tmp/md-watch-control-XXXXXX";
+    char path[] = "md-watch-control-XXXXXX";
     int file = mkstemp(path); CHECK(file >= 0);
     int wd = inotify_add_watch(fd, path, IN_MODIFY); CHECK(wd >= 0);
     CHECK(!unlink(path)); CHECK(write(file, "x", 1) == 1);

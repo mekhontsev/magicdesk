@@ -1,6 +1,10 @@
 #ifndef MD_SYSCALL_CATALOG_H
 #define MD_SYSCALL_CATALOG_H
 /* Shared by kernel interception, cooperative routing and task dispatch. */
+/* No guest provider: neither keyrings nor POSIX queue IO may reach Android. */
+#define MD_UNAVAILABLE_CALLS(X) \
+    X(add_key) X(request_key) X(keyctl) \
+    X(mq_open) X(mq_unlink) X(mq_timedsend) X(mq_timedreceive) X(mq_notify) X(mq_getsetattr)
 #define MD_FILE_TASK_CALLS(X) \
     X(pipe2) X(openat2) X(lseek) \
     X(fsync) X(fdatasync) X(syncfs) \

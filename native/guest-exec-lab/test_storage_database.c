@@ -8,6 +8,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -17,6 +18,24 @@ static unsigned descriptors(void) {
     unsigned count=0; struct dirent *entry;
     while ((entry=readdir(dir))) if (entry->d_name[0]!='.') ++count;
     assert(!closedir(dir)); return count;
+}
+static void temporary(void) {
+    char path[]="database-temporary-XXXXXX"; assert(mkdtemp(path));
+    char *absolute=realpath(path,NULL); assert(absolute);
+    assert(md_database_temporary_directory(path)==-EINVAL);
+    assert(!md_database_temporary_directory(absolute));
+    assert(sqlite3_temp_directory!=absolute && !strcmp(sqlite3_temp_directory,absolute));
+    sqlite3_vfs *vfs=sqlite3_vfs_find("unix"); assert(vfs);
+    sqlite3_file *file=calloc(1,(size_t)vfs->szOsFile); assert(file);
+    int flags=SQLITE_OPEN_READWRITE|SQLITE_OPEN_CREATE|SQLITE_OPEN_EXCLUSIVE
+        |SQLITE_OPEN_DELETEONCLOSE|SQLITE_OPEN_TEMP_DB;
+    assert(vfs->xOpen(vfs,NULL,file,flags,NULL)==SQLITE_OK);
+    assert(file->pMethods->xWrite(file,"temp",4,0)==SQLITE_OK);
+    char contents[4];
+    assert(file->pMethods->xRead(file,contents,4,0)==SQLITE_OK && !memcmp(contents,"temp",4));
+    assert(file->pMethods->xClose(file)==SQLITE_OK); free(file);
+    assert(!md_database_temporary_directory(NULL));
+    free(absolute); assert(!rmdir(path));
 }
 static void execute(sqlite3 *db,const char *sql) {
     int r=sqlite3_exec(db,sql,NULL,NULL,NULL);
@@ -137,6 +156,7 @@ static void exhausted(void) {
 }
 void test_storage_database(void) {
     assert(sqlite3_threadsafe()!=0);
+    temporary();
     concurrent();
     retained("PRAGMA journal_mode=WAL");
     retained("PRAGMA journal_mode=PERSIST");

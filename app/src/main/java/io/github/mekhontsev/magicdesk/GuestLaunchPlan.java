@@ -50,6 +50,7 @@ public record GuestLaunchPlan(GuestEnvironment environment, String directory, Li
     }
 
     public static void requireIdentity(int uid) {
-        if (uid != 2000 && uid != 0) throw new IllegalStateException("Shroot requires the selected shell or root executor");
+        if (uid != 2000 && uid != 0 && !(uid >= 10000 && uid % 100000 >= 10000 && uid % 100000 <= 19999))
+            throw new IllegalStateException("Shroot is unavailable for the selected executor");
     }
 }

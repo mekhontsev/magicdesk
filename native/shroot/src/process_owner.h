@@ -13,6 +13,9 @@ long md_process_signals_restore(const struct md_process_signals *);
 /* Drain pending supervisor signals; return the first cancellation signal or zero. */
 long md_process_signals_read(int fd);
 long md_process_signal(int pidfd, int signal);
+/* Revalidate wait ownership after pinning the PID; a reused/nonchild PID is
+ * never signalled. Works even when host proc enumeration hides the child. */
+long md_process_signal_child(int pid, int signal);
 long md_process_signal_children(int signal);
 long md_process_close_fds(const int *keep, unsigned count);
 int md_process_status(int status);

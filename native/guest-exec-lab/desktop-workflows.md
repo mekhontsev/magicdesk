@@ -474,7 +474,7 @@ freestanding raw-SVC ELF without libc or mapped program headers.
 ```sh
 python native/guest-exec-lab/test_abi.py BUILD \
   --libc glibc --libc-build BUILD --static-build STATIC_BUILD \
-  --store DISPOSABLE_HOST_STORE --runtime IMMUTABLE_STAGED_HELPERS
+  --store DISPOSABLE_HOST_STORE --executor shell
 ```
 
 Repeat with the musl outputs and Alpine store. These checks include descriptor
@@ -482,6 +482,8 @@ and dirfd exec, open-unlinked/name-reused executable identity, bounded shebang
 parsing, 64 successive execs, thread/signal stacks, vfork, spawn file actions,
 process-image snapshots, Unix sendmmsg partial batches and SCM_RIGHTS.
 They install fixture programs only into the explicitly selected disposable store.
+Use `--executor app` with an app-owned store and the matching fixture APK to run
+the same checks under Android application policy.
 
 ## Distribution Packages And Applications
 

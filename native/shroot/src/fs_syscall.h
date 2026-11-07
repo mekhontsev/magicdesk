@@ -76,7 +76,7 @@ static inline int md_fs_syscall_decode(struct md_fs_syscall *s,struct md_fs_requ
         q->operation=MD_FS_GETDENTS; q->capacity=a[2]>capacity ? capacity : a[2];
         s->copy=MD_FS_COPY_BYTES; s->output=a[1]; return 1;
     case SYS_readlinkat:
-        if (!a[3]) return -EINVAL;
+        if ((int)a[3]<=0) return -EINVAL;
         q->operation=MD_FS_READLINK; q->capacity=a[3]>capacity ? capacity : a[3];
         s->copy=MD_FS_COPY_LINK; s->output=a[2]; return 1;
     case SYS_symlinkat:

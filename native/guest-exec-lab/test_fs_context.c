@@ -4,6 +4,7 @@
 #include "inode_internal.h"
 #include "mount_graph.h"
 #include "procfs_view.h"
+#include "proc_static.h"
 #include <assert.h>
 #include <dirent.h>
 #include <errno.h>
@@ -12,6 +13,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/utsname.h>
+#include <time.h>
 #include <unistd.h>
 
 static unsigned descriptors(void) {
@@ -114,9 +117,57 @@ static void pressure_probe(const char *base) {
     assert(!close(root));
     puts("PASS proc PSI admission: complete, missing, partial, denied and unexpected errors");
 }
+static void kernel_snapshot(const char *base) {
+    int root=open(base,O_PATH|O_DIRECTORY|O_CLOEXEC); assert(root>=0);
+    assert(!mkdirat(root,"kernel-native",0700) && !mkdirat(root,"kernel-snapshot",0700));
+    int lower=openat(root,"kernel-native",O_PATH|O_DIRECTORY|O_CLOEXEC);
+    int upper=openat(root,"kernel-snapshot",O_PATH|O_DIRECTORY|O_CLOEXEC);
+    assert(lower>=0 && upper>=0);
+    assert(md_procfs_kernel_snapshot(upper,-1)==-EBADF);
+    assert(!md_procfs_kernel_snapshot(upper,lower));
+    int fd=openat(upper,"version",O_RDONLY|O_CLOEXEC); assert(fd>=0);
+    char text[256]={0}; assert(read(fd,text,sizeof(text)-1)>0); close(fd);
+    struct utsname kernel; assert(!uname(&kernel));
+    assert(strstr(text,kernel.release) && strstr(text,kernel.version));
+    assert(!unlinkat(upper,"version",0));
+    fd=openat(lower,"version",O_CREAT|O_EXCL|O_WRONLY|O_CLOEXEC,0600); assert(fd>=0); close(fd);
+    assert(!md_procfs_kernel_snapshot(upper,lower));
+    assert(faccessat(upper,"version",F_OK,0)<0 && errno==ENOENT);
+    assert(!fchmodat(lower,"version",0000,0));
+    assert(!md_procfs_kernel_snapshot(upper,lower));
+    assert(!unlinkat(upper,"version",0) && !unlinkat(lower,"version",0));
+    close(upper); close(lower);
+    assert(!unlinkat(root,"kernel-native",AT_REMOVEDIR) && !unlinkat(root,"kernel-snapshot",AT_REMOVEDIR));
+    close(root);
+    puts("PASS proc kernel identity: native admission, denied/missing fallback and unchanged errors");
+}
+static void uptime_sample(const char *base) {
+    int fd=open(base,O_PATH|O_CLOEXEC); assert(fd>=0);
+    struct stat node,st;
+    assert(!fstat(fd,&node));
+    struct md_control_file file=md_proc_uptime_new(NULL,NULL,fd); assert(file.ops);
+    assert(!file.ops->stat(file.context,&st) && st.st_dev==node.st_dev && st.st_ino==node.st_ino
+        && st.st_mode==(S_IFREG|0444));
+    char text[64]={0},tail[64]={0};
+    struct timespec before,after;
+    assert(!clock_gettime(CLOCK_BOOTTIME,&before));
+    long n=file.ops->read(file.context,NULL,text,sizeof(text)-1,0); assert(n>0);
+    assert(!clock_gettime(CLOCK_BOOTTIME,&after));
+    long long seconds; unsigned hundredths; int length=0;
+    assert(sscanf(text,"%lld.%u 0.00\n%n",&seconds,&hundredths,&length)==2 && length==n
+        && seconds>=before.tv_sec && seconds<=after.tv_sec && hundredths<100);
+    assert(file.ops->read(file.context,NULL,tail,sizeof(tail),1)==n-1 && !memcmp(text+1,tail,n-1));
+    assert(!file.ops->read(file.context,NULL,tail,sizeof(tail),n));
+    assert(file.ops->read(file.context,NULL,tail,sizeof(tail),-1)==-EINVAL);
+    assert(file.ops->access(file.context,NULL,W_OK)==-EACCES);
+    md_control_file_release(file); close(fd);
+    puts("PASS proc uptime fallback: boot clock, stable partial reads, inode identity and read-only policy");
+}
 void test_fs_context(const char *base) {
     unsigned baseline=descriptors();
     pressure_probe(base);
+    kernel_snapshot(base);
+    uptime_sample(base);
     char path[PATH_MAX]; snprintf(path,sizeof(path),"%s/fs-context",base);
     struct md_inode_store *store=NULL; assert(!md_inode_store_open(path,1,&store));
     struct md_identity root=md_identity_new(0,0); store->identity=&root;

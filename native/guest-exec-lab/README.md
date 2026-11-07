@@ -28,12 +28,20 @@ fixtures do not define a separate runtime or installation interface.
 | Init systems and distribution boot | [Init matrix](init-matrix.md) |
 | Browser workload and sandbox evidence | [Browser fixtures](browser/README.md) |
 | Kernel seccomp/ptrace controls | [Sandbox controls](sandbox-research.md) |
+| Shared regression under real Android application and shell identities | [Host execution identities](host-execution.md) |
 | Lazy machine-code entry, signal boundaries and Go stress | [Lazy SVC entry](svc-rewriting.md) |
 | Native namespace admission and restricted brokers | [Isolation controls](chromium-isolation.md) |
 | Descriptor custody, publication and resource teardown | [Resource verification](../shroot/resource-tests.md) |
 
 ## Evidence Rules
 
+- Guest assertions are shared across executor identities. App-UID launchers
+  establish the real Zygote context; they do not define a separate Shroot ABI
+  or weaker expected results. `k3s_fixture.py` and `test_proc_inspection.py`
+  run unchanged under either executor. Proc inspection covers dumpable and
+  protected tasks, absolute and dirfd-relative reads, and stable process start
+  identity. `--busy` exercises an active task; `--fifo` exercises a task parked
+  in FIFO open while its observer has not yet opened the peer.
 - Record the APK/helper identity, image source, executor UID and firmware/kernel.
   A staged helper validates that helper, not APK packaging or installer delivery.
 - Keep native controls, Shroot component tests and real-application workflows

@@ -57,7 +57,7 @@ long md_pidfd_signal(const unsigned long *a) {
     result=md_adapter_buffer_take();
     if (result<0) return result;
     struct md_pidfd_frame *frame=(void *)result;
-    frame->code=a[2] ? info.si_code : 0;
+    frame->info=a[2] ? info : (siginfo_t){0};
     result=md_fd_control(MD_FD_USE,0,0,0);
     if (result) { md_adapter_buffer_release(); return result; }
     result=pidfd_capture(md_guest_buffer_control(MD_BUFFER_PIDFD_SIGNAL,0,0),frame,(int)a[0]);

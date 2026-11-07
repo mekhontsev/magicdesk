@@ -10,6 +10,7 @@
 #include "fd_receipt.h"
 #include "fd_channel.h"
 #include "fd_native_pin.h"
+#include "descriptor_inode.h"
 #include "fd_return.h"
 #include "received_fds.h"
 #include "fd_messages.h"
@@ -72,7 +73,7 @@ void test_task_registry_exit(void) {
     assert(md_task_registry_read(registry,20003,0,&retained)==-ENOMEM && !retained.owner);
     assert(!md_task_registry_credentials(registry,20003,&observed));
     assert(observed.group==20003 && !observed.retired && observed.identity.uid.effective==2000);
-    md_identity_release(&observed.identity);
+    md_task_credentials_release(&observed);
     allocation_budget=-1;
     assert(!md_task_registry_read(registry,20003,0,&retained));
     allocation_budget=0;
@@ -94,7 +95,7 @@ void test_task_registry_exit(void) {
     assert(retired.pid==pid && retired.cgroup==member);
     assert(!md_task_registry_credentials(registry,20003,&observed));
     assert(observed.group==20003 && observed.retired && observed.identity.uid.effective==1234);
-    md_identity_release(&observed.identity);
+    md_task_credentials_release(&observed);
     assert(retained.identity.uid.effective==2000 && retained.files==resources.files);
     md_task_snapshot_release(&retained);
     assert(!md_resources_release(&resources));
@@ -408,7 +409,7 @@ static void ownership(struct md_fs_anchor *a, struct md_fs_anchor *b) {
         assert(!md_resources_unshare_prepare(&child,CLONE_FILES,NULL,&change));
         assert(!md_resources_unshare_finish(&child,NULL,&change,-EINVAL));
         assert(child.files==old);
-        assert(!md_resources_exec(&child));
+        assert(!md_resources_exec(&child,NULL));
         assert(child.files!=parent.files);
         expect(child.files,10,b,0); expect(child.files,71,NULL,0);
         expect(parent.files,71,b,FD_CLOEXEC);
@@ -1699,7 +1700,7 @@ static void native_input_pin(void) {
     unsigned pin_before=descriptors();
     int pipe_fds[2];
     assert(!pipe2(pipe_fds,O_NONBLOCK|O_CLOEXEC));
-    struct md_fd_object *pin=md_fd_native_pin_new(pipe_fds[1]);
+    struct md_fd_object *pin=md_fd_native_pin_new(pipe_fds[1],NULL);
     assert(pin);
     struct stat pinned, original;
     assert(!fstat(pipe_fds[1],&original));
@@ -1711,9 +1712,32 @@ static void native_input_pin(void) {
     assert(read(pipe_fds[0],&byte,1)==0);
     md_fd_object_release(pin);
     allocation_budget=0;
-    assert(!md_fd_native_pin_new(pipe_fds[0]) && errno==ENOMEM);
+    assert(!md_fd_native_pin_new(pipe_fds[0],NULL) && errno==ENOMEM);
     allocation_budget=-1;
     close(pipe_fds[0]);
+    assert(!pipe2(pipe_fds,O_NONBLOCK|O_CLOEXEC));
+    struct md_identity root=md_identity_new(0,0);
+    pin=md_fd_native_pin_new(pipe_fds[1],&root);
+    assert(pin && md_descriptor_inode_is(pin));
+    assert(!fstat(pipe_fds[1],&original));
+    assert(!md_descriptor_inode_chown(pin,&root,71,72));
+    assert(!md_descriptor_inode_chmod(pin,&root,0640));
+    assert(!fstat(md_fd_native_pin_descriptor(pin),&pinned));
+    assert(pinned.st_uid==original.st_uid && pinned.st_gid==original.st_gid && pinned.st_mode==original.st_mode);
+    assert(!md_descriptor_inode_stat(pin,&root,&pinned));
+    assert(pinned.st_uid==71 && pinned.st_gid==72 && pinned.st_mode==(S_IFIFO|0640));
+    close(pipe_fds[1]);
+    assert(read(pipe_fds[0],&byte,1)==0);
+    md_fd_object_release(pin); close(pipe_fds[0]);
+    for (int budget=0;budget<2;++budget) {
+        assert(!pipe2(pipe_fds,O_NONBLOCK|O_CLOEXEC));
+        allocation_budget=budget;
+        pin=md_fd_native_pin_new(pipe_fds[1],&root);
+        allocation_budget=-1;
+        if (pin) md_fd_object_release(pin); else assert(errno==ENOMEM);
+        close(pipe_fds[0]); close(pipe_fds[1]);
+    }
+    md_identity_release(&root);
     assert(descriptors()==pin_before);
 }
 void test_fd_origins(void) {

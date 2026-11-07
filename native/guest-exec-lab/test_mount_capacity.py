@@ -74,7 +74,7 @@ def main():
     target = '/tmp/md-mount-scale-' + suite.report['id']
     prefix = [suite.runner, '--store', args.store, '--user', '0:0']
     try:
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/test.py')
+        suite.upload(Path(__file__), suite.base + '/test.py')
         suite.command(prefix + ['--', '/bin/mkdir', target])
         suite.command(prefix + ['--bind-ro', suite.base, target, '--deadline-seconds', '120', '--',
                                 '/usr/bin/unshare', '--mount', '/usr/bin/python3', target + '/test.py', '--guest'],
@@ -84,7 +84,10 @@ def main():
         try:
             suite.command(prefix + ['--', '/bin/rmdir', target])
         finally:
-            suite.finish()
+            try:
+                suite.command(['rm', '-rf', suite.base])
+            finally:
+                suite.finish()
 
 
 if __name__ == '__main__':

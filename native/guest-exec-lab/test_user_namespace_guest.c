@@ -140,6 +140,7 @@ int test_user_namespace_limits(void) {
     pid_t child=fork(); assert(child>=0);
     if (!child) {
         assert(!setgroups(0,NULL) && !setgid(1000) && !setuid(1000));
+        assert(prctl(PR_GET_DUMPABLE)==0 && !prctl(PR_SET_DUMPABLE,1));
         assert(open(limit_path,O_WRONLY)<0 && errno==EACCES);
         int fd=open(limit_path,O_RDONLY); assert(fd>=0 && read_limit(fd)==INT_MAX); close(fd);
         assert(!unshare(CLONE_NEWUSER));
@@ -275,7 +276,9 @@ static int isolated_user(void *unused) {
     if (!pivot) {
         assert(!unshare(CLONE_NEWNS));
         assert(!mount("/newroot","/newroot",NULL,MS_BIND,NULL));
-        assert(!syscall(SYS_pivot_root,"/newroot","/newroot/old"));
+        int result=(int)syscall(SYS_pivot_root,"/newroot","/newroot/old");
+        if (result) perror("user namespace pivot_root");
+        assert(!result);
         assert(!chdir("/"));
         assert(!umount2("/old",MNT_DETACH));
         _exit(0);
@@ -294,6 +297,8 @@ static int isolated_user(void *unused) {
 }
 int test_user_namespace_lifecycle(void) {
     alarm(60);
+    /* The child maps UID 1000, not the owner of the prepared root. */
+    umask(022);
     assert(!chmod("/",0755) && !chmod("/tmp",01777));
     assert(!chmod("/bin",0755) && !chmod("/bin/test",0755));
     assert(!mkdir("/tmp/user-owned",0755));
@@ -304,6 +309,8 @@ int test_user_namespace_lifecycle(void) {
     assert(!mount(NULL,"/tmp/user-owned/covered",NULL,MS_REMOUNT|MS_BIND|MS_RDONLY,NULL));
     assert(!mkdir("/mnt",0755) || errno==EEXIST);
     assert(!setgroups(0,NULL) && !setgid(1000) && !setuid(1000));
+    /* The unprivileged creator must retain ownership of its proc map files. */
+    assert(prctl(PR_GET_DUMPABLE)==0 && !prctl(PR_SET_DUMPABLE,1));
     parent_mapping();
     struct utsname before, after; assert(!uname(&before));
     void *stack=malloc(1024*1024); assert(stack);

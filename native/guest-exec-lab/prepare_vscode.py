@@ -26,7 +26,7 @@ def main():
             with local.open('rb') as f:
                 assert hashlib.file_digest(f, 'sha256').hexdigest() == digest
             remote = suite.base + '/' + target
-            suite.transport.upload(suite.client, local, remote)
+            suite.upload(local, remote)
             assert suite.command(['sha256sum', remote], quiet=True).split()[0] == digest
             suite.command(['/system/bin/sh', '-c', 'cat ' + shlex.quote(remote) + ' | '
                 + shlex.join(suite.run(args.store, '--', '/bin/sh', '-ec', 'cat > /tmp/' + target))], timeout=240)

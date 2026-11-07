@@ -20,6 +20,15 @@ static void absent(void) {
     assert(syscall(SYS_add_key,"user","shroot-fixture","data",4,KEY_SPEC_SESSION_KEYRING)==-1 && errno==ENOSYS);
     assert(syscall(SYS_request_key,"user","shroot-fixture",NULL,KEY_SPEC_SESSION_KEYRING)==-1 && errno==ENOSYS);
     assert(syscall(SYS_keyctl,-1,1,1,1,1)==-1 && errno==ENOSYS);
+    const int queues[]={SYS_mq_open,SYS_mq_unlink,SYS_mq_timedsend,
+        SYS_mq_timedreceive,SYS_mq_notify,SYS_mq_getsetattr};
+    for (unsigned i=0;i<sizeof(queues)/sizeof(*queues);++i)
+        assert(syscall(queues[i],0,0,0,0,0,0)==-1 && errno==ENOSYS);
+}
+static void trapped(int signal,siginfo_t *info,void *context) {
+    (void)context;
+    _exit(signal==SIGSYS && info->si_code==SYS_SECCOMP
+        && info->si_syscall==SYS_keyctl && info->si_errno==37 ? 0 : 98);
 }
 static void filter(unsigned result) {
     struct sock_filter code[]={
@@ -34,7 +43,7 @@ static void filter(unsigned result) {
 int test_keyring_guest(int argc,char **argv) {
     alarm(30); absent();
     if (argc==3 && !strcmp(argv[2],"exec")) return 0;
-    for (unsigned mode=0;mode<6;++mode) {
+    for (unsigned mode=0;mode<7;++mode) {
         pid_t child=fork(); assert(child>=0);
         if (!child) {
             if (mode==0) { execl(argv[0],argv[0],"keyring","exec",(char *)NULL); _exit(99); }
@@ -48,6 +57,12 @@ int test_keyring_guest(int argc,char **argv) {
             }
             if (mode==5) {
                 filter(SECCOMP_RET_KILL_PROCESS);
+                syscall(SYS_keyctl,KEYCTL_JOIN_SESSION_KEYRING,NULL,0,0,0); _exit(99);
+            }
+            if (mode==6) {
+                struct sigaction action={.sa_sigaction=trapped,.sa_flags=SA_SIGINFO};
+                assert(!sigaction(SIGSYS,&action,NULL));
+                filter(SECCOMP_RET_TRAP|37);
                 syscall(SYS_keyctl,KEYCTL_JOIN_SESSION_KEYRING,NULL,0,0,0); _exit(99);
             }
             absent(); _exit(0);

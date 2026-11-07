@@ -410,11 +410,11 @@ def main():
     observer = None
     created = False
     try:
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/probe.py')
+        suite.upload(Path(__file__), suite.base + '/probe.py')
         if args.exercise_ports:
             from docker_network_fixture import Observer
             observer = Observer(args.ipv6_host)
-            suite.transport.upload(suite.client, Path(__file__).with_name('docker_network_fixture.py'),
+            suite.upload(Path(__file__).with_name('docker_network_fixture.py'),
                                    suite.base + '/docker_network_fixture.py')
         suite.command(prefix + ['--', '/bin/mkdir', target])
         created = True

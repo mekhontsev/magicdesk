@@ -535,7 +535,7 @@ static int view_lookup(void *context,int directory,const char *name,const struct
         if (cached) return md_fuse_node_open(v,cached,O_PATH);
     }
     struct view_lookup *p=calloc(1,sizeof(*p)); if (!p) return -ENOMEM;
-    p->base=(struct md_provider_lookup){lookup_ready,lookup_complete,lookup_destroy};
+    p->base=(struct md_provider_lookup){.ready=lookup_ready,.complete=lookup_complete,.destroy=lookup_destroy};
     p->view=md_fuse_view_retain(v); p->parent=parent; p->selected=selected; p->identity=md_identity_copy(actor->identity);
     p->wakeup=md_resource_wakeup_retain(actor->wakeup); p->pid=md_fuse_view_pid(v,actor->pid); strcpy(p->name,name);
     int result=lookup_complete(&p->base);

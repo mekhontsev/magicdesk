@@ -70,7 +70,7 @@ def main():
     try:
         suite.command(prefix + ['--', '/bin/mkdir', target])
         created = True
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/test.py')
+        suite.upload(Path(__file__), suite.base + '/test.py')
         result = suite.command(prefix + ['--bind', suite.base, target, '--deadline-seconds', '30',
                                         '--', '/usr/bin/python3', target + '/test.py', '--guest'])
         assert 'PASS termios2:' in result

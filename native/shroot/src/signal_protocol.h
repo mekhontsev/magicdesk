@@ -11,4 +11,9 @@ static inline uint64_t md_signal_blockable_mask(void) {
 static inline uint64_t md_signal_protocol_mask(void) {
     return md_signal_blockable_mask();
 }
+static inline int md_signal_synchronous(const siginfo_t *info) {
+    return info->si_code>0 && (info->si_signo==SIGTRAP || info->si_signo==SIGILL
+        || info->si_signo==SIGBUS || info->si_signo==SIGSEGV || info->si_signo==SIGFPE
+        || info->si_signo==SIGSYS);
+}
 #endif

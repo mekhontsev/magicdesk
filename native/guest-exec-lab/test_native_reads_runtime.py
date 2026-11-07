@@ -20,7 +20,7 @@ def main():
     target = '/tmp/md-native-reads-' + suite.report['id']
     base = [suite.runner, '--store', args.store, '--user', '0:0', '--deadline-seconds', '120']
     try:
-        suite.transport.upload(suite.client, Path(__file__).with_name('test_native_reads_guest.py'), suite.base + '/probe.py')
+        suite.upload(Path(__file__).with_name('test_native_reads_guest.py'), suite.base + '/probe.py')
         suite.command(['/system/bin/sh', '-c',
                        'printf "native data" > "$1/target"; ln -s target "$1/link"', 'fixture', suite.base])
         suite.command(base + ['--', '/bin/mkdir', target])

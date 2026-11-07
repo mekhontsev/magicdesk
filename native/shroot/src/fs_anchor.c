@@ -105,19 +105,26 @@ int md_view_anchor_duplicate(struct md_filesystem *fs,struct md_mount_namespace 
         struct md_view_mount *mount,int fd,struct md_fs_anchor **out) {
     struct stat st;
     if (fstat(fd,&st)) return -errno;
+    return md_view_anchor_pin(fs,view,mount,fd,&st,out);
+}
+int md_view_anchor_pin(struct md_filesystem *fs,struct md_mount_namespace *view,
+        struct md_view_mount *mount,int fd,const struct stat *st,struct md_fs_anchor **out) {
     int copy=fcntl(fd,F_DUPFD_CLOEXEC,3);
     if (copy<0) return -errno;
     struct md_fs_anchor *origin=md_view_anchor_new(md_inode_store_lifetime(fs->store),
-        view,mount,copy,st.st_dev,st.st_ino);
+        view,mount,copy,st->st_dev,st->st_ino);
     if (!origin) { int error=-errno; close(copy); return error; }
+    origin->kind=st->st_mode&S_IFMT;
     *out=origin; return 0;
 }
 int md_view_anchor_child(struct md_filesystem *fs,struct md_mount_namespace *view,
-        struct md_view_mount *mount,int parent,const char *name,struct md_fs_anchor **out) {
+        struct md_view_mount *mount,int parent,const struct stat *metadata,const char *name,struct md_fs_anchor **out) {
     if (!name || !*name || strchr(name,'/') || !strcmp(name,".") || !strcmp(name,"..")) return -EINVAL;
-    struct md_fs_anchor *p=NULL;
-    int error=md_view_anchor_duplicate(fs,view,mount,parent,&p);
-    if (error) return error;
+    int copy=fcntl(parent,F_DUPFD_CLOEXEC,3);
+    if (copy<0) return -errno;
+    struct md_fs_anchor *p=md_view_anchor_new(md_inode_store_lifetime(fs->store),view,mount,copy,
+        metadata->st_dev,metadata->st_ino);
+    if (!p) { int error=-errno; close(copy); return error; }
     p->child=strdup(name); p->kind=S_IFREG;
     if (!p->child) { md_fs_anchor_release(p); return -ENOMEM; }
     *out=p; return 0;

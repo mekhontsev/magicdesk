@@ -94,18 +94,20 @@ def guest(native_pid, native_cgroup):
             finally:
                 os.close(root)
             entries = os.listdir(directory)
-            for name in ('sysrq-trigger', 'kcore', 'kmsg', 'keys', 'asound', 'kallsyms'):
+            directories = ('asound', 'acpi', 'scsi')
+            for name in ('sysrq-trigger', 'kcore', 'kmsg', 'keys', 'kallsyms',
+                         'timer_list', 'timer_stats', 'latency_stats', 'sched_debug', 'interrupts', *directories):
                 assert name in entries, name
                 path = directory + '/' + name
                 info = os.stat(path)
                 assert stat.S_IMODE(info.st_mode) == 0, info
-                assert (stat.S_ISDIR if name == 'asound' else stat.S_ISREG)(info.st_mode)
+                assert (stat.S_ISDIR if name in directories else stat.S_ISREG)(info.st_mode)
                 pinned = os.open(path, os.O_PATH | os.O_CLOEXEC)
                 try:
                     assert os.fstat(pinned).st_ino == info.st_ino
                 finally:
                     os.close(pinned)
-                for flags in (os.O_RDONLY, os.O_WRONLY) if name != 'asound' else (os.O_RDONLY,):
+                for flags in (os.O_RDONLY, os.O_WRONLY) if name not in directories else (os.O_RDONLY,):
                     try:
                         fd = os.open(path, flags)
                     except OSError as error:
@@ -130,6 +132,7 @@ def guest(native_pid, native_cgroup):
                 print('REMOUNT', name, 'ok', flush=True)
                 assert os.statvfs(target).f_flag & os.ST_RDONLY
             target = directory + '/version'
+            assert os.uname().release in Path(target).read_text()
             try:
                 fd = os.open(target, os.O_WRONLY)
             except OSError as error:
@@ -153,7 +156,7 @@ def main():
     target = '/tmp/md-proc-policy-' + suite.report['id']
     prefix = suite.guest(args.store, '--user', '0:0')
     try:
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/test.py')
+        suite.upload(Path(__file__), suite.base + '/test.py')
         suite.command(prefix + ['--', '/bin/mkdir', target])
         # The exec wrapper remains outside the supervised guest tree. Compare
         # its native proc text without inventing a guest identity for it.

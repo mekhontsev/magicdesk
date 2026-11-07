@@ -273,12 +273,12 @@ def main():
         suite.command(prefix + ['--', '/bin/mkdir', target])
         created = True
         if args.init == 'openrc':
-            suite.transport.upload(suite.client, Path(__file__), suite.base + '/observer.py')
-            suite.transport.upload(suite.client, Path(__file__).with_name('init_fixture.py'),
+            suite.upload(Path(__file__), suite.base + '/observer.py')
+            suite.upload(Path(__file__).with_name('init_fixture.py'),
                                    suite.base + '/init_fixture.py')
         program = {'systemd': SYSTEMD, 'openrc': OPENRC, 'runit': RUNIT}[args.init]
         if args.service_io:
-            suite.transport.upload(suite.client, Path(__file__).with_name('boot_service_io.py'),
+            suite.upload(Path(__file__).with_name('boot_service_io.py'),
                                    suite.base + '/boot_service_io.py')
         probes = {'avahi-daemon.service': 'avahi', 'snap.cups.cupsd.service': 'cups', 'firewalld.service': 'firewalld'}
         for unit, probe in probes.items():
@@ -307,7 +307,7 @@ def main():
             program = program.replace('        systemctl restart systemd-logind.service',
                                       checks + '        systemctl restart systemd-logind.service')
         if args.networkd_ipv6:
-            suite.transport.upload(suite.client, Path(__file__).with_name('networkd_ipv6_fixture.py'),
+            suite.upload(Path(__file__).with_name('networkd_ipv6_fixture.py'),
                                    suite.base + '/networkd_ipv6_fixture.py')
             program = program.replace('        systemctl restart systemd-logind.service',
                                       '        python3 "$1/networkd_ipv6_fixture.py"\n'
@@ -402,7 +402,7 @@ printf ':md-boot:E::mdboot::/bin/true:P\\n' > /run/binfmt.d/md-boot.conf
                 suite.command(['/system/bin/sh', '-c', 'test ! -f "$1" || tail -200 "$1"',
                                'boot-log', suite.base + '/' + name])
             if args.trace:
-                suite.transport.download(suite.client, suite.base + '/boot.trace',
+                suite.download(suite.base + '/boot.trace',
                                          args.output / (suite.report['id'] + '.trace'))
         finally:
             try:

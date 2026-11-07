@@ -9,6 +9,7 @@ import shlex
 import tomllib
 import uuid
 from kernel_profile import KernelProfile
+from fixture_executor import FixtureExecutor
 
 
 def main():
@@ -20,6 +21,7 @@ def main():
     parser.add_argument("--contracts", action="store_true", help="Also run inode, importer and filesystem RPC regressions")
     parser.add_argument("--user", default="2000:2000", help="Guest UID:GID for all guest launches")
     KernelProfile.add_argument(parser)
+    FixtureExecutor.add_argument(parser)
     args = parser.parse_args()
     profile = KernelProfile(args.kernel_profile)
     repo = Path(__file__).resolve().parents[2]
@@ -29,19 +31,20 @@ def main():
     config = tomllib.loads((Path.home() / ".codex/config.toml").read_text())["mcp_servers"]["magicdesk"]
     client = transport.Client(config["url"], config["http_headers"]["Authorization"].removeprefix("Bearer "))
     state = client.call("get_state")
-    assert state["shell"]["uid"] == 2000
     tag = uuid.uuid4().hex
-    directory = "/data/local/tmp/md-watch-runtime-" + tag
+    executor = FixtureExecutor(client, transport, args.build, args.executor, 'watch')
+    directory = executor.root
+    def executable(name):
+        return executor.native_path(directory + '/libmagicdesk_guest_' + name + '.so')
     runner_path = directory + '/libmagicdesk_guest_run.so'
     runner = shlex.join([runner_path, '--user', args.user])
     report = {"id": tag, "directory": directory, "app": state["app"], "device": state["device"],
-              "uid": 2000, "guestUser": args.user, "productionAdapter": True,
+              "executor": executor.evidence, "guestUser": args.user, "productionAdapter": True,
               "checks": [], "uploads": [], "passed": False}
-    console = client.call("console.open", {"directory": "/data/local/tmp"})["sessionId"]
     report['kernelProfile'] = profile.evidence
 
     def command(value):
-        result = client.call("console.execute", {"sessionId": console, "command": value})
+        result = executor.execute(profile.shell(value))
         report["checks"].append({"command": value, **result})
         print(result["output"], end="", flush=True)
         assert result["exitCode"] == 0, result
@@ -58,26 +61,27 @@ def main():
         for name in binaries:
             binary = "libmagicdesk_guest_" + name + ".so"
             target = directory + ("/rootfs/bin/watch" if name == "watch_guest" else "/" + binary)
-            report["uploads"].append(transport.upload(client, args.build / binary, target))
-            command("chmod 700 " + target)
-        profile.prepare(lambda argv: command(shlex.join(argv)), directory + '/libmagicdesk_guest_supervisor.so')
-        runner_path = profile.stage_launcher(lambda source, target: transport.upload(client, source, target),
-                                            lambda argv: command(shlex.join(argv)), runner_path)
+            report["uploads"].append(executor.upload(args.build / binary, target))
+            command("chmod 755 " + target)
+        profile.prepare(lambda argv: command(shlex.join(argv)), executable('supervisor'))
+        runner_path = executable('run')
         runner = shlex.join([runner_path, '--user', args.user])
         if args.rootfs:
-            report["uploads"].append(transport.upload(client, args.rootfs, directory + "/rootfs.tar.gz"))
+            report["uploads"].append(executor.upload(args.rootfs, directory + "/rootfs.tar.gz"))
             command("tar -xzf " + directory + "/rootfs.tar.gz -C " + directory + "/rootfs")
         if args.userspace:
-            report["uploads"].append(transport.upload(client, args.userspace, directory + "/userspace.tar.gz"))
+            report["uploads"].append(executor.upload(args.userspace, directory + "/userspace.tar.gz"))
             command("tar -xzf " + directory + "/userspace.tar.gz -C " + directory + "/rootfs")
         if args.gio:
             assert args.userspace, "--gio requires --userspace"
-            report["uploads"].append(transport.upload(client, args.gio, directory + "/rootfs/bin/watch-gio"))
-            command("chmod 700 " + directory + "/rootfs/bin/watch-gio")
+            report["uploads"].append(executor.upload(args.gio, directory + "/rootfs/bin/watch-gio"))
+            command("chmod 755 " + directory + "/rootfs/bin/watch-gio")
+        command('chmod 755 ' + directory + '/rootfs ' + directory + '/rootfs/bin; chmod 1777 '
+                + directory + '/rootfs/tmp')
         for name in controls:
-            command("timeout 60 " + directory + "/libmagicdesk_guest_" + name + ".so")
-        command("timeout 30 " + directory + "/libmagicdesk_guest_service.so --import "
-                + directory + "/rootfs " + directory + "/store")
+            command("timeout 60 " + executable(name))
+        command("timeout 30 " + executable('service') + " --import "
+                + directory + "/rootfs " + directory + "/store --preserve-ownership")
         output = command("timeout 60 " + runner + " --statistics --store "
                 + directory + "/store --home /tmp --cwd / -- /bin/watch /tmp/test")
         reads = re.search(r"MD_SYSCALL nr=63 trace=(\d+)", output)
@@ -90,19 +94,19 @@ def main():
                 + directory + "/store -- /bin/watch receive-filtered")
         command("timeout 60 " + runner + " --store "
                 + directory + "/store -- /bin/watch churn")
-        command("timeout 60 " + directory + "/libmagicdesk_guest_watch_launch.so "
+        command("timeout 60 " + executable('watch_launch') + " "
                 + shlex.quote(runner_path) + " " + directory + "/store --user " + shlex.quote(args.user))
-        command("timeout 30 " + directory + "/libmagicdesk_guest_watch_store.so " + directory + "/store-unit")
+        command("timeout 30 " + executable('watch_store') + " " + directory + "/store-unit")
         for entry in (0, 1):
             command("timeout 60 " + shlex.quote(runner_path) + " --user 0:0"
                     + f" --env SHROOT_MACHINE_ENTRY={entry} --store " + directory
                     + "/store -- /bin/watch quotas")
         if args.contracts:
             for name in ("inodes", "import", "rpc"):
-                command("timeout 60 " + directory + "/libmagicdesk_guest_test_" + name + ".so "
+                command("timeout 60 " + executable('test_' + name) + " "
                         + directory + "/contract-" + name)
         if args.gio:
-            command("timeout 30 " + directory + "/libmagicdesk_guest_watch_launch.so "
+            command("timeout 30 " + executable('watch_launch') + " "
                     + shlex.quote(runner_path) + " " + directory + "/store gio --user " + shlex.quote(args.user))
         if args.userspace:
             output = command("timeout 30 env PATH=/usr/bin:/bin " + runner + " --statistics --store "
@@ -119,15 +123,16 @@ def main():
             report["limits"] = limit.findall(output)
             checked = limit.sub("", output)
             assert "Unable to" not in checked and "Failed to" not in checked, output
-        command("rm -rf " + directory)
         report["passed"] = True
     except Exception as error:
         report["failure"] = str(error)
         raise
     finally:
         try:
-            client.call("console.close", {"sessionId": console})
+            command('rm -rf ' + shlex.quote(directory))
         finally:
+            executor.close()
+            report['executor'] = executor.evidence
             path = args.build / ("watch-runtime-" + tag + ".json")
             path.write_text(json.dumps(report, indent=2) + "\n")
             print("Report:", path, flush=True)

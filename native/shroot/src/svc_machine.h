@@ -3,6 +3,7 @@
 #include "svc_registry.h"
 #include <signal.h>
 #include "signal_delivery.h"
+#include "task_stop.h"
 
 struct md_svc_machine_thread {
     int syscall_exit, draining;
@@ -35,7 +36,7 @@ int md_svc_machine_native_entry(const struct md_svc_registry *,const struct user
 int md_svc_machine_redirect(struct md_svc_machine_thread *,pid_t,const struct user_pt_regs *);
 int md_svc_machine_exit(struct md_svc_machine_thread *,pid_t);
 int md_svc_machine_signal(struct md_svc_registry *,struct md_svc_machine_thread *,pid_t,
-    struct md_signal_delivery *,int *deliver);
+    struct md_signal_delivery *,struct md_task_signal_stop *,int *deliver);
 /* Complete kernel signal delivery before another stop owner borrows registers. */
 int md_svc_machine_signal_committed(struct md_svc_registry *,struct md_svc_machine_thread *,pid_t,int status);
 /* Reconstruct the guest continuation before publishing queued signals.

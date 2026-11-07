@@ -16,6 +16,11 @@ struct md_buffer_span { void *data; size_t size, offset; };
 
 int md_buffers_create(unsigned slots, size_t capacity, size_t clear_prefix,
     unsigned reserved, struct md_interception_buffers **);
+/* The existing writer mapping remains writable; later shared peer mappings
+ * cannot acquire write access, including via mprotect or the backing FD.
+ * Never lend or inherit the writer mapping into the guest. */
+int md_buffers_create_readonly(unsigned slots, size_t capacity, struct md_interception_buffers **);
+int md_buffers_peer_readonly(const struct md_interception_buffers *);
 struct md_interception_buffers *md_buffers_retain(struct md_interception_buffers *);
 void md_buffers_release(struct md_interception_buffers *);
 /* Borrowed bootstrap transport only. Mapping setup/FD closure must complete

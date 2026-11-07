@@ -44,7 +44,7 @@ def main():
         with tempfile.TemporaryDirectory(prefix='md-installer-setup-') as temporary:
             script = Path(temporary) / 'setup.sh'
             script.write_bytes(payload)
-            suite.transport.upload(suite.client, script, suite.base + '/setup.sh')
+            suite.upload(script, suite.base + '/setup.sh')
         suite.command(prefix + ['--', '/bin/mkdir', target])
         created = True
         suite.command(prefix + ['--bind-ro', suite.base, target,
@@ -58,7 +58,7 @@ def main():
             with tempfile.TemporaryDirectory(prefix='md-graphics-setup-') as temporary:
                 script = Path(temporary) / 'graphics.sh'
                 script.write_bytes(graphics)
-                suite.transport.upload(suite.client, script, suite.base + '/graphics.sh')
+                suite.upload(script, suite.base + '/graphics.sh')
             suite.report['graphicsRecipeSha256'] = fingerprint
             suite.command(prefix + ['--bind-ro', suite.base, target, '--env', 'SYSTEMD_IN_CHROOT=1',
                                     '--deadline-seconds', '300', '--', '/bin/sh', target + '/graphics.sh',

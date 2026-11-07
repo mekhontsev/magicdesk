@@ -164,7 +164,7 @@ static int lower_visible(struct md_provider_tree *tree,const char *path) {
 static int internal(const char *directory,const char *name) {
     return !strcmp(directory,"/") && !strcmp(name,MD_TEMPORARY_DIRECTORY_MARKER);
 }
-int md_provider_tree_step(struct md_provider_tree *tree,int directory,const char *name) {
+static int step(struct md_provider_tree *tree,int directory,const char *name,int host) {
     if (tree->ops && tree->ops->lookup) return -EOPNOTSUPP;
     char path[PATH_MAX]; int error=md_provider_tree_path(tree,directory,path,sizeof(path));
     if (error) return error;
@@ -178,12 +178,20 @@ int md_provider_tree_step(struct md_provider_tree *tree,int directory,const char
         if (length>1) path[length++]='/';
         memcpy(path+length,name,n+1);
     }
-    int fd=openat(tree->upper,relative(path),O_PATH|O_NOFOLLOW|O_CLOEXEC);
-    if (fd>=0) return fd;
-    if (errno!=ENOENT) return -errno;
+    if (!host) {
+        int fd=openat(tree->upper,relative(path),O_PATH|O_NOFOLLOW|O_CLOEXEC);
+        if (fd>=0) return fd;
+        if (errno!=ENOENT) return -errno;
+    }
     if (opaque(tree,path) || tree->lower<0 || !lower_visible(tree,path)) return -ENOENT;
-    fd=openat(tree->lower,relative(path),O_PATH|O_NOFOLLOW|O_CLOEXEC);
+    int fd=openat(tree->lower,relative(path),O_PATH|O_NOFOLLOW|O_CLOEXEC);
     return fd<0 ? -errno : fd;
+}
+int md_provider_tree_step(struct md_provider_tree *tree,int directory,const char *name) {
+    return step(tree,directory,name,0);
+}
+int md_provider_tree_host_step(struct md_provider_tree *tree,int directory,const char *name) {
+    return step(tree,directory,name,1);
 }
 int md_provider_tree_lookup(struct md_provider_tree *tree,int directory,const char *name,
         const struct md_control_actor *actor,struct md_provider_lookup **pending) {
@@ -204,14 +212,34 @@ static int same_directory(const struct directory_identity *a,const struct direct
         && a->modified.tv_sec==b->modified.tv_sec && a->modified.tv_nsec==b->modified.tv_nsec
         && a->changed.tv_sec==b->changed.tv_sec && a->changed.tv_nsec==b->changed.tv_nsec;
 }
-ssize_t md_provider_tree_getdents(struct md_provider_tree *tree,int fd,void *out,size_t capacity) {
+static int directory_open(int root,const char *path,int retained) {
+    int fd=openat(root,relative(path),O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);
+    if (fd>=0) return fd;
+    int error=errno;
+    if (error!=EACCES && error!=EPERM && error!=ENOENT) return -error;
+    char actual[PATH_MAX],base[PATH_MAX];
+    if (fdpath(retained,actual,sizeof(actual)) || fdpath(root,base,sizeof(base))
+            || !below(actual,base)) return -error;
+    const char *suffix=actual+strlen(base);
+    if (strcmp(*suffix ? suffix : "/",path)) return -error;
+    /* The OFD turn also owns this retained cursor. A protected proc directory
+     * can remain readable even when its pathname cannot be reopened. */
+    fd=fcntl(retained,F_DUPFD_CLOEXEC,3);
+    if (fd<0) return -errno;
+    if (lseek(fd,0,SEEK_SET)<0) { error=errno; close(fd); return -error; }
+    return fd;
+}
+static ssize_t getdents(struct md_provider_tree *tree,int fd,void *out,size_t capacity,int host) {
     char path[PATH_MAX]; int error=md_provider_tree_path(tree,fd,path,sizeof(path));
     if (error) return error;
     off_t position=lseek(fd,0,SEEK_CUR); if (position<0) return -errno;
-    int upper=openat(tree->upper,relative(path),O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);
-    int lower=opaque(tree,path) || tree->lower<0 || !lower_visible(tree,path) ? -1
-        : openat(tree->lower,relative(path),O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);
-    if (upper<0 && lower<0) return -errno;
+    int upper=host ? -1 : directory_open(tree->upper,path,fd);
+    int lower=-1,lower_error=ENOENT;
+    if (!opaque(tree,path) && tree->lower>=0 && lower_visible(tree,path)) {
+        lower=directory_open(tree->lower,path,fd);
+        if (lower<0) lower_error=-lower;
+    }
+    if (upper<0 && lower<0) return -lower_error;
     struct directory_checkpoint checkpoint={.position=position};
     int cache=directory_identity(upper,&checkpoint.roots[0]) && directory_identity(lower,&checkpoint.roots[1]);
     unsigned first=0;
@@ -276,7 +304,7 @@ ssize_t md_provider_tree_getdents(struct md_provider_tree *tree,int fd,void *out
     }
     if (upper>=0) close(upper);
     if (lower>=0) close(lower);
-    if (!error && lseek(fd,next,SEEK_SET)<0) error=-errno;
+    if (lseek(fd,error ? position : next,SEEK_SET)<0 && !error) error=-errno;
     if (!error && cache && stop) {
         pthread_mutex_lock(&tree->directory_lock);
         unsigned slot=sizeof(tree->directories)/sizeof(*tree->directories);
@@ -294,6 +322,12 @@ ssize_t md_provider_tree_getdents(struct md_provider_tree *tree,int fd,void *out
         pthread_mutex_unlock(&tree->directory_lock);
     }
     return error ? error : (ssize_t)used;
+}
+ssize_t md_provider_tree_getdents(struct md_provider_tree *tree,int fd,void *out,size_t capacity) {
+    return getdents(tree,fd,out,capacity,0);
+}
+ssize_t md_provider_tree_host_getdents(struct md_provider_tree *tree,int fd,void *out,size_t capacity) {
+    return getdents(tree,fd,out,capacity,1);
 }
 int md_provider_tree_control(struct md_provider_tree *tree,int fd,struct md_control_file *out) {
     return tree->ops && tree->ops->control && fd>=0 ? tree->ops->control(tree->context,fd,out) : 0;

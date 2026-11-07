@@ -26,6 +26,8 @@ struct md_view_mount {
     struct md_ipc_namespace *ipc_namespace;
     struct md_control_file file;
     int detached, locked;
+    /* Host carriers admitted locally but not transferable through SCM_RIGHTS. */
+    int local_custody;
     /* Implicit launch providers retained by a root moved through pivot_root. */
     int root_providers;
     atomic_uint anchors;
@@ -38,4 +40,5 @@ void md_view_mount_close(struct md_view_mount *);
 /* Independent instance and policy; providers and propagation retain identity.
  * Failure leaves a closeable candidate and never changes the source. */
 int md_view_mount_clone(struct md_view_mount *,const struct md_view_mount *,int target,struct md_view_mount *parent);
+int md_view_mount_prepare_transport(struct md_view_mount *);
 #endif

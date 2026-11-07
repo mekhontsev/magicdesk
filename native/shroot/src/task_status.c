@@ -43,10 +43,17 @@ long md_task_limit(int tid,unsigned resource,struct rlimit *value) {
     md_decimal(path+md_length(path),(unsigned)tid);
     md_copy(path+md_length(path),sizeof(path)-md_length(path),"/limits");
     long fd=RAW4(openat,AT_FDCWD,path,O_RDONLY|O_CLOEXEC,0);
-    if (fd<0) return fd==-ENOENT ? -ESRCH : fd;
-    char text[4096];
-    long size=read_status((int)fd,text,sizeof(text));
+    /* hidepid can conceal a live protected task. Keep the native permission
+     * result; only prlimit's own ESRCH proves that its target is gone. */
+    if (fd<0) return fd==-ENOENT ? result : fd;
+    result=md_task_limit_fd((int)fd,resource,value);
     RAW1(close,fd);
+    return result;
+}
+long md_task_limit_fd(int fd,unsigned resource,struct rlimit *value) {
+    if (fd<0 || !value || resource>=sizeof(limits)/sizeof(*limits) || !limits[resource]) return -EINVAL;
+    char text[4096];
+    long size=read_status(fd,text,sizeof(text));
     if (size<0) return size;
     for (const char *p=text;*p;++p) {
         if ((p!=text && p[-1]!='\n') || !md_prefix(p,limits[resource])) continue;

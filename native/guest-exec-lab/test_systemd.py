@@ -196,9 +196,9 @@ def main():
     created = False
     try:
         build = args.build or Path('app/build/shroot')
-        suite.transport.upload(suite.client, build / 'libmagicdesk_guest_notify_guest.so',
+        suite.upload(build / 'libmagicdesk_guest_notify_guest.so',
                                suite.base + '/notify-guest')
-        suite.command(['chmod', '700', suite.base + '/notify-guest'])
+        suite.chmod('700', suite.base + '/notify-guest')
         with socket.socket() as reservation:
             reservation.bind(('127.0.0.1', 0))
             port = str(reservation.getsockname()[1])
@@ -226,7 +226,7 @@ def main():
                 suite.command(['/system/bin/sh', '-c', 'test ! -f "$1" || tail -100 "$1"',
                                'systemd-log', suite.base + '/' + name])
             if args.trace:
-                suite.transport.download(suite.client, suite.base + '/trace.log',
+                suite.download(suite.base + '/trace.log',
                                          args.output / (suite.report['id'] + '.trace'))
         finally:
             try:

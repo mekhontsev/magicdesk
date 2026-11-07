@@ -119,8 +119,7 @@ static void proc_files(void) {
     }
     completed(child); content(fd,"parent\n"); close(fd);
 }
-static int isolated(void *unused) {
-    (void)unused;
+static int isolated(void *executable) {
     names_are("parent","outer");
     assert(!sethostname("child",5) && !setdomainname("inner",5));
     pid_t child=fork(); assert(child>=0);
@@ -132,11 +131,10 @@ static int isolated(void *unused) {
         _exit(0);
     }
     completed(child); names_are("child","inner");
-    execl("/bin/test","test","uts-namespace","exec",NULL);
+    execl(executable,"test","uts-namespace","exec",NULL);
     _exit(1);
 }
 int test_uts_namespace_guest(int argc, char **argv) {
-    (void)argv;
     alarm(60);
     if (argc==3) { names_are("child","inner"); return 0; }
     struct utsname before; assert(!uname(&before));
@@ -148,7 +146,7 @@ int test_uts_namespace_guest(int argc, char **argv) {
     completed(child); names_are("shared","outer");
     assert(!sethostname("parent",6));
     void *stack=malloc(1024*1024); assert(stack);
-    child=clone(isolated,(char *)stack+1024*1024,CLONE_NEWUTS|SIGCHLD,NULL); assert(child>=0);
+    child=clone(isolated,(char *)stack+1024*1024,CLONE_NEWUTS|SIGCHLD,argv[0]); assert(child>=0);
     completed(child); names_are("parent","outer");
     assert(clone(isolated,(char *)stack+1024*1024,CLONE_NEWUTS|CLONE_SIGHAND|SIGCHLD,NULL)<0 && errno==EINVAL);
     free(stack); names_are("parent","outer");

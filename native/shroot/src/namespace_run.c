@@ -87,6 +87,9 @@ void md_boot(uintptr_t *stack) {
     if (groups && !user) md_die("guest groups require an explicit guest user", -EINVAL);
     int network_error=md_network_profile_validate(&network);
     if (network_error) md_die("incompatible network options",network_error);
+    const char *runtime_tmp=store;
+    for (unsigned i=0;env[i];++i)
+        if (md_prefix(env[i],"TMPDIR=/")) { runtime_tmp=env[i]+7; break; }
     struct md_launch_environment guest_environment;
     long environment_result = md_launch_environment(&guest_environment, home, env);
     if (environment_result < 0) md_die("guest environment", environment_result);
@@ -128,7 +131,7 @@ void md_boot(uintptr_t *stack) {
     if (!guard) {
         struct md_arguments arguments;
         md_arguments_init(&arguments);
-        long error=md_arguments_reserve(&arguments,argc-program+32+3*(md_connections.count+attachment_count)
+        long error=md_arguments_reserve(&arguments,argc-program+34+3*(md_connections.count+attachment_count)
             +md_network_profile_arguments(&network,NULL));
         if (error<0) md_die("launch arguments",error);
         char **args=arguments.values;
@@ -138,6 +141,7 @@ void md_boot(uintptr_t *stack) {
         if (statistics) args[n++] = "--statistics";
         if (commands) args[n++] = "--magicdesk";
         if (run_deadline) { args[n++] = "--deadline-seconds"; args[n++] = (char *)run_deadline; }
+        args[n++]="--runtime-tmp"; args[n++]=(char *)runtime_tmp;
         if (admit) { args[n++] = "--admit-elf"; args[n++] = (char *)admit; }
         if (user) { args[n++] = "--user"; args[n++] = (char *)user; }
         if (groups) { args[n++] = "--groups"; args[n++] = (char *)groups; }

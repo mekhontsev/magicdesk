@@ -145,7 +145,7 @@ static int proc_root_child(void *path) {
     return 0;
 }
 static void retained_proc_chroot(void) {
-    for (unsigned mode=0;mode<8;++mode) {
+    for (unsigned mode=0;mode<16;++mode) {
         pid_t child=fork(); assert(child>=0);
         if (!child) {
             assert(!unshare(CLONE_NEWNS));
@@ -154,6 +154,8 @@ static void retained_proc_chroot(void) {
                 assert(!mkdir(path,0755) || errno==EEXIST);
                 assert(!mount("proc",path,"proc",0,NULL));
             }
+            if (mode&8) assert(!setgid(1000) && !setuid(1000));
+            assert(!prctl(PR_SET_DUMPABLE,1));
             assert(!unshare(CLONE_NEWUSER));
             int proc=open(path,O_PATH|O_DIRECTORY|O_CLOEXEC);
             if (proc<0) fprintf(stderr,"proc chroot open mode=%u path=%s errno=%d\n",mode,path,errno);
@@ -181,7 +183,11 @@ static void retained_proc_chroot(void) {
                 char bytes[4096]; assert(syscall(SYS_getdents64,fd,bytes,sizeof(bytes))>0);
                 close(fd);
             }
-            assert(openat(proc,"self/ns",O_RDONLY|O_DIRECTORY)<0 && errno==EACCES);
+            ns=openat(proc,"self/ns",O_RDONLY|O_DIRECTORY);
+            /* Dumpability uses the mm's owning user namespace, not the
+             * caller's new namespace or the Android executor's credentials. */
+            if (mode&8) assert(ns<0 && errno==EACCES);
+            else { assert(ns>=0); close(ns); }
             int fd=openat(proc,"self/status",O_RDONLY|O_CLOEXEC); assert(fd>=0);
             char bytes[128]; assert(read(fd,bytes,sizeof(bytes))>0); close(fd);
             close(proc); _exit(0);

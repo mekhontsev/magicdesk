@@ -1,5 +1,8 @@
 #define _GNU_SOURCE
 #include "image_publish.h"
+#include "image_maintenance.h"
+#include "storage_paths.h"
+#include "inode_internal.h"
 #include "private_tree.h"
 #include <dirent.h>
 #include <errno.h>
@@ -96,7 +99,33 @@ int md_image_publish_begin(const char *destination, struct md_image_publish *p) 
     if (r) md_image_publish_close(p);
     return r;
 }
+int md_image_rebase_sources(const char *directory,const char *destination) {
+    struct md_inode_store *store=NULL;
+    int r=md_inode_store_open_exclusive(directory,&store);
+    char previous[PATH_MAX];
+    if (!r) r=md_storage_directory_path(store->lifetime->root,previous,sizeof(previous));
+    if (!r) r=mdi_runtime_begin(store);
+    if (!r) {
+        r=md_storage_sources_rebase(store->db,previous,destination);
+        store->sync_requested=1;
+        r=mdi_commit(store,r);
+    }
+    md_inode_store_close(store);
+    return r;
+}
+
 int md_image_publish_commit(struct md_image_publish *p) {
+    struct stat metadata;
+    if (fstatat(p->stage,"store",&metadata,AT_SYMLINK_NOFOLLOW)) return -errno;
+    int directory=S_ISDIR(metadata.st_mode);
+    if (directory && !fstatat(p->stage,"store/namespace.db",&metadata,AT_SYMLINK_NOFOLLOW)) {
+        char parent[PATH_MAX],destination[PATH_MAX];
+        int r=md_storage_directory_path(p->parent,parent,sizeof(parent));
+        if (!r && snprintf(destination,sizeof(destination),"%s/%s",parent,p->name)>=(int)sizeof(destination))
+            r=-ENAMETOOLONG;
+        if (!r) r=md_image_rebase_sources(p->path,destination);
+        if (r) return r;
+    } else if (directory && errno!=ENOENT) return -errno;
     if (fsync(p->stage)) return -errno;
     if (syscall(SYS_renameat2, p->stage, "store", p->parent, p->name, RENAME_NOREPLACE)) return -errno;
     /* A post-rename sync error is an uncertain durable outcome, not permission

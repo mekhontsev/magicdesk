@@ -5,6 +5,7 @@
 #include "inode_native.h"
 #include "inode_leaf.h"
 #include "inode_xattr.h"
+#include "storage_paths.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/fs.h>
@@ -88,9 +89,9 @@ int mdi_sources_open(struct md_inode_store *s) {
         if (rc != SQLITE_ROW) { r = mdi_sql_failure(rc); break; }
         int id = sqlite3_column_int(q, 0);
         const char *path = (const char *)sqlite3_column_text(q, 1);
-        if (id <= 0 || id >= MDI_SOURCES || !path || path[0] != '/') { r = -EIO; break; }
+        if (id <= 0 || id >= MDI_SOURCES || !path || !*path) { r = -EIO; break; }
         if (s->lifetime->sources[id] >= 0) continue;
-        int fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        int fd = openat(s->lifetime->root, path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
         if (fd < 0) { r = -errno; break; }
         int lease = openat(fd, "..", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
         if (lease < 0) r = -errno;
@@ -109,16 +110,18 @@ int mdi_sources_open(struct md_inode_store *s) {
 }
 
 int mdi_source_register(struct md_inode_store *s, int objects, int *id) {
-    char proc[64], path[PATH_MAX];
-    snprintf(proc, sizeof(proc), "/proc/self/fd/%d", objects);
-    if (!realpath(proc, path)) return -errno;
+    char directory[PATH_MAX], target[PATH_MAX], path[PATH_MAX];
+    int r=md_storage_directory_path(s->lifetime->root,directory,sizeof(directory));
+    if (!r) r=md_storage_directory_path(objects,target,sizeof(target));
+    if (!r) r=md_storage_relative_path(directory,target,path,sizeof(path));
+    if (r) return r;
     struct stat st;
     if (fstat(objects, &st)) return -errno;
     struct stat local;
     if (fstat(s->objects,&local)) return -errno;
     if (st.st_dev==local.st_dev && st.st_ino==local.st_ino) { *id=0; return 0; }
     sqlite3_stmt *q = NULL;
-    int r = mdi_prepare(s, "INSERT INTO sources(id,path,device,inode,scope) VALUES("
+    r = mdi_prepare(s, "INSERT INTO sources(id,path,device,inode,scope) VALUES("
         "coalesce((SELECT id FROM sources WHERE scope=?4 AND device=?2 AND inode=?3),"
         "(SELECT coalesce(max(id),0)+1 FROM sources WHERE scope=?4)),?1,?2,?3,?4) "
         "ON CONFLICT(scope,device,inode) DO UPDATE SET path=excluded.path RETURNING id", &q);

@@ -13,7 +13,7 @@ apply from: rootProject.file('gradle/x11-source.gradle')
 def sourceDigest = java.security.MessageDigest.getInstance('SHA-256')
 sourceDigest.update(magicDeskX11SourceRevision.getBytes('UTF-8'))
 def sourceFiles = rootProject.fileTree('.') {
-    include 'app/src/main/**', 'hidden-api-stubs/src/main/**', 'gradle/**', 'native/**'
+    include 'app/src/main/**', 'app/src/debug/**', 'hidden-api-stubs/src/main/**', 'gradle/**', 'native/**'
     include 'terminal-emulator/src/main/**', 'terminal-emulator/*.gradle'
     include '*.gradle', 'app/*.gradle', 'gradle.properties'
     include 'x11-runtime/src/main/**', 'x11-runtime/*.gradle', 'x11-runtime/consumer-rules.pro'
@@ -28,6 +28,8 @@ sourceFiles.each { file ->
     sourceDigest.update(rootProject.relativePath(file).getBytes('UTF-8'))
     sourceDigest.update(file.bytes)
 }
+sourceDigest.update(('guestFixtures=' + providers.gradleProperty(
+        'MAGICDESK_GUEST_FIXTURES').orElse('false').get()).getBytes('UTF-8'))
 def sourceId = sourceDigest.digest().encodeHex().toString()
 def requestedPlatformOverride = providers.gradleProperty(
         'MAGICDESK_PLATFORM_OVERRIDE').orNull

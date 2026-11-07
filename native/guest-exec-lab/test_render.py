@@ -35,8 +35,8 @@ def main():
         suite.command(prefix + ['--', '/bin/sh', '-ec',
             'printf "turnip-completion-v1\\n" > /etc/shroot/render-node'])
         filename = 'libmagicdesk_guest_test_render_guest.so'
-        suite.transport.upload(suite.client, args.build / filename, suite.base + '/' + filename)
-        suite.command(['chmod', '755', suite.base, suite.base + '/' + filename])
+        suite.upload(args.build / filename, suite.base + '/' + filename)
+        suite.chmod('755', suite.base, suite.base + '/' + filename)
         suite.command(prefix + ['--', '/bin/mkdir', '-p', target])
         suite.command(prefix + ['--bind', suite.base, target, '--', '/bin/sh', '-ec',
             'for node in /sys/class/drm/renderD*; do test -e "$node"; '

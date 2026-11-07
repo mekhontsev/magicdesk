@@ -128,6 +128,7 @@ struct task {
     struct task *channel_next;
     struct task *indexed;
     int pid, eligible, process, borrowed;
+    int native_signal_query;
     uintptr_t gate, watch_gate;
     uintptr_t cooperative_gate;
     struct { uintptr_t recent[DISCOVERY_RECENT]; unsigned next; } discovery;
@@ -548,7 +549,6 @@ static int prepare_call(struct md_filesystem *fs, struct operation *op, size_t c
         if (!op->owned_open && !op->native_plan && (q->data.args[2]&(O_CREAT|O_TRUNC))) return 0;
     }
     if (q->data.nr == SYS_newfstatat && (q->data.args[3] & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT))) return 0;
-    if (q->data.nr==SYS_readlinkat && !q->data.args[3]) return -EINVAL;
     uint64_t arguments[6];
     for (unsigned i=0;i<6;++i) arguments[i]=q->data.args[i];
     struct open_how how={0};
@@ -650,11 +650,13 @@ static int capture(struct operation *op) {
              * stream. Typed IO must keep the descriptor owner's cursor. */
             int unsupported=object && (!*origin || (op->request.operation==MD_FS_GETDENTS
                 && (md_fd_object_selectors(object)&(1U<<MD_FD_SELECTOR_PROC))));
-            if (!unsupported && !i && md_fs_anchor_virtual(*origin)) {
+            if (!unsupported && !i && (md_fs_anchor_virtual(*origin)
+                    || (op->request.operation==MD_FS_FSTAT
+                        && (md_fd_object_selectors(object)&(1U<<MD_FD_SELECTOR_PROC))))) {
                 if (op->request.operation==MD_FS_FSTAT && op->owner->control_query) {
                     int found=op->owner->control_query(object,op->request.operation,&op->request.control);
                     if (found<0) { md_fd_object_release(object); return found; }
-                    unsupported=!found;
+                    unsupported=!found && md_fs_anchor_virtual(*origin);
                     if (found) { op->control_input=object; object=NULL; }
                 } else unsupported=1;
             }
@@ -664,7 +666,8 @@ static int capture(struct operation *op) {
              * pins path identity after that turn ends. Data/offset operations
              * still capture the real OFD, never the anchor's O_PATH handle. */
             if (*origin && ((path && *path) || op->request.operation==MD_FS_FSTAT
-                    || op->request.operation==MD_FS_STATFS)) borrowed=md_fs_anchor_fd(*origin);
+                    || op->request.operation==MD_FS_STATFS
+                    || op->request.operation==MD_FS_READLINK)) borrowed=md_fs_anchor_fd(*origin);
             else *fd=duplicate(op->task,q->pid,base);
         }
         if (*fd<0 && borrowed<0) return 0;
@@ -771,7 +774,7 @@ static int native_descriptor(struct operation *op) {
 /* Zero requests task-affine handling, one means delivered/cancelled. */
 static int reply(struct operation *op, const void *data) {
     if (op->result.error == -EXDEV || op->result.error == -EREMOTE || op->result.host_path || op->result.requires_control
-            || op->undelivered) return 0;
+            || op->result.requires_task_status || op->result.requires_task_capture || op->undelivered) return 0;
     if (op->native_plan && !op->result.error) {
         if (op->result.open_completion.kind!=MD_OPEN_PLAN || !op->output_origin) return 0;
         return native_offer(op);
@@ -929,6 +932,7 @@ int md_broker_task(struct md_namespace_broker *b, int pid, int eligible, uintptr
         if (!t) { t = calloc(1, sizeof(*t)); if (t) { t->process = -1; t->next = b->tasks; b->tasks = t; } }
         if (t) {
             memset(&t->discovery,0,sizeof(t->discovery));
+            t->native_signal_query=0;
             unsigned bucket = (unsigned)pid % TASK_BUCKETS;
             t->indexed = b->task_index[bucket]; b->task_index[bucket] = t;
         }
@@ -945,6 +949,13 @@ int md_broker_task(struct md_namespace_broker *b, int pid, int eligible, uintptr
     pthread_mutex_unlock(&b->lock);
     if (pending) md_fs_worker_wake(b->worker);
     return t ? 0 : -ENOMEM;
+}
+void md_broker_signal_query(struct md_namespace_broker *b,pid_t pid,int native) {
+    if (!b) return;
+    pthread_mutex_lock(&b->lock);
+    struct task *t=find_task(b,pid);
+    if (t) t->native_signal_query=native;
+    pthread_mutex_unlock(&b->lock);
 }
 int md_broker_cooperative_bind(struct md_namespace_broker *b,pid_t pid,struct md_entry_channel *channel,uintptr_t gate) {
     if (!b || !channel || !gate) return -EINVAL;
@@ -1436,7 +1447,7 @@ static int cooperative_progress(struct md_namespace_broker *b,struct md_filesyst
                 if (!result) {
                     result=credentials.retired ? -ESRCH
                         : md_identity_scalar_result(&credentials.identity,call.number);
-                    md_identity_release(&credentials.identity);
+                    md_task_credentials_release(&credentials);
                 }
                 cooperative_reply(op,MD_ENTRY_COMPLETED,result);
             }
@@ -1529,6 +1540,17 @@ static int receive_one(struct md_namespace_broker *b,struct md_filesystem *fs,
     pthread_mutex_lock(&b->lock);
     int eligible = 0, watch = 0;
     struct task *task = find_task(b, (int)q.pid);
+    if (task && task->native_signal_query && !task->stopped && !task->recovering
+            && q.data.nr==SYS_rt_sigprocmask && !q.data.args[1]
+            && q.data.instruction_pointer!=task->gate) {
+        pthread_mutex_unlock(&b->lock);
+        int error=md_execution_window_end(window);
+        if (error) return error;
+        struct seccomp_notif_resp reply={.id=q.id,.flags=SECCOMP_USER_NOTIF_FLAG_CONTINUE};
+        if (ioctl(b->listener,SECCOMP_IOCTL_NOTIF_SEND,&reply) && errno!=ENOENT) return -errno;
+        if (count) ++count->handled;
+        return 0;
+    }
     if (task && task->channel && task->operation && task->operation->native_plan==2) {
         /* A caller can already be in its next kernel syscall. Retire the
          * completed native result before selecting that syscall's route. */

@@ -40,6 +40,12 @@ int main(int argc, char **argv) {
     assert(md_proc_path("/proc/thread-self/fd/012").kind == MD_PROC_NONE);
     assert(md_proc_path("/dev/fd/01").kind == MD_PROC_NONE);
     assert(md_proc_path("/proc/01/cwd").kind == MD_PROC_NONE);
+    assert(md_proc_path_for("/proc/thread-self/task/42/fd/0",42,42).kind == MD_PROC_NONE);
+    assert(md_proc_path_for("/proc/thread-self/task/43/fd/0",43,42).kind == MD_PROC_NONE);
+    char thread_path[128], wanted_thread_path[128];
+    assert(!md_proc_task_path("/proc/thread-self/fd/0",thread_path,sizeof(thread_path)));
+    snprintf(wanted_thread_path,sizeof(wanted_thread_path),"/proc/%d/task/%d/fd/0",getpid(),gettid());
+    assert(!strcmp(thread_path,wanted_thread_path));
     assert(!mkdir("dev", 0700) && !mkdir("dev/shm", 0700));
     expect(&g, "/dev/shm/value", 1, "/dev/shm/value");
     assert(!mkdir("etc", 0700));

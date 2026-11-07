@@ -119,7 +119,14 @@ class ClientTest(unittest.TestCase):
                     if name == "wait_for_state":
                         assert args["timeoutMillis"] == 30000
                         return {"matched": True}
+                    if name == "console.open":
+                        return {"sessionId": "update-console"}
+                    if name == "console.execute":
+                        return {"exitCode": 0, "output": "/selected/runtime/cache/tmp"}
+                    if name == "console.close":
+                        return {}
                     if name == "files.upload_begin":
+                        assert args["path"] == "/selected/runtime/cache/tmp/update-update1234567890.apk"
                         return {"state": "completed", "path": "/apk"}
                     if name == "app.update":
                         raise ConnectionResetError("app replaced")
@@ -195,6 +202,12 @@ class ClientTest(unittest.TestCase):
                             if name == "files.upload_begin":
                                 assert self.pending is None and not self.remaining
                                 return {"state": "completed", "path": "/apk"}
+                            if name == "console.open":
+                                return {"sessionId": "update-console"}
+                            if name == "console.execute":
+                                return {"exitCode": 0, "output": "/selected/runtime/cache/tmp"}
+                            if name == "console.close":
+                                return {}
                             if name == "app.update":
                                 assert self.pending is None and not self.remaining
                                 self.installed = True

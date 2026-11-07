@@ -10,6 +10,10 @@ import sys
 from urllib.parse import quote
 import uuid
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from fixture_executor import FixtureExecutor
+from test_oci_services import add_machine_entry_argument
+
 
 class Result(HTMLParser):
     def __init__(self):
@@ -33,11 +37,16 @@ def main():
     parser.add_argument("--build", type=Path, required=True)
     parser.add_argument("--store", required=True)
     parser.add_argument("--installed", action="store_true")
+    FixtureExecutor.add_argument(parser)
+    add_machine_entry_argument(parser)
+    parser.add_argument('--software', action='store_true', help='CPU rasterization without Turnip or a render node')
+    parser.add_argument('--user', default='2000:2000', help='Non-root guest account, independent of executor UID')
     parser.add_argument("--setuid-route", action="store_true",
                         help="Select Chromium's set-ID sandbox instead of its user/PID namespace sandbox; seccomp remains enabled")
     parser.add_argument("--helper", default="/usr/lib/chromium/chrome-sandbox",
                         help="Guest path of the helper actually selected by Chromium")
     args = parser.parse_args()
+    args.build.mkdir(parents=True, exist_ok=True)
     if not args.helper.startswith("/"):
         parser.error("helper must be an absolute guest path")
     report = {"completed": False, "sandboxSupportEstablished": False, "layerOneEstablished": False, "runs": []}
@@ -57,6 +66,8 @@ def main():
                        "--user-data-dir=/tmp/md-chrome-profile-" + token, "--window-size=800,600", "--dump-dom"]
             if args.setuid_route:
                 program.append("--disable-namespace-sandbox")
+            if args.software:
+                program.append('--disable-gpu')
             if index == 2:
                 program.append("--screenshot=" + artifact)
             program.append("data:text/html," + quote(page))
@@ -64,13 +75,17 @@ def main():
                 program = ["/usr/bin/env", "setpriv", "--no-new-privs", "--", *program]
             command = [sys.executable, str(Path(__file__).with_name("run.py")),
                        "--build", str(args.build), "--store", args.store,
-                       "--user", "2000:2000", "--deadline-seconds", "60", "--quiet",
+                       '--executor', args.executor,
+                       '--cleanup-path', '/tmp/md-chrome-profile-' + token,
+                       "--user", args.user, "--deadline-seconds", "60", "--quiet",
                        "--expect-output", "The setuid sandbox is not running as root."
                        if rejected else ">" + expected + "</h1>"]
             if index == 2:
-                command += ["--expect-artifact", artifact]
+                command += ["--expect-artifact", artifact, '--cleanup-path', artifact]
             if args.installed:
                 command += ["--installed"]
+            if args.machine_entry is not None:
+                command += ['--machine-entry' if args.machine_entry else '--base']
             command += ["--", *program]
             # EVENT_WAIT: owned browser completion and cleanup; expiry fails.
             result = subprocess.run(command, text=True, capture_output=True)
@@ -83,7 +98,8 @@ def main():
                      "report": paths[0], "verified": False, "noSandbox": False,
                      "selectedSandboxRoute": "setuid" if args.setuid_route else "automatic"}
             report["runs"].append(entry)
-            assert run["consoleClosed"] and run["uid"] == 2000 and run["guestUser"] == "2000:2000"
+            assert run['executor']['mode'] == args.executor
+            assert run["consoleClosed"] and run["guestUser"] == args.user
             output = next(item["output"] for item in run["commands"] if "--diagnostics " in item["command"])
             assert "PROBE FAIL" not in output and "fstatFailures=0" in output
             if rejected:
@@ -110,10 +126,10 @@ def main():
             assert re.search(r"PROBE proc-root domain=1 changes=[1-9]\d*", output)
             if args.setuid_route:
                 assert re.search(r"PROBE stored-setid-image pid=\d+ euid=0 egid=\d+ secure=1", output)
-                assert re.search(r"PROBE identity admittedImages=0 changes=[1-9]\d* hostUid=2000", output)
+                assert re.search(r"PROBE identity admittedImages=0 changes=[1-9]\d* hostUid=" + str(run['uid']), output)
             else:
                 assert re.search(r"PROBE pid-namespace init=\d+ visible=1 depth=1", output)
-                assert re.search(r"PROBE identity admittedImages=0 changes=\d+ hostUid=2000", output)
+                assert re.search(r"PROBE identity admittedImages=0 changes=\d+ hostUid=" + str(run['uid']), output)
             assert "PROBE installed-filter" in output
             entry.update(verified=True, rendered=expected,
                          filtersInstalled=len(re.findall(r"PROBE installed-filter", output)),

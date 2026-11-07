@@ -10,7 +10,8 @@ struct md_fd_observation { long selectors; uint64_t generation; };
  * is never file identity; the namespace owner checks the retained kernel FD. */
 enum { MD_FD_SELECTOR_MASK = 511 };
 enum md_fd_selector_kind { MD_FD_SELECTOR_WATCH, MD_FD_SELECTOR_PROC,
-    MD_FD_SELECTOR_EPOLL_TARGET, MD_FD_SELECTOR_EPOLL, MD_FD_SELECTOR_POLL, MD_FD_SELECTOR_KINDS };
+    MD_FD_SELECTOR_EPOLL_TARGET, MD_FD_SELECTOR_EPOLL, MD_FD_SELECTOR_POLL,
+    MD_FD_SELECTOR_KINDS };
 /* Installed seccomp selectors belong to a thread group, not its address space
  * or descriptor table. Fork copies them, threads share them, exec retains them. */
 struct md_fd_selector;

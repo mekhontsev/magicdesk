@@ -10,6 +10,8 @@
 #include "task_checkpoint.h"
 #include "task_registers.h"
 #include "task_wait.h"
+#include "task_pending.h"
+#include "task_stack.h"
 #include <elf.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -20,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <sys/ptrace.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
@@ -27,7 +30,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-enum operation { ALLOCATE, CLONE, CLEAR, CHANNEL, OPEN, EXPORT, BACKING, MAP, EXIT,
+enum operation { ALLOCATE, PROTECT_STACK, RELEASE_STACK, CLONE, CLEAR, CHANNEL, OPEN, METADATA, DIRECTORY, EXPORT, BACKING, MAP, EXIT,
     SEND_INPUT, SEND_CHANNEL, SEND_ANCHOR, SEND_IMPORT, SEND_CLOSE, SEND_SOCKET, SEND,
     RECEIVE_CHANNEL, RECEIVE, RECEIVE_EXPORT, RECEIVE_COLLECT };
 struct parcel {
@@ -36,6 +39,7 @@ struct parcel {
     struct msghdr message;
     union { struct cmsghdr align; char bytes[CMSG_SPACE(sizeof(int))]; } control;
     char path[PATH_MAX];
+    struct stat metadata;
 };
 struct helper {
     struct helper *next;
@@ -48,11 +52,18 @@ struct helper {
     struct md_interception_abi abi;
     struct md_interception_memory *memory;
     struct md_interception_buffer buffer;
+    int borrowed;
+    struct md_task_call parent_call;
+    uintptr_t stack_mapping;
     uintptr_t stack, parcel;
     uint64_t pstate;
     struct md_task_mapping_request request;
     enum md_task_helper_kind kind;
     int flags;
+    int capture_metadata, captured_fd;
+    void *directory;
+    size_t directory_size, directory_limit;
+    struct stat metadata;
     struct md_task_send send;
     struct md_received_fds *received;
     struct md_received_fds *send_inputs;
@@ -100,6 +111,10 @@ static int protocol_error(struct helper *m,int line) {
     fprintf(stderr,"guest-runtime: helper protocol line=%d owner=%d child=%d kind=%d parent=%d operation=%d ready=%d reaped=%d cancelled=%d started=%d\n",
         line,m->owner,m->child,m->kind,m->parent_operation,m->operation,
         m->parent_ready,m->reaped,m->cancelled,m->started);
+    if (m->borrowed) fprintf(stderr,"guest-runtime: helper call stage=%u boundary=%d result=%ld syscall=%ld argument=%#lx original=%#llx\n",
+        m->parent_call.stage,m->parent_call.boundary,m->parent_call.result,
+        m->parent_call.arguments.number,m->parent_call.arguments.value[0],
+        (unsigned long long)m->parent_call.original_first_argument);
     return -EPROTO;
 }
 static int resume(struct helper *m, pid_t pid) {
@@ -135,13 +150,16 @@ static void dispose(struct helper *m) {
     md_buffer_release(&m->buffer);
     if (m->memory) md_memory_stack_return(m->memory,m->stack);
     md_memory_release(m->memory);
+    free(m->directory);
     free(m);
 }
 static void complete(struct helper *m) {
     void *context=m->completion;
-    struct md_task_helper_result result={.value=m->result,.descriptor=-1,.signal=m->signal};
+    struct md_task_helper_result result={.value=m->result,.descriptor=-1,.signal=m->signal,.metadata=m->metadata};
     if (descriptor_helper(m) && !m->result && !m->cancelled) {
         result.descriptor=m->maps; m->maps=-1;
+        result.directory=m->directory; m->directory=NULL;
+        result.directory_size=m->directory_size;
     } else if (descriptor_helper(m) && m->cancelled) result.value=-ECANCELED;
     if (m->kind==MD_TASK_HELPER_RECEIVE || m->kind==MD_TASK_HELPER_EXPORT) {
         if (m->cancelled) result.value=-ECANCELED;
@@ -160,6 +178,11 @@ static int abort_child(struct helper *m) {
 static int clone_begin(struct helper *m) {
     m->parent_operation=CLONE;
     unsigned long args[6]={CLONE_VM|CLONE_THREAD|CLONE_SIGHAND,m->stack};
+    if (m->borrowed) {
+        struct md_task_call_arguments call={.number=SYS_clone};
+        memcpy(call.value,args,sizeof(args));
+        return md_task_call_again(&m->parent_call,&call);
+    }
     return call(m,m->owner,SYS_clone,args);
 }
 static int clear_next(struct helper *m) {
@@ -252,15 +275,16 @@ static int observe(struct helper *m, const struct user_pt_regs *r) {
     m->result=found && !m->before ? address : -ECANCELED;
     m->observed=1; return 0;
 }
+static int pending_pipe(void *context,const siginfo_t *info) {
+    if (info->si_signo!=SIGPIPE) return 0;
+    *(siginfo_t *)context=*info; return 1;
+}
 static int advance(struct helper *m, long value) {
     if (m->operation==SEND && value==-EPIPE) {
         /* Preserve the actual kernel signal, not an invented signal for an
          * application filter that merely returned EPIPE. No signal is consumed. */
-        struct { uint64_t off; uint32_t flags; int32_t nr; } peek={.nr=64};
-        siginfo_t pending[64];
-        long count=trace(m,PTRACE_PEEKSIGINFO,m->child,&peek,pending);
-        if (count<0) { m->result=count; m->observed=1; return abort_child(m); }
-        for (long i=0;i<count;++i) if (pending[i].si_signo==SIGPIPE) { m->signal=pending[i]; break; }
+        int result=md_task_pending_scan(m->manager->callbacks.trace,m->child,pending_pipe,&m->signal);
+        if (result<0) { m->result=result; m->observed=1; return abort_child(m); }
     }
     if (value<0 && m->operation!=RECEIVE) {
         m->result=value>=-4095 ? value : -EPROTO;
@@ -395,6 +419,27 @@ static int advance(struct helper *m, long value) {
             break;
         case OPEN: {
             if (value>INT32_MAX) return protocol_error(m,__LINE__);
+            m->captured_fd=(int)value;
+            if (m->capture_metadata) {
+                m->operation=METADATA; nr=SYS_fstat;
+                args[0]=value; args[1]=m->parcel+offsetof(struct parcel,metadata);
+                break;
+            }
+            goto capture_directory;
+        }
+        case METADATA: {
+            struct md_buffer_span observed;
+            if (md_buffer_span(&m->buffer,&observed)) return protocol_error(m,__LINE__);
+            m->metadata=((struct parcel *)observed.data)->metadata;
+            value=m->captured_fd;
+capture_directory:
+            if (m->directory_limit) {
+                m->operation=DIRECTORY; nr=SYS_getdents64;
+                args[0]=m->captured_fd; args[1]=m->parcel+offsetof(struct parcel,path);
+                args[2]=sizeof(((struct parcel *)0)->path);
+                break;
+            }
+export_open:
             if (m->kind==MD_TASK_HELPER_CAPTURE && (m->flags&O_PATH) && !(m->flags&O_NOFOLLOW)) {
                 /* The stopped helper owns a private table: this alias pins the
                  * object already opened under caller filters, not its pathname.
@@ -424,6 +469,24 @@ static int advance(struct helper *m, long value) {
             int fd=(int)value; memcpy(CMSG_DATA(&p->control.align),&fd,sizeof(fd));
             m->operation=EXPORT; nr=SYS_sendmsg;
             args[1]=m->parcel+offsetof(struct parcel,message); args[2]=MSG_NOSIGNAL|MSG_DONTWAIT;
+            break;
+        }
+        case DIRECTORY: {
+            if (!value) { value=m->captured_fd; goto export_open; }
+            if ((unsigned long)value>sizeof(((struct parcel *)0)->path)) return protocol_error(m,__LINE__);
+            if ((size_t)value>m->directory_limit-m->directory_size) {
+                m->result=-EOVERFLOW; return abort_child(m);
+            }
+            struct md_buffer_span span;
+            if (md_buffer_span(&m->buffer,&span)) return protocol_error(m,__LINE__);
+            size_t size=m->directory_size+(size_t)value;
+            void *data=realloc(m->directory,size);
+            if (!data) { m->result=-ENOMEM; return abort_child(m); }
+            m->directory=data;
+            memcpy((char *)data+m->directory_size,((struct parcel *)span.data)->path,(size_t)value);
+            m->directory_size=size;
+            nr=SYS_getdents64; args[0]=m->captured_fd;
+            args[1]=m->parcel+offsetof(struct parcel,path); args[2]=sizeof(((struct parcel *)0)->path);
             break;
         }
         case EXPORT: {
@@ -478,7 +541,7 @@ int md_task_helpers_group_busy(const struct md_task_helpers *manager,pid_t group
         if (h->group==group) return 1;
     return 0;
 }
-int md_task_helper_begin(struct md_task_helpers *manager, pid_t owner, pid_t group,
+static int helper_begin(struct md_task_helpers *manager, pid_t owner, pid_t group, int boundary,
         const struct user_pt_regs *regs, const struct md_interception_abi *abi,
         struct md_interception_memory *memory, const struct md_interception_buffer *buffer,
         const struct md_task_helper_request *request, md_task_helper_complete callback, void *context) {
@@ -514,14 +577,26 @@ int md_task_helper_begin(struct md_task_helpers *manager, pid_t owner, pid_t gro
             || !request->receive.count || request->receive.count>1024 || request->receive.batch>1
             || (!request->receive.batch && request->receive.count!=1) || !request->captured)) return -EINVAL;
     if (request->kind==MD_TASK_HELPER_MAP && !request->mapping.size) return -EINVAL;
+    if (request->capture_metadata && request->kind!=MD_TASK_HELPER_CAPTURE) return -EINVAL;
+    if (request->directory_limit && (request->kind!=MD_TASK_HELPER_CAPTURE
+            || !(request->flags&O_DIRECTORY) || (request->flags&O_PATH)
+            || request->directory_limit>65536)) return -EINVAL;
     if (request->kind==MD_TASK_HELPER_CAPTURE) {
         struct md_proc_path proc=md_proc_path_for(path,owner,group);
         int fdinfo=proc.kind==MD_PROC_FDINFO && !*proc.tail && request->flags==O_CLOEXEC;
         enum md_proc_kind kind=proc.kind==MD_PROC_FOREIGN ? proc.foreign_kind : proc.kind;
         int mounts=(kind==MD_PROC_MOUNTS || kind==MD_PROC_MOUNTINFO)
             && !*proc.tail && request->flags==O_CLOEXEC;
-        if ((!(request->flags&O_PATH) && !fdinfo && !mounts)
-                || request->flags&~(O_PATH|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW)) return -EINVAL;
+        int process=(kind==MD_PROC_STATUS || kind==MD_PROC_STAT || kind==MD_PROC_LIMITS
+                || (kind>=MD_PROC_IO && kind<=MD_PROC_STACK))
+            && !*proc.tail && request->flags==O_CLOEXEC;
+        /* O_DIRECTORY bounds readable capture to a directory, independently
+         * of its pathname. Provider admission owns the target's authority. */
+        int directory=!!(request->flags&O_DIRECTORY);
+        unsigned allowed=O_PATH|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW;
+        if (directory) allowed|=O_NONBLOCK|O_NOATIME|O_LARGEFILE;
+        if ((!(request->flags&O_PATH) && !fdinfo && !mounts && !process && !directory)
+                || request->flags&~allowed) return -EINVAL;
     }
     for (struct helper *m=manager->first;m;m=m->next) if (m->owner==owner) return -EBUSY;
     unsigned exporting=request->kind==MD_TASK_HELPER_EXPORT ? request->descriptor_count : 0;
@@ -530,7 +605,8 @@ int md_task_helper_begin(struct md_task_helpers *manager, pid_t owner, pid_t gro
     *m=(struct helper){.manager=manager,.owner=owner,.group=group,.abi=*abi,.request=request->mapping,
         .kind=request->kind,.complete=callback,.flags=request->kind==MD_TASK_HELPER_MAP
             ? O_RDONLY|O_CLOEXEC : request->flags|O_CLOEXEC,
-        .completion=context,.backing=-1,.maps=-1,.result=-ECANCELED,.pstate=regs->pstate};
+        .completion=context,.backing=-1,.maps=-1,.result=-ECANCELED,.pstate=regs->pstate,
+        .capture_metadata=request->capture_metadata,.directory_limit=request->directory_limit,.borrowed=boundary>=0};
     if (m->kind==MD_TASK_HELPER_FD_TABLE) m->flags=O_RDONLY|O_DIRECTORY|O_CLOEXEC;
     if (m->kind==MD_TASK_HELPER_SEND_CAPTURED) {
         m->send=request->send;
@@ -622,7 +698,20 @@ int md_task_helper_begin(struct md_task_helpers *manager, pid_t owner, pid_t gro
     if (error) { dispose(m); return error; }
     m->next=manager->first; manager->first=m; ++manager->count;
     m->stack=md_memory_stack_take(memory);
-    if (m->stack) error=clone_begin(m);
+    if (m->borrowed) {
+        struct md_task_call_arguments call={.number=SYS_clone,
+            .value={CLONE_VM|CLONE_THREAD|CLONE_SIGHAND,m->stack}};
+        m->parent_operation=CLONE;
+        if (!m->stack) {
+            m->parent_operation=ALLOCATE;
+            call=(struct md_task_call_arguments){.number=SYS_mmap,
+                .value={0,MD_TASK_STACK_SIZE+2*(size_t)getpagesize(),PROT_NONE,
+                    MAP_PRIVATE|MAP_ANONYMOUS,(unsigned long)-1,0}};
+        }
+        error=md_task_call_begin(&m->parent_call,manager->callbacks.trace,owner,
+            (enum md_task_call_boundary)boundary,regs,abi->task_call,abi->task_return,&call);
+        if (error && m->parent_call.stage) return error==-ESRCH ? 0 : error;
+    } else if (m->stack) error=clone_begin(m);
     else {
         m->parent_operation=ALLOCATE;
         struct user_pt_regs r=*regs; r.pc=abi->allocate;
@@ -631,6 +720,24 @@ int md_task_helper_begin(struct md_task_helpers *manager, pid_t owner, pid_t gro
     }
     if (error && error!=-ESRCH) { dispose(m); return error; }
     return 0;
+}
+int md_task_helper_begin(struct md_task_helpers *manager,pid_t owner,pid_t group,
+        const struct user_pt_regs *regs,const struct md_interception_abi *abi,
+        struct md_interception_memory *memory,const struct md_interception_buffer *buffer,
+        const struct md_task_helper_request *request,md_task_helper_complete callback,void *context) {
+    return helper_begin(manager,owner,group,-1,regs,abi,memory,buffer,request,callback,context);
+}
+int md_task_helper_borrow(struct md_task_helpers *manager,pid_t owner,pid_t group,
+        enum md_task_call_boundary boundary,const struct user_pt_regs *regs,const struct md_interception_abi *abi,
+        struct md_interception_memory *memory,const struct md_interception_buffer *buffer,
+        const struct md_task_helper_request *request,md_task_helper_complete callback,void *context) {
+    if (boundary<MD_TASK_CALL_USER || boundary>MD_TASK_CALL_EMULATED_ENTRY) return -EINVAL;
+    return helper_begin(manager,owner,group,boundary,regs,abi,memory,buffer,request,callback,context);
+}
+struct md_task_call *md_task_helper_call(struct md_task_helpers *manager,pid_t owner) {
+    for (struct helper *m=manager ? manager->first : NULL;m;m=m->next)
+        if (m->owner==owner && m->borrowed && !m->parent_ready) return &m->parent_call;
+    return NULL;
 }
 int md_task_helper_detach(struct md_task_helpers *manager, pid_t owner) {
     if (!manager) return 0;
@@ -673,6 +780,41 @@ int md_task_helper_notification(struct md_task_helpers *manager, int listener, c
     }
     return 0;
 }
+static int borrowed_parent(struct helper *m,int status) {
+    int ready=md_task_call_event(&m->parent_call,status);
+    if (ready<=0) return ready;
+    long value=m->parent_call.result;
+    if (m->parent_operation==PROTECT_STACK) {
+        int error=value<0 ? (int)value : 0;
+        if (!error) {
+            m->stack=m->stack_mapping+(size_t)getpagesize()+MD_TASK_STACK_SIZE;
+            error=md_memory_stack_add(m->memory,m->stack);
+        }
+        if (error) {
+            m->stack=0; m->result=error; m->parent_operation=RELEASE_STACK;
+            struct md_task_call_arguments call={.number=SYS_munmap,
+                .value={m->stack_mapping,MD_TASK_STACK_SIZE+2*(size_t)getpagesize()}};
+            return md_task_call_again(&m->parent_call,&call);
+        }
+        return clone_begin(m);
+    }
+    if (value<0 || m->parent_operation==RELEASE_STACK) {
+        if (m->parent_operation!=RELEASE_STACK) m->result=value;
+        if (m->child) return protocol_error(m,__LINE__);
+        complete(m); return 0;
+    }
+    if (m->parent_operation==ALLOCATE) {
+        m->stack_mapping=(uintptr_t)value;
+        m->parent_operation=PROTECT_STACK;
+        struct md_task_call_arguments call={.number=SYS_mprotect,
+            .value={m->stack_mapping+(size_t)getpagesize(),MD_TASK_STACK_SIZE,PROT_READ|PROT_WRITE}};
+        return md_task_call_again(&m->parent_call,&call);
+    }
+    if (m->parent_operation!=CLONE || !m->child || value!=m->child) return protocol_error(m,__LINE__);
+    m->parent_ready=1;
+    if (m->reaped) complete(m);
+    return 0;
+}
 int md_task_helper_event(struct md_task_helpers *manager, pid_t pid, int status) {
     struct helper *m=manager ? manager->first : NULL;
     while (m && m->owner!=pid && m->child!=pid) m=m->next;
@@ -690,7 +832,7 @@ int md_task_helper_event(struct md_task_helpers *manager, pid_t pid, int status)
     unsigned event=(unsigned)status>>16;
     int sig=WSTOPSIG(status), error=0;
     if (!child && (event==PTRACE_EVENT_EXIT || event==PTRACE_EVENT_EXEC)) return 0;
-    if (!child && !event && sig==SIGSYS && !m->child && m->parent_operation==CLONE) {
+    if (!child && !m->borrowed && !event && sig==SIGSYS && !m->child && m->parent_operation==CLONE) {
         siginfo_t info;
         error=(int)trace(m,PTRACE_GETSIGINFO,pid,NULL,&info);
         if (error) return error;
@@ -701,7 +843,7 @@ int md_task_helper_event(struct md_task_helpers *manager, pid_t pid, int status)
             m->result=-EOPNOTSUPP; complete(m); return 1;
         }
     }
-    if (!child && event==PTRACE_EVENT_STOP && sig==SIGTRAP) {
+    if (!child && !m->borrowed && event==PTRACE_EVENT_STOP && sig==SIGTRAP) {
         /* An interrupt can lose to an ordinary stop and arrive after the
          * caller lent us its registers. Continue the current gate, not the
          * caller's saved syscall. Application group-stops remain external. */
@@ -717,8 +859,15 @@ int md_task_helper_event(struct md_task_helpers *manager, pid_t pid, int status)
             int ready=manager->callbacks.newborn(m->child);
             md_task_wait_track(manager->callbacks.wait,&m->wait_member,m->child);
             error=ready<0 ? ready : ready ? child_begin(m) : 0;
-            if (!error) error=resume(m,pid);
+            if (!error) error=m->borrowed ? md_task_call_resume(&m->parent_call,0) : resume(m,pid);
         }
+    } else if (!child && m->borrowed) {
+        error=borrowed_parent(m,status);
+    } else if (child && !event && sig==SIGSTOP) {
+        /* STOP targets the whole application group even when its delivery
+         * selects this private thread. Do not consume it as helper failure. */
+        error=(int)trace(m,PTRACE_CONT,pid,NULL,(void *)(uintptr_t)SIGSTOP);
+        if (!error) m->child_stopped=0;
     } else if (child && event==PTRACE_EVENT_EXIT) {
         if (m->operation==MAP) {
             struct user_pt_regs r;
@@ -727,7 +876,14 @@ int md_task_helper_event(struct md_task_helpers *manager, pid_t pid, int status)
         }
         if (!error) error=resume(m,pid);
     } else if (child && event==PTRACE_EVENT_STOP) {
-        if (!m->operation) error=child_begin(m);
+        if (sig!=SIGTRAP) {
+            /* EVENT_WAIT: a private helper shares its caller's job control.
+             * Preserve the group stop until CONT or cancellation instead of
+             * repeatedly rearming an interrupt against the stopped group. */
+            error=(int)trace(m,PTRACE_LISTEN,pid,NULL,NULL);
+            if (!error) m->child_stopped=0;
+            else if (error==-ESRCH) error=0;
+        } else if (!m->operation) error=child_begin(m);
         else if (m->cancelled) {
             struct user_pt_regs r;
             error=registers(m,pid,&r,0);

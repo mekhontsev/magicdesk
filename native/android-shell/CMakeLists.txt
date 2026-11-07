@@ -51,7 +51,7 @@ target_compile_definitions(android_shell PRIVATE
     DEBUG_LEAKS MKSH_ASSUME_UTF8 MKSH_DONT_EMIT_IDSTRING
     KSH_VERSIONNAME_VENDOR_EXT=" MagicDesk"
     MKSH_DEFAULT_PROFILEDIR="/system/etc" MKSHRC_PATH="~/.mkshrc"
-    MKSH_DEFAULT_EXECSHELL="/proc/self/exe" MKSH_DEFAULT_TMPDIR="/data/local/tmp"
+    MKSH_DEFAULT_EXECSHELL="/proc/self/exe" MKSH_DEFAULT_TMPDIR="/data/local/tmp/magicdesk/cache/tmp"
     MKSH_DEFPATH_OVERRIDE="/system/bin:/system/xbin"
     HAVE_STRING_POOLING=2
     HAVE_ATTRIBUTE_BOUNDED=0 HAVE_ATTRIBUTE_FORMAT=1 HAVE_ATTRIBUTE_NORETURN=1

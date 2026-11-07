@@ -27,12 +27,12 @@ def main():
                     out.add(directory / name, arcname='stock/' + name)
                 out.add(lab / 'test_cooperative_libc.c', arcname='probe.c')
                 out.add(lab / 'build-svc-glibc-probes.sh', arcname='build.sh')
-            suite.transport.upload(suite.client, archive, suite.base + '/inputs.tar')
+            suite.upload(archive, suite.base + '/inputs.tar')
         suite.command(['tar', '-oxf', suite.base + '/inputs.tar', '-C', suite.base])
         suite.command(['shroot', 'exec', args.environment, '--user', 'root',
                        '--bind', suite.base, '/tmp', '--', '/bin/sh', '/tmp/build.sh'], timeout=120)
         for kind in ('stock', 'stock-dynamic'):
-            suite.transport.download(suite.client, suite.base + '/probe-' + kind,
+            suite.download(suite.base + '/probe-' + kind,
                                      args.output / ('probe-' + kind), overwrite=True)
         suite.command(['rm', '-rf', suite.base])
         suite.report['passed'] = True

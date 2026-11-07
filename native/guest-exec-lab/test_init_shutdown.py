@@ -69,10 +69,10 @@ def main():
         suite.command(['/system/bin/sh', '-c', shlex.join(command) +
                        ' > ' + shlex.quote(suite.base + '/shutdown.log') + ' 2>&1'], timeout=110, expected=130)
         archive = args.output / (suite.report['id'] + '-shutdown.log')
-        suite.transport.download(suite.client, suite.base + '/shutdown.log', archive)
+        suite.download(suite.base + '/shutdown.log', archive)
         log = archive.read_text()
         service_archive = args.output / (suite.report['id'] + '-service.log')
-        suite.transport.download(suite.client, suite.base + '/service.log', service_archive)
+        suite.download(suite.base + '/service.log', service_archive)
         service_log = service_archive.read_text()
         assert 'PASS shutdown-service-stopped' in service_log, service_log
         mount = 'opt-' + target.removeprefix('/opt/').replace('-', r'\x2d') + '.mount'

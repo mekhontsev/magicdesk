@@ -268,7 +268,7 @@ static int mount_slot(const struct md_mount_namespace *view, const struct md_vie
     return md_view_mount_slot(view,m,count);
 }
 static int mount_portable(const struct md_view_mount *m) {
-    if (m->devpts || m->cgroup || m->sysfs || m->ipc_namespace || m->file.ops) return 0;
+    if (m->local_custody || m->devpts || m->cgroup || m->sysfs || m->ipc_namespace || m->file.ops) return 0;
     if (!m->provider) return 1;
     struct stat root;
     return (md_host_fs_kind(m->provider) || (m->backing==MD_MOUNT_PROC && md_procfs_export(m->provider,NULL)))

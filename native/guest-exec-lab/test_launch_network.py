@@ -314,8 +314,8 @@ def main():
             assert args.build
             for target in ('test_task_resources', 'test_mounts', 'fs_dispatch'):
                 filename = 'libmagicdesk_guest_' + target + '.so'
-                suite.transport.upload(suite.client, args.build / filename, suite.base + '/' + filename)
-                suite.command(['chmod', '700', suite.base + '/' + filename])
+                suite.upload(args.build / filename, suite.base + '/' + filename)
+                suite.chmod('700', suite.base + '/' + filename)
                 arguments = [] if target == 'test_task_resources' else [suite.base + '/' + target]
                 suite.command([suite.base + '/' + filename, *arguments])
         cli(suite, args.store)

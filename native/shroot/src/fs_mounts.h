@@ -27,6 +27,9 @@ int md_fs_mounts_copy_cwd(struct md_mount_namespace *source, struct md_mount_nam
 /* Preserve the resolved mount when capturing a freshly opened root. Without
  * provenance an ambiguous native object fails instead of choosing an alias. */
 int md_fs_root_capture(struct md_filesystem *, int fd, const struct md_fs_anchor *, struct md_fs_location *);
+/* Record an exact retained directory after the caller's access stage succeeds.
+ * No pathname lookup, native permission check or guest-root mutation occurs. */
+int md_fs_root_location(struct md_filesystem *,const struct md_fs_anchor *,struct md_fs_location *);
 int md_fs_root_select(struct md_filesystem *, const struct md_fs_location *);
 /* Worker-only identity check, independent of cwd and textual path spelling. */
 int md_fs_root_is_mount_root(struct md_filesystem *, const struct md_fs_location *);

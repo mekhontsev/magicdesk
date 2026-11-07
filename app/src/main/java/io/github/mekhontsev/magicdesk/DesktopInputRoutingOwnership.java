@@ -16,35 +16,36 @@ import java.util.Set;
 
 /** Crash journal for transient Android input associations, scoped to this boot. */
 final class DesktopInputRoutingOwnership implements InputRoutingLease.Storage {
-    private static final Path FILE = Path.of("/data/local/tmp/magicdesk-input-routing.json");
     private static final Path BOOT_ID = Path.of("/proc/sys/kernel/random/boot_id");
     private static final int MAX_ENTRIES = 64;
     private static final int MAX_BYTES = 128 * 1024;
 
     @Override
     public Map<String, InputRoutingLease.Entry> read() throws IOException {
-        if (!Files.exists(FILE)) {
+        Path file = RuntimeDataPaths.journal("input-routing.json");
+        if (!Files.exists(file)) {
             return new LinkedHashMap<>();
         }
-        if (Files.size(FILE) > MAX_BYTES) {
+        if (Files.size(file) > MAX_BYTES) {
             throw new IOException("input association journal exceeds size limit");
         }
-        return decode(new String(Files.readAllBytes(FILE), StandardCharsets.UTF_8), bootId());
+        return decode(new String(Files.readAllBytes(file), StandardCharsets.UTF_8), bootId());
     }
 
     @Override
     public void write(final Map<String, InputRoutingLease.Entry> entries) throws IOException {
+        Path file = RuntimeDataPaths.journal("input-routing.json");
         if (entries.isEmpty()) {
-            Files.deleteIfExists(FILE);
+            Files.deleteIfExists(file);
             return;
         }
         final String encoded = encode(entries, bootId());
-        final Path temporary = FILE.resolveSibling(FILE.getFileName() + ".tmp");
+        final Path temporary = file.resolveSibling(file.getFileName() + ".tmp");
         try (FileOutputStream output = new FileOutputStream(temporary.toFile())) {
             output.write(encoded.getBytes(StandardCharsets.UTF_8));
             output.getFD().sync();
         }
-        Files.move(temporary, FILE, StandardCopyOption.ATOMIC_MOVE,
+        Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING);
     }
 

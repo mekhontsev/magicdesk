@@ -9,6 +9,7 @@
 #include "fd_client.h"
 #include "fs_buffer.h"
 #include "adapter_buffer.h"
+#include "host_open.h"
 #include "raw.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -57,9 +58,14 @@ static long fdinfo_open(const struct md_fs *fs,const struct md_proc_path *ref,
 }
 
 long md_namespace_memory_open(pid_t process,long nr,const unsigned long *a) {
-    long admitted=md_guest_buffer_control(MD_BUFFER_MEMORY_OPEN,(unsigned)process,0);
+    /* O_PATH also exposes this address space: an inherited pin can be
+     * reopened for writing after fork without another open of the mem node. */
+    unsigned long flags=nr==SYS_openat2 ? ((const struct open_how *)a[2])->flags : a[2];
+    long admitted=md_guest_buffer_control(MD_BUFFER_MEMORY_OPEN,(unsigned)process,flags&O_PATH);
     if (admitted<0) return admitted;
-    long result=md_raw(nr,a[0],a[1],a[2],a[3],a[4],a[5]);
+    long result=nr==SYS_openat2
+        ? md_host_open_resolved((int)a[0],(const char *)a[1],(const struct open_how *)a[2])
+        : md_raw(nr,a[0],a[1],a[2],a[3],a[4],a[5]);
     long completed=md_guest_buffer_control(MD_BUFFER_MEMORY_OPEN_RESULT,(unsigned long)result,0);
     if (completed<0) {
         if (result>=0) RAW1(close,result);
@@ -76,7 +82,7 @@ long md_namespace_host_open_resolved(const struct md_fs *fs,int base,const char 
     enum md_proc_kind kind=ref.kind==MD_PROC_FOREIGN ? ref.foreign_kind : ref.kind;
     if (ref.ordinary_link && !*ref.tail
             && ((how->flags&O_NOFOLLOW) || (how->resolve&RESOLVE_NO_SYMLINKS)))
-        return RAW4(openat2,base,path,how,sizeof(*how));
+        return md_host_open_resolved(base,path,how);
     if (kind==MD_PROC_MEMORY) {
         if (*ref.tail) return -ENOTDIR;
         unsigned long args[6]={(unsigned long)base,(uintptr_t)path,(uintptr_t)how,sizeof(*how)};
@@ -97,28 +103,28 @@ long md_namespace_host_open_resolved(const struct md_fs *fs,int base,const char 
         error=md_copy(probe_path+length,sizeof(probe_path)-length,leaf);
         if (error<0) return error;
         struct open_how probe=*how; probe.flags=O_PATH|O_CLOEXEC; probe.mode=0;
-        long checked=RAW4(openat2,base,probe_path,&probe,sizeof(probe));
+        long checked=md_host_open_resolved(base,probe_path,&probe);
         if (checked<0) return checked;
         RAW1(close,checked);
         long result=md_proc_control_open(&ref,(int)how->flags,proc_namespace);
         return result==-EXDEV && (md_proc_native_task(kind) || md_proc_network_control(kind))
-            ? RAW4(openat2,base,path,how,sizeof(*how)) : result;
+            ? md_host_open_resolved(base,path,how) : result;
     }
     if (kind==MD_PROC_MOUNTS || kind==MD_PROC_MOUNTINFO) {
-        long checked=RAW4(openat2,base,path,how,sizeof(*how));
+        long checked=md_host_open_resolved(base,path,how);
         if (checked<0) return checked;
         RAW1(close,checked);
         return mount_table_open(fs,&ref,identity,(int)how->flags);
     }
     if (kind==MD_PROC_FDINFO) {
-        long checked=RAW4(openat2,base,path,how,sizeof(*how));
+        long checked=md_host_open_resolved(base,path,how);
         if (checked<0) return checked;
         RAW1(close,checked);
         return fdinfo_open(fs,&ref,(int)how->flags,proc_namespace);
     }
     if (kind==MD_PROC_CMDLINE || kind==MD_PROC_AUXV) {
         if (*ref.tail) return -ENOTDIR;
-        long checked=RAW4(openat2,base,path,how,sizeof(*how));
+        long checked=md_host_open_resolved(base,path,how);
         if (checked<0) return checked;
         if (how->flags&O_PATH) return checked;
         RAW1(close,checked);
@@ -129,11 +135,11 @@ long md_namespace_host_open_resolved(const struct md_fs *fs,int base,const char 
     if (ref.kind==MD_PROC_FOREIGN) return -ENOTSUP;
     if (ref.kind && (how->resolve&(RESOLVE_NO_MAGICLINKS|RESOLVE_NO_SYMLINKS))) {
         if ((how->flags&(O_PATH|O_NOFOLLOW))==(O_PATH|O_NOFOLLOW) && !*ref.tail)
-            return RAW4(openat2,base,path,how,sizeof(*how));
+            return md_host_open_resolved(base,path,how);
         return -ELOOP;
     }
     if (ref.kind==MD_PROC_EXE || ref.kind==MD_PROC_ROOT) return -ENOTSUP;
-    return RAW4(openat2,base,path,how,sizeof(*how));
+    return md_host_open_resolved(base,path,how);
 }
 
 long md_namespace_proc_link_metadata(long nr,const unsigned long *a,const char *path,uint64_t mount) {
@@ -314,8 +320,9 @@ static long host_readlink(const struct md_fs *fs, const struct md_proc_path *ref
     if (!a[3]) return -EINVAL;
     char text[PATH_MAX];
     long n = RAW4(readlinkat, AT_FDCWD, path, text, sizeof(text) - 1);
-    if (n < 0) return n;
-    text[n] = 0;
+    long native_error=n<0 ? n : 0;
+    if (n<0 && (ref->process<=0 || (n!=-ENOENT && n!=-EACCES && n!=-EPERM))) return n;
+    text[n<0 ? 0 : n] = 0;
     int fd=-1;
     int borrowed=md_namespace_proc_borrow(ref,&fd);
     char selected[PATH_MAX];
@@ -325,6 +332,7 @@ static long host_readlink(const struct md_fs *fs, const struct md_proc_path *ref
     struct md_fs_response out;
     long r = md_namespace_request(fs, &q, &out);
     if (!r) r = md_copy(text, sizeof(text), out.data);
+    if (r<0 && native_error) return r;
     if (r < 0 && r != -EXDEV && (borrowed || out.delivery!=MD_FS_NOT_SENT)) return r;
     return link_result(text, a);
 }
@@ -376,6 +384,12 @@ static long host_call(const struct md_fs *fs, const char *exe, long nr, const un
                             unsigned path_index, const char *path, uint64_t proc_namespace) {
     struct md_proc_path ref = md_proc_path(path);
     enum md_proc_kind control=ref.kind==MD_PROC_FOREIGN ? ref.foreign_kind : ref.kind;
+    if ((control==MD_PROC_MEMORY || control==MD_PROC_AUXV || control==MD_PROC_CMDLINE)
+            && ref.tail && !*ref.tail && (nr==SYS_newfstatat || nr==SYS_statx
+                || nr==SYS_faccessat || nr==SYS_faccessat2)) {
+        struct md_namespace_operand entry={.descriptor=-1,.capture={path,O_PATH|O_NOFOLLOW}};
+        return target_call(fs,nr,a,entry);
+    }
     /* Proc aliases are ordinary links, not their target's process controls.
      * Keep no-follow operations on that dentry in the caller's kernel view. */
     if (ref.ordinary_link && !*ref.tail
@@ -465,11 +479,9 @@ static long host_call(const struct md_fs *fs, const char *exe, long nr, const un
         if (ref.foreign_kind==MD_PROC_EXE) {
             return md_proc_executable_capture(fs,ref.process,(int)a[2]);
         }
-        /* Cmdline and auxv have different native access rules. Check the
-         * selected proc entry as the caller before requesting virtual bytes. */
-        long checked=RAW4(openat,AT_FDCWD,path,a[2],a[3]);
-        if (checked<0) return checked;
-        RAW1(close,checked);
+        /* The guest walk admitted this process entry. The supervisor owns
+         * its image and guest access rules; Android hidepid must not replace
+         * those rules for a supervised, non-dumpable process. */
         return RAW5(prctl,MD_GUEST_PROC_IMAGE,ref.process,ref.foreign_kind,a[2],0);
     }
     if (ref.kind == MD_PROC_CMDLINE || ref.kind == MD_PROC_AUXV) {

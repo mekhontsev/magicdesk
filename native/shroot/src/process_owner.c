@@ -81,8 +81,24 @@ long md_process_close_fds(const int *keep, unsigned count) {
     return n < 0 ? n : 0;
 }
 
-/* Only cancellation scans proc. waitid proves ownership; pidfds exclude PID reuse.
- * Quiescence is established separately by wait4(ECHILD), never by this snapshot. */
+long md_process_signal_child(int pid, int signal) {
+    long fd=RAW2(pidfd_open,pid,0);
+    if (fd<0) return fd==-ESRCH ? 0 : fd;
+    siginfo_t info={0};
+    long r=RAW5(waitid,P_PIDFD,fd,&info,WEXITED|WNOHANG|WNOWAIT|__WALL,0);
+    /* __WALL can expose a ptrace stop even with WEXITED. WNOWAIT proves
+     * ownership without consuming it; only terminal codes mean no live child. */
+    if (!r && (!info.si_pid || (info.si_code!=CLD_EXITED && info.si_code!=CLD_KILLED
+            && info.si_code!=CLD_DUMPED))) {
+        r=md_process_signal(fd,signal);
+        if (!r && signal!=SIGKILL) r=md_process_signal(fd,SIGCONT);
+    } else if (r==-ECHILD || r==-ESRCH) r=0;
+    RAW1(close,fd);
+    return r;
+}
+/* Only cancellation scans proc. Known tracees are signalled separately because
+ * Android can hide non-dumpable children here. Quiescence is established by
+ * wait4(ECHILD), never by this best-effort discovery snapshot. */
 long md_process_signal_children(int signal) {
     long dir = RAW4(openat, AT_FDCWD, "/proc", O_RDONLY | O_DIRECTORY | O_CLOEXEC, 0);
     if (dir < 0) return dir;
@@ -100,19 +116,8 @@ long md_process_signal_children(int signal) {
             unsigned long pid = 0;
             while (*name >= '0' && *name <= '9' && pid <= INT_MAX) pid = pid * 10 + (*name++ - '0');
             if (*name || !pid || pid > INT_MAX) continue;
-            long fd = RAW2(pidfd_open, pid, 0);
-            if (fd < 0) {
-                if (fd == -ESRCH || fd == -EACCES || fd == -EPERM) continue;
-                result = fd;
-                goto done;
-            }
-            siginfo_t info = {0};
-            long r = RAW5(waitid, P_PIDFD, fd, &info, WEXITED | WNOHANG | WNOWAIT | __WALL, 0);
-            if (!r && !info.si_pid) {
-                r = md_process_signal(fd, signal);
-                if (!r && signal != SIGKILL) r = md_process_signal(fd, SIGCONT);
-            } else if (r == -ECHILD || r == -ESRCH) r = 0;
-            RAW1(close, fd);
+            long r=md_process_signal_child((int)pid,signal);
+            if (r==-EACCES || r==-EPERM) continue;
             if (r < 0) { result = r; goto done; }
         }
     }

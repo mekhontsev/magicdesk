@@ -19,6 +19,11 @@ Focused native and guest checks for the [process-resource model](process-resourc
 
 ## Verification
 
+`test_resources.py BUILD --case process-resources` selects the existing
+cwd/root, proc-origin and process-resource workflows without repeating the
+component, signal-stress or IPC suites. `--executor app` and `--executor shell`
+use the same checks under their actual Android identities.
+
 `test_resources.py BUILD --case supervisor-state` exercises the production
 coordinator directly. Real seccomp notifications and ptrace cancellation force
 completion before cancellation, before/after reentry, after stop retirement and
@@ -579,10 +584,13 @@ copying and asynchronous worker acknowledgement. Unknown explicit inputs use
 kernel duplication or table-owned export without inventing mount provenance;
 nofollow sources without stable backing use ordered mapped result delivery.
 Directory enumeration also uses mapped copy acknowledgement. Its temporary
-`ofd_order` entry owns one exact description, compares aliases with self-kcmp,
+`ofd_order` entry owns a retained description, compares aliases with `F_DUPFD_QUERY`
+or safely admitted self-kcmp,
 and orders read/seek across broker, mapped and RPC requests. No permanent data-FD
 mirror or cursor database is maintained. Synchronous reads with no active
-reservation allocate nothing; a denied kernel comparison fails explicitly.
+reservation allocate nothing. `test_ofd_order` also denies `F_DUPFD_QUERY` and
+makes kcmp fatal: active operations on one inode share an ordering queue without
+merging their descriptors or cursors.
 Mapped copies hold neither a file-table turn nor a filesystem-context turn.
 Peer credential queries return mapped byte snapshots, not temporary identity
 FDs in the caller. The same retained socket supplies the complete supplementary
@@ -686,6 +694,12 @@ Fork-inherited shared pages are not security isolation; successful mapped delive
 does not establish general application FD-transfer support.
 
 ## Proc Custody
+
+`test_proc_inspection.py` runs inside an installed Linux environment under either
+executor. It checks live child metadata, status and descriptor names for files,
+devices, pipes, FIFOs and sockets with real dumpable=0/1. `--busy` overlaps parent
+inspection with the child's own proc capture and file operations; both must
+complete without changing dumpability or descriptor identity.
 
 `--case proc-custody` checks snapshots and umask queries with CLONE_FILES callers
 killed by filters at the former task-local write/read points. Ordinary and

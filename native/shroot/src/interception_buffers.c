@@ -14,11 +14,11 @@ struct md_interception_buffers {
     size_t size, stride, capacity, clear_prefix;
     unsigned slots, ordinary, channels, references, next, next_reserved, next_channel;
     uint64_t generation;
-    int fd;
+    int fd, peer_readonly;
     struct slot slot[];
 };
-int md_buffers_create(unsigned slots, size_t capacity, size_t clear_prefix,
-        unsigned reserved, struct md_interception_buffers **out) {
+static int create(unsigned slots, size_t capacity, size_t clear_prefix,
+        unsigned reserved, int readonly, struct md_interception_buffers **out) {
     if (!out || !slots || !capacity || clear_prefix>capacity) return -EINVAL;
     if (reserved>UINT_MAX-slots) return -EOVERFLOW;
     unsigned ordinary=slots; slots+=reserved;
@@ -32,20 +32,30 @@ int md_buffers_create(unsigned slots, size_t capacity, size_t clear_prefix,
     struct md_interception_buffers *p=calloc(1,bytes);
     if (!p) return -ENOMEM;
     p->fd=-1; p->slots=slots; p->ordinary=ordinary; p->capacity=capacity; p->clear_prefix=clear_prefix;
-    p->stride=stride; p->size=stride*slots; p->references=1;
+    p->stride=stride; p->size=stride*slots; p->references=1; p->peer_readonly=readonly;
     p->fd=memfd_create("guest-request-buffers",MFD_CLOEXEC|MFD_ALLOW_SEALING);
     int error=0;
+    int seals=F_SEAL_SHRINK|F_SEAL_GROW|F_SEAL_SEAL;
     if (p->fd<0 || ftruncate(p->fd,(off_t)p->size)
-            || fcntl(p->fd,F_ADD_SEALS,F_SEAL_SHRINK|F_SEAL_GROW|F_SEAL_SEAL)) error=-errno;
+            || (!readonly && fcntl(p->fd,F_ADD_SEALS,seals))) error=-errno;
     else {
         void *memory=mmap(NULL,p->size,PROT_READ|PROT_WRITE,MAP_SHARED,p->fd,0);
         if (memory==MAP_FAILED) error=-errno;
         else p->memory=memory;
     }
+    if (!error && readonly && fcntl(p->fd,F_ADD_SEALS,seals|F_SEAL_FUTURE_WRITE)) error=-errno;
     if (error) md_buffers_release(p);
     else *out=p;
     return error;
 }
+int md_buffers_create(unsigned slots,size_t capacity,size_t clear_prefix,
+        unsigned reserved,struct md_interception_buffers **out) {
+    return create(slots,capacity,clear_prefix,reserved,0,out);
+}
+int md_buffers_create_readonly(unsigned slots,size_t capacity,struct md_interception_buffers **out) {
+    return create(slots,capacity,0,0,1,out);
+}
+int md_buffers_peer_readonly(const struct md_interception_buffers *p) { return p && p->peer_readonly; }
 struct md_interception_buffers *md_buffers_retain(struct md_interception_buffers *p) {
     if (p) {
         if (p->references==UINT_MAX) return NULL;

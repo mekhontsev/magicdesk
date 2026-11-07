@@ -433,6 +433,9 @@ static void managed_proc_reads(const char *store) {
                     fprintf(stderr,"proc boundary scenario=%u operation=%u result=%d\n",scenario,op,out.error);
                 assert(out.error==-EREMOTE); continue;
             }
+            if (out.error || out.host_path || out.fd!=-1)
+                fprintf(stderr,"proc boundary scenario=%u view=%u operation=%u result=%d fd=%d\n",
+                    scenario,view,op,out.error,out.fd);
             assert(!out.error && !out.host_path && out.fd==-1);
             if (op==2) assert(out.size==(size_t)length && !memcmp(data,expected,out.size));
             else if (op==1) assert(S_ISLNK(out.info.mode));

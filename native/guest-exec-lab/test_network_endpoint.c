@@ -20,6 +20,15 @@
 #include <time.h>
 #include <unistd.h>
 
+static int table_has_inode(const char *text,unsigned long long inode) {
+    for (const char *row=text;row;row=strchr(row,'\n')) {
+        if (*row=='\n') ++row;
+        unsigned long long value;
+        if (sscanf(row," %*u: %*s %*s %*x %*x:%*x %*x:%*x %*x %*u %*u %llu",&value)==1
+            && value==inode) return 1;
+    }
+    return 0;
+}
 static void endpoint_option(struct md_fd_object *o,int fd,unsigned level,unsigned option,void *value,socklen_t size) {
     struct md_identity root=md_identity_new(0,0);
     int error=md_network_endpoint_sockopt(o,fd,&root,1,level,option,value,&size);
@@ -599,23 +608,28 @@ void test_network_endpoint(void) {
     struct stat st,other;
     assert(!fstat(f,&st) && !fstat(s,&other));
     assert(count==1 && entries[0].inode==st.st_ino && entries[0].uid==1000
-        && entries[0].local.port==htons(80));
+        && entries[0].local.port==htons(80) && entries[0].state==TCP_LISTEN);
     free(entries);
     struct md_control_file table=md_network_proc_new(a,MD_NET_TABLE_TCP);
     assert(table.ops);
     struct md_control_actor actor={.identity=&identity};
-    char text[4096]={0},needle[64];
+    char text[4096]={0};
     long bytes=table.ops->read(table.context,&actor,text,sizeof(text)-1,0);
     assert(bytes>0 && strstr(text,"00000000:0050"));
-    snprintf(needle,sizeof(needle)," %llu ",(unsigned long long)st.st_ino);
-    assert(strstr(text,needle));
-    snprintf(needle,sizeof(needle)," %llu ",(unsigned long long)other.st_ino);
-    assert(!strstr(text,needle));
+    assert(table_has_inode(text,st.st_ino));
+    assert(!table_has_inode(text,other.st_ino));
+    assert(strstr(text," 0A "));
     assert(table.ops->read(table.context,&actor,text,sizeof(text),bytes)==0);
     assert(table.ops->access(table.context,&identity,W_OK)==-EACCES);
     void *reopened=table.ops->open(table.context,&(struct md_control_opener){.identity=&identity},O_RDONLY);
     assert(reopened && reopened!=table.context);
     table.ops->release(reopened); md_control_file_release(table);
+    table=md_network_proc_new(a,MD_NET_TABLE_TCP6);
+    assert(table.ops);
+    bytes=table.ops->read(table.context,&actor,text,sizeof(text)-1,0);
+    assert(bytes>0); text[bytes]=0;
+    assert(strchr(text,'\n')==text+bytes-1);
+    md_control_file_release(table);
     table=md_network_proc_new(offline,MD_NET_TABLE_TCP6);
     assert(table.ops);
     bytes=table.ops->read(table.context,&actor,text,sizeof(text)-1,0);

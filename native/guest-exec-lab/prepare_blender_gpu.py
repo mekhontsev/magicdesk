@@ -28,7 +28,7 @@ def main():
         for index, (source, destination) in enumerate(assets):
             remote = suite.base + '/asset-' + str(index)
             digest = hashlib.sha256(source.read_bytes()).hexdigest()
-            suite.transport.upload(suite.client, source, remote)
+            suite.upload(source, remote)
             actual = suite.command(['sha256sum', remote], quiet=True).split()[0]
             assert actual == digest, source
             inner = 'tar --no-same-owner -xzf - -C /opt/md-gpu' if destination is None else 'cat > ' + shlex.quote(destination)

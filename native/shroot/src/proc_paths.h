@@ -17,6 +17,8 @@ enum md_proc_kind { MD_PROC_NONE, MD_PROC_FD, MD_PROC_FDINFO, MD_PROC_CWD, MD_PR
                     MD_PROC_PROCESS_DIRECTORY,
                     MD_PROC_STATUS, MD_PROC_STAT, MD_PROC_LIMITS,
                     MD_PROC_CGROUP, MD_PROC_CGROUPS,
+                    MD_PROC_OOM_SCORE_ADJ, MD_PROC_OOM_ADJ,
+                    MD_PROC_IO, MD_PROC_WCHAN, MD_PROC_SYSCALL, MD_PROC_STACK,
                     MD_PROC_NS_UNSUPPORTED,
                     MD_PROC_NET_UNPRIVILEGED_PORT, MD_PROC_NET_PING_GROUPS, MD_PROC_NET_LOCAL_PORTS,
                     MD_PROC_NET_IPV4_FORWARD, MD_PROC_NET_ROUTE_LOCALNET, MD_PROC_NET_RP_FILTER, MD_PROC_NET_SRC_VALID_MARK, MD_PROC_NET_ARP_NOTIFY,
@@ -29,7 +31,7 @@ enum md_proc_kind { MD_PROC_NONE, MD_PROC_FD, MD_PROC_FDINFO, MD_PROC_CWD, MD_PR
                     MD_PROC_NET_TCP, MD_PROC_NET_TCP6, MD_PROC_NET_UDP, MD_PROC_NET_UDP6, MD_PROC_NET_IF_INET6,
                     MD_PROC_NET_ROUTE, MD_PROC_NET_ROUTE6,
                     MD_PROC_DEVICES, MD_PROC_KERNEL_CMDLINE, MD_PROC_FILESYSTEMS, MD_PROC_SWAPS, MD_PROC_DISKSTATS, MD_PROC_MODULES,
-                    MD_PROC_KERNEL_POLICY };
+                    MD_PROC_KERNEL_POLICY, MD_PROC_UPTIME };
 static inline int md_proc_static(enum md_proc_kind kind) {
     return kind==MD_PROC_DEVICES || kind==MD_PROC_KERNEL_CMDLINE || kind==MD_PROC_FILESYSTEMS
         || kind==MD_PROC_SWAPS || kind==MD_PROC_DISKSTATS || kind==MD_PROC_MODULES;
@@ -37,7 +39,8 @@ static inline int md_proc_static(enum md_proc_kind kind) {
 /* Unmanaged tasks keep native read/metadata admission for these proc nodes. */
 static inline int md_proc_native_task(enum md_proc_kind kind) {
     return kind==MD_PROC_PROCESS_DIRECTORY || kind==MD_PROC_STATUS || kind==MD_PROC_STAT
-        || kind==MD_PROC_LIMITS || kind==MD_PROC_CGROUP;
+        || kind==MD_PROC_LIMITS || kind==MD_PROC_CGROUP || kind==MD_PROC_OOM_SCORE_ADJ || kind==MD_PROC_OOM_ADJ
+        || (kind>=MD_PROC_IO && kind<=MD_PROC_STACK);
 }
 static inline int md_proc_network_table(enum md_proc_kind kind) {
     return kind>=MD_PROC_NET_TCP && kind<=MD_PROC_NET_ROUTE6;
@@ -58,7 +61,7 @@ static inline int md_proc_network_interface(enum md_proc_kind kind) {
  * walker resolves their entire path; a remaining suffix is always ENOTDIR. */
 static inline int md_proc_regular(enum md_proc_kind kind) {
     return (kind>=MD_PROC_UID_MAP && kind<=MD_PROC_INOTIFY_QUEUE)
-        || (kind>=MD_PROC_STATUS && kind<=MD_PROC_CGROUPS)
+        || (kind>=MD_PROC_STATUS && kind<=MD_PROC_STACK)
         || md_proc_network_control(kind) || kind==MD_PROC_MAX_USER_NAMESPACES || md_proc_static(kind) || kind==MD_PROC_KERNEL_POLICY
         || kind==MD_PROC_FDINFO || kind==MD_PROC_CMDLINE || kind==MD_PROC_AUXV
         || kind==MD_PROC_MOUNTS || kind==MD_PROC_MOUNTINFO;
@@ -74,6 +77,15 @@ struct md_proc_path {
     enum md_proc_kind foreign_kind;
     char interface[16];
 };
+/* O_PATH|O_NOFOLLOW observes only a public dentry. Reading a magic-link
+ * target or its contents still requires the separate process access check. */
+static inline int md_proc_public_task_dentry(struct md_proc_path path) {
+    enum md_proc_kind kind=path.kind==MD_PROC_FOREIGN ? path.foreign_kind : path.kind;
+    return path.process>0 && path.tail && !*path.tail
+        && (kind==MD_PROC_PROCESS_DIRECTORY || kind==MD_PROC_EXE
+            || kind==MD_PROC_CWD || kind==MD_PROC_ROOT || kind==MD_PROC_MEMORY
+            || kind==MD_PROC_AUXV || kind==MD_PROC_CMDLINE);
+}
 int md_host_path(const char *);
 /* Classifies adapter-owned absolute strings, without resolving guest symlinks. */
 struct md_proc_path md_proc_path(const char *);

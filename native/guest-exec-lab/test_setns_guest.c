@@ -26,7 +26,9 @@ static void namespaces(int fd[4]) {
     }
 }
 static void map(const char *path, const char *text) {
-    int fd=open(path,O_WRONLY); assert(fd>=0);
+    int fd=open(path,O_WRONLY);
+    if (fd<0) perror(path);
+    assert(fd>=0);
     assert(write(fd,text,strlen(text))==(ssize_t)strlen(text)); close(fd);
 }
 static void transfer(int socket, int fd[4], int receive) {
@@ -72,27 +74,37 @@ static void pidfd_namespaces(int logical_pid) {
     if (!target) {
         close(ready[0]); close(finish[1]);
         assert(!unshare(CLONE_NEWUSER|CLONE_NEWNS|CLONE_NEWUTS|CLONE_NEWIPC|CLONE_NEWNET));
+        /* Dropping the parent's IDs resets dumpability and proc ownership. */
+        assert(prctl(PR_GET_DUMPABLE)==0);
+        assert(open("/proc/self/uid_map",O_WRONLY)==-1 && errno==EACCES);
+        assert(!prctl(PR_SET_DUMPABLE,1));
         map("/proc/self/uid_map","0 1000 1\n"); map("/proc/self/setgroups","deny\n");
         map("/proc/self/gid_map","0 1000 1\n");
         assert(!sethostname("pidfd-joined",12));
         assert(!mount("tmpfs","/tmp/setns","tmpfs",0,"mode=0755"));
         int fd=open("/tmp/setns/pidfd",O_CREAT|O_RDWR,0600); assert(fd>=0); close(fd);
         char byte;
-        /* The creating parent retains authority in this descendant user
-         * namespace even when the target is nondumpable. */
+        /* Unshare retains the mm's original owner namespace until exec. */
         assert(!prctl(PR_SET_DUMPABLE,0));
         assert(write(ready[1],"x",1)==1);
-        /* EVENT_WAIT: parent completes live-target admission before owner exit. */
+        /* EVENT_WAIT: parent checks denial before requesting live admission. */
+        assert(read(finish[0],&byte,1)==1 && byte=='d');
+        assert(!prctl(PR_SET_DUMPABLE,1) && write(ready[1],"x",1)==1);
+        /* EVENT_WAIT: parent completes namespace checks before owner exit. */
         assert(read(finish[0],&byte,1)==1); _exit(0);
     }
     close(ready[1]); close(finish[0]); char byte;
     /* EVENT_WAIT: child's namespace setup, bounded by the fixture alarm. */
-    assert(read(ready[0],&byte,1)==1); close(ready[0]);
+    assert(read(ready[0],&byte,1)==1);
     int pidfd=syscall(SYS_pidfd_open,target,0); assert(pidfd>=0);
     int copy=dup(pidfd); assert(copy>=0); close(pidfd); pidfd=copy;
     assert(setns(pidfd,0)<0 && errno==EINVAL);
     assert(setns(pidfd,CLONE_FILES)<0 && errno==EINVAL);
     assert(setns(finish[1],CLONE_NEWUSER)<0 && errno==EINVAL);
+    assert(setns(pidfd,CLONE_NEWUSER|CLONE_NEWNS)<0 && errno==EPERM);
+    assert(write(finish[1],"d",1)==1);
+    /* EVENT_WAIT: target publishes its restored inspection permission. */
+    assert(read(ready[0],&byte,1)==1); close(ready[0]);
     assert(setns(pidfd,CLONE_NEWNET)<0 && errno==EPERM);
     int original=open("/proc/self/ns/user",O_RDONLY); assert(original>=0);
     struct stat before, after; assert(!fstat(original,&before));
@@ -100,7 +112,11 @@ static void pidfd_namespaces(int logical_pid) {
      * candidate after preparing user/UTS/IPC, without publishing any of them. */
     assert(setns(pidfd,CLONE_NEWUSER|CLONE_NEWUTS|CLONE_NEWIPC|CLONE_NEWCGROUP)<0 && errno==EPERM);
     assert(!stat("/proc/self/ns/user",&after) && before.st_ino==after.st_ino);
-    assert(getuid()==1000 && access("/tmp/setns/pidfd",F_OK)<0 && errno==ENOENT);
+    assert(getuid()==1000);
+    int found=access("/tmp/setns/pidfd",F_OK), error=errno;
+    if (found>=0 || error!=ENOENT)
+        fprintf(stderr,"setns rollback visibility: result=%d errno=%d\n",found,error);
+    assert(found<0 && error==ENOENT);
     char hostname[128]; assert(!gethostname(hostname,sizeof(hostname)) && strcmp(hostname,"pidfd-joined"));
     assert(!setns(pidfd,CLONE_NEWUSER|CLONE_NEWNS|CLONE_NEWUTS|CLONE_NEWIPC|CLONE_NEWNET));
     assert(getuid()==0 && !access("/tmp/setns/pidfd",F_OK));
@@ -108,13 +124,14 @@ static void pidfd_namespaces(int logical_pid) {
     assert(setns(pidfd,CLONE_NEWUSER)<0 && errno==EINVAL);
     assert(setns(original,CLONE_NEWUSER)<0 && errno==EPERM); close(original);
     assert(write(finish[1],"x",1)==1); close(finish[1]); finished(target);
+    assert(setns(pidfd,0)<0 && errno==EINVAL);
     assert(setns(pidfd,CLONE_NEWNET)<0 && errno==ESRCH); close(pidfd);
     _exit(0);
 }
 void test_setns_guest(void) {
     alarm(60); setbuf(stdout,NULL);
     assert(!chmod("/",0755) && !chmod("/tmp",01777));
-    assert(!mkdir("/tmp/setns",0755));
+    assert(!mkdir("/tmp/setns",0755) && !chmod("/tmp/setns",0755));
     pidfd_namespaces(0);
     pidfd_namespaces(1);
     int old[4]; namespaces(old);

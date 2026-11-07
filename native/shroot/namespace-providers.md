@@ -66,9 +66,15 @@ wake descriptors and starts only when such a transport exists. Cold virtual
 admission interrupts already-blocked waits on that exact queue, preserving their
 original deadlines and temporary masks. Pure native queues need no helper or
 wake descriptor. The kernel writes their results directly to the application,
-preserving output-fault and one-shot consumption semantics. Mixed queues use the
-separate result buffer; transactional rollback after a fault copying that buffer
-is not implemented.
+preserving output-fault and one-shot consumption semantics. Task-dependent
+targets under restricted host access use a separate native epoll queue, with
+caller-side token translation and logical readiness. Its nonblocking publication
+retains the address-space turn until copying completes; logical ET/ONESHOT state
+commits only on acknowledgement. Blocking waits release that turn and shared
+transport capacity. These registrations follow the target's sighand wait domain,
+not a supervisor-side poll of another task's signals.
+Other virtual providers still use a staged result buffer; transactional rollback
+after a fault copying that provider buffer is not implemented.
 
 Zero-time native epoll probes retain kernel handling. Lazy entry can complete an
 infinite unmasked wait with an immediate filtered probe; an empty result enters
@@ -330,6 +336,12 @@ and namespace copies retain the capability snapshot without syscall-path probes.
 The initial unmounted host-proc passthrough retains native PSI access behavior.
 `test_fs_context.c` covers complete/partial/denied/error admission, and
 `test_proc_policy.py` checks both mount APIs, listing, lookup, bind and copy.
+
+The proc provider retains native `uptime` when Android permits opening it.
+Otherwise its read-only fallback samples `CLOCK_BOOTTIME`, including suspend,
+on a fresh read and retains that sample for partial reads. Host-wide CPU idle
+accounting is unavailable through this clock; the second field is zero, not
+a measured idle counter. Admission occurs once per proc view, not on file IO.
 
 Immutable guest proc text shares one read-only provider: `devices` describes
 the guest driver families, and `cmdline` contains only a newline because a

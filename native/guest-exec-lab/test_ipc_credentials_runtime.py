@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
-"""Unix IPC identities and stock session D-Bus under guest root, actual shell."""
+"""Unix IPC identities and stock D-Bus under the selected Android executor."""
 import argparse
-import importlib.util
-import json
 from pathlib import Path
 import shlex
-import tomllib
-import uuid
+from fixture_executor import FixtureExecutor
+from test_oci_services import Suite, add_machine_entry_argument
+
+
+def custody_cases(native, guest):
+    for receive in range(5):
+        for protected in range(2):
+            for is_guest, prefix in ((False, native), (True, guest)):
+                name = f'ancillary custody receive={receive} protected={protected} guest={is_guest}'
+                yield name, [*prefix, str(receive), str(protected)]
 
 
 def main():
@@ -17,62 +23,40 @@ def main():
     parser.add_argument('--activation', type=Path)
     parser.add_argument('--installed', action='store_true', help="Use the installed APK's guest bundle")
     parser.add_argument('--custody', action='store_true', help='Compare terminal send/receive adapter custody with native shell')
+    FixtureExecutor.add_argument(parser)
+    add_machine_entry_argument(parser)
     args = parser.parse_args()
-    repo = Path(__file__).resolve().parents[2]
-    spec = importlib.util.spec_from_file_location('transport', repo / 'scripts/mcp-client.py')
-    transport = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(transport)
-    config = tomllib.loads((Path.home() / '.codex/config.toml').read_text())['mcp_servers']['magicdesk']
-    client = transport.Client(config['url'], config['http_headers']['Authorization'].removeprefix('Bearer '))
-    state = client.call('get_state')
-    assert state['shell']['uid'] == 2000
-    tag = uuid.uuid4().hex
-    base = '/data/local/tmp/md-ipc-credentials-' + tag
-    session = client.call('console.open', {'directory': '/data/local/tmp'})['sessionId']
-    report = {'id': tag, 'directory': base, 'app': state['app'], 'store': args.store,
-              'installed': args.installed, 'checks': [], 'passed': False}
-
-    def command(argv):
-        text = shlex.join(map(str, argv))
-        result = client.call('console.execute', {'sessionId': session, 'command': text})
-        report['checks'].append({'command': text, **result})
-        print(result['output'], end='', flush=True)
-        assert result['exitCode'] == 0, result
-        return result
+    suite = Suite(args.build, None if args.installed else args.build,
+                  executor=args.executor, machine_entry=args.machine_entry)
+    base, report, command = suite.base, suite.report, suite.command
+    report.update(store=args.store, installed=args.installed)
 
     try:
-        command(['mkdir', base, base + '/fixtures'])
-        for name in ('bootstrap', 'supervisor', 'run', 'ipc_credentials_guest', 'ipc_credentials_launch'):
-            if args.installed and name in ('bootstrap', 'supervisor', 'run'):
-                continue
+        command(['mkdir', base + '/fixtures'])
+        for name in ('ipc_credentials_guest', 'ipc_credentials_launch'):
             filename = 'libmagicdesk_guest_' + name + '.so'
             destination = base + ('/fixtures/' if name == 'ipc_credentials_guest' else '/') + filename
-            transport.upload(client, args.build / filename, destination)
-            command(['chmod', '700', destination])
-        runner = (command(['/system/bin/sh', '-c', 'command -v shroot'])['output'].strip()
-                  if args.installed else base + '/libmagicdesk_guest_run.so')
-        run = [runner, '--store', args.store, '--user', '0:0', '--deadline-seconds', '30']
+            suite.upload(args.build / filename, destination)
+            suite.chmod('700', destination)
+        run = suite.guest(args.store, '--user', '0:0', '--deadline-seconds', '30')
         command(run + ['--', '/bin/mkdir', '-p', '/fixture'])
         if args.custody:
             failures = []
-            for receive in range(4):
-                for protected in range(2):
-                    for guest in (False, True):
-                        name = f'custody receive={receive} protected={protected} guest={guest}'
-                        fixture = '/fixture/libmagicdesk_guest_ipc_credentials_guest.so'
-                        argv = (run + ['--bind-ro', base + '/fixtures', '/fixture', '--', fixture, '--custody']
-                                if guest else [base + '/fixtures/libmagicdesk_guest_ipc_credentials_guest.so', '--custody-native'])
-                        try:
-                            command(argv + [str(receive), str(protected)])
-                        except AssertionError:
-                            failures.append(name)
-                            print('FAIL', name, flush=True)
+            fixture = '/fixture/libmagicdesk_guest_ipc_credentials_guest.so'
+            native = [base + '/fixtures/libmagicdesk_guest_ipc_credentials_guest.so', '--custody-native']
+            guest = run + ['--bind-ro', base + '/fixtures', '/fixture', '--', fixture, '--custody']
+            for name, argv in custody_cases(native, guest):
+                try:
+                    command(argv)
+                except AssertionError:
+                    failures.append(name)
+                    print('FAIL', name, flush=True)
             report['passed'] = not failures
             assert not failures, failures
             return
         command(run + ['--bind-ro', base + '/fixtures', '/fixture', '--', '/fixture/libmagicdesk_guest_ipc_credentials_guest.so'])
         if args.activation:
-            transport.upload(client, args.activation, base + '/fixtures/ipc-dbus')
+            suite.upload(args.activation, base + '/fixtures/ipc-dbus')
             command(['chmod', '700', base + '/fixtures/ipc-dbus'])
             service = '/usr/share/dbus-1/services/io.github.magicdesk.CredentialsFixture.service'
             content = '[D-BUS Service]\nName=io.github.magicdesk.CredentialsFixture\nExec=/fixture/ipc-dbus service\n'
@@ -90,10 +74,10 @@ def main():
         command([base + '/libmagicdesk_guest_ipc_credentials_launch.so', run[0], args.store, base + '/fixtures'])
         report['passed'] = True
     finally:
-        client.call('console.close', {'sessionId': session})
-        output = args.build / ('ipc-credentials-' + tag + '.json')
-        output.write_text(json.dumps(report, indent=2) + '\n')
-        print('Report:', output)
+        try:
+            command(['rm', '-rf', '--', base], quiet=True)
+        finally:
+            suite.finish()
 
 
 if __name__ == '__main__':

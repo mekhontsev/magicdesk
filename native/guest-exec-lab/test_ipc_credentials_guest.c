@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "native_probe.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <grp.h>
@@ -25,6 +26,18 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #define CHECK(x) do { if (!(x)) { fprintf(stderr,"ipc-credentials line=%d %s errno=%d\n",__LINE__,#x,errno); exit(1); } } while (0)
+static void unchanged_descriptors(const int *before,unsigned count) {
+    unsigned changed=0;
+    for (unsigned i=0;i<count;++i) {
+        int flags=fcntl(i,F_GETFD);
+        if (flags==before[i]) continue;
+        char path[64],target[256]; snprintf(path,sizeof(path),"/proc/self/fd/%u",i);
+        ssize_t n=readlink(path,target,sizeof(target)-1); target[n<0 ? 0 : n]=0;
+        fprintf(stderr,"descriptor fd=%u before=%d after=%d target=%s\n",i,before[i],flags,target);
+        ++changed;
+    }
+    CHECK(!changed);
+}
 static void peer(int fd, pid_t pid, uid_t uid, gid_t gid) {
     struct ucred c; socklen_t n=sizeof(c);
     CHECK(!getsockopt(fd,SOL_SOCKET,SO_PEERCRED,&c,&n));
@@ -303,6 +316,14 @@ static void receive_right(int fd) {
     CHECK(fcntl(right,F_GETFD)==FD_CLOEXEC);
     peer(right,getpid(),0,0); CHECK(!close(right));
 }
+static void prepare_rights_delivery(void) {
+    /* Admit reusable return transport with an actual FD transfer. Logical
+     * dumpability must not be used to select a host capture mechanism. */
+    int pair[2]; CHECK(!socketpair(AF_UNIX,SOCK_DGRAM|SOCK_CLOEXEC,0,pair));
+    send_identity(pair[1],getuid(),pair[1],1);
+    receive_right(pair[0]);
+    CHECK(!close(pair[0]) && !close(pair[1]));
+}
 static void send_lifetime(int protected, int cancel, int credentials) {
     int pair[2], right[2], unrelated[2], one=1, capacity=4096;
     CHECK(!socketpair(AF_UNIX,SOCK_STREAM|SOCK_CLOEXEC,0,pair));
@@ -310,7 +331,7 @@ static void send_lifetime(int protected, int cancel, int credentials) {
     CHECK(!pipe2(unrelated,O_CLOEXEC|O_NONBLOCK));
     if (credentials) CHECK(!setsockopt(pair[0],SOL_SOCKET,SO_PASSCRED,&one,sizeof(one)));
     CHECK(!setsockopt(pair[1],SOL_SOCKET,SO_SNDBUF,&capacity,sizeof(capacity)));
-    CHECK(!prctl(PR_SET_DUMPABLE,0)); peer(pair[0],getpid(),0,0); CHECK(!prctl(PR_SET_DUMPABLE,1));
+    prepare_rights_delivery();
     size_t size=1024*1024; void *stack=malloc(size); CHECK(stack);
     int before[256]; for (unsigned i=0;i<256;++i) before[i]=fcntl(i,F_GETFD);
     struct paused_send context={pair[1],right[0],protected,credentials};
@@ -335,7 +356,7 @@ static void send_lifetime(int protected, int cancel, int credentials) {
     CHECK(!n && (cancel ? received<SEND_LIFETIME_BYTES : received==SEND_LIFETIME_BYTES));
     int status; CHECK(waitpid(child,&status,0)==child);
     CHECK(cancel ? WIFSIGNALED(status) && WTERMSIG(status)==SIGKILL : WIFEXITED(status) && !WEXITSTATUS(status));
-    for (unsigned i=0;i<256;++i) CHECK(fcntl(i,F_GETFD)==before[i]);
+    unchanged_descriptors(before,256);
     CHECK(!close(pair[0]) && !close(pair[1]) && !close(right[0]) && !close(right[1]));
     CHECK(!close(unrelated[0])); free(stack);
     printf("PASS %s send lifecycle protected=%d cancel=%d\n",credentials ? "credential" : "captured",protected,cancel);
@@ -377,7 +398,7 @@ static void nonunix_rights(void) {
     done(child);
     for (unsigned i=0;i<4;++i) CHECK(recv(fd,&byte,1,MSG_DONTWAIT)==1 && byte=='n');
     CHECK(recv(fd,&byte,1,MSG_DONTWAIT)==-1 && errno==EAGAIN);
-    for (unsigned i=0;i<256;++i) CHECK(fcntl(i,F_GETFD)==before[i]);
+    unchanged_descriptors(before,256);
     CHECK(!close(fd)); puts("PASS non-Unix ancillary send: native payload, no rights and unchanged caller table");
 }
 static void send_contract(void) {
@@ -415,7 +436,7 @@ static void receive_lifetime(int protected, int cancel) {
     CHECK(!socketpair(AF_UNIX,SOCK_STREAM|SOCK_CLOEXEC,0,pair));
     CHECK(!pipe2(unrelated,O_CLOEXEC|O_NONBLOCK));
     CHECK(!setsockopt(pair[1],SOL_SOCKET,SO_SNDBUF,&capacity,sizeof(capacity)));
-    CHECK(!prctl(PR_SET_DUMPABLE,0)); peer(pair[0],getpid(),0,0); CHECK(!prctl(PR_SET_DUMPABLE,1));
+    prepare_rights_delivery();
     size_t size=1024*1024; void *stack=malloc(size); CHECK(stack);
     int before[256]; for (unsigned i=0;i<256;++i) before[i]=fcntl(i,F_GETFD);
     struct paused_receive context={pair[0],protected};
@@ -433,7 +454,7 @@ static void receive_lifetime(int protected, int cancel) {
     int status; CHECK(waitpid(child,&status,0)==child);
     CHECK(cancel ? WIFSIGNALED(status) && WTERMSIG(status)==SIGKILL : WIFEXITED(status) && !WEXITSTATUS(status));
     CHECK(send(pair[1],"x",1,MSG_NOSIGNAL)==-1 && errno==EPIPE);
-    for (unsigned i=0;i<256;++i) CHECK(fcntl(i,F_GETFD)==before[i]);
+    unchanged_descriptors(before,256);
     CHECK(!close(pair[0]) && !close(pair[1]) && !close(unrelated[0])); free(bytes); free(stack);
     printf("PASS receive lifecycle protected=%d cancel=%d\n",protected,cancel);
 }
@@ -525,7 +546,7 @@ static void bound_reuse(void) {
     close(retained[0]); close(retained[1]); close(listener);
     puts("PASS bound-name reuse retains old connection identity");
 }
-static void external(const char *name,pid_t server) {
+static void external(const char *name,pid_t server,uid_t uid,gid_t gid) {
     int fd=socket(AF_UNIX,SOCK_STREAM,0); CHECK(fd>=0);
     struct sockaddr_un address={.sun_family=AF_UNIX};
     CHECK(strlen(name)<sizeof(address.sun_path)-1);
@@ -545,7 +566,7 @@ static void external(const char *name,pid_t server) {
         char content[32];
         CHECK(snapshot>=0 && read(snapshot,content,sizeof(content))>0 && !close(snapshot));
     }
-    peer(fd,server,2000,2000);
+    peer(fd,server,uid,gid);
     send_identity(fd,0,-1,1);
     /* Guest self claims map to actual authority; forged guest claims still fail. */
     CHECK(!setgid(1234) && !setuid(1234));
@@ -559,7 +580,7 @@ static void external(const char *name,pid_t server) {
     struct cmsghdr *header=CMSG_FIRSTHDR(&message);
     CHECK(header && header->cmsg_level==SOL_SOCKET && header->cmsg_type==SCM_CREDENTIALS);
     struct ucred cred; memcpy(&cred,CMSG_DATA(header),sizeof(cred));
-    CHECK(cred.pid==server && cred.uid==2000 && cred.gid==2000);
+    CHECK(cred.pid==server && cred.uid==uid && cred.gid==gid);
     close(fd);
 }
 static void peer_full_table(int protected, unsigned count) {
@@ -606,12 +627,12 @@ static void peer_full_table(int protected, unsigned count) {
     close(p[0]); close(p[1]); free(groups); free(actual);
     printf("PASS peer identity full-table: protected=%d groups=%u, snapshot and output faults\n",protected,count);
 }
-struct custody { int socket, receive, protected, guest; };
+struct custody { int socket, receive, protected; };
 static int custody_child(void *argument) {
     struct custody *c=argument;
     CHECK(!prctl(PR_SET_PDEATHSIG,SIGKILL));
-    /* Modes 2/3 exercise a killed export helper, even when native descriptor
-     * custody is available. Mode 4 admits native custody when available. */
+    /* Modes 2/3 combine protected inspection with a filter denying sendmsg.
+     * The allowed receive must not inherit a denial of an internal export. */
     if (c->protected || c->receive==2 || c->receive==3) CHECK(!prctl(PR_SET_DUMPABLE,0));
     char byte=c->receive ? 0 : 'm'; struct iovec io={&byte,1};
     union { struct cmsghdr align; char data[128]; } control={0};
@@ -643,16 +664,17 @@ static int custody_child(void *argument) {
     ssize_t n=c->receive==3 ? recvmmsg(c->socket,&batch,1,MSG_CMSG_CLOEXEC,NULL)
         : c->receive ? recvmsg(c->socket,&m,MSG_CMSG_CLOEXEC) : sendmsg(c->socket,&m,0);
     if (c->receive==3) m=batch.msg_hdr;
-    CHECK(n==1 || (c->guest && n==-1 && errno==ECANCELED));
-    /* The export-kill cases must reach native receive, not merely reject the
-     * operation at entry. Its original payload is shared with the helper. */
-    if (c->receive==2 || c->receive==3) CHECK(byte=='m' && (!c->guest || n==-1));
-    if (c->receive==4 && n==1) CHECK(byte=='m');
-    if (c->receive && n==1) for (h=CMSG_FIRSTHDR(&m);h;h=CMSG_NXTHDR(&m,h))
+    CHECK(n==1 && byte=='m');
+    unsigned received=0;
+    if (c->receive) for (h=CMSG_FIRSTHDR(&m);h;h=CMSG_NXTHDR(&m,h))
         if (h->cmsg_level==SOL_SOCKET && h->cmsg_type==SCM_RIGHTS) {
             const int *fds=(const void *)CMSG_DATA(h);
-            for (unsigned i=0;i<(h->cmsg_len-CMSG_LEN(0))/sizeof(int);++i) CHECK(!close(fds[i]));
+            for (unsigned i=0;i<(h->cmsg_len-CMSG_LEN(0))/sizeof(int);++i) {
+                CHECK(fcntl(fds[i],F_GETFD)==FD_CLOEXEC);
+                CHECK(!close(fds[i])); ++received;
+            }
         }
+    CHECK(received==(unsigned)!!c->receive);
     return 0;
 }
 static void custody(int guest, int receive, int protected) {
@@ -660,22 +682,17 @@ static void custody(int guest, int receive, int protected) {
     CHECK(!socketpair(AF_UNIX,SOCK_STREAM|SOCK_CLOEXEC,0,pair));
     CHECK(!socketpair(AF_UNIX,SOCK_STREAM|SOCK_CLOEXEC,0,transferred));
     CHECK(!setsockopt(pair[0],SOL_SOCKET,SO_PASSCRED,&one,sizeof(one)));
-    if (guest) {
-        int dumpable=prctl(PR_GET_DUMPABLE);
-        CHECK(dumpable>=0 && !prctl(PR_SET_DUMPABLE,0));
-        peer(pair[0],getpid(),getuid(),getgid());
-        CHECK(!prctl(PR_SET_DUMPABLE,dumpable));
-    }
+    if (guest) prepare_rights_delivery();
     if (receive) send_identity(pair[1],getuid(),transferred[0],1);
     int before[256];
     for (unsigned i=0;i<256;++i) before[i]=fcntl(i,F_GETFD);
-    struct custody c={receive ? pair[0] : pair[1],receive,protected,guest};
+    struct custody c={receive ? pair[0] : pair[1],receive,protected};
     size_t size=1024*1024; void *stack=malloc(size); CHECK(stack);
     pid_t child=clone(custody_child,(char *)stack+size,CLONE_FILES|SIGCHLD,&c); CHECK(child>0);
     int status;
     /* EVENT_WAIT: exact caller exit; the launch deadline bounds missing cleanup. */
     CHECK(waitpid(child,&status,0)==child);
-    CHECK((WIFEXITED(status) && !WEXITSTATUS(status)) || (guest && WIFSIGNALED(status) && WTERMSIG(status)==SIGSYS));
+    CHECK(WIFEXITED(status) && !WEXITSTATUS(status));
     unsigned changed=0;
     for (unsigned i=0;i<256;++i) {
         int flags=fcntl(i,F_GETFD);
@@ -739,6 +756,7 @@ static int admit_shared_channel(void *unused) {
     struct sock_fprog filter={sizeof(code)/sizeof(*code),code};
     CHECK(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0) && !prctl(PR_SET_SECCOMP,SECCOMP_MODE_FILTER,&filter));
     int socket_fd=socket(AF_UNIX,SOCK_DGRAM|SOCK_CLOEXEC,0); CHECK(socket_fd>=0);
+    socket_fd=md_test_capture_socket(socket_fd);
     capture_channel_admission(socket_fd,0);
     CHECK(!close(socket_fd));
     return 0;
@@ -755,6 +773,7 @@ static void warm_shared_channel(void) {
     CHECK(prctl(PR_GET_SECCOMP)==filter && !munmap(stack,size));
 }
 static void origin_send(unsigned mode, int protected) {
+    CHECK(!getenv("MAGICDESK_TEST_CAPTURE_FALLBACK") && !prctl(PR_GET_NO_NEW_PRIVS,0,0,0,0));
     int warm=protected&4; protected&=1;
     if (warm) warm_shared_channel();
     CHECK(mode<16);
@@ -845,23 +864,34 @@ static void origin_send(unsigned mode, int protected) {
     int batch=mode==6 || mode==13;
     int result=batch ? sendmmsg(STDIN_FILENO,messages,2,MSG_NOSIGNAL)
         : (int)sendmsg(STDIN_FILENO,&messages[0].msg_hdr,MSG_NOSIGNAL);
-    /* Only cold channel admission requires gettid; warm reuse must not repeat it. */
-    int expected=mode==4 ? EBADF : mode==5 || (mode==15 && !warm) ? EACCES : mode==7 ? EFAULT : mode==11 ? EINVAL : mode==14 ? EPERM : 0;
+    /* Private channel admission is independent of the application's gettid
+     * policy, on both cold admission and shared-table reuse. */
+    int expected=mode==4 ? EBADF : mode==5 ? EACCES : mode==7 ? EFAULT : mode==11 ? EINVAL : mode==14 ? EPERM : 0;
     if (expected) CHECK(result==-1 && errno==expected);
     else CHECK(result==(batch ? 2 : 1));
-    if (mode==15 && !warm) CHECK(sendmsg(STDIN_FILENO,&messages[0].msg_hdr,MSG_NOSIGNAL)==-1 && errno==EACCES);
-    for (unsigned i=0;i<1024;++i) CHECK(before[i]==fcntl((int)i,F_GETFD));
+    if (mode==15) CHECK(syscall(SYS_gettid)==-1 && errno==EACCES);
+    unsigned admitted=0;
+    for (unsigned i=0;i<1024;++i) {
+        int after=fcntl((int)i,F_GETFD);
+        if (before[i]==after) continue;
+        CHECK(mode==15 && !warm && before[i]<0 && after==FD_CLOEXEC);
+        int type=0; socklen_t size=sizeof(type);
+        CHECK(!getsockopt((int)i,SOL_SOCKET,SO_TYPE,&type,&size) && type==SOCK_SEQPACKET);
+        ++admitted;
+    }
+    CHECK(admitted==(unsigned)(mode==15 && !warm));
     if (mode==2) CHECK(!setrlimit(RLIMIT_NOFILE,&limit));
     while (held_count) CHECK(!close(held[--held_count]));
     CHECK(!close(directory) && !close(file));
     printf("PASS capsule guest sender mode=%u protected=%d\n",mode,protected);
 }
 static void origin_receive(unsigned mode, int protected) {
+    CHECK(!getenv("MAGICDESK_TEST_CAPTURE_FALLBACK") && !prctl(PR_GET_NO_NEW_PRIVS,0,0,0,0));
     int filtered=protected&2, warm=protected&4; protected&=1;
     if (warm) warm_shared_channel();
     CHECK(mode<15);
-    /* Mode 9 tests the private helper's in-flight SCM quota, not native pidfd
-     * capture (which sends no input rights). Retain that fallback explicitly. */
+    /* The host-only fixture restriction retains private-helper SCM quotas;
+     * logical dumpability is varied independently of native FD capture. */
     if (protected || mode==9) CHECK(!prctl(PR_SET_DUMPABLE,0));
     if (filtered) {
         struct sock_filter code[]={
@@ -996,8 +1026,8 @@ static void addressed_receive(int socket, unsigned mode) {
     CHECK(count==(mode==0 || mode==4 ? 0 : mode==2 ? 253 : 1));
 }
 static void capture_channel_admission(int socket, int full) {
-    /* Force the export transport: native pidfd capture intentionally requires
-     * no channel, so a dumpable caller cannot test channel admission. */
+    /* The native launcher denies pidfd capture. Logical dumpability is varied
+     * independently; neither mode may change the required channel custody. */
     int dumpable=prctl(PR_GET_DUMPABLE);
     CHECK(dumpable>=0 && !prctl(PR_SET_DUMPABLE,0));
     int before[1024];
@@ -1018,6 +1048,7 @@ static void capture_channel_admission(int socket, int full) {
     CHECK(!prctl(PR_SET_DUMPABLE,dumpable));
 }
 static void addressed_send(const char *path, unsigned protected, unsigned full, int local, uid_t uid, gid_t gid) {
+    CHECK(!getenv("MAGICDESK_TEST_CAPTURE_FALLBACK") && !prctl(PR_GET_NO_NEW_PRIVS,0,0,0,0));
     if (!strcmp(path,"addressed")) CHECK(!chdir("/attached"));
     struct sockaddr_un a={.sun_family=AF_UNIX};
     CHECK(strlen(path)<sizeof(a.sun_path)); strcpy(a.sun_path,path);
@@ -1027,6 +1058,7 @@ static void addressed_send(const char *path, unsigned protected, unsigned full, 
     if (local>0) { server=socket(AF_UNIX,SOCK_DGRAM|SOCK_CLOEXEC,0); CHECK(server>=0 && !bind(server,(void *)&a,length)); }
     int socket_fd=socket(AF_UNIX,SOCK_DGRAM|SOCK_CLOEXEC,0), file=open("/dev/null",O_RDONLY|O_CLOEXEC);
     int directory=open("/dev",O_PATH|O_DIRECTORY|O_CLOEXEC); CHECK(socket_fd>=0 && file>=0 && directory>=0);
+    socket_fd=md_test_capture_socket(socket_fd);
     if (protected) CHECK(!prctl(PR_SET_DUMPABLE,0));
     /* SO_DOMAIN is unavailable to the guest; custody, not a preflight guess,
      * must select the address path and ancillary transport. */
@@ -1090,10 +1122,11 @@ static void addressed_send(const char *path, unsigned protected, unsigned full, 
 }
 static void addressed_fixture(const char *runner, const char *store, const char *directory) {
     alarm(180);
+    int cwd=open(".",O_PATH|O_DIRECTORY|O_CLOEXEC); CHECK(cwd>=0 && !chdir(directory));
     for (unsigned type=0;type<4;++type) for (unsigned protected=0;protected<2;++protected)
             for (unsigned full=0;full<2;++full) {
-        int local=type>=2, server=-1; char path[108];
-        snprintf(path,sizeof(path),"%s/addressed",directory);
+        int local=type>=2, server=-1;
+        const char *path="addressed";
         if (!local) {
             struct sockaddr_un a={.sun_family=AF_UNIX}; strcpy(a.sun_path,path);
             server=socket(AF_UNIX,SOCK_DGRAM|SOCK_CLOEXEC,0);
@@ -1110,6 +1143,7 @@ static void addressed_fixture(const char *runner, const char *store, const char 
             char p[8],f[8],l[8],u[16],g[16]; snprintf(p,sizeof(p),"%u",protected); snprintf(f,sizeof(f),"%u",full);
             snprintf(l,sizeof(l),"%d",local); snprintf(u,sizeof(u),"%u",getuid()); snprintf(g,sizeof(g),"%u",getgid());
             execl(runner,runner,"--store",store,"--user","0:0","--bind",directory,"/attached","--deadline-seconds","20",
+                "--env","MAGICDESK_TEST_CAPTURE_FALLBACK=1",
                 "--","/bin/test","--address-send",type==0 ? "/attached/addressed" : type==1 ? "addressed"
                     : type==2 ? "/tmp/addressed" : "@md-binary-address",p,f,l,u,g,(char *)NULL);
             _exit(90);
@@ -1119,6 +1153,7 @@ static void addressed_fixture(const char *runner, const char *store, const char 
         done(child);
         if (local<=0) { if (server>=0) CHECK(!close(server)); CHECK(!unlink(path)); }
     }
+    CHECK(!fchdir(cwd) && !close(cwd));
     puts("PASS addressed send custody: absolute/relative anchors, inode and binary abstract destinations");
 }
 static int boundary_send(int socket, int fd, int batch) {
@@ -1197,6 +1232,9 @@ static void boundary_fixture(const char *runner, const char *store) {
 #include "test_ipc_io_guest.c"
 int main(int argc,char **argv) {
     setvbuf(stdout,NULL,_IONBF,0);
+    if (argc==5 && !strcmp(argv[1],"--send-lifetime")) {
+        alarm(20); send_lifetime(atoi(argv[2]),atoi(argv[3]),atoi(argv[4])); return 0;
+    }
     if (argc==3 && !strcmp(argv[1],"--io")) { io_contract((unsigned)atoi(argv[2])); return 0; }
     if (argc==2 && !strcmp(argv[1],"--nonunix-rights")) { alarm(20); nonunix_rights(); return 0; }
     if (argc==4 && !strcmp(argv[1],"--boundary-fixture")) { boundary_fixture(argv[2],argv[3]); return 0; }
@@ -1227,11 +1265,13 @@ int main(int argc,char **argv) {
     if (argc==4 && !strcmp(argv[1],"--boundary")) { boundary_guest(atoi(argv[2]),atoi(argv[3])); return 0; }
     if (argc==4 && !strcmp(argv[1],"--origin-receive")) { origin_receive((unsigned)atoi(argv[2]),atoi(argv[3])); return 0; }
     if (argc==4 && !strcmp(argv[1],"--origin-send")) { origin_send((unsigned)atoi(argv[2]),atoi(argv[3])); return 0; }
-    if (argc==4 && !strcmp(argv[1],"--external")) { external(argv[2],(pid_t)atoi(argv[3])); return 0; }
-    if (argc==4 && !strcmp(argv[1],"--external-pid")) {
+    if (argc==6 && !strcmp(argv[1],"--external")) {
+        external(argv[2],(pid_t)atoi(argv[3]),(uid_t)atoi(argv[4]),(gid_t)atoi(argv[5])); return 0;
+    }
+    if (argc==6 && !strcmp(argv[1],"--external-pid")) {
         CHECK(!unshare(CLONE_NEWPID));
         pid_t child=fork(); CHECK(child>=0);
-        if (!child) { CHECK(getpid()==1); external(argv[2],0); _exit(0); }
+        if (!child) { CHECK(getpid()==1); external(argv[2],0,(uid_t)atoi(argv[4]),(gid_t)atoi(argv[5])); _exit(0); }
         done(child); puts("PASS native peers across PID namespace with protected memory and prctl denied"); return 0;
     }
     CHECK(argc==1);

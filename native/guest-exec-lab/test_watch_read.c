@@ -364,7 +364,7 @@ static void run(enum mode mode, const char *name) {
     close(pidfd); close(listener); close(reader); md_watch_queue_destroy(queue); drain();
 }
 int main(void) {
-    stage = "setup"; CHECK(getuid() == 2000);
+    stage = "setup"; CHECK(getuid() == geteuid() && getuid() != 0);
     output = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     CHECK(output != MAP_FAILED);
     sigset_t mask; sigemptyset(&mask); sigaddset(&mask, SIGCHLD); sigaddset(&mask, SIGPIPE);

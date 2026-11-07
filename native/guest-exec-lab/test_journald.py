@@ -78,9 +78,9 @@ def main():
     created = False
     suite.report['probeOnly'] = args.probe_only
     try:
-        suite.transport.upload(suite.client, args.build / 'libmagicdesk_guest_readiness_guest.so',
+        suite.upload(args.build / 'libmagicdesk_guest_readiness_guest.so',
                                suite.base + '/readiness')
-        suite.command(['chmod', '700', suite.base + '/readiness'])
+        suite.chmod('700', suite.base + '/readiness')
         suite.command(prefix + ['--', '/bin/mkdir', target])
         created = True
         boot = ['/usr/bin/unshare', '--mount', '--pid', '--fork', '--mount-proc', '--uts',
@@ -103,10 +103,10 @@ def main():
             for name in ('driver.log', 'journald.log', 'result', 'boot.log'):
                 suite.command(['/system/bin/sh', '-c', 'test ! -f "$1" || tail -100 "$1"',
                                'journal-log', suite.base + '/' + name])
-            suite.transport.download(suite.client, suite.base + '/boot.log',
+            suite.download(suite.base + '/boot.log',
                                      args.output / (suite.report['id'] + '.boot.log'))
             if args.trace:
-                suite.transport.download(suite.client, suite.base + '/trace.log',
+                suite.download(suite.base + '/trace.log',
                                          args.output / (suite.report['id'] + '.trace'))
         finally:
             try:

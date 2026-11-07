@@ -43,7 +43,7 @@ static void *diverge(void *opaque) {
     return NULL;
 }
 int main(void) {
-    CHECK(getuid() == 2000);
+    CHECK(getuid() == geteuid() && getuid() != 0);
     CHECK(!prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0));
     CHECK(!install(-1, SECCOMP_RET_ALLOW, 0));
     struct peer peer;

@@ -259,8 +259,8 @@ def main():
     runner = [suite.runner, '--store', store, '--user', '0:0', '--network', 'routed']
     created = False
     try:
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/probe.py')
-        suite.transport.upload(suite.client, Path(__file__).with_name('docker_network_fixture.py'),
+        suite.upload(Path(__file__), suite.base + '/probe.py')
+        suite.upload(Path(__file__).with_name('docker_network_fixture.py'),
                                suite.base + '/docker_network_fixture.py')
         suite.command(runner + ['--', '/bin/mkdir', target], quiet=True)
         created = True

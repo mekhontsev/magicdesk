@@ -15,9 +15,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
 #include <sys/signalfd.h>
+#include <sys/socket.h>
 #include <sys/ptrace.h>
 #include <linux/ptrace.h>
 #include <sys/syscall.h>
@@ -345,6 +347,21 @@ static void pending_call(int boundary,int denied,int protected,int cancelled) {
     int replay;
     assert(md_task_quiesce_take(barrier,&replay,&usage)==pid && replay==original_status && usage.ru_maxrss==123);
     assert(!md_task_quiesce_take(barrier,&replay,NULL)); md_task_quiesce_destroy(barrier);
+    if (cancelled && boundary==MD_TASK_CALL_ENTRY) {
+        /* The borrower restored the owner's skipped entry. Its owner must
+         * drain a harmless admitted syscall, not submit -1 to Android seccomp. */
+        assert(!md_task_call_cancel_entry(trace,pid,(uintptr_t)remote_return));
+        for (;;) {
+            assert(!ptrace(PTRACE_SYSCALL,pid,0,0));
+            int status=stop(pid); assert(WIFSTOPPED(status));
+            struct ptrace_syscall_info info={0};
+            assert(ptrace(PTRACE_GET_SYSCALL_INFO,pid,sizeof(info),&info)>0);
+            if (info.op==PTRACE_SYSCALL_INFO_EXIT) break;
+            assert(info.op==PTRACE_SYSCALL_INFO_SECCOMP);
+        }
+        struct iovec io={&saved,sizeof(saved)};
+        assert(!ptrace(PTRACE_SETREGSET,pid,(void *)NT_PRSTATUS,&io));
+    }
     for (;;) {
         assert(!ptrace(PTRACE_CONT,pid,0,0));
         int status=stop(pid);
@@ -431,17 +448,17 @@ static void task_context(int protected,int interrupted,int boundary) {
         saved=get(pid);
     }
     struct md_task_call call={0};
-    struct md_task_call_arguments args={SYS_epoll_pwait,
+    struct md_task_call_arguments args={.number=SYS_epoll_pwait,.value=
         {(unsigned long)shared->signal_epoll,(uintptr_t)&shared->signal_event,1,0,0,8}};
-    if (interrupted==3) args=(struct md_task_call_arguments){SYS_read,
+    if (interrupted==3) args=(struct md_task_call_arguments){.number=SYS_read,.value=
         {(unsigned long)data[0],(uintptr_t)&shared->read_byte,1}};
     if (interrupted==4) {
         shared->poll=(struct pollfd){.fd=data[0],.events=POLLIN};
-        args=(struct md_task_call_arguments){SYS_ppoll,{(uintptr_t)&shared->poll,1,0,0,8}};
+        args=(struct md_task_call_arguments){.number=SYS_ppoll,.value={(uintptr_t)&shared->poll,1,0,0,8}};
     }
     if (interrupted==5) {
         shared->sleep=(struct timespec){.tv_nsec=1000000};
-        args=(struct md_task_call_arguments){SYS_clock_nanosleep,
+        args=(struct md_task_call_arguments){.number=SYS_clock_nanosleep,.value=
             {CLOCK_MONOTONIC,0,(uintptr_t)&shared->sleep,0}};
     }
     if (interrupted==1) assert(!ptrace(PTRACE_INTERRUPT,pid,0,0));
@@ -461,7 +478,7 @@ static void task_context(int protected,int interrupted,int boundary) {
     else if (interrupted==4) assert(shared->poll.revents==POLLIN);
     else if (interrupted==3) assert(shared->read_byte=='q');
     else assert(shared->signal_event.events==EPOLLIN && shared->signal_event.data.u64==0xfdeede);
-    args=(struct md_task_call_arguments){SYS_getpid,{0}};
+    args=(struct md_task_call_arguments){.number=SYS_getpid};
     assert(!md_task_call_again(&call,&args));
     do { ready=call_event(&call,&events); } while (!ready);
     assert(ready==1 && call.result==pid);
@@ -558,16 +575,17 @@ static void restart_exit(int protected,int interrupted) {
     assert(!munmap(code_page,(size_t)sysconf(_SC_PAGESIZE)));
     assert(!munmap(shared,sizeof(*shared)));
 }
-static void killed_injection(int protected,int boundary) {
+static void killed_signal(int signal) { (void)signal; _exit(94); }
+static void killed_injection(int protected,int boundary,int interruptible,int blocked,int caught) {
     int start[2]; assert(!pipe(start));
     pid_t pid=fork(); assert(pid>=0);
     if (!pid) {
         char byte; assert(read(start[0],&byte,1)==1);
         if (protected) assert(!prctl(PR_SET_DUMPABLE,0));
-        struct sigaction action={.sa_handler=SIG_IGN};
+        struct sigaction action={.sa_handler=caught ? killed_signal : SIG_IGN};
         assert(!sigaction(SIGSYS,&action,NULL));
         sigset_t mask; sigemptyset(&mask); sigaddset(&mask,SIGSYS);
-        assert(!sigprocmask(SIG_BLOCK,&mask,NULL));
+        assert(!sigprocmask(blocked ? SIG_BLOCK : SIG_UNBLOCK,&mask,NULL));
         assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
         struct sock_filter code[]={
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
@@ -594,7 +612,8 @@ static void killed_injection(int protected,int boundary) {
         if (info.op==(unsigned)boundary) break;
     }
     struct md_task_call call={0}; struct user_pt_regs saved=get(pid);
-    struct md_task_call_arguments args={.number=SYS_getppid};
+    struct md_task_call_arguments args={.number=SYS_getppid,
+        .flags=interruptible ? MD_TASK_CALL_INTERRUPTIBLE : 0};
     assert(!md_task_call_begin(&call,trace,pid,boundary,&saved,
         (uintptr_t)remote_call,(uintptr_t)remote_return,&args));
     for (unsigned n=0;;++n) {
@@ -602,17 +621,114 @@ static void killed_injection(int protected,int boundary) {
         if (WIFSIGNALED(status)) { assert(WTERMSIG(status)==SIGSYS); break; }
         assert(WIFSTOPPED(status));
         int result=md_task_call_event(&call,status);
-        if (result) fprintf(stderr,"killed injection boundary=%d stage=%u status=%#x result=%d\n",boundary,call.stage,status,result);
+        if (result) fprintf(stderr,"killed injection boundary=%d interruptible=%d blocked=%d caught=%d stage=%u status=%#x result=%d\n",
+            boundary,interruptible,blocked,caught,call.stage,status,result);
         assert(!result);
     }
     close(start[0]); close(start[1]);
 }
+static volatile sig_atomic_t notification_signal_seen;
+static void notification_signal(int signal) { notification_signal_seen=signal; }
+static void notification_injection(int protected,int interrupt,int retire) {
+    int start[2],sockets[2]; assert(!pipe(start));
+    assert(!socketpair(AF_UNIX,SOCK_SEQPACKET|SOCK_CLOEXEC,0,sockets));
+    pid_t pid=fork(); assert(pid>=0);
+    if (!pid) {
+        char byte; assert(read(start[0],&byte,1)==1);
+        pid_t self=getpid();
+        if (protected) assert(!prctl(PR_SET_DUMPABLE,0));
+        if (interrupt) {
+            struct sigaction action={.sa_handler=notification_signal};
+            sigset_t set; sigemptyset(&set); sigaddset(&set,interrupt);
+            assert(!sigaction(interrupt,&action,NULL) && !sigprocmask(SIG_UNBLOCK,&set,NULL));
+        }
+        struct sock_filter code[]={
+            BPF_STMT(BPF_LD|BPF_W|BPF_ABS,offsetof(struct seccomp_data,nr)),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_getpid,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_TRACE|123),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_getppid,0,1),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_USER_NOTIF),
+            BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
+        struct sock_fprog program={sizeof(code)/sizeof(*code),code};
+        assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
+        int fd=syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,SECCOMP_FILTER_FLAG_NEW_LISTENER,&program);
+        assert(fd>=0);
+        struct iovec io={&byte,1};
+        union { struct cmsghdr header; char bytes[CMSG_SPACE(sizeof(int))]; } control={0};
+        struct msghdr message={.msg_iov=&io,.msg_iovlen=1,
+            .msg_control=&control,.msg_controllen=sizeof(control)};
+        control.header=(struct cmsghdr){.cmsg_level=SOL_SOCKET,.cmsg_type=SCM_RIGHTS,.cmsg_len=CMSG_LEN(sizeof(fd))};
+        memcpy(CMSG_DATA(&control.header),&fd,sizeof(fd));
+        assert(sendmsg(sockets[1],&message,0)==1 && !close(fd));
+        assert(syscall(SYS_getpid,0x12345678)==(retire ? 713 : self) && notification_signal_seen==interrupt); _exit(0);
+    }
+    assert(!ptrace(PTRACE_SEIZE,pid,0,(void *)(PTRACE_O_TRACESYSGOOD|PTRACE_O_TRACESECCOMP|PTRACE_O_EXITKILL)));
+    assert(write(start[1],"s",1)==1);
+    char byte; struct iovec io={&byte,1};
+    union { struct cmsghdr header; char bytes[CMSG_SPACE(sizeof(int))]; } control={0};
+    struct msghdr message={.msg_iov=&io,.msg_iovlen=1,.msg_control=&control,.msg_controllen=sizeof(control)};
+    assert(recvmsg(sockets[0],&message,MSG_CMSG_CLOEXEC)==1
+        && !(message.msg_flags&(MSG_TRUNC|MSG_CTRUNC)));
+    assert(control.header.cmsg_level==SOL_SOCKET && control.header.cmsg_type==SCM_RIGHTS
+        && control.header.cmsg_len==CMSG_LEN(sizeof(int)));
+    int listener; memcpy(&listener,CMSG_DATA(&control.header),sizeof(listener));
+    int status=stop(pid); assert((unsigned)status>>16==PTRACE_EVENT_SECCOMP);
+    struct user_pt_regs saved=get(pid);
+    struct md_task_call call={0}; struct md_task_call_arguments args={.number=SYS_getppid,
+        .value={0x87654321,1,2,3,4,5},.flags=interrupt ? MD_TASK_CALL_INTERRUPTIBLE : 0};
+    assert(!md_task_call_begin(&call,trace,pid,MD_TASK_CALL_SECCOMP,&saved,
+        (uintptr_t)remote_call,(uintptr_t)remote_return,&args));
+    struct seccomp_notif request={0};
+    /* EVENT_WAIT: replacement admission, bounded by the fixture's alarm. */
+    assert(!ioctl(listener,SECCOMP_IOCTL_NOTIF_RECV,&request));
+    assert(request.pid==(unsigned)pid && request.data.nr==SYS_getppid
+        && request.data.instruction_pointer==(uintptr_t)remote_return);
+    assert(request.data.args[0]==0x12345678 && md_task_call_notification(&call,&request));
+    for (unsigned i=0;i<6;++i) {
+        request.data.args[i]^=1; assert(!md_task_call_notification(&call,&request)); request.data.args[i]^=1;
+    }
+    if (interrupt) assert(!kill(pid,interrupt));
+    else {
+        struct seccomp_notif_resp response={.id=request.id,.error=-ENOKEY};
+        assert(!ioctl(listener,SECCOMP_IOCTL_NOTIF_SEND,&response));
+    }
+    if (retire) assert(!md_task_call_retire_entry(&call));
+    int ready;
+    do { ready=md_task_call_event(&call,stop(pid)); } while (!ready);
+    assert(ready==1 && call.result==(interrupt ? -512 : -ENOKEY));
+    assert(ioctl(listener,SECCOMP_IOCTL_NOTIF_ID_VALID,&request.id)==-1 && errno==ENOENT);
+    struct user_pt_regs restored=get(pid); assert(!memcmp(&restored,&saved,sizeof(saved)));
+    uint64_t mask;
+    assert(!ptrace(PTRACE_GETSIGMASK,pid,(void *)sizeof(mask),&mask) && mask==call.mask);
+    if (retire) {
+        assert(call.boundary==MD_TASK_CALL_EXIT);
+        restored.regs[0]=713;
+        struct iovec registers={&restored,sizeof(restored)};
+        assert(!ptrace(PTRACE_SETREGSET,pid,(void *)NT_PRSTATUS,&registers));
+    }
+    assert(!ptrace(PTRACE_CONT,pid,0,0)); status=stop(pid);
+    if (interrupt) {
+        assert(WIFSTOPPED(status) && WSTOPSIG(status)==interrupt);
+        assert(!ptrace(PTRACE_CONT,pid,0,(void *)(intptr_t)interrupt)); status=stop(pid);
+    }
+    assert(WIFEXITED(status) && !WEXITSTATUS(status));
+    close(listener); close(start[0]); close(start[1]); close(sockets[0]); close(sockets[1]);
+}
 int main(void) {
     alarm(30);
+    for (int protected=0;protected<2;++protected) {
+        notification_injection(protected,0,0);
+        notification_injection(protected,0,1);
+        notification_injection(protected,SIGUSR1,0);
+        notification_injection(protected,SIGSYS,0);
+    }
+    puts("PASS task-context notification: seccomp replacement admission and exact original-call restoration");
     for (int protected=0;protected<2;++protected)
         for (int boundary=MD_TASK_CALL_USER;boundary<=MD_TASK_CALL_SECCOMP;++boundary)
-            killed_injection(protected,boundary);
-    puts("PASS killed task call: all boundaries, blocked/ignored SIGSYS, protected tasks, no TRACEEXIT requirement");
+            for (int interruptible=0;interruptible<2;++interruptible)
+                for (int blocked=0;blocked<2;++blocked) for (int caught=0;caught<2;++caught)
+                    killed_injection(protected,boundary,interruptible,blocked,caught);
+    puts("PASS killed task call: all boundaries, interruptible/shielded, blocked/unblocked and ignored/caught SIGSYS, protected tasks, no TRACEEXIT requirement");
     for (int protected=0;protected<2;++protected) for (int reading=0;reading<2;++reading) {
         int baseline=run(-1,reading,protected);
         /* Linux restarts pipe reads, but epoll returns EINTR after the native

@@ -1,6 +1,7 @@
 #ifndef MD_PROC_FILE_H
 #define MD_PROC_FILE_H
 #include "guest_identity.h"
+#include "process_access.h"
 #include "fd_object.h"
 #include "resource_order.h"
 #include "control_file.h"
@@ -18,11 +19,16 @@ enum md_proc_file_kind { MD_PROC_FILE_UID_MAP, MD_PROC_FILE_GID_MAP, MD_PROC_FIL
     MD_PROC_FILE_NS_PID, MD_PROC_FILE_NS_PID_CHILDREN, MD_PROC_FILE_NS_NETWORK, MD_PROC_FILE_NS_CGROUP,
     MD_PROC_FILE_NS_DIRECTORY, MD_PROC_FILE_PROCESS_DIRECTORY, MD_PROC_FILE_STATUS, MD_PROC_FILE_STAT, MD_PROC_FILE_LIMITS,
     MD_PROC_FILE_CGROUP, MD_PROC_FILE_CGROUPS,
+    MD_PROC_FILE_OOM_SCORE_ADJ, MD_PROC_FILE_OOM_ADJ,
+    MD_PROC_FILE_IO, MD_PROC_FILE_WCHAN, MD_PROC_FILE_SYSCALL, MD_PROC_FILE_STACK,
     MD_PROC_FILE_CONTROL };
 struct md_proc_file;
 static inline int md_proc_file_task(enum md_proc_file_kind kind) {
     return (unsigned)kind<=MD_PROC_FILE_SETGROUPS || kind==MD_PROC_FILE_PROCESS_DIRECTORY
-        || (kind>=MD_PROC_FILE_STATUS && kind<=MD_PROC_FILE_CGROUPS);
+        || (kind>=MD_PROC_FILE_STATUS && kind<=MD_PROC_FILE_STACK);
+}
+static inline int md_proc_file_oom(enum md_proc_file_kind kind) {
+    return kind==MD_PROC_FILE_OOM_SCORE_ADJ || kind==MD_PROC_FILE_OOM_ADJ;
 }
 struct md_cgroup_member;
 struct md_cgroup_namespace;
@@ -45,17 +51,33 @@ unsigned long md_proc_file_filesystem(const struct md_proc_file *);
 int md_proc_file_mapping(const struct md_proc_file *,unsigned protection,unsigned flags);
 int md_proc_file_fcntl(struct md_proc_file *,int command,unsigned long argument,long *result);
 static inline int md_proc_file_process(enum md_proc_file_kind kind) {
-    return kind==MD_PROC_FILE_STATUS || kind==MD_PROC_FILE_STAT || kind==MD_PROC_FILE_LIMITS;
+    return kind==MD_PROC_FILE_STATUS || kind==MD_PROC_FILE_STAT || kind==MD_PROC_FILE_LIMITS
+        || (kind>=MD_PROC_FILE_IO && kind<=MD_PROC_FILE_STACK);
+}
+static inline int md_proc_file_inspection(enum md_proc_file_kind kind) {
+    return kind==MD_PROC_FILE_STAT || (kind>=MD_PROC_FILE_IO && kind<=MD_PROC_FILE_STACK);
+}
+static inline unsigned md_proc_file_process_mode(enum md_proc_file_kind kind) {
+    return kind==MD_PROC_FILE_IO || kind==MD_PROC_FILE_SYSCALL || kind==MD_PROC_FILE_STACK ? 0400 : 0444;
+}
+static inline int md_proc_file_native_content(enum md_proc_file_kind kind) {
+    return md_proc_file_process(kind) || md_proc_file_oom(kind);
 }
 static inline const char *md_proc_file_process_name(enum md_proc_file_kind kind) {
-    return kind==MD_PROC_FILE_STAT ? "stat" : kind==MD_PROC_FILE_LIMITS ? "limits" : "status";
+    return kind==MD_PROC_FILE_PROCESS_DIRECTORY ? "" : kind==MD_PROC_FILE_NS_DIRECTORY ? "ns"
+        : kind==MD_PROC_FILE_STAT ? "stat" : kind==MD_PROC_FILE_LIMITS ? "limits"
+        : kind==MD_PROC_FILE_OOM_SCORE_ADJ ? "oom_score_adj" : kind==MD_PROC_FILE_OOM_ADJ ? "oom_adj"
+        : kind==MD_PROC_FILE_IO ? "io" : kind==MD_PROC_FILE_WCHAN ? "wchan"
+        : kind==MD_PROC_FILE_SYSCALL ? "syscall" : kind==MD_PROC_FILE_STACK ? "stack" : "status";
 }
 struct md_pid_namespace;
 struct md_process_limits;
 struct md_proc_file;
 void md_proc_file_pid_view(struct md_proc_file *,struct md_pid_namespace *);
-void md_proc_file_process_state(struct md_proc_file *,const struct md_identity *,struct md_pid_namespace *,pid_t tracer,
+void md_proc_file_process_state(struct md_proc_file *,const struct md_identity *,struct md_pid_namespace *,pid_t tracer,int inspectable,
     const struct md_process_limits *);
+struct md_signal_status;
+void md_proc_file_signal_state(struct md_proc_file *,const struct md_signal_status *);
 static inline int md_proc_file_directory(enum md_proc_file_kind kind) {
     return kind==MD_PROC_FILE_NS_DIRECTORY || kind==MD_PROC_FILE_PROCESS_DIRECTORY;
 }
@@ -84,9 +106,24 @@ struct md_proc_file *md_proc_file_open_namespace(const struct md_namespace_refer
     const struct md_identity *, int flags);
 const struct md_namespace_reference *md_proc_file_namespace_reference(const struct md_proc_file *);
 struct md_proc_file_node { uint64_t device, inode; int process; };
-int md_proc_file_task_stat(int,const struct md_identity *,enum md_proc_file_kind,
+int md_proc_file_task_stat(int,const struct md_identity *,const struct md_process_access *,enum md_proc_file_kind,
     struct md_proc_file_node *,struct stat *);
-int md_proc_file_retained_stat(const struct md_proc_file *,const struct md_identity *,struct stat *);
+/* A native proc descriptor captured in the caller's context supplies the same
+ * metadata/content as the external fast path. The caller retains fd ownership. */
+int md_proc_file_task_fd_stat(int fd,int pid,const struct md_identity *,const struct md_process_access *,enum md_proc_file_kind,
+    struct md_proc_file_node *,struct stat *);
+void md_proc_file_task_metadata(int pid,const struct md_identity *,const struct md_process_access *,enum md_proc_file_kind,
+    struct md_proc_file_node *,struct stat *);
+/* Exact FD and metadata captured together under the task's kernel authority.
+ * Retain the task incarnation, not only its reusable native PID. */
+int md_proc_file_backing(struct md_proc_file *,int fd,const struct stat *,uint64_t generation);
+uint64_t md_proc_file_backing_generation(const struct md_proc_file *);
+/* Bounded native getdents records, captured under the exact task authority.
+ * Copies and normalizes entries through the ordinary process-directory owner. */
+int md_proc_file_directory_snapshot(struct md_proc_file *,const void *,size_t);
+struct md_task_registry;
+/* Metadata survives task exit; reopening requires the same task incarnation. */
+int md_proc_file_retained_stat(const struct md_proc_file *,struct md_task_registry *,int require_live,struct stat *);
 int md_proc_file_task_access(const struct md_identity *,const struct stat *,unsigned,int effective);
 void md_proc_file_place(struct md_proc_file *,struct md_fs_anchor *,const struct stat *);
 /* Descriptor-host identity of the proc entry, independent of the carrier FD. */
@@ -129,6 +166,8 @@ struct md_proc_file_io {
     long result;
     struct md_control_actor actor;
     struct md_control_pending *pending;
+    struct md_process_oom *oom;
+    struct md_task_registry *tasks;
 };
 /* Caller owns zero-initialized operation storage until finish/cancel. The turn
  * pins the open description, never a descriptor number or a task lifetime. */

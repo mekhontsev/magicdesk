@@ -674,17 +674,21 @@ int main(int argc, char **argv) {
         automatic_vfork(0,0); automatic_vfork(1,0);
         return 0;
     }
-    if (!strcmp(argv[1],"--automatic-threads")) {
+    if (!strcmp(argv[1],"--automatic-threads") || !strcmp(argv[1],"--automatic-writers")) {
+        int with_io=!strcmp(argv[1],"--automatic-threads");
         close(fd);
         for (int protected=0;protected<=1;++protected) {
             if (protected) assert(!prctl(PR_SET_DUMPABLE,0));
             pthread_t writers[4],io;
-            atomic_store(&io_done,0); assert(!pthread_create(&io,NULL,automatic_io,NULL));
+            atomic_store(&io_done,0);
+            if (with_io) assert(!pthread_create(&io,NULL,automatic_io,NULL));
             for (unsigned i=0;i<4;++i) assert(!pthread_create(writers+i,NULL,automatic_jit,NULL));
             for (unsigned i=0;i<4;++i) assert(!pthread_join(writers[i],NULL));
-            atomic_store(&io_done,1); assert(!pthread_join(io,NULL));
+            atomic_store(&io_done,1);
+            if (with_io) assert(!pthread_join(io,NULL));
             if (protected) assert(!prctl(PR_SET_DUMPABLE,1));
-            printf("PASS automatic concurrent private-file JIT: protected=%d, four writers and namespace IO\n",protected);
+            printf("PASS automatic concurrent private-file JIT: protected=%d, four writers%s\n",
+                    protected,with_io ? " and namespace IO" : "");
         }
         return 0;
     }

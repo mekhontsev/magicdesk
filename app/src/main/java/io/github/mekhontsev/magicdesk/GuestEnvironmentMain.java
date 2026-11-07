@@ -11,9 +11,12 @@ public final class GuestEnvironmentMain {
             if (arguments.length < 3) throw new IllegalArgumentException("Expected bundle, library and command");
             String[] command = Arrays.copyOfRange(arguments, 2, arguments.length);
             if (checkDns(command)) return;
-            Path root = Path.of(arguments[1]);
+            Path root = Path.of(arguments[1]).toAbsolutePath().normalize();
+            var paths = new RuntimeDataPaths(Path.of(java.util.Objects.requireNonNull(System.getenv("HOME"))));
+            var images = new GuestImageTool(Path.of(arguments[0]), paths.temporary());
+            GuestLibraryLocation.prepare(root, paths, android.system.Os.getuid(), images);
             var library = new GuestEnvironmentLibrary(root,
-                    new GuestImageTool(Path.of(arguments[0]), root.resolve("work")),
+                    images,
                     new GuestOciRegistry(System.err::println), System.err::println);
             execute(library, command);
         } catch (Exception error) {

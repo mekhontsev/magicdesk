@@ -128,15 +128,16 @@ repair then handles a later NONE/R to RX transition if Android rejects the
 ptrace-created COW page. Failure to retain the initial provenance leaves Base
 entry selected; no writable-text permission is silently substituted.
 
-Before an application filter or `PR_SET_DUMPABLE(0)` commits, machine admission
+Before an application filter commits, machine admission
 is revoked. The existing cold task barrier, scoped to the affected address
 space, recovers resident entries or requests their return checkpoint. Peers
 then run to complete admitted calls under the old filter.
 The original event is replayed only after those machine entries
 and their syscall-exit continuations have drained. This barrier is for these
-kernel transitions, not patch publication or ordinary accelerated calls. The
-dumpability transition restores source instructions before the kernel removes
-remote-memory access; it does not falsify the application's protected state.
+kernel transitions, not patch publication or ordinary accelerated calls.
+Guest dumpability is virtualized for proc access and debugging. Native
+dumpability remains enabled for the supervisor, so changing the guest value
+does not revoke accelerated entry or require a memory barrier.
 Cooperative channel revocation remains in the common owner: one caller for a local
 filter, its thread group for TSYNC. A blocked callback which does not drain in
 five seconds rejects the transition with EBUSY; it is not applied and
@@ -158,6 +159,7 @@ completions, revocation and actual resident-entry drains, not merely successful
 installation. Signal-boundary and full cooperative tests remain separate checks.
 The protected-state race repeats the same live callers across 24 dumpability
 transitions and verifies the state and syscall results in the parent and child.
+It requires continued accelerated completions without revocation or filter fences.
 Arbitrary externally mutable backing is not certified by this coverage.
 
 An interrupted kernel notification can restart at a newly published SVC gate.
@@ -170,8 +172,8 @@ and wait preparation use the same serviceability predicate. This avoids a
 duplicate filesystem effect, a recovery deadlock and a ready-but-unserviceable
 busy loop. Ordinary calls do not scan the site registry for this recovery.
 
-Public `cmdline` access after `dumpable=0` uses the actual proc open under
-caller authority. The supervisor's exact-mm retained memory description supplies
+Public `cmdline` access after `dumpable=0` uses guest inspection rules, independently
+of Android's proc restrictions. The supervisor's exact-mm retained memory description supplies
 live argument bytes when necessary; private image views such as `auxv` retain
 their inspection checks. The process-image fixture verifies
 post-protection argument edits and denied `auxv` natively, with Base and lazy
@@ -193,6 +195,10 @@ python native/guest-exec-lab/test_svc_patch.py BUILD STOCK_GO --rounds 5
 python native/guest-exec-lab/test_svc_libc.py BUILD STOCK_LIBC_PROBE --checks-only --signal-storm
 ```
 
+The SVC runner's `--section` selects `entry`, `filters`, `protected`, `images`,
+`mappings` or `programs` for focused diagnosis. Omit it for the complete suite;
+section runs retain the same assertions and record their scope in the report.
+
 `build_svc_go.py` builds stock Go/cgo fixtures; run the same SVC suite with
 each artifact. `build_svc_glibc.py` compiles a small test program against a stock
 sysroot. The libc runner also accepts a stock musl probe.
@@ -207,8 +213,9 @@ Use its `--dynamic-loader`, `--dynamic-libc`, `--interpreter` and
 | Stock libc | ABI/contracts, 256 retired thread owners, optional asynchronous/blocked signal storms, dynamic loader variants |
 | Payload audit | Actual bootstrap driver has no hidden relocations; object bytes equal linked bytes |
 
-The live filter/protection races require 24 transitions and nonzero resident
-drains; a successful filter install alone is not sufficient.
+The live filter races require 24 transitions and nonzero resident drains;
+a successful filter install alone is not sufficient. Dumpability races retain
+direct entry with zero admission fences while checking guest protection state.
 
 ### Performance Controls
 

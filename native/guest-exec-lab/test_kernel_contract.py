@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Compare one static fixture under native shell and Shroot on the same kernel."""
+"""Compare one static fixture natively and through Shroot under one executor."""
 import argparse
 import hashlib
 from pathlib import Path
 
 from test_oci_services import Suite
+from fixture_executor import FixtureExecutor
 
 CASES = ('waitid-peek', 'wait-errors', 'traceme-late-wait4', 'traceme-late-waitid',
          'debug-wait4-signal', 'debug-waitid-signal', 'debug-wait4-restart', 'debug-waitid-restart',
@@ -33,17 +34,19 @@ def main():
     parser.add_argument('--build', type=Path)
     parser.add_argument('--case', action='append', choices=CASES)
     parser.add_argument('--filtered', action='store_true', help='Deny private guest threads and use protected callers')
+    FixtureExecutor.add_argument(parser)
     args = parser.parse_args()
-    suite = Suite(args.output, args.build)
+    suite = Suite(args.output, args.build, executor=args.executor)
     suite.report['filtered'] = args.filtered
     try:
         with args.fixture.open('rb') as source:
             digest = hashlib.file_digest(source, 'sha256').hexdigest()
         fixture = suite.base + '/kernel-contract'
-        suite.transport.upload(suite.client, args.fixture, fixture)
+        suite.upload(args.fixture, fixture)
         assert suite.command(['sha256sum', fixture], quiet=True).split()[0] == digest
         suite.report['fixtureSha256'] = digest
-        suite.command(['chmod', '755', fixture])
+        suite.chmod('755', fixture)
+        native_openat2 = suite.native_capability(fixture, 'openat2')
         guest_root = '/tmp/kernel-contract-' + suite.report['id']
         suite.command(suite.run(args.instance, '--user', '0:0', '--', 'mkdir', '-p', '/fixtures'))
         suite.command(suite.run(args.instance, '--user', '0:0', '--', 'mkdir', guest_root))
@@ -61,6 +64,9 @@ def main():
                                    'exec "$@"', 'fixture', '/fixtures/kernel-contract', name, guest_dir),
             }
             for backend, command in commands.items():
+                if backend == 'native' and name in ('resolution', 'resolution-race') and not native_openat2:
+                    case['nativeUnavailable'] = 'openat2 denied by host policy or unavailable'
+                    continue
                 if args.filtered:
                     command += ['--filtered']
                 try:
@@ -73,12 +79,17 @@ def main():
                     case[backend] = observations(name, output)
                 except Exception as error:
                     case[backend + 'Error'] = str(error)
-            case['passed'] = ('native' in case and 'guest' in case and case['native'] == case['guest'])
+            case['compared'] = 'native' in case and 'guest' in case
+            case['passed'] = ('guest' in case and (case.get('nativeUnavailable') is not None
+                              or case.get('native') == case['guest']))
             print(name, case, flush=True)
         suite.command(suite.run(args.instance, '--user', '0:0', '--', 'rm', '-rf', guest_root))
         suite.report['passed'] = all(case['passed'] for case in suite.report['cases'])
     finally:
-        suite.finish()
+        try:
+            suite.command(['rm', '-rf', '--', suite.base], quiet=True)
+        finally:
+            suite.finish()
     return 0 if suite.report['passed'] else 1
 
 

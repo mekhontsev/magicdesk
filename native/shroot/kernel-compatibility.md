@@ -28,6 +28,16 @@ kernel dependency or work to ordinary native-backed IO.
 
 ### Native Storage
 
+Directory cursor ordering in `ofd_order` optionally uses `fcntl(F_DUPFD_QUERY)`
+(Linux 6.10+) for exact local open-description comparison. An unsupported or
+denied command retains self-kcmp only in an unfiltered owner; inherited seccomp
+may terminate kcmp rather than return an errno. Otherwise active operations on
+the same native inode share a conservative queue, retaining their individual
+descriptors and offsets. This adds no work to ordinary data reads/writes or to a
+synchronous directory operation when no asynchronous reservation exists.
+`test_ofd_order` covers exact and forced-conservative admission, aliasing,
+cancellation and FD reuse. The 5.15 profile rejects `F_DUPFD_QUERY` explicitly.
+
 Native-leaf storage uses baseline openat/fstat/fchmod, user xattrs, proc FD magic
 links and fsync. `inode_native.c` uses the retained proc alias for O_PATH metadata,
 not fchmodat2/AT_EMPTY_PATH. `inode_publication.c` uses renameat2 with
@@ -156,6 +166,87 @@ result. `CLOSE_RANGE_CLOEXEC` is available since 5.11. Both fit the 5.15 baselin
 See the [seccomp notification contract](https://man7.org/linux/man-pages/man2/seccomp_unotify.2.html)
 and [close_range flags](https://man7.org/linux/man-pages/man2/close_range.2.html).
 
+`host_open` keeps native openat2 when available. On ENOSYS, NO_SYMLINKS opens
+use an O_PATH-pinned no-follow component walk. Scoped opens of the retained
+directory itself use an atomic openat; nontrivial scoped walks fail explicitly.
+This fallback does not turn a permission denial into success or
+relax a requested resolve constraint. `test_host_open` compares its supported
+cases with the native oracle. Firmware denial remains independent of version.
+
+Application-filter capture uses `interception_buffers` with
+`F_SEAL_FUTURE_WRITE` plus grow/shrink/seal seals, all within the 5.15 baseline.
+The supervisor creates its shared writer before sealing; later guest mappings
+are shared/read-only. The writer must not be inherited by guest code. A denied
+memfd or seal fails preparation explicitly, never falling back to mutable guest
+storage. Seals do not prevent MAP_FIXED replacement: the caller retains the
+existing `interception_memory` turn through native installation, and
+`seccomp_capture` retains the slot through completion or confirmed task death.
+`test_seccomp_policy` covers seals, pinning, failure and reuse; the app-UID
+`filter-study` also covers concurrent source mutation, mapping replacement,
+CLONE_VM sharing and death during installation. These are native component
+tests on Linux 6.12, not full app-only or real-5.15 admission. Ordinary writable
+request pools do not use these seals. UID-2000 execution does not enable
+host-SIGSYS translation.
+The combined `signal-study` uses baseline rt_sigaction/procmask/pending,
+process_vm_readv/writev and the same ptrace events. It verifies native TSYNC
+publication ordering, SA_UNSUPPORTED normalization (available before 5.15),
+partial-size pending masks and EFAULT-after-commit behavior. Native component
+fixtures retain real dumpable=0 to exercise the `task_call` owner's fault-aware
+process_vm self-copy. Supervised guests use logical dumpability instead. The fixture uses baseline
+PTRACE_SEIZE/SYSEMU at handler-entry checkpoints and observes rt_sigreturn exit;
+nonlocal exits do not depend on a veneer return hook.
+Production handler admission retains the application's original handler address.
+Shared disposition tables and translated frames use the baseline PTRACE_INTERRUPT
+frame-commit boundary. A sole application owner whose frame needs no translation
+continues directly to its native handler: no peer can replace that disposition
+before kernel selection. The kernel applies the application's handler mask,
+excluding only the virtual SIGSYS bit; admission does not install an all-signals
+mask or rewrite the unchanged native mask afterward. A frame
+whose saved mask needs no translation acquires no shared copy buffer. Ordinary
+handlers without a logical mask change need no register read or rewrite. Borrowed
+copies still shield their temporary register context and restore the native
+handler mask on completion. The shared signal suite covers all
+128 Base/lazy cases under app UID on Linux 6.12, including protected copying,
+nested handlers, nonlocal exits, application filters and temporary wait masks.
+Physical 5.15 coverage remains outstanding.
+
+The native notification protocol fixture retains a real kernel listener. Its exact-PC
+getpid carrier selects the winning captured filter, while other captured filters
+admit that carrier. RECV restores original call data; SEND retains an immutable
+input and publishes CONTINUE only after native acceptance. Kernel ownership
+retains IDs, cancellation, descriptor transfer and listener closure. TRACE uses
+the shared guest-debugger owner, including GET_SYSCALL_INFO, cancellation and
+post-debugger policy evaluation. ARM64 rechecks use hidden orig_x0 for the first
+argument. These primitives and ADDFD_FLAG_SEND fit the 5.15 baseline, but current
+app-UID evidence is on 6.12 only. Production original-filter capture, lifecycle
+publication, signal waits and cold-denial/TSYNC admission ordering have focused
+app-UID coverage. `signal_pending`, `signal_fd` and task-affine epoll combine
+logical SIGSYS with native signal queues using baseline signalfd4, rt_sigtimedwait,
+PTRACE_PEEKSIGINFO, ppoll/pselect6 and epoll_pwait/pwait2. Blocking waits release
+shared transport capacity; private argument pages reuse the existing memory
+owner. Native epoll validates caller output before consumption, and logical
+ET/ONESHOT publication waits for copy acknowledgement. No post-5.15 primitive,
+per-IO observation or new shared-service prerequisite is introduced. These
+app-UID tests do not establish physical kernel-5.15 compatibility.
+
+Linux rejects a second native NEW_LISTENER in an existing listener chain. The
+failure is reproduced inside Shroot under both app UID and UID 2000. The
+`seccomp_notify` virtual provider covers the baseline RECV/SEND/ID_VALID ABI,
+copy acknowledgement, receiver PID views, readiness and closure using the shared control-file and
+descriptor owners, without another kernel listener or a newer syscall. Its
+concurrent coordinator tests complement the production app-UID notifications
+suite: installation, original-call replay, native interruption/restart and
+guest ADDFD use the existing task-call and FD-publication owners. SEND and
+SETFD use flags available within the 5.15 baseline. The newer
+SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV contract is explicitly rejected with
+EOPNOTSUPP by filter admission; it is not silently accepted with different
+signal behavior. No per-native-IO interception is introduced.
+Metadata-only O_PATH reopening uses the existing descriptor host and does not
+retain listener authority; a native-kernel lifetime oracle and coordinator
+tests cover this distinction. Task attachments separately drive last-user HUP;
+retaining a listener FD or captured policy does not keep a guest task alive.
+Neither mechanism requires a post-5.15 primitive.
+
 Optional `cooperative_entry.c` / `namespace_broker.c` communication uses the
 existing shared memfd, ordinary shared `FUTEX_WAIT`/`FUTEX_WAKE`, monotonic clock,
 checked process-memory copying and notification wake gate. It adds no post-5.15
@@ -220,6 +311,7 @@ retains the completed result and uses the existing shielded task-affine gate;
 protected inputs, application filters and debuggers keep their existing route.
 `test_resources.py --case fs-buffer` covers these branches, masks, CLOEXEC,
 mutation signals, preserved registers/NZCV, file-table pressure and group termination.
+`--case fs-signals` runs the signal and shared-memory portion independently.
 `--case fs-dispatch` also checks both carriers' exact argument matching, rejected
 replay, confirmed results and FD cleanup.
 
@@ -231,10 +323,13 @@ execution during supervisor handoff, including kernel restarts without a deliver
 signal. Nonblocking metadata recovery in `supervisor.c` uses baseline ptrace
 register/signal-mask access and GET_SYSCALL_INFO (5.3), not WAIT_KILLABLE_RECV
 (5.19). It rechecks the original SVC through kernel seccomp before completing
-the read and restoring the real signal. `--case fs-buffer` compares native and
+the read and restoring the real signal. `--case fs-signals` compares native and
 guest shared-memory creation under frequent signals, with and without SA_RESTART,
 protected callers, preserved registers/NZCV and masks, application ERRNO/TRAP
-filters, and concurrent SIGSTOP/SIGCONT cycles. ARM64's temporary x7 marker at
+filters, and concurrent SIGSTOP/SIGCONT cycles. A retained job-control delivery
+resumes after its completed instruction check; native redelivery does not start
+another protected code-read operation for the same interrupted context.
+ARM64's temporary x7 marker at
 syscall stops is never copied back into the application context.
 
 ### Cross-Process Rendezvous
@@ -1020,6 +1115,12 @@ filters and guest credential transitions retain their ordinary admission paths.
 Applying an ERRNO filter around the whole Shroot command would instead outrank
 guest TRACE/USER_NOTIF and invalidate that test.
 
+IPC and filesystem custody fixtures use the same host-only admission point to
+deny `pidfd_getfd` for their selected descriptors. This exercises private
+capture and channel admission without changing guest dumpability, filters or
+`no_new_privs`, and composes with the 5.15 ceiling. Release helpers contain
+neither this fault selector nor its filter.
+
 The profile rejects ARM64 syscall numbers from 449 onward with ENOSYS, and
 selectively masks PIDFD_THREAD, notification synchronous wake, newer notification
 flags, DMA-BUF fence export/import, pidfd namespace ioctls, PROCMAP_QUERY,
@@ -1031,8 +1132,11 @@ available. The syscall ceiling follows the
 
 Profile admission checks the actual selectors in a disposable child using
 distinct probe-only error values, so existing host errors cannot masquerade as
-a working filter. Each supervised launch verifies the installed production-error
-form and emits `SHROOT_KERNEL_PROFILE` with the real host kernel. Test runners
+a working filter. The probe carries the selected syscall number in an unused
+`getppid` argument and reuses the filter's argument predicates and error paths;
+it never executes a new syscall which inherited Android seccomp could kill.
+Each supervised launch installs the real syscall-number filter, checks baseline
+operations and emits `SHROOT_KERNEL_PROFILE` with the real host kernel. Test runners
 retain this evidence separately from guest output and reject missing admission.
 The probe-only errors never enter a supervised workload.
 
@@ -1128,6 +1232,21 @@ Fixtures cover sigwait/signalfd, ignored/blocked SIGTRAP, original metadata,
 private/shared pending signals, altstack, interrupted calls, group stops and
 RLIMIT_SIGPENDING exhaustion. The kernel can lose metadata under exhaustion;
 the runtime does not claim otherwise.
+Recovery readers share a snapshot of one signal-delivery stop, never across
+resumes or register changes. Instruction inspection reuses the address-space
+owner's retained proc memory descriptor when direct reads are denied; absent
+authority retains task-affine reading. Neither path caches executable bytes or
+changes dumpability. Mask queries and updates retain kernel pointer validation
+and error/commit ordering. With logical SIGSYS blocked they lend the kernel that
+bit after seccomp admission; the owned syscall-exit stop publishes the logical
+result and removes the native bit before any application instruction or handler
+executes. Pure queries with no mask translation need no exit stop.
+This shares the native sigreturn exit owner and adds no kernel
+dependency or ordinary-IO interception.
+Signal-frame construction uses the same bounded mask loan outside atomic waits;
+its commit stop restores the native handler mask without copying the frame or
+changing application registers. Temporary waits retain their kernel saved-mask
+restoration and the fault-aware frame adapter.
 
 `task_checkpoint` owns exact bootstrap SVC sites and emits an internal typed
 event. Unfiltered service markers use selective seccomp TRACE; with application
@@ -1137,6 +1256,12 @@ re-enter natively with their original IP and arguments and remain subject to
 seccomp. A synthetic PTRACE_INTERRUPT exposes the real x7 before publishing a
 marker, because ARM64 syscall stops borrow that register. Application handlers
 and guest debugger execution never inherit this service scope.
+Group stops retain the current task-call/checkpoint owner through PTRACE_LISTEN;
+they are neither completion nor failure of the injected operation. If STOP
+consumes a pending checkpoint interrupt, its continuation rearms that interrupt
+before leaving the marker. A private helper whose first stop precedes its birth
+publication follows the same job-control lifetime and waits for CONT.
+These paths use baseline ptrace operations, without extra ordinary-call probes.
 The C-reply classifiers in `adapter_buffer.h`, `fs_buffer.h` and `fd_client.h`
 admit entry-only completion for buffer acquisition, metadata/identity queries,
 descriptor queries, completed descriptor exchanges and IPC payload preparation/copy.
@@ -1274,21 +1399,14 @@ is denied after ptrace COW. No pathname reopen, new kernel operation or weakened
 protection is required. The native/Base/machine mapping fixture covers repeated
 restoration and fork inheritance.
 
-Application filter installation and `PR_SET_DUMPABLE(0)` use `task_quiesce`
-to recover or drain resident machine entries before replaying the original
-syscall, including TSYNC. These kernel transitions acquire the address-space
-cold barrier only when resident gates exist, including retired gates that a
-peer can still be leaving. An empty registry needs no stop; publication still
-does not stop peers. Dumpability clears
-remote-memory authority, so source
-instructions are restored and resident gates drained before committing it.
-The requested protected state is retained, not emulated as dumpable.
-The live UID/open/close races require actual drains and
-post-filter denials, with helper gettid set to KILL_PROCESS. Failure to drain
-an admitted callback within the bound returns EBUSY without applying the
-transition; acceleration stays revoked. The protected-state race also verifies
-fork inheritance. The initial quiescence failure retains
-fail-closed cancellation. These operations are all within the 5.15 baseline.
+Application filter installation revokes and drains resident machine entries
+before the original syscall commits, including TSYNC. Already admitted native
+waits remain runnable; publication does not stop peers. Failure to drain within
+the bound returns EBUSY without applying the filter; acceleration stays revoked.
+Guest dumpability is mm-scoped userspace policy in `process_access`, independently
+of the executor. Its transitions need no native prctl, text restoration or
+peer-stop barrier. Both interfaces are within the 5.15 baseline. Common policy
+fixtures cover fork/exec, shared state, guest-filter denial and foreign inspection.
 Arbitrary externally mutable backing and untested architectures remain outside
 this coverage. Entry admission falls back to Base.
 

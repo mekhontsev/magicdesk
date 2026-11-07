@@ -88,8 +88,8 @@ def main():
             wrapper = Path(temporary) / 'shroot'
             wrapper.write_text('#!/system/bin/sh\nexec '
                                + shlex.join([suite.runner, *suite.entry_options]) + ' "$@"\n')
-            suite.transport.upload(client, wrapper, suite.base + '/shroot')
-        suite.command(['chmod', '700', suite.base + '/shroot'])
+            suite.upload(wrapper, suite.base + '/shroot')
+        suite.chmod('700', suite.base + '/shroot')
         keyboard = suite.base + '/xkb'
         suite.command(suite.image_command('export-tree', args.store, '/usr/share/X11/xkb', keyboard))
         display = client.call('create_display', {'type': 'virtual', 'width': 1200, 'height': 800, 'densityDpi': 160})
@@ -144,7 +144,7 @@ def main():
                 launcher = args.output / (suite.report['id'] + '-' + entry_name + '.sh')
                 launcher.write_text('#!/system/bin/sh\n' + command + '\n')
                 remote_launcher = suite.base + '/' + entry_name + '.sh'
-                suite.transport.upload(client, launcher, remote_launcher)
+                suite.upload(launcher, remote_launcher)
                 session = client.call('graphics.start', {'protocol': protocol, 'backend': 'shell',
                     'connection': 'routed', 'name': 'Recipe ' + entry_name + ' ' + suite.report['id'][:8],
                     'keyboardDirectory': keyboard, 'wholeDesktop': desktop})['sessionId']

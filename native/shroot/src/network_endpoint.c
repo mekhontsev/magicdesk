@@ -845,9 +845,13 @@ int md_network_endpoint_snapshot(struct md_network_namespace *n,int protocol,
     struct md_network_endpoint_info *items=size ? calloc(size,sizeof(*items)) : NULL;
     if (size && !items) { pthread_mutex_unlock(&n->fabric->lock); return -ENOMEM; }
     for (struct md_network_endpoint *e=n->fabric->endpoints;e;e=e->next)
-        if (e->space==n && e->protocol==protocol && e->inode && e->bound)
+        if (e->space==n && e->protocol==protocol && e->inode && e->bound) {
+            int result=md_network_connection_result(e->connection,NULL);
+            unsigned state=e->listening ? TCP_LISTEN : !e->connected ? TCP_CLOSE
+                : result==-EINPROGRESS ? TCP_SYN_SENT : result ? TCP_CLOSE : TCP_ESTABLISHED;
             items[(*count)++]=(struct md_network_endpoint_info){
-                .inode=e->inode,.uid=e->uid,.local=e->local,.peer=e->peer};
+                .inode=e->inode,.uid=e->uid,.state=state,.local=e->local,.peer=e->peer};
+        }
     pthread_mutex_unlock(&n->fabric->lock);
     if (size) qsort(items,size,sizeof(*items),inode_order);
     *out=items; return 0;

@@ -3,6 +3,9 @@
 #include <errno.h>
 
 static int retain(const char *entry) {
+#ifdef MD_KERNEL_TESTING
+    if (md_prefix(entry,"MAGICDESK_TEST_KERNEL_PROFILE=")) return 1;
+#endif
     const char *names[] = {"TERM=", "COLORTERM=", "LANG=", "LC_", "WAYLAND_SOCKET=", "WAYLAND_DISPLAY=",
         "DISPLAY=", "XAUTHORITY=", "XDG_SESSION_TYPE=", "GDK_", "GTK_", "QT_", "SDL_",
         "GSETTINGS_BACKEND=", "LIBGL_", "MESA_", "VK_", "MAGICDESK_X11_AUTHORITY=", "MAGICDESK_GUEST_LABEL="};

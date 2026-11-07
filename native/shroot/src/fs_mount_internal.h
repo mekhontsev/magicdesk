@@ -51,7 +51,9 @@ void md_fs_landlock(struct md_filesystem *,const struct md_fs_request *,struct m
 int md_fs_landlock_native(struct md_filesystem *,const struct md_fs_request *,struct md_view_mount *,int fd);
 int md_fs_landlock_delegate(struct md_filesystem *,const struct md_fs_request *,const char *);
 int md_fs_proc_operation(struct md_filesystem *,struct md_mount_namespace *,struct md_view_mount *,
-    int,const struct md_fs_request *,struct md_fs_result *,const struct md_fs_output *);
+    int,const struct stat *,const struct md_fs_request *,struct md_fs_result *,const struct md_fs_output *);
+int md_fs_proc_capture_open(struct md_filesystem *,struct md_mount_namespace *,struct md_view_mount *,
+    int,const struct stat *,unsigned,int,const struct md_fs_request *,struct md_fs_result *,const struct md_fs_output *);
 int md_fs_cgroup_operation(struct md_filesystem *,struct md_mount_namespace *,
     struct md_view_mount *,int fd,int parent,const char *name,const struct md_fs_request *,
     struct md_fs_result *,const struct md_fs_output *);
@@ -151,6 +153,9 @@ static inline struct md_view_mount *md_view_mount_node(struct md_mount_namespace
 void md_view_mount_forget(struct md_fs_mounts *, struct md_view_mount *);
 struct md_view_location {
     int parent, fd, boundary, implicit_devices;
+    /* Task-admitted metadata belongs only to this path operation. */
+    struct stat captured_metadata;
+    int metadata_captured;
     struct md_mount_namespace *view;
     struct md_view_mount *mount;
     char name[NAME_MAX+1];
@@ -227,6 +232,7 @@ struct md_view_observer {
 int md_view_walk_async(struct md_filesystem *,int base,const struct md_fs_anchor *,const char *,int follow,int missing,
     uint64_t resolve,struct md_view_location *,struct md_view_observer *,struct md_view_walk_pending **);
 int md_view_walk_ready(struct md_view_walk_pending *);
+struct md_fs_task_input *md_view_walk_task_input(struct md_view_walk_pending *);
 int md_view_walk_resume(struct md_filesystem *,struct md_view_walk_pending *,struct md_view_location *,struct md_view_observer *);
 void md_view_walk_destroy(struct md_view_walk_pending *);
 void md_view_location_close(struct md_view_location *);
@@ -241,8 +247,10 @@ struct md_fs_anchor *md_view_anchor_import(struct md_inode_lifetime *, struct md
 /* Retains an already selected provider descriptor; does not resolve its name. */
 int md_view_anchor_duplicate(struct md_filesystem *,struct md_mount_namespace *,struct md_view_mount *,
         int fd,struct md_fs_anchor **);
+int md_view_anchor_pin(struct md_filesystem *,struct md_mount_namespace *,struct md_view_mount *,
+        int fd,const struct stat *,struct md_fs_anchor **);
 int md_view_anchor_child(struct md_filesystem *,struct md_mount_namespace *,struct md_view_mount *,
-        int parent,const char *name,struct md_fs_anchor **);
+        int parent,const struct stat *,const char *name,struct md_fs_anchor **);
 void md_view_capture(struct md_filesystem *, struct md_mount_namespace *, struct md_view_mount *,
         struct md_fs_result *, const struct md_fs_output *);
 #endif

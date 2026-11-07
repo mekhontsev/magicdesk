@@ -22,7 +22,8 @@ int md_fs_continuation_pending(struct md_fs_continuation *previous,
 
 void md_fs_continuation_clear(struct md_fs_continuation *c) {
     for (unsigned i=0;i<2;++i) {
-        if (c->request.directory[i]>=0) close(c->request.directory[i]);
+        if (c->request.directory[i]>=0
+                && c->request.directory[i]!=md_fs_anchor_fd(c->request.origin[i])) close(c->request.directory[i]);
         md_fs_anchor_release((struct md_fs_anchor *)c->request.origin[i]);
         c->request.directory[i]=-1; c->request.origin[i]=NULL;
     }
@@ -53,7 +54,10 @@ int md_fs_continuation_capture(struct md_fs_continuation *c,const struct md_fs_r
     c->request.control=md_control_file_retain(q->control);
     for (unsigned i=0;i<2;++i) {
         c->request.origin[i]=md_fs_anchor_retain((struct md_fs_anchor *)q->origin[i]);
-        c->request.directory[i]=q->directory[i]<0 ? q->directory[i] : fcntl(q->directory[i],F_DUPFD_CLOEXEC,3);
+        /* The retained origin already owns its pin. Preserve that identity
+         * across suspension; separately supplied descriptors need a copy. */
+        c->request.directory[i]=q->directory[i]<0 || q->directory[i]==md_fs_anchor_fd(q->origin[i])
+            ? q->directory[i] : fcntl(q->directory[i],F_DUPFD_CLOEXEC,3);
         if (q->directory[i]>=0 && c->request.directory[i]<0) {
             int error=-errno; md_fs_continuation_clear(c); return error;
         }
@@ -94,6 +98,7 @@ static void sequence_resume(struct md_fs_continuation *base,struct md_filesystem
     int pending=md_fs_continuation_pending(s->child,&next,&result); s->child=next;
     if (pending) {
         md_fs_anchor_release(origin);
+        base->task_input=next->task_input;
         *out=result; *output->continuation=base;
     } else sequence_finish(fs,&base->request,&result,origin,out,output,s->next);
 }
@@ -116,6 +121,7 @@ void md_fs_then(struct md_filesystem *fs,const struct md_fs_request *q,
     if (error) { child->destroy(child); free(s); *out=(struct md_fs_result){.fd=-1,.error=error}; return; }
     s->base.ready=sequence_ready; s->base.resume=sequence_resume; s->base.destroy=sequence_destroy;
     s->child=child; s->next=next; s->native_plan=capture.native_open_plan;
+    s->base.task_input=child->task_input;
     *out=result; *output->continuation=&s->base;
 }
 void md_fs_view_then(struct md_filesystem *fs,const struct md_fs_request *q,

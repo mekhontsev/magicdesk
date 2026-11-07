@@ -46,8 +46,11 @@ int md_fs_buffer_channel_observed(struct md_fs_buffer_request *);
  * always consumes the owned descriptor, including after cancellation. */
 int md_fs_buffer_capture_pending(const struct md_fs_buffer_request *);
 int md_fs_buffer_capture_start(struct md_fs_buffer_request *);
-int md_fs_buffer_capture_target(const struct md_fs_buffer_request *, struct md_fs_task_capture *);
-int md_fs_buffer_capture_finish(struct md_fs_buffer_request *, int descriptor, int error);
+struct md_fs_task_subject;
+int md_fs_buffer_capture_target(const struct md_fs_buffer_request *, struct md_fs_task_capture *,int *metadata,size_t *directory_limit,
+    struct md_fs_task_subject *);
+/* Takes descriptor and optional directory snapshot ownership on every return. */
+int md_fs_buffer_capture_finish(struct md_fs_buffer_request *, int descriptor, int error,const struct stat *,void *directory,size_t);
 struct md_task_wait;
 struct md_fs_buffer_service *md_fs_buffer_service_new(struct md_fs_worker *, struct md_task_registry *,
         struct md_resource_wakeup *, struct md_task_wait *, void (*complete)(struct md_fs_buffer_request *, pid_t, int));

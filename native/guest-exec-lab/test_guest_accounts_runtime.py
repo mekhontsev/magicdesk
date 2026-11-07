@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
-"""Stock Debian account tools and package configuration, with actual UID 2000."""
+"""Stock Debian account tools under the selected Android executor."""
 import argparse
-import importlib.util
-import json
 from pathlib import Path
-import shlex
-import tomllib
-import uuid
+from fixture_executor import FixtureExecutor
+from test_oci_services import Suite
 
 
 def main():
@@ -14,41 +11,20 @@ def main():
     parser.add_argument('build', type=Path)
     parser.add_argument('store', help='Disposable prepared Debian store with passwd and D-Bus packages')
     parser.add_argument('--installed', action='store_true')
+    FixtureExecutor.add_argument(parser)
     args = parser.parse_args()
-    repo = Path(__file__).resolve().parents[2]
-    spec = importlib.util.spec_from_file_location('transport', repo / 'scripts/mcp-client.py')
-    transport = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(transport)
-    config = tomllib.loads((Path.home() / '.codex/config.toml').read_text())['mcp_servers']['magicdesk']
-    client = transport.Client(config['url'], config['http_headers']['Authorization'].removeprefix('Bearer '))
-    state = client.call('get_state')
-    assert state['shell']['uid'] == 2000
-    tag = uuid.uuid4().hex
-    base = '/data/local/tmp/md-accounts-' + tag
-    name = 'mdacct' + tag[:8]
-    console = client.call('console.open', {'directory': '/data/local/tmp'})['sessionId']
-    report = {'id': tag, 'directory': base, 'store': args.store, 'app': state['app'],
-              'device': state['device'], 'installed': args.installed, 'checks': [], 'passed': False}
-
-    def command(argv, expected=0):
-        text = shlex.join(map(str, argv))
-        result = client.call('console.execute', {'sessionId': console, 'command': text})
-        report['checks'].append({'command': text, **result})
-        print(result['output'], end='', flush=True)
-        assert result['exitCode'] == expected, result
-        return result['output']
+    suite = Suite(args.build, None if args.installed else args.build, executor=args.executor)
+    base, report, command = suite.base, suite.report, suite.command
+    name = 'mdacct' + report['id'][:8]
+    report.update(store=args.store, installed=args.installed)
 
     try:
-        command(['mkdir', base, base + '/fixtures'])
-        for target in ('bootstrap', 'supervisor', 'run', 'guest_interfaces'):
-            if args.installed and target != 'guest_interfaces':
-                continue
-            filename = 'libmagicdesk_guest_' + target + '.so'
-            destination = base + ('/fixtures/' if target == 'guest_interfaces' else '/') + filename
-            transport.upload(client, args.build / filename, destination)
-            command(['chmod', '700', destination])
-        runner = (command(['/system/bin/sh', '-c', 'command -v shroot']).strip()
-                  if args.installed else base + '/libmagicdesk_guest_run.so')
+        command(['mkdir', base + '/fixtures'])
+        filename = 'libmagicdesk_guest_guest_interfaces.so'
+        destination = base + '/fixtures/' + filename
+        suite.upload(args.build / filename, destination)
+        suite.chmod('700', destination)
+        runner = suite.runner
         root = [runner, '--store', args.store, '--user', '0:0', '--deadline-seconds', '60']
         command(root + ['--', '/bin/mkdir', '-p', '/fixture'])
         fixture = 'libmagicdesk_guest_guest_interfaces.so'
@@ -109,10 +85,10 @@ done
         report['failure'] = str(error)
         raise
     finally:
-        client.call('console.close', {'sessionId': console})
-        output = args.build / ('guest-accounts-' + tag + '.json')
-        output.write_text(json.dumps(report, indent=2) + '\n')
-        print('Report:', output, flush=True)
+        try:
+            command(['rm', '-rf', '--', base], quiet=True)
+        finally:
+            suite.finish()
 
 
 if __name__ == '__main__':

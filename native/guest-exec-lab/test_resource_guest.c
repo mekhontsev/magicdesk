@@ -771,7 +771,7 @@ static void native_cwd(int inherited) {
     }
     printf("PASS native cwd: inherited=%d, protected caller, zero free FD slots and unchanged file table\n",inherited);
 }
-struct capture_context { int guest, protected, stage, directory; };
+struct capture_context { int protected, stage, directory; };
 static int capture_terminal_child(void *context) {
     struct capture_context *c=context;
     if (c->protected) assert(!prctl(PR_SET_DUMPABLE,0));
@@ -789,19 +789,17 @@ static int capture_terminal_child(void *context) {
     assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
     char text[128];
     ssize_t result=readlink("/proc/thread-self/cwd",text,sizeof(text));
-    int error=errno;
-    if (c->guest && (c->stage!=3 || c->protected)
-            && !(result==-1 && error==(c->stage<2 ? EACCES : ECANCELED)))
-        fprintf(stderr,"capture terminal protected=%d stage=%d result=%zd errno=%d\n",
-            c->protected,c->stage,result,error);
-    /* Dumpable O_PATH capture no longer calls sendmsg. Protected callers
-     * still exercise the exact export-thread death and terminal cleanup. */
-    if (c->guest && (c->stage!=3 || c->protected))
-        assert(result==-1 && error==(c->stage<2 ? EACCES : ECANCELED));
-    else assert(result==4 && !memcmp(text,"/dev",4));
+    assert(result==4 && !memcmp(text,"/dev",4));
+    /* Unrelated guest denials must not constrain private implementation calls.
+     * Exercise the original denial after checking the allowed operation. */
+    long denied=c->stage==0 ? syscall(SYS_clone,CLONE_THREAD,0,0,0,0)
+        : c->stage==1 ? syscall(SYS_close_range,UINT_MAX,0,0)
+        : c->stage==2 ? syscall(SYS_openat,AT_FDCWD,NULL,O_RDONLY,0)
+        : syscall(SYS_sendmsg,-1,NULL,0);
+    assert(c->stage<2 && denied==-1 && errno==EACCES);
     return 0;
 }
-static void capture_terminal(int guest,int inherited) {
+static void capture_terminal(int inherited) {
     int directory=inherited ? fcntl(STDIN_FILENO,F_DUPFD_CLOEXEC,0)
         : open("/dev",O_PATH|O_DIRECTORY|O_CLOEXEC);
     assert(directory>=0);
@@ -813,15 +811,20 @@ static void capture_terminal(int guest,int inherited) {
     void *stack=malloc(1024*1024); assert(stack);
     for (int protected=0;protected<2;++protected) for (int stage=0;stage<4;++stage)
         for (unsigned repeat=0;repeat<4;++repeat) {
-            struct capture_context context={guest && inherited,protected,stage,directory};
+            struct capture_context context={protected,stage,directory};
             pid_t child=clone(capture_terminal_child,(char *)stack+1024*1024,SIGCHLD|CLONE_FILES,&context);
-            assert(child>0); reap(child);
+            assert(child>0);
+            int status;
+            /* EVENT_WAIT: exact filtered child; the fixture alarm bounds failure. */
+            assert(waitpid(child,&status,0)==child);
+            if (stage<2) assert(WIFEXITED(status) && !WEXITSTATUS(status));
+            else assert(WIFSIGNALED(status) && WTERMSIG(status)==SIGSYS);
             for (int i=0;i<64;++i) assert(fcntl(i,F_GETFD)>=0);
         }
     free(stack);
     for (int i=0;i<count;++i) assert(!close(held[i]));
     assert(!setrlimit(RLIMIT_NOFILE,&saved) && !close(directory));
-    puts("PASS capture terminal ownership: clone/clear/open failure, proc custody without sendmsg, protected export death and full-table survivors");
+    puts("PASS capture terminal ownership: allowed readlink, guest ERRNO/KILL filters and full-table survivors");
 }
 struct proc_context { int first, second; struct stat expected; char cwd[PATH_MAX]; };
 static void *proc_thread(void *argument) {
@@ -1057,6 +1060,14 @@ static unsigned export_fds(unsigned char *snapshot) {
     }
     return count;
 }
+static int capture_source(int fd) {
+    /* The host-only profile denies this slot; guest filters and dumpability
+     * remain independent, and bootstrap listener capture stays available. */
+    assert(fd>=0 && !getenv("MAGICDESK_TEST_CAPTURE_FALLBACK"));
+    if (fd!=STDIN_FILENO)
+        assert(dup3(fd,STDIN_FILENO,O_CLOEXEC)==STDIN_FILENO && !close(fd));
+    return STDIN_FILENO;
+}
 struct export_context { int directory, channel, mode; };
 static int export_child(void *argument) {
     struct export_context *c=argument;
@@ -1082,6 +1093,7 @@ static int export_child(void *argument) {
 }
 static void buffer_export(int guest) {
     int directory=open(".",O_RDONLY|O_DIRECTORY|O_CLOEXEC);
+    if (guest) directory=capture_source(directory);
     int alias=directory<0 ? -1 : dup(directory);
     int separate=open(".",O_RDONLY|O_DIRECTORY|O_CLOEXEC);
     assert(directory>=0 && alias>=0 && separate>=0);
@@ -1203,8 +1215,11 @@ static void retained_proc_filter(int proc) {
 static void metadata_export(int guest, int managed) {
     unsigned extra=guest && !managed;
     int file=open("metadata-export",O_RDWR|O_CREAT|O_CLOEXEC,0600);
+    if (file<0) perror("metadata export file");
     int proc=open("/proc",O_RDONLY|O_DIRECTORY|O_CLOEXEC);
+    if (proc<0) perror("metadata export proc");
     assert(file>=0 && proc>=0);
+    if (extra) file=capture_source(file);
     put(file);
     struct rlimit saved,limit;
     assert(!getrlimit(RLIMIT_NOFILE,&saved)); limit=saved; limit.rlim_cur=64;
@@ -1406,7 +1421,10 @@ static void buffer_descriptors(void) {
                 };
                 struct sock_fprog program={sizeof(filter)/sizeof(*filter),filter};
                 assert(!prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0));
-                assert(!syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program));
+                long installed=syscall(SYS_seccomp,SECCOMP_SET_MODE_FILTER,0,&program);
+                if (installed) fprintf(stderr,"buffer filter protected=%d slots=%d cloexec=%d result=%ld errno=%d\n",
+                    protected,slots,cloexec,installed,errno);
+                assert(!installed);
                 for (unsigned i=0;i<24;++i) {
                     const char *path=i%3==2 ? "/proc/self/exe" : i%3 ? "/proc/self/mounts" : "/proc/self/mountinfo";
                     fd=open(path,
@@ -2251,7 +2269,9 @@ int test_parallel_read_guest(const char *);
 int test_read_capture_guest(const char *);
 int test_kernel_profile_guest(void);
 int test_kernel_profile_child(void);
+#include "native_probe.h"
 int main(int argc, char **argv) {
+    md_test_native_probe(argc,argv);
     if (argc==2 && !strcmp(argv[1],"kernel-profile")) return test_kernel_profile_guest();
     if (argc==2 && !strcmp(argv[1],"kernel-profile-child")) return test_kernel_profile_child();
     if (argc==2 && (!strcmp(argv[1],"processor-state") || !strcmp(argv[1],"processor-state-exec"))) {
@@ -2346,8 +2366,7 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1],"proc-thread-capture")) { proc_thread_capture(); return 0; }
     if (!strcmp(argv[1],"capture-terminal") || !strcmp(argv[1],"capture-terminal-native")
             || !strcmp(argv[1],"capture-terminal-inherited") || !strcmp(argv[1],"capture-terminal-inherited-native")) {
-        int native=strstr(argv[1],"-native")!=NULL;
-        capture_terminal(!native,strstr(argv[1],"-inherited")!=NULL); return 0;
+        capture_terminal(strstr(argv[1],"-inherited")!=NULL); return 0;
     }
     if (!strcmp(argv[1],"buffer-open")) { buffer_open(); return 0; }
     if (!strcmp(argv[1],"path-invocation")) { path_invocation(); return 0; }

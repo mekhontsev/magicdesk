@@ -80,9 +80,9 @@ def main():
                                + (' ' + shlex.join(suite.entry_options) if suite.entry_options else '')
                                + (' --diagnostics' if args.diagnostics else '')
                                + ' --deadline-seconds ' + str(args.timeout) + ' "$@"\n')
-            suite.transport.upload(client, wrapper, suite.base + '/shroot')
-        suite.transport.upload(client, args.build / 'md-await-exit', suite.base + '/md-await-exit')
-        suite.command(['chmod', '700', suite.base + '/shroot', suite.base + '/md-await-exit'])
+            suite.upload(wrapper, suite.base + '/shroot')
+        suite.upload(args.build / 'md-await-exit', suite.base + '/md-await-exit')
+        suite.chmod('700', suite.base + '/shroot', suite.base + '/md-await-exit')
         display = client.call('create_display', dict(type='virtual', width=1280, height=800, densityDpi=160))
         display_lease = client.call('device.keep_awake',
             dict(displayId=display['id'], durationMillis=1800000))['leaseId']
@@ -181,7 +181,7 @@ fi
 ''', 'fixture', pidfile, owned_executable, suite.base + '/md-await-exit', receipt], timeout=210)
             if launch_attempted:
                 local_log = args.build / ('steamos-' + args.client + '-' + suite.report['id'] + '.log')
-                suite.transport.download(client, log, local_log, overwrite=True)
+                suite.download(log, local_log, overwrite=True)
                 suite.report['logFile'] = str(local_log)
                 suite.report['logTail'] = '\n'.join(local_log.read_text(errors='replace').splitlines()[-200:])
                 suite.record_entry(local_log.read_text(errors='replace'))

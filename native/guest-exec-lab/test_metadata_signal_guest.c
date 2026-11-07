@@ -21,6 +21,7 @@
 
 static volatile sig_atomic_t caught;
 static atomic_int done;
+static atomic_uint requested, completed;
 static pthread_t reader;
 extern char metadata_kernel_return[];
 __attribute__((noinline)) static long metadata_kernel(long number,const unsigned long *args) {
@@ -34,9 +35,19 @@ __attribute__((noinline)) static long metadata_kernel(long number,const unsigned
 static void signal_handler(int signal) { assert(signal==SIGUSR1); ++caught; }
 static void *sender(void *unused) {
     (void)unused;
+    unsigned previous=0;
     while (!atomic_load(&done)) {
-        assert(!pthread_kill(reader,SIGUSR1));
-        sched_yield();
+        unsigned current=atomic_load(&requested);
+        if (current==previous) { sched_yield(); continue; }
+        /* Finite bursts exercise every operation without requiring progress
+         * against an unbounded producer faster than signal delivery. Standard
+         * signals coalesce, so the reader verifies delivery, not send counts. */
+        for (unsigned i=0;i<32;++i) {
+            assert(!pthread_kill(reader,SIGUSR1));
+            sched_yield();
+        }
+        previous=current;
+        atomic_store(&completed,current);
     }
     return NULL;
 }
@@ -97,13 +108,14 @@ static void reads(int file,int directory,int filtered,int protected,int restart)
         assert(syscall(SYS_fgetxattr,file,attribute,value,sizeof(value))==-1 && errno==EACCES);
     }
     if (protected) assert(!prctl(PR_SET_DUMPABLE,0));
-    caught=0; atomic_store(&done,0); reader=pthread_self();
+    caught=0; atomic_store(&done,0);
+    atomic_store(&requested,0); atomic_store(&completed,0); reader=pthread_self();
     pthread_t peer; assert(!pthread_create(&peer,NULL,sender,NULL));
-    /* EVENT_WAIT: keep exercising reads until the sender has actually run.
-     * The fixture alarm bounds starvation; native reads can finish 32 rounds
-     * before a newly created sender is scheduled. */
-    for (unsigned round=0;round<32 || !caught;++round) for (unsigned i=0;i<sizeof(calls)/sizeof(*calls);++i) {
+    unsigned bursts=0;
+    for (unsigned round=0;round<32;++round) for (unsigned i=0;i<sizeof(calls)/sizeof(*calls);++i) {
         memset(value,0xa5,sizeof(value));
+        sig_atomic_t before=caught;
+        atomic_store(&requested,++bursts);
         unsigned long *a=calls[i].args;
         long result=metadata_kernel(calls[i].nr,a);
         if (result<0) { errno=(int)-result; result=-1; }
@@ -118,12 +130,15 @@ static void reads(int file,int directory,int filtered,int protected,int restart)
         else if (i>=8 && i<=10) assert(!memcmp(value,"value",5));
         else if (i>=11) assert(memmem(value,result,attribute,strlen(attribute)+1));
         if (filtered) assert(syscall(SYS_faccessat2,directory,name,X_OK,0)==-1 && errno==ENOMSG);
+        /* EVENT_WAIT: this operation's producer and at least one handler must
+         * complete before the next burst; the existing alarm bounds a failure. */
+        while (atomic_load(&completed)!=bursts || caught==before) sched_yield();
     }
     atomic_store(&done,1);
     /* EVENT_WAIT: sender observes completion and joins; fixture alarm bounds failure. */
     assert(!pthread_join(peer,NULL) && caught);
-    printf("PASS metadata under signals: 14 families, filtered=%d protected=%d restart=%d signals=%d\n",
-        filtered,protected,restart,(int)caught);
+    printf("PASS metadata under signals: 14 families, filtered=%d protected=%d restart=%d signals=%d bursts=%u\n",
+        filtered,protected,restart,(int)caught,bursts);
 }
 int test_metadata_signal_guest(int mode) {
     assert(mode>=0 && mode<8);

@@ -624,9 +624,10 @@ blocking IO, concurrent table mutation, cancellation, retained message prefixes
 and pipe EOF without timing-based synchronization. Receive lifecycle checks block
 MSG_WAITALL on a bounded stream, replace the original socket slot, check unrelated
 pipe EOF, complete or cancel the caller, and require an unchanged surviving FD set.
-The opt-in `--custody` fixture compares native and guest ordinary/protected callers
-with fatal fstat and post-receive export filters, including recvmmsg. Payload
-delivery proves the export-kill case passed native receive before cancellation.
+The shared custody matrix compares native and guest ordinary/protected callers
+with fatal fstat/sendmsg filters, including recvmmsg. Each permitted application
+call must succeed despite restrictions on unrelated internal export operations;
+the received CLOEXEC descriptor is closed and the shared table remains unchanged.
 Channel tests cover 1/253-FD capture, cancelled queues and a partially published
 prefix retained after terminal cancellation. Allocation-denied collector checks
 cover empty/completed prefixes, multiple controls, vector splits and 1024-message

@@ -316,13 +316,13 @@ def main():
         runner += ['--diagnostics']
     created = False
     try:
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/probe.py')
-        suite.transport.upload(suite.client, Path(__file__).with_name('docker_network_fixture.py'),
+        suite.upload(Path(__file__), suite.base + '/probe.py')
+        suite.upload(Path(__file__).with_name('docker_network_fixture.py'),
                                suite.base + '/docker_network_fixture.py')
         if args.capture_nft:
-            suite.transport.upload(suite.client, Path(__file__).with_name('fixtures') / 'nft-capture.py',
+            suite.upload(Path(__file__).with_name('fixtures') / 'nft-capture.py',
                                    suite.base + '/nft')
-            suite.command(['chmod', '755', suite.base + '/nft'])
+            suite.chmod('755', suite.base + '/nft')
         suite.command(runner + ['--', '/bin/mkdir', target]); created = True
         options = {'directory': '/tmp/md-podman-' + suite.report['id'],
                    # Podman 4 limits runroot (including "-run") to 50 bytes.
@@ -346,7 +346,7 @@ def main():
             suite.command(['/system/bin/sh', '-c', shlex.join(command) + ' >' +
                            shlex.quote(remote_log) + ' 2>&1'], timeout=deadline+20)
         finally:
-            suite.transport.download(suite.client, remote_log, local_log, overwrite=True)
+            suite.download(remote_log, local_log, overwrite=True)
             output = local_log.read_text(errors='replace')
             suite.record_entry(output)
             suite.kernel_profile.observe(output, required=True)

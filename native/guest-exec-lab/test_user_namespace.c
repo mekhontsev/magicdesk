@@ -9,6 +9,8 @@
 #include "ipc_permissions.h"
 #include "fd_messages.h"
 #include "fd_filter.h"
+#include "task_registry.h"
+#include "task_resources.h"
 #include <assert.h>
 #include <dirent.h>
 #include <errno.h>
@@ -17,9 +19,11 @@
 #include <limits.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/eventfd.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -409,7 +413,80 @@ static void proc_files(void) {
     md_proc_file_release(groups); md_user_namespace_release(child);
     md_identity_release(&stripped); md_identity_release(&parent);
 }
+static void process_backing(void) {
+    unsigned before=descriptors();
+    struct md_identity id=md_identity_new(1234,1235);
+    struct md_task_registry *tasks=md_task_registry_create(); assert(tasks);
+    struct md_task_resources resources={0};
+    assert(!md_task_registry_publish(tasks,getpid(),getpid(),&id,&resources));
+    const enum md_proc_file_kind kinds[]={MD_PROC_FILE_STATUS,MD_PROC_FILE_STAT,MD_PROC_FILE_LIMITS};
+    for (unsigned i=0;i<sizeof(kinds)/sizeof(*kinds);++i) {
+        char path[64]; snprintf(path,sizeof(path),"/proc/self/%s",md_proc_file_process_name(kinds[i]));
+        int fd=open(path,O_RDONLY|O_CLOEXEC); assert(fd>=0);
+        int dumpable=prctl(PR_GET_DUMPABLE); assert(dumpable>=0);
+        assert(!prctl(PR_SET_DUMPABLE,0));
+        struct stat direct,captured,native;
+        assert(!fstat(fd,&native));
+        struct md_proc_file_node a,b;
+        assert(!md_proc_file_task_stat(getpid(),&id,NULL,kinds[i],&a,&direct));
+        assert(!md_proc_file_task_fd_stat(fd,getpid(),&id,NULL,kinds[i],&b,&captured));
+        assert(a.device==b.device && a.inode==b.inode && a.process==b.process);
+        assert(direct.st_ino==captured.st_ino && direct.st_mode==captured.st_mode
+            && direct.st_uid==captured.st_uid && direct.st_gid==captured.st_gid);
+        struct md_proc_file *file=md_proc_file_open(NULL,kinds[i],&id,O_RDONLY); assert(file);
+        md_proc_file_node(file,(struct md_proc_file_node){.inode=b.inode+1,.device=b.device,.process=b.process});
+        assert(md_proc_file_backing(file,fd,&native,0)==-ESTALE);
+        md_proc_file_node(file,b);
+        assert(!md_proc_file_backing(file,fd,&native,0));
+        assert(md_proc_file_backing(file,fd,&native,0)==-EINVAL);
+        assert(lseek(fd,3,SEEK_SET)==3);
+        char text[16384];
+        long size=md_proc_file_read_at(file,NULL,NULL,text,sizeof(text),0); assert(size>0);
+        assert(lseek(fd,0,SEEK_CUR)==3);
+        close(fd);
+        assert(!prctl(PR_SET_DUMPABLE,1));
+        assert(!md_proc_file_retained_stat(file,tasks,0,&captured) && captured.st_ino==direct.st_ino);
+        assert(captured.st_uid==1234 && captured.st_gid==1235);
+        assert(!prctl(PR_SET_DUMPABLE,dumpable));
+        char prefix[17];
+        assert(md_proc_file_read_at(file,NULL,NULL,prefix,sizeof(prefix),1)==sizeof(prefix));
+        assert(!memcmp(prefix,text+1,sizeof(prefix)));
+        md_proc_file_release(file);
+    }
+    md_task_registry_destroy(tasks);
+    md_identity_release(&id);
+    assert(descriptors()==before);
+}
+static void process_directory_backing(void) {
+    unsigned before=descriptors();
+    struct md_identity id=md_identity_new(0,0);
+    for (unsigned path_only=0;path_only<2;++path_only) {
+        int flags=O_DIRECTORY|(path_only ? O_PATH : O_RDONLY);
+        int fd=open("/proc/self",flags|O_CLOEXEC); assert(fd>=0);
+        struct stat native,metadata; assert(!fstat(fd,&native)); metadata=native;
+        struct md_proc_file_node node;
+        md_proc_file_task_metadata(INT_MAX,&id,NULL,MD_PROC_FILE_PROCESS_DIRECTORY,&node,&metadata);
+        struct md_proc_file *file=md_proc_file_open(NULL,MD_PROC_FILE_PROCESS_DIRECTORY,&id,flags); assert(file);
+        md_proc_file_node(file,node);
+        assert(!md_proc_file_backing(file,fd,&native,1)); close(fd);
+        int published=md_proc_file_descriptor(file); assert(published>=0);
+        struct stat observed; assert(!fstat(published,&observed));
+        assert(observed.st_ino==native.st_ino && observed.st_dev==native.st_dev);
+        assert((fcntl(published,F_GETFL)&(O_PATH|O_ACCMODE))==(flags&(O_PATH|O_ACCMODE)));
+        assert(fcntl(published,F_GETFD)&FD_CLOEXEC);
+        int child=openat(published,"stat",O_RDONLY|O_CLOEXEC); assert(child>=0); close(child);
+        close(published);
+        struct md_control_opener opener={.identity=&id};
+        struct md_proc_file *copy=md_proc_file_reopen(file,&opener,flags); assert(copy);
+        md_proc_file_release(file);
+        published=md_proc_file_descriptor(copy); assert(published>=0); close(published);
+        md_proc_file_release(copy);
+    }
+    md_identity_release(&id);
+    assert(descriptors()==before);
+}
 void test_user_namespace(void) {
+    process_directory_backing();
     namespace_limits();
     resource_limits();
     credential_snapshot();
@@ -418,6 +495,7 @@ void test_user_namespace(void) {
     ordered_io();
     descriptor_lifetime();
     proc_files();
+    process_backing();
     const uint64_t caps=(UINT64_C(1)<<CAP_SETUID)|(UINT64_C(1)<<CAP_SETGID)|(UINT64_C(1)<<CAP_SETFCAP)
         |(UINT64_C(1)<<CAP_SYS_ADMIN);
     struct md_user_namespace *n=md_user_namespace_new(NULL,2000,2000,0); assert(n);

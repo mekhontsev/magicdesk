@@ -24,19 +24,20 @@ struct descriptor_inode {
     pthread_mutex_t lock;
     struct state local;
     struct shared *shared;
-    int fd;
+    int fd,pin;
 };
 static void destroy(struct md_fd_object *object) {
     struct descriptor_inode *node=(void *)object;
     if (node->shared) munmap(node->shared,sizeof(*node->shared));
     if (node->fd>=0) close(node->fd);
+    if (node->pin>=0) close(node->pin);
     pthread_mutex_destroy(&node->lock); free(node);
 }
 static const struct md_fd_object_type type={.destroy=destroy};
 int md_descriptor_inode_is(const struct md_fd_object *object) { return object && object->type==&type; }
 static struct descriptor_inode *allocate(void) {
     struct descriptor_inode *node=calloc(1,sizeof(*node)); if (!node) return NULL;
-    node->fd=-1;
+    node->fd=node->pin=-1;
     int error=pthread_mutex_init(&node->lock,NULL);
     if (error) { free(node); errno=error; return NULL; }
     md_fd_object_init(&node->object,&type); return node;
@@ -46,6 +47,17 @@ struct md_fd_object *md_descriptor_inode_new(const struct md_identity *id, mode_
     struct descriptor_inode *node=allocate(); if (!node) return NULL;
     node->local=(struct state){.uid=id->uid.fs,.gid=id->gid.fs,.mode=mode};
     return &node->object;
+}
+struct md_fd_object *md_descriptor_inode_inherit(const struct md_identity *id,int pin,mode_t mode) {
+    int copy=fcntl(pin,F_DUPFD_CLOEXEC,3);
+    if (copy<0) return NULL;
+    struct md_fd_object *object=md_descriptor_inode_new(id,mode);
+    if (!object) { int error=errno; close(copy); errno=error; return NULL; }
+    ((struct descriptor_inode *)object)->pin=copy;
+    return object;
+}
+int md_descriptor_inode_pin(const struct md_fd_object *object) {
+    return md_descriptor_inode_is(object) ? ((const struct descriptor_inode *)object)->pin : -1;
 }
 static int begin(struct descriptor_inode *node, struct state *value) {
     int error=pthread_mutex_lock(&node->lock); if (error) return -error;

@@ -10,19 +10,11 @@ retains full output.
 import argparse
 import hashlib
 from pathlib import Path
-import shlex
-import time
 from test_oci_services import Suite
 
 
 def observe(suite, argv, timeout=60):
-    command = shlex.join(['timeout', '-k', '15', str(timeout), *argv])
-    suite.client.request_timeout = timeout + 30
-    result = suite.client.call('console.execute', {'sessionId': suite.console, 'command': command},
-                               deadline=time.monotonic() + timeout + 30)
-    suite.report['commands'].append({'command': command, **result})
-    print(result['output'], end='', flush=True)
-    return result
+    return suite.observe(argv, timeout=timeout)
 
 
 def main():
@@ -55,10 +47,10 @@ def main():
         with source.open('rb') as stream:
             digest = hashlib.file_digest(stream, 'sha256').hexdigest()
         native_fixture = suite.base + '/landlock-contract'
-        suite.transport.upload(suite.client, source, native_fixture)
+        suite.upload(source, native_fixture)
         assert suite.command(['sha256sum', native_fixture], quiet=True).split()[0] == digest
         suite.report['fixtureSha256'] = digest
-        suite.command(['chmod', '755', native_fixture])
+        suite.chmod('755', native_fixture)
         suite.report['nativeLandlockProbe'] = observe(suite, [native_fixture, '--probe'])
         suite.command(base + ['/bin/mkdir', guest_dir])
         guest_created = True

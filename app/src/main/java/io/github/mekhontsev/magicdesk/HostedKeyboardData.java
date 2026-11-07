@@ -30,8 +30,9 @@ final class HostedKeyboardData {
         boolean ready = false;
         try {
             if (!selection.guestStore().isEmpty()) {
-                commands = new ShellCommandSession("/data/local/tmp");
-                exported = "/data/local/tmp/md-xkb-" + java.util.UUID.randomUUID();
+                var paths = RuntimeDataPaths.privileged(ShellAccess.currentSnapshot().uid);
+                commands = new ShellCommandSession(paths.root().toString());
+                exported = paths.temporary().resolve("xkb-" + java.util.UUID.randomUUID()).toString();
                 String command = GuestEnvironmentCatalog.command("image", "export-tree", selection.guestStore(),
                         selection.directory(), exported);
                 var result = commands.execute(command);

@@ -17,12 +17,12 @@ def main():
     assert hashlib.sha256(args.archive.read_bytes()).hexdigest() == expected, 'requires official Go 1.27.2 linux-arm64'
     suite = Suite(Path('build/svc-go-build'))
     try:
-        suite.transport.upload(suite.client, args.archive, suite.base + '/go.tar.gz')
-        suite.transport.upload(suite.client, args.source, suite.base + '/probe.go')
+        suite.upload(args.archive, suite.base + '/go.tar.gz')
+        suite.upload(args.source, suite.base + '/probe.go')
         suite.command(['tar', '-xzf', suite.base + '/go.tar.gz', '-C', suite.base], quiet=True)
         suite.command(['mkdir', suite.base + '/tmp', suite.base + '/cache'])
         if args.cgo_environment:
-            suite.transport.upload(suite.client, Path(__file__).with_name('test_svc_cgo.go'), suite.base + '/cgo.go')
+            suite.upload(Path(__file__).with_name('test_svc_cgo.go'), suite.base + '/cgo.go')
             suite.command(['shroot', 'exec', args.cgo_environment, '--user', 'root',
                            '--bind', suite.base, '/tmp', '--', '/usr/bin/env',
                            'CGO_ENABLED=1', 'GOTOOLCHAIN=local', 'GOENV=off', 'CC=/usr/bin/cc',
@@ -35,7 +35,7 @@ def main():
                        'GOTMPDIR=' + suite.base + '/tmp', 'CC=/system/bin/true', 'CXX=/system/bin/true',
                        suite.base + '/go/bin/go', 'build', '-p', '4', '-o', suite.base + '/probe',
                        suite.base + '/probe.go'], timeout=240)
-        suite.transport.download(suite.client, suite.base + '/probe', args.output, overwrite=True)
+        suite.download(suite.base + '/probe', args.output, overwrite=True)
         suite.command(['rm', '-rf', suite.base])
         suite.report['passed'] = True
     finally:

@@ -23,7 +23,7 @@ def main():
     suite.report['installerSha256'] = hashlib.sha256(installer.read_bytes()).hexdigest()
     suite.report['environment'] = args.name
     try:
-        suite.transport.upload(suite.client, installer, suite.base + '/install_linux.sh')
+        suite.upload(installer, suite.base + '/install_linux.sh')
         options = ['--distro', 'steamos', '--name', args.name, '--downloads', args.downloads,
                    '--gui', args.gui, '--gpu', args.gpu, '--fonts', 'keep', '--yes']
         if args.resume:

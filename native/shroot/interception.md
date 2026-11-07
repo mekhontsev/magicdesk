@@ -68,9 +68,8 @@ releases the leases; nonleader exec transfers them to the resulting task identit
 Program publication also prepares logical exec credentials from that same retained
 image. The final entry checkpoint registers actual mappings from those retained
 backings, commits credentials, updates both live and proc-snapshot auxv, and
-enters the loader. Secure entry first
-returns to the bootstrap to lower native dumpability, then completes at the same
-checkpoint. Ordinary entry needs no separate image-admission or entry notification;
+enters the loader. Secure entry publishes logical dumpability at the same
+checkpoint. Neither entry needs a separate image-admission or entry notification;
 atomic descriptor publication, noexec, set-ID and application-filter checks remain.
 Queued cancellation and task death also retire in-progress worker resources,
 without leaving temporary image FDs in a surviving CLONE_FILES peer.
@@ -115,6 +114,9 @@ readers from ordinary descriptors sharing a class. Selected reads retain their
 original signal context while the worker waits for records; protected readers
 use task-affine copying and a native readiness wait. Filter installation ownership is separate from
 address-space and descriptor ownership; see [filesystem watches](watches.md).
+Preflight releases its memory turn before replaying the application syscall.
+Signals may run at that boundary, including handlers that install another
+filter; the next entry reacquires ownership and captures the current arguments.
 With the all-FD selector active, ordinary regular-file read/write and vectored
 or positional IO can resume directly from `PTRACE_GET_SYSCALL_INFO`. The syscall
 number and arguments come from the kernel, not the filter cookie. Admission
@@ -179,8 +181,8 @@ mapping's own temporary FD inside that mapping's barrier. A competing `mprotect`
 exit is retained by the active owner, including one from an unrelated address
 space, and replayed with its original status and accounting after release.
 This defers that repair, not all work in the unrelated process. Ordinary events
-remain runnable. Dumpability revocation retains a cold stopped-task barrier
-while recovering resident contexts. Seccomp installation instead revokes entry
+remain runnable. Logical dumpability changes require no stopped-task barrier.
+Seccomp installation revokes entry
 and drains occupied private frames without interrupting native waits. New public
 adapter admissions wait until the installing task completes its kernel call;
 already started adapters continue to completion. This applies to Base as well
@@ -209,7 +211,8 @@ admission: a shared kernel interrupt must publish the debugger's pending stop
 before resuming guest execution. Untraced releases retain direct continuation.
 When a native task call borrows such a stop, the checkpoint owner suspends its
 decoder until the exact boundary has been restored. SYSEMU entries retain their
-kernel skip state: injection drains that skipped exit before executing the
+kernel skip state independently of register edits and stop-decoder ownership,
+including explicit caller-requested SYSEMU. Injection drains that skipped exit before executing the
 borrowed call, then reconstructs an emulated entry without replaying guest IO.
 Ordinary data IO retains its native path.
 Deferred events retain their captured accounting across debugger attachment
@@ -448,10 +451,13 @@ context until worker completion, independently of task lifetime.
 Mapped directory reads prepare records without advancing their OFD. The same
 acknowledgement commits its next cookie or leaves its old position unchanged.
 `ofd_order` retains only active descriptions, matching aliases with native
-self-kcmp; a denied comparison is an explicit error, never a guessed identity.
+`F_DUPFD_QUERY`, or self-kcmp when no inherited seccomp filter can terminate the
+owner. Without safe exact comparison, it conservatively orders active operations
+on the same native inode. This is ordering, not fabricated descriptor identity:
+each operation retains its own captured FD and cursor.
 Broker, mapped and RPC directory read/seek operations share those turns. Ordinary
 synchronous reads allocate no entry when no asynchronous read is active.
-Independent opens remain independent even for the same inode. Queued operations
+With exact comparison, independent opens also retain separate queues. Queued operations
 retain their captured FD, not its possibly reused guest number. Cancellation
 before offering leaves the cursor untouched; after offering it commits the
 possibly copied batch. The worker holds no SQLite or file-table lock over user
@@ -485,6 +491,14 @@ uses the captured object, not a second lookup of the guest FD number.
 Metadata/readlink/suffix operations borrow the same original input. Foreign
 executable readlink uses the shared response mapping and existing process-access
 checks, without a guest-side file or read syscall.
+Authorized inspection of protected `/proc` tasks captures the native descriptor
+and metadata in the target's context when external observation is denied.
+Directory results retain that descriptor for relative opens; immutable path
+identity does not substitute for provider-owned permissions or live attributes.
+A provider-owned pending operation may lend its parked task to this capture.
+The task-call owner restores the original wait; entry, interruption and signal
+return transitions cannot be borrowed. This lets a FIFO opener be inspected
+before its peer opens the other end, without cancelling the FIFO operation.
 Mknod of regular files/FIFOs also keeps construction descriptors on the worker.
 Task-affine chdir/truncate lease a worker-owned target; the caller executes the
 final syscall without installing that descriptor. Kernel filesystem state and
@@ -708,6 +722,11 @@ return retain their register/extension ABI. Application filters are not removed:
 ERRNO, TRAP and KILL retain kernel precedence over runtime TRACE/USER_NOTIF.
 Register changes and same-site replay are rechecked by the kernel. Cancellation,
 group stops, concurrent TSYNC and non-leader exec have dedicated fixtures.
+Retained asynchronous signals cannot mask a pending synchronous exception. The
+shared delivery owner admits that exception first and waits for its native
+signal-frame commit before publishing a carrier. This preserves the original
+syscall/fault context in both execution identities; ordinary syscalls and
+deliveries without that conflict acquire no additional commit stop.
 
 ## Guest Kernel Interfaces
 
@@ -744,13 +763,15 @@ fork/exec and nested namespaces. They never enter Android's key service or claim
 successful keyring creation. Applications may choose their existing no-key-service
 path; applications requiring keys receive an explicit unavailable interface.
 Later application ERRNO and higher-priority TRAP/KILL policies remain effective.
-There is no syscall-specific supervisor work or persistent keyring allocation.
+If an inherited Android TRAP outranks that ERRNO, host-policy admission returns
+the same ENOSYS after evaluating guest policy. Executors without that trap keep
+the kernel-only path. No persistent keyring allocation is needed.
 
 ## Protected Metadata
 
 The supervisor first attempts kernel remote-memory/descriptor access. A
-nondumpable task can deny that access; the runtime never makes it dumpable to
-proceed. The task-affine fallback exports a retained descriptor through SCM_RIGHTS,
+host permission denial retains the task-affine fallback, which exports a
+retained descriptor through SCM_RIGHTS,
 uses notification ADDFD and resumes a bounded copy at the original call site.
 Instruction-only copy faults return EFAULT. Notification IDs are checked when
 replying; cancellation invalidates pending work rather than authorizing a replay.
@@ -781,7 +802,7 @@ on that admitted object. It does not chmod or replace the stored source.
 
 Initial launch and exec use the same admission contract. The supervisor tracks
 logical IDs, irreversible drops and no_new_privs, publishes auxv/AT_SECURE, and
-applies the corresponding nondumpable state before loader entry. Real kernel
+applies the corresponding logical dumpability before loader entry. Real kernel
 credentials remain those of the executor. Stored set-ID files need no explicit
 admission option. File-capability revisions 1-3 use the same owner and admission,
 including permitted/inheritable/bounding masks, effective and ambient transitions,
@@ -798,6 +819,31 @@ IDs and effective capabilities. Both honor scoped `CAP_SYS_PTRACE` and the
 target capability subset. Callers retain their namespace, restricted-root,
 dumpability and native-access checks; guest capabilities grant no Android
 process access.
+
+### Dumpability
+
+`process_access` owns guest dumpability for both app UID and UID 2000.
+`CLONE_VM` shares it; fork copies it; successful exec creates a new state.
+Ordinary exec restores 1, secure exec selects 0, and committed effective/filesystem
+ID changes or permitted-capability gains clear it. Invalid PR_SET_DUMPABLE values
+return EINVAL without changing state. Guest seccomp still admits both prctl calls.
+
+Native guest tasks remain dumpable so runtime memory access does not require
+protected-copy round trips. Logical inspection checks enforce guest dumpability
+alongside credentials for ptrace, process_vm, kcmp and proc views. Same-thread-group
+inspection and scoped CAP_SYS_PTRACE retain their existing exceptions. The
+voluntary `PTRACE_TRACEME` handshake checks parent/child capabilities separately;
+it does not require the child to be dumpable. The dumpability capability exception
+uses the address space's retained user namespace, not a namespace
+entered later by its credentials. Proc inode ownership uses the same state;
+public process directories retain their owner, while protected entries become
+owned by the address space namespace's root. Memory-view opens check inspection
+authority once; `stat`, `io`, `wchan`, `syscall` and `stack` use their existing
+typed read path for field suppression or read-time refusal. Ordinary file IO
+does not acquire another interception layer. This is
+guest ABI policy, not an Android process-isolation boundary or a core-dump service.
+The native component tests may still deliberately disable real dumpability to
+exercise host-denial fallbacks; guest tests exercise the virtual contract.
 
 `--user` and OCI User share `guest_accounts` resolution and `guest_identity` with
 image admission. Each task retains real/effective/saved/filesystem UID/GID and

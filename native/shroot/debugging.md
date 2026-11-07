@@ -16,9 +16,11 @@ it never attaches to Android processes or transfers the supervisor's authority
 to the debugger. Ordinary execution allocates no inferior or debugger-wait records.
 
 `PTRACE_TRACEME` selects the guest parent; `ATTACH` and `SEIZE` select an existing
-inferior in the same supervised launch. Requests validate launch membership,
-guest real/effective/saved UID and GID, the debugger's domain and the kernel's
-remote-memory permissions. A traced image cannot gain admitted set-ID credentials
+inferior in the same supervised launch. Attach admission validates launch membership,
+guest real/effective/saved UID and GID, logical dumpability and the debugger's domain.
+Voluntary `TRACEME` checks the parent's capability authority without requiring
+the child to be dumpable. Native memory access remains bounded by the kernel's
+permissions. A traced image cannot gain admitted set-ID credentials
 on exec. Register and memory access requires a stopped, owned inferior.
 An established relationship survives the inferior's UID/GID changes: register
 inspection, continuation and detach check the existing owner, not new-attach
@@ -76,9 +78,16 @@ An internal return checkpoint is not a guest syscall, even when the adapter
 phase itself is idle. Pending signal carriers wait for the native syscall-exit
 record; restored signal-delivery stops then pass through ordinary debugger
 admission before recipient-namespace translation. Their restored provenance
-also prevents another interrupted-syscall probe: on nondumpable tasks that
-probe itself needs a guest memory-read helper and must not defer the same
-signal indefinitely.
+also prevents another interrupted-syscall probe: a host-denied memory read
+can need a task-local helper and must not defer the same signal indefinitely.
+
+Under inherited host seccomp, a syscall-exit stop can precede the SIGSYS that
+admits its adapter. For an actively syscall-traced guest, the coordinator checks
+the pending signal's exact syscall/PC and original guest policy before deferring
+that exit. The same interception policy selects translation and completion;
+the debugger receives the final result once. Guest TRAP and unsupported native
+calls retain exit-before-signal ordering. Untraced calls and executors without
+host-SIGSYS translation do not scan the signal queue.
 
 ## Waits And Process Identity
 
@@ -148,8 +157,9 @@ The kernel TRACEEXIT option serves two independent owners: requested inferior
 events and runtime terminal descriptor publication. A task's first internal
 O_PATH capture enables the latter once for its lifetime; debugger detach cannot
 revoke it. Only requested events enter the guest debugger queue. Syscall stepping
-observes only explicit syscall-traced inferiors and active debugger owners
-(including their native waitid calls). Ordinary launches do not acquire debugger
+observes only explicit syscall-traced inferiors. Debugger owners' wait4/waitid
+calls use the shared seccomp selector after application policy; their other
+native syscalls do not require stepping. Ordinary launches do not acquire debugger
 per-syscall stepping, rusage snapshots, polling or wait records. Their internal
 terminal observation is described in [interception](interception.md).
 Aggregate `--statistics` counters can verify these boundaries.

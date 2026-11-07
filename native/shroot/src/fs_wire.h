@@ -47,6 +47,9 @@ long md_fs_receive_fds(int socket, void *, size_t, int *, unsigned capacity, uns
 /* Same bounded parser and ownership as receive; leaves the packet queued.
  * Only for a selected private transport, never arbitrary application FDs. */
 long md_fs_peek_fds(int socket, void *, size_t, int *, unsigned capacity, unsigned *count);
+/* Admission-time SCM_RIGHTS capability for the selected executor. Returns
+ * one when transferable, zero on host denial, or a negative setup error. */
+int md_fs_rights_transferable(const int *, unsigned count);
 long md_fs_receive_receipt(int socket, struct md_fd_receipt *, unsigned capacity,
         struct md_fs_rights *, uint64_t exchange);
 void md_fs_close_rights(struct md_fs_rights *);

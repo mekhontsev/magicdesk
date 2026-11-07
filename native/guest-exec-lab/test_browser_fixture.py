@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Failed GUI-fixture admission must leave prior browser evidence intact."""
 import fcntl
+import json
+import os
 from pathlib import Path
 import runpy
 import socket

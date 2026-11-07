@@ -639,15 +639,17 @@ static void close_filtered(int retirement_denied) {
     struct table_holder_context c={release[0],getpid()};
     pid_t peer=clone(table_holder,(char *)stack+65536,CLONE_FILES|SIGCHLD,&c); assert(peer>0);
     assert(!epoll_wait(ep,&out,1,0));
-    assert(!retirement_denied);
     assert(!sethostname("close-policy",12));
     assert(epoll_wait(ep,&out,1,0)==1 && out.data.u64==42);
     assert(loan_slot(ep,-1)<0);
     assert(close(ep)==-1 && errno==EPERM);
+    if (retirement_denied)
+        assert(syscall(SYS_close_range,ep,ep,0)==-1 && errno==EPERM);
+    assert(fcntl(ep,F_GETFD)==FD_CLOEXEC);
     byte_write(release[1]);
     int status; assert(waitpid(peer,&status,0)==peer && WIFEXITED(status) && !WEXITSTATUS(status));
     free(stack);
-    puts("PASS mixed epoll: denied close retains application policy; exact close_range retirement");
+    puts("PASS mixed epoll: denied application close retains its descriptor; owned loans retired");
 }
 
 static int filter_probe(void) {

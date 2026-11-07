@@ -52,14 +52,18 @@ static long output(struct md_poll_frame *f,const unsigned long *a,long *selected
 }
 long md_poll_call(long nr,const unsigned long *a,unsigned long prepared) {
     int select=nr==SYS_pselect6;
-    unsigned long count=select ? a[0] : a[1];
+    int suspend=nr==SYS_rt_sigsuspend;
+    unsigned long count=suspend ? 0 : select ? a[0] : a[1];
     if (count>INT_MAX) return -EINVAL;
     long result=0;
     long memory=prepared ? (long)prepared : md_guest_buffer_control(MD_BUFFER_TAKE,md_poll_bytes(count),0);
     if (memory<0) return memory;
     struct md_poll_frame *f=(void *)memory;
     memset(f,0,sizeof(*f)); f->select=select; f->total=count;
-    unsigned long timeout=select ? a[4] : a[2],mask=select ? 0 : a[3],size=select ? 0 : a[4];
+    unsigned long timeout=suspend ? 0 : select ? a[4] : a[2];
+    unsigned long mask=suspend ? a[0] : select ? 0 : a[3],size=suspend ? a[1] : select ? 0 : a[4];
+    if (suspend && size!=8) result=-EINVAL;
+    if (suspend && !mask) result=-EFAULT;
     if (select && a[5]) {
         struct { unsigned long mask,size; } sig;
         result=md_read_memory(&sig,(void *)a[5],sizeof(sig));

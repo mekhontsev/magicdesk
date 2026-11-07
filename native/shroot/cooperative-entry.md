@@ -198,6 +198,11 @@ including a signal interrupting metadata notification cancellation. Ordered
 replay preserves original siginfo ahead of later kernel arrivals; a queue
 handoff during non-leader exec retains its carrier identity.
 
+Handler entry retains its packet until the veneer acknowledges the kernel-built
+frame. Failed frame construction cancels that packet, preserves the pre-handler
+mask and retains the kernel's SIGSEGV and one-shot disposition semantics. It does
+not fail the supervisor or another guest process.
+
 At an unfiltered seccomp-entry stop, a known native fallback transfers the
 still-unexecuted call to the ordinary syscall owner without rewriting the PC.
 The resident alias executes the native SVC and branches to the original
@@ -212,7 +217,7 @@ restart versus EINTR. `svc_machine` queues
 PTRACE_INTERRUPT at the real signal
 stop; the resulting stop precedes handler execution and owns translation of
 the saved signal-frame PC (or the live PC for ignored/suppressed signals).
-Filter/dumpability fences wait for that boundary instead of translating early.
+Filter fences wait for that boundary instead of translating early.
 Only this interrupted-alias case adds a stop. Metadata notification cancellation
 uses the same read-only replay owner for original SVCs and native aliases.
 A restored delivery is not requeued merely because other signals remain pending.
@@ -634,8 +639,8 @@ address space resumes, its inherited peer frame claims are cleared; CLONE_VM
 peers retain their live shared frames. Ordinary adapter operations
 are drained separately. A readiness wait already admitted by the kernel retains
 its completion owner across TSYNC; filter installation does not wait for the
-application event that may itself depend on the installer. This exception does
-not apply to a loss of remote-memory access through dumpability. At a terminal task stop, the same context decoder
+application event that may itself depend on the installer. Logical dumpability
+does not revoke runtime memory access. At a terminal task stop, the same context decoder
 releases that task's frame without touching live peers. New public admissions
 remain held through filter
 commit or failure. Native sleeping threads are not interrupted. Later requests
@@ -654,9 +659,13 @@ restrictions also select the existing kernel-admitted route.
 Thus the entry contract works in sandboxed programs, but **their filtered calls
 still cross kernel seccomp at the caller-supplied SVC**. Already-queued calls can
 share a bounded worker operation window, but they do not acquire the direct-entry
-speedup. The runtime does not emulate arbitrary BPF, alter filters, or
-exempt helpers from them. Concurrent filter installation still affects any
-kernel helper calls already in flight. A client-writable flag is an optimization,
+speedup. The shared seccomp owner retains each original classic-BPF policy and
+its native validation. Owned service gates are routed separately so that
+implementation syscalls do not acquire a second application admission. Original
+guest calls retain their policy and denial actions; inherited Android filters
+still constrain native execution. TSYNC preserves the admission snapshot of
+already accepted work. See [policy ownership](README.md#guest-policy)
+for the shared dispatch and notification contract. A client-writable flag is an optimization,
 not authority or a security boundary; shared memory is cooperative transport for
 trusted guest code, not authentication against hostile writers in an inherited
 mapping. Shroot's documented isolation limits remain in force.

@@ -2,6 +2,19 @@
 #define MD_FS_CONTINUATION_H
 #include "fs_operation.h"
 struct md_filesystem;
+/* Provider-only identity, never accepted from adapter/wire operands. */
+struct md_fs_task_subject { pid_t task; uint64_t generation; };
+/* Transport-owned execution, provider-owned storage. Only a suspended stage
+ * may request a native descriptor; completion transfers it exactly once. */
+struct md_fs_task_input {
+    struct md_fs_task_capture request;
+    struct md_fs_task_subject subject;
+    int descriptor, error, completed;
+    struct stat metadata;
+    size_t directory_limit;
+    void *directory;
+    size_t directory_size;
+};
 /* Allocated only by asynchronous providers. Admission owns all operands before
  * the original call returns. No store lock, worker identity or borrowed output
  * pointer survives suspension. resume advances a saved stage, never replays a
@@ -9,6 +22,7 @@ struct md_filesystem;
 struct md_fs_continuation {
     struct md_fs_request request;
     void *arguments;
+    struct md_fs_task_input *task_input;
     int (*ready)(struct md_fs_continuation *);
     void (*resume)(struct md_fs_continuation *,struct md_filesystem *,
         struct md_fs_result *,const struct md_fs_output *);

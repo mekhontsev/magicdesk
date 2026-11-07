@@ -160,6 +160,8 @@ static void forbid_rpc(void) {
 int main(int argc,char **argv) {
     assert(argc==2); alarm(45); setbuf(stdout,NULL);
     if (!strcmp(argv[1],"exec")) { inside(); puts("PASS root survives exec"); return 0; }
+    /* The credential-drop case reads the explicitly world-readable fixture. */
+    umask(0022);
     assert(!chdir("/")); assert(!chmod("/",0755));
     if (!strcmp(argv[1],"attached")) assert(!chmod("/jail",0755));
     else assert(!mkdir("/jail",0755));

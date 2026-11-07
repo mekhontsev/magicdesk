@@ -290,7 +290,7 @@ def main():
     target = '/tmp/md-dhcp-' + suite.report['id']
     environment = ['--env', 'PATH=' + args.path] if args.path else []
     try:
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/test.py')
+        suite.upload(Path(__file__), suite.base + '/test.py')
         suite.command(suite.guest(args.store, '--user', '0:0', *environment,
                                  '--', '/bin/sh', '-ec', 'mkdir "$1"', 'dhcp', target))
         for entry in (0, 1):

@@ -71,10 +71,10 @@ def main():
         for source, target in files:
             with source.open('rb') as stream:
                 digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-            suite.transport.upload(suite.client, source, target)
+            suite.upload(source, target)
             assert suite.command(['sha256sum', target], quiet=True).split()[0] == digest
             suite.report['libcFixtureHashes'][str(source)] = digest
-            suite.command(['chmod', '700', target])
+            suite.chmod('700', target)
         for kind in ('static', 'dynamic'):
             command = [root + '/bin/' + kind, native, 'abi']
             if kind == 'dynamic':

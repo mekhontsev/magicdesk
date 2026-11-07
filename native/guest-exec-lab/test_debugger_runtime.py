@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 
 from test_oci_services import Suite, add_machine_entry_argument, write_script
+from fixture_executor import FixtureExecutor
 from test_proot_debugger import run
 from test_development_runtime import development_sources
 
@@ -243,7 +244,11 @@ for _ in range(4):
                  '-ex', 'python assert int(gdb.parse_and_eval("*address")) == ord("S")',
                  '-ex', 'echo MD_SHM_BREAK\\n', '-ex', 'continue']
 # EVENT_WAIT: four breakpoints and inferior completion; expiry is a failure.
-result = subprocess.run(commands, capture_output=True, text=True, timeout=25)
+try:
+    result = subprocess.run(commands, capture_output=True, text=True, timeout=25)
+except subprocess.TimeoutExpired as error:
+    print(error.stdout, error.stderr, flush=True)
+    raise
 print(result.stdout, result.stderr)
 assert result.returncode == 0 and result.stdout.count('MD_SHM_BREAK') == 4
 assert 'PASS shm-target' in result.stdout and 'exited normally' in result.stdout
@@ -262,7 +267,11 @@ for value in range(37, 41):
                  '-ex', 'python assert int(gdb.parse_and_eval("address[0]")) == '+str(0x52800000 | value << 5),
                  '-ex', 'echo MD_JIT_BREAK\\n', '-ex', 'continue']
 # EVENT_WAIT: each executable view reaches its breakpoint; expiry fails the run.
-result = subprocess.run(commands, capture_output=True, text=True, timeout=25)
+try:
+    result = subprocess.run(commands, capture_output=True, text=True, timeout=25)
+except subprocess.TimeoutExpired as error:
+    print(error.stdout, error.stderr, flush=True)
+    raise
 print(result.stdout, result.stderr)
 assert result.returncode == 0 and result.stdout.count('MD_JIT_BREAK') == 4
 assert 'PASS jit-target' in result.stdout and 'exited normally' in result.stdout
@@ -287,6 +296,9 @@ def commands(*, proot=False):
     cases.append(('lldb', ['python3', '-c', LLDB]))
     cases.append(('gdbserver', ['gdb', '--batch', '-nx', '-x', '/tmp/md-gdbserver.commands']))
     cases.append(('gprof', ['/bin/sh', '-ec',
+        'crt=$(gcc -print-file-name=gcrt1.o)\n'
+        'if [ "$crt" = gcrt1.o ] || [ ! -f "$crt" ]; then\n'
+        '  echo "UNAVAILABLE gprof: compiler does not supply gcrt1.o"; exit 0\nfi\n'
         'cd /tmp\ngcc -pg -O0 -g md-debugger-step.c -o md-debugger-profile\n'
         './md-debugger-profile\ntest -s gmon.out\n'
         'gprof ./md-debugger-profile gmon.out | grep answer\necho PASS gprof']))
@@ -295,10 +307,10 @@ def commands(*, proot=False):
         'grep "fn=.*answer" /tmp/md-callgrind.out\n'
         'grep -E "summary: [1-9]" /tmp/md-callgrind.out\necho PASS callgrind']))
     cases.append(('strace', ['/bin/sh', '-ec',
-        "strace -f -qq -o /tmp/md-debugger-strace.log /bin/sh -c 'cat /etc/passwd >/dev/null' 2>/tmp/md-debugger-strace.err\n"
+        "strace -f -qq -o /tmp/md-debugger-strace.log /bin/sh -c 'cat /etc/passwd >/dev/null; test -r /etc/passwd' 2>/tmp/md-debugger-strace.err\n"
         "cat /tmp/md-debugger-strace.err\n"
         "test ! -s /tmp/md-debugger-strace.err\n"
-        "grep -F 'openat(AT_FDCWD, \"/etc/passwd\", O_RDONLY)' /tmp/md-debugger-strace.log\n"
+        "grep -E 'openat\\(AT_FDCWD, \"/etc/passwd\", O_RDONLY(\\|O_LARGEFILE)?\\)' /tmp/md-debugger-strace.log\n"
         "grep 'execve(' /tmp/md-debugger-strace.log\n"
         "grep -E 'clone3?\\(' /tmp/md-debugger-strace.log\necho PASS strace"]))
     cases.append(('strace-shm', ['/bin/sh', '-ec',
@@ -321,6 +333,8 @@ def commands(*, proot=False):
 def outcome(name, output):
     if name == 'perf-event' and 'UNAVAILABLE perf-event errno=' in output:
         return {'passed': None, 'status': 'unavailable'}
+    if name == 'gprof' and 'UNAVAILABLE gprof: compiler does not supply gcrt1.o' in output:
+        return {'passed': None, 'status': 'unavailable', 'reason': 'toolchain lacks gcrt1.o'}
     passed = 'PASS '+name in output
     return {'passed': passed, 'status': 'passed' if passed else 'failed'}
 
@@ -334,12 +348,14 @@ def main():
     parser.add_argument('--build', type=Path)
     parser.add_argument('--case', action='append', choices=[name for name, _ in commands()])
     parser.add_argument('--diagnostics', action='store_true')
+    FixtureExecutor.add_argument(parser)
     add_machine_entry_argument(parser)
     parser.add_argument('--pid-namespace', action='store_true')
     parser.add_argument('--gdbserver-binary', type=Path,
                         help='Optional standalone guest binary; never replaces the installed package')
     args = parser.parse_args()
-    if args.proot and (args.build or args.diagnostics or args.pid_namespace or args.machine_entry is not None):
+    if args.proot and (args.build or args.diagnostics or args.pid_namespace or args.machine_entry is not None
+                      or args.executor == 'app'):
         parser.error('runtime and namespace options apply only to Shroot')
     args.output.mkdir(parents=True, exist_ok=True)
     source = Path(__file__).with_name('test_debugger_guest.c')
@@ -377,10 +393,10 @@ def main():
         report['passed'] = all(c['passed'] is not False for c in report['cases'])
         (args.output / 'proot.json').write_text(json.dumps(report, indent=2)+'\n')
     else:
-        suite = Suite(args.output, args.build, machine_entry=args.machine_entry)
+        suite = Suite(args.output, args.build, machine_entry=args.machine_entry, executor=args.executor)
         try:
             if args.gdbserver_binary:
-                suite.transport.upload(suite.client, args.gdbserver_binary, suite.base+'/md-gdbserver')
+                suite.upload(args.gdbserver_binary, suite.base+'/md-gdbserver')
                 suite.command(suite.run(args.instance, '--bind-ro', suite.base, '/mnt', '--',
                                         '/bin/sh', '-ec', 'cp /mnt/md-gdbserver /tmp/md-gdbserver; chmod 755 /tmp/md-gdbserver'))
             write_script(suite, args.instance, TARGET+'.c', source.read_text())
@@ -409,7 +425,10 @@ def main():
                 print(name, case, flush=True)
             suite.report['passed'] = all(c['passed'] is not False for c in suite.report['cases'])
         finally:
-            suite.finish()
+            try:
+                suite.command(['rm', '-rf', '--', suite.base], quiet=True)
+            finally:
+                suite.finish()
         report = suite.report
     if args.gdbserver_binary:
         with args.gdbserver_binary.open('rb') as binary:

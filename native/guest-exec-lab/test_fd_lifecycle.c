@@ -162,6 +162,13 @@ static void path_transfer(const char *directory, enum object_kind kind,
         char path[64]; snprintf(path,sizeof(path),"/proc/%d/fd/%d",parent,source);
         int fd=open(path,O_PATH|O_CLOEXEC);
         int result[2]={fd<0 ? errno : 0,0};
+        if (protected_provider && result[0]==ENOENT) {
+            /* hidepid can conceal a live protected provider, not only its FD. */
+            assert(!kill(parent,0));
+            snprintf(path,sizeof(path),"/proc/%d",parent);
+            struct stat hidden;
+            assert(stat(path,&hidden)==-1 && errno==ENOENT);
+        }
         if (fd>=0) {
             struct stat actual; assert(!fstat(fd,&actual));
             result[1]=actual.st_dev==expected.st_dev && actual.st_ino==expected.st_ino
@@ -175,11 +182,14 @@ static void path_transfer(const char *directory, enum object_kind kind,
     /* EVENT_WAIT: result from the exact child; alarm bounds denial or failure. */
     int result[2]={-1,-1}; assert(read(pipefd[0],result,sizeof(result))==sizeof(result));
     int status=wait_child(child); assert(WIFEXITED(status) && !WEXITSTATUS(status));
+    struct stat retained; assert(!fstat(source,&retained));
+    assert(retained.st_dev==expected.st_dev && retained.st_ino==expected.st_ino);
     if (protected_provider) assert(!prctl(PR_SET_DUMPABLE,saved_dumpable));
     assert(!close(pipefd[0]) && !close(source));
     int expected_denial=protected_provider || free_slots==0;
     if (free_slots==0) assert(result[0]==EMFILE);
-    if (protected_provider && free_slots) assert(result[0]==EACCES || result[0]==EPERM);
+    if (protected_provider && free_slots)
+        assert(result[0]==EACCES || result[0]==EPERM || result[0]==ENOENT);
     printf("%s proc O_PATH kind=%d protectedReceiver=%d protectedProvider=%d freeSlots=%d errno=%d exact=%d\n",
         expected_denial || (!result[0] && result[1]) ? "PASS" : "LIMIT",
         kind,protected_receiver,protected_provider,free_slots,result[0],result[1]);
@@ -381,14 +391,32 @@ static void socket_peer_boundary(void) {
     }
     assert(!close(diagnostic));
 }
-static void description_identity(const char *directory) {
+static int native_kcmp_available(void) {
+    /* Only this isolated probe may classify inherited seccomp SIGSYS as denial. */
+    pid_t child=fork(); assert(child>=0);
+    if (!child) {
+        assert(fcntl(STDOUT_FILENO,F_GETFD)>=0);
+        long result=syscall(SYS_kcmp,getpid(),getpid(),KCMP_FILE,STDOUT_FILENO,STDOUT_FILENO);
+        if (!result) _exit(0);
+        assert(result==-1 && (errno==EPERM || errno==EACCES || errno==ENOSYS));
+        printf("LIMIT native kcmp: errno=%d\n",errno);
+        _exit(77);
+    }
+    int status=wait_child(child);
+    if (WIFSIGNALED(status) && WTERMSIG(status)==SIGSYS) {
+        puts("LIMIT native kcmp: inherited seccomp SIGSYS");
+        return 0;
+    }
+    assert(WIFEXITED(status) && (WEXITSTATUS(status)==0 || WEXITSTATUS(status)==77));
+    return !WEXITSTATUS(status);
+}
+static void description_identity(const char *directory, int compare) {
     int fd=open(directory,O_RDONLY|O_DIRECTORY|O_CLOEXEC);
     int other=open(directory,O_RDONLY|O_DIRECTORY|O_CLOEXEC);
     assert(fd>=0 && other>=0);
     int duplicate=fcntl(fd,F_DUPFD_CLOEXEC,0); assert(duplicate>=0);
-    long same=syscall(SYS_kcmp,getpid(),getpid(),KCMP_FILE,fd,duplicate);
-    if (same<0) printf("LIMIT local OFD comparison: kcmp errno=%d\n",errno);
-    else {
+    if (compare) {
+        long same=syscall(SYS_kcmp,getpid(),getpid(),KCMP_FILE,fd,duplicate);
         assert(!same);
         assert(syscall(SYS_kcmp,getpid(),getpid(),KCMP_FILE,fd,other)>0);
         puts("PASS local OFD comparison: kcmp distinguishes dup from independent open");
@@ -464,16 +492,15 @@ static int epoll_depth(void) {
     close(observer);
     return count;
 }
-static void epoll_weak_identity(void) {
+static void epoll_weak_identity(int compare) {
     unsigned before=count_low_fds();
     int observer=epoll_create1(EPOLL_CLOEXEC),fd=epoll_create1(EPOLL_CLOEXEC);
     int other=epoll_create1(EPOLL_CLOEXEC); assert(observer>=0 && fd>=0 && other>=0);
     int duplicate=fcntl(fd,F_DUPFD_CLOEXEC,0); assert(duplicate>=0);
     struct epoll_event event={0};
     assert(!epoll_ctl(observer,EPOLL_CTL_ADD,fd,&event));
-    long result=epoll_target(observer,fd,duplicate);
-    if (result<0) printf("LIMIT native epoll target comparison errno=%ld\n",-result);
-    else {
+    if (compare) {
+        long result=epoll_target(observer,fd,duplicate);
         assert(!result && epoll_target(observer,fd,other)>0);
         int number=fd;
         assert(!close(fd) && !epoll_target(observer,number,duplicate));
@@ -907,7 +934,7 @@ static void owned_receive(int cancel, int slots) {
 }
 int main(int argc, char **argv) {
     if (argc==2 && !strcmp(argv[1],"--epoll-identity")) {
-        setbuf(stdout,NULL); alarm(30); epoll_weak_identity(); return 0;
+        setbuf(stdout,NULL); alarm(30); epoll_weak_identity(native_kcmp_available()); return 0;
     }
     if (argc==3 && !strcmp(argv[1],"--closed-on-exec")) {
         int fd=atoi(argv[2]); assert(fd>=3 && fcntl(fd,F_GETFD)==-1 && errno==EBADF);
@@ -934,8 +961,9 @@ int main(int argc, char **argv) {
             for (int deny_close=0;deny_close<2;++deny_close)
                 helper_boundary(protected,deny_clone,deny_close);
     socket_peer_boundary();
-    description_identity(argv[1]);
-    epoll_weak_identity();
+    int compare=native_kcmp_available();
+    description_identity(argv[1],compare);
+    epoll_weak_identity(compare);
     const int socket_types[]={SOCK_STREAM,SOCK_DGRAM,SOCK_SEQPACKET};
     for (unsigned i=0;i<sizeof(socket_types)/sizeof(*socket_types);++i) queue_retirement(socket_types[i]);
     for (int cancel=0;cancel<4;++cancel)

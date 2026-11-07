@@ -85,7 +85,7 @@ def main():
         suite.command(run('mkdir -m 700 ' + shlex.quote(root)))
         fixture='libmagicdesk_guest_service_runtime.so'
         suite.transport.upload(suite.client,args.build / fixture,suite.base + '/' + fixture)
-        suite.command(['chmod','700',suite.base + '/' + fixture])
+        suite.chmod('700', suite.base + '/' + fixture)
         suite.command([suite.runner,'--store',args.store,'--user','0:0',
                        '--bind-ro',suite.base,root,'--deadline-seconds','60','--',root + '/' + fixture,'fifo'])
         suite.command([suite.runner,'--store',args.store,'--user','0:0',
@@ -96,8 +96,8 @@ def main():
                            '--deadline-seconds', '60', '--', root + '/' + fixture, 'fifo-rendezvous'])
         if args.go_fixture:
             suite.report['goFixtureSha256'] = hashlib.sha256(args.go_fixture.read_bytes()).hexdigest()
-            suite.transport.upload(suite.client, args.go_fixture, suite.base + '/fifo-go')
-            suite.command(['chmod', '700', suite.base + '/fifo-go'])
+            suite.upload(args.go_fixture, suite.base + '/fifo-go')
+            suite.chmod('700', suite.base + '/fifo-go')
             for entry in (0, 1):
                 for repeat in range(3):
                     suite.command([suite.runner, '--store', args.store, '--user', '0:0',
@@ -105,7 +105,7 @@ def main():
                                    '--deadline-seconds', '90', '--', root + '/fifo-go'], timeout=100)
                     suite.report['cases'].append({'goFifo': True, 'entry': entry,
                                                   'repeat': repeat, 'passed': True})
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/fifo.py')
+        suite.upload(Path(__file__), suite.base + '/fifo.py')
         suite.command(run('mkdir ' + shlex.quote(root + '/fixture')))
         def transferred(role):
             return [suite.runner, '--store', args.store, '--user', '0:0', '--bind-ro', suite.base,

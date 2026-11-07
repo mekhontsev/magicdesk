@@ -485,6 +485,12 @@ def add_runtime_arguments(parser):
     KernelProfile.add_argument(parser)
 
 
+def guest_command(fixture, binary, backend='vxlan', nodes=1, agent_root=''):
+    script = STATE + '\nexec /usr/bin/python3 "$1" --guest "$2" "$3" "$4" "$5"\n'
+    return ['/usr/bin/unshare', '-mpf', '--mount-proc', '/bin/sh', '-ec', script,
+            'k3s', str(fixture), str(binary), backend, str(nodes), agent_root]
+
+
 def run(args):
     from test_oci_services import Suite
     suite = Suite(args.output or args.build, args.build, machine_entry=args.machine_entry,
@@ -503,10 +509,10 @@ def run(args):
             digest = hashlib.file_digest(stream, 'sha256').hexdigest()
         suite.report['k3s'] = {'sha256': digest, 'profile': str(args.nodes) + '-node-' + args.backend,
             'serverEnvironment': args.environment, 'agentEnvironment': args.agent_environment or args.environment}
-        suite.transport.upload(suite.client, args.k3s, suite.base + '/k3s')
+        suite.upload(args.k3s, suite.base + '/k3s')
         assert suite.command(['sha256sum', suite.base + '/k3s'], quiet=True).split()[0] == digest
-        suite.transport.upload(suite.client, Path(__file__), suite.base + '/test.py')
-        suite.command(['chmod', '700', suite.base + '/k3s'])
+        suite.upload(Path(__file__), suite.base + '/test.py')
+        suite.chmod('700', suite.base + '/k3s')
         prefix = suite.guest(store, '--user', '0:0')
         suite.command(prefix + ['--', '/bin/mkdir', target])
         created = True
@@ -518,21 +524,18 @@ def run(args):
         output = suite.command(prefix + ['--', '/bin/sh', '-ec',
             'if [ ! -d /etc/rancher ]; then mkdir /etc/rancher; echo CREATED_RANCHER; fi'])
         rancher_created = 'CREATED_RANCHER' in output.splitlines()
-        script = STATE + '''
-exec /usr/bin/python3 "$1/test.py" --guest "$1/k3s" "$2" "$3" "$4"
-'''
         # All service state is private. The outer PID namespace retires shims and
         # workload descendants even if stock k3s deliberately leaves them running.
         command = prefix + ['--statistics', '--network', 'routed',
             '--env', 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
             *attachments, '--deadline-seconds', '1200', '--',
-            '/usr/bin/unshare', '-mpf', '--mount-proc', '/bin/sh', '-ec', script, 'k3s',
-            target, args.backend, str(args.nodes), agent_target if agent_store else '']
+            *guest_command(target + '/test.py', target + '/k3s', args.backend,
+                           args.nodes, agent_target if agent_store else '')]
         try:
             suite.command(['sh', '-c', shlex.join(command) + ' > ' +
                            shlex.quote(suite.base + '/full.log') + ' 2>&1'], timeout=1230)
         finally:
-            suite.transport.download(suite.client, suite.base + '/full.log', log)
+            suite.download(suite.base + '/full.log', log)
             output = log.read_text()
             suite.record_entry(output)
             suite.kernel_profile.observe(output, required=True)

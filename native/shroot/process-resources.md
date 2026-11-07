@@ -73,6 +73,12 @@ native argument, mask and disposition checks.
 
 ## Process Limits
 
+Guest ownership and host authority are independent. The selected executor never
+changes during a launch; native operations are used where its permissions and
+the guest resource's ownership allow them. A managed network's sysctls belong
+to that network even under Android root, while a native network retains Android's
+view. There are no separate UID-specific guest implementations.
+
 `process_limits` owns guest `RLIMIT_NPROC`, `RLIMIT_NOFILE` and real-UID/user-namespace task counters
 within one supervised launch. It reserves a charge before native clone, transfers
 it only to the confirmed child and releases it on failure or task disposal.
@@ -115,6 +121,29 @@ physical task ceiling and real-time scheduling permissions remain native. A
 logical capability does not grant Android `CAP_SYS_NICE` or raise host hard limits.
 Coverage: `test_nproc.py` (NPROC and NOFILE, both entry modes), `test_process_limits`, packaged `test_rtkit.py`, and
 Fedora `test_os_boot.py --rtkit` with the original service sandbox.
+
+### OOM Policy
+
+`process_oom` serves `oom_score_adj` and the legacy `oom_adj` scale through the
+existing typed proc descriptors. Thread-group state shares the process-policy
+lifetime: threads share, independent forks copy, and exec retains it. Writes
+propagate across guest processes sharing an address space, excluding vfork's
+borrowed memory. Only these uncommon policy writes inspect the shared-mm peers;
+normal file IO and process creation acquire no additional allocation or scan.
+
+Guest DAC, readonly proc mounts, ranges and initial-user-namespace
+`CAP_SYS_RESOURCE` govern admission. Native writes are attempted until Android
+denies one with `EACCES` or `EPERM`; that process group then retains its guest
+value independently. Other native failures are not converted into success.
+This preserves usable native adjustment without requiring a particular UID,
+and lets container managers maintain their guest policy under a restricted
+executor. It does not grant protection from Android's OOM killer, implement
+guest memory quotas, or change Android's policy for unrelated processes.
+Unmanaged tasks and inherited native proc descriptors retain native behavior.
+
+`test_process_limits` covers the policy owner; `test_process_oom.py` exercises
+the mounted guest interface. The app-UID policy fixture includes shared-mm and
+vfork checks alongside cold credential calls and application-filter admission.
 
 ## Request Context
 

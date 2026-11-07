@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "fs_mount_internal.h"
 #include "mount_graph.h"
+#include "fs_wire.h"
 #include "mount_topology.h"
 #include "inode_lifetime.h"
 #include "user_namespace.h"
@@ -212,12 +213,27 @@ void md_view_mount_close(struct md_view_mount *mount) {
     if (mount->target>=0) close(mount->target);
     *mount=(struct md_view_mount){.source=-1,.target=-1,.detached=1,.generation=mount->generation};
 }
+static int host_backing(const struct md_view_mount *m) {
+    return m && (m->backing==MD_MOUNT_NATIVE || m->backing==MD_MOUNT_PROC);
+}
+int md_view_mount_prepare_transport(struct md_view_mount *m) {
+    if (m->local_custody) return 0;
+    int fds[2]; unsigned count=0;
+    if (host_backing(m)) fds[count++]=m->source;
+    if (host_backing(m->parent)) fds[count++]=m->target;
+    if (!count) return 0;
+    int r=md_fs_rights_transferable(fds,count);
+    if (r<0) return r;
+    m->local_custody=!r;
+    return 0;
+}
 int md_view_mount_clone(struct md_view_mount *out,const struct md_view_mount *source,int target,
         struct md_view_mount *parent) {
     uint64_t generation=out->generation;
     *out=(struct md_view_mount){.source=-1,.target=-1,.generation=generation+1,
         .parent=parent,.backing=source->backing,.locked=source->locked,
         .root_providers=source->root_providers,
+        .local_custody=source->local_custody,
         .links=md_mount_links_copy(&source->links),
         .storage=md_inode_lifetime_retain(source->storage),
         .pid_namespace=md_pid_namespace_retain(source->pid_namespace),
@@ -231,6 +247,7 @@ int md_view_mount_clone(struct md_view_mount *out,const struct md_view_mount *so
     if (!r && (out->source=fcntl(source->source,F_DUPFD_CLOEXEC,3))<0) r=-errno;
     if (!r && (out->target=fcntl(target,F_DUPFD_CLOEXEC,3))<0) r=-errno;
     if (!r && (fstat(out->source,&out->native) || fstat(out->target,&out->guest))) r=-errno;
+    if (!r) r=md_view_mount_prepare_transport(out);
     return r;
 }
 void md_view_mount_forget(struct md_fs_mounts *tree, struct md_view_mount *mount) {

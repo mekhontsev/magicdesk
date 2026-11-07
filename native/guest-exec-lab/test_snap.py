@@ -222,14 +222,14 @@ PY'''.replace('@SNAP@', args.snap).replace('@COUNT@', str(args.cold_launch_check
             suite.report['screenshots'] = []
             for attempt in range(args.app_launches):
                 screenshot = args.output / (suite.report['id'] + '-firefox-%d.png' % attempt)
-                suite.transport.download(suite.client, suite.base + '/render-%d.png' % attempt,
+                suite.download(suite.base + '/render-%d.png' % attempt,
                                          screenshot, overwrite=True)
                 pixel = subprocess.check_output(['magick', str(screenshot), '-crop', '1x1+160+120',
                                                  '-depth', '8', 'rgb:-'])
                 assert pixel == bytes([51, 153, 77]), 'Firefox screenshot did not render the requested page'
                 suite.report['screenshots'].append(str(screenshot))
             application_log = args.output / (suite.report['id'] + '-snap.log')
-            suite.transport.download(suite.client, suite.base + '/snap.log', application_log,
+            suite.download(suite.base + '/snap.log', application_log,
                                      overwrite=True)
             suite.report['applicationLog'] = str(application_log)
             failures = [line for line in application_log.read_text(errors='replace').splitlines()
@@ -248,7 +248,7 @@ PY'''.replace('@SNAP@', args.snap).replace('@COUNT@', str(args.cold_launch_check
         try:
             if args.profile:
                 profile = args.output / (suite.report['id'] + '-perf.data')
-                suite.transport.download(suite.client, suite.base + '/perf.data', profile, overwrite=True)
+                suite.download(suite.base + '/perf.data', profile, overwrite=True)
                 suite.report['profile'] = str(profile)
             for name in ('snap.log', 'daemon.log', 'journal.log', 'trace.log', 'daemon-trace.log',
                          'sandbox-features.log', 'apparmor.log', 'cold-launch.json', 'result',
