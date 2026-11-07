@@ -24,8 +24,17 @@ final class ShellUnixEndpoint extends IShellUnixEndpoint.Stub {
     private final IBinder.DeathRecipient died = this::release;
     private volatile boolean closed;
     private long offered, acknowledged;
+    private final java.nio.file.Path temporaryDirectory;
 
     ShellUnixEndpoint(String name, int uid, int ioTimeoutMillis, IUnixConnectionReceiver receiver) throws IOException {
+        this(name, uid, ioTimeoutMillis, receiver, uid == 0 || uid == 2000
+                ? RuntimeDataPaths.privileged(uid).temporary()
+                : java.nio.file.Path.of(java.util.Objects.requireNonNull(System.getenv("TMPDIR"))));
+    }
+
+    ShellUnixEndpoint(String name, int uid, int ioTimeoutMillis, IUnixConnectionReceiver receiver,
+            java.nio.file.Path temporaryDirectory) throws IOException {
+        this.temporaryDirectory = temporaryDirectory;
         if (ioTimeoutMillis < 0 || ioTimeoutMillis > 60000) throw new IllegalArgumentException("Invalid socket IO bound");
         this.ioTimeoutMillis = ioTimeoutMillis;
         if (Os.getuid() != uid) throw new SecurityException("The command service identity changed");
@@ -47,10 +56,8 @@ final class ShellUnixEndpoint extends IShellUnixEndpoint.Stub {
             if (fileDirectory != null) return fileDirectory.resolve("socket").toString();
             java.nio.file.Path directory = null;
             try {
-                var base = clientUid == 0 || clientUid == 2000
-                        ? RuntimeDataPaths.privileged(clientUid).temporary()
-                        : java.nio.file.Path.of(java.util.Objects.requireNonNull(System.getenv("TMPDIR")));
-                directory = java.nio.file.Files.createTempDirectory(base, ".md-unix-");
+                java.nio.file.Files.createDirectories(temporaryDirectory);
+                directory = java.nio.file.Files.createTempDirectory(temporaryDirectory, ".md-unix-");
                 Os.chmod(directory.toString(), 0700);
                 String path = directory.resolve("socket").toString();
                 if (path.getBytes(java.nio.charset.StandardCharsets.UTF_8).length >= 108)

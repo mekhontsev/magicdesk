@@ -30,8 +30,9 @@ final class LauncherExports {
                 throw new IllegalStateException("The selected Termux identity has changed");
             endpoint = termux.packageName; termuxUid = termux.uid;
         }
-        int shellUid = source.equals("termux") ? -1 : ShellAccess.currentSnapshot().isReady()
-                ? ShellAccess.currentSnapshot().uid : -1;
+        int shellUid = source.equals("termux") ? -1
+                : source.equals("guest") && entry.shortcut.execBackend == DesktopExecBackend.APP ? android.system.Os.getuid()
+                : ShellAccess.currentSnapshot().isReady() ? ShellAccess.currentSnapshot().uid : -1;
         return new LauncherExportStore.Target(source, path, endpoint, termuxUid, shellUid,
                 AppProfile.current(context).serialNumber);
     }
@@ -45,7 +46,8 @@ final class LauncherExports {
             if (!target.termuxPackage().equals(endpoint.packageName) || target.termuxUid() != endpoint.uid)
                 throw new IllegalStateException("The launcher Termux identity is unavailable");
         }
-        if (target.shellUid() >= 0 && (!ShellAccess.isReady() || ShellAccess.currentSnapshot().uid != target.shellUid()))
+        if (target.shellUid() >= 10000 ? target.shellUid() != android.system.Os.getuid()
+                : target.shellUid() >= 0 && (!ShellAccess.isReady() || ShellAccess.currentSnapshot().uid != target.shellUid()))
             throw new IllegalStateException("The launcher shell identity is unavailable");
     }
 
@@ -56,7 +58,8 @@ final class LauncherExports {
                 : DesktopEntrySource.find(source.load(context), target.path()).shortcut;
         requireIdentity(context, target);
         if (!(entry instanceof DesktopApplicationShortcut shortcut) || !shortcut.hasExecLaunch()
-                || (shortcut.execBackend == DesktopExecBackend.TERMUX) != !target.termuxPackage().isEmpty())
+                || (shortcut.execBackend == DesktopExecBackend.TERMUX) != !target.termuxPackage().isEmpty()
+                || target.source().equals("guest") && (shortcut.execBackend == DesktopExecBackend.APP) != (target.shellUid() >= 10000))
             throw new IOException("The exported Linux application is no longer available");
         return shortcut;
     }

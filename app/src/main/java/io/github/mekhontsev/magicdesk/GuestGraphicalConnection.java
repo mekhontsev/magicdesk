@@ -29,7 +29,8 @@ final class GuestGraphicalConnection {
                 + " --env MAGICDESK_AUTOMATION_HELPER=/tmp/magicdesk-helpers/libmagicdesk_linux_settings.so"
                 + " --env \"MAGICDESK_GUEST_FILES_SOCKET=$MAGICDESK_GUEST_FILES_SOCKET\""
                 + " --env \"MAGICDESK_GUEST_FILES_TOKEN=$MAGICDESK_GUEST_FILES_TOKEN\"" : "";
-        return "set -eu; " + prepare + "exec " + quoted(plan.launcherArguments()) + fileOptions
+        return "set -eu; " + prepare + "exec \"$MAGICDESK_ANDROID_SHELL\" \"$MAGICDESK_TOOLS/shroot\" "
+                + quoted(plan.launcherArguments().subList(1, plan.launcherArguments().size())) + fileOptions
                 + (protocol == GraphicalProtocol.X11 ? " --socket-resource-path " : " --socket-path ") + source + " " + endpoint
                 + (protocol == GraphicalProtocol.X11 ? " --socket-resource-abstract " + source + " " + endpoint : "")
                 + " -- " + quoted(plan.command());

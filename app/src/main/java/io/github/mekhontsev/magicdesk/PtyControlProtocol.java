@@ -15,6 +15,15 @@ final class PtyControlProtocol {
     private PtyControlProtocol() {
     }
 
+    static PtyEndpoint readEndpoint(java.io.InputStream input) throws IOException {
+        StringBuilder header = new StringBuilder();
+        int value = -1;
+        while (header.length() < 192 && (value = input.read()) >= 0 && value != '\n') header.append((char) value);
+        if (value != '\n' || !header.toString().startsWith("MAGICDESK_PTY "))
+            throw new IOException("Invalid PTY helper handshake: " + header);
+        return PtyEndpoint.parse(header.substring("MAGICDESK_PTY ".length()));
+    }
+
     static void writeData(final DataOutput output, final byte[] data)
             throws IOException {
         if (data == null || data.length == 0) {

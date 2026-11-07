@@ -11,7 +11,7 @@ final class RunCommandLaunch {
 
     RunCommandLaunch(Context context, RunCommandRequest request, android.os.CancellationSignal cancellation) throws Exception {
         executor = new CommandExecution(context, request.backend().equals("termux")
-                ? DesktopExecBackend.TERMUX : DesktopExecBackend.SHELL);
+                ? DesktopExecBackend.TERMUX : request.executorUid() >= 10000 ? DesktopExecBackend.APP : DesktopExecBackend.SHELL);
         if (executor.termux != null ? !executor.scope.equals(request.termuxPackage()) : executor.uid != request.executorUid())
             throw new IllegalStateException("Requested executor is not selected");
         String script = request.script();
@@ -21,7 +21,7 @@ final class RunCommandLaunch {
         String resolvedCommand, resolvedDirectory = request.directory();
         boolean background = request.mode().equals("background");
         if (request.backend().equals("shroot")) {
-            var entry = GuestEnvironmentCatalog.parse(GuestEnvironmentOperations.read("", cancellation, "list", "--json")).stream()
+            var entry = GuestEnvironmentCatalog.parse(GuestEnvironmentOperations.read(executor, "", cancellation, "list", "--json"), executor.backend).stream()
                     .filter(value -> value.id().equals(request.environmentId())).findFirst()
                     .orElseThrow(() -> new IllegalArgumentException("Unknown Shroot environmentId"));
             if (background) {
@@ -31,7 +31,7 @@ final class RunCommandLaunch {
                 resolvedDirectory = "";
             } else {
                 var shortcut = LinuxLaunchRecipe.build("RUN_COMMAND", new LinuxLaunchRecipe.Environment(
-                        LinuxLaunchRecipe.Kind.MANAGED_GUEST, entry.store(), DesktopExecBackend.SHELL, ""),
+                        LinuxLaunchRecipe.Kind.MANAGED_GUEST, entry.store(), executor.backend, ""),
                         script, request.directory(), "", graphical ? LinuxLaunchRecipe.Presentation.APPLICATION
                                 : LinuxLaunchRecipe.Presentation.TERMINAL, protocol);
                 specification = DesktopLaunchRequest.from(shortcut).prepareExec().exec;

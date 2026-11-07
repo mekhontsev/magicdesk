@@ -147,7 +147,7 @@ final class TerminalSessionsDialog {
 
     private String title(TerminalSessions.Item item) {
         return item.tmux() != null ? item.tmux().name : item.terminal().taskLabel(activity.getString(
-                "termux".equals(item.terminal().backend) ? R.string.console_termux_title : R.string.console_title));
+                DesktopExecBackend.parse(item.terminal().backend).title()));
     }
 
     private void open(TerminalSessions.Item item) {
@@ -176,8 +176,9 @@ final class TerminalSessionsDialog {
     private void create() {
         final RuntimeCapabilities capabilities = RuntimeCapabilities.current(activity);
         final java.util.ArrayList<Integer> choices = new java.util.ArrayList<>();
-        if (capabilities.missing(RuntimeCapabilities.Service.SHELL).isEmpty()) choices.add(R.string.console_title);
-        if (capabilities.missing(RuntimeCapabilities.Service.SHELL).isEmpty()) choices.add(R.string.guest_environments);
+        choices.add(R.string.console_app_title);
+        if (capabilities.missing(RuntimeCapabilities.Service.SHELL).isEmpty()) choices.add(DesktopExecBackend.SHELL.title());
+        choices.add(R.string.guest_environments);
         if (capabilities.missing(RuntimeCapabilities.Service.TERMUX).isEmpty()) {
             choices.add(R.string.console_termux_title);
             choices.add(R.string.console_tmux_new_session);
@@ -194,8 +195,12 @@ final class TerminalSessionsDialog {
                             if (choice == R.string.console_tmux_new_session) editName(activity.getString(R.string.console_tmux_new_session), "", name -> {
                                 TmuxSessionProvider.normalizeName(name); prepareTmux(null, name);
                             });
-                            else openIntent(choice == R.string.console_title ? CommandConsoleActivity.createIntent(activity)
-                                    : CommandConsoleActivity.createTermuxIntent(activity));
+                            else {
+                                var backend = choice == R.string.console_app_title ? DesktopExecBackend.APP
+                                        : choice == R.string.console_termux_title ? DesktopExecBackend.TERMUX : DesktopExecBackend.SHELL;
+                                ConsolePreferences.select(activity, backend);
+                                openIntent(CommandConsoleActivity.createPreparedCommandIntent(activity, "", "", backend));
+                            }
                         }).show();
     }
 
@@ -206,13 +211,14 @@ final class TerminalSessionsDialog {
         try {
             var request = GuestEnvironmentCatalog.load(activity, (entries, error) -> activity.runOnUiThread(() -> {
                 if (!picker.isShowing() || activity.isFinishing() || activity.isDestroyed()) return;
-                if (error != null || entries.isEmpty()) {
+                if (entries.isEmpty()) {
                     picker.setMessage(error == null ? activity.getString(R.string.guest_empty) : ShellAccess.usefulMessage(error));
                     return;
                 }
                 picker.dismiss();
+                if (error != null) Toast.makeText(activity, ShellAccess.usefulMessage(error), Toast.LENGTH_LONG).show();
                 UiDialogs.builder(activity).setTitle(R.string.guest_environments)
-                        .setItems(entries.stream().map(GuestEnvironmentCatalog.Entry::name).toArray(String[]::new),
+                        .setItems(entries.stream().map(entry -> entry.label(activity)).toArray(String[]::new),
                                 (dialog, index) -> {
                                     var entry = entries.get(index);
                                     UiDialogs.builder(activity).setTitle(entry.name())
@@ -220,7 +226,7 @@ final class TerminalSessionsDialog {
                                                     (action, selected) -> {
                                                         if (selected == 1) GuestLaunchesDialog.show(activity, entry);
                                                         else openIntent(CommandConsoleActivity.createPreparedCommandIntent(activity,
-                                                                GuestEnvironmentCatalog.login(entry), "", DesktopExecBackend.SHELL));
+                                                                GuestEnvironmentCatalog.login(entry), "", entry.backend()));
                                                     }).setNegativeButton(android.R.string.cancel, null).show();
                                 })
                         .setNegativeButton(android.R.string.cancel, null).show();
@@ -328,7 +334,7 @@ final class TerminalSessionsDialog {
             detail.setEllipsize(android.text.TextUtils.TruncateAt.END);
             final String state = activity.getString(item.terminal() != null && item.terminal().taskId >= 0
                     ? R.string.terminal_window_open : R.string.terminal_window_closed);
-            detail.setText(item.tmux() == null ? item.terminal().backend + " | " + state + "\n" + item.terminal().workingDirectory
+            detail.setText(item.tmux() == null ? activity.getString(DesktopExecBackend.parse(item.terminal().backend).title()) + " | " + state + "\n" + item.terminal().workingDirectory
                     : "tmux | " + activity.getResources().getQuantityString(R.plurals.console_tmux_windows,
                             item.tmux().windows, item.tmux().windows) + "\n"
                             + activity.getResources().getQuantityString(R.plurals.terminal_tmux_clients,

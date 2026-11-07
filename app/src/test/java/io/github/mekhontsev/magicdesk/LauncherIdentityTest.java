@@ -9,6 +9,9 @@ public final class LauncherIdentityTest {
     @Test public void executorAndProfileChangesFailClosedWithoutRequiringShellForTermux() throws Exception {
         RuntimeSourceFixture.verify("""
                 static class Context { }
+                static class android { static class system { static class Os {
+                    static int getuid() { return 10647; }
+                } } }
                 static class AppProfile {
                     long serialNumber;
                     static AppProfile profile = new AppProfile();
@@ -40,6 +43,9 @@ public final class LauncherIdentityTest {
                 }
                 public static void verify() {
                     var c = new Context();
+                    var user = new LauncherExportStore.Target(0, "", -1, 10647);
+                    requireIdentity(c, user);
+                    rejected(c, new LauncherExportStore.Target(0, "", -1, 10648));
                     var termux = new LauncherExportStore.Target(0, "com.termux", 10123, -1);
                     requireIdentity(c, termux);
                     TermuxIntegration.endpoint.uid++; rejected(c, termux);
@@ -54,6 +60,7 @@ public final class LauncherIdentityTest {
                     rejected(c, shell);
                     ShellAccess.ready = true; requireIdentity(c, shell);
                     ShellAccess.snapshot.uid = 0; rejected(c, shell);
+                    requireIdentity(c, user);
                     requireIdentity(c, termux);
                 }
                 """ + RuntimeSourceFixture.methods("LauncherExports", "requireIdentity"));

@@ -9,22 +9,26 @@ final class AutomationCommandCatalog {
     private AutomationCommandCatalog() {
     }
 
+    private static JSONObject guestExecutorProperties() throws JSONException {
+        return new JSONObject().put("backend", enumProperty("Captured executor: app is MagicDesk's own UID; shell is the connected Android Shell/Root service. Default shell.", "app", "shell"));
+    }
+
     static JSONArray create() throws JSONException {
         final JSONArray tools = new JSONArray()
-                .put(readTool("guest.list", "List guest environments", "Read the same shell-owned named environment catalog as shroot and the terminal picker. No Desktop or Termux requirement.",
-                        objectSchema(new JSONObject().put("library", stringProperty("Optional absolute library root.")))))
+                .put(readTool("guest.list", "List guest environments", "Read the selected executor's named environment catalog, as shroot does in that console. No Desktop or Termux requirement.",
+                        objectSchema(guestExecutorProperties().put("library", stringProperty("Optional absolute library root.")))))
                 .put(readTool("guest.inspect", "Inspect guest environment", "Read a named environment, immutable store identity, image configuration and backing dependencies.",
-                        objectSchema(new JSONObject().put("name", stringProperty("Environment name."))
+                        objectSchema(guestExecutorProperties().put("name", stringProperty("Environment name."))
                                 .put("library", stringProperty("Optional absolute library root.")), "name")))
                 .put(readTool("guest.launches", "List guest launches", "Read native owners of all launches in this environment, including CLI, terminal and graphical launches. Records survive app reconnect; no periodic process scan.",
-                        objectSchema(new JSONObject().put("name", stringProperty("Environment name."))
+                        objectSchema(guestExecutorProperties().put("name", stringProperty("Environment name."))
                                 .put("library", stringProperty("Optional absolute library root.")), "name")))
                 .put(destructiveTool("guest.stop", "Stop guest launch", "Request cancellation of one exact native launch tree. PID reuse cannot retarget it. Accepted is not completion; observe guest.launches until this ID disappears.",
-                        objectSchema(new JSONObject().put("name", stringProperty("Environment name."))
+                        objectSchema(guestExecutorProperties().put("name", stringProperty("Environment name."))
                                 .put("launchId", stringProperty("Exact launchId returned by guest.launches."))
                                 .put("library", stringProperty("Optional absolute library root.")), "name", "launchId")))
                 .put(actionTool("guest.start", "Start guest operation", "Run the shared shroot CLI asynchronously under the selected shell/root identity. Arguments begin with install, restore, backup, remove, prune, dns, exec or run. Returns an operationId, not completion. Observe guest.status. Does not require Termux or Desktop. Cancellation can leave published resources: inspect before retrying.",
-                        objectSchema(new JSONObject().put("arguments", arrayProperty("Literal CLI arguments; no shell parsing.", stringProperty("Argument.")))
+                        objectSchema(guestExecutorProperties().put("arguments", arrayProperty("Literal CLI arguments; no shell parsing.", stringProperty("Argument.")))
                                 .put("library", stringProperty("Optional absolute library root for this operation only.")), "arguments")))
                 .put(readTool("guest.status", "Observe guest operation", "Read bounded output and exact completion, or event-wait after a revision. A timeout only ends observation. Results survive client disconnect, not app restart; up to 64 operations retained.",
                         objectSchema(new JSONObject().put("operationId", stringProperty("Exact accepted operation ID."))
@@ -106,14 +110,14 @@ final class AutomationCommandCatalog {
                 .put(actionTool("graphics.start", "Start graphical session",
                         "Start a retained compositor through the selected executor, optionally running a startup command. Returns a sessionId before readiness; observe graphics.list. No Android window is opened. X11 and Wayland use a Vulkan/software compositor; Wayland accepts SHM and compatible linear DMA-BUF client buffers. Termux and root clients use a scoped named socket; UID-2000 shell clients receive one authorized connection FD. An expired observation does not cancel a dispatched start; inspect before retrying.",
                         objectSchema(new JSONObject().put("protocol", enumProperty("Display protocol.", "x11", "wayland"))
-                                .put("backend", enumProperty("Explicit client executor; never elevated or replaced.", "termux", "shell"))
+                                .put("backend", enumProperty("Explicit client executor; never elevated or replaced.", "app", "termux", "shell"))
                                 .put("name", stringProperty("Session name, 1 to 128 characters."))
                                 .put("command", stringProperty("Optional startup shell command."))
                                 .put("directory", stringProperty("Optional absolute client working directory."))
                                 .put("wholeDesktop", booleanProperty("For Wayland, the command launches a nested desktop compositor; closing its Android viewer retains the client. X11 always provides a whole-desktop viewer. Default false."))
                                 .put("offscreen", offscreenSizeSchema())
-                                .put("keyboardDirectory", stringProperty("XKB host data path or guest:/absolute/store for data from a guest environment; required for shell, optional for Termux."))
-                                .put("connection", enumProperty("Default auto. inherited is Wayland-only. routed requires Shell and an explicit guest socket-route recipe; exports MAGICDESK_GRAPHICS_ENDPOINT for independent guest connections.", "auto", "inherited", "routed")),
+                                .put("keyboardDirectory", stringProperty("XKB host data path or guest:/absolute/store for data from a guest environment; required for User/Shell, optional for Termux."))
+                                .put("connection", enumProperty("Default auto. inherited is Wayland-only. routed requires User/Shell and an explicit guest socket-route recipe; exports MAGICDESK_GRAPHICS_ENDPOINT for independent guest connections.", "auto", "inherited", "routed")),
                                 "protocol", "backend", "name")))
                 .put(actionTool("graphics.execute", "Run graphical command",
                         "Run a command in a ready retained graphical session using its captured executor. Acceptance is not client completion. No Desktop or Android placement changes.",
@@ -1021,7 +1025,8 @@ final class AutomationCommandCatalog {
                         objectSchema(new JSONObject().put(
                                 "directory", stringProperty(
                                         "Initial absolute working directory; defaults to the selected environment."))
-                                .put("linuxSessionId", stringProperty("Exact connected Linux session; omit for Android shell.")))))
+                                .put("backend", enumProperty("Executor for a new host console; default shell. Do not combine with linuxSessionId.", "app", "shell", "termux"))
+                                .put("linuxSessionId", stringProperty("Exact connected Linux session; omit for a host console.")))))
                 .put(readTool("console.list", "List headless consoles", "List retained console identities, environment and current directory.", emptySchema()))
                 .put(actionTool("console.cancel", "Cancel console command", "Cancel the current command and its owned jobs. Retain the console id; the next command starts a fresh shell in the same captured environment and last known directory.", sessionSchema()))
                 .put(actionTool(
@@ -1059,7 +1064,7 @@ final class AutomationCommandCatalog {
                                         "Optional command to run after the terminal is ready."))
                                 .put("backend", enumProperty(
                                         "PTY execution environment.",
-                                        "shell", "termux")))))
+                                        "app", "shell", "termux")))))
                 .put(readTool(
                         "terminal.list",
                         "List terminal sessions",
@@ -1523,7 +1528,7 @@ final class AutomationCommandCatalog {
                 .put("state", stringProperty("Lifecycle state."))
                 .put("ready", booleanProperty("Server is ready."))
                 .put("error", stringProperty("Last failure, empty otherwise."))
-                .put("executor", enumProperty("Captured command backend.", "termux", "shell"))
+                .put("executor", enumProperty("Captured command backend.", "app", "termux", "shell"))
                 .put("executorUid", integerProperty("Command UID."))
                 .put("serverUid", integerProperty("Server UID; not implicitly elevated."))
                 .put("wholeDesktop", booleanProperty("Accepts windowId=0 for a retained whole-desktop viewer."))

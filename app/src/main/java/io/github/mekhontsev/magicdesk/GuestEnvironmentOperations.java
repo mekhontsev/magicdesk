@@ -35,12 +35,21 @@ final class GuestEnvironmentOperations {
     }
 
     static String read(String library, String... arguments) throws IOException {
-        return read(library, null, arguments);
+        return read(library, (android.os.CancellationSignal) null, arguments);
     }
 
     static String read(String library, android.os.CancellationSignal cancellation, String... arguments) throws IOException {
-        requireShell();
-        var session = new ShellCommandSession(RuntimeDataPaths.privileged(ShellAccess.currentSnapshot().uid).root().toString());
+        return read(new CommandExecution(MagicDeskApplication.applicationContext(), DesktopExecBackend.SHELL), library, cancellation, arguments);
+    }
+
+    static String read(CommandExecution execution, String library, String... arguments) throws IOException {
+        return read(execution, library, null, arguments);
+    }
+
+    static String read(CommandExecution execution, String library, android.os.CancellationSignal cancellation,
+            String... arguments) throws IOException {
+        requireGuest(execution);
+        var session = execution.session("");
         if (cancellation != null) cancellation.setOnCancelListener(session::close);
         try {
             var output = new java.io.ByteArrayOutputStream();
@@ -56,8 +65,8 @@ final class GuestEnvironmentOperations {
         }
     }
 
-    synchronized JSONObject start(JSONArray values, String library) throws Exception {
-        requireShell();
+    synchronized JSONObject start(JSONArray values, String library, CommandExecution execution) throws Exception {
+        requireGuest(execution);
         if (closed) throw new IOException("Guest operations are closed");
         if (values.length() == 0 || values.length() > 256) throw new IllegalArgumentException("Invalid guest arguments");
         String[] arguments = new String[values.length()];
@@ -76,10 +85,10 @@ final class GuestEnvironmentOperations {
             operations.remove(oldest);
         }
         String command = inLibrary(GuestEnvironmentCatalog.command(arguments), library);
-        Operation operation = new Operation(command, ShellAccess.currentSnapshot().uid,
-                arguments[0].equals("exec") || arguments[0].equals("run"));
+        Operation operation = new Operation(command, execution.backend, execution.uid,
+                arguments[0].equals("exec") || arguments[0].equals("run"), execution.session(""));
         operations.put(operation.id, operation);
-        workers.execute(operation::run);
+        workers.execute(() -> operation.run(execution));
         return operation.snapshot();
     }
 
@@ -89,9 +98,10 @@ final class GuestEnvironmentOperations {
         return result;
     }
 
-    private static void requireShell() throws IOException {
-        if (!ShellAccess.isReady()) throw new IOException("Privileged command service is unavailable");
-        GuestLaunchPlan.requireIdentity(ShellAccess.currentSnapshot().uid);
+    private static void requireGuest(CommandExecution execution) throws IOException {
+        execution.requireCurrent();
+        if (execution.backend == DesktopExecBackend.TERMUX) throw new IOException("Shroot requires User or Shell");
+        GuestLaunchPlan.requireIdentity(execution.uid);
     }
 
     private static String inLibrary(String command, String library) {
@@ -103,6 +113,7 @@ final class GuestEnvironmentOperations {
         final String id = "guest-" + UUID.randomUUID();
         final String command;
         final int uid;
+        final DesktopExecBackend backend;
         final boolean playback;
         final OperationResources resources = new OperationResources();
         final ShellCommandSession session;
@@ -114,20 +125,20 @@ final class GuestEnvironmentOperations {
         Integer exitCode;
         String error = "";
 
-        Operation(String command, int uid, boolean playback) {
+        Operation(String command, DesktopExecBackend backend, int uid, boolean playback, ShellCommandSession session) {
             this.command = command; this.uid = uid; this.playback = playback;
-            this.session = new ShellCommandSession(RuntimeDataPaths.privileged(uid).root().toString());
+            this.backend = backend;
+            this.session = session;
         }
 
-        void run() {
+        void run(CommandExecution execution) {
             try {
-                requireShell();
-                if (ShellAccess.currentSnapshot().uid != uid) throw new IOException("Selected executor identity changed");
+                requireGuest(execution);
                 String environment = "";
                 if (playback) {
                     var slot = resources.reserve();
                     var context = MagicDeskApplication.applicationContext();
-                    var audio = LinuxAudio.prepare(context, new CommandExecution(context, DesktopExecBackend.SHELL));
+                    var audio = LinuxAudio.prepare(context, execution);
                     slot.attach(audio);
                     environment = audio.exports();
                 }
@@ -177,7 +188,7 @@ final class GuestEnvironmentOperations {
             String state = !done ? "running" : exitCode != null && exitCode == 0 ? "completed"
                     : cancellation ? "cancelled" : "failed";
             return new JSONObject().put("operationId", id).put("state", state).put("revision", revision)
-                    .put("executorUid", uid).put("cancelRequested", cancellation)
+                    .put("backend", backend.wireName).put("executorUid", uid).put("cancelRequested", cancellation)
                     .put("exitCode", exitCode == null ? JSONObject.NULL : exitCode)
                     .put("output", new String(tail, 0, used, StandardCharsets.UTF_8)).put("outputBytes", bytes)
                     .put("truncated", bytes > used).put("error", error).put("safeToRetry", false);

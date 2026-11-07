@@ -125,30 +125,32 @@ final class ApplicationIcons {
         inspectGuest();
         if (previous != guestUid) return;
         int owner = guestUid;
-        if (owner != 0 && owner != 2000) { complete.accept(Map.of()); return; }
         IO.execute(() -> {
             var images = new HashMap<ApplicationIconKey, Bitmap>();
-            try {
-                if (!ShellAccess.isReady() || ShellAccess.currentSnapshot().uid != owner)
-                    throw new IllegalStateException("Icon source changed");
-                var args = new java.util.ArrayList<String>();
-                args.add("icons");
-                keys.forEach(key -> args.add(key.guestReference()));
-                String text = GuestEnvironmentOperations.read("", args.toArray(String[]::new));
-                if (text.length() > keys.size() * 34000) throw new IllegalArgumentException("Icon reply too large");
-                var records = new JSONArray(text);
-                for (int i = 0; i < records.length(); i++) {
-                    var record = records.getJSONObject(i);
-                    var key = ApplicationIconKey.guest(record.getString("id"));
-                    String png = record.optString("png");
-                    if (!keys.contains(key) || png.isEmpty() || png.length() > 32768) continue;
-                    try {
-                        var image = ApplicationIconBitmap.decode(java.util.HexFormat.of().parseHex(png));
-                        if (image != null) images.put(key, image);
-                    } catch (IllegalArgumentException ignored) { }
+            for (var backend : new DesktopExecBackend[]{DesktopExecBackend.APP, DesktopExecBackend.SHELL}) {
+                try {
+                    var selected = keys.stream().filter(key -> key.backend() == backend).toList();
+                    if (selected.isEmpty() || backend == DesktopExecBackend.SHELL
+                            && (!ShellAccess.isReady() || ShellAccess.currentSnapshot().uid != owner)) continue;
+                    var args = new java.util.ArrayList<String>();
+                    args.add("icons");
+                    selected.forEach(key -> args.add(key.guestReference()));
+                    String text = GuestEnvironmentOperations.read(new CommandExecution(context, backend), "", args.toArray(String[]::new));
+                    if (text.length() > keys.size() * 34000) throw new IllegalArgumentException("Icon reply too large");
+                    var records = new JSONArray(text);
+                    for (int i = 0; i < records.length(); i++) {
+                        var record = records.getJSONObject(i);
+                        var key = ApplicationIconKey.guest(record.getString("id"), backend);
+                        String png = record.optString("png");
+                        if (!keys.contains(key) || png.isEmpty() || png.length() > 32768) continue;
+                        try {
+                            var image = ApplicationIconBitmap.decode(java.util.HexFormat.of().parseHex(png));
+                            if (image != null) images.put(key, image);
+                        } catch (IllegalArgumentException ignored) { }
+                    }
+                } catch (Exception error) {
+                    android.util.Log.w("MagicDeskIcons", backend.wireName + " guest artwork unavailable", error);
                 }
-            } catch (Exception error) {
-                android.util.Log.w("MagicDeskIcons", "Guest artwork unavailable", error);
             }
             MAIN.post(() -> { inspectGuest(); complete.accept(images); });
         });

@@ -246,9 +246,11 @@ final class ConsoleTerminalWindow {
             return;
         }
         final boolean termux = mBackend == DesktopExecBackend.TERMUX;
-        final boolean unavailable = !termux && (mSnapshot == null || !mSnapshot.isReady());
-        final boolean root = !termux && !unavailable && mSnapshot.uid == ShellAccess.ROOT_UID;
-        final String identity = termux ? mActivity.getString(R.string.console_shell_termux)
+        final boolean shell = mBackend == DesktopExecBackend.SHELL;
+        final boolean unavailable = shell && (mSnapshot == null || !mSnapshot.isReady());
+        final boolean root = shell && !unavailable && mSnapshot.uid == ShellAccess.ROOT_UID;
+        final String identity = mBackend == DesktopExecBackend.APP ? mActivity.getString(R.string.console_app_title)
+                : termux ? mActivity.getString(R.string.console_shell_termux)
                 : unavailable ? mActivity.getString(R.string.console_title)
                 : mActivity.getString(root ? R.string.console_shell_root : R.string.console_shell_android, mSnapshot.uid);
         final String description = mActivity.getString(R.string.terminal_sessions) + "\n" + identity;

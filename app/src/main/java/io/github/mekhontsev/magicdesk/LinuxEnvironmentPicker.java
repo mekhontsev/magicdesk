@@ -99,7 +99,7 @@ final class LinuxEnvironmentPicker extends LinearLayout {
     void setBackend(DesktopExecBackend value) {
         if (backend == value) return;
         backend = value;
-        kinds = value == DesktopExecBackend.SHELL
+        kinds = value != DesktopExecBackend.TERMUX
                 ? List.of(LinuxLaunchRecipe.Kind.MANAGED_GUEST, LinuxLaunchRecipe.Kind.SCRIPT, LinuxLaunchRecipe.Kind.GUEST)
                 : List.of(LinuxLaunchRecipe.Kind.PROOT, LinuxLaunchRecipe.Kind.SCRIPT);
         updateMethods();
@@ -119,7 +119,7 @@ final class LinuxEnvironmentPicker extends LinearLayout {
     }
 
     private void updateKeyboard() {
-        keyboardFields.setVisibility(graphical && backend == DesktopExecBackend.SHELL
+        keyboardFields.setVisibility(graphical && backend != DesktopExecBackend.TERMUX
                 && kinds.get(Math.max(0, method.getSelectedItemPosition())) != LinuxLaunchRecipe.Kind.MANAGED_GUEST ? View.VISIBLE : View.GONE);
     }
 
@@ -143,7 +143,7 @@ final class LinuxEnvironmentPicker extends LinearLayout {
         status.setText(managed ? R.string.guest_loading : R.string.command_app_proot_loading);
         try {
             if (managed) {
-                guestRequest = GuestEnvironmentCatalog.load(getContext(), (entries, error) -> post(() -> {
+                guestRequest = GuestEnvironmentCatalog.load(getContext(), backend, (entries, error) -> post(() -> {
                     if (expected != generation) return;
                     guests = entries;
                     UiChoiceAdapter.bind(choices, guests);

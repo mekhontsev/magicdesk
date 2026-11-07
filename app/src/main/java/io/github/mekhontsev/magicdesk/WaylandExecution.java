@@ -47,7 +47,7 @@ final class WaylandExecution {
         this.connectionMode = connectionMode;
         commands = new CommandExecution(context, backend);
         if (connectionMode == GraphicalConnectionMode.ROUTED && commands.termux != null)
-            throw new IllegalArgumentException("Routed connections require the selected Shell executor");
+            throw new IllegalArgumentException("Routed connections require a User or Shell executor");
         this.fileEnvironment = fileEnvironment;
         guestFiles = new HostedGuestFiles(context.getApplicationInfo().nativeLibraryDir, !fileEnvironment.isEmpty());
         appearance = new LinuxAppearanceLaunch(context.getApplicationInfo().nativeLibraryDir, !desktop,
@@ -56,7 +56,7 @@ final class WaylandExecution {
         executorPackage = commands.termux == null ? context.getPackageName() : commands.termux.packageName;
         keyboard = HostedKeyboardSource.normalize(keyboardDirectory);
         if (commands.termux == null && keyboard.isEmpty())
-            throw new IllegalArgumentException("An XKB data directory is required for the Shell graphical executor");
+            throw new IllegalArgumentException("An XKB data directory is required for the User or Shell graphical executor");
         byte[] secret = new byte[32];
         new java.security.SecureRandom().nextBytes(secret);
         token = java.util.HexFormat.of().formatHex(secret);
@@ -96,7 +96,7 @@ final class WaylandExecution {
         if (commands.uid == 2000 && !fileEnvironment.isEmpty()) environment.put("MAGICDESK_GUEST_FILES_SOCKET", "");
         appearance.configure(environment);
         if (!fileEnvironment.isEmpty()) environment.put("MAGICDESK_WAYLAND_GUEST_CONTENT", "/tmp/magicdesk-wayland/content");
-        environment.put("XKB_CONFIG_ROOT", commands.termux == null ? HostedKeyboardData.prepare(context, keyboard)
+        environment.put("XKB_CONFIG_ROOT", commands.termux == null ? HostedKeyboardData.prepare(context, commands, keyboard)
                 : keyboard.isEmpty() ? new java.io.File(commands.home).getParent() + "/usr/share/X11/xkb" : keyboard);
         var arguments = List.of("/system/bin/app_process", "-Xnoimage-dex2oat", "/", "--nice-name=" + id,
                 WaylandServer.class.getName());
@@ -126,7 +126,8 @@ final class WaylandExecution {
     Closeable startClient(WaylandClientLaunch handoff, String command, String workingDirectory,
             CommandExecution.Completion completion) {
         var info = context.getApplicationInfo();
-        String identity = commands.termux == null ? "com.android.shell" : commands.termux.packageName;
+        String identity = commands.backend == DesktopExecBackend.APP ? context.getPackageName()
+                : commands.termux == null ? "com.android.shell" : commands.termux.packageName;
         String shell = shell();
         // WAYLAND_SOCKET is assigned only after app_process hands the connection to the native helper.
         String script = services.exports() + "unset DISPLAY WAYLAND_DISPLAY\nexport XDG_SESSION_TYPE=wayland"

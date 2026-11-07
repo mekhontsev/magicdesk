@@ -11,6 +11,11 @@ public final class ConsoleToolbarTest {
                     view.updateStatus(view.mBackend,view.mSnapshot,view.mTerminalStatus,view.mTerminalFailed);
                     check(view.mShellStatus.visibility == View.GONE, "persistent Termux label");
                     check(view.mSessions.tooltip.equals("Sessions\\nTermux"), "missing Termux identity");
+                    view.mBackend = DesktopExecBackend.APP;
+                    view.mSnapshot = null;
+                    view.updateStatus(view.mBackend,view.mSnapshot,view.mTerminalStatus,view.mTerminalFailed);
+                    check(view.mShellStatus.visibility == View.GONE, "app console requires Shizuku");
+                    check(view.mSessions.tooltip.equals("Sessions\\nMagicDesk"), "missing app identity");
                     view.mBackend = DesktopExecBackend.SHELL;
                     view.mSnapshot = new Snapshot(true, 2000, "");
                     view.updateStatus(view.mBackend,view.mSnapshot,view.mTerminalStatus,view.mTerminalFailed);
@@ -63,7 +68,7 @@ public final class ConsoleToolbarTest {
 
     private static String fixture() throws Exception {
         return """
-                enum DesktopExecBackend { SHELL, TERMUX }
+                enum DesktopExecBackend { SHELL, TERMUX, APP }
                 enum UiColor { ATTENTION, TEXT, MUTED }
                 static class UiAppearance {
                     static void imageStates(View view, UiColor role) { view.tint=role; }
@@ -77,7 +82,7 @@ public final class ConsoleToolbarTest {
                 static class Snapshot extends ShellAccess.Snapshot { Snapshot(boolean r,int u,String e) { super(r,u,e); } }
                 static class R { static class string {
                     static final String terminal_sessions="Sessions", console_shell_termux="Termux",
-                        console_title="Shell", console_shell_root="Root UID %d", console_shell_android="Shell UID %d",
+                        console_title="Shell", console_app_title="MagicDesk", console_shell_root="Root UID %d", console_shell_android="Shell UID %d",
                         console_shell_unavailable="Unavailable: %s", state_unavailable="unavailable";
                 } }
                 static class View {

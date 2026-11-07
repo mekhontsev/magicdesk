@@ -1,4 +1,6 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="console_app_title">User</string>
+    <string name="executor_android_shell">Shell</string>
     <string name="black_screen">Black screen (keep awake)</string>
     <string name="black_screen_hint">Black screen; press a volume key to exit</string>
     <string name="guest_environments">Shroot environments</string>
@@ -250,11 +252,13 @@
     <string name="command_app_directory_invalid">Enter an absolute directory</string>
     <string name="command_app_mime_invalid">Enter valid MIME types separated by semicolons</string>
     <string-array name="command_app_backends">
-        <item>Android shell</item>
+        <item>Shell</item>
         <item>Termux</item>
         <item>Termux graphics</item>
         <item>Linux (Termux)</item>
-        <item>Linux (Shell / root)</item>
+        <item>Linux (Shell)</item>
+        <item>User</item>
+        <item>Linux (User)</item>
     </string-array>
     <string-array name="command_app_file_arguments_values">
         <item>None</item>

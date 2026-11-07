@@ -52,8 +52,10 @@ final class PtyPeerOutput {
         } else {
             final File helper = new File(context.getApplicationInfo().nativeLibraryDir,
                     "libmagicdesk_pty_bridge.so");
-            output = ShellAccess.executeCommand("target=" + ShellCommandLine.quote(helper.getPath())
-                    + "\n" + command).output;
+            var session = new CommandExecution(context, backend).session("");
+            try {
+                output = session.execute("target=" + ShellCommandLine.quote(helper.getPath()) + "\n" + command).output();
+            } finally { session.close(); }
         }
         return Receipt.parse(output, bytes.length);
     }

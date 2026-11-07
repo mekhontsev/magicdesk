@@ -6,10 +6,13 @@ import static org.junit.Assert.*;
 
 public class GuestOperationTest {
     @Test public void outputIsBoundedAndCancellationDoesNotClaimCompletion() throws Exception {
-        var operation = new GuestEnvironmentOperations.Operation("literal command", 2000, false);
+        var operation = new GuestEnvironmentOperations.Operation("literal command", DesktopExecBackend.APP, 10123, false,
+                new ShellCommandSession("/data/user/0/test"));
         byte[] bytes = "x".repeat(70000).getBytes(StandardCharsets.UTF_8);
         operation.append(bytes, 0, bytes.length);
         var running = operation.snapshot();
+        assertEquals("app", running.getString("backend"));
+        assertEquals(10123, running.getInt("executorUid"));
         assertEquals(65536, running.getString("output").length());
         assertEquals(70000, running.getLong("outputBytes"));
         assertTrue(running.getBoolean("truncated"));
