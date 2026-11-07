@@ -10,6 +10,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/audit.h>
+#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
 #include <sys/resource.h>

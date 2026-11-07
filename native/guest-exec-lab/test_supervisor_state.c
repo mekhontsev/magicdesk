@@ -3298,6 +3298,29 @@ static void admission_quiescence(void) {
     abi.buffer_admit=saved;
     puts("PASS internal admission: shielded quiescence before/after notification, exact retry, EINTR and one FD publication");
 }
+static void descriptor_command_selection(void) {
+    const unsigned commands[]={FIOCLEX,FIONCLEX};
+    struct md_interception_abi abi={.raw_gate=0x2000000040,.task_return=0x2000000080};
+    struct md_interception_program program;
+    for (unsigned host=0;host<2;++host) {
+        abi.host_policy=host;
+        md_interception_program_build(&abi,&program);
+        struct sock_fprog filter={program.count,program.code};
+        for (unsigned command=0;command<2;++command) for (unsigned high=0;high<2;++high) {
+            struct seccomp_data call={.nr=SYS_ioctl,.arch=AUDIT_ARCH_AARCH64,
+                .instruction_pointer=0x1000,.args={17,commands[command]|((uint64_t)high<<32),~0UL}};
+            uint32_t result;
+            assert(!md_seccomp_program_eval(&filter,&call,&result));
+            assert(result==(SECCOMP_RET_TRACE|MD_INTERCEPT_FD));
+            unsigned long args[6]; memcpy(args,call.args,sizeof(args));
+            assert(md_domain_native_call(call.nr,args));
+            struct thread t={0};
+            struct user_pt_regs regs={.regs={[8]=SYS_ioctl,[0]=17,[1]=args[1],[2]=args[2]}};
+            assert(!domain_call(&t,&regs,MD_INTERCEPT_FD));
+        }
+    }
+    puts("PASS descriptor command selection: shared app/shell filter, unsigned ioctl command and FD owner");
+}
 static void signal_wait_selection(void) {
     struct md_interception_abi abi={.raw_gate=0x2000000040,.task_return=0x2000000080};
     struct md_interception_program program;
@@ -3443,6 +3466,7 @@ int main(void) {
     external_signal_target();
     policy_signal_observation();
     signal_descriptor_rollback();
+    descriptor_command_selection();
     signal_wait_selection();
     pending_queue_scan(); pending_signal_ownership(); signalfd_information();
     debug_host_exit();
