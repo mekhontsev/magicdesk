@@ -198,6 +198,12 @@ class VersionChannelTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("detached HEAD", result.stderr)
 
+    def test_next_cycle_accepts_major_minor_version(self):
+        self.git("switch", "-qc", "develop")
+        result = self.run_next_version("2.3", "220")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("develop: 2.3 (220)", versions.verify(self.repo, "develop"))
+
 
 class WorkflowBoundaryTest(unittest.TestCase):
     def test_development_publication_uses_only_develop(self):
