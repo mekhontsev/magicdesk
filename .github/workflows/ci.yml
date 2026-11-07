@@ -396,19 +396,18 @@ jobs:
           )
           cat > development-notes.md <<EOF
           This is the latest release-signed development build from \`develop\`.
-          It contains unreleased code and may be less stable than a numbered release.
+          The notes below are preliminary. This build may be less stable than a numbered release.
 
           - Version: \`$version\`
           - Commit: [\`${GITHUB_SHA:0:7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA)
           - CI run: [\`$GITHUB_RUN_NUMBER\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)
 
-          MagicDesk includes first-class multi-window Termux integration. Each
-          Termux-backed Console is an independent native Android desktop window
-          with its own PTY, shell, lifecycle, saved geometry, and live foreground
-          program label.
-
           The APK uses the same signing certificate as official MagicDesk releases.
+
           EOF
+          base_version=${version%%-dev.*}
+          tar -xOzf download/MagicDesk-source.tar.gz \
+            "MagicDesk/docs/releases/$base_version.md" >> development-notes.md
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
 
       - name: Publish rolling development prerelease

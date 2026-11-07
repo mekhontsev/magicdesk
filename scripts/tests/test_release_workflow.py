@@ -1,8 +1,12 @@
 import importlib.util
+import io
+import os
 from pathlib import Path
 import shutil
 import subprocess
+import tarfile
 import tempfile
+import textwrap
 import unittest
 
 
@@ -203,9 +207,60 @@ class VersionChannelTest(unittest.TestCase):
         result = self.run_next_version("2.3", "220")
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIn("develop: 2.3 (220)", versions.verify(self.repo, "develop"))
+        self.assertEqual("# MagicDesk 2.3\n",
+                         (self.repo / "docs/releases/2.3.md").read_text(encoding="utf-8"))
+
+    def test_next_cycle_preserves_prepared_notes(self):
+        self.git("switch", "-qc", "develop")
+        notes = self.repo / "docs/releases/2.3.md"
+        notes.parent.mkdir(parents=True)
+        contents = "# MagicDesk 2.3\n\n- Prepared release notes.\n"
+        notes.write_text(contents, encoding="utf-8")
+        result = self.run_next_version("2.3", "220")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(contents, notes.read_text(encoding="utf-8"))
 
 
 class WorkflowBoundaryTest(unittest.TestCase):
+    def test_development_notes_come_from_verified_source_artifact(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        step = workflow.split("      - name: Prepare stable development assets\n", 1)[1].split("      - name:", 1)[0]
+        script = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        for base_version, present in (("2.3", True), ("2.3.0.1", True), ("2.3", False)):
+            with self.subTest(base_version=base_version, present=present), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                download = root / "download"
+                download.mkdir()
+                version = base_version + "-dev.17.abcdef0"
+                (download / f"MagicDesk-{version}.apk").write_bytes(b"verified APK")
+                contents = f"# MagicDesk {base_version}\n\n- Implemented changes.\n"
+                with tarfile.open(download / "MagicDesk-source.tar.gz", "w:gz") as archive:
+                    if present:
+                        body = contents.encode("utf-8")
+                        member = tarfile.TarInfo(f"MagicDesk/docs/releases/{base_version}.md")
+                        member.size = len(body)
+                        archive.addfile(member, io.BytesIO(body))
+                environment = os.environ | {
+                    "GITHUB_SHA": "abcdef0123456789",
+                    "GITHUB_RUN_ID": "123",
+                    "GITHUB_RUN_NUMBER": "17",
+                    "GITHUB_SERVER_URL": "https://github.com",
+                    "GITHUB_REPOSITORY": "fixture/magicdesk",
+                    "GITHUB_OUTPUT": str(root / "output"),
+                }
+                result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script],
+                                        cwd=root, env=environment, text=True, capture_output=True)
+                if not present:
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertFalse((root / "output").exists())
+                    continue
+                self.assertEqual(0, result.returncode, result.stderr)
+                notes = (root / "development-notes.md").read_text(encoding="utf-8")
+                self.assertIn("preliminary", notes)
+                self.assertIn(version, notes)
+                self.assertTrue(notes.endswith(contents))
+                self.assertEqual(b"verified APK", (root / "dist/MagicDesk-development.apk").read_bytes())
+
     def test_development_publication_uses_only_develop(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         publish = workflow.split("  publish-development:\n", 1)[1]

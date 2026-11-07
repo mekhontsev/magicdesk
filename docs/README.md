@@ -67,9 +67,13 @@ self-tests do not replace protocol, installer or guest-runtime workflows.
 - [Artwork](artwork.md), [licensing](licensing.md),
   [third-party notices](../THIRD_PARTY_NOTICES.md), [security](../SECURITY.md)
 
-Version-specific notes live in `docs/releases/VERSION.md`. Published notes retain
-their historical scope; drafts are explicitly marked as pending acceptance.
-Neither replaces the current feature or compatibility contract.
+Version-specific notes live in `docs/releases/VERSION.md`. Maintain the next
+version's file on `develop` with concise, implemented changes. CI includes it
+from the verified source archive in the rolling prerelease, marked as preliminary;
+the same file becomes the numbered release notes. `scripts/start-next-version.sh`
+creates the next file without overwriting existing notes. Published notes retain
+their historical scope and do not replace the current feature or compatibility
+contract.
 
 Keep reproducible fixture instructions, current evidence and the reasons for
 safety constraints in their owning guides. Fixed-bug stories, retired mechanisms
