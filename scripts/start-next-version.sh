@@ -18,8 +18,8 @@ if [ "$branch" != develop ]; then
 fi
 
 if ! printf '%s\n' "$version" \
-        | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
-    printf 'Version must use major.minor.patch[.revision] format: %s\n' "$version" >&2
+        | grep -Eq '^[0-9]+(\.[0-9]+){1,3}$'; then
+    printf 'Version must use major.minor[.patch[.revision]] format: %s\n' "$version" >&2
     exit 2
 fi
 case "$version_code" in
