@@ -13,6 +13,10 @@ Privileged features use Shizuku, a compatible provider such as Shevery, or
 optional direct root. Termux terminals and Termux-hosted Linux graphics can
 work without any privileged service or managed Desktop.
 
+**Linux and Kubernetes without Shizuku or Android root:** Shroot's **User**
+mode runs under MagicDesk's ordinary app UID, with verified single-node k3s
+on Alpine. See [Linux with Shroot](#linux-with-shroot) for scope and test evidence.
+
 [Latest release](https://github.com/mekhontsev/magicdesk/releases/latest) |
 [Development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk) |
 [Getting started](docs/getting-started.md) |
@@ -249,11 +253,25 @@ kernel without Android root, a VM, Termux or PRoot.** Choose **User** to run und
 MagicDesk's app UID without Shizuku, or **Shell** for the authorized command
 service, normally UID 2000. Each executor has its own Linux library.
 
-Its userspace syscall engine supplies supported filesystem, credential,
-namespace and networking interfaces missing from the host's kernel configuration
-or executor permissions. It neither installs a guest kernel nor changes SELinux.
+User and Shell use the same userspace syscall engine. It supplies supported
+filesystem, credential, namespace and networking interfaces missing from the
+host's kernel configuration or executor permissions. Guest namespaces, mounts
+and virtual network interfaces do not require permission to create their native
+Android counterparts. Shroot neither installs a guest kernel nor changes SELinux;
+Android still enforces the selected executor's host permissions and resource limits.
 
-Verified scenarios include:
+**Verified under an ordinary Android app UID, without Shizuku or Android root:**
+recipe-installed Alpine runs stock **runc** containers and a **single-node k3s
+(Kubernetes) cluster**, including CoreDNS, pod-to-pod and Service traffic,
+NetworkPolicy, persistent volumes, ingress and server restart. Stock Chromium
+also passes software-rendered browser checks with its namespace and set-ID
+sandboxes. User mode is not limited to lightweight command-line utilities.
+See [app-UID test evidence](native/guest-exec-lab/host-execution.md#qualifying-evidence)
+for the tested device and exact scope. The broader Docker, Podman, systemd and
+multi-node matrix below includes Shell results; those results do not by themselves
+establish the same application coverage in User mode.
+
+Across the tested executors, verified scenarios include:
 
 | Area | Scope |
 | --- | --- |
