@@ -87,10 +87,13 @@ function(guest_executable name)
         target_link_libraries(${name} PRIVATE guest-lwip)
     endif()
 endfunction()
-function(guest_freestanding name)
+function(guest_freestanding_code name)
     # NDK defaults assume libc; freestanding helpers use only their own raw syscall gate.
     target_compile_options(${name} PRIVATE -ffreestanding -U_FORTIFY_SOURCE
         -fno-stack-protector -fvisibility=hidden)
+endfunction()
+function(guest_freestanding name)
+    guest_freestanding_code(${name})
     target_link_options(${name} PRIVATE -nostdlib -Wl,-z,defs)
 endfunction()
 
@@ -161,6 +164,8 @@ target_compile_definitions(guest-host-libc PRIVATE MD_WRAP_LIBC)
 foreach(adapter guest-host-raw guest-host-libc)
     target_compile_options(${adapter} PRIVATE -O2 -Wall -Wextra -Werror -fno-pie -fno-builtin)
 endforeach()
+# This archive also runs inside the libc-free bootstrap and namespace runner.
+guest_freestanding_code(guest-host-raw)
 function(guest_host_policy executable)
     target_link_options(${executable} PRIVATE -Wl,--wrap=md_raw,--wrap=syscall)
     target_link_libraries(${executable} PRIVATE guest-host-libc guest-host-raw)

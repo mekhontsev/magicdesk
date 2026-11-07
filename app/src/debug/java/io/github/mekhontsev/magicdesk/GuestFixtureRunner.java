@@ -43,8 +43,8 @@ final class GuestFixtureRunner {
                 .put("fingerprint", android.os.Build.FINGERPRINT).put("commands", commands);
         try {
             save();
-            result.put("selinux", Files.readString(Path.of("/proc/self/attr/current")))
-                    .put("status", Files.readString(Path.of("/proc/self/status")))
+            result.put("selinux", new String(Files.readAllBytes(Path.of("/proc/self/attr/current")), StandardCharsets.UTF_8))
+                    .put("status", new String(Files.readAllBytes(Path.of("/proc/self/status")), StandardCharsets.UTF_8))
                     .put("kernel", android.system.Os.uname().release);
             CommandShellEnvironment.configureLocal(context, request.getStringExtra("endpoint"));
             ProcessBuilder builder = ShellExecutionEnvironment.command(context, command);
@@ -105,7 +105,7 @@ final class GuestFixtureRunner {
 
     private void save() throws Exception {
         Path temporary = output.resolve("result.pending");
-        Files.writeString(temporary, result.toString(2));
+        Files.write(temporary, result.toString(2).getBytes(StandardCharsets.UTF_8));
         Files.move(temporary, output.resolve("result.json"), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     }
 }
