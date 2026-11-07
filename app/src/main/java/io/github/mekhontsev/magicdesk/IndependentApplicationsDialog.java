@@ -56,13 +56,14 @@ final class IndependentApplicationsDialog {
     }
 
     private static void load(Activity activity, DesktopDisplayInfo display, Loaded loaded) {
+        final List<AppItem> known = ApplicationCatalog.get(activity).androidApps(true);
         TaskCommandQueue.execute(() -> {
             try {
                 DesktopDisplayCatalog.require(display.id, display.uniqueId);
                 final var snapshot = ApplicationTaskPlacement.independentSnapshot(TaskRepository.loadAllNow(),
                         display.id, DesktopRuntimeBridge.hasWorkspace(display.id));
                 if (!snapshot.available) { throw new IOException(snapshot.error); }
-                final List<Entry> items = entries(activity, snapshot.tasks);
+                final List<Entry> items = entries(activity, snapshot.tasks, known);
                 activity.runOnUiThread(() -> loaded.complete(items, null));
             } catch (IOException | RuntimeException error) {
                 activity.runOnUiThread(() -> loaded.complete(List.of(), error));
@@ -70,9 +71,8 @@ final class IndependentApplicationsDialog {
         });
     }
 
-    private static List<Entry> entries(Activity activity, List<TaskRepository.TaskEntry> tasks) {
+    private static List<Entry> entries(Activity activity, List<TaskRepository.TaskEntry> tasks, List<AppItem> known) {
         final LauncherAppRepository repository = new LauncherAppRepository(activity);
-        final List<AppItem> known = ApplicationCatalog.get(activity).androidApps(true);
         final List<Entry> entries = new ArrayList<>();
         for (final var task : RunningTasks.select(tasks, repository.profile(), -1, null)) {
             final AppItem app = repository.findOrLoadTask(known, task, true);

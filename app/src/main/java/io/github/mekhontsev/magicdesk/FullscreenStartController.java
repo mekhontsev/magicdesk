@@ -278,6 +278,7 @@ final class FullscreenStartController implements StartMenuContent.Host {
         }
         final int generation = ++mRunningGeneration;
         mRunningLoading = true;
+        final var apps = apps();
         // Snapshot and metadata resolution share the worker. Rendering never queries packages.
         TaskCommandQueue.execute(() -> {
             final TaskRepository.Snapshot snapshot = mHome
@@ -286,7 +287,6 @@ final class FullscreenStartController implements StartMenuContent.Host {
             String error = snapshot.available ? "" : snapshot.error;
             if (snapshot.available) try {
                 final var repository = new LauncherAppRepository(mActivity);
-                final var apps = apps();
                 for (final var task : RunningTasks.select(snapshot.tasks, repository.profile(),
                         mHome ? mDisplayId : -1, mHome ? lease.previousHome.packageName : null)) {
                     final AppItem app = repository.findOrLoadTask(apps, task, false);

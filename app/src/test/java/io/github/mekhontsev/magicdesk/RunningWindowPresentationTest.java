@@ -117,6 +117,8 @@ public final class RunningWindowPresentationTest {
         assertTrue(RuntimeSourceFixture.methods("StartMenuContent", "renderBody")
                 .contains("mMode != MENU_RUNNING &&"));
         final String load = RuntimeSourceFixture.methods("FullscreenStartController", "loadRunning");
+        assertTrue(load.indexOf("final var apps = apps();") >= 0);
+        assertTrue(load.indexOf("final var apps = apps();") < load.indexOf("TaskCommandQueue.execute"));
         assertTrue(load.indexOf("TaskCommandQueue.execute") < load.indexOf("findOrLoadTask"));
         for (String file : new String[]{"DesktopShellActivity", "IndependentApplicationsDialog"}) {
             assertTrue(file, java.nio.file.Files.readString(java.nio.file.Path.of(RuntimeSourceFixture.MAIN + file + ".java"))
