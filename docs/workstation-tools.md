@@ -140,9 +140,9 @@ backend and current working directory. Executable files and shell scripts also
 offer **Add as terminal app** in the shared file context menu. Ordinary command
 entries are `Type=Application` files under the Desktop directory.
 
-Linux recipes can use Termux/proot-distro or a custom entry script through
-Termux or Shell. Termux Linux recipes are saved in its user applications
-directory; Shell recipes use Desktop. See
+Linux recipes can use Shroot through User or Shell, Termux/proot-distro, or a
+custom entry script through the selected executor. Termux Linux recipes are
+saved in its user applications directory; other custom recipes use Desktop. See
 [Desktop Entry files](desktop-entries.md#command-entries) for requirements.
 
 Command applications from the Desktop directory appear in Start and Start
@@ -156,11 +156,11 @@ launch precedence, validation, and examples.
 
 ## Console
 
-For Android shell commands, open
-[MagicDesk Console](getting-started.md#open-the-android-shell-console) through
-**Terminal sessions > New session > Console**. **Termux Console** and **Shroot
-environments** select different execution environments, not alternate names
-for the same shell.
+Open [MagicDesk Console](getting-started.md#open-the-android-shell-console)
+through **Terminal sessions > New session**. Choose **User** for MagicDesk's app
+UID, **Shell** for the authorized command service, or **Termux** for the selected
+Termux package. **Shroot environments** lists Linux libraries by executor;
+**Debian (Shell)** remains a Shell environment even when the service has root rights.
 
 Every retained Console session owns an independent process attached to a real
 pseudo-terminal. A window is its optional presentation, not its lifetime owner.
@@ -174,9 +174,8 @@ window ready for another selection.
 Sessions survive Close Desktop but not MagicDesk process death or APK replacement.
 Managed tmux connections have a different close contract: only the client PTY
 ends, while tmux retains its session and programs.
-The built-in backend runs the bundled mksh with the authorized
-shell identity; the optional Termux backend runs the user's configured Termux
-shell and installed tools. Both provide:
+User and Shell run the bundled mksh under their selected identities;
+Termux runs the user's configured Termux shell and installed tools. All provide:
 
 - ANSI and true-color output;
 - scrollback and alternate-screen applications;
@@ -185,8 +184,8 @@ shell and installed tools. Both provide:
 - text selection, copy, and paste;
 - live terminal resize;
 - `Tab`, `Ctrl+C`, and other normal terminal keys;
-- current-directory tracking and a direct action to open that directory in
-  Files.
+- current-directory tracking and an action to open it in Files when the
+  privileged filesystem service can access that path.
 
 The paperclip opens **Session files**: import copies of files, folders, camera
 photos or clipboard files, then insert their shell-quoted paths without executing
@@ -196,9 +195,10 @@ the same session directory in the guest. Existing guests and remote shells do
 not gain access automatically; see [session files](terminal-integration.md#session-files)
 for limits and custom-wrapper integration.
 
-Android Console saves command history in `~/.local/state/shell_history` for
-recall in new sessions with Up/Down or `fc -l`. Shell and root histories are
-separate. The shell retains 2000 commands for recall and compacts its history
+User and Shell save command history in `$XDG_STATE_HOME/shell_history`
+(`$HOME/files/state/shell_history`) for recall in new sessions with Up/Down or
+`fc -l`. App, shell and root identities have separate data roots and histories.
+The shell retains 2000 commands for recall and compacts its history
 when opening it; the file is not a fixed-size quota during an active session.
 This stores commands, not program output or answers typed into an installer.
 Secrets written directly in a command can be saved. `unset HISTFILE` disables
@@ -234,7 +234,7 @@ windows or stored defaults. Fonts use Android's sp conversion, including the
 current display density and accessibility text scaling. A change resizes the
 existing terminal grid and PTY without restarting shell or tmux.
 
-Both shell-backed and Termux-backed Console windows use Android's system text
+All Console backends use Android's system text
 clipboard. Clipboard contents are read only for an explicit Paste action; no
 background synchronization or clipboard history is maintained.
 
@@ -247,10 +247,10 @@ Files and Desktop items can be dropped onto Console to insert safely quoted
 paths at the command cursor. A selected absolute output path can be revealed
 in Files after shell-side validation.
 
-Android-shell PTY commands, background shell Desktop Entries, and MCP shell commands share
-one sanitized Android shell environment with stable `HOME`, `PATH`, temporary,
-and XDG directories. The shell UID and permissions are shown in Console and
-Diagnostics.
+User and Shell PTYs, background Desktop Entries and MCP commands share one
+sanitized execution profile, with `HOME`, `PATH`, temporary and XDG directories
+resolved for the captured identity. The actual UID and permissions are shown
+in Console and Diagnostics.
 
 The explicit **Run script** context action opens Console and submits the quoted
 command once its PTY is ready. Ordinary file opening uses the selected handler
@@ -324,8 +324,8 @@ including separate sessions. Termux-hosted file exchange uses its UID.
 Shell-hosted servers run under MagicDesk's app UID and exchange files only
 through their explicit shared content directory. Prepared chroots can use
 Shell/root launchers without Termux; the existing service must have UID 0.
-Shroot instead runs prepared Linux and OCI environments under the selected shell
-or root identity, without requiring Android root or Termux. Its installed apps
+Shroot runs prepared Linux and OCI environments through User or Shell,
+without requiring Android root or Termux. User also needs no privileged service. Its installed apps
 join Start's Linux catalog and use these same graphical services. See
 [Shroot setup](getting-started.md#install-linux-with-shroot).
 Desktop is not a prerequisite. See [Embedded X11](x11.md) and [Embedded Wayland](wayland.md)

@@ -81,8 +81,10 @@ Shroot has its own [device coverage and limits](shroot.md#coverage-and-limits)
 and [fixture commands](../native/guest-exec-lab/README.md). On RM11/API 36 under
 UID 2000 these exercise glibc/musl userspaces, packages and OCI layers, concurrent
 launches, watches/IPC, debuggers, browser filters and X11/Wayland applications.
-Those results do not cover every distribution or kernel and are not Desktop
-self-test results. Remaining Shroot device gates include actual API 34/older
+App-UID resource, ABI, signal, debugger, Alpine k3s and sandboxed Chromium
+coverage is recorded separately in [host execution](../native/guest-exec-lab/host-execution.md).
+Results do not transfer between executors, distributions or kernels and are not
+Desktop self-test results. Remaining Shroot device gates include actual API 34/older
 kernels, 16 KiB pages and actual root execution. Installer GUI/Turnip recipes
 also need separate validation for each distribution/toolchain; a recipe's
 presence is not a passed desktop or GPU test.

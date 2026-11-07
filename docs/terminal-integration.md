@@ -1,7 +1,9 @@
 # Terminal Integration
 
-Console and Termux Console use the same local terminal emulator, retained PTY
-session model, UI and automation API. All features here work without Desktop.
+User, Shell and Termux consoles share one local terminal emulator, retained PTY
+session model, UI and automation API. User runs as MagicDesk's app UID; Shell
+uses the authorized service, including when that service runs as root. Termux
+uses the selected Termux package. All features here work without Desktop.
 Terminal output is untrusted data, not authorization to execute an action.
 
 - [Implementation Boundaries](#implementation-boundaries)
@@ -159,8 +161,10 @@ and resize owner; switching retains the previous PTY, output and history. Sessio
 IDs are independent of window IDs, including notification and automation targets.
 Window recreation reattaches the selected session without replaying launch commands.
 
-**New session** offers Android shell, Termux shell, Shroot environments and tmux. Row actions
-include Rename, Detach and explicit, confirmed termination. A local name belongs
+**New session** offers User, Shell, Termux, Shroot environments and tmux.
+Shroot entries retain their executor, for example **Debian (User)** or
+**Debian (Shell)**. Selecting an environment never changes the launch identity.
+Row actions include Rename, Detach and explicit, confirmed termination. A local name belongs
 to the retained terminal and takes precedence over OSC titles; tmux names belong
 to the tmux server. Ordinary Termux app tabs are not exposed by its command API.
 
@@ -198,10 +202,11 @@ retains them; explicit session termination or subsequent session discovery remov
 copies whose tmux owner has ended. These are temporary attachments, not persistent
 storage across MagicDesk process termination or APK replacement.
 
-The existing authenticated guest-file helper performs transfers under the selected
-shell or Termux UID. It needs neither Desktop nor a compositor and never changes
-the terminal's privilege. Shell uses executor-owned Unix admission; Termux's
-byte-only import channel uses authenticated loopback TCP without privileged access.
+The authenticated guest-file helper performs transfers under the selected
+User, Shell or Termux identity. It needs neither Desktop nor a compositor and never
+changes the terminal's privilege. User and Shell use executor-owned Unix admission;
+Termux's byte-only import channel uses authenticated loopback TCP without
+privileged access.
 Recursive writes/deletion do not follow guest-created
 symlinks. Helper EOF releases copies; the next terminal helper also collects orphaned
 terminal directories while preserving directories locked by live helpers.
@@ -226,7 +231,7 @@ are rejected before insertion into a command line.
 
 ## Font and Cell Rendering
 
-Both consoles bundle JetBrains Mono NL Nerd Font Mono with real regular, bold,
+All console backends use JetBrains Mono NL Nerd Font Mono with real regular, bold,
 italic and bold-italic faces. There is no font download, picker or dependency on
 Termux settings. Font size remains a per-window sp value with a new-window default;
 pinch and Ctrl+wheel resize the existing terminal grid and PTY.
@@ -253,7 +258,7 @@ font resources and the View-to-PTY resize contract.
 
 ## Static Images
 
-Both consoles render static Sixel and inline Kitty graphics using the local Java
+All console backends render static Sixel and inline Kitty graphics using the local Java
 emulator and Android Bitmap/Canvas, without another library or a Termux renderer.
 Images belong to the retained terminal session, not the window. Reattaching a
 retained PTY does not re-decode them; a new tmux client relies on tmux/app redraw.
@@ -400,9 +405,10 @@ they can emit OSC themselves but receive no speculative Bash hooks.
 
 ## Command History
 
-Android Console's shell recall is persistent and separate from the toolbar.
-Up/Down and `fc -l` use mksh's own history, saved under the selected shell/root
-HOME at `~/.local/state/shell_history` (mode 0600). New sessions load it and
+User and Shell console recall is persistent and separate from the toolbar.
+Up/Down and `fc -l` use mksh's own history, saved in
+`$XDG_STATE_HOME/shell_history` (`$HOME/files/state/shell_history`, mode 0600).
+Each actual Android identity has its own HOME and history. New sessions load it and
 concurrent sessions use mksh's native file locking. `HISTSIZE=2000` sets recall
 and startup compaction; it is not a strict disk quota. The file survives terminal
 and app process exit, without a Java history service or reading keystrokes.

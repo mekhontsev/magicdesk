@@ -128,17 +128,18 @@ or incomplete; profile-qualified identities alone do not establish that support.
 ### A Full Terminal, With Or Without Desktop
 
 Interactive PTYs support editors, file managers and CLI tools, with ANSI colors,
-scrollback, alternate screens and terminal mouse reporting. Android-shell and
-Termux sessions share the renderer, controls and automation API.
+scrollback, alternate screens and terminal mouse reporting. **User** (MagicDesk's
+app UID), **Shell** (the authorized service) and **Termux** sessions share the
+renderer, controls and automation API.
 
 ![Terminal graphics and the shared CLI](docs/images/magicdesk-terminal.png)
 
 - Bundled JetBrains Mono Nerd Font, per-window size, pinch and Ctrl+wheel zoom.
 - Static Sixel and inline Kitty graphics, including placeholders through tmux.
 - Clickable links, titles, notifications, progress and OSC-marked command output.
-- Persistent Android-shell recall through bundled upstream mksh.
+- Persistent User/Shell command recall through bundled upstream mksh.
 - Touch scrolling, selection handles, Android keyboard resizing and paragraph copy.
-- One picker for retained shell/Termux PTYs and discovered tmux sessions.
+- One picker for retained User/Shell/Termux PTYs and discovered tmux sessions.
 - Session files and folders from Android's picker, camera or clipboard, with
   quoted paths for shell and supported guest sessions. Delete copies individually
   or end their session to remove them together.
@@ -244,12 +245,13 @@ See [custom launchers](docs/desktop-entries.md#custom-linux-entry-scripts).
 ### Linux With Shroot
 
 **[Shroot](docs/shroot.md) runs ARM64 Linux userspace on Android's existing
-kernel without Android root, a VM, Termux or PRoot.** The normal executor is
-Android shell UID 2000, supplied by Shizuku or Shevery.
+kernel without Android root, a VM, Termux or PRoot.** Choose **User** to run under
+MagicDesk's app UID without Shizuku, or **Shell** for the authorized command
+service, normally UID 2000. Each executor has its own Linux library.
 
 Its userspace syscall engine supplies supported filesystem, credential,
 namespace and networking interfaces missing from the host's kernel configuration
-or shell permissions. It neither installs a guest kernel nor changes SELinux.
+or executor permissions. It neither installs a guest kernel nor changes SELinux.
 
 Verified scenarios include:
 
@@ -322,8 +324,9 @@ lower is better.**
 #### Install Linux
 
 Open MagicDesk, tap the terminal icon beside **Settings**, then choose
-**New session > Console**. Run these commands there, not in Termux or inside
-Linux. No MagicDesk Desktop session is needed; see
+**New session > User** or **Shell**. The installer uses that console's Linux
+library; use the same executor when resuming. Run these commands there, not in
+Termux or inside Linux. No MagicDesk Desktop session is needed; see
 [opening the Android shell console](docs/getting-started.md#open-the-android-shell-console)
 for access setup and other terminal types.
 

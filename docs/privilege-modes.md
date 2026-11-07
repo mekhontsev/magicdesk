@@ -20,10 +20,11 @@ boundaries. A missing Desktop capability does not disable an independent tool.
 | --- | --- |
 | Ordinary UI and Android content integration | MagicDesk app UID and its Android permissions |
 | Privileged files, shell, display, task and input operations | One authorized command service, normally shell UID 2000; started through Shizuku or optional `su` |
+| User commands and PTYs | MagicDesk app UID; the same bundled mksh and native PTY protocol, without privileged-service startup |
 | Termux commands and PTYs | Termux UID, with its external-command configuration and MagicDesk's `RUN_COMMAND` grant |
-| Shroot (experimental) | Already-selected actual shell UID 2000 or root UID 0; no host identity switch or renderer elevation. Per-launch guest users and virtual root govern logical IDs and inode permissions, never host root. Trusted programs retain host authority. Missing kernel capabilities reject only the guest launch; see [Shroot](shroot.md). |
-| Embedded X11 servers and clients | Termux route: selected Termux UID. Shell route: server under MagicDesk's app UID, commands under the captured authorized service UID. Per-session Xauthority and Binder lifetime; renderer always uses the app UID. No per-command elevation or fallback. |
-| Embedded Wayland servers and clients | Termux route: selected Termux UID and private named socket. Shell route: app-UID compositor and one inherited connection, or explicit Shroot routes for independent clients. Root chroot route: app-UID compositor and a session-owned broker under the already-selected root executor, with verified anonymous-buffer admission. No renderer elevation or global SELinux changes. |
+| Shroot (experimental) | Explicit User (MagicDesk app UID) or Shell executor (UID 2000 or 0); no host identity switch or renderer elevation. Per-launch guest users and virtual root govern logical IDs and inode permissions, never host root. Trusted programs retain host authority. Missing kernel capabilities reject only the guest launch; see [Shroot](shroot.md). |
+| Embedded X11 servers and clients | User route: server and clients under MagicDesk's app UID. Termux route: selected Termux UID. Shell route: server under MagicDesk's app UID, commands under the captured authorized service UID. Per-session Xauthority and Binder lifetime; renderer always uses the app UID. No per-command elevation or fallback. |
+| Embedded Wayland servers and clients | User route: app-UID compositor and clients, including routed Shroot connections. Termux route: selected Termux UID and private named socket. Shell route: app-UID compositor and one inherited connection, or explicit Shroot routes for independent clients. Root chroot route: app-UID compositor and a session-owned broker under the already-selected root executor, with verified anonymous-buffer admission. No renderer elevation or global SELinux changes. |
 | MCP request | Listener token and grants, followed by the operation's service and Android permission checks |
 | External `RUN_COMMAND` | Explicit Android permission plus the local external-command opt-in; verified caller identity and the selected executor's prerequisites. Separate from MCP grants. Delegate only to trusted apps; see [External command API](run-command.md). |
 | Built-in CLI | Application commands use a private inherited channel with the same service prerequisites and implementation as MCP. Local `download` runs entirely under the caller's UID without that channel or privilege delegation. |
@@ -32,7 +33,8 @@ boundaries. A missing Desktop capability does not disable an independent tool.
 
 `RuntimeCapabilities` reports prerequisites; it does not grant permissions
 or certify a firmware API. MCP and built-in UI can start before the privileged
-service. Files and shell-backed operations require it. Termux's terminal transport has
+service. Files and Shell-backed operations require it; User consoles and their
+Linux sessions do not. Termux's terminal transport has
 separate authorization. Creating a virtual display requires shell access, not
 HOME or WMShell Desktop.
 
@@ -74,7 +76,7 @@ or a retry through another manager after a permission or service failure.
 - **Shell** (default) reduces an initial UID 0 to 2000 before the working Java
   process starts. A Shizuku server already running as UID 2000 needs no extra bootstrap.
 - **App only** does not construct, initialize or request either privilege transport.
-  Ordinary app services remain available; Termux terminals and Linux graphics use their own authorization.
+  User consoles and app-owned Shroot remain available; Termux uses its own authorization.
 
 Independent **Termux integration** and **Managed Desktop** switches default to on.
 Disabling Termux blocks its RUN_COMMAND execution, PTYs and graphical executors, not shell-backed sessions or
@@ -87,7 +89,7 @@ Changing a limit does not interrupt current work: full Exit cleans up with the
 active policy before reopening applies the new one. It does not change Shizuku's
 UID, revoke Android permissions, or undo persistent Desktop setup. Limits govern
 MagicDesk service entry points, not arbitrary programs launched by an authorized
-shell or Termux client. `RuntimeCapabilities` intersects them with actual capabilities;
+User, Shell or Termux client. `RuntimeCapabilities` intersects them with actual capabilities;
 MCP grants remain a separate boundary. Diagnostics publish active and configured limits.
 
 The control panel exposes the same authorization request independently of
@@ -157,7 +159,7 @@ MagicDesk application. Shell supplies placement authority, not permission to
 launch arbitrary protected targets on behalf of the app. App-authorized
 PendingIntents retain their creator identity and grants.
 
-Retained shell and Termux terminals preserve their selected backend. A failed
+Retained User, Shell and Termux terminals preserve their selected backend. A failed
 Termux request is not retried as a shell command. Closing a window detaches its
 view; explicit session termination or runtime exit releases the PTY. Package
 replacement and process death do not preserve those terminals.

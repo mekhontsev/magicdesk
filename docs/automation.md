@@ -481,8 +481,10 @@ The MCP catalog exposes unqualified tool names such as `get_state`; clients
 add the configured server name, so documentation uses `magicdesk.get_state`.
 
 `get_state.services` reports independent prerequisites, including `terminal`
-(shell or authorized Termux), `x11` (an available Shell or Termux executor) and `desktop`
-(API 35+, shell/root access, configured windowing and no pending Android restart).
+and `graphics` (available through User without a privileged service), and
+`desktop` (API 35+, shell/root access, configured windowing and no pending
+Android restart). Each launch additionally checks its selected executor;
+service availability never authorizes a silent switch to User.
 Desktop readiness uses the shared read-only setup observation, not process-local
 startup authorization. Its missing reasons distinguish `desktop_setup_checking`,
 `desktop_setup_unknown`, `desktop_setup` and `device_restart`. These are not
@@ -491,7 +493,7 @@ client grants or successful windowing probes; the normal start path still checks
 `basic` (valid WMShell help without that provider), or `unknown` (not observed).
 This is the same observation used for the panel's Limited/Unverified status,
 not an additional service prerequisite or a guarantee of native caption behavior.
-X11 startup additionally validates the selected executor and its keyboard data.
+X11 and Wayland startup additionally validate the selected executor and keyboard data.
 Local interactive launch without shell does not imply that background
 MCP placement or global task observation is available.
 
@@ -557,8 +559,8 @@ Requested state is not proof of a completed Android transition.
 DPI and file environment, and each X window's instance/class and host
 management. Tokens, Xauthority cookies and startup commands are omitted.
 `executor`, `executorUid` and `serverUid` distinguish command identity from
-the server: Shell/root sessions run their display server as the ordinary app UID.
-Launch a Shell Linux `.desktop` recipe with `launch_desktop_entry`, or pass an
+the server: User and Shell sessions run their display server as the ordinary app UID.
+Launch a User or Shell Linux `.desktop` recipe with `launch_desktop_entry`, or pass an
 entry script as `terminal.open`'s shell command for a terminal-only chroot.
 Neither route requires Desktop or a separate container-management MCP API.
 `runtime.graphicalSessions` counts
@@ -977,7 +979,10 @@ Normal commands include:
 
 Use `tools/list` as the authoritative command and argument catalog.
 
-`guest.list` and `guest.inspect` read the shell-owned named environment catalog.
+`guest.list` and `guest.inspect` read the named environment catalog of the
+explicit `backend=app|shell` (default `shell`). `app` is the UI's **User**
+executor; `shell` is **Shell**, including when its actual UID is 0.
+The same selector applies to `guest.start`, `guest.launches` and `guest.stop`.
 `guest.start` takes literal `shroot` arguments and returns an operation
 ID; `guest.status` waits for output/exit revisions and returns a bounded output
 tail, while `guest.cancel` cancels that operation's command tree. Accepted is not
@@ -996,7 +1001,7 @@ Stale records are reclaimed only after their lifetime lock is released.
 service used by **Linux graphics**. Starting selects an explicit protocol and
 executor and returns a session ID before readiness; it does not open an Android
 host. Its optional `connection` selects `auto`, Wayland-only `inherited`, or
-Shell-only `routed` admission for independent guest connections. The latter
+User/Shell `routed` admission for independent guest connections. The latter
 requires explicit address routes supplied by the guest launch adapter; it is
 not a general cross-UID pathname socket. See [guest connections](shroot.md#graphical-connections).
 `keyboardDirectory` accepts a host path or `guest:/absolute/store`; the latter
@@ -1144,7 +1149,9 @@ has its own current directory and environment, and is owned by the shared
 command runtime. At most eight such sessions may exist at once.
 Console IDs are opaque and cannot select another session after a process restart.
 `console.open` with `linuxSessionId` from `linux.list` enters that connected
-session's user, namespaces and display environment. Omit it for Android shell.
+session's user, namespaces and display environment. Otherwise select
+`backend=app|shell|termux` (default `shell`); the backend cannot be combined
+with `linuxSessionId`, which already owns its execution identity.
 There is no global current distribution or implicit fallback. `console.list`
 shows retained identities and availability. `console.cancel` cancels owned jobs
 but retains the console ID; its next command starts a fresh shell in the same
@@ -1172,8 +1179,9 @@ notification and bounded live-screen link spans. `terminal.read` accepts
 returns `available=false` rather than a fabricated empty result. See
 [terminal integration](terminal-integration.md) for coordinates and limits.
 
-`terminal.open` accepts an optional `backend` of `shell` or `termux`. The
-default is `shell`. A Termux terminal requires the installed Termux app, its
+`terminal.open` accepts an optional `backend` of `app`, `shell` or `termux`.
+The default is `shell`; `app` runs under MagicDesk's UID without Shizuku or root.
+A Termux terminal requires the installed Termux app, its
 external-command setting, and the `RUN_COMMAND` permission; after launch all
 other `terminal.*` operations are backend-independent.
 
@@ -1647,7 +1655,7 @@ before execution instead of falling back to the current profile.
 `source=desktop|termux|guest`, an optional `query` and a bounded `limit`. `desktop`
 reads the Desktop folder; `termux` refreshes the installed application catalog
 through the selected Termux endpoint's `RUN_COMMAND`. `guest` refreshes installed
-applications from named guest environments through the selected shell executor,
+applications from both the User library and the available Shell library,
 without executing Linux. All require the MCP
 `shell` grant, not a running Desktop. Unavailable Termux access is an error,
 not an empty catalog or a fallback to another identity.
@@ -1656,7 +1664,7 @@ Pass a returned `source` and `desktopPath` to `launch_desktop_entry`, with
 optional `files`, `placement`, `displayId`, `mode`, `instance` and `bounds`.
 Termux paths must match its current catalog; private files are never read through
 Android shell. Guest paths are synthetic catalog keys, not Android files; they must
-match the current catalog and capture the immutable environment identity.
+match the current catalog and capture the executor and immutable environment identity.
 Discovered guest recipes use their own Linux Exec arguments, without mapping
 optional Android `files` into the guest. Start caches guest entries and icons
 until explicit refresh. Start and automation share the recipe coordinator and destination

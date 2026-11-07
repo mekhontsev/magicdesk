@@ -876,9 +876,9 @@ shared half-character cannot become a replacement shell path.
 Optional Termux integration
 uses Termux's documented `RUN_COMMAND` intent and permission; it is not
 required by Files. Files can launch a new Termux-backed Console at its current
-shared directory. MagicDesk atomically installs a versioned native relay from
-the APK through `RUN_COMMAND_STDIN`; a random per-window token authenticates
-the relay's loopback connection before any terminal bytes are accepted.
+shared directory. Termux executes the relay directly from the installed APK's
+native directory; a random per-session token authenticates its loopback
+connection before any terminal bytes are accepted.
 MagicDesk does not mirror or mutate the Termux application's own PTY registry.
 When tmux is installed, its independent session registry is queried on demand by
 session pickers, Task Manager and automation, not by resource-sampling timers.
@@ -886,9 +886,10 @@ Bounded Termux commands use its documented `RUN_COMMAND_PENDING_INTENT`
 result channel. The result receiver is explicit, non-exported, one-shot, and
 bounded by a timeout; long-running PTY commands do not wait for process exit.
 Streaming `CommandExecution` uses one framed `ShellCommandSession` contract for
-shell and Termux. `CommandStream` owns its transport: a privileged-service pipe
-for shell, or an authenticated loopback relay bootstrapped through the selected
-Termux endpoint. Both drain stdout/stderr continuously and close their owned
+User, Shell and Termux. `CommandStream` owns its transport: a local pipe-shell
+process for User, a privileged-service pipe for Shell, or an authenticated
+loopback relay through the selected Termux endpoint. All drain stdout/stderr
+continuously and close their owned
 process session on cancellation; no PTY is allocated for background commands.
 
 ### Launch Dispatch
@@ -1138,7 +1139,7 @@ retains the last successful snapshot.
 `ApplicationIconBinding` subscribes attached views, including recent launches,
 file shortcuts and application pickers; X11/Wayland hosts retain a subscription
 for their task presentation. Native client artwork takes precedence. Keys retain
-the Termux package or immutable guest environment ID; history never borrows an
+the Termux package or guest executor and immutable environment ID; history never borrows an
 icon from another installation. `ApplicationIconCache` coalesces demand, pins
 active entries and retains at most 256 idle hits/misses per provider. Source
 changes discard stale completions; explicit refresh and reconnection retry

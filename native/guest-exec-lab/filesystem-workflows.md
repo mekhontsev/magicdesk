@@ -356,7 +356,7 @@ lower-layer replacement, guest SHM, strict path/metadata handling and concurrent
 inspection while another participant writes the same store.
 Its helper-owner-death control needs a native FIFO: hosts denying native mkfifo
 report that one fixture unavailable, not passed. Logical guest FIFO and device
-checks remain required under the actual shell runtime.
+checks remain required under the selected executor.
 
 ## Watch Transport Controls
 
@@ -366,8 +366,9 @@ python native/guest-exec-lab/test_watch_runtime.py build/shroot-image-tests --co
 
 The production watch runner also executes the Bionic transport controls built
 by CMake's `MAGICDESK_GUEST_FIXTURES`: `watch_queue`, `watch_read` and
-`watch_activation`. They require the already selected UID 2000; none is installed
-into the APK. There is no separate compiler script or legacy binary layout.
+`watch_activation`. They run through the shared executor selected by
+`--executor app|shell` or `SHROOT_TEST_EXECUTOR`. App execution requires the
+matching fixture-enabled debug APK; release APKs do not package these tests.
 
 The single-owner queue retains whole inotify records, adjacent coalescing,
 bounded overflow and rejected-delivery state. Its stream socket carries readiness only.
@@ -407,8 +408,8 @@ Configure `native/shroot` with `-DMAGICDESK_GUEST_FIXTURES=ON`, then build
 `bootstrap supervisor run service watch_guest watch_launch watch_store
 watch_queue watch_read watch_activation`.
 `test_watch_runtime.py BUILD_DIRECTORY` stages immutable production binaries
-through the configured MCP server, requires actual shell UID 2000, imports a
-fresh disposable store and checks real guest libc inotify calls.
+through the shared fixture executor, imports a fresh disposable store owned by
+that executor and checks real guest libc inotify calls.
 It neither installs an APK nor changes Desktop or access settings.
 `--user 0:0` selects guest root, including the independent watcher/writer
 launches, so newly created regular files exercise native names. The default

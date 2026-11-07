@@ -286,11 +286,12 @@ while claims exist. Deadline callbacks are lifetime timers, not readiness waits.
 ### PTY Transports And Shell
 
 Every retained Console session owns a lifecycle-bound `TerminalTransport`, one
-native PTY relay, and one interactive shell. `ShellPtyHandle` hosts
-the packaged mksh through the UserService and binds its stream to the APK
-owner's Binder token. `TermuxPtyTransport` asks Termux's documented
-`RUN_COMMAND` service to host the same relay under the Termux UID and connects
-it to the session through an authenticated loopback stream. Both transports
+native PTY relay, and one interactive shell. `ProcessPtyTransport` runs the relay
+and packaged mksh directly under the app UID. `ShellPtyHandle` runs them through
+the authorized service, binding its stream to the APK owner's Binder token.
+`TermuxPtyTransport` asks Termux's documented `RUN_COMMAND` service to execute
+the packaged relay under the Termux UID through an authenticated loopback stream.
+All transports share `PtyControlProtocol` framing and bounded handshakes. They
 create a session leader and controlling terminal, forward terminal bytes,
 apply `TIOCSWINSZ`, expose the shell PID, and resolve `/proc/<pid>/cwd` within
 the process's own security domain. Ending the session, running `exit`, service
@@ -442,8 +443,8 @@ startup hooks without modifying user dotfiles. See [terminal integration](termin
 
 ### Console Presentation
 
-`ConsolePreferences` stores new-window font defaults in app-private preferences;
-the View owns its current sp size and the Activity saves that window value.
+`ConsolePreferences` stores new-window font and executor defaults in app-private
+preferences; the View owns its current sp size and the Activity saves that window value.
 Pinch and Ctrl+wheel are local presentation actions, never terminal mouse input.
 Display/font configuration changes and size adjustments recreate renderer metrics
 using Android's `TypedValue.applyDimension`. The existing session resize path
@@ -491,9 +492,9 @@ origin without carrying executable clipboard Intents.
 The embedded X11 content adapter reuses this contract for text, HTML, PNG and
 file selections. The native runtime owns X11 selection/XDND negotiation, while
 the Android host owns focus, drag gestures and provider grants. Payloads stream
-through owned file descriptors; the X server opens/imports files under the
-selected Termux UID rather than borrowing shell/root access. Session-private
-imports and finite-lived Android exports have distinct cleanup owners. See
+through owned file descriptors; file helpers retain the selected executor and
+explicit guest credentials, never borrowing a different identity's access.
+Session-private imports and finite-lived Android exports have distinct cleanup owners. See
 [X11 content exchange](x11.md#clipboard-and-drag-and-drop) for formats and bounds.
 Incoming Share parsing inspects at most 64 entries from each of `ClipData`
 and `EXTRA_STREAM`, retaining at most 64 distinct URIs across both. Limiting
@@ -767,9 +768,10 @@ TRACE/USER_NOTIF operations. Its namespace worker owns inode metadata and explic
 sealed-image admission, accepting ordinary file notifications directly and
 task-affine adapter RPC through the same engine. Guest signal handlers remain application-owned.
 These executables are never loaded into ART and do not own Android windows.
-`GuestEnvironmentLibrary` owns a shell-identity catalog of named writable stores,
-sealed images and shared layer dependencies. `GuestOciRegistry` supplies verified
-public OCI downloads through Java HTTPS; `GuestImageTool` invokes only offline
+`GuestEnvironmentLibrary` owns each executor identity's catalog of named writable
+stores, sealed images and shared layer dependencies. `GuestEnvironmentCatalog`
+merges visible User/Shell entries without merging their storage or authority.
+`GuestOciRegistry` supplies verified public OCI downloads through Java HTTPS; `GuestImageTool` invokes only offline
 native image operations. Management runs in a short-lived Java child, while the
 original CLI shell retains PTY/graphics descriptors and execs native launches.
 No Termux, external downloader, Docker daemon or Desktop session is required.
@@ -778,16 +780,17 @@ ordinary execution retains the existing process-tree guardian.
 Wayland connection mode belongs to the recipe, not its UID;
 an inherited FD works independently of whether the selected executor is root.
 
-`DesktopExecRunner` owns the execution-backend boundary. Android shell is the
-default backend;
-`X-MagicDesk-ExecBackend=termux` selects Termux explicitly. `GraphicalLaunchOptions`
-selects X11 or Wayland presentation plus keyboard data, not a third executor. It
-is handled by `HostedApplicationStartup` before generic command delegation.
+`DesktopExecRunner` owns the execution-backend boundary. Desktop Entries use
+`X-MagicDesk-ExecBackend=app|shell|termux`; omission selects Shell. User runs
+under the app UID, while Shell retains the authorized service identity even
+when it is UID 0. `GraphicalLaunchOptions` selects X11 or Wayland presentation
+plus keyboard data, independently of the executor. It is handled by
+`HostedApplicationStartup` before generic command delegation.
 Both protocols share recipe reuse, Recent identity and Android
 placement through `GraphicalSessions`. Terminal recipes omit graphical options. Unknown backend
 names invalidate the entry instead of silently running a command in the wrong
-environment. `Terminal=true` opens the built-in Console with either a
-UserService-backed Android shell PTY or a Termux-hosted PTY.
+environment. `Terminal=true` opens the built-in Console with the captured
+User, Shell or Termux PTY transport.
 
 An explicit composite request with both an Android target and `Exec` first
 prepares the normal Android task, then runs its companion command. The
@@ -801,7 +804,7 @@ of Android UI classes; `DesktopDragLaunchArguments` is the drag-and-drop
 adapter used by Desktop and Files. Each argument validates its 8192-character
 path/URI limit at construction, including the escaped file URI; selection and
 automation readers check the 128-item limit before materializing arguments.
-Shell/Termux commands without field codes retain raw shell syntax, while expanded
+Commands without field codes retain raw shell syntax, while expanded
 values are tokenized and shell-quoted. `X-MagicDesk-ExecSyntax=argv` explicitly
 retains literal argument parsing for non-graphical Linux recipes. X11 recipes always use desktop-entry
 argument parsing, requiring explicit `sh -c` for shell syntax. Expansion writes directly into the bounded

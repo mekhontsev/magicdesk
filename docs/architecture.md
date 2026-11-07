@@ -81,6 +81,13 @@ behavior, static verification and remaining device coverage.
 
 ## Design Principles
 
+Command execution selects **User**, **Shell** or **Termux** independently of
+terminal/graphics presentation and Linux storage. `CommandExecution` captures
+the actual UID, home and endpoint authority; retained sessions never switch
+executor on reconnect or failure. User and Shell share the native PTY/pipe
+protocol and managed Shroot storage. Shell remains named Shell when running
+with UID 0; root authority is not a request for a native-root guest engine.
+
 MagicDesk follows these constraints:
 
 1. Android applications remain real Android tasks.

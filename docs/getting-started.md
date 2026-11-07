@@ -93,10 +93,11 @@ Outside Desktop these are ordinary fullscreen Activities. If the destination
 already has a MagicDesk Desktop session, the tools use its managed window path.
 Neither action starts a session implicitly or requires Desktop provisioning.
 
-Files and Android-shell Console need the authorized privileged service. Termux Console needs
-Termux, external app commands enabled in its configuration, and MagicDesk's
-Termux `RUN_COMMAND` permission. Termux and Android-shell sessions use different
-UIDs and filesystem access.
+**User** consoles run under MagicDesk's own app UID without Shizuku or root.
+**Shell** consoles and Files need the authorized privileged service.
+**Termux Console** needs Termux, external app commands enabled in its configuration,
+and MagicDesk's Termux `RUN_COMMAND` permission. Each executor retains its own
+UID, home directory and filesystem access.
 
 Closing an ordinary terminal window detaches it. **Terminal sessions** can reopen
 the same retained session; **End session** terminates it. Retention lasts only
@@ -105,9 +106,10 @@ inside Termux provide a separate lifetime for longer-running programs. Closing
 a managed tmux window releases only its client PTY; opening the session again
 attaches a new client without restarting its programs.
 
-Android-shell sessions use MagicDesk's bundled mksh. Up/Down recalls commands
-from earlier sessions; `fc -l` lists the shell history. It is stored separately
-for shell and root in `~/.local/state/shell_history`. This retains commands, not
+User and Shell sessions use MagicDesk's bundled mksh. Up/Down recalls commands
+from earlier sessions; `fc -l` lists the shell history. Each actual executor
+stores its own history in `$XDG_STATE_HOME/shell_history`
+(`$HOME/files/state/shell_history`). This retains commands, not
 running programs or their output: APK replacement still ends local PTYs.
 Commands containing secrets can be saved; `unset HISTFILE` disables disk history
 for the current shell. Termux and Linux shells keep their own history settings.
@@ -119,16 +121,18 @@ See [Workstation tools](workstation-tools.md).
 1. Open MagicDesk's control panel.
 2. Tap the terminal icon beside **Settings** at the top. This opens
    **Terminal sessions**.
-3. Choose **New session > Console**.
+3. Choose **New session > User** for MagicDesk's app UID, or **Shell** for the
+   configured privileged service, normally UID 2000.
 
-This guide calls that session **MagicDesk Console**. It runs the Android shell
-with MagicDesk's configured privileged access, normally UID 2000. If **Console**
-is missing from the choices, complete the [privileged-service setup](#install).
-You do not need to start MagicDesk Desktop.
+This guide calls either session **MagicDesk Console**. **User** needs no privileged
+service. If **Shell** is missing, complete the [privileged-service setup](#install).
+Shell remains named **Shell** when its actual access is root; Control Panel shows
+that access separately. You do not need to start MagicDesk Desktop.
 
-Choose **Console** for `shroot` commands and the Linux installer, not **Termux
-Console** or **Shroot environments**. Those choices open shells in Termux or an
-installed Linux environment instead.
+Choose **User** or **Shell** for `shroot` commands and the Linux installer, not
+**Termux Console** or **Shroot environments**. Those choices open shells in
+Termux or an installed Linux environment instead. The selected executor is saved
+for new consoles; existing sessions and saved launchers keep their own selection.
 
 Commands marked as running **inside Linux** belong in a terminal in that
 environment, opened through **Shroot environments** or `shroot login NAME`.
@@ -175,8 +179,9 @@ use **New command app > Termux graphics**, select Wayland and enter its command.
 See [Wayland session controls](wayland.md#session-controls) for examples.
 In **New command app**, choose
 **Linux (Termux)** for an installed proot-distro environment or a custom entry
-script. Choose **Linux (Shell / root)** for a prepared chroot without Termux.
-Chroot entry requires actual root access; graphical Shell launchers also need
+script. Choose **Linux (User)** or **Linux (Shell)** for the corresponding Shroot
+library. **Linux (Shell)** also accepts a prepared chroot without Termux.
+Chroot entry requires actual root access; custom graphical launchers also need
 an Android-visible XKB data directory. MagicDesk supplies the terminal, X11 server
 and Wayland compositor, while your Linux environment supplies its programs.
 See [Embedded X11](x11.md), [Embedded Wayland](wayland.md) and
@@ -185,13 +190,14 @@ See [Embedded X11](x11.md), [Embedded Wayland](wayland.md) and
 ## Install Linux With Shroot
 
 Shroot runs ARM64 Linux distributions and OCI images through MagicDesk's
-authorized shell service. It needs neither Termux nor Android root. Its kernel
+User or Shell executor. It needs neither Termux nor Android root; User also
+needs no Shizuku or Shevery. Its kernel
 requirements are checked when launched; unsupported kernels do not disable
 MagicDesk's other tools. Shroot is experimental and not a security sandbox:
 install only trusted images and programs.
 
-Open [MagicDesk Console](#open-the-android-shell-console) after configuring
-Shizuku, Shevery or direct root, then run:
+Open [MagicDesk Console](#open-the-android-shell-console), select **User** or
+**Shell**, then run:
 
 ```sh
 magicdesk download https://raw.githubusercontent.com/mekhontsev/magicdesk/main/scripts/install_linux.sh ~/install_linux.sh
@@ -200,9 +206,11 @@ sh ~/install_linux.sh
 
 The URL is the maintained installer on `main`. Repeating the download replaces
 the script only after a successful transfer, without changing installed Linux
-environments. Under shell UID 2000, `~` is `/data/local/tmp/magicdesk/`; root
-consoles use `/data/local/tmp/magicdesk/root`. Download before executing
-so the script can read your answers from the terminal; do not pipe it into `sh`.
+environments. User uses MagicDesk's private app data directory as `~`.
+Shell UID 2000 uses `/data/local/tmp/magicdesk/`; Shell with UID 0 uses
+`/data/local/tmp/magicdesk/root`. Linux installations live in `~/linux`.
+Run resume and management commands with the same executor as the installation.
+Download before executing so the script can read your answers from the terminal; do not pipe it into `sh`.
 For unreleased installer changes, use `develop` with the development APK.
 For the script shipped with a specific release, replace `main` with its tag,
 for example `v2.0.2`.
@@ -237,7 +245,8 @@ MagicDesk APK while the installer is running: its console PTY will end.
 ### Launch Installed Linux
 
 Installation prepares an environment; it does not open its GUI automatically.
-Keep your configured privileged access available. Neither Termux nor a MagicDesk
+For Shell installations, keep the configured privileged access available.
+User installations remain app-owned. Neither Termux nor a MagicDesk
 Desktop session is required, and you do not need to rerun the installer to launch
 Linux again.
 
